@@ -136,6 +136,42 @@ func TestSecretAskMintedSourceAsksForTheMintsInputs(t *testing.T) {
 	}
 }
 
+// A secret ask for a source whose credential is the address says it is for
+// the URL in its variable: the source has no host of its own to name, and
+// the ask is still given and answered against what it said.
+func TestSecretAskForACredentialThatIsTheAddress(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := secretYard(t)
+	const hookFile = `name: hook
+credential: { env: HOOK_URL, url: true }
+calls:
+  send: { kind: update, request: { method: POST } }
+`
+	if _, err := y.PutSource(y.ctx, "hook.yaml", hookFile, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, secretAsk("hook"), "yardmaster")
+	rs := y.resolved(t)
+	if got := rs[0].Ask.Secret.Line(); got != "a secret: HOOK_URL, for the source hook (the URL in HOOK_URL)" {
+		t.Fatalf("the line = %q", got)
+	}
+	if got := rs[0].Ask.Secret.Host; got != "the URL in HOOK_URL" {
+		t.Fatalf("host = %q", got)
+	}
+	const address = "https://hooks.example.com/hooks/catch/1/the-secret-path"
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": address}, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyed == nil || len(keyed.Given) != 1 || keyed.Given[0] != "HOOK_URL" {
+		t.Fatalf("keyed = %+v", keyed)
+	}
+	notes := answerNotes(t, y)
+	if len(notes) != 1 || strings.Contains(notes[0].Text, "the-secret-path") {
+		t.Fatalf("the answer notes = %+v", notes)
+	}
+}
+
 // A secret ask narrowed to names the source marks as no secret is asked in
 // the clear, with concealed false; a mixed or secret one is concealed. The
 // flag is kept on the ask, as the host is, and read with the bead and the

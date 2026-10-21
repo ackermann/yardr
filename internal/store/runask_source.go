@@ -339,8 +339,8 @@ func safeSourceCardLine(s string) string {
 // approving it approves is said where the credential is.
 func credentialSays(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) string {
 	head := fmt.Sprintf("source %s: it has no base and calls nothing.", d.Name)
-	if d.Base != "" {
-		head = fmt.Sprintf("source %s: its calls go to %s.", d.Name, d.Base)
+	if addr := d.Address(); addr != "" {
+		head = fmt.Sprintf("source %s: its calls go to %s.", d.Name, addr)
 	}
 	if d.Credential == nil {
 		return head + " It names no credential."
@@ -369,6 +369,9 @@ func credentialSays(d *source.Declaration, carried AskSource, diffs map[string]A
 		s += fmt.Sprintf(", minted from %s: a mint runs only where the yard's own mint_command is the operator's already, and this adds none", strings.Join(c.Mint, " and "))
 	}
 	var placements []string
+	if c.URL {
+		placements = append(placements, "as the address every call goes to (credential.url: true): whoever sets the variable chooses where the calls go, over https or plain http to this machine alone")
+	}
 	if c.Header != "" {
 		placements = append(placements, fmt.Sprintf("in the header %q on every call", c.Header))
 	}

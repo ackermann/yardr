@@ -1,0 +1,76 @@
+# A generic webhook as a declared source. It covers what Zapier, Make, n8n
+# and similar tools send and take. The yard hears any POST at a hook path,
+# checked by a shared secret in a header. Its one call, send, POSTs a JSON
+# object to a URL, and that URL is the credential (credential.url). These
+# tools give a hook an address whose path nobody can guess, and Zapier's own
+# page says to treat it as a password, so the yard keeps it as one. The file
+# names no base and no path, and the URL reaches no error, event or command.
+#
+# Checked on 21 October 2026 against the services' own pages. Zapier's
+# "Send webhooks in Zap workflows" and "Trigger Zap workflows from webhooks"
+# (help.zapier.com) say that a Catch Hook URL is "secured by obscurity",
+# that it takes a JSON POST and answers 200 with a JSON body saying
+# success, and that the Webhooks by Zapier POST action sends the headers set
+# in its Headers fields. Make's "Webhooks" page (help.make.com/webhooks)
+# says a custom webhook answers 200 with the word "Accepted" until a
+# Webhook response module says otherwise, and the HTTP app's page
+# (apps.make.com/http) says its "Make a request" module sends to https://
+# addresses only. n8n's HTTP Request and Webhook nodes (docs.n8n.io) set a
+# header with Send Headers or a Header Auth credential, send a JSON body,
+# have a production URL, and answer at once with "Workflow got started"
+# unless told otherwise.
+#
+# A command is a list, run without a shell. A path that does not start
+# with / is a file beside this one, which `yardr source add` copies into
+# the yard.
+name: webhook
+about: Any service that POSTs to a URL, or takes one (Zapier, Make, n8n). Hears its POSTs, and POSTs a JSON object to its URL.
+
+# The name of the variable, never the value: the URL every call goes to.
+# A call holds the value to what a base is, so it has to be https, or
+# plain http to this machine, with no user, query or fragment.
+credential:
+  env: WEBHOOK_URL
+  url: true
+
+# ---- what it sends us ----------------------------------------------------
+
+hook:
+  # Adapter.Verify stays data, checked by the core: the secret is handed to
+  # no command, and an unverified body reaches none. These tools sign
+  # nothing the yard can check, but each can set a header of its own on a
+  # request, so the secret goes in one and is compared as it arrives. A
+  # sender may also send its own id for a delivery in X-Yardr-Delivery. It
+  # is optional, and an id the yard has heard before marks a retry.
+  verify:
+    scheme: secret
+    signature: { header: X-Yardr-Secret }
+    delivery:  { header: X-Yardr-Delivery }
+  # Bodies repeat. A sender of this kind posts the same words again on
+  # purpose: a Zap that says "standup" every morning, or the sample a person
+  # replays while building one. With unique, the yard would drop every body
+  # after the first without a word. Only a repeated X-Yardr-Delivery is a
+  # retry.
+  bodies: repeat
+
+  # Adapter.Normalize. stdin {"headers":{…},"body":…}, stdout the
+  # envelope. The core sets source and delivery itself.
+  normalize: [webhook/normalize]
+
+# ---- what an agent may ask of it, through `yardr call` --------------------
+# One update, granted by its name. The file has no read call and so no
+# check: a hook has no request that changes nothing, so the first send is
+# the test.
+
+calls:
+  send:
+    kind: update
+    about: POST a JSON object to the webhook URL
+    params:
+      # The object, written as JSON text. The build command checks that it
+      # is one object and prints it as it came, so a number the sender wrote
+      # keeps its digits. Free text: its value is in no event.
+      data: { type: string, max: 65536 }
+    request:
+      method: POST
+    build: [webhook/build-send]

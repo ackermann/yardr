@@ -1,0 +1,46 @@
+#!/bin/sh
+# Any verified POST to the yard's envelope: stdin {"headers":{…},"body":…},
+# stdout the envelope. Needs jq. internal/hooks feeds it bodies its tests
+# write and compares the envelopes with the shapes below.
+#
+# The body is whatever the sender posted: a JSON object, other JSON, or
+# text (the core hands over a body that is not JSON as a string). A JSON
+# object can set type, action, text, url and actor, as the token adapter's
+# can (internal/hooks/token.go). Here the type is event when the body names
+# none, a title stands in for a missing text, and an actor can be a bare
+# name, used as both its id and its name. What the body leaves out is the
+# delivery's own words: the text is the body, a string as it is and any
+# other JSON compact. A link is made only from an http or https address, so
+# a sender's text never becomes another kind of link. The sender holds the
+# hook's secret and is no stranger, but its words are still data.
+# The script prints nothing to stderr, and every body gets an envelope,
+# never a 400 that the sender would retry.
+exec jq -c '
+# the words a field holds: a string, else nothing
+def str: if type == "string" then . else "" end;
+# what names a person: a string, or a number written out (an id often is one)
+def name: if type == "number" then tostring else str end;
+# the text in one line: whitespace collapsed and trimmed. The jq POSIX space
+# class includes the Unicode spaces split by Go strings.Fields.
+def squash: gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " ");
+# trunc is hooks.truncate: squash, and at most 500 runes
+def trunc: squash | if length > 500 then .[0:499] + "…" else . end;
+# an actor: the id and the name of an object, or a bare name for both
+def party:
+  if type == "object" then {id: (.id | name | squash), name: (.name | name | squash)} | with_entries(select(.value != ""))
+  elif type == "string" and squash != "" then squash as $n | {id: $n, name: $n}
+  else {} end;
+
+.body as $b
+| (if ($b | type) == "object" then $b else {} end) as $o
+| (($o.type | str | squash | ascii_downcase) | if . == "" then "event" else . end) as $type
+| ($o.action | str | squash) as $action
+# text, else title, else the body itself: a string as it is, anything else compact JSON
+| ([$o.text, $o.title] | map(select(type == "string" and squash != "")) | first) as $named
+| (if $named != null then $named else ($b | if type == "string" then . else tojson end) end | trunc) as $text
+| (($o.url | str | squash) | if test("^https?://[^[:space:]]+$") then . else "" end) as $url
+| {source: "webhook", type: $type, actor: ($o.actor | party), thread: {}, mentions: []}
+| if $action != "" then . + {action: $action} else . end
+| if $text != "" then . + {text: $text} else . end
+| if $url != "" then . + {url: $url} else . end
+'

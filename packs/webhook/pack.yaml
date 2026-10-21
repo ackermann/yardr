@@ -1,0 +1,18 @@
+# A generic webhook as a pack of kind source: the integration, imported
+# into the yard and into no depot. It is for any service that POSTs to a
+# URL or takes one, which covers Zapier, Make and n8n in both directions.
+# The yard hears any POST at a hook path, checked by a shared secret, and
+# it can send one call, a JSON object POSTed to a URL that is itself the
+# secret.
+#
+#   yardr pack apply webhook
+#
+# The source is named webhook. token is a name yardr has built in, so this
+# pack cannot take it.
+name: webhook
+kind: source
+setup: SETUP.md
+
+sources:
+  webhook:
+    declaration: webhook.yaml

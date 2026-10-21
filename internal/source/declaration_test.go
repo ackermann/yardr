@@ -182,6 +182,124 @@ func TestParseCredentialInPath(t *testing.T) {
 	}
 }
 
+// webhook is a service whose address is its secret: the credential is the
+// URL every call goes to, so the file names no base and a call no path of
+// its own (or the path /, which says the same).
+const webhook = `name: webhook
+about: Any service that takes a POST at a URL.
+credential:
+  env: WEBHOOK_URL
+  url: true
+calls:
+  send:
+    kind: update
+    about: POST an object to the URL
+    params: { text: { type: string, max: 200 } }
+    request: { method: POST, body: { text: "{text}" } }
+  ping:
+    kind: update
+    request: { method: POST, path: / }
+  tagged:
+    kind: update
+    params: { tag: { type: string, max: 20 } }
+    request: { method: POST, query: { tag: "{tag}" }, body: { a: 1 } }
+`
+
+// A credential that is the address needs no base, and no path: the file
+// reads with a call's path left out or written /, which are the same, and
+// says where its calls go in words, since the address is a secret and is
+// in no file.
+func TestParseCredentialURL(t *testing.T) {
+	d, err := Parse("webhook.yaml", []byte(webhook))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Base != "" || d.Credential == nil || !d.Credential.URL || d.Credential.Env != "WEBHOOK_URL" {
+		t.Fatalf("declaration = %+v, credential %+v", d, d.Credential)
+	}
+	if got := d.Address(); got != "the URL in WEBHOOK_URL" {
+		t.Fatalf("address = %q", got)
+	}
+	for _, name := range []string{"send", "ping", "tagged"} {
+		c, ok := d.Call(name)
+		if !ok || c.Request.Path != "/" || c.Request.Line() != "POST /" {
+			t.Errorf("call %s = %+v: want the path /, left out or written", name, c)
+		}
+	}
+	// What a file names as its base is words in its place, and the flag
+	// survives the JSON the declaration is shown in.
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var again Declaration
+	if err := json.Unmarshal(raw, &again); err != nil || !again.Credential.URL || again.Address() != d.Address() {
+		t.Fatalf("round trip = %+v, %v", again.Credential, err)
+	}
+	// url: false is a credential like any other, with its base.
+	plain, err := Parse("crm.yaml", []byte(strings.Replace(crm, "  env: CRM_TOKEN ", "  url: false\n  env: CRM_TOKEN ", 1)))
+	if err != nil || plain.Credential.URL || plain.Address() != "https://crm.example.com/api/v2" {
+		t.Fatalf("url: false = %+v, %v", plain, err)
+	}
+}
+
+// What contradicts a credential that is the address is refused where the
+// file is read: a base beside it, a header, a path or a mint to put it
+// through, a path of a call beyond /, the credential written into a call's
+// request, and a file that names neither a base nor the address.
+func TestParseRefusesACredentialThatIsTheAddress(t *testing.T) {
+	with := func(old, new string) string {
+		if !strings.Contains(webhook, old) {
+			t.Fatalf("the webhook file has no %q", old)
+		}
+		return strings.Replace(webhook, old, new, 1)
+	}
+	for _, tc := range []struct {
+		name, text, key, want string
+	}{
+		{"a base beside it", with("credential:", "base: https://hooks.example.com\ncredential:"),
+			"base", "the credential is the address every call goes to (credential.url: true), so the file names no base beside it"},
+		{"a header to send it in", with("  url: true", "  url: true\n  header: \"X-Hook: {credential}\""),
+			"credential.header", "the credential is the address every call goes to (url: true), and is not sent in a header"},
+		{"a path to put it in", with("  url: true", "  url: true\n  in_path: true"),
+			"credential.in_path", "and is not put in a path"},
+		{"a mint", with("  url: true", "  url: true\n  mint: [HOOK_ID, HOOK_KEY]"),
+			"credential.mint", "and is not minted"},
+		{"a second variable for updates", with("  url: true", "  url: true\n  update_env: WEBHOOK_SEND_URL"),
+			"credential.update_env", "and is not given a second variable for updates"},
+		{"url that is no boolean", with("  url: true", "  url: yes"),
+			"credential.url", "want true or false"},
+		{"a path beyond /", with("request: { method: POST, path: / }", "request: { method: POST, path: /hooks }"),
+			"calls.ping.request.path", `"/hooks": the credential is the address the call goes to (credential.url: true), so the call has no path of its own: leave it out, or write /`},
+		{"a path with a parameter", with("request: { method: POST, path: / }", "request: { method: POST, path: \"/{text}\" }"),
+			"calls.ping.request.path", "so the call has no path of its own"},
+		{"the credential in a query", with(`query: { tag: "{tag}" }`, `query: { tag: "{credential}" }`),
+			"calls.tagged.request.query.tag", "{credential} in a query: the credential is the address the call goes to (credential.url: true), and is sent nowhere else"},
+		{"the credential in a body", with(`body: { a: 1 }`, `body: { a: "{credential}" }`),
+			"calls.tagged.request.body.a", "{credential} in a body: the credential is the address the call goes to (credential.url: true), and is sent nowhere else"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := Parse("webhook.yaml", []byte(tc.text))
+			var errs Errors
+			if !errors.As(err, &errs) || d != nil {
+				t.Fatalf("Parse = %+v, %v; want it refused", d, err)
+			}
+			for _, e := range errs {
+				if e.Key == tc.key && strings.Contains(e.Msg, tc.want) && e.Line > 0 {
+					return
+				}
+			}
+			t.Fatalf("no error at %s with %q in:\n%v", tc.key, tc.want, err)
+		})
+	}
+	// With url left out the file names its base, as before, and the
+	// message says there is another way to be a source's address.
+	_, err := Parse("webhook.yaml", []byte(with("  url: true\n", "")))
+	if err == nil || !strings.Contains(err.Error(), "base: missing: the address every call's path is under (https://…), or credential.url: true where the credential is the address itself") {
+		t.Fatalf("without url or a base: %v", err)
+	}
+}
+
 // Every refusal of a declaration, each with a message that names the
 // cause, at the key and the line it is on.
 func TestParseRefuses(t *testing.T) {

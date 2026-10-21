@@ -77,6 +77,16 @@ read the Events API deliveries the setup subscribes to and that answer
 in their threads, and the app manifest the operator creates the Slack
 app from ([An integration pack](#an-integration-pack-kind-source)).
 
+One more, [`packs/webhook`](../packs/webhook), named `webhook`, is for no
+depot either, and for no one service. It is any service that POSTs to a URL
+or takes one, which covers Zapier, Make and n8n in both directions. It
+declares the source `webhook`, with a `hook` key that hears any POST at a
+hook path, checked by a shared secret in the `X-Yardr-Secret` header, and
+one update call, `send`, that POSTs a JSON object to a URL. That URL is the
+credential (`credential.url: true`,
+[integrations.md](integrations.md#a-declared-source)), so the declaration
+names no base ([An integration pack](#an-integration-pack-kind-source)).
+
 | pack | for | flows | a depot's default |
 |---|---|---|---|
 | `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
@@ -93,6 +103,7 @@ app from ([An integration pack](#an-integration-pack-kind-source)).
 | `pushover` | telling a user through Pushover, in the yard | none: `kind: source` | of none: `yardr pack apply pushover` |
 | `slack` | mentions and direct messages in a Slack workspace, answered in their threads, in the yard | none: `kind: source` | of none: `yardr pack apply slack` |
 | `posthog` | PostHog itself, in the yard: HogQL queries, error tracking issues, session recordings and Replay Vision observations read, a new error issue heard | none: `kind: source` | of none: `yardr pack apply posthog` |
+| `webhook` | any service that POSTs to a URL or takes one (Zapier, Make, n8n), in the yard: its POSTs heard, a JSON object sent to its URL | none: `kind: source` | of none: `yardr pack apply webhook` |
 
 ```
 packs/starter/
@@ -277,7 +288,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`, `webhook`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
@@ -1449,7 +1460,10 @@ create at the service, how each secret is given to the yard (`yardr source
 key`, `yardr user key`, or a card a crew member asks with) and how to
 test: each is one service with the `notify` key that tells a user, and no
 commands, so one apply with `--notify` and the two keys set it up whole,
-and `yardr user list` shows the user told through it.
+and `yardr user list` shows the user told through it. The webhook pack's
+say how to make one hook for each sender, how Zapier, Make and n8n each
+post to it with the secret in a header, and where each shows the URL the
+yard sends to.
 
 An integration pack may also suggest grants. `presets`, beside `sources`,
 names each preset with an optional one line of `about` and the `grants`,

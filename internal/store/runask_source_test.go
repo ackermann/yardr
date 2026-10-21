@@ -253,6 +253,37 @@ func TestSourceAddCardShowsEveryCredentialPlacement(t *testing.T) {
 	}
 }
 
+// A source whose credential is the address (credential.url) has no base,
+// and the card does not say it calls nothing: it says its calls go to the
+// variable's value, that whoever sets it chooses where, and that no header,
+// path or body holds it.
+func TestSourceAddCardSaysTheCredentialIsTheAddress(t *testing.T) {
+	y, _ := runYard(t)
+	const hookDecl = `name: hook
+credential: { env: HOOK_URL, url: true }
+calls:
+  send: { kind: update, params: { text: { type: string, max: 100 } }, request: { method: POST, body: { text: "{text}" } } }
+`
+	ask := sourceAddAsk(carriedOf(t, hookDecl, nil))
+	ask.Run.Argv = []string{"source add hook.yaml"}
+	seq := y.ask(t, ask, "yardmaster")
+	joined := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n")
+	for _, want := range []string{
+		"source hook: its calls go to the URL in HOOK_URL.",
+		"Its credential is the variable HOOK_URL (the name, never the value), sent as the address every call goes to (credential.url: true): whoever sets the variable chooses where the calls go, over https or plain http to this machine alone.",
+		"call send (update): POST /",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the card lacks %q:\n%s", want, joined)
+		}
+	}
+	for _, not := range []string{"no base", "calls nothing", "no call's header, path or body holds it"} {
+		if strings.Contains(joined, not) {
+			t.Errorf("the card says %q:\n%s", not, joined)
+		}
+	}
+}
+
 func TestSourceAddCardLineBound(t *testing.T) {
 	y, _ := runYard(t)
 	var decl strings.Builder

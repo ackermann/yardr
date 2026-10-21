@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -530,5 +531,263 @@ func TestDoKeyedSendsTheKeyWithAnUpdate(t *testing.T) {
 	// Without the credential of an update, the error names its variable.
 	if _, err := DoKeyed(ctx, d, "note", note, "", "k-4"); reason(err) != NoCredential || !strings.Contains(err.Error(), "CRM_WRITE_TOKEN") {
 		t.Fatalf("no credential = %v", err)
+	}
+}
+
+// hookSecret is the path of a webhook's URL. Zapier, Make and n8n make that
+// path the secret of theirs. No error of a call to it may have it, nor the
+// host it is at.
+const hookSecret = "s3cr3t-hook-path-7q2x"
+
+// webhookDeclaration is the webhook file, read.
+func webhookDeclaration(t *testing.T) *Declaration {
+	t.Helper()
+	d, err := Parse("webhook.yaml", []byte(webhook))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+// addressLeak is what err says of a credential that is the address and no
+// error of a call may: the address whole, its host with or without the
+// port, or the secret path.
+func addressLeak(err error, address string) string {
+	if err == nil {
+		return ""
+	}
+	u, perr := url.Parse(address)
+	if perr != nil {
+		return ""
+	}
+	said := strings.ToLower(err.Error())
+	for _, s := range []string{address, u.Host, u.Hostname(), hookSecret} {
+		if s != "" && strings.Contains(said, strings.ToLower(s)) {
+			return s
+		}
+	}
+	return ""
+}
+
+// A call to a credential that is the address goes to that address as it
+// was given and to no other: with the trailing slash the service made it
+// with, or none, an escape as written, the call's own query after it, and
+// the body the call has. It sends no credential in a header.
+func TestDoSendsToTheCredentialThatIsTheAddress(t *testing.T) {
+	s := newStandin(t, jsonAnswer(`{"status":"success"}`))
+	d := webhookDeclaration(t)
+	ctx := context.Background()
+	for _, path := range []string{
+		"/hooks/catch/123456/" + hookSecret + "/",
+		"/hooks/" + hookSecret,
+		"/h%2Fx/" + hookSecret,
+		"/",
+	} {
+		res, err := Do(ctx, d, "send", map[string]string{"text": "hello"}, s.URL+path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if !res.OK() || string(res.Answer) != `{"status":"success"}` {
+			t.Fatalf("%s: result = %+v", path, res)
+		}
+		got := s.got()
+		last := got[len(got)-1]
+		if last.Method != "POST" || last.URI != path || last.Auth != "" || last.ContentType != "application/json" || string(last.Body) != `{"text":"hello"}` {
+			t.Fatalf("%s: sent = %+v", path, last)
+		}
+	}
+	// No path at all in the address is the path /, which a request has.
+	if _, err := Do(ctx, d, "ping", nil, s.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.got(); got[len(got)-1].URI != "/" {
+		t.Fatalf("an address with no path = %+v", got[len(got)-1])
+	}
+	// The call's own query follows the address, which has none.
+	if _, err := Do(ctx, d, "tagged", map[string]string{"tag": "a b&c"}, s.URL+"/hooks/"+hookSecret); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.got(); got[len(got)-1].URI != "/hooks/"+hookSecret+"?tag=a+b%26c" || string(got[len(got)-1].Body) != `{"a":1}` {
+		t.Fatalf("a call with a query = %+v", got[len(got)-1])
+	}
+	// A body built by the call's command is sent unchanged.
+	if _, err := DoKeyedBody(ctx, d, "send", map[string]string{"text": "x"}, s.URL+"/hooks/"+hookSecret, "", json.RawMessage(`{"built":[1,2]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.got(); got[len(got)-1].URI != "/hooks/"+hookSecret || string(got[len(got)-1].Body) != `{"built":[1,2]}` {
+		t.Fatalf("a built body = %+v", got[len(got)-1])
+	}
+}
+
+// The answer of an endpoint the operator pointed the URL at is not the
+// declaration's to describe. A success in JSON is returned. A success that
+// says nothing, or says it in words (Make answers Accepted), is a success
+// with no answer. Anything else is its status alone.
+func TestDoReadsTheAnswerOfACredentialThatIsTheAddress(t *testing.T) {
+	status, body := 200, `{"attempt":"a-1","status":"success"}`
+	s := newStandin(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		io.WriteString(w, body)
+	})
+	d := webhookDeclaration(t)
+	address := s.URL + "/hooks/" + hookSecret
+	for _, tc := range []struct {
+		status          int
+		body, want      string
+		wantBytes       bool
+		wantOK, wantErr bool
+	}{
+		{200, `{"attempt":"a-1","status":"success"}`, `{"attempt":"a-1","status":"success"}`, true, true, false},
+		{200, "Accepted", "", true, true, false},
+		{200, "<html>moved</html>", "", true, true, false},
+		{204, "", "", false, true, false},
+		{401, `{"error":"no"}`, "", false, false, false},
+		{500, "<html>down</html>", "", false, false, false},
+	} {
+		status, body = tc.status, tc.body
+		res, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, address)
+		if err != nil {
+			t.Fatalf("%d %q: %v", tc.status, tc.body, err)
+		}
+		if res.Status != tc.status || res.OK() != tc.wantOK || string(res.Answer) != tc.want || (res.Bytes > 0) != tc.wantBytes {
+			t.Errorf("%d %q: result = %+v", tc.status, tc.body, res)
+		}
+	}
+}
+
+// A credential that is not an address a call may go to is refused before
+// anything is sent, in words that name what is wrong and none of the value,
+// which is a secret; a call without one, or with a line break in it, is
+// refused as any credential is.
+func TestDoRefusesACredentialThatIsNotAnAddress(t *testing.T) {
+	s := newStandin(t, jsonAnswer(`{}`))
+	d := webhookDeclaration(t)
+	hostile := "https://hooks.example.com/" + hookSecret
+	for _, tc := range []struct{ value, want string }{
+		{"http://hooks.example.com/" + hookSecret, "is plain http to a machine that is not this one"},
+		{"ftp://hooks.example.com/" + hookSecret, "is not https://"},
+		{"https://me:" + hookSecret + "@hooks.example.com/hooks", "has a user or password in it"},
+		{hostile + "?key=" + hookSecret, "has a query or a fragment"},
+		{hostile + "#" + hookSecret, "has a query or a fragment"},
+		{"https://hooks.example.com/../" + hookSecret, "has a '..', '//' or '\\' in its path"},
+		{"https://hooks.example.com//" + hookSecret, "has a '..', '//' or '\\' in its path"},
+		{"hooks.example.com/" + hookSecret, "is no address"},
+		{"https:///" + hookSecret, "is no address"},
+		{"https://hooks.example.com:" + hookSecret + "/x", "is no address"},
+	} {
+		_, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, tc.value)
+		if reason(err) != Refused || !strings.Contains(err.Error(), "the value of WEBHOOK_URL "+tc.want) {
+			t.Errorf("%q: err = %v, want %q", tc.value, err, tc.want)
+			continue
+		}
+		if strings.Contains(err.Error(), hookSecret) || strings.Contains(err.Error(), "hooks.example.com") {
+			t.Errorf("%q: the error repeats the value: %v", tc.value, err)
+		}
+	}
+	if _, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, ""); reason(err) != NoCredential || !strings.Contains(err.Error(), "does not set WEBHOOK_URL") {
+		t.Errorf("no credential: %v", err)
+	}
+	if _, err := Do(context.Background(), d, "send", map[string]string{"text": "hello"}, s.URL+"/"+hookSecret+"\nHost: elsewhere"); reason(err) != NoCredential || strings.Contains(err.Error(), hookSecret) {
+		t.Errorf("a credential of two lines: %v", err)
+	}
+	if got := s.got(); len(got) != 0 {
+		t.Fatalf("a refused call was sent: %+v", got)
+	}
+}
+
+// Nothing that fails a call to a credential that is the address says the
+// address: not the host it is at and not its path, whether the service is
+// not there, redirects, or answers too much.
+func TestDoSaysNoAddressOfACredentialThatIsTheAddress(t *testing.T) {
+	d := webhookDeclaration(t)
+	params := map[string]string{"text": "hello"}
+
+	gone := newStandin(t, jsonAnswer(`{}`))
+	address := gone.URL + "/hooks/" + hookSecret
+	gone.Close()
+	_, err := Do(context.Background(), d, "send", params, address)
+	if reason(err) != Unreachable || !strings.Contains(err.Error(), "no answer from the credential's URL: ") {
+		t.Fatalf("unreachable: %v", err)
+	}
+	if got := addressLeak(err, address); got != "" {
+		t.Fatalf("unreachable says %q: %v", got, err)
+	}
+
+	elsewhere := newStandin(t, jsonAnswer(`{}`))
+	moved := newStandin(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/hooks/"+hookSecret, http.StatusFound)
+	})
+	address = moved.URL + "/hooks/" + hookSecret
+	_, err = Do(context.Background(), d, "send", params, address)
+	if reason(err) != Redirect || !strings.Contains(err.Error(), "the credential's URL answered 302, a redirect: yardr follows none") {
+		t.Fatalf("redirect: %v", err)
+	}
+	if got := addressLeak(err, address); got != "" {
+		t.Fatalf("redirect says %q: %v", got, err)
+	}
+	if got := addressLeak(err, elsewhere.URL+"/hooks/"+hookSecret); got != "" && got != hookSecret {
+		t.Fatalf("redirect names where it points, %q: %v", got, err)
+	}
+	if got := elsewhere.got(); len(got) != 0 {
+		t.Fatalf("the redirect was followed: %+v", got)
+	}
+
+	big := newStandin(t, func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, `{"pad":"`+strings.Repeat("x", AnswerLimit)+`"}`)
+	})
+	address = big.URL + "/hooks/" + hookSecret
+	_, err = Do(context.Background(), d, "send", params, address)
+	if reason(err) != TooLarge {
+		t.Fatalf("too large: %v", err)
+	}
+	if got := addressLeak(err, address); got != "" {
+		t.Fatalf("too large says %q: %v", got, err)
+	}
+
+	// The network's own words name the host, which a lookup that failed or
+	// a certificate that does not fit says: they are taken out, the rest
+	// of what they say is left.
+	secretHost := "hooks-" + hookSecret + ".example.com"
+	address = "https://" + secretHost + ":8443/hooks/" + hookSecret
+	u, _ := url.Parse(address)
+	for _, text := range []string{
+		"dial tcp: lookup " + secretHost + " on 10.0.0.1:53: no such host",
+		"dial tcp: lookup " + secretHost + ": no such host",
+		"tls: failed to verify certificate: x509: certificate is valid for other.example.com, not " + secretHost,
+		"dial tcp " + u.Host + ": i/o timeout",
+		"dial tcp: lookup " + strings.ToUpper(secretHost) + ": no such host",
+		"Post \"" + address + "\": EOF",
+	} {
+		got := hiding(address, u).ReplaceAllLiteralString(text, redacted)
+		if addressLeak(errors.New(got), address) != "" {
+			t.Errorf("%q is left as %q", text, got)
+		}
+		if !strings.Contains(got, "[address redacted]") {
+			t.Errorf("%q is left as %q, which says nothing was taken out", text, got)
+		}
+	}
+	if got := hiding(address, u).ReplaceAllLiteralString("dial tcp 10.1.2.3:8443: connect: connection refused", redacted); got != "dial tcp 10.1.2.3:8443: connect: connection refused" {
+		t.Errorf("words that name no part of the address are changed: %q", got)
+	}
+}
+
+// No command is handed a credential that is the address: a call goes
+// there, and none needs where. One that is a token still is, under its name.
+func TestCommandsAreHandedNoCredentialThatIsTheAddress(t *testing.T) {
+	address := "https://hooks.example.com/hooks/" + hookSecret
+	hook := webhookDeclaration(t)
+	for _, kind := range []string{Read, Update} {
+		for _, kv := range hook.CommandEnvOf(kind, address) {
+			if strings.Contains(kv, hookSecret) || strings.HasPrefix(kv, "WEBHOOK_URL=") {
+				t.Errorf("%s: the environment has %q", kind, kv)
+			}
+		}
+	}
+	d, err := Parse("crm.yaml", []byte(crm))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := strings.Join(d.CommandEnv(token), "\n"); !strings.Contains(env, "CRM_TOKEN="+token) {
+		t.Errorf("a token is not handed to a command: %s", env)
 	}
 }

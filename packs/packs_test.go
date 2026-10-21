@@ -19,7 +19,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the fourteen yardr carries. A file the
+// is the name it is found by, and they are the fifteen yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -45,8 +45,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram"}) {
-		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter and telegram", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook"}) {
+		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram and webhook", names)
 	}
 }
 
@@ -1595,6 +1595,125 @@ func TestPostHogPack(t *testing.T) {
 		}
 	}
 	for _, not := range []string{"printf '%s' '", "<secret>"} {
+		if strings.Contains(p.SetupText, not) {
+			t.Errorf("setup notes type a secret as a command's word: %q", not)
+		}
+	}
+}
+
+// The webhook pack is any service that POSTs to a URL, or takes one, as an
+// integration: of kind source, one declared source with the hook key that
+// hears a POST and one update call that sends a JSON object. Its credential
+// is the address every call goes to, so it names no base. The source is
+// named webhook, since token is a name yardr has built in. It reads
+// nothing: it has no read call, and no thread, notify or link key.
+func TestWebhookPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, "webhook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != pack.KindSource || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("pack = %+v", p)
+	}
+	if len(p.Declared) != 1 || p.Declared[0].Name != "webhook" {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	if slices.Contains(source.BuiltIn, "webhook") {
+		t.Fatalf("webhook is a name yardr has built in, and a declaration cannot take it")
+	}
+	d := p.Declared[0].Declaration
+	var commands []string
+	for _, c := range d.Commands() {
+		commands = append(commands, c.Key+" "+strings.Join(c.Argv, " "))
+	}
+	if want := []string{"hook.normalize webhook/normalize", "call.send.build webhook/build-send"}; !slices.Equal(commands, want) {
+		t.Fatalf("commands = %q, want %q", commands, want)
+	}
+	if d.Base != "" || d.Address() != "the URL in WEBHOOK_URL" {
+		t.Fatalf("base = %q, address = %q: the credential is the address and the file names no base", d.Base, d.Address())
+	}
+	if c := d.Credential; c == nil || c.Env != "WEBHOOK_URL" || !c.URL || c.Header != "" || c.InPath || c.UpdateEnv != "" || c.Minted() {
+		t.Fatalf("credential = %+v", c)
+	}
+	if d.Hear != nil || d.Thread != nil || d.Notify != nil || d.Link != nil || d.Check != "" || d.Identity != nil || d.Events != nil || d.Limits != nil {
+		t.Fatalf("the pack declares a hear, thread, notify, link, check, identity, events or limits key: it hears a POST and sends one, nothing else")
+	}
+	if len(d.Calls) != 1 {
+		t.Fatalf("calls = %+v, want send alone", d.Calls)
+	}
+	send, ok := d.Call("send")
+	if !ok || send.Kind != source.Update || send.Request.Method != "POST" || send.Request.Path != "/" || send.Request.Body != nil || len(send.Request.Query) != 0 {
+		t.Fatalf("send call = %+v", send)
+	}
+	if !slices.Equal(send.Build, []string{"webhook/build-send"}) || len(send.Answer.Select) != 0 {
+		t.Fatalf("send build = %q, select = %q: want the body build-send prints and the whole answer", send.Build, send.Answer.Select)
+	}
+	if len(send.Params) != 1 {
+		t.Fatalf("send params = %+v", send.Params)
+	}
+	if data := send.Params[0]; data.Name != "data" || data.Type != "string" || data.Max != 65536 || data.Optional || data.Log || data.Pattern != "" {
+		t.Fatalf("send data = %+v, want a required unlogged string of at most 64 KB", data)
+	}
+	// The hook is verified by the secret in its header, compared as it
+	// arrives; the sender's id of a delivery is optional and in a header;
+	// a body may repeat, since a sender posts the same words on purpose.
+	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret ||
+		h.Verify.Signature.Header != "X-Yardr-Secret" || h.Verify.Delivery.Header != "X-Yardr-Delivery" || h.Verify.Delivery.Body != "" ||
+		h.Verify.Timestamp != nil || h.Bodies != source.BodiesRepeat || len(h.Keys) != 0 ||
+		!reflect.DeepEqual(h.Normalize, []string{"webhook/normalize"}) || h.Register != nil || h.Challenge != nil {
+		t.Fatalf("hook = %+v", d.Hook)
+	}
+	// Its setup notes: the pack applied, a hook with a secret the operator
+	// makes into a file, each of the three senders' header, what the yard
+	// hears and a test with curl, subscribing, the service's URL for each
+	// of the three, giving it to the yard unseen, the grant and the first
+	// send. The secret and the URL are never typed as a command's word.
+	if p.Setup != "SETUP.md" {
+		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
+	}
+	for _, want := range []string{
+		"yardr pack apply webhook\n",
+		"1 call under the URL in WEBHOOK_URL",
+		"`jq`",
+		"umask 077",
+		"openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > ~/.yardr/webhook.secret",
+		"chmod 600 ~/.yardr/webhook.secret",
+		"yardr hook add zapier --source webhook --secret-file ~/.yardr/webhook.secret\n",
+		"https://<public host>/hooks/<name>",
+		"*Webhooks by Zapier*",
+		"*Headers*",
+		"*Make a request*",
+		"*application/JSON*",
+		"*HTTP Request*",
+		"*Send Headers*",
+		"*Header Auth*",
+		"`X-Yardr-Secret`",
+		"`X-Yardr-Delivery`",
+		`-H "X-Yardr-Secret: $(cat ~/.yardr/webhook.secret)"`,
+		"answers 401",
+		"yardr subscribe <hearer> webhook --scope all --where type=lead",
+		"A body that arrives twice is heard twice",
+		"*Catch Hook*",
+		"https://hooks.zapier.com/hooks/catch/<account>/<hook>/",
+		"*Custom webhook*",
+		"*Production URL*",
+		"~/.yardr/sources/webhook.env",
+		"yardr source key webhook ",
+		"--secret webhook --context",
+		"yardr source grant webhook send --group builders",
+		"yardr call webhook send data='{\"text\":\"hello from the yard\"}'",
+		"`Accepted`",
+		"updates_per_hour=<n>",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("setup notes lack %q", want)
+		}
+	}
+	for _, not := range []string{"printf '%s' '", "<secret>", "WEBHOOK_URL=", "echo 'WEBHOOK_URL"} {
 		if strings.Contains(p.SetupText, not) {
 			t.Errorf("setup notes type a secret as a command's word: %q", not)
 		}

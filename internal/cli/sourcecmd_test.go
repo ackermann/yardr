@@ -128,6 +128,63 @@ func TestSourceAddShowRemove(t *testing.T) {
 	}
 }
 
+// A source whose credential is the address (credential.url) has no base to
+// print, and the commands say where its calls go in words instead: the
+// variable the address is in, never the address, which no file holds. A
+// replacement that gives it a base, or takes the base away, says what
+// the calls went to before.
+func TestSourceAddShowListOfACredentialThatIsTheAddress(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	const address = `name: hook
+about: A webhook.
+credential:
+  env: HOOK_URL
+  url: true
+calls:
+  send: { kind: update, params: { text: { type: string, max: 100 } }, request: { method: POST, body: { text: "{text}" } } }
+`
+	const based = `name: hook
+about: A webhook.
+base: https://hooks.example.com/x
+credential:
+  env: HOOK_URL
+  header: "X-Hook: {credential}"
+calls:
+  send: { kind: update, params: { text: { type: string, max: 100 } }, request: { method: POST, path: /send, body: { text: "{text}" } } }
+`
+	write := func(text string) string {
+		f := filepath.Join(t.TempDir(), "hook.yaml")
+		if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	out, err := run(t, a.sourceCmd(), "add", write(address))
+	if err != nil || !strings.Contains(out, "source hook saved: 1 call under the URL in HOOK_URL") ||
+		!strings.Contains(out, "next: yardr source key hook gives HOOK_URL") {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "show", "hook")
+	if err != nil || !strings.Contains(out, "hook  the URL in HOOK_URL\n") || !strings.Contains(out, "call send  update  POST /\n") ||
+		!strings.Contains(out, "credential: HOOK_URL is not set up") {
+		t.Fatalf("show: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "list")
+	if err != nil || !strings.Contains(out, "the URL in HOOK_URL") || !strings.Contains(out, "send (update)") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "add", write(based))
+	if err != nil || !strings.Contains(out, "source hook saved: 1 call under https://hooks.example.com/x") || !strings.Contains(out, "base was the URL in HOOK_URL") {
+		t.Fatalf("add with a base: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "add", write(address))
+	if err != nil || !strings.Contains(out, "base was https://hooks.example.com/x") {
+		t.Fatalf("add without one: %q %v", out, err)
+	}
+}
+
 // source show of a source no call of which is granted, whose key a crew
 // member holds, says the file is not set and nothing needs it — not the
 // command that sets it. Only its check call wants the source's own file.

@@ -21,11 +21,12 @@ import (
 // service's declaration (linear's and github's with the commands they
 // name; PostHog's with its hook's normalize; Google's as four packs,
 // google-mail, google-drive, google-docs and google-calendar, one per
-// thing a person turns on), and one pack per service that tells a user
+// thing a person turns on), one pack per service that tells a user
 // outside the yard, a declaration with the notify key that sends and no
-// commands.
+// commands, and webhook, one declaration for every service that POSTs to
+// a URL or takes one (Zapier, Make, n8n), whose credential is that URL.
 //
-//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram slack posthog
+//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram slack posthog webhook
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is

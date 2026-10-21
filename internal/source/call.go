@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,7 +39,7 @@ const (
 	NoCall       = "no_call"       // the declaration has no call of the name
 	BadParam     = "bad_param"     // a parameter is unknown, missing or not what the declaration allows
 	NoCredential = "no_credential" // the declaration names a credential and none was given
-	Refused      = "refused"       // the declaration's base is not one a call is made to
+	Refused      = "refused"       // the declaration's base, or a credential that is the address, is not one a call is made to
 	Unreachable  = "unreachable"   // no connection, or it broke
 	TimedOut     = "timeout"
 	Redirect     = "redirect"  // the service answered 3xx, which is not followed
@@ -91,6 +92,12 @@ func (r *Result) OK() bool { return r.Status >= 200 && r.Status < 300 }
 // this machine, for a stand-in), no redirect followed, Timeout, and an
 // answer that is JSON within its bound. It writes nothing anywhere: the
 // request, its body and the credential are in this call's memory alone.
+//
+// Where the credential is the address (Credential.URL), the address a call
+// goes to is the credential's own value, held to the same rules, and no
+// error repeats any of it. An answer that is no JSON, such as the
+// "Accepted" Make's webhooks say, is a success without an answer, since
+// the endpoint is whatever the operator pointed the URL at.
 func Do(ctx context.Context, d *Declaration, name string, params map[string]string, credential string) (*Result, error) {
 	return DoKeyed(ctx, d, name, params, credential, "")
 }
@@ -125,21 +132,22 @@ func DoKeyedBody(ctx context.Context, d *Declaration, name string, params map[st
 }
 
 func doKeyed(ctx context.Context, d *Declaration, name string, params map[string]string, credential, key string, built json.RawMessage) (*Result, error) {
+	// Where the credential is the address, it is the secret of the call,
+	// and nothing said of the call repeats it or its host. where is how the
+	// messages below name the address, and hide takes it out of what the
+	// network's own errors say.
+	address := d.Credential != nil && d.Credential.URL
+	var hide *regexp.Regexp
 	fail := func(reason string, status int, format string, args ...any) error {
-		return &CallError{Source: d.Name, Call: name, Reason: reason, Status: status, msg: fmt.Sprintf(format, args...)}
+		msg := fmt.Sprintf(format, args...)
+		if hide != nil {
+			msg = hide.ReplaceAllLiteralString(msg, redacted)
+		}
+		return &CallError{Source: d.Name, Call: name, Reason: reason, Status: status, msg: msg}
 	}
 	c, ok := d.Call(name)
 	if !ok {
 		return nil, fail(NoCall, 0, "the source has no call of that name")
-	}
-	base, err := url.Parse(d.Base)
-	switch {
-	case err != nil || base.Host == "" || base.User != nil:
-		return nil, fail(Refused, 0, "its base is no address")
-	case base.Scheme == "http" && !loopbackHost(base.Hostname()):
-		return nil, fail(Refused, 0, "its base is plain http to %s, which is not this machine: a call goes over https", base.Hostname())
-	case base.Scheme != "https" && base.Scheme != "http":
-		return nil, fail(Refused, 0, "its base is %s://, not https://", base.Scheme)
 	}
 	if d.Credential != nil {
 		switch {
@@ -149,6 +157,27 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 			return nil, fail(NoCredential, 0, "the value of %s has a control character in it, a line break perhaps: it is one line", d.Credential.EnvOf(c.Kind))
 		}
 	}
+	var base *url.URL
+	where := ""
+	if address {
+		u, fault := checkAddress(credential)
+		if fault != addressOK {
+			return nil, fail(Refused, 0, "the value of %s %s", d.Credential.EnvOf(c.Kind), fault.words())
+		}
+		base, where, hide = u, "the credential's URL", hiding(credential, u)
+	} else {
+		var err error
+		base, err = url.Parse(d.Base)
+		switch {
+		case err != nil || base.Host == "" || base.User != nil:
+			return nil, fail(Refused, 0, "its base is no address")
+		case base.Scheme == "http" && !loopbackHost(base.Hostname()):
+			return nil, fail(Refused, 0, "its base is plain http to %s, which is not this machine: a call goes over https", base.Hostname())
+		case base.Scheme != "https" && base.Scheme != "http":
+			return nil, fail(Refused, 0, "its base is %s://, not https://", base.Scheme)
+		}
+		where = base.Host
+	}
 	if strings.ContainsFunc(key, func(r rune) bool { return r <= ' ' || r >= 0x7f }) {
 		return nil, fail(BadParam, 0, "the key of the update is no value of a header")
 	}
@@ -157,8 +186,10 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 		return nil, fail(BadParam, 0, "%v", err)
 	}
 	inPath := d.Credential != nil && d.Credential.InPath
-	target, err := c.target(d.Base, base, vals, credential, inPath)
-	if err != nil {
+	var target string
+	if address {
+		target = c.addressTarget(credential, vals)
+	} else if target, err = c.target(d.Base, base, vals, credential, inPath); err != nil {
 		return nil, fail(BadParam, 0, "%v", err)
 	}
 
@@ -195,18 +226,20 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	start := time.Now()
 	resp, err := client(base.Scheme == "http").Do(req)
 	if err != nil {
-		return nil, fail(unsent(ctx, err), 0, "no answer from %s: %s", base.Host, cause(ctx, err))
+		return nil, fail(unsent(ctx, err), 0, "no answer from %s: %s", where, cause(ctx, err))
 	}
 	defer resp.Body.Close()
 	res := &Result{Status: resp.StatusCode}
 	switch {
 	case resp.StatusCode >= 300 && resp.StatusCode < 400:
 		to := ""
-		if l, err := url.Parse(resp.Header.Get("Location")); err == nil && l.Host != "" {
+		// Where a redirect points is not said of an address that is a
+		// secret: it may be the host that is.
+		if l, err := url.Parse(resp.Header.Get("Location")); err == nil && l.Host != "" && !address {
 			to = " to " + l.Host
 		}
 		return nil, fail(Redirect, resp.StatusCode, "%s answered %d, a redirect%s: yardr follows none, since the request and its credential would go where the redirect points",
-			base.Host, resp.StatusCode, to)
+			where, resp.StatusCode, to)
 	case !res.OK():
 		res.Took = time.Since(start)
 		return res, nil
@@ -215,13 +248,18 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	res.Bytes, res.Took = len(raw), time.Since(start)
 	switch {
 	case err != nil:
-		return nil, fail(unsent(ctx, err), resp.StatusCode, "the answer of %s broke off: %s", base.Host, cause(ctx, err))
+		return nil, fail(unsent(ctx, err), resp.StatusCode, "the answer of %s broke off: %s", where, cause(ctx, err))
 	case len(raw) > AnswerLimit:
 		return nil, fail(TooLarge, resp.StatusCode, "the answer is over %d bytes, the most yardr reads of one: it is refused, not cut, since half a JSON document misleads", AnswerLimit)
 	case len(bytes.TrimSpace(raw)) == 0:
 		return res, nil
 	case !json.Valid(raw):
-		return nil, fail(NotJSON, resp.StatusCode, "%s answered %d with what is no JSON", base.Host, resp.StatusCode)
+		// A webhook says "Accepted" in words (Make's does): its 2xx is
+		// that it took the call, and the words are not kept.
+		if address {
+			return res, nil
+		}
+		return nil, fail(NotJSON, resp.StatusCode, "%s answered %d with what is no JSON", where, resp.StatusCode)
 	}
 	answer := selected(raw, c.Answer.Select)
 	if len(answer) > c.Answer.Max {
@@ -288,6 +326,23 @@ func cause(ctx context.Context, err error) string {
 		err = u.Err
 	}
 	return err.Error()
+}
+
+// redacted stands in what is said of a call for the address it went to.
+const redacted = "[address redacted]"
+
+// hiding finds the address in what is said of a call to a credential that
+// is one: the credential whole, the host it names and that host without
+// its port, which the network's own errors name (a lookup that failed, a
+// connection refused), in any case, since they may lower it. The longest
+// comes first, as a host stands inside the credential and a hostname
+// inside the host.
+func hiding(credential string, u *url.URL) *regexp.Regexp {
+	parts := []string{regexp.QuoteMeta(credential), regexp.QuoteMeta(u.Host)}
+	if h := u.Hostname(); h != "" && h != u.Host {
+		parts = append(parts, regexp.QuoteMeta(h))
+	}
+	return regexp.MustCompile("(?i)" + strings.Join(parts, "|"))
 }
 
 // value is a parameter's value as it was given and as its type reads it.
@@ -453,6 +508,24 @@ func (c *Call) target(baseText string, base *url.URL, vals map[string]value, cre
 	if err != nil || u.Host != base.Host || u.Scheme != base.Scheme || !strings.HasPrefix(u.EscapedPath(), strings.TrimRight(base.EscapedPath(), "/")+"/") {
 		return "", errors.New("the path with its parameters is no address under the source's base")
 	}
+	u.RawQuery = c.query(vals)
+	return u.String(), nil
+}
+
+// addressTarget is the address of a call whose credential is the address:
+// the credential exactly as it was given, since the service made its path
+// and a trailing slash is its own, then the call's query where it has one.
+// checkAddress kept the credential from having a query of its own.
+func (c *Call) addressTarget(address string, vals map[string]value) string {
+	if q := c.query(vals); q != "" {
+		return address + "?" + q
+	}
+	return address
+}
+
+// query is the call's query with its parameters filled, encoded; "" for a
+// call with none given.
+func (c *Call) query(vals map[string]value) string {
 	q := url.Values{}
 	for _, kv := range c.Request.Query {
 		if m := mark.FindStringSubmatch(kv.Value); m != nil && m[0] == kv.Value {
@@ -462,8 +535,7 @@ func (c *Call) target(baseText string, base *url.URL, vals map[string]value, cre
 		}
 		q.Add(kv.Key, mark.ReplaceAllStringFunc(kv.Value, func(m string) string { return vals[m[1:len(m)-1]].text }))
 	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
+	return q.Encode()
 }
 
 // fill is the body v with its {name}s replaced. A string that is exactly

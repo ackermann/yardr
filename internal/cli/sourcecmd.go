@@ -197,6 +197,18 @@ refused; otherwise the variable is used as it is set.
     header: "Authorization: Bearer {credential}"
   idempotency: Idempotency-Key
 
+A service whose address is its secret, a webhook URL such as Zapier, Make
+and n8n give, says so with url: true. The credential is then that address:
+the file names no base, and a call has no path of its own. The value is held
+to what a base is when a call is made (https, or plain http to this machine;
+no user, query or fragment), and no error, event or command repeats any of
+it. An answer that is no JSON is the endpoint saying it took the call (Make
+says Accepted), and is not kept.
+
+  credential:
+    env: WEBHOOK_URL
+    url: true
+
 idempotency names the header a service takes a key in, by which it tells an
 update it was sent before from a new one. yardr call then sends each update
 with a key, and the same key when the same caller makes the same call with
@@ -205,9 +217,10 @@ again after a timeout writes once. After a success the same call is a new
 one. A key nobody tried again is kept for ` + store.SourceKeyKept.String() + `.
 
 Refused when the file is added: a base that is not https:// (plain http://
-only to this machine, for a stand-in); a path that is an address, has '..'
-or a query; a {param} the call does not declare; a read call with PUT, PATCH
-or DELETE; a name yardr has built in (` + strings.Join(source.BuiltIn, ", ") + `). When a call is made,
+only to this machine, for a stand-in), or one beside credential.url; a path
+that is an address, has '..' or a query; a {param} the call does not
+declare; a read call with PUT, PATCH or DELETE; a name yardr has built in
+(` + strings.Join(source.BuiltIn, ", ") + `). When a call is made,
 no redirect is followed, the call ends after ` + source.Timeout.String() + `, and an answer over its
 bound is refused, not cut.
 
@@ -517,7 +530,7 @@ env_file; what the new file changes of its calls is printed.`,
 				if len(d.Calls) == 0 {
 					fmt.Fprintf(w, "source %s saved: no call, its limits command alone\n", d.Name)
 				} else {
-					fmt.Fprintf(w, "source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Base)
+					fmt.Fprintf(w, "source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Address())
 				}
 				for _, l := range changes {
 					fmt.Fprintln(w, "  "+l)
@@ -606,7 +619,7 @@ env_file; what the new file changes of its calls is printed.`,
 							kinds = "itself"
 						}
 					}
-					rows = append(rows, []string{d.Name, or(d.Base, "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
+					rows = append(rows, []string{d.Name, or(d.Address(), "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
 				table(w, "NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
 			})
@@ -691,7 +704,7 @@ credential in it whether their file sets that. The value is never printed.
 				out["as"] = as
 			}
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Fprintf(w, "%s  %s\n", d.Name, or(d.Base, "no calls"))
+				fmt.Fprintf(w, "%s  %s\n", d.Name, or(d.Address(), "no calls"))
 				if d.About != "" {
 					fmt.Fprintf(w, "  %s\n", d.About)
 				}
@@ -1738,8 +1751,8 @@ func callChanges(was, now *source.Declaration) []string {
 			out = append(out, fmt.Sprintf("call %s is gone", c.Name))
 		}
 	}
-	if was.Base != now.Base {
-		out = append(out, fmt.Sprintf("base was %s", or(was.Base, "none: it had no calls")))
+	if was.Address() != now.Address() {
+		out = append(out, fmt.Sprintf("base was %s", or(was.Address(), "none: it had no calls")))
 	}
 	if len(out) == 0 {
 		out = append(out, "replaces the one of that name: its calls are as they were")

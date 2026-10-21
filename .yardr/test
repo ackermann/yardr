@@ -1183,8 +1183,10 @@ packs/contributors/            contrib/assembly
 packs/dir/                     internal/pack
 packs/linear/                  internal/hooks internal/dispatch
 packs/github/                  internal/hooks
-packs/slack/                   internal/hooks
+packs/slack/                   internal/hooks internal/store
+packs/telegram/                internal/hooks internal/store
 packs/posthog/                 internal/hooks
+packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/security_paths          internal/store

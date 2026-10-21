@@ -260,3 +260,49 @@ func TestBuildBodyRedactsCredentialFromStderr(t *testing.T) {
 		})
 	}
 }
+
+// A build command is handed the typed parameters and no credential that is
+// the address (credential.url): the call goes there and the command prints
+// a body, which needs no word of where. Nothing it prints back is the
+// address either.
+func TestBuildBodyIsHandedNoCredentialThatIsTheAddress(t *testing.T) {
+	d, err := Parse("webhook.yaml", []byte(strings.Replace(webhook,
+		`request: { method: POST, body: { text: "{text}" } }`, "request: { method: POST }\n    build: [hook/build]", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	program := filepath.Join(home, "sources", "webhook", "hook", "build")
+	if err := os.MkdirAll(filepath.Dir(program), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	address := "https://hooks.example.com/hooks/" + hookSecret
+	script := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(program, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script(`cat > build-stdin; env > build-environment; printf '{"built":true}'`)
+	body, err := BuildBody(context.Background(), d, "send", map[string]string{"text": "hello"}, address, home)
+	if err != nil || string(body) != `{"built":true}` {
+		t.Fatalf("BuildBody = %s, %v", body, err)
+	}
+	in, _ := os.ReadFile(filepath.Join(home, "build-stdin"))
+	if string(in) != `{"params":{"text":"hello"}}` {
+		t.Fatalf("stdin = %s", in)
+	}
+	env, _ := os.ReadFile(filepath.Join(home, "build-environment"))
+	for _, unwanted := range []string{"WEBHOOK_URL", hookSecret, "hooks.example.com"} {
+		if strings.Contains(string(env), unwanted) {
+			t.Errorf("environment contains %q:\n%s", unwanted, env)
+		}
+	}
+	// What the command says of a refusal is the command's own, and nothing
+	// of the address is in the error, which it was never handed.
+	script(`echo "no good" >&2; exit 1`)
+	_, err = BuildBody(context.Background(), d, "send", map[string]string{"text": "hello"}, address, home)
+	if reason(err) != BuildRefused || addressLeak(err, address) != "" {
+		t.Fatalf("refusal = %v", err)
+	}
+}

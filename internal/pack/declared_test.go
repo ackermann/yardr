@@ -651,3 +651,51 @@ func TestADeclaredSourceWithACredentialForItsUpdates(t *testing.T) {
 		t.Fatalf("env_file, with both = %+v", n)
 	}
 }
+
+// hookDeclared is a declaration whose credential is the address every call
+// goes to, so it names no base.
+const hookDeclared = `name: pushover
+about: A webhook.
+credential:
+  env: PUSHOVER_URL
+  url: true
+calls:
+  message:
+    kind: update
+    params: { text: { type: string, max: 1024 } }
+    request: { method: POST, body: { text: "{text}" } }
+`
+
+// A declaration whose credential is the address says where its calls go in
+// words, since the address is a secret and no file holds it: the plan names
+// the variable, asks for it in the env_file, and shows a source the yard has
+// that went to a base as a change of both.
+func TestADeclaredSourceWhoseCredentialIsTheAddress(t *testing.T) {
+	st, o := yard(t)
+	plan := build(t, st, load(t, writePack(t, declaredFiles(smallDeclared, hookDeclared))), o)
+	d := declared(t, plan, "pushover")
+	if d.Base != "the URL in PUSHOVER_URL" || !slices.Equal(d.Calls, []string{"message (update)"}) {
+		t.Fatalf("declared = %+v, want its calls under the URL in PUSHOVER_URL", d)
+	}
+	if n := declaredNeed(t, d, store.SourceEnvFile); n.Status != "missing" || !strings.Contains(n.Detail, "yardr source key pushover gives PUSHOVER_URL") {
+		t.Fatalf("env_file = %+v", n)
+	}
+
+	if _, err := st.PutSource(ctx, "pushover.yaml", pushover, "me"); err != nil {
+		t.Fatal(err)
+	}
+	plan = build(t, st, load(t, writePack(t, declaredFiles(smallDeclared, hookDeclared))), o)
+	got := find(t, plan, "source", "pushover")
+	if got.Action != pack.Change {
+		t.Fatalf("source = %s %+v, want a change", got.Action, got.Changes)
+	}
+	for _, want := range []pack.Diff{
+		{Field: "base", Old: "https://api.pushover.net/1", New: "the URL in PUSHOVER_URL"},
+		{Field: "credential", Old: "PUSHOVER_TOKEN", New: "PUSHOVER_URL, the address every call goes to"},
+		{Field: "call message", Old: "(update) POST /messages.json", New: "(update) POST /"},
+	} {
+		if !slices.Contains(got.Changes, want) {
+			t.Errorf("the change lacks %+v: %+v", want, got.Changes)
+		}
+	}
+}

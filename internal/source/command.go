@@ -89,7 +89,8 @@ func oneObject(what string, out []byte) error {
 // caller from the env file of whoever acts, as a call reads it; "" for
 // none) and YARDR_SOURCE_BASE, the declaration's base, so a test can
 // point the command at a stand-in. Nothing else of the yard's
-// environment reaches a command.
+// environment reaches a command, and no credential that is the address
+// (credential.url): a call goes there and no command needs where.
 func (d *Declaration) CommandEnv(credential string) []string {
 	return d.CommandEnvOf(Read, credential)
 }
@@ -99,7 +100,7 @@ func (d *Declaration) CommandEnv(credential string) []string {
 func (d *Declaration) CommandEnvOf(kind, credential string) []string {
 	name, login := commandUser()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + name, "LOGNAME=" + login}
-	if d.Credential != nil && credential != "" {
+	if d.Credential != nil && !d.Credential.URL && credential != "" {
 		env = append(env, d.Credential.EnvOf(kind)+"="+credential)
 	}
 	return append(env, config.Env("SOURCE_BASE", d.Base)...)

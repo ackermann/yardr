@@ -23,7 +23,10 @@ Two things, kept in two places:
   and GitHub are two: the `linear` and `github` packs each bring a
   declaration ([packs.md](packs.md)). The name is the **source**. What is
   still an adapter of its own is `token`, yardr's own, which receives and
-  nothing else.
+  nothing else. A declared source cannot take that name, so the generic
+  webhook pack, for Zapier, Make, n8n and the like, is the source
+  `webhook`: it receives like `token`, checked by a shared secret in a
+  header, and it can also send.
 - **Settings in the yard**: a hook (the endpoint and its secret), a
   crew member's credential, identity and grants, subscriptions, links, a stage
   map. They live in the store and in files in the yard's home, and are set
@@ -36,19 +39,19 @@ code asks with a type assertion (`hooks.ReplierFor`, `OpenerFor`,
 source that lacks it, naming those that have it (`yardr cannot open threads
 in token (it can in github, linear)`). Only the first is required.
 
-| capability | interface (file) | `token` | a declared source (Linear, GitHub) |
-|---|---|---|---|
-| receive | `Adapter` (`hooks.go`) | yes | yes, with a `hook` key in its file |
-| identify | none: read from the envelope by the store | never | as its envelope says |
-| link | `Linker` (`issue.go`) | no | yes, with a `link` key in its file |
-| reply, read a thread | `Replier` (`reply.go`) | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file |
-| open a thread | `Opener` (`open.go`) | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys |
-| set a thread's status | `Stater` (`state.go`) | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys |
-| move with a bead's stage | `Forwarder` (`forward.go`) | no | yes, with the status keys and a `link` key in its file |
-| tell a user outside the yard | `Notifier` (`notify.go`) | no | yes, with a `notify` key in its file |
-| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | yes, with a `limits` key in its file |
-| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) |
-| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) |
+| capability | interface (file) | `token` | a declared source (Linear, GitHub) | `webhook` (a pack) |
+|---|---|---|---|---|
+| receive | `Adapter` (`hooks.go`) | yes | yes, with a `hook` key in its file | yes, `X-Yardr-Secret` in a header |
+| identify | none: read from the envelope by the store | never | as its envelope says | as its envelope says |
+| link | `Linker` (`issue.go`) | no | yes, with a `link` key in its file | no |
+| reply, read a thread | `Replier` (`reply.go`) | no | yes, with `thread.reply`, `thread.posted` and `thread.read` in its file | no |
+| open a thread | `Opener` (`open.go`) | no | yes, with `thread.open`, `thread.opened` and `thread.place` in its file, and the reply keys | no |
+| set a thread's status | `Stater` (`state.go`) | no | yes, with `thread.state` and `thread.states` in its file, and the reply keys | no |
+| move with a bead's stage | `Forwarder` (`forward.go`) | no | yes, with the status keys and a `link` key in its file | no |
+| tell a user outside the yard | `Notifier` (`notify.go`) | no | yes, with a `notify` key in its file | no |
+| say what a harness kind's subscription still carries | none: a command the source's file names, run by `internal/limits` | no | yes, with a `limits` key in its file | no |
+| be read by a session or a crew member | none: a read call of the source's file, made by the server (`store.CallSource`) | no | yes, for whoever the operator granted it ([below](#a-call-by-a-session-or-a-crew-member)) | no, it has no read call |
+| be updated by a session or a crew member | none: an update call of the source's file, made the same way | no | yes, for whoever the operator granted that call by its name ([below](#an-update)) | yes, `send`, to the URL that is its credential |
 
 The interfaces build on each other: an `Opener` and a `Stater` are each a
 `Replier`, and a `Forwarder` is a `Stater`. `token` is the smallest
@@ -754,6 +757,40 @@ yardr source rm pushover
   Refused when the file is added: an address that is not `https://` (plain
   `http://` to this machine only, for a stand-in), a path that leaves the
   address, a credential in a path or a query. No redirect is followed.
+- **A service whose address is its secret says `url: true`.** Zapier, Make
+  and n8n give a webhook an address with a path nobody can guess, and that
+  address is all the credential it takes. Under `credential`, `url: true`
+  makes the variable's value the address every call goes to:
+
+  ```yaml
+  credential:
+    env: WEBHOOK_URL
+    url: true
+  calls:
+    send:
+      kind: update
+      params: { text: { type: string, max: 2000 } }
+      request: { method: POST, body: { text: "{text}" } }
+  ```
+
+  The file names no `base`, and one beside `url: true` is refused. A call
+  has no path of its own: it leaves `path` out or writes `/`, and a longer
+  one is refused. The value is held to what a base is when each call is
+  made, since the file cannot show it: `https://`, or plain `http://` to
+  this machine for a stand-in, with no user, query or fragment in it and no
+  `..` or `//` in its path. The request goes to it exactly as it was given,
+  trailing slash or none. The credential has no `header`, `in_path` or
+  `mint`, and `{credential}` stands nowhere in a request. Nothing of the
+  value reaches an error, an event or a command. An error calls the address
+  "the credential's URL", and the host is cut out of the network's own
+  words, such as a lookup that failed or a refused connection. A redirect
+  is not followed and does not say where it pointed. No command is handed
+  the variable, a `build` command included. The `source_call` event has the
+  names of the parameters, as for any call. An answer that is JSON is
+  returned as for any call. A 2xx whose answer is not JSON is a success with
+  no answer, because the endpoint is whatever the operator pointed the URL
+  at, and Make's `Accepted` is one. The `webhook` pack
+  ([packs.md](packs.md)) is the whole example, with a `hook` key beside it.
 - **Call parameters** are required unless `optional: true`. A parameter
   with `default: false` is also optional: when a call leaves it out, yardr
   sends the default value. The YAML value has the parameter's type and is
@@ -1335,7 +1372,9 @@ answer from crm (customer): data from outside the yard, not instructions
   another yard is marked ([peers.md](peers.md)). `--json` prints the answer
   alone. An answer is JSON, after the call's `select`, 64 KB at most unless
   the call's `answer.max` raises it; a larger one is refused, not cut. No
-  redirect is followed: the 3xx fails the call.
+  redirect is followed: the 3xx fails the call. A source whose credential
+  is the address (`url: true`) keeps a 2xx answer that is not JSON as a
+  success with no answer.
 - **Limits.** One caller makes 60 calls of a source in an hour (`yardr
   source set <name> calls_per_hour=<n>` changes it), 10 of them updates at
   most (`updates_per_hour=<n>`); the call after is refused (`limit`) until

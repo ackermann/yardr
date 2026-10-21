@@ -110,7 +110,7 @@ func (b *planner) declared() error {
 	}
 	for _, d := range b.p.Declared {
 		decl := d.Declaration
-		dp := DeclaredPlan{Source: d.Name, File: d.File, Base: decl.Base, Calls: []string{}, Needs: []Need{}}
+		dp := DeclaredPlan{Source: d.Name, File: d.File, Base: decl.Address(), Calls: []string{}, Needs: []Need{}}
 		for _, c := range decl.Calls {
 			dp.Calls = append(dp.Calls, c.Name+" ("+c.Kind+")")
 		}
@@ -483,6 +483,9 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 		if d.Credential.Minted() {
 			out = "minted from " + strings.Join(d.Credential.Mint, " and ") + "; " + out
 		}
+		if d.Credential.URL {
+			out += ", the address every call goes to"
+		}
 		return out
 	}
 	notify := func(d *source.Declaration) string {
@@ -493,7 +496,7 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 	}
 	line := func(c *source.Call) string { return "(" + c.Kind + ") " + c.Request.Line() }
 	for _, f := range []struct{ field, old, new string }{
-		{"base", was.Base, now.Base}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"idempotency", was.Idempotency, now.Idempotency}, {"notify", notify(was), notify(now)},
+		{"base", was.Address(), now.Address()}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"idempotency", was.Idempotency, now.Idempotency}, {"notify", notify(was), notify(now)},
 	} {
 		if f.old != f.new {
 			out = append(out, Diff{f.field, f.old, f.new})

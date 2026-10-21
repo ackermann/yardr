@@ -1,0 +1,17 @@
+#!/bin/sh
+# The body of send: its data parameter, a JSON object written as text, sent
+# as that object. Stdin {"params":{"data":"…"}}, stdout the body, one JSON
+# value, as a build command's contract has it. Needs jq.
+#
+# The text is checked and then printed as it came, not parsed and written
+# again. A number the sender wrote, such as a 64-bit id, reaches the service
+# with the digits it was given, whichever jq this is. A refusal says one
+# fixed line of its own and never echoes what was posted, which is the
+# caller's.
+data=$(jq -r '.params.data') || exit 1
+if printf '%s' "$data" | jq -es 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1; then
+  printf '%s' "$data"
+else
+  echo 'data is no JSON object: send takes one, such as {"text":"hello"}' >&2
+  exit 1
+fi

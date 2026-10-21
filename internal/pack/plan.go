@@ -346,7 +346,9 @@ const Skipped = "skipped"
 type DeclaredPlan struct {
 	Source string `json:"source"`
 	File   string `json:"file"` // in the pack
-	Base   string `json:"base"`
+	// Base is where the source's calls go, in words (Declaration.Address):
+	// its base, or the variable a credential that is the address is in.
+	Base string `json:"base"`
 	// Calls are the source's calls, each "name (kind)".
 	Calls []string `json:"calls"`
 	// Commands are the declaration's commands that name a file: each

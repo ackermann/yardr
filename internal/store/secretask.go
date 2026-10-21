@@ -180,8 +180,12 @@ func (a Ask) concealed() *bool {
 }
 
 // sourceHost is where the calls of the source d declares go: the scheme and
-// host of its base.
+// host of its base, or the variable whose value is the address, which is
+// what the ask gives.
 func sourceHost(d *source.Declaration) string {
+	if d.Credential != nil && d.Credential.URL {
+		return d.Address()
+	}
 	if u, err := url.Parse(d.Base); err == nil && u.Host != "" {
 		return u.Scheme + "://" + u.Host
 	}

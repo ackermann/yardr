@@ -22,7 +22,9 @@
 //
 // The file holds no secret. It names the variable the credential is in, and
 // the value is read from a file of the yard's at each call, so a
-// declaration can be kept in the store, shown and copied.
+// declaration can be kept in the store, shown and copied. A service whose
+// address is its secret, a webhook URL, names the variable that holds the
+// address (credential.url), and the file names no base.
 package source
 
 import (
@@ -69,7 +71,8 @@ type Declaration struct {
 	Name  string `json:"name"`
 	About string `json:"about,omitempty"`
 	// Base is where every call's path is under, without a trailing slash.
-	// Empty for a source that declares no call, which has a Limits.
+	// Empty for a source that declares no call, which has a Limits, and
+	// for one whose credential is the address (Credential.URL).
 	Base       string      `json:"base"`
 	Credential *Credential `json:"credential,omitempty"`
 	// Check names the call `yardr source check` makes: a read call that
@@ -150,6 +153,13 @@ type Credential struct {
 	// a credential there is in the logs of every server on the way;
 	// without it a path refuses one. A query refuses one either way.
 	InPath bool `json:"in_path,omitempty"`
+	// URL says the credential is the address every call goes to: a
+	// webhook URL whose path is its secret (Zapier, Make, n8n). The file
+	// then names no base and a call has no path of its own. The file
+	// cannot show the address, so a call holds the value to what a base
+	// is, and no error, event or command it is handed to repeats any of
+	// it.
+	URL bool `json:"url,omitempty"`
 }
 
 // Minted reports whether the credential may be minted: the file names the
@@ -280,6 +290,17 @@ type Answer struct {
 	// Max is the most a call returns, in bytes after Select: AnswerMax
 	// unless the file raises it, AnswerLimit at most.
 	Max int `json:"max"`
+}
+
+// Address is where the source's calls go, in words: its base, or for a
+// credential that is the address itself the variable it is in, since the
+// address is the secret and the file holds none of it. Empty for a source
+// that declares no call.
+func (d *Declaration) Address() string {
+	if d.Credential != nil && d.Credential.URL {
+		return "the URL in " + d.Credential.Env
+	}
+	return d.Base
 }
 
 // Call returns the call of that name.
@@ -625,8 +646,14 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		d.Base, d.Credential = "", nil
 		return
 	}
-	if base == nil {
-		r.errf(root, "base", "missing: the address every call's path is under (https://…)")
+	// A credential that is the address is every call's address, so it
+	// takes no base beside it, and without one the file needs a base.
+	address := d.Credential != nil && d.Credential.URL
+	switch {
+	case base != nil && address:
+		r.errf(base.k, base.path, "the credential is the address every call goes to (credential.url: true), so the file names no base beside it")
+	case base == nil && !address:
+		r.errf(root, "base", "missing: the address every call's path is under (https://…), or credential.url: true where the credential is the address itself")
 	}
 	if calls == nil {
 		r.errf(root, "calls", "missing: a source is the calls it declares, or its limits command, or what it sends in (hook)")
@@ -641,7 +668,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			r.errf(e.k, e.path, "a call cannot be named %s: the word stands for every read call of a source", Read)
 		default:
 			inPath := d.Credential != nil && d.Credential.InPath
-			d.Calls = append(d.Calls, r.call(e, d.Credential != nil, inPath))
+			d.Calls = append(d.Calls, r.call(e, d.Credential != nil, inPath, address))
 		}
 	}
 	if calls.v.Kind == yaml.MappingNode && len(calls.v.Content) == 0 {
@@ -789,23 +816,82 @@ func (r *reader) command(f entry, example string) []string {
 	return out
 }
 
+// The ways a text fails to be an address calls go to, as checkAddress
+// finds them.
+type addressFault int
+
+const (
+	addressOK     addressFault = iota
+	addressNone                // no host, or no address at all
+	addressUser                // a user or password in it
+	addressQuery               // a query or a fragment
+	addressPlain               // plain http to a machine that is not this one
+	addressScheme              // a scheme but https and http
+	addressDots                // a '..', '//' or '\' in its path
+)
+
+// checkAddress holds s to what the address of calls must be: https, or
+// plain http to this machine for a stand-in, with no user, query or
+// fragment and no way up out of its path. A base in a file is held to it
+// when the file is read (reader.base), and a credential that is the
+// address when a call is made (doKeyed), since the file cannot show it.
+// The URL is s as parsed, nil where s did not parse.
+func checkAddress(s string) (*url.URL, addressFault) {
+	u, err := url.Parse(s)
+	switch {
+	case err != nil || u.Host == "" || u.Opaque != "":
+		return u, addressNone
+	case u.User != nil:
+		return u, addressUser
+	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(s, "?#"):
+		return u, addressQuery
+	case u.Scheme == "http" && !loopbackHost(u.Hostname()):
+		return u, addressPlain
+	case u.Scheme != "https" && u.Scheme != "http":
+		return u, addressScheme
+	case hasDots(u.Path) || strings.Contains(u.Path, "//") || strings.Contains(s, `\`):
+		return u, addressDots
+	}
+	return u, addressOK
+}
+
+// words says what is wrong with an address and nothing of the address
+// itself, for a credential that is one: an error may not repeat it.
+func (f addressFault) words() string {
+	switch f {
+	case addressNone:
+		return "is no address: want https://host/path"
+	case addressUser:
+		return "has a user or password in it"
+	case addressQuery:
+		return "has a query or a fragment"
+	case addressPlain:
+		return "is plain http to a machine that is not this one: a call goes over https, and plain http is for a stand-in on this machine alone"
+	case addressScheme:
+		return "is not https://"
+	case addressDots:
+		return "has a '..', '//' or '\\' in its path"
+	}
+	return "is no address"
+}
+
 // base reads the address calls are under. Anything but https is refused,
 // since the credential goes with every call; plain http is for a stand-in
 // on this machine alone. Do holds a call to that again when it connects.
 func (r *reader) base(n *yaml.Node, key, s string) string {
-	u, err := url.Parse(s)
-	switch {
-	case err != nil || u.Host == "" || u.Opaque != "":
+	u, fault := checkAddress(s)
+	switch fault {
+	case addressNone:
 		r.errf(n, key, "%q is no address: want https://host/path", s)
-	case u.User != nil:
+	case addressUser:
 		r.errf(n, key, "an address with a user or password in it: the credential is named under credential, never written here")
-	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(s, "?#"):
+	case addressQuery:
 		r.errf(n, key, "an address with a query or a fragment: a call's query is under its request")
-	case u.Scheme == "http" && !loopbackHost(u.Hostname()):
+	case addressPlain:
 		r.errf(n, key, "http:// is for a stand-in on this machine only (127.0.0.1, [::1], localhost): %s is not, so it is https:// or nothing", u.Hostname())
-	case u.Scheme != "https" && u.Scheme != "http":
+	case addressScheme:
 		r.errf(n, key, "%s:// is not https://", u.Scheme)
-	case hasDots(u.Path) || strings.Contains(u.Path, "//") || strings.Contains(s, `\`):
+	case addressDots:
 		r.errf(n, key, "the path of an address has no '..', '//' or '\\'")
 	default:
 		return strings.TrimRight(s, "/")
@@ -830,8 +916,8 @@ func hasDots(path string) bool {
 
 func (r *reader) credential(e entry) *Credential {
 	c, has := &Credential{}, false
-	var update, mint, mintCommand *entry
-	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint", "mint_command", "in_path") {
+	var update, mint, mintCommand, header, inPath *entry
+	for _, f := range r.entries(e.v, e.path, "env", "update_env", "header", "mint", "mint_command", "in_path", "url") {
 		switch f.key {
 		case "env":
 			has = true
@@ -863,10 +949,16 @@ func (r *reader) credential(e entry) *Credential {
 				c.MintCommand = nil
 			}
 		case "in_path":
+			inPath = &f
 			if v, ok := r.boolean(f.v, f.path); ok {
 				c.InPath = v
 			}
+		case "url":
+			if v, ok := r.boolean(f.v, f.path); ok {
+				c.URL = v
+			}
 		case "header":
+			header = &f
 			s, ok := r.str(f.v, f.path)
 			if !ok {
 				continue
@@ -887,6 +979,19 @@ func (r *reader) credential(e entry) *Credential {
 	}
 	if e.v.Kind == yaml.MappingNode && !has {
 		r.errf(e.v, join(e.path, "env"), "missing: the name of the variable the credential is in")
+	}
+	// A credential that is the address goes where the call goes and
+	// nowhere else: it has no header or path to be put in, no token to be
+	// minted from other variables, and one variable serves every call.
+	if c.URL {
+		for _, no := range []struct {
+			e    *entry
+			what string
+		}{{header, "sent in a header"}, {inPath, "put in a path"}, {mint, "minted"}, {update, "given a second variable for updates"}} {
+			if no.e != nil && (no.e != inPath || c.InPath) {
+				r.errf(no.e.k, no.e.path, "the credential is the address every call goes to (url: true), and is not %s", no.what)
+			}
+		}
 	}
 	// The same name twice says there are two credentials where there is one.
 	if update != nil && c.UpdateEnv != "" && c.UpdateEnv == c.Env {
@@ -978,7 +1083,11 @@ func (r *reader) mintNames(e entry) (mint, notSecret []string) {
 	return mint, notSecret
 }
 
-func (r *reader) call(e entry, credential, inPath bool) Call {
+// call reads one call of a declaration. credential says the file names a
+// credential, inPath that the service takes it in the request path, and
+// address that it is the address the call goes to (credential.url), so
+// the call has no path of its own.
+func (r *reader) call(e entry, credential, inPath, address bool) Call {
 	c := Call{Name: e.key, Answer: Answer{Max: AnswerMax}}
 	var request, build *entry
 	kind := false
@@ -1035,7 +1144,7 @@ func (r *reader) call(e entry, credential, inPath bool) Call {
 		r.errf(e.v, join(e.path, "request"), "missing: the method and the path the call sends")
 		return c
 	}
-	hasBody := r.request(&c, *request, credential, inPath)
+	hasBody := r.request(&c, *request, credential, inPath, address)
 	if build != nil && hasBody {
 		r.errf(build.v, build.path, "a call names request.body or build, never both")
 	}
@@ -1169,7 +1278,7 @@ func (r *reader) paramDefault(p Param, e entry) (json.RawMessage, bool) {
 	return raw, true
 }
 
-func (r *reader) request(c *Call, e entry, credential, inPath bool) (hasBody bool) {
+func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (hasBody bool) {
 	method, path := false, false
 	// marks checks the {name}s of a string that stands at where (a path,
 	// a query): each a parameter of the call and none optional, and the
@@ -1181,6 +1290,8 @@ func (r *reader) request(c *Call, e entry, credential, inPath bool) (hasBody boo
 			switch {
 			case m[0] == CredentialMark && where == "a path" && inPath:
 				continue
+			case m[0] == CredentialMark && address:
+				r.errf(n, key, "%s in %s: the credential is the address the call goes to (credential.url: true), and is sent nowhere else", CredentialMark, where)
 			case m[0] == CredentialMark:
 				msg := "%s in %s: a credential there is in the logs of every server on the way. It goes in the credential's header, or as a leaf of the body"
 				if where == "a path" {
@@ -1227,6 +1338,8 @@ func (r *reader) request(c *Call, e entry, credential, inPath bool) (hasBody boo
 				r.errf(f.v, f.path, "%q has a '.' or '..' segment, which leaves the source's base", s)
 			case strings.ContainsAny(s, "?#\\") || strings.ContainsFunc(s, func(c rune) bool { return c <= ' ' || c == 0x7f }):
 				r.errf(f.v, f.path, "%q: a path has no '?', '#', '\\' or space (a query is under query)", s)
+			case address && s != "/":
+				r.errf(f.v, f.path, "%q: the credential is the address the call goes to (credential.url: true), so the call has no path of its own: leave it out, or write /", s)
 			case marks(f.v, f.path, s, "a path"):
 				c.Request.Path = s
 			}
@@ -1240,7 +1353,7 @@ func (r *reader) request(c *Call, e entry, credential, inPath bool) (hasBody boo
 			}
 		case "body":
 			hasBody = true
-			c.Request.Body = r.body(c, f.v, f.path, credential)
+			c.Request.Body = r.body(c, f.v, f.path, credential, address)
 			// Left out of a mapping or a list, an optional parameter that is
 			// not given leaves a body. As the whole body it leaves none to
 			// send, and what went instead was null.
@@ -1257,7 +1370,9 @@ func (r *reader) request(c *Call, e entry, credential, inPath bool) (hasBody boo
 	if !method {
 		r.errf(e.v, join(e.path, "method"), "missing: %s", strings.Join(methods, ", "))
 	}
-	if !path {
+	if !path && address {
+		c.Request.Path = "/"
+	} else if !path {
 		r.errf(e.v, join(e.path, "path"), "missing: the path under the source's base")
 	}
 	return hasBody
@@ -1293,7 +1408,7 @@ func (r *reader) pairs(n *yaml.Node, key string) []entry {
 // body reads a request's body into what encoding/json sends: maps, lists
 // and scalars. Its {name}s are checked here, so that Do finds nothing in a
 // body it cannot fill.
-func (r *reader) body(c *Call, n *yaml.Node, key string, credential bool) any {
+func (r *reader) body(c *Call, n *yaml.Node, key string, credential, address bool) any {
 	switch n.Kind {
 	case yaml.MappingNode:
 		out := map[string]any{}
@@ -1309,14 +1424,14 @@ func (r *reader) body(c *Call, n *yaml.Node, key string, credential bool) any {
 				if _, twice := out[k.Value]; twice {
 					r.errf(k, p, "given twice")
 				}
-				out[k.Value] = r.body(c, v, p, credential)
+				out[k.Value] = r.body(c, v, p, credential, address)
 			}
 		}
 		return out
 	case yaml.SequenceNode:
 		out := make([]any, 0, len(n.Content))
 		for _, v := range n.Content {
-			out = append(out, r.body(c, v, key, credential))
+			out = append(out, r.body(c, v, key, credential, address))
 		}
 		return out
 	case yaml.ScalarNode:
@@ -1330,6 +1445,8 @@ func (r *reader) body(c *Call, n *yaml.Node, key string, credential bool) any {
 		for _, m := range mark.FindAllStringSubmatch(n.Value, -1) {
 			p, declared := c.param(m[1])
 			switch {
+			case m[0] == CredentialMark && address:
+				r.errf(n, key, "%s in a body: the credential is the address the call goes to (credential.url: true), and is sent nowhere else", CredentialMark)
 			case m[0] == CredentialMark && n.Value != m[0]:
 				r.errf(n, key, "%s is a whole value of a body, not a part of one", CredentialMark)
 			case m[0] == CredentialMark && !credential:

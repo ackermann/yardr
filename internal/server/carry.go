@@ -227,7 +227,7 @@ func (c *carrier) carryLoose(ctx context.Context, rec *store.Carry, run *store.A
 	if src.Text != carried.Text {
 		what := "another declaration"
 		if d, err := src.Declaration(); err == nil {
-			what = fmt.Sprintf("another declaration (%s under %s)", plural(len(d.Calls), "call"), d.Base)
+			what = fmt.Sprintf("another declaration (%s under %s)", plural(len(d.Calls), "call"), d.Address())
 		}
 		return "", failWords(fmt.Sprintf("source %s stands with %s than the one approved; nothing was written", carried.Name, what), terminal)
 	}
@@ -250,7 +250,7 @@ func (c *carrier) carryLoose(ctx context.Context, rec *store.Carry, run *store.A
 	if len(d.Calls) == 0 {
 		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), ""
 	}
-	return fmt.Sprintf("source %s saved: %s under %s", d.Name, plural(len(d.Calls), "call"), d.Base), ""
+	return fmt.Sprintf("source %s saved: %s under %s", d.Name, plural(len(d.Calls), "call"), d.Address()), ""
 }
 
 func plural(n int, word string) string {
