@@ -401,8 +401,13 @@ func TestHomeOverview(t *testing.T) {
 	// The rows: the Running row names the count and the oldest age, the
 	// Yard row the open, working and held counts, the Closed row the count
 	// alone, each linking out.
-	if want := `<li><a href="/sessions">Running 2 · oldest ` + h.Running[0].Age + ` ›</a></li>`; !strings.Contains(text, want) {
-		t.Errorf("the rows lack %q", want)
+	// The page renders a fresh snapshot, so the age can round up since the
+	// JSON read.
+	runningRow := `<li><a href="/sessions">Running 2 · oldest `
+	if _, tail, ok := strings.Cut(text, runningRow); !ok {
+		t.Errorf("the rows lack %q", runningRow)
+	} else if runningAge, _, ok := strings.Cut(tail, ` ›</a></li>`); !ok || runningAge == "" {
+		t.Errorf("the Running row has no age: %q", tail)
 	}
 	for _, want := range []string{
 		`<li><a href="/flows?panel=1">Yard 5 · working 2 · held 1 ›</a></li>`,
