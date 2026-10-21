@@ -309,6 +309,18 @@ func TestYardTestSelects(t *testing.T) {
 		{"what no test reads", []string{".github/a.yml", ".github/b.yml"}, []string{
 			pre + ".github/a.yml and 1 more under .github/ changed: no test reads it",
 			pre + "no package changed since " + short + "; no tests to run"}},
+		// AGENTS.md is the map of the repository for agents, and CLAUDE.md
+		// imports it: no test reads either. A change to them alone tests
+		// nothing, and the change that adds a package, which the depot's rule
+		// has update the map, tests that package and no other (not
+		// everything, as a file no row knows does).
+		{"the map for agents", []string{"AGENTS.md", "CLAUDE.md"}, []string{
+			pre + "AGENTS.md changed: no test reads it",
+			pre + "CLAUDE.md changed: no test reads it",
+			pre + "no package changed since " + short + "; no tests to run"}},
+		{"a new package and the map that lists it", []string{"AGENTS.md", "newpkg/p.go"}, []string{
+			pre + "AGENTS.md changed: no test reads it",
+			tested + " m.test/m/newpkg"}},
 		// A file's row is that file only: .yardr/test is not a prefix of
 		// .yardr/tests.md, which no row knows.
 		{"the script itself", []string{".yardr/test"}, []string{

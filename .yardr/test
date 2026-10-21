@@ -1221,6 +1221,7 @@ docs/                          .
 .yardr/depot.md                -
 .yardr/roles/                  -
 AGENTS.md                      -
+CLAUDE.md                      -
 .github/                       -
 .github/workflows/release.yml  contrib/release
 .gitignore                     -
