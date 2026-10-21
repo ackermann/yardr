@@ -74,7 +74,16 @@ each time it is needed and hands back only what it read with it.
 `tab close` herdr no longer knows the agent. A group with `keep: true`
 in its config is the exception in `teardown`: `Stop` is skipped, the
 pane and its agent stay alive for inspection, and the session is still
-marked stopped.
+marked stopped. No group on this yard sets `keep` today (`yardr group
+list --json`).
+
+`teardown` reads `Unstopped`, every ended session not yet stopped,
+whatever its runner (herdr, exec or manual), so every session that ends
+passes through `MarkStopped` once. `Unstopped` and `ClosedWithWorkspace`
+read the store's *pending index* (`bSessPend`), not every session:
+`Session.pending` (`internal/store/routing.go`) is the condition, and
+`putSession` puts a session in or out of the index on each write. A
+session that has never been pending is not looked at on a pass.
 
 Each of these store calls is one bbolt transaction (`Store.write`).
 `SetHandle` and `LogDispatch` are two separate ones. `changeSession`
@@ -141,11 +150,13 @@ one total per session, declared in each harness's file.
   (`4b176be6…`), 223 assistant lines belonged to 121 messages. Adding up
   every line gives 159,912 output tokens; counting each `message.id`
   once gives 74,962. **Adding up every line counts most turns two or
-  three times.**
+  three times.** Each assistant line has a top-level `timestamp`
+  (RFC 3339).
 - The last line of a session that ended is `{"type":"cost-state", …}`.
   Its `modelUsage` holds Claude Code's own totals for each model:
   `inputTokens`, `outputTokens`, `cacheReadInputTokens`,
-  `cacheCreationInputTokens`, `thinkingTokens`, `costUSD`. Of the 80
+  `cacheCreationInputTokens`, `thinkingTokens`, `costUSD`. It has no
+  `timestamp`, only the session's `startTime`. Of the 80
   most recent transcripts of yard worktrees, 78 had exactly one such
   line. The two without one were the sessions still running (this one,
   and yardr-tx11's).
@@ -169,14 +180,22 @@ one total per session, declared in each harness's file.
 
 - `event_msg` lines whose `payload.type` is `token_count` carry
   `payload.info.total_token_usage`, a running total for the session,
-  and `last_token_usage` for the latest call. In the review session of
-  yardr-mnc8 (`01a16016…`, 27 calls), adding up the 27
-  `last_token_usage` values gives exactly the last
-  `total_token_usage`: 2,879,571 input, of which 2,709,248 cached, and
-  25,036 output. The last line is therefore the session's total, at any
-  moment, with no end-of-session line needed.
+  and `last_token_usage` for the latest call. The review session of
+  yardr-mnc8 (`01a16016…`) was first read while it ran, after 27 calls:
+  the 27 `last_token_usage` values added up to exactly the
+  `total_token_usage` of the 27th line (2,879,571 input, of which
+  2,709,248 cached, and 25,036 output). Read again after it ended, the
+  file holds 76 calls, and the 76 values add up to exactly the last
+  line: 11,714,314 input, of which 11,487,872 cached, and 45,824
+  output. The last line is therefore the session's total at any moment,
+  with no end-of-session line needed.
+- Every line has a top-level `timestamp` (RFC 3339). The yard ended
+  that session at 20:34:17.097 (its `ended_at`), and its last
+  `token_count` line is stamped 20:34:17.164, 67 ms later: the call
+  that ran `yardr bead done` was recorded after the yard saw the bead
+  move.
 - `input_tokens` *includes* `cached_input_tokens`, and `total_tokens`
-  is input plus output (2,879,571 + 25,036 = 2,904,607).
+  is input plus output (11,714,314 + 45,824 = 11,760,138).
   `reasoning_output_tokens` is part of `output_tokens`.
   `cache_write_input_tokens` was 0 on every line.
 - The same lines carry `rate_limits` (`used_percent` of the 300-minute
@@ -205,6 +224,8 @@ one total per session, declared in each harness's file.
   added to them.
 - No line holds a running total. `session.end` carries only
   `exit_reason` and `uptime_ms`. Muse's count is the sum of the lines.
+  Every line has `recorded_at`, a Unix time in microseconds
+  (1792616839253217 is 21 Oct 21:07:19 UTC).
 - `cached_tokens` is never more than `input_tokens`. yardr-58xw's
   builder session: 29,069,759 input, of which 28,600,326 cached. The
   cached tokens are read here as part of the input, as Codex's are; no
@@ -243,9 +264,11 @@ number that adds them in is mostly cache reads.
 ## 3. The proposal
 
 The count is read **once per session, after the yard has stopped it**,
-from the harness's own transcript. Each harness file declares where its
-count is, in a `usage:` key next to `context:`, so no Go code is
-written for any one harness. The harness's session id is recorded on the
+from the harness's own transcript. Every session that started an agent
+is marked due at its stop, through the store's pending index, and ends
+with exactly one result, counted or missing. Each harness file declares
+where its count is, in a `usage:` key next to `context:`, so no Go code
+is written for any one harness. The harness's session id is recorded on the
 handle while the session runs, because herdr forgets it at teardown. The
 reading is kept on the session's handle and logged as one
 `session_usage` event, both in one store transaction; for a crew
@@ -269,25 +292,49 @@ transcripts for tokens during the session.
   `teardown` asks once more just before `Stop` when the handle still has
   none. Because the id is on the stored handle, a daemon that replaces
   itself in between finds it there.
-- **The count, after the session is stopped.** After `MarkStopped`,
-  the session waits with no `usage` on its handle. On each later pass
-  (`d.Interval` ticks and committed writes), `Dispatcher.usage` reads
-  every stopped session that has an `agent_session` and no `usage`. A
-  process that has exited has written its last line, so one read is
-  enough. Claude writes `cost-state` as it exits, a moment after the tab
-  closes, so a Claude session whose file does not have that line yet is
-  read again on the next pass. The result is written by one store call,
-  `RecordUsage` (3.2), which sets `usage` on the handle and logs the
-  event in a single transaction.
+- **Every agent session is marked due at its stop.** For a session of
+  the herdr runner whose handle is not empty (an agent was started; a
+  start that failed before that has nothing to count), `teardown`
+  writes, with the last `SetHandle` before `MarkStopped`, a `count_due`
+  entry on the handle:
+  `{"stopped_at": <now>}`, plus `"until": <time>` for a kept session
+  (below). It is written whether or not the handle has an
+  `agent_session`. `Session.pending` gains a third condition, *stopped
+  with a `count_due` on its handle*, so the session enters the pending
+  index that `Unstopped` already reads, and a new store listing,
+  `Uncounted`, reads it there. If the daemon dies between the
+  `SetHandle` and `MarkStopped`, the session is still unstopped, and the
+  next pass writes the same entry again: `until` is worked out from the
+  session's `EndedAt`, so it does not change. Sessions stopped before
+  this lands have no `count_due`, are never pending for it, and are not
+  counted.
+- **The count, after the session is stopped.** On each later pass
+  (`d.Interval` ticks and committed writes), `Dispatcher.usage` takes
+  every session `Uncounted` lists and ends it with one result. One
+  store call, `RecordUsage` (3.2), sets `usage` on the handle, removes
+  `count_due` (which takes the session out of the index) and logs the
+  event, in a single transaction. A process that has exited has written
+  its last line, so one read is enough. Claude writes `cost-state` as it
+  exits, a moment after the tab closes, so a Claude session whose file
+  does not have that line yet is read again on the next pass.
 - **When the count is not there.** A source declares its readings in
   order (3.3). The first is the harness's own total. If it is still
-  missing 10 minutes after `MarkStopped` (a Claude process that was
-  killed writes no `cost-state`), the next declared reading is used,
-  and the result is kept with `partial: true`. If the file is gone, or
-  the kind has no `usage:`, the result is `{missing: "<why>"}`: `no
-  session id`, `no file`, `no usage line`, or `kind declares no usage`.
-  Every session ends with exactly one result, so the report can say how
-  many it could not count.
+  missing 10 minutes after `count_due.stopped_at` (a Claude process
+  that was killed writes no `cost-state`), the next declared reading is
+  used, and the result is kept with `partial: true`. Otherwise the
+  result is `{missing: "<why>"}`, written on the first pass that finds
+  the reason:
+  - `no session id`: the handle has no `agent_session`. Herdr gave none
+    while the session ran, and none at the last ask in `teardown`, so
+    no later pass can find one. With the `workspace` match of 3.3
+    (open question 2 (a)), a kind that declares it is matched by its
+    worktree first, and only a session that matches no file reads
+    `no session id`. Without the match, every Muse session reads it.
+  - `no file`: the id names no file under the harness's home.
+  - `no usage line`: the file has no line any reading declares.
+  - `kind declares no usage`: the harness file has no `usage:`.
+  Every agent session ends with exactly one result, so the report can
+  say how many it could not count.
 - **Rotation and compaction.** Claude Code deletes transcripts after
   `cleanupPeriodDays` (30 by default). A count read within minutes of
   the end never sees that happen. Compaction appends to the same file;
@@ -315,21 +362,37 @@ transcripts for tokens during the session.
   shaped one: crew members are tied to no bead (glossary). A crew
   session runs until it is rotated, so its count arrives at rotation.
   The live context percentage that exists today stays as it is.
-- **Sessions with nothing to read.** Manual sessions and exec runners
-  have no herdr agent, and so no id and no count. They get `missing: no
-  session id`.
-- **A `keep: true` group** leaves its agent running for inspection.
-  The amount this design counts is the **yard-stop snapshot**: what the
-  session had spent when the yard marked it stopped. The work the yard
-  asked of the session ended there; whatever a person does in a kept
-  pane afterwards is not the bead's. The handle gets `kept: true` from
-  `teardown`, and the reading carries it as well. Codex's last
-  `token_count` and Muse's sum are complete for the work up to that
-  moment, so their reading is not marked short. Claude writes no
-  `cost-state` until its process exits, so a kept Claude session falls
-  back after the 10 minutes to its message lines and reads `partial`.
-  What `kept` changes in the report is nothing more than the `--json`
-  field; `partial` is what marks a count as short.
+- **Sessions that run no agent.** A manual group's session is a person
+  working the bead, and an exec runner's session is a script; neither
+  has a harness or a transcript. `teardown` writes no `count_due` for
+  them, so they are never pending for a count, log no `session_usage`,
+  and are not among the UNCOUNTED of 3.4. Counting them as missing would
+  put `≥` on every cell of a manual stage for tokens that were never
+  the yard's to count. A script that calls a model itself spends tokens
+  the yard cannot see; that is left out (section 4).
+- **A `keep: true` group** leaves its agent running for inspection. The
+  amount this design counts for it is what the session spent **up to a
+  cutoff fixed at its stop**: `until`, two minutes (`keptGrace`) after
+  the session's `EndedAt`. The work the yard asked of the session ended
+  when the bead moved; whatever a person does in the kept pane later is
+  not the bead's. The two minutes are there because the call that moved
+  the bead is recorded after the move: the yardr-mnc8 review's last
+  `token_count` line is 67 ms after its `ended_at` (section 2), and an
+  agent left running finishes the turn it was in with a last answer.
+  A reading then uses only lines whose own time (`at`, 3.3) is at or
+  before `until`, however late the read happens, so usage a person
+  causes after the cutoff is never counted, and a read on a later pass,
+  or by a replaced daemon, gives the same amount. A reading that
+  declares no `at` is skipped for a kept session, since it could hold
+  later work. So Codex reads its last `token_count` up to `until`, and
+  Muse adds its records up to `until`, and neither is short. Claude's
+  `cost-state` has no time and is written only when the process exits,
+  however long after, so a kept Claude session uses its fallback (its
+  message lines up to `until`) at once and reads `partial`. The reading
+  carries `kept: true`; `partial` is still what marks a count as short.
+  Anything a person types within the two minutes is counted to the
+  bead; no group keeps today, and two minutes is the price of not
+  cutting off the bead's own last call.
 
 ### 3.2 What is stored, and where (question 2)
 
@@ -352,8 +415,11 @@ call, `RecordUsage(ctx, sessionID, usage)`. It is the daemon's alone
 the two writes are one transaction:
 
 1. **On the session handle**, under the key `usage`, next to the
-   `agent_session` recorded earlier. No migration: the handle is a free
-   map, and `yardr session list --all --json` shows it.
+   `agent_session` recorded earlier, and with `count_due` removed in the
+   same write, so the session leaves the pending index. No migration:
+   the handle is a free map, `putSession` already moves a session in or
+   out of the index when `pending` changes, and `yardr session list
+   --all --json` shows the handle.
 2. **As an event**, `session_usage`, logged for the session's bead
    through the `wtx`'s `event` (one more entry in `DispatchKinds`), with
    data `{session, group, stage, kind, usage}`. The route report reads
@@ -362,7 +428,8 @@ the two writes are one transaction:
 If the daemon dies before the transaction commits, neither write is
 there and the session is read again on the next pass. If it dies after,
 both are there. `RecordUsage` does nothing when the handle already has a
-`usage`, so a repeated call logs no second event.
+`usage` (and so no `count_due`), so a repeated call logs no second
+event.
 
 **A crew session** keeps it in one place: the `crew_usage` event, with
 no bead and data `{member, user, kind, agent_session, usage}`. The crew
@@ -384,7 +451,7 @@ beyond that is open question 3.
 
 `ContextSource` already does most of the work: it finds lines of a
 type, follows a dotted path to an object, and adds up named fields from
-it. `UsageSource` is the same thing generalised in four small ways:
+it. `UsageSource` is the same thing generalised in five small ways:
 
 1. **`type_field` may be a dotted path**, as `usage` already is. Codex
    and Muse keep the type of a usage line in a nested field
@@ -403,12 +470,17 @@ it. `UsageSource` is the same thing generalised in four small ways:
    `cache_in_input: true` means the harness's input includes its cache
    reads, and they are subtracted from it. A field that is not named
    reads as 0.
+5. **`at`, the line's own time**, a path like the others. A string is
+   read as RFC 3339; a number as Unix time in the unit `at_unit` names
+   (`s`, `ms` or `us`). It is used only when the count has a cutoff (a
+   kept session, 3.1): lines after the cutoff are left out, and a
+   reading with no `at` is skipped.
 
 `usage:` is a list of these readings, tried in order. The first that
 finds a line is the result. An entry marked `partial: true` produces a
 `partial` count. The extended `validate` requires a `model:` (as for
-`context:`), at least one of the four fields, and a non-empty `key` when
-`key` is given.
+`context:`), at least one of the four fields, a non-empty `key` when
+`key` is given, and a known `at_unit` when `at_unit` is given.
 
 ```yaml
 # claude.yaml
@@ -421,6 +493,7 @@ usage:
     output: outputTokens
     cache_read: cacheReadInputTokens
     cache_write: cacheCreationInputTokens
+    # no at: cost-state has no time, so a kept session skips it.
   # A process that was killed writes no cost-state. Each message's lines
   # repeat its usage, so each message.id counts once. Lower than
   # cost-state: no side calls, and less thinking.
@@ -429,6 +502,7 @@ usage:
     read: sum
     key: message.id
     partial: true
+    at: timestamp
     input: input_tokens
     output: output_tokens
     cache_read: cache_read_input_tokens
@@ -439,6 +513,7 @@ usage:
   - type_field: payload.type
     type: token_count
     usage: payload.info.total_token_usage
+    at: timestamp
     input: input_tokens
     cache_in_input: true
     cache_read: cached_input_tokens
@@ -453,6 +528,8 @@ usage:
     type: goal_usage_attribution
     usage: payload.event.record.quantity
     read: sum
+    at: recorded_at
+    at_unit: us
     input: input_tokens
     cache_in_input: true
     cache_read: cached_tokens
@@ -619,6 +696,9 @@ the collector, and the yard's numbers do not depend on it.
   `thinkingTokens`), and Muse (reasoning never reached output in 65,841
   records, section 2). Muse's documentation does not say so, so build
   bead 1 pins it with a test on a real record.
+- **Tokens spent by an exec runner's script.** A script that calls a
+  model itself writes no transcript the yard knows of. Exec sessions
+  are not counted and not shown as uncounted (3.1).
 - **For a later enterprise layer, only named here:** budgets per person
   or team that stop work when exceeded; dollar pricing for chargeback
   (Gas City's `internal/pricing` is that); rollups across linked yards;
@@ -679,8 +759,9 @@ In the order they would land. Each is one session's work.
 1. **Harness files declare where a session's token count is (`usage:`).**
    Goal: `agents.UsageSource` as in 3.3 (dotted `type_field`, `*` in the
    path, `read: last|sum` with `key`, the four fields,
-   `cache_in_input`, `partial`), `Harness.Usage []UsageSource`,
-   `validate`, and a `UsageIn` that turns one line into the four counts.
+   `cache_in_input`, `partial`, `at` with `at_unit`), `Harness.Usage
+   []UsageSource`, `validate`, and a `UsageIn` that turns one line into
+   the four counts and its time.
    The `usage:` entries go into `claude.yaml`, `codex.yaml` and
    `muse.yaml`, with comments saying where each was read. Where to look:
    `internal/agents/harness.go` (`ContextSource`, `UsageIn`,
@@ -691,43 +772,57 @@ In the order they would land. Each is one session's work.
    `token_count` with the cache subtracted; Muse's sum of records); a
    Muse record with reasoning tokens (the `output_tokens` 435,
    `reasoning_tokens` 337 record of `01a15ffe…`) reads as output 435, so
-   a change that starts adding reasoning on top fails the test;
-   `validate` refuses a `usage:` with no `model:` and one with no
-   fields; `ContextSource` behaves exactly as before.
+   a change that starts adding reasoning on top fails the test; `at`
+   reads Claude's and Codex's `timestamp` and Muse's `recorded_at`
+   (1792616839253217 µs is 21:07:19.253217 UTC) to the same instant;
+   `validate` refuses a `usage:` with no `model:`, one with no fields,
+   and an unknown `at_unit`; `ContextSource` behaves exactly as before.
 2. **The runner reads a session's id and its count.** Goal:
    `Herdr.SessionID(ctx, handle)`, the id `sessionKind` reads, on its own
    and whether or not the kind names a model; and `Herdr.Usage(ctx,
    handle)`, which reads the file named by `handle["agent_session"]` and
    returns the four counts with `partial`, or why it found none. It
    tries the kind's readings in order; a first reading that finds
-   nothing is reported as "not yet", so the caller can wait. Where to
+   nothing is reported as "not yet", so the caller can wait. When
+   `handle.count_due.until` is set, it reads only lines whose `at` is at
+   or before it and skips readings without `at`. Where to
    look: `internal/runner/context.go`, `model.go`. Depends on 1. Done
    when: tests with an `AgentHomes` temp directory read each kind's
    fixture file; `SessionID` returns the id for a pane whose file has no
    model line yet; a Claude file without `cost-state` reads "not yet",
    and reads as `partial` when the caller allows the fallback; a missing
-   file gives `no file`.
+   file gives `no file`; with an `until`, a Codex fixture with a
+   `token_count` line after it reads the line before, a Muse fixture
+   adds only the records before it, and a Claude fixture with
+   `cost-state` reads its message lines up to `until` as `partial`.
 3. **The store records a session's count in one write.** Goal:
-   `RecordUsage(ctx, sessionID, usage)` on `store.API`, daemon-only,
-   which in one `changeSession` sets `handle.usage` and logs
-   `session_usage` (added to `DispatchKinds`) for the session's bead,
-   and does nothing when the handle already has a `usage`. `go generate
-   ./internal/rpc` for the client. Where to look:
+   `Session.pending` also holds for a stopped session whose handle has
+   `count_due`, and a new listing `Uncounted(ctx)` reads those through
+   the pending index; `RecordUsage(ctx, sessionID, usage)` on
+   `store.API`, daemon-only, which in one `changeSession` sets
+   `handle.usage`, removes `count_due` and logs `session_usage` (added
+   to `DispatchKinds`) for the session's bead, and does nothing when the
+   handle already has a `usage`. `go generate ./internal/rpc` for the
+   client. Where to look:
    `internal/store/routing.go` (`changeSession`, `SetHandle`),
    `internal/store/events.go`, `internal/store/api.go`. Done when: a
-   store test shows the handle and the event after one call, nothing new
-   after a second; a call whose transaction fails (a session id that is
+   store test shows a stopped session with `count_due` listed by
+   `Uncounted` and read through the index (`pendingReads`, as the
+   `Unstopped` tests count it), one without `count_due` not listed, and
+   after one `RecordUsage` the handle, the event and the session gone
+   from `Uncounted`; nothing new after a second call; a call whose transaction fails (a session id that is
    not there) leaves no event; a call from a pane is refused as
    `SetHandle`'s is.
 4. **The dispatcher records each session's id and, after it stops, its
    count.** Goal: `Dispatcher.agentSession` writes `agent_session` on
    the handle of every running session that lacks one, within
    `modelWindow`, independent of the model check, and `teardown` asks
-   once more before `Stop` and sets `kept: true` on a `keep: true`
-   group's handle; `Dispatcher.usage` reads stopped sessions that have
-   an id and no `usage`, waits 10 minutes for a missing first reading,
-   then falls back, and calls `RecordUsage`, with `missing` when nothing
-   was found. Where to look: `internal/dispatch/dispatch.go`
+   once more before `Stop` and, for a herdr session with a non-empty
+   handle, writes `count_due` (`stopped_at`, and `until` = `EndedAt` +
+   `keptGrace` for a `keep: true` group) in the same `SetHandle`;
+   `Dispatcher.usage` reads every session `Uncounted` lists, waits 10
+   minutes for a missing first reading, then falls back, and calls
+   `RecordUsage` with the count or with `missing` and its reason. Where to look: `internal/dispatch/dispatch.go`
    (`teardown`), `model.go`, `crewcontext.go` (the `ContextReader`
    interface pattern). Depends on 2 and 3. Done when: dispatch tests
    with a stand-in runner show one `session_usage` per session; a
@@ -735,8 +830,14 @@ In the order they would land. Each is one session's work.
    the handle, and after a new `Dispatcher` is made on the same store
    (the daemon replaced) and the stand-in no longer knows the agent, the
    count is still read by that id; the 10-minute wait is measured on
-   the dispatcher's own clock (`d.now`); a `keep: true` session is read
-   once, at its stop, and carries `kept`.
+   the dispatcher's own clock (`d.now`); a herdr session with no id
+   (the stand-in gives none, as herdr does for Muse) logs one
+   `session_usage` with `missing: no session id` on the first pass after
+   its stop; a manual and an exec session log none and are never listed
+   by `Uncounted`; a `keep: true` session whose stand-in transcript gains
+   a usage line after `MarkStopped` (stamped after `until`) and before
+   the read is counted without that line, carries `kept`, and reads the
+   same after a new `Dispatcher` on the same store.
 5. **Crew sessions are counted to their member.** Goal:
    `agentSession` also writes the crew handle; `CrewStoppedFor` and
    `CrewGoneFor` append `{agent_session, kind, started_at, stopped_at}`
