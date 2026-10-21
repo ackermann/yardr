@@ -220,7 +220,8 @@ wants the machinery is.
 draws the workspace · yard where yardr is built as a railway, live: each
 repo a station, each issue a wagon." and the link to signalbox.yardr.dev.
 signalbox's own railway words (station, wagon, shunter) describe a drawing
-of a railway, so they stay.
+of a railway, so they stay. The picture is the railway imagery the design system
+asks for, not a background; section 3.6 says how it meets the rules.
 
 **Footer.** One row of links: How it works (`/how`), Packs (`/packs`), Run
 it yourself (`/self-host`), The edge's key (`/edge`); then the
@@ -256,7 +257,7 @@ shown on a page is open question 2.
 | depot | 24 | repo · depot | a depot is a git repository or a plain directory; where a page means both, "repo or folder · depot" |
 | yard | 30 | workspace · yard | one installation of yardr; the plain word is open question 6 |
 | crew, crew member | 18 | agents · crew, agent · crew member | the always-on agents of a yard |
-| assembly | 6 | merge queue · assembly | the group that tests an approved change and merges it |
+| assembly | 6 | merge queue · assembly | the group that tests an approved change and merges it; the plain word is open question 6 |
 | line | in the glossary and the flow page | pipeline · line | what an issue travels through in one repo |
 | train | glossary, packs | grouped change · train | an issue whose sub-issues merge as one |
 | wagon (the bead) | glossary, packs | sub-issue · wagon | a child of a train |
@@ -306,8 +307,9 @@ pages meet it. "Web scale" refers to open question 4.
 | Hack 700 only in the lockup; never retype the lockup | `<h1>yardr</h1>` retyped in monospace 700 at 11rem | the fixed lockup file; no text set in Hack |
 | No display type, no all-caps labels | section headings in mono capitals, tracked 0.08em, on every page | section headings in the section role, sentence case, Plex Sans 600, primary text colour |
 | Five type roles (title, section, label, body, meta) | ad hoc sizes per page (`clamp(1.2rem, 3.2vw, 1.6rem)`, `0.85rem`, `0.95rem`) | the same five roles and weights, at the web scale: title 36/44, section 22/30, label and body 17/28, meta 15/24, code 15/24 |
-| Spacing scale 2/4/6/8/12/16/20/24 | rem values off the scale (`0.35rem`, `0.9rem`, `1.75rem`) | every gap from the scale; the larger gaps between sections as multiples of 24 at the web scale (48, 56, 72) |
-| Flat surfaces; no gradients, textures, images or blur in the UI | flat, except the ram | flat, except the ram, kept by mckean's explicit ask: it is decoration in the hero, not a surface, and is recorded here as the one exception |
+| Spacing scale 2/4/6/8/12/16/20/24 | rem values off the scale (`0.35rem`, `0.9rem`, `1.75rem`) | every gap from the scale; the larger gaps between sections as multiples of 24 at the web scale (48 between sections, 72 above and below the hero); the mockup uses only these and the scale's steps |
+| Flat surfaces; no gradients, textures, images or blur in the UI (`readme.md:100`, under Backgrounds) | flat, except the ram | flat, except the ram, kept by mckean's explicit ask: it sits behind the hero as a background would, so it is recorded here as the one exception to this rule |
+| Imagery stays in the railway family: railway drawings, "signalbox draws the yard as track, platforms and wagons" (`readme.md:118`) | the signalbox picture | the signalbox picture stays, as the railway imagery this rule names: it is content in the page's flow, a picture of the product at work, not a background or a surface, so the Backgrounds rule above does not reach it |
 | Only decision items are cards | the runner cards on `/`; the pack list on `/packs` is bordered boxes | rows divided by hairlines (the steps on `/`, the packs on `/packs`); the signalbox picture keeps a 1px subtle border and the 8px radius as an image, not a card |
 | Radii 4 / 6 / 8 / full | 4, 5, 6 and 999 mixed (`Command.astro` uses 5) | 4 for code, 6 for the button and controls, 8 for the picture and code panels, full for the pack tag chips |
 | Focus: 2px rust outline, 1px offset, keyboard only | browser default | `:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px }` once, in `global.css` |
@@ -401,11 +403,20 @@ default and light opt-in; the site follows the visitor's system setting.
 - (b) Always dark, as the app is. Costs the light-system reader a dark page.
 - I would take (a).
 
-**6. The plain word for "yard".**
+**6. The plain words for "yard" and "assembly".** First "yard":
 - (a) "workspace · yard". Common in tools a reader knows; slightly vague.
 - (b) "your yardr · yard". Says what it is, reads awkwardly in a sentence
   ("a hosted yardr").
 - (c) Keep "yard" and explain it at first use, like yardmaster.
+- I would take (a); the mockups use it.
+
+Then "assembly", the starter pack's group that tests an approved change
+on exactly what will land and lands it (the `/how` glossary):
+- (a) "merge queue · assembly". The name a reader knows from GitHub and
+  GitLab for this job; it says that changes wait their turn, which an
+  assembly does, but it is a feature's name rather than an everyday word.
+- (b) "merge step · assembly". Plainer, and matches "How an issue
+  moves", whose rows are steps; it says nothing of testing.
 - I would take (a); the mockups use it.
 
 **7. The large mark.** The lockup files and `yardr-mark.svg` carry the
@@ -491,7 +502,9 @@ border, 6px radius). Where to look: `src/pages/packs/index.astro`,
 `src/components/PackTags.astro`, `src/pages/packs/[name].astro`. Done
 when: the filter and search work as today (chips narrow, search matches
 name, line and tag), with the new look in both themes; the gate passes.
-Depends on 1; can land before or after 3 and 4.
+Depends on 1 and 3: bead 3 adds the word pairs to `/packs` and
+`/packs/<name>`, and this bead edits the same two files, so it lands
+after that one; it can land before or after 4.
 
 Beads 1 to 5 are each one session. If open questions 1 and 4 are answered
 (b) or (c), bead 0 is dropped and beads 1 and 3 follow the answer.

@@ -52,7 +52,7 @@ code { font:var(--type-code); padding:2px 6px; border-radius:4px; background:var
 /* The plain word first, the yard's own word beside it, quieter. */
 .rw { color:var(--text-secondary); }
 
-.hero { position:relative; overflow:hidden; padding:72px 0 64px; border-bottom:1px solid var(--border-subtle); }
+.hero { position:relative; overflow:hidden; padding:72px 0; border-bottom:1px solid var(--border-subtle); }
 .hero .wrap { position:relative; }
 /* The big ram stays as decoration (mckean, 21 Oct): yardr-mark.svg as a mask
    over the text colour, so one file serves both themes. */
@@ -61,14 +61,14 @@ code { font:var(--type-code); padding:2px 6px; border-radius:4px; background:var
   -webkit-mask:url(yardr-mark.svg) center / contain no-repeat; mask:url(yardr-mark.svg) center / contain no-repeat; }
 .lockup { display:block; width:240px; aspect-ratio:210.6 / 76; background:var(--lockup) left center / contain no-repeat; margin-bottom:48px; }
 h1 { font:var(--type-title); margin:0 0 20px; max-width:620px; }
-.lede { margin:0 0 32px; max-width:620px; color:var(--text-primary); }
+.lede { margin:0 0 24px; max-width:620px; color:var(--text-primary); }
 .invite { display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px; }
 .button { display:inline-flex; align-items:center; height:40px; padding:0 20px; border-radius:6px;
   background:var(--button-primary); color:var(--text-on-accent); font:var(--type-label); text-decoration:none; }
 .button:hover { background:var(--button-primary-hover); color:var(--text-on-accent); }
 .invite p { margin:0; font:var(--type-meta); color:var(--text-secondary); }
 
-section, footer { padding:56px 0; }
+section, footer { padding:48px 0; }
 section + section, footer { border-top:1px solid var(--border-subtle); }
 h2 { font:var(--type-section); margin:0 0 20px; }
 p { margin:0 0 16px; }
