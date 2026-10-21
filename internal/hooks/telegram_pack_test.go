@@ -819,6 +819,7 @@ type telegramFiles struct {
 
 	mu   sync.Mutex
 	seen []string
+	sent int
 }
 
 func (s *telegramFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -832,10 +833,18 @@ func (s *telegramFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &in)
+		if in.FileID == "size_echo" {
+			_, _ = fmt.Fprintf(w, `{"ok":true,"result":{"file_path":"photos/x.jpg","file_size":%q}}`, s.token)
+			return
+		}
 		data, ok := s.files[in.FileID]
 		if !ok {
 			w.WriteHeader(http.StatusBadRequest)
-			_, _ = io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: invalid file_id"}`)
+			description := "Bad Request: invalid file_id"
+			if in.FileID == "echo" {
+				description += ": " + s.token
+			}
+			_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":400,"description":%q}`, description)
 			return
 		}
 		size := len(data)
@@ -846,8 +855,29 @@ func (s *telegramFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if id, ok := strings.CutPrefix(r.URL.Path, "/file/bot"+s.token+"/photos/"); ok {
-		if data, ok := s.files[strings.TrimSuffix(id, ".jpg")]; ok {
+		fileID := strings.TrimSuffix(id, ".jpg")
+		if data, ok := s.files[fileID]; ok {
 			w.Header().Set("Content-Type", "application/octet-stream")
+			if fileID == s.lie {
+				// Flushing first omits Content-Length: the reader must stop
+				// a chunked stream at the cap instead of trusting its size.
+				flusher := w.(http.Flusher)
+				flusher.Flush()
+				sent := 0
+				for at := 0; at < len(data); at += 1024 {
+					end := min(at+1024, len(data))
+					n, err := w.Write(data[at:end])
+					sent += n
+					flusher.Flush()
+					if err != nil {
+						break
+					}
+				}
+				s.mu.Lock()
+				s.sent = sent
+				s.mu.Unlock()
+				return
+			}
 			_, _ = w.Write(data)
 			return
 		}
@@ -861,11 +891,17 @@ func (s *telegramFiles) requests() []string {
 	return slices.Clone(s.seen)
 }
 
+func (s *telegramFiles) bytesSent() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sent
+}
+
 // A file is fetched in two calls, getFile and then the file's address,
 // into the directory the core made, and answered as its path and size.
 // One over the bound is refused, whether getFile says so or the bytes do
 // while they come, and leaves nothing in the directory; an id the service
-// refuses is refused with the service's words.
+// refuses is refused without keeping text from the service's response.
 func TestTelegramPackFile(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
@@ -875,7 +911,7 @@ func TestTelegramPackFile(t *testing.T) {
 	stub := &telegramFiles{token: cred, lie: "lying", files: map[string][]byte{
 		"small": []byte("\x89PNG\r\n\x1a\nsmall"),
 		"big":   bytes.Repeat([]byte("b"), 100),
-		"lying": bytes.Repeat([]byte("l"), 100),
+		"lying": bytes.Repeat([]byte("l"), 1<<20),
 	}}
 	srv := httptest.NewServer(stub)
 	defer srv.Close()
@@ -885,6 +921,9 @@ func TestTelegramPackFile(t *testing.T) {
 		t.Helper()
 		dir := t.TempDir()
 		data, err := ad.File(ctx, hooks.FileRef{ID: id, Type: "photo"}, dir, max, cred)
+		if st, statErr := os.Stat(filepath.Join(dir, "file")); statErr == nil && st.Mode().Perm() != 0o600 {
+			t.Errorf("downloaded file mode is %04o, want 0600", st.Mode().Perm())
+		}
 		left, _ := os.ReadDir(dir)
 		var names []string
 		for _, e := range left {
@@ -909,8 +948,17 @@ func TestTelegramPackFile(t *testing.T) {
 	if _, left, err := get("lying", 50); err == nil || !strings.Contains(err.Error(), "over the limit of 50") || left != "" {
 		t.Fatalf("lying: left %q, err %v", left, err)
 	}
-	if _, _, err := get("nobody", 50); err == nil || !strings.Contains(err.Error(), "invalid file_id") {
+	if sent := stub.bytesSent(); sent >= len(stub.files["lying"]) {
+		t.Fatalf("the chunked response sent all %d bytes despite the 50-byte limit", sent)
+	}
+	if _, _, err := get("nobody", 50); err == nil || !strings.Contains(err.Error(), "getFile failed") {
 		t.Fatalf("an id the service refuses: %v", err)
+	}
+	if _, left, err := get("echo", 50); err == nil || left != "" || strings.Contains(err.Error(), cred) || strings.ContainsRune(err.Error(), '\x1b') {
+		t.Fatalf("a service response echoed into the error: left %q, err %v", left, err)
+	}
+	if _, left, err := get("size_echo", 50); err == nil || left != "" || strings.Contains(err.Error(), cred) {
+		t.Fatalf("a malformed file size echoed into the error: left %q, err %v", left, err)
 	}
 	// The script's own bound holds where the yard's is higher.
 	stub.files["huge"] = bytes.Repeat([]byte("h"), 8<<20+1)

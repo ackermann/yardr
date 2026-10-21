@@ -2,7 +2,8 @@
 # thread: what the yard does in a Telegram chat: reply, posted, read, get. One
 # JSON object on stdin, one on stdout, as the thread key of the declaration
 # says. TELEGRAM_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base,
-# are in the environment. Needs curl and jq.
+# are in the environment. Needs curl, jq and the standard shell utilities
+# it calls (grep, head, wc, tr).
 #
 # The service gives a bot no history to read and no idempotency key to
 # set, so posted and read answer what there is to find, nothing, and a
@@ -59,19 +60,34 @@ get) # The file a kept delivery names, by getFile and then the file's own
   out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/getFile" \
     | curl -sS --fail-with-body -K - \
     -H 'Content-Type: application/json' \
-    -d "$(jq -n -c --arg f "$id" '{file_id: $f}')") || {
+    -d "$(jq -n -c --arg f "$id" '{file_id: $f}')" 2>/dev/null) || {
     code=$?
-    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
-    echo "getFile failed${desc:+: $desc} (curl exit $code)" >&2
+    echo "getFile failed (curl exit $code)" >&2
     exit 1
   }
   jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
-    desc=$(jq -r '.description // "getFile failed"' <<<"$out" 2>/dev/null || echo "getFile failed")
-    echo "$desc" >&2
+    # The response is outside the yard and can echo the token in the URL;
+    # it is kept as a delivery's failure reason, so only say what failed.
+    echo "getFile failed" >&2
     exit 1
   }
-  path=$(jq -r '.result.file_path // ""' <<<"$out")
-  size=$(jq -r '.result.file_size // 0 | floor' <<<"$out")
+  jq -e '(.result.file_path | type) == "string"' >/dev/null <<<"$out" 2>/dev/null || {
+    echo "getFile answered no file path" >&2
+    exit 1
+  }
+  jq -e '(.result.file_size == null) or ((.result.file_size | type) == "number" and .result.file_size >= 0)' \
+    >/dev/null <<<"$out" 2>/dev/null || {
+    echo "getFile answered no file size" >&2
+    exit 1
+  }
+  path=$(jq -r '.result.file_path' <<<"$out" 2>/dev/null) || {
+    echo "getFile answered no file path" >&2
+    exit 1
+  }
+  size=$(jq -r '.result.file_size // 0 | floor' <<<"$out" 2>/dev/null) || {
+    echo "getFile answered no file size" >&2
+    exit 1
+  }
   # The path goes into an address on a config line: a path of the
   # service's own shape, never one that climbs or closes the quote.
   case "$path" in
@@ -85,12 +101,17 @@ get) # The file a kept delivery names, by getFile and then the file's own
     echo "$size bytes, over the limit of $limit" >&2
     exit 1
   fi
+  # The response is arbitrary file content, so keep the temporary copy
+  # owner-only even if the server was started with a permissive umask.
+  umask 077
   file="$dir/file"
   printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/file/bot$TELEGRAM_BOT_TOKEN/$path" \
-    | curl -sS --fail -K - --max-filesize "$limit" -o "$file" || {
+    | curl -sS --fail -K - --max-filesize "$limit" 2>/dev/null \
+    | head -c "$((limit + 1))" >"$file" || {
     code=$?
+    n=$(wc -c <"$file" | tr -d ' ')
     rm -f "$file"
-    if [ "$code" -eq 63 ]; then
+    if [ "$code" -eq 63 ] || [ "$n" -gt "$limit" ]; then
       echo "over the limit of $limit bytes" >&2
     else
       echo "the file did not download (curl exit $code)" >&2
