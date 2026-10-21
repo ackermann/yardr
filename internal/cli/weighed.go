@@ -107,19 +107,24 @@ func (a *app) atTerminal(in io.Reader) bool {
 // typedLine reads one line from in, a byte at a time so that nothing past
 // its end is taken from what the command reads next: the values of a secret
 // follow the number on the same input. It is the person's typing and echoes
-// as they type it; a line too long to be a number is cut where it stops
-// being one. A line the input ends in is a line.
+// as they type it; a line longer than a number can be is refused after it
+// is read whole. A line the input ends in is a line.
 func typedLine(in io.Reader) (string, error) {
 	const longest = 64
 	var line []byte
+	tooLong := false
 	b := make([]byte, 1)
-	for len(line) <= longest {
+	for {
 		n, err := in.Read(b)
 		if n == 1 {
 			if b[0] == '\n' {
 				break
 			}
-			line = append(line, b[0])
+			if len(line) < longest {
+				line = append(line, b[0])
+			} else {
+				tooLong = true
+			}
 		}
 		if err != nil {
 			if err == io.EOF && len(line) > 0 {
@@ -127,6 +132,9 @@ func typedLine(in io.Reader) (string, error) {
 			}
 			return strings.TrimSpace(string(line)), err
 		}
+	}
+	if tooLong {
+		return "", fmt.Errorf("input line is too long")
 	}
 	return strings.TrimSpace(string(line)), nil
 }

@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -27,97 +26,6 @@ func gated(t *testing.T, y *cliYard, terminal bool, in io.Reader, args ...string
 	defer func() { y.a.inTerm = nil }()
 	out, err = run(t, c, append([]string{"answer"}, args...)...)
 	return out, stderr.String(), err
-}
-
-// The gate in front of a weighty approval (design yardr-ekmx 3.3): at a
-// terminal the command prints the card's weight and wants the ask's number
-// typed back, sending weighed on a match and stopping on anything else;
-// without a terminal it declines, in words that name footplate and a
-// terminal, and no number on its input gets round that. A routine card has
-// no gate at all.
-func TestWeightyApprovalAsksForTheNumberAtATerminal(t *testing.T) {
-	t.Parallel()
-	key := airyKey(t)
-	y, b := runYardCLI(t, "mac", key)
-	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Take more mail from airy?",
-		"--context", "airy's yard was refused 4 mails in the last hour.", "--run", "peer allow airy --mail-limit 300"); err != nil {
-		t.Fatal(err)
-	}
-	untouched := func(what string) {
-		t.Helper()
-		if p, err := y.st.GetPeer(context.Background(), "airy"); err != nil || p.MailsAnHour() == 300 {
-			t.Fatalf("%s: the link took the change: %+v, %v", what, p, err)
-		}
-		if got := askState(context.Background(), y.st, b.ID, 1); got != "open" {
-			t.Fatalf("%s: the ask is %q, want it open", what, got)
-		}
-	}
-
-	// No terminal: declined before the store is asked, naming footplate and
-	// a terminal and the line to type there; the number on the input is not
-	// read, and not taken for the gate.
-	in := strings.NewReader("1\n")
-	_, errOut, err := gated(t, y, false, in, b.ID, "1", "--approve")
-	want := "ask 1 is weighty (trust), and a command with no terminal to type its number at cannot approve it. " +
-		"Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer " + b.ID + " 1 --approve"
-	if err == nil || err.Error() != want {
-		t.Fatalf("a weighty approval with no terminal = %v, want %q", err, want)
-	}
-	if in.Len() != 2 || errOut != "" {
-		t.Fatalf("the declined command read its input (%d bytes left) or printed %q", in.Len(), errOut)
-	}
-	untouched("no terminal")
-
-	// At a terminal: the weight and the prompt come on the error stream,
-	// and anything but the number stops it, with nothing approved.
-	for what, typed := range map[string]string{"another number": "2\n", "words": "yes\n", "nothing": "\n", "the input ending": ""} {
-		_, errOut, err = gated(t, y, true, strings.NewReader(typed), b.ID, "1", "--approve")
-		if err == nil || err.Error() != "ask 1 is weighty (trust): its number was not typed back, so nothing was done" {
-			t.Fatalf("%s: = %v", what, err)
-		}
-		for _, line := range []string{
-			"  WEIGHTY · trust: widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now\n",
-			"ask 1 is weighty (trust): type 1 to approve it, anything else stops: ",
-		} {
-			if !strings.Contains(errOut, line) {
-				t.Fatalf("%s: the gate printed %q, want %q", what, errOut, line)
-			}
-		}
-		untouched(what)
-	}
-
-	// The number typed back, in the blanks and line ending a terminal
-	// brings, approves it.
-	out, errOut, err := gated(t, y, true, strings.NewReader("  1 \r\n"), b.ID, "1", "--approve")
-	if err != nil || !strings.Contains(out, "jo approved it, and the yard ran it:") {
-		t.Fatalf("the number typed back = %q, %v", out, err)
-	}
-	if !strings.Contains(errOut, "type 1 to approve it") {
-		t.Fatalf("the gate printed %q", errOut)
-	}
-	if p, err := y.st.GetPeer(context.Background(), "airy"); err != nil || p.MailsAnHour() != 300 {
-		t.Fatalf("the link after the approval = %+v, %v", p, err)
-	}
-
-	// A routine card has no gate: it is approved with no terminal and
-	// prints nothing but its result, and the input stays unread.
-	asked, err := y.as(t, "yardmaster", "ask", b.ID, "More sessions?",
-		"--context", "the queue is long.", "--run", "settings set max_sessions 20")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var routine uint64
-	if _, err := fmt.Sscanf(asked, "ask %d on", &routine); err != nil {
-		t.Fatalf("bead ask printed %q: %v", asked, err)
-	}
-	in = strings.NewReader("anything\n")
-	out, errOut, err = gated(t, y, false, in, b.ID, strconv.FormatUint(routine, 10), "--approve")
-	if err != nil || !strings.Contains(out, "jo approved it, and the yard ran it:") {
-		t.Fatalf("a routine approval with no terminal = %q, %v", out, err)
-	}
-	if in.Len() != len("anything\n") || errOut != "" {
-		t.Fatalf("a routine approval read its input (%d bytes left) or printed %q", in.Len(), errOut)
-	}
 }
 
 // A pick on a mapping card that writes a user's identity is a weighty
@@ -238,10 +146,14 @@ func TestTypedLineTakesOneLine(t *testing.T) {
 			t.Errorf("%s: typedLine(%q) = %q, %v with %d bytes left, want %q, %v with %d", tc.name, tc.in, got, err, in.Len(), tc.want, tc.err, len(tc.left))
 		}
 	}
-	// A line too long to be a number is cut, not read to its end.
-	long := strings.Repeat("9", 500) + "\nrest"
+	// A line too long to be a number is refused whole, including when its
+	// first 64 bytes trim to the ask's number: the rest must not reach a
+	// secret reader or the shell after this command stops.
+	long := "412" + strings.Repeat(" ", 64) + "x\nrest"
 	in := strings.NewReader(long)
-	if got, err := typedLine(in); err != nil || len(got) > 70 || in.Len() < len(long)-70 {
-		t.Errorf("a long line gave %d bytes, %v, with %d bytes of input left", len(got), err, in.Len())
+	got, err := typedLine(in)
+	left, readErr := io.ReadAll(in)
+	if err == nil || got == "412" || readErr != nil || string(left) != "rest" {
+		t.Errorf("a long line gave %q, %v, with %q of input left (%v)", got, err, left, readErr)
 	}
 }

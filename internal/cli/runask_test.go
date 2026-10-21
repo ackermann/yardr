@@ -263,6 +263,42 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 			t.Errorf("prime lacks %q:\n%s", want, shown)
 		}
 	}
+	// A weighty approval without a terminal is declined before the store is
+	// asked: the number on stdin cannot stand in for the gate. At a terminal
+	// it takes the number typed back, and any other line leaves the ask open.
+	in := strings.NewReader("1\n")
+	_, errOut, err := gated(t, y, false, in, b.ID, "1", "--approve")
+	wantGate := "ask 1 is weighty (trust), and a command with no terminal to type its number at cannot approve it. " +
+		"Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer " + b.ID + " 1 --approve"
+	if err == nil || err.Error() != wantGate || in.Len() != 2 || errOut != "" {
+		t.Fatalf("weighty approval without a terminal = %v, input left %d, stderr %q", err, in.Len(), errOut)
+	}
+	for what, typed := range map[string]string{
+		"another number":   "2\n",
+		"words":            "yes\n",
+		"nothing":          "\n",
+		"the input ending": "",
+		"a long line with the right number as its prefix": "1" + strings.Repeat(" ", 64) + "x\n",
+	} {
+		_, errOut, err = gated(t, y, true, strings.NewReader(typed), b.ID, "1", "--approve")
+		if err == nil || err.Error() != "ask 1 is weighty (trust): its number was not typed back, so nothing was done" {
+			t.Fatalf("%s: = %v", what, err)
+		}
+		for _, line := range []string{
+			"  WEIGHTY · trust: widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now\n",
+			"ask 1 is weighty (trust): type 1 to approve it, anything else stops: ",
+		} {
+			if !strings.Contains(errOut, line) {
+				t.Fatalf("%s: the gate printed %q, want %q", what, errOut, line)
+			}
+		}
+		if p, err := y.st.GetPeer(context.Background(), "airy"); err != nil || p.MailsAnHour() == 300 {
+			t.Fatalf("%s: the link took the change: %+v, %v", what, p, err)
+		}
+		if got := askState(context.Background(), y.st, b.ID, 1); got != "open" {
+			t.Fatalf("%s: the ask is %q, want it open", what, got)
+		}
+	}
 
 	if _, err := y.as(t, "yardmaster", "answer", b.ID, "1", "--approve"); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (jo)") {
 		t.Fatalf("the asker's own approval = %v", err)
@@ -289,6 +325,25 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 	}
 	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve"); err == nil || !strings.Contains(err.Error(), "was approved already") {
 		t.Fatalf("a second approval = %v", err)
+	}
+
+	// Routine approvals keep working without a terminal or a gate.
+	asked, err := y.as(t, "yardmaster", "ask", b.ID, "More sessions?",
+		"--context", "the queue is long.", "--run", "settings set max_sessions 20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var routine uint64
+	if _, err := fmt.Sscanf(asked, "ask %d on", &routine); err != nil {
+		t.Fatalf("bead ask printed %q: %v", asked, err)
+	}
+	in = strings.NewReader("anything\n")
+	out, errOut, err = gated(t, y, false, in, b.ID, fmt.Sprint(routine), "--approve")
+	if err != nil || !strings.Contains(out, "jo approved it, and the yard ran it:") {
+		t.Fatalf("a routine approval with no terminal = %q, %v", out, err)
+	}
+	if in.Len() != len("anything\n") || errOut != "" {
+		t.Fatalf("a routine approval read its input (%d bytes left) or printed %q", in.Len(), errOut)
 	}
 }
 
