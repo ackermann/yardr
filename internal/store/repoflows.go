@@ -1,10 +1,12 @@
 package store
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -288,7 +290,7 @@ func (c *repoCache) load(ctx context.Context, r Depot) (*RepoFlows, error) {
 	if r.Path == "" {
 		return out, nil // git -C "" would read whatever the server runs in
 	}
-	sha, err := git(ctx, r.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	sha, err := ResolveRef(ctx, r.Path, base+"^{commit}")
 	if errors.Is(err, errGitNotFound) {
 		return out, nil
 	} else if err != nil {
@@ -308,24 +310,111 @@ func (c *repoCache) load(ctx context.Context, r Depot) (*RepoFlows, error) {
 	if err != nil {
 		return nil, fmt.Errorf("depot %s: listing %s at %s: %w", r.Name, RepoFlowDir, base, err)
 	}
+	var paths []string
 	for _, p := range strings.Split(string(list), "\x00") {
-		rf, isFlow := flowFile(p)
-		if !isFlow && !stageFile(p) {
-			continue
+		if _, isFlow := flowFile(p); isFlow || stageFile(p) {
+			paths = append(paths, p)
 		}
-		text, err := git(ctx, r.Path, "cat-file", "blob", out.Commit+":"+p)
-		if err != nil {
-			return nil, fmt.Errorf("depot %s: reading %s at %s: %w", r.Name, p, base, err)
-		}
-		if isFlow {
-			out.Flows = append(out.Flows, rf.parse(text))
+	}
+	texts, err := catBlobs(ctx, r.Path, out.Commit, paths)
+	if err != nil {
+		return nil, fmt.Errorf("depot %s: reading %s at %s: %w", r.Name, errBlob(err), base, errUnwrapBlob(err))
+	}
+	for i, p := range paths {
+		if rf, isFlow := flowFile(p); isFlow {
+			out.Flows = append(out.Flows, rf.parse(texts[i]))
 		} else {
-			out.StageFiles = append(out.StageFiles, StageFile{Path: p, Text: string(text)})
+			out.StageFiles = append(out.StageFiles, StageFile{Path: p, Text: string(texts[i])})
 		}
 	}
 	c.put(key, out)
 	cp := *out
 	return &cp, nil
+}
+
+// A blobErr is which path a batched blob read failed on, and why.
+type blobErr struct {
+	path string
+	err  error
+}
+
+func (e *blobErr) Error() string { return e.path + ": " + e.err.Error() }
+
+// errBlob is the path a batched blob read failed on; errUnwrapBlob why.
+func errBlob(err error) string {
+	var b *blobErr
+	if errors.As(err, &b) {
+		return b.path
+	}
+	return ""
+}
+
+func errUnwrapBlob(err error) error {
+	var b *blobErr
+	if errors.As(err, &b) {
+		return b.err
+	}
+	return err
+}
+
+// catBlobs reads the blobs paths at commit in one `git cat-file --batch`,
+// in position, instead of starting git per file. A path the commit does
+// not have cannot happen (the paths were just listed at it), and fails its
+// read as git's missing would the one git started for it.
+func catBlobs(ctx context.Context, dir, commit string, paths []string) ([][]byte, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "cat-file", "--batch")
+	var errb bytes.Buffer
+	cmd.Stderr = &errb
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, &blobErr{paths[0], err}
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, &blobErr{paths[0], err}
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, &blobErr{paths[0], err}
+	}
+	out := bufio.NewReader(stdout)
+	texts := make([][]byte, len(paths))
+	for i, p := range paths {
+		name := commit + ":" + p
+		io.WriteString(stdin, name+"\n")
+		line, err := out.ReadString('\n')
+		if err != nil {
+			stdin.Close()
+			cmd.Wait()
+			return nil, &blobErr{p, fmt.Errorf("git cat-file --batch: %s: %w: %s", name, err, strings.TrimSpace(errb.String()))}
+		}
+		var oid, kind string
+		var size int64
+		if head, ok := strings.CutPrefix(strings.TrimSuffix(line, "\n"), name+" "); ok && (head == "missing" || head == "ambiguous") {
+			stdin.Close()
+			cmd.Wait()
+			return nil, &blobErr{p, fmt.Errorf("git cat-file --batch: %s missing", name)}
+		}
+		if n, _ := fmt.Sscanf(line, "%s %s %d\n", &oid, &kind, &size); n != 3 || size < 0 || kind != "blob" {
+			stdin.Close()
+			cmd.Wait()
+			return nil, &blobErr{p, fmt.Errorf("git cat-file --batch: unexpected answer %q", strings.TrimSpace(line))}
+		}
+		body := make([]byte, size+1)
+		if _, err := io.ReadFull(out, body); err != nil {
+			stdin.Close()
+			cmd.Wait()
+			return nil, &blobErr{p, fmt.Errorf("git cat-file --batch: %s: %w: %s", name, err, strings.TrimSpace(errb.String()))}
+		}
+		texts[i] = body[:size]
+	}
+	stdin.Close()
+	if err := cmd.Wait(); err != nil {
+		return nil, &blobErr{paths[len(paths)-1], fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(errb.String()))}
+	}
+	return texts, nil
 }
 
 // loadDir reads a dir depot's flows and stage files from <path>/.yardr/flows/
@@ -458,6 +547,114 @@ func (rf RepoFlow) parse(text []byte) RepoFlow {
 // errGitNotFound is a git command that exited 1 without a word on stderr:
 // how `rev-parse --verify --quiet` says the revision does not exist.
 var errGitNotFound = errors.New("git: not found")
+
+// ResolveRef is what `git rev-parse --verify --quiet` prints for ref in the
+// repository at dir: its commit, with the newline git prints. A plain branch
+// tip kept loose is read from its file, which is microseconds where starting
+// git is tens of milliseconds; a resolve runs on nearly every store call on
+// a git depot, so the process is the cost. Anything but a loose branch tip
+// runs git as ever: a tag (which ^{commit} peels), a packed ref, HEAD, a
+// worktree or bare repository, no checkout at all, and a name git would not
+// take. What comes back is git's in every case: the same bytes, the same
+// errors, errGitNotFound for a revision that does not exist.
+func ResolveRef(ctx context.Context, dir, ref string) ([]byte, error) {
+	if sha, ok := looseRef(dir, ref); ok {
+		return []byte(sha + "\n"), nil
+	}
+	return git(ctx, dir, "rev-parse", "--verify", "--quiet", ref)
+}
+
+// looseRef is the commit ref names in the repository at dir, read from its
+// loose ref file. ok is false where the answer is not a branch tip read
+// loose, and the caller runs git. The read is current as git's own: loose
+// refs are replaced atomically, so what is read is the tip as it is, or was
+// a moment ago, exactly as a resolve that ran git beside it would say.
+func looseRef(dir, ref string) (sha string, ok bool) {
+	// Heads and remote tips are commits, so ^{commit} changes nothing for
+	// them; it is cut for the name's check alone.
+	name, _ := strings.CutSuffix(ref, "^{commit}")
+	if !safeRefName(name) {
+		return "", false
+	}
+	// A qualified branch or remote names its file; a bare name is looked
+	// for in git's own order. Anything else that resolves first (HEAD, a
+	// tag) is git's to answer, since only git peels it.
+	if name == "HEAD" {
+		return "", false
+	}
+	var cands []string
+	switch {
+	case strings.HasPrefix(name, "refs/heads/"), strings.HasPrefix(name, "refs/remotes/"):
+		cands = []string{name}
+	case strings.HasPrefix(name, "refs/"):
+		return "", false
+	default:
+		cands = []string{"refs/heads/" + name, "refs/remotes/" + name}
+	}
+	gitdir := filepath.Join(dir, ".git")
+	if st, err := os.Stat(gitdir); err != nil || !st.IsDir() {
+		return "", false
+	}
+	// A bare name resolves through what stands in front of the branches
+	// first: HEAD, an exact ref, a tag. Where one does, git answers.
+	if len(cands) == 2 {
+		for _, p := range []string{filepath.Join(gitdir, name), filepath.Join(gitdir, "refs", name), filepath.Join(gitdir, "refs", "tags", name)} {
+			if _, err := os.Stat(p); err == nil {
+				return "", false
+			} else if !os.IsNotExist(err) {
+				return "", false
+			}
+		}
+	}
+	for _, cand := range cands {
+		raw, err := os.ReadFile(filepath.Join(gitdir, cand))
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return "", false
+			}
+			continue
+		}
+		sha := strings.TrimSpace(string(raw))
+		if !isHexSHA(sha) {
+			return "", false
+		}
+		return sha, true
+	}
+	return "", false
+}
+
+// safeRefName reports whether name may stand in a ref path read by hand: no
+// escape to another file, nothing git reads as a revision operator, no
+// option where the ref is meant, and no component git would refuse (one
+// starting or ending with a dot, or a lock file left by a write). Anything
+// else runs git, which refuses it as ever.
+func safeRefName(name string) bool {
+	if name == "" || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "/") ||
+		strings.HasSuffix(name, "/") || strings.Contains(name, "..") || strings.Contains(name, "//") ||
+		strings.ContainsAny(name, "~^:?*[\\@") {
+		return false
+	}
+	for _, c := range strings.Split(name, "/") {
+		if c == "" || strings.HasPrefix(c, ".") || strings.HasSuffix(c, ".") || strings.HasSuffix(c, ".lock") {
+			return false
+		}
+	}
+	return true
+}
+
+// isHexSHA reports whether s is a commit id as a loose ref file holds one:
+// forty lowercase hex digits, or sixty-four where the repository hashes so.
+func isHexSHA(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !('0' <= s[i] && s[i] <= '9' || 'a' <= s[i] && s[i] <= 'f') {
+			return false
+		}
+	}
+	return true
+}
 
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	var stderr bytes.Buffer

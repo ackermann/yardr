@@ -29,7 +29,9 @@ import (
 func statusYard(t *testing.T, rev string) (string, store.API, func() *app) {
 	t.Helper()
 	home := newHome(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	// Status runs doctor's examination for its fault count, versions and
+	// all; the versions answer at once, as ever.
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	a := func() *app {
@@ -314,8 +316,7 @@ func TestStatusRunningYard(t *testing.T) {
 		}
 	}
 
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := dirDepot(t, st)
 	// Two beads an agent works, one a script works, three that two manual
 	// groups hold for a person, and one held.
 	claimed := workYard(t, st, depot.Name, []store.Group{
@@ -430,8 +431,7 @@ func TestStatusWorkLine(t *testing.T) {
 	work := func(t *testing.T, groups []store.Group, claims ...string) (string, *workCounts) {
 		t.Helper()
 		_, st, a := statusYard(t, "abcdef123456")
-		depot := gitDepot(t, st)
-		commitDepot(t, depot)
+		depot := dirDepot(t, st)
 		workYard(t, st, depot.Name, groups, claims...)
 		out, err := run(t, a().rootCmd(), "status")
 		if err != nil {
@@ -460,8 +460,7 @@ func TestStatusWorkLine(t *testing.T) {
 	// against it, which a manual group's claim does not (yardr-33s8).
 	t.Run("max_sessions", func(t *testing.T) {
 		_, st, a := statusYard(t, "abcdef123456")
-		depot := gitDepot(t, st)
-		commitDepot(t, depot)
+		depot := dirDepot(t, st)
 		workYard(t, st, depot.Name, []store.Group{builders, backlog}, "builders", "builders", "backlog")
 		if err := st.SetSetting(context.Background(), store.MaxSessionsSetting, "4", "Jo"); err != nil {
 			t.Fatal(err)
@@ -479,8 +478,7 @@ func TestStatusWorkLine(t *testing.T) {
 	// counting against it, and the setting stays present in json.
 	t.Run("max_sessions 0", func(t *testing.T) {
 		_, st, a := statusYard(t, "abcdef123456")
-		depot := gitDepot(t, st)
-		commitDepot(t, depot)
+		depot := dirDepot(t, st)
 		workYard(t, st, depot.Name, []store.Group{builders, backlog}, "builders", "builders", "backlog")
 		if err := st.SetSetting(context.Background(), store.MaxSessionsSetting, "0", "Jo"); err != nil {
 			t.Fatal(err)
@@ -627,7 +625,7 @@ func TestStatusHomeFlagOnNoDirectory(t *testing.T) {
 // with what it knows without the store, and exits 0.
 func TestStatusUnreachableServer(t *testing.T) {
 	home := newHome(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	announce(t, home, "127.0.0.1:9000", false, "")
 	// It answers on its socket, and nothing it is asked comes back.
 	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })

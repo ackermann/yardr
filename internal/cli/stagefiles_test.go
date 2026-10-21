@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,11 +18,74 @@ import (
 
 // stageYard is a depot "web" on a repository with a default and a type flow,
 // a dir depot "api" following the store flow "code", and a yard home.
+// stageTemplateDir is the repository stageYard gives every test, made once
+// by TestMain: one commit with the flows on main. Making it per test spent
+// three git runs each; a test gets a copy, and commits its own files on
+// top. Made before the tests run, read only after, so no test assigns it.
+var stageTemplateDir string
+
+// buildStageTemplate makes the repository stageYard copies per test.
+func buildStageTemplate() (string, error) {
+	var err error
+	dir, merr := os.MkdirTemp("", "ystage")
+	if merr != nil {
+		return "", merr
+	}
+	run := func(args ...string) {
+		if err != nil {
+			return
+		}
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		if out, cerr := cmd.CombinedOutput(); cerr != nil {
+			err = fmt.Errorf("git %v: %v %s", args, cerr, out)
+		}
+	}
+	write := func(files map[string]string) {
+		if err != nil {
+			return
+		}
+		for name, text := range files {
+			p := filepath.Join(dir, name)
+			if merr := os.MkdirAll(filepath.Dir(p), 0o755); merr != nil {
+				err = merr
+				return
+			}
+			if werr := os.WriteFile(p, []byte(text), 0o644); werr != nil {
+				err = werr
+				return
+			}
+		}
+	}
+	run("init", "-q", "-b", "main")
+	write(map[string]string{
+		".yardr/flows/default.flow":       "new -> review\nreview -> merged on done | new on changes\nmerged terminal\n",
+		".yardr/flows/type/decision.flow": "ask -> answered\nanswered terminal\n",
+	})
+	run("add", "-A")
+	run("commit", "-q", "-m", "flows")
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// stageRepo is a fresh copy of the stage repository: one commit with the
+// flows on main.
+func stageRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	if err := os.CopyFS(repo, os.DirFS(stageTemplateDir)); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
 func stageYard(t *testing.T) (a *app, repo, home string, git func(args ...string) string, write func(root string, files map[string]string)) {
 	t.Helper()
 	st := storetest.New(t)
 	ctx := context.Background()
-	repo, home = t.TempDir(), t.TempDir()
+	repo, home = stageRepo(t), t.TempDir()
 	git = func(args ...string) string {
 		t.Helper()
 		out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).CombinedOutput()
@@ -42,13 +106,6 @@ func stageYard(t *testing.T) (a *app, repo, home string, git func(args ...string
 			}
 		}
 	}
-	git("init", "-q", "-b", "main")
-	write(repo, map[string]string{
-		".yardr/flows/default.flow":       "new -> review\nreview -> merged on done | new on changes\nmerged terminal\n",
-		".yardr/flows/type/decision.flow": "ask -> answered\nanswered terminal\n",
-	})
-	git("add", "-A")
-	git("commit", "-q", "-m", "flows")
 	for _, r := range []store.Depot{{Name: "web", Path: repo, Base: "main"}, {Name: "api", Path: t.TempDir(), Kind: store.DepotDir}} {
 		if err := st.PutDepot(ctx, r, "me"); err != nil {
 			t.Fatal(err)

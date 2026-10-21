@@ -20,8 +20,7 @@ import (
 func TestSessionListRunning(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := dirDepot(t, st)
 	beads := workYard(t, st, depot.Name, []store.Group{
 		{Name: "builders", Runner: "herdr", Limit: 1},
 		{Name: "assembly", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 1},
@@ -88,8 +87,7 @@ func TestSessionListOriginator(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := dirDepot(t, st)
 	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -179,8 +177,7 @@ func TestSessionListLogin(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := dirDepot(t, st)
 	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -263,8 +260,7 @@ func TestSessionListLogin(t *testing.T) {
 func TestSessionListSaysUntilWhenAGroupIsHeldBack(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := dirDepot(t, st)
 	workYard(t, st, depot.Name, []store.Group{{Name: "builders", Runner: "herdr", Limit: 3}}, "builders", "builders", "builders")
 	ss, err := st.Sessions(t.Context(), false)
 	if err != nil || len(ss) != 3 {

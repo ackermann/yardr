@@ -236,7 +236,12 @@ func Open(path string) (*Store, error) {
 	// Batch holds a write until MaxBatchDelay to coalesce fsyncs. Measured on
 	// NVMe (fsync ~3.2ms): the 10ms default makes sequential writes 13.5ms;
 	// 1ms costs ~1ms sequentially and is 6x faster than Update at 16 writers.
+	// Without sync there is no fsync to coalesce, and a test's writes are
+	// one by one: the delay is only waited, never used, so none is waited.
 	db.MaxBatchDelay = time.Millisecond
+	if noSync {
+		db.MaxBatchDelay = 0
+	}
 	s := &Store{db: db, home: home, nudge: make(chan struct{}, 1), done: make(chan struct{}), pumped: make(chan struct{})}
 	s.hub.init()
 	head, err := s.Head(context.Background())

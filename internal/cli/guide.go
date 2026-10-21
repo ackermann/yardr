@@ -485,7 +485,7 @@ func (g *guide) depotPage(ctx context.Context, _ setupStep) (bool, error) {
 			Description("Where a bead's branch starts and where approved work lands. yardr reads the depot's roles and flow from it.\n"+
 				"A local branch (main) is one yardr's assembly can land on; a remote's (origin/main) only people can.").
 			Value(&base).Validate(func(s string) error {
-			if _, err := git(ctx, path, "rev-parse", "--verify", "--quiet", s+"^{commit}"); err != nil {
+			if _, err := store.ResolveRef(ctx, path, s+"^{commit}"); err != nil {
 				return fmt.Errorf("%q does not resolve in %s (a branch needs a commit)", s, path)
 			}
 			return nil
@@ -526,7 +526,7 @@ func (g *guide) packPage(ctx context.Context, step setupStep) (bool, error) {
 	if !depot.IsDir() {
 		// The pack's assembly lands on local branches only, and holds every
 		// bead of a depot whose base is a remote's.
-		if _, err := git(ctx, depot.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
+		if _, err := store.ResolveRef(ctx, depot.Path, "refs/heads/"+depot.Base); err != nil {
 			fmt.Fprintf(g.w, "\nThe base of %s, %s, is not a local branch: the pack's assembly lands on local branches only,\n"+
 				"and would hold every approved bead (docs/line.md, section 4). Read that before the yes.\n", depot.Name, depot.Base)
 		}

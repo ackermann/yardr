@@ -301,7 +301,7 @@ changes an existing depot's path, base or test command.`,
 				return fmt.Errorf("%s is inside the repository at %s; register the top level (or --kind dir)", path, top)
 			}
 			// Branches for beads start from base, so it has to resolve.
-			if err := exec.Command("git", "-C", path, "rev-parse", "--verify", "--quiet", base+"^{commit}").Run(); err != nil {
+			if _, err := store.ResolveRef(context.Background(), path, base+"^{commit}"); err != nil {
 				refs, _ := exec.Command("git", "-C", path, "for-each-ref", "--format=%(refname:short)",
 					"refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master",
 					"refs/heads/main", "refs/heads/master").Output()

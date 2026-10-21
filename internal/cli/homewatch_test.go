@@ -164,7 +164,7 @@ type daemonTrial struct {
 func daemonUp(t *testing.T) *daemonTrial {
 	t.Helper()
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	ctx := context.Background()
 	// The yard, as init leaves it, written to the home's store file before
 	// its server owns it.

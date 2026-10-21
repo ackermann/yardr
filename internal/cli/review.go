@@ -192,7 +192,7 @@ func diffRange(ctx context.Context, st store.API, b store.Bead) (dir, rng string
 		return "", "", fmt.Errorf("no diff in dir depot %s: the outputs are in %s, as the notes name them", depot.Name, depot.Path)
 	}
 	branch := runner.Branch(b)
-	if err := exec.CommandContext(ctx, "git", "-C", depot.Path, "rev-parse", "--verify", "--quiet", branch+"^{commit}").Run(); err != nil {
+	if _, err := store.ResolveRef(ctx, depot.Path, branch+"^{commit}"); err != nil {
 		return "", "", fmt.Errorf("no branch %s in %s", branch, depot.Path)
 	}
 	return depot.Path, or(depot.Base, "origin/main") + "..." + branch, nil

@@ -59,6 +59,19 @@ func fakeTools(t *testing.T, tools map[string]string) string {
 	return dir
 }
 
+// answeredTools is fakeTools for a test of what doctor says past the
+// versions: the tools are found, and every version flag answers at once,
+// as toolAnswers would, without starting a program. A test of the versions
+// themselves (a failure, a hang, what the flag prints, the timeout) uses
+// fakeTools, which runs the real probe against its scripts.
+func answeredTools(t *testing.T, found ...string) {
+	t.Helper()
+	stubLookPath(t, found...)
+	stub(t, &probe, func(context.Context, string, string) versionCheck {
+		return versionCheck{State: versionAnswers, Output: "tool 1.2.3"}
+	})
+}
+
 // stub sets a package variable for the test.
 func stub[T any](t *testing.T, v *T, to T) {
 	t.Helper()
@@ -156,7 +169,7 @@ func TestDoctorEmptyHome(t *testing.T) {
 // store is as it was.
 func TestDoctorFreshYard(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	a := func() *app {
@@ -225,6 +238,22 @@ func gitDepot(t *testing.T, st store.API) store.Depot {
 	return depot
 }
 
+// dirDepot makes a directory that keeps its own .yardr files
+// (ownDepotFiles) and adds it as dir depot web: for a test whose depot is a
+// bead's home and nothing more. A git depot would spend three git runs on
+// its setup and read its base on nearly every store call after; a dir
+// depot's flows are read from the directory as they are on disk.
+func dirDepot(t *testing.T, st store.API) store.Depot {
+	t.Helper()
+	dir := t.TempDir()
+	depot := store.Depot{Name: "web", Path: dir, Kind: store.DepotDir}
+	ownDepotFiles(t, depot)
+	if err := st.PutDepot(context.Background(), depot, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return depot
+}
+
 // commitDepot commits the depot's .yardr files on its base.
 func commitDepot(t *testing.T, depot store.Depot) {
 	t.Helper()
@@ -241,7 +270,7 @@ func commitDepot(t *testing.T, depot store.Depot) {
 // bead merged there is nothing left: exit 0.
 func TestDoctorSetUpYard(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	a := func() *app {
@@ -371,7 +400,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 // A program the yard needs and the machine lacks is a fault with where to
 // get it: a harness a group names, like git and herdr themselves.
 func TestDoctorMissingDependency(t *testing.T) {
-	fakeTools(t, map[string]string{"herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "herdr", "claude")
 	ctx := context.Background()
 	// A manual group runs on no harness, whatever its config says: a kind
 	// is no key of one, so this one is from before the store refused it.
@@ -558,7 +587,7 @@ func TestDoctorVersionCheck(t *testing.T) {
 // A crew member whose starts fail is a fault, with the reason of the last.
 func TestDoctorFailingCrew(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	a := func() *app {
@@ -603,7 +632,7 @@ func TestDoctorFailingCrew(t *testing.T) {
 // in, from the kind the handle names first.
 func TestDoctorCrewNotLoggedIn(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "kimi": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude", "kimi")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	a := func() *app {
@@ -669,7 +698,7 @@ func TestDoctorCrewNotLoggedIn(t *testing.T) {
 // and show give the count, and the next try while there is one.
 func TestDoctorYardmasterGivenUpAfterSessionsGoneAtOnce(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	ctx := context.Background()
@@ -724,7 +753,7 @@ func TestDoctorLoginServiceDepots(t *testing.T) {
 		t.Fatalf("protected = %v", got)
 	}
 
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, newHomeDir(t))
 	a := func() *app {
@@ -773,7 +802,7 @@ func TestDoctorLoginServiceDepots(t *testing.T) {
 // the service files alone.
 func TestDoctorHerdrLoginService(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	a := func() *app {
@@ -878,7 +907,7 @@ func TestSetupStepsDirDepot(t *testing.T) {
 // The onboarding asks about the same programs with the same words, and
 // says where to get them.
 func TestPreflightSaysWhereToGet(t *testing.T) {
-	fakeTools(t, map[string]string{"git": toolAnswers})
+	answeredTools(t, "git")
 	stubAsk(t, func(...huh.Field) error { return nil })
 	var err error
 	var buf bytes.Buffer
@@ -907,7 +936,7 @@ func (brokenStore) Depots(context.Context) ([]store.Depot, error) {
 // A yard whose store cannot be read is a fault of the server, said in the
 // report with the machine's part, not a bare error.
 func TestDoctorUnreachableServer(t *testing.T) {
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	a := testApp(t, brokenStore{storetest.New(t)}, newHomeDir(t))
 	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "doctor")
@@ -1271,7 +1300,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 		a.actor = "me"
 		return a
 	}
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
@@ -1335,7 +1364,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 	if err := os.Remove(called); err != nil {
 		t.Fatal(err)
 	}
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "codex": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude", "codex")
 	stub(t, &loginShell, func() string { return sh })
 	if out, err := run(t, a().rootCmd(), "doctor"); !errors.Is(err, errCheckFailed) {
 		t.Fatalf("err = %v\n%s", err, out) // the daemon and the yardmaster are still missing
@@ -1349,7 +1378,7 @@ func TestDoctorLoginShellFinds(t *testing.T) {
 // finds is named, where "a harness is not on PATH" sent the person to
 // install what they have.
 func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers})
+	answeredTools(t, "git", "herdr")
 	local := t.TempDir()
 	scripttest.Write(t, filepath.Join(local, "codex"), toolAnswers)
 	sh := loginShellStub(t, filepath.Join(t.TempDir(), "called"), local, "")
@@ -1369,7 +1398,7 @@ func TestDoctorLoginShellFindsHarnessForNewYard(t *testing.T) {
 // yardr leaves to the person, ends it.
 func TestDoctorBlockerCycle(t *testing.T) {
 	home := newHomeDir(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	path := filepath.Join(t.TempDir(), "yard.db")
 	ctx := context.Background()
 	old, err := store.Open(path)

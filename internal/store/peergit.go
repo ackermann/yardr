@@ -175,7 +175,7 @@ func BaseRemote(ctx context.Context, depot Depot) (remote, branch string) {
 		return r, b
 	}
 	// A local branch: its upstream's remote, else origin.
-	if _, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+depot.Base); err != nil {
+	if _, err := ResolveRef(ctx, depot.Path, "refs/heads/"+depot.Base); err != nil {
 		return "", ""
 	}
 	if out, err := git(ctx, depot.Path, "config", "--get", "branch."+depot.Base+".remote"); err == nil {
@@ -272,7 +272,7 @@ func baseOf(ctx context.Context, depot Depot, base string) *PeerGit {
 	if err != nil {
 		return nil
 	}
-	out, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	out, err := ResolveRef(ctx, depot.Path, base+"^{commit}")
 	if err != nil {
 		return nil
 	}
@@ -300,7 +300,7 @@ func againOf(ctx context.Context, depot Depot, bead string, g, last *PeerGit) (f
 	if g == nil || last == nil || !gitCommit.MatchString(last.Commit) {
 		return g, ""
 	}
-	out, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", "refs/heads/"+Branch(bead)+"^{commit}")
+	out, err := ResolveRef(ctx, depot.Path, "refs/heads/"+Branch(bead)+"^{commit}")
 	if err != nil {
 		return g, ""
 	}
@@ -486,7 +486,7 @@ func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err erro
 	if err := gitFetch(ctx, depot.Path, "--refmap=", f.Remote, "+refs/heads/"+f.Git.Branch+":"+tmp); err != nil {
 		return "", fmt.Errorf("fetching %s from %s: %w", f.Git.Branch, f.Remote, err)
 	}
-	out, err := git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", tmp+"^{commit}")
+	out, err := ResolveRef(ctx, depot.Path, tmp+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("reading what was fetched of %s: %w", f.Git.Branch, err)
 	}
@@ -494,7 +494,7 @@ func TakePeerBranch(ctx context.Context, f PeerFetch) (notTaken string, err erro
 		return final("%s is at %s on %s, and the return names %s: not taken", f.Git.Branch, short(got), f.Remote, short(f.Git.Commit))
 	}
 	ref := "refs/heads/" + f.Into
-	out, err = git(ctx, depot.Path, "rev-parse", "--verify", "--quiet", ref)
+	out, err = ResolveRef(ctx, depot.Path, ref)
 	if err != nil {
 		// No such branch: made, and refused should one appear meanwhile.
 		if _, err := git(ctx, depot.Path, "update-ref", ref, f.Git.Commit, ""); err != nil {

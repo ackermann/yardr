@@ -54,6 +54,45 @@ func baseRepo(t *testing.T) (repo, sha string) {
 	return repo, sha
 }
 
+// Many files are read in one git process, each as ReadDepotFile reads one:
+// found with its text and where, missing as not found, a directory as its
+// own error while the rest are still read. With no depot, or no files,
+// nothing is read and no process starts.
+func TestReadDepotFilesReadsTogether(t *testing.T) {
+	repo, sha := baseRepo(t)
+	calls := countingGit(t)
+	depot := &store.Depot{Name: "r", Path: repo, Base: "main"}
+	files, got, err := ReadDepotFiles(depot, ".yardr/roles/builder.md", ".yardr/roles/reviewer.md", ".yardr/roles", ".yardr/depot.md")
+	if err != nil || got != sha {
+		t.Fatalf("= sha %q, %v; want %q", got, err, sha)
+	}
+	if f := files[0]; !f.Found || string(f.Text) != "Base builder.\nNo newline at the end" || f.Where != "main:.yardr/roles/builder.md" || f.Err != nil {
+		t.Errorf("builder.md = %+v", f)
+	}
+	if f := files[1]; f.Found || f.Where != "main:.yardr/roles/reviewer.md" || f.Err != nil {
+		t.Errorf("reviewer.md (working tree only) = %+v, want not found on the base", f)
+	}
+	if f := files[2]; f.Found || f.Err == nil || f.Err.Error() != "main:.yardr/roles is a tree, not a file" {
+		t.Errorf(".yardr/roles = %+v, want its own error", f)
+	}
+	if f := files[3]; f.Found || f.Err != nil {
+		t.Errorf("depot.md = %+v, want not found", f)
+	}
+	if none, _, err := ReadDepotFiles(nil, ".yardr/roles/builder.md"); err != nil || none[0].Found {
+		t.Errorf("no depot = %+v, %v; want not found", none, err)
+	}
+	if empty, _, err := ReadDepotFiles(depot); err != nil || len(empty) != 0 {
+		t.Errorf("no files = %+v, %v; want nothing", empty, err)
+	}
+	lines, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(strings.Split(strings.TrimSpace(string(lines)), "\n")); n != 1 {
+		t.Errorf("%d git processes, want 1:\n%s", n, lines)
+	}
+}
+
 // countingGit puts a git first on PATH that appends its arguments to the
 // file returned, one line a process, and then runs the real one.
 func countingGit(t *testing.T) (calls string) {

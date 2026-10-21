@@ -118,6 +118,60 @@ func (f *former) ask(fields ...huh.Field) error {
 	return nil
 }
 
+// setupTemplateDir is the repository setupYard gives every test, made once
+// by TestMain: one commit with a README on main. Making it per test spent
+// three git runs each; a test gets a copy, since a setup reads from it and
+// a test may stage or tag on top. Made before the tests run, read only
+// after, so no test assigns it.
+var setupTemplateDir string
+
+// buildSetupTemplate makes the repository setupYard copies per test.
+func buildSetupTemplate() (string, error) {
+	var err error
+	dir, merr := os.MkdirTemp("", "ysetup")
+	if merr != nil {
+		return "", merr
+	}
+	run := func(args ...string) {
+		if err != nil {
+			return
+		}
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+			"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+		if out, cerr := cmd.CombinedOutput(); cerr != nil {
+			err = fmt.Errorf("git %v: %v %s", args, cerr, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	if werr := os.WriteFile(filepath.Join(dir, "README"), []byte("hello\n"), 0o644); err == nil && werr != nil {
+		err = werr
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "first")
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// setupRepo is a fresh copy of the setup repository: one commit with a
+// README on main, in a directory whose name needs quoting.
+func setupRepo(t *testing.T) string {
+	t.Helper()
+	repo := filepath.Join(shortDir(t, "repo"), "Web App")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(repo, os.DirFS(setupTemplateDir)); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
 // setupYard is an initialized yard in a terminal whose forms f answers,
 // with a repository that has one commit on main. It returns the home, the
 // store and the repository.
@@ -136,16 +190,7 @@ func setupYard(t *testing.T, f *former) (home string, st store.API, repo string)
 	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
 		t.Fatal(err)
 	}
-	repo = filepath.Join(shortDir(t, "repo"), "Web App")
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, repo, "init", "-q", "-b", "main")
-	if err := os.WriteFile(filepath.Join(repo, "README"), []byte("hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, repo, "add", "-A")
-	gitIn(t, repo, "commit", "-q", "-m", "first")
+	repo = setupRepo(t)
 	f.t = t
 	if f.answers == nil {
 		f.answers = map[string]any{}

@@ -92,16 +92,6 @@ func TestMain(m *testing.M) {
 	if err := config.UseHome(filepath.Join(nowhere, "y")); err != nil {
 		panic(err)
 	}
-	// The go tool, which a test builds a stand-in with (newAsker), has its
-	// caches and settings under the user's home: it keeps the ones it has.
-	goDirs := []string{"GOCACHE", "GOMODCACHE", "GOPATH", "GOENV"}
-	if out, err := exec.Command("go", append([]string{"env"}, goDirs...)...).Output(); err == nil {
-		for i, dir := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
-			if i < len(goDirs) && dir != "" {
-				os.Setenv(goDirs[i], dir)
-			}
-		}
-	}
 	os.Setenv("HOME", nowhere)
 	// No test starts a real daemon or talks to a real herdr: the test
 	// binary is not yardr, and the herdr on PATH is somebody's own. A test
@@ -168,13 +158,20 @@ func TestMain(m *testing.M) {
 		return errors.New("tests restart no server")
 	}
 	pollEvery = 5 * time.Millisecond
+	// The repositories the guide and stage tests copy per test, made once
+	// here and read only after: three git runs each, not three per test.
+	if setupTemplateDir, err = buildSetupTemplate(); err != nil {
+		panic(err)
+	}
+	if stageTemplateDir, err = buildStageTemplate(); err != nil {
+		panic(err)
+	}
 	code := m.Run()
 	scripttest.Remove()
 	os.RemoveAll(services)
 	os.RemoveAll(nowhere)
-	if standIn.bin != "" {
-		os.RemoveAll(filepath.Dir(standIn.bin))
-	}
+	os.RemoveAll(setupTemplateDir)
+	os.RemoveAll(stageTemplateDir)
 	// A process a test started and did not stop outlives the run, and the
 	// next run, and the one after: the run that leaves one fails, and says
 	// where it ran. It is ended here, since nothing else will end it.

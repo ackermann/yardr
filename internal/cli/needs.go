@@ -601,8 +601,10 @@ var goarch = runtime.GOARCH
 // answers, fails, or hangs. A program on PATH can be one that never starts:
 // on macOS a quarantined binary waits on a Gatekeeper dialog nobody sees,
 // and a session started on it sits dead. This runs a program but changes
-// nothing. A kind yardr knows no version flag for is not run at all.
-func probe(ctx context.Context, kind, path string) versionCheck {
+// nothing. A kind yardr knows no version flag for is not run at all. A
+// variable, as tryHarnessCall is: a test of what doctor says past the
+// versions answers them at once instead of starting a program per harness.
+var probe = func(ctx context.Context, kind, path string) versionCheck {
 	args := agents.VersionArgs(kind)
 	if args == nil {
 		return versionCheck{State: versionNotChecked}

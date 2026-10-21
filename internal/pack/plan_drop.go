@@ -17,16 +17,54 @@ import (
 // rel (roles/builder.md -> .yardr/roles/builder.md), or "" when the depot has
 // none or the pack's file is no role by yardr's naming (roles/<name>.md).
 // The pack's role is set over it unless the import keeps the depot's roles.
+// The depot's roles are read together on the first asked for, instead of
+// starting git per role.
 func (b *planner) depotRole(rel string) (string, error) {
 	dir, name := filepath.Split(filepath.FromSlash(rel))
 	if filepath.Clean(dir) != "roles" || filepath.Ext(name) != ".md" {
 		return "", nil
 	}
-	has, err := depotfile.DepotRole(b.depot, name)
-	if err != nil {
-		return "", fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
+	if !b.rolesRead {
+		b.rolesRead = true
+		var names []string
+		seen := map[string]bool{}
+		add := func(rel string) {
+			d, n := filepath.Split(filepath.FromSlash(rel))
+			if filepath.Clean(d) == "roles" && filepath.Ext(n) == ".md" && !seen[n] {
+				seen[n] = true
+				names = append(names, n)
+			}
+		}
+		for _, pr := range b.p.Crew {
+			if pr.Role != "" {
+				add(pr.Role)
+			}
+		}
+		for _, g := range b.p.Groups {
+			if g.Agent != "" {
+				add(g.Agent)
+			}
+		}
+		rels := make([]string, len(names))
+		for i, n := range names {
+			rels[i] = filepath.Join(".yardr", "roles", n)
+		}
+		files, _, err := depotfile.ReadDepotFiles(b.depot, rels...)
+		if err != nil {
+			b.rolesErr = err
+		} else {
+			b.roles = map[string]depotfile.File{}
+			for i, n := range names {
+				b.roles[n] = files[i]
+			}
+		}
 	}
-	if !has {
+	if b.rolesErr != nil {
+		return "", fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, b.rolesErr)
+	}
+	if f := b.roles[name]; f.Err != nil {
+		return "", fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, f.Err)
+	} else if !f.Found {
 		return "", nil
 	}
 	return ".yardr/roles/" + name, nil

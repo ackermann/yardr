@@ -58,13 +58,13 @@ func TestDoctorCodexTrust(t *testing.T) {
 		a.actor = "me"
 		return a
 	}
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "codex": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude", "codex")
 	ctx := context.Background()
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	web := gitDepot(t, st)
-	api := store.Depot{Name: "api", Path: t.TempDir(), Base: "main", Kind: store.DepotGit}
+	web := dirDepot(t, st)
+	api := store.Depot{Name: "api", Path: t.TempDir(), Kind: store.DepotDir}
 	if err := st.PutDepot(ctx, api, "me"); err != nil {
 		t.Fatal(err)
 	}

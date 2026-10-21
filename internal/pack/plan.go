@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/depotfile"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -638,6 +639,12 @@ type planner struct {
 	// told are the pack's crew whose taker a flag or the last import
 	// named; the others go by their own name.
 	told map[string]bool
+	// roles is what the depot has of the pack's role names, read together
+	// on the first asked for; rolesErr fails every role after a read that
+	// failed the call.
+	roles     map[string]depotfile.File
+	rolesRead bool
+	rolesErr  error
 }
 
 // Build plans the import of p. It only reads: the store, the pack and the

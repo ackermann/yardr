@@ -16,7 +16,7 @@ import (
 // StopFailure, so a turn that ends on a provider error stays working).
 func TestDoctorKimiHooks(t *testing.T) {
 	newHome(t)
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers, "kimi": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude", "kimi")
 	st := storetest.New(t)
 	if _, err := run(t, (&app{st: st, actor: "me"}).rootCmd(), "init", "--harness", "kimi"); err != nil {
 		t.Fatal(err)

@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -716,10 +717,9 @@ func TestLoginShellPATH(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "sh")
 	// The script runs the -c command itself instead of re-execing a
 	// shell for it: one spawn, not two, so less to stretch under load.
-	script := "#!/bin/sh\necho 'PATH is nice today'\nPATH=/a:/b\neval \"$3\"\n"
-	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// A stand-in to the warmed launcher, not a new executable file: the
+	// first exec of a new file alone can spend the timeout (scripttest).
+	scripttest.Write(t, shell, "echo 'PATH is nice today'\nPATH=/a:/b\neval \"$3\"\n")
 	stub(t, &loginShell, func() string { return shell })
 	// A loaded machine can spend the login shell's five seconds starting
 	// the script alone; the test is about the PATH it answers, not the

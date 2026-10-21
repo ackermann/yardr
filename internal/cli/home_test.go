@@ -53,7 +53,7 @@ func doctorHomeOf(t *testing.T, a *app, args ...string) string {
 func TestHomeFlagOrder(t *testing.T) {
 	user := noHome(t)
 	requireNonInteractive(t)
-	fakeTools(t, map[string]string{"git": toolAnswers})
+	answeredTools(t, "git")
 	flag, variable := filepath.Join(user, "flag"), filepath.Join(user, "variable")
 
 	if got, want := doctorHome(t), filepath.Join(user, ".yardr"); got != want {
@@ -81,7 +81,7 @@ func TestHomeFlagOrder(t *testing.T) {
 func TestHomeFlagReachesChildren(t *testing.T) {
 	user := noHome(t)
 	requireNonInteractive(t)
-	fakeTools(t, map[string]string{"git": toolAnswers})
+	answeredTools(t, "git")
 	variable := filepath.Join(user, "variable")
 	t.Setenv("YARDR_HOME", variable)
 	t.Chdir(user)
@@ -224,7 +224,7 @@ func TestHomeFlagTooLong(t *testing.T) {
 	user := noHome(t)
 	var errs bytes.Buffer
 	long := filepath.Join(user, strings.Repeat("h", config.MaxSocket))
-	fakeTools(t, map[string]string{"git": toolAnswers})
+	answeredTools(t, "git")
 	for _, args := range [][]string{{"--home", long, "bead", "list"}, {"init", "--home", long, "--harness", "claude"}, {"--home", long, "doctor"}} {
 		errs.Reset()
 		if code := execute(&app{stderr: &errs}, args); code != 1 {
@@ -315,7 +315,7 @@ func TestSettingHookAddr(t *testing.T) {
 func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 	home := newHomeDir(t)
 	cfg := &config.Config{Home: home}
-	fakeTools(t, map[string]string{"git": toolAnswers, "herdr": toolAnswers, "claude": toolAnswers})
+	answeredTools(t, "git", "herdr", "claude")
 	st := storetest.New(t)
 	testYard(t, st, home)
 	ctx := context.Background()

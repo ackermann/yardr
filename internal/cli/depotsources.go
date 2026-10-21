@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,7 +194,61 @@ func depotSources(ctx context.Context, st store.API, depotName, home string) ([]
 			return nil, err
 		}
 	}
+	if err := b.readDepot(); err != nil {
+		return nil, err
+	}
 	return b.lines, nil
+}
+
+// A pendingRole is a role line whose shadows are filled once the depot's
+// own roles are read: the line's index and the role's name.
+type pendingRole struct {
+	line int
+	name string
+}
+
+// readDepot reads the depot's own files the lines point at or shadow: its
+// rules and every role a pack's copy could stand in for, in one git process
+// instead of one per file. The lines are filled as their reads answer, and
+// a read that fails says so as the reads answered one by one: the first
+// role's error, else the rules'.
+func (b *sourcer) readDepot() error {
+	rels := []string{}
+	if b.needRules {
+		rels = append(rels, depotfile.DepotRules)
+	}
+	for _, p := range b.pending {
+		rels = append(rels, ".yardr/roles/"+p.name)
+	}
+	files, sha, err := depotfile.ReadDepotFiles(b.depot, rels...)
+	if err != nil {
+		if len(b.pending) > 0 {
+			return fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, b.pending[0].name, err)
+		}
+		return fmt.Errorf("depot %s rules: %w", b.depot.Name, err)
+	}
+	byRel := map[string]depotfile.File{}
+	for _, f := range files {
+		byRel[f.Rel] = f
+	}
+	for _, p := range b.pending {
+		f := byRel[".yardr/roles/"+p.name]
+		if f.Err != nil {
+			return fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, p.name, f.Err)
+		}
+		if f.Found {
+			b.lines[p.line].Shadows = append(b.lines[p.line].Shadows, ".yardr/roles/"+p.name)
+		}
+	}
+	if b.needRules {
+		if f := byRel[depotfile.DepotRules]; f.Err != nil {
+			return fmt.Errorf("depot %s rules: %w", b.depot.Name, f.Err)
+		} else if f.Found {
+			l := &b.lines[b.rulesLine]
+			l.Source, l.Path, l.Commit = sourceDepot, depotfile.DepotRules, sha
+		}
+	}
+	return nil
 }
 
 type sourcer struct {
@@ -208,6 +261,12 @@ type sourcer struct {
 	// staged are the groups the stages of the governing flows lead to, in
 	// the flows' order.
 	staged []string
+	// pending are the role lines whose shadows are filled once the depot's
+	// own roles are read; rulesLine is the rules line's index, read when
+	// needRules.
+	pending   []pendingRole
+	rulesLine int
+	needRules bool
 }
 
 // flowPack names the pack of the depot that brought the store flow name.
@@ -397,8 +456,8 @@ func (b *sourcer) groups() error {
 			src, err := runner.LocatePrompt(prompt, b.depot, b.home)
 			if err != nil {
 				l.Error = err.Error()
-			} else if err := b.role(&l, src); err != nil {
-				return err
+			} else {
+				b.role(&l, src)
 			}
 		}
 		b.lines = append(b.lines, l)
@@ -434,9 +493,7 @@ func (b *sourcer) crew() error {
 			if _, err := os.Stat(path); err != nil {
 				l.Error = err.Error()
 			}
-			if err := b.role(&l, runner.PromptSource{Kind: runner.PromptFile, Path: path}); err != nil {
-				return err
-			}
+			b.role(&l, runner.PromptSource{Kind: runner.PromptFile, Path: path})
 		}
 		b.lines = append(b.lines, l)
 	}
@@ -446,18 +503,10 @@ func (b *sourcer) crew() error {
 // rules adds the line for the depot's own standing working rules: the file a
 // brief appends after the role, read the way a brief reads it, or none where
 // the depot keeps no file. The file shadows nothing and no pack provides one.
+// The read waits for the roles' (readDepot).
 func (b *sourcer) rules() error {
 	l := depotSource{Kind: "rules", Name: b.depot.Name, Source: sourceNone}
-	if b.depot.Path != "" {
-		_, _, sha, err := depotfile.ReadDepotFile(b.depot, depotfile.DepotRules)
-		if errors.Is(err, fs.ErrNotExist) {
-			// No file, no section: the line stays none.
-		} else if err != nil {
-			return fmt.Errorf("depot %s rules: %w", b.depot.Name, err)
-		} else {
-			l.Source, l.Path, l.Commit = sourceDepot, depotfile.DepotRules, sha
-		}
-	}
+	b.rulesLine, b.needRules = len(b.lines), b.depot.Path != ""
 	b.lines = append(b.lines, l)
 	return nil
 }
@@ -465,36 +514,38 @@ func (b *sourcer) rules() error {
 // role fills in a role's line from where its prompt was found. A prompt
 // from outside the depot, named like a role (roles/<name>.md), shadows the
 // depot's own .yardr/roles/<name>.md; a depot's role that a pack of the depot has
-// a copy of could be the pack's instead.
-func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
+// a copy of could be the pack's instead. The shadow's read waits for the
+// roles' (readDepot); the line is the next appended.
+func (b *sourcer) role(l *depotSource, src runner.PromptSource) {
 	l.Path, l.Commit = src.Path, src.Commit
 	// The depot's own role name, which a pack of the depot may have a copy of.
-	depotRole := func(name string) error {
+	depotRole := func(name string) {
 		l.Source = sourceDepot
 		for _, p := range b.packs {
 			if _, err := os.Stat(filepath.Join(config.At(b.home).PackRoles(p.Pack), name)); err == nil {
 				l.Available = append(l.Available, fmt.Sprintf("pack %s has a copy", p.Pack))
 			}
 		}
-		return nil
 	}
 	switch src.Kind {
 	case runner.PromptDepot:
 		if name, ok := strings.CutPrefix(filepath.ToSlash(src.Path), ".yardr/roles/"); ok {
-			return depotRole(name)
+			depotRole(name)
+			return
 		}
 		l.Source = sourceDepot
-		return nil
+		return
 	case runner.PromptHome:
 		// Found in the home because the depot has no role of the name.
 		l.Source = sourceHome
-		return nil
+		return
 	}
 	// A file of the depot's checkout named by its path, as a crew member reads
 	// the depot's role (yardr depot source): the depot's, at no commit.
 	if rel, err := filepath.Rel(b.depot.Path, src.Path); b.depot.Path != "" && err == nil && strings.HasPrefix(filepath.ToSlash(rel), ".yardr/roles/") {
 		l.Path = rel
-		return depotRole(filepath.Base(rel))
+		depotRole(filepath.Base(rel))
+		return
 	}
 	l.Source = sourceFile
 	if rel, err := filepath.Rel(b.home, src.Path); b.home != "" && err == nil && filepath.IsLocal(rel) {
@@ -505,14 +556,7 @@ func (b *sourcer) role(l *depotSource, src runner.PromptSource) error {
 	}
 	dir, name := filepath.Split(src.Path)
 	if filepath.Base(dir) != "roles" || filepath.Ext(name) != ".md" {
-		return nil
+		return
 	}
-	has, err := depotfile.DepotRole(b.depot, name)
-	if err != nil {
-		return fmt.Errorf("depot %s: looking for its own role %s: %w", b.depot.Name, name, err)
-	}
-	if has {
-		l.Shadows = append(l.Shadows, ".yardr/roles/"+name)
-	}
-	return nil
+	b.pending = append(b.pending, pendingRole{line: len(b.lines), name: name})
 }

@@ -80,7 +80,7 @@ func securityPaths(ctx context.Context, d Depot) ([]string, error) {
 	if err := noRevision(base); err != nil {
 		return nil, fmt.Errorf("base %w", err)
 	}
-	sha, err := git(ctx, d.Path, "rev-parse", "--verify", "--quiet", base+"^{commit}")
+	sha, err := ResolveRef(ctx, d.Path, base+"^{commit}")
 	if err != nil {
 		return nil, fmt.Errorf("resolving base %s in %s: %w", base, d.Path, err)
 	}

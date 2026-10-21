@@ -8,23 +8,35 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/huh"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// standIn is the isolated yard's stand-in claude (contrib/isolated-yard/fake),
-// built once for the tests that call it.
-var standIn struct {
-	once sync.Once
-	bin  string
-	err  error
-}
+// askerScript is a claude that plays the isolated yard's stand-in
+// (contrib/isolated-yard/fake) for its one-shot call alone: it records the
+// call in agents.log beside its directory, answers "ok", or fails with the
+// text of print-fails beside it while that file exists. A script, not the
+// built fake: building it cost a go build per suite run, and a new binary
+// is slow to start beside a -race suite, where the launcher below has run
+// already (scripttest). What the tests prove -- the question, the call,
+// what its answer says -- is the same through either.
+const askerScript = `[ "$1" = -p ] || { echo "unknown: $*" >&2; exit 2; }
+dir=${0%/*}/..
+printf 'start args=["-p" "%s"]\n' "$2" >> "$dir/agents.log"
+if [ -e "$dir/print-fails" ]; then
+  cat "$dir/print-fails" >&2
+  echo "exit 1" >> "$dir/agents.log"
+  exit 1
+fi
+echo ok
+echo "exit" >> "$dir/agents.log"
+`
 
 // notLoggedIn is what the stand-in prints when its one-shot call fails.
 const notLoggedIn = "Not logged in · Please run /login"
@@ -47,33 +59,16 @@ type asker struct {
 
 func newAsker(t *testing.T, f *former) *asker {
 	t.Helper()
-	standIn.once.Do(func() {
-		dir, err := os.MkdirTemp("", "ystandin")
-		if err != nil {
-			standIn.err = err
-			return
-		}
-		standIn.bin = filepath.Join(dir, "claude")
-		if out, err := exec.Command("go", "build", "-o", standIn.bin, "yardr.dev/yardr/contrib/isolated-yard/fake").CombinedOutput(); err != nil {
-			standIn.err = &exec.Error{Name: "go build the stand-in: " + string(out), Err: err}
-		}
-	})
-	if standIn.err != nil {
-		t.Fatal(standIn.err)
-	}
 	a := &asker{t: t, st: storetest.New(t), f: f, dir: t.TempDir()}
 	f.t = t
 	if err := os.Mkdir(filepath.Join(a.dir, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A hard link to the one that was built, not a copy: a new executable
-	// file is slow to start the first time (scripttest), and the stand-in
-	// finds its directory by its own path, which a symlink would not keep
-	// on every system.
+	// A stand-in to the warmed launcher, not a new executable file: the
+	// first exec of a new file is slow beside a -race suite (scripttest).
+	// $0 is the link's path, so the script finds its directory by it.
 	claude := filepath.Join(a.dir, "bin", "claude")
-	if err := os.Link(standIn.bin, claude); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, claude, askerScript)
 	a.home = newHomeDir(t)
 	// The operator is the login name init takes from the process ($USER, see
 	// defaultOperator); the run acts as it too.
