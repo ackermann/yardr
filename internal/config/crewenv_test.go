@@ -26,10 +26,25 @@ func providerT(t *testing.T, body string) string {
 	return p
 }
 
+// anHourToAnswer gives a provider an hour to answer, until the test ends, so
+// that no case is decided by how fast the machine starts a script: beside a
+// loaded race run that has taken longer than the production 10 s, and an
+// answer was taken for a hang (yardr-gdes in the runner's tests, yardr-m1br
+// in these). A case that ends a hang itself (reached) keeps the clock out of
+// it the same way; one about the limit sets its own. The limit is a variable
+// the tests of this package share, so none that sets it runs in parallel.
+func anHourToAnswer(t *testing.T) {
+	t.Helper()
+	old := EnvCommandTimeout
+	EnvCommandTimeout = time.Hour
+	t.Cleanup(func() { EnvCommandTimeout = old })
+}
+
 // An env_command's stdout is read as an env_file: its entries are the
 // crew member's environment. It is run in the crew member's directory, without a
 // shell, told who asks and for which yard, with nothing to read.
 func TestCrewEnvFromCommand(t *testing.T) {
+	anHourToAnswer(t)
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +89,7 @@ echo "noise" >&2`)
 // With an env_file too both are read, and a key in both has the command's
 // value: once, so the pane's environment and the daemon's lookup agree.
 func TestCrewEnvCommandWinsOverFile(t *testing.T) {
+	anHourToAnswer(t)
 	file := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(file, []byte("LINEAR_API_KEY=from-the-file\nGITHUB_TOKEN=gh-file\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -131,9 +147,7 @@ func TestCrewEnvCommandFailures(t *testing.T) {
 	// No case waits for the limit, so none is decided by how fast the
 	// machine starts a script: a provider that answers has an hour to, and
 	// the one that hangs says when it does, which is when its time is up.
-	old := EnvCommandTimeout
-	EnvCommandTimeout = time.Hour
-	t.Cleanup(func() { EnvCommandTimeout = old })
+	anHourToAnswer(t)
 	hanging := filepath.Join(t.TempDir(), "hanging")
 	if err := syscall.Mkfifo(hanging, 0o600); err != nil {
 		t.Fatal(err)
@@ -241,9 +255,7 @@ func TestEnvCommandMissing(t *testing.T) {
 // forks, and on macOS the child then outlives it; whether one round lands
 // so is chance, hence the rounds.
 func TestCrewEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
-	old := EnvCommandTimeout
-	EnvCommandTimeout = time.Hour
-	t.Cleanup(func() { EnvCommandTimeout = old })
+	anHourToAnswer(t)
 	dir := t.TempDir()
 	hanging, pidfile := filepath.Join(dir, "hanging"), filepath.Join(dir, "pid")
 	if err := syscall.Mkfifo(hanging, 0o600); err != nil {

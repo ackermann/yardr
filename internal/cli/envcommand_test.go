@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/scripttest"
@@ -20,6 +21,13 @@ import (
 // environment comes from, with the names and no value. A provider that
 // fails is said there too, with nothing it printed.
 func TestCrewAnswersWithAProvidersCredential(t *testing.T) {
+	// The provider answers and no step is about the limit, so it has an hour
+	// to, as in the config tests: how long a loaded machine takes to start a
+	// script must not decide this one (crew show runs the provider). The test
+	// is not parallel, which a write to the shared limit needs.
+	old := config.EnvCommandTimeout
+	config.EnvCommandTimeout = time.Hour
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
 	y := newAppYard(t)
 	ctx := context.Background()
 	provider := filepath.Join(t.TempDir(), "provider")
