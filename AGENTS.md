@@ -135,14 +135,17 @@ it lists every exported name with its comment, faster than grepping.
 - The test rules are `docs/testing.md` (per-package time budget, sleep
   budget, parallelism); the gate is `sh .yardr/test` in the worktree, and
   its printed `test:` line is the record of a run.
-- A `test: flaky:` line is read in the flaky log before anything is
-  filed: the gate appends one line per flaky line -- date, short sha,
-  packages, tests -- to `yardr-flaky.log` in the git common dir, which
-  the repo owns and every worktree shares. File a bead only when the
-  same test is already there, or when the failure accuses the product
-  (a race report, a product assertion, a wrong result rather than a
-  timeout); otherwise the log line is the record, named in the handover
-  note.
+- A `test: flaky:` line files itself: the gate appends one line per flaky
+  line -- date, short sha, packages, tests -- to `yardr-flaky.log` in the
+  git common dir, which the repo owns and every worktree shares, files a
+  backlog P3 `Flaky: <Test> (<pkg>)` when the test is already named in the
+  log (deduped by title; skipped where the yardr CLI is not there), and
+  fails the step when the test flaked 3 times in 7 days. A hand reading
+  old lines files the same way -- a repeat, or a failure that accuses the
+  product (a race report, a product assertion, a wrong result rather than
+  a timeout); otherwise the log line is the record, named in the handover
+  note. A race fails the step without a retry, and a package that fails
+  twice fails as before.
 - `gofmt` and `go vet` are clean on every change; the module builds with
   the Go in `go.mod`.
 

@@ -631,6 +631,22 @@ fi
 echo "ran ${YARDR_TEST_RPC:+rpc }$1"
 `
 
+// A yardr that writes down every call, answers bead list with
+// YARDR_FAKE_LIST and bead show with YARDR_FAKE_SHOW, and mints m-filed
+// for bead create, keeping the body it was given: the gate files a repeat
+// flake through it.
+const fakeYardr = `#!/bin/sh
+echo "$*" >>"$FAKE/yardr-calls"
+if [ "$1 $2" = "bead list" ]; then
+  printf '%s' "$YARDR_FAKE_LIST"
+elif [ "$1 $2" = "bead show" ]; then
+  printf '%s' "$YARDR_FAKE_SHOW"
+elif [ "$1 $2" = "bead create" ]; then
+  cat >"$FAKE/yardr-body"
+  echo "m-filed"
+fi
+`
+
 // The test command runs a go step once more when it failed because a file
 // of Go's build cache was gone, and only then: a second failure stands, a
 // step that failed of itself is not run again, and a log that reports a
@@ -808,7 +824,11 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // time. A package that fails twice fails the step as before, with the failed
 // lines. The plain run does the same as a landing. A run whose log reports a
 // data race is never run again: the step fails, naming packages whose output
-// reported the race.
+// reported the race. A test the flaky log already names is filed as a
+// backlog P3 Flaky bead carrying its lines, unless an open bead already
+// carries the title; a test that flaked 3 times in 7 days fails the step
+// instead of passing on its rerun. Where the yardr CLI is not there the
+// log line stays the record.
 func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	t.Parallel()
 	const pkg = "m.test/m"
@@ -821,6 +841,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	flaky := "test: flaky: " + test + " (" + pkg + ") passed on rerun"
 	running := "test: running the failed packages again: " + pkg
 	norace := "test: not running the failed packages again: DATA RACE in " + pkg
+	title := "Flaky: " + test + " (" + pkg + ")"
+	other := "m-1 Something else\n"
+	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}
+	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
+		"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test -race ./...", "test -race " + pkg}
 	landingNoRetry := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
@@ -833,30 +858,52 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		calls    []string
 		env      []string // variables of the script's environment beyond the base
 		steps    []string
-		line     string // the failure the step fails with: empty for a flake
-		racePkgs string // packages whose output includes the race warning
-		raced    bool   // the failure reports a race, so there is no rerun
+		line     string          // the failure the step fails with: empty for a flake
+		racePkgs string          // packages whose output includes the race warning
+		raced    bool            // the failure reports a race, so there is no rerun
+		seed     []time.Duration // ages of the flaky log's prior sightings
+		yardr    bool            // a stub yardr is on PATH, answering list and show
+		list     string          // what the stub's bead list prints
+		show     string          // what the stub's bead show prints
+		barePath bool            // PATH holds no yardr at all, as CI's does not
+		create   bool            // the run files the flake through the stub
+		depot    string          // the --depot the filing names: empty for none
+		strike   bool            // the flake is a third in 7 days: the step fails
 	}{
-		{"plain: passes on rerun", "1", true, plain, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, "", "", false},
-		{"plain: fails twice", "2", false, plain, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, "", "", false},
-		{"plain: a race fails without a retry", "1", false, plainNoRetry, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, raceFail, pkg, true},
-		{"plain: a race names only the racing package", "1", false, plainNoRetry, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, raceFailMixed, racePkg, true},
+		{name: "plain: passes on rerun", times: "1", ok: true, calls: plain, steps: plainSteps},
+		{name: "plain: fails twice", times: "2", ok: false, calls: plain, steps: plainSteps},
+		{name: "plain: a race fails without a retry", times: "1", ok: false, calls: plainNoRetry, steps: plainSteps,
+			line: raceFail, racePkgs: pkg, raced: true},
+		{name: "plain: a race names only the racing package", times: "1", ok: false, calls: plainNoRetry, steps: plainSteps,
+			line: raceFailMixed, racePkgs: racePkg, raced: true},
+		// A repeat files through the stub: without a depot where the
+		// session names none, into YARDR_DEPOT where it does, else into
+		// its bead's depot. An open bead carrying the title files
+		// nothing; a third sighting in 7 days fails the step. Sightings
+		// of any age file, but only recent ones strike.
+		{name: "plain: a repeat flake files a bead", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
+		{name: "plain: a repeat flake files into YARDR_DEPOT", times: "1", ok: true, calls: plain, steps: plainSteps,
+			env: []string{"YARDR_DEPOT=m"}, seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true, depot: "m"},
+		{name: "plain: a repeat flake files into its bead's depot", times: "1", ok: true, calls: plain, steps: plainSteps,
+			env: []string{"YARDR_BEAD=x"}, seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, show: "  depot m\n", create: true, depot: "m"},
+		{name: "plain: an open Flaky bead files nothing", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
+		{name: "plain: a third strike in 7 days fails the step", times: "1", ok: false, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n", strike: true},
+		{name: "plain: an old repeat still files", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{30 * 24 * time.Hour}, yardr: true, list: other, create: true},
+		{name: "plain: old sightings do not strike", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{8 * 24 * time.Hour, 9 * 24 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
+		{name: "plain: without the yardr CLI a repeat only logs", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour}, barePath: true},
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
 		// itself rather than the gate.
-		{"landing: passes on rerun", "1", true, landing, noBase,
-			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, "", "", false},
-		{"landing: fails twice", "2", false, landing, noBase,
-			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, "", "", false},
-		{"landing: a race fails without a retry", "1", false, landingNoRetry, noBase,
-			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, raceFail, pkg, true},
+		{name: "landing: passes on rerun", times: "1", ok: true, calls: landing, env: noBase, steps: landingSteps},
+		{name: "landing: fails twice", times: "2", ok: false, calls: landing, env: noBase, steps: landingSteps},
+		{name: "landing: a race fails without a retry", times: "1", ok: false, calls: landingNoRetry, env: noBase, steps: landingSteps,
+			line: raceFail, racePkgs: pkg, raced: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(yardTest)
@@ -864,7 +911,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			fake, dir := t.TempDir(), t.TempDir()
-			for name, text := range map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"} {
+			bins := map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"}
+			if c.yardr {
+				bins["yardr"] = fakeYardr
+			}
+			for name, text := range bins {
 				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
 					t.Fatal(err)
 				}
@@ -883,19 +934,45 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			common := gitT(t, dir, "rev-parse", "--git-common-dir")
+			if !filepath.IsAbs(common) {
+				common = filepath.Join(dir, common)
+			}
+			flakyLog := filepath.Join(common, "yardr-flaky.log")
+			// Prior sightings, at the short sha the run appends under, so
+			// the log's lines all read as the gate's own.
+			if len(c.seed) > 0 {
+				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
+				var seeds []string
+				for _, age := range c.seed {
+					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+sha+" "+test+" ("+pkg+") passed on rerun")
+				}
+				if err := os.WriteFile(flakyLog, []byte(strings.Join(seeds, "\n")+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			cmd := exec.Command("sh", "-c", string(script))
 			cmd.Dir = dir
 			// The case's own variables come last, so a landing's nowhere
-			// base wins over the commit below.
+			// base wins over the commit below. The bead and depot of the
+			// run this test is in are cleared first: the script files a
+			// repeat into them, and the test's own would leak in.
 			line := c.line
 			if line == "" {
 				line = flakyFail
 			}
 			env := scriptEnv()
-			cmd.Env = append(env,
-				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+			pathEnv := "PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")
+			if c.barePath {
+				pathEnv = "PATH=" + fake + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
+			}
+			cmd.Env = append(env, pathEnv,
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"YARDR_BEAD=", "YARDR_DEPOT=",
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+line, "YARDR_RACE_HELD=1")
+			if c.yardr {
+				cmd.Env = append(cmd.Env, "YARDR_FAKE_LIST="+c.list, "YARDR_FAKE_SHOW="+c.show)
+			}
 			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
 			out := string(b)
@@ -927,8 +1004,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			} else if !strings.Contains(out, running+"\n") {
 				t.Errorf("the output has no %q line", running)
 			}
-			if c.ok {
-				// One flaky line names the test and its package.
+			if c.ok || c.strike {
+				// One flaky line names the test and its package; a strike
+				// fails the step after it.
 				n := 0
 				for _, line := range strings.Split(out, "\n") {
 					if strings.HasPrefix(line, "test: flaky:") {
@@ -943,12 +1021,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				}
 				// One log line per printed flaky line, in the log the repo
 				// owns: the date, the short sha, and the names the printed
-				// line carries.
-				common := gitT(t, dir, "rev-parse", "--git-common-dir")
-				if !filepath.IsAbs(common) {
-					common = filepath.Join(dir, common)
-				}
-				logb, err := os.ReadFile(filepath.Join(common, "yardr-flaky.log"))
+				// line carries. A strike's own sighting is logged with the
+				// priors.
+				logb, err := os.ReadFile(flakyLog)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -956,8 +1031,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if s := strings.TrimSpace(string(logb)); s != "" {
 					logged = strings.Split(s, "\n")
 				}
-				if len(logged) != n {
-					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d)", len(logged), n)
+				if len(logged) != n+len(c.seed) {
+					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d) plus the %d priors", len(logged), n, len(c.seed))
 				}
 				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
 				for _, line := range logged {
@@ -970,7 +1045,14 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 						t.Errorf("flaky log line %q, want it to start with the date", line)
 					}
 				}
-				if strings.Contains(out, "test: FAILED") {
+				if c.strike {
+					if want := "test: " + test + " flaked 3 times in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
+						t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
+					}
+					if !strings.Contains(out, "test: FAILED: go test -race ./...\n") {
+						t.Errorf("a striking step is not followed by a failure summary")
+					}
+				} else if strings.Contains(out, "test: FAILED") {
 					t.Errorf("a step that passed on rerun is followed by a failure summary")
 				}
 			} else {
@@ -978,11 +1060,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					t.Errorf("a step that failed twice names a flake")
 				}
 				// No flaky line printed, so no log line either.
-				common := gitT(t, dir, "rev-parse", "--git-common-dir")
-				if !filepath.IsAbs(common) {
-					common = filepath.Join(dir, common)
-				}
-				if _, err := os.Stat(filepath.Join(common, "yardr-flaky.log")); !os.IsNotExist(err) {
+				if _, err := os.Stat(flakyLog); !os.IsNotExist(err) {
 					t.Errorf("a step that failed twice wrote the flaky log")
 				}
 				if c.raced {
@@ -998,6 +1076,79 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 						t.Errorf("the output's summary of a failed step: want %q and a FAIL line for %s", want, pkg)
 					}
 				}
+			}
+			// A repeat files a backlog P3 carrying the title, into the
+			// session's depot or none; a single sighting, an open Flaky
+			// bead, and no CLI file nothing. The body carries the test's
+			// lines of the log, and the filed line the minted id.
+			ycalls, _ := os.ReadFile(filepath.Join(fake, "yardr-calls"))
+			var created string
+			lists, shows := 0, 0
+			for _, call := range strings.Split(strings.TrimSpace(string(ycalls)), "\n") {
+				switch {
+				case strings.HasPrefix(call, "bead create "):
+					created = call
+				case call == "bead list":
+					lists++
+				case strings.HasPrefix(call, "bead show "):
+					shows++
+				case call != "":
+					t.Errorf("the stub was run for %q", call)
+				}
+			}
+			if (created != "") != c.create {
+				t.Errorf("the run filed the flake: %v, want %v", created != "", c.create)
+			}
+			if c.create {
+				for _, want := range []string{title, "--stage backlog -p 3 -b -"} {
+					if !strings.Contains(created, want) {
+						t.Errorf("the create call %q, want it to carry %q", created, want)
+					}
+				}
+				if c.depot != "" {
+					if !strings.Contains(created, "--depot "+c.depot) {
+						t.Errorf("the create call %q, want it to name --depot %s", created, c.depot)
+					}
+				} else if strings.Contains(created, "--depot") {
+					t.Errorf("the create call %q, want no --depot", created)
+				}
+				body, _ := os.ReadFile(filepath.Join(fake, "yardr-body"))
+				var carried []string
+				if s := strings.TrimSpace(string(body)); s != "" {
+					carried = strings.Split(s, "\n")
+				}
+				if len(carried) != len(c.seed)+1 {
+					t.Errorf("the filed body has %d lines, want the %d sightings", len(carried), len(c.seed)+1)
+				}
+				for _, line := range carried {
+					if !strings.Contains(line, test+" ("+pkg+")") || !strings.Contains(line, "passed on rerun") {
+						t.Errorf("the filed body line %q, want the test's log line", line)
+					}
+				}
+				if want := "test: filed m-filed: " + title + "\n"; !strings.Contains(out, want) {
+					t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
+				}
+			} else if strings.Contains(out, "test: filed") {
+				t.Errorf("the output files a bead where none was to be filed")
+			}
+			if c.yardr {
+				// Every repeat consults the open beads once; only a case
+				// whose bead names a depot asks the CLI for it.
+				if lists != 1 {
+					t.Errorf("the run listed beads %d times, want 1", lists)
+				}
+				wantShows := 0
+				if c.show != "" {
+					wantShows = 1
+				}
+				if shows != wantShows {
+					t.Errorf("the run showed a bead %d times, want %d", shows, wantShows)
+				}
+			} else if len(strings.TrimSpace(string(ycalls))) != 0 {
+				t.Errorf("the run called yardr %q with none on PATH", strings.TrimSpace(string(ycalls)))
+			}
+			if c.barePath && strings.Contains(out, "test: warning") {
+				t.Errorf("a run with no CLI warns, want it to log only")
 			}
 			var took []string
 			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(out, -1) {

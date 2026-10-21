@@ -113,8 +113,12 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # naming the packages whose output reported the race. An ordinary flake can
 # still pass on its second run; the flaky line in the output makes that
 # visible, and one line per flaky line is appended to yardr-flaky.log in
-# the git common dir, which the repo owns and every worktree shares.
-# AGENTS.md says when that line becomes a bead.
+# the git common dir, which the repo owns and every worktree shares. A test
+# the log already names is filed as a backlog P3 `Flaky: <Test> (<pkg>)`
+# carrying its lines, unless an open bead already carries the title; where
+# the yardr CLI is not there (CI, a fork) the log line stays the record. A
+# test that flaked 3 times in 7 days fails the step instead of passing on
+# its rerun. AGENTS.md says what a hand reading old lines files.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
 # A step's output is kept in its log and printed. Outside the race worker it
@@ -646,6 +650,10 @@ again() {
           else
             tests=$(sed -n 's/.*--- FAIL: \([^ ][^ ]*\).*/\1/p' "$log" | sort -u || true)
             tests_line=$(printf '%s\n' "$tests" | tr '\n' ' ' | sed 's/ $//' || true)
+            # Each failed test's packages, read from this run's log before
+            # the rerun replaces it: one "test pkg" line per package whose
+            # output names the test, for the Flaky bead's title.
+            tpkgs=$(for t in $tests; do pkgof "$log" "$t" | awk -v t="$t" '{ print t " " $0 }'; done)
             # The same flags, the failed packages only: the prefix up to and
             # including "test" (env ... go test), then the flags (what after
             # test starts with -), then the failed packages. Packages and
@@ -685,8 +693,55 @@ again() {
               # the names the printed line carries. It is not committed. A
               # run that cannot write it still passes: the line above stays
               # the record.
+              flakylog=
               if common=$(git rev-parse --git-common-dir 2>/dev/null); then
-                echo "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky" >>"$common/yardr-flaky.log" || true
+                flakylog="$common/yardr-flaky.log"
+                echo "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky" >>"$flakylog" || true
+              fi
+              # A test the log names more than once flaked before: file it,
+              # and fail the step when it flaked twice before in the last 7
+              # days. Filing wants the yard's CLI, which CI and forks have
+              # not; the strike counts the log alone, so it holds there too.
+              # A filing the yard refuses warns, never fails the step: the
+              # gate must not fail because the yard is down. The depot is
+              # the session's (an exec session's own, else its bead's);
+              # without one the bead waits in the yardmaster's backlog,
+              # which still beats the log no hand reads.
+              if [ -n "$tests" ] && [ -n "$flakylog" ]; then
+                if command -v yardr >/dev/null 2>&1; then
+                  have_yardr=1
+                else
+                  have_yardr=0
+                fi
+                depot=
+                if [ "$have_yardr" = 1 ]; then
+                  if [ -n "$YARDR_DEPOT" ]; then
+                    depot=$YARDR_DEPOT
+                  elif [ -n "$YARDR_BEAD" ]; then
+                    depot=$(yardr bead show "$YARDR_BEAD" 2>/dev/null | sed -n 's/^  depot \([^ ][^ ]*\)$/\1/p' || true)
+                  fi
+                fi
+                strike=0
+                for t in $tests; do
+                  sightings=$(grep -c -F " $t " "$flakylog" || true)
+                  if [ "$have_yardr" = 1 ] && [ "${sightings:-0}" -ge 2 ]; then
+                    pkg=$(printf '%s\n' "$tpkgs" | awk -v t="$t" '$1 == t { printf "%s%s", sep, $2; sep = " " } END { printf "\n" }')
+                    [ -n "$pkg" ] || pkg=$pkgs_line
+                    flakyfile "Flaky: $t ($pkg)" "$t" "$flakylog" "$depot"
+                  fi
+                  recent=$(grep -F " $t " "$flakylog" | perl -MTime::Piece -ne '
+                    BEGIN { $cut = (localtime(time - 7 * 86400))->strftime("%F %T"); $n = 0 }
+                    $n++ if /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} / && substr($_, 0, 19) ge $cut;
+                    END { print "$n\n" }
+                  ' 2>/dev/null || echo 0)
+                  if [ "${recent:-0}" -ge 3 ]; then
+                    echo "test: $t flaked $recent times in 7 days; see the Flaky: bead" >&2
+                    strike=1
+                  fi
+                done
+                if [ "$strike" = 1 ]; then
+                  rc=1
+                fi
               fi
             fi
           fi
@@ -731,6 +786,51 @@ okcount() { grep -c -E '^ok[[:space:]]' "$1" || true; }
 # failcount prints the packages one go test log ($1) failed: the FAIL lines,
 # as the flaky retry reads them.
 failcount() { grep -c -E '^FAIL[[:space:]]+[^[:space:]]+' "$1" || true; }
+# pkgof prints the packages whose output names one test ($2) in a go test
+# log ($1). Go prints a package's output before its ok/FAIL line, so the
+# names between two such lines belong to the package the second names (as
+# the raced attribution in again reads the same boundary). Empty when no
+# section names the test.
+pkgof() {
+  awk -v t="$2" '
+    /^(ok|FAIL|\?)[ \t]+[^ \t]+/ { if (hit) print $2; hit = 0; next }
+    {
+      line = $0
+      if (sub(/.*--- FAIL: /, "", line)) {
+        sub(/ .*/, "", line)
+        if (line == t) hit = 1
+      }
+    }
+  ' "$1"
+}
+# flakyfile files a bead for a test ($2) that flaked again: a backlog P3
+# titled $1, carrying the test's lines of the flaky log ($3). An open
+# bead already carrying the title is the filing: nothing is filed twice.
+# The depot is the caller's ($4, empty for none). Every failure warns,
+# never fails the step: the gate must not fail because the yard is down.
+flakyfile() {
+  title=$1
+  test=$2
+  logf=$3
+  depot=$4
+  if ! listed=$(yardr bead list 2>&1); then
+    echo "test: warning: cannot list beads to file the repeat flake $test: $listed" >&2
+    return 0
+  fi
+  if printf '%s\n' "$listed" | grep -F -q "$title"; then
+    return 0
+  fi
+  if [ -n "$depot" ]; then
+    set -- --depot "$depot"
+  else
+    set --
+  fi
+  if ! filed=$(grep -F " $test " "$logf" | yardr bead create "$title" "$@" --stage backlog -p 3 -b - 2>&1); then
+    echo "test: warning: cannot file the repeat flake $test: $filed" >&2
+    return 0
+  fi
+  echo "test: filed $filed: $title"
+}
 # summary prints the run's test line ($1 is its exit status: 0 passed): the
 # result, the packages passed and failed, the wall seconds, and the seconds
 # queued on the race lock. A note carries it whole (docs/testing.md R4).
