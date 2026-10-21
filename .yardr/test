@@ -1189,6 +1189,7 @@ packs/telegram/                internal/hooks internal/store
 packs/posthog/                 internal/hooks
 packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs
+packs/website/                 internal/pack
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/security_paths          internal/store
 .yardr/test                    .
@@ -1203,7 +1204,7 @@ contrib/assembly/              contrib/assembly .
 contrib/shot/shot              internal/pack
 contrib/shot/                  contrib/shot .
 contrib/deploy/deploy-dokku    internal/cli
-contrib/deploy/deploy-void     internal/cli
+contrib/deploy/deploy-void     internal/cli internal/pack
 contrib/deploy/                contrib/deploy .
 contrib/github-mint/           contrib/github-mint internal/cli internal/dispatch .
 contrib/machine-limits/        contrib/machine-limits .

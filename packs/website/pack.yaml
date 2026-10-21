@@ -1,0 +1,71 @@
+# Website pack for yardr: the starter's line with a deploy stage, for a
+# website the yard builds and deploys to the user's own Void platform.
+# Like the starter pack it names no agent product, model, depot, person or
+# secret: the import asks, and they stay in the yard. The format is the
+# starter's (packs/starter/pack.yaml, docs/packs.md).
+#
+# The roles, the stage files but merged.md's, and scripts/merge-local are
+# the starter's, copied: a pack names a group together with the role or the
+# script it runs, and these are the starter's groups. scripts/deploy-void
+# is a copy of contrib/deploy/deploy-void. A test fails when a copy drifts.
+
+name: website
+
+# The kind of depot the pack is for: its flow lands a bead on a base branch,
+# then deploys that commit.
+kind: git
+
+# The setup notes, for the person whose website it is: what the platform,
+# the token and the first deploy take. pack check and pack apply print them.
+setup: SETUP.md
+
+# One flow, the depot's: the starter's default with deploy after landing.
+# merged is worked here, by the deploy group, and live, past it, is the end.
+# There is no train flow: a train follows the depot's flow and deploys as it
+# lands. decide may send a bead back to merged once a person has fixed what
+# a deploy failed on.
+flows:
+  default:
+    stages:
+      backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
+      new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: new, question: decide } }
+      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }
+      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      merged:   { group: deploy,    file: flows/default/merged.md,   outcomes: { done: live, failed: decide } }
+      decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new, merged] }
+      live:     { end: true }
+
+# The starter's groups plus deploy, which runs the deploy script: one bead
+# at a time, since one deploy at a time is what the script is written for.
+groups:
+  builders:  { agent: roles/builder.md,  limit: 5 }
+  reviewers: { agent: roles/reviewer.md, limit: 3 }
+  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }
+  assembly:  { run: scripts/merge-local, limit: 1 }
+  deploy:    { run: scripts/deploy-void, limit: 1 }
+  backlog:   { people: true }
+  decisions: { people: true }
+
+# The starter's crew member, hearing what it hears there.
+crew:
+  yardmaster:
+    role: roles/yardmaster.md
+    hears:
+      events: [attention]
+      stages: [decide]
+      done: true
+    subscribe:
+      linear: involved
+    open_threads: [linear]
+
+# What an outside source hears of the flow above: the starter's map, with
+# live: done beside merged: done, so the issue a task tracks is done when
+# the site is live. There is no github says: the starter's lines report a
+# train's pull request, and this pack has no train flow, so no flow has an
+# edge for what they say.
+sources:
+  linear:
+    as: yardmaster
+    hears:
+      task: { new: started, review: review, review-security: review, merged: done, live: done }

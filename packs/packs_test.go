@@ -19,7 +19,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the fifteen yardr carries. A file the
+// is the name it is found by, and they are the sixteen yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -45,8 +45,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook"}) {
-		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram and webhook", names)
+	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook", packs.Website}) {
+		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram, webhook and website", names)
 	}
 }
 
@@ -93,9 +93,10 @@ func packFiles(t *testing.T) map[string]string {
 func TestTemplatesAreGeneric(t *testing.T) {
 	specific := regexp.MustCompile(`(?i)christopher|mckean|\byard\b(?:[^/]|$)|go vet|go test|go install|\(Go\)|herdr|XDG_|YARDR_HOME|\bmain\b|unix.socket`)
 	files := packFiles(t)
-	// Thirteen roles (the starter's five, the dir pack's two, the
-	// contributors pack's four, the design pack's two) and the stage files
-	// of the six flows: an import installs them in any yard.
+	// Eighteen roles (the starter's five, the dir pack's two, the
+	// contributors pack's four, the design pack's two, the website pack's
+	// five) and the stage files of the seven flows: an import installs them
+	// in any yard.
 	var roles, stages int
 	for name := range files {
 		if strings.Contains(name, "/roles/") {
@@ -104,8 +105,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 13 || stages != 23 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 13 and 23", roles, stages)
+	if roles != 18 || stages != 30 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 30", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {
@@ -216,7 +217,7 @@ func TestTemplatesAreGeneric(t *testing.T) {
 // session, with the done command.
 func TestBuilderRolesSayUpFrontThatOnlyAnOutcomeEndsTheSession(t *testing.T) {
 	files := packFiles(t)
-	for _, name := range []string{"starter/roles/builder.md", "contributors/roles/builder.md", "design/roles/builder.md", "dir/roles/builder.md"} {
+	for _, name := range []string{"starter/roles/builder.md", "contributors/roles/builder.md", "design/roles/builder.md", "dir/roles/builder.md", "website/roles/builder.md"} {
 		lines := strings.Split(files[name], "\n")
 		if len(lines) > 10 {
 			lines = lines[:10]
@@ -448,6 +449,171 @@ func TestDesignPack(t *testing.T) {
 		}
 		if string(got) != string(want) {
 			t.Errorf("packs/design/%s differs from packs/starter/%s: change both", name, name)
+		}
+	}
+}
+
+// The website pack is the starter's line with a deploy stage after landing,
+// for a website on the user's own Void platform: one depot flow, no train
+// flow, merged worked by the deploy group, live the end, and decide able to
+// send a bead back to merged. Its roles, stage files but merged.md's, and
+// merge-local are the starter's, byte for byte, so the two never say
+// different things of one stage; its deploy-void is the reference script's,
+// held equal in internal/pack beside the executable bits an embed has no
+// mode for. A change to one of them is made in both.
+func TestWebsitePack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, packs.Website)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != "git" || len(p.Flows) != 1 || p.Flows[0].Name != "default" || p.Flows[0].Type != "" {
+		t.Fatalf("kind %q, flows = %+v, want one depot flow default in a git depot", p.Kind, p.Flows)
+	}
+	var edges []string
+	for _, s := range p.Flows[0].Stages {
+		line := s.Name + " (" + s.Group + ")"
+		for _, o := range s.Outcomes {
+			line += " " + o.Name + ":" + o.To
+		}
+		if len(s.Manual) > 0 {
+			line += " -> " + strings.Join(s.Manual, ",")
+		}
+		edges = append(edges, line)
+		if want := "flows/default/" + s.Name + ".md"; !s.End && s.File != want {
+			t.Errorf("stage %s has the stage file %q, want %s", s.Name, s.File, want)
+		}
+	}
+	if want := []string{
+		"backlog (backlog) -> new,decide",
+		"new (builders) done:review question:decide -> backlog",
+		"review (reviewers) done:review-security done-safe:approved changes:new question:decide",
+		"review-security (security-reviewers) done:approved changes:new question:decide",
+		"approved (assembly) done:merged failed:new question:decide",
+		"merged (deploy) done:live failed:decide",
+		"decide (decisions) -> backlog,new,merged",
+		"live ()",
+	}; !slices.Equal(edges, want) {
+		t.Errorf("flow default:\n%s\nwant:\n%s", strings.Join(edges, "\n"), strings.Join(want, "\n"))
+	}
+	// The starter's groups plus deploy, running the deploy script one bead
+	// at a time.
+	wantGroups := map[string]pack.Group{
+		"builders":           {Agent: "roles/builder.md", Limit: 5},
+		"reviewers":          {Agent: "roles/reviewer.md", Limit: 3},
+		"security-reviewers": {Agent: "roles/review-security.md", Limit: 2, BindsAs: "reviewers"},
+		"assembly":           {Run: "scripts/merge-local", Limit: 1},
+		"deploy":             {Run: "scripts/deploy-void", Limit: 1},
+		"backlog":            {People: true},
+		"decisions":          {People: true},
+	}
+	if len(p.Groups) != len(wantGroups) {
+		t.Fatalf("groups = %+v, want the starter's plus deploy", p.Groups)
+	}
+	for _, g := range p.Groups {
+		want, ok := wantGroups[g.Name]
+		if !ok {
+			t.Errorf("group %s is none the pack should have", g.Name)
+			continue
+		}
+		if g.Agent != want.Agent || g.Run != want.Run || g.People != want.People || g.Limit != want.Limit || g.BindsAs != want.BindsAs {
+			t.Errorf("group %s = agent %q run %q people %v limit %d binds_as %q, want agent %q run %q people %v limit %d binds_as %q",
+				g.Name, g.Agent, g.Run, g.People, g.Limit, g.BindsAs, want.Agent, want.Run, want.People, want.Limit, want.BindsAs)
+		}
+	}
+	// The crew member and what it hears are the starter's, as is what
+	// Linear hears of the flow, with live: done beside merged: done.
+	starterSub, err := fs.Sub(packs.FS, packs.Starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starter, err := pack.Load(starterSub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(p.Crew, starter.Crew) {
+		t.Errorf("crew = %+v, want the starter's %+v", p.Crew, starter.Crew)
+	}
+	if len(p.Sources) != 1 || p.Sources[0].Source != "linear" || p.Sources[0].As != "yardmaster" {
+		t.Fatalf("sources = %+v, want linear alone, as yardmaster", p.Sources)
+	}
+	wantMap := map[string]string{
+		store.MapKey("task", "new"):             "started",
+		store.MapKey("task", "review"):          "review",
+		store.MapKey("task", "review-security"): "review",
+		store.MapKey("task", "merged"):          "done",
+		store.MapKey("task", "live"):            "done",
+	}
+	if !reflect.DeepEqual(p.Sources[0].Map, wantMap) {
+		t.Errorf("linear hears = %v, want %v", p.Sources[0].Map, wantMap)
+	}
+	// The setup notes the import prints: the address limit first, before
+	// anything is bought, then the checklist, the token's rotation and who
+	// can read it, the way back, and what a failed deploy takes.
+	if p.Setup != "SETUP.md" || p.SetupText == "" {
+		t.Fatalf("setup = %q, want SETUP.md with text in it", p.Setup)
+	}
+	if i, j := strings.Index(p.SetupText, "A core platform has no custom domains"), strings.Index(p.SetupText, "## The checklist"); i < 0 || j < 0 || i > j {
+		t.Errorf("SETUP.md does not say up front, before the checklist, that a core platform has no custom domains")
+	}
+	for _, want := range []string{
+		"**rollback does not reverse database migrations**",
+		"void project token renew",
+		"on your own machine",
+		"since they run as the yard's OS user",
+		"may be the site's own",
+	} {
+		if !strings.Contains(p.SetupText, want) {
+			t.Errorf("SETUP.md lacks %q", want)
+		}
+	}
+	// The README says the same of the token and the way back, for whoever
+	// reads the pack before importing it.
+	readme, err := fs.ReadFile(packs.FS, packs.Website+"/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"can obtain",
+		"**rollback does not reverse database migrations**",
+	} {
+		if !strings.Contains(string(readme), want) {
+			t.Errorf("packs/website/README.md lacks %q", want)
+		}
+	}
+	// The merged stage file says what a deploy's failure takes, as the
+	// setup notes do.
+	merged, err := fs.ReadFile(packs.FS, packs.Website+"/flows/default/merged.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"fix bead", "void project rollback", "--limit 0"} {
+		if !strings.Contains(string(merged), want) {
+			t.Errorf("packs/website/flows/default/merged.md lacks %q", want)
+		}
+	}
+	// The same copies as the design pack's, and the stage files too: a
+	// group both packs name is prompted from whichever was imported last,
+	// and a stage either flow works is read from the same text.
+	for _, name := range []string{
+		"roles/builder.md", "roles/merger.md", "roles/review-security.md", "roles/reviewer.md", "roles/yardmaster.md",
+		"flows/default/backlog.md", "flows/default/new.md", "flows/default/review.md",
+		"flows/default/review-security.md", "flows/default/approved.md", "flows/default/decide.md",
+		"scripts/merge-local",
+	} {
+		want, err := fs.ReadFile(packs.FS, packs.Starter+"/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := fs.ReadFile(packs.FS, packs.Website+"/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("packs/website/%s differs from packs/starter/%s: change both", name, name)
 		}
 	}
 }

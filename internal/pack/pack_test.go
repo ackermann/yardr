@@ -19,6 +19,11 @@ import (
 // starter is the pack the repository ships, and these tests' fixture.
 const starter = "../../packs/starter"
 
+// website is the starter's line with a deploy stage, for a website on the
+// user's own Void platform; these tests hold its deploy script to the
+// reference one.
+const website = "../../packs/website"
+
 // writePack makes a pack directory from files (path -> content); a path
 // under scripts/ is made executable.
 func writePack(t *testing.T, files map[string]string) string {
@@ -366,6 +371,30 @@ func TestStarterMergeLocalIsTheReferenceAssembly(t *testing.T) {
 	info, err := os.Stat(filepath.Join(starter, "scripts", "merge-local"))
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("packs/starter/scripts/merge-local must be executable: %v", err)
+	}
+}
+
+// The website pack's deploy script is the reference deploy's copy, as its
+// merge-local is the assembler's: a depot that takes the pack deploys with
+// what contrib/deploy carries. Both scripts are executable in the pack,
+// since an import installs a run: group from them.
+func TestWebsiteDeployVoidIsTheReferenceDeploy(t *testing.T) {
+	got, err := os.ReadFile(filepath.Join(website, "scripts", "deploy-void"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("../../contrib/deploy/deploy-void")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Error("packs/website/scripts/deploy-void differs from contrib/deploy/deploy-void: change both")
+	}
+	for _, name := range []string{"deploy-void", "merge-local"} {
+		info, err := os.Stat(filepath.Join(website, "scripts", name))
+		if err != nil || info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("packs/website/scripts/%s must be executable: %v", name, err)
+		}
 	}
 }
 

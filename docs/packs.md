@@ -87,12 +87,19 @@ credential (`credential.url: true`,
 [integrations.md](integrations.md#a-declared-source)), so the declaration
 names no base ([An integration pack](#an-integration-pack-kind-source)).
 
+And [`packs/website`](../packs/website), named `website`, is the starter's
+line with a deploy stage, for a depot that is a website: a landed change is
+deployed to the site's project on the user's own Void platform, and the bead
+closes when the site is live. It is imported instead of the starter, with
+setup notes for the person whose website it is.
+
 | pack | for | flows | a depot's default |
 |---|---|---|---|
 | `starter` | a git depot's own work | `default`, and `train` for trains | of a git depot |
 | `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
 | `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
 | `design` | designs in a git depot: a document drafted, critiqued and decided before anything is built | `design`, for its type | of none: `yardr pack apply design --depot <depot>` |
+| `website` | a git depot's website, deployed to its own Void platform after landing | `default`, past the deploy to `live` | of none: `yardr pack apply website --depot <depot>` |
 | `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
 | `github` | GitHub itself, in the yard | none: `kind: source` | of none: `yardr pack apply github` |
 | `google-mail` | Gmail itself, in the yard: mail read, drafts written, nothing sent | none: `kind: source` | of none: `yardr pack apply google-mail` |
@@ -288,7 +295,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`, `webhook`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`, `webhook`, `website`) |
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
