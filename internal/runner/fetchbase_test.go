@@ -260,3 +260,17 @@ func TestFetchBaseBestEffort(t *testing.T) {
 		}
 	})
 }
+
+// fetchRemote's argv ends its options before the remote, with and without
+// --prune: the remote comes from the depot's stored base, and a name
+// starting with '-' must fetch from that name, not parse as an option.
+func TestFetchRemoteEndsOptions(t *testing.T) {
+	t.Parallel()
+	remote := "--upload-pack=id"
+	if args := fetchRemoteArgs("/repo", remote, false); !slices.Equal(args, []string{"-C", "/repo", "fetch", "--quiet", "--", remote}) {
+		t.Fatalf("argv = %q", args)
+	}
+	if args := fetchRemoteArgs("/repo", remote, true); !slices.Equal(args, []string{"-C", "/repo", "fetch", "--quiet", "--prune", "--", remote}) {
+		t.Fatalf("pruning argv = %q", args)
+	}
+}

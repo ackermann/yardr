@@ -1263,6 +1263,14 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 	default:
 		return fmt.Errorf("depot %s: kind %q is neither %s nor %s", r.Name, r.Kind, DepotGit, DepotDir)
 	}
+	// A git depot's base reaches git's argv (the runner fetches it and
+	// branches trains from it), so it is held to a branch's shape here, on
+	// every path in: one starting with '-' would parse as an option. Empty
+	// is allowed: with no base the depot's files are read from the working
+	// tree (see depotfile).
+	if r.Kind == DepotGit && r.Base != "" && !validBase(r.Base) {
+		return fmt.Errorf("depot %s: base %q is not a branch name", r.Name, r.Base)
+	}
 	return s.write(func(w *wtx) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {

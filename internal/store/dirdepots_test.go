@@ -14,8 +14,8 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// A depot is a git depot unless it says otherwise; a dir depot has no base, and
-// a kind is one of the two.
+// A depot is a git depot unless it says otherwise; a dir depot has no base, a
+// git depot's base is a branch's shape, and a kind is one of the two.
 func TestDepotKinds(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
@@ -25,6 +25,27 @@ func TestDepotKinds(t *testing.T) {
 	}
 	if r, err := s.GetDepot(ctx, "web"); err != nil || r.Kind != store.DepotGit || r.IsDir() {
 		t.Fatalf("depot without a kind = %+v, %v; want git", r, err)
+	}
+	// A git depot's base is a local branch, a remote's, or none at all
+	// (whose files are read from the working tree).
+	for name, base := range map[string]string{"empty": "", "local": "main", "remote": "origin/main", "punct": "feature/x-y_2.0"} {
+		if err := s.PutDepot(ctx, store.Depot{Name: name, Path: "/x", Base: base}, "me"); err != nil {
+			t.Fatalf("base %q: %v", base, err)
+		}
+	}
+	// While a base that starts with '-', walks up, or is shaped like
+	// nothing git takes as a branch never reaches the store: the runner
+	// puts the base on git's argv, where a leading '-' parses as an
+	// option. The refusal names the depot and the value.
+	for _, base := range []string{"--upload-pack=touch /tmp/x/main", "-main", "a..b", "v1~2", "sp ace"} {
+		err := s.PutDepot(ctx, store.Depot{Name: "evil", Path: "/x", Base: base}, "me")
+		if err == nil || !strings.Contains(err.Error(), "evil") ||
+			!strings.Contains(err.Error(), base) || !strings.Contains(err.Error(), "not a branch name") {
+			t.Fatalf("base %q: %v", base, err)
+		}
+	}
+	if _, err := s.GetDepot(ctx, "evil"); err == nil {
+		t.Fatal("a refused depot stored anyway")
 	}
 	if err := s.PutDepot(ctx, store.Depot{Name: "docs", Path: "/d", Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)

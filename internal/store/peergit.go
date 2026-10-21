@@ -69,14 +69,23 @@ var (
 	// gitRemoteName is what the name of a remote is held to before it is
 	// an argument of git: no option, no URL.
 	gitRemoteName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	// gitBranchName is what a peer's name for its base is held to before
-	// this yard asks its own remote for it.
+	// gitBranchName is what a base is held to before this yard asks git
+	// for it: a peer's name for its base (checkBase), and a depot's own
+	// (PutDepot).
 	gitBranchName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 	scpRemote     = regexp.MustCompile(`^(?:[^@/:]+@)?([^/:@]+):(.*)$`)
 	// formRemote is what RemoteForm gives for a remote on another machine:
 	// a host, then the path.
 	formRemote = regexp.MustCompile(`(?i)^(\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?)/(.+)$`)
 )
+
+// validBase reports whether base is a name git may be asked for: shaped
+// like a branch, with no leading '-' that would parse as an option and no
+// '..' that walks up. PutDepot holds a depot's base to it, and checkBase a
+// peer's name for its base.
+func validBase(base string) bool {
+	return !strings.HasPrefix(base, "-") && !strings.Contains(base, "..") && gitBranchName.MatchString(base)
+}
 
 // IsBeadBranch reports whether name is of the form a bead's branch has
 // (Branch): yard/<handle>.
@@ -345,7 +354,7 @@ func checkBase(ctx context.Context, depot Depot, g PeerGit) string {
 		return ""
 	}
 	var ferr error
-	if gitBranchName.MatchString(g.Base) && !strings.Contains(g.Base, "..") {
+	if validBase(g.Base) {
 		ferr = gitFetch(ctx, depot.Path, remote, "+refs/heads/"+g.Base+":refs/remotes/"+remote+"/"+g.Base)
 	}
 	if !hasCommit(ctx, depot.Path, g.BaseCommit) {

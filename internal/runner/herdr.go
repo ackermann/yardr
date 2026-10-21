@@ -540,17 +540,24 @@ func (h *Herdr) fetchRemote(ctx context.Context, dir, remote string, prune bool)
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	args := []string{"-C", dir, "fetch", "--quiet"}
-	if prune {
-		args = append(args, "--prune")
-	}
-	args = append(args, remote)
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", fetchRemoteArgs(dir, remote, prune)...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=true", "SSH_ASKPASS=true")
 	// git may leave a child (ssh, a credential helper) holding its output
 	// open after it is killed; do not wait on that past the deadline.
 	cmd.WaitDelay = time.Second
 	return cmd.Run()
+}
+
+// fetchRemoteArgs is the argv fetchRemote runs. -- ends the options before
+// the remote, which comes from the depot's stored base (fetchBase) or its
+// git config (fetchLocalBase): a name starting with '-' must fetch from
+// that name, not parse as an option (--upload-pack runs a command).
+func fetchRemoteArgs(dir, remote string, prune bool) []string {
+	args := []string{"-C", dir, "fetch", "--quiet"}
+	if prune {
+		args = append(args, "--prune")
+	}
+	return append(args, "--", remote)
 }
 
 // fetchLocalBase brings the depot's base, a local branch, up to the
@@ -578,7 +585,7 @@ func (h *Herdr) fetchLocalBase(ctx context.Context, depot *store.Depot, bead str
 	if err != nil || local == "" {
 		return
 	}
-	upstream, err := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", depot.Base+"@{upstream}")
+	upstream, err := gitOut(ctx, depot.Path, "rev-parse", "--verify", "-q", "--end-of-options", depot.Base+"@{upstream}")
 	if err != nil || upstream == "" {
 		return
 	}
@@ -598,7 +605,10 @@ func (h *Herdr) fetchLocalBase(ctx context.Context, depot *store.Depot, bead str
 	if h.Store == nil {
 		return
 	}
-	upstreamName, _ := gitOut(ctx, depot.Path, "rev-parse", "--abbrev-ref", depot.Base+"@{upstream}")
+	// --verify is for --end-of-options, which rev-parse only honours
+	// beside it (a bare -- is echoed, not honoured); the name printed is
+	// the same as --abbrev-ref alone prints.
+	upstreamName, _ := gitOut(ctx, depot.Path, "rev-parse", "--verify", "--abbrev-ref", "--end-of-options", depot.Base+"@{upstream}")
 	// Best effort: the branch is left and the bead starts whatever the
 	// log says.
 	_ = h.Store.LogDispatch(ctx, bead, BaseDiverged, "yard", map[string]any{
@@ -660,8 +670,9 @@ func (h *Herdr) trainBranch(ctx context.Context, job dispatch.Job) error {
 	}
 	// --no-track: the train branch lands on the base later as a unit; it is
 	// not a local copy of the base. Without -f git refuses to replace a
-	// branch made meanwhile.
-	if err := git(ctx, depot.Path, "branch", "--no-track", train, depot.Base); err != nil {
+	// branch made meanwhile. --end-of-options before the stored base, so a
+	// name starting with '-' parses as the start point, not an option.
+	if err := git(ctx, depot.Path, "branch", "--no-track", train, "--end-of-options", depot.Base); err != nil {
 		// Another child of the same train may have created the branch after
 		// our check. Treat that race like the already-existed case, but do
 		// not hide failures that left no branch behind.
