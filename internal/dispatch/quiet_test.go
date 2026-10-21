@@ -361,12 +361,14 @@ func TestQuietRunIsSingleFlight(t *testing.T) {
 	}
 }
 
-// A red run is told as quiet_failed naming its packages and its base
-// commit, so the yard hears of a red base with no bead to send back.
-func TestQuietRedRunNamesPackagesAndCommit(t *testing.T) {
+// A red run is told as quiet_failed naming its packages, its failing
+// tests and its base commit, so the yard hears of a red base with no bead
+// to send back.
+func TestQuietRedRunNamesPackagesTestsAndCommit(t *testing.T) {
 	y := newQuietYard(t)
 	y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
-		Packages: []string{"yardr.dev/yardr/internal/store"}}
+		Packages: []string{"yardr.dev/yardr/internal/store"},
+		Tests:    []string{"TestMigrate", "TestPutBlob/huge"}}
 	y.err = errors.New("the whole suite failed")
 	ctx := context.Background()
 	y.land(t, "one")
@@ -379,6 +381,35 @@ func TestQuietRedRunNamesPackagesAndCommit(t *testing.T) {
 	pkgs, _ := evs[0].Data["packages"].([]any)
 	if len(pkgs) != 1 || pkgs[0] != "yardr.dev/yardr/internal/store" {
 		t.Fatalf("quiet_failed packages = %v, want the failing package named", evs[0].Data["packages"])
+	}
+	tests, _ := evs[0].Data["tests"].([]any)
+	if len(tests) != 2 || tests[0] != "TestMigrate" || tests[1] != "TestPutBlob/huge" {
+		t.Fatalf("quiet_failed tests = %v, want the failing tests named", evs[0].Data["tests"])
+	}
+}
+
+// The failing tests are read as the gate's flaky lines read them: the
+// --- FAIL lines, a subtest with its parents and no duration, each once,
+// in the order printed, capped however many failed.
+func TestQuietTestsNamesTheFailingTests(t *testing.T) {
+	var out strings.Builder
+	out.WriteString("=== RUN   TestPaint\n")
+	out.WriteString("--- PASS: TestPaint (0.01s)\n")
+	out.WriteString("=== RUN   TestMigrate\n")
+	out.WriteString("--- FAIL: TestMigrate (1.20s)\n")
+	out.WriteString("=== RUN   TestPutBlob/huge\n")
+	out.WriteString("    --- FAIL: TestPutBlob/huge (0.00s)\n")
+	out.WriteString("--- FAIL: TestMigrate (1.20s)\n") // printed again with the package's FAIL
+	out.WriteString("FAIL\tyardr.dev/yardr/internal/store\t1.3s\n")
+	for i := 0; i < 30; i++ {
+		fmt.Fprintf(&out, "--- FAIL: TestFlood%d (0.00s)\n", i)
+	}
+	tests := dispatch.QuietTests(out.String())
+	if len(tests) != 20 || tests[0] != "TestMigrate" || tests[1] != "TestPutBlob/huge" || tests[19] != "TestFlood17" {
+		t.Fatalf("QuietTests names %d tests, want 20 from TestMigrate to TestFlood17: %v", len(tests), tests)
+	}
+	if slices.Contains(tests, "TestPaint") {
+		t.Fatalf("QuietTests names a passing test: %v", tests)
 	}
 }
 
@@ -466,7 +497,8 @@ func TestQuietThresholdChangeRejudgesThroughEventStream(t *testing.T) {
 
 // The real run, as a drill: a fixture depot whose base carries a failing
 // check at its head commit. The run tests that commit in its own
-// worktree, and the yard is told it failed, with the package and commit.
+// worktree, and the yard is told it failed, with the package, the failing
+// tests and the commit.
 func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	ctx := context.Background()
@@ -485,7 +517,7 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	}
 	git("init", "-b", "main")
 	must(t, os.WriteFile(filepath.Join(repo, "check.sh"),
-		[]byte("echo 'FAIL\\tyardr.dev/fixture/bad\\t0.1s'\nexit 1\n"), 0o755))
+		[]byte("echo '--- FAIL: TestPaint (0.1s)'\necho 'FAIL\\tyardr.dev/fixture/bad\\t0.1s'\nexit 1\n"), 0o755))
 	git("add", "check.sh")
 	git("commit", "-m", "a red base")
 	red := git("rev-parse", "HEAD")
@@ -507,6 +539,10 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	pkgs, _ := evs[0].Data["packages"].([]any)
 	if len(pkgs) != 1 || pkgs[0] != "yardr.dev/fixture/bad" {
 		t.Fatalf("quiet_failed packages = %v, want the fixture's failing package", evs[0].Data["packages"])
+	}
+	tests, _ := evs[0].Data["tests"].([]any)
+	if len(tests) != 1 || tests[0] != "TestPaint" {
+		t.Fatalf("quiet_failed tests = %v, want the fixture's failing test", evs[0].Data["tests"])
 	}
 	// The depot's own checkout was never the worktree: it is still clean
 	// and on its base.

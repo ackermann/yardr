@@ -36,3 +36,6 @@ var QuietRelevant = quietRelevant
 
 // QuietPackages names the packages a whole-suite output failed.
 var QuietPackages = quietPackages
+
+// QuietTests names the tests a whole-suite output failed, capped.
+var QuietTests = quietTests

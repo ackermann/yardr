@@ -888,12 +888,14 @@ A quiet whole-suite run (testing.md R6) is told the same way, about no
 bead: `quiet_started` carries `depot`, `base` and `landings` (how many
 landings owed it), and its end is `quiet_passed` or `quiet_failed`, each
 carrying `depot`, `base`, `commit`, `wall_s` and `load`; a failure also
-carries `packages`, the packages that failed, and `reason`. `quiet_failed`
-is of the class [`attention`](#the-class-attention), so the yardmaster
-hears of a red base through its default `--on`. The three quiet-run
-events match a yardr subscription on kind alone, like the upgrade's
-failure kinds: `yardr subscribe <name> yardr --where kind=quiet_failed`
-carries red-base events.
+carries `packages`, the packages that failed, `tests`, the failing test
+names as the gate's flaky lines read them (capped), and `reason`.
+`quiet_failed` is of the class [`attention`](#the-class-attention), so
+the yardmaster hears of a red base through its default `--on`. The
+three quiet-run events match a yardr subscription on kind alone, like
+the upgrade's failure kinds:
+`yardr subscribe <name> yardr --where kind=quiet_failed` carries
+red-base events.
 
 Only the server's webhook listener records deliveries. The store socket has no
 method to record one, nor to log an event of an arbitrary kind: clients log

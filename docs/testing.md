@@ -128,11 +128,11 @@ landing leg, and it is
 single-flight: while one quiet run runs, a further event does not start
 a second, and the trigger re-arms only when the first finishes. A green
 run is logged and told as `quiet_passed`, a red base as `quiet_failed`
-naming the failing packages and the base commit, each with its wall
-time and starting load. The strict setting, which only the quiet run
-sets, turns off R1's loaded pass: a package over 60 s alone fails
-however loaded the machine. On a loaded host its failure line names
-both times and the load; on a quiet host it names both times, so a
+naming the failing packages, the failing tests and the base commit, each
+with its wall time and starting load. The strict setting, which only the
+quiet run sets, turns off R1's loaded pass: a package over 60 s alone
+fails however loaded the machine. On a loaded host its failure line
+names both times and the load; on a quiet host it names both times, so a
 slowdown cannot hide behind a loaded host (yardr-8gdt).
 `YARDR_LANDING=1` with `YARDR_R1_STRICT=1` beside it stays the one command
 anyone can run.

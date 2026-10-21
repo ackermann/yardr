@@ -45,17 +45,19 @@ import (
 // flock .yardr/test's race legs hold) for its whole length and tells the
 // test command so (YARDR_RACE_HELD), so it never overlaps a landing leg.
 // A green run is told as quiet_passed, a red base as quiet_failed naming
-// the failing packages and the base commit; each carries the wall time
-// and the load the run started under.
+// the failing packages, the failing tests and the base commit; each
+// carries the wall time and the load the run started under.
 
 // QuietResult is how one quiet whole-suite run ended, as QuietRun (or the
 // real runner) reports it: the base commit it tested, how long it took,
-// the load it started under, and, on a red run, the packages that failed.
+// the load it started under, and, on a red run, the packages that failed
+// and the failing test names, capped.
 type QuietResult struct {
 	Commit   string
 	Wall     time.Duration
 	Load     string
 	Packages []string
+	Tests    []string
 }
 
 // quietRelevant says whether an event can change whether a quiet run is
@@ -263,9 +265,10 @@ func (d *Dispatcher) runQuietDepot(ctx context.Context, depot store.Depot, since
 		"wall_s": int(res.Wall.Round(time.Second).Seconds()), "load": res.Load, "landings": since}
 	if err != nil {
 		data["packages"] = res.Packages
+		data["tests"] = res.Tests
 		data["reason"] = err.Error()
 		d.Log.Error("quiet whole-suite run failed", "depot", depot.Name, "commit", res.Commit,
-			"wall", res.Wall.Round(time.Second), "load", res.Load, "packages", res.Packages, "err", err)
+			"wall", res.Wall.Round(time.Second), "load", res.Load, "packages", res.Packages, "tests", res.Tests, "err", err)
 		if lerr := d.Store.LogDispatch(ctx, "", store.QuietFailed, actor, data); lerr != nil {
 			d.Log.Warn("quiet run: failed event", "depot", depot.Name, "err", lerr)
 		}
@@ -290,6 +293,32 @@ func quietPackages(out string) []string {
 		}
 	}
 	return pkgs
+}
+
+var failTest = regexp.MustCompile(`--- FAIL: (\S+)`)
+
+// quietTestCap is how many failing test names a red quiet run carries: a
+// broken helper fails tens of tests, and the event names enough to triage
+// by, not all of them.
+const quietTestCap = 20
+
+// quietTests names the tests a whole-suite output failed: the --- FAIL
+// lines go test prints, as the gate's flaky lines read them (an indented
+// one is a subtest, named with its parents), each once, in the order
+// printed, capped. A run that failed with no test line (a panic, a build
+// failure) names none, and its packages still say where.
+func quietTests(out string) []string {
+	var tests []string
+	for _, m := range failTest.FindAllStringSubmatch(out, -1) {
+		if slices.Contains(tests, m[1]) {
+			continue
+		}
+		tests = append(tests, m[1])
+		if len(tests) == quietTestCap {
+			break
+		}
+	}
+	return tests
 }
 
 // quietLoad is the machine's one-minute load as the yard finds it, for a
@@ -427,7 +456,8 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	cmd.Stdout, cmd.Stderr = &out, &out
 	start := time.Now()
 	runErr := cmd.Run()
-	res := QuietResult{Commit: commit, Wall: time.Since(start), Load: load, Packages: quietPackages(out.String())}
+	res := QuietResult{Commit: commit, Wall: time.Since(start), Load: load,
+		Packages: quietPackages(out.String()), Tests: quietTests(out.String())}
 	if runErr != nil {
 		return res, fmt.Errorf("the whole suite failed on %s at %s: %w", base, commit, runErr)
 	}
