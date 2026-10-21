@@ -31,7 +31,9 @@ import (
 //	                             OperatorCalls too (operatorCall), and for
 //	                             a device of a user the one that gives
 //	                             their own address or credential (ownSecret)
-//	GET  /user/events?after=N    the stream, as on the socket
+//	GET  /user/events?after=N    the stream, as on the socket but for the
+//	                             value of a setting_changed the device is
+//	                             not told (deviceEvent)
 //	GET  /user/blobs/<hash>      a blob, as on the socket
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
 //	POST /user/pair              a pairing's code for the device's token (pair)
@@ -47,6 +49,10 @@ import (
 //     else (operatorCall), but GiveSecret for a device of a user whose own
 //     address or credential in a source is asked for (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
+//   - Settings answers the keys of deviceSettings and no other, and the
+//     stream carries the value of a setting_changed for those alone
+//     (deviceTold), so a lost token gives away no address or secret that
+//     the yard keeps in another setting;
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
 //   - a refusal is counted by its reason and logged in sums (refuse), and
@@ -806,8 +812,9 @@ func (u *UserServer) blobMax(ctx context.Context) int {
 	return store.DefaultBlobMax
 }
 
-// events is the stream for a device: as the socket's, for as long as the
-// credential it was opened with resolves to the same caller.
+// events is the stream for a device: as the socket's, but for what
+// deviceEvent holds back, for as long as the credential it was opened with
+// resolves to the same caller.
 func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 	c := callerOf(r)
 	key := c.User + "\x00" + c.SaidBy
