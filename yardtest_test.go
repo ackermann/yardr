@@ -838,7 +838,6 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	racePkg, ordinaryPkg := pkg+"/race", pkg+"/ordinary"
 	raceFailMixed := "WARNING: DATA RACE\n--- FAIL: TestRace (0.00s)\nFAIL\nFAIL\t" + racePkg + " 0.123s\n" +
 		"--- FAIL: TestOrdinary (0.00s)\nFAIL\nFAIL\t" + ordinaryPkg + " 0.123s"
-	flaky := "test: flaky: " + test + " (" + pkg + ") passed on rerun"
 	running := "test: running the failed packages again: " + pkg
 	norace := "test: not running the failed packages again: DATA RACE in " + pkg
 	title := "Flaky: " + test + " (" + pkg + ")"
@@ -853,6 +852,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
 	for _, c := range []struct {
 		name     string
+		testName string // override the failed test name
+		glob     bool   // add a path that an accidental test-name glob would match
 		times    string // how often the test step fails: once (flaky) or twice
 		ok       bool
 		calls    []string
@@ -883,6 +884,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		// of any age file, but only recent ones strike.
 		{name: "plain: a repeat flake files a bead", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
+		{name: "plain: test name glob characters stay literal", testName: "TestX*", glob: true, times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
 		{name: "plain: a repeat flake files into YARDR_DEPOT", times: "1", ok: true, calls: plain, steps: plainSteps,
 			env: []string{"YARDR_DEPOT=m"}, seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true, depot: "m"},
 		{name: "plain: a repeat flake files into its bead's depot", times: "1", ok: true, calls: plain, steps: plainSteps,
@@ -906,6 +909,12 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			line: raceFail, racePkgs: pkg, raced: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			testName := test
+			if c.testName != "" {
+				testName = c.testName
+			}
+			flaky := "test: flaky: " + testName + " (" + pkg + ") passed on rerun"
+			caseTitle := "Flaky: " + testName + " (" + pkg + ")"
 			script, err := os.ReadFile(yardTest)
 			if err != nil {
 				t.Fatal(err)
@@ -934,6 +943,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			if c.glob {
+				if err := os.WriteFile(filepath.Join(dir, "TestX-match"), nil, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			common := gitT(t, dir, "rev-parse", "--git-common-dir")
 			if !filepath.IsAbs(common) {
 				common = filepath.Join(dir, common)
@@ -945,7 +959,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
 				var seeds []string
 				for _, age := range c.seed {
-					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+sha+" "+test+" ("+pkg+") passed on rerun")
+					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+sha+" "+testName+" ("+pkg+") passed on rerun")
 				}
 				if err := os.WriteFile(flakyLog, []byte(strings.Join(seeds, "\n")+"\n"), 0o644); err != nil {
 					t.Fatal(err)
@@ -959,7 +973,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			// repeat into them, and the test's own would leak in.
 			line := c.line
 			if line == "" {
-				line = flakyFail
+				line = "--- FAIL: " + testName + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
 			}
 			env := scriptEnv()
 			pathEnv := "PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")
@@ -1036,7 +1050,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				}
 				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
 				for _, line := range logged {
-					for _, want := range []string{sha, pkg, test} {
+					for _, want := range []string{sha, pkg, testName} {
 						if !strings.Contains(line, want) {
 							t.Errorf("flaky log line %q, want it to carry %q", line, want)
 						}
@@ -1046,7 +1060,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					}
 				}
 				if c.strike {
-					if want := "test: " + test + " flaked 3 times in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
+					if want := "test: " + testName + " flaked 3 times in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
 						t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
 					}
 					if !strings.Contains(out, "test: FAILED: go test -race ./...\n") {
@@ -1071,7 +1085,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 						t.Errorf("the output's summary of a failed step: want %q and a FAIL line for %s", want, pkg)
 					}
 				} else {
-					want := "test: FAILED: go test -race ./...\n--- FAIL: " + test
+					want := "test: FAILED: go test -race ./...\n--- FAIL: " + testName
 					if !strings.Contains(out, want) || !strings.Contains(out, "FAIL\t"+pkg) {
 						t.Errorf("the output's summary of a failed step: want %q and a FAIL line for %s", want, pkg)
 					}
@@ -1100,7 +1114,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				t.Errorf("the run filed the flake: %v, want %v", created != "", c.create)
 			}
 			if c.create {
-				for _, want := range []string{title, "--stage backlog -p 3 -b -"} {
+				for _, want := range []string{caseTitle, "--stage backlog -p 3 -b -"} {
 					if !strings.Contains(created, want) {
 						t.Errorf("the create call %q, want it to carry %q", created, want)
 					}
@@ -1121,11 +1135,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					t.Errorf("the filed body has %d lines, want the %d sightings", len(carried), len(c.seed)+1)
 				}
 				for _, line := range carried {
-					if !strings.Contains(line, test+" ("+pkg+")") || !strings.Contains(line, "passed on rerun") {
+					if !strings.Contains(line, testName+" ("+pkg+")") || !strings.Contains(line, "passed on rerun") {
 						t.Errorf("the filed body line %q, want the test's log line", line)
 					}
 				}
-				if want := "test: filed m-filed: " + title + "\n"; !strings.Contains(out, want) {
+				if want := "test: filed m-filed: " + caseTitle + "\n"; !strings.Contains(out, want) {
 					t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
 				}
 			} else if strings.Contains(out, "test: filed") {

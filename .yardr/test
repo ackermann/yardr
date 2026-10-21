@@ -653,7 +653,10 @@ again() {
             # Each failed test's packages, read from this run's log before
             # the rerun replaces it: one "test pkg" line per package whose
             # output names the test, for the Flaky bead's title.
+            # Test names are data, not shell glob patterns.
+            set -f
             tpkgs=$(for t in $tests; do pkgof "$log" "$t" | awk -v t="$t" '{ print t " " $0 }'; done)
+            set +f
             # The same flags, the failed packages only: the prefix up to and
             # including "test" (env ... go test), then the flags (what after
             # test starts with -), then the failed packages. Packages and
@@ -722,6 +725,7 @@ again() {
                   fi
                 fi
                 strike=0
+                set -f
                 for t in $tests; do
                   sightings=$(grep -c -F " $t " "$flakylog" || true)
                   if [ "$have_yardr" = 1 ] && [ "${sightings:-0}" -ge 2 ]; then
@@ -739,6 +743,7 @@ again() {
                     strike=1
                   fi
                 done
+                set +f
                 if [ "$strike" = 1 ]; then
                   rc=1
                 fi
