@@ -106,8 +106,10 @@ here, and the warning lands in the log the assembly keeps.
 
 Each covered yard's own `<home>/scripts` is refreshed, the same set the
 binary covers, with the scripts each has. The copies a pack carries under
-`<home>/packs/*/scripts` are not refreshed. A pack import owns those, and
-no group of a yard set up by hand runs them.
+`<home>/packs/*` and `<home>/flows/*` are not refreshed. A pack import owns
+those, and no group of a yard set up by hand runs them: they are refreshed
+by `yardr pack apply`, and `yardr doctor` names the imports whose copies
+are behind what the running binary would copy.
 
 The upgrade says it in one line between `install` and `health`:
 `scripts   merge-local, integrate-train refreshed`. The line reads

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,11 +20,14 @@ import (
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/limits"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
+	"yardr.dev/yardr/packs"
 )
 
 // doctorReport is what yardr doctor found, in its three parts: what the
@@ -110,6 +114,11 @@ type yardState struct {
 	// the herdr hooks standing twice, each with what sets it right
 	// (kimiHookNotes).
 	KimiHooks []string `json:"kimi_hooks,omitempty"`
+	// StalePacks are the imports of embedded packs whose copied files
+	// differ from what the running binary would copy, each with the
+	// commands that bring them up to date (stalePackNotes). A notice,
+	// not a fault: the yard runs as it did.
+	StalePacks []string `json:"stale_packs,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
 	// lists it: every crew member, and the open beads.
 	crew []store.CrewMember
@@ -372,6 +381,9 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 		return nil, err
 	}
 	rep.State.KimiHooks = kimiHookNotes(uses)
+	if rep.State.StalePacks, err = stalePackNotes(ctx, st, cfg); err != nil {
+		return nil, err
+	}
 	if rep.Steps, err = setupSteps(ctx, st); err != nil {
 		return nil, err
 	}
@@ -855,6 +867,9 @@ func (s *yardState) lines(home string) []docLine {
 	for _, n := range s.KimiHooks {
 		out = append(out, docLine{tagNote, "kimi", n})
 	}
+	for _, n := range s.StalePacks {
+		out = append(out, docLine{tagNote, "packs", n})
+	}
 	return out
 }
 
@@ -917,6 +932,61 @@ func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, gro
 			notes = append(notes, fmt.Sprintf("setting %s is stored and nothing reads it (there is: %s). Remove it: %s settings set %s \"\"",
 				k, strings.Join(store.SettingKeys(), ", "), yardr, k))
 		}
+	}
+	return notes, nil
+}
+
+// stalePackNotes are the imports of embedded packs whose copied files
+// differ from what the running binary would copy, one line each with the
+// commands that bring them up to date. An embedded pack's roles, stage
+// files and scripts are copied at pack apply; installing a new yardr
+// leaves those copies as they were. The check reuses pack check's
+// per-file plan, and compares embedded sources alone: a directory, URL
+// or earlier record is not compared. Notes, not faults.
+func stalePackNotes(ctx context.Context, st store.API, cfg *config.Config) ([]string, error) {
+	recs, err := st.Packs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	yardr := yardrAt(cfg.Home)
+	var notes []string
+	for _, rec := range recs {
+		if !fromEmbedded(rec.Source) || !packs.Carries(rec.Pack) {
+			continue
+		}
+		sub, err := fs.Sub(packs.FS, rec.Pack)
+		if err != nil {
+			continue
+		}
+		p, err := pack.Load(sub, packs.Embedded+" in yardr "+version.Describe())
+		if err != nil {
+			continue
+		}
+		// The last import's flow, crew, groups and roles, as a check
+		// without flags repeats them: what differs is the binary's.
+		plan, err := pack.Build(ctx, st, p, pack.Options{Depot: rec.Depot, Home: cfg.Home})
+		if err != nil {
+			continue
+		}
+		var behind []string
+		for _, o := range plan.Objects {
+			if o.Kind == "file" && (o.Action == pack.Change || o.Action == pack.Create) {
+				behind = append(behind, o.Name)
+			}
+		}
+		if len(behind) == 0 {
+			continue
+		}
+		names := behind
+		if len(names) > 3 {
+			names = append(slices.Clone(names[:3]), "...")
+		}
+		depot := ""
+		if rec.Depot != "" {
+			depot = " --depot " + rec.Depot
+		}
+		notes = append(notes, fmt.Sprintf("pack %s in %s: %s behind yardr %s (%s): %s pack check %s%s, then %s pack apply %s%s",
+			rec.Pack, inDepot(rec.Depot), plural(len(behind), "file"), version.Describe(), strings.Join(names, ", "), yardr, rec.Pack, depot, yardr, rec.Pack, depot))
 	}
 	return notes, nil
 }
