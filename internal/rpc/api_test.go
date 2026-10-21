@@ -207,13 +207,16 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Settings",
-		says:     "The yard's operator, when set, and its caps on a file. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.",
+		says:     "The yard's operator, when set, and its caps on a file; to the operator's own devices, also the operator's words to their agents. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.",
 		requests: []string{`{}`},
 		fields: []field{
 			{"operator", "string?", "the operator's user name; absent when the yard has not set one"},
+			{"operator_style", "string?", "how the operator asked agents to work with them: `guide`, `show`, `work` or `report`; absent when the operator has not set one, and to a device of any user but the operator"},
+			{"operator_note", "string?", "the one line the operator asked agents to know about them; absent as `operator_style` is"},
 			{"blob_max_bytes", "string?", "the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB)"},
 			{"files_max", "string", "how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number"},
 		},
+		after: "The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls. Over the network they are told to a device of the operator and to no other, and to none in a yard with no operator; every other setting is told as on the socket.",
 	},
 	{
 		method:   "Users",
@@ -1280,6 +1283,11 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.GiveSecret(ctx, crm.ID, harnessKey("The API key Claude Code needs at first login"),
 		map[string]string{"ANTHROPIC_API_KEY": "typed-in-the-fixture"}, "jo")
 	must(err)
+
+	// The operator's words to the agents, so that Settings has them to
+	// show. Last again, for the seqs above.
+	must(st.SetSetting(ctx, store.StyleSetting, "show", "jo"))
+	must(st.SetSetting(ctx, store.NoteSetting, "I read diffs, not prose", "jo"))
 	return st, d.Token
 }
 

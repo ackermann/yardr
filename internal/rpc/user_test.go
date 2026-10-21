@@ -319,6 +319,86 @@ func TestUserMe(t *testing.T) {
 	}
 }
 
+// The operator's own words to the agents, operator_style and operator_note,
+// are told to a device of the operator and to no other: to sam's they are
+// left out of Settings, which answers everything else as before, and so
+// they are on a yard that names no operator. Set to nothing they are not
+// there for the operator either. The socket tells whoever calls, since an
+// agent's session reads them there (yardr prime): the listener holds them
+// back, and nothing else does.
+func TestUserSettingsTellsTheOperatorsWordsToTheOperator(t *testing.T) {
+	ctx := context.Background()
+	st, u, jo := userYard(t)
+	h := u.Handler()
+	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// words are the two of Settings' map that are the operator's.
+	words := func(all map[string]string) map[string]string {
+		out := map[string]string{}
+		for _, key := range []string{store.StyleSetting, store.NoteSetting} {
+			if v, ok := all[key]; ok {
+				out[key] = v
+			}
+		}
+		return out
+	}
+	settings := func(token string) map[string]string {
+		t.Helper()
+		var reply struct{ Result map[string]string }
+		if err := json.Unmarshal([]byte(call(t, h, token, "Settings", `{}`)), &reply); err != nil {
+			t.Fatal(err)
+		}
+		return reply.Result
+	}
+	set := func(key, value string) {
+		t.Helper()
+		if err := st.SetSetting(ctx, key, value, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	none := map[string]string{}
+	both := map[string]string{store.StyleSetting: "work", store.NoteSetting: "I read diffs, not prose"}
+	check := func(when, who string, got, want map[string]string) {
+		t.Helper()
+		if !maps.Equal(got, want) {
+			t.Errorf("%s, %s is told %v of the operator's words, want %v", when, who, got, want)
+		}
+	}
+
+	check("unset", "the operator's device", words(settings(jo)), none)
+	check("unset", "sam's device", words(settings(tablet.Token)), none)
+
+	set(store.StyleSetting, "work")
+	set(store.NoteSetting, "I read diffs, not prose")
+	check("set", "the operator's device", words(settings(jo)), both)
+	check("set", "sam's device", words(settings(tablet.Token)), none)
+	// Everything else is told to sam as it is to jo.
+	if got := settings(tablet.Token); got[store.OperatorSetting] != "jo" || got[store.FilesMaxSetting] == "" {
+		t.Errorf("sam's device is told %v, want the operator and the files cap besides", got)
+	}
+
+	// One of the two set is the one that is there.
+	set(store.NoteSetting, "")
+	check("only the style set", "the operator's device", words(settings(jo)), map[string]string{store.StyleSetting: "work"})
+	set(store.NoteSetting, "I read diffs, not prose")
+
+	// The socket answers both to whoever calls, as it did.
+	sock := socket(t)
+	serve(t, sock, Handler(st, nil).ServeHTTP)
+	var viaSocket struct{ Result map[string]string }
+	if err := json.Unmarshal(post(t, overSocket(sock), "Settings", `{}`), &viaSocket); err != nil {
+		t.Fatal(err)
+	}
+	check("set", "the socket", words(viaSocket.Result), both)
+
+	// A yard with no operator tells no device: there is nobody they are
+	// the words of.
+	set(store.OperatorSetting, "")
+	check("with no operator", "the old operator's device", words(settings(jo)), none)
+}
+
 // userPaths are requests of every kind the handler serves, and of none.
 var userPaths = [][2]string{
 	{http.MethodGet, "/user/me"},

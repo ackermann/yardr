@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -155,7 +156,26 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 		resolveTimeout: ResolveTimeout, recheck: StreamRecheck,
 		rejected: map[string]int{}, refused: map[string]*refusals{}, streams: map[string]int{}}
 	u.resolve = u.device
+	u.api.methods["Settings"] = method{"Settings", reflect.ValueOf(u.settings)}
 	return u
+}
+
+// settings is Settings as a device is told it: the map the socket answers,
+// but for the operator's own words to the agents (store.StyleSetting and
+// store.NoteSetting), which only a device of the operator is told. The
+// socket tells whoever calls, since an agent's session reads them there
+// (yardr prime); over the network a device is a person's, and the words
+// are the operator's to share. A yard without an operator tells no device.
+func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
+	all, err := u.st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if c, _ := ctx.Value(callerKey{}).(*Caller); c == nil || all[store.OperatorSetting] == "" || all[store.OperatorSetting] != c.User {
+		delete(all, store.StyleSetting)
+		delete(all, store.NoteSetting)
+	}
+	return all, nil
 }
 
 // device resolves a device token: the one kind of credential there is.

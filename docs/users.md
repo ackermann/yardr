@@ -562,7 +562,10 @@ It reads what any user of the yard can read at the yard's terminal: every
 bead with its notes, the crew, the users, and through the stream the mail
 of everyone in the yard. That is true of a device of any user, so `device
 add` for a user who is not the operator says it. It is also what a lost
-token gives away until its device is removed.
+token gives away until its device is removed. One thing at the terminal a
+device of another user does not read: the operator's own words to their
+agents, `operator_style` and `operator_note` of `Settings`, which are told
+to a device of the operator alone.
 
 **A stolen device of the operator can replace a source's credential, and
 cannot read one.** Until `yardr user device rm`, whoever holds its token
