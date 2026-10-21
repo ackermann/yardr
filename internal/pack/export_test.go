@@ -138,12 +138,13 @@ func TestExportRoundTrip(t *testing.T) {
 		t.Errorf("stage review = %+v, want the route that wins it today (testers)", review)
 	}
 	// The added route has the higher priority, so it beats the reviewers'
-	// routes in both flows: they and their group are said, not dropped.
+	// plain route, which serves both flows: it and its group are said,
+	// not dropped.
 	if _, has := groups["reviewers"]; has || len(groups) != 6 {
 		t.Errorf("groups = %v, want the six a followed route leads to", groups)
 	}
 	if !leftHas(ex, "route depot web stage review -> web-reviewers", "another route of the stage") ||
-		!leftHas(ex, "route depot web stage review type train -> web-reviewers") || !leftHas(ex, "group web-reviewers: not in the pack") {
+		!leftHas(ex, "group web-reviewers: not in the pack") {
 		t.Errorf("left out lacks the beaten route:\n%s", strings.Join(ex.Left, "\n"))
 	}
 	if !leftHas(ex, "group web-builders", "kind, model") || !leftHas(ex, "group backlog", "members") {

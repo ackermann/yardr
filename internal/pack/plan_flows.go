@@ -196,6 +196,32 @@ func (b *planner) routes(flows []Flow) error {
 		return store.MatchRoute(have, store.Bead{Stage: s.Name, Type: f.Type, Depot: &depot, Priority: store.DefaultPriority}, operator)
 	}
 	taken := map[string]bool{}
+	// markTypedTaken hides the depot's existing typed routes for the stage
+	// when the last import brought them and the plan leaves the stage to
+	// its plain route: dropped() then reports the one Dropped, and no
+	// NotInPack stands beside it with the originator in its name. A copy
+	// the yard has without a record stays listed as not in the pack.
+	markTypedTaken := func(stage, typ string) {
+		if b.rec == nil {
+			return
+		}
+		var group string
+		found := false
+		for _, po := range b.rec.Objects {
+			if po.Kind == "route" && po.Stage == stage && po.Type == typ {
+				group, found = po.Group, true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		for _, r := range have {
+			if r.Stage == stage && r.Depot != nil && *r.Depot == b.o.Depot && !r.ByBead() && deref(r.Type) == typ && !r.Quotaed() && r.Worker() == group {
+				taken[r.ID] = true
+			}
+		}
+	}
 	for _, f := range flows {
 		for _, s := range f.Stages {
 			if s.Group == "" {
@@ -272,6 +298,26 @@ func (b *planner) routes(flows []Flow) error {
 				taken[w.ID] = true
 				b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s: worked by yard default %s to %s; no route written", s.Name, f.Name, w.ID, w.Worker()))
 				continue
+			}
+			// A typed stage the depot's own plain route already works, or
+			// will work once the plan's own plain route for the stage is
+			// written, leaves the stage to it: no typed route is written,
+			// so a fresh import writes one route for the stage and a
+			// re-apply resurrects no copy the migration removed
+			// (yardr-3jst). Only a plain route with no other key differing
+			// covers.
+			if f.Type != "" {
+				if plain := plainOwnForTyped(have, b.o.Depot, s.Name, op.Group, operator, op.Originator); plain != nil {
+					taken[plain.ID] = true
+					markTypedTaken(s.Name, f.Type)
+					b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s: worked by own plain route %s to %s; no route written", s.Name, f.Name, plain.ID, plain.Worker()))
+					continue
+				}
+				if plannedPlainCovers(b.plan.Objects, b.o.Depot, s.Name, op.Group, op.Originator) {
+					markTypedTaken(s.Name, f.Type)
+					b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("stage %s of flow %s: worked by own plain route to %s; no route written", s.Name, f.Name, op.Group))
+					continue
+				}
 			}
 			// The depot's routes for the stage (and type), routes by label,
 			// bead priority or named originator aside: those say something
@@ -363,6 +409,64 @@ func plainRouteForStage(r store.Route, typ, operator, originator string) bool {
 		return r.Originator != nil && *r.Originator == store.OriginatorAny
 	}
 	return r.Originator == nil || *r.Originator == store.OriginatorAny || *r.Originator == operator
+}
+
+// plainOwnForTyped is the depot's own plain route that already works a
+// typed stage for the group the pack binds: the same stage, no type, the
+// same group, and no other key differing (no labels, no bead priority, no
+// chain, the same resolved originator). A plain route matches beads of
+// every type, so the typed copy is redundant. Nil when no such route
+// covers the stage.
+func plainOwnForTyped(have []store.Route, depot, stage, group, operator, originator string) *store.Route {
+	wantOriginator := operator
+	if originator != "" {
+		wantOriginator = originator
+	}
+	for i := range have {
+		r := &have[i]
+		if r.Depot == nil || *r.Depot != depot {
+			continue
+		}
+		if r.Stage != stage || r.Type != nil {
+			continue
+		}
+		if r.Quotaed() || len(r.Labels()) > 0 || r.BeadPriority != nil {
+			continue
+		}
+		if r.Worker() != group {
+			continue
+		}
+		gotOriginator := operator
+		if r.Originator != nil {
+			gotOriginator = *r.Originator
+		}
+		if gotOriginator != wantOriginator {
+			continue
+		}
+		return r
+	}
+	return nil
+}
+
+// plannedPlainCovers reports whether the plan already carries the depot's
+// own plain route for the stage to the group: the default flow's stage of
+// the same name, planned before the typed flow's, with no other key
+// differing. A fresh import then writes one route for the stage, and no
+// typed copy.
+func plannedPlainCovers(objects []Object, depot, stage, group, originator string) bool {
+	for _, o := range objects {
+		if o.Kind != "route" || o.Route == nil {
+			continue
+		}
+		if o.Action != Create && o.Action != Change && o.Action != Unchanged {
+			continue
+		}
+		r := o.Route
+		if r.Depot == depot && r.Stage == stage && r.Type == "" && r.Group == group && r.Originator == originator {
+			return true
+		}
+	}
+	return false
 }
 
 // sameStageRouteKey reports whether r has the match key of the own route

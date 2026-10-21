@@ -107,8 +107,8 @@ func TestStarterLeavesBacklogAndDecideToYardDefaults(t *testing.T) {
 			t.Errorf("the import wrote an own %s route %s to %s over a yard default", r.Stage, r.ID, r.Group)
 		}
 	}
-	if defaults != 2 || own != 11 {
-		t.Errorf("routes after the import: %d defaults, %d own, want 2 and 11 (all %d)", defaults, own, len(routes))
+	if defaults != 2 || own != 8 {
+		t.Errorf("routes after the import: %d defaults, %d own, want 2 and 8 (all %d)", defaults, own, len(routes))
 	}
 	depot := "web"
 	if r := store.MatchRoute(routes, store.Bead{Stage: "backlog", Type: "task", Depot: &depot, Priority: store.DefaultPriority}, "me"); r == nil || r.ID != backlog.ID {
@@ -126,8 +126,8 @@ func TestStarterLeavesBacklogAndDecideToYardDefaults(t *testing.T) {
 	}
 	apply(t, st, plan, nil)
 	routes, _ = st.Routes(ctx)
-	if len(routes) != 13 {
-		t.Errorf("routes after a re-apply: %d, want 13", len(routes))
+	if len(routes) != 10 {
+		t.Errorf("routes after a re-apply: %d, want 10", len(routes))
 	}
 }
 
@@ -333,5 +333,119 @@ func TestExportFollowsAYardDefault(t *testing.T) {
 	}
 	if leftHas(ex, "route yard default stage a") || leftHas(ex, "stage a of flow hand") {
 		t.Errorf("the followed default is listed as left out:\n%s", strings.Join(ex.Left, "\n"))
+	}
+}
+
+// A typed stage the depot's own plain route already works for the pack's
+// group gets no typed route: the plain route matches beads of every type,
+// so the copy is redundant and a re-apply resurrects none the migration
+// removed (yardr-3jst).
+func TestPackLeavesTypedStageToOwnPlainRoute(t *testing.T) {
+	st, o := yard(t)
+	mustGroup(t, st, store.Group{Name: "decisions", Runner: "manual"})
+	any := store.OriginatorAny
+	depot := "web"
+	plain := mustDefaultRoute(t, st, store.Route{Stage: "approved", Depot: &depot, Group: "decisions", Originator: &any})
+	tiny := `name: tiny
+flows:
+  default:
+    stages:
+      approved: { group: decisions, outcomes: { done: merged } }
+      merged: { end: true }
+  train:
+    type: train
+    stages:
+      approved: { group: decisions, outcomes: { done: merged } }
+      merged: { end: true }
+groups:
+  decisions: { people: true }
+`
+	plan := build(t, st, load(t, writePack(t, map[string]string{"pack.yaml": tiny})), o)
+	for _, a := range routeActions(plan) {
+		if strings.Contains(a, "stage approved type train") && (strings.HasPrefix(a, pack.Create+" ") || strings.HasPrefix(a, pack.Change+" ") || strings.HasPrefix(a, pack.Unchanged+" ")) {
+			t.Errorf("the plan would write %s though the depot's plain route covers it; routes:\n%s", a, strings.Join(routeActions(plan), "\n"))
+		}
+	}
+	if !notesHave(plan, "stage approved of flow train", "worked by own plain route "+plain.ID, "to decisions", "no route written") {
+		t.Errorf("notes do not leave the typed stage to the plain route:\n%s", strings.Join(plan.Notes, "\n"))
+	}
+	if !hasRouteAction(plan, "unchanged depot web stage approved -> decisions") {
+		t.Errorf("the plain route is not kept as unchanged; routes:\n%s", strings.Join(routeActions(plan), "\n"))
+	}
+	apply(t, st, plan, nil)
+	routes, _ := st.Routes(ctx)
+	for _, r := range routes {
+		if r.Stage == "approved" && r.Depot != nil && *r.Depot == "web" && r.Type != nil {
+			t.Errorf("the import wrote a typed copy %s to %s over the plain route", r.ID, r.Group)
+		}
+	}
+	if r := store.MatchRoute(routes, store.Bead{Stage: "approved", Type: "train", Depot: &depot, Priority: store.DefaultPriority}, "me"); r == nil || r.ID != plain.ID {
+		t.Errorf("a train bead in approved took %+v, want the plain route %s", r, plain.ID)
+	}
+}
+
+// A fresh import writes one route for a stage the pack carries in two
+// flows: the typed copy is left to the plan's own plain route for the
+// stage, which the default flow's stage writes first.
+func TestPackLeavesTypedStageToPlannedPlainRoute(t *testing.T) {
+	st, o := yard(t)
+	mustGroup(t, st, store.Group{Name: "decisions", Runner: "manual"})
+	tiny := `name: tiny
+flows:
+  default:
+    stages:
+      approved: { group: decisions, outcomes: { done: merged } }
+      merged: { end: true }
+  train:
+    type: train
+    stages:
+      approved: { group: decisions, outcomes: { done: merged } }
+      merged: { end: true }
+groups:
+  decisions: { people: true }
+`
+	plan := build(t, st, load(t, writePack(t, map[string]string{"pack.yaml": tiny})), o)
+	for _, a := range routeActions(plan) {
+		if strings.Contains(a, "stage approved type train") && (strings.HasPrefix(a, pack.Create+" ") || strings.HasPrefix(a, pack.Change+" ") || strings.HasPrefix(a, pack.Unchanged+" ")) {
+			t.Errorf("a fresh import would write %s though its plain route covers it; routes:\n%s", a, strings.Join(routeActions(plan), "\n"))
+		}
+	}
+	if !notesHave(plan, "stage approved of flow train", "worked by own plain route to decisions", "no route written") {
+		t.Errorf("notes do not leave the typed stage to the planned plain route:\n%s", strings.Join(plan.Notes, "\n"))
+	}
+}
+
+// A depot's plain route to another group does not cover the pack's typed
+// stage: the typed route is still written. Open is in the train flow
+// alone, so no planned plain route covers it either.
+func TestPackKeepsTypedStageWherePlainRouteLeadsElsewhere(t *testing.T) {
+	st, o := yard(t)
+	mustGroup(t, st, store.Group{Name: "decisions", Runner: "manual"})
+	mustGroup(t, st, store.Group{Name: "spare", Runner: "manual"})
+	any := store.OriginatorAny
+	depot := "web"
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "open", Depot: &depot, Group: "spare", Originator: &any}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	tiny := `name: tiny
+flows:
+  default:
+    stages:
+      approved: { group: decisions, outcomes: { done: merged } }
+      merged: { end: true }
+  train:
+    type: train
+    stages:
+      open: { group: decisions, outcomes: { done: merged } }
+      merged: { end: true }
+groups:
+  decisions: { people: true }
+`
+	plan := build(t, st, load(t, writePack(t, map[string]string{"pack.yaml": tiny})), o)
+	if !hasRouteAction(plan, "create depot web stage open type train -> decisions") {
+		t.Fatalf("the plan does not write the typed route; routes:\n%s", strings.Join(routeActions(plan), "\n"))
+	}
+	if notesHave(plan, "stage open of flow train", "worked by own plain route") {
+		t.Errorf("the plan leaves the typed stage to a plain route for another group:\n%s", strings.Join(plan.Notes, "\n"))
 	}
 }

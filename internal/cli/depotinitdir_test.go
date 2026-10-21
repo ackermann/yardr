@@ -132,10 +132,12 @@ func TestDepotInitSetsADirDepotUpFromTheDirPack(t *testing.T) {
 	}
 	slices.Sort(got)
 	// Every stage a bead or a train waits in has a group: none is unrouted.
-	if want := []string{"invoices backlog -> backlog", "invoices backlog train -> backlog",
-		"invoices decide -> decisions", "invoices decide train -> decisions",
+	// Shared stages have the plain route alone, which serves trains too
+	// (yardr-3jst).
+	if want := []string{"invoices backlog -> backlog",
+		"invoices decide -> decisions",
 		"invoices new -> invoices-builders", "invoices open train -> invoices-reviewers",
-		"invoices review -> invoices-reviewers", "invoices review train -> invoices-reviewers"}; !slices.Equal(got, want) {
+		"invoices review -> invoices-reviewers"}; !slices.Equal(got, want) {
 		t.Errorf("routes = %v\nwant %v", got, want)
 	}
 	if crew, _ := a.st.Crew(ctx); len(crew) != 0 {

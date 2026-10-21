@@ -196,11 +196,11 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"route depot web stage backlog -> backlog", "route depot web stage new -> web-builders", "route depot web stage review -> web-reviewers",
 		"route depot web stage review-security -> web-security-reviewers",
 		"route depot web stage approved -> web-assembly", "route depot web stage decide -> decisions",
-		"route depot web stage backlog type train -> backlog", "route depot web stage open type train -> web-builders",
-		"route depot web stage review type train -> web-reviewers", "route depot web stage review-security type train -> web-security-reviewers",
-		"route depot web stage approved type train -> web-assembly",
+		// No typed copy for a stage both flows share: the plain route
+		// matches beads of every type (yardr-3jst).
+		"route depot web stage open type train -> web-builders",
 		"route depot web stage in-pr type train -> decisions", "route depot web stage land type train -> web-assembly",
-		"route depot web stage merge type train -> decisions", "route depot web stage decide type train -> decisions",
+		"route depot web stage merge type train -> decisions",
 		"crew yardmaster",
 		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done",
 		// The pack's linear subscription is skipped: the yard has no
@@ -351,7 +351,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if c, ch, n := actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.NotInPack); len(c)+len(ch)+len(n) != 0 {
 		t.Fatalf("a second import would create %v, change %v, and finds %v not in the pack", c, ch, n)
 	}
-	if len(plan.Objects) != 40 || len(plan.Questions) != 0 {
+	if len(plan.Objects) != 35 || len(plan.Questions) != 0 {
 		t.Fatalf("%d objects, questions %v", len(plan.Objects), plan.Questions)
 	}
 	if g := plan.Governs; len(g) != 2 || g[0].Now != "starter.default (store)" || g[1].Now != "starter.train (store, type train)" {
@@ -366,8 +366,8 @@ func TestSecondImportChangesNothing(t *testing.T) {
 		t.Fatalf("backlog = %+v", g)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 15 {
-		t.Fatalf("%d routes, want 15", len(routes))
+	if len(routes) != 10 {
+		t.Fatalf("%d routes, want 10", len(routes))
 	}
 
 	text, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
@@ -400,7 +400,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	// And applying those two brings the yard level again.
 	apply(t, st, plan, nil)
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Unchanged); len(got) != 40 {
+	if got := actions(plan, pack.Unchanged); len(got) != 35 {
 		t.Fatalf("after applying the change: %d unchanged of %d", len(got), len(plan.Objects))
 	}
 }
@@ -455,7 +455,10 @@ func TestYardSetUpByHand(t *testing.T) {
 	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-security-reviewers", "group web-assembly", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v\nwant %v", got, want)
 	}
-	if got, want := actions(plan, pack.NotInPack), []string{"group web-mergers", "route depot web stage merge -> web-mergers", "subscription boss yardr all label=ui"}; !reflect.DeepEqual(got, want) {
+	// The hand-made typed copies for stages both flows share are left
+	// alone: the plain route covers them (yardr-3jst). The routes were
+	// added from maps, so their order is the store's, not the test's.
+	if got, want := slices.Sorted(slices.Values(actions(plan, pack.NotInPack))), slices.Sorted(slices.Values([]string{"group web-mergers", "route depot web stage backlog type train originator any -> backlog", "route depot web stage review type train -> web-reviewers", "route depot web stage review-security type train -> web-security-reviewers", "route depot web stage approved type train originator any -> web-assembly", "route depot web stage decide type train originator any -> decisions", "route depot web stage merge -> web-mergers", "subscription boss yardr all label=ui"})); !reflect.DeepEqual(got, want) {
 		t.Fatalf("not in the pack = %v\nwant %v", got, want)
 	}
 	b := find(t, plan, "group", "web-builders")
@@ -637,8 +640,8 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 			n++
 		}
 	}
-	if n != 1 || len(routes) != 15 {
-		t.Fatalf("%d routes for new, %d in all; want 1 and 15", n, len(routes))
+	if n != 1 || len(routes) != 10 {
+		t.Fatalf("%d routes for new, %d in all; want 1 and 10", n, len(routes))
 	}
 }
 

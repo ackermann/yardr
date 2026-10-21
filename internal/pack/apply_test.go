@@ -77,7 +77,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	}
 	beforeApply := head(t, st)
 	res := apply(t, st, plan, answers)
-	if res.Created != 40 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
+	if res.Created != 35 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
 	}
 	groupEvents := 0
@@ -126,7 +126,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("commit = %q", rec.Commit)
 	}
 	// Everything but the crew member, which stays the yard's.
-	if len(rec.Objects) != 39 {
+	if len(rec.Objects) != 34 {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
@@ -134,11 +134,11 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	before := head(t, st)
 	o.Crew = nil
 	plan = build(t, st, load(t, starter), o)
-	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 40 {
+	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 35 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
 	}
 	res = apply(t, st, plan, nil)
-	if res.Wrote() || res.Recorded || res.Unchanged != 40 {
+	if res.Wrote() || res.Recorded || res.Unchanged != 35 {
 		t.Fatalf("second import = %+v", res)
 	}
 	if got := kinds(t, st, before); !slices.Equal(got, []string{"pack_unchanged"}) {
@@ -149,8 +149,8 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("the record changed:\n%+v\n%+v", recs, again)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 15 {
-		t.Fatalf("%d routes, want 15", len(routes))
+	if len(routes) != 10 {
+		t.Fatalf("%d routes, want 10", len(routes))
 	}
 }
 
@@ -218,7 +218,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 			t.Errorf("route %s lost its priority: %+v", r.Stage, r)
 		}
 	}
-	if want := map[string]int{"backlog": 2, "new": 1, "review": 2, "review-security": 2, "approved": 2, "decide": 2, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
+	if want := map[string]int{"backlog": 1, "new": 1, "review": 1, "review-security": 1, "approved": 1, "decide": 1, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("routes per stage = %v, want %v", stages, want)
 	}
 	boss, err := st.GetCrew(ctx, "boss")
@@ -376,7 +376,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	// The stage's file goes with it: named by where it is in the home, since
 	// the pack has no path for it any more.
 	gone := []string{"file flows/starter.default/review-security.md", "file roles/review-security.md", "group web-security-reviewers",
-		"route depot web stage review-security -> web-security-reviewers", "route depot web stage review-security type train -> web-security-reviewers"}
+		"route depot web stage review-security -> web-security-reviewers"}
 	if got := actions(plan, pack.Dropped); !slices.Equal(slices.Sorted(slices.Values(got)), gone) {
 		t.Fatalf("dropped = %v, want %v", got, gone)
 	}
@@ -428,7 +428,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("--prune removed a group the pack never had: %v", err)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 13 || slices.ContainsFunc(routes, func(r store.Route) bool { return r.Stage == "review-security" }) {
+	if len(routes) != 9 || slices.ContainsFunc(routes, func(r store.Route) bool { return r.Stage == "review-security" }) {
 		t.Fatalf("routes = %+v", routes)
 	}
 	plan = build(t, st, load(t, dir), o)
@@ -483,7 +483,7 @@ func TestPruneHoldsAGroupAnotherDepotUses(t *testing.T) {
 			depots = append(depots, *r.Depot)
 		}
 	}
-	if !slices.Equal(depots, []string{"api", "api", "api", "api"}) {
+	if !slices.Equal(depots, []string{"api", "api", "api"}) {
 		t.Fatalf("routes to decisions are of depots %v, want api's task and train stages", depots)
 	}
 }
@@ -588,8 +588,8 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 
 	plan = build(t, st, load(t, starter), o)
-	// Left to do: thirteen routes, the crew member and its three subscriptions.
-	if got := actions(plan, pack.Create); len(got) != 17 {
+	// Left to do: eight routes, the crew member and its three subscriptions.
+	if got := actions(plan, pack.Create); len(got) != 12 {
 		t.Fatalf("to create after the failure: %v", got)
 	}
 	res := apply(t, st, plan, nil)
@@ -598,10 +598,10 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 	routes, _ = st.Routes(ctx)
 	groups, _ = st.Groups(ctx)
-	if len(routes) != 15 || len(groups) != 6 {
+	if len(routes) != 10 || len(groups) != 6 {
 		t.Fatalf("after applying again: %d routes, %d groups", len(routes), len(groups))
 	}
-	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 40 {
+	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 35 {
 		t.Fatalf("%d unchanged, want 40", len(got))
 	}
 }
@@ -920,11 +920,15 @@ func TestFlowChoiceIsAskedAndRemembered(t *testing.T) {
 
 	o.Flow = "default"
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Dropped); !slices.Equal(got, []string{"flow starter.short"}) {
+	// The short flow goes, and with it the train's typed copies for the
+	// stages default brings plain routes for: the plain covers them now
+	// (yardr-3jst).
+	wantDropped := []string{"flow starter.short", "route depot web stage backlog type train -> backlog", "route depot web stage review type train -> web-reviewers", "route depot web stage review-security type train -> web-security-reviewers", "route depot web stage approved type train -> web-assembly", "route depot web stage decide type train -> decisions"}
+	if got := actions(plan, pack.Dropped); !slices.Equal(got, wantDropped) {
 		t.Fatalf("dropped = %v", got)
 	}
 	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: pack.Answers(answers), Prune: true, Actor: "me"})
-	if err != nil || !slices.Equal(res.Pruned, []string{"flow starter.short"}) {
+	if err != nil || !slices.Equal(slices.Sorted(slices.Values(res.Pruned)), slices.Sorted(slices.Values(wantDropped))) {
 		t.Fatalf("res = %+v, %v", res, err)
 	}
 	if _, err := st.GetFlow(ctx, "starter.short"); !errors.Is(err, store.ErrNotFound) {

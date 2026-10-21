@@ -23,7 +23,6 @@ func TestPackCheckAsksNothingForTheSecurityReviewers(t *testing.T) {
 	for _, want := range []string{
 		"  create           web-security-reviewers\n                     agent, model and arguments as group web-reviewers\n",
 		"  create           depot web stage review-security -> web-security-reviewers\n",
-		"  create           depot web stage review-security type train -> web-security-reviewers\n",
 		"  create           flows/default/review-security.md -> ",
 		"  create           roles/review-security.md -> ",
 	} {
@@ -31,8 +30,11 @@ func TestPackCheckAsksNothingForTheSecurityReviewers(t *testing.T) {
 			t.Errorf("the plan lacks %q", want)
 		}
 	}
+	if strings.Contains(out, "depot web stage review-security type train -> web-security-reviewers") {
+		t.Errorf("the plan writes a typed copy the plain route covers (yardr-3jst)")
+	}
 	ask := out[strings.Index(out, "an import would ask"):]
-	if strings.Contains(ask, "security-reviewers") {
+	if strings.Contains(ask, "group.web-security-reviewers") {
 		t.Errorf("an import would ask for the security reviewers:\n%s", ask)
 	}
 	if t.Failed() {
