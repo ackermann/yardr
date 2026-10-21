@@ -595,6 +595,13 @@ func TestWebsitePack(t *testing.T) {
 			t.Errorf("packs/website/flows/default/merged.md lacks %q", want)
 		}
 	}
+	approved, err := fs.ReadFile(packs.FS, packs.Website+"/flows/default/approved.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(approved), "the bead enters the `merged` stage") {
+		t.Error("packs/website/flows/default/approved.md must send the bead to merged, where its deploy begins")
+	}
 	// The same copies as the design pack's, and the stage files too: a
 	// group both packs name is prompted from whichever was imported last,
 	// and a stage either flow works is read from the same text.
