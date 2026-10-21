@@ -297,13 +297,14 @@ value (a directory there is absolute). It is one of:
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
 | a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`, `webhook`, `website`) |
 
-A URL is fetched over https, one GET for each file. Plain `http://` is
-refused unless it goes to this machine (`localhost`, `127.0.0.1`, `[::1]`), for
-a stand-in. A redirect is followed within the pack's own host and refused to
-another host, or from https down to http; a file of more than 1 MiB is
-refused. The files `yardr pack apply` installs are the bytes it hashed in its
-check, never a second download of them: a server that answers differently
-once the import is under way changes nothing that is installed.
+Each time yardr reads a file of a URL pack, it makes one GET; planning and
+applying can read the same file separately. Plain `http://` is refused unless
+it goes to this machine (`localhost`, `127.0.0.1`, `[::1]`), for a stand-in. A
+redirect is followed within the pack's own host and refused to another host,
+or from https down to http; a file of more than 1 MiB is refused. The files
+`yardr pack apply` installs are the bytes it hashed in its check, never a
+second download of them: a server that answers differently once the import
+is under way changes nothing that is installed.
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
