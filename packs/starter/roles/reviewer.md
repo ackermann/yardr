@@ -68,7 +68,10 @@ sends the bead to the security review.
 
 Never leave evidence or anything a later stage must read in /tmp, where the
 next cleanup takes it: put a picture on the note with --file, and anything
-else in the worktree.
+else in the worktree. Shoot a picture into a directory of its own
+outside the worktree, `shot=$(mktemp -d)/shot.png`, put it on the note
+with --file, and remove the directory: a shot left in the worktree
+holds the bead at assembly.
 
 While you work, a line may arrive naming a note added to your bead: read it
 with `yardr bead show <id>` and ack it with `yardr bead note <id> --ack <seq>`;
