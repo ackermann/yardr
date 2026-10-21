@@ -112,12 +112,27 @@ crew member in `yardr crew show` (`internal/cli/crew.go`), and as notes in
 `yardr doctor` (`internal/cli/doctorsources.go`). Nothing lists them all
 with when and by whom. A grant record's `At` and `By` are those of the
 last call added to it (`grant` in `sourcecalls.go` rewrites both); each
-call's own time and approver are in its `source_granted` event. `SourceGrants` is on `store.API` but is not one of
-the socket calls programs outside yardr may rely on (`Calls` in
-`internal/rpc/api.go`, `docs/api.md`), so footplate cannot read it.
+call's own time and approver are in its `source_granted` event, and the
+event log is pruned after 90 days by default (`DefaultRetention`,
+`internal/store/prune.go`), so for an old grant that record is gone.
+`SourceGrants` is on `store.API` but is in neither list of socket calls
+programs outside yardr may rely on (`Calls` and `OperatorCalls` in
+`internal/rpc/api.go`, `docs/api.md`), so footplate cannot read it. The
+listener serves `Calls` to every user's device and `OperatorCalls` to a
+device of the operator alone (`UserServer.call`,
+`internal/rpc/user.go`).
+
+**Call limits.** A source's `calls_per_hour` (default 60,
+`SourceCallLimit`) and `updates_per_hour` (default 10,
+`SourceUpdateLimit`) are two caps checked independently on each call
+(`internal/store/sourcecalls.go`, `Source.CallLimit` and
+`Source.UpdateLimit` in `sources.go`), so the updates a caller can make in
+an hour are the lower of the two.
 
 **Reminders.** `yardr timer add --every <duration> --for <duration>`
-(`docs/timers.md`) tells a user something on a period.
+(`docs/timers.md`) tells a user something on a period, for at most 30
+days: a recurring timer runs 7 days by default and `--for` takes no more
+than 30 (the table under "Limits" in `docs/timers.md`).
 
 ## 3. The proposal
 
@@ -134,7 +149,7 @@ weighty:
 |---|---|---|
 | `credential` | gives a credential or an address to the yard | every secret ask (`AskSecret`, all forms); `user key`; a setup ask (it takes the account) |
 | `as-user` | lets calls or words count as a person's | `source grant ... --as <user>`; a secret ask with `as`; `user identity`; a mapping ask (its picks write a user's identity) |
-| `outside` | lets the yard change something outside it | `source grant` naming an update call, or a `--preset` whose calls include one; `source set <s> updates_per_hour=<n>` raising the limit; a setup ask whose presets grant an update call |
+| `outside` | lets the yard change something outside it | `source grant` naming an update call, or a `--preset` whose calls include one; `source set <s>` of `updates_per_hour` or `calls_per_hour` that raises the updates a caller can make in an hour, the lower of the two caps (raising `calls_per_hour` from 2 to 10 with `updates_per_hour` unset lets 8 more updates through; raising it from 60 to 100 with updates at 10 lets none); a setup ask whose presets grant an update call |
 | `code` | brings a program the yard will run | `source add` and `pack apply` whose carried command files (thread, normalize, mint, build) are new, or differ from the copies that stand (`AskSource.Files`, `AskSource.Old`); a setup ask whose pack brings any |
 | `trust` | widens who the yard listens to | `user add`; `peer allow` adding a kind or raising the mail limit; `crew set peers=` adding a peer; `hook add` (an endpoint that takes outside input) |
 
@@ -189,11 +204,15 @@ drawn in `yardr chat` in the `alarm` style its theme already has for
 "someone has to act" (`internal/chat/style.go`), and in plain text elsewhere.
 
 **footplate.** A weighty card is drawn with the mark first in its head
-and each class's line under it, in the design system's signal red
-(`--signal-red`, `yardr-design/tokens/colors.css`), and its approve
-control reads `Approve in <yard> with Touch ID` (3.3). ⌘↵ alone does not
-approve a weighty card: it opens the gate, so a hand pressing ⌘↵ through
-twenty cards stops at each weighty one.
+and each class's line under it, in the design system's one accent, yard
+rust as text (`--text-accent`, rust 400, `yardr-design/tokens/colors.css`):
+the design system keeps red for errors alone and gives rust to "waiting on
+you", which a weighty card is. The card keeps the design system's shape
+(no coloured edge). Its approve control reads `Approve in <yard> after
+unlocking` (3.3), since the gate takes Touch ID, a watch or the login
+password, whichever the Mac offers. ⌘↵ alone does not approve a weighty
+card: it opens the gate, so a hand pressing ⌘↵ through twenty cards stops
+at each weighty one.
 
 **Batching.** No surface approves several cards at once today.
 `docs/api.md` gains the rule for any that comes: a weighty card is
@@ -203,19 +222,25 @@ approves the rest.
 
 ### 3.3 The gate
 
-What the yard can hold to itself is that whoever approves a weighty card
-saw it was weighty. What it cannot see is whether a person, rather than a
-program holding the operator's token or shell, pressed the button. So the
-gate has two halves:
+The yard cannot verify that a person saw the weight, nor that a person
+rather than a program pressed the button: it knows the caller by the
+operator's token or shell, and anyone holding either can say anything a
+client says. What it can do is refuse a weighty approval that does not
+say, in so many words, that it was made with the weight in view. So the
+gate has two halves, and only the second is a gate in the strict sense:
 
-- **The yard's half, verified.** `ApproveAsk`, `ApproveSetup`,
-  `GiveSecret` and `AnswerAsk` (for a mapping ask) take an optional
-  argument `weighed: true`. A weighty card approved without it is refused
-  with the code `error`: `ask 412 is weighty (outside, as-user): approve
-  it where its weight is shown; a client sends "weighed": true once its
-  person has passed its gate`. A client that has never heard of weight,
-  an old footplate or a saved request on a phone, cannot approve a
-  weighty card with one press, and a routine card is approved as before.
+- **The yard's half, a check of what the client says.** `ApproveAsk`,
+  `ApproveSetup`, `GiveSecret` and `AnswerAsk` (for a mapping ask) take
+  an optional argument `weighed: true`. A weighty card approved without it
+  is refused with the code `error`: `ask 412 is weighty (outside,
+  as-user): approve it where its weight is shown; a client sends
+  "weighed": true once its person has passed its gate`. This is a claim
+  the client makes, not a proof: any holder of the token can send it. What
+  it buys is that a client which has never heard of weight (an old
+  footplate, a saved request on a phone, a script written before this)
+  cannot approve a weighty card by accident, and that every client that
+  does send it was written knowing it promises a gate. A routine card is
+  approved as before.
 - **The client's half, enforced by the client.** The client sends
   `weighed` only after its own gate:
   - **footplate on macOS:** LocalAuthentication's
@@ -250,34 +275,53 @@ through `a.out`:
 
 ```
 $ yardr source grants
-SOURCE        HOLDER                         CALLS                        GRANTED       BY
-google-mail   crew member yardmaster         read (4 calls)               17 Oct 19:02  mckean
-google-mail   crew member yardmaster as ada  send (update)                17 Oct 19:04  mckean, on yd-c546 ask 412 asked by yardmaster
-telegram      group builders                 read (2 calls), reply (update) 12 Oct 10:15  mckean
-3 grants of 2 sources to 2 holders: 2 may change something outside the yard, 1 calls as a user.
+SOURCE        HOLDER                         CALLS            GRANTED       BY
+google-mail   crew member yardmaster         read (4 calls)   17 Oct 19:02  mckean, on yd-c546 ask 409 asked by yardmaster
+google-mail   crew member yardmaster as ada  send (update)    17 Oct 19:04  mckean, on yd-c546 ask 412 asked by yardmaster
+telegram      group builders                 read (2 calls)   before 12 Oct -
+telegram      group builders                 reply (update)   12 Oct 10:15  mckean
+4 calls granted of 2 sources to 2 holders: 2 may change something outside the yard, 1 calls as a user.
 take one back: yardr source revoke <source> <call> --crew|--group <holder> [--as <user>]
 ```
 
-Each row is one `SourceGrant`, plain and `--as` grants as separate rows,
-since they are separate records. `GRANTED` and `BY` are the record's,
-which is when it last widened and who widened it. `read` is shown with how many read calls
-it covers today, from the standing declaration. Update calls and `--as`
-rows carry the same words as the weighty classes. The `on ...` part comes
-from a new additive field on the grant record, `SourceGrant.On` (the bead,
-the ask and its asker), written by a grant approved on a card; grants
-written before it show `BY` alone.
+Each row is one source × holder × call: one `SourceGrant` record (plain
+and `--as` are separate records) gives a row per entry of its `Calls`.
+`read` is one entry, the grant of every read call of the source
+(`GrantRead`), and so one row, shown with how many read calls it covers
+today, from the standing declaration. Update calls and `--as` rows carry
+the same words as the weighty classes.
 
-**The socket.** `SourceGrants` joins `Calls` in `internal/rpc/api.go` and
-`docs/api.md`, served on the listener to a device of the operator only,
-as the operator's calls are.
+`GRANTED` and `BY` are the call's own, not the record's: the record's `At`
+and `By` are those of its last call, and the `source_granted` event that
+holds each call's is pruned with the log. So the record gains an additive
+field, `SourceGrant.Given`, a map from each entry of `Calls` to
+`GrantGiven{At, By, Bead, Ask, Asker}`, written by `grant` for the call it
+adds and removed by `revoke` with it. The `on ...` part comes from its
+bead, ask and asker, set when the grant was approved on a card. A
+migration fills `Given` from the `source_granted` events still kept; the
+newest call of a record takes the record's `At` and `By`, which are its
+own; any other call of a record written before shows `before <At>` and
+`BY` as `-`, which is all that is known of it.
+
+**The socket.** `SourceGrants` joins `OperatorCalls` in
+`internal/rpc/api.go` and is documented in `docs/api.md` under "For the
+operator alone", so the listener serves it to a device of the operator
+and answers any other user's device as it answers a method the yard does
+not have. It is not in `Calls`, which every user's device may make: the
+whole grant graph is the operator's to read. On the socket nothing
+changes: it serves every method of `store.API` already, `SourceGrants`
+among them, to callers on the yard's own machine.
 
 **footplate's view.** A grants view listing the same rows by source, with
 the weighty words drawn as on a card, and the `yardr source revoke` line
 for each row to copy. It changes nothing itself.
 
-**A review reminder.** None built in (open question 4). `docs/integrations.md`
-says how to set one with what exists: `yardr timer add --every 30d --for
-365d "read yardr source grants"`.
+**A review reminder.** None built in (open question 4). The timer that
+exists cannot carry one: a recurring `yardr timer` runs for 30 days at
+most (`docs/timers.md`, "Limits"), so a monthly reminder would fire once
+and end, and would have to be set again by hand each month.
+`docs/integrations.md` names `yardr source grants` beside the grant
+commands and says to read it after a walk that granted anything.
 
 ## 4. Left out
 
@@ -300,8 +344,12 @@ says how to set one with what exists: `yardr timer add --every 30d --for
   bead asked for source by grantee by call, and these have their own
   `show` commands. A later overview can add them as more row kinds.
 - **When each grant was last used.** Every call writes a `source_call`
-  event, but reading the last per grant means scanning the log or a new
-  record per grant; the overview shows what is granted, not what is used.
+  event, but reading the last per grant means scanning a log that is
+  pruned, or a new record written on every call; the overview shows what
+  is granted, not what is used.
+- **Reading provenance from the event log.** The overview could read each
+  call's `source_granted` event instead of a new field, but the log is
+  pruned after 90 days by default, and a grant outlives that.
 - **A weighted web UI.** `yardr web` approves nothing; its waits row may
   pick up `weight` later.
 - **Asks from another yard** (`bead@peer`). They are never approved here
@@ -312,17 +360,19 @@ says how to set one with what exists: `yardr timer add --every 30d --for
 
 ## 5. Open questions
 
-**1. Does the yard verify the gate, or only that the client knew?**
+**1. Does the yard verify the gate, or only check what the client says?**
 Option A, `weighed` alone (3.3): one argument and a refusal in the yard,
-a gate in each client; it stops reflex and naive clients, and a holder of
-the operator's token can still approve anything by sending `weighed`, as
-they can approve anything today. Option B, a yard-verified gate: each
+a gate in each client. The yard verifies nothing about the person: the
+argument is the client's word, and a holder of the operator's token or
+shell can approve any weighty card by sending it, as they can approve
+anything today. It stops reflex at a gated client and stops a client
+that does not know about weight. Option B, a yard-verified gate: each
 gated client enrols a hardware-held key (Secure Enclave on a Mac, the
 phone's keystore), the yard refuses a weighty approval without a fresh
 signature over the yard, bead, ask and card; it stops a stolen token, and
 costs an enrolment flow, a key store in footplate, a design of its own and
-no answer for the terminal. I would take A now and leave B to a design of
-its own if tokens are ever carried off the yard's machine.
+no answer for the terminal. I would take A now, and leave B to a design
+of its own if a stolen device token becomes the risk rather than reflex.
 
 **2. Is a plain read grant weighty?** Option A, no (3.1): `read` of a
 mailbox is routine, so the mark stays rare enough to mean something; in
@@ -341,16 +391,25 @@ time. Option C, the macOS login password through a helper: a cgo or
 helper binary for a gate that a shell holding the socket can skip anyway.
 I would take A.
 
-**4. A periodic review reminder?** Option A, none built in; the docs show
-the `yardr timer` that sets one (3.4). Option B, the yard tells the
-operator each month, with the count of grants and the newest, through
-their notifications: a setting and a timer the yard keeps for itself.
-I would take A: the overview is one command, and a reminder nobody set is
-one more line approved on reflex.
+**4. A periodic review reminder?** Option A, none: the docs name
+`yardr source grants` and say to read it after a walk that granted
+anything (3.4); no review happens unless someone remembers to. Option B,
+the yard tells the operator each month, with the count of grants and the
+ones given since the last reminder, through their notifications: a
+setting for the period and a reminder the yard keeps for itself, outside
+the 30-day `yardr timer` (which cannot carry it). Option C, lift the
+timer's 30-day cap for the operator: a change to a limit set for another
+reason, for one use. I would take A: the overview is one command, and a
+reminder nobody asked for is one more line read on reflex; B is the one
+to take if grants are found unread months later.
 
 ## 6. The beads it would become
 
-In the order they would land.
+In the order they would land. Beads that change the same files are
+ordered by a dependency even where their work is independent: W1, W2 and
+W5 all change `docs/api.md` and W2 and W5 `internal/rpc/api.go`, so W5
+comes after W2; W4 and W6 both change footplate's `src/api.rs` and
+`src/window.rs`, so W6 comes after W4.
 
 **W1. The yard weighs each card (yardr).** Goal: every card is weighed
 by the yard when it is written and again when it is approved, and the
@@ -362,7 +421,9 @@ weight is on the socket API. Where to look: `internal/store/runask.go`
 `decisions.go` (`OpenAsk`, `DecidedAsk`, `BeadAsk`), `docs/api.md`.
 Done when: `Ask.Weight` and `AskWeight` exist; each row of section 3.1's
 table weighs as the table says, with a test per row and a test that a
-narrowing form of each is routine; a writer's `Weight` is thrown away;
+narrowing form of each is routine, and a test that raising
+`calls_per_hour` is weighty exactly when it raises the lower of the two
+caps; a writer's `Weight` is thrown away;
 an approval whose fresh weight differs from the stored one is stale and
 runs nothing, with a test for an ask written without weight;
 `weight` is on `OpenAsk`, `DecidedAsk` and `BeadAsk` and documented in
@@ -400,30 +461,43 @@ look: footplate `src/api.rs` (`OpenAsk`, `BeadAsk`, `approve_ask`,
 `approve_setup`, `give_secret`), `src/window.rs` (`approve`,
 `send_approve`, `run_keys`, `approve_label`, `APPROVE_ELSEWHERE`),
 `src/fake.rs`; LocalAuthentication through the objc2 bindings. Done when:
-a weighty card shows its classes' lines in the head; its control reads
-`Approve in <yard> with Touch ID`; the gate's success sends `weighed` and
+a weighty card shows its classes' lines in the head, in rust as text
+(`--text-accent`), never red; its control reads `Approve in <yard> after
+unlocking`; the gate's success sends `weighed` and
 its cancel sends nothing; on Linux, or where LocalAuthentication has no
 policy available, the card shows the decline path of 3.3; tests against
 the fake yard for each; a shot of a weighty card beside a routine one.
 
 **W5. `yardr source grants` (yardr).** Goal: one command lists every
-grant with when, by whom and on which card, and footplate can read the
-same. Independent of W1 to W4. Where to look:
-`internal/store/sourcecalls.go` (`SourceGrant`, `SourceGrants`, the
-grant write and `source_granted` event), `internal/cli/sourcecmd.go`,
-`internal/rpc/api.go` (`Calls`), `docs/api.md`, `docs/integrations.md`.
-Done when: `SourceGrant.On` is written by a grant approved on a card;
-`yardr source grants` prints the table and summary of 3.4 with its
-narrowing flags and `--json`; `SourceGrants` is in `Calls`, documented,
-and served on the listener to the operator's devices only; the docs show
-the review timer; tests for the command and the listener rule;
-`sh .yardr/test` passes.
+source × holder × call with when, by whom and on which card that call was
+granted, and footplate can read the same. Its work is independent of W1
+to W4; it depends on W2 only because both change `docs/api.md` and
+`internal/rpc/api.go`. Where to look: `internal/store/sourcecalls.go`
+(`SourceGrant`, `SourceGrants`, `grant`, `revoke`, the `source_granted`
+event and its `approved`), a new `internal/store/migrate_NNN_grant_given.go`,
+`internal/cli/sourcecmd.go`, `internal/rpc/api.go` (`OperatorCalls`),
+`internal/rpc/user.go` (`UserServer.call`), `docs/api.md` ("For the
+operator alone"), `docs/integrations.md`. Done when: `SourceGrant.Given`
+holds each call's `At`, `By` and, when approved on a card, its bead, ask
+and asker, written by `grant` and removed by `revoke`; the migration fills
+it from the kept `source_granted` events and the record's own `At` and
+`By` for its newest call; `yardr source grants` prints one row per
+source × holder × call (read as one row) and the summary of 3.4, with
+`before <At>` and `-` for a call nothing is known of, its narrowing flags
+and `--json`; `SourceGrants` is in `OperatorCalls`, documented under "For
+the operator alone", and a test shows the listener refuses it to a
+non-operator user's device as a method the yard does not have;
+`docs/integrations.md` names the command; tests for the command, the
+provenance of a record with two calls granted at different times by
+different people, and the migration; `sh .yardr/test` passes.
 
 **W6. footplate's grants view (footplate).** Goal: footplate shows every
-grant as `yardr source grants` does. Depends on W5. Labelled `eyes`.
+grant as `yardr source grants` does. Depends on W5, and on W4 because
+both change `src/api.rs` and `src/window.rs`. Labelled `eyes`.
 Where to look: footplate `src/api.rs`, `src/window.rs` (its modes),
 `yardr-design`. Done when: the view lists the grants by source with the
-weighty words for update and `--as` rows and each row's revoke line to
-copy; it is read through `SourceGrants`; a yard without the call shows
+weighty words for update and `--as` rows, each call's own time and
+approver, and each row's revoke line to copy; it is read through
+`SourceGrants` and offered only where the window is the operator's; a yard without the call shows
 that the yard is too old for the view; tests against the fake yard; a
 shot.
