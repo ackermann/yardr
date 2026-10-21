@@ -238,7 +238,7 @@ func TestPeerBeadAnswerComesHome(t *testing.T) {
 				_, err = b.api.RenamePeer(ctx, "a", "a2", "jo")
 				must(t, err)
 			}
-			must(t, a.api.AnswerAsk(ctx, theirs.ID+"@b", seq, 1, "CSV only.", "jo"))
+			must(t, a.api.AnswerAsk(ctx, theirs.ID+"@b", seq, 1, "CSV only.", "jo", false))
 			cross(t, a, b)
 			r := b.resolved(t, theirs.ID, seq)
 			answerBy := "jo@a"

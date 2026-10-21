@@ -281,7 +281,7 @@ func TestDecisionsWrites(t *testing.T) {
 	w.Options, w.Recommend, w.Why = nil, 0, ""
 	worded := y.ask(t, w, "yardmaster")
 
-	if err := y.Store.AnswerAsk(y.ctx, y.bead, opt, 2, "after friday", "mckean"); err != nil {
+	if err := y.Store.AnswerAsk(y.ctx, y.bead, opt, 2, "after friday", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if r := y.resolved(t)[0]; r.State != AskAnswered || r.Current.Answer.Option != 2 ||
@@ -289,14 +289,14 @@ func TestDecisionsWrites(t *testing.T) {
 		t.Fatalf("pick = %+v", r)
 	}
 	// A newer pick supersedes; every pick stays a note.
-	if err := y.Store.AnswerAsk(y.ctx, y.bead, opt, 1, "", "mckean"); err != nil {
+	if err := y.Store.AnswerAsk(y.ctx, y.bead, opt, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if r := y.resolved(t)[0]; r.Current.Answer.Option != 1 || len(r.Answers) != 2 {
 		t.Fatalf("repicked = %+v", r)
 	}
 
-	if err := y.Store.AnswerAsk(y.ctx, y.bead, worded, 0, "warmly", "mckean"); err != nil {
+	if err := y.Store.AnswerAsk(y.ctx, y.bead, worded, 0, "warmly", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if r := y.resolved(t)[1]; r.State != AskAnswered || r.Current.Answer.Words != "warmly" {
@@ -311,13 +311,13 @@ func TestDecisionsWrites(t *testing.T) {
 		want string
 	}{
 		{"words alone on an ask with options", func() error {
-			return y.Store.AnswerAsk(y.ctx, y.bead, freshOpt, 0, "a thought", "mckean")
+			return y.Store.AnswerAsk(y.ctx, y.bead, freshOpt, 0, "a thought", "mckean", false)
 		}, "leave the ask open"},
 		{"a pick on an ask with no options", func() error {
-			return y.Store.AnswerAsk(y.ctx, y.bead, fresh, 1, "", "mckean")
+			return y.Store.AnswerAsk(y.ctx, y.bead, fresh, 1, "", "mckean", false)
 		}, "wants words"},
 		{"words again on an answered ask", func() error {
-			return y.Store.AnswerAsk(y.ctx, y.bead, worded, 0, "twice", "mckean")
+			return y.Store.AnswerAsk(y.ctx, y.bead, worded, 0, "twice", "mckean", false)
 		}, "is answered already"},
 		{"declining without words", func() error {
 			return y.Store.DeclineAsk(y.ctx, y.bead, opt, "", "mckean")
@@ -344,7 +344,7 @@ func TestDecisionsWrites(t *testing.T) {
 	if r := y.resolved(t)[5]; r.State != AskDeclined {
 		t.Fatalf("declined = %+v", r)
 	}
-	if err := y.Store.AnswerAsk(y.ctx, y.bead, refused, 1, "", "mckean"); err == nil ||
+	if err := y.Store.AnswerAsk(y.ctx, y.bead, refused, 1, "", "mckean", false); err == nil ||
 		!strings.Contains(err.Error(), "was declined") {
 		t.Fatalf("answering a declined ask = %v", err)
 	}

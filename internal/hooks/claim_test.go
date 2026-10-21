@@ -51,7 +51,7 @@ func TestClaimFromUnknownChatEndToEnd(t *testing.T) {
 	if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 1 {
 		t.Fatalf("open asks = %v, %v, want 1", q, err)
 	}
-	done, err := r.st.ApproveAsk(ctx, claim.Bead, claim.Ask, "op")
+	done, err := r.st.ApproveAsk(ctx, claim.Bead, claim.Ask, "op", true)
 	if err != nil {
 		t.Fatal(err)
 	}

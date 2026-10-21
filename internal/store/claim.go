@@ -564,10 +564,12 @@ func (w *wtx) retireClaimCards(user, source, addr, actor string) error {
 // by anyone but the operator the card asks, one from an agent pane
 // (mayIdentify, as a terminal mapping is), and a stale pick: a sender
 // mapped to anyone since the card was written, or a user gone since,
-// writes nothing and leaves the card open. row is the card's bead, as
-// the answer was written on it;
+// writes nothing and leaves the card open. A pick that writes an identity
+// is a weighty approval, and is refused too, with the card left open, when
+// the call does not say that its person saw the weight (weighed). row is
+// the card's bead, as the answer was written on it;
 // the answer is recorded before this runs.
-func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answer, actor string) error {
+func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answer, actor string, weighed bool) error {
 	id := ask.Identity
 	if id == nil || ans.Later {
 		return nil
@@ -595,10 +597,14 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 	}
 	// A pick that writes a user's identity is weighed again, as an
 	// approval weighs every card: a card from before mapping cards were
-	// weighed showed none, and writes no identity.
-	writes := ans.Option <= len(id.Users) || ans.Option <= len(ask.Options) && ask.Options[ans.Option-1].Label == MappingSomeoneNew
-	if writes {
-		if err := weightStale(ans.Ask, ask.Weight, mappingWeight(*id)); err != nil {
+	// weighed showed none, and writes no identity. It is a weighty
+	// approval, so it is refused without its person's word (weighed).
+	if ask.PickWrites(ans.Option) {
+		weight := mappingWeight(*id)
+		if err := weightStale(ans.Ask, ask.Weight, weight); err != nil {
+			return err
+		}
+		if err := weighedRefusal(ans.Ask, weight, weighed); err != nil {
 			return err
 		}
 	}
@@ -626,6 +632,18 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 	}
 	_, err := w.setUserIdentity(ctx, user, id.Source, Identity{ID: id.Sender}, actor, nil)
 	return err
+}
+
+// PickWrites says whether picking option n of a mapping ask writes a user's
+// identity, which is what makes the pick an approval: a user's, or someone
+// new's. Nobody and You decide write none, and neither does a pick the card
+// does not offer.
+func (a Ask) PickWrites(n int) bool {
+	id := a.Identity
+	if id == nil || n < 1 {
+		return false
+	}
+	return n <= len(id.Users) || n <= len(a.Options) && a.Options[n-1].Label == MappingSomeoneNew
 }
 
 // mappingStale says why a mapping pick on the ask seq writes nothing:

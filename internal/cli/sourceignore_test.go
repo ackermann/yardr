@@ -82,7 +82,7 @@ func ignoreSender(t *testing.T, own *store.Store, sender string) {
 			pick = i + 1
 		}
 	}
-	if err := own.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "jo"); err != nil {
+	if err := own.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "jo", false); err != nil {
 		t.Fatal(err)
 	}
 }

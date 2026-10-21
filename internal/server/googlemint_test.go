@@ -90,7 +90,7 @@ func TestCarryGoogleMailSetsItsMint(t *testing.T) {
 	if line := "minted from GOOGLE_ACCOUNT by the declaration's own mint command [google-mint] (command file google-mint, copied to <home>/sources/google-mail/google-mint: sha256 " + sha(want) + ", mode 0700)"; !strings.Contains(card, line) {
 		t.Fatalf("the card does not name the mint with its digest (%q):\n%s", line, card)
 	}
-	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean"); err != nil {
+	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, st, home, "boot-one")

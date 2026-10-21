@@ -95,10 +95,10 @@ func TestClaimAddressApproveWritesEnvFile(t *testing.T) {
 		t.Fatalf("open asks after a second delivery = %d, want 1", len(q.Open))
 	}
 	// Only the operator approves their own claim.
-	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "ada"); err == nil {
+	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "ada", false); err == nil {
 		t.Fatal("ada approved the operator's claim")
 	}
-	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestClaimApprovalStaleWhenAddressGivenSince(t *testing.T) {
 	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserEnvFile: file}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean"); err == nil || !strings.Contains(err.Error(), "one is set now") {
+	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", false); err == nil || !strings.Contains(err.Error(), "one is set now") {
 		t.Fatalf("ApproveAsk = %v, want a stale refusal", err)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "CHIME_CHAT=222\n" {
@@ -291,7 +291,7 @@ func TestClaimApprovalSubscribesHearer(t *testing.T) {
 	if len(open.Run.Does) != 2 || open.Run.Does[1] != want {
 		t.Fatalf("the card says %q", open.Run.Does)
 	}
-	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestClaimWithoutHearerWritesAddressAlone(t *testing.T) {
 	if len(open.Run.Does) != 1 {
 		t.Fatalf("the card says %q", open.Run.Does)
 	}
-	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestClaimWithoutHearerWritesAddressAlone(t *testing.T) {
 	if len(open.Run.Does) != 1 {
 		t.Fatalf("the card says %q", open.Run.Does)
 	}
-	done, err = other.ApproveAsk(other.ctx, open.Bead, open.Ask, "mckean")
+	done, err = other.ApproveAsk(other.ctx, open.Bead, open.Ask, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestClaimApprovalStaleWhenHearerSetSince(t *testing.T) {
 	if err := y.SetSetting(y.ctx, HearerSetting, "clerk", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean")
+	_, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", false)
 	if err == nil || !strings.Contains(err.Error(), "subscribes clerk to chime all chat=111 type=message") || !strings.HasSuffix(err.Error(), nothingRan) {
 		t.Fatalf("ApproveAsk = %v", err)
 	}
@@ -419,7 +419,7 @@ func TestClaimApprovalKeepsHearerSubscriptionOnce(t *testing.T) {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)
 	}
 	open := claimQueue(t, y).Open[0]
-	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestClaimApprovalSubscribesHearerToAddressAlone(t *testing.T) {
 	if len(open.Run.Does) != 2 || !strings.Contains(open.Run.Does[1], "subscribes yardmaster to "+sub+" ") {
 		t.Fatalf("the card says %q", open.Run.Does)
 	}
-	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestClaimApprovalClosesTheCardsBead(t *testing.T) {
 		t.Fatalf("ClaimAddress = %v, %v", created, err)
 	}
 	open := claimQueue(t, y).Open[0]
-	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	b, err := y.GetBead(y.ctx, open.Bead)
@@ -547,7 +547,7 @@ func TestClaimGivenByHandClosesTheCardsBead(t *testing.T) {
 	if len(q.Decided) != 1 || q.Decided[0].State != "taken back" || q.Decided[0].Words != "222 is mckean in chime" {
 		t.Fatalf("decided asks = %+v, want the waiting ask taken back with the giving as the reason", q.Decided)
 	}
-	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean"); err == nil || !strings.Contains(err.Error(), "is asked no more") {
+	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean", false); err == nil || !strings.Contains(err.Error(), "is asked no more") {
 		t.Fatalf("ApproveAsk = %v, want it refused as taken back", err)
 	}
 }

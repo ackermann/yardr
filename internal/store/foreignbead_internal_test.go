@@ -84,11 +84,11 @@ func TestBeadForeign(t *testing.T) {
 
 	// Answered here, the state is this yard's: a newer pick stands, and
 	// the view says how many came before it.
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "tonight", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "tonight", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	y.now = y.now.Add(time.Minute)
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 2, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 2, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	v, err = y.Bead(y.ctx, "yd-links@north")

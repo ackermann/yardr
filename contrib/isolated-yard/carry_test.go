@@ -31,7 +31,9 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 	as("yardmaster", "bead", "ask", bead, "Add the telegram source so I can tell you on your phone?",
 		"--context", "yardr has no source that tells a user outside the yard.",
 		"--run", "pack apply telegram")
-	as("mckean", "bead", "answer", bead, "1", "--approve")
+	if _, err := approve(d, bead, 1); err != nil {
+		t.Fatal(err)
+	}
 
 	// The carrying out is the server's, after the approval: the
 	// source and its copies stand once it has run, so wait on that

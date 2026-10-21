@@ -210,7 +210,7 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 		t.Fatalf("after mail: %d open asks, %d leaders, nudges %v", n, l.count(), f.nudges)
 	}
 
-	must(t, s.AnswerAsk(ctx, r.Journal, pick.Note.Seq, 1, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, pick.Note.Seq, 1, "", "op", false))
 	passUntil(t, d, "a secret ask for the code", func() bool {
 		a := openAsks(t, s)
 		return len(a) == 1 && a[0].Ask.Secret != nil
@@ -222,14 +222,14 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	if !strings.Contains(strings.Join(input.Ask.Context, "\n"), "https://claude.com/cai/oauth/authorize?code=true&state=s1") {
 		t.Errorf("the page is not in the ask: %q", input.Ask.Context)
 	}
-	if _, err := s.GiveSecret(ctx, r.Journal, input.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op"); err != nil {
+	if _, err := s.GiveSecret(ctx, r.Journal, input.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op", true); err != nil {
 		t.Fatal(err)
 	}
 	passUntil(t, d, "an ask whether to check", func() bool {
 		a := openAsks(t, s)
 		return len(a) == 1 && a[0].Ask.Secret == nil && a[0].Note.Seq != pick.Note.Seq
 	})
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 2, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 2, "", "op", false))
 	// The pane stays at the login screen, as Claude Code's does when it was
 	// logged in elsewhere, until the yard starts it again: logged in, and
 	// given its first prompt.
@@ -305,7 +305,7 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 	if len(labels) < 3 || labels[0] != "Claude Code: Claude subscription" || labels[2] != "Claude Code: API key" {
 		t.Fatalf("first ask options: %q", labels)
 	}
-	must(t, s.AnswerAsk(ctx, r.Journal, pick.Note.Seq, 3, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, pick.Note.Seq, 3, "", "op", false))
 	passUntil(t, d, "a secret ask for the key", func() bool {
 		a := openAsks(t, s)
 		return len(a) == 1 && a[0].Ask.Secret != nil
@@ -319,7 +319,7 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 		t.Fatalf("a leader ran for an API key pick")
 	}
 	const value = "sk-ant-k3y"
-	keyed, err := s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": value}, "op")
+	keyed, err := s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": value}, "op", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestLedKeyStartsBeadSessionsOnTheOperatorsLoginAgain(t *testing.T) {
 	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op", false))
 	passUntil(t, d, "a secret ask for the key", func() bool {
 		a := openAsks(t, s)
 		return len(a) == 1 && a[0].Ask.Secret != nil
@@ -422,7 +422,7 @@ func TestLedKeyStartsBeadSessionsOnTheOperatorsLoginAgain(t *testing.T) {
 			t.Errorf("the key's ask says %q, want %q", key.Ask.Context, want)
 		}
 	}
-	_, err = s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-k3y"}, "op")
+	_, err = s.GiveSecret(ctx, r.Journal, key.Note.Seq, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-k3y"}, "op", true)
 	must(t, err)
 	passUntil(t, d, "the login told as made", func() bool {
 		_, ev := kindCount(t, s, r.Journal, "login_led")
@@ -472,7 +472,7 @@ func TestLedLoginThatEndsIsOfferedOnNextMail(t *testing.T) {
 	l.fail = true
 
 	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 1, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 1, "", "op", false))
 	passUntil(t, d, "the login's end told", func() bool {
 		_, ev := kindCount(t, s, r.Journal, "login_led")
 		return ev.Data["step"] == "failed"
@@ -510,7 +510,7 @@ func TestLedLoginAskOutlivesTheDaemon(t *testing.T) {
 	ctx := context.Background()
 	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 1, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 1, "", "op", false))
 	third := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
 		LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
 	passUntil(t, third, "the leader started for the pick made while no daemon ran", func() bool { return l.count() == 1 })
@@ -529,7 +529,7 @@ func TestLedKeyAskOutlivesTheDaemon(t *testing.T) {
 	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op", false))
 	passUntil(t, d, "a secret ask for the key", func() bool {
 		a := openAsks(t, s)
 		return len(a) == 1 && a[0].Ask.Secret != nil
@@ -543,7 +543,7 @@ func TestLedKeyAskOutlivesTheDaemon(t *testing.T) {
 	if a := openAsks(t, s); len(a) != 1 || a[0].Note.Seq != seq {
 		t.Fatalf("after the daemon started again: %d open asks, want the key's", len(a))
 	}
-	if _, err := s.GiveSecret(ctx, r.Journal, seq, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-k3y"}, "op"); err != nil {
+	if _, err := s.GiveSecret(ctx, r.Journal, seq, map[string]string{"ANTHROPIC_API_KEY": "sk-ant-k3y"}, "op", true); err != nil {
 		t.Fatal(err)
 	}
 	third := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
@@ -566,7 +566,7 @@ func TestLedKeyDeclinedIsOfferedOnNextMail(t *testing.T) {
 	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op"))
+	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 3, "", "op", false))
 	passUntil(t, d, "a secret ask for the key", func() bool {
 		a := openAsks(t, s)
 		return len(a) == 1 && a[0].Ask.Secret != nil
@@ -616,7 +616,7 @@ func TestLedLoginSwitchJoinsExistingKind(t *testing.T) {
 	must(t, err)
 	passUntil(t, d, "scout's kind choice", func() bool { return len(openAsksOn(t, s, scout.Journal)) == 1 })
 	pick := openAsksOn(t, s, scout.Journal)[0]
-	must(t, s.AnswerAsk(ctx, scout.Journal, pick.Note.Seq, 1, "", "op"))
+	must(t, s.AnswerAsk(ctx, scout.Journal, pick.Note.Seq, 1, "", "op", false))
 	passUntil(t, d, "scout joined the existing Claude login", func() bool {
 		r, err := s.GetCrew(ctx, "scout")
 		return err == nil && r.Config["kind"] == "claude" && r.Handle[dispatch.HarnessLoginAskKey] == nil
@@ -632,13 +632,13 @@ func TestLedLoginSwitchJoinsExistingKind(t *testing.T) {
 	}
 
 	pick = openAsks(t, s)[0]
-	must(t, s.AnswerAsk(ctx, yardmaster.Journal, pick.Note.Seq, 1, "", "op"))
+	must(t, s.AnswerAsk(ctx, yardmaster.Journal, pick.Note.Seq, 1, "", "op", false))
 	passUntil(t, d, "the login's secret ask", func() bool {
 		asks := openAsks(t, s)
 		return len(asks) == 1 && asks[0].Ask.Secret != nil
 	})
 	secret := openAsks(t, s)[0]
-	if _, err := s.GiveSecret(ctx, yardmaster.Journal, secret.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op"); err != nil {
+	if _, err := s.GiveSecret(ctx, yardmaster.Journal, secret.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op", true); err != nil {
 		t.Fatal(err)
 	}
 	passUntil(t, d, "the login's confirm ask", func() bool {
@@ -646,7 +646,7 @@ func TestLedLoginSwitchJoinsExistingKind(t *testing.T) {
 		return len(asks) == 1 && asks[0].Ask.Secret == nil && asks[0].Note.Seq != pick.Note.Seq
 	})
 	confirm := openAsks(t, s)[0]
-	must(t, s.AnswerAsk(ctx, yardmaster.Journal, confirm.Note.Seq, 2, "", "op"))
+	must(t, s.AnswerAsk(ctx, yardmaster.Journal, confirm.Note.Seq, 2, "", "op", false))
 	passUntil(t, d, "the shared login finished", func() bool {
 		_, ev := kindCount(t, s, yardmaster.Journal, "login_led")
 		return ev.Data["step"] == "logged_in"

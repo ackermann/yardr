@@ -480,7 +480,7 @@ func TestForeignAskAnswered(t *testing.T) {
 	if _, err := y.AllowPeer(y.ctx, "north", PeerAllow{NoSend: []string{PeerAsk}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err == nil || !strings.Contains(err.Error(), "yardr peer allow north --send ask") {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "yardr peer allow north --send ask") {
 		t.Fatalf("an answer over a link that carries no ask out = %v", err)
 	}
 	if out, _ := y.outbox(t); len(out) != 0 {
@@ -517,7 +517,7 @@ func TestForeignAskAnswered(t *testing.T) {
 	}
 
 	// A pick with words, then a newer pick: the newest stands.
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "tonight", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "tonight", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	y.now = y.now.Add(time.Minute)
@@ -569,7 +569,7 @@ func TestForeignAskDeclined(t *testing.T) {
 	if q := y.queue(t); len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].State != "declined" || q.Decided[0].Words != "not mine" {
 		t.Fatalf("after Decline: %+v", q)
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err == nil || !strings.Contains(err.Error(), "was declined") {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "was declined") {
 		t.Fatalf("a pick on a declined foreign ask = %v", err)
 	}
 	if out, _ := y.outbox(t); len(out) != 1 {
@@ -582,10 +582,10 @@ func TestForeignAskWords(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	y.foreign(t, "a1", Ask{Question: "What tone?", Context: []string{"the greeting."}})
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err == nil || !strings.Contains(err.Error(), "wants words") {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "wants words") {
 		t.Fatalf("a pick on a foreign ask that wants words = %v", err)
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 0, "warmly", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 0, "warmly", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, as := y.outbox(t); len(as) != 1 || as[0].Words != "warmly" || as[0].Option != 0 {
@@ -594,10 +594,10 @@ func TestForeignAskWords(t *testing.T) {
 	if q := y.queue(t); len(q.Decided) != 1 || q.Decided[0].State != "answered" || q.Decided[0].Words != "warmly" {
 		t.Fatalf("after words: %+v", q)
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 0, "or coolly", "mckean"); err == nil || !strings.Contains(err.Error(), "answered already") {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 0, "or coolly", "mckean", false); err == nil || !strings.Contains(err.Error(), "answered already") {
 		t.Fatalf("words twice = %v", err)
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 0, strings.Repeat("w", MaxPeerMailBytes+1), "mckean"); err == nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 0, strings.Repeat("w", MaxPeerMailBytes+1), "mckean", false); err == nil {
 		t.Fatal("words over what crosses were taken")
 	}
 }
@@ -614,7 +614,7 @@ func TestForeignAnswerGivenUp(t *testing.T) {
 	y.foreign(t, "a1", linksAsk())
 	pick := func(n int) PeerOut {
 		t.Helper()
-		if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, n, "", "mckean"); err != nil {
+		if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, n, "", "mckean", false); err != nil {
 			t.Fatal(err)
 		}
 		out, _ := y.outbox(t)
@@ -674,7 +674,7 @@ func TestForeignAnswerGivenUp(t *testing.T) {
 	if len(mail) != 3 || !strings.HasSuffix(mail[2], "did not land: it was declined in north's yard. It takes no further answer.") {
 		t.Fatalf("mail = %q", mail)
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err == nil ||
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err == nil ||
 		!strings.Contains(err.Error(), "takes no further answer: it was declined in north's yard") {
 		t.Fatalf("a pick on a marked foreign ask = %v", err)
 	}

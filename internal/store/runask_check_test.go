@@ -182,7 +182,7 @@ func TestSourceCheckApprovalSendsOnce(t *testing.T) {
 	status := http.StatusOK
 	y := checkYard(t, &hits, &status)
 	ask := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")
-	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestSourceCheckApprovalSendsOnce(t *testing.T) {
 	if !strings.Contains(done.Result, "phone: told ada: 200 in ") || !strings.Contains(done.Result, "next: yardr user set ada notify=phone") {
 		t.Errorf("approval = %q", done.Result)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean"); err == nil || !strings.Contains(err.Error(), "approved already") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", false); err == nil || !strings.Contains(err.Error(), "approved already") {
 		t.Fatalf("a second approval: err=%v", err)
 	}
 	if len(hits) != 1 {
@@ -246,7 +246,7 @@ func TestSourceCheckFailureLeavesAskOpenAndRetries(t *testing.T) {
 	status := http.StatusInternalServerError
 	y := checkYard(t, &hits, &status)
 	ask := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")
-	_, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean")
+	_, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", false)
 	if err == nil || !strings.Contains(err.Error(), "was answered 500") ||
 		!strings.Contains(err.Error(), "Approve again to retry") {
 		t.Fatalf("failed approval = %v", err)
@@ -258,7 +258,7 @@ func TestSourceCheckFailureLeavesAskOpenAndRetries(t *testing.T) {
 		t.Fatalf("the ask is %s after a failed send", r.State)
 	}
 	status = http.StatusOK
-	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestSourceCheckUnreachedServiceSaysSo(t *testing.T) {
 		t.Fatal(err)
 	}
 	ask := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")
-	_, err = y.ApproveAsk(y.ctx, y.bead, ask, "mckean")
+	_, err = y.ApproveAsk(y.ctx, y.bead, ask, "mckean", false)
 	if err == nil || !strings.Contains(err.Error(), "telling ada through phone failed") ||
 		!strings.Contains(err.Error(), "Approve again to retry") {
 		t.Fatalf("unreached approval = %v", err)
@@ -361,27 +361,27 @@ func TestSourceCheckApprovalPermission(t *testing.T) {
 		t.Fatal(err)
 	}
 	own := y.ask(t, checkAsk("ada", "source check phone --user ada"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean", false); err == nil ||
 		!strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
 		t.Fatalf("the operator's approval of ada's ask = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "yardmaster"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "yardmaster", false); err == nil ||
 		!strings.Contains(err.Error(), "yardmaster is a crew member") {
 		t.Fatalf("a crew member's approval = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "bob"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "bob", false); err == nil ||
 		!strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
 		t.Fatalf("another user's approval = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada", false); err != nil {
 		t.Fatalf("the user's own approval = %v", err)
 	}
 	ops := y.ask(t, checkAsk("mckean", "source check phone --user ada"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, ops, "ada"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, ops, "ada", false); err == nil ||
 		!strings.Contains(err.Error(), "approving this command is mckean's, whom it was asked of") {
 		t.Fatalf("ada's approval of the operator's ask = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, ops, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, ops, "mckean", false); err != nil {
 		t.Fatalf("the operator's approval = %v", err)
 	}
 	if len(hits) != 2 {

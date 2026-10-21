@@ -1133,7 +1133,13 @@ func granteeShort(t Grantee) string {
 // the operator and to no other caller (rpc.OperatorCalls), as run
 // approvals and secret answers travel. No answer that comes over a link
 // approves.
-func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string) (*AskSetupApproved, error) {
+//
+// A setup takes the account, so its card is always weighty (weight.go): it
+// is approved only by a call that says its person saw the weight first
+// (weighed), and without it the approval is refused, changes nothing and
+// leaves the ask open (weighedRefusal). The yard checks what the client
+// says and no more.
+func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string, weighed bool) (*AskSetupApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
 		return nil, fmt.Errorf("ask %d on %s is a setup of another yard's operator: it is approved in the yard that asked, never over a link", ask, id)
@@ -1145,7 +1151,7 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 	defer s.setupSecrets.mu.Unlock()
 	var out *AskSetupApproved
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
-		out, err = w.approveSetup(ctx, id, ask, option, values, account, actor)
+		out, err = w.approveSetup(ctx, id, ask, option, values, account, actor, weighed)
 		return err
 	})
 	if err != nil {
@@ -1161,7 +1167,7 @@ func (s *Store) ApproveSetup(ctx context.Context, id string, ask uint64, option 
 // twice for one call (write): it reads the yard's records anew each time
 // and ends the same. The values are handed to the memory after the write
 // commits, so a rolled-back run hands nothing.
-func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option int, values map[string]string, account, actor string) (*AskSetupApproved, error) {
+func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option int, values map[string]string, account, actor string, weighed bool) (*AskSetupApproved, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -1298,12 +1304,16 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 		return nil, err
 	}
 	// Weighed again from the card as it stands: a card whose weight is
-	// not the one it showed, or that showed none, is approved no more.
+	// not the one it showed, or that showed none, is approved no more. A
+	// weighty one is approved by a client that says its person saw it.
 	weight, err := w.setupWeight(now)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
+	}
+	if err := weighedRefusal(seq, weight, weighed); err != nil {
 		return nil, err
 	}
 	// An approval the yard carries out after this write leaves its

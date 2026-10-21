@@ -156,7 +156,7 @@ func TestCallWithoutAnAnswer(t *testing.T) {
 		conn.Close()
 	})
 	c := NewClient(sock)
-	_, err := c.GiveSecret(context.Background(), "b", 1, map[string]string{"NAME": "value"}, "me")
+	_, err := c.GiveSecret(context.Background(), "b", 1, map[string]string{"NAME": "value"}, "me", true)
 	if !errors.Is(err, store.ErrNoAnswer) {
 		t.Fatalf("a broken call: %v, want store.ErrNoAnswer", err)
 	}
@@ -168,14 +168,14 @@ func TestCallWithoutAnAnswer(t *testing.T) {
 	serve(t, sock, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, reply{Error: &wireError{Code: "error", Message: "a change to a source is the operator's"}})
 	})
-	_, err = NewClient(sock).GiveSecret(context.Background(), "b", 1, nil, "me")
+	_, err = NewClient(sock).GiveSecret(context.Background(), "b", 1, nil, "me", true)
 	if err == nil || errors.Is(err, store.ErrNoAnswer) {
 		t.Fatalf("a refusal: %v", err)
 	}
 
 	c = NewClient(socket(t)) // nothing listens
 	c.Retry = 0
-	_, err = c.GiveSecret(context.Background(), "b", 1, nil, "me")
+	_, err = c.GiveSecret(context.Background(), "b", 1, nil, "me", true)
 	if err == nil || errors.Is(err, store.ErrNoAnswer) {
 		t.Fatalf("a call nothing listened for: %v", err)
 	}

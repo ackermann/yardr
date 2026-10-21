@@ -717,8 +717,12 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // member's pane the answer is recorded as that session's actor or that
 // crew member, whatever actor says; from anywhere else, as given
 // (paneAuthor).
+//
+// A pick on a mapping ask that writes a user's identity is a weighty
+// approval, which AnswerAsk makes with its person's word (weighed): here
+// the answer comes with none, so such a pick is refused (weighedRefusal).
 func (s *Store) AddAnswer(ctx context.Context, id string, ans Answer, actor string) error {
-	return s.addAnswer(ctx, id, ans, actor, "")
+	return s.addAnswer(ctx, id, ans, actor, "", false)
 }
 
 // AddAnswerExpected is AddAnswer with the revision the caller read. The
@@ -729,10 +733,13 @@ func (s *Store) AddAnswerExpected(ctx context.Context, id string, ans Answer, ac
 	if revision == "" {
 		return fmt.Errorf("an answer needs the bead revision it was drawn from")
 	}
-	return s.addAnswer(ctx, id, ans, actor, revision)
+	return s.addAnswer(ctx, id, ans, actor, revision, false)
 }
 
-func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, revision string) error {
+// addAnswer is AddAnswer's write. weighed is the caller's word that its
+// person saw the weight of a mapping card whose pick writes an identity
+// (weighedRefusal); no other answer reads it.
+func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, revision string, weighed bool) error {
 	unlock := s.askLocks.lock(askLockKey(id, ans.Ask))
 	defer unlock()
 	if err := answerShape(id, &ans); err != nil {
@@ -804,7 +811,7 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 				continue
 			}
 			if ask.Identity != nil {
-				if err := w.answerMapping(ctx, row, ask, ans, actor); err != nil {
+				if err := w.answerMapping(ctx, row, ask, ans, actor, weighed); err != nil {
 					return err
 				}
 			}
@@ -1356,7 +1363,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	// question, one line a class, so a weighty card reads as one before
 	// anything else on it is read.
 	for _, w := range r.Ask.Weight {
-		out = append(out, "  WEIGHTY · "+OneLine(w.String()))
+		out = append(out, "  "+w.Marked())
 	}
 	out = append(out, "  "+strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n        "))
 	for _, line := range r.Ask.Context {

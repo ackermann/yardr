@@ -684,8 +684,10 @@ yardr source rm pushover
   declaration and from nowhere else. The asker names no path and invents
   no name, and asking gives it nothing: the source is one the operator
   added, and what the asker may call of it is still the operator's grant.
-  The operator answers with `yardr bead answer <id> <ask> --secret`, which
-  reads the value as `yardr source key` does and has the server write it
+  The operator answers with `yardr bead answer <id> <ask> --secret`, which,
+  at a terminal and once the ask's number is typed back (a secret ask is
+  weighty: [the gate](chat.md#the-gate-for-a-weighty-card)), reads the value
+  as `yardr source key` does and has the server write it
   the same way, under the same check, or from a device of theirs, in a
   window paired to this yard ([users.md](users.md#devices): the one thing
   a device of the operator may do that no other device may); the answer on the bead holds the

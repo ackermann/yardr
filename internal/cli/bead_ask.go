@@ -802,10 +802,10 @@ and an ask answered with words take no further answer; a picked ask takes
 only a newer pick.
 
 --secret answers a secret ask (yardr bead ask --secret), as yardr source
-key gives a credential: on a terminal each name the ask asks for is asked
-for in turn and nothing is shown as it is typed; when standard input is no
-terminal it is read as NAME=value lines, one for each name. The value is
-never an argument and never a variable of the command's environment. The
+key gives a credential: each name the ask asks for is asked for in turn at
+a terminal and nothing is shown as it is typed, once the gate below is
+passed. The value is never an argument and never a variable of the
+command's environment. The
 yard's server writes it into the file the source's credential is read
 from, and the answer on the bead says who gave which names: the value is
 in that file and nowhere else. It is the operator's to give, and is
@@ -858,6 +858,20 @@ that takes the change back and who may run it: anyone, but for a source's
 limits (the operator) and a user's subscription (the user or the
 operator).
 
+A weighty card is one whose approval widens what reaches outside the yard,
+whose word or credential counts as a person's, or what runs inside it; its
+WEIGHTY lines say how, and every secret ask and every setup ask is one. The
+approvals above stand behind a gate for it: --approve, --secret, <n> --secret,
+<n> --account <source>, a bare <n> on a drift card, and a pick on a mapping
+ask that writes a user's identity. At a terminal the command prints the
+card's weight and asks for the ask's number typed back, before it reads a
+value, and goes on only when it is: friction against approving on reflex,
+and no authentication, since the terminal is the yard's own machine and its
+shell is the operator's. Without a terminal (standard input is not one) it
+declines, and says to approve the card in footplate on a Mac or in a
+terminal on the yard's machine. No flag gets round that: a gate that a
+script walks through is not a gate. A routine card has no gate.
+
 An ask another yard asked is answered as <bead>@<peer>, the ref the
 decisions queue shows: the answer is queued home for that yard instead
 of written as a note, and the question stands decided here from then
@@ -908,7 +922,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 							return a.approveSetup(c, st, id, askSeq, n)
 						}
 					}
-					return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
+					return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed at a terminal")
 				}
 				if setup, err := askedSetup(c.Context(), st, id, askSeq); err == nil && setup != nil {
 					return fmt.Errorf("ask %d sets up a pack: pick its preset with the account: yardr bead answer %s %d <n> --secret (or --account <source> where the card lists one)", askSeq, id, askSeq)
@@ -919,7 +933,11 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				if len(args) > 2 || ansWords != "" || ansLater || declined {
 					return fmt.Errorf("--approve runs the command the ask holds and takes nothing else")
 				}
-				done, err := st.ApproveAsk(c.Context(), id, askSeq, a.who())
+				weighed, err := a.gate(c, st, id, askSeq, "approve", "--approve")
+				if err != nil {
+					return err
+				}
+				done, err := st.ApproveAsk(c.Context(), id, askSeq, a.who(), weighed)
 				if err != nil {
 					return err
 				}
@@ -969,7 +987,22 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 					ans.Words = ansDecline
 				}
 			}
-			if err := st.AddAnswer(c.Context(), id, ans, a.who()); err != nil {
+			if ans.Option != 0 {
+				// A pick that writes a user's identity on a mapping card is
+				// a weighty approval: it takes its person's word that the
+				// weight was seen, which here is the gate. Any other pick
+				// asks for none.
+				weighed := false
+				if card, ok := askedCard(c.Context(), st, id, askSeq); ok && card.PickWrites(ans.Option) {
+					var err error
+					if weighed, err = a.weighed(c, id, askSeq, card.Weight, "pick", fmt.Sprintf("%d [words]", ans.Option)); err != nil {
+						return err
+					}
+				}
+				if err := st.AnswerAsk(c.Context(), id, askSeq, ans.Option, ans.Words, a.who(), weighed); err != nil {
+					return err
+				}
+			} else if err := st.AddAnswer(c.Context(), id, ans, a.who()); err != nil {
 				return err
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"bead": id, "ask": askSeq, "state": askState(c.Context(), st, id, askSeq)}, func(w io.Writer) {
@@ -981,7 +1014,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	answer.Flags().BoolVar(&ansLater, "later", false, "put the ask aside for 24 hours, or until the asker's next note on the bead")
 	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it (\"\" on a secret ask, which takes no words)")
 	answer.Flags().BoolVar(&ansApprove, "approve", false, "approve the command a run ask proposes: the yard runs it as you, exactly as the card shows it")
-	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen, or NAME=value lines on standard input")
+	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen at a terminal, after its card's gate")
 	answer.Flags().StringVar(&ansAccount, "account", "", "with a preset pick on a setup ask: take this listed candidate's account instead of typing one")
 	return answer
 }
@@ -1143,9 +1176,10 @@ func askedRun(ctx context.Context, st store.API, id string, seq uint64) (*store.
 	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
 }
 
-// giveSecret is yardr bead answer --secret: it reads the value of each name
-// the ask asks for as yardr source key reads one, unseen from a terminal or
-// as NAME=value lines from anything else, and gives them to the yard. What
+// giveSecret is yardr bead answer --secret: past the gate of a weighty card
+// (weighed.go), it reads the value of each name the ask asks for as yardr
+// source key reads one, unseen from a terminal or as NAME=value lines from
+// anything else, and gives them to the yard. What
 // it prints is who gave which names and where the credential is set, never
 // a value. A login input is read the same way, with no source to read it
 // against, and handed to the waiting login.
@@ -1154,12 +1188,19 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 	if err != nil {
 		return err
 	}
+	// Every secret ask is weighty: its gate comes before a value is typed,
+	// so a person sees what the card weighs first, and a command with no
+	// terminal declines before it reads any.
+	weighed, err := a.gate(c, st, id, seq, "give", "--secret")
+	if err != nil {
+		return err
+	}
 	if secret.Hook != "" {
 		values, err := readHookKeys(secret, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()))
 		if err != nil {
 			return err
 		}
-		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who(), weighed)
 		if err != nil {
 			return secretErr(err)
 		}
@@ -1172,7 +1213,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		if err != nil {
 			return err
 		}
-		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who(), weighed)
 		if err != nil {
 			return secretErr(err)
 		}
@@ -1185,7 +1226,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 		if err != nil {
 			return err
 		}
-		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+		keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who(), weighed)
 		if err != nil {
 			return secretErr(err)
 		}
@@ -1212,7 +1253,7 @@ func (a *app) giveSecret(c *cobra.Command, st store.API, id string, seq uint64) 
 	if err != nil {
 		return err
 	}
-	keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who())
+	keyed, err := st.GiveSecret(c.Context(), id, seq, values, a.who(), weighed)
 	if err != nil {
 		return secretErr(err)
 	}
@@ -1256,7 +1297,7 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 	case !found:
 		return fmt.Errorf("bead %s has no ask %d", id, seq)
 	case setup == nil:
-		return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed, or read from standard input as NAME=value lines")
+		return fmt.Errorf("--secret gives the secret and takes nothing else: the value is typed at a terminal")
 	}
 	// The sources the pack brings are not in the yard yet: read what the
 	// account is typed against from the carried texts the yard stored.
@@ -1278,11 +1319,17 @@ func (a *app) approveSetup(c *cobra.Command, st store.API, id string, seq uint64
 	if len(setup.Missing) > 0 {
 		names = setup.Missing
 	}
+	// A setup takes the account, so its card is weighty: the gate comes
+	// before a value is typed, as a secret's does.
+	weighed, err := a.gate(c, st, id, seq, "approve", fmt.Sprintf("%d --secret", n))
+	if err != nil {
+		return err
+	}
 	values, err := readKeys(d, names, c.InOrStdin(), typedUnseen(c.InOrStdin(), c.ErrOrStderr()), "")
 	if err != nil {
 		return err
 	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, values, "", a.who())
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, values, "", a.who(), weighed)
 	if err != nil {
 		return secretErr(err)
 	}
@@ -1320,7 +1367,11 @@ func (a *app) approveSetupAccount(c *cobra.Command, st store.API, id string, seq
 	case setup == nil:
 		return fmt.Errorf("--account takes a candidate of a setup ask: yardr bead answer %s %d <n> --account <source>", id, seq)
 	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, account, a.who())
+	weighed, err := a.gate(c, st, id, seq, "approve", fmt.Sprintf("%d --account %s", n, account))
+	if err != nil {
+		return err
+	}
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, account, a.who(), weighed)
 	if err != nil {
 		return secretErr(err)
 	}
@@ -1358,7 +1409,11 @@ func (a *app) approveSetupKeep(c *cobra.Command, st store.API, id string, seq ui
 	case setup == nil:
 		return fmt.Errorf("ask %d sets up no pack", seq)
 	}
-	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, "", a.who())
+	weighed, err := a.gate(c, st, id, seq, "approve", strconv.Itoa(n))
+	if err != nil {
+		return err
+	}
+	done, err := st.ApproveSetup(c.Context(), id, seq, n, nil, "", a.who(), weighed)
 	if err != nil {
 		return secretErr(err)
 	}

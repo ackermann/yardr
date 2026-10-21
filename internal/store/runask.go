@@ -1205,7 +1205,13 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // WithReach): what it carries, where its beads go, who its crew is here,
 // what it is called here, or who may mail its crew. The path is the
 // context's, set by the door.
-func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error) {
+//
+// A weighty card (weight.go) is approved only by a call that says its
+// person saw the weight first (weighed): without it the approval is
+// refused, changes nothing and leaves the ask open (weighedRefusal). The
+// yard checks what the client says and no more; a routine card asks for no
+// such word.
+func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool) (*AskApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
 		return nil, fmt.Errorf("ask %d on %s is a command of another yard's operator: it is approved in the yard that asked, never over a link", ask, id)
@@ -1215,12 +1221,12 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 		defer unlockAsk()
 		unlockHook := s.askLocks.lock(hookLockKey(name))
 		defer unlockHook()
-		return s.approveHookRegister(ctx, id, ask, actor)
+		return s.approveHookRegister(ctx, id, ask, actor, weighed)
 	}
 	if s.sourceCheckTarget(id, ask) {
 		unlockAsk := s.askLocks.lock(askLockKey(id, ask))
 		defer unlockAsk()
-		return s.approveSourceCheck(ctx, id, ask, actor)
+		return s.approveSourceCheck(ctx, id, ask, actor, weighed)
 	}
 	// What the ask's card needs of git is read before the write.
 	repos, err := s.approvalRepos(ctx, id, ask)
@@ -1230,7 +1236,7 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 	var out *AskApproved
 	err = s.writeVia(ctx, func(w *wtx) (err error) {
 		w.repos = repos
-		out, err = w.approveAsk(ctx, id, ask, actor)
+		out, err = w.approveAsk(ctx, id, ask, actor, weighed)
 		return err
 	})
 	if err != nil {
@@ -1266,7 +1272,7 @@ func (s *Store) approvalRepos(ctx context.Context, id string, seq uint64) (map[s
 // approveAsk is ApproveAsk inside the transaction. A batch may run it twice
 // for one call (write): it reads the yard's records anew each time and ends
 // the same.
-func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor string) (*AskApproved, error) {
+func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*AskApproved, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -1353,12 +1359,16 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 		was.Does = card.Does
 	}
 	// Weighed again from the card as it stands: a card whose weight is
-	// not the one it showed, or that showed none, is approved no more.
+	// not the one it showed, or that showed none, is approved no more. A
+	// weighty one is approved by a client that says its person saw it.
 	weight, err := w.weighRun(c, card)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
+	}
+	if err := weighedRefusal(seq, weight, weighed); err != nil {
 		return nil, err
 	}
 	var result string

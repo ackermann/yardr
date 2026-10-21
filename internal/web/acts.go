@@ -247,6 +247,11 @@ func (s *Server) beadAnswer(w http.ResponseWriter, r *http.Request, b *store.Bea
 // and never a value, as a terminal giving does. An ask that asks for no
 // secret, and a name with no value, are refused with the page redrawn, and
 // neither refusal repeats a value that was sent.
+//
+// The page has no gate to put in front of a weighty card (every secret ask
+// is one), so it says nothing of its person's having weighed it: the yard
+// refuses the giving in its own words, which the page shows, and the card
+// is given in a terminal as its line names.
 func (s *Server) beadGiveSecret(w http.ResponseWriter, r *http.Request, b *store.Bead, ask store.BeadAsk) {
 	ctx := r.Context()
 	if ask.Secret == nil {
@@ -261,7 +266,7 @@ func (s *Server) beadGiveSecret(w http.ResponseWriter, r *http.Request, b *store
 			return
 		}
 	}
-	if _, err := s.st.GiveSecret(ctx, b.ID, ask.Ask, values, s.acting(ctx)); err != nil {
+	if _, err := s.st.GiveSecret(ctx, b.ID, ask.Ask, values, s.acting(ctx), false); err != nil {
 		s.beadAgain(w, r, b.ID, err.Error())
 		return
 	}

@@ -56,7 +56,7 @@ func TestTakeBackAsk(t *testing.T) {
 	// It takes no answer afterwards, nor a second taking back.
 	said := fmt.Sprintf("ask %d", seq) + " is asked no more: taken back by yardmaster: " + why
 	for what, answer := range map[string]func() error{
-		"a pick":    func() error { return y.AnswerAsk(y.ctx, bead, seq, 1, "tonight", "mckean") },
+		"a pick":    func() error { return y.AnswerAsk(y.ctx, bead, seq, 1, "tonight", "mckean", false) },
 		"Later":     func() error { return y.DeferAsk(y.ctx, bead, seq, "mckean") },
 		"a decline": func() error { return y.DeclineAsk(y.ctx, bead, seq, "no", "mckean") },
 	} {
@@ -125,7 +125,7 @@ func TestTakeBackAskOnlyWhileUnanswered(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := reachYard(t)
 	bead, seq := y.asked(t, linksAsk())
-	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := y.TakeBackAsk(y.ctx, bead, seq, "too late", "yardmaster"); err == nil || !strings.Contains(err.Error(), "is answered already: nothing is left to take back") {
@@ -257,7 +257,7 @@ func TestTakeBackAskSettlesTheCopy(t *testing.T) {
 	if err != nil || v.Asks[0].State != "taken back" || v.Asks[0].Words != where {
 		t.Fatalf("the copy's card: %+v, %v", v, err)
 	}
-	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean"); err == nil || !strings.Contains(err.Error(), "takes no further answer: "+where) {
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "takes no further answer: "+where) {
 		t.Fatalf("a pick at b after the settle = %v", err)
 	}
 	if got := carry(t, b, a); len(got) != 0 {
@@ -266,7 +266,7 @@ func TestTakeBackAskSettlesTheCopy(t *testing.T) {
 
 	// The pick at b was on its way when the ask was taken back.
 	bead, seq = ask()
-	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean"); err != nil {
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.TakeBackAsk(ctx, bead, seq, "asked again in other words", "yardmaster"); err != nil {

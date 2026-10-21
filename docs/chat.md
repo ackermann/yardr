@@ -257,6 +257,31 @@ and with `NO_COLOR`, the lines read the same and `WEIGHTY` is the mark. A
 question that begins with `WEIGHTY` is the asker's word, not the yard's
 weighing, and the view draws it like any question.
 
+#### The gate for a weighty card
+
+The yard approves a weighty card only from a client that says its person saw
+the weight (`weighed`, [api.md](api.md#weighty-cards)), and the terminal
+keeps that by asking. Before it goes on, `yardr bead answer` prints the
+card's `WEIGHTY` lines and wants the ask's number typed back. That holds for
+`--approve`, for `--secret`, for a setup's `<n> --secret`, `<n> --account
+<source>` and bare `<n>`, and for a pick on a mapping card that writes a
+user's identity. Anything else stops it, with nothing approved, given or
+picked:
+
+```
+$ yardr bead answer yardr-k3vd 2990 --approve
+  WEIGHTY · outside: lets the yard change something outside it: crew member yardmaster may call send of google-mail (an update)
+ask 2990 is weighty (outside): type 2990 to approve it, anything else stops: 2990
+```
+
+It is friction against approving on reflex and no authentication: the
+terminal is the yard's own machine, and its shell is the operator's.
+Without a terminal (standard input is not one) the command declines before
+it reads anything, and says to approve the card in footplate on a Mac or in
+a terminal on the yard's machine. A script cannot walk through the gate, and
+no flag does. A routine card has no gate. The field that
+[types a secret](#typing-a-secret) keeps it too.
+
 Whoever asked takes an open question back when it is asked no more:
 `yardr bead ask --take-back <id> <ask> "<reason>"`. The operator may too,
 and nobody else. The ask leaves the open decisions and reads `taken back by
@@ -294,19 +319,27 @@ in a window that is paired to this yard as a device of the operator,
 
 ```
 $ yardr bead answer yardr-k3vd 2650 --secret
+  WEIGHTY · credential: gives a credential or an address to the yard: ARTIFICIALANALYSIS_API_KEY, for the source artificialanalysis (https://artificialanalysis.ai)
+ask 2650 is weighty (credential): type 2650 to give it, anything else stops: 2650
 ARTIFICIALANALYSIS_API_KEY for the source artificialanalysis (nothing is shown as you type):
 mckean gave ARTIFICIALANALYSIS_API_KEY · it is set in ~/.yardr/sources/artificialanalysis.env
 ```
+
+A secret ask is weighty, so the command first prints the card's weight and
+asks for the ask's number typed back, as in the second line; any other
+answer stops it with nothing given. Without a terminal it declines before it
+reads a value. See [the gate](#the-gate-for-a-weighty-card).
 
 The yard's server writes the value into the file the source's credential
 is read from, as [`yardr source key`](integrations.md) does, and the answer
 on the bead says who gave which names. The value is in that file and
 nowhere else: not in a note, an event, mail, a brief or the asker's pane,
 and the asker's inbox line reads `mckean gave ARTIFICIALANALYSIS_API_KEY
-for the source artificialanalysis (ask 2650 on yardr-k3vd)`. A script
-gives one as `NAME=value` lines on the command's standard input; the value
-is never an argument. It is yours as the operator to give, and only you
-can be asked. One kind of secret ask is for any user: `--secret <source>
+for the source artificialanalysis (ask 2650 on yardr-k3vd)`. The value is
+never an argument. A script cannot give one this way: a command with no
+terminal declines a weighty card, and `yardr source key` is what gives a
+credential from a script, with no ask. It is yours as the operator to give,
+and only you can be asked. One kind of secret ask is for any user: `--secret <source>
 --for-user <user>` asks for that user's own address in a source that tells
 people (for Pushover the user key). Its line reads `a secret:
 PUSHOVER_USER, ada's own address in the source pushover (…); ada is told
@@ -433,6 +466,8 @@ same check the command has when you type it.
 
 ```
 $ yardr bead answer yardr-k3vd 2710 --approve
+  WEIGHTY · trust: widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now
+ask 2710 is weighty (trust): type 2710 to approve it, anything else stops: 2710
 ask 2710, asked by yardmaster: yardr peer allow airy --mail-limit 300
 the link with airy (it calls itself yardr, key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 30 now.
 mckean approved it, and the yard ran it:
@@ -532,6 +567,9 @@ as ran or failed:
 
 ```
 $ yardr bead answer yardr-k3vd 3101 1 --secret
+  WEIGHTY · credential: gives a credential or an address to the yard: the account GOOGLE_ACCOUNT of pack google-mail
+  WEIGHTY · code: brings a program the yard will run: the command file google-mint of google-mail (new)
+ask 3101 is weighty (credential, code): type 3101 to approve it, anything else stops: 3101
 ask 3101, asked by yardmaster: setup of pack google-mail, preset read to crew yardmaster
 mckean gave GOOGLE_ACCOUNT
 mckean approved it: approved, to be carried out
@@ -563,7 +601,18 @@ held and new against what the grantee holds.
 #### Typing a secret
 
 `ctrl+o` in a conversation that shows a secret ask puts a field in the
-place of the line:
+place of the line. A secret ask is weighty, so the field first asks for the
+ask's number typed back, in the clear, as the terminal's command does
+([the gate](#the-gate-for-a-weighty-card)); the card's `WEIGHTY` line is
+above it, and another number closes the field with nothing sent:
+
+```
+──────────────────────────────── a weighty card: its number shows as you type it ──
+type 2650 to give it, the card is weighty  2650
+enter goes on to the value · esc leaves, and nothing is sent
+```
+
+Then it asks for the value:
 
 ```
 ──────────────────────────────────── a secret: what you type is not shown ──
@@ -872,7 +921,7 @@ as it was.
 | `tab`, `shift+tab` | the next, the previous row: `yard`, then the crew, then those of the linked yards |
 | `pgup`, `pgdn` | scroll the conversation |
 | `ctrl+g` | to the selected crew member's pane; nothing on `yard`, and one of a linked yard or a user has none here |
-| `ctrl+o` | a field to [type a secret](#typing-a-secret) in, for a secret ask the conversation shows; says so where it shows none |
+| `ctrl+o` | a field to [type a secret](#typing-a-secret) in, after the ask's number typed back, for a secret ask the conversation shows; says so where it shows none |
 | `esc` | in that field: leave it, and nothing is sent |
 | `ctrl+c` | leave |
 

@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
@@ -564,10 +562,12 @@ func TestBeadSecretField(t *testing.T) {
 	}
 }
 
-// Giving through the bead's form lands as the view's user: the value is in
-// the file the source's credential is read from, and the answer on the bead
-// holds the names that were given and never the value.
-func TestBeadSecretGivePost(t *testing.T) {
+// Giving through the bead's form is refused: a secret ask is weighty, and
+// the page has no gate to put in front of it, so it does not say that its
+// person saw the weight (weighed). The yard refuses in its own words, which
+// the page shows; nothing is written, the ask stays open, and the value is
+// in nothing that comes back.
+func TestBeadSecretGiveIsRefusedAsWeighty(t *testing.T) {
 	t.Parallel()
 	f, b, seq := secretActYard(t)
 	ctx := context.Background()
@@ -575,15 +575,16 @@ func TestBeadSecretGivePost(t *testing.T) {
 	const value = "the-crm-key"
 	r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)},
 		"secret-CRM_TOKEN": {value}, "action": {"give"}}, "Origin", f.ts.URL)
-	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
-		t.Fatalf("status %d, location %q, want 303 to the bead:\n%s", r.status, r.header.Get("Location"), r.body)
+	if r.status != 200 || !strings.Contains(r.body, "is weighty (credential)") || !strings.Contains(r.body, "approve it where its weight is shown") {
+		t.Fatalf("status %d, want the redrawn page with the yard's refusal:\n%s", r.status, r.body)
+	}
+	if strings.Contains(r.body, value) {
+		t.Errorf("the redrawn page holds the value:\n%s", r.body)
 	}
 	src, err := f.st.GetSource(ctx, "crm")
 	must(t, err)
-	file, err := os.ReadFile(src.EnvFile)
-	must(t, err)
-	if !strings.Contains(string(file), value) {
-		t.Errorf("the credential file holds %q, want the given value", file)
+	if src.EnvFile != "" {
+		t.Errorf("the source's env_file is %q after a refused giving", src.EnvFile)
 	}
 	notes, err := f.st.Notes(ctx, b.ID)
 	must(t, err)
@@ -592,24 +593,17 @@ func TestBeadSecretGivePost(t *testing.T) {
 			t.Errorf("note %d holds the value: %q", n.Seq, n.Text)
 		}
 	}
-	last := notes[len(notes)-1]
-	if last.Author != "mckean" || last.Kind != store.NoteAnswer {
-		t.Errorf("the last note is %+v, want mckean's answer", last)
-	}
-	if !strings.Contains(last.Text, "CRM_TOKEN") {
-		t.Errorf("the answer holds %q, want the names that were given", last.Text)
-	}
 	v, err := f.st.Bead(ctx, b.ID)
 	must(t, err)
-	if len(v.Asks) != 1 || len(v.Asks[0].Given) != 1 || v.Asks[0].Given[0] != "CRM_TOKEN" {
-		t.Fatalf("the ask: %+v, want it given CRM_TOKEN", v.Asks)
+	if len(v.Asks) != 1 || v.Asks[0].State != "open" || len(v.Asks[0].Given) != 0 {
+		t.Fatalf("the ask: %+v, want it open and given nothing", v.Asks)
 	}
 }
 
 // A login-input ask on the bead's page shows the same field that does not
-// echo, and giving through it hands the value to the waiting login: the
-// answer holds the names that were given, and the value is in no note.
-func TestBeadSecretLoginGivePost(t *testing.T) {
+// echo, and giving through it is refused as any secret ask's is: the value
+// is handed to no waiting login, and is in no note.
+func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 	t.Parallel()
 	f, _ := talkFixture(t, "mckean")
 	ctx := context.Background()
@@ -631,50 +625,12 @@ func TestBeadSecretLoginGivePost(t *testing.T) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
 		}
 	}
-	// The wait registers in its own goroutine: the giving below starts once
-	// a probe is refused as a duplicate. A wait refused as a duplicate
-	// tries again: a probe may hold the reference for the moment it checks.
-	waited := make(chan string, 1)
-	go func() {
-		for {
-			value, err := f.st.LoginWait(context.Background(), "claude-a1b2c3d4")
-			if err == nil {
-				waited <- value
-				return
-			}
-			if !strings.Contains(err.Error(), "already waits") {
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		// A live context, not a canceled one: over the socket the HTTP
-		// client fails on a canceled context before anything is sent,
-		// while a direct call refuses the duplicate without consulting
-		// it. A probe that registers first times out in 100 ms and its
-		// wait is forgotten, and the loop tries again.
-		probe, leave := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		_, err := f.st.LoginWait(probe, "claude-a1b2c3d4")
-		leave()
-		if err != nil && strings.Contains(err.Error(), "already waits") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the wait never registered: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	rev := revOf(t, f, b.ID)
 	const value = "the-login-code"
 	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)},
 		"secret-INPUT": {value}, "action": {"give"}}, "Origin", f.ts.URL)
-	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/beads/"+b.ID {
-		t.Fatalf("status %d, location %q, want 303 to the bead:\n%s", r.status, r.header.Get("Location"), r.body)
-	}
-	if got := <-waited; got != value {
-		t.Fatalf("the waiter was handed %q", got)
+	if r.status != 200 || !strings.Contains(r.body, "is weighty (credential)") || strings.Contains(r.body, value) {
+		t.Fatalf("status %d, want the redrawn page with the yard's refusal and no value:\n%s", r.status, r.body)
 	}
 	notes, err := f.st.Notes(ctx, b.ID)
 	must(t, err)
@@ -683,9 +639,8 @@ func TestBeadSecretLoginGivePost(t *testing.T) {
 			t.Errorf("note %d holds the value: %q", n.Seq, n.Text)
 		}
 	}
-	last := notes[len(notes)-1]
-	if last.Author != "mckean" || last.Kind != store.NoteAnswer || !strings.Contains(last.Text, "INPUT") {
-		t.Errorf("the last note is %+v, want mckean's answer with the names", last)
+	if last := notes[len(notes)-1]; last.Kind == store.NoteAnswer {
+		t.Errorf("the last note is %+v, want no answer", last)
 	}
 }
 

@@ -150,7 +150,7 @@ func TestGiveSecretGivesAUsersOwnCredential(t *testing.T) {
 	y, file := userSecretYard(t)
 	seq := y.ask(t, userSecretAsk("ada", "ada"), "yardmaster")
 	const value = "ada@gog.example.com"
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": value}, "ada")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": value}, "ada", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestGiveSecretGivesAUsersOwnCredential(t *testing.T) {
 	}
 
 	// The operator gives for them, and giving again replaces.
-	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": "typed-again"}, "mckean")
+	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": "typed-again"}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestGiveSecretRefusesAnotherUsersCredential(t *testing.T) {
 		"yardmaster": "yardmaster is a crew member",
 		"":           "this is nobody",
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": value}, actor)
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": value}, actor, true)
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), value) {
 			t.Errorf("as %q: err = %v, want %q", actor, err, want)
 		}
@@ -249,7 +249,7 @@ func TestGiveSecretRefusesAnotherUsersCredential(t *testing.T) {
 		{"GOG_ACCOUNT": value, "MORE": "1"},
 		{},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "ada")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "ada", true)
 		if err == nil || strings.Contains(err.Error(), value) {
 			t.Errorf("%d names: err = %v", len(values), err)
 		}
@@ -267,7 +267,7 @@ func TestGiveSecretRefusesAnotherUsersCredential(t *testing.T) {
 	if err := y.DeleteUser(y.ctx, "ada", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": value}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"GOG_ACCOUNT": value}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "user ada: not found") || strings.Contains(err.Error(), value) {
 		t.Fatalf("after the user went: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestGiveSecretRefusesAUsersCredentialThatIsNoAddress(t *testing.T) {
 		{"https://hooks.example.com/catch/" + secret + "?key=" + secret, "has a query or a fragment"},
 		{"http://hooks.example.com/catch/" + secret, "is plain http to a machine that is not this one"},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "ada")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "ada", true)
 		if err == nil || !strings.Contains(err.Error(), "source hook: the value of HOOK_URL "+tc.want) {
 			t.Errorf("%q: err = %v, want the fault named", tc.value, err)
 			continue
@@ -306,7 +306,7 @@ func TestGiveSecretRefusesAUsersCredentialThatIsNoAddress(t *testing.T) {
 	if n := len(answerNotes(t, y)); n != 0 {
 		t.Fatalf("%d answer notes after refused givings", n)
 	}
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "ada")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "ada", true)
 	if err != nil {
 		t.Fatal(err)
 	}

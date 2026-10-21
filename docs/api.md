@@ -4255,7 +4255,7 @@ Read it again on every event that carries a bead, and on the events without one 
 
 ### `AnswerAsk`
 
-Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. It answers nothing; the answer is then a `noted` event in the stream.
+Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. A pick on a mapping ask (an ask of `Bead` with `identity`) that writes a user's identity, a user's pick or someone new's, is a weighty approval: the call is refused unless it says `weighed` ([weighty cards](#weighty-cards)), and the ask stays open. Nobody and you decide write no identity, and no other answer asks for the word. It answers nothing; the answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -4264,6 +4264,7 @@ Answers an ask: picks an option with words alongside, or answers an ask with no 
 | `option` | number | the picked option's number, as the bead shows it; `0` with words answers an ask with no options |
 | `words` | string | what goes with the pick, or the answer; left out, the pick stands alone |
 | `actor` | string | who answers: the user's name |
+| `weighed` | bool | `true` for a pick that writes a user's identity on a mapping ask, once the person has seen the card's weight and passed the client's gate; left out, `false`, and every other answer takes it so |
 
 ```
 POST /call/AnswerAsk
@@ -4360,7 +4361,10 @@ it has three calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, and `ApproveSetup`, which approves a setup ask with
 the preset pick and the account together: typed, taken from a candidate, or
-kept as it stands. Where they are served, and to whom:
+kept as it stands. Each of the three takes `weighed`, the client's word that
+its person saw the card's weight, and the yard refuses a weighty card
+without it ([weighty cards](#weighty-cards)). Where they are served, and
+to whom:
 
 - **On the socket**, to the operator: `actor` is the operator's name, and
   the call does not come from the pane of an agent.
@@ -4455,11 +4459,60 @@ weighed and weighs as weighty now, nothing runs and the call is refused
 with the stale refusal: the ask stays open, to be declined and asked
 again.
 
+A weighty card is approved only by a call that says its person saw the
+weight. Each of those four calls takes `weighed`, a bool that is `false`
+when it is left out. `AnswerAsk` takes it for a pick on a mapping ask that
+writes a user's identity, a user's pick or someone new's; a pick of
+nobody or you decide writes none, and no other answer asks for it. Without
+`weighed` a weighty card is refused, before anything is written or run,
+with the code `error` and these words, in which the classes are the
+card's:
+
+```
+ask 412 is weighty (outside, as-user): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate
+```
+
+That refusal is no stale one: the card is the one that was shown, so the
+ask stays open, to be approved where its weight is shown. A routine card
+is approved without `weighed` as it always was, and a client from before
+the argument, which leaves it out, makes the same calls it did.
+
+The word is the client's. The yard knows who calls by the operator's
+token or shell, and whoever holds either can send `weighed`, so the yard
+checks what a client says and verifies nothing about the person. What the
+check buys is that a client which has never heard of weight (an older
+window, a request saved before this, a script written before it) cannot
+approve a weighty card by accident, and that every client which does send
+the word was written knowing it promises a gate. The gate is the
+client's, and it sends `weighed: true` after the gate and never as a
+default:
+
+- **`yardr bead answer`** at a terminal prints the card's `WEIGHTY` lines
+  and asks for the ask's number typed back, before it reads a value, and
+  sends `weighed` on a match and stops on anything else. Without a
+  terminal (standard input is not one) it declines a weighty approval,
+  and its words name footplate and a terminal. No flag gets round that,
+  since a gate that a script walks through is not a gate: a person
+  approves a weighty card in footplate or in a terminal. The terminal is
+  the yard's own machine and its shell is the operator's, so this is
+  friction against approving on reflex and no authentication.
+- **`yardr chat`**'s field for a secret asks for the ask's number typed
+  back the same way, and then for the value.
+- **A client with no gate** sends none, and so cannot approve a weighty
+  card: it says `this card is weighty and this window has no gate. Approve
+  it in footplate on a Mac, or in a terminal on the yard's machine:` with
+  the `yardr bead answer` line of the card, and leaves the card open.
+  Nothing is declined for the person.
+
+A weighty card is approved alone, by a call that names it, and never in a
+batch. No call approves several cards today. A call that does, if one is
+ever added, refuses each weighty ask in it by name and approves the rest.
+
 <!-- local: made by the test of internal/rpc from what a yard answers, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
 
 ### `GiveSecret`
 
-Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. An ask with `secret.crew` asks for that crew member's own credential in the source instead: the value goes into the crew member's `env_file`, or with none set into `crew/<name>.env` in the yard's home, which is then set; it is the operator's to give, on the socket and from a device of the operator, restarts nothing, and takes effect when the crew member next starts. An ask with `secret.harness` asks for that harness kind's API key instead: the names come from the kind's `login_env`; the values go into the operator's key file of the kind, `harness/<kind>/<operator>.env` in the yard's home, which every session of the kind on the operator's login reads as it starts (the crew, groups without `login_for`, the operator's conversations), and no crew member's `env_file` is set. It is the operator's to give, on the socket and from a device of the operator; it is kept in that file and not in the store, an event, a note or the log. Giving it restarts the sessions of that kind on the operator's login waiting at the login screen, and new sessions use the key. An ask with `secret.as` asks for that user's own credential in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and the source needs no `notify` key. An ask with `secret.login` asks for the input of the harness login that waits under that reference instead: the value is handed to the waiting login and kept nowhere — not in a file, the store, an event, a note or the log — and the answer holds the names as any giving does; it is the operator's to give, on the socket and from a device of the operator, and is refused when no login waits under the reference. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.
+Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. An ask with `secret.crew` asks for that crew member's own credential in the source instead: the value goes into the crew member's `env_file`, or with none set into `crew/<name>.env` in the yard's home, which is then set; it is the operator's to give, on the socket and from a device of the operator, restarts nothing, and takes effect when the crew member next starts. An ask with `secret.harness` asks for that harness kind's API key instead: the names come from the kind's `login_env`; the values go into the operator's key file of the kind, `harness/<kind>/<operator>.env` in the yard's home, which every session of the kind on the operator's login reads as it starts (the crew, groups without `login_for`, the operator's conversations), and no crew member's `env_file` is set. It is the operator's to give, on the socket and from a device of the operator; it is kept in that file and not in the store, an event, a note or the log. Giving it restarts the sessions of that kind on the operator's login waiting at the login screen, and new sessions use the key. An ask with `secret.as` asks for that user's own credential in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and the source needs no `notify` key. An ask with `secret.login` asks for the input of the harness login that waits under that reference instead: the value is handed to the waiting login and kept nowhere — not in a file, the store, an event, a note or the log — and the answer holds the names as any giving does; it is the operator's to give, on the socket and from a device of the operator, and is refused when no login waits under the reference. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. Every secret ask is weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, before anything is written, and the ask stays open. The answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -4467,10 +4520,11 @@ Answers a secret ask (an ask of `Bead` with `secret`): the values go into the fi
 | `ask` | number | the ask note's seq |
 | `values` | object | each name of `asks[].secret.env` to the value the person typed |
 | `actor` | string | who gives: the operator's name, or for an ask with `secret.user` or `secret.as` that user's |
+| `weighed` | bool | `true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card, which every secret ask is, is refused |
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":18,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":18,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4483,7 +4537,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":19,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":19,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4496,7 +4550,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":25,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":25,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4511,7 +4565,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":34,"values":{"INPUT":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":34,"values":{"INPUT":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4524,7 +4578,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":37,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":37,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4539,7 +4593,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":40,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":40,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4554,7 +4608,7 @@ POST /call/GiveSecret
 
 ```
 POST /call/GiveSecret
-{"bead":"yd-crm","ask":54,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":54,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4585,17 +4639,18 @@ The file and the store are two writes. When the yard wrote the file and could no
 
 ### `ApproveAsk`
 
-Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.
+Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.
 
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead |
 | `ask` | number | the ask note's seq |
 | `actor` | string | who approves: the operator's name, or for a command that is a user's own the name of the one it was asked of |
+| `weighed` | bool | `true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card is refused. A routine card takes it so |
 
 ```
 POST /call/ApproveAsk
-{"bead":"yd-crm","ask":28,"actor":"jo"}
+{"bead":"yd-crm","ask":28,"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4622,7 +4677,7 @@ The change and the answer are one write: the command ran and the ask is approved
 
 ### `ApproveSetup`
 
-Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`, or a bare `<n>` where the card is `given`) does. The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.
+Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies the pack, takes the account, and grants the preset picked, as the operator: `setup.pack`, the account `setup.account`, and the preset's grants to `setup.to`. It is what `yardr bead answer <n> --secret` (or `--account <source>`, or a bare `<n>` where the card is `given`) does. The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. A setup takes the account, so its card is always weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, with nothing changed and the ask open. The answer is then a `noted` event in the stream.
 
 | argument | type | |
 |---|---|---|
@@ -4632,10 +4687,11 @@ Approves a setup ask (an ask of `Bead` with `setup`), and the yard then applies 
 | `values` | object | each name the person typed, with its value: every name of `setup.account` on a first setup, the names of `setup.missing` alone on an update that has any, and on an update that is `given` every name of `setup.account`, to change the account that stands; left out where a candidate is taken or the account is kept |
 | `account` | string | the candidate taken instead of typing, one the card lists (`setup.candidates[].source`); left out where the values are typed or the account is kept |
 | `actor` | string | who approves: the operator's name |
+| `weighed` | bool | `true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card, which every setup is, is refused |
 
 ```
 POST /call/ApproveSetup
-{"bead":"yd-crm","ask":44,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":44,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4652,7 +4708,7 @@ POST /call/ApproveSetup
 
 ```
 POST /call/ApproveSetup
-{"bead":"yd-crm","ask":45,"option":1,"account":"courier-existing","actor":"jo"}
+{"bead":"yd-crm","ask":45,"option":1,"account":"courier-existing","actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4669,7 +4725,7 @@ POST /call/ApproveSetup
 
 ```
 POST /call/ApproveSetup
-{"bead":"yd-crm","ask":46,"option":1,"actor":"jo"}
+{"bead":"yd-crm","ask":46,"option":1,"actor":"jo","weighed":true}
 
 {
   "result": {
@@ -4686,7 +4742,7 @@ POST /call/ApproveSetup
 
 ```
 POST /call/ApproveSetup
-{"bead":"yd-crm","ask":47,"option":1,"values":{"PARCEL_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}
+{"bead":"yd-crm","ask":47,"option":1,"values":{"PARCEL_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}
 
 {
   "result": {

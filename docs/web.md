@@ -324,8 +324,14 @@ live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
 `AnswerAsk`, `DeferAsk` and `DeclineAsk`; a secret ask on its bead's page
-answers with a field that does not echo, through the socket's `GiveSecret`,
-and its value is in no note, as a terminal giving; a bead in a stage that waits for
+shows a field that does not echo, to be given through the socket's
+`GiveSecret`, and its value is in no note, as a terminal giving. A secret
+ask is weighty, and the page has no gate to put before a weighty card, so it
+does not say that its person saw the weight (`weighed`,
+[api.md](api.md#weighty-cards)): the yard refuses the giving in its own
+words, which the page shows, and the card is given in a terminal as its line
+names. The same holds for a pick on a mapping ask that writes a user's
+identity. A bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
 ([One bead](#one-bead)). Every other route stays GET, and with none of
 them every route is GET as before: the talk page then says the view does
@@ -1360,9 +1366,12 @@ options numbered with what each does, the recommendation, and for a secret
 what it asks for, for a run the command with what it changes and the way
 back. Each answers under itself, with its options as buttons, with Later
 and Decline; a secret ask shows a field that does not echo for each name
-it asks for, given through `GiveSecret` with the names recorded and the
+it asks for, to be given through `GiveSecret` with the names recorded and the
 value in no note, and still names the terminal command beside, as does a
-run ask, which is approved with `yardr bead answer`. Where the bead waits
+run ask, which is approved with `yardr bead answer`. The page sends no
+word that its person saw a weighty card's weight, so the yard refuses a
+giving from it and the page says why, with nothing written: the terminal
+command beside is where the card is given. Where the bead waits
 for the user in a stage a manual group works, the outcomes send it on as
 `yardr review` offers them, with a note. Each write carries the revision
 the page was drawn from ([Acting as a user](#acting-as-a-user)).

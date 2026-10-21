@@ -200,7 +200,7 @@ func giveLogin(t *testing.T, y *askYard, seq uint64, value, actor string) *Sourc
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": value}, actor)
+		keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": value}, actor, true)
 		if err == nil {
 			return keyed
 		}
@@ -302,7 +302,7 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-never"), "yardmaster")
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-1"}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-1"}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "no login waits under it") || strings.Contains(err.Error(), "code-1") {
 		t.Fatalf("with no wait: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 		t.Fatalf("the ended wait = %v", err)
 	}
 	seq = y.ask(t, loginAsk("claude-ended"), "yardmaster")
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-2"}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-2"}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "no login waits under it") {
 		t.Fatalf("after the wait ended: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 	if got := <-waited; got != "code-3" {
 		t.Fatalf("the waiter was handed %q", got)
 	}
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-4"}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "code-4"}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "no login waits under it") {
 		t.Fatalf("the second giving: %v", err)
 	}
@@ -355,7 +355,7 @@ func TestGiveLoginRefusals(t *testing.T) {
 		{"white space at its ends", map[string]string{"INPUT": " s3cret-padded "}, "mckean", "begins or ends with white space"},
 		{"another giver", map[string]string{"INPUT": "s3cret-for-ada"}, "ada", "answering the login"},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, c.values, c.actor)
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, c.values, c.actor, true)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
@@ -443,7 +443,7 @@ func TestGiveLoginRunTwice(t *testing.T) {
 	var k sourceKey
 	var lg loginSent
 	give := func(w *wtx) error {
-		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"INPUT": "s3cret"}, "mckean", &k, &lg)
+		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"INPUT": "s3cret"}, "mckean", true, &k, &lg)
 	}
 	others := errors.New("another caller's function failed")
 	err := y.db.Update(func(tx *bolt.Tx) error {

@@ -95,16 +95,16 @@ func TestSetupCardSingleMatchStillNeedsPick(t *testing.T) {
 	if len(y.asked(t, seq).Ask.Setup.Candidates) != 1 {
 		t.Fatalf("a single match is not listed: %+v", y.asked(t, seq).Ask.Setup.Candidates)
 	}
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "no candidate was taken (--account <source>)") {
 		t.Errorf("an approval with neither value nor pick was recorded or refused otherwise: %v", err)
 	}
 	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1,
-		map[string]string{"SETUP_ACCOUNT": "new@example.com"}, "setupcal", "mckean"); err == nil ||
+		map[string]string{"SETUP_ACCOUNT": "new@example.com"}, "setupcal", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "not both: --secret or --account <source>") {
 		t.Errorf("an approval with both value and pick was recorded or refused otherwise: %v", err)
 	}
-	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean")
+	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestSetupCardSingleMatchStillNeedsPick(t *testing.T) {
 	// Typing another is the other pick, on a second card.
 	seq = y.ask(t, setupAsk(), "yardmaster")
 	done, err = y.ApproveSetup(y.ctx, y.bead, seq, 1,
-		map[string]string{"SETUP_ACCOUNT": "new@example.com"}, "", "mckean")
+		map[string]string{"SETUP_ACCOUNT": "new@example.com"}, "", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestSetupStaleCandidateChanged(t *testing.T) {
 	if err := os.WriteFile(file, []byte("SETUP_ACCOUNT=other@example.com\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "the candidate setupcal held SETUP_ACCOUNT as carded: its file no longer holds it") {
 		t.Errorf("an approval past a changed candidate was recorded or refused otherwise: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestSetupApprovalTakesCandidate(t *testing.T) {
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
-	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean")
+	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,14 +324,14 @@ func TestSetupApprovalUnknownCandidateRefused(t *testing.T) {
 		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "nosuch", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "nosuch", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "lists no candidate nosuch: it lists setupcal") {
 		t.Errorf("an unknown candidate was taken or refused otherwise: %v", err)
 	}
 	y2, _ := runYard(t)
 	y2.setSetupPack(setupMailPack())
 	seq2 := y2.ask(t, setupAsk(), "yardmaster")
-	_, err = y2.ApproveSetup(y2.ctx, y2.bead, seq2, 1, nil, "setupcal", "mckean")
+	_, err = y2.ApproveSetup(y2.ctx, y2.bead, seq2, 1, nil, "setupcal", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "lists no candidate to take: type the account SETUP_ACCOUNT") {
 		t.Errorf("a candidate with none listed was taken or refused otherwise: %v", err)
 	}

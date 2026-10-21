@@ -115,7 +115,7 @@ func (y *secretYard) post(method, from, credential string, body io.Reader, heade
 
 // args is the body of a giving of values to the yard's ask.
 func (y *secretYard) args(values any) string {
-	b, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": y.ask, "values": values})
+	b, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": y.ask, "values": values, "weighed": true})
 	return string(b)
 }
 
@@ -183,7 +183,7 @@ func TestUserGivesASecret(t *testing.T) {
 		t.Errorf("jo's open asks after the giving: %+v, %v", q, err)
 	}
 	// Given on the yard's own machine, it says no device.
-	if _, err := y.st.GiveSecret(ctx, "yd-crm", y.ask, map[string]string{"CRM_TOKEN": "typed-again"}, "jo"); err != nil {
+	if _, err := y.st.GiveSecret(ctx, "yd-crm", y.ask, map[string]string{"CRM_TOKEN": "typed-again"}, "jo", true); err != nil {
 		t.Fatal(err)
 	}
 	if evs, _ = y.st.EventsSince(ctx, evs[len(evs)-1].Seq, 100); len(evs) != 1 || store.Via(evs[0]) != "" {
@@ -235,7 +235,7 @@ func TestUserGivesALoginInput(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	body, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{"INPUT": value}})
+	body, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{"INPUT": value}, "weighed": true})
 	// The actor is left out: the listener fills in the token's user.
 	w := y.give(onTheMachine, y.jo, bytes.NewReader(body), "X-Forwarded-Proto", "https")
 	var got struct {
@@ -310,7 +310,7 @@ func TestUserGivesTheirOwnAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(filepath.Dir(y.db), "users", "sam.env")
-	args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q}}`, seq, value)
+	args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q},"weighed":true}`, seq, value)
 	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
 
 	var said []string
@@ -417,7 +417,7 @@ func TestUserGivesTheirOwnCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(filepath.Dir(y.db), "users", "sam.env")
-	args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":%q}}`, seq, value)
+	args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":%q},"weighed":true}`, seq, value)
 	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
 
 	var said []string
@@ -714,7 +714,7 @@ func TestUserGivesASecretThroughTheRouter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q}}`, seq, value)
+		args := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q},"weighed":true}`, seq, value)
 		w := y.give(router+":40000", y.sam, strings.NewReader(args), "X-Forwarded-Proto", "https")
 		if !strings.Contains(w.Body.String(), `"given":["PUSH_USER"]`) {
 			t.Fatalf("answered %s", w.Body)

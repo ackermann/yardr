@@ -40,7 +40,7 @@ func ignoreTalk(t *testing.T, y *askYard, sender string) {
 	if card == nil {
 		t.Fatalf("no card for %s", sender)
 	}
-	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, MappingNobody), "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, MappingNobody), "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -72,11 +72,11 @@ func TestRunAskUserIdentity(t *testing.T) {
 		t.Fatalf("the run ask = %+v", run)
 	}
 	for actor, want := range map[string]string{"yardmaster": "approving this command is mckean's, whom it was asked of", "ada": "approving this command is mckean's, whom it was asked of"} {
-		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("an approval by %s = %v, want %q", actor, err, want)
 		}
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestRunAskUserIdentity(t *testing.T) {
 
 	// The user approves their own on their own card.
 	seq = y.ask(t, listAsk("ada", "user identity ada --source talk --id U111 --key ada"), "yardmaster")
-	done, err = y.ApproveAsk(y.ctx, y.bead, seq, "ada")
+	done, err = y.ApproveAsk(y.ctx, y.bead, seq, "ada", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestRunAskUserIdentityStaleAndClash(t *testing.T) {
 	if err := y.SetIdentity(y.ctx, "ada", "talk", Identity{ID: "U111"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "held another identity in talk: it was set since") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "held another identity in talk: it was set since") {
 		t.Fatalf("the approval after a set = %v", err)
 	}
 	if u, err := y.GetUser(y.ctx, "ada"); err != nil || !u.IsIn("talk", "U111") {
@@ -147,7 +147,7 @@ func TestRunAskUserIdentityStaleAndClash(t *testing.T) {
 	if err := y.SetIdentity(y.ctx, "bo", "talk", Identity{ID: "U222"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "names bo already") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("the approval over a clash = %v", err)
 	}
 }
@@ -163,7 +163,7 @@ func TestRunAskUserIdentityClearsIgnored(t *testing.T) {
 	if want := "U999 is ignored in talk now, and the mapping clears that entry in the same write."; !strings.Contains(does, want) {
 		t.Fatalf("the card says:\n%s\nwant %q", does, want)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,11 +207,11 @@ func TestRunAskSourceIgnore(t *testing.T) {
 		t.Fatalf("the run ask = %+v", run)
 	}
 	for _, actor := range []string{"yardmaster", "ada"} {
-		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (mckean)") {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor, false); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (mckean)") {
 			t.Fatalf("an approval by %s = %v", actor, err)
 		}
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,12 +253,12 @@ func TestRunAskSourceIgnoreStale(t *testing.T) {
 	if err := y.UnignoreSource(y.ctx, "talk", "U999", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "nothing is left to change") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "nothing is left to change") {
 		t.Fatalf("the approval after a removal = %v", err)
 	}
 	seq = y.ask(t, listAsk("mckean", "source ignore talk --rm U888"), "yardmaster")
 	ignoreTalk(t, y, "U777")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "the card is from before that changed") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "the card is from before that changed") {
 		t.Fatalf("the approval after another ignore = %v", err)
 	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || !slices.Equal(src.Ignored, []string{"U777", "U888"}) {

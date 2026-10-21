@@ -148,7 +148,7 @@ func TestGiveSecretGivesAUsersOwnAddress(t *testing.T) {
 	y, file := addressYard(t)
 	seq := y.ask(t, addressAsk("ada", "ada"), "yardmaster")
 	const value = "u-0f-ada-s3cret"
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": value}, "ada")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": value}, "ada", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestGiveSecretGivesAUsersOwnAddress(t *testing.T) {
 	if _, err := y.SetUser(y.ctx, "ada", map[string]string{UserNotify: "pushover"}, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": "typed-again"}, "mckean")
+	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": "typed-again"}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
 		"yardmaster": "yardmaster is a crew member",
 		"":           "this is nobody",
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": value}, actor)
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": value}, actor, true)
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), value) {
 			t.Errorf("as %q: err = %v, want %q", actor, err, want)
 		}
@@ -253,7 +253,7 @@ func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
 		{"PUSHOVER_USER": value, "MORE": "1"},
 		{},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "ada")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "ada", true)
 		if err == nil || strings.Contains(err.Error(), value) {
 			t.Errorf("%d names: err = %v", len(values), err)
 		}
@@ -270,7 +270,7 @@ func TestGiveSecretRefusesAnotherUsersAddress(t *testing.T) {
 	// An ask for a source's credential is still the operator's alone,
 	// though the one who gives is a user.
 	crm := y.ask(t, secretAsk("crm"), "yardmaster")
-	if _, err := y.GiveSecret(y.ctx, y.bead, crm, map[string]string{"CRM_TOKEN": value}, "ada"); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (mckean)") {
+	if _, err := y.GiveSecret(y.ctx, y.bead, crm, map[string]string{"CRM_TOKEN": value}, "ada", true); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (mckean)") {
 		t.Fatalf("ada giving the source's credential: %v", err)
 	}
 }
@@ -357,7 +357,7 @@ func TestGiveAddressNotRecorded(t *testing.T) {
 	afterKeyRename = func() error { return full }
 	t.Cleanup(func() { afterKeyRename = nil })
 
-	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada")
+	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada", true)
 	var half *KeyNotRecorded
 	if !errors.As(err, &half) || !errors.Is(err, full) {
 		t.Fatalf("err = %v, want a KeyNotRecorded around the store's error", err)
@@ -379,7 +379,7 @@ func TestGiveAddressNotRecorded(t *testing.T) {
 	}
 
 	afterKeyRename = nil
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada"); err != nil {
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada", true); err != nil {
 		t.Fatal(err)
 	}
 	if r := y.resolved(t)[0]; r.State != AskAnswered || len(r.Answers) != 1 {
@@ -403,7 +403,7 @@ func TestGiveAddressRunTwice(t *testing.T) {
 	var k sourceKey
 	var lg loginSent
 	give := func(w *wtx) error {
-		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada", &k, &lg)
+		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"PUSHOVER_USER": "s3cret"}, "ada", true, &k, &lg)
 	}
 	others := errors.New("another caller's function failed")
 	err := y.db.Update(func(tx *bolt.Tx) error {

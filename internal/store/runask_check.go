@@ -302,10 +302,10 @@ type sourceCheckJob struct {
 // then the test message is sent with no store write open, then the
 // answer is recorded. A send that fails leaves the ask open, saying
 // the service's answer, and approving again retries it.
-func (s *Store) approveSourceCheck(ctx context.Context, id string, seq uint64, actor string) (*AskApproved, error) {
+func (s *Store) approveSourceCheck(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*AskApproved, error) {
 	var job *sourceCheckJob
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
-		job, err = w.prepareSourceCheck(ctx, id, seq, actor)
+		job, err = w.prepareSourceCheck(ctx, id, seq, actor, weighed)
 		return err
 	})
 	if err != nil {
@@ -349,7 +349,7 @@ func (s *Store) approveSourceCheck(ctx context.Context, id string, seq uint64, a
 // approveAsk checks, it holds the approval to the card and reads the
 // address the send is made with. It writes nothing: the send changes no
 // record of the yard, so a retry sends the message the card holds.
-func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, actor string) (*sourceCheckJob, error) {
+func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*sourceCheckJob, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -411,6 +411,9 @@ func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, act
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
+	}
+	if err := weighedRefusal(seq, weight, weighed); err != nil {
 		return nil, err
 	}
 	u, err := getUser(w.Tx, user)

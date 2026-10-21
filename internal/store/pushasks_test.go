@@ -71,7 +71,7 @@ func TestPushQueuedWithAnAsk(t *testing.T) {
 		t.Fatalf("after the inbox was read: %+v", ps)
 	}
 
-	if err := st.AnswerAsk(ctx, b.ID, first, 1, "", "ada"); err != nil {
+	if err := st.AnswerAsk(ctx, b.ID, first, 1, "", "ada", false); err != nil {
 		t.Fatal(err)
 	}
 	if ps = pushesOf(t, st); ps[0].Unread() || ps[0].Ask != nil || !ps[1].Unread() {
@@ -135,7 +135,7 @@ func TestPushQueuedWithAForeignAsk(t *testing.T) {
 
 	// Picked here, the first is dealt with; the second ends in the yard
 	// that asked it.
-	if err := y.api.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err != nil {
+	if err := y.api.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	settle := store.PeerMessage{ID: "s1", Kind: store.PeerAsk, Re: "a3", Body: []byte(`{"v":1,"bead":"yd-links","seq":5,"settled":"answered"}`)}

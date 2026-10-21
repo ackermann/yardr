@@ -79,11 +79,11 @@ calls:
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyed, err := st.GiveSecret(ctx, b.ID, secretSeq, map[string]string{"LINEAR_SIGNING_SECRET": secret}, "me")
+	keyed, err := st.GiveSecret(ctx, b.ID, secretSeq, map[string]string{"LINEAR_SIGNING_SECRET": secret}, "me", true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveAsk(ctx, b.ID, runSeq, "me"); err != nil {
+	if _, err := st.ApproveAsk(ctx, b.ID, runSeq, "me", true); err != nil {
 		t.Fatal(err)
 	}
 	hook, err := st.GetHook(ctx, "linear")

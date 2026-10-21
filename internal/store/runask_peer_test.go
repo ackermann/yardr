@@ -70,7 +70,7 @@ func (y *askYard) peerOf(t *testing.T, name string) *Peer {
 // to want, and the ask to be open still with no answer on the bead.
 func (y *askYard) refusedOpen(t *testing.T, ctx context.Context, seq uint64, want string) {
 	t.Helper()
-	if _, err := y.ApproveAsk(ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), want) {
+	if _, err := y.ApproveAsk(ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("ApproveAsk = %v, want %q", err, want)
 	}
 	if r := y.asked(t, seq); r.State != AskOpen {
@@ -124,7 +124,7 @@ func TestRunAskPeerAllowAnyKind(t *testing.T) {
 			t.Errorf("the card lacks %q:\n%s", line, strings.Join(card, "\n"))
 		}
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestRunAskPeerAllowCardsTheResultOfConflictingKinds(t *testing.T) {
 	if !slices.Equal(run.Does, want) || run.Back != "yardr peer allow airy --send bead" || run.BackBy != "only the operator" {
 		t.Fatalf("the ask stores %q, %q by %q", run.Does, run.Back, run.BackBy)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if p := y.peerOf(t, "airy"); len(p.Send) != 0 {
@@ -225,7 +225,7 @@ func TestRunAskPeerCardsRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
 	// peer is the one the command names, and the path is the context's,
 	// whatever the arguments say.
 	north := y.ask(t, runAsk("peer allow north --receive bead"), "yardmaster")
-	if _, err := y.ApproveAsk(own, y.bead, north, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(own, y.bead, north, "mckean", true); err != nil {
 		t.Fatalf("an approval through airy's reach of a card about north = %v", err)
 	}
 
@@ -235,13 +235,13 @@ func TestRunAskPeerCardsRefuseAnApprovalThroughThePeersOwnReach(t *testing.T) {
 	// written before, holds: that the link takes them is no part of what it
 	// changes.
 	phone := WithVia(y.ctx, "mckean", "phone")
-	if _, err := y.ApproveAsk(phone, y.bead, intake, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(phone, y.bead, intake, "mckean", false); err != nil {
 		t.Fatalf("the approval from a paired device = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, identity, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, identity, "mckean", false); err != nil {
 		t.Fatalf("the approval of the identity in a terminal = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, allow, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, allow, "mckean", true); err != nil {
 		t.Fatalf("the approval in a terminal = %v", err)
 	}
 	if p := y.peerOf(t, "airy"); !slices.Equal(p.Receive, []string{PeerBead}) || len(p.Intakes) != 1 || len(p.Identities) != 1 {
@@ -285,11 +285,11 @@ func TestRunAskRenameAndCrewSetRefuseAnApprovalThroughThePeersOwnReach(t *testin
 	// A card about another link is no card about this peer's own: the
 	// peer is the one the command names, and the path is the context's,
 	// whatever the arguments say.
-	if _, err := y.ApproveAsk(own, y.bead, grant, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(own, y.bead, grant, "mckean", true); err != nil {
 		t.Fatalf("an approval through airy's reach of a grant of north = %v", err)
 	}
 	north := y.ask(t, runAsk("peer rename north east"), "yardmaster")
-	if _, err := y.ApproveAsk(own, y.bead, north, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(own, y.bead, north, "mckean", false); err != nil {
 		t.Fatalf("an approval through airy's reach of a rename of north = %v", err)
 	}
 	if r, err := y.GetCrew(y.ctx, "yardmaster"); err != nil || !slices.Equal(r.MayMail(), []string{"east"}) {
@@ -297,7 +297,7 @@ func TestRunAskRenameAndCrewSetRefuseAnApprovalThroughThePeersOwnReach(t *testin
 	}
 
 	// From this yard the refused card runs.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, rename, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, rename, "mckean", false); err != nil {
 		t.Fatalf("the approval of the rename in a terminal = %v", err)
 	}
 	y.peerOf(t, "south")
@@ -348,7 +348,7 @@ func TestRunAskPeerIntake(t *testing.T) {
 		}
 	}
 
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestRunAskPeerIntake(t *testing.T) {
 	// Nobody but the operator's own approval runs it, and nobody but a
 	// crew member or a user asks: the checks of every row.
 	seq = y.ask(t, runAsk("peer intake airy --depot web --flow incoming --default"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "yardmaster"); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (mckean)") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "yardmaster", false); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (mckean)") {
 		t.Fatalf("the asker's own approval = %v", err)
 	}
 	y.answer(t, Answer{Ask: seq, Decline: true, Words: "no"}, "mckean")
@@ -453,7 +453,7 @@ func TestRunAskPeerIntakeOfARepositoryFlow(t *testing.T) {
 	if len(run.Does) < 2 || !strings.HasPrefix(run.Does[1], "Its beads arrive in the stage arrived, which agents of the group reviewers work: WORK STARTS ON EACH UNSEEN, on the other yard's text") {
 		t.Fatalf("the card of an intake of a repository flow says %q", run.Does)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +502,7 @@ func TestRunAskPeerIntakeStale(t *testing.T) {
 	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "peer airy: not found") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "peer airy: not found") {
 		t.Fatalf("an approval of an intake of a link that is gone = %v", err)
 	}
 }
@@ -519,10 +519,10 @@ func TestRunAskPeerIntakeHoldsWhenTheLinkTakesBeadsFirst(t *testing.T) {
 	if !slices.ContainsFunc(y.asked(t, intake).Ask.Run.Does, func(s string) bool { return strings.HasPrefix(s, noBeadsYet) }) {
 		t.Fatalf("the card written first does not say the link takes no beads: %q", y.asked(t, intake).Ask.Run.Does)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, allow, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, allow, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, intake, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, intake, "mckean", false)
 	if err != nil {
 		t.Fatalf("the intake approved after the link took beads = %v", err)
 	}
@@ -574,7 +574,7 @@ func TestRunAskPeerIdentity(t *testing.T) {
 	if !slices.Equal(run.Does, wantDoes) || run.Back != "yardr peer identity north mayor --source talk --rm" || run.BackBy != "only the operator" {
 		t.Fatalf("the ask stores\n%q\n%q by %q\nwant\n%q", run.Does, run.Back, run.BackBy, wantDoes)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +639,7 @@ func TestRunAskPeerIdentityEndsMappingCard(t *testing.T) {
 	y := peerRuleYard(t)
 	card := claimCard(t, y, "U1")
 	seq := y.ask(t, runAsk("peer identity north mayor --source talk --id U1"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	wantCardClosed(t, y, card.Bead, "U1 is mayor@north in talk")
@@ -677,7 +677,7 @@ func TestRunAskPeerIdentityStale(t *testing.T) {
 	if err := y.SetIdentity(y.ctx, "ada", "talk", Identity{ID: "U1"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "U1 in talk names ada already") || !strings.Contains(err.Error(), "Nothing ran") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "U1 in talk names ada already") || !strings.Contains(err.Error(), "Nothing ran") {
 		t.Fatalf("an approval of an id a user has since = %v", err)
 	}
 	if p := y.peerOf(t, "north"); len(p.Identities) != 0 {

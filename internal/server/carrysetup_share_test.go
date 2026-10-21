@@ -22,7 +22,7 @@ func askSetupAccount(t *testing.T, st *store.Store, bead, pack string, option in
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveSetup(ctx, bead, seq, option, nil, account, "mckean"); err != nil {
+	if _, err := st.ApproveSetup(ctx, bead, seq, option, nil, account, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	return seq
@@ -107,7 +107,7 @@ func TestCarrySetupGoogleDocsWritesOnceAndPointsBoth(t *testing.T) {
 		t.Fatalf("the card names %s, want %s", file, want)
 	}
 	if _, err := st.ApproveSetup(ctx, bead, seq, 1,
-		map[string]string{"GOOGLE_ACCOUNT": "ops@example.com"}, "", "mckean"); err != nil {
+		map[string]string{"GOOGLE_ACCOUNT": "ops@example.com"}, "", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, st, home, "boot-one")

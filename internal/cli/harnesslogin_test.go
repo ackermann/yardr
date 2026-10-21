@@ -653,7 +653,7 @@ func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.GiveSecret(ctx, b.ID, seq, map[string]string{"INPUT": "good#s1"}, "op"); err != nil {
+	if _, err = st.GiveSecret(ctx, b.ID, seq, map[string]string{"INPUT": "good#s1"}, "op", true); err != nil {
 		t.Fatalf("GiveSecret immediately after the need: %v", err)
 	}
 	l.need("confirm")

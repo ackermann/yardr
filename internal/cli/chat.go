@@ -56,7 +56,8 @@ herdr, and names the herdr command anywhere else.
 
 A conversation shows the questions its crew member asks you; yardr bead
 answer answers them. A secret ask (yardr bead ask --secret) is answered here
-too: ctrl+o opens a field that shows a dot for each character, enter gives
+too: ctrl+o opens a field that first asks for the ask's number typed back (a
+secret ask is weighty), then shows a dot for each character, enter gives
 what you typed to the yard's server, which writes it to the file the
 source's credential is read from, and esc sends nothing.
 

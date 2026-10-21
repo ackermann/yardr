@@ -568,6 +568,8 @@ func (m *Model) View() string {
 
 	keys := keys
 	switch {
+	case m.secret != nil && m.secret.gate != "":
+		keys = gateKeys
 	case m.secret != nil:
 		keys = secretKeys
 	case m.yard:
@@ -576,6 +578,8 @@ func (m *Model) View() string {
 	if lay.rule {
 		text := ""
 		switch {
+		case m.secret != nil && m.secret.gate != "":
+			text = look.faint.Render("a weighty card: its number shows as you type it")
 		case m.secret != nil:
 			text = look.faint.Render("a secret: what you type is not shown")
 		case !m.yard:

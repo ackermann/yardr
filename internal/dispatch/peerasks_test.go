@@ -120,7 +120,7 @@ func TestPeerAskAnswersComeHome(t *testing.T) {
 			mac, airy := askYards(t, newClock(), airyCalled)
 
 			bead, seq := mac.question(t, airy, "Move them now", "After Friday")
-			must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "tonight", "mckean"))
+			must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "tonight", "mckean", false))
 			if d := airy.decided(t, bead+"@mac"); d == nil || d.State != "answered" || d.Option != 1 || d.OptionLabel != "Move them now" {
 				t.Fatalf("airy's queue after the pick = %+v", airy.queue(t))
 			}
@@ -143,7 +143,7 @@ func TestPeerAskAnswersComeHome(t *testing.T) {
 				t.Fatalf("airy's queue after Later = %+v", airy.queue(t))
 			}
 			// And answered early, as a pick like any other.
-			must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "", "mckean"))
+			must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "", "mckean", false))
 			airy.pass(t)
 			if r := mac.resolved(t, bead, seq); r.State != store.AskAnswered || len(r.Answers) != 2 {
 				t.Fatalf("mac's ask after the pick that followed Later = %+v", r)
@@ -157,7 +157,7 @@ func TestPeerAskAnswersComeHome(t *testing.T) {
 			}
 
 			bead, seq = mac.question(t, airy)
-			must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 0, "warmly", "mckean"))
+			must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 0, "warmly", "mckean", false))
 			airy.pass(t)
 			if r := mac.resolved(t, bead, seq); r.State != store.AskAnswered || r.Current.Note.Author != "mckean@airy" || r.Current.Answer.Words != "warmly" {
 				t.Fatalf("mac's ask after words = %+v", r)
@@ -197,7 +197,7 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 	// airy's pick is on its way while mac picks by hand: it lands after,
 	// so it stands.
 	bead, seq := mac.question(t, airy, "Move them now", "After Friday")
-	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean"))
+	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean", false))
 	must(t, mac.api.AddAnswer(ctx, bead, store.Answer{Ask: seq, Option: 1}, "jo"))
 	airy.pass(t)
 	r := mac.resolved(t, bead, seq)
@@ -211,7 +211,7 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 	// airy's pick lands first, then mac picks by hand: mac's stands. What
 	// airy shows is its own pick; nothing of mac's crosses.
 	bead, seq = mac.question(t, airy, "Move them now", "After Friday")
-	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean"))
+	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean", false))
 	airy.pass(t)
 	must(t, mac.api.AddAnswer(ctx, bead, store.Answer{Ask: seq, Option: 1}, "jo"))
 	r = mac.resolved(t, bead, seq)
@@ -219,7 +219,7 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 		t.Fatalf("mac's ask after both picked, mac's last = %+v", r)
 	}
 	// A newer pick at airy lands still, and stands.
-	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 3, "", "mckean"))
+	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 3, "", "mckean", false))
 	airy.pass(t)
 	mac.pass(t)
 	airy.pass(t)
@@ -235,7 +235,7 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 	// refused, naming the state, and never lands. airy marks the question
 	// declined, says why by mail, and takes no pick for it any more.
 	bead, seq = mac.question(t, airy, "Move them now", "After Friday")
-	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "", "mckean"))
+	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "", "mckean", false))
 	must(t, mac.api.AddAnswer(ctx, bead, store.Answer{Ask: seq, Decline: true, Words: "overtaken"}, "jo"))
 	airy.pass(t)
 	if r := mac.resolved(t, bead, seq); len(r.Answers) != 1 || r.State != store.AskDeclined {
@@ -253,7 +253,7 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 		!strings.HasSuffix(mail[0], ", from yardmaster@mac) did not land: it was declined in mac's yard. It takes no further answer.") {
 		t.Fatalf("airy's mail = %q", mail)
 	}
-	if err := airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean"); err == nil || !strings.Contains(err.Error(), "takes no further answer") {
+	if err := airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "takes no further answer") {
 		t.Fatalf("a pick at airy on the marked ask = %v", err)
 	}
 	if len(airy.waiting(t, "mac")) != 0 {
@@ -274,7 +274,7 @@ func TestPeerAskLinkDown(t *testing.T) {
 
 	bead, seq := mac.question(t, airy, "Move them now", "After Friday")
 	mac.down.Store(true)
-	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "", "mckean"))
+	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 1, "", "mckean", false))
 	for i := 0; i < 3; i++ {
 		if airy.open(t, bead+"@mac") {
 			t.Fatalf("the question is open again after %d tries", i)
@@ -295,7 +295,7 @@ func TestPeerAskLinkDown(t *testing.T) {
 	if r := mac.resolved(t, bead, seq); r.State != store.AskOpen {
 		t.Fatalf("an answer given up was posted again: %+v", r)
 	}
-	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean"))
+	must(t, airy.api.AnswerAsk(ctx, bead+"@mac", seq, 2, "", "mckean", false))
 	airy.pass(t)
 	if r := mac.resolved(t, bead, seq); len(r.Answers) != 1 || r.Current.Note.Author != "mckean@airy" || r.Current.Answer.Option != 2 {
 		t.Fatalf("mac's ask after the pick was given again = %+v", r)

@@ -169,8 +169,8 @@ func (c *Client) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
 func (c *Client) Flows(ctx context.Context) (*store.FlowsBoard, error) {
 	return callV[*store.FlowsBoard](c, ctx, "Flows")
 }
-func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
-	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor)
+func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error {
+	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor, weighed)
 }
 func (c *Client) DeferAsk(ctx context.Context, id string, ask uint64, actor string) error {
 	return c.call(ctx, "DeferAsk", nil, id, ask, actor)
@@ -181,8 +181,8 @@ func (c *Client) DeclineAsk(ctx context.Context, id string, ask uint64, words, a
 func (c *Client) TakeBackAsk(ctx context.Context, id string, ask uint64, reason, actor string) error {
 	return c.call(ctx, "TakeBackAsk", nil, id, ask, reason, actor)
 }
-func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*store.SourceKeyed, error) {
-	return callV[*store.SourceKeyed](c, ctx, "GiveSecret", id, ask, values, actor)
+func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string, weighed bool) (*store.SourceKeyed, error) {
+	return callV[*store.SourceKeyed](c, ctx, "GiveSecret", id, ask, values, actor, weighed)
 }
 func (c *Client) LoginWait(ctx context.Context, id string) (string, error) {
 	return callV[string](c, ctx, "LoginWait", id)
@@ -190,11 +190,11 @@ func (c *Client) LoginWait(ctx context.Context, id string) (string, error) {
 func (c *Client) LoginWaitReady(ctx context.Context, id string) error {
 	return c.call(ctx, "LoginWaitReady", nil, id)
 }
-func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*store.AskApproved, error) {
-	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor)
+func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool) (*store.AskApproved, error) {
+	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor, weighed)
 }
-func (c *Client) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string) (*store.AskSetupApproved, error) {
-	return callV[*store.AskSetupApproved](c, ctx, "ApproveSetup", id, ask, option, values, account, actor)
+func (c *Client) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string, weighed bool) (*store.AskSetupApproved, error) {
+	return callV[*store.AskSetupApproved](c, ctx, "ApproveSetup", id, ask, option, values, account, actor, weighed)
 }
 
 func (c *Client) PutDepot(ctx context.Context, r store.Depot, actor string) error {

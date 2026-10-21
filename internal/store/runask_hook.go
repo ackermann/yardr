@@ -412,10 +412,10 @@ type hookRegisterJob struct {
 // leaves the hook in place and the ask open, saying the service's
 // answer, and approving again retries the call with the secret that
 // stands: the hook and its secret are made once.
-func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, actor string) (*AskApproved, error) {
+func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*AskApproved, error) {
 	var job *hookRegisterJob
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
-		job, err = w.prepareHookRegister(ctx, id, seq, actor)
+		job, err = w.prepareHookRegister(ctx, id, seq, actor, weighed)
 		return err
 	})
 	if err != nil {
@@ -461,7 +461,7 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 // secret where none stands and adds the hook. On a retry the hook
 // this ask made is its own: the secret that stands is kept, and the
 // card is read as it was written, without the hook in the way.
-func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, actor string) (*hookRegisterJob, error) {
+func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*hookRegisterJob, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -509,12 +509,16 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	if !slices.Equal(argv, was.Argv) {
 		return nil, fmt.Errorf("ask %d holds a command the yard did not write (%s): nothing ran", seq, was.Command())
 	}
-	// Weighed again, as approveAsk weighs every other row.
+	// Weighed again, as approveAsk weighs every other row: before the hook
+	// is added, so a refusal leaves nothing of it.
 	weight, err := w.weighRun(c, was)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
+	}
+	if err := weighedRefusal(seq, weight, weighed); err != nil {
 		return nil, err
 	}
 	name, sourceName, unknownWord := hookAddParts(argv)

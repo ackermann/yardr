@@ -194,11 +194,11 @@ func TestClaimIdentityPickWritesIdentity(t *testing.T) {
 	// Only the operator picks who a sender is, and a refusal leaves the
 	// card's bead open.
 	pick := pickFor(t, y, open.Bead, "ada")
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "ada"); err == nil {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "ada", false); err == nil {
 		t.Fatal("ada picked who a sender is")
 	}
 	wantCardOpen(t, y, open.Bead)
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	u, err := y.GetUser(y.ctx, "ada")
@@ -259,7 +259,7 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 	}
 	mapBehindTheCards(t, y, "bo", "talk", Identity{ID: "U777"})
 	pick := pickFor(t, y, open.Bead, "ada")
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "mckean"); err == nil || !strings.Contains(err.Error(), "names bo already") {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pick, "", "mckean", true); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("a stale pick = %v, want a stale refusal", err)
 	}
 	if u, err := y.GetUser(y.ctx, "ada"); err != nil || u.IsIn("talk", "U777") {
@@ -338,7 +338,7 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 		"not a name": "use letters",
 		"ada":        "there is a user ada already",
 	} {
-		if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, someone, words, "mckean"); err == nil || !strings.Contains(err.Error(), want) {
+		if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, someone, words, "mckean", true); err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("someone new with %q = %v, want %q", words, err, want)
 		}
 	}
@@ -349,7 +349,7 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 	if _, err := y.GetUser(y.ctx, "bo"); err == nil {
 		t.Fatal("a refused pick added its user")
 	}
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, someone, "bo", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, someone, "bo", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	u, err := y.GetUser(y.ctx, "bo")
@@ -377,11 +377,11 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	}
 	open := mappingQueue(t, y).Open[0]
 	nobody := pickFor(t, y, open.Bead, MappingNobody)
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "ada"); err == nil {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "ada", false); err == nil {
 		t.Fatal("ada ignored a sender")
 	}
 	wantCardOpen(t, y, open.Bead)
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || !slices.Equal(src.Ignored, []string{"U999"}) {
@@ -425,7 +425,7 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	if card == nil {
 		t.Fatal("no card for U888")
 	}
-	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, MappingNobody), "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, MappingNobody), "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := y.UnignoreSource(y.ctx, "talk", "U888", "ada"); err == nil {
@@ -456,13 +456,13 @@ func TestClaimIdentityNewPicksAreStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	mapBehindTheCards(t, y, "bo", "talk", Identity{ID: "U777"})
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingSomeoneNew), "hal", "mckean"); err == nil || !strings.Contains(err.Error(), "names bo already") {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingSomeoneNew), "hal", "mckean", true); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("a stale someone-new pick = %v, want a stale refusal", err)
 	}
 	if _, err := y.GetUser(y.ctx, "hal"); err == nil {
 		t.Fatal("a stale pick added its user")
 	}
-	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingNobody), "", "mckean"); err == nil || !strings.Contains(err.Error(), "names bo already") {
+	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, pickFor(t, y, open.Bead, MappingNobody), "", "mckean", false); err == nil || !strings.Contains(err.Error(), "names bo already") {
 		t.Fatalf("a stale nobody pick = %v, want a stale refusal", err)
 	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || len(src.Ignored) != 0 {
@@ -502,10 +502,10 @@ func TestClaimIdentitySomeoneNewNameTakenBetweenCards(t *testing.T) {
 	if first == nil || second == nil {
 		t.Fatal("no card for each sender")
 	}
-	if err := y.AnswerAsk(y.ctx, first.Bead, first.Ask, pickFor(t, y, first.Bead, MappingSomeoneNew), "hal", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, first.Bead, first.Ask, pickFor(t, y, first.Bead, MappingSomeoneNew), "hal", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.AnswerAsk(y.ctx, second.Bead, second.Ask, pickFor(t, y, second.Bead, MappingSomeoneNew), "hal", "mckean"); err == nil || !strings.Contains(err.Error(), "there is a user hal already") {
+	if err := y.AnswerAsk(y.ctx, second.Bead, second.Ask, pickFor(t, y, second.Bead, MappingSomeoneNew), "hal", "mckean", true); err == nil || !strings.Contains(err.Error(), "there is a user hal already") {
 		t.Fatalf("the second someone-new hal = %v, want a taken-name refusal", err)
 	}
 	if u, err := y.GetUser(y.ctx, "hal"); err != nil || !u.IsIn("talk", "U111") || u.IsIn("talk", "U222") {
@@ -548,7 +548,7 @@ func TestMappingByHandEndsTheCard(t *testing.T) {
 		t.Fatalf("open asks = %+v, want U888's card alone", q.Open)
 	}
 	// The card takes no answer now.
-	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, "ada"), "", "mckean"); err == nil || !strings.Contains(err.Error(), "asked no more") {
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, pickFor(t, y, card.Bead, "ada"), "", "mckean", false); err == nil || !strings.Contains(err.Error(), "asked no more") {
 		t.Fatalf("a pick on the ended card = %v, want it refused as asked no more", err)
 	}
 	// And it no longer counts as pending: once the sender is unmapped, their
@@ -569,7 +569,7 @@ func TestMappingByRunAskEndsTheCard(t *testing.T) {
 	card := claimCard(t, y, "U999")
 	seq := y.ask(t, listAsk("mckean", `user identity ada --source talk --id U999`), "yardmaster")
 	wantCardOpen(t, y, card.Bead)
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	wantCardClosed(t, y, card.Bead, "U999 is ada in talk")
@@ -592,7 +592,7 @@ func TestMappingCardLaterAndYouDecideStayOpen(t *testing.T) {
 	wantDecided(t, y, later.Bead, "put aside")
 
 	decide := claimCard(t, y, "U222")
-	if err := y.AnswerAsk(y.ctx, decide.Bead, decide.Ask, pickFor(t, y, decide.Bead, YouDecide), "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, decide.Bead, decide.Ask, pickFor(t, y, decide.Bead, YouDecide), "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	wantCardOpen(t, y, decide.Bead)
@@ -616,7 +616,7 @@ func TestMappingCardLaterAndYouDecideStayOpen(t *testing.T) {
 	if second.Bead == decide.Bead {
 		t.Fatalf("the next delivery's card is the answered one, %s", second.Bead)
 	}
-	if err := y.AnswerAsk(y.ctx, second.Bead, second.Ask, pickFor(t, y, second.Bead, MappingNobody), "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, second.Bead, second.Ask, pickFor(t, y, second.Bead, MappingNobody), "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	wantCardClosed(t, y, second.Bead, "U222 is ignored in talk")

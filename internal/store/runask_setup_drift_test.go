@@ -184,7 +184,7 @@ func TestSetupDriftPresetHeldNewCoveredWaiting(t *testing.T) {
 	}
 	// A drift card whose pack would change anything is approved even
 	// where the preset is held: the update itself still wants applying.
-	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "", "mckean")
+	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "", "mckean", true)
 	if err != nil {
 		t.Fatalf("an approval of a held preset on drift was refused: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestSetupDriftAccountGivenKeep(t *testing.T) {
 		t.Errorf("the terminal card lacks the bare pick answer:\n%s", lines)
 	}
 	// Kept with a bare pick: no values, no candidate.
-	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "", "mckean")
+	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestSetupDriftAccountGivenKeep(t *testing.T) {
 	// Typed another to change it.
 	seq = y.ask(t, setupAsk(), "yardmaster")
 	done, err = y.ApproveSetup(y.ctx, y.bead, seq, 1,
-		map[string]string{"SETUP_ACCOUNT": "new@example.com"}, "", "mckean")
+		map[string]string{"SETUP_ACCOUNT": "new@example.com"}, "", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestSetupDriftAccountGivenKeep(t *testing.T) {
 	}
 	// A candidate's file to take.
 	seq = y.ask(t, setupAsk(), "yardmaster")
-	done, err = y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean")
+	done, err = y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "setupcal", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestSetupDriftAccountGivenKeep(t *testing.T) {
 	// A partial typing is refused: the whole account changes it, or the
 	// bare pick keeps it.
 	seq = y.ask(t, setupAsk(), "yardmaster")
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "x", "EXTRA": "y"}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "x", "EXTRA": "y"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "given a name it did not ask for") {
 		t.Errorf("an approval with a forged name was recorded or refused otherwise: %v", err)
 	}
@@ -287,12 +287,12 @@ func TestSetupDriftAccountMissing(t *testing.T) {
 		}
 	}
 	// Kept is refused: the missing name wants typing.
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, nil, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "missing account SETUP_PROJECT") {
 		t.Errorf("an approval keeping a missing account was recorded or refused otherwise: %v", err)
 	}
 	done, err := y.ApproveSetup(y.ctx, y.bead, seq, 1,
-		map[string]string{"SETUP_PROJECT": "proj-1"}, "", "mckean")
+		map[string]string{"SETUP_PROJECT": "proj-1"}, "", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}

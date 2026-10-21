@@ -52,7 +52,7 @@ func TestAUsersAddressIsNotGivenFromAnAgentsPane(t *testing.T) {
 	}
 	const want = "where ada is told outside the yard is set by ada, or by the operator (jo): what lands in their inbox goes there; this is the crew member yardmaster"
 	for _, actor := range []string{"ada", "jo"} {
-		_, err := own.GiveSecret(pane, b.ID, seq, map[string]string{"PUSHOVER_USER": "u-s3cret"}, actor)
+		_, err := own.GiveSecret(pane, b.ID, seq, map[string]string{"PUSHOVER_USER": "u-s3cret"}, actor, true)
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "u-s3cret") {
 			t.Errorf("GiveSecret from the yardmaster's pane as %s = %v", actor, err)
 		}
@@ -68,7 +68,7 @@ func TestAUsersAddressIsNotGivenFromAnAgentsPane(t *testing.T) {
 		t.Fatalf("the bead has %d notes, %v: want the ask alone", len(notes), err)
 	}
 	// Outside the pane, as the user.
-	keyed, err := own.GiveSecret(ctx, b.ID, seq, map[string]string{"PUSHOVER_USER": "u-s3cret"}, "ada")
+	keyed, err := own.GiveSecret(ctx, b.ID, seq, map[string]string{"PUSHOVER_USER": "u-s3cret"}, "ada", true)
 	if err != nil {
 		t.Fatal(err)
 	}

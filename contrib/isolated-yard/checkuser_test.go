@@ -144,7 +144,10 @@ func TestSourceCheckUserCard(t *testing.T) {
 	if strings.Contains(shown, "mckean-at-push") {
 		t.Fatalf("the card holds the address:\n%s", shown)
 	}
-	out := as("mckean", "bead", "answer", bead, "1", "--approve")
+	out, err := approve(d, bead, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(out, "push: told mckean: 200 in ") {
 		t.Fatalf("the approval printed:\n%s", out)
 	}
@@ -168,7 +171,7 @@ func TestSourceCheckUserCard(t *testing.T) {
 		"--context", "the service failed the first one.",
 		"--run", "source check push --user mckean")
 	// The approval of the first ask is note 2, so the second ask is 3.
-	failed, err := runIn(d, "env", "YARDR_ACTOR=mckean", "yardr", "bead", "answer", bead, "3", "--approve")
+	failed, err := approve(d, bead, 3)
 	if err == nil {
 		t.Fatalf("the failed approval passed:\n%s", failed)
 	}
@@ -185,7 +188,10 @@ func TestSourceCheckUserCard(t *testing.T) {
 		t.Fatalf("the failed send took %d messages", len(got))
 	}
 	answerAs(t, addr, "200")
-	out = as("mckean", "bead", "answer", bead, "3", "--approve")
+	out, err = approve(d, bead, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(out, "push: told mckean: 200 in ") {
 		t.Fatalf("the retry printed:\n%s", out)
 	}

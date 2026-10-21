@@ -642,8 +642,13 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 // number with any words, or words alone on an ask with no options. It is
 // what yardr bead answer does with an option or --words: words alone on
 // an ask with options are refused, and go as a plain note instead.
-func (s *Store) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error {
-	return s.AddAnswer(ctx, id, Answer{Ask: ask, Option: option, Words: words}, actor)
+//
+// A pick on a mapping ask that writes a user's identity is a weighty
+// approval: weighed is the client's word that its person saw the weight
+// first, and the pick is refused without it (weighedRefusal). The yard
+// checks what the client says and no more. Every other answer ignores it.
+func (s *Store) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error {
+	return s.addAnswer(ctx, id, Answer{Ask: ask, Option: option, Words: words}, actor, "", weighed)
 }
 
 // DeferAsk puts the ask aside: it leaves the person's queue for 24 hours

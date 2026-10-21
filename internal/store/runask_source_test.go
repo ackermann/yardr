@@ -412,7 +412,7 @@ func TestSourceAddRefusals(t *testing.T) {
 func TestSourceAddApprove(t *testing.T) {
 	y, _ := runYard(t)
 	seq := y.ask(t, sourceAddAsk(carriedOf(t, phoneDecl, nil)), "yardmaster")
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,21 +428,21 @@ calls:
   send: { kind: update, request: { method: POST } }
 `
 	addressSeq := y.ask(t, sourceAddAsk(carriedOf(t, addressDecl, nil)), "yardmaster")
-	addressDone, err := y.ApproveAsk(y.ctx, y.bead, addressSeq, "mckean")
+	addressDone, err := y.ApproveAsk(y.ctx, y.bead, addressSeq, "mckean", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := "source webhook saved: 1 call under the URL in WEBHOOK_URL"; addressDone.Result != want {
 		t.Fatalf("the URL credential approval recorded %q, want %q", addressDone.Result, want)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "was approved already") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "was approved already") {
 		t.Fatalf("a second approval = %v", err)
 	}
 
 	wired := sourceAddAsk(carriedOf(t, wiredDecl, wiredFiles))
 	wired.Run.Argv = []string{"source add wired.yaml"}
 	wseq := y.ask(t, wired, "yardmaster")
-	done, err = y.ApproveAsk(y.ctx, y.bead, wseq, "mckean")
+	done, err = y.ApproveAsk(y.ctx, y.bead, wseq, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +452,7 @@ calls:
 	if _, err := y.GetSource(y.ctx, "wired"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, wseq, "mckean"); err == nil || !strings.Contains(err.Error(), "was approved already") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, wseq, "mckean", false); err == nil || !strings.Contains(err.Error(), "was approved already") {
 		t.Fatalf("a second approval of one naming commands = %v", err)
 	}
 }
@@ -464,7 +464,7 @@ func TestSourceAddApproveStale(t *testing.T) {
 	if _, err := y.PutSource(y.ctx, "phone.yaml", phoneDecl, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "was not in the yard: it was added since") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "was not in the yard: it was added since") {
 		t.Fatalf("ApproveAsk = %v", err)
 	}
 	if r := y.asked(t, seq); r.State != AskOpen {

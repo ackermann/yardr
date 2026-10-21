@@ -134,7 +134,7 @@ func TestPrimeCrewOpenAsks(t *testing.T) {
 	if err := st.DeferAsk(ctx, first, aside, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AnswerAsk(ctx, second, answered, 1, "", "jo"); err != nil {
+	if err := st.AnswerAsk(ctx, second, answered, 1, "", "jo", false); err != nil {
 		t.Fatal(err)
 	}
 

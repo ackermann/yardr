@@ -144,7 +144,7 @@ func seedTalkIgnored(t *testing.T, y *cliYard) {
 			pick = i + 1
 		}
 	}
-	if err := y.st.AnswerAsk(ctx, q.Open[0].Bead, q.Open[0].Ask, pick, "", "jo"); err != nil {
+	if err := y.st.AnswerAsk(ctx, q.Open[0].Bead, q.Open[0].Ask, pick, "", "jo", false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -185,12 +185,20 @@ calls:
 notify: { call: message, address: { param: user, env: PUSHOVER_USER }, text: text }
 `
 
-// as runs the bead command args as the actor who.
+// as runs the bead command args as the actor who. An answer comes from a
+// terminal where a weighty card is typed back its number (atTerminal): the
+// ask's number is what the command reads.
 func (y *cliYard) as(t *testing.T, who string, args ...string) (string, error) {
 	t.Helper()
 	y.a.actor = who
 	defer func() { y.a.actor = "jo" }()
-	return run(t, y.a.beadCmd(), args...)
+	c := y.a.beadCmd()
+	if len(args) > 2 && args[0] == "answer" {
+		atTerminal(y.a)
+		defer func() { y.a.inTerm = nil }()
+		c.SetIn(strings.NewReader(typed(args[2])))
+	}
+	return run(t, c, args...)
 }
 
 // airyKey is a key for the peer airy of a test.
@@ -505,7 +513,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				if description != "Import a pack into the yard: set the yard to what the pack says" {
 					t.Errorf("%s card description %q, want the yard wording for a kind-source pack", use, description)
 				}
-				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo")
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false)
 				if err != nil || done.Result != "approved, to be carried out" {
 					t.Fatalf("%s approval = %+v, %v", use, done, err)
 				}
@@ -569,7 +577,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				if description != helpCmd.Short {
 					t.Errorf("%s card description %q, want the command help's %q", use, description, helpCmd.Short)
 				}
-				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo")
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false)
 				if err != nil {
 					t.Fatalf("%s: %v", use, err)
 				}
@@ -623,7 +631,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 					t.Fatalf("%s: the secret ask: %v", use, err)
 				}
 				if _, err := approved.st.GiveSecret(ctx, ab.ID, secretSeq,
-					map[string]string{"LINEAR_SIGNING_SECRET": "drift-signing-secret"}, "jo"); err != nil {
+					map[string]string{"LINEAR_SIGNING_SECRET": "drift-signing-secret"}, "jo", true); err != nil {
 					t.Fatalf("%s: giving the secret: %v", use, err)
 				}
 				typedSecret = filepath.Join(t.TempDir(), "linear.secret")
@@ -661,7 +669,9 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			if description != helpCmd.Short {
 				t.Errorf("%s card description %q, want the command help's %q", use, description, helpCmd.Short)
 			}
-			done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo")
+			// Every row of the list is approved here, the weighty ones among
+			// them, as a person who has seen the weight would approve it.
+			done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", true)
 			if err != nil {
 				t.Fatalf("%s: %v", use, err)
 			}

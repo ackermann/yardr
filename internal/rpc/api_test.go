@@ -19,6 +19,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -574,13 +575,14 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "AnswerAsk",
-		says:   "Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. It answers nothing; the answer is then a `noted` event in the stream.",
+		says:   "Answers an ask: picks an option with words alongside, or answers an ask with no options with words. It is what `yardr bead answer` does with an option or `--words`: words alone on an ask with options are refused, and go as a plain note instead. On a `bead@peer`, a question another yard asked, the answer is queued home for that yard instead of written as a note: only the person the question is for may give it, the link must carry `ask` out, and words alone on an ask with options are refused with the address to mail the asker at. A pick on a mapping ask (an ask of `Bead` with `identity`) that writes a user's identity, a user's pick or someone new's, is a weighty approval: the call is refused unless it says `weighed` ([weighty cards](#weighty-cards)), and the ask stays open. Nobody and you decide write no identity, and no other answer asks for the word. It answers nothing; the answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
 			{"option", "number", "the picked option's number, as the bead shows it; `0` with words answers an ask with no options"},
 			{"words", "string", "what goes with the pick, or the answer; left out, the pick stands alone"},
 			{"actor", "string", "who answers: the user's name"},
+			{"weighed", "bool", "`true` for a pick that writes a user's identity on a mapping ask, once the person has seen the card's weight and passed the client's gate; left out, `false`, and every other answer takes it so"},
 		},
 		requests: []string{`{"bead":"yd-links","ask":3,"option":1,"words":"move them tonight","actor":"jo"}`},
 	},
@@ -636,21 +638,22 @@ var apiCalls = []apiCall{
 var apiOperatorCalls = []apiCall{
 	{
 		method: "GiveSecret",
-		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. An ask with `secret.crew` asks for that crew member's own credential in the source instead: the value goes into the crew member's `env_file`, or with none set into `crew/<name>.env` in the yard's home, which is then set; it is the operator's to give, on the socket and from a device of the operator, restarts nothing, and takes effect when the crew member next starts. An ask with `secret.harness` asks for that harness kind's API key instead: the names come from the kind's `login_env`; the values go into the operator's key file of the kind, `harness/<kind>/<operator>.env` in the yard's home, which every session of the kind on the operator's login reads as it starts (the crew, groups without `login_for`, the operator's conversations), and no crew member's `env_file` is set. It is the operator's to give, on the socket and from a device of the operator; it is kept in that file and not in the store, an event, a note or the log. Giving it restarts the sessions of that kind on the operator's login waiting at the login screen, and new sessions use the key. An ask with `secret.as` asks for that user's own credential in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and the source needs no `notify` key. An ask with `secret.login` asks for the input of the harness login that waits under that reference instead: the value is handed to the waiting login and kept nowhere — not in a file, the store, an event, a note or the log — and the answer holds the names as any giving does; it is the operator's to give, on the socket and from a device of the operator, and is refused when no login waits under the reference. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. The answer is then a `noted` event in the stream.",
+		says:   "Answers a secret ask (an ask of `Bead` with `secret`): the values go into the file the source's credential is read from, and the answer on the bead holds the names and never a value. A value is kept in that file and nowhere else: not in the store, an event, a note or the log, and no call reads one back. It is what `yardr bead answer --secret` does. It is the operator's to give: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. An ask with `secret.user` asks for that user's own address in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and it does not set the user's `notify`. An ask with `secret.crew` asks for that crew member's own credential in the source instead: the value goes into the crew member's `env_file`, or with none set into `crew/<name>.env` in the yard's home, which is then set; it is the operator's to give, on the socket and from a device of the operator, restarts nothing, and takes effect when the crew member next starts. An ask with `secret.harness` asks for that harness kind's API key instead: the names come from the kind's `login_env`; the values go into the operator's key file of the kind, `harness/<kind>/<operator>.env` in the yard's home, which every session of the kind on the operator's login reads as it starts (the crew, groups without `login_for`, the operator's conversations), and no crew member's `env_file` is set. It is the operator's to give, on the socket and from a device of the operator; it is kept in that file and not in the store, an event, a note or the log. Giving it restarts the sessions of that kind on the operator's login waiting at the login screen, and new sessions use the key. An ask with `secret.as` asks for that user's own credential in the source instead: the value goes into the user's `env_file`, or with none set into `users/<user>.env` in the yard's home, which is then set; it is that user's to give or the operator's, on the socket and from a device of either, and the source needs no `notify` key. An ask with `secret.login` asks for the input of the harness login that waits under that reference instead: the value is handed to the waiting login and kept nowhere — not in a file, the store, an event, a note or the log — and the answer holds the names as any giving does; it is the operator's to give, on the socket and from a device of the operator, and is refused when no login waits under the reference. Refused too: an ask that is declined, names that are not exactly `asks[].secret.env`, an empty value, and one with a line break or white space at either end; a refusal never repeats a value. Giving again replaces what was given. Every secret ask is weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, before anything is written, and the ask stays open. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
 			{"values", "object", "each name of `asks[].secret.env` to the value the person typed"},
 			{"actor", "string", "who gives: the operator's name, or for an ask with `secret.user` or `secret.as` that user's"},
+			{"weighed", "bool", "`true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card, which every secret ask is, is refused"},
 		},
 		requests: []string{
-			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"values":{"INPUT":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"PHONE_USER":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"INPUT":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"CRM_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"CRM_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"values":{"ANTHROPIC_API_KEY":"what-the-person-typed"},"actor":"jo","weighed":true}`,
 		},
 		fields: []field{
 			{"given", "array of string", "the names that were written"},
@@ -668,13 +671,14 @@ var apiOperatorCalls = []apiCall{
 	},
 	{
 		method: "ApproveAsk",
-		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
+		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
 			{"actor", "string", "who approves: the operator's name, or for a command that is a user's own the name of the one it was asked of"},
+			{"weighed", "bool", "`true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card is refused. A routine card takes it so"},
 		},
-		requests: []string{`{"bead":"yd-crm","ask":%d,"actor":"jo"}`},
+		requests: []string{`{"bead":"yd-crm","ask":%d,"actor":"jo","weighed":true}`},
 		fields: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask that was approved"},
@@ -692,7 +696,7 @@ var apiOperatorCalls = []apiCall{
 			"The request settles the account in one of three ways: it types it, takes a candidate the card lists, or keeps the account that stands. What the card says (`setup.given`, `setup.missing`, `setup.candidates`) decides which are open to it, and the paragraph under the reply's fields says how. The examples are, in order, a first setup with the account typed, a first setup with a candidate taken, an update that keeps the account that stands, and an update that types the names it is missing. " +
 			"In one write the yard checks that it would write the same card now and records the approval, which holds the preset, the names given, the candidate taken or the account kept, and `ran`; the server carries it out after the call. Typed values live in its memory alone until the account's write; a picked candidate hands none. A refused approval changes nothing, records nothing and leaves the ask open. " +
 			"It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. Picking `you decide` grants the asker's recommended preset, and is refused where none is recommended. " +
-			"Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. The answer is then a `noted` event in the stream.",
+			"Refused too: an ask that sets up no pack; one that was declined, taken back or approved already, since a setup runs once for one ask; a `bead@peer`, since a setup is approved in the yard that asked and never over a link; values and a candidate together; values that are not exactly the names the card asks for, and a candidate the card lists none of; and an ask whose card is from before the yard changed, where the build, the pack's bytes or presets, a source, the account's owed-ness, a candidate or a grantee moved. That one is declined, and asked again if it is still wanted. A setup takes the account, so its card is always weighty ([weighty cards](#weighty-cards)): the call is refused unless it says `weighed`, with nothing changed and the ask open. The answer is then a `noted` event in the stream.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
@@ -700,12 +704,13 @@ var apiOperatorCalls = []apiCall{
 			{"values", "object", "each name the person typed, with its value: every name of `setup.account` on a first setup, the names of `setup.missing` alone on an update that has any, and on an update that is `given` every name of `setup.account`, to change the account that stands; left out where a candidate is taken or the account is kept"},
 			{"account", "string", "the candidate taken instead of typing, one the card lists (`setup.candidates[].source`); left out where the values are typed or the account is kept"},
 			{"actor", "string", "who approves: the operator's name"},
+			{"weighed", "bool", "`true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card, which every setup is, is refused"},
 		},
 		requests: []string{
-			`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"option":1,"actor":"jo"}`,
-			`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PARCEL_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo"}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"values":{"COURIER_ACCOUNT":"what-the-person-typed"},"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"actor":"jo","weighed":true}`,
+			`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PARCEL_UPDATE_TOKEN":"what-the-person-typed"},"actor":"jo","weighed":true}`,
 		},
 		fields: []field{
 			{"bead", "string", "the bead"},
@@ -1067,7 +1072,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Secret:  &store.AskSecret{Source: source, Env: env}})
 	}
 	books := secret("The API key for the books", "books")
-	_, err = st.GiveSecret(ctx, crm.ID, books, map[string]string{"BOOKS_TOKEN": "typed-in-the-fixture"}, "jo")
+	_, err = st.GiveSecret(ctx, crm.ID, books, map[string]string{"BOOKS_TOKEN": "typed-in-the-fixture"}, "jo", true)
 	must(err)
 	updates, token := secret("The CRM's token for updates", "crm", "CRM_UPDATE_TOKEN"), secret("The API key for the CRM", "crm", "CRM_TOKEN")
 
@@ -1103,7 +1108,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"It is on the first page of " + source + ".example.com after login."},
 			Secret:  &store.AskSecret{Source: source, User: "jo"}})
 	}
-	_, err = st.GiveSecret(ctx, crm.ID, address("Your id at the pager", "pager"), map[string]string{"PAGER_USER": "typed-in-the-fixture"}, "jo")
+	_, err = st.GiveSecret(ctx, crm.ID, address("Your id at the pager", "pager"), map[string]string{"PAGER_USER": "typed-in-the-fixture"}, "jo", true)
 	must(err)
 	apiSecretAsks = [7]uint64{updates, token, address("Your id at the phone service", "phone"), 0, 0, 0, 0}
 
@@ -1123,7 +1128,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"north's yard was refused 4 mails in the last hour."},
 			Run:     &store.AskRun{Argv: []string{"peer allow north --mail-limit " + n}}})
 	}
-	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo")
+	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo", true)
 	must(err)
 	apiRunAsk = more("300")
 	// And of a row whose change not anyone takes back, the same two.
@@ -1132,7 +1137,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"The import was refused its 61st call of the hour."},
 			Run:     &store.AskRun{Argv: []string{"source set crm calls_per_hour=" + n}}})
 	}
-	_, err = st.ApproveAsk(ctx, crm.ID, often("120"), "jo")
+	_, err = st.ApproveAsk(ctx, crm.ID, often("120"), "jo", true)
 	must(err)
 	often("240")
 
@@ -1157,7 +1162,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	given := login("The code the sign-in page showed", "claude-example1")
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		_, err = st.GiveSecret(ctx, crm.ID, given, map[string]string{"INPUT": "typed-in-the-fixture"}, "jo")
+		_, err = st.GiveSecret(ctx, crm.ID, given, map[string]string{"INPUT": "typed-in-the-fixture"}, "jo", true)
 		if err == nil {
 			break
 		}
@@ -1183,7 +1188,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"Create one at https://" + source + ".example.com/account/api (read only)."},
 			Secret:  &store.AskSecret{Source: source, Env: env, Crew: "yardmaster"}})
 	}
-	_, err = st.GiveSecret(ctx, crm.ID, own("The token it reads with", "crm", "CRM_TOKEN"), map[string]string{"CRM_TOKEN": "typed-in-the-fixture"}, "jo")
+	_, err = st.GiveSecret(ctx, crm.ID, own("The token it reads with", "crm", "CRM_TOKEN"), map[string]string{"CRM_TOKEN": "typed-in-the-fixture"}, "jo", true)
 	must(err)
 	apiSecretAsks[4] = own("The token it updates with", "crm", "CRM_UPDATE_TOKEN")
 
@@ -1195,7 +1200,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"Create one at https://" + source + ".example.com/account/api (read only)."},
 			Secret:  &store.AskSecret{Source: source, Env: env, As: "jo"}})
 	}
-	_, err = st.GiveSecret(ctx, crm.ID, theirs("Your CRM token for updates", "crm", "CRM_UPDATE_TOKEN"), map[string]string{"CRM_UPDATE_TOKEN": "typed-in-the-fixture"}, "jo")
+	_, err = st.GiveSecret(ctx, crm.ID, theirs("Your CRM token for updates", "crm", "CRM_UPDATE_TOKEN"), map[string]string{"CRM_UPDATE_TOKEN": "typed-in-the-fixture"}, "jo", true)
 	must(err)
 	apiSecretAsks[5] = theirs("Your CRM token", "crm", "CRM_TOKEN")
 
@@ -1208,7 +1213,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n", "jo")
 	must(err)
 	secret("The yard's account for gog", "gog", "GOG_ACCOUNT")
-	_, err = st.GiveSecret(ctx, crm.ID, secret("The yard's other account for gog", "gog", "GOG_ACCOUNT"), map[string]string{"GOG_ACCOUNT": "typed-in-the-fixture"}, "jo")
+	_, err = st.GiveSecret(ctx, crm.ID, secret("The yard's other account for gog", "gog", "GOG_ACCOUNT"), map[string]string{"GOG_ACCOUNT": "typed-in-the-fixture"}, "jo", true)
 	must(err)
 
 	// The flows view: a depot with a store flow, routes and groups, holding
@@ -1376,7 +1381,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	}
 	apiSecretAsks[6] = harnessKey("The API key Claude Code will use")
 	_, err = st.GiveSecret(ctx, crm.ID, harnessKey("The API key Claude Code needs at first login"),
-		map[string]string{"ANTHROPIC_API_KEY": "typed-in-the-fixture"}, "jo")
+		map[string]string{"ANTHROPIC_API_KEY": "typed-in-the-fixture"}, "jo", true)
 	must(err)
 
 	// The operator's words to the agents, so that Settings has them to
@@ -1760,6 +1765,12 @@ func TestCallByName(t *testing.T) {
 		{"Users", `{"name":"jo"}`, `{"error":{"code":"error","message":"argument \"name\": Users has none of that name (it takes none)"}}`},
 		{"Sessions", `{"all":true}`, `{"error":{"code":"error","message":"arguments: Sessions takes them as a JSON array: only the calls docs/api.md names take them by name"}}`},
 		{"Sessions", `[true]`, `{"result":`},
+		// An argument a later build added is one a client of before leaves
+		// out, by position as by name: weighed is then false, which a
+		// routine card takes, and a weighty one refuses with its words.
+		{"ApproveAsk", fmt.Sprintf(`["yd-crm", %d, "jo"]`, apiRunAsk), `"message":"ask ` + strconv.FormatUint(apiRunAsk, 10) + ` is weighty (trust): approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate"`},
+		{"ApproveAsk", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"jo"}`, apiRunAsk), `is weighty (trust): approve it where its weight is shown`},
+		{"ApproveAsk", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"jo","weighed":"yes"}`, apiRunAsk), `argument \"weighed\": json: cannot unmarshal string into Go value of type bool`},
 	} {
 		if got := string(post(t, hc, c.method, c.body)); !strings.Contains(got, c.want) {
 			t.Errorf("%s %s = %s, want %s", c.method, c.body, got, c.want)

@@ -122,6 +122,31 @@ func TestUserApprovesARunAsk(t *testing.T) {
 	if set := eventsOfKind(t, y.st, "source_set"); len(set) != 1 {
 		t.Errorf("%d source_set events after the second approval", len(set))
 	}
+
+	// The ask above is routine and asked for no word. A weighty one is
+	// approved by a call that says its person saw the weight (weighed), as
+	// anywhere: without it the yard refuses in its words, the listener
+	// passes them on, and nothing changes; with it the same ask is approved.
+	weighty, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Add kim?", To: "jo", Context: []string{"kim joins on Monday."},
+		Run: &store.AskRun{Argv: []string{"user", "add", "kim"}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf(`ask %d is weighty (trust): approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate`, weighty)
+	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d}`, weighty)))
+	if !strings.Contains(w.Body.String(), want) {
+		t.Fatalf("a weighty approval without the word is answered %s, want %s", w.Body, want)
+	}
+	if _, err := y.st.GetUser(ctx, "kim"); err == nil {
+		t.Fatal("the refused approval added kim")
+	}
+	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"weighed":true}`, weighty)))
+	if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
+		t.Fatalf("a weighty approval with the word is answered %s", w.Body)
+	}
+	if _, err := y.st.GetUser(ctx, "kim"); err != nil {
+		t.Fatalf("the approval with the word did not add kim: %v", err)
+	}
 }
 
 // ApproveAsk is on the listener for a device of the yard's operator and for
@@ -165,7 +190,7 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		if evs := eventsOfKind(t, y.st, "subscribed"); len(evs) != 0 {
 			t.Errorf("%d subscribed events", len(evs))
 		}
-		if _, err := y.st.ApproveAsk(ctx, "yd-crm", own, "sam"); err != nil {
+		if _, err := y.st.ApproveAsk(ctx, "yd-crm", own, "sam", false); err != nil {
 			t.Errorf("sam's approval on the socket: %v", err)
 		}
 	})
@@ -214,7 +239,7 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		for body, want := range map[string]string{
 			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"sam"}`, y.run): `this device calls as jo: \"actor\" is jo or left out`,
 			fmt.Sprintf(`["yd-crm", %d, "jo"]`, y.run):                     "takes them as a JSON object, by name",
-			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"run":"x"}`, y.run):     "ApproveAsk has none of that name (it takes bead, ask, actor)",
+			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"run":"x"}`, y.run):     "ApproveAsk has none of that name (it takes bead, ask, actor, weighed)",
 		} {
 			if w := y.approve(onTheMachine, y.jo, strings.NewReader(body)); !strings.Contains(w.Body.String(), want) {
 				t.Errorf("%s is answered %s, want %s", body, w.Body, want)

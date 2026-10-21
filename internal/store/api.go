@@ -67,15 +67,15 @@ type API interface {
 	EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error)
 	Arrivals(ctx context.Context) (*eta.ArrivalBoard, error)
 	Flows(ctx context.Context) (*FlowsBoard, error)
-	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string) error
+	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error
 	TakeBackAsk(ctx context.Context, id string, ask uint64, reason, actor string) error
-	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error)
+	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string, weighed bool) (*SourceKeyed, error)
 	LoginWait(ctx context.Context, id string) (string, error)
 	LoginWaitReady(ctx context.Context, id string) error
-	ApproveAsk(ctx context.Context, id string, ask uint64, actor string) (*AskApproved, error)
-	ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string) (*AskSetupApproved, error)
+	ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool) (*AskApproved, error)
+	ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string, weighed bool) (*AskSetupApproved, error)
 
 	PutDepot(ctx context.Context, r Depot, actor string) error
 	Depots(ctx context.Context) ([]Depot, error)

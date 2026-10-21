@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -37,11 +38,27 @@ func secretYard(t *testing.T) (*store.Store, string, string) {
 	return st, b.ID, filepath.Join(filepath.Dir(path), "sources", "crm.env")
 }
 
-// answerFrom runs yardr bead answer with stdin as its standard input.
+// atTerminal makes a stand in for a person at a terminal: every card the
+// gate asks about is typed back its number, which is the first line of what
+// the command reads (typed). A routine card never reads it, and none of the
+// asks answered this way is read for anything else first.
+func atTerminal(a *app) {
+	a.inTerm = func(io.Reader) bool { return true }
+}
+
+// typed is what a person at a terminal enters for the ask seq before a
+// value: its number, and a line break.
+func typed(seq string) string { return seq + "\n" }
+
+// answerFrom runs yardr bead answer with stdin as its standard input, from
+// a terminal where a weighty card is typed back its number: args are the
+// bead and the ask, and the ask's number goes in front of stdin.
 func answerFrom(t *testing.T, a *app, stdin string, args ...string) (string, error) {
 	t.Helper()
+	atTerminal(a)
+	defer func() { a.inTerm = nil }()
 	c := a.beadCmd()
-	c.SetIn(strings.NewReader(stdin))
+	c.SetIn(strings.NewReader(typed(args[1]) + stdin))
 	return run(t, c, append([]string{"answer"}, args...)...)
 }
 
@@ -156,6 +173,31 @@ func TestBeadAskAndAnswerASecret(t *testing.T) {
 	}
 	if _, err := os.Lstat(file); !os.IsNotExist(err) {
 		t.Fatalf("a refused answer wrote the file: %v", err)
+	}
+
+	// Every secret ask is weighty (design yardr-ekmx 3.3). A command with
+	// no terminal declines it before it reads a value, whatever is on its
+	// input; at a terminal the ask's number is asked for first, and a
+	// number not typed back leaves the values unread and the file unwritten.
+	const lines = "CRM_TOKEN=s3cret-gated\n"
+	in := strings.NewReader(lines)
+	c := me.beadCmd()
+	c.SetIn(in)
+	wantNoTerminal := "ask 1 is weighty (credential), and a command with no terminal to type its number at cannot give it. " +
+		"Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer " + id + " 1 --secret"
+	if out, err := run(t, c, "answer", id, "1", "--secret"); err == nil || err.Error() != wantNoTerminal || in.Len() != len(lines) || out != "" {
+		t.Fatalf("a secret with no terminal = %q, %v (%d bytes of input left), want %q", out, err, in.Len(), wantNoTerminal)
+	}
+	in = strings.NewReader("2\n" + lines)
+	c = me.beadCmd()
+	c.SetIn(in)
+	atTerminal(me)
+	if out, err := run(t, c, "answer", id, "1", "--secret"); err == nil || !strings.Contains(err.Error(), "ask 1 is weighty (credential): its number was not typed back, so nothing was done") || in.Len() != len(lines) || out != "" {
+		t.Fatalf("a secret with the wrong number = %q, %v (%d bytes of input left)", out, err, in.Len())
+	}
+	me.inTerm = nil
+	if _, err := os.Lstat(file); !os.IsNotExist(err) {
+		t.Fatalf("a secret that was not gated wrote the file: %v", err)
 	}
 
 	out, err = answerFrom(t, me, "CRM_TOKEN=s3cret-read\n", id, "1", "--secret")

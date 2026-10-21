@@ -91,7 +91,7 @@ hook:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveAsk(ctx, b.ID, runSeq, "me"); err != nil {
+	if _, err := st.ApproveAsk(ctx, b.ID, runSeq, "me", true); err != nil {
 		t.Fatal(err)
 	}
 	if gotURL != "https://yard.example/hooks/bot" {

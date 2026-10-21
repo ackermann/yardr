@@ -159,7 +159,7 @@ calls:
 		t.Fatalf("host = %q", got)
 	}
 	const address = "https://hooks.example.com/hooks/catch/1/the-secret-path"
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": address}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": address}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestGiveSecretRefusesASourceCredentialThatIsNoAddress(t *testing.T) {
 		{"https://hooks.example.com/catch/" + secret + "?key=" + secret, "has a query or a fragment"},
 		{"http://hooks.example.com/catch/" + secret, "is plain http to a machine that is not this one"},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "mckean")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "mckean", true)
 		if err == nil || !strings.Contains(err.Error(), "source hook: the value of HOOK_URL "+tc.want) {
 			t.Errorf("%q: err = %v, want the fault named", tc.value, err)
 			continue
@@ -204,7 +204,7 @@ func TestGiveSecretRefusesASourceCredentialThatIsNoAddress(t *testing.T) {
 	if _, err := os.Lstat(file); !os.IsNotExist(err) {
 		t.Fatalf("a refused giving wrote the file: %v", err)
 	}
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +410,7 @@ func TestGiveSecret(t *testing.T) {
 	y, file := secretYard(t)
 	seq := y.ask(t, secretAsk("crm"), "yardmaster")
 	const value = "s3cret-0f-the-yard"
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestGiveSecret(t *testing.T) {
 	}
 
 	// Giving again replaces, and is a note more.
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "typed-again"}, "mckean"); err != nil {
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "typed-again"}, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN=typed-again\n" {
@@ -534,7 +534,7 @@ func TestGiveSecretTakesExactlyTheNamesAsked(t *testing.T) {
 		{one, map[string]string{"PAIR_TOKEN": ""}, "empty"},
 		{one, map[string]string{"PAIR_TOKEN": value + "\nMORE=1"}, "line break"},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, c.ask, c.values, "mckean")
+		_, err := y.GiveSecret(y.ctx, y.bead, c.ask, c.values, "mckean", true)
 		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), value) {
 			t.Errorf("%v: err = %v, want %q and no value", c.values, err, c.want)
 		}
@@ -545,7 +545,7 @@ func TestGiveSecretTakesExactlyTheNamesAsked(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(y.home, "sources")); !os.IsNotExist(err) {
 		t.Fatalf("refused givings wrote a file: %v", err)
 	}
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PAIR_TOKEN": value, "PAIR_UPDATE_TOKEN": "another"}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"PAIR_TOKEN": value, "PAIR_UPDATE_TOKEN": "another"}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +582,7 @@ func TestGiveSecretRefusals(t *testing.T) {
 		{"not the operator", y.bead, seq, "ada", "is the operator's (mckean)"},
 		{"a crew member", y.bead, seq, "yardmaster", "yardmaster is a crew member"},
 	} {
-		_, err := y.GiveSecret(y.ctx, c.bead, c.ask, values, c.actor)
+		_, err := y.GiveSecret(y.ctx, c.bead, c.ask, values, c.actor, true)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
@@ -596,12 +596,12 @@ func TestGiveSecretRefusals(t *testing.T) {
 
 	// Put aside, it still takes the secret; declined, it does not.
 	y.answer(t, Answer{Ask: seq, Later: true}, "mckean")
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, values, "mckean"); err != nil {
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, values, "mckean", true); err != nil {
 		t.Fatalf("giving to an ask put aside: %v", err)
 	}
 	declined := y.ask(t, secretAsk("crm"), "yardmaster")
 	y.answer(t, Answer{Ask: declined, Decline: true}, "mckean")
-	if _, err := y.GiveSecret(y.ctx, y.bead, declined, values, "mckean"); err == nil || !strings.Contains(err.Error(), "was declined: mckean declined to give it") {
+	if _, err := y.GiveSecret(y.ctx, y.bead, declined, values, "mckean", true); err == nil || !strings.Contains(err.Error(), "was declined: mckean declined to give it") {
 		t.Fatalf("giving to a declined ask: %v", err)
 	}
 	for _, r := range y.resolved(t) {
@@ -626,9 +626,9 @@ func TestSecretAskTakesNoWords(t *testing.T) {
 		do   func() error
 		want string
 	}{
-		{"words", func() error { return y.AnswerAsk(y.ctx, y.bead, seq, 0, typed, "mckean") }, takes},
-		{"a pick", func() error { return y.AnswerAsk(y.ctx, y.bead, seq, 1, "", "mckean") }, takes},
-		{"a pick with words", func() error { return y.AnswerAsk(y.ctx, y.bead, seq, 1, typed, "mckean") }, takes},
+		{"words", func() error { return y.AnswerAsk(y.ctx, y.bead, seq, 0, typed, "mckean", false) }, takes},
+		{"a pick", func() error { return y.AnswerAsk(y.ctx, y.bead, seq, 1, "", "mckean", false) }, takes},
+		{"a pick with words", func() error { return y.AnswerAsk(y.ctx, y.bead, seq, 1, typed, "mckean", false) }, takes},
 		{"a decline with words", func() error { return y.DeclineAsk(y.ctx, y.bead, seq, typed, "mckean") }, "declining it takes no words"},
 		{"a forged giving", func() error {
 			return y.AddAnswer(y.ctx, y.bead, Answer{Ask: seq, Given: []string{"CRM_TOKEN"}}, "mckean")
@@ -671,7 +671,7 @@ func TestGiveSecretNotRecorded(t *testing.T) {
 	afterKeyRename = func() error { return full }
 	t.Cleanup(func() { afterKeyRename = nil })
 
-	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean")
+	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", true)
 	var half *KeyNotRecorded
 	if !errors.As(err, &half) || !errors.Is(err, full) {
 		t.Fatalf("err = %v, want a KeyNotRecorded around the store's error", err)
@@ -696,7 +696,7 @@ func TestGiveSecretNotRecorded(t *testing.T) {
 	}
 
 	afterKeyRename = nil
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean"); err != nil {
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	if r := y.resolved(t)[0]; r.State != AskAnswered || len(r.Answers) != 1 {
@@ -721,7 +721,7 @@ func TestGiveSecretRefusesASourceThatMoved(t *testing.T) {
 	if _, err := y.PutSource(y.ctx, "crm.yaml", moved, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean")
+	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "https://crm.example.com, and the source's calls go to https://elsewhere.example.net now") {
 		t.Fatalf("err = %v", err)
 	}
@@ -733,7 +733,7 @@ func TestGiveSecretRefusesASourceThatMoved(t *testing.T) {
 	if _, err := y.PutSource(y.ctx, "crm.yaml", strings.Replace(moved, "/api", "/api/v2", 1), "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean"); err != nil {
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -749,7 +749,7 @@ func TestGiveSecretRunTwice(t *testing.T) {
 	var k sourceKey
 	var lg loginSent
 	give := func(w *wtx) error {
-		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", &k, &lg)
+		return w.giveSecret(y.ctx, y.Store, y.home, y.bead, seq, map[string]string{"CRM_TOKEN": "s3cret"}, "mckean", true, &k, &lg)
 	}
 	others := errors.New("another caller's function failed")
 	err := y.db.Update(func(tx *bolt.Tx) error {

@@ -45,6 +45,11 @@ type app struct {
 	// shows a person and keeps out of a log (the token URL of yardr web
 	// serve); tests hand their own. Nil means the real check (isTerminal).
 	isTerm func(w io.Writer) bool
+	// inTerm tells whether the standard input a command reads is a
+	// terminal with a person at it, for the gate in front of a weighty
+	// approval (atTerminal); tests hand their own, since none has a
+	// terminal to give. Nil means the real check.
+	inTerm func(in io.Reader) bool
 	actor  string
 	// actingAs is the actor resolved once by PersistentPreRunE, so a later
 	// lookup cannot time out and silently change this run's attribution.

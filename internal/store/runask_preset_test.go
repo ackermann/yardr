@@ -77,7 +77,7 @@ func TestRunAskPresetGrant(t *testing.T) {
 	}
 
 	writes := y.writes(t)
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
 	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
 		t.Fatalf("approving after read landed = %+v, %v", done, err)
 	}
@@ -170,7 +170,7 @@ func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
 		t.Fatalf("approving after read landed = %v", err)
 	}
 	if got, want := y.grants(t), []string{"crew member yardmaster: note,read"}; !slices.Equal(got, want) {
@@ -301,11 +301,11 @@ func TestRunAskPresetGrantAs(t *testing.T) {
 		!strings.Contains(err.Error(), "this command is ada's to approve alone, and nobody else's") {
 		t.Fatalf("asking the operator to a preset as grant = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
 		!strings.Contains(err.Error(), "approving this command is ada's alone") {
 		t.Fatalf("the operator approving a preset as grant = %v", err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", true)
 	if err != nil || done.Result != "crew member yardmaster as ada may call crm: note (update), read" {
 		t.Fatalf("ada's approval = %+v, %v", done, err)
 	}

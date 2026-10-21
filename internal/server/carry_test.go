@@ -76,7 +76,9 @@ func askApprove(t *testing.T, st *store.Store, bead string, ask store.Ask) uint6
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean"); err != nil {
+	// Whatever the ask is, the helper approves it as its person would
+	// after seeing its weight: a pack with command files is weighty.
+	if _, err := st.ApproveAsk(ctx, bead, seq, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	return seq

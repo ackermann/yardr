@@ -52,18 +52,18 @@ func TestAGivenValueIsInTheFileAlone(t *testing.T) {
 			}
 			return giving{
 				give: func(values map[string]string) (*store.SourceKeyed, error) {
-					return c.GiveSecret(ctx, b.ID, seq, values, "jo")
+					return c.GiveSecret(ctx, b.ID, seq, values, "jo", true)
 				},
 				refused: []func() error{
 					func() error { return c.call(ctx, "GiveSecret", nil, b.ID, seq, value, "jo") },
 					// What a client that does not know the field would
 					// send: the value as words, with a pick, and as the
 					// why of a decline.
-					func() error { return c.AnswerAsk(ctx, b.ID, seq, 0, value, "jo") },
-					func() error { return c.AnswerAsk(ctx, b.ID, seq, 1, value, "jo") },
+					func() error { return c.AnswerAsk(ctx, b.ID, seq, 0, value, "jo", false) },
+					func() error { return c.AnswerAsk(ctx, b.ID, seq, 1, value, "jo", false) },
 					func() error { return c.DeclineAsk(ctx, b.ID, seq, value, "jo") },
 					func() error {
-						return c.call(ctx, "GiveSecret", nil, map[string]any{"bead": b.ID, "ask": seq, "values": value, "actor": "jo"})
+						return c.call(ctx, "GiveSecret", nil, map[string]any{"bead": b.ID, "ask": seq, "values": value, "actor": "jo", "weighed": true})
 					},
 					// The value where the name of an argument goes.
 					func() error {

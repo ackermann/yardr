@@ -46,7 +46,7 @@ var Calls = map[string][]string{
 	"Bead":                 {"bead"},
 	"Arrivals":             {},
 	"Flows":                {},
-	"AnswerAsk":            {"bead", "ask", "option", "words", "actor"},
+	"AnswerAsk":            {"bead", "ask", "option", "words", "actor", "weighed"},
 	"DeferAsk":             {"bead", "ask", "actor"},
 	"DeclineAsk":           {"bead", "ask", "words", "actor"},
 	"TakeBackAsk":          {"bead", "ask", "reason", "actor"},
@@ -80,10 +80,17 @@ var Calls = map[string][]string{
 // the file a source's credential is read from, or the candidate taken
 // instead, or on an update nothing: the account that stands is kept. Like
 // ApproveAsk it is the operator's device's and no other's.
+//
+// Each of the three, and AnswerAsk for a pick on a mapping ask, takes the
+// argument weighed: the client's word that its person saw the weight of a
+// weighty card before approving it (design yardr-ekmx 3.3). The yard
+// refuses a weighty card without it and checks nothing more, so it is the
+// client's gate that stands behind the word. A client from before it leaves
+// it out, and a routine card asks for none.
 var OperatorCalls = map[string][]string{
-	"GiveSecret":   {"bead", "ask", "values", "actor"},
-	"ApproveAsk":   {"bead", "ask", "actor"},
-	"ApproveSetup": {"bead", "ask", "option", "values", "account", "actor"},
+	"GiveSecret":   {"bead", "ask", "values", "actor", "weighed"},
+	"ApproveAsk":   {"bead", "ask", "actor", "weighed"},
+	"ApproveSetup": {"bead", "ask", "option", "values", "account", "actor", "weighed"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of

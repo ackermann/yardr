@@ -134,7 +134,7 @@ func setupAsk() Ask {
 
 func (y *askYard) approveSetup(t *testing.T, seq uint64, option int, values map[string]string, actor string) *AskSetupApproved {
 	t.Helper()
-	done, err := y.ApproveSetup(y.ctx, y.bead, seq, option, values, "", actor)
+	done, err := y.ApproveSetup(y.ctx, y.bead, seq, option, values, "", actor, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -525,6 +525,28 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
+	// A setup takes the account, so its card is always weighty, and without
+	// the client's word that its person saw the weight (weighed) the
+	// approval is refused in the words of design yardr-ekmx 3.3: nothing is
+	// recorded or kept in memory, and the ask stays open for the approval
+	// below.
+	words := WeightWords(y.asked(t, seq).Ask.Weight)
+	if !strings.HasPrefix(words, "weighty (credential") {
+		t.Fatalf("a setup ask weighs %s", words)
+	}
+	want := "ask " + strconv.FormatUint(seq, 10) + " is " + words + `: approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 2, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", false); err == nil || err.Error() != want {
+		t.Fatalf("approving a setup without the word = %v, want %q", err, want)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+		t.Fatalf("a refused approval left a carrying record: %+v, %v", rec, err)
+	}
+	if _, ok := y.takeSetupSecret(carryKey(y.bead, seq)); ok {
+		t.Fatal("a refused approval kept the values in memory")
+	}
+	if got := y.asked(t, seq); got.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusal, want it open", got.State)
+	}
 	done := y.approveSetup(t, seq, 2, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "mckean")
 	if done.Pack != "setupmail" || done.Preset != "drafts" || done.Result != CarryPending {
 		t.Fatalf("the approval recorded %+v", done)
@@ -578,7 +600,7 @@ func TestSetupApprovalRejectsInvalidAccountValues(t *testing.T) {
 			y.setSetupPack(setupMailPack())
 			seq := y.ask(t, setupAsk(), "yardmaster")
 			_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1,
-				map[string]string{"SETUP_ACCOUNT": tc.value}, "", "mckean")
+				map[string]string{"SETUP_ACCOUNT": tc.value}, "", "mckean", true)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("invalid account value was approved or refused otherwise: %v", err)
 			}
@@ -604,7 +626,7 @@ func TestSetupSecondApprovalRefused(t *testing.T) {
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
 	y.approveSetup(t, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "mckean")
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "was approved already, by mckean: a setup runs once for one ask") {
 		t.Errorf("a second approval was recorded or refused otherwise: %v", err)
 	}
@@ -625,7 +647,7 @@ func TestSetupYouDecideGrantsRecommended(t *testing.T) {
 	ask = setupAsk()
 	ask.Recommend, ask.Why = 0, ""
 	seq = y.ask(t, ask, "yardmaster")
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 3, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 3, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "You decide grants the recommended preset, and none is recommended: pick a preset, or decline it") {
 		t.Errorf("You decide with no recommendation was recorded or refused otherwise: %v", err)
 	}
@@ -639,7 +661,7 @@ func TestSetupStaleBuild(t *testing.T) {
 	y.setSetupPack(f)
 	seq := y.ask(t, setupAsk(), "yardmaster")
 	f.label = "embedded in yardr test2"
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "unchanged file for file") || !strings.Contains(err.Error(), "embedded in yardr test2") {
 		t.Errorf("an approval past a rebuild was recorded or refused otherwise: %v", err)
 	}
@@ -652,7 +674,7 @@ func TestSetupStaleBytes(t *testing.T) {
 	y.setSetupPack(f)
 	seq := y.ask(t, setupAsk(), "yardmaster")
 	f.sources[0].text = strings.Replace(setupDecl, "search: { kind: read", "search: { kind: read", 1) + "# a comment line\n"
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "whose pack differs") {
 		t.Errorf("an approval past changed bytes was recorded or refused otherwise: %v", err)
 	}
@@ -665,7 +687,7 @@ func TestSetupStalePresets(t *testing.T) {
 	y.setSetupPack(f)
 	seq := y.ask(t, setupAsk(), "yardmaster")
 	f.presets = append(f.presets, AskPreset{Name: "everything", Grants: []AskPresetGrant{{Source: "setupmail", Calls: []string{"read", "draft"}}}})
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "whose presets differ") {
 		t.Errorf("an approval past changed presets was recorded or refused otherwise: %v", err)
 	}
@@ -682,7 +704,7 @@ func TestSetupStaleSourceAdded(t *testing.T) {
 	if _, err := y.PutSource(y.ctx, "setupstatic.yaml", setupStaticDecl, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"STATIC_TOKEN": "tok"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"STATIC_TOKEN": "tok"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "was not in the yard: it was added since") {
 		t.Errorf("an approval past an added source was recorded or refused otherwise: %v", err)
 	}
@@ -700,7 +722,7 @@ func TestSetupStaleSourceChanged(t *testing.T) {
 	if _, err := y.SetSource(y.ctx, "setupmail", SourceEnvFile, filepath.Join(y.home, "sources", "shared.env"), "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "its env_file was set since") {
 		t.Errorf("an approval past a source setting change was recorded or refused otherwise: %v", err)
 	}
@@ -718,7 +740,7 @@ func TestSetupStaleInventory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "stale-copy"), []byte("# left behind\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "copies stood as carded: the command copy stale-copy was added since") {
 		t.Errorf("an approval past a moved copy was recorded or refused otherwise: %v", err)
 	}
@@ -737,7 +759,7 @@ func TestSetupStaleOwed(t *testing.T) {
 	if err := os.WriteFile(file, []byte("SETUP_ACCOUNT=ops@example.com\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "was still owed: it was given since") {
 		t.Errorf("an approval past a given account was recorded or refused otherwise: %v", err)
 	}
@@ -745,7 +767,7 @@ func TestSetupStaleOwed(t *testing.T) {
 	if err := os.WriteFile(file, []byte("# nothing set\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err = y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "was given: its file no longer holds SETUP_ACCOUNT") {
 		t.Errorf("an approval past an ungiven account was recorded or refused otherwise: %v", err)
 	}
@@ -759,7 +781,7 @@ func TestSetupStaleGrantee(t *testing.T) {
 	if _, err := y.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr", Dir: t.TempDir()}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "crew member yardmaster was another") {
 		t.Errorf("an approval past a moved grantee was recorded or refused otherwise: %v", err)
 	}
@@ -802,7 +824,7 @@ func TestSetupHeldAlreadyRefusesApproval(t *testing.T) {
 	if _, err := y.GrantSource(y.ctx, "setupstatic", "poke", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"STATIC_TOKEN": "tok"}, "", "mckean")
+	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"STATIC_TOKEN": "tok"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "would grant the preset all of pack setupmail to crew yardmaster, and it is held already") {
 		t.Errorf("an approval of a held preset was recorded or refused otherwise: %v", err)
 	}
@@ -828,7 +850,7 @@ func TestSetupPlainAnswerShapes(t *testing.T) {
 		t.Errorf("a wordless decline was recorded or refused otherwise: %v", err)
 	}
 	y.answer(t, Answer{Ask: seq, Decline: true, Words: "not now"}, "mckean")
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "was declined") {
 		t.Errorf("an approval of a declined setup was recorded or refused otherwise: %v", err)
 	}
@@ -841,23 +863,23 @@ func TestSetupApprovalRefusals(t *testing.T) {
 	y, _ := runYard(t)
 	y.setSetupPack(setupMailPack())
 	seq := y.ask(t, setupAsk(), "yardmaster")
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "ada"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "ada", true); err == nil ||
 		!strings.Contains(err.Error(), "approving a command is the operator's") {
 		t.Errorf("an approval by ada was recorded or refused otherwise: %v", err)
 	}
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 9, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 9, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "has options 1..3") {
 		t.Errorf("an approval past the options was recorded or refused otherwise: %v", err)
 	}
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com", "EXTRA": "x"}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com", "EXTRA": "x"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "given a name it did not ask for") {
 		t.Errorf("an approval with a forged name was recorded or refused otherwise: %v", err)
 	}
-	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "SETUP_ACCOUNT was not given") {
 		t.Errorf("an approval with no value was recorded or refused otherwise: %v", err)
 	}
-	if _, err := y.ApproveSetup(y.ctx, y.bead+"@airy", seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean"); err == nil ||
+	if _, err := y.ApproveSetup(y.ctx, y.bead+"@airy", seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "never over a link") {
 		t.Errorf("an approval over a link was recorded or refused otherwise: %v", err)
 	}

@@ -445,10 +445,10 @@ func TestAskAnswerRoutedToAsker(t *testing.T) {
 	if got[halSeq] != "hal" || got[lineSeq] != "" {
 		t.Errorf("ask sessions = %v, want hal's tagged and the line's not", got)
 	}
-	if err := s.AnswerAsk(ctx, b.ID, halSeq, 0, "this one", "hal"); err != nil {
+	if err := s.AnswerAsk(ctx, b.ID, halSeq, 0, "this one", "hal", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AnswerAsk(ctx, b.ID, lineSeq, 0, "that one", "jo"); err != nil {
+	if err := s.AnswerAsk(ctx, b.ID, lineSeq, 0, "that one", "jo", false); err != nil {
 		t.Fatal(err)
 	}
 	hal, err := s.InboxFor(ctx, "yardmaster", "hal", 10)

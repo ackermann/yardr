@@ -127,7 +127,7 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	seq := y.ask(t, harnessKeyAsk("claude", "yardmaster", "mckean"), "yardmaster")
 	const value = "sk-ant-s3cret"
 	const next = "every Claude Code session that burns mckean's login reads it from its next start"
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestGiveSecretGivesAHarnessKey(t *testing.T) {
 	}
 
 	// Giving again replaces.
-	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": "typed-again"}, "mckean")
+	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": "typed-again"}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestGiveSecretRefusesAHarnessKey(t *testing.T) {
 		"yardmaster": "only the operator (mckean) may give a harness API key; this is yardmaster",
 		"":           "this is nobody",
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, actor)
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, actor, true)
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), value) {
 			t.Errorf("as %q: err = %v, want %q", actor, err, want)
 		}
@@ -243,7 +243,7 @@ func TestGiveSecretRefusesAHarnessKey(t *testing.T) {
 		{"ANTHROPIC_API_KEY": value, "MORE": "1"},
 		{},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "mckean")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "mckean", true)
 		if err == nil || strings.Contains(err.Error(), value) {
 			t.Errorf("%d names: err = %v", len(values), err)
 		}
@@ -261,7 +261,7 @@ func TestGiveSecretRefusesAHarnessKey(t *testing.T) {
 	if err := y.DeleteCrew(y.ctx, "yardmaster", "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"ANTHROPIC_API_KEY": value}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "crew member yardmaster: not found") || strings.Contains(err.Error(), value) {
 		t.Fatalf("after the crew member went: %v", err)
 	}

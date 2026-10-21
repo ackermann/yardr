@@ -537,7 +537,7 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	if pick == 0 {
 		t.Fatalf("the card offers %v, want ada among them", view.Asks[0].Options)
 	}
-	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "op"); err != nil {
+	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "op", true); err != nil {
 		t.Fatal(err)
 	}
 	u, err := r.st.GetUser(ctx, "ada")
@@ -610,7 +610,7 @@ func nobodyPick(t *testing.T, r *depot, sender string) {
 	if pick == 0 {
 		t.Fatalf("the card offers %v, want the nobody pick among them", view.Asks[0].Options)
 	}
-	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "op"); err != nil {
+	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, "", "op", false); err != nil {
 		t.Fatal(err)
 	}
 }

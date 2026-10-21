@@ -298,7 +298,7 @@ func TestPushTellsOfAnAsk(t *testing.T) {
 
 	// Answered within the 20 seconds: not told.
 	seq := ask("And the rest?")
-	must(t, y.api.AnswerAsk(ctx, b.ID, seq, 1, "", "ada"))
+	must(t, y.api.AnswerAsk(ctx, b.ID, seq, 1, "", "ada", false))
 	y.pass(t, time.Hour)
 	want(t, "told of an ask that was answered", len(y.sent()), 1)
 	want(t, "left in the queue", len(y.queued(t)), 0)

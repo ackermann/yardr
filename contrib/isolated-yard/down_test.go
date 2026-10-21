@@ -13,6 +13,12 @@
 package isolatedyard
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,6 +114,46 @@ func in(t *testing.T, d string, args ...string) string {
 		t.Fatalf("%s/e %s: %v\n%s", d, strings.Join(args, " "), err, out)
 	}
 	return string(out)
+}
+
+// approve approves the ask seq on bead as the operator mckean, through the
+// yard's socket, and returns what the yard ran printed: the line of its
+// result, or the words of its refusal with the error. It says that its
+// person saw the card's weight (weighed): yardr bead answer asks a weighty
+// card for its number at a terminal and declines without one, and these
+// yards have no terminal to give, so the approval is made as a client with
+// a gate of its own would make it. The tests that use it are about what the
+// yard does once a card is approved, not about how it is approved.
+func approve(d, bead string, seq int) (string, error) {
+	hc := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(d, "y", "yard.sock"))
+	}}}
+	defer hc.CloseIdleConnections()
+	body := fmt.Sprintf(`{"bead":%q,"ask":%d,"actor":"mckean","weighed":true}`, bead, seq)
+	resp, err := hc.Post("http://yard/call/ApproveAsk", "application/json", strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var reply struct {
+		Result struct {
+			Result string `json:"result"`
+		} `json:"result"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &reply); err != nil {
+		return string(raw), err
+	}
+	if reply.Error != nil {
+		return reply.Error.Message, fmt.Errorf("approving ask %d of %s: %s", seq, bead, reply.Error.Message)
+	}
+	return reply.Result.Result, nil
 }
 
 // pidIn reads the pid a server or daemon left in file, waiting for it.

@@ -629,10 +629,16 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 // device of the operator, or of the user whose own address or credential
 // is asked for (rpc.OperatorCalls): the note and the events of such a
 // giving say how it came, as a device's other writes do (writeVia).
-func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*SourceKeyed, error) {
+//
+// Every secret ask is weighty (weight.go: it gives the yard a credential),
+// so a giving is made only by a call that says its person saw the weight
+// first (weighed). Without it the giving is refused before anything is
+// written (weighedRefusal): no file, no note, and the ask stays open. The
+// yard checks what the client says and no more.
+func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string, weighed bool) (*SourceKeyed, error) {
 	var k sourceKey
 	var lg loginSent
-	err := s.writeVia(ctx, func(w *wtx) error { return w.giveSecret(ctx, s, s.home, id, ask, values, actor, &k, &lg) })
+	err := s.writeVia(ctx, func(w *wtx) error { return w.giveSecret(ctx, s, s.home, id, ask, values, actor, weighed, &k, &lg) })
 	if err != nil {
 		return nil, k.failed(err)
 	}
@@ -648,7 +654,7 @@ func (s *Store) GiveSecret(ctx context.Context, id string, ask uint64, values ma
 // the note of the run that is rolled back goes with it, and the second run
 // finds the file's lines and writes the same content. A login's handing
 // runs once: the second run finds lg set and writes the note only.
-func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uint64, values map[string]string, actor string, k *sourceKey, lg *loginSent) error {
+func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uint64, values map[string]string, actor string, weighed bool, k *sourceKey, lg *loginSent) error {
 	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return err
@@ -687,8 +693,13 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 		return err
 	}
 	// Weighed again, as an approval weighs every card: an ask written
-	// before secrets were weighed showed none, and is given no more.
-	if err := weightStale(ask, storedWeight(notes, ask), secretWeight(*sec)); err != nil {
+	// before secrets were weighed showed none, and is given no more. It
+	// is weighty, so it is given by a client that says its person saw it.
+	weight := secretWeight(*sec)
+	if err := weightStale(ask, storedWeight(notes, ask), weight); err != nil {
+		return err
+	}
+	if err := weighedRefusal(ask, weight, weighed); err != nil {
 		return err
 	}
 	if sec.Harness != "" {

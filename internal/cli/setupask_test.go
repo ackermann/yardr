@@ -92,6 +92,39 @@ func TestBeadAskSetupAndAnswer(t *testing.T) {
 	if setup == nil || len(setup.Presets) != 2 || len(setup.Account) != 1 || setup.Account[0] != "CLIPHONE_ACCOUNT" {
 		t.Fatalf("the stored setup = %+v", setup)
 	}
+	// A setup takes the account, so its card is weighty (design yardr-ekmx
+	// 3.3): with no terminal each way of approving it declines before it
+	// reads a value, whatever is on its input, and names where to approve
+	// it; and at a terminal it asks for the ask's number first.
+	for _, tc := range []struct {
+		args  []string
+		again string
+	}{
+		{[]string{b.ID, "1", "1", "--secret"}, "1 --secret"},
+		{[]string{b.ID, "1", "1", "--account", "other"}, "1 --account other"},
+	} {
+		in := strings.NewReader("CLIPHONE_ACCOUNT=1555\n")
+		c := y.a.beadCmd()
+		c.SetIn(in)
+		_, err := run(t, c, append([]string{"answer"}, tc.args...)...)
+		if err == nil || !strings.HasPrefix(err.Error(), "ask 1 is weighty (credential") ||
+			!strings.HasSuffix(err.Error(), "cannot approve it. Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer "+b.ID+" 1 "+tc.again) ||
+			in.Len() != len("CLIPHONE_ACCOUNT=1555\n") {
+			t.Fatalf("approving a setup with no terminal (%v) = %v (%d bytes of input left)", tc.args, err, in.Len())
+		}
+	}
+	in := strings.NewReader("9\nCLIPHONE_ACCOUNT=1555\n")
+	c := y.a.beadCmd()
+	c.SetIn(in)
+	atTerminal(y.a)
+	if _, err := run(t, c, "answer", b.ID, "1", "1", "--secret"); err == nil || !strings.Contains(err.Error(), "its number was not typed back, so nothing was done") ||
+		in.Len() != len("CLIPHONE_ACCOUNT=1555\n") {
+		t.Fatalf("approving a setup with the wrong number = %v (%d bytes of input left)", err, in.Len())
+	}
+	y.a.inTerm = nil
+	if got := askState(context.Background(), y.st, b.ID, 1); got != "open" {
+		t.Fatalf("the setup ask is %q after the declined approvals, want it open", got)
+	}
 	out, err = answerFrom(t, y.a, "CLIPHONE_ACCOUNT=1555\n", b.ID, "1", "1", "--secret")
 	if err != nil {
 		t.Fatal(err)

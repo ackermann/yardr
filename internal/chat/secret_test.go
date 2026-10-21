@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -130,17 +131,19 @@ func secretAsk(t *testing.T, st store.API, bead, source string) uint64 {
 }
 
 // gives is a store whose GiveSecret is the test's: it counts the calls,
-// keeps what the last was given, and answers with fail.
+// keeps what the last was given and whether it came with its person's word
+// that they saw the card's weight, and answers with fail.
 type gives struct {
 	store.API
-	calls int
-	got   map[string]string
-	fail  func(values map[string]string) error
+	calls   int
+	got     map[string]string
+	weighed bool
+	fail    func(values map[string]string) error
 }
 
-func (g *gives) GiveSecret(_ context.Context, _ string, _ uint64, values map[string]string, _ string) (*store.SourceKeyed, error) {
+func (g *gives) GiveSecret(_ context.Context, _ string, _ uint64, values map[string]string, _ string, weighed bool) (*store.SourceKeyed, error) {
 	g.calls++
-	g.got = values
+	g.got, g.weighed = values, weighed
 	return nil, g.fail(values)
 }
 
@@ -171,6 +174,16 @@ func (f *frames) lack(what ...string) {
 			}
 		}
 	}
+}
+
+// opens is ctrl+o on the secret ask seq, and the gate its card has, since a
+// secret ask is weighty: the ask's number typed back, after which the field
+// takes the value.
+func (f *frames) opens(seq uint64) {
+	f.v.t.Helper()
+	f.send(ctrlO())
+	f.send(runes(strconv.FormatUint(seq, 10)))
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 }
 
 func ctrlO() tea.Msg         { return tea.KeyMsg{Type: tea.KeyCtrlO} }
@@ -256,9 +269,18 @@ func TestTypedSecretIsInNoFrame(t *testing.T) {
 			t.Fatalf("the view has %q before anything is typed", r)
 		}
 	}
+	// The card is weighty, so the field asks for its number first, in the
+	// clear, and the legend and the rule say so.
 	f.send(ctrlO())
+	v.shows(fmt.Sprintf("type %d to give it, the card is weighty", seq), "enter goes on to the value · esc leaves, and nothing is sent",
+		"enter go on to the value  esc leave, nothing is sent  ^c quit", "a weighty card: its number shows as you type it")
+	v.hides("a secret: what you type is not shown")
+	f.send(runes(strconv.FormatUint(seq, 10)))
+	v.shows(fmt.Sprintf("type %d to give it, the card is weighty  %d", seq, seq))
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 	v.shows("CRM_TOKEN for crm", "enter sends it to the yard · esc leaves, and nothing is sent",
-		"enter send it to the yard  esc leave, nothing is sent  ^c quit")
+		"enter send it to the yard  esc leave, nothing is sent  ^c quit", "a secret: what you type is not shown")
+	v.hides("a weighty card")
 	v.fits(120, 40)
 	for i, r := range []rune(odd) {
 		f.send(runes(string(r)))
@@ -288,7 +310,7 @@ func TestTypedSecretIsInNoFrame(t *testing.T) {
 
 	// Pasted, with the line break it was copied with, and sent.
 	const value = "sk-live-4f9a0c17e2b84d6f"
-	f.send(ctrlO())
+	f.opens(seq)
 	f.send(pasted(value + "\n"))
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 	if v.m.secret != nil || v.m.input.Value() != "" {
@@ -310,7 +332,7 @@ func TestTypedSecretIsInNoFrame(t *testing.T) {
 	// Given again, which replaces: the card of an answered ask still
 	// names the key.
 	const second = "sk-live-0000second"
-	f.send(ctrlO())
+	f.opens(seq)
 	f.send(runes(second))
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 	if text, _ := os.ReadFile(src.EnvFile); string(text) != "CRM_TOKEN="+second+"\n" {
@@ -324,14 +346,72 @@ func TestTypedSecretIsInNoFrame(t *testing.T) {
 	f.lack(what...)
 }
 
+// A secret ask is weighty, so the field asks for its number before a value,
+// and the yard is told that its person saw the weight (weighed) only when
+// the number was typed back: another number closes the field with nothing
+// sent and the yard not called, and a card that carries no weight (one from
+// before cards were weighed) goes straight to the value with no word, for
+// the yard to refuse as stale.
+func TestSecretGateIsTheNumberTypedBack(t *testing.T) {
+	st, bead := secretYard(t)
+	seq := secretAsk(t, st, bead, "crm")
+	g := &gives{API: st, fail: func(map[string]string) error { return errors.New("stopped here") }}
+	v := withAsks(t, g, "chief", 120, 40)
+	f := &frames{v: v}
+	number := strconv.FormatUint(seq, 10)
+	const value = "sk-live-gated-31"
+
+	// Nothing typed stays at the gate; another number leaves, sending nothing.
+	f.send(ctrlO())
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
+	v.shows("nothing typed: esc leaves, and nothing is sent", "type "+number+" to give it")
+	f.send(runes("9" + number))
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
+	v.shows(number + " was not typed back: nothing was sent")
+	if v.m.secret != nil || g.calls != 0 {
+		t.Fatalf("after another number the field is %v and the yard was called %d times", v.m.secret, g.calls)
+	}
+
+	// The number typed back, then the value, which goes with the word.
+	f.opens(seq)
+	f.send(runes(value))
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
+	if g.calls != 1 || g.got["CRM_TOKEN"] != value || !g.weighed {
+		t.Fatalf("the yard was called %d times, with %v and weighed %v", g.calls, g.got, g.weighed)
+	}
+	f.lack(value)
+
+	// A card with no weight on it has no gate, and sends no word.
+	v = open(t, g, "chief", 120, 40, func(o *Options) {
+		o.Asks = func(ctx context.Context) ([]store.ResolvedAsk, error) {
+			rs, err := AsksFor(ctx, st, me)
+			for i := range rs {
+				rs[i].Ask.Weight = nil
+			}
+			return rs, err
+		}
+	})
+	v.do(v.m.loadAsks())
+	f = &frames{v: v}
+	f.send(ctrlO())
+	v.shows("CRM_TOKEN for crm")
+	v.hides("the card is weighty")
+	f.send(runes(value))
+	f.send(tea.KeyMsg{Type: tea.KeyEnter})
+	if g.calls != 2 || g.weighed {
+		t.Fatalf("the yard was called %d times, weighed %v, want 2 and no word", g.calls, g.weighed)
+	}
+	f.lack(value)
+}
+
 // An ask for two names asks for one after the other and sends them
 // together; an empty one is not sent.
 func TestSecretOfTwoNames(t *testing.T) {
 	st, bead := secretYard(t)
-	secretAsk(t, st, bead, "pair")
+	seq := secretAsk(t, st, bead, "pair")
 	v := withAsks(t, st, "chief", 120, 40)
 	f := &frames{v: v}
-	f.send(ctrlO())
+	f.opens(seq)
 	v.shows("PAIR_TOKEN (1 of 2) for pair")
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 	v.shows("nothing typed", "PAIR_TOKEN (1 of 2) for pair")
@@ -371,11 +451,11 @@ calls:
 	if _, err := st.PutSource(context.Background(), "gog.yaml", gogFile, me); err != nil {
 		t.Fatal(err)
 	}
-	secretAsk(t, st, bead, "gog")
+	seq := secretAsk(t, st, bead, "gog")
 	v := withAsks(t, st, "chief", 120, 40)
 	f := &frames{v: v}
 	const value = "op@gog.example.com"
-	f.send(ctrlO())
+	f.opens(seq)
 	v.shows("GOG_ACCOUNT for gog")
 	f.send(runes(value))
 	if !strings.Contains(v.screen(), "GOG_ACCOUNT for gog  "+value) {
@@ -402,7 +482,7 @@ func TestSecretRefusedIsShownWithoutTheValue(t *testing.T) {
 	v := withAsks(t, st, "chief", 120, 40)
 	f := &frames{v: v}
 	const value = "sk-live-refused-91"
-	f.send(ctrlO())
+	f.opens(seq)
 	f.send(runes(value))
 	// Declined from a terminal while the field was open.
 	must(t, st.AddAnswer(ctx, bead, store.Answer{Ask: seq, Decline: true}, me))
@@ -423,7 +503,7 @@ func TestSecretRefusedIsShownWithoutTheValue(t *testing.T) {
 	seq2 := secretAsk(t, st, bead, "crm")
 	v = withAsks(t, g, "chief", 120, 40)
 	f = &frames{v: v}
-	f.send(ctrlO())
+	f.opens(seq2)
 	v.shows("CRM_TOKEN for crm")
 	f.send(runes(value))
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})
@@ -440,14 +520,14 @@ func TestSecretRefusedIsShownWithoutTheValue(t *testing.T) {
 // a terminal narrower than they are.
 func TestSecretWithoutAnAnswer(t *testing.T) {
 	st, bead := secretYard(t)
-	secretAsk(t, st, bead, "crm")
+	seq := secretAsk(t, st, bead, "crm")
 	g := &gives{API: st, fail: func(map[string]string) error {
 		return fmt.Errorf("yardr server: unexpected EOF: %w", store.ErrNoAnswer)
 	}}
 	v := withAsks(t, g, "chief", 80, 30)
 	f := &frames{v: v}
 	const value = "sk-live-lost-55"
-	f.send(ctrlO())
+	f.opens(seq)
 	f.send(runes(value))
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 	v.shows("the yard did not answer. The value may be written. Give it again.")
@@ -463,7 +543,7 @@ func TestSecretWithoutAnAnswer(t *testing.T) {
 
 	lost := &store.KeyNotRecorded{Names: []string{"CRM_TOKEN"}, File: "/home/ada/.yardr/sources/crm.env", Err: errors.New("no space left on device")}
 	g.fail = func(map[string]string) error { return lost }
-	f.send(ctrlO())
+	f.opens(seq)
 	f.send(runes(value))
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})
 	v.shows("CRM_TOKEN is written to /home/ada/.yardr/sources/crm.env, but the yard could not",
@@ -506,7 +586,7 @@ func TestOwnAddressIsTypedInTheField(t *testing.T) {
 	v.shows("a secret: PUSH_USER, ada's own address in the source push")
 
 	const value = "u-4f9a0c17e2b84d6f"
-	f.send(ctrlO())
+	f.opens(seq)
 	v.shows("PUSH_USER for push")
 	f.send(pasted(value))
 	f.send(tea.KeyMsg{Type: tea.KeyEnter})

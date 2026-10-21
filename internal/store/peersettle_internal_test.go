@@ -89,7 +89,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n)+len(s) != 0 {
 		t.Fatalf("Later was told across: %q, %q", n, s)
 	}
-	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "tonight", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "tonight", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	wantN := []string{fmt.Sprintf("answered %s %d re %s", bead, seq, north.ID)}
@@ -98,7 +98,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 		t.Fatalf("after the pick: %q, %q", n, s)
 	}
 	// A newer pick replaces the answer here and tells nothing more.
-	if err := y.AnswerAsk(y.ctx, bead, seq, 2, "", "jo"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead, seq, 2, "", "jo", false); err != nil {
 		t.Fatal(err)
 	}
 	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n) != 1 || len(s) != 1 {
@@ -116,7 +116,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 	words := linksAsk()
 	words.Options, words.Recommend, words.Why = nil, 0, ""
 	bead3, seq := y.asked(t, words)
-	if err := y.AnswerAsk(y.ctx, bead3, seq, 0, "move them on Friday", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead3, seq, 0, "move them on Friday", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if s := y.settles(t, "south"); len(s) != 3 || !strings.HasPrefix(s[2], fmt.Sprintf("answered %s %d re ", bead3, seq)) {
@@ -176,7 +176,7 @@ func TestAskSettledOnlyWhereCopied(t *testing.T) {
 		bead string
 		seq  uint64
 	}{{bead, before}, {bead, adaSeq}, {acrossBead, across}} {
-		if err := y.AnswerAsk(y.ctx, a.bead, a.seq, 1, "", "jo"); err != nil {
+		if err := y.AnswerAsk(y.ctx, a.bead, a.seq, 1, "", "jo", false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -186,21 +186,21 @@ func TestAskSettledOnlyWhereCopied(t *testing.T) {
 	if err := y.PeerRefused(y.ctx, "north", y.copyOf(t, "north", seq).Seq, "peer north: refused by the peer: "+PeerRefusal("north", PeerAsk, RefusedRate)); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 
 	// The grant taken back between the copy and the answer.
 	bead, seq = y.asked(t, linksAsk())
 	y.allow(t, PeerAllow{NoReach: []string{"mckean"}})
-	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	// And a link that carries ask out no more.
 	y.allow(t, PeerAllow{Reach: map[string]string{"mckean": "mckean"}})
 	bead, seq = y.asked(t, linksAsk())
 	y.allow(t, PeerAllow{NoSend: []string{PeerAsk}})
-	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := y.settles(t, "north"); len(got) != 0 {
@@ -229,7 +229,7 @@ func TestSettleGivenUpTellsNobody(t *testing.T) {
 		if err := y.PeerDelivered(y.ctx, "north", y.copyOf(t, "north", seq).Seq); err != nil {
 			t.Fatal(err)
 		}
-		if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean"); err != nil {
+		if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
 			t.Fatal(err)
 		}
 		out, _ := y.PeerOutbox(y.ctx, "north", 0)
@@ -275,7 +275,7 @@ func TestSettleTaken(t *testing.T) {
 			t.Fatalf("%s: the queue = %+v", settled, q)
 		}
 		for _, answer := range []func() error{
-			func() error { return y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean") },
+			func() error { return y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false) },
 			func() error { return y.DeferAsk(y.ctx, "yd-links@north", 3, "mckean") },
 			func() error { return y.DeclineAsk(y.ctx, "yd-links@north", 3, "no", "mckean") },
 		} {
@@ -338,7 +338,7 @@ func TestSettleForNoAskDropped(t *testing.T) {
 	if len(y.kinds(t, "noted")) != 1 {
 		t.Fatalf("noted = %+v", y.kinds(t, "noted"))
 	}
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err != nil {
 		t.Fatalf("the ask takes an answer still: %v", err)
 	}
 
@@ -370,7 +370,7 @@ func TestSettleOverAnswerOnItsWay(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
 	y.foreign(t, "a1", linksAsk())
-	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 2, "", "mckean"); err != nil {
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 2, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	out, _ := y.outbox(t)
@@ -554,7 +554,7 @@ func TestPickInEachYard(t *testing.T) {
 	if open, _ := there(bead); !open {
 		t.Fatal("the copy is not open at b")
 	}
-	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := carry(t, a, b); !slices.Equal(got, []string{"settle"}) {
@@ -563,7 +563,7 @@ func TestPickInEachYard(t *testing.T) {
 	if open, d := there(bead); open || d.State != "answered" || d.Words != "it was answered in a's yard" {
 		t.Fatalf("the copy after the settle: open %v, %+v", open, d)
 	}
-	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean"); err == nil || !strings.Contains(err.Error(), "takes no further answer: it was answered in a's yard") {
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean", false); err == nil || !strings.Contains(err.Error(), "takes no further answer: it was answered in a's yard") {
 		t.Fatalf("a pick at b after the settle = %v", err)
 	}
 	if got := carry(t, b, a); len(got) != 0 {
@@ -575,7 +575,7 @@ func TestPickInEachYard(t *testing.T) {
 
 	// The other yard first.
 	bead, seq = ask()
-	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean"); err != nil {
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := carry(t, b, a); !slices.Equal(got, []string{"answer"}) {
@@ -587,7 +587,7 @@ func TestPickInEachYard(t *testing.T) {
 	if got := carry(t, a, b); len(got) != 0 {
 		t.Fatalf("the yard that answered was told: %q", got)
 	}
-	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := carry(t, a, b); len(got) != 0 {
@@ -602,10 +602,10 @@ func TestPickInEachYard(t *testing.T) {
 
 	// The two picks cross.
 	bead, seq = ask()
-	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean"); err != nil {
+	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean"); err != nil {
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
 	if got := carry(t, b, a); !slices.Equal(got, []string{"answer"}) {
@@ -620,7 +620,7 @@ func TestPickInEachYard(t *testing.T) {
 	if open, d := there(bead); open || d.Words != "it was answered in a's yard" {
 		t.Fatalf("b's row after the crossing: open %v, %+v", open, d)
 	}
-	if err := b.AnswerAsk(ctx, bead+"@a", seq, 1, "", "mckean"); err == nil {
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 1, "", "mckean", false); err == nil {
 		t.Fatal("a pick at b after the crossing settle was queued")
 	}
 }
@@ -690,14 +690,14 @@ func TestTwoNamesOneUserAnswerOwnCopy(t *testing.T) {
 
 	// Each answers their own copy: whoever stands second in key order was
 	// refused as the other's answer.
-	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 1, "", "mckean"); err != nil {
+	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 1, "", "mckean", false); err != nil {
 		t.Fatalf("mckean's pick = %v", err)
 	}
-	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 2, "", "ada"); err != nil {
+	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 2, "", "ada", false); err != nil {
 		t.Fatalf("ada's pick = %v", err)
 	}
 	// Nobody else's answer is taken: no copy of this ask is for them.
-	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 1, "", "jo"); err == nil || !strings.Contains(err.Error(), "takes no one else's answer") {
+	if err := b.AnswerAsk(ctx, bead.ID+"@a", seq, 1, "", "jo", false); err == nil || !strings.Contains(err.Error(), "takes no one else's answer") {
 		t.Fatalf("another's pick = %v", err)
 	}
 	// Each answer returns under its own copy's message.

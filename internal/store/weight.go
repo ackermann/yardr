@@ -56,14 +56,19 @@ type AskWeight struct {
 // String is the weight as a terminal card prints it, after "WEIGHTY · ".
 func (a AskWeight) String() string { return a.Class + ": " + a.Line }
 
+// Marked is the weight as a terminal prints it on a line of its own: the
+// card's line, and the gate's before a weighty approval, so that both say
+// it in the same words.
+func (a AskWeight) Marked() string { return "WEIGHTY · " + OneLine(a.String()) }
+
 // weighs is the class's weight with the yard's particulars after its line.
 func weighs(class, particulars string) AskWeight {
 	return AskWeight{Class: class, Line: weightSays[class] + ": " + oneLine(particulars)}
 }
 
-// weightWords names a card's weight in a refusal: routine, or weighty
-// with its classes.
-func weightWords(ws []AskWeight) string {
+// WeightWords names a card's weight in a refusal, the yard's and a
+// terminal's: routine, or weighty with its classes.
+func WeightWords(ws []AskWeight) string {
 	if len(ws) == 0 {
 		return "routine"
 	}
@@ -83,9 +88,27 @@ func weightStale(seq uint64, was, now []AskWeight) error {
 		return nil
 	}
 	if len(was) == 0 {
-		return fmt.Errorf("ask %d was written without its weight, and the yard weighs it %s now: a weighty card is approved only from a card that showed its weight. %s", seq, weightWords(now), nothingRan)
+		return fmt.Errorf("ask %d was written without its weight, and the yard weighs it %s now: a weighty card is approved only from a card that showed its weight. %s", seq, WeightWords(now), nothingRan)
 	}
-	return fmt.Errorf("ask %d was weighed %s when it was written, and the yard weighs it %s now: the card is from before that changed. %s", seq, weightWords(was), weightWords(now), nothingRan)
+	return fmt.Errorf("ask %d was weighed %s when it was written, and the yard weighs it %s now: the card is from before that changed. %s", seq, WeightWords(was), WeightWords(now), nothingRan)
+}
+
+// weighedRefusal says why the approval of the ask seq is refused when the
+// yard weighs its card as weight and the client did not say its person saw
+// that weight (weighed, design yardr-ekmx 3.3): nil for a routine card,
+// which asks for no word of the client's, and for an approval that says it.
+// It checks what a client says and proves nothing: any holder of the
+// operator's token or shell can send weighed. What it buys is that a client
+// which has never heard of weight (an old window, a saved request, a script
+// written before this) cannot approve a weighty card by accident, and that
+// a client which does send it was written knowing it promises a gate. It is
+// no stale refusal: the card is the one that was shown, so the ask stays
+// open to be approved where its weight is shown.
+func weighedRefusal(seq uint64, weight []AskWeight, weighed bool) error {
+	if len(weight) == 0 || weighed {
+		return nil
+	}
+	return fmt.Errorf("ask %d is %s: approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate", seq, WeightWords(weight))
 }
 
 // weighAsk weighs the card the ask a holds, as the yard wrote it: a secret,

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -311,10 +312,15 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 	if got := y.grants(t); len(got) != 0 {
 		t.Fatalf("a stale approval granted %v", got)
 	}
+	// The client's word that its person saw the weight is no stand-in for
+	// a card that never showed it: the refusal is the stale one still.
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err == nil || !strings.Contains(err.Error(), "was written without its weight") {
+		t.Fatalf("approving a card written without weight, with the word = %v", err)
+	}
 
 	// Written without weight, routine now: approved as before.
 	seq = y.askUnweighed(t, listAsk("mckean", "source set crm calls_per_hour=30"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err != nil {
 		t.Fatalf("approving a routine ask written without weight = %v", err)
 	}
 
@@ -335,15 +341,43 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 	if got := y.source(t).CallLimit(); got != 2 {
 		t.Fatalf("a stale approval set calls_per_hour to %d", got)
 	}
+
+	// A weighty card that showed its weight is approved only by a client
+	// that says its person saw it (weighed): without the word the approval
+	// is refused in the words of design yardr-ekmx 3.3, changes nothing,
+	// and leaves the ask open; with it the same ask is approved.
+	seq = y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
+	if got := weightClasses(y.asked(t, seq).Ask.Weight); !slices.Equal(got, []string{WeightOutside}) {
+		t.Fatalf("the grant weighs %v", got)
+	}
+	want := "ask " + itoa(seq) + ` is weighty (outside): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || err.Error() != want {
+		t.Fatalf("approving a weighty card without the word = %v, want %q", err, want)
+	}
+	if got := y.grants(t); len(got) != 0 {
+		t.Fatalf("an approval without the word granted %v", got)
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusal, want it open", r.State)
+	}
+	if answers := answerNotes(t, y); len(answers) != 1 {
+		t.Fatalf("a refused approval left answers %+v, want the one routine approval above", answers)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+		t.Fatalf("approving the same card with the word = %v", err)
+	}
+	if got := y.grants(t); len(got) != 1 {
+		t.Fatalf("the approval with the word granted %v", got)
+	}
 }
 
 // A secret written without weight is given no more: every secret is
 // weighty.
 func TestWeightIsHeldAtGiving(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
-	y, _ := secretYard(t)
+	y, file := secretYard(t)
 	seq := y.askUnweighed(t, secretAsk("crm"), "yardmaster")
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok"}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok"}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "was written without its weight, and the yard weighs it weighty (credential) now") ||
 		!strings.HasSuffix(err.Error(), nothingRan) {
 		t.Fatalf("giving a secret written without weight = %v", err)
@@ -356,8 +390,29 @@ func TestWeightIsHeldAtGiving(t *testing.T) {
 	if got := weightClasses(y.asked(t, seq).Ask.Weight); !slices.Equal(got, []string{WeightCredential}) {
 		t.Fatalf("a secret ask weighs %v", got)
 	}
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok"}, "mckean"); err != nil {
+	// Without the client's word that its person saw the weight (weighed),
+	// the giving is refused in the words of design yardr-ekmx 3.3 before
+	// anything is written: no file, no answer, and the ask stays open.
+	want := "ask " + itoa(seq) + ` is weighty (credential): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok"}, "mckean", false); err == nil || err.Error() != want {
+		t.Fatalf("giving a secret without the word = %v, want %q", err, want)
+	} else if strings.Contains(err.Error(), "tok") {
+		t.Fatalf("the refusal repeats the value: %v", err)
+	}
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatalf("a refused giving wrote %s (%v)", file, err)
+	}
+	if answers := answerNotes(t, y); len(answers) != 0 {
+		t.Fatalf("a refused giving left answers %+v", answers)
+	}
+	if r := y.asked(t, seq); r.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusal, want it open", r.State)
+	}
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok"}, "mckean", true); err != nil {
 		t.Fatal(err)
+	}
+	if text, err := os.ReadFile(file); err != nil || string(text) != "CRM_TOKEN=tok\n" {
+		t.Fatalf("the file holds %q (%v)", text, err)
 	}
 }
 
@@ -389,6 +444,36 @@ func TestWeightIsHeldAtAMappingPick(t *testing.T) {
 	}
 	if _, ok := u.Identities["talk"]; ok {
 		t.Fatalf("a stale pick wrote ada's identity %+v", u.Identities)
+	}
+
+	// A pick that writes an identity is a weighty approval: it takes the
+	// client's word that its person saw the weight (weighed), and without
+	// it, through AnswerAsk or through AddAnswer, which carries none, it is
+	// refused in the words of design yardr-ekmx 3.3 and the card stays open.
+	want := "ask " + itoa(card.Ask) + ` is weighty (as-user): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, 1, "", "mckean", false); err == nil || err.Error() != want {
+		t.Fatalf("a pick without the word = %v, want %q", err, want)
+	}
+	if err := y.AddAnswer(y.ctx, card.Bead, Answer{Ask: card.Ask, Option: 1}, "mckean"); err == nil || err.Error() != want {
+		t.Fatalf("a pick through AddAnswer = %v, want %q", err, want)
+	}
+	if u, err := y.GetUser(y.ctx, "ada"); err != nil || len(u.Identities) != 0 {
+		t.Fatalf("a refused pick wrote ada's identity %+v (%v)", u.Identities, err)
+	}
+	wantCardOpen(t, y, card.Bead)
+	// Nobody and You decide write no identity, so they ask for no word.
+	later := claimCard(t, y, "U2")
+	if err := y.AnswerAsk(y.ctx, later.Bead, later.Ask, pickFor(t, y, later.Bead, YouDecide), "", "mckean", false); err != nil {
+		t.Fatalf("you decide without the word = %v", err)
+	}
+	if err := y.AnswerAsk(y.ctx, later.Bead, later.Ask, pickFor(t, y, later.Bead, MappingNobody), "", "mckean", false); err != nil {
+		t.Fatalf("nobody without the word = %v", err)
+	}
+	if err := y.AnswerAsk(y.ctx, card.Bead, card.Ask, 1, "", "mckean", true); err != nil {
+		t.Fatalf("the same pick with the word = %v", err)
+	}
+	if u, err := y.GetUser(y.ctx, "ada"); err != nil || !u.IsIn("talk", "U1") {
+		t.Fatalf("the pick with the word left ada's identities %+v (%v)", u.Identities, err)
 	}
 }
 

@@ -29,7 +29,7 @@ func askSetupApprove(t *testing.T, st *store.Store, bead, pack string, option in
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveSetup(ctx, bead, seq, option, values, "", "mckean"); err != nil {
+	if _, err := st.ApproveSetup(ctx, bead, seq, option, values, "", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	return seq

@@ -75,7 +75,7 @@ func TestCarrySetupDriftGrantsNewAndRevokesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err := st.ApproveSetup(ctx, bead, seq, 3, nil, "", "mckean")
+	done, err := st.ApproveSetup(ctx, bead, seq, 3, nil, "", "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestCarrySetupDriftGrantsNewAndRevokesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveSetup(ctx, bead, seq, 2, nil, "", "mckean"); err != nil {
+	if _, err := st.ApproveSetup(ctx, bead, seq, 2, nil, "", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, st, home, "boot-one")
@@ -141,7 +141,7 @@ func TestCarrySetupDriftTypingAnotherLeavesShared(t *testing.T) {
 		}
 	}
 	if _, err := st.ApproveSetup(ctx, bead, seq, 2,
-		map[string]string{"GOOGLE_ACCOUNT": "other@example.com"}, "", "mckean"); err != nil {
+		map[string]string{"GOOGLE_ACCOUNT": "other@example.com"}, "", "mckean", true); err != nil {
 		t.Fatal(err)
 	}
 	drain(t, st, home, "boot-one")

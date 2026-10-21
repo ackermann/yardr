@@ -166,7 +166,7 @@ func TestGiveSecretGivesACrewMembersOwnCredential(t *testing.T) {
 	y, file := crewSecretYard(t)
 	seq := y.ask(t, crewSecretAsk("yardmaster", "mckean"), "yardmaster")
 	const value = "tok-0f-s3cret"
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestGiveSecretGivesACrewMembersOwnCredential(t *testing.T) {
 	}
 
 	// Giving again replaces.
-	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "typed-again"}, "mckean")
+	keyed, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "typed-again"}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestGiveSecretRefusesACrewMembersCredential(t *testing.T) {
 		"yardmaster": "only the operator (mckean) may give a crew member's credential; this is yardmaster",
 		"":           "this is nobody",
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, actor)
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, actor, true)
 		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), value) {
 			t.Errorf("as %q: err = %v, want %q", actor, err, want)
 		}
@@ -269,7 +269,7 @@ func TestGiveSecretRefusesACrewMembersCredential(t *testing.T) {
 		{"CRM_TOKEN": value, "MORE": "1"},
 		{},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "mckean")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, values, "mckean", true)
 		if err == nil || strings.Contains(err.Error(), value) {
 			t.Errorf("%d names: err = %v", len(values), err)
 		}
@@ -287,7 +287,7 @@ func TestGiveSecretRefusesACrewMembersCredential(t *testing.T) {
 	if err := y.DeleteCrew(y.ctx, "yardmaster", "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, "mckean"); err == nil ||
+	if _, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": value}, "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "crew member yardmaster: not found") || strings.Contains(err.Error(), value) {
 		t.Fatalf("after the crew member went: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestGiveCrewSecretKeepsAnEnvFileAndAnEnvCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq := y.ask(t, crewSecretAsk("yardmaster", "mckean"), "yardmaster")
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok-0f-s3cret"}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"CRM_TOKEN": "tok-0f-s3cret"}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestGiveSecretRefusesACrewCredentialThatIsNoAddress(t *testing.T) {
 		{"https://hooks.example.com/catch/" + secret + "?key=" + secret, "has a query or a fragment"},
 		{"http://hooks.example.com/catch/" + secret, "is plain http to a machine that is not this one"},
 	} {
-		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "mckean")
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "mckean", true)
 		if err == nil || !strings.Contains(err.Error(), "source hook: the value of HOOK_URL "+tc.want) {
 			t.Errorf("%q: err = %v, want the fault named", tc.value, err)
 			continue
@@ -361,7 +361,7 @@ func TestGiveSecretRefusesACrewCredentialThatIsNoAddress(t *testing.T) {
 	if n := len(answerNotes(t, y)); n != 0 {
 		t.Fatalf("%d answer notes after refused givings", n)
 	}
-	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "mckean")
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "mckean", true)
 	if err != nil {
 		t.Fatal(err)
 	}

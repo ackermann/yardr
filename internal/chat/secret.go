@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -19,6 +20,13 @@ import (
 // (GiveSecret), which writes it to the file the source's credential is read
 // from. What is typed is in that field and in the call, and in nothing the
 // view shows: not in the line for mail, not in a notice, not in an error.
+//
+// A secret ask is weighty (design yardr-ekmx 3.3), and the yard refuses to
+// give it unless the client says its person saw the weight. The view is a
+// terminal, and keeps the gate a terminal does (yardr bead answer): the
+// field first asks for the ask's number typed back, with the card's weight
+// above it, and only then for the value. It sends weighed on that and on
+// nothing else.
 
 // SecretStore is what giving a secret takes of the yard. It is not part of
 // Store: that is what any device may be served over the yard's listener,
@@ -26,7 +34,7 @@ import (
 // rpc.OperatorCalls). The view makes it on the yard's own socket, so what
 // is typed here crosses no network the socket does not.
 type SecretStore interface {
-	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string) (*store.SourceKeyed, error)
+	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string, weighed bool) (*store.SourceKeyed, error)
 }
 
 // SecretKey is the key that opens the field, as the view names it.
@@ -51,6 +59,16 @@ type secretField struct {
 	env    []string
 	values map[string]string
 	in     textinput.Model
+	// gate is the ask's number while the person has still to type it back,
+	// and "" once they have, and on a card that weighs nothing. The field
+	// shows what is typed for it, and takes a value after.
+	gate string
+	// weighed says the number was typed back: the word the giving sends the
+	// yard that its person saw the card's weight.
+	weighed bool
+	// echo is how a value shows as it is typed, for the field to take on
+	// again once the gate is passed.
+	echo textinput.EchoMode
 }
 
 // name is the variable the field asks for now.
@@ -60,6 +78,9 @@ func (s *secretField) name() string { return s.env[len(s.values)] }
 // them it is where there are several, and the source, or the waiting login
 // it goes to.
 func (s *secretField) label() string {
+	if s.gate != "" {
+		return "type " + s.gate + " to give it, the card is weighty  "
+	}
 	label := s.name()
 	if len(s.env) > 1 {
 		label += fmt.Sprintf(" (%d of %d)", len(s.values)+1, len(s.env))
@@ -93,6 +114,10 @@ type gaveMsg struct {
 // secretKeys are the keys of the line at the bottom while the field is
 // open.
 var secretKeys = [][2]string{{"enter", "send it to the yard"}, {"esc", "leave, nothing is sent"}, {"^c", "quit"}}
+
+// gateKeys are the keys while the field asks for the number of a weighty
+// card: enter goes on to the value, and nothing is sent until then.
+var gateKeys = [][2]string{{"enter", "go on to the value"}, {"esc", "leave, nothing is sent"}, {"^c", "quit"}}
 
 // givable is the secret ask of the selected conversation that SecretKey
 // answers: the oldest that waits for its value, open or put aside, and
@@ -160,7 +185,12 @@ func (m *Model) ask() tea.Cmd {
 	in.EchoCharacter = '•'
 	in.Cursor.Style = look.cursor
 	m.secret = &secretField{bead: r.Note.Bead, ask: r.Note.Seq, source: r.Ask.Secret.Source, login: r.Ask.Secret.Login, hook: r.Ask.Secret.Hook,
-		env: r.Ask.Secret.Env, values: map[string]string{}, in: in}
+		env: r.Ask.Secret.Env, values: map[string]string{}, in: in, echo: in.EchoMode}
+	if len(r.Ask.Weight) > 0 {
+		// The number is the person's typing, and shows as they type it.
+		m.secret.gate = strconv.FormatUint(r.Note.Seq, 10)
+		m.secret.in.EchoMode = textinput.EchoNormal
+	}
 	m.secret.fit(max(m.width, 10))
 	m.notice = ""
 	m.clamp()
@@ -196,6 +226,19 @@ func (m *Model) secretKey(k tea.KeyMsg) tea.Cmd {
 			m.notice = "nothing typed: esc leaves, and nothing is sent"
 			return nil
 		}
+		if s.gate != "" {
+			s.in.Reset()
+			if v != s.gate {
+				m.secret = nil
+				m.notice = fmt.Sprintf("%s was not typed back: nothing was sent", s.gate)
+				return nil
+			}
+			s.gate, s.weighed = "", true
+			s.in.EchoMode = s.echo
+			s.fit(max(m.width, 10)) // the first name
+			m.notice = ""
+			return nil
+		}
 		s.values[s.name()] = v
 		s.in.Reset()
 		m.notice = ""
@@ -220,7 +263,7 @@ func (m *Model) give() tea.Cmd {
 	m.secret = nil
 	st, ctx, me, yardr := m.opt.Secrets, m.ctx, m.opt.Me, m.opt.Yardr
 	return func() tea.Msg {
-		keyed, err := st.GiveSecret(ctx, s.bead, s.ask, s.values, me)
+		keyed, err := st.GiveSecret(ctx, s.bead, s.ask, s.values, me, s.weighed)
 		switch {
 		case errors.Is(err, store.ErrNoAnswer):
 			return gaveMsg{text: NoAnswer, bad: true}
@@ -277,8 +320,12 @@ func (m *Model) saidLines(w int) []string {
 // where the ask is marked as no secret, and under them what the keys do.
 func (m *Model) secretView(w, rows int) string {
 	s := m.secret
+	hint := "enter sends it to the yard · esc leaves, and nothing is sent"
+	if s.gate != "" {
+		hint = "enter goes on to the value · esc leaves, and nothing is sent"
+	}
 	out := []string{fit(look.prompt.Render(s.label())+s.in.View(), w),
-		look.faint.Render(fit("enter sends it to the yard · esc leaves, and nothing is sent", w))}
+		look.faint.Render(fit(hint, w))}
 	for len(out) < rows {
 		out = append(out, "")
 	}

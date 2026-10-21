@@ -154,7 +154,7 @@ func TestYardLeadsStandInLogin(t *testing.T) {
 	if err := st.Mail(ctx, "yardmaster", "hi", "op"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.AnswerAsk(ctx, r.Journal, open()[0].Note.Seq, 1, "", "op"); err != nil {
+	if err := st.AnswerAsk(ctx, r.Journal, open()[0].Note.Seq, 1, "", "op", false); err != nil {
 		t.Fatal(err)
 	}
 	until("a secret ask for the code", func() bool { a := open(); return len(a) == 1 && a[0].Ask.Secret != nil })
@@ -162,11 +162,11 @@ func TestYardLeadsStandInLogin(t *testing.T) {
 	if !strings.Contains(strings.Join(input.Ask.Context, " "), loginPage) {
 		t.Errorf("the sign-in page is not in the ask: %q", input.Ask.Context)
 	}
-	if _, err := st.GiveSecret(ctx, r.Journal, input.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op"); err != nil {
+	if _, err := st.GiveSecret(ctx, r.Journal, input.Note.Seq, map[string]string{"INPUT": "good#s1"}, "op", true); err != nil {
 		t.Fatal(err)
 	}
 	until("an ask whether to check", func() bool { a := open(); return len(a) == 1 && a[0].Ask.Secret == nil })
-	if err := st.AnswerAsk(ctx, r.Journal, open()[0].Note.Seq, 1, "", "op"); err != nil {
+	if err := st.AnswerAsk(ctx, r.Journal, open()[0].Note.Seq, 1, "", "op", false); err != nil {
 		t.Fatal(err)
 	}
 	until("the yardmaster given its first prompt", func() bool { return len(pane.prompted()) > 0 })
