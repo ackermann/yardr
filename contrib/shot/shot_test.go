@@ -812,6 +812,39 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 	})
 }
 
+// A Chrome that never finishes must fail at its deadline on every run, not
+// just usually: the watchdog once lost its TERM to a timer that had forked
+// but not exec'd, waited out its 5 s grace sleep, and returned SHOT_TIMEOUT
+// + 5 s about one run in ten (yardr-pt36). Each run of the loop is timed on
+// its own: a slow run fails the test however fast the rest were. The bound
+// is the timeout plus four seconds: normal runs take about two, slow ones
+// over six.
+func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	const runs = 10
+	for i := 0; i < runs; i++ {
+		env, pids := sleeper(t, "chrome is warming up", false)
+		// The watchdog's clock waits for the stand-in: sleep holds it
+		// until the pids file appears.
+		env = append(env, readySleep(t, pids)...)
+		env = append(env, "SHOT_TIMEOUT=1")
+		out := filepath.Join(t.TempDir(), "shot.png")
+		start := time.Now()
+		rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
+		dt := time.Since(start)
+		if rc == 0 || !strings.Contains(text, "chrome did not finish within 1s") {
+			t.Errorf("run %d of %d: exit %d, %q, want a refusal naming the deadline", i+1, runs, rc, text)
+		}
+		if dt > 5*time.Second {
+			t.Errorf("run %d of %d: the refusal took %s, want within SHOT_TIMEOUT + 4 s", i+1, runs, dt.Round(time.Millisecond))
+		}
+		dead(t, pids)
+	}
+}
+
 // A slow Chrome is the machine's fault on the landing suite, under the race
 // detector and on a machine whose load is past its cores, and the shot's own
 // anywhere else. The machine's own load is pinned, as the gate's tests pin

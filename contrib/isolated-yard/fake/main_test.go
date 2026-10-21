@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -188,12 +189,15 @@ func TestTypedTextShowsInTheInput(t *testing.T) {
 	s.want("typed again", rule, "❯ abc", rule, "❯ de", rule)
 }
 
-// A prompt held at the login screen was never typed into the box: it is
-// drawn as taken from where the box left the cursor, on the mark's line, and
-// not from a row further up.
+// The login screen is Claude Code's menu of login methods, as the harness
+// file reads it live: the `Select login method:` line, the methods with the
+// selected option carrying the input mark, then the code-paste line. A
+// prompt held at it was never typed into the box: it is drawn as taken from
+// where the box left the cursor, on the mark's line, and not from a row
+// further up.
 func TestHeldPromptIsDrawnFromTheInputLine(t *testing.T) {
 	s := start(t, true)
-	s.draw("/login\n")
+	s.draw("if prompted>\n")
 	// Sent while the terminal's echo is off: nothing shows.
 	if _, err := io.WriteString(s.in, "first prompt\n"); err != nil {
 		t.Fatal(err)
@@ -205,12 +209,20 @@ func TestHeldPromptIsDrawnFromTheInputLine(t *testing.T) {
 	}
 	s.draw(boxEnd)
 	s.draw(boxEnd)
-	s.want("after login", "Not logged in · Run /login", "Login successful",
-		rule, "❯ first prompt", rule, "❯", rule)
+	screen := []string{
+		"Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.",
+		"Select login method:",
+		"❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise",
+		"  2. Anthropic Console account · API usage billing",
+		"  3. 3rd-party platform · Amazon Bedrock, Microsoft Foundry, Google Vertex AI",
+		"Paste code here if prompted>",
+		"Login successful",
+		rule, "❯ first prompt", rule,
+	}
+	s.want("after login", append(slices.Clone(screen), "❯", rule)...)
 
 	s.scr.write("abc")
-	s.want("typed", "Not logged in · Run /login", "Login successful",
-		rule, "❯ first prompt", rule, "❯ abc", rule)
+	s.want("typed", append(slices.Clone(screen), "❯ abc", rule)...)
 }
 
 func TestWrappedRows(t *testing.T) {

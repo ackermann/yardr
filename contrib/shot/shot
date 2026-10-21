@@ -93,7 +93,18 @@ pid=$!
   stop_timer() {
     trap - TERM INT HUP
     if [ -n "$timer" ]; then
+      # The timer may have forked but not exec'd sleep yet: still a shell
+      # copy with the TERM trap, so one TERM is consumed and the sleep
+      # runs whole while the shot waits it out. Re-send TERM until the
+      # timer is gone; once exec'd, sleep carries no trap and dies. The
+      # loop is tight and bounded, with no sleep: the pre-exec window is
+      # microseconds.
       kill "$timer" 2>/dev/null
+      i=0
+      while kill -0 "$timer" 2>/dev/null && [ "$i" -lt 100 ]; do
+        kill "$timer" 2>/dev/null
+        i=$((i+1))
+      done
       wait "$timer" 2>/dev/null
     fi
     exit 0

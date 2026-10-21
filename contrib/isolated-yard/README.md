@@ -35,9 +35,11 @@ address of no host, and reads one line: `good#code` is the login, which
 removes `D/login-needed` and `D/print-fails`, and any other line ends it
 with `Login failed: Request failed with status code 400` and status 1.
 With a file `D/login-needed` a stand-in started in a pane sits at a login
-screen (`Not logged in · Run /login`, no prompt box) and takes what it is
-sent without showing it, holding its first prompt until it is ready; removing
-the file is the login, and the prompt box and held prompt come. With a file
+screen (Claude Code's menu of login methods: `Select login method:` with the
+selected option carrying `❯`, then `Paste code here if prompted>`; no prompt
+box) and takes what it is sent without showing it, holding its first prompt
+until it is ready; removing the file is the login, and the prompt box and
+held prompt come. With a file
 `D/answer` a stand-in says that file's text (as `⏺ <line>`) to every prompt
 it takes and waits for input again, as a harness does that stops on an error
 of its own (`API Error: Repeated 529 Overloaded errors`). With a file

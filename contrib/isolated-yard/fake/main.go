@@ -104,9 +104,29 @@ func main() {
 	// held without showing it (the terminal's echo is off), so the first
 	// prompt reaches the agent only after login. Removing the file is login:
 	// the box comes and the held prompt is handled.
+	//
+	// The screen is Claude Code's menu of login methods, drawn as the
+	// harness file reads it live (harnesses/claude.yaml, login): the
+	// `Select login method:` line the runner matches on, the methods with
+	// the selected option carrying the input mark, then the code-paste
+	// line. The menu's words follow the transcription in
+	// internal/runner/login_test.go; what must hold exactly is the
+	// `Select login method:` line and the marked option, since without
+	// them the screen matches no login pattern and no led login is
+	// offered. There is no menu to answer: the led login plays
+	// `auth login`, not the menu.
 	var held []string
 	if login := filepath.Join(filepath.Dir(filepath.Dir(exe)), "login-needed"); exists(login) {
-		fmt.Println("Not logged in · Run /login")
+		for _, l := range []string{
+			"Claude Code can be used with your Claude subscription or billed based on API usage through your Console account.",
+			"Select login method:",
+			"❯ 1. Claude account with subscription · Pro, Max, Team, or Enterprise",
+			"  2. Anthropic Console account · API usage billing",
+			"  3. 3rd-party platform · Amazon Bedrock, Microsoft Foundry, Google Vertex AI",
+			"Paste code here if prompted>",
+		} {
+			fmt.Println(l)
+		}
 		logf("login screen")
 		stty("-echo")
 		defer stty("echo")
