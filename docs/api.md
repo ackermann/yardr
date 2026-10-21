@@ -344,7 +344,7 @@ A party to a letter put an emoji on it, or took theirs away. Read the conversati
 
 ### A crew member's status: `crew_status`
 
-The daemon saw a crew member's session do something else than before. Any other event whose kind begins `crew_` says that a session started, stopped or failed, or that the list changed, and carries less than what changed: read `Crew` again on it.
+The daemon saw a crew member's session do something else than before. Any other event whose kind begins `crew_` says that a session started, stopped or failed, that its login changed (`crew_login`, below), or that the list changed, and carries less than what changed: read `Crew` again on it.
 
 ```json
 {
