@@ -246,7 +246,7 @@ Take the platform's address, said plainly in SETUP.md's first lines.
 
 In the order they would land. 6.1 and 6.2 land in yardr; 6.3 lands in yardr and makes the trial's own depot. Each tests what starts agents or servers in the isolated yard (`contrib/isolated-yard/isolated-yard`), never the operator's, and drives `void` as a stand-in (internal/scripttest); only 6.3 touches a real platform. 6.2 waits on 6.1; 6.3 waits on both and on mckean's platform. If 5.1 takes the starter instead, 6.2 becomes "the starter gains a website flow" with the same done-when, plus the planner change it names. If 5.2 takes another source of the URL, it changes 6.1's step 6 only.
 
-### 6.1. `contrib/deploy/deploy-void`: deploy the base to a Void platform from `merged`
+### 6.1. `contrib/deploy/deploy-void`: deploy the base to a Void platform from `merged` (yardr-0a8m)
 
 Goal: the reference script exists, tested, beside `deploy-dokku`, kept current by `yardr upgrade`. (depot yardr)
 
@@ -254,7 +254,7 @@ Where to look: this design, section 3.2; `contrib/deploy/deploy-dokku`, its READ
 
 Done when: `contrib/deploy/deploy-void` refuses a missing or malformed `VOID_PROJECT`, `VOID_TOKEN` or `VOID_API_URL` before running anything; deploys nothing for a child of a train and advances `done` with a note naming it; checks out `YARDR_BASE`'s commit as resolved at the run in a detached worktree of its own and removes it on every way out, the depot's checkout untouched; runs `VOID_INSTALL` (default `npm ci`) without `VOID_TOKEN`, `VOID_API_URL` or `VOID_ACCESS_CREDENTIALS` in its environment; runs `npx --no-install void connect "$VOID_API_URL" --no-login` and `npx --no-install void deploy --platform void --project "$VOID_PROJECT"` with `HOME` at `$YARDR_HOME/deploy/void/$YARDR_DEPOT`; reads the URL from the run's own deploy log; advances `done` to `live` with `live <url> at <sha> in <n> s`, or with a note that the URL was not found when the log has none; reports `failed` with the CLI's last 100 lines marked as outside text and mails `YARDR_NOTIFY` on a non-zero exit or a `deploy_degraded` record; holds on a signal. Tests run it through the exec runner against a local repository with a stand-in `npx`/`void` that writes a deploy log as the CLI 1.1.12 does, and prove each of these, that the token never reaches the install command, that two queued landings coalesce, and that the stand-in saw exactly the two commands above; contrib/deploy/README.md gains its section; internal/cli/upgrade_scripts.go and docs/upgrade.md name it; `sh .yardr/test` passes.
 
-### 6.2. `packs/website`: the starter's line with a deploy stage, for a website on a Void platform
+### 6.2. `packs/website`: the starter's line with a deploy stage, for a website on a Void platform (yardr-2929)
 
 Goal: `yardr pack apply website --depot <site>` gives a depot the flow of section 3.1 and a `<site>-deploy` group that runs `deploy-void`. (depot yardr)
 
@@ -262,7 +262,7 @@ Where to look: this design, sections 3.1, 3.3–3.5; packs/starter (pack.yaml, r
 
 Done when: `packs/website/` holds pack.yaml as section 3.1 shows (one depot flow, no train flow, `merged` routed to `deploy`, `live` the end, `decide` able to send a bead back to `merged`, Linear's `hears` with `live: done`), the starter's roles, stage files and merge-local as copies, `flows/default/merged.md`, `scripts/deploy-void`, a README, and SETUP.md carrying section 3.5's checklist, section 3.4's way back with the migrations warning in bold, section 3.3's rotation, and the address limit of 5.4 in its first lines; tests hold each copy equal to the starter's file or to `contrib/deploy/deploy-void` and the scripts executable; the pack is embedded and listed; in the isolated yard, `pack check website --depot <d>` and `pack apply website --depot <d>` succeed, make `<d>-deploy` an exec group at limit 1 whose `cmd` is the copied script, route `merged` to it, and a second `pack apply` after `yardr group set <d>-deploy cmd="VOID_PROJECT=x …"` and `env_file=…` keeps both; docs/packs.md names the pack where it lists the embedded ones; `sh .yardr/test` passes.
 
-### 6.3. Trial: one landing of a new site goes live on mckean's Void platform
+### 6.3. Trial: one landing of a new site goes live on mckean's Void platform (yardr-q4bf)
 
 Goal: the design's first sentence is true for one real site. (depot yardr; the bead makes the site's own depot)
 
