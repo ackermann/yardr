@@ -32,9 +32,19 @@ trust:
 # its own, and the line it works behind ("◆ Thinking (3s · esc to
 # interrupt)"), begins with ◆. The other marks taken off an error line
 # are what any TUI may draw.
+#
+# 1.4.11 draws a hint after the mark while the input holds nothing ("Ask to
+# monitor a running build or log and get pinged on changes", read live with
+# `herdr pane read --format ansi`, 21 Oct 2026), in a truecolor grey
+# (38;2;103;108;116), not faint, which Esc does not clear. The hint comes
+# and goes and its words are likely not fixed, so the colour is named
+# below, not the words: text drawn in it reads as no text. What a person
+# types is drawn in 38;2;204;211;219 instead (a word typed in a scratch
+# pane the same day, then cleared).
 marks:
   input: "❯"
   message: "❯"
+  placeholder_sgr: "38;2;103;108;116"
   error: "◆⏺⎿●■•▌│┃✗✘⚠!"
 
 flags:

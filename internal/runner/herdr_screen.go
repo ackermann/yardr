@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -51,8 +52,9 @@ var inputMarks = []string{"❯", "›"}
 // box, is the side of the box: it comes before the input mark, and before
 // and after each line of the input's text, of which it is no part.
 // placeholder is the input's hint when it holds nothing, for a harness
-// that draws one in no faint style.
-type paneMarks struct{ input, message, edge, placeholder string }
+// that draws one in no faint style; placeholderSGR is the colour such a
+// hint is drawn in, for a harness whose hint's words are not fixed.
+type paneMarks struct{ input, message, edge, placeholder, placeholderSGR string }
 
 // marksOf is the marks of a harness kind, and whether yardr knows them:
 // its file (harnesses/<kind>.yaml, `marks`) names the mark of its input.
@@ -62,7 +64,7 @@ type paneMarks struct{ input, message, edge, placeholder string }
 func marksOf(kind string) (paneMarks, bool) {
 	h, _ := agents.Lookup(kind)
 	m := h.Marks
-	return paneMarks{input: m.Input, message: m.Message, edge: m.Edge, placeholder: m.Placeholder}, m.Input != ""
+	return paneMarks{input: m.Input, message: m.Message, edge: m.Edge, placeholder: m.Placeholder, placeholderSGR: m.PlaceholderSGR}, m.Input != ""
 }
 
 // begins reports whether line is the first of the input.
@@ -311,9 +313,15 @@ func (h *Herdr) InputText(ctx context.Context, handle map[string]any) (text stri
 // shows what a person typed there with no attribute at all, as Kimi Code
 // 2.1.1 does. The attribute is asked, not the wording: Claude Code's
 // placeholder is a different suggestion each time, and a person may type a
-// placeholder's very words.
+// placeholder's very words. A kind whose hint is drawn in no faint style
+// and whose words are not fixed names its hint's colour instead
+// (harnesses/<kind>.yaml, `marks.placeholder_sgr`): text drawn in it is
+// left out the same way, for that kind only. Muse Code 1.4.11 draws its
+// hint in 38;2;103;108;116 and what a person typed in 38;2;204;211;219
+// (read live, 21 Oct 2026).
 func inputText(styled, kind string) (text string, ok bool) {
-	plain, typed := unstyled(styled)
+	kindMarks, _ := marksOf(kind)
+	plain, typed := unstyled(styled, kindMarks.placeholderSGR)
 	plain, typed = rowsOf(kind, plain, typed)
 	input, m := inputLine(plain, kind)
 	if input < 0 {
@@ -479,7 +487,7 @@ func (h *Herdr) InputLogin(ctx context.Context, handle map[string]any) (line str
 // the edge of a box is between its input and its transcript.
 func inputDialog(styled, kind string) (dialog, line string) {
 	hn, _ := agents.Lookup(kind)
-	plain, _ := unstyled(styled)
+	plain, _ := unstyled(styled, "")
 	plain, _ = rowsOf(kind, plain, nil)
 	input, m := inputLine(plain, kind)
 	if input < 0 || len(hn.Dialogs) == 0 {
@@ -546,14 +554,17 @@ func isRule(line string) bool {
 
 // unstyled splits a pane read with its styling into lines, twice: plain is
 // each line's text, and typed the same with a space for each character that
-// is drawn faint, so that what is cut out of one is cut out of the other at
-// the same place (see rowsOf). Every
+// is drawn faint or, for a kind that names its hint's colour, in that
+// colour (hint, "" for none), so that what is cut out of one is cut out of
+// the other at the same place (see rowsOf). Every
 // escape sequence is dropped; of SGR only faint (2) and what ends it (22,
-// 0) are followed. The numbers after 38, 48 and 58 are a colour's, so a 2
-// among them (`38;2;r;g;b`, `38;5;2`) is not the attribute.
-func unstyled(styled string) (plain, typed []string) {
+// 0) are followed, and the foreground colour (38), which 0 and 39 end. The
+// numbers after 38, 48 and 58 are a colour's, so a 2 among them
+// (`38;2;r;g;b`, `38;5;2`) is not the attribute.
+func unstyled(styled, hint string) (plain, typed []string) {
 	var p, t strings.Builder
 	faint := false
+	fg := ""
 	flush := func() {
 		plain, typed = append(plain, p.String()), append(typed, t.String())
 		p.Reset()
@@ -571,7 +582,9 @@ func unstyled(styled string) (plain, typed []string) {
 				j++
 			}
 			if j < len(rs) && rs[j] == 'm' {
-				faint = sgrFaint(string(rs[i+2:j]), faint)
+				params := string(rs[i+2 : j])
+				faint = sgrFaint(params, faint)
+				fg = sgrFG(params, fg)
 			}
 			i = j
 		case r == 0x1b && i+1 < len(rs) && rs[i+1] == ']':
@@ -588,7 +601,7 @@ func unstyled(styled string) (plain, typed []string) {
 			i++ // a two-character escape
 		default:
 			p.WriteRune(r)
-			if faint {
+			if faint || (hint != "" && fg == hint) {
 				r = ' '
 			}
 			t.WriteRune(r)
@@ -627,6 +640,70 @@ func sgrFaint(params string, faint bool) bool {
 		}
 	}
 	return faint
+}
+
+// sgrFG is the foreground colour text is drawn in after the SGR parameters
+// params, given what it was before: `38;2;r;g;b` or `38;5;n` in canonical
+// shape, "" for the default. 0 and an empty sequence draw everything as
+// default again, 39 the foreground alone; other attributes leave it. A
+// colour with numbers that are none is left as it was.
+func sgrFG(params string, fg string) string {
+	if params == "" {
+		return "" // ESC[m is ESC[0m
+	}
+	codes := strings.Split(params, ";")
+	for i := 0; i < len(codes); i++ {
+		// A colon carries a parameter's own arguments (38:2::r:g:b): only
+		// what is before it is the code.
+		code, _, _ := strings.Cut(codes[i], ":")
+		switch code {
+		case "", "0", "39":
+			fg = ""
+		case "38":
+			if codes[i] != code || i+1 >= len(codes) {
+				break
+			}
+			switch codes[i+1] {
+			case "5":
+				if i+2 < len(codes) {
+					if n, ok := sgrNum(codes[i+2]); ok {
+						fg = fmt.Sprintf("38;5;%d", n)
+					}
+				}
+				i += 2
+			case "2":
+				if i+4 < len(codes) {
+					r, rok := sgrNum(codes[i+2])
+					g, gok := sgrNum(codes[i+3])
+					b, bok := sgrNum(codes[i+4])
+					if rok && gok && bok {
+						fg = fmt.Sprintf("38;2;%d;%d;%d", r, g, b)
+					}
+				}
+				i += 4
+			}
+		case "48", "58":
+			if codes[i] != code || i+1 >= len(codes) {
+				break
+			}
+			switch codes[i+1] {
+			case "5":
+				i += 2
+			case "2":
+				i += 4
+			}
+		}
+	}
+	return fg
+}
+
+// sgrNum is s as an SGR colour number, and whether it is one.
+func sgrNum(s string) (int, bool) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 || n > 255 {
+		return 0, false
+	}
+	return n, true
 }
 
 // promptLead is how much of a prompt, counted without its white space, is

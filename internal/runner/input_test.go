@@ -31,6 +31,12 @@ import (
 // mark coloured and no placeholder drawn, a message it took above with
 // the same mark, and the line it works behind begun with ◆.
 //
+// Muse Code 1.4.11's hint is a herdr pane read --format ansi of 21 Oct
+// 2026, narrowed: the input line carries the amber mark and, after it,
+// the hint in a truecolor grey (38;2;103;108;116), not faint, which comes
+// and goes. A word typed in a scratch pane the same day is drawn in
+// 38;2;204;211;219, not the hint's grey.
+//
 // Kiro CLI 2.25's is the idle pane of awslabs/cli-agent-orchestrator's TUI
 // fixtures, narrowed: the input under the status line, begun with ›, an
 // empty one showing the placeholder in gray (not faint) with ↵ after it
@@ -64,13 +70,25 @@ const (
 		"    \x1b[0m\x1b[1m\x1b[38;2;255;203;107msent\x1b[0m                     \r\n \r\n" +
 		" \x1b[0m\x1b[38;2;136;136;136m● \x1b[0m\x1b[3m\x1b[38;2;136;136;136mAn answer.\x1b[0m\r\n \r\n"
 
-	museHead    = "  Muse Code 1.4.9\r\n\r\n"
-	museVoice   = "── Voice input (alt(option)+v to start) ──\r\n"
-	musePrompt  = "\x1b[0m\x1b[38;2;90;160;255m❯ \x1b[39m\r\n"
-	museRule    = "────────────────────────────────────────\r\n"
-	museFooter  = "  muse-spark-1.3 · max · /tmp/work · Auto-review\r\n"
-	museEmpty   = museHead + museVoice + musePrompt + museRule + museFooter
-	museDraft   = museHead + museVoice + "❯ half a thought\r\n" + museRule + museFooter
+	museHead   = "  Muse Code 1.4.9\r\n\r\n"
+	museHead11 = "  Muse Code 1.4.11\r\n\r\n"
+	museVoice  = "── Voice input (alt(option)+v to start) ──\r\n"
+	musePrompt = "\x1b[0m\x1b[38;2;90;160;255m❯ \x1b[39m\r\n"
+	museRule   = "────────────────────────────────────────\r\n"
+	museFooter = "  muse-spark-1.3 · max · /tmp/work · Auto-review\r\n"
+	museEmpty  = museHead + museVoice + musePrompt + museRule + museFooter
+	museDraft  = museHead + museVoice + "❯ half a thought\r\n" + museRule + museFooter
+	// The 1.4.11 hint of the read above; the styled draft and the draft
+	// with hint-coloured words after it are the scratch pane's.
+	museHint = museHead11 + museVoice +
+		"\x1b[0m\x1b[38;2;251;191;36m❯ \x1b[0m\x1b[38;2;103;108;116mAsk to monitor a running build or log and get pinged on changes\x1b[0m\r\n" +
+		museRule + museFooter
+	museDraftStyled = museHead11 + museVoice +
+		"\x1b[0m\x1b[38;2;251;191;36m❯ \x1b[0m\x1b[38;2;204;211;219mhelloverify\x1b[0m\r\n" +
+		museRule + museFooter
+	museDraftHintAfter = museHead11 + museVoice +
+		"❯ half a thought \x1b[0m\x1b[38;2;103;108;116msuggested rest\x1b[0m\r\n" +
+		museRule + museFooter
 	museTaken   = "❯ hi\r\n\r\n◆ echo: hi\r\n\r\n"
 	museWorking = museHead + "❯ hi\r\n\r\n◆ Thinking (3s · esc to interrupt)\r\n\r\n" +
 		museVoice + musePrompt + museRule + museFooter
@@ -150,6 +168,14 @@ func TestInputText(t *testing.T) {
 		// and the line it works behind another.
 		"muse empty": {"muse", museEmpty, "", true},
 		"muse draft": {"muse", museDraft, "half a thought", true},
+		// Muse 1.4.11 draws its hint in a grey no faint style carries, so
+		// the kind names the colour: the hint reads empty, a styled draft
+		// reads its text, and hint-coloured words after a draft take none
+		// of it. Another kind keeps the colour's words as text.
+		"muse, 1.4.11 hint reads empty":           {"muse", museHint, "", true},
+		"muse, 1.4.11 styled draft":               {"muse", museDraftStyled, "helloverify", true},
+		"muse, draft with hint-coloured words":    {"muse", museDraftHintAfter, "half a thought", true},
+		"codex, another kind's hint colour":       {"codex", "› \x1b[0m\x1b[38;2;103;108;116mgrey words\x1b[0m\r\n" + codexFooter, "grey words", true},
 		"muse, sent message above an empty input": {"muse", museTaken + museEmpty, "", true},
 		"muse, sent message above a draft":        {"muse", museTaken + museDraft, "half a thought", true},
 		"muse, mid-turn":                          {"muse", museWorking, "", true},

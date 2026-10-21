@@ -534,6 +534,10 @@ func TestLoadRefuses(t *testing.T) {
 		"a hint not known":                 {"claude.yaml", "version: 1\nlabel: x\nhints: {idle: x}\n", "field idle not found"},
 		"marks, no input":                  {"claude.yaml", "version: 1\nlabel: x\nmarks: {message: '>'}\n", "without input"},
 		"marks, placeholder without input": {"claude.yaml", "version: 1\nlabel: x\nmarks: {placeholder: 'ask'}\n", "without input"},
+		"marks, hint colour without input": {"claude.yaml", "version: 1\nlabel: x\nmarks: {placeholder_sgr: '38;2;1;2;3'}\n", "without input"},
+		"marks, hint colour no colour":     {"claude.yaml", "version: 1\nlabel: x\nmarks: {input: '>', placeholder_sgr: 'grey'}\n", `placeholder_sgr "grey"`},
+		"marks, hint colour too short":     {"claude.yaml", "version: 1\nlabel: x\nmarks: {input: '>', placeholder_sgr: '38;2;1;2'}\n", "want 38;2;r;g;b or 38;5;n"},
+		"marks, hint colour out of range":  {"claude.yaml", "version: 1\nlabel: x\nmarks: {input: '>', placeholder_sgr: '38;5;999'}\n", "want 38;2;r;g;b or 38;5;n"},
 		"trust, no answers":                {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?'}\n", "names its text, its accepting answers and its cursor"},
 		"trust, answers empty":             {"claude.yaml", "version: 1\nlabel: x\ntrust: {dialog: 'Are you sure?', answers: [], cursor: '>'}\n", "names its text, its accepting answers and its cursor"},
 		"trust, no dialog":                 {"claude.yaml", "version: 1\nlabel: x\ntrust: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
@@ -566,6 +570,26 @@ func TestLoadRefuses(t *testing.T) {
 		"claude.yaml": "version: 1\nlabel: Claude Code\n",
 	}); err == nil || !strings.Contains(err.Error(), "claude is already amp's name") {
 		t.Errorf("an alias that is another kind: %v", err)
+	}
+}
+
+// A file names its hint's colour as SGR parameters, read in canonical
+// shape; muse's is the grey its 1.4.11 hint is drawn in, and Kiro keeps
+// its named words alone.
+func TestPlaceholderSGR(t *testing.T) {
+	hs, err := load(t, map[string]string{
+		"claude.yaml": "version: 1\nlabel: x\nmarks: {input: '>', placeholder_sgr: '38;5;007'}\n",
+	})
+	if err != nil || len(hs) != 1 || hs[0].Marks.PlaceholderSGR != "38;5;7" {
+		t.Fatalf("a padded colour: %+v, %v; want 38;5;7", hs, err)
+	}
+	muse, ok := Lookup("muse")
+	if !ok || muse.Marks.PlaceholderSGR != "38;2;103;108;116" {
+		t.Errorf("muse's placeholder_sgr: %q, %v", muse.Marks.PlaceholderSGR, ok)
+	}
+	kiro, _ := Lookup("kiro")
+	if kiro.Marks.PlaceholderSGR != "" {
+		t.Errorf("kiro's placeholder_sgr: %q; its named words still tell it", kiro.Marks.PlaceholderSGR)
 	}
 }
 

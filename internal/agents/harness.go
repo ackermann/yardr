@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -216,14 +217,47 @@ func (t Trust) ShowsAnswer(line string) (answer string, selected bool) {
 // each line of the input's text, of which it is no part. Placeholder is
 // the input's hint when it holds nothing, for a harness that draws one in
 // no faint style: while the input's first line begins with it, the input
-// reads empty. Error is every mark the harness's TUI may draw before a
-// message of its own, taken off a line before it is read for an error.
+// reads empty. PlaceholderSGR is the colour such a hint is drawn in, for a
+// harness whose hint's words are not fixed: text drawn in it reads as no
+// text, as faint text does. Error is every mark the harness's TUI may draw
+// before a message of its own, taken off a line before it is read for an
+// error.
 type Marks struct {
-	Input       string `yaml:"input" json:"input,omitempty"`
-	Message     string `yaml:"message" json:"message,omitempty"`
-	Edge        string `yaml:"edge" json:"edge,omitempty"`
-	Placeholder string `yaml:"placeholder" json:"placeholder,omitempty"`
-	Error       string `yaml:"error" json:"error,omitempty"`
+	Input          string `yaml:"input" json:"input,omitempty"`
+	Message        string `yaml:"message" json:"message,omitempty"`
+	Edge           string `yaml:"edge" json:"edge,omitempty"`
+	Placeholder    string `yaml:"placeholder" json:"placeholder,omitempty"`
+	PlaceholderSGR string `yaml:"placeholder_sgr" json:"placeholder_sgr,omitempty"`
+	Error          string `yaml:"error" json:"error,omitempty"`
+}
+
+// parseSGRColor is colour, a foreground colour as a harness file names it,
+// in its canonical shape: `38;2;r;g;b` or `38;5;n`. A colour yardr cannot
+// match would leave the hint it names reading as held text, so anything
+// else is refused with the file.
+func parseSGRColor(colour string) (string, error) {
+	bad := func() (string, error) {
+		return "", fmt.Errorf("want 38;2;r;g;b or 38;5;n, each number 0 to 255")
+	}
+	parts := strings.Split(colour, ";")
+	if len(parts) < 3 || parts[0] != "38" {
+		return bad()
+	}
+	nums := make([]int, 0, len(parts)-2)
+	for _, p := range parts[2:] {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 || n > 255 {
+			return bad()
+		}
+		nums = append(nums, n)
+	}
+	switch {
+	case parts[1] == "2" && len(nums) == 3:
+		return fmt.Sprintf("38;2;%d;%d;%d", nums[0], nums[1], nums[2]), nil
+	case parts[1] == "5" && len(nums) == 1:
+		return fmt.Sprintf("38;5;%d", nums[0]), nil
+	}
+	return bad()
 }
 
 // Flags are the harness's own arguments yardr knows a use for. Each was
@@ -583,8 +617,15 @@ func (h *Harness) check() error {
 		return fmt.Errorf("%s is no kind herdr starts", h.Kind)
 	case h.Label == "":
 		return fmt.Errorf("no label")
-	case h.Marks.Input == "" && (h.Marks.Message != "" || h.Marks.Edge != "" || h.Marks.Placeholder != ""):
-		return fmt.Errorf("marks: message, edge or placeholder without input, which is what a pane is read from")
+	case h.Marks.Input == "" && (h.Marks.Message != "" || h.Marks.Edge != "" || h.Marks.Placeholder != "" || h.Marks.PlaceholderSGR != ""):
+		return fmt.Errorf("marks: message, edge, placeholder or placeholder_sgr without input, which is what a pane is read from")
+	}
+	if sgr := h.Marks.PlaceholderSGR; sgr != "" {
+		colour, err := parseSGRColor(sgr)
+		if err != nil {
+			return fmt.Errorf("marks: placeholder_sgr %q: %w", sgr, err)
+		}
+		h.Marks.PlaceholderSGR = colour
 	}
 	for _, p := range h.Flags.Permissions {
 		if p.Label == "" || len(p.Args) == 0 {
