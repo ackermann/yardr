@@ -1194,7 +1194,8 @@ esac`)}
 // testGitEnv is the environment the tests' git runs in: a hermetic base,
 // as sessionGit's, so what the developer or the session configured (notably
 // a core.hooksPath from GIT_CONFIG_*, which would run hooks on every setup
-// commit) reaches neither the test's git nor what it asserts.
+// commit) reaches neither the test's git nor what it asserts. The private
+// home also keeps Git's default global excludes file out of staged fixtures.
 func testGitEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
@@ -1209,7 +1210,8 @@ func testGitEnv() []string {
 	return append(env,
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
+		"HOME="+testGitHome)
 }
 
 func gitT(t *testing.T, dir string, args ...string) {
@@ -1245,9 +1247,10 @@ func seedEmptyRepo(t *testing.T) string {
 }
 
 var (
-	seedMu  sync.Mutex
-	seedDir string
-	seedErr error
+	testGitHome string
+	seedMu      sync.Mutex
+	seedDir     string
+	seedErr     error
 )
 
 // seedTemplate builds the repositories seedRepo and seedEmptyRepo copy:

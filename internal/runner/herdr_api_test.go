@@ -22,6 +22,12 @@ import (
 // never opens a tab in whatever herdr the developer has running.
 func TestMain(m *testing.M) {
 	os.Setenv("HERDR_SOCKET_PATH", filepath.Join(os.TempDir(), "yardr-no-herdr.sock"))
+	gitHome, err := os.MkdirTemp("", "yardr-git-home")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "runner tests: create git home: %v\n", err)
+		os.Exit(1)
+	}
+	testGitHome = gitHome
 	// The trust tests wait on fakes that answer at once, so the suite
 	// shortens the wait for a real agent once, here, instead of per test
 	// (per-test shortening races under t.Parallel). The one test that
@@ -30,6 +36,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	scripttest.Remove()
 	seedRemove()
+	os.RemoveAll(gitHome)
 	os.Exit(code)
 }
 
