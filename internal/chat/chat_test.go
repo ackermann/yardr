@@ -14,7 +14,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -456,11 +455,11 @@ func TestStateOf(t *testing.T) {
 		// A session that runs after failed starts is what it does now.
 		{store.CrewMember{State: "running", Enabled: true, Status: "idle", Failures: 1}, Idle},
 		// At its login screen, whatever the runtime says the agent does.
-		{store.CrewMember{State: "running", Enabled: true, Status: "idle", Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, NotLoggedIn},
-		{store.CrewMember{State: "running", Enabled: true, Status: "blocked", Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, NotLoggedIn},
+		{store.CrewMember{State: "running", Enabled: true, Status: "idle", LoginScreen: true}, NotLoggedIn},
+		{store.CrewMember{State: "running", Enabled: true, Status: "blocked", LoginScreen: true}, NotLoggedIn},
 		// A crew member that is gone or given up is that, mark or none.
-		{store.CrewMember{State: "stopped", Enabled: true, Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, NotRunning},
-		{store.CrewMember{State: "failed", Enabled: true, Failures: 5, Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}, Failed},
+		{store.CrewMember{State: "stopped", Enabled: true, LoginScreen: true}, NotRunning},
+		{store.CrewMember{State: "failed", Enabled: true, Failures: 5, LoginScreen: true}, Failed},
 	} {
 		if got := StateOf(c.r); got != c.want {
 			t.Errorf("%+v: %q, want %q", c.r, got, c.want)
@@ -475,8 +474,7 @@ func TestStateOf(t *testing.T) {
 // not logged in, with the command that logs in.
 func TestNotLoggedInStatus(t *testing.T) {
 	r := store.CrewMember{Name: "chief", State: "running", Enabled: true, Status: "idle",
-		Config: map[string]any{"kind": "claude"},
-		Handle: map[string]any{dispatch.HarnessLoginKey: "Select login method:"}}
+		Config: map[string]any{"kind": "claude"}, Handle: map[string]any{}, LoginScreen: true}
 	if got := Known(r); got != "chief is not logged in: run claude in another terminal and log in there; "+
 		"then answer the login in its pane or start it fresh (`yardr crew restart chief`)" {
 		t.Errorf("notice: %q", got)
@@ -492,7 +490,7 @@ func TestNotLoggedInStatus(t *testing.T) {
 
 	// The yard leads its login: the operator answers at asks, and no
 	// terminal is named (yardr-302g).
-	r.Handle[dispatch.HarnessLoginAskKey] = map[string]any{"ask": 4, "step": "pick"}
+	r.LoginLed = true
 	if got := Standing(store.Letter{}, &r, "yardr"); got != "chief is not logged in and cannot read mail: "+YardLeadsLogin {
 		t.Errorf("standing while the yard leads the login: %q", got)
 	}

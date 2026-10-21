@@ -57,8 +57,9 @@ import (
 // offered for: the journal its asks are on, the ask it waits on and what
 // step that ask is. A daemon that starts again finds its first ask here
 // and waits on it again; an ask of a later step, whose leader went with
-// the daemon, it takes back.
-const HarnessLoginAskKey = "harness_login_ask"
+// the daemon, it takes back. Crew says the mark as login_led, and the store
+// raises crew_login when it is put on or taken off.
+const HarnessLoginAskKey = store.HarnessLoginAskKey
 
 // The steps of a led login: which ask it waits on.
 const (

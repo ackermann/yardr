@@ -7,9 +7,10 @@ import (
 )
 
 // The feed leaves out what a view of the crew follows and nobody
-// reads as news: mail being read, and a crew member's turns beginning and
-// ending. A crew member stopping at a prompt, or leaving it, is news. So is a
-// timer firing, and nothing else of a timer.
+// reads as news: mail being read, a crew member's turns beginning and
+// ending, and its session sitting down at a login screen or leaving it. A
+// crew member stopping at a prompt, or leaving it, is news. So is a timer
+// firing, and nothing else of a timer.
 func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
 	status := func(was, now string) store.Event {
 		return store.Event{Kind: "crew_status", Data: map[string]any{"crew": "yardmaster", "status": now, "was": was}}
@@ -19,6 +20,8 @@ func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
 		want bool
 	}{
 		{store.Event{Kind: "mail_read"}, false},
+		{store.Event{Kind: "crew_login", Data: map[string]any{"crew": "yardmaster", "login_screen": true, "login_led": false}}, false},
+		{store.Event{Kind: "crew_login", Data: map[string]any{"crew": "yardmaster", "login_screen": false, "login_led": false}}, false},
 		{status("idle", "working"), false},
 		{status("", "idle"), false},
 		{status("working", "blocked"), true},

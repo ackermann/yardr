@@ -268,7 +268,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 121,
+  "seq": 127,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -296,7 +296,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 123,
+  "seq": 129,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -366,6 +366,30 @@ The daemon saw a crew member's session do something else than before. Any other 
 | `data.status` | string | `working`, `idle`, `blocked` or `unknown` |
 | `data.was` | string | what it was, `""` for a session the daemon had not looked at |
 
+### A crew member's login: `crew_login`
+
+A crew member's session sat down at its harness's login screen or left it, or the yard began or stopped leading that login: `data.login_screen` and `data.login_led` are the two facts as they stand now, as `Crew` says them. It is raised once for the change, not for every write the yard makes of the session's record. A session that starts or stops has the event of that, `crew_started` or `crew_stopped`, and this one is not raised besides. Like the others whose kind begins `crew_` it carries less than what changed: read `Crew` again on it. An event with `data.user` is of that user's conversation session, which `Crew` does not list: a client that shows the crew member's own session passes it over.
+
+```json
+{
+  "seq": 123,
+  "kind": "crew_login",
+  "data": {
+    "crew": "signalman",
+    "login_led": false,
+    "login_screen": true
+  }
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `crew_login` |
+| `data.crew` | string | the crew member |
+| `data.login_screen` | bool | whether the session now sits at its harness's login screen, as `login_screen` of `Crew` |
+| `data.login_led` | bool | whether the yard now leads a login for it, as `login_led` of `Crew` |
+
 ### A notification: any event with `notified`
 
 An event became a notification for the users `data.notified` names, each with the reason. The event is not the notification's text: read `UserNotifications` again when your user is among them. Nothing else of such an event is for a chat client.
@@ -392,7 +416,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 124,
+  "seq": 130,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -755,7 +779,7 @@ POST /call/Head
 {}
 
 {
-  "result": 118
+  "result": 124
 }
 ```
 
@@ -855,6 +879,17 @@ POST /call/Crew
 {
   "result": [
     {
+      "name": "signalman",
+      "enabled": true,
+      "model": "sonnet",
+      "kind": "claude",
+      "state": "running",
+      "status": "idle",
+      "login_screen": true,
+      "login_led": true,
+      "started_at": "2026-10-08T09:30:00Z"
+    },
+    {
       "name": "yardmaster",
       "enabled": true,
       "model": "opus",
@@ -876,8 +911,10 @@ POST /call/Crew
 | `[].started_at` | time, may be absent | when the running session started |
 | `[].model` | string, may be absent | the model its config names; absent when it names none, and the harness's own is then used |
 | `[].kind` | string, may be absent | the harness kind its config names (`claude`, `codex`, ...); absent when it names none, and the yard's `default_kind` is then used |
+| `[].login_screen` | bool, may be absent | `true` while the running session sits at its harness's login screen, where it reads no mail until the harness is logged in; `status` may read `idle` or `blocked` there, and a client says "not logged in" instead, as `yardr chat` does. Absent while it does not, and while no session runs |
+| `[].login_led` | bool, may be absent | `true` while the yard leads a login for the session: it asked the operator how to log in, and the operator answers at their asks ([`UserAsks`](#userasks)) until the login is made and the session starts again. Absent otherwise. Only the session the yard asked for says it: another session of the same harness at its screen is logged in by the same login, and says only `login_screen` |
 
-Mail to a crew member that is not running is kept, and read when it next starts.
+Mail to a crew member that is not running is kept, and read when it next starts. A session at its harness's login screen reads none either: `login_screen` says it, and `login_led` that the yard leads the login. Both change with no change to the crew member's definition: read `Crew` again on a `crew_login` event, as on any other whose kind begins `crew_`.
 
 ### `GetCrew`
 
@@ -904,6 +941,25 @@ POST /call/GetCrew
 }
 ```
 
+```
+POST /call/GetCrew
+{"name":"signalman"}
+
+{
+  "result": {
+    "name": "signalman",
+    "enabled": true,
+    "model": "sonnet",
+    "kind": "claude",
+    "state": "running",
+    "status": "idle",
+    "login_screen": true,
+    "login_led": true,
+    "started_at": "2026-10-08T09:30:00Z"
+  }
+}
+```
+
 | field of the result | type | |
 |---|---|---|
 | `name` | string | the name mail to the crew member is addressed to |
@@ -913,6 +969,8 @@ POST /call/GetCrew
 | `started_at` | time, may be absent | when the running session started |
 | `model` | string, may be absent | the model its config names; absent when it names none, and the harness's own is then used |
 | `kind` | string, may be absent | the harness kind its config names (`claude`, `codex`, ...); absent when it names none, and the yard's `default_kind` is then used |
+| `login_screen` | bool, may be absent | `true` while the running session sits at its harness's login screen, where it reads no mail until the harness is logged in; `status` may read `idle` or `blocked` there, and a client says "not logged in" instead, as `yardr chat` does. Absent while it does not, and while no session runs |
+| `login_led` | bool, may be absent | `true` while the yard leads a login for the session: it asked the operator how to log in, and the operator answers at their asks ([`UserAsks`](#userasks)) until the login is made and the session starts again. Absent otherwise. Only the session the yard asked for says it: another session of the same harness at its screen is logged in by the same login, and says only `login_screen` |
 
 ### `Peers`
 
@@ -1207,7 +1265,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 119,
+      "seq": 125,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1215,7 +1273,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 120,
+      "seq": 126,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1241,7 +1299,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 119,
+      "seq": 125,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1249,7 +1307,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 120,
+      "seq": 126,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1276,7 +1334,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 121,
+      "seq": 127,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",

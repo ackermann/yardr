@@ -191,6 +191,16 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	if l.count() != 0 {
 		t.Fatalf("a leader ran before the ask was answered")
 	}
+	// Crew says the session sits at its screen and the yard leads the
+	// login, and a client was told of each as it came: the session sat
+	// down, then the yard asked how to log it in.
+	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil || !r.LoginScreen || !r.LoginLed {
+		t.Fatalf("while the yard leads the login: Crew says login_screen %v and login_led %v (%v), want both", r.LoginScreen, r.LoginLed, err)
+	}
+	if evs := crewLogins(t, s); len(evs) != 2 || evs[0].Data["login_screen"] != true || evs[0].Data["login_led"] != false ||
+		evs[1].Data["login_screen"] != true || evs[1].Data["login_led"] != true {
+		t.Fatalf("crew_login events while the yard asks how to log in = %+v, want sitting down, then leading", evs)
+	}
 	// Held nudges while the ask is open: no second ask, no leader.
 	must(t, s.Mail(ctx, "yardmaster", "hi", "op"))
 	for range 3 {
@@ -250,6 +260,8 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 		t.Fatal(err)
 	} else if r.Handle[dispatch.HarnessLoginAskKey] != nil {
 		t.Errorf("the login's mark is left on the handle: %v", r.Handle[dispatch.HarnessLoginAskKey])
+	} else if r.LoginScreen || r.LoginLed {
+		t.Errorf("after the login Crew says login_screen %v and login_led %v, want neither", r.LoginScreen, r.LoginLed)
 	}
 
 	// Nothing of the code stands anywhere in the yard.

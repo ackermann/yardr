@@ -76,11 +76,12 @@ const HarnessErrorKey = "harness_error"
 
 // HarnessLoginKey is a handle key: the line of the harness's login screen
 // the agent sits at, while it sits there. It is kept on the handle so the
-// crew's status and yardr doctor say the agent is not logged in; the event
-// that told of it is told once per spell from memory (see loginAt). It is
-// taken off when the agent is seen past it: working, typed to, or with its
-// first prompt arrived.
-const HarnessLoginKey = "harness_login"
+// crew's status and yardr doctor say the agent is not logged in (Crew
+// says it as login_screen, and the store raises crew_login when it is put
+// on or taken off); the event that told of it is told once per spell from
+// memory (see loginAt). It is taken off when the agent is seen past it:
+// working, typed to, or with its first prompt arrived.
+const HarnessLoginKey = store.HarnessLoginKey
 
 // Handle keys of what yardr does for an agent whose harness stopped. They
 // are on the handle, as a pending prompt's are (prompt.go), so a daemon that

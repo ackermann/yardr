@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"yardr.dev/yardr/internal/chat"
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -251,7 +250,7 @@ func withStatus(crew []store.CrewMember, with string) string {
 			case "failed":
 				return chat.Failed
 			case "running":
-				if r.Handle[dispatch.HarnessLoginKey] != nil {
+				if r.LoginScreen {
 					return chat.NotLoggedIn
 				}
 				switch r.Status {

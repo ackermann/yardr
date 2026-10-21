@@ -197,6 +197,8 @@ func crewMember(prefix string) []field {
 		{prefix + "started_at", "time?", "when the running session started"},
 		{prefix + "model", "string?", "the model its config names; absent when it names none, and the harness's own is then used"},
 		{prefix + "kind", "string?", "the harness kind its config names (`claude`, `codex`, ...); absent when it names none, and the yard's `default_kind` is then used"},
+		{prefix + "login_screen", "bool?", "`true` while the running session sits at its harness's login screen, where it reads no mail until the harness is logged in; `status` may read `idle` or `blocked` there, and a client says \"not logged in\" instead, as `yardr chat` does. Absent while it does not, and while no session runs"},
+		{prefix + "login_led", "bool?", "`true` while the yard leads a login for the session: it asked the operator how to log in, and the operator answers at their asks ([`UserAsks`](#userasks)) until the login is made and the session starts again. Absent otherwise. Only the session the yard asked for says it: another session of the same harness at its screen is logged in by the same login, and says only `login_screen`"},
 	}
 }
 
@@ -246,13 +248,14 @@ var apiCalls = []apiCall{
 		says:     "The crew, running or not, by name.",
 		requests: []string{`{}`},
 		fields:   crewMember("[]."),
-		after:    "Mail to a crew member that is not running is kept, and read when it next starts.",
+		after: "Mail to a crew member that is not running is kept, and read when it next starts. A session at its harness's login screen reads none either: " +
+			"`login_screen` says it, and `login_led` that the yard leads the login. Both change with no change to the crew member's definition: read `Crew` again on a `crew_login` event, as on any other whose kind begins `crew_`.",
 	},
 	{
 		method:   "GetCrew",
 		says:     "One crew member, as `Crew` lists it; the error `not-found` for a name the crew does not have.",
 		args:     []field{{"name", "string", "the crew member"}},
-		requests: []string{`{"name":"yardmaster"}`},
+		requests: []string{`{"name":"yardmaster"}`, `{"name":"signalman"}`},
 		fields:   crewMember(""),
 	},
 	{
@@ -782,6 +785,21 @@ var apiEvents = []apiEvent{
 		},
 	},
 	{
+		title: "A crew member's login: `crew_login`",
+		says: "A crew member's session sat down at its harness's login screen or left it, or the yard began or stopped leading that login: `data.login_screen` and `data.login_led` are the two facts as they stand now, as `Crew` says them. " +
+			"It is raised once for the change, not for every write the yard makes of the session's record. A session that starts or stops has the event of that, `crew_started` or `crew_stopped`, and this one is not raised besides. " +
+			"Like the others whose kind begins `crew_` it carries less than what changed: read `Crew` again on it. " +
+			"An event with `data.user` is of that user's conversation session, which `Crew` does not list: a client that shows the crew member's own session passes it over.",
+		is: kindOf("crew_login"),
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`crew_login`"},
+			{"data.crew", "string", "the crew member"},
+			{"data.login_screen", "bool", "whether the session now sits at its harness's login screen, as `login_screen` of `Crew`"},
+			{"data.login_led", "bool", "whether the yard now leads a login for it, as `login_led` of `Crew`"},
+		},
+	},
+	{
 		title: "A notification: any event with `notified`",
 		says:  "An event became a notification for the users `data.notified` names, each with the reason. The event is not the notification's text: read `UserNotifications` again when your user is among them. Nothing else of such an event is for a chat client.",
 		is: func(e store.Event) bool {
@@ -1290,6 +1308,21 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	// show. Last again, for the seqs above.
 	must(st.SetSetting(ctx, store.StyleSetting, "show", "jo"))
 	must(st.SetSetting(ctx, store.NoteSetting, "I read diffs, not prose", "jo"))
+
+	// A crew member whose session sits at its harness's login screen, the
+	// yard leading the login: Crew, GetCrew and the stream each have the
+	// two facts to show, and the stream the two changes that made them.
+	// Last again, for the seqs above.
+	_, err = st.PutCrew(ctx, store.CrewMember{Name: "signalman", Runner: "herdr", Config: map[string]any{"kind": "claude", "model": "sonnet"}}, "jo")
+	must(err)
+	handle := map[string]any{"pane": "p2"}
+	must(st.CrewStarted(ctx, "signalman", handle))
+	must(st.CrewStatus(ctx, "signalman", "idle"))
+	handle = map[string]any{"pane": "p2", store.HarnessLoginKey: "Select login method:"}
+	must(st.SetCrewHandle(ctx, "signalman", handle))
+	handle = map[string]any{"pane": "p2", store.HarnessLoginKey: "Select login method:",
+		store.HarnessLoginAskKey: map[string]any{"journal": "signalman-journal", "ask": 1, "step": "pick", "kind": "claude"}}
+	must(st.SetCrewHandle(ctx, "signalman", handle))
 	return st, d.Token
 }
 

@@ -363,7 +363,9 @@ at all.
   login methods is the one known today; without it the menu reads as text
   in the input, since its selected option carries the mark of the input.
   While the crew member sits there its status is `not logged in`
-  ([chat.md](chat.md)), and `yardr doctor` lists it as a fault.
+  ([chat.md](chat.md)), and `yardr doctor` lists it as a fault. A program
+  that is not yardr reads it as `login_screen` on `Crew`, and is told when
+  it changes by a `crew_login` event ([api.md](api.md#a-crew-members-login-crew_login)).
 - A yard with an operator leads that login itself, with no agent in the
   loop: the crew member cannot relay a login its own harness needs to run.
   See "The yard leads a harness's login" below.
@@ -435,7 +437,7 @@ back with why, and the next one is asked only when the crew member is
 next sent mail. The first ask has no limit: a daemon that starts again
 finds it on the session's handle (`harness_login_ask`) and waits on it.
 While it is open, the crew member's line says the yard leads its login
-and waits for the operator at its asks.
+and waits for the operator at its asks; `Crew` says it as `login_led`.
 
 A crew member whose env points its harness at a login folder of its own
 (`CLAUDE_CONFIG_DIR` in an env file) is not logged in by the yard's

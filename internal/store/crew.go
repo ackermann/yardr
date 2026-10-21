@@ -153,6 +153,14 @@ type CrewSession struct {
 	// or the daemon has not looked yet.
 	Status string         `json:"status,omitempty"`
 	Handle map[string]any `json:"handle,omitempty"`
+	// LoginScreen and LoginLed are two facts the daemon keeps on the handle
+	// (HarnessLoginKey, HarnessLoginAskKey), read out of it for a client
+	// that has no use for the handle itself (Crew and GetCrew): the running
+	// session sits at its harness's login screen, and the yard leads a
+	// login for it. They are derived on reading, never stored, and absent
+	// while false; SetCrewHandleFor raises crew_login when either changes.
+	LoginScreen bool `json:"login_screen,omitempty"`
+	LoginLed    bool `json:"login_led,omitempty"`
 	// Starting is the handle, as far as it is known, of a session the
 	// daemon is starting (CrewStarting): its agent can act before the
 	// start is recorded, and its pane is the crew member's from then.
@@ -184,6 +192,29 @@ type CrewSession struct {
 }
 
 func (s CrewSession) Live() bool { return s.State == "running" }
+
+// Handle keys of a session at its harness's login screen. The daemon writes
+// them (internal/dispatch says when), and the store reads them back out of
+// the handle as LoginScreen and LoginLed, so it names them as it names
+// PendingPrompt.
+const (
+	// HarnessLoginKey is the line of the harness's login screen the agent
+	// sits at, while it sits there.
+	HarnessLoginKey = "harness_login"
+	// HarnessLoginAskKey is the ask of a login the yard leads for the
+	// session: its journal, the ask it waits on and what step that is.
+	HarnessLoginAskKey = "harness_login_ask"
+)
+
+// login reads the two login facts of s off its handle (LoginScreen and
+// LoginLed). A session that does not run sits nowhere, whatever mark its
+// handle still holds.
+func (s CrewSession) login() (screen, led bool) {
+	if !s.Live() {
+		return false, false
+	}
+	return s.Handle[HarnessLoginKey] != nil, s.Handle[HarnessLoginAskKey] != nil
+}
 
 // CrewForKey is the crew config key naming the users a crew member serves;
 // EnvForPrefix starts the per-user env keys (env_for_<user>).
@@ -524,17 +555,23 @@ func checkCrewUsers(tx *bolt.Tx, def *CrewMember) error {
 	return nil
 }
 
-// configured fills the fields of r that are read out of its config.
-func (r *CrewMember) configured() {
+// derived fills the fields of r that are read out of what it holds: its
+// config, and the handle of each session.
+func (r *CrewMember) derived() {
 	r.Model, _ = r.Config["model"].(string)
 	r.Kind, _ = r.Config["kind"].(string)
+	r.LoginScreen, r.LoginLed = r.CrewSession.login()
+	for user, cs := range r.Conversations {
+		cs.LoginScreen, cs.LoginLed = cs.login()
+		r.Conversations[user] = cs
+	}
 }
 
 func (s *Store) Crew(ctx context.Context) ([]CrewMember, error) {
 	out := []CrewMember{}
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
-			r.configured()
+			r.derived()
 			out = append(out, *r)
 			return nil
 		})
@@ -554,7 +591,7 @@ func (s *Store) GetCrew(ctx context.Context, name string) (*CrewMember, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.configured()
+	r.derived()
 	return r, nil
 }
 

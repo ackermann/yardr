@@ -151,14 +151,23 @@ func (s *Store) CrewStatusFor(ctx context.Context, name, user, status string) er
 }
 
 // SetCrewHandleFor is SetCrewHandle for one session. The daemon's alone
-// (daemonOnly): the pane checks trust the handle.
+// (daemonOnly): the pane checks trust the handle. The daemon writes the
+// handle on many passes for many reasons, so the write tells of nothing but
+// the two facts a client reads off it (LoginScreen and LoginLed): one
+// crew_login for the write that changes either. A session that starts or
+// stops has its own event, and none is raised again for it.
 func (s *Store) SetCrewHandleFor(ctx context.Context, name, user string, handle map[string]any) error {
 	if err := s.daemonOnly(ctx, "SetCrewHandleFor"); err != nil {
 		return err
 	}
-	return s.changeCrewSession(name, user, func(_ *wtx, _ *CrewMember, st *CrewSession) error {
+	return s.changeCrewSession(name, user, func(w *wtx, _ *CrewMember, st *CrewSession) error {
+		screen, led := st.login()
 		st.Handle = handle
-		return nil
+		nowScreen, nowLed := st.login()
+		if nowScreen == screen && nowLed == led {
+			return nil
+		}
+		return w.event("", "crew_login", "yard", sessionData(user, map[string]any{"crew": name, "login_screen": nowScreen, "login_led": nowLed}))
 	})
 }
 

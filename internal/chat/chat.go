@@ -34,7 +34,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"yardr.dev/yardr/internal/agents"
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -409,8 +408,8 @@ const (
 	Blocked    = "blocked"
 	Failed     = "failed to start"
 	// NotLoggedIn is a session at its harness's login screen: the daemon
-	// saw it there and keeps it on the handle, whatever the runtime says
-	// the agent does.
+	// saw it there and Crew says so (LoginScreen), whatever the runtime
+	// says the agent does.
 	NotLoggedIn = "not logged in"
 	// Running is a session of which the daemon has not said more yet, or
 	// whose runtime cannot tell.
@@ -426,7 +425,7 @@ func StateOf(r store.CrewMember) string {
 		return Failed
 	case !r.Live():
 		return NotRunning
-	case r.Handle[dispatch.HarnessLoginKey] != nil:
+	case r.LoginScreen:
 		return NotLoggedIn
 	}
 	switch r.Status {
@@ -455,8 +454,8 @@ func loginExe(r store.CrewMember) (kind, exe string) {
 }
 
 // YardLeadsLogin is what is said of a crew member at its login screen
-// whose login the yard leads (dispatch.HarnessLoginAskKey): the operator
-// answers it at asks, with no terminal.
+// whose login the yard leads (LoginLed): the operator answers it at asks,
+// with no terminal.
 const YardLeadsLogin = "the yard leads its login, and waits for the operator at its asks (yardr asks)"
 
 // PaneKey is the key that goes to the selected crew member's pane, as the
@@ -497,10 +496,10 @@ func Known(r store.CrewMember) string {
 	if kind == "" {
 		kind = "its harness"
 	}
-	if r.Handle[dispatch.HarnessLoginAskKey] != nil {
+	if r.LoginLed {
 		return fmt.Sprintf("%s is not logged in: %s; it starts again once the login is made", r.Name, YardLeadsLogin)
 	}
-	if r.Handle[dispatch.HarnessLoginKey] != nil {
+	if r.LoginScreen {
 		_, exe := loginExe(r)
 		return fmt.Sprintf("%s is not logged in: run %s in another terminal and log in there; "+
 			"then answer the login in its pane or start it fresh (`yardr crew restart %s`)", r.Name, exe, r.Name)
@@ -525,10 +524,10 @@ func Standing(l store.Letter, r *store.CrewMember, yardr string) string {
 		return "sent"
 	}
 	n := r.Name
-	if r.Handle[dispatch.HarnessLoginAskKey] != nil {
+	if r.LoginLed {
 		return fmt.Sprintf("%s is not logged in and cannot read mail: %s", n, YardLeadsLogin)
 	}
-	if r.Handle[dispatch.HarnessLoginKey] != nil {
+	if r.LoginScreen {
 		_, exe := loginExe(*r)
 		return fmt.Sprintf("%s is not logged in and cannot read mail (run %s in another terminal and log in there)", n, exe)
 	}

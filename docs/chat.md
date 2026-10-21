@@ -918,7 +918,7 @@ yard's: herdr is asked for it every 5 seconds, while that notice shows.) When th
 replaces itself after an install) the title says so, and the view subscribes
 again after the last event it got, so nothing in between is lost.
 
-Two kinds of event exist for this, and anything else that follows the
+Three kinds of event exist for this, and anything else that follows the
 stream can use them:
 
 - `crew_status`, with `crew`, `status` (`working`, `idle`, `blocked`
@@ -928,6 +928,12 @@ stream can use them:
   pass: after every change to the store, and every 30 seconds otherwise, so
   a session that starts or ends a turn with nothing else happening in the
   yard shows up to that much later.
+- `crew_login`, with `crew`, `login_screen` and `login_led`: a session sat
+  down at its harness's login screen or left it, or the yard began or
+  stopped leading that login. The two are also on the crew member
+  (`yardr crew show <name> --json`), and the view reads the crew again on
+  the event, as on every `crew_` one: a login made in the pane ends `not
+  logged in` with it.
 - `mail_read`, with `reader` and `through`: a crew member or a user
   acknowledged its inbox through that seq, and mail was among what it
   acknowledged.
@@ -938,7 +944,7 @@ and the view reads your notifications again when you are among them.
 `notifications_read`, with `reader` and `through`, says a user acknowledged
 their notifications through that seq.
 
-Neither of the two above is on a bead, and the web view's feed leaves them out, but for a
+None of the three above is on a bead, and the web view's feed leaves them out, but for a
 crew member that stops at a prompt or leaves it.
 
 Mail to and from a linked yard is `mail` in the stream too (`to_peer`,

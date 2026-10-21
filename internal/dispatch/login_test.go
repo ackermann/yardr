@@ -9,6 +9,16 @@ import (
 	"yardr.dev/yardr/internal/store"
 )
 
+// crewLogins are the crew_login events of the yard, oldest first: what a
+// client that follows the crew is told when a session sits down at its
+// harness's login screen or leaves it.
+func crewLogins(t *testing.T, s store.API) []store.Event {
+	t.Helper()
+	evs, err := s.EventsOfKind(context.Background(), "crew_login", 0)
+	must(t, err)
+	return evs
+}
+
 // Found live (yardr-m519): the yardmaster sat at Claude Code's menu of login
 // methods, whose selected option carries the mark of the input. Nothing may
 // be typed there, and the one event names the login with the command that
@@ -49,6 +59,14 @@ func TestLoginScreenHoldsNudgeAndTellsOnce(t *testing.T) {
 		t.Fatal(err)
 	} else if r.Handle[dispatch.HarnessLoginKey] != "Select login method:" {
 		t.Errorf("handle mark = %v, want the login line", r.Handle[dispatch.HarnessLoginKey])
+	} else if !r.LoginScreen || r.LoginLed {
+		t.Errorf("Crew says login_screen %v and login_led %v, want true and false", r.LoginScreen, r.LoginLed)
+	}
+	// A client that follows the crew is told it once, however many passes
+	// find the session there.
+	if evs := crewLogins(t, s); len(evs) != 1 || evs[0].Data["crew"] != "yardmaster" ||
+		evs[0].Data["login_screen"] != true || evs[0].Data["login_led"] != false {
+		t.Fatalf("crew_login events at the login screen = %+v, want the one for sitting down", evs)
 	}
 
 	// Answered in the pane: the nudge goes on the next pass, the mark goes
@@ -64,9 +82,16 @@ func TestLoginScreenHoldsNudgeAndTellsOnce(t *testing.T) {
 		t.Fatal(err)
 	} else if _, ok := r.Handle[dispatch.HarnessLoginKey]; ok {
 		t.Errorf("handle still marked after the login: %v", r.Handle[dispatch.HarnessLoginKey])
+	} else if r.LoginScreen || r.LoginLed {
+		t.Errorf("Crew says login_screen %v and login_led %v after the login, want neither", r.LoginScreen, r.LoginLed)
 	}
 	if n, _ := kindCount(t, s, r.Journal, "nudge_held"); n != 1 {
 		t.Errorf("nudge_held events = %d, want still the one", n)
+	}
+	// And once more when it leaves the screen, the only other thing that
+	// changed: the handle was written for other reasons on the way.
+	if evs := crewLogins(t, s); len(evs) != 2 || evs[1].Data["login_screen"] != false || evs[1].Data["login_led"] != false {
+		t.Errorf("crew_login events after the login = %+v, want a second, for leaving it", evs)
 	}
 }
 

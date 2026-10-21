@@ -843,6 +843,9 @@ Home as JSON:
   it); `enabled` is false for one the daemon was told not to keep up.
 - `status` is what its running session is doing, as the daemon last saw
   it: `working`, `idle`, `blocked` or `unknown`; absent when none runs.
+- `login_screen` is there while its running session sits at its harness's
+  login screen, and `login_led` while the yard leads that login, as
+  [`Crew`](api.md#crew) of the socket has them.
 - `since` and `up` are there while it runs: when its session started.
 - `agent` is its runner, kind and model in one string, for the page;
   `kind` and `model` are each alone, as `yardr crew list --json` has them.
