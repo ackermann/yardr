@@ -14,10 +14,10 @@ import (
 )
 
 // peerThreadYard opens the yard the peer-thread tests share: the away
-// flow on the web depot, and a bead claimed and sent to the peer north.
-// Each test allows the peer its own way — the directions and what they
-// assert differ — after the flow is in place and before the bead goes.
-func peerThreadYard(t *testing.T, allow func(st store.API)) (store.API, *store.Store, string, context.Context, string) {
+// flow on the web depot, and a bead claimed for the peer north. Each test
+// allows the peer its own way — the directions and what they assert differ
+// — after the flow is in place and before the bead goes.
+func peerThreadYard(t *testing.T, allow func(st store.API)) (store.API, *store.Store, string, context.Context, string, *store.Session) {
 	t.Helper()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
@@ -45,10 +45,7 @@ func peerThreadYard(t *testing.T, allow func(st store.API)) (store.API, *store.S
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
-		t.Fatal(err)
-	}
-	return st, own, key, ctx, id
+	return st, own, key, ctx, id, sess
 }
 
 // The word thread in the commands: peer allow takes it and warns for a
@@ -58,7 +55,7 @@ func peerThreadYard(t *testing.T, allow func(st store.API)) (store.API, *store.S
 // plain fields, and it goes when the stay ends.
 func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 	t.Parallel()
-	st, own, key, ctx, id := peerThreadYard(t, func(st store.API) {
+	st, own, key, ctx, id, sess := peerThreadYard(t, func(st store.API) {
 		errs := errOutput(t)
 		if out := mustAsErr(t, st, "jo", errs, "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread"); !strings.Contains(out, "peer north: send bead, thread; receive thread;") {
 			t.Fatalf("peer allow:\n%s", out)
@@ -68,6 +65,9 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 		}
 		refusedAs(t, st, "jo", `"bead-event" is no kind of message between yards: there is ask, bead, file, mail, ping, thread`, "peer", "allow", "north", "--send", "bead-event")
 	})
+	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
 	if show := mustAs(t, st, "jo", "bead", "show", id); !strings.Contains(show, "  at north: sent ") || strings.Contains(show, "there it is") {
 		t.Fatalf("bead show before north said anything:\n%s", show)
 	}
@@ -130,7 +130,7 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 // command.
 func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 	t.Parallel()
-	st, own, key, ctx, id := peerThreadYard(t, func(st store.API) {
+	st, own, key, ctx, id, sess := peerThreadYard(t, func(st store.API) {
 		mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--receive", "thread")
 	})
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo"); err != nil {
@@ -138,6 +138,9 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 	}
 	mustAs(t, st, "jo", "subscribe", "clerk", "peer", "--scope", "all")
 	here := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Stays here", "--depot", "web", "--stage", "review"))[0]
+	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
 	out, err := st.PeerOutbox(ctx, "north", 0)
 	if err != nil || len(out) != 1 {
 		t.Fatalf("what waits for north = %+v, %v", out, err)
@@ -281,9 +284,12 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 // terminal would draw the mark for reads as letters, as in mail.
 func TestThreadShowOfABeadAtAPeerCannotForgeAFilesLine(t *testing.T) {
 	t.Parallel()
-	st, own, key, ctx, id := peerThreadYard(t, func(st store.API) {
+	st, own, key, ctx, id, sess := peerThreadYard(t, func(st store.API) {
 		mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread")
 	})
+	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
+		t.Fatal(err)
+	}
 	// north answers the read with notes that forge the files line: one
 	// types the mark, one the escape a terminal draws it for.
 	forged := store.NoteFilesMark + " 1 image: /etc/hosts"
