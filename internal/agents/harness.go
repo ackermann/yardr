@@ -90,6 +90,12 @@ type Harness struct {
 	// ever in the session's environment by the operator's hand. nil
 	// when the file names none, and the dialog is left for a human.
 	ApiKey *Trust `yaml:"api_key" json:"api_key,omitempty"`
+	// Onboarding are the first-start screens the harness draws in a
+	// fresh home, before any login and before any input, which yardr
+	// answers in turn as it answers folder trust, each entry once
+	// wherever it shows. An entry with no cursor is answered with
+	// Enter alone, without moving one. nil when the file names none.
+	Onboarding []Trust `yaml:"onboarding" json:"onboarding,omitempty"`
 	// Background are the lines the harness draws around its input while
 	// work its agent started in the background still runs (a shell): the
 	// agent waits for it and the harness wakes it, so it is idle to herdr
@@ -100,10 +106,13 @@ type Harness struct {
 
 // Trust is one dialog yardr answers itself from a harness file: the text
 // that marks it on the pane's screen, the answers that accept it, and the
-// mark of the selected answer, as the harness prints them. Folder trust
-// and a use-this-API-key confirmation share this shape. The dialog is
-// answered only when the mark shows, one answer shows exactly, and the
-// cursor is seen on that answer (internal/runner/trust.go). There is one
+// mark of the selected answer, as the harness prints them. Folder trust,
+// a use-this-API-key confirmation and an onboarding screen share this
+// shape. The dialog is answered only when the mark shows, one answer
+// shows exactly, and the cursor is seen on that answer
+// (internal/runner/trust.go). An entry with no cursor, an onboarding
+// screen with nothing to choose, is answered with Enter alone when its
+// mark and one answer show. There is one
 // answer per harness version that renamed it: Kimi 2.2.0 renamed 'Trust
 // this folder' to 'Trust and continue', so its file names both. Answers
 // arrive as one string or a list, and the file's old `answer` still reads
@@ -200,7 +209,8 @@ func (t Trust) ShowsDialog(line string) bool {
 
 // ShowsAnswer reports whether line is one of t's accepting answers: the
 // dialog's cursor taken off, the rest exact. selected says the cursor is
-// on it.
+// on it. With no cursor nothing is ever selected: such an entry is
+// answered with Enter alone.
 func (t Trust) ShowsAnswer(line string) (answer string, selected bool) {
 	l := strings.TrimSpace(line)
 	answer = strings.TrimSpace(strings.TrimPrefix(l, t.Cursor))
@@ -742,6 +752,15 @@ func (h *Harness) check() error {
 		}
 		if len(k.Env) > 0 {
 			return fmt.Errorf("api_key takes no env: nothing skips this dialog")
+		}
+	}
+	for i := range h.Onboarding {
+		o := &h.Onboarding[i]
+		if o.Dialog == "" || len(o.Answers) == 0 || slices.Contains(o.Answers, "") {
+			return fmt.Errorf("onboarding: entry %d: a screen yardr answers names its text and its accepting answers", i+1)
+		}
+		if len(o.Env) > 0 {
+			return fmt.Errorf("onboarding: entry %d takes no env: nothing skips these screens", i+1)
 		}
 	}
 	for i := range h.Background {

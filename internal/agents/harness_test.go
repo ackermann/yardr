@@ -51,7 +51,7 @@ func TestHarnessFiles(t *testing.T) {
 func TestKindWithNoFile(t *testing.T) {
 	for _, kind := range []string{"gemini", "cursor", "nope", ""} {
 		h, ok := Lookup(kind)
-		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.LoginEnv != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.ApiKey != nil || h.Label != "" || h.Provider != "" ||
+		if ok || h.Marks != (Marks{}) || h.Errors != nil || h.Dialogs != nil || h.Login != nil || h.LoginRecipe != nil || h.LoginEnv != nil || h.Background != nil || h.Model != nil || h.Trust != nil || h.ApiKey != nil || h.Onboarding != nil || h.Label != "" || h.Provider != "" ||
 			h.Flags.Unattended != nil || h.Flags.Always != nil || h.Flags.Permissions != nil {
 			t.Errorf("%q: %v, %+v; want nothing known", kind, ok, h)
 		}
@@ -512,6 +512,34 @@ func TestLoginEnv(t *testing.T) {
 	}
 }
 
+// The first-start screens a kind's file names for yardr to answer in turn
+// in a fresh home (yardr-dffh): Claude Code's theme picker and its security
+// notes, each as the pty read them. The picker opens with its cursor on
+// Dark mode, which the ✔ marks as the current theme; the security notes
+// name no cursor and are answered with Enter alone. No other kind names
+// any.
+func TestOnboarding(t *testing.T) {
+	for _, h := range Harnesses {
+		if (len(h.Onboarding) > 0) != (h.Kind == "claude") {
+			t.Errorf("%s: onboarding %+v; only claude's file names any", h.Kind, h.Onboarding)
+		}
+	}
+	claude, _ := Lookup("claude")
+	want := []Trust{
+		{Dialog: "Choose the text style", Answers: []string{"✔ Dark mode"}, Cursor: "❯"},
+		{Dialog: "Security notes:", Answers: []string{"Press Enter to continue…"}},
+	}
+	if len(claude.Onboarding) != len(want) {
+		t.Fatalf("claude's onboarding: %+v, want %d entries", claude.Onboarding, len(want))
+	}
+	for i, w := range want {
+		got := claude.Onboarding[i]
+		if got.Dialog != w.Dialog || !slices.Equal(got.Answers, w.Answers) || got.Cursor != w.Cursor || len(got.Env) != 0 {
+			t.Errorf("claude's onboarding entry %d: %+v, want %+v", i+1, got, w)
+		}
+	}
+}
+
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
 	for name, c := range map[string]struct{ file, body, want string }{
@@ -564,6 +592,9 @@ func TestLoadRefuses(t *testing.T) {
 		"api_key, no dialog":               {"claude.yaml", "version: 1\nlabel: x\napi_key: {answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
 		"api_key, no cursor":               {"claude.yaml", "version: 1\nlabel: x\napi_key: {dialog: 'Use it?', answers: ['Yes']}\n", "names its text, its accepting answers and its cursor"},
 		"api_key, env":                     {"claude.yaml", "version: 1\nlabel: x\napi_key: {dialog: 'Use it?', answers: ['Yes'], cursor: '>', env: ['A=1']}\n", "api_key takes no env"},
+		"onboarding, no answers":           {"claude.yaml", "version: 1\nlabel: x\nonboarding: [{dialog: 'Pick one'}]\n", "onboarding: entry 1: a screen yardr answers names its text and its accepting answers"},
+		"onboarding, no dialog":            {"claude.yaml", "version: 1\nlabel: x\nonboarding: [{answers: ['Yes']}]\n", "onboarding: entry 1: a screen yardr answers names its text and its accepting answers"},
+		"onboarding, env":                  {"claude.yaml", "version: 1\nlabel: x\nonboarding: [{dialog: 'Pick one', answers: ['Yes'], env: ['A=1']}]\n", "onboarding: entry 1 takes no env"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)

@@ -133,7 +133,7 @@ func TestStartAgentChecksThePromptArrived(t *testing.T) {
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "Read /wt/brief-1.md and follow it.",
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil)
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +159,7 @@ func TestStartAgentUnreadablePaneIsUnconfirmed(t *testing.T) {
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil, nil)
 	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptUnconfirmed] != true ||
 		handle[dispatch.PromptLook] != "unreadable, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
@@ -175,7 +175,7 @@ func TestStartAgentWithoutPaneIsNotPending(t *testing.T) {
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1"}, nil, nil)
+		map[string]any{"agent": "b1"}, nil, nil, nil)
 	if err != nil || handle[store.PendingPrompt] != nil || handle[dispatch.PromptLook] != "no pane, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
@@ -699,7 +699,7 @@ esac`)
 				start[harnessKind] = c.kind
 			}
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
-				start, nil, nil)
+				start, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -745,7 +745,7 @@ func TestStartAgentLooksAfterHerdrOutageError(t *testing.T) {
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil, nil)
 	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "absent, herdr stalled" {
 		t.Fatalf("handle = %v, err = %v", handle, err)
 	}
@@ -758,7 +758,7 @@ func TestStartAgentKeepsBlockedPromptPendingWithoutPane(t *testing.T) {
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1"}, nil, nil)
+		map[string]any{"agent": "b1"}, nil, nil, nil)
 	if err != nil || handle[store.PendingPrompt] != "read the brief" || handle[dispatch.PromptLook] != "no pane, herdr blocked" ||
 		handle[dispatch.PromptUnconfirmed] != true {
 		t.Fatalf("handle = %v, err = %v", handle, err)
@@ -836,7 +836,7 @@ func TestStartAgentBlockedWithTextAndNoInputIsUnconfirmed(t *testing.T) {
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)
 	handle, err := (&Herdr{Bin: bin}).startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
-		map[string]any{"agent": "b1", "pane": "w1:p1", harnessKind: "claude"}, nil, nil)
+		map[string]any{"agent": "b1", "pane": "w1:p1", harnessKind: "claude"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,50 +20,59 @@ import (
 // trust=false.
 const fakeTrustDialog = "Do you trust this folder?\n❯ Yes, proceed"
 
+// fakeOnboarding are the onboarding screens the crew fake answers, one per
+// entry of the kind's file: only this exact text on the pane, for its own
+// entry.
+var fakeOnboarding = []string{
+	"Pick a theme:\n❯ Dark",
+	"Notes:\nPress Enter to continue",
+}
+
 // crewRunner fakes herdr for crew members: sessions with a status, and the
 // nudges they received.
 type crewRunner struct {
-	mu          sync.Mutex
-	n           int
-	status      map[string]string // agent -> idle|working|"" (gone)
-	nudges      []string
-	screen      string   // what the pane shows
-	trustKeys   []string // keys sent to answer the trust dialog
-	trustCalls  int      // passes that asked for the trust dialog to be answered
-	stops       int
-	failNext    error
-	blocked     bool                // next start blocks before the agent is ready (a trust prompt)
-	foreign     *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
-	findErr     error               // the agent list cannot be read
-	sent        bool                // next start sends the first prompt and does not see it arrive
-	unconfirmed bool                // the next sent start leaves the prompt unconfirmed: sent, but not seen taken
-	shown       bool                // the pane shows the first prompt
-	drop        int                 // deliveries of the first prompt the agent still drops
-	blind       bool                // the pane cannot be read
-	typed       bool                // the first prompt is in the agent's input, not submitted
-	typedErr    error               // the agent's input cannot be looked in for the prompt
-	stick       int                 // deliveries of the first prompt the agent still leaves in its input
-	deaf        bool                // Enter does not submit what is in the input
-	submits     int                 // times Enter was sent
-	input       string              // what is in the agent's input, not sent
-	noInput     bool                // the harness's input cannot be told
-	open        []string            // agents whose workspace is open, in the order they started
-	busy        map[string]bool     // agents in whose workspace another agent runs now
-	closeErr    error               // a workspace cannot be closed
-	tail        string              // what the pane ends in
-	first       string              // the first prompt a start gives, kept on the handle when set
-	atDialog    bool                // the agent is at a dialog: Nudge types nothing and says so
-	stalls      bool                // the agent starts on nothing it is typed: Nudge says so
-	took        bool                // ... though it took the text all the same
-	dialog      string              // the dialog its harness has drawn in place of its input, by its word
-	line        string              // ... and the dialog's first line
-	asks        string              // the harness answers the next text typed with this dialog, and keeps the text behind it
-	login       string              // the line of the login screen it sits at, "" for none
-	noScreen    bool                // the harness has not drawn its screen (no input mark)
-	ctxUsed     int                 // the context the session holds, when ctxOK
-	ctxOK       bool                // ... and whether the session's kind names a source
-	ctxErr      error               // ... or the read fails
-	ctxCalls    int                 // reads of the session's context use
+	mu              sync.Mutex
+	n               int
+	status          map[string]string // agent -> idle|working|"" (gone)
+	nudges          []string
+	screen          string   // what the pane shows
+	trustKeys       []string // keys sent to answer the trust dialog
+	trustCalls      int      // passes that asked for the trust dialog to be answered
+	onboardingCalls int      // passes that asked for an onboarding screen to be answered
+	stops           int
+	failNext        error
+	blocked         bool                // next start blocks before the agent is ready (a trust prompt)
+	foreign         *dispatch.LiveAgent // an agent yardr did not start that already is the crew member
+	findErr         error               // the agent list cannot be read
+	sent            bool                // next start sends the first prompt and does not see it arrive
+	unconfirmed     bool                // the next sent start leaves the prompt unconfirmed: sent, but not seen taken
+	shown           bool                // the pane shows the first prompt
+	drop            int                 // deliveries of the first prompt the agent still drops
+	blind           bool                // the pane cannot be read
+	typed           bool                // the first prompt is in the agent's input, not submitted
+	typedErr        error               // the agent's input cannot be looked in for the prompt
+	stick           int                 // deliveries of the first prompt the agent still leaves in its input
+	deaf            bool                // Enter does not submit what is in the input
+	submits         int                 // times Enter was sent
+	input           string              // what is in the agent's input, not sent
+	noInput         bool                // the harness's input cannot be told
+	open            []string            // agents whose workspace is open, in the order they started
+	busy            map[string]bool     // agents in whose workspace another agent runs now
+	closeErr        error               // a workspace cannot be closed
+	tail            string              // what the pane ends in
+	first           string              // the first prompt a start gives, kept on the handle when set
+	atDialog        bool                // the agent is at a dialog: Nudge types nothing and says so
+	stalls          bool                // the agent starts on nothing it is typed: Nudge says so
+	took            bool                // ... though it took the text all the same
+	dialog          string              // the dialog its harness has drawn in place of its input, by its word
+	line            string              // ... and the dialog's first line
+	asks            string              // the harness answers the next text typed with this dialog, and keeps the text behind it
+	login           string              // the line of the login screen it sits at, "" for none
+	noScreen        bool                // the harness has not drawn its screen (no input mark)
+	ctxUsed         int                 // the context the session holds, when ctxOK
+	ctxOK           bool                // ... and whether the session's kind names a source
+	ctxErr          error               // ... or the read fails
+	ctxCalls        int                 // reads of the session's context use
 }
 
 func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
@@ -179,6 +188,17 @@ func (f *crewRunner) AcceptTrust(_ context.Context, _ map[string]any, cfg map[st
 
 func (f *crewRunner) AcceptKey(context.Context, map[string]any, map[string]any) bool {
 	return false
+}
+
+func (f *crewRunner) AcceptOnboarding(_ context.Context, _ map[string]any, _ map[string]any, entry int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onboardingCalls++
+	if entry < 0 || entry >= len(fakeOnboarding) || f.screen != fakeOnboarding[entry] {
+		return false
+	}
+	f.trustKeys = append(f.trustKeys, "enter")
+	return true
 }
 
 func (f *crewRunner) LiveCrew(context.Context, store.CrewMember, string) (*dispatch.LiveAgent, error) {
@@ -498,6 +518,52 @@ func TestCrewTrustDialogDrawnLateIsAnswered(t *testing.T) {
 	for _, e := range evs {
 		if e.Kind == "crew_blocked" {
 			t.Fatalf("a crew member whose trust dialog was answered was reported blocked: %+v", e)
+		}
+	}
+}
+
+// The onboarding screens stand at different times, around the API-key
+// dialog (yardr-dffh): each is answered on the pass where it shows, once,
+// under its own mark, and the first prompt is delivered once the agent is
+// idle, with no crew_blocked logged.
+func TestCrewOnboardingDrawnLateIsAnswered(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.blocked = true // the start finds the agent not ready and leaves the prompt pending
+	must(t, d.Reconcile(ctx))
+	agent := agentOf(t, s)
+	f.screen = fakeOnboarding[0] // drawn after the start looked
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.OnboardingAccepted(0)] != true || r.Handle[store.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v, want onboarding_accepted_0 and the prompt still pending", r.Handle)
+	}
+	f.screen = fakeOnboarding[1] // the next screen, on the next pass
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if r.Handle[dispatch.OnboardingAccepted(0)] != true || r.Handle[dispatch.OnboardingAccepted(1)] != true ||
+		r.Handle[store.PendingPrompt] != "prime yourself" {
+		t.Fatalf("handle = %v, want both onboarding marks and the prompt still pending", r.Handle)
+	}
+	if !slices.Equal(f.trustKeys, []string{"enter", "enter"}) || f.onboardingCalls != 2 {
+		t.Fatalf("onboarding keys = %v in %d passes, want one enter per screen", f.trustKeys, f.onboardingCalls)
+	}
+	// The agent boots; its first prompt goes on the usual path.
+	f.set(agent, "idle")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if len(f.nudges) != 1 || !strings.HasSuffix(f.nudges[0], "prime yourself") || r.Handle[store.PendingPrompt] != nil {
+		t.Fatalf("nudges %v, handle %v", f.nudges, r.Handle)
+	}
+	if r.Handle[dispatch.OnboardingAccepted(0)] != true || r.Handle[dispatch.OnboardingAccepted(1)] != true {
+		t.Fatalf("an onboarding mark left the handle: %v", r.Handle)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	for _, e := range evs {
+		if e.Kind == "crew_blocked" {
+			t.Fatalf("a crew member whose onboarding was answered was reported blocked: %+v", e)
 		}
 	}
 }
@@ -1215,6 +1281,10 @@ func (n *nudgeRunner) AcceptTrust(_ context.Context, _ map[string]any, cfg map[s
 }
 
 func (n *nudgeRunner) AcceptKey(context.Context, map[string]any, map[string]any) bool {
+	return false
+}
+
+func (n *nudgeRunner) AcceptOnboarding(context.Context, map[string]any, map[string]any, int) bool {
 	return false
 }
 

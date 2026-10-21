@@ -67,10 +67,11 @@ type ScreenWatcher interface {
 }
 
 // TrustAcceptor is implemented by runners that answer the folder-trust
-// dialog a harness draws on its first start in a directory, and the
+// dialog a harness draws on its first start in a directory, the
 // use-this-API-key dialog one draws on its first start with a key in its
-// environment (the herdr runner, from the kind's file). On a pass where a
-// first prompt is pending and the agent is not ready, the dispatcher
+// environment, and the onboarding screens one draws on its first start in
+// a fresh home (the herdr runner, from the kind's file). On a pass where
+// a first prompt is pending and the agent is not ready, the dispatcher
 // answers the dialog the config's kind names when that is what the
 // session's pane shows, and reports whether it did: the dialog may have
 // drawn only after the start looked. A config whose kind names none, or
@@ -79,6 +80,11 @@ type ScreenWatcher interface {
 type TrustAcceptor interface {
 	AcceptTrust(ctx context.Context, handle map[string]any, cfg map[string]any) bool
 	AcceptKey(ctx context.Context, handle map[string]any, cfg map[string]any) bool
+	// AcceptOnboarding answers the kind's onboarding screen of entry
+	// entry when that is what the pane shows, and reports whether it
+	// did. The entries stand at different times, so the dispatcher
+	// asks for each in turn, each answered once under its own mark.
+	AcceptOnboarding(ctx context.Context, handle map[string]any, cfg map[string]any, entry int) bool
 }
 
 // What a Nudger that waits for the agent to start on its text (herdr does,
@@ -712,11 +718,23 @@ func (d *Dispatcher) pendingPrompt(ctx context.Context, r Runner, key string, ha
 		pass.trustedBypass = bypass
 		return true
 	}
-	// tryTrust answers either dialog the runner answers itself, folder
-	// trust first: the two stand at different times, so at most one shows.
+	// tryTrust answers any dialog the runner answers itself, folder
+	// trust first: they stand at different times, so at most one shows.
+	// The onboarding entries stand around the API-key dialog (the theme
+	// picker before it, the security notes after), so each is asked for
+	// in turn, answered once under its own mark.
 	tryTrust := func() bool {
-		return tryAnswer(TrustAccepted, func(ta TrustAcceptor) bool { return ta.AcceptTrust(ctx, handle, cfg) }) ||
-			tryAnswer(KeyAccepted, func(ta TrustAcceptor) bool { return ta.AcceptKey(ctx, handle, cfg) })
+		if tryAnswer(TrustAccepted, func(ta TrustAcceptor) bool { return ta.AcceptTrust(ctx, handle, cfg) }) ||
+			tryAnswer(KeyAccepted, func(ta TrustAcceptor) bool { return ta.AcceptKey(ctx, handle, cfg) }) {
+			return true
+		}
+		harness, _ := agents.Lookup(agents.Kind(cfg))
+		for i := range harness.Onboarding {
+			if tryAnswer(OnboardingAccepted(i), func(ta TrustAcceptor) bool { return ta.AcceptOnboarding(ctx, handle, cfg, i) }) {
+				return true
+			}
+		}
+		return false
 	}
 	if status != "idle" && status != "done" {
 		// At a question, or not telling: nothing is sent, and nothing is

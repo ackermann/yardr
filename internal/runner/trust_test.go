@@ -4,11 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -195,6 +197,58 @@ func apiKeyDialog(on string) string {
 `
 }
 
+// themeDialog is Claude Code 2.1.288's theme picker as herdr's `pane read
+// --source visible` prints it at 80 columns in a fresh home, the cursor on
+// the option `on`: the first screen of a first start, before any login and
+// before any input. Read live under a pty, 21 Oct 2026: the dialog opens
+// with its cursor on Dark mode, which the ✔ marks as the current theme,
+// and the cursor moves with the arrow keys while the ✔ stays where it is.
+func themeDialog(on string) string {
+	claude, _ := agents.Lookup("claude")
+	dark := claude.Onboarding[0].Answers[0]
+	mark := func(option string) string {
+		if option == dark {
+			if option == on {
+				return " ❯ ✔ Dark mode"
+			}
+			return "   ✔ Dark mode"
+		}
+		if option == on {
+			return " ❯   " + option
+		}
+		return "     " + option
+	}
+	return `Welcome to Claude Code v2.1.288
+
+Let's get started.
+
+Choose the text style that looks best with your terminal
+To change this later, run /theme
+
+` + mark("Auto (match terminal)") + "\n" + mark(dark) + "\n" + mark("Light mode") + "\n" +
+		mark("Dark mode (colorblind-friendly)") + "\n" + mark("Light mode (colorblind-friendly)") + "\n" +
+		mark("Dark mode (ANSI colors only)") + "\n" + mark("Light mode (ANSI colors only)") + "\n"
+}
+
+// securityDialog is Claude Code 2.1.288's security notes as herdr's `pane
+// read --source visible` prints them at 80 columns in a fresh home: the
+// screen after the theme picker (and, with a key set, the API-key dialog),
+// answered with Enter alone. Read live under a pty, 21 Oct 2026, with a
+// stand-in key.
+func securityDialog() string {
+	return ` Security notes:
+
+ 1. Claude can make mistakes.
+    You're responsible for Claude's actions and should always
+    review them, especially when running code.
+
+ 2. Due to prompt injection risks, only use it with code you trust
+    Learn more: https://code.claude.com/docs/en/security
+
+ Press Enter to continue…
+`
+}
+
 // trustHerdr is a fake herdr whose agent stops at the folder-trust dialog:
 // agent start says agent_not_ready, the pane shows screen, `down` toggles
 // it between no and yes as the real one wraps, redrawing after `redraw`
@@ -276,7 +330,7 @@ func TestStartAgentAcceptsFolderTrust(t *testing.T) {
 			t.Parallel()
 			h, calls := trustHerdr(t, c.dialog(c.off), c.dialog(c.yes), c.dialog(c.start), "idle")
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry, nil)
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, &c.entry, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -313,11 +367,53 @@ func TestStartAgentAcceptsAPIKey(t *testing.T) {
 			no, yes := apiKeyDialog("No (recommended)"), apiKeyDialog("Yes")
 			h, calls := trustHerdr(t, no, yes, apiKeyDialog(c.start), "idle")
 			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-				map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, claude.ApiKey)
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, claude.ApiKey, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if handle["key_accepted"] != true || handle["trust_accepted"] != nil || handle[store.PendingPrompt] != nil {
+				t.Fatalf("handle = %v\n%s", handle, calls())
+			}
+			got := calls()
+			down, enter, prompt := strings.Index(got, "pane send-keys w1:p1 down"), strings.Index(got, "pane send-keys w1:p1 enter"),
+				strings.Index(got, "agent prompt b1 read the brief")
+			if enter < 0 || prompt < enter || (down >= 0) != c.moves || (c.moves && enter < down) {
+				t.Fatalf("want enter%s, then the prompt:\n%s", map[bool]string{true: " after down", false: ", no down"}[c.moves], got)
+			}
+		})
+	}
+}
+
+// An agent started in a fresh home stops at the harness's onboarding
+// screens (yardr-dffh): the theme picker, then the security notes. yardr
+// answers each in turn, moving the picker's cursor onto its default first,
+// and the agent gets its first prompt at once; the security notes take
+// Enter alone, with no cursor moved. The folder-trust and API-key dialogs
+// beside them are untouched.
+func TestStartAgentAcceptsOnboarding(t *testing.T) {
+	t.Parallel()
+	claude, _ := agents.Lookup("claude")
+	dark := claude.Onboarding[0].Answers[0]
+	for _, c := range []struct {
+		name           string
+		entry          int
+		no, yes, start string
+		moves          bool // the cursor starts off the answer, so down is sent
+	}{
+		{"theme, cursor on Dark mode", 0, themeDialog("Auto (match terminal)"), themeDialog(dark), themeDialog(dark), false},
+		{"theme, cursor off Dark mode", 0, themeDialog("Auto (match terminal)"), themeDialog(dark), themeDialog("Auto (match terminal)"), true},
+		{"security notes", 1, securityDialog(), securityDialog(), securityDialog(), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, calls := trustHerdr(t, c.no, c.yes, c.start, "idle")
+			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+				map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, claude.ApiKey, claude.Onboarding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handle[dispatch.OnboardingAccepted(c.entry)] != true || handle["trust_accepted"] != nil ||
+				handle["key_accepted"] != nil || handle[store.PendingPrompt] != nil {
 				t.Fatalf("handle = %v\n%s", handle, calls())
 			}
 			got := calls()
@@ -352,7 +448,7 @@ func TestStartAgentLeavesOtherKeyQuestions(t *testing.T) {
 	for _, c := range cases {
 		h, calls := trustHerdr(t, no, yes, c.screen, "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, c.key)
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, c.key, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -365,7 +461,7 @@ func TestStartAgentLeavesOtherKeyQuestions(t *testing.T) {
 	// trust=false is folder trust's alone: the key dialog is answered.
 	h, _ := trustHerdr(t, no, yes, no, "idle")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, keyEntry(map[string]any{"kind": "claude", "trust": false}))
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, keyEntry(map[string]any{"kind": "claude", "trust": false}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,12 +484,38 @@ func TestStartAgentTrustWaitsForRedraw(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	h, calls := slowTrustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "idle", "0.3")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, nil)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := calls()
 	if handle["trust_accepted"] != true || strings.Count(got, " down") != 1 || !strings.Contains(got, "agent prompt") {
+		t.Fatalf("handle = %v\n%s", handle, got)
+	}
+}
+
+// Found live for folder trust: the dialog redraws a moment after a key,
+// and a second `down` sent before it did moved the cursor away again, so
+// the dialog was never answered. One `down` per redraw, for the theme
+// picker as for folder trust.
+func TestStartAgentOnboardingWaitsForRedraw(t *testing.T) {
+	// Serial: lengthens the trust waits past what TestMain shortens.
+	// The dialog does redraw, so no limit is waited for: on a busy machine
+	// the fake's 0.3s can be several, which the 2s of a real yard would
+	// take for a dialog that never redrew.
+	old, oldRedraw := trustWait, trustRedrawWait
+	trustWait, trustRedrawWait = 5*time.Second, time.Minute
+	t.Cleanup(func() { trustWait, trustRedrawWait = old, oldRedraw })
+	claude, _ := agents.Lookup("claude")
+	dark := claude.Onboarding[0].Answers[0]
+	h, calls := slowTrustHerdr(t, themeDialog("Auto (match terminal)"), themeDialog(dark), themeDialog("Auto (match terminal)"), "idle", "0.3")
+	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil, claude.Onboarding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := calls()
+	if handle[dispatch.OnboardingAccepted(0)] != true || strings.Count(got, " down") != 1 || !strings.Contains(got, "agent prompt") {
 		t.Fatalf("handle = %v\n%s", handle, got)
 	}
 }
@@ -405,7 +527,7 @@ func TestStartAgentTrustThenNotReady(t *testing.T) {
 	claude, _ := agents.Lookup("claude")
 	h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), trustDialog("No, exit"), "blocked")
 	handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, nil)
+		map[string]any{"agent": "b1", "pane": "w1:p1"}, claude.Trust, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +576,7 @@ func TestStartAgentLeavesOtherQuestions(t *testing.T) {
 	for _, c := range cases {
 		h, calls := trustHerdr(t, trustDialog("No, exit"), trustDialog(claude.Trust.Answers[0]), c.screen, "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, c.trust, nil)
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, c.trust, nil, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -478,7 +600,7 @@ func TestStartAgentLeavesRenamedTrustAnswer(t *testing.T) {
 		h, calls := trustHerdr(t, kimiTrustDialog("Don't trust"), kimiTrustDialog(kimi.Trust.Answers[0]),
 			kimiTrustDialogUnknown(start), "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
-			map[string]any{"agent": "b1", "pane": "w1:p1"}, kimi.Trust, nil)
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, kimi.Trust, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -487,6 +609,33 @@ func TestStartAgentLeavesRenamedTrustAnswer(t *testing.T) {
 		}
 		if got := calls(); strings.Contains(got, "send-keys") || strings.Contains(got, "agent prompt") {
 			t.Errorf("cursor on %q: a key was sent:\n%s", start, got)
+		}
+	}
+}
+
+// A harness that renamed its onboarding answers again is left for a
+// human, no key sent that could answer something else: the known screen
+// with none of its known answers is the daemon's to tell of, not the
+// runner's to answer.
+func TestStartAgentLeavesRenamedOnboardingAnswer(t *testing.T) {
+	t.Parallel()
+	claude, _ := agents.Lookup("claude")
+	dark := claude.Onboarding[0].Answers[0]
+	renamedTheme := strings.Replace(themeDialog("Light mode"), "✔ Dark mode", "Dark theme", 1)
+	renamedSecurity := strings.Replace(securityDialog(), "Press Enter to continue…", "Press Return to continue…", 1)
+	for name, screen := range map[string]string{"theme": renamedTheme, "security notes": renamedSecurity} {
+		h, calls := trustHerdr(t, themeDialog("Auto (match terminal)"), themeDialog(dark), screen, "idle")
+		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil, claude.Onboarding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handle[store.PendingPrompt] != "read the brief" || handle[dispatch.OnboardingAccepted(0)] != nil ||
+			handle[dispatch.OnboardingAccepted(1)] != nil {
+			t.Errorf("%s: handle = %v", name, handle)
+		}
+		if got := calls(); strings.Contains(got, "send-keys") || strings.Contains(got, "agent prompt") {
+			t.Errorf("%s: a key was sent:\n%s", name, got)
 		}
 	}
 }
@@ -586,6 +735,65 @@ func TestAcceptKeyAnswersLateDialog(t *testing.T) {
 	}
 }
 
+// The dispatcher's later passes answer an onboarding screen that drew only
+// after the start looked, by the same rule as the start, and nothing else.
+// `trust=false` leaves them answered, as it leaves the API-key dialog.
+func TestAcceptOnboardingAnswersLateDialog(t *testing.T) {
+	t.Parallel()
+	claude, _ := agents.Lookup("claude")
+	dark := claude.Onboarding[0].Answers[0]
+	themeYes, security := themeDialog(dark), securityDialog()
+	question := "Choose the text style that looks best with your terminal"
+	wrappedTheme := strings.Replace(themeYes, question, "Choose the text style that looks best with\n your terminal", 1)
+	wrappedOff := strings.Replace(themeDialog("Auto (match terminal)"), question, "Choose the text style that looks best with\n your terminal", 1)
+	cases := []struct {
+		name   string
+		screen string
+		handle map[string]any
+		cfg    map[string]any
+		entry  int
+		want   bool
+		keys   bool // a key may have been sent
+	}{
+		{"theme, drawn late", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, true, true},
+		{"theme, question wrapped", wrappedTheme, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, true, true},
+		{"theme, kind unset", themeYes, map[string]any{"pane": "w1:p1"}, nil, 0, true, true},
+		{"security notes, drawn late", security, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 1, true, true},
+		{"security notes, kind unset", security, map[string]any{"pane": "w1:p1"}, nil, 1, true, true},
+		{"theme, trust=false", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude", "trust": false}, 0, true, true},
+		{"security notes, trust=false", security, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude", "trust": false}, 1, true, true},
+		{"not drawn yet", "", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, false, false},
+		{"another question", " Do you want to allow this?\n ❯ Yes\n", map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, false, false},
+		{"the folder-trust dialog", trustDialog(claude.Trust.Answers[0]), map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, false, false},
+		{"the folder-trust dialog, security entry", trustDialog(claude.Trust.Answers[0]), map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 1, false, false},
+		{"theme asked of the security entry", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 1, false, false},
+		{"security notes asked of the theme entry", security, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, false, false},
+		{"entry out of range", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, false, false},
+		{"a kind with no screens", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "grok"}, 0, false, false},
+		{"no pane", themeYes, map[string]any{"agent": "b1"}, map[string]any{"kind": "claude"}, 0, false, false},
+	}
+	for _, c := range cases {
+		no, yes := themeDialog("Auto (match terminal)"), themeYes
+		if c.screen == security {
+			no, yes = security, security
+		}
+		if c.screen == wrappedTheme {
+			no, yes = wrappedOff, wrappedTheme
+		}
+		h, calls := trustHerdr(t, no, yes, c.screen, "idle")
+		if got := h.AcceptOnboarding(context.Background(), c.handle, c.cfg, c.entry); got != c.want {
+			t.Errorf("%s: AcceptOnboarding = %v, want %v\n%s", c.name, got, c.want, calls())
+		}
+		got := calls()
+		if c.want && !strings.Contains(got, "pane send-keys w1:p1 enter") {
+			t.Errorf("%s: no enter sent:\n%s", c.name, got)
+		}
+		if !c.keys && strings.Contains(got, "send-keys") {
+			t.Errorf("%s: a key was sent:\n%s", c.name, got)
+		}
+	}
+}
+
 func TestTrustEntry(t *testing.T) {
 	t.Parallel()
 	claude, _ := agents.Lookup("claude")
@@ -635,6 +843,35 @@ func TestKeyEntry(t *testing.T) {
 		got := keyEntry(c.cfg)
 		if got != c.want {
 			t.Errorf("keyEntry(%v) = %+v, want %+v", c.cfg, got, c.want)
+		}
+	}
+}
+
+func TestOnboardingEntries(t *testing.T) {
+	t.Parallel()
+	claude, _ := agents.Lookup("claude")
+	for _, c := range []struct {
+		cfg  map[string]any
+		want []agents.Trust
+	}{
+		{nil, claude.Onboarding}, // kind defaults to claude
+		{map[string]any{"kind": "claude"}, claude.Onboarding},
+		{map[string]any{"kind": "claude", "trust": false}, claude.Onboarding},
+		{map[string]any{"kind": "claude", "trust": true}, claude.Onboarding},
+		{map[string]any{"kind": "kimi"}, nil},
+		{map[string]any{"kind": "codex"}, nil},
+		{map[string]any{"kind": "grok"}, nil},
+	} {
+		got := onboardingEntries(c.cfg)
+		if len(got) != len(c.want) {
+			t.Errorf("onboardingEntries(%v) names %d screens, want %d", c.cfg, len(got), len(c.want))
+			continue
+		}
+		for i := range got {
+			if got[i].Dialog != c.want[i].Dialog || got[i].Cursor != c.want[i].Cursor ||
+				!slices.Equal(got[i].Answers, c.want[i].Answers) {
+				t.Errorf("onboardingEntries(%v)[%d] = %+v, want %+v", c.cfg, i, got[i], c.want[i])
+			}
 		}
 	}
 }

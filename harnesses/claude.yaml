@@ -208,6 +208,50 @@ api_key:
   answers: ["Yes"]
   cursor: "❯"
 
+# The onboarding screens Claude Code draws on its first start in a fresh
+# home, before any login and before any input, which the yard answers in
+# turn as it answers folder trust (read live under a pty, Claude Code
+# 2.1.288, 21 Oct 2026, fresh HOME; with a stand-in ANTHROPIC_API_KEY set
+# for the second). With a key the order is the theme picker, the API-key
+# dialog above, the security notes, then folder trust; with no key the
+# theme picker is followed by the login menu, with no security notes
+# before it. Each entry is answered once, under its own mark, wherever
+# and whenever it shows: at the start and on later passes.
+#   Choose the text style that looks best with your terminal
+#   To change this later, run /theme
+#
+#       Auto (match terminal)
+#   ❯ ✔ Dark mode
+#       Light mode
+#       Dark mode (colorblind-friendly)
+#       Light mode (colorblind-friendly)
+#       Dark mode (ANSI colors only)
+#       Light mode (ANSI colors only)
+# The dialog opens with its cursor on Dark mode, and Enter takes it; the
+# ✔ marks the current theme, stays where it is when the cursor moves, and
+# is part of the answer's line. The question is 60 columns wide, so at a
+# narrow pane it wraps; only its start marks the dialog at every width
+# (yardr-q7rd).
+#   Security notes:
+#
+#   1. Claude can make mistakes.
+#      You're responsible for Claude's actions and should always
+#      review them, especially when running code.
+#
+#   2. Due to prompt injection risks, only use it with code you trust
+#      Learn more: https://code.claude.com/docs/en/security
+#
+#   Press Enter to continue…
+# The security notes draw with no choice to move to: the entry names no
+# cursor, and yardr answers it with Enter alone when both lines show.
+onboarding:
+  - dialog: "Choose the text style"
+    answers: ["✔ Dark mode"]
+    cursor: "❯"
+  - dialog: "Security notes:"
+    answers: ["Press Enter to continue…"]
+    cursor: ""
+
 # Claude Code's offer to run /auto-mode-setup, drawn in place of its input
 # at the end of a turn once auto mode has blocked several actions and
 # ~/.claude/settings.json has no autoMode.environment (seen in a builder's

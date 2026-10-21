@@ -33,6 +33,13 @@ import (
 // where folder trust is, at the start and on later passes, and kept on the
 // handle under its own mark; trust=false, which is folder trust's, leaves
 // it answered.
+//
+// A harness may draw onboarding screens on its first start in a fresh
+// home, before any login and before any input. yardr answers those too,
+// of a kind whose file names them (`onboarding`), each entry in turn
+// wherever it shows: at the start and on later passes, each kept on the
+// handle under its own mark, since the entries stand at different times.
+// An entry with no cursor is answered with Enter alone.
 
 // trustWait bounds the wait for an agent to be ready after its trust dialog
 // was answered. Start runs inside the dispatcher's pass, so it is short; an
@@ -69,6 +76,15 @@ func keyEntry(cfg map[string]any) *agents.Trust {
 		return nil
 	}
 	return kind.ApiKey
+}
+
+// onboardingEntries are the onboarding screens yardr answers for an agent
+// with this config, in the order its kind's harness file names them, and
+// none when the file names none. `trust=false` leaves them answered, as
+// it leaves the API-key dialog: that flag is folder trust's.
+func onboardingEntries(cfg map[string]any) []agents.Trust {
+	kind, _ := agents.Lookup(agents.Kind(cfg))
+	return kind.Onboarding
 }
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
@@ -113,11 +129,38 @@ func (h *Herdr) AcceptKey(ctx context.Context, handle map[string]any, cfg map[st
 	return h.acceptTrust(ctx, pane, *t)
 }
 
+// AcceptOnboarding answers the onboarding screen of entry entry of an agent
+// with this config when that is what its pane shows, and reports whether
+// it did (dispatch.TrustAcceptor): the dispatcher's later passes answer
+// what drew only after the start looked, by the same rule as the start.
+// An entry out of range answers nothing.
+func (h *Herdr) AcceptOnboarding(ctx context.Context, handle map[string]any, cfg map[string]any, entry int) bool {
+	entries := onboardingEntries(cfg)
+	pane, _ := handle["pane"].(string)
+	if pane == "" || entry < 0 || entry >= len(entries) {
+		return false
+	}
+	return h.acceptTrust(ctx, pane, entries[entry])
+}
+
+// acceptOnboarding answers the first of entries whose screen pane shows,
+// and reports its index, -1 when none is up.
+func (h *Herdr) acceptOnboarding(ctx context.Context, pane string, entries []agents.Trust) int {
+	for i, e := range entries {
+		if h.acceptTrust(ctx, pane, e) {
+			return i
+		}
+	}
+	return -1
+}
+
 // acceptTrust answers the dialog t in pane, if that is what the pane
 // shows, and reports whether it did. The dialog may open with its cursor
 // off the accepting answer, so the cursor is moved and Enter is only sent
 // once the screen shows it on the answer: a dialog that changed shape is
-// left for a human, as any other question is.
+// left for a human, as any other question is. An entry with no cursor is
+// answered with Enter alone when found, without moving one: without a
+// cursor nothing can be seen selected.
 func (h *Herdr) acceptTrust(ctx context.Context, pane string, t agents.Trust) bool {
 	screen, err := h.readPane(ctx, pane, 0)
 	for moves := 0; err == nil; moves++ {
@@ -125,7 +168,7 @@ func (h *Herdr) acceptTrust(ctx context.Context, pane string, t agents.Trust) bo
 		if !found || (!selected && moves == 4) {
 			return false
 		}
-		if selected {
+		if selected || t.Cursor == "" {
 			return h.sendKey(ctx, pane, "enter") == nil
 		}
 		if err := h.sendKey(ctx, pane, "down"); err != nil {

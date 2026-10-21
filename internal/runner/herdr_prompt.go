@@ -22,9 +22,10 @@ import (
 // never showed is sent again, one left in the agent's input is submitted,
 // and one taken as arrived without its echo is looked at again.
 // With trust, the questions yardr answers itself are the folder-trust
-// dialog the kind's file names and, with key, its use-this-API-key dialog
-// (see acceptTrust); the handle then says which.
-func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust, key *agents.Trust) (map[string]any, error) {
+// dialog the kind's file names, with key its use-this-API-key dialog, and
+// the onboarding screens onboarding names, each in turn (see acceptTrust);
+// the handle then says which.
+func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust, key *agents.Trust, onboarding []agents.Trust) (map[string]any, error) {
 	var err error
 	// A pane created a moment ago may not have its shell prompt up yet.
 	for attempt := 0; ; attempt++ {
@@ -45,6 +46,10 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 				answered = dispatch.TrustAccepted
 			case key != nil && h.acceptTrust(ctx, pane, *key):
 				answered = dispatch.KeyAccepted
+			default:
+				if i := h.acceptOnboarding(ctx, pane, onboarding); i >= 0 {
+					answered = dispatch.OnboardingAccepted(i)
+				}
 			}
 		}
 		if answered == "" {

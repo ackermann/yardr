@@ -535,6 +535,13 @@ const TrustAccepted = "trust_accepted"
 // answered once.
 const KeyAccepted = "key_accepted"
 
+// OnboardingAccepted is the handle key recording that yardr answered the
+// session's onboarding screen of entry i itself, at its start or on a
+// later pass (see TrustAcceptor). It stays on the handle as the record of
+// it. The entries stand at different times, around the use-this-API-key
+// dialog, so each is answered once, under its own mark.
+func OnboardingAccepted(i int) string { return "onboarding_accepted_" + strconv.Itoa(i) }
+
 // Statuser is implemented by runners that can tell more than alive/dead.
 // A session whose status turns "blocked" (the agent waits on a permission
 // prompt or a question) gets a session_blocked event so a human can step in,
