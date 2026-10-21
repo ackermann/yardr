@@ -30,7 +30,7 @@ import (
 // is fetched.
 
 // FileRef is a file a delivery names, as the source names it: its id there
-// (Telegram's file_id), the file's name where the sender gave one, what
+// (a chat service's file id), the file's name where the sender gave one, what
 // kind it is (photo, document, voice, video, audio), and its size in bytes
 // where the source said, 0 where it did not.
 type FileRef struct {

@@ -174,7 +174,7 @@ func TestPackApplyTelegramCard(t *testing.T) {
 	}
 	for _, want := range []string{
 		"pack telegram (embedded in yardr ",
-		"of kind source, into the yard: it adds 1 source and copies 2 command files (4 commands)",
+		"of kind source, into the yard: it adds 1 source and copies 2 command files (5 commands)",
 		"POST /bot{credential}/sendMessage",
 		"TELEGRAM_BOT_TOKEN",
 		"in the request path",

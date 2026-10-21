@@ -336,7 +336,7 @@ func (r *reader) thread(e entry) *Thread {
 		case "read":
 			t.Read = r.command(f, "linear/thread, read")
 		case "file":
-			t.File = r.command(f, "telegram/thread, get")
+			t.File = r.command(f, "linear/thread, file")
 		case "open":
 			t.Open = r.command(f, "linear/thread, open")
 		case "opened":
