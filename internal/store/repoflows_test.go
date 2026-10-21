@@ -102,3 +102,67 @@ func TestResolveRefMatchesGit(t *testing.T) {
 		t.Errorf("no checkout: resolveRef err %v, want git's refusal", err)
 	}
 }
+
+// Git resolves a packed tag before a same-named loose branch. The loose-ref
+// shortcut must leave that ambiguous name to git.
+func TestResolveRefPackedTagShadowsLooseBranch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q", "-b", "main")
+	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", "-A")
+	gitRun(t, dir, "commit", "-q", "-m", "first")
+	gitRun(t, dir, "tag", "-a", "shadow", "-m", "first", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "a"), []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "commit", "-qam", "second")
+	branch, _, _ := strings.Cut(gitRun(t, dir, "rev-parse", "HEAD"), "\n")
+	gitRun(t, dir, "branch", "shadow", branch)
+	gitRun(t, dir, "pack-refs", "--all", "--prune")
+	gitRun(t, dir, "update-ref", "refs/heads/shadow", branch)
+
+	want, wantErr := git(ctx, dir, "rev-parse", "--verify", "--quiet", "shadow^{commit}")
+	got, gotErr := ResolveRef(ctx, dir, "shadow^{commit}")
+	if string(got) != string(want) || (gotErr == nil) != (wantErr == nil) {
+		t.Fatalf("ResolveRef = (%q, %v), git = (%q, %v)", got, gotErr, want, wantErr)
+	}
+	if sha, ok := looseRef(dir, "shadow^{commit}"); ok {
+		t.Fatalf("packed tag shadowed by loose branch fast path %s", sha)
+	}
+}
+
+// Git's environment can select another repository while -C still names this
+// checkout. ResolveRef must defer to git instead of reading this checkout's
+// loose ref file.
+func TestResolveRefHonorsGitDir(t *testing.T) {
+	ctx := context.Background()
+	makeRepo := func(t *testing.T, branch, contents string) string {
+		t.Helper()
+		dir := t.TempDir()
+		gitRun(t, dir, "init", "-q", "-b", branch)
+		if err := os.WriteFile(filepath.Join(dir, "a"), []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, dir, "add", "-A")
+		gitRun(t, dir, "commit", "-q", "-m", "first")
+		return dir
+	}
+	checkout := makeRepo(t, "main", "checkout\n")
+	other := makeRepo(t, "main", "other\n")
+	checkoutRef := gitRun(t, checkout, "rev-parse", "HEAD")
+	otherRef := gitRun(t, other, "rev-parse", "HEAD")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+
+	want, wantErr := git(ctx, checkout, "rev-parse", "--verify", "--quiet", "main^{commit}")
+	got, gotErr := ResolveRef(ctx, checkout, "main^{commit}")
+	if string(got) != string(want) || (gotErr == nil) != (wantErr == nil) {
+		t.Fatalf("ResolveRef = (%q, %v), git = (%q, %v)", got, gotErr, want, wantErr)
+	}
+	if string(got) == checkoutRef || string(got) != otherRef+"\n" {
+		t.Fatalf("ResolveRef = %q, checkout ref = %q, GIT_DIR ref = %q", got, checkoutRef, otherRef)
+	}
+}

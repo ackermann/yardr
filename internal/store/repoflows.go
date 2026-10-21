@@ -576,6 +576,13 @@ func looseRef(dir, ref string) (sha string, ok bool) {
 	if !safeRefName(name) {
 		return "", false
 	}
+	// These variables make git read refs from another directory or
+	// namespace. In that case the checkout's loose files are not its answer.
+	for _, key := range []string{"GIT_DIR", "GIT_COMMON_DIR", "GIT_NAMESPACE"} {
+		if os.Getenv(key) != "" {
+			return "", false
+		}
+	}
 	// A qualified branch or remote names its file; a bare name is looked
 	// for in git's own order. Anything else that resolves first (HEAD, a
 	// tag) is git's to answer, since only git peels it.
@@ -605,6 +612,9 @@ func looseRef(dir, ref string) (sha string, ok bool) {
 				return "", false
 			}
 		}
+		if packedRefCouldAffect(gitdir, name) {
+			return "", false
+		}
 	}
 	for _, cand := range cands {
 		raw, err := os.ReadFile(filepath.Join(gitdir, cand))
@@ -621,6 +631,35 @@ func looseRef(dir, ref string) (sha string, ok bool) {
 		return sha, true
 	}
 	return "", false
+}
+
+// packedRefCouldAffect reports whether a packed ref could change how git
+// resolves a bare name. Git checks packed refs in the same DWIM order as
+// loose refs, so even a packed tag can shadow the loose branch we would
+// otherwise read. An unreadable packed-refs file also leaves the answer to
+// git.
+func packedRefCouldAffect(gitdir, name string) bool {
+	data, err := os.ReadFile(filepath.Join(gitdir, "packed-refs"))
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	want := map[string]bool{
+		"refs/" + name:                   true,
+		"refs/tags/" + name:              true,
+		"refs/heads/" + name:             true,
+		"refs/remotes/" + name:           true,
+		"refs/remotes/" + name + "/HEAD": true,
+	}
+	for _, line := range bytes.Split(data, []byte{'\n'}) {
+		if len(line) == 0 || line[0] == '#' || line[0] == '^' {
+			continue
+		}
+		_, ref, ok := strings.Cut(string(line), " ")
+		if ok && want[ref] {
+			return true
+		}
+	}
+	return false
 }
 
 // safeRefName reports whether name may stand in a ref path read by hand: no
