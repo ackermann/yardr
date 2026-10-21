@@ -69,6 +69,9 @@ func TestDeliveryFiles(t *testing.T) {
 	if err := s.RecordDeliveryFiles(ctx, young, []store.BlobRef{{Hash: strings.Repeat("0", 64)}}); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("a record of a blob the yard does not hold: %v", err)
 	}
+	if err := s.RecordDeliveryFiles(ctx, young, []store.BlobRef{{Name: "plans\x1b[2K.pdf", NotTaken: "too big"}}); err == nil {
+		t.Error("a record of a name no letter may carry was kept")
+	}
 	// A blob a kept delivery names is served by its hash, under the name
 	// the delivery gives it; anything else is not found.
 	if ref, err := api.DeliveryBlob(ctx, named.Hash); err != nil || ref.Name != "shed.png" || ref.Bytes != int64(len(pngBytes)) {

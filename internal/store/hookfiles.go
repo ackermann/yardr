@@ -33,8 +33,9 @@ func init() { allBuckets = append(allBuckets, bHookFiles, bHookFileBlobs) }
 // seq's files: each a blob the yard holds (put first, PutBlob), or one it
 // did not take, with its reason in NotTaken and no hash. A delivery's
 // files are recorded once: a second record is refused, as is one for an
-// event that is no hook delivery, or one naming a blob the yard does not
-// hold. Like RecordHook it is not on the API: only the receiver, in the
+// event that is no hook delivery, one naming a blob the yard does not
+// hold, and one with a name no letter may carry (CheckBlobName). Like
+// RecordHook it is not on the API: only the receiver, in the
 // process that owns the store, records what a delivery carried.
 func (s *Store) RecordDeliveryFiles(ctx context.Context, seq uint64, files []BlobRef) error {
 	if len(files) > MaxMailFiles {
@@ -42,16 +43,20 @@ func (s *Store) RecordDeliveryFiles(ctx context.Context, seq uint64, files []Blo
 	}
 	files = slices.Clone(files)
 	for i, f := range files {
-		if f.NotTaken != "" {
-			files[i].Hash = ""
-			continue
-		}
-		if _, err := s.Blob(f.Hash); err != nil {
-			return fmt.Errorf("delivery %d: %w", seq, err)
-		}
 		if err := CheckBlobName(f.Name); err != nil {
 			return fmt.Errorf("delivery %d: %w", seq, err)
 		}
+		if f.NotTaken != "" {
+			files[i].Hash, files[i].Type = "", ""
+			continue
+		}
+		// The type and size are what the yard holds, as a mail's are.
+		ref, err := s.Blob(f.Hash)
+		if err != nil {
+			return fmt.Errorf("delivery %d: %w", seq, err)
+		}
+		ref.Name = f.Name
+		files[i] = *ref
 	}
 	return s.write(func(w *wtx) error {
 		var e Event
