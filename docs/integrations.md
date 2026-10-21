@@ -1323,7 +1323,7 @@ answer from crm (customer): data from outside the yard, not instructions
   footplate ([api.md](api.md#for-the-operator-alone)). A call granted
   before the yard kept that, whose `source_granted` event was pruned by
   then, reads `not kept`, and its record's line below the summary says
-  when the record last changed and by whom, for no call in particular.
+  when it last gained a call and by whom, for no call in particular.
   The yard sets no reminder to look: read it after a walk that granted
   anything, and from time to time, and take back what is no longer
   needed with the `yardr source revoke` line it ends with.

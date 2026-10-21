@@ -46,8 +46,8 @@ telegram  group builders                 reply           not kept      -
 telegram  group reviewers                read            not kept      -
 telegram  group reviewers                reply           20 Oct 08:00  jo
 6 calls granted of 2 sources to 3 holders: 1 may change something outside the yard, 1 calls as a user.
-telegram to group builders: granted before its history was kept; its record last changed 12 Oct 10:15 by mckean.
-telegram to group reviewers: granted before its history was kept; its record last changed 20 Oct 08:00 by jo.
+telegram to group builders: granted before its history was kept; the record last gained a call 12 Oct 10:15 by mckean.
+telegram to group reviewers: granted before its history was kept; the record last gained a call 20 Oct 08:00 by jo.
 take one back: yardr source revoke <source> <call> --crew|--group <holder> [--as <user>]
 `
 	if got := strings.Join(strings.Fields(out.String()), " "); got != strings.Join(strings.Fields(want), " ") {

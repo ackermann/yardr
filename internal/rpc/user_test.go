@@ -148,6 +148,50 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 			t.Errorf("SourceGrants %s from sam's device is answered %s, want %s", body, got, none)
 		}
 	}
+	// The operator's token accompanies this read too. Refuse a request
+	// from another machine before reading its body, and let the same device
+	// read the list from the yard's machine.
+	w := ask(h, http.MethodPost, "/user/call/SourceGrants", token, unread{t})
+	for _, want := range []string{
+		"the operator's grant list is taken over https only",
+		"in plain HTTP from another machine",
+		"The device's token was sent with it",
+		"yardr user device rm",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("SourceGrants from another machine is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	edge := httptest.NewRequest(http.MethodPost, "/user/call/SourceGrants", unread{t})
+	edge.RemoteAddr = linkRemoteAddr
+	edge.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, edge)
+	for _, want := range []string{"not read over the link", "The edge saw the device's token", "yardr user device rm"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("SourceGrants over the edge is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	local := httptest.NewRequest(http.MethodPost, "/user/call/SourceGrants", strings.NewReader(`{"source":""}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), `"result":[]`) {
+		t.Errorf("SourceGrants from the yard's machine is answered %s, want an empty list", w.Body)
+	}
+	if err := st.SetSetting(context.Background(), store.RouterAddrSetting, "192.0.2.15", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	routed := httptest.NewRequest(http.MethodPost, "/user/call/SourceGrants", strings.NewReader(`{"source":""}`))
+	routed.RemoteAddr = "192.0.2.15:40000"
+	routed.Header.Set("Authorization", "Bearer "+token)
+	routed.Header.Set("X-Forwarded-Proto", "https")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, routed)
+	if !strings.Contains(w.Body.String(), `"result":[]`) {
+		t.Errorf("SourceGrants through the TLS router is answered %s, want an empty list", w.Body)
+	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))
 		if got := call(t, h, token, name, `{}`); got != string(none) {

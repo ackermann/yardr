@@ -30,8 +30,8 @@ holder's plain grant and its grant as a user are rows apart. GRANTED and BY
 are that call's own: when it was granted, by whom, and where it was
 approved on a card the bead, the ask and who asked it. A call granted
 before the yard kept that, whose history is gone, reads not kept; below
-the summary its record's line says when the record last changed and by
-whom, for no call in particular.
+the summary its record's line says when it last gained a call and by whom,
+for no call in particular.
 
 --source, --group, --crew and --as narrow the list; --group and --crew
 repeat, and a row of any one of them is listed.`,
@@ -123,7 +123,7 @@ func printGrants(w io.Writer, grants []store.SourceGrant, decls map[string]*sour
 			rows = append(rows, []string{g.Source, g.Holder(), words, granted, by})
 		}
 		if !kept {
-			unkept = append(unkept, fmt.Sprintf("%s to %s: granted before its history was kept; its record last changed %s by %s.",
+			unkept = append(unkept, fmt.Sprintf("%s to %s: granted before its history was kept; the record last gained a call %s by %s.",
 				g.Source, g.Holder(), g.At.In(loc).Format(grantTime), g.By))
 		}
 	}

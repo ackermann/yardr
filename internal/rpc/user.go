@@ -708,6 +708,9 @@ const linkRemoteAddr = "edge:0"
 // answers on the yard's own machine as the fix, and says the edge saw
 // what this one carried, so the key or the device is remade.
 func inTheClear(r *http.Request, name, router string) string {
+	if name == "SourceGrants" {
+		return sourceGrantsInTheClear(r, router)
+	}
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
 	if name == "ApproveAsk" || name == "ApproveSetup" {
@@ -739,6 +742,34 @@ func inTheClear(r *http.Request, name, router string) string {
 			if !strings.EqualFold(strings.TrimSpace(p), "https") {
 				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
 					"Give the device the yard's https:// address." + crossed
+			}
+		}
+	}
+	return ""
+}
+
+// sourceGrantsInTheClear keeps the operator's bearer token under the same
+// transport rule as the other operator calls, while naming this read's
+// command and the device to replace if the token crossed in plain.
+func sourceGrantsInTheClear(r *http.Request, router string) string {
+	const crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	const readHere = "Read it on the yard's machine (`yardr source grants`)."
+	if r.RemoteAddr == linkRemoteAddr {
+		return "the operator's grant list is not read over the link: this request came down the link from the edge. " +
+			readHere + " The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+	}
+	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
+		if fromRouter(r, router) {
+			return ""
+		}
+		return "the operator's grant list is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
+			"Put the proxy or tunnel that ends TLS on the yard's machine, or " + readHere + crossed
+	}
+	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
+		for _, p := range strings.Split(proto, ",") {
+			if !strings.EqualFold(strings.TrimSpace(p), "https") {
+				return "the operator's grant list is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+					"Give the device the yard's https:// address, or " + readHere + crossed
 			}
 		}
 	}
@@ -796,10 +827,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	// A read of the operator's carries no secret and runs nothing: what
-	// crosses with it is the token, as on every call of Calls, so the rule
-	// for a secret and an approval does not hold it.
-	if operators && name != "SourceGrants" {
+	if operators {
 		if why := inTheClear(r, name, u.routerAddr(r.Context())); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return

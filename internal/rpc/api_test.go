@@ -736,7 +736,7 @@ var apiOperatorCalls = []apiCall{
 		says: "Every grant of the yard's sources: who may make which calls of each, and as whom, with when, by whom and on which card each call was given. It is what `yardr source grants` prints. It changes nothing. A record is one source, one holder (a group or a crew member) and one user called as, `as`, absent for a plain grant: a holder's plain grant and its grant as a user are two records. " +
 			"`calls` holds `read`, the grant of every read call of the source, and the names of calls granted one by one, an update call always so. " +
 			"`given` maps each entry of `calls` to that call's own grant: `at` and `by`, and where it was approved on a card `bead`, `ask` and `asker`, who asked it, absent where the ask's note is gone. A call granted before the yard kept `given`, whose history was pruned by then, has no entry: show it as not kept, and never with the record's `at` and `by`, which are when the record last gained a call and who gave it, for no call in particular. " +
-			"It is the operator's to read: on the socket it is a read, served as every read of the store is to a caller on the yard's machine, and on the listener it is there for a device of the operator and for no other caller, since the whole grant graph is theirs. Unlike the other calls of this list it holds no secret and approves nothing, so it is taken over any request the listener takes.",
+			"It is the operator's to read: on the socket it is a read, served as every read of the store is to a caller on the yard's machine, and on the listener it is there for a device of the operator and for no other caller, since the whole grant graph is theirs. It changes nothing, but the operator's device token goes with the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list.",
 		args: []field{
 			{"source", "string", "the source whose grants are read; empty or left out for every source's"},
 		},
@@ -748,13 +748,13 @@ var apiOperatorCalls = []apiCall{
 			{"[].as", "string?", "the user whose credential a call under it is made with; absent for a plain grant"},
 			{"[].calls", "array of string", "`read` and the names of calls granted, sorted"},
 			{"[].at", "time", "when the record last gained a call: the record's, for no call in particular"},
-			{"[].by", "string", "who gave that call: the record's, for no call in particular"},
+			{"[].by", "string", "who gave the last call added to the record; it is the record's, for no call in particular"},
 			{"[].given", "object?", "each entry of `calls` to its own grant, keyed by the entry; a call with no key was granted before its history was kept, and a record with none has no `given`"},
 			{"[].given{}.at", "time", "when the call was granted"},
 			{"[].given{}.by", "string", "who granted it"},
 			{"[].given{}.bead", "string?", "the bead of the card it was approved on; absent for a grant given at a terminal"},
-			{"[].given{}.ask", "number?", "the ask it was approved on; absent with `bead`"},
-			{"[].given{}.asker", "string?", "who asked it; absent with `bead`, and where the ask's note is gone"},
+			{"[].given{}.ask", "number?", "the ask it was approved on; absent for a grant at a terminal"},
+			{"[].given{}.asker", "string?", "who asked it; absent for a grant at a terminal, and where the ask's note is gone"},
 		},
 	},
 }
