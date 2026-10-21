@@ -123,6 +123,16 @@ type SourceGrant struct {
 	As string `json:"as,omitempty"`
 	// Calls are GrantRead and the names of calls, sorted.
 	Calls []string `json:"calls"`
+	// Kinds is the kind of each entry of Calls, read or update, as the
+	// source's file declares it (GrantRead is read), for a client that has
+	// not the file and so cannot tell a call granted by name that reads from
+	// one that changes something. An entry is left out where its kind is not
+	// known: the source is gone, its file is one this build does not read, or
+	// the file no longer has the call. A client then takes it for an update.
+	// It is served and never stored: SourceGrants sets it on the copies it
+	// returns, and every write of a grant starts from the record on disk
+	// (grantSource, RevokeSource), so a copy that was served is not put back.
+	Kinds map[string]string `json:"kinds,omitempty"`
 	// At and By are when the record last gained a call and who gave it:
 	// the record's, for no call in particular, since Calls is sorted on
 	// every grant and a revoke leaves them as they were.
@@ -311,6 +321,29 @@ func (g SourceGrant) Words(d *source.Declaration) string {
 	return strings.Join(words, ", ")
 }
 
+// kindsIn is the grant's Kinds by the declaration d of its source: GrantRead
+// is read, a call by its name is what d declares it, and a name d does not
+// have is left out, its kind not known. It is nil where nothing is known, so
+// that the answer says no kinds.
+func (g SourceGrant) kindsIn(d *source.Declaration) map[string]string {
+	var kinds map[string]string
+	for _, what := range g.Calls {
+		kind := source.Read
+		if what != GrantRead {
+			c, ok := d.Call(what)
+			if !ok {
+				continue
+			}
+			kind = c.Kind
+		}
+		if kinds == nil {
+			kinds = map[string]string{}
+		}
+		kinds[what] = kind
+	}
+	return kinds
+}
+
 // RevokeSource takes what of src back from to. Anyone may narrow a grant,
 // as anyone may narrow what a crew member is allowed. It returns what the
 // grantee is left with, Calls empty when that is nothing.
@@ -371,13 +404,33 @@ func grantData(src, what string, to Grantee, as string) map[string]any {
 	return data
 }
 
-// SourceGrants are the grants of the source src, of every source for "".
+// SourceGrants are the grants of the source src, of every source for "", each
+// with its Kinds. grantsOf leaves them to this: its other callers read names
+// alone, and callables, which reads the grants of each source for every
+// brief, holds the declaration already.
 func (s *Store) SourceGrants(ctx context.Context, src string) ([]SourceGrant, error) {
 	out := []SourceGrant{}
 	err := s.read(func(tx *bolt.Tx) error {
 		var err error
-		out, err = grantsOf(tx, src)
-		return err
+		if out, err = grantsOf(tx, src); err != nil {
+			return err
+		}
+		// Each source is read once, for all its grants. One that is gone, or
+		// whose file this build does not read, has no declaration to say
+		// what its calls are: their kinds are not known, which is no
+		// failure of reading the grants.
+		decls := map[string]*source.Declaration{}
+		for i := range out {
+			d, seen := decls[out[i].Source]
+			if !seen {
+				d, _ = declared(tx, out[i].Source)
+				decls[out[i].Source] = d
+			}
+			if d != nil {
+				out[i].Kinds = out[i].kindsIn(d)
+			}
+		}
+		return nil
 	})
 	return out, err
 }

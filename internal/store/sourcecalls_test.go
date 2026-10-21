@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -359,6 +360,89 @@ func TestSourceCallGrants(t *testing.T) {
 	}
 	if gs, _ := s.SourceGrants(ctx, ""); len(gs) != 0 {
 		t.Fatalf("grants after the source was removed = %+v", gs)
+	}
+}
+
+// SourceGrants says what each granted call is, read or update, as the
+// source's file declares it, so that a client without the file tells a named
+// read from an update: read is read, a call granted by name is what the file
+// says, and the file is read each time, so one that changed a call has its
+// new kind served and a call it no longer has is left without one.
+func TestSourceGrantsKinds(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := crmYard(t, s)
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, grant := range []struct {
+		to   store.Grantee
+		what string
+	}{
+		{store.Grantee{Crew: "yardmaster"}, "customer"},
+		{store.Grantee{Crew: "yardmaster"}, "write"},
+		{store.Grantee{Group: "builders"}, store.GrantRead},
+		{store.Grantee{Group: "reviewers"}, "write"},
+	} {
+		if _, err := s.GrantSource(ctx, "crm", grant.what, grant.to, "", "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The kinds of each holder's record as a client reads them, the encoded
+	// key itself: "" where the record has none, since an empty one is left out.
+	onTheWire := func() map[string]string {
+		t.Helper()
+		gs, err := s.SourceGrants(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, g := range gs {
+			raw, err := json.Marshal(g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rec struct {
+				Kinds json.RawMessage `json:"kinds"`
+			}
+			if err := json.Unmarshal(raw, &rec); err != nil {
+				t.Fatal(err)
+			}
+			out[g.Holder()] = string(rec.Kinds)
+		}
+		return out
+	}
+	want := map[string]string{
+		"crew member yardmaster": `{"customer":"read","write":"update"}`,
+		"group builders":         `{"read":"read"}`,
+		"group reviewers":        `{"write":"update"}`,
+	}
+	if got := onTheWire(); !maps.Equal(got, want) {
+		t.Fatalf("kinds = %v, want %v", got, want)
+	}
+	// One source's grants have them too; the crew member's is first in the
+	// store's order.
+	if gs, err := s.SourceGrants(ctx, "crm"); err != nil || len(gs) != 3 || gs[0].Kinds["customer"] != "read" || gs[0].Kinds["write"] != "update" {
+		t.Fatalf("SourceGrants of crm = %+v, %v", gs, err)
+	}
+
+	// The same grants under a file that makes customer an update and has no
+	// write: customer is served as the update it is now, and the grant of
+	// write, a call the file does not name, has no kind.
+	head, _, _ := strings.Cut(crmCalls, "calls:\n")
+	changed := strings.Replace(head, "BASE", "https://crm.example.com", 1) + "calls:\n" +
+		"  ping: { kind: read, request: { method: GET, path: /me } }\n" +
+		"  customer: { kind: update, params: { id: { type: string } }, request: { method: POST, path: \"/customers/{id}\" } }\n"
+	if _, err := s.PutSource(ctx, "crm.yaml", changed, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	want = map[string]string{
+		"crew member yardmaster": `{"customer":"update"}`,
+		"group builders":         `{"read":"read"}`,
+		"group reviewers":        "",
+	}
+	if got := onTheWire(); !maps.Equal(got, want) {
+		t.Fatalf("kinds after the file changed = %v, want %v", got, want)
 	}
 }
 

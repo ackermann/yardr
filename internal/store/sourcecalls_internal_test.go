@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,5 +135,56 @@ func TestSourceUpdateKeyIsKeptForASecondTry(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A grant whose source is not there, or whose file this build does not
+// read, is listed without kinds and without an error, and the grants of the
+// sources that are read beside it keep theirs: what a call is, is the file's
+// to say, and a read of the grants does not fail for want of it. Removing a
+// source takes its grants with it (dropSourceRecords), so these records are
+// put by hand, as ones that outlived their source.
+func TestSourceGrantsKindsWithoutADeclaration(t *testing.T) {
+	t.Parallel()
+	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close(context.Background()) })
+	to := Grantee{Crew: "yardmaster"}
+	err = s.write(func(w *wtx) error {
+		for name, text := range map[string]string{
+			"crm": "name: crm\nbase: https://crm.example.com\ncredential: { env: CRM_TOKEN, header: \"Authorization: Bearer {credential}\" }\n" +
+				"calls:\n  customer: { kind: read, request: { method: GET, path: /customers } }\n",
+			"odd": "calls: [this is no declaration",
+		} {
+			if err := put(w.Tx, bSources, name, &Source{Name: name, Text: text}); err != nil {
+				return err
+			}
+		}
+		// gone has no record of its own: its grant is all that is left.
+		for _, name := range []string{"crm", "gone", "odd"} {
+			g := &SourceGrant{Source: name, Grantee: to, Calls: []string{"customer", GrantRead}, By: "jo"}
+			if err := put(w.Tx, bSourceGrants, grantKey(name, to, ""), g); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gs, err := s.SourceGrants(context.Background(), "")
+	if err != nil || len(gs) != 3 {
+		t.Fatalf("the grants = %+v, %v", gs, err)
+	}
+	for _, g := range gs {
+		var want map[string]string
+		if g.Source == "crm" {
+			want = map[string]string{"customer": "read", GrantRead: "read"}
+		}
+		if !maps.Equal(g.Kinds, want) {
+			t.Errorf("%s: kinds = %v, want %v", g.Source, g.Kinds, want)
+		}
 	}
 }

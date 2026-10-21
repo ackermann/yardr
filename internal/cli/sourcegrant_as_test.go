@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,12 @@ func TestSourceGrantAs(t *testing.T) {
 	if err != nil || json.Unmarshal([]byte(out), &listed) != nil || len(listed) != 2 ||
 		listed[0].Given["read"].By != "jo" || listed[1].Given["customer"].By != "ada" {
 		t.Fatalf("source grants --json --group builders = %q, %v", out, err)
+	}
+	// The records carry the kind of each call, the one key --json gains: a
+	// call granted by name says what the file declares it, for a client
+	// that has not the file.
+	if !maps.Equal(listed[0].Kinds, map[string]string{"read": "read"}) || !maps.Equal(listed[1].Kinds, map[string]string{"customer": "read"}) {
+		t.Fatalf("source grants --json --group builders has kinds %v and %v", listed[0].Kinds, listed[1].Kinds)
 	}
 	// A later read call is covered by both the plain and as-user read
 	// grants, so source add names both holders of the widened access.
