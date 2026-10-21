@@ -92,11 +92,11 @@ report`). One row per group, originator and estimate label: BEADS, SENT
 BACK (per bead), REVIEW FIXED, SEC FIXED, FAILED, MEDIAN BUILD.
 
 **What the log says about rounds today.** From this yard's event log (`yardr
-events --kind advanced --since 30d`, which holds events since 3 Oct, 7,386
-moves, 1,387 beads that reported an outcome): 222 beads had at least one
-round. 148 had one, 65 two, 6 three, 2 four, 1 five. By edge: review's
+events --kind advanced --since 30d`, read on 22 Oct, which holds events
+since 3 Oct, 7,420 moves, 1,394 beads that reported an outcome): 223 beads
+had at least one round. 148 had one, 66 two, 6 three, 2 four, 1 five. By edge: review's
 `changes` sent 21 beads back once and none twice (reviewers here mostly fix
-forward); critique's `changes` sent 15 beads back once, 40 twice, 2 three
+forward); critique's `changes` sent 15 beads back once, 41 twice, 2 three
 times and 1 four times; the assembly's `failed` sent 125 back once, 20
 twice, 3 three times, 1 four and 1 five times. Review-security sent none
 back.
@@ -105,9 +105,13 @@ back.
 2fe2752, "Self-Checking Work And Transient Hardening"). It keeps two
 constructs apart: `retry` re-runs a step that failed for a boring reason,
 `check` with `max_attempts` bounds a loop whose work a script judges; at
-exhaustion the step closes failed and blocks what follows. Their #3005, as
-the bead quotes it, is that a retry keeps no record of the attempts before
-it. Ours must.
+exhaustion the step closes failed and blocks what follows. The bead reads
+their #3005 as "a retry keeps no record of earlier attempts"; the guide's
+own words are narrower: a check iteration or retry re-runs the whole step
+"with no record of irreversible side effects the failed attempt already
+landed" (a pushed commit, a posted comment, sent mail). Ours keeps both:
+each round is an `advanced` event with its outcome and note, so the log
+says what every earlier round did and why the bead came back.
 
 ## 3. The proposal
 
@@ -168,9 +172,18 @@ type Outcome struct {
 }
 ```
 
-`max: 3` means the bead may be sent back to `To` three times; the fourth
-report of the outcome, with three rounds already counted, goes to `Then`
+`max: 3` means the bead may be sent back to `To` three times; a report of
+the outcome with three or more rounds already counted goes to `Then`
 instead. The limit reads the stage's count, whichever edges made it.
+
+The comparison is "at least `Max`", not "exactly `Max`", because two
+edges into one stage may carry different limits and both add to the one
+count. In the design pack, critique's `changes` has `max: 2` and
+approved's `failed` has `max: 3`, both back to `draft`: a third failed
+landing is allowed at a count of 2 and leaves the count at 3, and the next
+`changes` from critique must still go to `decide`. With an equality test
+it would compare 3 with 2, miss, and the bead would go round past its
+declared limit for as long as the count stays above it.
 
 In a pack (`packs/*/pack.yaml`), an outcome's value is either the stage, as
 now, or a map:
@@ -210,11 +223,13 @@ flow's: the same flow under another depot's groups loops the same way.
 ### 3.3 What happens at the limit
 
 `donePick` resolves the outcome as now. When the outcome has `Max`, its
-`To` is a stage the bead has been in (section 3.1), and `Rounds[To]` is already `Max`,
+`To` is a stage the bead has been in (section 3.1), and `Rounds[To]` is
+already `Max` or more (section 3.2 says why not exactly `Max`),
 the pick returns `Then` instead, and in the same write:
 
 - the `advanced` event carries, beside `from`, `to` (now `Then`) and
-  `outcome`: `rounds` (the count, 3), `max` (3) and `instead_of` (`new`), so
+  `outcome`: `rounds` (the count, 3, or more when another edge raised it),
+  `max` (3) and `instead_of` (`new`), so
   the log keeps every round and why the bead went where it did;
 - `Rounds[To]` is set back to zero, its key kept;
 - a `rounds_reached` event is logged on the bead with `stage` (where the
@@ -272,20 +287,31 @@ The count is served on the bead: `Bead.Rounds map[string]int`
 | design `design` | critique `changes` -> draft | `max: 2, then: decide` |
 | design `design` | approved `failed` -> draft | `max: 3, then: decide` |
 
-Why these numbers, read against this yard's last 18 days (section 2):
+Why these numbers, read against this yard's log from 3 to 22 Oct (section 2):
 
-- Code beads: with one count for `new` and `max: 3`, 2 beads of 1,387 would
+- Code beads: with one count for `new` and `max: 3`, 2 beads of 1,394 would
   have reached `decide` (footplate-r1ky and footplate-v1f6, both on a
   fourth failed landing). With `max: 2`, 6 would, all on a third failed
   landing. Three rounds is past where a builder fixes a review note or a red
   gate, and where repeated landings point at the gate or the bead's shape,
   which is a person's to see.
-- Design beads: 40 designs went round critique twice, and two rounds is the
-  pattern the design flow is written for (draft, critique, redraft,
-  critique). With `max: 2`, 3 beads would have reached `decide` on a third
-  `changes` (yardr-rhgm, yardr-zyzp, yardr-bwm2); with `max: 3`, one.
-  The person in `decide` already reads every design, so sending one there a
-  round early costs little.
+- Design beads: the count for `draft` takes critique's `changes` and the
+  design assembly's `failed` together, so the numbers below are counted
+  that way, with the "at least" comparison of section 3.2. 41 designs went
+  round critique twice, and two rounds is the pattern the design flow is
+  written for (draft, critique, redraft, critique). With `max: 2` on
+  `changes` and `max: 3` on `failed`, 3 beads would have reached `decide`
+  on a third `changes` (yardr-rhgm, yardr-zyzp, yardr-bwm2); with `max: 3`
+  on both, one (yardr-rhgm). Counting the failed landings in changes
+  nothing here: one design had a failed landing back to `draft`
+  (yardr-0qs5, one `changes` and one `failed`), and it went no further.
+  The shared count does mean a design with one failed landing and one
+  `changes` reaches `decide` on its second `changes`, a round earlier than
+  one without; that is the trade open question 1 names. The person in
+  `decide` already reads every design, so sending one there a round early
+  costs little. This bead is itself at two critique rounds as it is
+  redrafted: under these limits a third `changes` would take it to
+  `decide`.
 
 The train flow gets no default: its rounds back to `open` come from GitHub's
 events through the hook's says table and from rebases, and the yard has
@@ -354,7 +380,9 @@ bead.
    `changes`, review-security's `changes` and approved's `failed` add to
    one count for `new`) bounds the builder sessions, whatever sent the bead
    back; it costs a little surprise, since a bead that failed to land twice
-   has one review round left. Per edge (`review/changes` counts alone)
+   has one review round left, and where two edges into one stage carry
+   different limits the lower one may fire on its first use (section 3.2
+   compares "at least"). Per edge (`review/changes` counts alone)
    reads more plainly in a flow file, but a bead may then go round 3 + 3 + 3
    times before any limit fires. I would take per stage.
 2. **When does the count start again?** (a) From creation, reset only when
@@ -370,7 +398,7 @@ bead.
    shorter pack files, but a stage name becomes special. I would take (a).
 4. **The default numbers.** Starter `max: 3` on all three edges back to
    `new` and design `max: 2` on critique's `changes` (section 3.5), or
-   `max: 2` on the starter's too (6 beads to `decide` in 18 days instead of
+   `max: 2` on the starter's too (6 beads to `decide` from 3 to 22 Oct instead of
    2), or no defaults in the packs at all, leaving the operator to add them.
    I would take the table in section 3.5.
 5. **This yard's own flows.** Whether the build changes
@@ -419,12 +447,15 @@ Where: `internal/store/beads.go` (`donePick`, `move`),
 (the kinds list), `docs/api.md` (the `rounds_reached` kind and the
 `advanced` event's new fields), `TestDone` in
 `internal/store/outcomes_test.go`.
-Done when: the limited outcome with `Rounds[to] == Max` moves to `then`;
+Done when: the limited outcome with `Rounds[to] >= Max` moves to `then`,
+and a case where a higher-limit edge raised the shared count past a lower
+limit (design's approved `failed`, `max: 3`, three times back to `draft`,
+then critique's `changes`, `max: 2`) redirects;
 its `advanced` event carries `rounds`, `max` and `instead_of`; `Rounds[to]`
 is zero after it with its key kept; a `rounds_reached` attention event is
 logged in the same write; a question to `decide` mid-loop leaves the count;
 an answered stage ask counts and redirects as `Done` does; a refused
-redirect (members, wagon) leaves count and stage unchanged. Behaviours: 7.
+redirect (members, wagon) leaves count and stage unchanged. Behaviours: 8.
 
 **4. Packs: read, check and export the limit.** Depends on 1.
 Goal: a pack's outcome may be `{ to, max, then }`.
