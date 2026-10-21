@@ -19,7 +19,8 @@
 #                       and bind the train to it (pr_url, pr_number,
 #                       pr_head_repo in its metadata); needs YARDR_PUSH, and
 #                       gh and jq on PATH, gh logged in as the operator
-#   YARDR_TEST_TIMEOUT  seconds the test command may run (default 1800)
+#   YARDR_TEST_TIMEOUT  seconds the test command may run, besides what it
+#                       waited for the race lock (default 1800)
 #
 # It fetches the base when it is a remote's, rebases the train branch onto
 # the base, runs the depot's test command on the result, with
@@ -169,8 +170,9 @@ trap 'unwatched; exit 143' TERM
 trap 'unwatched; exit 130' INT
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, and $late set when it ran past $LIMIT seconds. The bound is
-# sh's own, as in merge-local, which says why it is made this way.
+# in $lines, and $late set when it ran past $LIMIT seconds besides what it
+# waited for the race lock. The bound is sh's own, as in merge-local, which
+# says why it is made this way.
 runtest() {
   # Each file of the run is made by a mktemp of its own, never named from
   # another's: mktemp creates a file exclusively, but a local user of a shared
@@ -214,10 +216,35 @@ runtest() {
       case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
       eval "exec $fd>&-"
     done
-    sleep "$LIMIT" &
-    nap=$!
-    echo "$nap" >"$napfile"
-    wait "$nap"
+    # The deadline counts only time not spent waiting for the race lock: a
+    # train late in the queue would otherwise be killed with every test
+    # green. Sleep $LIMIT, then sleep again for the waited seconds not yet
+    # credited, repeating until no new wait is found; only then mark late
+    # and kill. The gate prints a start marker while it waits and a final
+    # `test: waited N s` line when it acquires the lock; account for the
+    # elapsed active wait too, since it may outlast LIMIT. The loop is
+    # merge-local's, copied: the scripts are installed one file each, and
+    # merge-local also ships in the packs, so neither has a file to source.
+    credited=0
+    wait_for=$LIMIT
+    while :; do
+      sleep "$wait_for" &
+      nap=$!
+      echo "$nap" >"$napfile"
+      wait "$nap"
+      waited=$(awk -v now="$(date +%s)" '
+        /^test: race lock wait started at [0-9]+$/ { active=$NF; next }
+        /^test: waited [0-9]+ s for the race lock$/ { total+=$3; active="" }
+        END { if (active != "") total += now-active; print total+0 }
+      ' "$log" 2>/dev/null)
+      case "$waited" in ''|*[!0-9]*) waited=0 ;; esac
+      extra=$((waited - credited))
+      if [ "$extra" -le 0 ]; then
+        break
+      fi
+      credited=$waited
+      wait_for=$extra
+    done
     echo late >"$latefile"
     seen=
     while t=$(tree "$pid") && [ "$t" != "$seen" ]; do

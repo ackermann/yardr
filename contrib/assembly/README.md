@@ -94,7 +94,9 @@ run, naming every such path, so code no reviewer read never lands.
 routed for the train flow's `open` stage (type `train`). It fetches the base
 when it is a remote's, rebases `yard/<train>` onto the depot's base and runs
 the depot's test command on it, with `YARDR_LANDING=1` and from the base's
-copy where the command is a file the base has, as merge-local does; a depot
+copy where the command is a file the base has, as merge-local does, and for
+at most `YARDR_TEST_TIMEOUT` seconds besides what it waited for the race lock
+(a run killed at the deadline is red); a depot
 with no test command goes to review untested. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
 rebased, or in a tip a note on the train records as `old tip: <sha>`, which

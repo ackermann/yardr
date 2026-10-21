@@ -491,10 +491,10 @@ what the test command does when it is run plainly cheap, and leave the whole
 suite to `YARDR_LANDING`. Two yards on one machine are not bounded together.
 Depot yardr's own gate serialises its race leg per machine: one `go test
 -race` run at a time, under a lock file in the yard's home, and a gate that
-has to wait says so (`test: waited 312 s for the race lock`). The landing's
-deadline does not count that wait: `merge-local` credits the waited seconds,
-so a landing late in the queue is killed only when its own run outlasts
-`YARDR_TEST_TIMEOUT`. Race suites
+has to wait says so (`test: waited 312 s for the race lock`). The deadline of
+a landing, and of a train's integration, does not count that wait:
+`merge-local` and `integrate-train` credit the waited seconds, so one late in
+the queue is killed only when its own run outlasts `YARDR_TEST_TIMEOUT`. Race suites
 run side by side slow each other past Go's per-package timeout while one
 alone takes a third of the time, so the queue costs less wall time than the
 contention. Waiters take the lock in arrival order, on tickets in

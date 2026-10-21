@@ -294,3 +294,82 @@ func TestTrainTestsEndedBySignalTwiceHold(t *testing.T) {
 		}
 	}
 }
+
+// landedTrainYard is newTrainYard with both children landed on the train's
+// branch, so that the next run is integrate-train's alone.
+func landedTrainYard(t *testing.T) *yard {
+	t.Helper()
+	y := newTrainYard(t, "true")
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
+	return y
+}
+
+// wantIntegrated fails the test unless the train went to review with its
+// tests passed, not killed at a deadline.
+func wantIntegrated(t *testing.T, y *yard) {
+	t.Helper()
+	if e := y.beadOf("r-e"); e.Stage != "review" || e.Status != "open" || e.Hold {
+		t.Fatalf("train %s/%s hold=%v, want review", e.Stage, e.Status, e.Hold)
+	}
+	notes := y.notesOf("r-e")
+	if strings.Contains(notes, "ran past their deadline") || !strings.Contains(notes, "tests passed") {
+		t.Fatalf("a run within its deadline plus its wait was not integrated:\n%s", notes)
+	}
+}
+
+// integrate-train's deadline counts only time not spent waiting for the race
+// lock, as merge-local's does (TestMergeLocalTestsDeadlineExcludesRaceLockWait):
+// a run that prints `test: waited N s` and then runs past LIMIT but within
+// LIMIT+N goes to review, not killed. Here LIMIT is 2, the wait 10, and the
+// run 4.
+func TestTrainTestsDeadlineExcludesRaceLockWait(t *testing.T) {
+	y := landedTrainYard(t)
+	y.tests(`echo "test: waited 10 s for the race lock"; sleep 4`)
+	y.opts = "YARDR_TEST_TIMEOUT=2"
+
+	y.exec("integrate-train", "yard-integrators", "r-e")
+
+	wantIntegrated(t, y)
+}
+
+// A lock wait longer than LIMIT is still excluded before the gate can print
+// its final wait line (TestMergeLocalTestsDeadlineExcludesRaceLockWaitLongerThanLimit).
+// Here it marks the wait at the start, waits 4 seconds, then runs for 1
+// second: 5 seconds total is within LIMIT+the wait (7).
+func TestTrainTestsDeadlineExcludesRaceLockWaitLongerThanLimit(t *testing.T) {
+	y := landedTrainYard(t)
+	y.tests(`echo "test: race lock wait started at $(date +%s)"; sleep 4; echo "test: waited 4 s for the race lock"; sleep 1`)
+	y.opts = "YARDR_TEST_TIMEOUT=3"
+
+	y.exec("integrate-train", "yard-integrators", "r-e")
+
+	wantIntegrated(t, y)
+}
+
+// Past LIMIT plus its waited seconds, the run is killed as before, and a
+// killed run is red: the train goes back to open with a child to fix it, and
+// the tests are not run again. Here LIMIT is 2, the wait 2, and the run 10,
+// killed at 4.
+func TestTrainTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
+	y := landedTrainYard(t)
+	ran := filepath.Join(y.home, "ran")
+	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 10`)
+	y.opts = "YARDR_TEST_TIMEOUT=2"
+
+	y.exec("integrate-train", "yard-integrators", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "open" || e.Hold {
+		t.Fatalf("train %s hold=%v, want back in open", e.Stage, e.Hold)
+	}
+	if n := runs(t, ran); n != 1 {
+		t.Fatalf("the tests ran %d times, want 1", n)
+	}
+	notes := y.notesOf("r-e")
+	if !strings.Contains(notes, "the tests failed") || !strings.Contains(notes, "ran past their deadline of 2s and were killed") {
+		t.Fatalf("the deadline past its wait is not reported as a red run:\n%s", notes)
+	}
+	if f := y.familyOf("r-e"); len(f.Children) != 3 {
+		t.Fatalf("train children %v, want r-1, r-2 and a fix", f.Children)
+	}
+}
