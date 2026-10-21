@@ -421,13 +421,8 @@ func TestDaemonInstallUninstall(t *testing.T) {
 	}
 }
 
-// herdrLoginLine is the line doctor prints for the login service of herdr's
-// server on the test's home.
-func herdrLoginLine() string {
-	return herdrLoginLineAt(config.Getenv("HOME"))
-}
-
-// herdrLoginLineAt is herdrLoginLine for the yard in home.
+// herdrLoginLineAt is the line doctor prints for the login service of
+// herdr's server, for the yard in home.
 func herdrLoginLineAt(home string) string {
 	return herdrLoginPart(&config.Config{Home: home}).line()
 }
