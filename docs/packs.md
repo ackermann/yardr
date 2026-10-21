@@ -1461,9 +1461,9 @@ key`, `yardr user key`, or a card a crew member asks with) and how to
 test: each is one service with the `notify` key that tells a user, and no
 commands, so one apply with `--notify` and the two keys set it up whole,
 and `yardr user list` shows the user told through it. The webhook pack's
-say how to make one hook for each sender, how Zapier, Make and n8n each
-post to it with the secret in a header, and where each shows the URL the
-yard sends to.
+setup notes say how to make one hook for each sender, how Zapier, Make and
+n8n each post to it with the secret in a header, and where each service
+shows the URL the yard sends to.
 
 An integration pack may also suggest grants. `presets`, beside `sources`,
 names each preset with an optional one line of `about` and the `grants`,

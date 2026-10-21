@@ -72,10 +72,12 @@ separate, and you can set up either without the other.
    `text`, `url` and `actor`. A `title` stands in where there is no `text`.
    The `url` is kept when it starts with `http://` or `https://`, and the
    `actor` is an object with an `id` and a `name`, or a bare name. What the
-   body leaves out is filled in: the type is `event`, and the text is the
-   body itself, compact and with its keys in alphabetical order. A body that
-   is not an object, or not JSON at all, is heard as its own words. The
-   event keeps the whole body. Try the hook before you set up the sender:
+   body leaves out is filled in: the type is `event`. When neither `text`
+   nor `title` supplies non-empty text, the body itself becomes the text: a
+   string as sent, or other JSON compact with keys in alphabetical order.
+   When one of those fields supplies the text, other object fields are not
+   kept. Text is collapsed to one line and truncated at 500 characters. Try
+   the hook before you set up the sender:
    ```sh
    curl -sS -X POST "https://<public host>/hooks/zapier" -H "Content-Type: application/json" -H "X-Yardr-Secret: $(cat ~/.yardr/webhook.secret)" -d '{"type":"lead","action":"created","text":"New lead: Ada"}'
    # {"seq":42}
