@@ -17,8 +17,11 @@ const ClientHeader = "X-Yardr-Client"
 // the names its arguments have in a request that gives them by name:
 // docs/api.md is the contract, and the test of this file holds the two
 // together. They are what a chat client needs, yardr chat among them: its
-// view (chat.Store) and the command that opens it; and what a client that
-// shows a person's decisions needs (UserAsks, Bead and the writes).
+// view (chat.Store) and the command that opens it; what a client that
+// shows a person's decisions needs (UserAsks, Bead and the writes); and
+// what a client that shows a kept hook delivery's files needs (DeliveryFiles,
+// with the hook_files event to read it again on; the bytes are the blob
+// route's).
 // Every other method is yardr's own, changes with its builds,
 // and takes its arguments as yardr sends them, in an array.
 //
@@ -51,6 +54,7 @@ var Calls = map[string][]string{
 	"DeclineAsk":           {"bead", "ask", "words", "actor"},
 	"TakeBackAsk":          {"bead", "ask", "reason", "actor"},
 	"AddNote":              {"bead", "text", "actor", "files"},
+	"DeliveryFiles":        {"seq"},
 }
 
 // OperatorCalls are documented as Calls are, and are the operator's alone

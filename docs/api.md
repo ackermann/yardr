@@ -3,10 +3,11 @@
 Every yardr command talks to the yard's server over a unix socket, and so
 can a program that is not yardr: a chat window of its own, say, or a window
 that shows a person's decisions. This page is what such a program may rely
-on: the calls a chat client needs, the calls a decisions client needs,
-their JSON, and the events they follow. It is what [`yardr
-chat`](chat.md) itself reads and writes, and the queue, the bead and the
-writes a decisions client shows, and nothing else.
+on: the calls a chat client needs, the calls a decisions client needs, the
+files of a kept hook delivery, their JSON, and the events they follow. It
+is what [`yardr chat`](chat.md) itself reads and writes, the queue, the
+bead and the writes a decisions client shows, and the files a hook
+delivery carries, and nothing else.
 
 ```sh
 curl --unix-socket ~/.yardr/yard.sock -X POST http://yard/call/Users -d '{}'
@@ -275,7 +276,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 141,
+  "seq": 143,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -303,7 +304,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 143,
+  "seq": 145,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -417,13 +418,37 @@ An event became a notification for the users `data.notified` names, each with th
 | `seq` | number | the notification's seq |
 | `data.notified` | object | user to reason |
 
+### A hook delivery's files arrived: `hook_files`
+
+The yard fetched the files of a kept hook delivery and recorded them: [`DeliveryFiles`](#deliveryfiles) of `data.seq` answers them now, each as the yard holds it or with the reason it did not. The delivery's own event, and the notification of it, come before its files are fetched, so a client that read none then reads again on this, once for the delivery. A delivery whose files are not fetched (none carried, a source with no credential set, a fetch the server's restart cut short) has no such event, and `DeliveryFiles` answers `null` for it. Every device is sent it, as it is sent the delivery. It is no notification: `UserNotifications` has no row for it.
+
+```json
+{
+  "seq": 140,
+  "kind": "hook_files",
+  "actor": "hook:telegram",
+  "data": {
+    "seq": 139
+  },
+  "at": "2026-10-08T09:30:00Z"
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `hook_files` |
+| `actor` | string | the delivery's: `hook:<name>`, the hook that received it |
+| `at` | time | when the files were recorded |
+| `data.seq` | number | the delivery's seq: what `DeliveryFiles` takes, and the `seq` of its notification |
+
 ### Notifications were read: `notifications_read`
 
 A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 144,
+  "seq": 146,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -519,6 +544,12 @@ A file never changes under its hash, so a client that has one need not
 ask again. The yard removes a file once no mail or note it still has
 names it (`yardr store prune`), which is how a hash from a letter can
 come to be 404.
+
+A kept hook delivery carries files too (a photo sent to a chat service the
+yard hears): [`DeliveryFiles`](#deliveryfiles) names them by hash, and
+this reads their bytes. They arrive after the delivery does, and the
+[`hook_files`](#a-hook-deliverys-files-arrived-hook_files) event says when.
+The yard removes them with the delivery, when it leaves the log.
 
 To mail one, call [`PutBlob`](#putblob) with the bytes, then [`Mail`](#mail)
 with `{hash, name}` among `files`. To attach one to a note, use
@@ -642,12 +673,17 @@ nothing else. What is not the same:
   or `reaction` event is sent only to a device of its sender or its
   receiver (a read receipt to its reader alone), however far back the
   stream replays; anything between two others is left out. A `hook`
-  delivery goes out to every device, as a bead's events do.
+  delivery goes out to every device, as a bead's events do, and so does
+  the [`hook_files`](#a-hook-deliverys-files-arrived-hook_files) that says
+  its files are recorded.
 - **A mail's file goes to its parties alone**: `GET /user/blobs/<hash>`
-  serves a note's file to any device and a mail's file to a device of its
-  sender or recipient, as the web view serves them, and anything else is
-  404. A file the device's own user put within the hour that no mail or
-  note names yet is served to the device: its mail or note is on its way.
+  serves a note's file and a kept hook delivery's to any device, and a
+  mail's file to a device of its sender or recipient, as the web view
+  serves them, and anything else is 404. A delivery's files are named by
+  [`DeliveryFiles`](#deliveryfiles), which every device may call: they are
+  the yard's, as the delivery is, and no one user's. A file the device's
+  own user put within the hour that no mail or note names yet is served to
+  the device: its mail or note is on its way.
 - **`GET /user/me`** answers who the token is, in place of [the name a
   client on the machine takes](#who-you-are):
 
@@ -796,7 +832,7 @@ POST /call/Head
 {}
 
 {
-  "result": 138
+  "result": 140
 }
 ```
 
@@ -1282,7 +1318,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 139,
+      "seq": 141,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1290,7 +1326,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 140,
+      "seq": 142,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1316,7 +1352,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 139,
+      "seq": 141,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1324,7 +1360,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 140,
+      "seq": 142,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1351,7 +1387,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 141,
+      "seq": 143,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -4409,6 +4445,46 @@ POST /call/AddNote
 
 {}
 ```
+
+### `DeliveryFiles`
+
+The files a kept hook delivery carried, as the yard fetched them: a photo, a document, a voice note a chat service's message names. The source names them by its own refs and the yard fetches the bytes after it has kept and answered the delivery, so a client that reads this at the delivery's notification may read none: it reads again on the delivery's [`hook_files`](#a-hook-deliverys-files-arrived-hook_files) event. A file the yard holds is read with `GET /blobs/<hash>`; one it did not take (over `blob_max_bytes`, or its fetch failed) has `not_taken`, the reason, and no bytes to ask for. A delivery whose files were not fetched (none carried, a source with no credential set, a fetch the server's restart cut short, which is not tried again) answers `null`, a list with nothing in it, and so does a `seq` that is no delivery's or whose delivery has left the log. The files are the yard's, not one user's: a device of any user reads them, as it is sent the delivery.
+
+| argument | type | |
+|---|---|---|
+| `seq` | number | the delivery's: the `seq` of its `hook` event, which is the `seq` of its notification where `kind` is `hook` |
+
+```
+POST /call/DeliveryFiles
+{"seq":139}
+
+{
+  "result": [
+    {
+      "hash": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+      "type": "image/png",
+      "bytes": 70
+    },
+    {
+      "hash": "",
+      "type": "",
+      "bytes": 1048576,
+      "name": "shed-plans.pdf",
+      "not_taken": "document of 1048576 bytes, over the yard's limit of 8192"
+    }
+  ]
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `[].hash` | string | the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes. `""` on a file not taken |
+| `[].type` | string | what the bytes say: `image/png` or `image/jpeg` for an image, `text/html; charset=utf-8` for a page. `""` on a file not taken |
+| `[].bytes` | number | how many bytes it is; on a file not taken, the size the source gave, `0` where it gave none |
+| `[].name` | string, may be absent | the file's base name as the source gave it; absent where it gave none, as for a photo |
+| `[].not_taken` | string, may be absent | why the yard did not take the file, in its words; absent on a file the yard holds |
+
+The list is in the order the source named the files. A file is recorded once the fetch of all the delivery's files has ended, so the list is whole when it is there at all.
 
 <!-- /calls -->
 

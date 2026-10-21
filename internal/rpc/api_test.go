@@ -632,6 +632,23 @@ var apiCalls = []apiCall{
 		requests: []string{`{"bead":"yd-greet","text":"the newcomer arrives Monday","actor":"jo"}`,
 			`{"bead":"yd-greet","text":"the newcomer arrives Monday, in this doorway","actor":"jo","files":[{"hash":"` + apiPNGHash + `","name":"doorway.png"}]}`},
 	},
+	{
+		method: "DeliveryFiles",
+		says: "The files a kept hook delivery carried, as the yard fetched them: a photo, a document, a voice note a chat service's message names. The source names them by its own refs and the yard fetches the bytes after it has kept and answered the delivery, so a client that reads this at the delivery's notification may read none: " +
+			"it reads again on the delivery's [`hook_files`](#a-hook-deliverys-files-arrived-hook_files) event. A file the yard holds is read with `GET /blobs/<hash>`; one it did not take (over `blob_max_bytes`, or its fetch failed) has `not_taken`, the reason, and no bytes to ask for. " +
+			"A delivery whose files were not fetched (none carried, a source with no credential set, a fetch the server's restart cut short, which is not tried again) answers `null`, a list with nothing in it, and so does a `seq` that is no delivery's or whose delivery has left the log. " +
+			"The files are the yard's, not one user's: a device of any user reads them, as it is sent the delivery.",
+		args:     []field{{"seq", "number", "the delivery's: the `seq` of its `hook` event, which is the `seq` of its notification where `kind` is `hook`"}},
+		requests: []string{`{"seq":%d}`},
+		fields: []field{
+			{"[].hash", "string", "the file's name: the SHA-256 of its bytes, in hex. `GET /blobs/<hash>` answers the bytes. `\"\"` on a file not taken"},
+			{"[].type", "string", "what the bytes say: `image/png` or `image/jpeg` for an image, `text/html; charset=utf-8` for a page. `\"\"` on a file not taken"},
+			{"[].bytes", "number", "how many bytes it is; on a file not taken, the size the source gave, `0` where it gave none"},
+			{"[].name", "string?", "the file's base name as the source gave it; absent where it gave none, as for a photo"},
+			{"[].not_taken", "string?", "why the yard did not take the file, in its words; absent on a file the yard holds"},
+		},
+		after: "The list is in the order the source named the files. A file is recorded once the fetch of all the delivery's files has ended, so the list is whole when it is there at all.",
+	},
 }
 
 // apiOperatorCalls are the calls of the doc that OperatorCalls names:
@@ -878,6 +895,21 @@ var apiEvents = []apiEvent{
 		fields: []field{
 			{"seq", "number", "the notification's seq"},
 			{"data.notified", "object", "user to reason"},
+		},
+	},
+	{
+		title: "A hook delivery's files arrived: `hook_files`",
+		says: "The yard fetched the files of a kept hook delivery and recorded them: [`DeliveryFiles`](#deliveryfiles) of `data.seq` answers them now, each as the yard holds it or with the reason it did not. " +
+			"The delivery's own event, and the notification of it, come before its files are fetched, so a client that read none then reads again on this, once for the delivery. " +
+			"A delivery whose files are not fetched (none carried, a source with no credential set, a fetch the server's restart cut short) has no such event, and `DeliveryFiles` answers `null` for it. " +
+			"Every device is sent it, as it is sent the delivery. It is no notification: `UserNotifications` has no row for it.",
+		is: kindOf("hook_files"),
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`hook_files`"},
+			{"actor", "string", "the delivery's: `hook:<name>`, the hook that received it"},
+			{"at", "time", "when the files were recorded"},
+			{"data.seq", "number", "the delivery's seq: what `DeliveryFiles` takes, and the `seq` of its notification"},
 		},
 	},
 	{
@@ -1447,12 +1479,27 @@ func apiStore(t *testing.T) (*store.Store, string) {
 		Context: []string{"The import leaves a note on each account it touches."},
 		Run:     &store.AskRun{Argv: []string{"source grant crm put --group builders"}}}), "jo", true)
 	must(err)
+
+	// A hook delivery the yard kept and, once it had answered, fetched the
+	// files of: a photo it holds and a document it did not take, so that
+	// DeliveryFiles has both kinds of file to show and the stream the
+	// hook_files that tells of them. It reaches no subscription of jo's, so
+	// the notifications above stand as they were. Last again, for the seqs
+	// above.
+	apiDelivery, _, err = st.RecordHook(ctx, "telegram", map[string]any{"source": "telegram", "type": "message", "text": "[photo]"}, []byte(`{}`), nil)
+	must(err)
+	must(st.RecordDeliveryFiles(ctx, apiDelivery, []store.BlobRef{{Hash: shed.Hash},
+		{Name: "shed-plans.pdf", Bytes: 1048576, NotTaken: "document of 1048576 bytes, over the yard's limit of 8192"}}))
 	return st, d.Token
 }
 
 // apiTakeBack is the ask TakeBackAsk takes back in the doc, by seq, as the
 // fixture last made it.
 var apiTakeBack uint64
+
+// apiDelivery is the hook delivery DeliveryFiles reads in the doc, by seq,
+// as the fixture last made it.
+var apiDelivery uint64
 
 // apiRunAsk is the run ask ApproveAsk approves in the doc, by seq, as the
 // fixture last made it.
@@ -1599,6 +1646,8 @@ func runAPI(t *testing.T, network bool) *apiRun {
 				body = fmt.Sprintf(body, apiSetupAsks[i])
 			} else if c.method == "TakeBackAsk" {
 				body = fmt.Sprintf(body, apiTakeBack)
+			} else if c.method == "DeliveryFiles" {
+				body = fmt.Sprintf(body, apiDelivery)
 			} else if c.method == "React" {
 				// The first mail of the inbox read above.
 				seqs, _ := at(run.replies["UserInbox"][0], "mail[].seq")
@@ -1707,8 +1756,8 @@ func TestCallsAreTheDocs(t *testing.T) {
 	// there was a second list, and a device of the operator the four calls
 	// of OperatorCalls besides: a call is added to either on purpose, here
 	// too.
-	if len(Calls) != 25 || len(OperatorCalls) != 4 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 25 and 4", len(Calls), len(OperatorCalls))
+	if len(Calls) != 26 || len(OperatorCalls) != 4 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 4", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {

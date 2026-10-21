@@ -967,7 +967,9 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 // again, and the values it is not told stay on the yard's own machine
 // with the settings themselves. A hook delivery goes out to every device,
 // as a bead's events do: it is the yard's news, told to no one user, and
-// whose subscriptions it reached is on the event.
+// whose subscriptions it reached is on the event. So does the hook_files
+// that says its files are recorded: DeliveryFiles and the blob route serve
+// them to every device, so the event that tells of them is sent to every one.
 func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) (store.Event, bool) {
 	switch e.Kind {
 	case "mail":

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -37,8 +38,8 @@ func mustHead(t *testing.T, st *store.Store) uint64 {
 // A device that subscribes from the first event is sent its own mail and
 // none between two others: the mail, read receipts and reactions it is a
 // party to arrive, and what two others wrote, read or reacted to does
-// not. A bead's events and a hook delivery still arrive: those are the
-// yard's own news, not mail.
+// not. A bead's events and a hook delivery still arrive, and the event that
+// its files are in with it: those are the yard's own news, not mail.
 func TestUserStreamShowsOnlyOwnMail(t *testing.T) {
 	ctx := context.Background()
 	st, u, joToken, samToken := mailYard(t)
@@ -73,6 +74,13 @@ func TestUserStreamShowsOnlyOwnMail(t *testing.T) {
 	if hooked != head {
 		t.Fatalf("the hook delivery is seq %d, want the head %d", hooked, head)
 	}
+	// Its files are fetched after it is answered, and recorded with an event
+	// of their own.
+	photo, err := st.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed from the phone"))
+	must(err)
+	must(st.RecordDeliveryFiles(ctx, hooked, []store.BlobRef{{Hash: photo.Hash}}))
+	filed := mustHead(t, st)
+	head = filed
 
 	// read is the events after since on token's stream from the first
 	// event, by seq.
@@ -112,6 +120,7 @@ func TestUserStreamShowsOnlyOwnMail(t *testing.T) {
 		{"sam's reaction", samReact, true},
 		{"a bead's note", noted, true},
 		{"a hook delivery", hooked, true},
+		{"a hook delivery's files", filed, true},
 	} {
 		_, has := sams[tc.seq]
 		if has != tc.want {
@@ -136,6 +145,8 @@ func TestUserStreamShowsOnlyOwnMail(t *testing.T) {
 		{"sam's read receipt", samRead, false},
 		{"jo's reaction", crewReact, true},
 		{"sam's reaction", samReact, true},
+		{"a hook delivery", hooked, true},
+		{"a hook delivery's files", filed, true},
 	} {
 		_, has := jos[tc.seq]
 		if has != tc.want {
@@ -234,6 +245,26 @@ func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 		w.Body.String() != "\x89PNG\r\n\x1a\n the shed on its note" {
 		t.Errorf("a note's file = %d, %q", w.Code, w.Body.String())
 	}
+	// The hash a device reads a delivery's file by is named by DeliveryFiles,
+	// to a device of either user, as the delivery is sent to both; a
+	// delivery whose files were never fetched reads none.
+	bare, _, err := st.RecordHook(ctx, "telegram", map[string]any{"source": "telegram", "type": "message", "text": "[voice]"}, []byte(`{}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := st.Blob(hookFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{samToken, joToken} {
+		var got struct{ Result []store.BlobRef }
+		if err := json.Unmarshal([]byte(call(t, h, token, "DeliveryFiles", fmt.Sprintf(`{"seq":%d}`, seq))), &got); err != nil || len(got.Result) != 1 || got.Result[0] != *held {
+			t.Errorf("DeliveryFiles(%d) = %+v, %v, want [%+v]", seq, got.Result, err, held)
+		}
+		if got := call(t, h, token, "DeliveryFiles", fmt.Sprintf(`{"seq":%d}`, bare)); got != `{"result":null}` {
+			t.Errorf("DeliveryFiles(%d) of a delivery whose files were not fetched = %s, want none", bare, got)
+		}
+	}
 }
 
 // deviceEvent sends a mail, a read receipt and a reaction only where the
@@ -267,6 +298,7 @@ func TestUserDeviceEventShowsOnlyPartiesMail(t *testing.T) {
 		{"a reaction between two others", store.Event{Kind: "reaction", Actor: "jo", Data: map[string]any{"seq": uint64(5), "emoji": "👍", "to": "yardmaster"}}, false},
 		{"a bead's event", store.Event{Kind: "noted", Actor: "jo", Data: map[string]any{"note": "hi"}}, true},
 		{"a hook delivery", store.Event{Kind: "hook", Actor: "hook:linear", Data: map[string]any{"hook": "linear", "text": "hi"}}, true},
+		{"a hook delivery's files", store.Event{Kind: store.HookFiles, Actor: "hook:linear", Data: map[string]any{"seq": uint64(7)}}, true},
 	} {
 		if _, keep := u.deviceEvent(ctx, sam, tc.e); keep != tc.want {
 			t.Errorf("sam is sent %s: %v, want %v", tc.name, keep, tc.want)

@@ -22,6 +22,13 @@ import (
 // A hook event's own "files" are the source's refs, never BlobRefs:
 // EventFiles reads mail and quiet_failed alone, and these records are
 // read here, so the two are never taken for each other.
+//
+// The files land after the delivery is kept, and so after the notification
+// of it: a client that read DeliveryFiles then read none. The record is
+// logged with a HookFiles event in the same write, so the event is the
+// client's word to read again, and what it reads then is there. A delivery
+// whose files are never fetched (none carried, no credential, a fetch the
+// server's restart cut short) has no record and no event, and reads as none.
 var (
 	bHookFiles     = []byte("hook_files")      // <seq>: the delivery's files, []BlobRef
 	bHookFileBlobs = []byte("hook_file_blobs") // <hash>\x00<seq>: empty
@@ -29,13 +36,21 @@ var (
 
 func init() { allBuckets = append(allBuckets, bHookFiles, bHookFileBlobs) }
 
+// HookFiles is the kind of the event that says a delivery's files are
+// recorded: bead-less, by the delivery's own actor, with the delivery's
+// seq in data "seq". Every device is sent it, as it is sent the delivery
+// (rpc deviceEvent); docs/api.md names it as the event to read
+// DeliveryFiles again on.
+const HookFiles = "hook_files"
+
 // RecordDeliveryFiles keeps what the receiver fetched of the hook event
 // seq's files: each a blob the yard holds (put first, PutBlob), or one it
 // did not take, with its reason in NotTaken and no hash. A delivery's
 // files are recorded once: a second record is refused, as is one for an
 // event that is no hook delivery, one naming a blob the yard does not
-// hold, and one with a name no letter may carry (CheckBlobName). Like
-// RecordHook it is not on the API: only the receiver, in the
+// hold, and one with a name no letter may carry (CheckBlobName). The record
+// and its HookFiles event are one write, and a refused record logs none.
+// Like RecordHook it is not on the API: only the receiver, in the
 // process that owns the store, records what a delivery carried.
 func (s *Store) RecordDeliveryFiles(ctx context.Context, seq uint64, files []BlobRef) error {
 	if len(files) > MaxMailFiles {
@@ -79,7 +94,9 @@ func (s *Store) RecordDeliveryFiles(ctx context.Context, seq uint64, files []Blo
 				}
 			}
 		}
-		return nil
+		// By the delivery's actor, the hook it came by: the files are that
+		// delivery's, not a person's act.
+		return w.event("", HookFiles, e.Actor, map[string]any{"seq": seq})
 	})
 }
 

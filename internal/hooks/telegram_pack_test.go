@@ -981,10 +981,10 @@ func telegramSeq(t *testing.T, ans string) uint64 {
 
 // A kept delivery's files are fetched after it is answered, with the
 // source's own token, into the blob store, and recorded beside the event:
-// each a blob, or the reason it was not taken, with its size. A delivery
-// whose source has no token set keeps its refs alone; a stranger's is
-// dropped before anything is fetched, and a redelivery fetches nothing
-// twice.
+// each a blob, or the reason it was not taken, with its size, and a
+// hook_files event says so. A delivery whose source has no token set keeps
+// its refs alone, and has no such event; a stranger's is dropped before
+// anything is fetched, and a redelivery fetches nothing twice.
 func TestTelegramPackFetchesFiles(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
@@ -1028,11 +1028,22 @@ func TestTelegramPackFetchesFiles(t *testing.T) {
 		}
 		return got
 	}
+	// The deliveries the hook_files events name, oldest first: a device
+	// reads their files again on each.
+	landed := func() []uint64 {
+		t.Helper()
+		var seqs []uint64
+		for _, e := range r.eventsOfKind(t, store.HookFiles) {
+			n, _ := e.Data["seq"].(float64)
+			seqs = append(seqs, uint64(n))
+		}
+		return seqs
+	}
 	// No token set for the source: the voice note keeps its ref alone, and
 	// the service is asked nothing.
 	voice := post(fixture(t, "telegram_message_voice.json"))
-	if got := files(voice); got != nil {
-		t.Fatalf("fetched without a token: %+v", got)
+	if got := files(voice); got != nil || landed() != nil {
+		t.Fatalf("fetched without a token: %+v, hook_files for %v", got, landed())
 	}
 	if got := stub.requests(); len(got) != 0 {
 		t.Fatalf("the service was asked %q without a token", got)
@@ -1059,6 +1070,9 @@ func TestTelegramPackFetchesFiles(t *testing.T) {
 	if blob, err := r.st.DeliveryBlob(ctx, got[0].Hash); err != nil || blob.Bytes != int64(len(png)) {
 		t.Fatalf("DeliveryBlob = %+v, %v", blob, err)
 	}
+	if want := []uint64{photo}; !slices.Equal(landed(), want) {
+		t.Fatalf("hook_files after the photo's fetch names %v, want %v", landed(), want)
+	}
 	asked := len(stub.requests())
 	if asked != 2 {
 		t.Fatalf("the photo took %d requests: %q", asked, stub.requests())
@@ -1074,6 +1088,10 @@ func TestTelegramPackFetchesFiles(t *testing.T) {
 	if len(stub.requests()) != asked {
 		t.Fatalf("the document over the limit was asked for: %q", stub.requests()[asked:])
 	}
+	// A file not taken is a record too: the delivery's files are in.
+	if want := []uint64{photo, doc}; !slices.Equal(landed(), want) {
+		t.Fatalf("hook_files after the document names %v, want %v", landed(), want)
+	}
 	// A stranger's photo is dropped before it is kept: the service is
 	// asked nothing of it.
 	if seq := post(strangerUpdate(t, fixture(t, "telegram_message_photo.json"), 9600, -555666777, "MARKER-mnc8-stranger")); seq != 0 {
@@ -1085,6 +1103,9 @@ func TestTelegramPackFetchesFiles(t *testing.T) {
 	}
 	if len(stub.requests()) != asked {
 		t.Fatalf("a stranger's photo or a redelivery was fetched: %q", stub.requests()[asked:])
+	}
+	if want := []uint64{photo, doc}; !slices.Equal(landed(), want) {
+		t.Fatalf("hook_files after a stranger's photo and a redelivery names %v, want %v", landed(), want)
 	}
 	// Nothing is left where the files were fetched to.
 	if left, _ := os.ReadDir(filepath.Join(r.home, "tmp")); len(left) != 0 {

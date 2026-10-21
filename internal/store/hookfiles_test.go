@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,10 +14,11 @@ import (
 )
 
 // What the receiver fetched of a delivery's files is kept beside its event,
-// once: each a blob the yard holds, or the reason it was not taken. A blob
-// a kept delivery names is served by its hash and outlives the prune of
-// blobs; once the delivery goes with the log, its record goes with it, and
-// the blob is swept as one nothing names.
+// once: each a blob the yard holds, or the reason it was not taken, and the
+// write that keeps it logs a hook_files event naming the delivery, the word
+// to read the files again on. A blob a kept delivery names is served by its
+// hash and outlives the prune of blobs; once the delivery goes with the
+// log, its record goes with it, and the blob is swept as one nothing names.
 func TestDeliveryFiles(t *testing.T) {
 	t.Parallel()
 	api, s := storetest.NewOwned(t)
@@ -39,14 +41,39 @@ func TestDeliveryFiles(t *testing.T) {
 	}
 	named.Name = "shed.png"
 	over := store.BlobRef{Hash: "ignored", Name: "plans.pdf", Bytes: 1048576, NotTaken: "document of 1048576 bytes, over the yard's limit of 8192"}
-	if got, err := api.DeliveryFiles(ctx, seq); err != nil || got != nil {
-		t.Fatalf("before any record: %+v, %v", got, err)
+	// The deliveries the hook_files events name, oldest first. Each is
+	// about no bead and by the hook the delivery came by.
+	filed := func() []uint64 {
+		t.Helper()
+		evs, err := api.EventsOfKind(ctx, store.HookFiles, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var seqs []uint64
+		for _, e := range evs {
+			n, _ := e.Data["seq"].(float64)
+			seqs = append(seqs, uint64(n))
+			if e.Actor != "hook:telegram" || e.Bead != nil {
+				t.Errorf("hook_files event %d is by %q about %v, want by hook:telegram about no bead", e.Seq, e.Actor, e.Bead)
+			}
+		}
+		return seqs
+	}
+	if got, err := api.DeliveryFiles(ctx, seq); err != nil || got != nil || filed() != nil {
+		t.Fatalf("before any record: %+v, %v, hook_files for %v", got, err, filed())
 	}
 	if err := s.RecordDeliveryFiles(ctx, seq, []store.BlobRef{*named, over}); err != nil {
 		t.Fatal(err)
 	}
+	// The event is in the log once the record is read: it is the same write.
+	if want := []uint64{seq}; !slices.Equal(filed(), want) {
+		t.Fatalf("hook_files after the first record names %v, want %v", filed(), want)
+	}
 	if err := s.RecordDeliveryFiles(ctx, young, []store.BlobRef{*kept}); err != nil {
 		t.Fatal(err)
+	}
+	if want := []uint64{seq, young}; !slices.Equal(filed(), want) {
+		t.Fatalf("hook_files after both records names %v, want %v", filed(), want)
 	}
 	got, err := api.DeliveryFiles(ctx, seq)
 	if err != nil || len(got) != 2 || got[0] != *named || got[1].Hash != "" || got[1].NotTaken != over.NotTaken || got[1].Bytes != 1048576 {
@@ -71,6 +98,10 @@ func TestDeliveryFiles(t *testing.T) {
 	}
 	if err := s.RecordDeliveryFiles(ctx, young, []store.BlobRef{{Name: "plans\x1b[2K.pdf", NotTaken: "too big"}}); err == nil {
 		t.Error("a record of a name no letter may carry was kept")
+	}
+	// A record that is refused logs nothing: the two above stand alone.
+	if want := []uint64{seq, young}; !slices.Equal(filed(), want) {
+		t.Fatalf("hook_files after the refused records names %v, want %v", filed(), want)
 	}
 	// A blob a kept delivery names is served by its hash, under the name
 	// the delivery gives it; anything else is not found.

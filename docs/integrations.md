@@ -2029,10 +2029,18 @@ them whole):
   so a device and the web view are served a file a kept delivery names
   by its hash, which only someone with the bytes can know. The file
   goes when the delivery goes with the log (`prune`), and not before.
+- **How a device learns of them.** The files land after the delivery and
+  its notification, so a device reads them by the call `DeliveryFiles`
+  with the delivery's seq, which names each by its hash, and reads again
+  when the `hook_files` event of that seq arrives: the yard logs it in
+  the write that records the files, and sends it to every device as it
+  sends the delivery ([api.md](api.md#deliveryfiles)).
 - **What is not fetched.** A fetch cut short by a server restart is
-  not tried again: the delivery keeps its ref and its note. No total
-  volume or per-sender bound is set; the chat is one person's, at a
-  person's pace.
+  not tried again: the delivery keeps its ref and its note. Nor is one
+  with no credential set, nor one where the delivery carried none; such
+  a delivery has no `hook_files` event, and `DeliveryFiles` reads none for
+  it. No total volume or per-sender bound is set; the chat is one
+  person's, at a person's pace.
 
 A line from the phone, sent to the isolated yard, was recorded as
 
