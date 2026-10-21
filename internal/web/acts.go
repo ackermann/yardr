@@ -92,7 +92,10 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 }
 
 // openBeadAsks are the bead's open asks to the user the request acts as,
-// oldest first, as the socket's Bead reads them.
+// oldest first, as the socket's Bead reads them. The page shows the card's
+// weight beside the question, so the yard's mark goes from the question
+// where it carries it, as on the card: a line starting with the mark is
+// the yard's.
 func (s *Server) openBeadAsks(ctx context.Context, id string) ([]store.BeadAsk, error) {
 	v, err := s.st.Bead(ctx, id)
 	if err != nil {
@@ -101,6 +104,7 @@ func (s *Server) openBeadAsks(ctx context.Context, id string) ([]store.BeadAsk, 
 	var out []store.BeadAsk
 	for _, a := range v.Asks {
 		if a.State == "open" && a.To == s.acting(ctx) {
+			a.Question = store.WithoutWeightMark(a.Question)
 			out = append(out, a)
 		}
 	}

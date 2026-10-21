@@ -9,8 +9,18 @@
     <p class="why{{if .Alarm}} held{{end}}">{{.Text}}</p>
     {{- /* An ask stands whole, as on its bead's page: the context lines,
            each option with its consequence, and the recommendation
-           labelled. Any other reason keeps its one line and its note. */}}
+           labelled. Any other reason keeps its one line and its note. A
+           weighty card's weight stands first, as on its bead's page, and
+           a weighty mapping card names the decline path with the pick's
+           command instead of offering its picks below. */}}
     {{- if eq .Kind "ask"}}
+    {{- range .Weight}}
+    <p class="weighty">WEIGHTY · {{.Class}}: {{.Line}}</p>
+    {{- end}}
+    {{- if and .Weight .Identity}}
+    <p>This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:</p>
+    <p class="entry-note">Approve it with <code>yardr bead answer {{$w.Bead}} {{.Ask}} &lt;n&gt;</code>.</p>
+    {{- end}}
     {{- range .Context}}
     <p class="entry-note">{{.}}</p>
     {{- end}}
@@ -42,9 +52,10 @@
     {{- end}}
     {{- end}}
     {{- /* Where the view acts, each ask answers under its reason, with
-           its options as buttons. */}}
+           its options as buttons. A weighty mapping card offers no pick
+           the yard would refuse: the words stay with Later and Decline. */}}
     {{- if and $w.As (eq .Kind "ask")}}
-    <form class="need-answer" method="post" action="/beads/{{$w.Bead}}"><input type="hidden" name="rev" value="{{$w.Revision}}">{{template "csrf"}}<input type="hidden" name="ask" value="{{.Ask}}">{{range $i, $o := .Options}}<button type="submit" name="option" value="{{inc $i}}">{{$o.Label}}</button>{{end}}{{if not .SecretLine}}<input type="text" name="words" placeholder="Words with the answer, or why not" aria-label="Words">{{if not .Options}}{{if not .RunCommand}}<button type="submit" name="action" value="answer">Answer</button>{{end}}{{end}}{{end}}<button type="submit" name="action" value="later">Later</button><button type="submit" name="action" value="decline">Decline</button></form>
+    <form class="need-answer" method="post" action="/beads/{{$w.Bead}}"><input type="hidden" name="rev" value="{{$w.Revision}}">{{template "csrf"}}<input type="hidden" name="ask" value="{{.Ask}}">{{if not (and .Weight .Identity)}}{{range $i, $o := .Options}}<button type="submit" name="option" value="{{inc $i}}">{{$o.Label}}</button>{{end}}{{end}}{{if not .SecretLine}}<input type="text" name="words" placeholder="Words with the answer, or why not" aria-label="Words">{{if not .Options}}{{if not .RunCommand}}<button type="submit" name="action" value="answer">Answer</button>{{end}}{{end}}{{end}}<button type="submit" name="action" value="later">Later</button><button type="submit" name="action" value="decline">Decline</button></form>
     {{- end}}
     {{- end}}
   </article>

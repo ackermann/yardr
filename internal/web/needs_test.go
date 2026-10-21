@@ -3,6 +3,9 @@ package web_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -384,5 +387,74 @@ func TestWaitingLead(t *testing.T) {
 	}
 	if got := (web.Waiting{Bead: "nobreak"}).ShortID(); got != "nobreak" {
 		t.Errorf("short id %q, want the whole id", got)
+	}
+}
+
+// A weighty mapping card's home row shows the weight first and the decline
+// path with the terminal command instead of the pick buttons, as its bead's
+// page does. The options still read as a list, and the words stay with
+// Later and Decline, riding them as the reason.
+func TestHomeNeedsWeightyMapping(t *testing.T) {
+	t.Parallel()
+	f, b, seq := mappingActYard(t)
+	ctx := context.Background()
+	ask := strconv.FormatUint(seq, 10)
+	s := answerSection(t, f.get("/").body)
+	for _, want := range []string{
+		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
+		`This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:`,
+		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
+		`<li><span>1. ada</span>`,
+		`<li><span>2. mckean</span>`,
+		`<input type="text" name="words"`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the row lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, `name="option"`) {
+		t.Errorf("the weighty row offers its picks:\n%s", s)
+	}
+	// A writing pick posted straight at the handler is still the yard's
+	// to refuse, and the ask stays open; decline with words still posts.
+	rev := revOf(t, f, b.ID)
+	r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "option": {"1"}}, "Origin", f.ts.URL)
+	if r.status != 200 || !strings.Contains(r.body, "is weighty (as-user)") || !strings.Contains(r.body, "approve it where its weight is shown") {
+		t.Fatalf("status %d, want the redrawn page with the yard's refusal:\n%s", r.status, r.body)
+	}
+	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "words": {"not now"}, "action": {"decline"}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("decline: status %d", r.status)
+	}
+	v, err := f.st.Bead(ctx, b.ID)
+	must(t, err)
+	if v.Asks[0].State != "declined" || v.Asks[0].Words != "not now" {
+		t.Errorf("the ask is %s with %q, want it declined with the words", v.Asks[0].State, v.Asks[0].Words)
+	}
+}
+
+// A weighty secret card's home row shows the weight with what the ask is
+// for, and Later and Decline: a secret row offers no control today, so
+// the weight is all it gains.
+func TestHomeNeedsWeightySecret(t *testing.T) {
+	t.Parallel()
+	f, _, _ := secretActYard(t)
+	s := answerSection(t, f.get("/").body)
+	for _, want := range []string{
+		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
+		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the row lacks %q:\n%s", want, s)
+		}
+	}
+	for _, foreign := range []string{`name="option"`, "no gate", "&lt;n&gt;"} {
+		if strings.Contains(s, foreign) {
+			t.Errorf("the secret row shows %q:\n%s", foreign, s)
+		}
 	}
 }

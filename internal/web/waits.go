@@ -137,6 +137,13 @@ type Reason struct {
 	SecretLine     string            `json:"-"`
 	RunCommand     string            `json:"-"`
 	RunDescription string            `json:"-"`
+	// Weight is the card's weight, each class with the yard's line, as
+	// the yard weighed it when it wrote the card, absent on a routine
+	// card; Identity is what a mapping ask maps, absent on any other
+	// ask. HTML-only, as the options are: the row shows the weight and
+	// offers no pick on a weighty mapping card, as the bead's page does.
+	Weight   []store.AskWeight  `json:"-"`
+	Identity *store.AskIdentity `json:"-"`
 }
 
 // Reasons are why the bead waits, in one line.
@@ -521,14 +528,16 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, ma
 // lines. The ask's detail shows the lines whole, with the options and the
 // recommendation labelled. An ask with no options wants words, a secret
 // ask says what it asks for, and a run ask shows the command its approval
-// runs, whole.
+// runs, whole. The row shows the card's weight beside the question, so
+// the yard's mark goes from the question where it carries it, as on the
+// card: a line starting with the mark is the yard's.
 func askReason(r store.ResolvedAsk) Reason {
 	context := make([]string, len(r.Ask.Context))
 	for i, line := range r.Ask.Context {
 		context[i] = store.OneLine(line)
 	}
-	out := Reason{Kind: "ask", Text: store.OneLine(r.Ask.Question), Note: short(strings.Join(context, "\n")),
-		Context: context, Ask: r.Note.Seq, Options: r.Ask.Options}
+	out := Reason{Kind: "ask", Text: store.WithoutWeightMark(store.OneLine(r.Ask.Question)), Note: short(strings.Join(context, "\n")),
+		Context: context, Ask: r.Note.Seq, Options: r.Ask.Options, Weight: r.Ask.Weight, Identity: r.Ask.Identity}
 	switch {
 	case r.Ask.Run != nil:
 		// The yard's own, and never shortened: the command as it would run.

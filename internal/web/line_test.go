@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1268,6 +1269,71 @@ func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
 		}
 		if want := `sse-connect="/events?after=` + itoa(head); !strings.Contains(string(body), want+`"`) && !strings.Contains(string(body), want+`&amp;`) {
 			t.Errorf("%s: the stream does not start after %d, the head before the page was read (now %d)", path, head, after)
+		}
+	}
+}
+
+// A weighty mapping card's wait shows the weight first and the decline path
+// with the terminal command instead of the pick buttons, as its bead's page
+// and its home row do. A weighty secret card's wait shows the weight with
+// Later and Decline, and a routine card's wait keeps its picks.
+func TestWaitsWeightyAsk(t *testing.T) {
+	t.Parallel()
+	f, b, seq := mappingActYard(t)
+	ask := strconv.FormatUint(seq, 10)
+	text := squash(f.get("/line").body)
+	for _, want := range []string{
+		`<article class="wait"><header><a class="bead" href="/beads/` + b.ID + `">` + b.ID + `</a>`,
+		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
+		`This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:`,
+		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
+		`<li><span>1. ada</span>`,
+		`<li><span>2. mckean</span>`,
+		`<input type="text" name="words"`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("/line lacks %q", want)
+		}
+	}
+	if strings.Contains(text, `name="option"`) {
+		t.Errorf("the weighty wait offers its picks:\n%s", text)
+	}
+
+	f2, _, _ := secretActYard(t)
+	secret := squash(f2.get("/line").body)
+	for _, want := range []string{
+		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
+		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
+	} {
+		if !strings.Contains(secret, want) {
+			t.Errorf("/line lacks %q", want)
+		}
+	}
+	for _, foreign := range []string{`name="option"`, "no gate", "&lt;n&gt;"} {
+		if strings.Contains(secret, foreign) {
+			t.Errorf("the secret wait shows %q:\n%s", foreign, secret)
+		}
+	}
+
+	// A routine card's wait keeps its picks and shows no weight.
+	f3, _ := talkFixture(t, "jo")
+	actYard(t, f3, pickAsk())
+	routine := squash(f3.get("/line").body)
+	for _, want := range []string{
+		`<button type="submit" name="option" value="1">Move them now</button>`,
+		`<button type="submit" name="option" value="2">After Friday</button>`,
+	} {
+		if !strings.Contains(routine, want) {
+			t.Errorf("/line lacks %q", want)
+		}
+	}
+	for _, foreign := range []string{`class="weighty"`, "WEIGHTY", "no gate"} {
+		if strings.Contains(routine, foreign) {
+			t.Errorf("the routine wait shows %q:\n%s", foreign, routine)
 		}
 	}
 }

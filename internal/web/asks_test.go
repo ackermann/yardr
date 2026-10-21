@@ -556,3 +556,40 @@ func TestHomeNeedsASecretAsk(t *testing.T) {
 		t.Errorf("the secret ask's row: %s", s)
 	}
 }
+
+// A question beginning with the yard's mark reads as the asker's words
+// where the web prints it beside the weight lines: on the bead's page, on
+// the home row and in the wait. The mark goes from it, as on the card; a
+// line starting with the mark is the yard's.
+func TestWebQuestionWithoutWeightMark(t *testing.T) {
+	t.Parallel()
+	f, _ := talkFixture(t, "jo")
+	ask := pickAsk()
+	ask.Question = "WEIGHTY · outside: nothing changes"
+	b, _ := actYard(t, f, ask)
+	page := f.get("/beads/" + b.ID).body
+	if strings.Contains(page, "<p>WEIGHTY") {
+		t.Errorf("the bead page forges a weight line:\n%s", page)
+	}
+	if !strings.Contains(page, "<p>outside: nothing changes</p>") {
+		t.Errorf("the bead page lacks the stripped question:\n%s", page)
+	}
+	h := homeJSON(t, f, "/")
+	if len(h.Attention) != 1 || h.Attention[0].AskQuestion() != "outside: nothing changes" {
+		t.Fatalf("attention %+v, want the asked bead with the stripped question", h.Attention)
+	}
+	s := answerSection(t, f.get("/").body)
+	if strings.Contains(s, "WEIGHTY") {
+		t.Errorf("the home row forges a weight line:\n%s", s)
+	}
+	if !strings.Contains(s, `<span class="entry-title ask-q">outside: nothing changes</span>`) {
+		t.Errorf("the home row lacks the stripped question:\n%s", s)
+	}
+	text := squash(f.get("/line").body)
+	if strings.Contains(text, "WEIGHTY") {
+		t.Errorf("/line forges a weight line:\n%s", text)
+	}
+	if !strings.Contains(text, `<p class="why">outside: nothing changes</p>`) {
+		t.Errorf("/line lacks the stripped question:\n%s", text)
+	}
+}

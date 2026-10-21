@@ -330,9 +330,12 @@ for want of its person's word that the weight was seen (`weighed`,
 [api.md](api.md#weighty-cards)): a secret ask shows no field and no
 giving, a mapping ask shows its options as a list with no pick, and each
 names the terminal command instead, where the card is given or picked,
-with Later and Decline staying as ever. A giving or a writing pick
-posted straight at the handler is still the yard's to refuse, in its own
-words, with nothing written. A bead in a stage that waits for
+with Later and Decline staying as ever. The needs rows and the line's
+waits follow the page: a weighty card shows its weight first there too,
+a mapping card names the pick's terminal command instead of offering its
+picks, and the words stay with Later and Decline. A giving or a writing
+pick posted straight at the handler is still the yard's to refuse, in its
+own words, with nothing written. A bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
 ([One bead](#one-bead)). Every other route stays GET, and with none of
 them every route is GET as before: the talk page then says the view does
@@ -738,8 +741,10 @@ Home as JSON:
   fault first when it has one, then the question where the title stands,
   the full bead id and age, and optionally the bead's first `topic:` label
   small. A recommendation appears once in the labelled
-  detail below the row. On a view that acts the oldest ask answers
-  under the row, with its options as buttons ([Acting as a user](#acting-as-a-user));
+  detail below the row, a weighty card's weight first. On a view that acts
+  the oldest ask answers under the row, with its options as buttons
+  ([Acting as a user](#acting-as-a-user)), but a weighty mapping card
+  names the pick's terminal command instead of offering its picks;
   otherwise the row only links to the bead. On a phone an asked row gives the
   question the row's first line whole, ending in an ellipsis, and the
   bead id, optional topic and age stand under it, so the question
