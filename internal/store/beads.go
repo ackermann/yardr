@@ -1596,18 +1596,18 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return err
 			}
 		}
-		// A move into a terminal stage closes the bead, as CloseBead does,
-		// and is held as a close is.
-		closing := func(f *Flow, b *beadRow, data map[string]any) (string, error) {
-			to, err := pick(f, b, data)
-			if err == nil && f != nil && f.IsTerminal(to) {
-				err = w.checkCloseOwn(ctx, b)
-			}
-			return to, err
-		}
-		result, err = w.moveBead(ctx, exp, id, actor, repo, home, closing)
+		result, err = w.moveBead(ctx, exp, id, actor, repo, home, pick)
 		if err != nil {
 			return err
+		}
+		// A move into a terminal stage closes the bead, as CloseBead does,
+		// and is held as a close is. Asked once the move's own checks have
+		// passed, so a stage's members are named first; the write is
+		// undone with the refusal.
+		if result.Status == "closed" && cur.Status != "closed" {
+			if err := w.checkCloseOwn(ctx, cur); err != nil {
+				return refuse(RefusedNotAllowed, err)
+			}
 		}
 		moved, err := w.loadBead(id)
 		if err != nil {
