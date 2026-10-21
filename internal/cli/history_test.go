@@ -110,10 +110,31 @@ func TestInboxLineNamesWhatWas(t *testing.T) {
 	e := store.Event{Seq: 7, Bead: &bead, Kind: "updated", Actor: "jo",
 		Data: map[string]any{"body": true, "was": map[string]any{"body": "Hang it.\nOn two hinges.\n"}}}
 	var buf bytes.Buffer
-	printBeadDelivery(&buf, e, "yardmaster")
+	printBeadDelivery(&buf, e, "yardmaster", "")
 	out := buf.String()
 	if !strings.Contains(out, "by jo body=true was=[body]\n") || strings.Contains(out, "hinges") {
 		t.Errorf("inbox line: %q", out)
+	}
+}
+
+// A red quiet run's inbox delivery names its failing output under its
+// line, as mail names the files it carries.
+func TestInboxQuietFailedShowsItsFilesLine(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	ref := store.BlobRef{Hash: strings.Repeat("a", 64), Type: "text/plain; charset=utf-8", Bytes: 42, Name: "yardr.dev_yardr_internal_store.log"}
+	e := store.Event{Seq: 9, Kind: store.QuietFailed, Actor: "yard",
+		At:   time.Date(2026, 10, 21, 9, 14, 0, 0, time.Local),
+		Data: map[string]any{"depot": "yard", "commit": "abc123", "files": []store.BlobRef{ref}}}
+	var buf bytes.Buffer
+	printInboxEvent(&buf, e, "yardmaster", home)
+	out := buf.String()
+	if !strings.Contains(out, "quiet_failed") {
+		t.Fatalf("inbox delivery: %q", out)
+	}
+	marked := "    " + store.NoteFilesMark + " 1 file: " + store.BlobPath(home, ref.Hash) + " (yardr.dev_yardr_internal_store.log)\n"
+	if !strings.Contains(out, marked) {
+		t.Errorf("inbox delivery names no files line:\n%s", out)
 	}
 }
 

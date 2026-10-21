@@ -233,8 +233,10 @@ func TestConcurrentPutBlob(t *testing.T) {
 
 // Mail names the blobs it carries, and the user's inbox, the conversation
 // and the crew member's inbox carry the list; mail without any carries
-// none. A hash the yard does not hold refuses the mail.
-func TestMailFiles(t *testing.T) {
+// none. A hash the yard does not hold refuses the mail. A red quiet run's
+// failing output is carried the same way; any other kind's files field is
+// not read.
+func TestEventFiles(t *testing.T) {
 	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	ctx := context.Background()
@@ -289,8 +291,22 @@ func TestMailFiles(t *testing.T) {
 	if err != nil || len(page.Events) != 1 {
 		t.Fatalf("crew inbox = %+v, %v", page, err)
 	}
-	if got := store.MailFiles(page.Events[0]); len(got) != 1 || got[0] != *png {
+	if got := store.EventFiles(page.Events[0]); len(got) != 1 || got[0] != *png {
 		t.Errorf("the mail event's files = %+v", got)
+	}
+	refs := []store.BlobRef{*png}
+	if got := store.EventFiles(store.Event{Kind: store.QuietFailed, Data: map[string]any{"files": refs}}); len(got) != 1 || got[0] != *png {
+		t.Errorf("a quiet_failed's files = %+v", got)
+	}
+	for _, e := range []store.Event{
+		{Kind: "mail"},
+		{Kind: "mail", Data: map[string]any{"files": refs[:0]}},
+		{Kind: "quiet_passed", Data: map[string]any{"files": refs}},
+		{Kind: "reaction", Data: map[string]any{"files": refs}},
+	} {
+		if got := store.EventFiles(e); got != nil {
+			t.Errorf("EventFiles(%s with %v) = %+v, want nil", e.Kind, e.Data, got)
+		}
 	}
 
 	head, err := api.Head(ctx)
@@ -583,6 +599,41 @@ func TestPruneBlobsKeepsNoteFiles(t *testing.T) {
 	}
 	if got := blobFiles(t, s); len(got) != 1 || got[0] != named.Hash {
 		t.Errorf("after the prune the yard holds %v, want the note's %s", got, named.Hash)
+	}
+}
+
+// A red quiet run's failing output lives with its event: a blob a
+// quiet_failed names survives the prune, while one nothing names past its
+// grace does not.
+func TestPruneBlobsKeepsQuietFailedFiles(t *testing.T) {
+	t.Parallel()
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	named, err := api.PutBlob(ctx, pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loose, err := api.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	named.Name = "yardr.dev_yardr_internal_store.log"
+	if err := api.LogDispatch(ctx, "", store.QuietFailed, "yard", map[string]any{
+		"depot": "yard", "files": []store.BlobRef{*named}}); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * store.BlobGrace)
+	for _, ref := range []*store.BlobRef{named, loose} {
+		if err := os.Chtimes(s.BlobPath(ref.Hash), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := api.Prune(ctx, store.Retention{}, "jo")
+	if err != nil || res.Blobs != 1 {
+		t.Fatalf("prune = %+v, %v", res, err)
+	}
+	if got := blobFiles(t, s); len(got) != 1 || got[0] != named.Hash {
+		t.Errorf("after the prune the yard holds %v, want the quiet run's %s", got, named.Hash)
 	}
 }
 

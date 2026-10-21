@@ -39,3 +39,6 @@ var QuietPackages = quietPackages
 
 // QuietTests names the tests a whole-suite output failed, capped.
 var QuietTests = quietTests
+
+// QuietOutputs slices a whole-suite output per failing package, by package.
+var QuietOutputs = quietOutputs

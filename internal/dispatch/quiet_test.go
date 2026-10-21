@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 // a stand-in whole-suite run.
 type quietYard struct {
 	s       store.API
+	own     *store.Store // the same yard, for reading the blobs a red run keeps
 	d       *dispatch.Dispatcher
 	mu      sync.Mutex
 	calls   int
@@ -37,7 +39,7 @@ func newQuietYard(t *testing.T) *quietYard {
 	t.Helper()
 	y := &quietYard{res: dispatch.QuietResult{Commit: "abc123", Wall: time.Second, Load: "1.00"},
 		started: make(chan struct{}, 1)}
-	y.s = storetest.New(t)
+	y.s, y.own = storetest.NewOwned(t)
 	ctx := context.Background()
 	// A git depot, as the store asks of one: a repository on its base.
 	repo := t.TempDir()
@@ -213,6 +215,38 @@ func TestQuietPackagesAndRelevance(t *testing.T) {
 	}
 }
 
+// A whole-suite output is sliced per failing package: each block ending
+// in its FAIL line is that package's output, kept by package, while a
+// passing package's block is dropped, ok or not. A test's own two-word
+// "ok ..." line is no summary and stays in the failing block; a package
+// named twice keeps its first block; the run's own tail joins the last
+// failing block. Nothing failed, nothing kept.
+func TestQuietOutputsSlicesFailingPackages(t *testing.T) {
+	out := "=== RUN   TestMigrate\n" +
+		"ok done\n" +
+		"--- FAIL: TestMigrate (1.20s)\n" +
+		"FAIL\tyardr.dev/yardr/internal/store\t1.3s\n" +
+		"ok  \tyardr.dev/yardr/internal/cli\t1.0s\n" +
+		"?   \tyardr.dev/yardr/internal/docs\t[no test files]\n" +
+		"# yardr.dev/yardr/internal/chat\n" +
+		"./chat.go:12: undefined: x\n" +
+		"FAIL\tyardr.dev/yardr/internal/chat [build failed]\n" +
+		"FAIL\tyardr.dev/yardr/internal/store\t9.9s\n" +
+		"FAIL\n" +
+		"test: sh .yardr/test @ abc: fail\n"
+	got := dispatch.QuietOutputs(out)
+	want := map[string]string{
+		"yardr.dev/yardr/internal/store": "=== RUN   TestMigrate\nok done\n--- FAIL: TestMigrate (1.20s)\nFAIL\tyardr.dev/yardr/internal/store\t1.3s\n",
+		"yardr.dev/yardr/internal/chat":  "# yardr.dev/yardr/internal/chat\n./chat.go:12: undefined: x\nFAIL\tyardr.dev/yardr/internal/chat [build failed]\nFAIL\ntest: sh .yardr/test @ abc: fail\n",
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("QuietOutputs = %#v, want %#v", got, want)
+	}
+	if got := dispatch.QuietOutputs("ok  \tyardr.dev/yardr/internal/cli\t1.0s\n"); len(got) != 0 {
+		t.Fatalf("QuietOutputs of a passing run = %#v, want nothing kept", got)
+	}
+}
+
 // The run fires when the yard is quiet and owed, and only then: below the
 // threshold nothing starts, however quiet the yard.
 func TestQuietFiresOnlyWhenOwedAndQuiet(t *testing.T) {
@@ -363,12 +397,15 @@ func TestQuietRunIsSingleFlight(t *testing.T) {
 
 // A red run is told as quiet_failed naming its packages, its failing
 // tests and its base commit, so the yard hears of a red base with no bead
-// to send back.
+// to send back. Each failing package's output is kept as a blob and named
+// on the event, as mail names the files it carries.
 func TestQuietRedRunNamesPackagesTestsAndCommit(t *testing.T) {
 	y := newQuietYard(t)
+	out := "--- FAIL: TestMigrate (1.20s)\nFAIL\tyardr.dev/yardr/internal/store\t1.3s\n"
 	y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
 		Packages: []string{"yardr.dev/yardr/internal/store"},
-		Tests:    []string{"TestMigrate", "TestPutBlob/huge"}}
+		Tests:    []string{"TestMigrate", "TestPutBlob/huge"},
+		Outputs:  map[string]string{"yardr.dev/yardr/internal/store": out}}
 	y.err = errors.New("the whole suite failed")
 	ctx := context.Background()
 	y.land(t, "one")
@@ -385,6 +422,44 @@ func TestQuietRedRunNamesPackagesTestsAndCommit(t *testing.T) {
 	tests, _ := evs[0].Data["tests"].([]any)
 	if len(tests) != 2 || tests[0] != "TestMigrate" || tests[1] != "TestPutBlob/huge" {
 		t.Fatalf("quiet_failed tests = %v, want the failing tests named", evs[0].Data["tests"])
+	}
+	files := store.EventFiles(evs[0])
+	if len(files) != 1 || files[0].Name != "yardr.dev_yardr_internal_store.log" {
+		t.Fatalf("quiet_failed files = %+v, want the failing package's output named", files)
+	}
+	if got, err := os.ReadFile(y.own.BlobPath(files[0].Hash)); err != nil || string(got) != out {
+		t.Fatalf("the named blob = %q, %v, want the failing package's output", got, err)
+	}
+}
+
+// A failing package's output past the yard's blob cap is kept truncated to
+// it, with a marker naming the cap: PutBlob refuses over-cap with nothing
+// stored, and a marker is read sooner than a missing file.
+func TestQuietRedRunTruncatesOutputsPastTheBlobCap(t *testing.T) {
+	y := newQuietYard(t)
+	ctx := context.Background()
+	must(t, y.s.SetSetting(ctx, store.BlobMaxSetting, "120", "me"))
+	out := "--- FAIL: TestMigrate (1.20s)\n" + strings.Repeat("failing output\n", 40) + "FAIL\tyardr.dev/yardr/internal/store\t1.3s\n"
+	y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
+		Packages: []string{"yardr.dev/yardr/internal/store"},
+		Tests:    []string{"TestMigrate"},
+		Outputs:  map[string]string{"yardr.dev/yardr/internal/store": out}}
+	y.err = errors.New("the whole suite failed")
+	y.land(t, "one")
+	y.land(t, "two")
+	dispatch.QuietMaybe(y.d, ctx)
+	evs := waitQuiet(t, y.s, store.QuietFailed, 1)
+	files := store.EventFiles(evs[0])
+	if len(files) != 1 {
+		t.Fatalf("quiet_failed files = %+v, want the truncated output named", files)
+	}
+	got, err := os.ReadFile(y.own.BlobPath(files[0].Hash))
+	must(t, err)
+	if len(got) > 120 {
+		t.Fatalf("the kept output is %d bytes, past the cap of 120", len(got))
+	}
+	if !strings.HasPrefix(string(got), "--- FAIL: TestMigrate") || !strings.HasSuffix(string(got), "\n[truncated at 120 bytes]\n") {
+		t.Fatalf("the kept output = %q, want the head with the marker", got)
 	}
 }
 
@@ -498,7 +573,8 @@ func TestQuietThresholdChangeRejudgesThroughEventStream(t *testing.T) {
 // The real run, as a drill: a fixture depot whose base carries a failing
 // check at its head commit. The run tests that commit in its own
 // worktree, and the yard is told it failed, with the package, the failing
-// tests and the commit.
+// tests, the commit and the failing output, kept as a blob and named on
+// the event.
 func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	ctx := context.Background()
@@ -523,7 +599,7 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	red := git("rev-parse", "HEAD")
 	t.Logf("drill red commit %s", red)
 
-	s := storetest.New(t)
+	s, own := storetest.NewOwned(t)
 	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, "me"))
 	must(t, s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
 	d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: t.TempDir()}
@@ -543,6 +619,14 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 	tests, _ := evs[0].Data["tests"].([]any)
 	if len(tests) != 1 || tests[0] != "TestPaint" {
 		t.Fatalf("quiet_failed tests = %v, want the fixture's failing test", evs[0].Data["tests"])
+	}
+	files := store.EventFiles(evs[0])
+	if len(files) != 1 || files[0].Name != "yardr.dev_fixture_bad.log" {
+		t.Fatalf("quiet_failed files = %+v, want the fixture's output named", files)
+	}
+	want := "--- FAIL: TestPaint (0.1s)\nFAIL\tyardr.dev/fixture/bad\t0.1s\n"
+	if got, err := os.ReadFile(own.BlobPath(files[0].Hash)); err != nil || string(got) != want {
+		t.Fatalf("the named blob = %q, %v, want the fixture's output", got, err)
 	}
 	// The depot's own checkout was never the worktree: it is still clean
 	// and on its base.

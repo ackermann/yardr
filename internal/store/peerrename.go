@@ -350,7 +350,7 @@ func sentTo(tx *bolt.Tx, p *Peer) (*sent, error) {
 func (s *sent) letter(e Event, to string) Letter {
 	text, _ := e.Data["text"].(string)
 	id, _ := e.Data["id"].(string)
-	l := Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Delivery: s.delivery[id], Files: MailFiles(e)}
+	l := Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Delivery: s.delivery[id], Files: EventFiles(e)}
 	if l.Delivery == "" {
 		l.Delivery = MailSent
 	}

@@ -1089,7 +1089,7 @@ func (m *Model) mail(e store.Event) tea.Cmd {
 	to, _ := e.Data["to"].(string)
 	text, _ := e.Data["text"].(string)
 	toUser, _ := e.Data["to_user"].(bool)
-	l := store.Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Via: store.Via(e), Files: store.MailFiles(e)}
+	l := store.Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Via: store.Via(e), Files: store.EventFiles(e)}
 	me := m.opt.Me
 	if peer, _ := e.Data["to_peer"].(string); peer != "" {
 		l.To, l.Delivery = to+"@"+peer, store.MailQueued

@@ -1206,7 +1206,7 @@ func newerUnreadLine(n int) string {
 }
 
 // printInboxEvent prints one event of member's inbox. home is the yard's
-// home: mail that carries files names them under its line, on a marked
+// home: an event carrying files names them under its line, on a marked
 // line of their own.
 func printInboxEvent(w io.Writer, e store.Event, member, home string) {
 	switch e.Kind {
@@ -1222,7 +1222,7 @@ func printInboxEvent(w io.Writer, e store.Event, member, home string) {
 		// own, so no mail's words forge its files line.
 		fmt.Fprintf(w, "%6d %s  mail from %s: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), store.Letters(from),
 			store.Letters(show(e.Data["text"])))
-		if line := store.NoteFilesLine(home, store.MailFiles(e)); line != "" {
+		if line := store.NoteFilesLine(home, store.EventFiles(e)); line != "" {
 			fmt.Fprintf(w, "    %s\n", line)
 		}
 	case "reaction":
@@ -1245,7 +1245,7 @@ func printInboxEvent(w io.Writer, e store.Event, member, home string) {
 		// The text says it is a timer, who set it and when.
 		fmt.Fprintf(w, "%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), show(e.Data["text"]))
 	default:
-		printBeadDelivery(w, e, member)
+		printBeadDelivery(w, e, member, home)
 	}
 }
 

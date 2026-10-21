@@ -108,7 +108,7 @@ func mailed(t *testing.T, north *yard) (store.Event, []store.BlobRef) {
 	if len(mail) != 1 {
 		t.Fatalf("the inbox of north's yardmaster = %+v", mail)
 	}
-	return mail[0], store.MailFiles(mail[0])
+	return mail[0], store.EventFiles(mail[0])
 }
 
 func blobs(t *testing.T, y *yard) []string {
@@ -155,7 +155,7 @@ func TestMailWithAnImageCrosses(t *testing.T) {
 	}
 	// South's own mail event names the image too, and no event of either
 	// yard has its bytes.
-	if sent := south.events(t, "mail"); len(sent) != 1 || len(store.MailFiles(sent[0])) != 1 {
+	if sent := south.events(t, "mail"); len(sent) != 1 || len(store.EventFiles(sent[0])) != 1 {
 		t.Fatalf("south's mail event = %+v", sent)
 	}
 	for _, e := range append(north.events(t, "peer_message_received"), south.events(t, "peer_message_sent")...) {
@@ -1043,7 +1043,7 @@ func TestMailWithABadNameArrivesNameless(t *testing.T) {
 	if len(mails) != 2 {
 		t.Fatalf("north's inbox = %+v", page.Events)
 	}
-	if got := store.MailFiles(mails[1]); len(got) != 1 || got[0].Name != "" {
+	if got := store.EventFiles(mails[1]); len(got) != 1 || got[0].Name != "" {
 		t.Fatalf("the second mail's files = %+v", got)
 	}
 }

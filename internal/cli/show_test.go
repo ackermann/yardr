@@ -167,7 +167,7 @@ func TestEventPrintersPrintThreadFieldsWithoutControlCharacters(t *testing.T) {
 		"thread": id, "title": title, "url": url,
 	}}
 	check("event log", func(w io.Writer) { printEvent(w, e) })
-	check("inbox journal", func(w io.Writer) { printBeadDelivery(w, e, "ann") })
+	check("inbox journal", func(w io.Writer) { printBeadDelivery(w, e, "ann", "") })
 	if e.Data["thread"] != id || e.Data["title"] != title || e.Data["url"] != url {
 		t.Fatalf("printing changed event data: %+v", e.Data)
 	}

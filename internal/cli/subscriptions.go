@@ -999,12 +999,23 @@ member takes part in.`,
 
 // printBeadDelivery shows a bead event in crew member's inbox, with why it
 // is there: a subscription's reason, or "on" for a --on kind. An answer
-// reads as its sentence instead, in words wherever it lands.
-func printBeadDelivery(w io.Writer, e store.Event, member string) {
+// reads as its sentence instead, in words wherever it lands. home is the
+// yard's home: an event carrying files names them under its line, as mail
+// does.
+func printBeadDelivery(w io.Writer, e store.Event, member, home string) {
 	if line, _ := e.Data["answer"].(string); line != "" {
 		fmt.Fprintf(w, "%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), line)
-		return
+	} else {
+		printBeadDeliveryLine(w, e, member)
 	}
+	if line := store.NoteFilesLine(home, store.EventFiles(e)); line != "" {
+		fmt.Fprintf(w, "    %s\n", line)
+	}
+}
+
+// printBeadDeliveryLine shows the bead event's own line: its fields in the
+// order of their names, with a harness's error leading with what it is.
+func printBeadDeliveryLine(w io.Writer, e store.Event, member string) {
 	data := map[string]any{}
 	for k, v := range printableThreadFields(store.Brief(e.Data)) {
 		if k != "deliveries" && k != "watches_ended" && k != "notified" && k != "answer" {

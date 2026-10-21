@@ -867,7 +867,7 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 
 // Mail sends a message to the inbox of a crew member or of a user. files
 // are the blobs it carries, each as its hash as PutBlob answered it with
-// the name the sender gives it: the mail event names them (MailFiles),
+// the name the sender gives it: the mail event names them (EventFiles),
 // and mail with a file needs no text. From a session's or a crew member's
 // pane the mail is recorded as that session's actor or that crew member,
 // whatever actor says; from anywhere else, as given (paneAuthor). Mail from

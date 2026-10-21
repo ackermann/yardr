@@ -877,7 +877,7 @@ func (rd *readers) letter(e Event) (Letter, error) {
 	if err != nil {
 		return Letter{}, err
 	}
-	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Reactions: reactions, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: MailFiles(e)}, nil
+	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Reactions: reactions, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: EventFiles(e)}, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,

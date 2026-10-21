@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -50,14 +51,16 @@ import (
 
 // QuietResult is how one quiet whole-suite run ended, as QuietRun (or the
 // real runner) reports it: the base commit it tested, how long it took,
-// the load it started under, and, on a red run, the packages that failed
-// and the failing test names, capped.
+// the load it started under, and, on a red run, the packages that failed,
+// the failing test names, capped, and each failing package's output, by
+// package. A passing run keeps nothing: Outputs is nil.
 type QuietResult struct {
 	Commit   string
 	Wall     time.Duration
 	Load     string
 	Packages []string
 	Tests    []string
+	Outputs  map[string]string
 }
 
 // quietRelevant says whether an event can change whether a quiet run is
@@ -267,6 +270,9 @@ func (d *Dispatcher) runQuietDepot(ctx context.Context, depot store.Depot, since
 		data["packages"] = res.Packages
 		data["tests"] = res.Tests
 		data["reason"] = err.Error()
+		if files := d.quietFiles(ctx, depot, res); len(files) > 0 {
+			data["files"] = files
+		}
 		d.Log.Error("quiet whole-suite run failed", "depot", depot.Name, "commit", res.Commit,
 			"wall", res.Wall.Round(time.Second), "load", res.Load, "packages", res.Packages, "tests", res.Tests, "err", err)
 		if lerr := d.Store.LogDispatch(ctx, "", store.QuietFailed, actor, data); lerr != nil {
@@ -279,6 +285,61 @@ func (d *Dispatcher) runQuietDepot(ctx context.Context, depot store.Depot, since
 	if lerr := d.Store.LogDispatch(ctx, "", store.QuietPassed, actor, data); lerr != nil {
 		d.Log.Warn("quiet run: passed event", "depot", depot.Name, "err", lerr)
 	}
+}
+
+// quietFiles stores a red run's failing packages' output, each as a blob,
+// and answers the refs, as mail names the files it carries: one blob per
+// failing package, in the packages' order, named for the package. One past
+// the yard's blob cap is truncated to it, since PutBlob refuses over-cap
+// with nothing stored. A package with no output, or one the yard will not
+// keep, names nothing: the failure is told either way.
+func (d *Dispatcher) quietFiles(ctx context.Context, depot store.Depot, res QuietResult) []store.BlobRef {
+	limit := int64(store.DefaultBlobMax)
+	if settings, err := d.Store.Settings(ctx); err == nil {
+		if v, ok := settings[store.BlobMaxSetting]; ok {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				limit = n
+			}
+		}
+	}
+	var files []store.BlobRef
+	for _, pkg := range res.Packages {
+		out, ok := res.Outputs[pkg]
+		if !ok || out == "" {
+			continue
+		}
+		ref, err := d.Store.PutBlob(ctx, quietTruncate([]byte(out), limit))
+		if err != nil {
+			d.Log.Warn("quiet run: keeping a failing package's output", "depot", depot.Name, "package", pkg, "err", err)
+			continue
+		}
+		ref.Name = quietFileName(pkg)
+		files = append(files, *ref)
+	}
+	return files
+}
+
+// quietFileName is the name a red run's blob carries for the package: the
+// package with its slashes flattened, so it holds as a file's name, and a
+// .log suffix, so the inbox line reads which package each blob is.
+func quietFileName(pkg string) string {
+	flat := strings.ReplaceAll(strings.ReplaceAll(pkg, "/", "_"), "\\", "_")
+	return flat + ".log"
+}
+
+// quietTruncate holds one failing package's output to the yard's blob cap:
+// the headful that fits, then a marker naming the cap, so the stored blob
+// is never refused with nothing kept.
+func quietTruncate(out []byte, limit int64) []byte {
+	if int64(len(out)) <= limit {
+		return out
+	}
+	marker := fmt.Sprintf("\n[truncated at %d bytes]\n", limit)
+	keep := limit - int64(len(marker))
+	if keep < 0 {
+		keep = 0
+	}
+	return append(slices.Clone(out[:keep]), marker...)
 }
 
 var failPackage = regexp.MustCompile(`(?m)^FAIL[ \t]+(\S+)`)
@@ -319,6 +380,59 @@ func quietTests(out string) []string {
 		}
 	}
 	return tests
+}
+
+// okPackage is a passing package's summary line: ok, or ? for a package
+// without test files, then the package and its duration. The duration is
+// required, so a test's own two-word "ok ..." line never drops a failing
+// block.
+var okPackage = regexp.MustCompile(`^(?:ok|\?)[ \t]+\S+[ \t]+\S+`)
+
+// quietOutputs slices a whole-suite output per failing package: go test
+// prints each package's output as one block ending in its summary line, so
+// a block ending in a FAIL line is that package's output, kept by package,
+// and one ending in ok (or ?, for a package without test files) is
+// dropped: a passing package keeps nothing, and lines before the first
+// summary go with the first block, kept or dropped with it. Lines after
+// the last summary join the last failing
+// block, so the run's own tail is kept with it. A package named twice
+// keeps its first block, as quietPackages names each once. Nil where
+// nothing failed.
+func quietOutputs(out string) map[string]string {
+	var outputs map[string]string
+	var block []string
+	last := ""
+	flush := func() {
+		if last != "" && len(block) > 0 {
+			outputs[last] += strings.Join(block, "\n") + "\n"
+		}
+		block = nil
+	}
+	lines := strings.Split(out, "\n")
+	for i, line := range lines {
+		if i == len(lines)-1 && line == "" {
+			continue // the split's tail, not a line of the output
+		}
+		if m := failPackage.FindStringSubmatch(line); m != nil {
+			block = append(block, line)
+			if outputs == nil {
+				outputs = map[string]string{}
+			}
+			if _, seen := outputs[m[1]]; !seen {
+				outputs[m[1]] = strings.Join(block, "\n") + "\n"
+				last = m[1]
+			}
+			block = nil
+			continue
+		}
+		if okPackage.MatchString(line) {
+			block = nil
+			continue
+		}
+		block = append(block, line)
+	}
+	flush()
+	return outputs
 }
 
 // quietLoad is the machine's one-minute load as the yard finds it, for a
@@ -463,6 +577,7 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	res := QuietResult{Commit: commit, Wall: time.Since(start), Load: load,
 		Packages: quietPackages(out.String()), Tests: quietTests(out.String())}
 	if runErr != nil {
+		res.Outputs = quietOutputs(out.String())
 		return res, fmt.Errorf("the whole suite failed on %s at %s: %w", base, commit, runErr)
 	}
 	return res, nil

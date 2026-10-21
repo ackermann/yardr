@@ -327,10 +327,12 @@ func OneLine(s string) string {
 	return strings.ReplaceAll(NoteLetters(s), "\n", " ")
 }
 
-// MailFiles are the files the mail e carries, nil for mail without any.
-func MailFiles(e Event) []BlobRef {
+// EventFiles are the files the event e carries, nil for one without any:
+// a mail's files, or a red quiet run's failing packages' output
+// (quiet_failed), each stored as a blob and named as mail names them.
+func EventFiles(e Event) []BlobRef {
 	raw, ok := e.Data["files"]
-	if !ok || e.Kind != "mail" {
+	if !ok || (e.Kind != "mail" && e.Kind != QuietFailed) {
 		return nil
 	}
 	// As the log holds them: decoded, a list of objects.
@@ -521,7 +523,7 @@ func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, er
 			if e.Actor != viewer && mailReceiver(e) != viewer {
 				continue
 			}
-			for _, f := range MailFiles(e) {
+			for _, f := range EventFiles(e) {
 				if f.Hash == hash && f.NotTaken == "" && !named {
 					name, named = f.Name, true
 				}
@@ -614,17 +616,20 @@ func (s *Store) pruneBlobs() (int, error) {
 	}
 	named := map[string]bool{}
 	err = s.read(func(tx *bolt.Tx) error {
-		prefix := []byte("mail\x00")
-		c := tx.Bucket(bEventsKd).Cursor()
-		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
-			var e Event
-			if _, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
-				return err
-			}
-			for _, f := range MailFiles(e) {
-				// One not taken names no blob of the yard's.
-				if f.NotTaken == "" {
-					named[f.Hash] = true
+		// The kinds whose events carry files (EventFiles): a mail's, and
+		// a red quiet run's failing packages' output.
+		for _, prefix := range [][]byte{[]byte("mail\x00"), []byte(QuietFailed + "\x00")} {
+			c := tx.Bucket(bEventsKd).Cursor()
+			for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+				var e Event
+				if _, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+					return err
+				}
+				for _, f := range EventFiles(e) {
+					// One not taken names no blob of the yard's.
+					if f.NotTaken == "" {
+						named[f.Hash] = true
+					}
 				}
 			}
 		}
