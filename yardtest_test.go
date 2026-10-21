@@ -2399,7 +2399,10 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
-	lockDeadline := time.Now().Add(5 * time.Second)
+	// A fuse, not a measurement: after go test exits the worker still has
+	// to finish and release the lock, and a loaded machine can hold it
+	// past seconds (docs/testing.md R2).
+	lockDeadline := time.Now().Add(time.Minute)
 	lockAcquired := false
 	for time.Now().Before(lockDeadline) {
 		if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
@@ -2417,7 +2420,7 @@ fi
 		select {
 		case <-done:
 			runFinished = true
-		case <-time.After(10 * time.Second):
+		case <-time.After(time.Minute):
 			killProcessTree(proc.Pid)
 		}
 		outFile.Seek(0, 0)
@@ -2438,7 +2441,7 @@ fi
 			b, _ := io.ReadAll(outFile)
 			t.Fatalf("run failed: %v\n%s", err, b)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		killProcessTree(proc.Pid)
 		t.Fatal("race-leg worker did not finish after releasing the lock")
 	}
