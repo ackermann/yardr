@@ -106,6 +106,17 @@ type FlowBead struct {
 	// where no session claimed the bead, and on a manual group's claim,
 	// which names no worker.
 	Worker string `json:"worker,omitempty"`
+	// Group is the group working the bead, as the claiming session
+	// recorded it at claim. Absent where Worker is, so a reader tells a
+	// worked bead by either.
+	Group string `json:"group,omitempty"`
+	// Kind and Model are the harness kind and model the claiming session
+	// started with, as it recorded them at claim and served unchanged: a
+	// route or group change after the claim does not move them. Absent
+	// where Worker is, and where the session recorded none: an exec or
+	// peer claim serves no kind, and no model where the group named none.
+	Kind  string `json:"kind,omitempty"`
+	Model string `json:"model,omitempty"`
 	// EnteredStageAt is when the bead entered its stage, so a reader can
 	// say how long it has stood there. Absent where no session claimed
 	// the bead, and where the stay has no clock.
@@ -195,11 +206,14 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 			Remark: r.Remark, Tone: r.Tone, HeldBy: r.HeldBy, Working: b.Session != nil && !manual[*b.Session]}
 		// Who works the bead and when it entered its stage, where a live
 		// session claimed it. A manual group's claim names no worker, but
-		// the stay still has its clock.
+		// the stay still has its clock. The group, kind and model are the
+		// session's own, as the claim recorded them, never the group's
+		// current config.
 		if b.Session != nil {
 			if sess, ok := bySession[*b.Session]; ok {
 				if !sess.Manual() {
 					fb.Worker = sess.RunnerShown()
+					fb.Group, fb.Kind, fb.Model = sess.Group, sess.Kind, sess.Model
 				}
 				if entry := stay[b.UUID]; !entry.IsZero() {
 					fb.EnteredStageAt = &entry

@@ -4064,6 +4064,9 @@ POST /call/Flows
             "tone": "none",
             "working": true,
             "worker": "herdr greet-new",
+            "group": "builders",
+            "kind": "claude",
+            "model": "opus",
             "entered_stage_at": "2026-10-08T09:30:00Z"
           }
         ],
@@ -4105,6 +4108,9 @@ POST /call/Flows
                     "tone": "none",
                     "working": true,
                     "worker": "herdr train-new",
+                    "group": "builders",
+                    "kind": "claude",
+                    "model": "opus",
                     "entered_stage_at": "2026-10-08T09:30:00Z"
                   }
                 ]
@@ -4161,6 +4167,9 @@ POST /call/Flows
         "tone": "none",
         "working": true,
         "worker": "herdr links-new",
+        "group": "builders",
+        "kind": "claude",
+        "model": "opus",
         "entered_stage_at": "2026-10-08T09:30:00Z"
       },
       {
@@ -4200,6 +4209,9 @@ POST /call/Flows
 | `depots[].flows[].stages[].beads[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `depots[].flows[].stages[].beads[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `depots[].flows[].stages[].beads[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
+| `depots[].flows[].stages[].beads[].group` | string, may be absent | the group working it, as the claiming session recorded it at claim; absent where no session claimed it, and on a manual group's claim |
+| `depots[].flows[].stages[].beads[].kind` | string, may be absent | the harness kind the claiming session started with (`claude`, `codex`, ...), as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none (an exec or peer claim, or a session from before kinds were recorded) |
+| `depots[].flows[].stages[].beads[].model` | string, may be absent | the model the claiming session started with, as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none |
 | `depots[].flows[].stages[].beads[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
 | `depots[].elsewhere[].bead` | string | the bead's handle |
 | `depots[].elsewhere[].title` | string | the bead's title |
@@ -4209,6 +4221,9 @@ POST /call/Flows
 | `depots[].elsewhere[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `depots[].elsewhere[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `depots[].elsewhere[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
+| `depots[].elsewhere[].group` | string, may be absent | the group working it, as the claiming session recorded it at claim; absent where no session claimed it, and on a manual group's claim |
+| `depots[].elsewhere[].kind` | string, may be absent | the harness kind the claiming session started with (`claude`, `codex`, ...), as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none (an exec or peer claim, or a session from before kinds were recorded) |
+| `depots[].elsewhere[].model` | string, may be absent | the model the claiming session started with, as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none |
 | `depots[].elsewhere[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
 | `depots[].error` | string, may be absent | why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read |
 | `unassigned[].bead` | string | the bead's handle |
@@ -4219,6 +4234,9 @@ POST /call/Flows
 | `unassigned[].held_by` | string, may be absent | who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held` |
 | `unassigned[].working` | bool | an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work |
 | `unassigned[].worker` | string, may be absent | who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim |
+| `unassigned[].group` | string, may be absent | the group working it, as the claiming session recorded it at claim; absent where no session claimed it, and on a manual group's claim |
+| `unassigned[].kind` | string, may be absent | the harness kind the claiming session started with (`claude`, `codex`, ...), as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none (an exec or peer claim, or a session from before kinds were recorded) |
+| `unassigned[].model` | string, may be absent | the model the claiming session started with, as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none |
 | `unassigned[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
 
 Every depot stands here, travelling or not, and a removed depot's line leaves with it: `DeleteDepot` refuses while open beads remain. The unassigned rows are the open beads outside the backlog with no depot, the newest change first.

@@ -683,6 +683,12 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
+	if _, err := y.SetGroup(ctx, "builders", GroupEdit{Set: map[string]any{"kind": "claude", "model": "opus"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.PutGroup(ctx, Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	y.flowDepot(t, "shop", "code", "new", "review")
 	entered := y.now
 	run := y.travel(t, "run", "shop", "new")
@@ -716,6 +722,65 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if err := y.MarkRunning(ctx, msess.ID, map[string]any{"agent": "moved-review"}); err != nil {
 		t.Fatal(err)
 	}
+	execd := y.travel(t, "execd", "shop", "new")
+	esess, err := y.Claim(ctx, execd.ID, "scripts", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.MarkRunning(ctx, esess.ID, map[string]any{"pid": 1234}); err != nil {
+		t.Fatal(err)
+	}
+	// A session from before kinds were recorded has neither: clear what
+	// the claim wrote.
+	oldie := y.travel(t, "oldie", "shop", "new")
+	osess, err := y.Claim(ctx, oldie.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.MarkRunning(ctx, osess.ID, map[string]any{"agent": "oldie-new"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.write(func(w *wtx) error {
+		var s Session
+		if ok, err := get(w.Tx, bSessions, osess.ID, &s); err != nil {
+			return err
+		} else if !ok {
+			return ErrNotFound
+		}
+		s.Kind, s.Model = "", ""
+		return putSession(w.Tx, &s)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A bead that pins its flow stands off the line, in Elsewhere.
+	stray, err := y.CreateBead(ctx, NewBead{Title: "stray", ID: "stray", Stage: "new", Depot: "shop",
+		Metadata: map[string]any{"flow": "code"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stsess, err := y.Claim(ctx, stray.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.MarkRunning(ctx, stsess.ID, map[string]any{"agent": "stray-new"}); err != nil {
+		t.Fatal(err)
+	}
+	wild := y.travel(t, "wild", "", "new")
+	wsess, err := y.Claim(ctx, wild.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.MarkRunning(ctx, wsess.ID, map[string]any{"agent": "wild-new"}); err != nil {
+		t.Fatal(err)
+	}
+	// The served kind and model are what the claim recorded, not the
+	// group's current config.
+	if _, err := y.SetGroup(ctx, "builders", GroupEdit{Set: map[string]any{"kind": "codex", "model": "o3"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if g, err := y.GetGroup(ctx, "builders"); err != nil || g.Config["kind"] != "codex" || g.Config["model"] != "o3" {
+		t.Fatalf("builders config = %+v, %v, want kind codex model o3", g, err)
+	}
 	board, err := y.Flows(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -729,6 +794,12 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 				}
 			}
 		}
+		for _, b := range d.Elsewhere {
+			rows[b.Bead] = b
+		}
+	}
+	for _, b := range board.Unassigned {
+		rows[b.Bead] = b
 	}
 	entry := func(b FlowBead) (time.Time, bool) {
 		if b.EnteredStageAt == nil {
@@ -736,8 +807,12 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 		}
 		return *b.EnteredStageAt, true
 	}
+	who := func(b FlowBead) [4]string { return [4]string{b.Worker, b.Group, b.Kind, b.Model} }
 	if got := rows["run"].Worker; got != "herdr run-new" {
 		t.Errorf("run worker = %q, want the session-list word for its session", got)
+	}
+	if got := who(rows["run"]); got != [4]string{"herdr run-new", "builders", "claude", "opus"} {
+		t.Errorf("run who = %v, want the worker, group, kind and model as recorded", got)
 	}
 	if got, ok := entry(rows["run"]); !ok || !got.Equal(entered) {
 		t.Errorf("run entry = %v, %v, want %v, served", got, ok, entered)
@@ -745,30 +820,60 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if got := rows["byhand"].Worker; got != "" {
 		t.Errorf("byhand worker = %q, want absent: a manual group's claim names no worker", got)
 	}
+	if got := who(rows["byhand"]); got != [4]string{} {
+		t.Errorf("byhand who = %v, want none: a manual group's claim names no worker", got)
+	}
 	if got, ok := entry(rows["byhand"]); !ok || !got.Equal(entered) {
 		t.Errorf("byhand entry = %v, %v, want %v, served: the stay still has its clock", got, ok, entered)
 	}
 	if got := rows["idle"]; got.Worker != "" || got.EnteredStageAt != nil {
 		t.Errorf("idle serves worker %q entry %v, want neither", got.Worker, got.EnteredStageAt)
 	}
+	if got := who(rows["idle"]); got != [4]string{} {
+		t.Errorf("idle who = %v, want none", got)
+	}
 	if got := rows["moved"].Worker; got != "herdr moved-review" {
 		t.Errorf("moved worker = %q, want herdr moved-review", got)
 	}
+	if got := who(rows["moved"]); got != [4]string{"herdr moved-review", "builders", "claude", "opus"} {
+		t.Errorf("moved who = %v, want the recorded kind and model, not the group's current codex/o3", got)
+	}
 	if got, ok := entry(rows["moved"]); !ok || !got.Equal(remained) {
 		t.Errorf("moved entry = %v, %v, want %v, the move's stay, not the creation's", got, ok, remained)
+	}
+	if got := who(rows["execd"]); got != [4]string{"exec pid 1234", "scripts", "", ""} {
+		t.Errorf("execd who = %v, want group alone: an exec claim serves no kind", got)
+	}
+	if got := who(rows["oldie"]); got != [4]string{"herdr oldie-new", "builders", "", ""} {
+		t.Errorf("oldie who = %v, want group alone: a session recorded without kind or model", got)
+	}
+	if got := who(rows["stray"]); got != [4]string{"herdr stray-new", "builders", "claude", "opus"} {
+		t.Errorf("stray who = %v, want the worker, group, kind and model off the line, in Elsewhere", got)
+	}
+	if got := who(rows["wild"]); got != [4]string{"herdr wild-new", "builders", "claude", "opus"} {
+		t.Errorf("wild who = %v, want the worker, group, kind and model with no depot, unassigned", got)
 	}
 	raw, err := json.Marshal(rows["idle"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), `"worker":`) || strings.Contains(string(raw), `"entered_stage_at":`) {
-		t.Errorf("idle serves a worker or an entry in JSON: %s", raw)
+	if strings.Contains(string(raw), `"worker":`) || strings.Contains(string(raw), `"entered_stage_at":`) ||
+		strings.Contains(string(raw), `"group":`) || strings.Contains(string(raw), `"kind":`) || strings.Contains(string(raw), `"model":`) {
+		t.Errorf("idle serves a worker, an entry or who works it in JSON: %s", raw)
 	}
 	raw, err = json.Marshal(rows["run"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"worker":"herdr run-new"`) || !strings.Contains(string(raw), `"entered_stage_at":"2099-01-01T12:00:00Z"`) {
-		t.Errorf("run omits its worker or entry from JSON: %s", raw)
+	if !strings.Contains(string(raw), `"worker":"herdr run-new"`) || !strings.Contains(string(raw), `"entered_stage_at":"2099-01-01T12:00:00Z"`) ||
+		!strings.Contains(string(raw), `"group":"builders"`) || !strings.Contains(string(raw), `"kind":"claude"`) || !strings.Contains(string(raw), `"model":"opus"`) {
+		t.Errorf("run omits its worker, entry or who works it from JSON: %s", raw)
+	}
+	raw, err = json.Marshal(rows["execd"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"group":"scripts"`) || strings.Contains(string(raw), `"kind":`) || strings.Contains(string(raw), `"model":`) {
+		t.Errorf("execd serves %s, want group alone", raw)
 	}
 }

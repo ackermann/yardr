@@ -194,6 +194,9 @@ func flowBead(prefix string) []field {
 		{prefix + "held_by", "string?", "who holds a held bead, as the remark names them: the person who held it, the agent of the session or the crew member whose pane held it, `yard` where the yard held it itself, `peer:<name>` where the outcome a linked yard sent back held it. Absent where the bead is not held, and where the yard does not know who held it (a hold from before it kept the holder): the remark is then `held`"},
 		{prefix + "working", "bool", "an agent's or a command's session claimed it; a manual group's claim is a person's turn and no work"},
 		{prefix + "worker", "string?", "who works it, as `yardr session list` shows the claiming session: the runner with the agent's name or pid; absent where no session claimed it, and on a manual group's claim"},
+		{prefix + "group", "string?", "the group working it, as the claiming session recorded it at claim; absent where no session claimed it, and on a manual group's claim"},
+		{prefix + "kind", "string?", "the harness kind the claiming session started with (`claude`, `codex`, ...), as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none (an exec or peer claim, or a session from before kinds were recorded)"},
+		{prefix + "model", "string?", "the model the claiming session started with, as it recorded it at claim, served unchanged; absent where no session claimed it, on a manual group's claim, and where the session recorded none"},
 		{prefix + "entered_stage_at", "time?", "when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock"},
 	}
 }
@@ -1219,7 +1222,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.PutFlow(ctx, *flow, "jo")
 	must(err)
 	must(st.SetFlowPointer(ctx, "yard", "", "default", "jo"))
-	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 5}, "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "model": "opus"}, Limit: 5}, "jo"))
 	must(st.PutGroup(ctx, store.Group{Name: "elders", Runner: "manual", Limit: 5, Members: []string{"jo"}}, "jo"))
 	_, err = st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "jo")
 	must(err)
