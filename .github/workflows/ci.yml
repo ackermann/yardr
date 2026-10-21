@@ -82,7 +82,7 @@ jobs:
 
   # The scans, apart from the test job so release.yml's copy of that job
   # stays in step with it: known vulnerabilities in what the module builds
-  # with, and the depot's shell.
+  # with, what staticcheck finds in its Go, and the depot's shell.
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -95,6 +95,13 @@ jobs:
       # Pinned, like the actions above: @latest would run code no review saw.
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      # Pinned the same way, at the version the module was cleared with: a
+      # newer one may report what this one does not, and that is a change of
+      # its own. The module is clean of it, so a finding is a new one and
+      # fails the job; a deliberate exception is a //lint:ignore with its
+      # reason, on the line above (internal/cli/sourcecmd.go has the one).
+      - name: staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
       # The test gate and every contrib script with a shell shebang, found
       # by that line: a new script is covered without touching this step.
       # shellcheck ships on the runner's image; the install is for images
