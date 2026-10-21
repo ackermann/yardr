@@ -111,6 +111,89 @@ func plutilLint(t *testing.T, plist string) {
 	}
 }
 
+// An install makes the service's log with 0600 before the manager sees
+// it, and chmods an existing one to it, on either manager: the manager
+// writes to the file as it is, but makes a missing one with its own
+// mode (yardr-6pvg).
+func TestInstallMakesTheLogPrivate(t *testing.T) {
+	for _, system := range []string{"darwin", "linux"} {
+		home := newHomeDir(t)
+		stubServices(t, system)
+		stubLookPath(t, "git", "herdr", "systemctl")
+		st := storetest.New(t)
+		testYard(t, st, home)
+		a := func() *app {
+			a := appOn(st)
+			a.actor = "me"
+			return a
+		}
+		if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct {
+			kind string
+			args []string
+		}{
+			{svcDaemon, nil},
+			{svcWeb, nil},
+			{svcBDP, nil},
+			{svcOTel, []string{"--endpoint", "http://127.0.0.1:4318"}},
+		} {
+			install := func() error {
+				_, err := run(t, a().rootCmd(), append([]string{c.kind, "install"}, c.args...)...)
+				return err
+			}
+			log := kindOf(c.kind).Log(config.At(home))
+			if _, err := os.Lstat(log); !os.IsNotExist(err) {
+				t.Fatalf("%s %s: %s is there before its install: %v", system, c.kind, log, err)
+			}
+			if err := install(); err != nil {
+				t.Fatal(err)
+			}
+			if fi, err := os.Stat(log); err != nil || fi.Mode().Perm() != 0o600 {
+				t.Errorf("%s %s: a made log is %v, %v; want 0600", system, c.kind, modeOf(fi), err)
+			}
+			// An existing one is chmodded to it, its words kept.
+			if err := os.WriteFile(log, []byte("what the service printed\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(log, 0o644); err != nil { // past the umask
+				t.Fatal(err)
+			}
+			if err := install(); err != nil {
+				t.Fatal(err)
+			}
+			if fi, err := os.Stat(log); err != nil || fi.Mode().Perm() != 0o600 {
+				t.Errorf("%s %s: a kept log is %v, %v; want 0600", system, c.kind, modeOf(fi), err)
+			}
+			if body, err := os.ReadFile(log); err != nil || string(body) != "what the service printed\n" {
+				t.Errorf("%s %s: the install rewrote its log: %q, %v", system, c.kind, body, err)
+			}
+		}
+		// Where the log cannot be made the install fails, and says the
+		// service is written.
+		if err := os.Remove(filepath.Join(home, "daemon.log")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(home, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(home, 0o700) })
+		_, err := run(t, a().rootCmd(), "daemon", "install")
+		if err == nil || !strings.Contains(err.Error(), "daemon.log") || !strings.Contains(err.Error(), "written") {
+			t.Errorf("%s: install into a locked home = %v", system, err)
+		}
+	}
+}
+
+// modeOf is fi's permission bits, for a failure's words.
+func modeOf(fi os.FileInfo) os.FileMode {
+	if fi == nil {
+		return 0
+	}
+	return fi.Mode().Perm()
+}
+
 // The files as written, for each manager and each service: the yardr that
 // installed it, the home, the PATH, the log, started at login and started
 // again only after a failure.

@@ -439,11 +439,28 @@ type serviceResult struct {
 	Warnings   []string `json:"warnings"`
 }
 
-// install writes the unit's file and, unless fileOnly, hands it to the
-// manager, which starts it now and at every login. An install over an
-// installed service replaces it. For a kind the yard has one of (the
-// daemon), one that runs already is stopped first: the service's would end
-// on the lock the other holds.
+// privateLogFile makes the service's log file with 0600 when none is
+// there, and chmods an existing one to it.
+func privateLogFile(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("make the service's log %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("make the service's log %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil { // past the umask
+		return fmt.Errorf("chmod the service's log %s to 0600: %w", path, err)
+	}
+	return nil
+}
+
+// install writes the unit's file, makes its log with 0600 (an existing
+// one is chmodded to it) and, unless fileOnly, hands it to the manager,
+// which starts it now and at every login. An install over an installed
+// service replaces it. For a kind the yard has one of (the daemon), one
+// that runs already is stopped first: the service's would end on the lock
+// the other holds.
 func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (*serviceResult, error) {
 	res := &serviceResult{Home: u.Home, Kind: u.Kind, Manager: u.Manager, Name: u.Name, File: u.Path, Program: u.Program, Args: u.Args,
 		Env: u.Env, Log: u.Log, Load: shellLines(u.loadCommands()), Warnings: []string{}}
@@ -463,6 +480,15 @@ func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (
 	}
 	if err := os.WriteFile(u.Path, []byte(u.render()), u.Mode); err != nil {
 		return nil, err
+	}
+	// The manager writes the service's log to the file as it is, but
+	// makes a missing one with its own mode; made here it is 0600, as
+	// the logs yardr writes itself are, and an existing one is chmodded
+	// to it, before the manager sees the service.
+	if u.Log != "" {
+		if err := privateLogFile(u.Log); err != nil {
+			return nil, fmt.Errorf("%w; the service is written (%s)", err, u.Path)
+		}
 	}
 	if fileOnly {
 		return res, nil
