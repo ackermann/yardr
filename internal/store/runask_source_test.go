@@ -137,6 +137,11 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 	for _, path := range []string{"wired/limits", "wired/thread", "wired/normalize", "wired/events"} {
 		decl = strings.ReplaceAll(decl, path, "wired/shared")
 	}
+	decl = strings.Replace(decl, "  ping: { kind: read, request: { method: GET, path: /me } }\n",
+		"  ping: { kind: read, request: { method: GET, path: /me } }\n"+
+			"  send:\n    kind: update\n    params: { to: { type: string }, text: { type: string } }\n"+
+			"    request: { method: POST, path: /send, body: { to: \"{to}\", text: \"{text}\" } }\n", 1)
+	decl += "notify:\n  call: send\n  address: { param: to, env: WIRED_USER }\n  text: text\n  image: [wired/shared]\n"
 	shared := map[string]string{"wired/shared": "#!/bin/sh\n# shared\n"}
 	ask := sourceAddAsk(carriedOf(t, decl, shared))
 	ask.Run.Argv = []string{"source add wired.yaml"}
@@ -145,6 +150,7 @@ func TestSourceAddCardNamesEveryCommand(t *testing.T) {
 	for _, want := range []string{
 		"(limits.command, handed no credential)",
 		"(thread.reply, handed the credential)",
+		"(notify.image, handed the credential)",
 		"(hook.normalize, handed no credential)",
 		"(events.pr, handed the credential)",
 		"(events.ci, handed the credential)",

@@ -120,10 +120,11 @@ const MintCommandKey = "credential.mint_command"
 
 // Commands are the commands the declaration names: the mint command it
 // brings, the limits command, thread's reply, posted, read, file, open,
-// opened and state, hook.normalize, events' pr and ci, and each call's build, in
-// that order. The mint command is one of them so that it is carried as
-// every command file is: copied under <home>/sources/<name>/, hashed on
-// the plan and the card, and shown again when a later pack changes it.
+// opened and state, notify's image, hook.normalize, events' pr and ci, and
+// each call's build, in that order. The mint command is one of them so that
+// it is carried as every command file is: copied under
+// <home>/sources/<name>/, hashed on the plan and the card, and shown again
+// when a later pack changes it.
 func (d *Declaration) Commands() []Command {
 	var out []Command
 	if d.Credential != nil && len(d.Credential.MintCommand) > 0 {
@@ -146,6 +147,9 @@ func (d *Declaration) Commands() []Command {
 				out = append(out, c)
 			}
 		}
+	}
+	if d.Notify != nil && len(d.Notify.Image) > 0 {
+		out = append(out, Command{Key: "notify.image", Argv: d.Notify.Image})
 	}
 	if d.Hook != nil && len(d.Hook.Normalize) > 0 {
 		out = append(out, Command{Key: "hook.normalize", Argv: d.Hook.Normalize})

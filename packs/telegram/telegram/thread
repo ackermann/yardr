@@ -1,9 +1,10 @@
 #!/bin/bash
-# thread: what the yard does in a Telegram chat: reply, posted, read, get. One
-# JSON object on stdin, one on stdout, as the thread key of the declaration
-# says. TELEGRAM_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base,
-# are in the environment. Needs curl, jq and the standard shell utilities
-# it calls (grep, head, wc, tr).
+# thread: what the yard does in a Telegram chat: reply, posted, read, get,
+# and tell for notify.image. One JSON object on stdin, one on stdout, as
+# the thread key of the declaration says, and the notify key for tell.
+# TELEGRAM_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base,
+# are in the environment. Needs curl, jq, file and the standard shell
+# utilities it calls (grep, head, wc, tr).
 #
 # The service gives a bot no history to read and no idempotency key to
 # set, so posted and read answer what there is to find, nothing, and a
@@ -12,34 +13,117 @@ set -euo pipefail
 in=$(cat)
 arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
 
-case "$1" in
-reply) # sendMessage to the chat the delivery came from. The parent is left
-  # out: a chat is one conversation, and the key is left out with it: the
-  # service takes no idempotency key.
-  thread=$(arg thread)
-  body=$(arg body)
-  [ -n "$thread" ] || { echo "thread.reply was handed no thread" >&2; exit 1; }
-  [ -n "$body" ] || { echo "thread.reply was handed no body" >&2; exit 1; }
-  : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
-  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+send_message() { # one text to the chat, by sendMessage; prints the message's id
+  text=$1
   # The token is part of the address, and an argument can be read by every
   # process on the machine while curl runs: the address goes to curl as a
   # config line on its stdin, written by the shell itself.
   out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
     | curl -sS --fail-with-body -K - \
     -H 'Content-Type: application/json' \
-    -d "$(jq -n -c --arg c "$thread" --arg t "$body" '{chat_id: $c, text: $t}')") || {
+    -d "$(jq -n -c --arg c "$thread" --arg t "$text" '{chat_id: $c, text: $t}')") || {
     code=$?
     desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
     echo "sendMessage to chat $thread failed${desc:+: $desc} (curl exit $code)" >&2
-    exit 1
+    return 1
   }
   jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
     desc=$(jq -r '.description // "sendMessage failed"' <<<"$out" 2>/dev/null || echo "sendMessage failed")
     echo "$desc" >&2
-    exit 1
+    return 1
   }
-  jq -c '{id: (((.result.message_id // "") | tostring))} | if .id == "" then error("sendMessage answered no message") else . end' <<<"$out" ;;
+  mid=$(jq -r '(.result.message_id // "") | tostring' <<<"$out" 2>/dev/null) && [ -n "$mid" ] || {
+    echo "sendMessage answered no message" >&2
+    return 1
+  }
+  printf '%s' "$mid"
+}
+
+send_media() { # one picture or document to the chat, by sendPhoto or sendDocument; prints the message's id
+  method=$1; field=$2; file=$3; caption=$4
+  [ -f "$file" ] || { echo "$method found no file at $file" >&2; return 1; }
+  # The address goes to curl on its stdin, as send_message's does; the
+  # caption goes as data, never parsed for @ or <>.
+  args=(-F "chat_id=$thread" -F "$field=@$file")
+  if [ -n "$caption" ]; then args+=(--form-string "caption=$caption"); fi
+  out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/$method" \
+    | curl -sS --fail-with-body -K - "${args[@]}") || {
+    code=$?
+    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
+    echo "$method to chat $thread failed${desc:+: $desc} (curl exit $code)" >&2
+    return 1
+  }
+  jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
+    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
+    echo "${desc:-$method failed}" >&2
+    return 1
+  }
+  mid=$(jq -r '(.result.message_id // "") | tostring' <<<"$out" 2>/dev/null) && [ -n "$mid" ] || {
+    echo "$method answered no message" >&2
+    return 1
+  }
+  printf '%s' "$mid"
+}
+
+case "$1" in
+reply) # sendMessage to the chat the delivery came from; with files, the
+  # text is the caption of the first picture or document instead. The
+  # parent is left out: a chat is one conversation, and the key is left
+  # out with it: the service takes no idempotency key.
+  thread=$(arg thread)
+  body=$(arg body)
+  [ -n "$thread" ] || { echo "thread.reply was handed no thread" >&2; exit 1; }
+  [ -n "$body" ] || { echo "thread.reply was handed no body" >&2; exit 1; }
+  : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
+  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+  nfiles=$(jq '.files | length' <<<"$in")
+  if ! [ "$nfiles" -gt 0 ] 2>/dev/null; then
+    id=$(send_message "$body")
+    jq -n -c --arg id "$id" '{id: $id}'
+    exit 0
+  fi
+  # A caption holds 1024 characters: a longer text goes first as its own
+  # message, and the files follow without one, so no words are lost and
+  # the order is kept. Several files go one after another, no album.
+  caption="$body"
+  id=""
+  if [ "$(jq -n --arg b "$body" '$b | length')" -gt 1024 ]; then
+    id=$(send_message "$body")
+    caption=""
+  fi
+  i=0
+  first=1
+  while [ "$i" -lt "$nfiles" ]; do
+    file=$(jq -r ".files[$i]" <<<"$in")
+    [ -n "$file" ] || { echo "thread.reply was handed no file" >&2; exit 1; }
+    [ -f "$file" ] || { echo "thread.reply found no file at $file" >&2; exit 1; }
+    mime=$(file -b --mime-type "$file" 2>/dev/null) || { echo "thread.reply cannot read $file" >&2; exit 1; }
+    case "$mime" in
+    image/*) method=sendPhoto; field=photo ;;
+    *) method=sendDocument; field=document ;;
+    esac
+    cap=""
+    if [ "$first" -eq 1 ]; then cap="$caption"; first=0; fi
+    mid=$(send_media "$method" "$field" "$file" "$cap")
+    [ -n "$id" ] || id="$mid"
+    i=$((i + 1))
+  done
+  [ -n "$id" ] || { echo "thread.reply posted nothing" >&2; exit 1; }
+  jq -n -c --arg id "$id" '{id: $id}' ;;
+tell) # one picture with its caption to the chat, for notify.image: in
+  # {address, title, text, image}, out {status}. The caption is the title
+  # then the text, cut to the service's 1024 characters.
+  thread=$(arg address)
+  title=$(arg title)
+  text=$(arg text)
+  image=$(arg image)
+  [ -n "$thread" ] || { echo "notify.image was handed no address" >&2; exit 1; }
+  [ -n "$image" ] || { echo "notify.image was handed no image" >&2; exit 1; }
+  : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
+  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+  caption=$(jq -nr --arg t "$title" --arg x "$text" '[$t, $x] | map(select(. != "")) | join("\n") | .[0:1024]')
+  send_media sendPhoto photo "$image" "$caption" >/dev/null
+  printf '%s' '{"status":200}' ;;
 get) # The file a kept delivery names, by getFile and then the file's own
   # address, into the directory the core made: in {ref, dir, max_bytes},
   # out {path, bytes}. TELEGRAM_MAX_BYTES bounds a file as the yard's own

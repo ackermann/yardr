@@ -69,6 +69,7 @@ type pushYard struct {
 	now    time.Time
 	log    bytes.Buffer
 	env    string // ada's env_file
+	home   string // the yard's home, the store's and the daemon's
 }
 
 func newPushYard(t *testing.T) *pushYard {
@@ -76,7 +77,8 @@ func newPushYard(t *testing.T) *pushYard {
 	ctx := context.Background()
 	// The store stamps a push with the time it has; the daemon's clock
 	// starts there and is moved by the test.
-	y := &pushYard{api: storetest.New(t), now: time.Now()}
+	home := t.TempDir()
+	y := &pushYard{api: storetest.NewIn(t, home), now: time.Now(), home: home}
 	y.status.Store(200)
 	y.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
@@ -108,7 +110,7 @@ func newPushYard(t *testing.T) *pushYard {
 	must(t, err)
 	_, err = y.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake"}, "jo")
 	must(t, err)
-	y.d = &dispatch.Dispatcher{Store: y.api, Runners: map[string]dispatch.Runner{"fake": &fakeRunner{dead: map[string]bool{}}},
+	y.d = &dispatch.Dispatcher{Store: y.api, Home: home, Runners: map[string]dispatch.Runner{"fake": &fakeRunner{dead: map[string]bool{}}},
 		Log: slog.New(slog.NewTextHandler(&y.log, nil))}
 	dispatch.SetClock(y.d, func() time.Time { return y.now })
 	t.Cleanup(func() { y.noSecrets(t) })
@@ -509,5 +511,181 @@ func TestPushToAUserWhoIsNotSetUp(t *testing.T) {
 	box, err := y.api.UserInbox(context.Background(), "ada", 0)
 	if err != nil || box.Unread != 2 {
 		t.Fatalf("the inbox: %+v, %v", box, err)
+	}
+}
+
+// withImage gives the push source an image command: a script that records
+// what it was handed and answers 200. It returns the directory it records
+// in.
+func (y *pushYard) withImage(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "ishow")
+	show := "#!/bin/sh\n{ cat; echo; } >> " + dir + "/image.stdin\nprintf '%s' '{\"status\":200}'\n"
+	must(t, os.WriteFile(script, []byte(show), 0o755))
+	text := strings.Replace(pushSource, "BASE", y.srv.URL, 1)
+	text = strings.Replace(text, "  text: text\n", "  text: text\n  image: ["+script+"]\n", 1)
+	_, err := y.api.PutSource(context.Background(), "push.yaml", text, "jo")
+	must(t, err)
+	return dir
+}
+
+// imageSends are the objects the image command was handed, oldest first.
+func imageSends(t *testing.T, dir string) []map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, "image.stdin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []map[string]any
+	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+		var v map[string]any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			t.Fatalf("the command was handed %q: %v", line, err)
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// putBlob keeps data as a blob and answers the file a mail or a note
+// carries it with.
+func (y *pushYard) putBlob(t *testing.T, data []byte, name string) store.BlobFile {
+	t.Helper()
+	ref, err := y.api.PutBlob(context.Background(), data)
+	must(t, err)
+	return store.BlobFile{Hash: ref.Hash, Name: name}
+}
+
+var pushPNG = []byte("\x89PNG\r\n\x1a\nthe shed from the lane")
+
+// A mail with a picture is told with it: the image command is handed the
+// address, the words and the picture's path, whose bytes are the mail's.
+// A mail whose picture the yard no longer holds is told without: the call
+// tells, and the command runs no more.
+func TestPushTellsMailImage(t *testing.T) {
+	t.Parallel()
+	y := newPushYard(t)
+	dir := y.withImage(t)
+	ctx := context.Background()
+
+	shot := y.putBlob(t, pushPNG, "shot.png")
+	must(t, y.api.Mail(ctx, "ada", "the shed lands Monday", "yardmaster", shot))
+	y.pass(t, store.PushGrace+time.Second)
+	sends := imageSends(t, dir)
+	if len(sends) != 1 || sends[0]["address"] != pushAddress || sends[0]["title"] != "mail from yardmaster" ||
+		sends[0]["text"] != "the shed lands Monday" {
+		t.Fatalf("the command was handed %v", sends)
+	}
+	path, _ := sends[0]["image"].(string)
+	if path != store.BlobPath(y.home, shot.Hash) {
+		t.Fatalf("the picture's path = %q", path)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, pushPNG) {
+		t.Fatalf("the picture holds %q, %v", got, err)
+	}
+	want(t, "asked the call", len(y.sent()), 0)
+	want(t, "left in the queue", len(y.queued(t)), 0)
+
+	// The picture gone: the call tells, unadorned.
+	gone := y.putBlob(t, pushPNG, "gone.png")
+	must(t, y.api.Mail(ctx, "ada", "another shed", "yardmaster", gone))
+	must(t, os.Remove(store.BlobPath(y.home, gone.Hash)))
+	y.pass(t, store.PushGrace+time.Second)
+	want(t, "told without the picture", y.sent(), []string{"mail from yardmaster | another shed"})
+	if sends := imageSends(t, dir); len(sends) != 1 {
+		t.Fatalf("the command ran %d times", len(sends))
+	}
+	want(t, "push_failed events", y.failed(t), []string{})
+}
+
+// A notification of a done bead is told with the newest note on that bead
+// with a picture: notes without one, and files that are no picture, are
+// passed over.
+func TestPushTellsDoneBeadScreenshot(t *testing.T) {
+	t.Parallel()
+	y := newPushYard(t)
+	dir := y.withImage(t)
+	ctx := context.Background()
+	must(t, y.api.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "jo"))
+	flow, err := store.ParseFlow(pushFlow)
+	must(t, err)
+	flow.Name = "yard"
+	_, err = y.api.PutFlow(ctx, *flow, "jo")
+	must(t, err)
+	must(t, y.api.SetFlowPointer(ctx, "yard", "", "yard", "jo"))
+	must(t, y.api.AddSubscription(ctx, "ada", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+		Where: map[string]string{"state": store.StateDone}}, "ada"))
+	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "The shed", Depot: "yard", Stage: "new"}, "jo")
+	must(t, err)
+	must(t, y.api.AddNote(ctx, "yard-1", "the plans", "builder", y.putBlob(t, []byte("plans"), "plans.txt")))
+	must(t, y.api.AddNote(ctx, "yard-1", "the old shed", "builder", y.putBlob(t, pushPNG, "old.png")))
+	must(t, y.api.AddNote(ctx, "yard-1", "landed", "builder"))
+	_, err = y.api.CloseBead(ctx, "yard-1", "landed", store.Expect{}, "builder")
+	must(t, err)
+
+	y.pass(t, store.PushGrace+time.Second)
+	sends := imageSends(t, dir)
+	if len(sends) != 1 || sends[0]["title"] != "yard-1 closed" {
+		t.Fatalf("the command was handed %v", sends)
+	}
+	path, _ := sends[0]["image"].(string)
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, pushPNG) {
+		t.Fatalf("the picture holds %q, %v", got, err)
+	}
+	want(t, "asked the call", len(y.sent()), 0)
+	want(t, "push_failed events", y.failed(t), []string{})
+}
+
+// Across a batch the first picture in order goes, whether a mail's or a
+// done bead's; the rest stay in the yard.
+func TestPushFirstImageAcrossBatch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	setup := func(t *testing.T, mailFirst bool) (*pushYard, string, store.BlobFile, store.BlobFile) {
+		t.Helper()
+		y := newPushYard(t)
+		dir := y.withImage(t)
+		must(t, y.api.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "jo"))
+		flow, err := store.ParseFlow(pushFlow)
+		must(t, err)
+		flow.Name = "yard"
+		_, err = y.api.PutFlow(ctx, *flow, "jo")
+		must(t, err)
+		must(t, y.api.SetFlowPointer(ctx, "yard", "", "yard", "jo"))
+		must(t, y.api.AddSubscription(ctx, "ada", store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+			Where: map[string]string{"state": store.StateDone}}, "ada"))
+		_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-1", Title: "The shed", Depot: "yard", Stage: "new"}, "jo")
+		must(t, err)
+		mailShot := y.putBlob(t, append(bytes.Clone(pushPNG), "-mail"...), "mail.png")
+		noteShot := y.putBlob(t, append(bytes.Clone(pushPNG), "-note"...), "note.png")
+		mail := func() { must(t, y.api.Mail(ctx, "ada", "look", "yardmaster", mailShot)) }
+		done := func() {
+			must(t, y.api.AddNote(ctx, "yard-1", "shot", "builder", noteShot))
+			_, err = y.api.CloseBead(ctx, "yard-1", "landed", store.Expect{}, "builder")
+			must(t, err)
+		}
+		if mailFirst {
+			mail()
+			done()
+		} else {
+			done()
+			mail()
+		}
+		return y, dir, mailShot, noteShot
+	}
+
+	y, dir, mailShot, _ := setup(t, true)
+	y.pass(t, store.PushGrace+time.Second)
+	sends := imageSends(t, dir)
+	if len(sends) != 1 || sends[0]["image"] != store.BlobPath(y.home, mailShot.Hash) {
+		t.Fatalf("the mail first: %v", sends)
+	}
+
+	y, dir, _, noteShot := setup(t, false)
+	y.pass(t, store.PushGrace+time.Second)
+	sends = imageSends(t, dir)
+	if len(sends) != 1 || sends[0]["image"] != store.BlobPath(y.home, noteShot.Hash) {
+		t.Fatalf("the done bead first: %v", sends)
 	}
 }

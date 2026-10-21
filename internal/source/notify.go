@@ -24,6 +24,13 @@ type Notify struct {
 	Title string `json:"title,omitempty"`
 	Text  string `json:"text,omitempty"`
 	Link  string `json:"link,omitempty"`
+	// Image is the command that tells with a picture: in {address,
+	// title, text, image}, the address under its value and image the
+	// local path of the picture for the command to read, out {status}.
+	// Telling sends JSON, which carries no picture, so a message with
+	// one goes through this command instead of the call above; one
+	// without, and a file without the key, go through the call.
+	Image []string `json:"image,omitempty"`
 }
 
 // TellParams are the parameters of the call Notify names to tell the
@@ -184,7 +191,7 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 		}
 		return ""
 	}
-	fields := r.entries(e.v, e.path, "call", "address", "title", "text", "link")
+	fields := r.entries(e.v, e.path, "call", "address", "title", "text", "link", "image")
 	// The call first, wherever the file has it: the others name its
 	// parameters.
 	for _, f := range fields {
@@ -240,6 +247,8 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 			if p, ok := c.param(n.Link); ok && !p.Optional {
 				r.errf(f.v, f.path, "the parameter %s is required, and most of what the yard tells has no link: make it optional: true", n.Link)
 			}
+		case "image":
+			n.Image = r.command(f, "notify/image")
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {

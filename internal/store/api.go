@@ -212,7 +212,7 @@ type API interface {
 	FollowThread(ctx context.Context, name, source, thread, actor string) error
 	UnfollowThread(ctx context.Context, name, source, thread, actor string) error
 	Threads(ctx context.Context, name string) ([]Participation, error)
-	Replying(ctx context.Context, name string, seq uint64, to, body, actor string) (*Reply, error)
+	Replying(ctx context.Context, name string, seq uint64, to, body, actor string, files ...BlobFile) (*Reply, error)
 	Replied(ctx context.Context, name string, rp Reply, actor string) error
 	Opening(ctx context.Context, name, source, in, title, body, actor string) (*Reply, error)
 	Opened(ctx context.Context, name string, rp Reply, actor string) error

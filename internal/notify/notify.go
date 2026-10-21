@@ -15,7 +15,9 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,9 +28,11 @@ import (
 )
 
 // Message is what is told. Link is "" where there is nothing a person
-// could open.
+// could open, and Image the local path of the picture it carries, "" for
+// a message without one. A message carries one picture at most.
 type Message struct {
 	Title, Text, Link string
+	Image             string
 }
 
 // Sent is a send the source answered.
@@ -66,13 +70,16 @@ type Store interface {
 type provider interface {
 	// names are what the user's env file must set for it.
 	names() []string
-	// send tells the person env is of, with env the values of names. An
-	// error is a send that was not answered.
-	send(ctx context.Context, env map[string]string, m Message) (status int, err error)
+	// send tells the person env is of, with env the values of names. A
+	// message with a picture goes with it where the source takes one,
+	// and without where it takes none. An error is a send that was not
+	// answered.
+	send(ctx context.Context, home string, env map[string]string, m Message) (status int, err error)
 }
 
-// Send tells the user m through the source their record names.
-func Send(ctx context.Context, st Store, user string, m Message) (*Sent, error) {
+// Send tells the user m through the source their record names. home is
+// the yard's home, which a relative notify image command runs from.
+func Send(ctx context.Context, st Store, home, user string, m Message) (*Sent, error) {
 	u, err := st.GetUser(ctx, user)
 	if err != nil {
 		return nil, err
@@ -80,13 +87,14 @@ func Send(ctx context.Context, st Store, user string, m Message) (*Sent, error) 
 	if u.Notify == "" {
 		return nil, notSetUp("user %s names no source that tells them: yardr user set %s %s=<source>", u.Name, u.Name, store.UserNotify)
 	}
-	return Through(ctx, st, u.Notify, u, m)
+	return Through(ctx, st, home, u.Notify, u, m)
 }
 
 // Through tells the user m through the source name, whichever their record
 // names: what yardr source check <name> --user does, to try a source
-// before a user is given it.
-func Through(ctx context.Context, st Store, name string, u *store.User, m Message) (*Sent, error) {
+// before a user is given it. home is the yard's home, which a relative
+// notify image command runs from.
+func Through(ctx context.Context, st Store, home, name string, u *store.User, m Message) (*Sent, error) {
 	p, err := providerOf(ctx, st, name)
 	if err != nil {
 		return nil, err
@@ -96,7 +104,7 @@ func Through(ctx context.Context, st Store, name string, u *store.User, m Messag
 		return nil, err
 	}
 	start := time.Now()
-	status, err := p.send(ctx, env, m)
+	status, err := p.send(ctx, home, env, m)
 	if err != nil {
 		return nil, err
 	}
@@ -184,10 +192,13 @@ type declared struct {
 
 func (p declared) names() []string { return []string{p.d.Notify.AddressEnv} }
 
-func (p declared) send(ctx context.Context, env map[string]string, m Message) (int, error) {
+func (p declared) send(ctx context.Context, home string, env map[string]string, m Message) (int, error) {
 	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.Mint, source.Update)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)
+	}
+	if m.Image != "" && len(p.d.Notify.Image) > 0 {
+		return p.sendImage(ctx, home, env, m, cred)
 	}
 	n := p.d.Notify
 	res, err := source.Do(ctx, p.d, n.Call, p.d.TellParams(env[n.AddressEnv], m.Title, m.Text, m.Link), cred)
@@ -197,11 +208,46 @@ func (p declared) send(ctx context.Context, env map[string]string, m Message) (i
 	return res.Status, nil
 }
 
+// sendImage tells with the picture m carries, by the notify key's image
+// command: in {address, title, text, image}, out {status}. Telling sends
+// JSON, which carries no picture, so the command reads the file at image
+// and sends it with the words. A message without a picture, and a file
+// without the key, go through the call above, unadorned.
+func (p declared) sendImage(ctx context.Context, home string, env map[string]string, m Message, cred string) (int, error) {
+	n := p.d.Notify
+	in := map[string]any{"address": env[n.AddressEnv], "title": m.Title, "text": m.Text, "image": m.Image}
+	argv := slices.Clone(n.Image)
+	argv[0] = source.Command{Key: "notify.image", Argv: n.Image}.Program(home, p.d.Name)
+	var status int
+	err := source.Run(ctx, "notify.image of source "+p.d.Name, argv, in, p.d.CommandEnvOf(source.Update, cred), home, 0, func(out []byte) error {
+		var o struct {
+			Status int `json:"status"`
+		}
+		if err := json.Unmarshal(out, &o); err != nil {
+			return fmt.Errorf("its answer is no {status}: %v", err)
+		}
+		if o.Status == 0 {
+			return fmt.Errorf("its answer is no {status}")
+		}
+		status = o.Status
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return status, nil
+}
+
 // compiled tells through a source yardr has in Go.
 type compiled struct{ n hooks.Notifier }
 
 func (p compiled) names() []string { return p.n.NotifyEnv() }
 
-func (p compiled) send(ctx context.Context, env map[string]string, m Message) (int, error) {
+func (p compiled) send(ctx context.Context, _ string, env map[string]string, m Message) (int, error) {
+	if m.Image != "" {
+		if im, ok := p.n.(hooks.Imager); ok {
+			return im.NotifyImage(ctx, env, m.Title, m.Text, m.Link, m.Image)
+		}
+	}
 	return p.n.Notify(ctx, env, m.Title, m.Text, m.Link)
 }

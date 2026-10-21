@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -152,12 +153,13 @@ func (d *Dispatcher) tell(ctx context.Context, user string, ps []store.Push) {
 		return
 	}
 	msg := pushMessage(due)
+	msg.Image = pushImage(ctx, d.Store, d.Home, due)
 	if sent == store.PushesPerHour-1 {
 		msg.Text = fmt.Sprintf("The %dth message this hour, and the last: what comes next waits in yardr inbox.\n", store.PushesPerHour) + msg.Text
 	}
 
 	cctx, cancel := context.WithTimeout(ctx, pushTimeout)
-	res, err := notify.Send(cctx, d.Store, user, msg)
+	res, err := notify.Send(cctx, d.Store, d.Home, user, msg)
 	cancel()
 	var notSetUp *notify.NotSetUp
 	var call *source.CallError
@@ -317,6 +319,61 @@ func pushMessage(ps []store.Push) notify.Message {
 		}
 	}
 	return notify.Message{Title: fmt.Sprintf("%d new in %s", len(ps), where), Text: strings.Join(heads, ", ")}
+}
+
+// pushImage is the local path of the picture the message about ps carries:
+// the first image across the batch in order. A mail carries the first
+// image of its files; a notification of a done bead carries the newest
+// note on that bead with an image. The rest stay in the yard: one tell
+// carries one picture. "" when no image is told, when the bead or its
+// notes are gone, and when the blob the file names is not there: the
+// tell then goes unadorned.
+func pushImage(ctx context.Context, st store.API, home string, ps []store.Push) string {
+	for _, p := range ps {
+		if p.Mail != nil {
+			if path := firstImage(home, p.Mail.Files); path != "" {
+				return path
+			}
+		}
+		if p.Note != nil && p.Note.Kind == "closed" && p.Note.Bead != "" {
+			if path := doneImage(ctx, st, home, p.Note.Bead); path != "" {
+				return path
+			}
+		}
+	}
+	return ""
+}
+
+// doneImage is the local path of the newest picture on the notes of the
+// done bead: its notes newest first, each note's images in order. "" when
+// no note carries an image the yard still holds.
+func doneImage(ctx context.Context, st store.API, home, bead string) string {
+	notes, err := st.Notes(ctx, bead)
+	if err != nil {
+		return ""
+	}
+	for i := len(notes) - 1; i >= 0; i-- {
+		if path := firstImage(home, notes[i].Files); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+// firstImage is the local path of the first image of files: the first
+// the yard took whose bytes say image, and whose blob stands. "" when
+// there is none.
+func firstImage(home string, files []store.BlobRef) string {
+	for _, f := range files {
+		if f.NotTaken != "" || !strings.HasPrefix(f.Type, "image/") {
+			continue
+		}
+		path := store.BlobPath(home, f.Hash)
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			return path
+		}
+	}
+	return ""
 }
 
 // pushLine is one push as who and what (title) and the start of its text.

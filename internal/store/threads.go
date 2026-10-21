@@ -147,10 +147,15 @@ type Reply struct {
 func replyKey(member, key string) string { return member + "\x00" + key }
 
 // replyHash identifies one answer to a delivery: the conversation it goes
-// under and its body.
-func replyHash(to, body string) string {
-	sum := sha256.Sum256([]byte(to + "\x00" + body))
-	return hex.EncodeToString(sum[:])
+// under, its body, and the files it carries, in order, by the hash of
+// their bytes. The same words with other files are another answer.
+func replyHash(to, body string, files []BlobFile) string {
+	h := sha256.New()
+	h.Write([]byte(to + "\x00" + body))
+	for _, f := range files {
+		h.Write([]byte("\x00" + f.Hash))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // newReplyKey is a fresh UUID v4 (RFC 9562), the form Linear takes as a
@@ -167,17 +172,21 @@ func newReplyKey() string {
 }
 
 // Replying is the crew member about to answer delivery seq with body, under
-// the conversation to ("" for the delivery's own). It returns the Reply
-// for exactly that answer: a fresh one, with a key chosen now, or the one
-// an earlier attempt made, with Attempts counted up. The record is written
-// before anything is posted, so a reply the source took but the caller
-// never heard back about is still known by its key. It is where anyone but
-// the crew member and the operator is refused (maySpeakAs), as actor.
-func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body, actor string) (*Reply, error) {
+// the conversation to ("" for the delivery's own), carrying files. It
+// returns the Reply for exactly that answer: a fresh one, with a key
+// chosen now, or the one an earlier attempt made, with Attempts counted
+// up. The record is written before anything is posted, so a reply the
+// source took but the caller never heard back about is still known by its
+// key. It is where anyone but the crew member and the operator is refused
+// (maySpeakAs), as actor.
+func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body, actor string, files ...BlobFile) (*Reply, error) {
 	if seq == 0 || body == "" {
 		return nil, fmt.Errorf("replying: the delivery's seq and a body are required")
 	}
-	hash := replyHash(to, body)
+	if len(files) > MaxMailFiles {
+		return nil, fmt.Errorf("replying: a reply carries at most %d files, not %d", MaxMailFiles, len(files))
+	}
+	hash := replyHash(to, body, files)
 	var out *Reply
 	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {

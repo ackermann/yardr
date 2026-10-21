@@ -183,6 +183,32 @@ func TestReplying(t *testing.T) {
 		seen[o.Key] = true
 	}
 
+	// The same words with files are another answer; the same words with
+	// the same files are the same one, counted as another attempt.
+	fa := store.BlobFile{Hash: strings.Repeat("a", 64), Name: "a.png"}
+	fb := store.BlobFile{Hash: strings.Repeat("b", 64), Name: "b.png"}
+	one, err := s.Replying(ctx, "inv", 7, "", "hello", "inv", fa)
+	if err != nil || seen[one.Key] || one.Attempts != 1 {
+		t.Fatalf("with a file: %+v, %v", one, err)
+	}
+	seen[one.Key] = true
+	same, err := s.Replying(ctx, "inv", 7, "", "hello", "inv", fa)
+	if err != nil || same.Key != one.Key || same.Attempts != 2 {
+		t.Fatalf("with the same file again: %+v, %v", same, err)
+	}
+	for _, files := range [][]store.BlobFile{{fb}, {fa, fb}, {fb, fa}} {
+		o, err := s.Replying(ctx, "inv", 7, "", "hello", "inv", files...)
+		if err != nil || seen[o.Key] || o.Attempts != 1 {
+			t.Fatalf("with %v: %+v, %v", files, o, err)
+		}
+		seen[o.Key] = true
+	}
+	many := make([]store.BlobFile, store.MaxMailFiles+1)
+	if _, err := s.Replying(ctx, "inv", 7, "", "hello", "inv", many...); err == nil ||
+		!strings.Contains(err.Error(), "a reply carries at most") {
+		t.Fatalf("over the bound: %v", err)
+	}
+
 	posted := store.Reply{Source: "linear", Thread: "T", URL: "https://l/T#c-1", Key: rp.Key, Message: "c-1", Seq: 7}
 	if err := s.Replied(ctx, "inv", posted, "inv"); err != nil {
 		t.Fatal(err)

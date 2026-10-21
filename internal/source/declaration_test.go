@@ -67,7 +67,8 @@ func TestParsePushover(t *testing.T) {
 	if d.Name != "pushover" || d.Base != "https://api.pushover.net/1" || d.Credential == nil || d.Credential.Env != "PUSHOVER_TOKEN" || d.Credential.Header != "" || d.Check != "" {
 		t.Fatalf("declaration = %+v", d)
 	}
-	if n := d.Notify; n == nil || *n != (Notify{Call: "message", Address: "user", AddressEnv: "PUSHOVER_USER", Title: "title", Text: "text", Link: "link"}) {
+	if n := d.Notify; n == nil || n.Call != "message" || n.Address != "user" || n.AddressEnv != "PUSHOVER_USER" ||
+		n.Title != "title" || n.Text != "text" || n.Link != "link" || len(n.Image) != 0 {
 		t.Fatalf("notify = %+v", n)
 	}
 	c, ok := d.Call("message")
@@ -80,6 +81,27 @@ func TestParsePushover(t *testing.T) {
 	body, _ := c.Request.Body.(map[string]any)
 	if body["token"] != CredentialMark || body["message"] != "{text}" || len(body) != 5 {
 		t.Fatalf("body = %v", c.Request.Body)
+	}
+}
+
+// Image is the command that tells with a picture: one of the declaration's
+// commands, so its file is copied and shown as every command file is.
+// Absent, every message goes through the call.
+func TestParseNotifyImage(t *testing.T) {
+	with := strings.Replace(pushover, "  link: link\n", "  link: link\n  image: [push/notify, image]\n", 1)
+	d, err := Parse("pushover.yaml", []byte(with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := d.Notify; n == nil || strings.Join(n.Image, " ") != "push/notify image" {
+		t.Fatalf("notify = %+v", n)
+	}
+	var keys []string
+	for _, c := range d.Commands() {
+		keys = append(keys, c.Key+" "+strings.Join(c.Argv, " "))
+	}
+	if strings.Join(keys, " ") != "notify.image push/notify image" {
+		t.Fatalf("commands = %v", keys)
 	}
 }
 
@@ -485,6 +507,8 @@ func TestParseRefusesNotify(t *testing.T) {
 			"notify.address.env", "never the address"},
 		{"a key it does not know", with("  link: link\n", "  link: link\n  priority: high\n"),
 			"notify.priority", "unknown key"},
+		{"an image that is no command", with("  link: link\n", "  link: link\n  image: tell\n"),
+			"notify.image", "want a list of strings"},
 		{"nothing to say", strings.NewReplacer("title: { type: string, max: 250 }", "title: { type: string, max: 250, optional: true }",
 			"text:  { type: string, max: 1024 }", "text:  { type: string, max: 1024, optional: true }",
 			"  title: title                                   # yardr's value -> the call's parameter\n", "", "  text: text\n", "").Replace(pushover),
@@ -896,6 +920,26 @@ func TestParseThreadLabels(t *testing.T) {
 	}
 }
 
+// Files says a reply takes files: thread.reply's in gains them. Absent,
+// the yard refuses --file there, as before.
+func TestParseThreadFiles(t *testing.T) {
+	d, err := Parse("lin.yaml", []byte(linearish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Thread.Files {
+		t.Fatalf("thread = %+v, want no files", d.Thread)
+	}
+	with := strings.Replace(linearish, "  states: [started, review, done]\n", "  states: [started, review, done]\n  files: true\n", 1)
+	d, err = Parse("lin.yaml", []byte(with))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Thread.Files {
+		t.Fatalf("thread = %+v, want files", d.Thread)
+	}
+}
+
 // Fixed and ThreadOf expand the link's templates over the groups its
 // expression reads from a URL's path: the issue's one fixed form, and the
 // id a thread command takes for it. A link read back from the store has no
@@ -1082,7 +1126,7 @@ func TestParseThreadLinkRefusals(t *testing.T) {
 		"state with empty states":        {src("thread:\n  state: [linear/thread, state]\n  states: []\n"), "thread.states: missing"},
 		"a state the yard has not":       {src("thread:\n  state: [linear/thread, state]\n  states: [started, blocked]\n"), "thread.states: blocked is no state of a thread (started, review, done)"},
 		"a place of two words":           {src("thread:\n  open: [linear/thread, open]\n  place: the team\n"), `thread.place: "the team": one word`},
-		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, file, open, opened, state, place, states, labels, assignee)"},
+		"a key it does not have":         {src("thread:\n  wait: [linear/thread, wait]\n"), "thread.wait: unknown key (known here: reply, posted, read, file, open, opened, state, place, states, labels, assignee, files)"},
 		"an assignee that is no part":    {src("thread:\n  place: team\n  open: [linear/thread, open]\n  assignee: email\n"), "thread.assignee: \"email\": id or key: which part of a person's identity in the source thread.open takes as assignee"},
 		"an assignee with no open":       {src("thread:\n  assignee: id\n"), "thread.assignee: thread.open is missing: the assignee is whom the thread it opens is assigned to"},
 		"labels that are no boolean":     {src("thread:\n  state: [linear/thread, state]\n  states: [started, done]\n  labels: sometimes\n"), "thread.labels: want true or false, got \"sometimes\""},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,11 +155,11 @@ func TestDeclaredCapabilities(t *testing.T) {
 		change(&d)
 		return &d
 	}
-	reply, open, state, forward := "reply", "open", "state", "forward"
+	reply, files, open, state, forward := "reply", "files", "open", "state", "forward"
 	for _, tc := range []struct {
 		name string
 		d    *source.Declaration
-		// has says which of reply, open, state and forward the source has.
+		// has says which of reply, files, open, state and forward the source has.
 		has  []string
 		link bool
 	}{
@@ -174,14 +175,22 @@ func TestDeclaredCapabilities(t *testing.T) {
 		{"no state", without(func(d *source.Declaration) { d.Thread.State = nil }), []string{reply, open}, true},
 		{"no states", without(func(d *source.Declaration) { d.Thread.States = nil }), []string{reply, open}, true},
 		{"no link", without(func(d *source.Declaration) { d.Link = nil }), []string{reply, open, state}, false},
+		{"files", without(func(d *source.Declaration) { d.Thread.Files = true }), []string{reply, files, open, state, forward}, true},
+		{"files without reply", without(func(d *source.Declaration) {
+			d.Thread.Files, d.Thread.Reply = true, nil
+		}), nil, true},
 	} {
 		r, _ := hooks.ReplierFor("acme", tc.d, "", "")
+		fl, _ := hooks.FilerFor("acme", tc.d, "", "")
 		o, _ := hooks.OpenerFor("acme", tc.d, "", "")
 		s, _ := hooks.StaterFor("acme", tc.d, "", "")
 		f, _ := hooks.ForwarderFor("acme", tc.d, "", "")
 		var has []string
 		if r != nil {
 			has = append(has, reply)
+		}
+		if fl != nil {
+			has = append(has, files)
 		}
 		if o != nil {
 			has = append(has, open)
@@ -211,6 +220,13 @@ func TestDeclaredCapabilities(t *testing.T) {
 	}
 	if got := hooks.Forwardable(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("forwardable = %v", got)
+	}
+	if got := hooks.Fileable(full); len(got) != 0 {
+		t.Errorf("fileable without the flag = %v", got)
+	}
+	withFiles := without(func(d *source.Declaration) { d.Thread.Files = true })
+	if got := hooks.Fileable(withFiles); len(got) != 1 || got[0] != "acme" {
+		t.Errorf("fileable = %v", got)
 	}
 	if got := hooks.LinkSources(full); len(got) != 1 || got[0] != "acme" {
 		t.Errorf("link sources = %v", got)
@@ -318,6 +334,19 @@ func TestDeclaredReplyPostedOnce(t *testing.T) {
 	in = lastJSON(t, filepath.Join(dir, "posted.stdin"))
 	if in["thread"] != "issue-1" || in["key"] != key {
 		t.Fatalf("posted stdin = %v", in)
+	}
+	// With files the reply's in gains them, the local paths for the
+	// command to read; without, it has no such key.
+	m, err = ad.ReplyFiles(ctx, env, "", "answer with files", key, []string{"/y/blobs/a", "/y/blobs/b"}, "tok-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ID != "c-9" {
+		t.Fatalf("reply with files = %+v", m)
+	}
+	in = lastJSON(t, filepath.Join(dir, "reply.stdin"))
+	if in["body"] != "answer with files" || fmt.Sprint(in["files"]) != "[/y/blobs/a /y/blobs/b]" {
+		t.Fatalf("reply with files stdin = %v", in)
 	}
 }
 

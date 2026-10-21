@@ -586,8 +586,8 @@ func (c *Client) UnfollowThread(ctx context.Context, name, source, thread, actor
 func (c *Client) Threads(ctx context.Context, name string) ([]store.Participation, error) {
 	return callV[[]store.Participation](c, ctx, "Threads", name)
 }
-func (c *Client) Replying(ctx context.Context, name string, seq uint64, to, body, actor string) (*store.Reply, error) {
-	return callV[*store.Reply](c, ctx, "Replying", name, seq, to, body, actor)
+func (c *Client) Replying(ctx context.Context, name string, seq uint64, to, body, actor string, files ...store.BlobFile) (*store.Reply, error) {
+	return callV[*store.Reply](c, ctx, "Replying", name, seq, to, body, actor, files)
 }
 func (c *Client) Replied(ctx context.Context, name string, rp store.Reply, actor string) error {
 	return c.call(ctx, "Replied", nil, name, rp, actor)

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,9 +58,9 @@ func replyScripts(dir string) map[string]string {
 // seqs, and the directory the commands record in.
 func replyYard(t *testing.T) (*app, store.API, map[string]string, string) {
 	t.Helper()
-	st, own := storetest.NewOwned(t)
-	ctx := context.Background()
 	home, declDir, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	st, own := storetest.NewOwnedIn(t, home)
+	ctx := context.Background()
 	scripts := replyScripts(dir)
 	for name, body := range scripts {
 		if err := os.WriteFile(filepath.Join(declDir, name), []byte(body), 0o755); err != nil {
@@ -106,6 +107,9 @@ func replyYard(t *testing.T) (*app, store.API, map[string]string, string) {
 		// c2 as delivered before envelopes carried the comment's id.
 		"old": record("acme", hooks.Envelope{Source: "acme", Type: "comment", Action: "create",
 			Thread: hooks.Thread{ID: "issue-1", Title: "Retries"}, URL: "https://acme.test/issue/ACME-1-retries#comment-c2"}),
+		// A delivery of a source whose replies take no files.
+		"gp": record("github", hooks.Envelope{Source: "github", Type: "comment", Action: "create",
+			Thread: hooks.Thread{ID: "octo/repo#9", Title: "Nine"}, Message: "c1"}),
 	}
 	return &app{st: st, actor: "yard-10-new", cfg: &config.Config{Home: home}, env: testEnv(t, "")}, st, seqs, dir
 }
@@ -187,6 +191,100 @@ func TestReply(t *testing.T) {
 	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != url ||
 		res["crew"] != "yardmaster" || res["message"] != "c-9" || res["repeated"] != false {
 		t.Fatalf("json %q", out)
+	}
+}
+
+// With --file, given more than once for several, the reply carries files
+// into the thread: each is put as a blob and thread.reply's in gains its
+// path. The same words with the same files run again are already posted;
+// with other files, or none, they post anew. A source whose file does not
+// say its replies take files is refused before anything is put.
+func TestReplyWithFiles(t *testing.T) {
+	a, _, seqs, dir := replyYard(t)
+	t.Setenv("ACME_TOKEN", "tok-yardmaster")
+	a.env["YARDR_CREW"] = "yardmaster"
+	home := a.cfg.Home
+	shotBytes := []byte("\x89PNG\r\n\x1a\nthe shed")
+	pageBytes := []byte("<html>the shed</html>")
+	shot := filepath.Join(t.TempDir(), "shot.png")
+	page := filepath.Join(t.TempDir(), "page.html")
+	if err := os.WriteFile(shot, shotBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(page, pageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, a.replyCmd(), seqs["acme"], "See the shed.", "--file", shot, "--file", page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "https://acme.test/issue/ACME-1#c-9\n" {
+		t.Fatalf("output %q", out)
+	}
+	in := lastStdin(t, dir, "reply")
+	files, _ := in["files"].([]any)
+	if len(files) != 2 || in["body"] != "See the shed." {
+		t.Fatalf("reply stdin %v", in)
+	}
+	for i, want := range [][]byte{shotBytes, pageBytes} {
+		p, _ := files[i].(string)
+		if filepath.Dir(p) != filepath.Join(home, "blobs") {
+			t.Fatalf("file %d path %q is no blob of the yard", i, p)
+		}
+		if got, err := os.ReadFile(p); err != nil || !bytes.Equal(got, want) {
+			t.Fatalf("file %d holds %q, %v", i, got, err)
+		}
+	}
+
+	again, err := run(t, a.replyCmd(), seqs["acme"], "See the shed.", "--file", shot, "--file", page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != out || stdinRuns(t, dir, "reply") != 1 {
+		t.Fatalf("run again: out %q, reply ran %d times", again, stdinRuns(t, dir, "reply"))
+	}
+	other := filepath.Join(t.TempDir(), "other.png")
+	if err := os.WriteFile(other, []byte("\x89PNG\r\n\x1a\nother"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "See the shed.", "--file", other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "See the shed."); err != nil {
+		t.Fatal(err)
+	}
+	if n := stdinRuns(t, dir, "reply"); n != 3 {
+		t.Fatalf("other files, then none: reply ran %d times, want 3", n)
+	}
+	if keys := replyKeys(t, dir); len(keys) != 3 || keys[0] == keys[1] || keys[0] == keys[2] || keys[1] == keys[2] {
+		t.Fatalf("keys: %v", keys)
+	}
+
+	blobs := func() []string {
+		t.Helper()
+		names, _ := filepath.Glob(filepath.Join(home, "blobs", "*"))
+		return names
+	}
+	names, runs := blobs(), stdinRuns(t, dir, "reply")
+	if _, err := run(t, a.replyCmd(), seqs["gp"], "x", "--file", shot); err == nil ||
+		!strings.Contains(err.Error(), "which takes no files") {
+		t.Fatalf("a source without files: %v", err)
+	}
+	if got := blobs(); len(got) != len(names) {
+		t.Fatalf("a refused reply put %d blobs", len(got)-len(names))
+	}
+	if n := stdinRuns(t, dir, "reply"); n != runs {
+		t.Fatalf("a refused reply posted %d times", n-runs)
+	}
+
+	var many []string
+	for i := 0; i < store.MaxMailFiles+1; i++ {
+		many = append(many, "--file", shot)
+	}
+	if _, err := run(t, a.replyCmd(), append([]string{seqs["acme"], "x"}, many...)...); err == nil ||
+		!strings.Contains(err.Error(), "a reply carries at most") {
+		t.Fatalf("over the bound: %v", err)
 	}
 }
 

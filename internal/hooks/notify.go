@@ -27,6 +27,19 @@ type Notifier interface {
 	Notify(ctx context.Context, env map[string]string, title, text, link string) (status int, err error)
 }
 
+// Imager is what a Notifier whose source takes a picture with the
+// message adds.
+type Imager interface {
+	Notifier
+	// NotifyImage tells the person env is of, with env the values of
+	// NotifyEnv as their file sets them: title, text and link, "" for
+	// one there is none of, with the picture at the local path image,
+	// read by the call. It returns the status the source answered with;
+	// an error is a call that was not answered, and names no value of
+	// env.
+	NotifyImage(ctx context.Context, env map[string]string, title, text, link, image string) (status int, err error)
+}
+
 // NotifierFor is the source's Notifier, if it can tell a person.
 func NotifierFor(source string) (Notifier, bool) {
 	n, ok := Adapters[source].(Notifier)

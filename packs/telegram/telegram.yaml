@@ -62,6 +62,7 @@ notify:
   address: { param: chat, env: TELEGRAM_CHAT_ID }   # the person's own chat id, read from the user's env_file
   title: title                                      # yardr's value -> the call's parameter
   text: text
+  image: [telegram/thread, tell]                    # with a picture, the command sends it with the caption instead
 
 # ---- what it sends us ----------------------------------------------------
 
@@ -99,13 +100,17 @@ hook:
 # audio names (getFile, then the file), with the source's own token, into
 # the blob store: at most the yard's blob_max_bytes and the script's
 # TELEGRAM_MAX_BYTES (8 MiB), whichever is lower; the Bot API serves a bot
-# files up to 20 MB. The shapes are in docs/integrations.md.
+# files up to 20 MB. files says replies take files: with them, the reply
+# sends pictures by sendPhoto and anything else by sendDocument, the text
+# as the caption where it fits in 1024 characters. The shapes are in
+# docs/integrations.md.
 
 thread:
   reply:  [telegram/thread, reply]      # in  {thread, parent, body, key}      out {id}
   posted: [telegram/thread, posted]     # in  {thread, key}                    out {} always
   read:   [telegram/thread, read]       # in  {thread}                         out {messages: []} always
   file:   [telegram/thread, get]        # in  {ref, dir, max_bytes}            out {path, bytes}
+  files: true                           # replies take files: reply's in gains files: [paths]
 
 # ---- which chats are heard ------------------------------------------------
 # Not the mirror of notify: a delivery is kept only when its chat is the

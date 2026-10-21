@@ -1194,7 +1194,8 @@ func TestTelegramPack(t *testing.T) {
 		commands = append(commands, c.Key+" "+strings.Join(c.Argv, " "))
 	}
 	if want := []string{"thread.reply telegram/thread reply", "thread.posted telegram/thread posted",
-		"thread.read telegram/thread read", "thread.file telegram/thread get", "hook.normalize telegram/normalize"}; !slices.Equal(commands, want) {
+		"thread.read telegram/thread read", "thread.file telegram/thread get", "notify.image telegram/thread tell",
+		"hook.normalize telegram/normalize"}; !slices.Equal(commands, want) {
 		t.Fatalf("commands = %q, want %q", commands, want)
 	}
 	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret || h.Verify.Delivery.Body != "update_id" ||
@@ -1209,8 +1210,11 @@ func TestTelegramPack(t *testing.T) {
 		t.Fatalf("credential = %+v", c)
 	}
 	if n := d.Notify; n == nil || n.Call != "message" || n.Address != "chat" || n.AddressEnv != "TELEGRAM_CHAT_ID" ||
-		n.Title != "title" || n.Text != "text" || n.Link != "" {
+		n.Title != "title" || n.Text != "text" || n.Link != "" || strings.Join(n.Image, " ") != "telegram/thread tell" {
 		t.Fatalf("notify = %+v", n)
+	}
+	if th := d.Thread; th == nil || !th.Files {
+		t.Fatalf("thread = %+v, want replies that take files", d.Thread)
 	}
 	c, ok := d.Call("message")
 	if !ok || c.Kind != source.Update || c.Request.Path != "/bot{credential}/sendMessage" {

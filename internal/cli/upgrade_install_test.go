@@ -336,7 +336,7 @@ func TestUpgradeHatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sent []string
-	stub(t, &upgradeNotifySend, func(_ context.Context, _ notify.Store, user string, _ notify.Message) (*notify.Sent, error) {
+	stub(t, &upgradeNotifySend, func(_ context.Context, _ notify.Store, _ string, user string, _ notify.Message) (*notify.Sent, error) {
 		sent = append(sent, user)
 		return &notify.Sent{User: user, Source: "pushover", Status: 200}, nil
 	})

@@ -744,8 +744,8 @@ func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[stri
 }
 
 // commandGetsCredential follows the runners: limits and hook.normalize see
-// no credential; thread and events read-back commands and each call's
-// build do.
+// no credential; thread and events read-back commands, notify's image,
+// and each call's build do.
 func commandGetsCredential(key string) bool {
 	switch key {
 	case source.MintCommandKey:
@@ -753,7 +753,7 @@ func commandGetsCredential(key string) bool {
 		// with the operator's local logins it mints from: the card says
 		// it is handed a credential, never that it is handed none.
 		return true
-	case "thread.reply", "thread.posted", "thread.read", "thread.file", "thread.open", "thread.opened", "thread.state", "events.pr", "events.ci":
+	case "thread.reply", "thread.posted", "thread.read", "thread.file", "thread.open", "thread.opened", "thread.state", "notify.image", "events.pr", "events.ci":
 		return true
 	default:
 		// A call's build runs on the call path with the call's

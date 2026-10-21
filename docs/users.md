@@ -424,6 +424,13 @@ the user's `tell` leaves out, nothing does.
 No link is sent. The source cuts a title or a text to what its call takes
 (a parameter's `max`).
 
+A tell carries one picture at most, and only two kinds of tell carry
+one: a mail's first image file, and the newest picture on the notes of
+a bead the message says is done. Of several due at once the first
+picture in order goes; the rest stay in the yard, read where the mail
+or the bead is read. A source whose file names no picture command
+tells words alone, as ever.
+
 **When.** The daemon sends, so it must be running. A thing is told once it
 has been in the inbox for 20 seconds and is still unread: what was
 acknowledged by then, by `yardr chat` showing it or `yardr inbox --ack <seq>`, is

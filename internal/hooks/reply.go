@@ -89,6 +89,59 @@ func Repliable(decls ...*source.Declaration) []string {
 	return slices.Compact(out)
 }
 
+// Filer is what a Replier whose source takes files on a reply adds.
+type Filer interface {
+	Replier
+	// ReplyFiles posts body with the local files paths in the thread of
+	// the delivery env, under the conversation of message to ("" for the
+	// delivery's own), marked with key, and returns what it posted: at
+	// least the source's id of it and its URL. The paths are files the
+	// caller keeps, read by the call.
+	ReplyFiles(ctx context.Context, env Envelope, to, body, key string, files []string, cred string) (Message, error)
+}
+
+// FilerFor is the source's Filer, if a reply there takes files: the one
+// built from d, the yard's declared source of that name, when it has
+// the keys a reply takes and says its replies take files, else the
+// builtin one of that name. No name is both, so at most one applies. d
+// is nil when the yard declares no such source. home is the yard's
+// home, which a relative command program runs from; mint is the
+// source's mint_command setting, "" when the yard set none.
+func FilerFor(source string, d *source.Declaration, home, mint string) (Filer, bool) {
+	if dec, ok := declared(source, d, home, mint); ok {
+		if dec.fileable() {
+			return dec, true
+		}
+		return nil, false
+	}
+	if f, ok := Adapters[source].(Filer); ok {
+		return f, true
+	}
+	return nil, false
+}
+
+// Fileable lists the sources a reply takes files in, sorted: the builtin
+// ones, and the yard's declared sources among decls with the keys a
+// reply takes that say their replies take files.
+func Fileable(decls ...*source.Declaration) []string {
+	var out []string
+	for _, s := range Sources() {
+		if _, ok := FilerFor(s, nil, "", ""); ok {
+			out = append(out, s)
+		}
+	}
+	for _, d := range decls {
+		if d == nil {
+			continue
+		}
+		if _, ok := FilerFor(d.Name, d, "", ""); ok {
+			out = append(out, d.Name)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // MissingCredential is what CredentialFrom fails with when nothing it was
 // given sets the source's credential. Names says what would, for the caller
 // to say where.
@@ -208,6 +261,19 @@ func declaredThread(source string, env Envelope) (string, error) {
 // does not carry it; the key is the comment's own id where the source
 // takes one, so a retry finds it with Posted.
 func (d Declared) Reply(ctx context.Context, env Envelope, to, body, key, cred string) (Message, error) {
+	return d.reply(ctx, env, to, body, key, nil, cred)
+}
+
+// ReplyFiles posts body with the local files paths in the thread of the
+// delivery env, by thread.reply: in {thread, parent, body, key, files},
+// out {id, url}. The command reads the files. Only a source whose file
+// says its replies take files is asked (FilerFor): one that ignores
+// unknown keys would send the words and drop the files.
+func (d Declared) ReplyFiles(ctx context.Context, env Envelope, to, body, key string, files []string, cred string) (Message, error) {
+	return d.reply(ctx, env, to, body, key, files, cred)
+}
+
+func (d Declared) reply(ctx context.Context, env Envelope, to, body, key string, files []string, cred string) (Message, error) {
 	thread, err := declaredThread(d.D.Name, env)
 	if err != nil {
 		return Message{}, err
@@ -217,6 +283,9 @@ func (d Declared) Reply(ctx context.Context, env Envelope, to, body, key, cred s
 		return Message{}, err
 	}
 	in := map[string]any{"thread": thread, "parent": parent, "body": body, "key": key}
+	if len(files) > 0 {
+		in["files"] = files
+	}
 	var m Message
 	err = d.runThread(ctx, "thread.reply", d.D.Thread.Reply, in, cred, func(out []byte) error {
 		var o struct {

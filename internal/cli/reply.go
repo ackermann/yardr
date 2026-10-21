@@ -85,6 +85,7 @@ func hookEnvelope(ctx context.Context, st store.API, arg string) (uint64, hooks.
 
 func (a *app) replyCmd() *cobra.Command {
 	var member, to string
+	var replyFiles []string
 	cmd := &cobra.Command{
 		Use:   "reply <seq|bead> <text|->",
 		Short: "Answer a hook delivery in its source, mail to you, or on a linked yard's bead, as yourself",
@@ -108,6 +109,13 @@ delivery); in GitHub, as a comment on the issue or pull request.
 --to <message-id> answers under that message's conversation instead
 (ids from yardr thread show; refused where comments are not threaded, as
 on GitHub). --to is for hook deliveries only.
+
+With --file <path>, given more than once for several, the reply carries
+files into the thread: pictures arrive as pictures, anything else as a
+document. The text stays the caption where it fits, else it is sent first
+and the files follow without one. A source whose file does not say its
+replies take files is refused: --file there would send the words and drop
+the files. Mail and a note on another yard's bead take no --file.
 
 Mail to the crew member is answered by mail to its sender: mail from this
 yard (a user or a crew member) as yardr mail <sender> would send it; mail
@@ -144,7 +152,12 @@ event with the comment's id is logged. Prints the URL of the reply.`,
   yardr reply 4211 --to 2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9 - < answer.md
   yardr reply 13974 "Noted; I'll post here when it lands."
   yardr reply web-d5zc "CSV only. XLSX is a later bead."`,
-		Args: cobra.ExactArgs(2),
+		Args: func(c *cobra.Command, args []string) error {
+			if len(replyFiles) > store.MaxMailFiles {
+				return fmt.Errorf("a reply carries at most %d files, not %d", store.MaxMailFiles, len(replyFiles))
+			}
+			return cobra.ExactArgs(2)(c, args)
+		},
 		RunE: func(c *cobra.Command, args []string) error {
 			ctx := c.Context()
 			text := func() (string, error) {
@@ -169,6 +182,9 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 				// either, saying so names the way out.
 				if st, serr := a.store(ctx); serr == nil {
 					if bead := awayBead(ctx, st, args[0]); bead != "" {
+						if len(replyFiles) > 0 {
+							return fmt.Errorf("--file carries files into a source's thread: %s is a bead at another yard, answered with a note", bead)
+						}
 						return a.replyPeer(c, st, bead, "", text, to)
 					}
 					if uerr := a.unknownLogin(ctx, st); uerr != nil {
@@ -182,6 +198,9 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 				return err
 			}
 			if bead := awayBead(ctx, st, args[0]); bead != "" {
+				if len(replyFiles) > 0 {
+					return fmt.Errorf("--file carries files into a source's thread: %s is a bead at another yard, answered with a note", bead)
+				}
 				return a.replyPeer(c, st, bead, name, text, to)
 			}
 			body, err := text()
@@ -196,6 +215,9 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 				return err
 			}
 			if e.Kind == "mail" {
+				if len(replyFiles) > 0 {
+					return fmt.Errorf("--file carries files into a source's thread: event %d is mail, answered by mail", seq)
+				}
 				return a.replyMail(c, st, seq, e, name, body, to)
 			}
 			if e.Kind != "hook" {
@@ -205,9 +227,23 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 			if err != nil {
 				return err
 			}
+			// With files the source must take them, said before any is
+			// put: a reply command that ignores unknown keys would send
+			// the words and drop the files.
+			var filer hooks.Filer
+			if len(replyFiles) > 0 {
+				filer, err = hookFiler(ctx, st, a.home(), seq, env.Source)
+				if err != nil {
+					return err
+				}
+			}
+			refs, err := putFiles(ctx, st, replyFiles)
+			if err != nil {
+				return err
+			}
 			// The reply is on record, with its key, before anything is
 			// posted; a record already posted is the whole answer.
-			rp, err := st.Replying(ctx, name, seq, to, body, a.who())
+			rp, err := st.Replying(ctx, name, seq, to, body, a.who(), blobFiles(refs)...)
 			if err != nil {
 				return err
 			}
@@ -229,7 +265,11 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 					}
 				}
 				if !already {
-					m, err = r.Reply(ctx, env, to, body, rp.Key, cred)
+					if filer != nil {
+						m, err = filer.ReplyFiles(ctx, env, to, body, rp.Key, blobPaths(a.home(), refs), cred)
+					} else {
+						m, err = r.Reply(ctx, env, to, body, rp.Key, cred)
+					}
 					if err != nil {
 						return fmt.Errorf("reply to event %d in %s: %w", seq, env.Source, err)
 					}
@@ -252,7 +292,33 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 	}
 	cmd.Flags().StringVar(&member, "crew", "", "who is replying (default $YARDR_CREW)")
 	cmd.Flags().StringVar(&to, "to", "", "answer under this message's conversation (an id from yardr thread show)")
+	cmd.Flags().StringArrayVar(&replyFiles, "file", nil, "a file the reply carries (repeatable)")
 	return cmd
+}
+
+// hookFiler is the Filer of source, or why a reply there carries no files:
+// its file does not say its replies take them. seq names the delivery
+// being answered, for the refusal.
+func hookFiler(ctx context.Context, st store.API, home string, seq uint64, source string) (hooks.Filer, error) {
+	d, src, err := declaredSource(ctx, st, source)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := hooks.FilerFor(source, d, home, mintOf(src))
+	if !ok {
+		return nil, fmt.Errorf("event %d came from %s, which takes no files", seq, source)
+	}
+	return f, nil
+}
+
+// blobPaths are the refs as local files a thread command reads: each
+// blob's path in home.
+func blobPaths(home string, refs []store.BlobRef) []string {
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = store.BlobPath(home, r.Hash)
+	}
+	return out
 }
 
 // awayBead is the bead of this yard that arg names for an answer on the

@@ -447,6 +447,14 @@ four values; sending them is one declared call. What is told, when, and
 what leaves the machine is in
 [users.md](users.md#told-outside-the-yard).
 
+A message with a picture goes through the file's `image` command instead:
+in `{address, title, text, image}` with the picture's local path, out
+`{status}`. A call sends JSON, which carries no picture, so the command
+reads the file and sends it with the words. One without a picture, and a
+file without the key, go through the call, unadorned. Which messages
+carry a picture is in [users.md](users.md#told-outside-the-yard) with the
+rest of what leaves the machine.
+
 ### Say what a subscription still carries
 
 An agent runs on a subscription with a usage limit: so much in five hours,
@@ -902,6 +910,14 @@ link:                                 # the source's issues as a bead's link
   member's. A source without the key, or without its credential set,
   keeps the refs alone, and the text's own words (Telegram's
   `[photo]`) say what arrived.
+- **`thread.reply` takes files where the file says so.** `thread.files:
+  true` says a reply carries files: `yardr reply <seq> --file <path>`
+  (repeatable) puts each file as a blob and the reply's in gains
+  `files`, the local paths for the command to read. A source without
+  the flag is refused `--file`: a command that ignores unknown keys
+  would send the words and drop the files. Files are part of the
+  answer, so the same words with other files are another reply, with a
+  key of their own.
 - **`thread.open` takes an `assignee` only where the file says so.**
   `thread.assignee` is `id` or `key`: the part of a person's identity in
   the source (`yardr user identity`) that its threads are assigned by.
@@ -1998,7 +2014,8 @@ them whole):
   chat=<his chat id>`. `all` is needed, not `involved`: the first
   message mentions nobody. The user himself subscribes to nothing.
 - **A thread** is the chat id. `yardr reply <seq>` posts `sendMessage`
-  to the chat the delivery came from. A reply run again after its
+  to the chat the delivery came from, or with `--file` the pictures
+  and documents below. A reply run again after its
   answer was lost posts twice, since the service takes no idempotency
   key; `yardr thread show` on a telegram delivery shows nothing, since
   a bot cannot read a chat's history; and `yardr reply --to` is refused
@@ -2041,6 +2058,14 @@ them whole):
   a delivery has no `hook_files` event, and `DeliveryFiles` reads none for
   it. No total volume or per-sender bound is set; the chat is one
   person's, at a person's pace.
+- **Pictures out.** `yardr reply <seq> "See the shed." --file shot.png`
+  sends pictures by `sendPhoto` and anything else by `sendDocument`:
+  the text is the caption of the first where it fits in 1024
+  characters, else it goes first as its own message and the files
+  follow without one, several one after another. A tell with a picture
+  goes through `notify.image` the same way, one picture per tell
+  ([users.md](users.md#told-outside-the-yard) says which tells carry
+  one); one without goes through the `message` call.
 
 A line from the phone, sent to the isolated yard, was recorded as
 

@@ -278,6 +278,10 @@ func TestReplyRefusesNeitherHookNorMail(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--to") {
 		t.Fatalf("reply to mail with --to = %v", err)
 	}
+	_, err = run(t, m.replyCmd(), seq, "an answer", "--file", "shot.png")
+	if err == nil || !strings.Contains(err.Error(), "--file carries files into a source's thread") {
+		t.Fatalf("reply to mail with --file = %v", err)
+	}
 }
 
 // TestReplyRefusesMailOutsideTheCrewInbox prevents a seq from another
@@ -314,7 +318,7 @@ func TestReplyHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"hook", "mail to", "sender", "yardr reply 13974", "a note on that bead"} {
+	for _, want := range []string{"hook", "mail to", "sender", "yardr reply 13974", "a note on that bead", "--file", "--to"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("reply --help has no %q:\n%s", want, help)
 		}

@@ -50,6 +50,11 @@ type Thread struct {
 	// (AssigneeKey), the two parts of an identity. "" is a source whose
 	// open assigns nobody.
 	Assignee string `json:"assignee,omitempty"`
+	// Files is whether a reply takes files: thread.reply's in gains
+	// files, the local paths the reply carries, for the command to read.
+	// A source without it is refused --file: a reply command that
+	// ignores unknown keys would send the words and drop the files.
+	Files bool `json:"files,omitempty"`
 }
 
 // The parts of an identity a thread.assignee names.
@@ -327,7 +332,7 @@ func expandLink(tmpl string, groups []string) string {
 func (r *reader) thread(e entry) *Thread {
 	t := &Thread{}
 	var place, states, assignee *entry
-	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "file", "open", "opened", "state", "place", "states", "labels", "assignee") {
+	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "file", "open", "opened", "state", "place", "states", "labels", "assignee", "files") {
 		switch f.key {
 		case "reply":
 			t.Reply = r.command(f, "linear/thread, reply")
@@ -368,6 +373,8 @@ func (r *reader) thread(e entry) *Thread {
 			} else if ok {
 				t.Assignee = s
 			}
+		case "files":
+			t.Files, _ = r.boolean(f.v, f.path)
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {

@@ -783,6 +783,14 @@ note waits on the bead for whoever works it next. Anything else is refused.
 or several numbered ones for a long text, as `yardr mail` does. A reply to
 peer mail keeps its separate 16 KB per-mail limit.
 
+With `--file <path>`, given more than once for several, a reply in a
+source carries files into the thread: pictures arrive as pictures,
+anything else as a document. The text stays the caption where it fits,
+else it is sent first and the files follow without one. A source whose
+file does not say its replies take files is refused (`--file` there would
+send the words and drop the files); mail and a note on another yard's bead
+take no `--file`.
+
 yardr only types. The call is made by the CLI in the crew member's pane with
 the credential its `env_file` put there (`LINEAR_API_KEY`; for GitHub
 [an App's two lines](#as-a-github-app), else `GITHUB_TOKEN`); the server is
@@ -804,13 +812,13 @@ this is a line, not a wall; it moves when yardr hosts more than one person.
 
 **A reply is posted once.** Before anything is sent, the reply is on record
 in the store with a key chosen for it (a UUID), under the delivery, the
-conversation and the text. The key goes with the post: in Linear as the
+conversation, the text and the files. The key goes with the post: in Linear as the
 comment's own id, which Linear refuses twice; on GitHub as an HTML comment
 at the end of the body, which renders as nothing. Run the same `yardr
 reply` again, after a timeout or a crash, and yardr answers from the
 record when the post is known to have landed, else asks the source for the
 comment that key made and records it, and only posts when there is none.
-Another text, or another `--to`, is another reply. A call to a source is
+Another text, another `--to`, or other files are another reply. A call to a source is
 bounded at two minutes, well past a slow day at Linear, so a post that
 landed slowly is not reported as failed and made again.
 

@@ -3,6 +3,7 @@ package hooks_test
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -468,6 +469,247 @@ func TestTelegramPackThread(t *testing.T) {
 	}
 }
 
+// telegramSend is one send a telegramMedia stand-in got: a sendMessage's
+// text, or a sendPhoto/sendDocument's caption ("" and no caption when
+// sent without one) and the file's field and bytes.
+type telegramSend struct {
+	method     string
+	chat       string
+	text       string
+	caption    string
+	hasCaption bool
+	field      string
+	file       []byte
+}
+
+// telegramMedia is a stand-in Bot API that records every send and answers
+// message ids from 4242 up.
+type telegramMedia struct {
+	t     *testing.T
+	sends []telegramSend
+}
+
+func (s *telegramMedia) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	send := telegramSend{method: r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]}
+	if send.method == "sendMessage" {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			s.t.Errorf("sendMessage body is no JSON: %s", raw)
+		}
+		send.chat, _ = body["chat_id"].(string)
+		send.text, _ = body["text"].(string)
+	} else {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			s.t.Errorf("%s is no multipart form: %v", send.method, err)
+		}
+		send.chat = r.FormValue("chat_id")
+		if c, ok := r.Form["caption"]; ok {
+			send.caption, send.hasCaption = c[0], true
+		}
+		send.field = "photo"
+		if send.method == "sendDocument" {
+			send.field = "document"
+		}
+		if f, _, err := r.FormFile(send.field); err != nil {
+			s.t.Errorf("%s carries no %s: %v", send.method, send.field, err)
+		} else {
+			send.file, _ = io.ReadAll(f)
+			f.Close()
+		}
+	}
+	s.sends = append(s.sends, send)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 4241+len(s.sends))
+}
+
+// telegramPNG is a 1x1 picture, which the file program reads as image/png.
+const telegramPNG = "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da6360000000020001e221bc330000000049454e44ae426082a6"
+
+func telegramMediaFiles(t *testing.T) (png, txt string) {
+	t.Helper()
+	raw, err := hex.DecodeString(telegramPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	png, txt = filepath.Join(dir, "shot.png"), filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(png, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(txt, []byte("plain text notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return png, txt
+}
+
+// A reply with files sends pictures by sendPhoto and anything else by
+// sendDocument, the text as the caption of the first where it fits in 1024
+// characters. A longer text goes first as its own message and the files
+// follow without one, in order; the answer's id is the first message's.
+func TestTelegramPackThreadFiles(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
+	}
+	if _, err := exec.LookPath("file"); err != nil {
+		t.Skip("file is not installed, and the pack's thread command reads a reply file's type with it")
+	}
+	ad, _ := telegramDecl(t)
+	stub := &telegramMedia{t: t}
+	srv := httptest.NewServer(stub)
+	defer srv.Close()
+	ad.D.Base = srv.URL
+	ctx := context.Background()
+	const cred = "bot-token-for-test"
+	env := hooks.Envelope{Source: "telegram", Type: "message", Thread: hooks.Thread{ID: "123456789"}}
+	png, txt := telegramMediaFiles(t)
+	pngBytes, _ := os.ReadFile(png)
+
+	m, err := ad.ReplyFiles(ctx, env, "", "the shed", "key-1", []string{png}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ID != "4242" || m.Body != "the shed" {
+		t.Fatalf("reply = %+v", m)
+	}
+	if got := stub.sends; len(got) != 1 || got[0].method != "sendPhoto" || got[0].chat != "123456789" ||
+		!got[0].hasCaption || got[0].caption != "the shed" || !bytes.Equal(got[0].file, pngBytes) {
+		t.Fatalf("sends = %+v", got)
+	}
+
+	if _, err := ad.ReplyFiles(ctx, env, "", "read me", "key-2", []string{txt}, cred); err != nil {
+		t.Fatal(err)
+	}
+	if got := stub.sends[1]; got.method != "sendDocument" || got.field != "document" ||
+		!got.hasCaption || got.caption != "read me" || string(got.file) != "plain text notes\n" {
+		t.Fatalf("second send = %+v", got)
+	}
+
+	// 1024 characters still fit the caption; 1025 go as their own message
+	// first, and the files follow without one.
+	fitting := strings.Repeat("c", 1024)
+	if _, err := ad.ReplyFiles(ctx, env, "", fitting, "key-3", []string{png}, cred); err != nil {
+		t.Fatal(err)
+	}
+	if got := stub.sends[2]; got.method != "sendPhoto" || !got.hasCaption || got.caption != fitting {
+		t.Fatalf("a 1024-character text: %+v", got)
+	}
+	long := strings.Repeat("w", 1025)
+	m, err = ad.ReplyFiles(ctx, env, "", long, "key-4", []string{png, txt}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stub.sends[3:]
+	if len(got) != 3 || got[0].method != "sendMessage" || got[0].text != long ||
+		got[1].method != "sendPhoto" || got[1].hasCaption ||
+		got[2].method != "sendDocument" || got[2].hasCaption {
+		t.Fatalf("a 1025-character text: %+v", got)
+	}
+	if m.ID != "4245" {
+		t.Fatalf("a long reply's id = %q, want the text's", m.ID)
+	}
+
+	// Several files go one after another, the caption on the first alone,
+	// and the id is the first's.
+	m, err = ad.ReplyFiles(ctx, env, "", "both", "key-5", []string{png, txt}, cred)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = stub.sends[6:]
+	if len(got) != 2 || got[0].method != "sendPhoto" || !got[0].hasCaption || got[0].caption != "both" ||
+		got[1].method != "sendDocument" || got[1].hasCaption {
+		t.Fatalf("two files: %+v", got)
+	}
+	if m.ID != "4248" {
+		t.Fatalf("two files' id = %q, want the first's", m.ID)
+	}
+
+	// A file that is not there is refused before anything is sent, and
+	// posted still finds nothing: files change no idempotency.
+	before := len(stub.sends)
+	if _, err := ad.ReplyFiles(ctx, env, "", "gone", "key-6", []string{filepath.Join(t.TempDir(), "nope.png")}, cred); err == nil ||
+		!strings.Contains(err.Error(), "found no file") {
+		t.Fatalf("a missing file: %v", err)
+	}
+	if len(stub.sends) != before {
+		t.Fatalf("%d sends for a missing file", len(stub.sends)-before)
+	}
+	if found, err := ad.Posted(ctx, env, "key-1", cred); err != nil || found != nil {
+		t.Fatalf("posted: %+v, %v", found, err)
+	}
+}
+
+// notify.image's tell sends the picture by sendPhoto with the title then
+// the text as its caption, cut to 1024 characters, and answers {status}.
+func TestTelegramPackTell(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the pack's notify command calls the service with it")
+	}
+	ad, home := telegramDecl(t)
+	if strings.Join(ad.D.Notify.Image, " ") != "telegram/thread tell" {
+		t.Fatalf("notify.image = %q", ad.D.Notify.Image)
+	}
+	stub := &telegramMedia{t: t}
+	srv := httptest.NewServer(stub)
+	defer srv.Close()
+	ad.D.Base = srv.URL
+	ctx := context.Background()
+	png, _ := telegramMediaFiles(t)
+	pngBytes, _ := os.ReadFile(png)
+	tell := func(cred string, in map[string]any) (map[string]any, error) {
+		argv := slices.Clone(ad.D.Notify.Image)
+		argv[0] = source.Command{Key: "notify.image", Argv: ad.D.Notify.Image}.Program(home, ad.D.Name)
+		var got map[string]any
+		err := source.Run(ctx, "notify.image of source "+ad.D.Name, argv, in,
+			ad.D.CommandEnvOf(source.Update, cred), home, 0, func(out []byte) error {
+				return json.Unmarshal(out, &got)
+			})
+		return got, err
+	}
+	const cred = "bot-token-for-test"
+
+	got, err := tell(cred, map[string]any{"address": "123456789", "title": "mail from x", "text": "hello words", "image": png})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(got) != "map[status:200]" {
+		t.Fatalf("tell answered %v", got)
+	}
+	if sends := stub.sends; len(sends) != 1 || sends[0].method != "sendPhoto" || sends[0].chat != "123456789" ||
+		!sends[0].hasCaption || sends[0].caption != "mail from x\nhello words" || !bytes.Equal(sends[0].file, pngBytes) {
+		t.Fatalf("sends = %+v", sends)
+	}
+
+	// One half alone stands without a stray newline, and a long caption
+	// is cut to 1024 characters, not bytes.
+	if _, err := tell(cred, map[string]any{"address": "123456789", "title": "", "text": "words", "image": png}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stub.sends[1]; !got.hasCaption || got.caption != "words" {
+		t.Fatalf("a text alone: %+v", got)
+	}
+	wide := strings.Repeat("ä", 2000)
+	if _, err := tell(cred, map[string]any{"address": "123456789", "title": wide, "text": "x", "image": png}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stub.sends[2]; !got.hasCaption || got.caption != strings.Repeat("ä", 1024) {
+		t.Fatalf("a long caption: %d characters", len([]rune(got.caption)))
+	}
+
+	before := len(stub.sends)
+	if _, err := tell(cred, map[string]any{"address": "123456789", "title": "t", "text": "x", "image": ""}); err == nil ||
+		!strings.Contains(err.Error(), "no image") {
+		t.Fatalf("no image: %v", err)
+	}
+	if _, err := tell("", map[string]any{"address": "123456789", "title": "t", "text": "x", "image": png}); err == nil ||
+		!strings.Contains(err.Error(), "TELEGRAM_BOT_TOKEN") {
+		t.Fatalf("no credential: %v", err)
+	}
+	if len(stub.sends) != before {
+		t.Fatalf("%d sends for refused tells", len(stub.sends)-before)
+	}
+}
+
 // The bot's token is part of the address the reply is posted to, and of
 // both a file fetch asks, and an argument of a running command can be read
 // by every process on the machine: curl is handed the address on its
@@ -477,6 +719,9 @@ func TestTelegramPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
 	curl, err := exec.LookPath("curl")
 	if err != nil {
 		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
+	}
+	if _, err := exec.LookPath("file"); err != nil {
+		t.Skip("file is not installed, and the pack's thread command reads a reply file's type with it")
 	}
 	ad, _ := telegramDecl(t)
 	var gotPath string
@@ -511,6 +756,10 @@ func TestTelegramPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
 	}
 	if data, err := ad.File(context.Background(), hooks.FileRef{ID: "x"}, t.TempDir(), 10, cred); err != nil || string(data) != "abc" {
 		t.Fatalf("file: %q, %v", data, err)
+	}
+	png, _ := telegramMediaFiles(t)
+	if _, err := ad.ReplyFiles(context.Background(), env, "", "with a picture", "key-2", []string{png}, cred); err != nil {
+		t.Fatalf("reply with files: %v", err)
 	}
 	got, err := os.ReadFile(args)
 	if err != nil {

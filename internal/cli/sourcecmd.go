@@ -1549,7 +1549,7 @@ func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, u
 		return fmt.Errorf("a test message to %s is theirs to ask for, or the operator's (%s); this is %s", u.Name, operator, a.who())
 	}
 	title, text := store.SourceCheckMessage(name, u.Name)
-	sent, err := notify.Through(ctx, st, name, u, notify.Message{Title: title, Text: text})
+	sent, err := notify.Through(ctx, st, a.home(), name, u, notify.Message{Title: title, Text: text})
 	if err != nil {
 		return err
 	}

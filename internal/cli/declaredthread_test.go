@@ -35,6 +35,7 @@ thread:
   reply: [reply]
   posted: [posted]
   read: [read]
+  files: true
   place: team
   open: [open]
   opened: [opened]

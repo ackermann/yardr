@@ -70,6 +70,11 @@ func (d Declared) repliable() bool {
 	return d.D.Credential != nil && t != nil && len(t.Reply) > 0 && len(t.Posted) > 0 && len(t.Read) > 0
 }
 
+func (d Declared) fileable() bool {
+	t := d.D.Thread
+	return d.repliable() && t.Files
+}
+
 func (d Declared) openable() bool {
 	t := d.D.Thread
 	return d.repliable() && len(t.Open) > 0 && len(t.Opened) > 0 && t.Place != ""
@@ -88,6 +93,7 @@ func (d Declared) forwardable() bool {
 // the thread command of the same name, the link by its data.
 var (
 	_ Replier   = Declared{}
+	_ Filer     = Declared{}
 	_ Opener    = Declared{}
 	_ Stater    = Declared{}
 	_ Forwarder = Declared{}

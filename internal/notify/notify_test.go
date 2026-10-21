@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -115,7 +116,7 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 	srv := newStandIn(t)
 	st := yard(t, srv)
 	ctx := context.Background()
-	sent, err := Send(ctx, st, "ada", Message{Title: "mail from yardmaster", Text: "the tests are green", Link: "https://x.example.com/b/1"})
+	sent, err := Send(ctx, st, "", "ada", Message{Title: "mail from yardmaster", Text: "the tests are green", Link: "https://x.example.com/b/1"})
 	if err != nil || !sent.OK() || sent.Status != 200 || sent.User != "ada" || sent.Source != "push" {
 		t.Fatalf("Send = %+v, %v", sent, err)
 	}
@@ -125,7 +126,7 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 	}
 
 	long := strings.Repeat("ä", 60)
-	if _, err = Send(ctx, st, "ada", Message{Title: long, Text: long, Link: "https://x.example.com/" + long}); err != nil {
+	if _, err = Send(ctx, st, "", "ada", Message{Title: long, Text: long, Link: "https://x.example.com/" + long}); err != nil {
 		t.Fatal(err)
 	}
 	got := srv.got[1]
@@ -135,17 +136,114 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 	if _, has := got["url"]; has {
 		t.Fatalf("a link over its bound was sent, cut or whole: %v", got)
 	}
-	if _, err = Send(ctx, st, "ada", Message{Text: "no title, no link"}); err != nil {
+	if _, err = Send(ctx, st, "", "ada", Message{Text: "no title, no link"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := srv.got[2]; got["title"] != "" || got["message"] != "no title, no link" || len(got) != 4 {
 		t.Fatalf("a message with a text alone: %v", got)
 	}
 
+	// A message with a picture goes without it where the file names no
+	// image command: today's unadorned tell.
+	if _, err = Send(ctx, st, "", "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.got[3]; got["title"] != "t" || got["message"] != "x" || len(got) != 4 {
+		t.Fatalf("a message with a picture and no image command: %v", got)
+	}
+
 	// An answer that is no success is the caller's to weigh.
 	srv.status = 500
-	if sent, err = Send(ctx, st, "ada", Message{Text: "x"}); err != nil || sent.OK() || sent.Status != 500 {
+	if sent, err = Send(ctx, st, "", "ada", Message{Text: "x"}); err != nil || sent.OK() || sent.Status != 500 {
 		t.Fatalf("a 500: %+v, %v", sent, err)
+	}
+}
+
+// A message with a picture goes through the file's image command, handed
+// the address, the words and the picture's path with the source's
+// credential, and the command's status is the send's. One without goes
+// through the call, and a command that fails fails the send: nothing
+// falls back to the call after the picture was tried.
+func TestSendImage(t *testing.T) {
+	srv := newStandIn(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	dir, home := t.TempDir(), t.TempDir()
+	script := filepath.Join(dir, "show")
+	show := "#!/bin/sh\n{ cat; echo; } >> " + dir + "/image.stdin\n" +
+		"printf '%s' \"$PUSH_TOKEN\" > " + dir + "/image.token\n" +
+		"printf '%s' '{\"status\":215}'\n"
+	if err := os.WriteFile(script, []byte(show), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(push, "BASE", srv.URL, 1)
+	text = strings.Replace(text, "  link: link\n", "  link: link\n  image: ["+script+"]\n", 1)
+	if _, err := st.AddUser(ctx, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutSource(ctx, "push.yaml", text, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "push", store.SourceEnvFile, envFile(t, "PUSH_TOKEN="+token+"\n", 0o600), "ada"); err != nil {
+		t.Fatal(err)
+	}
+	set := map[string]string{store.UserNotify: "push", store.UserEnvFile: envFile(t, "PUSH_USER="+address+"\n", 0o600)}
+	if _, err := st.SetUser(ctx, "ada", set, "ada"); err != nil {
+		t.Fatal(err)
+	}
+
+	sent, err := Send(ctx, st, home, "ada", Message{Title: "t", Text: "x", Link: "l", Image: "/y/blobs/h"})
+	if err != nil || !sent.OK() || sent.Status != 215 {
+		t.Fatalf("Send = %+v, %v", sent, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "image.stdin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var in map[string]any
+	if err := json.Unmarshal(bytes.TrimRight(raw, "\n"), &in); err != nil {
+		t.Fatalf("the command was handed %q: %v", raw, err)
+	}
+	if fmt.Sprint(in) != fmt.Sprint(map[string]any{"address": address, "title": "t", "text": "x", "image": "/y/blobs/h"}) {
+		t.Fatalf("the command was handed %v", in)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "image.token")); string(got) != token {
+		t.Fatalf("the command's credential = %q", got)
+	}
+	if len(srv.got) != 0 {
+		t.Fatalf("the call was made too: %v", srv.got)
+	}
+
+	// Without a picture the call tells, and the command runs no more.
+	if _, err := Send(ctx, st, home, "ada", Message{Title: "t", Text: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(srv.got) != 1 || srv.got[0]["message"] != "x" {
+		t.Fatalf("the call got %v", srv.got)
+	}
+	raw, _ = os.ReadFile(filepath.Join(dir, "image.stdin"))
+	if n := strings.Count(string(raw), "\n"); n != 1 {
+		t.Fatalf("the command ran %d times", n)
+	}
+
+	// A command that fails fails the send, with its own words; one that
+	// answers no status is no answer.
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho 'the service is down' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err == nil ||
+		!strings.Contains(err.Error(), "the service is down") {
+		t.Fatalf("a failing command: %v", err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err == nil ||
+		!strings.Contains(err.Error(), "no {status}") {
+		t.Fatalf("an answer with no status: %v", err)
+	}
+	if len(srv.got) != 1 {
+		t.Fatalf("the call was made after the picture was tried: %v", srv.got)
 	}
 }
 
@@ -168,7 +266,7 @@ func TestSendNotSetUp(t *testing.T) {
 	var said []string
 	refused := func(what, want string) {
 		t.Helper()
-		_, err := Send(ctx, st, "ada", Message{Text: "x"})
+		_, err := Send(ctx, st, "", "ada", Message{Text: "x"})
 		var not *NotSetUp
 		if !errors.As(err, &not) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%s: err = %v, want a NotSetUp with %q", what, err, want)
@@ -209,7 +307,7 @@ func TestSendNotSetUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	refused("a source that is gone", "the source push is not there to tell anyone")
-	if _, err := Send(ctx, st, "bob", Message{Text: "x"}); !errors.Is(err, store.ErrNotFound) {
+	if _, err := Send(ctx, st, "", "bob", Message{Text: "x"}); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a user that is not there: %v", err)
 	}
 
@@ -222,7 +320,7 @@ func TestSendNotSetUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	set(store.UserEnvFile, envFile(t, "PUSH_USER=someone-else-entirely\n", 0o600))
-	_, err := Send(ctx, st, "ada", Message{Text: "x"})
+	_, err := Send(ctx, st, "", "ada", Message{Text: "x"})
 	var call *source.CallError
 	if !errors.As(err, &call) || call.Reason != source.BadParam {
 		t.Fatalf("an address the call refuses: %v", err)
@@ -268,6 +366,17 @@ func (a *teller) Notify(_ context.Context, env map[string]string, title, text, l
 	return 202, nil
 }
 
+// imager is a teller whose source takes a picture with the message.
+type imager struct {
+	teller
+	image string
+}
+
+func (a *imager) NotifyImage(ctx context.Context, env map[string]string, title, text, link, image string) (int, error) {
+	a.image = image
+	return a.teller.Notify(ctx, env, title, text, link)
+}
+
 // A source yardr has in Go tells a person through the same Send: who calls
 // it cannot tell which kind it was.
 func TestSendThroughAnAdapter(t *testing.T) {
@@ -286,7 +395,7 @@ func TestSendThroughAnAdapter(t *testing.T) {
 	if _, err := st.SetUser(ctx, "ada", map[string]string{store.UserNotify: "tell", store.UserEnvFile: env}, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	sent, err := Send(ctx, st, "ada", Message{Title: "t", Text: "x", Link: "l"})
+	sent, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x", Link: "l"})
 	if err != nil || sent.Status != 202 || sent.Source != "tell" {
 		t.Fatalf("Send = %+v, %v", sent, err)
 	}
@@ -301,8 +410,50 @@ func TestSendThroughAnAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	var not *NotSetUp
-	if _, err := Send(ctx, st, "ada", Message{Text: "x"}); !errors.As(err, &not) || !strings.Contains(err.Error(), "does not set TELL_KEY") {
+	if _, err := Send(ctx, st, "", "ada", Message{Text: "x"}); !errors.As(err, &not) || !strings.Contains(err.Error(), "does not set TELL_KEY") {
 		t.Fatalf("an env file without one of the names: %v", err)
+	}
+}
+
+// A source in Go that takes a picture with the message gets it; one that
+// takes none is told without, as before.
+func TestSendImageThroughAnAdapter(t *testing.T) {
+	a := &teller{}
+	hooks.Adapters["tell"] = a
+	t.Cleanup(func() { delete(hooks.Adapters, "tell") })
+	b := &imager{}
+	hooks.Adapters["show"] = b
+	t.Cleanup(func() { delete(hooks.Adapters, "show") })
+	st := storetest.New(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	env := envFile(t, "TELL_ID=ada-there\nTELL_KEY=k-1\n", 0o600)
+	if _, err := st.SetUser(ctx, "ada", map[string]string{store.UserNotify: "tell", store.UserEnvFile: env}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"}); err != nil || sent.Status != 202 {
+		t.Fatalf("Send = %+v, %v", sent, err)
+	}
+	if a.title != "t" || a.text != "x" {
+		t.Fatalf("the adapter without pictures got %+v", a)
+	}
+	if _, err := st.SetUser(ctx, "ada", map[string]string{store.UserNotify: "show"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x", Link: "l", Image: "/y/blobs/h"}); err != nil || sent.Status != 202 {
+		t.Fatalf("Send = %+v, %v", sent, err)
+	}
+	if b.title != "t" || b.text != "x" || b.link != "l" || b.image != "/y/blobs/h" {
+		t.Fatalf("the adapter with pictures got %+v, image %q", b.teller, b.image)
+	}
+	b.image = ""
+	if _, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if b.image != "" || b.title != "t" {
+		t.Fatalf("a message without a picture: %+v, image %q", b.teller, b.image)
 	}
 }
 
@@ -316,14 +467,14 @@ func TestSendWithTheCredentialOfAnUpdate(t *testing.T) {
 	if _, err := st.PutSource(ctx, "push.yaml", two, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Send(ctx, st, "ada", Message{Title: "t", Text: "x"}); err == nil || !strings.Contains(err.Error(), "does not set PUSH_SEND_TOKEN") || len(srv.got) != 0 {
+	if _, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x"}); err == nil || !strings.Contains(err.Error(), "does not set PUSH_SEND_TOKEN") || len(srv.got) != 0 {
 		t.Fatalf("Send without the update's credential = %v, sent %v", err, srv.got)
 	}
 	env := envFile(t, "PUSH_TOKEN="+token+"\nPUSH_SEND_TOKEN=tok-send-77\n", 0o600)
 	if _, err := st.SetSource(ctx, "push", store.SourceEnvFile, env, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if sent, err := Send(ctx, st, "ada", Message{Title: "t", Text: "x"}); err != nil || !sent.OK() || srv.got[0]["token"] != "tok-send-77" {
+	if sent, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x"}); err != nil || !sent.OK() || srv.got[0]["token"] != "tok-send-77" {
 		t.Fatalf("Send = %+v, %v; the stand-in got %v", sent, err, srv.got)
 	}
 }

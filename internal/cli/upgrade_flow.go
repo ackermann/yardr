@@ -494,7 +494,7 @@ func upgradeHatch(ctx context.Context, home, kind, actor, rev, reason string, be
 		if !matched || u.Notify == "" {
 			continue
 		}
-		sent, err := upgradeNotifySend(ctx, h, u.Name, notify.Message{Title: "yardr upgrade failed (" + kind + ")", Text: text})
+		sent, err := upgradeNotifySend(ctx, h, home, u.Name, notify.Message{Title: "yardr upgrade failed (" + kind + ")", Text: text})
 		s := config.UpgradeSend{User: u.Name, Source: u.Notify}
 		if err != nil {
 			s.Error = err.Error()

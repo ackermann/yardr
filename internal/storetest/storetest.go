@@ -62,6 +62,13 @@ func NewIn(t testing.TB, home string) store.API {
 	return api
 }
 
+// NewOwnedIn is NewOwned on a fresh file in home: the store behind the
+// API, in the yard's home the test's other parts read.
+func NewOwnedIn(t testing.TB, home string) (store.API, *store.Store) {
+	t.Helper()
+	return newIn(t, home)
+}
+
 func newIn(t testing.TB, home string) (store.API, *store.Store) {
 	t.Helper()
 	s := Open(t, filepath.Join(home, "yard.db"))
