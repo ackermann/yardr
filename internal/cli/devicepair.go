@@ -206,7 +206,7 @@ a person.`,
 					"%d wrong codes end the pairing, and so does: %s user device pair --end\n", pairing.MaxTries, yardr)
 				fmt.Fprintf(w, "It then calls as %s until: %s user device rm %s %s\n", out.User, yardr, out.User, out.Device)
 				if out.User != all[store.OperatorSetting] {
-					fmt.Fprintf(w, "%s is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n", out.User)
+					fmt.Fprintf(w, "%s is not the operator, and the device reads every bead in the yard, with its notes, and the mail of %s alone.\n", out.User, out.User)
 				}
 				if u, err := url.Parse(out.Address); err == nil && u.Scheme == "http" && u.Hostname() != "localhost" && !isLoopback(u.Hostname()) {
 					fmt.Fprintf(w, "%s is plain http: whoever is between the device and this yard reads the code, and the token after it. Use it on a network you trust.\n", out.Address)

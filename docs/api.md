@@ -631,6 +631,17 @@ nothing else. What is not the same:
   setting is answered on the listener. A `setting_changed` in the stream
   follows the same rule: it has its `value` only for a key the device is
   told, and for any other it has the `key` and no `value`.
+- **The stream carries the device's own mail alone**: a `mail`, `mail_read`
+  or `reaction` event is sent only to a device of its sender or its
+  receiver (a read receipt to its reader alone), however far back the
+  stream replays; anything between two others is left out. A `hook`
+  delivery goes out to every device, as a bead's events do.
+- **A mail's file goes to its parties alone**: `GET /user/blobs/<hash>`
+  serves a note's file to any device and a mail's file to a device of its
+  sender or recipient, as the web view serves them, and anything else is
+  404. A file put within the hour that no mail or note names yet is
+  served to any device: its mail or note is on its way, and its hash is
+  told to no one who was not given it.
 - **`GET /user/me`** answers who the token is, in place of [the name a
   client on the machine takes](#who-you-are):
 
@@ -705,8 +716,8 @@ device. On any of those the client asks the operator for another code.
 ### The stream of a device
 
 `GET <url>/user/events?after=<seq>` is [the stream](#the-stream), every
-event of the yard, one line each. Two things end it that do not end the
-socket's:
+event of the yard but the mail of others ([above](#over-the-network)),
+one line each. Two things end it that do not end the socket's:
 
 - **The device was removed**, or its user. The stream is closed at once,
   before the event that says so is sent, and the token is 401 from then on.

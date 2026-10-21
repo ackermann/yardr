@@ -72,7 +72,7 @@ func TestDeviceCommands(t *testing.T) {
 	wantText(t, out,
 		"Give it to the device with this yard's address: https://mac.example.net\n",
 		"It calls as ada until: yardr user device rm ada laptop\n",
-		"ada is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n")
+		"ada is not the operator, and the device reads every bead in the yard, with its notes, and the mail of ada alone.\n")
 	adas := deviceToken.FindString(out)
 
 	var added struct {

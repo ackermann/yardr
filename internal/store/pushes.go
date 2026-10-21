@@ -251,7 +251,7 @@ func (s *Store) Pushes(ctx context.Context) ([]Push, error) {
 				var e Event
 				if found, err := get(tx, bEvents, seqKey(p.Seq), &e); err != nil {
 					return err
-				} else if found && toUser(e) && mailReceiver(e) == p.User {
+				} else if found && toUser(e) && MailReceiver(e) == p.User {
 					l, err := rd.letter(e)
 					if err != nil {
 						return err

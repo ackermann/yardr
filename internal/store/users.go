@@ -727,9 +727,10 @@ func toUser(e Event) bool {
 	return e.Kind == "mail" && u
 }
 
-// mailReceiver is whose inbox a mail event of this yard is in, crew member or
-// user: "" for mail that left for a peer's crew member.
-func mailReceiver(e Event) string {
+// MailReceiver is whose inbox a mail event of this yard is in, crew member or
+// user: "" for mail that left for a peer's crew member, and for what is no
+// mail. The listener reads it too, to send a device its own mail alone.
+func MailReceiver(e Event) string {
 	if e.Kind != "mail" {
 		return ""
 	}
@@ -832,7 +833,7 @@ func reactionTarget(e Event) (uint64, bool) {
 }
 
 func (rd *readers) letter(e Event) (Letter, error) {
-	to := mailReceiver(e)
+	to := MailReceiver(e)
 	key, bucket, toCrew := "r\x00"+to, bCrew, true
 	if toUser(e) {
 		key, bucket, toCrew = "u\x00"+to, bUsers, false
@@ -894,7 +895,7 @@ func (s *Store) UserInbox(ctx context.Context, name string, limit int) (*Mailbox
 			var e Event
 			if ok, err := get(tx, bEvents, k, &e); err != nil {
 				return err
-			} else if ok && toUser(e) && mailReceiver(e) == name {
+			} else if ok && toUser(e) && MailReceiver(e) == name {
 				evs = append(evs, e)
 			}
 		}
@@ -964,7 +965,7 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 		var e Event
 		if ok, err := get(w.Tx, bEvents, k, &e); err != nil {
 			return err
-		} else if ok && mailReceiver(e) == name {
+		} else if ok && MailReceiver(e) == name {
 			read = true
 			break
 		}
@@ -987,7 +988,7 @@ func (w *wtx) crewMailRead(r *CrewMember, session string, was, through uint64) e
 		var e Event
 		if ok, err := get(w.Tx, bEvents, k, &e); err != nil {
 			return err
-		} else if ok && mailReceiver(e) == r.Name && forSlice(r, session, e) {
+		} else if ok && MailReceiver(e) == r.Name && forSlice(r, session, e) {
 			read = true
 			break
 		}
@@ -1055,7 +1056,7 @@ func (s *Store) Conversation(ctx context.Context, a, b string, after uint64, lim
 			if ok, err := get(tx, bEvents, k, &e); err != nil || !ok {
 				return Letter{}, false, err
 			}
-			to := mailReceiver(e)
+			to := MailReceiver(e)
 			if to == "" || !(e.Actor == a && to == b || e.Actor == b && to == a) {
 				return h.letter(e, rd)
 			}

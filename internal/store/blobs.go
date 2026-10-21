@@ -510,9 +510,42 @@ func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, er
 	if viewer == "" {
 		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	}
-	var name string
-	named := false
-	if err := s.read(func(tx *bolt.Tx) error {
+	name, named, err := s.mailBlobName(hash, func(e Event) bool {
+		return e.Actor == viewer || MailReceiver(e) == viewer
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !named {
+		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
+	}
+	ref, err := s.Blob(hash)
+	if err != nil {
+		return nil, err
+	}
+	ref.Name = name
+	return ref, nil
+}
+
+// BlobMailed reports whether any mail names the blob hash: one a mail
+// carries that the yard took. One a mail carries that the yard did not
+// take (BlobRef.NotTaken) names no blob of the yard's, and neither does a
+// name that is no hash. The listener reads it to tell a young blob whose
+// mail is already sent, which another user's device is not served, from
+// one whose mail is on its way.
+func (s *Store) BlobMailed(ctx context.Context, hash string) (bool, error) {
+	if !blobHash.MatchString(hash) {
+		return false, nil
+	}
+	_, named, err := s.mailBlobName(hash, func(Event) bool { return true })
+	return named, err
+}
+
+// mailBlobName is the name the first mail allow keeps gives the blob
+// hash: what MailBlob serves, and what tells a blob some mail names from
+// one none does (BlobMailed).
+func (s *Store) mailBlobName(hash string, allow func(Event) bool) (name string, named bool, err error) {
+	err = s.read(func(tx *bolt.Tx) error {
 		prefix := []byte("mail\x00")
 		c := tx.Bucket(bEventsKd).Cursor()
 		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
@@ -520,7 +553,7 @@ func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, er
 			if _, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
 				return err
 			}
-			if e.Actor != viewer && mailReceiver(e) != viewer {
+			if !allow(e) {
 				continue
 			}
 			for _, f := range EventFiles(e) {
@@ -533,18 +566,8 @@ func (s *Store) MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, er
 			}
 		}
 		return nil
-	}); err != nil {
-		return nil, err
-	}
-	if !named {
-		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
-	}
-	ref, err := s.Blob(hash)
-	if err != nil {
-		return nil, err
-	}
-	ref.Name = name
-	return ref, nil
+	})
+	return name, named, err
 }
 
 // mailFiles are the blobs the files name, as a mail event carries them:

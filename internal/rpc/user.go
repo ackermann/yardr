@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"os"
 	"reflect"
 	"slices"
 	"strconv"
@@ -33,8 +34,11 @@ import (
 //	                             their own address or credential (ownSecret)
 //	GET  /user/events?after=N    the stream, as on the socket but for the
 //	                             value of a setting_changed the device is
-//	                             not told (deviceEvent)
-//	GET  /user/blobs/<hash>      a blob, as on the socket
+//	                             not told, and but for mail, read receipts
+//	                             and reactions it is no party to
+//	                             (deviceEvent)
+//	GET  /user/blobs/<hash>      a blob the caller may read, as the web
+//	                             view serves it (userBlob)
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
 //	POST /user/pair              a pairing's code for the device's token (pair)
 //
@@ -53,6 +57,10 @@ import (
 //     stream carries the value of a setting_changed for those alone
 //     (deviceTold), so a lost token gives away no address or secret that
 //     the yard keeps in another setting;
+//   - the stream carries a mail, a read receipt and a reaction only to a
+//     device of its sender or its receiver (deviceEvent), and a blob only
+//     to one that may read it (userBlob), so a lost token gives away no
+//     mail but its user's own;
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
 //   - a refusal is counted by its reason and logged in sums (refuse), and
@@ -246,7 +254,7 @@ func (u *UserServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /user/call/{method}", u.call)
 	mux.HandleFunc("GET /user/events", u.events)
-	mux.HandleFunc("GET /user/blobs/{hash}", u.api.blob)
+	mux.HandleFunc("GET /user/blobs/{hash}", u.userBlob)
 	mux.HandleFunc("GET /user/me", func(w http.ResponseWriter, r *http.Request) {
 		c := callerOf(r)
 		writeJSON(w, struct {
@@ -825,6 +833,46 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	u.api.call(w, r.WithContext(store.WithVia(r.Context(), c.User, c.SaidBy)), name, args)
 }
 
+// userBlob serves a blob as the web view serves it to the caller: a note's
+// file to any device, and a mail's file to a device of its sender or
+// recipient (NoteBlob, MailBlob). Anything else is 404, as there: one the
+// yard never held, a name that is no hash, another user's mail file. One
+// exception, which the web view has no use for: a file put within the
+// hour that no mail or note names yet is served to any device
+// (unclaimedPut).
+// A device puts before it sends, so its own upload would otherwise be
+// unreadable to it until its mail goes; the hash is unguessable, and only
+// whoever was told it — the upload's answer — asks.
+func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	ctx, c := r.Context(), callerOf(r)
+	_, noteErr := u.st.NoteBlob(ctx, hash)
+	_, mailErr := u.st.MailBlob(ctx, c.User, hash)
+	switch {
+	case noteErr == nil || mailErr == nil || u.unclaimedPut(ctx, hash):
+		u.api.blob(w, r)
+	case !errors.Is(noteErr, store.ErrNotFound):
+		http.Error(w, noteErr.Error(), http.StatusInternalServerError)
+	case !errors.Is(mailErr, store.ErrNotFound):
+		http.Error(w, mailErr.Error(), http.StatusInternalServerError)
+	default:
+		http.Error(w, noteErr.Error(), http.StatusNotFound)
+	}
+}
+
+// unclaimedPut reports whether hash is a blob put within BlobGrace that no
+// mail or note names yet: one whose mail or note is on its way, as
+// pruneBlobs keeps it. The stat comes before the log: most such checks are
+// for old blobs, which never reach it.
+func (u *UserServer) unclaimedPut(ctx context.Context, hash string) bool {
+	st, err := os.Stat(u.st.BlobPath(hash))
+	if err != nil || st.ModTime().Before(u.now().Add(-store.BlobGrace)) {
+		return false
+	}
+	mailed, err := u.st.BlobMailed(ctx, hash)
+	return err == nil && !mailed
+}
+
 // blobMax is the yard's cap on a blob, which PutBlob holds its data to.
 func (u *UserServer) blobMax(ctx context.Context) int {
 	all, _ := u.st.Settings(ctx)
@@ -864,33 +912,57 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 		now, _ := u.resolveIn(r.Context(), credential, remote(r))
 		return now != nil && *now == *c
 	}
-	u.api.events(w, r, still, u.recheck, func(e store.Event) store.Event {
+	u.api.events(w, r, still, u.recheck, func(e store.Event) (store.Event, bool) {
 		return u.deviceEvent(r.Context(), c, e)
 	})
 }
 
-// deviceEvent is the event e as the device c is sent it: as it is, but for
-// a setting_changed, which carries its value only for a setting the device
-// is told (deviceTold). The key is always told: a device matches on it alone
-// for what it reads again, and the values it is not told stay on the yard's
-// own machine with the settings themselves.
-func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) store.Event {
-	if e.Kind != "setting_changed" {
-		return e
-	}
-	key, _ := e.Data["key"].(string)
-	operator := ""
-	if key == store.StyleSetting || key == store.NoteSetting {
-		// The operator alone is told the words: read who that is now, so
-		// a change of operator moves the next such event with it.
-		if all, err := u.st.Settings(ctx); err == nil {
-			operator = all[store.OperatorSetting]
+// deviceEvent is the event e as the device c is sent it, and whether it is
+// sent at all: as it is, but for a setting_changed, which carries its
+// value only for a setting the device is told (deviceTold), and but for
+// mail, which goes out only to its sender or its receiver. The key of a
+// setting is always told: a device matches on it alone for what it reads
+// again, and the values it is not told stay on the yard's own machine
+// with the settings themselves. A hook delivery goes out to every device,
+// as a bead's events do: it is the yard's news, told to no one user, and
+// whose subscriptions it reached is on the event.
+func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) (store.Event, bool) {
+	switch e.Kind {
+	case "mail":
+		// Whose inbox it is in is the store's to say (MailReceiver), as
+		// for the inbox itself: mail that left for a linked yard is its
+		// sender's alone.
+		return e, e.Actor == c.User || store.MailReceiver(e) == c.User
+	case "mail_read":
+		// The reader alone: who wrote what was read is not named, so a
+		// sender reads again whether its mail was read.
+		reader, _ := e.Data["reader"].(string)
+		if reader == "" {
+			reader = e.Actor
 		}
+		return e, reader == c.User
+	case "reaction":
+		// The reactor and the other party to the mail, as React names
+		// them: the reaction carries the mail's first words.
+		to, _ := e.Data["to"].(string)
+		return e, e.Actor == c.User || to == c.User
+	case "setting_changed":
+		key, _ := e.Data["key"].(string)
+		operator := ""
+		if key == store.StyleSetting || key == store.NoteSetting {
+			// The operator alone is told the words: read who that is now, so
+			// a change of operator moves the next such event with it.
+			if all, err := u.st.Settings(ctx); err == nil {
+				operator = all[store.OperatorSetting]
+			}
+		}
+		if deviceTold(key, c.User, operator) {
+			return e, true
+		}
+		e.Data = maps.Clone(e.Data)
+		delete(e.Data, "value")
+		return e, true
+	default:
+		return e, true
 	}
-	if deviceTold(key, c.User, operator) {
-		return e
-	}
-	e.Data = maps.Clone(e.Data)
-	delete(e.Data, "value")
-	return e
 }

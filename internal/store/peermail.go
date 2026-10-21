@@ -247,13 +247,13 @@ var peerMailName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$`)
 
 // mailTo is the crew member of this yard a mail event is for: "" for mail
 // that left for a peer's crew member, who may have the name of one here, and
-// for mail to a user (see mailReceiver), whose name a crew member may come to
+// for mail to a user (see MailReceiver), whose name a crew member may come to
 // have once the user is gone.
 func mailTo(e Event) string {
 	if toUser(e) {
 		return ""
 	}
-	return mailReceiver(e)
+	return MailReceiver(e)
 }
 
 // MailPeer queues mail from actor to the crew member or user to of the

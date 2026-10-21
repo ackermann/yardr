@@ -1530,8 +1530,10 @@ type apiRun struct {
 func runAPI(t *testing.T, network bool) *apiRun {
 	t.Helper()
 	var hc *http.Client
+	var st *store.Store
 	if network {
-		st, token := apiStore(t)
+		var token string
+		st, token = apiStore(t)
 		hc = overNetwork(t, st, token)
 	} else {
 		hc = overSocket(apiYard(t))
@@ -1592,17 +1594,42 @@ func runAPI(t *testing.T, network bool) *apiRun {
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/x-ndjson" {
 		t.Fatalf("GET /events: status %s, type %q", resp.Status, resp.Header.Get("Content-Type"))
 	}
+	// A device's stream leaves out the mail of others: which seqs are not
+	// on it is read from the log itself, through the same shaping the
+	// listener applies.
+	dropped := map[int64]bool{}
+	if network {
+		u := NewUserServer(st, func(context.Context) string { return "south" }, nil)
+		c := &Caller{User: "jo", SaidBy: apiDevice, device: true}
+		evs, err := st.EventsSince(context.Background(), 0, int(head)+1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if _, keep := u.deviceEvent(context.Background(), c, e); !keep {
+				dropped[int64(e.Seq)] = true
+			}
+		}
+	}
 	sc := bufio.NewScanner(resp.Body)
-	for want := int64(1); want <= head && sc.Scan(); want++ {
+	for want := int64(1); want <= head; {
+		if dropped[want] {
+			want++
+			continue
+		}
+		if !sc.Scan() {
+			break
+		}
 		e := parse(t, sc.Bytes())
 		seq, _ := at(e, "seq")
 		if len(seq) != 1 || mustInt(t, seq[0]) != want {
 			t.Fatalf("the stream after 0: line %d is %s, want the event of seq %d: one event a line, in order, none left out", want, sc.Bytes(), want)
 		}
 		run.events = append(run.events, e)
+		want++
 	}
-	if int64(len(run.events)) != head {
-		t.Fatalf("the stream ended after %d of %d events: %v", len(run.events), head, sc.Err())
+	if want := head - int64(len(dropped)); int64(len(run.events)) != want {
+		t.Fatalf("the stream ended after %d of %d events: %v", len(run.events), want, sc.Err())
 	}
 
 	// A blob, by the name PutBlob answered.

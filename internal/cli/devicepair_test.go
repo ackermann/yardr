@@ -117,7 +117,7 @@ func TestDevicePairCommand(t *testing.T) {
 	refusedAs(t, st, "jo", "this yard has no device pairing open", "user", "device", "pair", "--end")
 	out = mustAs(t, st, "jo", "user", "device", "pair", "ada", "laptop", "--url", "http://10.0.0.5:8790")
 	wantText(t, out, "  address  http://10.0.0.5:8790\n",
-		"ada is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n",
+		"ada is not the operator, and the device reads every bead in the yard, with its notes, and the mail of ada alone.\n",
 		"http://10.0.0.5:8790 is plain http: whoever is between the device and this yard reads the code, and the token after it.")
 	mustAs(t, st, "jo", "user", "device", "pair", "--end")
 

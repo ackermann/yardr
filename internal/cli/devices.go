@@ -32,9 +32,8 @@ Only the operator adds a device, and never from the pane of an agent,
 whoever the command says it is: whoever adds one decides who may speak as a
 person. The operator and the user whose it is remove one.
 
-A device reads what any user of the yard can: every bead with its notes, the
-crew, the users, and the mail of everyone in the yard. It writes as its
-user.`}
+A device reads every bead with its notes, the crew, the users, and the
+mail of its user alone. It writes as its user.`}
 	var url string
 	add := &cobra.Command{
 		Use: "add <user> <device>", Short: "Add a device of a user and show its token, once", Args: cobra.ExactArgs(2),
@@ -73,7 +72,7 @@ printed with the token, to hand both over together.`,
 				}
 				fmt.Fprintf(w, "It calls as %s until: yardr user device rm %s %s\n", d.User, d.User, d.Name)
 				if d.User != all[store.OperatorSetting] {
-					fmt.Fprintf(w, "%s is not the operator, and the device reads what any user of the yard can: every bead, and the mail of everyone in it.\n", d.User)
+					fmt.Fprintf(w, "%s is not the operator, and the device reads every bead in the yard, with its notes, and the mail of %s alone.\n", d.User, d.User)
 				}
 			})
 		},

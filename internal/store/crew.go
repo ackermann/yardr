@@ -950,7 +950,7 @@ func (s *Store) React(ctx context.Context, seq uint64, emoji, actor string) erro
 		if timerOf(e) != "" {
 			return fmt.Errorf("mail %d is a timer's letter, which takes no reactions", seq)
 		}
-		from, to := e.Actor, mailReceiver(e)
+		from, to := e.Actor, MailReceiver(e)
 		if peer, _ := e.Data["to_peer"].(string); peer != "" {
 			// Mail that left for a linked yard: the receiver is the address
 			// it went to, and only its sender, here, may react.

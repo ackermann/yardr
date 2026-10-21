@@ -487,7 +487,10 @@ func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 	const url = "https://hooks.example.com/south"
 	e := store.Event{Kind: "setting_changed", Data: map[string]any{"key": store.HookPublicURLSetting, "value": url}}
 	sam := &Caller{User: "sam", SaidBy: "tablet", device: true}
-	sent := u.deviceEvent(context.Background(), sam, e)
+	sent, keep := u.deviceEvent(context.Background(), sam, e)
+	if !keep {
+		t.Error("sam is not sent the setting's key at all, want it without the value")
+	}
 	if v, has := sent.Data["value"]; has {
 		t.Errorf("sam is sent %v as the value of a setting they are not told", v)
 	}
@@ -744,9 +747,14 @@ func TestUserStreamEndsWithItsDevice(t *testing.T) {
 	jos, _ := follow(t, base, token, head)
 	sams, _ := follow(t, base, sam.Token, head)
 
-	// Quiet for longer than a request may be read for, and still there.
+	// Quiet for longer than a request may be read for, and still there:
+	// each stream is sent its own user's mail, and nothing of the
+	// other's.
 	time.Sleep(500 * time.Millisecond)
 	if err := st.Mail(ctx, "jo", "still there?", "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Mail(ctx, "sam", "still there?", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	for _, lines := range []<-chan string{jos, sams} {

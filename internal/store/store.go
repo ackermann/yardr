@@ -466,7 +466,7 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	// Mail to a user, whoever wrote it (Mail, a fired timer): told outside
 	// the yard too, when a source tells that user.
 	if toUser(e) {
-		if err := w.queuePush(mailReceiver(e), PushMail, seq); err != nil {
+		if err := w.queuePush(MailReceiver(e), PushMail, seq); err != nil {
 			return err
 		}
 	}
@@ -480,7 +480,7 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 // those are checked when the inbox is read.
 func inboxOf(e Event) []string {
 	var out []string
-	if to := mailReceiver(e); to != "" {
+	if to := MailReceiver(e); to != "" {
 		out = append(out, to)
 	}
 	if e.Kind == "reaction" {
