@@ -46,9 +46,18 @@ type queuedYard struct {
 // already recorded the delivery, so the test can close the link before its
 // ack is sent.
 type handlerBarrier struct {
-	once    sync.Once
-	entered chan struct{}
-	release chan struct{}
+	once        sync.Once // the first handler to get here is the one held
+	entered     chan struct{}
+	released    chan struct{}
+	releaseOnce sync.Once // release closes released once, however many ask
+}
+
+// release lets the held handler go. closeLinkBeforeAck does, and so does the
+// test's cleanup (queuedLinkWithBarrier): a test that fails before it gets
+// there would otherwise leave the handler held for ever, and the link's stop
+// waits for the handlers it serves. Whichever comes second finds it done.
+func (b *handlerBarrier) release() {
+	b.releaseOnce.Do(func() { close(b.released) })
 }
 
 const queuedNormalize = `#!/bin/sh
@@ -127,11 +136,18 @@ func queuedLinkWithBarrier(t *testing.T, barrier *handlerBarrier) *queuedYard {
 		if barrier != nil {
 			barrier.once.Do(func() {
 				close(barrier.entered)
-				<-barrier.release
+				<-barrier.released
 			})
 		}
 	})
 	y := linkTo(t, func(l *Link) { l.Handler = wrapped }, nil)
+	if barrier != nil {
+		// Registered after linkTo's stop, so it runs before it: stop waits
+		// for the handlers the link serves, and the held one would keep it
+		// waiting, to go test's timeout, for a test that failed before
+		// closeLinkBeforeAck.
+		t.Cleanup(barrier.release)
+	}
 	return &queuedYard{linked: y, st: st, rc: rc, now: now, served: served}
 }
 
@@ -200,7 +216,7 @@ func (y *queuedYard) recorded(t *testing.T, n int) {
 
 func closeLinkBeforeAck(t *testing.T, l *standin.EdgeLink, barrier *handlerBarrier) {
 	t.Helper()
-	defer close(barrier.release)
+	defer barrier.release()
 	// The handler has recorded the delivery and is held before answer can
 	// send its ack. Closing the edge side cancels the request context first.
 	select {
@@ -301,7 +317,7 @@ func TestLinkAcksAQueuedDeliveryItRefuses(t *testing.T) {
 // the second.
 func TestLinkRecordsARedeliveryAfterALostAckOnce(t *testing.T) {
 	t.Parallel()
-	barrier := &handlerBarrier{entered: make(chan struct{}), release: make(chan struct{})}
+	barrier := &handlerBarrier{entered: make(chan struct{}), released: make(chan struct{})}
 	y := queuedLinkWithBarrier(t, barrier)
 	first := y.next(t)
 	sent := y.now
@@ -337,7 +353,7 @@ func TestLinkRecordsARedeliveryAfterALostAckOnce(t *testing.T) {
 // and so at least once, is seen.
 func TestLinkRecordsATokenDeliveryOnceAfterALostAck(t *testing.T) {
 	t.Parallel()
-	barrier := &handlerBarrier{entered: make(chan struct{}), release: make(chan struct{})}
+	barrier := &handlerBarrier{entered: make(chan struct{}), released: make(chan struct{})}
 	y := queuedLinkWithBarrier(t, barrier)
 	first := y.next(t)
 	body := []byte(`{"text":"backup ok"}`)
@@ -360,6 +376,41 @@ func TestLinkRecordsATokenDeliveryOnceAfterALostAck(t *testing.T) {
 	if evs := y.hookEvents(t); len(evs) != 1 {
 		t.Fatalf("want 1 recorded delivery, have %d: %+v", len(evs), evs)
 	}
+}
+
+// A test that fails before closeLinkBeforeAck fails with its message, and
+// does not hang the package until go test's timeout: it leaves the first
+// handler held at the barrier, and the link's stop, which its end runs, waits
+// for the handlers the link serves. The subtest ends as such a test does,
+// with the handler held, and the cleanup queuedLinkWithBarrier registered
+// must have freed it by then. When it has not, the stop it is stuck in is
+// freed late by the fuse below, which fails the subtest first, so the test
+// fails after the fuse instead of hanging.
+func TestQueuedLinkWithBarrierFreesAHeldHandlerWhenItsTestEnds(t *testing.T) {
+	t.Parallel()
+	barrier := &handlerBarrier{entered: make(chan struct{}), released: make(chan struct{})}
+	t.Run("ends with the handler held", func(t *testing.T) {
+		y := queuedLinkWithBarrier(t, barrier)
+		first := y.next(t)
+		body := queuedBody(y.now)
+		send(t, first, queued(t, first, "/hooks/acme", y.acmeHeaders(body, "q-1"), body, y.now))
+		select {
+		case <-barrier.entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the handler did not reach the ack barrier")
+		}
+		// The fuse starts as the body ends, where the cleanups begin, and the
+		// first of them is the release. The subtest cannot finish before the
+		// fuse has released the handler, so its Error is never too late.
+		go func() {
+			select {
+			case <-barrier.released:
+			case <-time.After(10 * time.Second):
+				t.Error("the test's cleanup did not free the handler held at the barrier: the link's stop waited on it")
+				barrier.release()
+			}
+		}()
+	})
 }
 
 // A live delivery is answered with a response for its sender, and no ack:
