@@ -1,5 +1,5 @@
 #!/bin/bash
-# thread: what the yard does in a Telegram chat: reply, posted, read. One
+# thread: what the yard does in a Telegram chat: reply, posted, read, get. One
 # JSON object on stdin, one on stdout, as the thread key of the declaration
 # says. TELEGRAM_BOT_TOKEN and YARDR_SOURCE_BASE, the declaration's base,
 # are in the environment. Needs curl and jq.
@@ -39,6 +39,71 @@ reply) # sendMessage to the chat the delivery came from. The parent is left
     exit 1
   }
   jq -c '{id: (((.result.message_id // "") | tostring))} | if .id == "" then error("sendMessage answered no message") else . end' <<<"$out" ;;
+get) # The file a kept delivery names, by getFile and then the file's own
+  # address, into the directory the core made: in {ref, dir, max_bytes},
+  # out {path, bytes}. TELEGRAM_MAX_BYTES bounds a file as the yard's own
+  # cap (max_bytes) does, and the lower holds; one over it is refused
+  # before or while it downloads, with nothing left behind.
+  TELEGRAM_MAX_BYTES=8388608
+  id=$(jq -r '.ref.id // ""' <<<"$in")
+  dir=$(arg dir)
+  max=$(jq -r '.max_bytes // 0 | floor' <<<"$in")
+  [ -n "$id" ] || { echo "thread.get was handed no ref.id" >&2; exit 1; }
+  [ -d "$dir" ] || { echo "thread.get was handed no directory" >&2; exit 1; }
+  : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set}"
+  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+  limit=$TELEGRAM_MAX_BYTES
+  if [ "$max" -gt 0 ] && [ "$max" -lt "$limit" ]; then limit=$max; fi
+  # The token is in both addresses: each goes to curl on its stdin, as
+  # reply's does.
+  out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/getFile" \
+    | curl -sS --fail-with-body -K - \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -n -c --arg f "$id" '{file_id: $f}')") || {
+    code=$?
+    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
+    echo "getFile failed${desc:+: $desc} (curl exit $code)" >&2
+    exit 1
+  }
+  jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
+    desc=$(jq -r '.description // "getFile failed"' <<<"$out" 2>/dev/null || echo "getFile failed")
+    echo "$desc" >&2
+    exit 1
+  }
+  path=$(jq -r '.result.file_path // ""' <<<"$out")
+  size=$(jq -r '.result.file_size // 0 | floor' <<<"$out")
+  # The path goes into an address on a config line: a path of the
+  # service's own shape, never one that climbs or closes the quote.
+  case "$path" in
+  "" | *..* | /*) echo "getFile answered no file path" >&2; exit 1 ;;
+  esac
+  if ! grep -Eq '^[A-Za-z0-9_./-]+$' <<<"$path"; then
+    echo "getFile answered no file path" >&2
+    exit 1
+  fi
+  if [ "$size" -gt "$limit" ]; then
+    echo "$size bytes, over the limit of $limit" >&2
+    exit 1
+  fi
+  file="$dir/file"
+  printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/file/bot$TELEGRAM_BOT_TOKEN/$path" \
+    | curl -sS --fail -K - --max-filesize "$limit" -o "$file" || {
+    code=$?
+    rm -f "$file"
+    if [ "$code" -eq 63 ]; then
+      echo "over the limit of $limit bytes" >&2
+    else
+      echo "the file did not download (curl exit $code)" >&2
+    fi
+    exit 1
+  }
+  n=$(wc -c <"$file" | tr -d ' ')
+  if [ "$n" -gt "$limit" ]; then
+    rm -f "$file"
+    echo "$n bytes, over the limit of $limit" >&2
+    exit 1
+  fi
+  jq -n -c --arg p "$file" --argjson n "$n" '{path: $p, bytes: $n}' ;;
 posted) # {} always: without an idempotency key there is nothing to find
   printf '%s' '{}' ;;
 read) # no history: a bot cannot read a chat

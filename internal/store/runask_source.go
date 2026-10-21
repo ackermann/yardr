@@ -758,7 +758,7 @@ func commandGetsCredential(key string) bool {
 		// with the operator's local logins it mints from: the card says
 		// it is handed a credential, never that it is handed none.
 		return true
-	case "thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "events.pr", "events.ci":
+	case "thread.reply", "thread.posted", "thread.read", "thread.file", "thread.open", "thread.opened", "thread.state", "events.pr", "events.ci":
 		return true
 	default:
 		// A call's build runs on the call path with the call's

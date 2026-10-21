@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -587,5 +589,68 @@ func TestHookAddMakes(t *testing.T) {
 	}
 	if h, _ := st.GetHook(ctx, "gh"); h.Makes != nil {
 		t.Fatalf("replaced %+v", h)
+	}
+}
+
+// hook show <seq> prints a delivery's body and then the files fetched of
+// it, on the marked line the inbox shows them on, and --json carries them
+// beside the payload; a delivery whose files were never fetched prints its
+// body alone.
+func TestHookShowDeliveryFiles(t *testing.T) {
+	t.Parallel()
+	st, own := storetest.NewOwned(t)
+	a := &app{st: st, actor: "me"}
+	ctx := context.Background()
+	env := map[string]any{"source": "telegram", "type": "message", "text": "[photo]",
+		"files": []any{map[string]any{"id": "AgAC", "type": "photo"}, map[string]any{"id": "BQAC", "type": "document"}}}
+	seq, _, err := own.RecordHook(ctx, "telegram", env, []byte(`{"update_id":9003}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, _, err := own.RecordHook(ctx, "telegram", env, []byte(`{"update_id":9004}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	photo, err := st.PutBlob(ctx, []byte("\xff\xd8\xff\xe0 the shed from the phone"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	over := store.BlobRef{Name: "shed-plans.pdf", Bytes: 1048576, NotTaken: "document of 1048576 bytes, over the yard's limit of 8192"}
+	if err := own.RecordDeliveryFiles(ctx, seq, []store.BlobRef{*photo, over}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.hookCmd(), "show", strconv.FormatUint(seq, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "◆ 1 image, 1 file: " + store.BlobPath(a.mailHome(), photo.Hash) + "; not taken: " + over.NotTaken + " (shed-plans.pdf)\n"
+	if !strings.HasPrefix(out, "{\n  \"update_id\": 9003\n}\n") || !strings.HasSuffix(out, want) {
+		t.Fatalf("show %d = %q, want the body, then %q", seq, out, want)
+	}
+	if out, err := run(t, a.hookCmd(), "show", strconv.FormatUint(bare, 10)); err != nil || strings.Contains(out, "◆") {
+		t.Fatalf("show of a delivery never fetched = %q, %v", out, err)
+	}
+	// The inbox reads them by the same call, for an event as the log
+	// holds it.
+	evs, err := st.EventsSince(ctx, seq-1, 2)
+	if err != nil || len(evs) != 2 {
+		t.Fatalf("events = %+v, %v", evs, err)
+	}
+	if got := deliveryFiles(ctx, st, evs[0]); len(got) != 2 || got[0].Hash != photo.Hash {
+		t.Fatalf("deliveryFiles of %d = %+v", seq, got)
+	}
+	if got := deliveryFiles(ctx, st, evs[1]); got != nil {
+		t.Fatalf("deliveryFiles of %d = %+v", bare, got)
+	}
+	a.json = true
+	out, err = run(t, a.hookCmd(), "show", strconv.FormatUint(seq, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Files []store.BlobRef `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil || len(got.Files) != 2 || got.Files[0].Hash != photo.Hash || got.Files[1].NotTaken != over.NotTaken {
+		t.Fatalf("show --json = %q, %v", out, err)
 	}
 }

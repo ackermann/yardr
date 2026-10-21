@@ -63,6 +63,10 @@ type Envelope struct {
 	// repo, label. A field may hold several values (labels, or a team's
 	// key and name); a filter matches any of them.
 	Fields map[string][]string `json:"fields,omitempty"`
+	// Files are the files the delivery carries, as the source names them
+	// (files.go): refs, never the bytes, which the receiver fetches once
+	// the delivery is kept. Its text still says what arrived ([photo]).
+	Files []FileRef `json:"files,omitempty"`
 }
 
 type Party struct {

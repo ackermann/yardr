@@ -21,6 +21,11 @@ type Thread struct {
 	Posted []string `json:"posted,omitempty"`
 	// Read lists a thread's messages: in {thread}, out {messages: [...]}.
 	Read []string `json:"read,omitempty"`
+	// File fetches a file a delivery names into a directory the core
+	// made: in {ref, dir, max_bytes}, ref the envelope's {id, name, type,
+	// size}, out {path, bytes}, the file under dir. A file over max_bytes
+	// is refused, with nothing written.
+	File []string `json:"file,omitempty"`
 	// Open starts a thread: in {in, title, body, key, assignee?}, out
 	// {id, title, url}.
 	Open []string `json:"open,omitempty"`
@@ -322,7 +327,7 @@ func expandLink(tmpl string, groups []string) string {
 func (r *reader) thread(e entry) *Thread {
 	t := &Thread{}
 	var place, states, assignee *entry
-	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "open", "opened", "state", "place", "states", "labels", "assignee") {
+	for _, f := range r.entries(e.v, e.path, "reply", "posted", "read", "file", "open", "opened", "state", "place", "states", "labels", "assignee") {
 		switch f.key {
 		case "reply":
 			t.Reply = r.command(f, "linear/thread, reply")
@@ -330,6 +335,8 @@ func (r *reader) thread(e entry) *Thread {
 			t.Posted = r.command(f, "linear/thread, posted")
 		case "read":
 			t.Read = r.command(f, "linear/thread, read")
+		case "file":
+			t.File = r.command(f, "telegram/thread, get")
 		case "open":
 			t.Open = r.command(f, "linear/thread, open")
 		case "opened":

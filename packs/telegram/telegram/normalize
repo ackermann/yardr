@@ -33,6 +33,29 @@ def display($u):
 # mmss is a duration in seconds as the phone shows it.
 def mmss: (. / 60 | floor) as $m | (. % 60) as $s | "\($m):\(if $s < 10 then "0" else "" end)\($s)";
 def nonblank: if type == "string" and . != "" then . else null end;
+# fileref is a file the message carries as the envelope names it: the
+# service'"'"'s file_id, the name the sender gave, the kind, the size where
+# the service said. Fetched by thread get once the delivery is kept; this
+# is handed no credential and fetches nothing.
+def fileref($kind):
+  obj
+  | select((.file_id | type) == "string" and .file_id != "")
+  | {id: .file_id, type: $kind}
+    + (if (.file_name | type) == "string" and .file_name != "" then {name: .file_name} else {} end)
+    + (if (.file_size | type) == "number" then {size: .file_size} else {} end);
+# files are the message'"'"'s photo (its largest size, by file_size, else the
+# last the service lists), document, voice, video and audio. A sticker,
+# an animation and a video note stay their bracketed note alone.
+def files($m):
+  [ ($m.photo | if type == "array" and length > 0
+                then (if any(.[]; (obj | .file_size | type) == "number")
+                      then max_by(obj | .file_size // 0) else last end)
+                     | fileref("photo")
+                else empty end),
+    ($m.document // empty | fileref("document")),
+    ($m.voice // empty | fileref("voice")),
+    ($m.video // empty | fileref("video")),
+    ($m.audio // empty | fileref("audio")) ];
 
 (.body | if type == "object" then . else error("telegram Update is not an object") end) as $u
 | (($u.message | obj) | if ((.chat | obj).id) == null then null else . end) as $m
@@ -58,6 +81,7 @@ def nonblank: if type == "string" and . != "" then . else null end;
        text: ($text | trunc), mentions: mentions($text),
        message: str($m.message_id), parent: str(($m.reply_to_message | obj).message_id),
        fields: {chat: [$id]}}
+    + (files($m) | if length > 0 then {files: .} else {} end)
   else
     ([$u.edited_message, $u.channel_post, $u.edited_channel_post,
       $u.my_chat_member, $u.chat_member, $u.chat_join_request,

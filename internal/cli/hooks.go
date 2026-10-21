@@ -268,7 +268,9 @@ no hook's (unknown_hook). See docs/subscriptions.md.`,
 	show := &cobra.Command{
 		Use:   "show <event seq|name>",
 		Short: "Print the raw payload of a hook event, or a hook's definition",
-		Long: `With the seq of a hook event, prints the delivery's raw body. With a hook's
+		Long: `With the seq of a hook event, prints the delivery's raw body, and the files
+fetched of it under it: each by its path in the yard, or why it was not
+taken. With a hook's
 name, prints its definition: the source, the secret file's path, the crew member
 it acts as and its map, what its events say of a bead, and the issue moves it has still to make, each with
 the last error when a try failed (see yardr hook add).`,
@@ -286,11 +288,21 @@ the last error when a try failed (see yardr hook add).`,
 			if err != nil {
 				return err
 			}
+			// The files fetched of the delivery follow its body, on the
+			// marked line the inbox shows them on.
+			files, err := st.DeliveryFiles(c.Context(), seq)
+			if err != nil {
+				return err
+			}
 			var payload any = string(raw)
 			if json.Valid(raw) {
 				payload = json.RawMessage(raw)
 			}
-			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "payload": payload}, func(w io.Writer) {
+			out := map[string]any{"seq": seq, "payload": payload}
+			if len(files) > 0 {
+				out["files"] = files
+			}
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
 				var pretty bytes.Buffer
 				if json.Indent(&pretty, raw, "", "  ") == nil {
 					raw = pretty.Bytes()
@@ -298,6 +310,9 @@ the last error when a try failed (see yardr hook add).`,
 				w.Write(raw)
 				if !bytes.HasSuffix(raw, []byte("\n")) {
 					fmt.Fprintln(w)
+				}
+				if line := store.NoteFilesLine(a.mailHome(), files); line != "" {
+					fmt.Fprintln(w, line)
 				}
 			})
 		},

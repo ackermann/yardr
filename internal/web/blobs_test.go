@@ -117,6 +117,19 @@ func TestBlobRoute(t *testing.T) {
 		t.Errorf("HEAD the page: status %d, type %q, %d bytes", r.status, r.header.Get("Content-Type"), len(r.body))
 	}
 	assertPagePolicy(t, r.header.Get("Content-Security-Policy"))
+	// A photo a kept hook delivery carried is the yard's, as a note's
+	// file is: served wherever the view acts as anybody or nobody.
+	// blobFixture's store is the owning one, which the receiver records
+	// through.
+	own := f.st.(*store.Store)
+	hooked, err := own.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed from the phone"))
+	must(t, err)
+	seq, _, err := own.RecordHook(ctx, "telegram", map[string]any{"source": "telegram", "type": "message"}, []byte(`{}`), nil)
+	must(t, err)
+	must(t, own.RecordDeliveryFiles(ctx, seq, []store.BlobRef{{Hash: hooked.Hash}}))
+	if r := f.get("/blobs/" + hooked.Hash); r.status != 200 || r.header.Get("Content-Type") != "image/png" {
+		t.Errorf("the delivery's image: status %d, type %q", r.status, r.header.Get("Content-Type"))
+	}
 	// A note on a closed bead names still: its page shows the picture.
 	_, err = f.st.CloseBead(ctx, b.ID, "hung", store.Expect{}, "me")
 	must(t, err)

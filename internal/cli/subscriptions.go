@@ -802,8 +802,12 @@ do, the command refuses naming both, and --crew or --group says which.`,
 }
 
 // printHookDelivery shows a hook event as it reached crew member: what
-// happened, who did it, and why the crew member hears of it.
-func printHookDelivery(w io.Writer, e store.Event, member string) {
+// happened, who did it, and why the crew member hears of it. The files
+// fetched of it (deliveryFiles) stand under it on a marked line of their
+// own, as a mail's do, each by its path in the yard at home or the reason
+// it was not taken; a delivery whose files were not fetched has the
+// bracketed note of its text alone.
+func printHookDelivery(w io.Writer, e store.Event, member, home string, files []store.BlobRef) {
 	// What a linked yard said of a bead is the yard's own sentence, with no
 	// text of the other yard's, and how to read what was written there.
 	if line := store.PeerDeliveryLine(e.Data); line != "" {
@@ -854,6 +858,27 @@ func printHookDelivery(w io.Writer, e store.Event, member string) {
 		fmt.Fprintf(w, "  %s", printable(u))
 	}
 	fmt.Fprintln(w)
+	if line := store.NoteFilesLine(home, files); line != "" {
+		fmt.Fprintf(w, "    %s\n", line)
+	}
+}
+
+// deliveryFiles are the files fetched of the hook delivery e, nil for one
+// that names none, whose files were not fetched, or that is no delivery.
+// A store that cannot say leaves the line its bracketed note: the files
+// are a delivery's extra, never a reason its line is not shown.
+func deliveryFiles(ctx context.Context, st store.API, e store.Event) []store.BlobRef {
+	if e.Kind != "hook" {
+		return nil
+	}
+	if refs, _ := e.Data["files"].([]any); len(refs) == 0 {
+		return nil
+	}
+	files, err := st.DeliveryFiles(ctx, e.Seq)
+	if err != nil {
+		return nil
+	}
+	return files
 }
 
 // hookField is the first value of a hook event's fields key, "" for none.

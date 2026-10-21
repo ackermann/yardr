@@ -1163,7 +1163,7 @@ yardr doctor and bare yardr say what waits.`,
 					return
 				}
 				for _, e := range page.Events {
-					printInboxEvent(w, e, name, a.mailHome())
+					printInboxEvent(w, e, name, a.mailHome(), deliveryFiles(c.Context(), st, e))
 				}
 				if rest := page.Total - len(page.Events); rest > 0 {
 					fmt.Fprintf(w, "… %d more\n", rest)
@@ -1207,8 +1207,9 @@ func newerUnreadLine(n int) string {
 
 // printInboxEvent prints one event of member's inbox. home is the yard's
 // home: an event carrying files names them under its line, on a marked
-// line of their own.
-func printInboxEvent(w io.Writer, e store.Event, member, home string) {
+// line of their own. delivered are the files fetched of a hook delivery
+// (deliveryFiles), nil for any other event.
+func printInboxEvent(w io.Writer, e store.Event, member, home string, delivered []store.BlobRef) {
 	switch e.Kind {
 	case "mail":
 		// A name the yard trusts as a user says whom it speaks as, and is
@@ -1240,7 +1241,7 @@ func printInboxEvent(w io.Writer, e store.Event, member, home string) {
 		fmt.Fprintf(w, "%6d %s  %s by %s on your mail %d: %s\n", e.Seq, e.At.Local().Format("01-02 15:04"),
 			store.Letters(emoji), store.Letters(e.Actor), target, store.Letters(preview))
 	case "hook":
-		printHookDelivery(w, e, member)
+		printHookDelivery(w, e, member, home, delivered)
 	case "timer":
 		// The text says it is a timer, who set it and when.
 		fmt.Fprintf(w, "%6d %s  %s\n", e.Seq, e.At.Local().Format("01-02 15:04"), show(e.Data["text"]))
@@ -1755,7 +1756,7 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 		}
 		fmt.Fprintf(w, "## Inbox: %d unread\n\n", p.InboxTotal)
 		for _, e := range p.Inbox {
-			printInboxEvent(w, e, name, a.mailHome())
+			printInboxEvent(w, e, name, a.mailHome(), deliveryFiles(ctx, st, e))
 		}
 		if p.InboxTotal > 0 {
 			fmt.Fprintln(w)

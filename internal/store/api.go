@@ -53,6 +53,7 @@ type API interface {
 	Notes(ctx context.Context, id string) ([]Note, error)
 	NoteBlob(ctx context.Context, hash string) (*BlobRef, error)
 	MailBlob(ctx context.Context, viewer, hash string) (*BlobRef, error)
+	DeliveryBlob(ctx context.Context, hash string) (*BlobRef, error)
 	AddAsk(ctx context.Context, id string, ask Ask, actor string) (uint64, error)
 	AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (*AskedBead, error)
 	AddAnswer(ctx context.Context, id string, ans Answer, actor string) error
@@ -224,6 +225,7 @@ type API interface {
 	GetHook(ctx context.Context, name string) (*Hook, error)
 	DeleteHook(ctx context.Context, name, actor string) error
 	HookPayload(ctx context.Context, seq uint64) ([]byte, error)
+	DeliveryFiles(ctx context.Context, seq uint64) ([]BlobRef, error)
 	EventsOfHook(ctx context.Context, kind, hook string, limit int) (*HookEvents, error)
 	PutSource(ctx context.Context, file, text, actor string) (*Source, error)
 	Sources(ctx context.Context) ([]Source, error)

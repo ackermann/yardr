@@ -127,7 +127,7 @@ func TestInboxQuietFailedShowsItsFilesLine(t *testing.T) {
 		At:   time.Date(2026, 10, 21, 9, 14, 0, 0, time.Local),
 		Data: map[string]any{"depot": "yard", "commit": "abc123", "files": []store.BlobRef{ref}}}
 	var buf bytes.Buffer
-	printInboxEvent(&buf, e, "yardmaster", home)
+	printInboxEvent(&buf, e, "yardmaster", home, nil)
 	out := buf.String()
 	if !strings.Contains(out, "quiet_failed") {
 		t.Fatalf("inbox delivery: %q", out)

@@ -13,7 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -136,15 +138,26 @@ func TestTelegramPackNormalize(t *testing.T) {
 		}
 		return e
 	}
+	// A message's media are refs, read from the body with no credential:
+	// the file's id, its name where the sender gave one, its kind and its
+	// size. The bracketed note stays the text.
+	with := func(e hooks.Envelope, files ...hooks.FileRef) hooks.Envelope {
+		e.Files = files
+		return e
+	}
 	for _, tc := range []struct {
 		name string
 		want hooks.Envelope
 	}{
 		{"telegram_message_text.json", msg("11", "", "Can the shed land on Monday?", []string{})},
-		{"telegram_message_caption.json", msg("12", "", "the shed from the north", []string{})},
-		{"telegram_message_photo.json", msg("13", "", "[photo]", []string{})},
-		{"telegram_message_document.json", msg("14", "", "[document: shed-plans.pdf]", []string{})},
-		{"telegram_message_voice.json", msg("15", "", "[voice message 1:05]", []string{})},
+		{"telegram_message_caption.json", with(msg("12", "", "the shed from the north", []string{}),
+			hooks.FileRef{ID: "AgACAgEAAx1", Type: "photo", Size: 65536})},
+		{"telegram_message_photo.json", with(msg("13", "", "[photo]", []string{}),
+			hooks.FileRef{ID: "AgACAgEAAx2", Type: "photo", Size: 4096})},
+		{"telegram_message_document.json", with(msg("14", "", "[document: shed-plans.pdf]", []string{}),
+			hooks.FileRef{ID: "BQACAgEAAx0", Name: "shed-plans.pdf", Type: "document", Size: 1048576})},
+		{"telegram_message_voice.json", with(msg("15", "", "[voice message 1:05]", []string{}),
+			hooks.FileRef{ID: "AwACAgEAAx0", Type: "voice", Size: 32768})},
 		{"telegram_message_reply.json", msg("17", "11", "yes, and @brakeman saw it too", []string{"brakeman"})},
 		{"telegram_edited_message.json", upd("123456789")},
 		{"telegram_my_chat_member.json", upd("222222222")},
@@ -203,26 +216,33 @@ func TestTelegramPackNormalizeNotes(t *testing.T) {
 		wantText string
 		wantChat string // "" for no fields
 		wantName string // "" for the actor Christopher
+		// wantFiles are the kinds of the refs the envelope names, "" for
+		// none: a sticker, an animation and a video note stay their note
+		// alone.
+		wantFiles string
 	}{
-		{"video", msg(1, `"video":{"duration":10,"file_id":"x"}`), "message", "[video]", "123456789", ""},
-		{"video note", msg(2, `"video_note":{"duration":10,"file_id":"x"}`), "message", "[video note]", "123456789", ""},
-		{"audio", msg(3, `"audio":{"duration":10,"file_id":"x"}`), "message", "[audio]", "123456789", ""},
-		{"animation", msg(4, `"animation":{"file_id":"x"}`), "message", "[animation]", "123456789", ""},
-		{"sticker", msg(5, `"sticker":{"file_id":"x","emoji":"👍"}`), "message", "[sticker]", "123456789", ""},
-		{"document without a name", msg(6, `"document":{"file_id":"x"}`), "message", "[document]", "123456789", ""},
-		{"voice without a length", msg(7, `"voice":{"file_id":"x"}`), "message", "[voice message]", "123456789", ""},
-		{"caption wins over the photo", msg(8, `"photo":[{"file_id":"x"}],"caption":"look"`), "message", "look", "123456789", ""},
-		{"text wins over media", msg(9, `"text":"hi","photo":[{"file_id":"x"}]`), "message", "hi", "123456789", ""},
+		{"video", msg(1, `"video":{"duration":10,"file_id":"x"}`), "message", "[video]", "123456789", "", "video"},
+		{"video note", msg(2, `"video_note":{"duration":10,"file_id":"x"}`), "message", "[video note]", "123456789", "", ""},
+		{"audio", msg(3, `"audio":{"duration":10,"file_id":"x"}`), "message", "[audio]", "123456789", "", "audio"},
+		{"animation", msg(4, `"animation":{"file_id":"x"}`), "message", "[animation]", "123456789", "", ""},
+		{"sticker", msg(5, `"sticker":{"file_id":"x","emoji":"👍"}`), "message", "[sticker]", "123456789", "", ""},
+		{"document without a name", msg(6, `"document":{"file_id":"x"}`), "message", "[document]", "123456789", "", "document"},
+		{"voice without a length", msg(7, `"voice":{"file_id":"x"}`), "message", "[voice message]", "123456789", "", "voice"},
+		{"caption wins over the photo", msg(8, `"photo":[{"file_id":"x"}],"caption":"look"`), "message", "look", "123456789", "", "photo"},
+		{"text wins over media", msg(9, `"text":"hi","photo":[{"file_id":"x"}]`), "message", "hi", "123456789", "", "photo"},
 		{"last name", []byte(fmt.Sprintf(`{"update_id":9110,"message":{"message_id":1,"from":{"id":123456789,"first_name":"Christopher","last_name":"McKean"},%s,"date":1760379600,"text":"hi"}}`, chat)),
-			"message", "hi", "123456789", "Christopher McKean"},
+			"message", "hi", "123456789", "Christopher McKean", ""},
 		{"username where no name", []byte(`{"update_id":9111,"message":{"message_id":1,"from":{"id":123456789,"username":"zed"},"chat":{"id":123456789,"username":"zed","type":"private"},"date":1760379600,"text":"hi"}}`),
-			"message", "hi", "123456789", "zed"},
-		{"long text is cut", msg(12, `"text":"`+long+`"`), "message", "", "123456789", ""}, // want computed below
+			"message", "hi", "123456789", "zed", ""},
+		{"long text is cut", msg(12, `"text":"`+long+`"`), "message", "", "123456789", "", ""}, // want computed below
 		{"a forward hears its own chat", msg(13, `"text":"look at this","forward_origin":{"type":"chat","sender_chat":{"id":-111222333,"title":"Elsewhere","type":"supergroup"}}`),
-			"message", "look at this", "123456789", ""},
-		{"unknown kind", []byte(`{"update_id":9114,"poll":{"id":"p1","question":"lunch?"}}`), "update", "", "", ""},
-		{"empty update", []byte(`{"update_id":9115}`), "update", "", "", ""},
-		{"message without a chat", []byte(`{"update_id":9116,"message":{"message_id":1,"text":"hi"}}`), "update", "", "", ""},
+			"message", "look at this", "123456789", "", ""},
+		{"unknown kind", []byte(`{"update_id":9114,"poll":{"id":"p1","question":"lunch?"}}`), "update", "", "", "", ""},
+		{"empty update", []byte(`{"update_id":9115}`), "update", "", "", "", ""},
+		{"the largest photo", msg(17, `"photo":[{"file_id":"s","file_size":10},{"file_id":"l","file_size":300},{"file_id":"m","file_size":20}]`),
+			"message", "[photo]", "123456789", "", "photo"},
+		{"a ref with no id", msg(18, `"voice":{"file_size":3}`), "message", "[voice message]", "123456789", "", ""},
+		{"message without a chat", []byte(`{"update_id":9116,"message":{"message_id":1,"text":"hi"}}`), "update", "", "", "", ""},
 	} {
 		got, err := ad.Normalize(nil, tc.body)
 		if err != nil {
@@ -246,6 +266,16 @@ func TestTelegramPackNormalizeNotes(t *testing.T) {
 		}
 		if tc.wantName != "" && got.Actor.Name != tc.wantName {
 			t.Errorf("%s: actor = %q, want %q", tc.name, got.Actor.Name, tc.wantName)
+		}
+		var kinds []string
+		for _, f := range got.Files {
+			kinds = append(kinds, f.Type)
+		}
+		if strings.Join(kinds, ",") != tc.wantFiles {
+			t.Errorf("%s: files %+v, want kinds %q", tc.name, got.Files, tc.wantFiles)
+		}
+		if tc.name == "the largest photo" && (len(got.Files) != 1 || got.Files[0].ID != "l" || got.Files[0].Size != 300) {
+			t.Errorf("the largest photo: files %+v, want l of 300 bytes", got.Files)
 		}
 		// The username fallback names the private chat too.
 		if tc.name == "username where no name" && got.Thread.Title != "zed" {
@@ -438,10 +468,11 @@ func TestTelegramPackThread(t *testing.T) {
 	}
 }
 
-// The bot's token is part of the address the reply is posted to, and an
-// argument of a running command can be read by every process on the
-// machine: curl is handed the address on its stdin, never as an argument.
-// The stand-in curl here records its arguments and runs the real one.
+// The bot's token is part of the address the reply is posted to, and of
+// both a file fetch asks, and an argument of a running command can be read
+// by every process on the machine: curl is handed the address on its
+// stdin, never as an argument. The stand-in curl here records its
+// arguments and runs the real one.
 func TestTelegramPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
 	curl, err := exec.LookPath("curl")
 	if err != nil {
@@ -450,9 +481,16 @@ func TestTelegramPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
 	ad, _ := telegramDecl(t)
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":7}}`)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getFile"):
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"file_path":"photos/x.jpg","file_size":3}}`)
+		case strings.HasPrefix(r.URL.Path, "/file/"):
+			_, _ = io.WriteString(w, "abc")
+		default:
+			gotPath = r.URL.Path
+			_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":7}}`)
+		}
 	}))
 	defer srv.Close()
 	ad.D.Base = srv.URL
@@ -470,6 +508,9 @@ func TestTelegramPackThreadKeepsTheTokenOutOfArguments(t *testing.T) {
 	}
 	if gotPath != "/bot"+cred+"/sendMessage" {
 		t.Error("the reply went somewhere other than the token's sendMessage")
+	}
+	if data, err := ad.File(context.Background(), hooks.FileRef{ID: "x"}, t.TempDir(), 10, cred); err != nil || string(data) != "abc" {
+		t.Fatalf("file: %q, %v", data, err)
 	}
 	got, err := os.ReadFile(args)
 	if err != nil {
@@ -762,5 +803,243 @@ func TestTelegramPackHearDropsStrangersEndToEnd(t *testing.T) {
 	}
 	if h, err := r.st.GetHook(ctx, "telegram"); err != nil || h.RefusedFor != "stranger" {
 		t.Fatalf("hook refused for %+v %v, want stranger", h, err)
+	}
+}
+
+// telegramFiles stands in for the Bot API's two halves of a file: getFile,
+// which answers the file's path and size for its id, and the file's own
+// address under /file/bot<token>/. Each file is its id's bytes; one under
+// an id the map lacks is refused as the service refuses one. lie is an id
+// whose getFile says fewer bytes than its file has. It counts every
+// request it is sent, by path.
+type telegramFiles struct {
+	token string
+	files map[string][]byte
+	lie   string
+
+	mu   sync.Mutex
+	seen []string
+}
+
+func (s *telegramFiles) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.seen = append(s.seen, r.URL.Path)
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/bot"+s.token+"/getFile" {
+		var in struct {
+			FileID string `json:"file_id"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &in)
+		data, ok := s.files[in.FileID]
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: invalid file_id"}`)
+			return
+		}
+		size := len(data)
+		if in.FileID == s.lie {
+			size = 4
+		}
+		_, _ = fmt.Fprintf(w, `{"ok":true,"result":{"file_id":%q,"file_size":%d,"file_path":"photos/%s.jpg"}}`, in.FileID, size, in.FileID)
+		return
+	}
+	if id, ok := strings.CutPrefix(r.URL.Path, "/file/bot"+s.token+"/photos/"); ok {
+		if data, ok := s.files[strings.TrimSuffix(id, ".jpg")]; ok {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(data)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+func (s *telegramFiles) requests() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.seen)
+}
+
+// A file is fetched in two calls, getFile and then the file's address,
+// into the directory the core made, and answered as its path and size.
+// One over the bound is refused, whether getFile says so or the bytes do
+// while they come, and leaves nothing in the directory; an id the service
+// refuses is refused with the service's words.
+func TestTelegramPackFile(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
+	}
+	ad, _ := telegramDecl(t)
+	const cred = "bot-token-for-test"
+	stub := &telegramFiles{token: cred, lie: "lying", files: map[string][]byte{
+		"small": []byte("\x89PNG\r\n\x1a\nsmall"),
+		"big":   bytes.Repeat([]byte("b"), 100),
+		"lying": bytes.Repeat([]byte("l"), 100),
+	}}
+	srv := httptest.NewServer(stub)
+	defer srv.Close()
+	ad.D.Base = srv.URL
+	ctx := context.Background()
+	get := func(id string, max int64) ([]byte, string, error) {
+		t.Helper()
+		dir := t.TempDir()
+		data, err := ad.File(ctx, hooks.FileRef{ID: id, Type: "photo"}, dir, max, cred)
+		left, _ := os.ReadDir(dir)
+		var names []string
+		for _, e := range left {
+			names = append(names, e.Name())
+		}
+		return data, strings.Join(names, ","), err
+	}
+	data, _, err := get("small", 50)
+	if err != nil || !bytes.Equal(data, stub.files["small"]) {
+		t.Fatalf("small: %q, %v", data, err)
+	}
+	if got := stub.requests(); !slices.Equal(got, []string{"/bot" + cred + "/getFile", "/file/bot" + cred + "/photos/small.jpg"}) {
+		t.Fatalf("requests = %q", got)
+	}
+	before := len(stub.requests())
+	if _, left, err := get("big", 50); err == nil || !strings.Contains(err.Error(), "100 bytes, over the limit of 50") || left != "" {
+		t.Fatalf("big: left %q, err %v", left, err)
+	}
+	if got := stub.requests()[before:]; len(got) != 1 {
+		t.Fatalf("a file getFile says is over the bound was downloaded: %q", got)
+	}
+	if _, left, err := get("lying", 50); err == nil || !strings.Contains(err.Error(), "over the limit of 50") || left != "" {
+		t.Fatalf("lying: left %q, err %v", left, err)
+	}
+	if _, _, err := get("nobody", 50); err == nil || !strings.Contains(err.Error(), "invalid file_id") {
+		t.Fatalf("an id the service refuses: %v", err)
+	}
+	// The script's own bound holds where the yard's is higher.
+	stub.files["huge"] = bytes.Repeat([]byte("h"), 8<<20+1)
+	if _, _, err := get("huge", 64<<20); err == nil || !strings.Contains(err.Error(), "over the limit of 8388608") {
+		t.Fatalf("over TELEGRAM_MAX_BYTES: %v", err)
+	}
+}
+
+// telegramSeq is the seq a kept delivery's answer names.
+func telegramSeq(t *testing.T, ans string) uint64 {
+	t.Helper()
+	var a struct {
+		Seq uint64 `json:"seq"`
+	}
+	if err := json.Unmarshal([]byte(ans), &a); err != nil || a.Seq == 0 {
+		t.Fatalf("answer %q names no seq: %v", ans, err)
+	}
+	return a.Seq
+}
+
+// A kept delivery's files are fetched after it is answered, with the
+// source's own token, into the blob store, and recorded beside the event:
+// each a blob, or the reason it was not taken, with its size. A delivery
+// whose source has no token set keeps its refs alone; a stranger's is
+// dropped before anything is fetched, and a redelivery fetches nothing
+// twice.
+func TestTelegramPackFetchesFiles(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
+	}
+	r := telegramDepot(t)
+	ctx := context.Background()
+	const cred = "123456:MARKER-mnc8-token"
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte("p"), 100)...)
+	stub := &telegramFiles{token: cred, files: map[string][]byte{
+		"AgACAgEAAx2": png,                          // the photo's id
+		"AwACAgEAAx0": bytes.Repeat([]byte("v"), 9), // the voice note's
+	}}
+	srv := httptest.NewServer(stub)
+	defer srv.Close()
+	_, _, text := telegramParse(t)
+	if _, err := r.st.PutSource(ctx, "telegram.yaml", strings.Replace(text, "base: https://api.telegram.org", "base: "+srv.URL, 1), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	tellTelegram(t, r, "op", "123456789")
+	r.now = time.Now()
+	post := func(body []byte) uint64 {
+		t.Helper()
+		code, ans := telegramPost(t, r, body)
+		if code != http.StatusOK {
+			t.Fatalf("answered %d %s", code, ans)
+		}
+		r.rc.Wait()
+		if strings.Contains(ans, `"dropped"`) || strings.Contains(ans, `"duplicate"`) {
+			return 0
+		}
+		return telegramSeq(t, ans)
+	}
+	files := func(seq uint64) []store.BlobRef {
+		t.Helper()
+		got, err := r.st.DeliveryFiles(ctx, seq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	// No token set for the source: the voice note keeps its ref alone, and
+	// the service is asked nothing.
+	voice := post(fixture(t, "telegram_message_voice.json"))
+	if got := files(voice); got != nil {
+		t.Fatalf("fetched without a token: %+v", got)
+	}
+	if got := stub.requests(); len(got) != 0 {
+		t.Fatalf("the service was asked %q without a token", got)
+	}
+	env := filepath.Join(t.TempDir(), "telegram.env")
+	if err := os.WriteFile(env, []byte("TELEGRAM_BOT_TOKEN="+cred+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.SetSource(ctx, "telegram", store.SourceEnvFile, env, "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetSetting(ctx, store.BlobMaxSetting, "8192", "op"); err != nil {
+		t.Fatal(err)
+	}
+	// The photo is fetched, kept as a blob and recorded on its delivery.
+	photo := post(fixture(t, "telegram_message_photo.json"))
+	got := files(photo)
+	if len(got) != 1 || got[0].NotTaken != "" || got[0].Kind() != "image" || got[0].Bytes != int64(len(png)) {
+		t.Fatalf("the photo's files = %+v", got)
+	}
+	if kept, err := os.ReadFile(r.own.BlobPath(got[0].Hash)); err != nil || !bytes.Equal(kept, png) {
+		t.Fatalf("the photo's blob: %q, %v", kept, err)
+	}
+	if blob, err := r.st.DeliveryBlob(ctx, got[0].Hash); err != nil || blob.Bytes != int64(len(png)) {
+		t.Fatalf("DeliveryBlob = %+v, %v", blob, err)
+	}
+	asked := len(stub.requests())
+	if asked != 2 {
+		t.Fatalf("the photo took %d requests: %q", asked, stub.requests())
+	}
+	// The document is over the yard's limit by the size the Update says:
+	// its reason says it, and it is never downloaded.
+	doc := post(fixture(t, "telegram_message_document.json"))
+	got = files(doc)
+	if len(got) != 1 || got[0].Hash != "" || got[0].Name != "shed-plans.pdf" || got[0].Bytes != 1048576 ||
+		!strings.Contains(got[0].NotTaken, "document of 1048576 bytes, over the yard's limit of 8192") {
+		t.Fatalf("the document's files = %+v", got)
+	}
+	if len(stub.requests()) != asked {
+		t.Fatalf("the document over the limit was asked for: %q", stub.requests()[asked:])
+	}
+	// A stranger's photo is dropped before it is kept: the service is
+	// asked nothing of it.
+	if seq := post(strangerUpdate(t, fixture(t, "telegram_message_photo.json"), 9600, -555666777, "MARKER-mnc8-stranger")); seq != 0 {
+		t.Fatalf("a stranger's photo was kept as %d", seq)
+	}
+	// A redelivery of the photo is a duplicate, and fetches nothing again.
+	if seq := post(fixture(t, "telegram_message_photo.json")); seq != 0 {
+		t.Fatalf("a redelivery was kept as %d", seq)
+	}
+	if len(stub.requests()) != asked {
+		t.Fatalf("a stranger's photo or a redelivery was fetched: %q", stub.requests()[asked:])
+	}
+	// Nothing is left where the files were fetched to.
+	if left, _ := os.ReadDir(filepath.Join(r.home, "tmp")); len(left) != 0 {
+		t.Fatalf("left behind under tmp: %v", left)
 	}
 }

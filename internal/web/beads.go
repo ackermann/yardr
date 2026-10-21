@@ -941,7 +941,8 @@ const pagePolicy = "sandbox allow-top-navigation-by-user-activation; default-src
 const scriptedPolicy = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; webrtc 'block'; object-src 'none'; font-src 'none'; media-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // handleBlob serves a note's blob: the bytes of a blob a note on some bead
-// names, with their type. Where the view acts it serves a mail's file
+// names, with their type, and so too a blob a kept hook delivery names
+// (DeliveryBlob), the yard's as a note's is. Where the view acts it serves a mail's file
 // too, to the mail's sender or recipient; anything else — one the yard
 // never held, a name that is no hash, a mail's file to anyone else or
 // where the view acts as nobody — answers as a missing blob. The check
@@ -960,6 +961,9 @@ func (s *Server) handleBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ctx := r.Context()
 	ref, err := s.st.NoteBlob(ctx, hash)
+	if errors.Is(err, store.ErrNotFound) {
+		ref, err = s.st.DeliveryBlob(ctx, hash)
+	}
 	if errors.Is(err, store.ErrNotFound) && s.acting(ctx) != "" {
 		ref, err = s.st.MailBlob(ctx, s.acting(ctx), hash)
 	}

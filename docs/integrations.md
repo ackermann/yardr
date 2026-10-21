@@ -851,6 +851,7 @@ thread:
   reply:  [linear/thread, reply]      # in  {thread, parent, body, key}      out {id, url}
   posted: [linear/thread, posted]     # in  {thread, key}                    out {id, url} or {}
   read:   [linear/thread, read]       # in  {thread}                         out {messages: [...]}
+  file:   [telegram/thread, get]      # in  {ref, dir, max_bytes}            out {path, bytes}
   place:  team                        # what --in is called in this source
   open:   [linear/thread, open]       # in  {in, title, body, key, assignee?} out {id, title, url}
   assignee: id                        # open takes an assignee: a person's id there (or key)
@@ -878,6 +879,20 @@ link:                                 # the source's issues as a bead's link
   `thread.opened` is handed `since`, when the attempt was put on record in
   RFC 3339, so it can bound its search; a command that needs no bound
   ignores the field.
+- **`thread.file` fetches a file a kept delivery names.** The envelope
+  names each file by the source's ref (`files`, below); once the
+  delivery is kept and answered, the receiver hands each ref to
+  `thread.file` with `dir`, an empty directory the yard made under its
+  home's `tmp/`, and `max_bytes`, the yard's `blob_max_bytes`. The
+  command writes the file directly in `dir` and answers its path and
+  size; one over `max_bytes`, or over a bound of the command's own, is
+  refused with nothing left behind. The yard reads the file into the
+  blob store and removes the directory. It runs with the source's own
+  credential, from the env file `yardr source key` sets, as telling
+  through the source does: the delivery is the yard's, not a crew
+  member's. A source without the key, or without its credential set,
+  keeps the refs alone, and the text's own words (Telegram's
+  `[photo]`) say what arrived.
 - **`thread.open` takes an `assignee` only where the file says so.**
   `thread.assignee` is `id` or `key`: the part of a person's identity in
   the source (`yardr user identity`) that its threads are assigned by.
@@ -1962,11 +1977,32 @@ them whole):
 - **What the chat is.** The yardmaster treats a line from the operator's
   chat as his word, as his mail. A number in the chat answers no ask;
   approving a run and giving a secret stay the operator's at the
-  terminal. Pictures and files arrive as a bracketed note, and nothing
-  is fetched. `yardr user set <name> notify=` ends telling alone: the
+  terminal. `yardr user set <name> notify=` ends telling alone: the
   chat is heard while the address is set, whatever tells them, and
   ending hearing takes `deleteWebhook`, or the address out of the env
   file.
+
+- **Pictures and files.** A photo (its largest size), a document, a
+  voice note, a video or an audio arrives as its bracketed note
+  (`[photo]`, `[document: <name>]`) with the file's ref in the
+  envelope. Once the delivery is kept and answered the yard fetches
+  it with the source's `TELEGRAM_BOT_TOKEN` (`getFile`, then the file)
+  into the blob store, at most the yard's `blob_max_bytes` and the
+  pack's 8 MiB, whichever is lower (the Bot API serves a bot files up
+  to 20 MB). The inbox shows it under the delivery's line, `◆ 1 image:
+  <path>`, and `yardr hook show <seq>` after the body; one over the
+  limit shows `not taken:` with its size. A sticker, an animation and a
+  video note stay their note alone. A stranger's file is never
+  fetched: the delivery is dropped before it is kept.
+- **Who sees the files.** Whoever sees the delivery: a hook delivery
+  reaches every device user (it is the yard's, not one user's letter),
+  so a device and the web view are served a file a kept delivery names
+  by its hash, which only someone with the bytes can know. The file
+  goes when the delivery goes with the log (`prune`), and not before.
+- **What is not fetched.** A fetch cut short by a server restart is
+  not tried again: the delivery keeps its ref and its note. No total
+  volume or per-sender bound is set; the chat is one person's, at a
+  person's pace.
 
 A line from the phone, sent to the isolated yard, was recorded as
 
@@ -2155,6 +2191,13 @@ file's `hook.keys`, which `--where` may then name:
   "fields": {"team": ["acme"]}
 }
 ```
+
+A delivery that carries files names them under `files`, each
+`{"id": "<the source's id>", "name": "<as sent, where given>", "type":
+"photo|document|voice|video|audio", "size": <bytes, where the service
+says>}`: refs read from the body, never the bytes, since normalize is
+handed no credential. `thread.file` fetches them after the delivery is
+kept.
 
 `type` is what happened to what, by convention lowercase; `action` what
 of it happened. `actor.id` is what an identity is matched against.

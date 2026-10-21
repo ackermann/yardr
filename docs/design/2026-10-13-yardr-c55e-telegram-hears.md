@@ -160,6 +160,8 @@ SETUP.md says where each value comes from: the chat id as today, the host as his
 
 A message with no text arrives as a bracketed note (`[photo]`, `[document: <name>]`, `[voice message]` with its length where sent), so the yardmaster sees that something arrived and what kind. Nothing is fetched: `normalize` is handed no credential, so it cannot call `getFile`, and hook events have no attachment pipeline. Fetching into the yard's blob store is a later bead (section 4).
 
+Since yardr-mnc8 the envelope carries each file's ref (`files`: id, name, type, size), still read by `normalize` without a credential, and the receiver fetches a kept delivery's files after answering it, by the pack's `thread.file` command with the source's own token, into the blob store. The bracketed note stays the text. docs/integrations.md ("Telegram, where it differs") says who sees them and the caps.
+
 ## 4. Left out
 
 **Polling with `getUpdates`.** For a yard with no public address this is the only way to hear, but it needs a poller in the daemon, per-source offsets in the store, backoff and error handling, all new, plus updates expire after 24 hours where webhooks are retried. It becomes one bead reusing the envelope and scripts of section 3, if a yard without a public address asks.

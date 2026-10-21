@@ -135,6 +135,9 @@ func (c *Client) NoteBlob(ctx context.Context, hash string) (*store.BlobRef, err
 func (c *Client) MailBlob(ctx context.Context, viewer, hash string) (*store.BlobRef, error) {
 	return callV[*store.BlobRef](c, ctx, "MailBlob", viewer, hash)
 }
+func (c *Client) DeliveryBlob(ctx context.Context, hash string) (*store.BlobRef, error) {
+	return callV[*store.BlobRef](c, ctx, "DeliveryBlob", hash)
+}
 func (c *Client) AddAsk(ctx context.Context, id string, ask store.Ask, actor string) (uint64, error) {
 	return callV[uint64](c, ctx, "AddAsk", id, ask, actor)
 }
@@ -619,6 +622,9 @@ func (c *Client) DeleteHook(ctx context.Context, name, actor string) error {
 }
 func (c *Client) HookPayload(ctx context.Context, seq uint64) ([]byte, error) {
 	return callV[[]byte](c, ctx, "HookPayload", seq)
+}
+func (c *Client) DeliveryFiles(ctx context.Context, seq uint64) ([]store.BlobRef, error) {
+	return callV[[]store.BlobRef](c, ctx, "DeliveryFiles", seq)
 }
 func (c *Client) EventsOfHook(ctx context.Context, kind, hook string, limit int) (*store.HookEvents, error) {
 	return callV[*store.HookEvents](c, ctx, "EventsOfHook", kind, hook, limit)

@@ -661,10 +661,10 @@ func (s *Store) noteFiles(files []BlobFile) ([]BlobRef, error) {
 	return out, nil
 }
 
-// pruneBlobs removes the blobs no letter of the log and no note names, and
-// answers how many. One put within BlobGrace stays, named or not: its mail
-// or note may be on its way. So does a put that did not finish, for as
-// long.
+// pruneBlobs removes the blobs no letter of the log, no note and no hook
+// delivery kept in the log names, and answers how many. One put within
+// BlobGrace stays, named or not: its mail, note or delivery's record may
+// be on its way. So does a put that did not finish, for as long.
 func (s *Store) pruneBlobs() (int, error) {
 	s.blobMu.Lock()
 	defer s.blobMu.Unlock()
@@ -694,6 +694,22 @@ func (s *Store) pruneBlobs() (int, error) {
 					}
 				}
 			}
+		}
+		// What the receiver fetched of hook deliveries kept in the log
+		// (hookfiles.go): a delivery's record goes with its event.
+		if err := tx.Bucket(bHookFiles).ForEach(func(_, raw []byte) error {
+			var files []BlobRef
+			if err := json.Unmarshal(raw, &files); err != nil {
+				return err
+			}
+			for _, f := range files {
+				if f.Hash != "" {
+					named[f.Hash] = true
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 		// And what the notes carry: without this line the sweeper takes
 		// every screenshot within the hour.

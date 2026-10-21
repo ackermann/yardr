@@ -373,6 +373,11 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 					return err
 				}
 			}
+			// What the receiver fetched of a delivery's files goes with
+			// the delivery: its blobs are then named by nothing of it.
+			if err := pruneDeliveryFiles(w.Tx, k); err != nil {
+				return err
+			}
 		}
 		n = len(dead)
 		if n == 0 {

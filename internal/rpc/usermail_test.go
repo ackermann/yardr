@@ -144,11 +144,12 @@ func TestUserStreamShowsOnlyOwnMail(t *testing.T) {
 	}
 }
 
-// A device reads a note's file, its own mail's files, and a file its own
-// user put within the hour whose mail or note is on its way; another
-// user's mail file is 404, as it is in the web view, and so is a file
-// another user just put, anything the yard never held, a name that is no
-// hash, and a file put long ago that nothing names.
+// A device reads a note's file, a kept hook delivery's, its own mail's
+// files, and a file its own user put within the hour whose mail or note
+// is on its way; another user's mail file is 404, as it is in the web
+// view, and so is a file another user just put, anything the yard never
+// held, a name that is no hash, and a file put long ago that nothing
+// names.
 func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 	ctx := context.Background()
 	st, u, joToken, samToken := mailYard(t)
@@ -186,9 +187,21 @@ func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 		t.Fatalf("PutBlob = %s", freshReply)
 	}
 	old := put("put long ago, named by nothing")
-	aged := time.Now().Add(-2 * store.BlobGrace)
-	if err := os.Chtimes(st.BlobPath(old), aged, aged); err != nil {
+	// A photo a kept hook delivery carried, fetched and recorded as the
+	// receiver records it, put long ago: the delivery names it still.
+	hookFile := put("\x89PNG\r\n\x1a\n the shed from the phone")
+	seq, _, err := st.RecordHook(ctx, "telegram", map[string]any{"source": "telegram", "type": "message", "text": "[photo]"}, []byte(`{}`), nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := st.RecordDeliveryFiles(ctx, seq, []store.BlobRef{{Hash: hookFile}}); err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now().Add(-2 * store.BlobGrace)
+	for _, hash := range []string{old, hookFile} {
+		if err := os.Chtimes(st.BlobPath(hash), aged, aged); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	for _, tc := range []struct {
@@ -204,6 +217,8 @@ func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 		{"the sender reads it", joToken, otherFile, http.StatusOK},
 		{"a file just put", samToken, fresh, http.StatusOK},
 		{"a file another user just put", joToken, fresh, http.StatusNotFound},
+		{"a hook delivery's file", samToken, hookFile, http.StatusOK},
+		{"a hook delivery's file to another device", joToken, hookFile, http.StatusOK},
 		{"a file put long ago, named by nothing", samToken, old, http.StatusNotFound},
 		{"a hash the yard never held", samToken, strings.Repeat("4", 64), http.StatusNotFound},
 		{"a name that is no hash", samToken, "nope", http.StatusNotFound},

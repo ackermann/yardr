@@ -866,8 +866,10 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 }
 
 // userBlob serves a blob as the web view serves it to the caller: a note's
-// file to any device, and a mail's file to a device of its sender or
-// recipient (NoteBlob, MailBlob). Anything else is 404, as there: one the
+// file and a kept hook delivery's to any device, and a mail's file to a
+// device of its sender or recipient (NoteBlob, DeliveryBlob, MailBlob). A
+// delivery reaches every device user already (deviceEvent), so its files
+// do too. Anything else is 404, as there: one the
 // yard never held, a name that is no hash, another user's mail file. One
 // exception, which the web view has no use for: a file the caller's own
 // user put within the hour that no mail or note names yet is served to
@@ -879,12 +881,15 @@ func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ctx, c := r.Context(), callerOf(r)
 	_, noteErr := u.st.NoteBlob(ctx, hash)
+	_, hookErr := u.st.DeliveryBlob(ctx, hash)
 	_, mailErr := u.st.MailBlob(ctx, c.User, hash)
 	switch {
-	case noteErr == nil || mailErr == nil || u.unclaimedPut(ctx, c.User, hash):
+	case noteErr == nil || hookErr == nil || mailErr == nil || u.unclaimedPut(ctx, c.User, hash):
 		u.api.blob(w, r)
 	case !errors.Is(noteErr, store.ErrNotFound):
 		http.Error(w, noteErr.Error(), http.StatusInternalServerError)
+	case !errors.Is(hookErr, store.ErrNotFound):
+		http.Error(w, hookErr.Error(), http.StatusInternalServerError)
 	case !errors.Is(mailErr, store.ErrNotFound):
 		http.Error(w, mailErr.Error(), http.StatusInternalServerError)
 	default:

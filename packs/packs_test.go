@@ -1166,7 +1166,7 @@ func TestTelegramPack(t *testing.T) {
 		commands = append(commands, c.Key+" "+strings.Join(c.Argv, " "))
 	}
 	if want := []string{"thread.reply telegram/thread reply", "thread.posted telegram/thread posted",
-		"thread.read telegram/thread read", "hook.normalize telegram/normalize"}; !slices.Equal(commands, want) {
+		"thread.read telegram/thread read", "thread.file telegram/thread get", "hook.normalize telegram/normalize"}; !slices.Equal(commands, want) {
 		t.Fatalf("commands = %q, want %q", commands, want)
 	}
 	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret || h.Verify.Delivery.Body != "update_id" ||

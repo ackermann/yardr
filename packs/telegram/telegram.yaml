@@ -95,12 +95,17 @@ hook:
 # credential under TELEGRAM_BOT_TOKEN, with YARDR_SOURCE_BASE from base
 # above. The service gives a bot no history to read and no idempotency
 # key to set, so posted and read answer what there is to find: nothing.
-# The shapes are in docs/integrations.md.
+# file fetches what a kept delivery's photo, document, voice, video or
+# audio names (getFile, then the file), with the source's own token, into
+# the blob store: at most the yard's blob_max_bytes and the script's
+# TELEGRAM_MAX_BYTES (8 MiB), whichever is lower; the Bot API serves a bot
+# files up to 20 MB. The shapes are in docs/integrations.md.
 
 thread:
   reply:  [telegram/thread, reply]      # in  {thread, parent, body, key}      out {id}
   posted: [telegram/thread, posted]     # in  {thread, key}                    out {} always
   read:   [telegram/thread, read]       # in  {thread}                         out {messages: []} always
+  file:   [telegram/thread, get]        # in  {ref, dir, max_bytes}            out {path, bytes}
 
 # ---- which chats are heard ------------------------------------------------
 # Not the mirror of notify: a delivery is kept only when its chat is the

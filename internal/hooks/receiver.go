@@ -32,6 +32,10 @@ type Store interface {
 	Settings(ctx context.Context) (map[string]string, error)
 	BlockHook(ctx context.Context, name, reason string) error
 	RecordHook(ctx context.Context, name string, envelope map[string]any, payload []byte, dedupe []string) (seq uint64, duplicate bool, err error)
+	// PutBlob and RecordDeliveryFiles keep the files a kept delivery
+	// names, once fetched (files.go).
+	PutBlob(ctx context.Context, data []byte) (*store.BlobRef, error)
+	RecordDeliveryFiles(ctx context.Context, seq uint64, files []store.BlobRef) error
 	RejectHook(ctx context.Context, name, reason string, status, count int, last time.Time) error
 	// ClaimAddress offers the operator a claim for an address a
 	// dropped delivery arrived from (store.ClaimAddress).
@@ -82,6 +86,9 @@ type Receiver struct {
 	mu       sync.Mutex
 	rejected map[string]int
 	refused  map[refusal]*tally
+
+	// fetching counts the deliveries whose files are being fetched.
+	fetching sync.WaitGroup
 }
 
 // NewReceiver serves the hooks of the yard whose home is home: a relative
@@ -275,10 +282,23 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"duplicate": true, "seq": seq})
 		return
 	}
+	// Its files are fetched after the answer, outside the request: a slow
+	// download never makes the service retry (files.go). Only a delivery
+	// kept anew gets here, so a redelivery fetches nothing twice. The
+	// fetch is counted before the answer, so whoever waits on it once
+	// answered finds it.
+	dec, fetch := ad.(Declared)
+	fetch = fetch && len(env.Files) > 0
+	if fetch {
+		rc.fetching.Add(1)
+	}
 	// A source treats any non-200 response as a failed delivery and
 	// retries it. The event is already durable here, so acknowledge it
 	// with 200.
 	writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
+	if fetch {
+		go rc.fetchFiles(name, seq, dec, env.Files)
+	}
 }
 
 // deriveTrain fills the envelope's train field from its head_branch when

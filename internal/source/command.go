@@ -119,8 +119,8 @@ type Command struct {
 const MintCommandKey = "credential.mint_command"
 
 // Commands are the commands the declaration names: the mint command it
-// brings, the limits command, thread's reply, posted, read, open, opened
-// and state, hook.normalize, events' pr and ci, and each call's build, in
+// brings, the limits command, thread's reply, posted, read, file, open,
+// opened and state, hook.normalize, events' pr and ci, and each call's build, in
 // that order. The mint command is one of them so that it is carried as
 // every command file is: copied under <home>/sources/<name>/, hashed on
 // the plan and the card, and shown again when a later pack changes it.
@@ -137,6 +137,7 @@ func (d *Declaration) Commands() []Command {
 			{Key: "thread.reply", Argv: t.Reply},
 			{Key: "thread.posted", Argv: t.Posted},
 			{Key: "thread.read", Argv: t.Read},
+			{Key: "thread.file", Argv: t.File},
 			{Key: "thread.open", Argv: t.Open},
 			{Key: "thread.opened", Argv: t.Opened},
 			{Key: "thread.state", Argv: t.State},
