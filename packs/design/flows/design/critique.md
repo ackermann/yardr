@@ -26,13 +26,20 @@ Check, in this order:
 For a pass over other beads, read each proposed body on its bead against the
 code as it is now, the same way.
 
+Forward, not back. Send a draft back (`changes`) only for what breaks the
+proposal: a claim about the code that is wrong and changes what is proposed,
+a security hole, a bead a builder could not build or that is ordered wrong.
+Everything else goes forward to decide in your `done` note, plainly, each
+item with its section and the file and line: the yardmaster folds it into
+the beads or puts it to the operator there, which costs far less than
+another draft and another critique.
+
 Rounds. Your brief's PATH line shows how often this bead has been in
-critique. The first time, send back whatever would mislead. The second time,
-check that each item of the earlier note was answered and send back only for
-one that was not, or for an error the changes brought in. From the third
-time on do not send it back: leave as `done`, and list what you still find
-wrong, as plainly as before, for the operator to weigh. A design that goes
-round a fourth time costs more than a person reading two notes.
+critique. The second time, check that each item of the earlier note was
+answered and send back only for one that was not and still breaks the
+proposal, or for such an error the changes brought in. From the third time
+on do not send it back: leave as `done`, and list what you still find wrong
+for the operator to weigh.
 
 What moves by itself is not an error: the stage of another bead, a commit
 id, a count that changed because something landed while the writer worked.
@@ -46,7 +53,7 @@ A slip that does not change the proposal or what a person would decide (a
 wrong count, a line number, a typo) is not a reason to send it back: list it
 in your `done` note and the yardmaster has it mended.
 
-Leave as `changes` when the document would mislead whoever decides: a note
+Leave as `changes` when the document would mislead whoever decides in a way that breaks the proposal (above): a note
 listing what must change, each item with the sentence or section it is about
 and the file and line that shows it. Leave as `done` when it is fit to decide
 on: a note naming what you checked, what you disagree with but would leave to
