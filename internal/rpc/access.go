@@ -225,6 +225,7 @@ var Access = map[string]Class{
 	"MarkStopped":         Daemon,
 	"SetHandle":           Daemon,
 	"MarkCleaned":         Daemon,
+	"SnoozeSession":       Agent, // its own pane's session alone, and the two snooze keys alone (store.SnoozeSession)
 	"GetSession":          Read,
 	"Sessions":            Read,
 	"ListSessions":        Read,

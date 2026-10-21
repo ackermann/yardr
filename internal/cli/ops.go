@@ -1430,7 +1430,43 @@ fewer, and --all every session there is, which is what a script wants.
 	cut.flags(list, "ended", "ended sessions")
 	list.Flags().StringVar(&bead, "bead", "", "only this bead's sessions")
 	list.Flags().BoolVar(&running, "running", false, "only sessions an agent or a script is behind: leave out what a person holds and what another yard works (plain session list lists both)")
-	cmd.AddCommand(list)
+	snooze := &cobra.Command{
+		Use: "snooze <dur> <why>", Short: "Say this session waits, not stuck, for a bounded time", Args: cobra.ExactArgs(2),
+		Long: `Says this session's agent waits, not stuck, for dur (10m, 90s):
+while the snooze lasts the yard counts no idle spell for the session
+and sends it no idle prod; when the snooze ends the idle count starts
+fresh. Each snooze writes a session_snoozed event with the duration and
+why, so yardr events shows it.
+
+A snooze waits 15m at most, and 3 in a row without the pane changing;
+past either the snooze is refused and the idle and age limits apply as
+they always did. The command runs inside a bead session, as yardr bead
+done does, and is refused outside one.`,
+		RunE: func(c *cobra.Command, args []string) error {
+			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			sess := a.identity().session
+			if sess == "" {
+				return fmt.Errorf("yardr session snooze runs inside a bead session; outside one there is nothing to snooze")
+			}
+			dur, err := time.ParseDuration(args[0])
+			if err != nil {
+				return fmt.Errorf("snooze %q: %w", args[0], err)
+			}
+			until, err := st.SnoozeSession(c.Context(), sess, dur, args[1], a.who())
+			if err != nil {
+				return err
+			}
+			return a.out(c.OutOrStdout(), map[string]any{
+				"session": sess, "until": until, "duration": dur.String(), "why": args[1],
+			}, func(w io.Writer) {
+				fmt.Fprintf(w, "snoozed %s until %s: %s\n", args[0], until.Local().Format("15:04"), args[1])
+			})
+		},
+	}
+	cmd.AddCommand(list, snooze)
 	return cmd
 }
 

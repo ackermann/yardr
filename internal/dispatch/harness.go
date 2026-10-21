@@ -95,6 +95,12 @@ const (
 	harnessResetWindow = "harness_reset_window" // the window it waits for, as the provider labels it
 	harnessResetModel  = "harness_reset_model"  // the model a session waits with, "" for its agent's own: its group starts no other with it meanwhile (holdBack)
 	harnessPrompted    = "harness_prompted"     // what yardr typed at the reset, until it is known whether the agent took it
+
+	// Of a snooze the session's agent asked for (store.SnoozeSession,
+	// limits.go): the store names them, beside the record that carries
+	// the handle, since it writes them and the dispatcher only reads.
+	snoozeUntil = store.SnoozeUntil // when the snooze ends (RFC 3339); only while the agent waits
+	snoozeCount = store.SnoozeCount // snoozes in a row without the pane changing
 )
 
 // HarnessRetries is how often yardr prompts an agent whose harness stopped

@@ -290,6 +290,9 @@ func (c *Client) SetHandle(ctx context.Context, sessionID string, handle map[str
 func (c *Client) MarkCleaned(ctx context.Context, sessionID string) error {
 	return c.call(ctx, "MarkCleaned", nil, sessionID)
 }
+func (c *Client) SnoozeSession(ctx context.Context, sessionID string, dur time.Duration, why, actor string) (time.Time, error) {
+	return callV[time.Time](c, ctx, "SnoozeSession", sessionID, dur, why, actor)
+}
 func (c *Client) GetSession(ctx context.Context, id string) (*store.Session, error) {
 	return callV[*store.Session](c, ctx, "GetSession", id)
 }

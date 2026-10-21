@@ -110,6 +110,7 @@ type API interface {
 	MarkStopped(ctx context.Context, sessionID string) error
 	SetHandle(ctx context.Context, sessionID string, handle map[string]any) error
 	MarkCleaned(ctx context.Context, sessionID string) error
+	SnoozeSession(ctx context.Context, sessionID string, dur time.Duration, why, actor string) (time.Time, error)
 	GetSession(ctx context.Context, id string) (*Session, error)
 	Sessions(ctx context.Context, all bool) ([]Session, error)
 	ListSessions(ctx context.Context, f SessionFilter) ([]Session, error)

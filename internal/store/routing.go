@@ -1683,6 +1683,23 @@ func loginOf(tx *bolt.Tx, group string) string {
 // dispatcher delivers it and the views read it.
 const PendingPrompt = "pending_prompt"
 
+// SnoozeUntil and SnoozeCount are keys of a session's handle: when a
+// snooze the session's agent asked for ends (RFC 3339), and how many
+// snoozes it has taken in a row without its pane changing. They are named
+// here, with the record that carries the handle, because the store writes
+// them (SnoozeSession) and the dispatcher reads them (limits.go).
+const (
+	SnoozeUntil = "snooze_until"
+	SnoozeCount = "snooze_count"
+)
+
+// The bounds of a snooze, so a stuck agent cannot hide behind one: how
+// long one waits, and how many in a row without the pane changing.
+const (
+	MaxSnoozeDuration     = 15 * time.Minute
+	MaxConsecutiveSnoozes = 3
+)
+
 // RunnerName is the runner that started the session. A session from before
 // sessions recorded their runner is known by what its runner left on its
 // handle, and is "" when that tells nothing.
@@ -2210,6 +2227,78 @@ func (s *Store) MarkCleaned(ctx context.Context, sessionID string) error {
 		sess.Cleaned = true
 		return nil
 	})
+}
+
+// SnoozeSession records that the bead session sessionID waits, not stuck,
+// for dur, and answers when the snooze ends. While it lasts the dispatcher
+// counts no idle spell for the session and sends it no idle prod
+// (limits.go); a session_snoozed event says what it waits on. Only a bead
+// session snoozes: a crew member's is refused as one the yard never
+// started, since crew sessions are no sessions of beads.
+//
+// Unlike SetHandle it is the session's own to make, not the daemon's, so
+// the pane checks still hold: a call from a session's pane is checked as
+// that session's whatever sessionID says, as a bead write is (Expect), and
+// only the two snooze keys are written, never the handle the pane checks
+// trust. A snooze past MaxSnoozeDuration, one with nothing waited on, and
+// one past MaxConsecutiveSnoozes without the pane changing are refused,
+// and the idle limits apply to the refused as they always did.
+func (s *Store) SnoozeSession(ctx context.Context, sessionID string, dur time.Duration, why, actor string) (time.Time, error) {
+	if dur <= 0 || dur > MaxSnoozeDuration {
+		return time.Time{}, fmt.Errorf("snooze of %s: a session snoozes %s at most", dur, MaxSnoozeDuration)
+	}
+	if strings.TrimSpace(why) == "" {
+		return time.Time{}, fmt.Errorf("snooze: say what the session waits on")
+	}
+	var end time.Time
+	err := s.write(func(w *wtx) error {
+		pane, err := paneSession(w.Tx, callerOf(ctx))
+		if err != nil {
+			return err
+		}
+		switch {
+		case pane != nil && sessionID != "" && sessionID != pane.ID:
+			return fmt.Errorf("%w: this pane is session %s, not %s", ErrConflict, pane.ID, sessionID)
+		case pane != nil:
+			sessionID = pane.ID
+		case sessionID == "":
+			return fmt.Errorf("snooze runs inside a bead session; outside one there is nothing to snooze")
+		}
+		var sess Session
+		ok, err := get(w.Tx, bSessions, sessionID, &sess)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("session %s: %w", sessionID, ErrNotFound)
+		}
+		if !sess.live() {
+			return fmt.Errorf("session %s is %s; only a live session snoozes", sessionID, sess.State)
+		}
+		count, _ := uintIn(sess.Handle[SnoozeCount])
+		if count >= MaxConsecutiveSnoozes {
+			return fmt.Errorf("session %s has snoozed %d times in a row without its pane changing; no further snooze until it does", sessionID, count)
+		}
+		end = now().Add(dur)
+		h := maps.Clone(sess.Handle)
+		if h == nil {
+			h = map[string]any{}
+		}
+		h[SnoozeUntil] = end.UTC().Format(time.RFC3339)
+		h[SnoozeCount] = int(count) + 1
+		sess.Handle = h
+		if err := putSession(w.Tx, &sess); err != nil {
+			return err
+		}
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		return w.event(sess.Bead, "session_snoozed", resolved, map[string]any{
+			"session": sessionID, "duration": dur.String(), "why": why,
+		})
+	})
+	return end, err
 }
 
 func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {

@@ -22,9 +22,12 @@ import (
 //	         harness.go, which also says when yardr prompts it again
 //	         itself). An agent that waits for the window of a usage
 //	         limit to reset is not idle, until yardr has looked at it
-//	         then. Neither is one whose pane says, at the limit, that
-//	         work it started in the background still runs (a harness's
-//	         `background` lines, harness.go): the spell starts again
+//	         then. Nor is one whose agent said it waits, not stuck
+//	         (`yardr session snooze`): no idle spell is counted while
+//	         its snooze lasts. Neither is one whose pane says, at the
+//	         limit, that work it started in the background still runs
+//	         (a harness's `background` lines, harness.go): the spell
+//	         starts again
 //	max_age  how long a session may run before a session_aged event;
 //	         default 4h
 //	grace    when set, a session still idle (or still running) this long
@@ -127,6 +130,21 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			} else {
 				d.harnessReset(ctx, r, s, g)
 			}
+		} else if due, snoozed := handleTime(s.Handle, snoozeUntil); idleNow && snoozed {
+			// Its agent said it waits, not stuck (yardr session snooze):
+			// not an idle spell while the snooze lasts, and nothing is
+			// told or prodded. When the snooze ends the key goes and the
+			// idle count starts fresh from the next pass. The age limit
+			// below is not moved by it.
+			delete(d.idleSince, s.ID)
+			delete(d.idleTold, s.ID)
+			delete(d.idleNudged, s.ID)
+			delete(d.idleOutcomeTold, s.ID)
+			if d.now().Before(due) {
+				d.lookAt(due)
+			} else {
+				d.unsnooze(ctx, s)
+			}
 		} else if idleNow {
 			since, ok := d.idleSince[s.ID]
 			if !ok {
@@ -193,6 +211,9 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			delete(d.idleNudged, s.ID)
 			delete(d.idleOutcomeTold, s.ID)
 			d.harnessOver(ctx, s)
+			if st == "working" {
+				d.snoozeOver(ctx, s)
+			}
 		}
 	}
 
@@ -242,6 +263,45 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 		}
 	}
 	return true
+}
+
+// unsnooze ends the snooze of s, whose time is up: the key goes, and the
+// idle count starts fresh from the next pass. The count of consecutive
+// snoozes stays: only a pane that changed breaks the run (snoozeOver).
+func (d *Dispatcher) unsnooze(ctx context.Context, s *store.Session) {
+	h := maps.Clone(s.Handle)
+	if h == nil {
+		h = map[string]any{}
+	}
+	delete(h, snoozeUntil)
+	if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+		d.Log.Warn("end a session's snooze", "session", s.ID, "err", err)
+		return
+	}
+	s.Handle = h
+}
+
+// snoozeOver ends the snooze of s, whose agent is working again: the wait
+// is over, and the count of consecutive snoozes starts again. A harness
+// at work redraws its screen, so a session seen working is one whose pane
+// changed, which is what breaks the run; a pane that stands while herdr
+// says working (stillIdle) keeps it, as do the statuses that say nothing
+// either way.
+func (d *Dispatcher) snoozeOver(ctx context.Context, s *store.Session) {
+	if s.Handle[snoozeUntil] == nil && s.Handle[snoozeCount] == nil {
+		return
+	}
+	h := maps.Clone(s.Handle)
+	if h == nil {
+		h = map[string]any{}
+	}
+	delete(h, snoozeUntil)
+	delete(h, snoozeCount)
+	if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+		d.Log.Warn("end a session's snooze", "session", s.ID, "err", err)
+		return
+	}
+	s.Handle = h
 }
 
 // stillPane is the end of a working agent's pane as last seen, and when it
