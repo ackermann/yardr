@@ -224,7 +224,8 @@ runtest() {
     # `test: waited N s` line when it acquires the lock; account for the
     # elapsed active wait too, since it may outlast LIMIT. The loop is
     # merge-local's, copied: the scripts are installed one file each, and
-    # merge-local also ships in the packs, so neither has a file to source.
+    # merge-local also ships in the packs, so there is no shared file for
+    # them to source. A fix to one is made in both (a test holds them equal).
     credited=0
     wait_for=$LIMIT
     while :; do

@@ -373,3 +373,31 @@ func TestTrainTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
 		t.Fatalf("train children %v, want r-1, r-2 and a fix", f.Children)
 	}
 }
+
+// creditLoop is the part of a script's timeout watcher that credits the
+// seconds the run waited for the race lock: from credited=0 to the done that
+// ends its loop.
+func creditLoop(t *testing.T, script string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(readFile(t, script), "\n    credited=0\n")
+	if !ok {
+		t.Fatalf("%s has no credit loop (no credited=0)", script)
+	}
+	loop, _, ok := strings.Cut(rest, "\n    done\n")
+	if !ok {
+		t.Fatalf("%s: its credit loop does not end in done", script)
+	}
+	return loop
+}
+
+// integrate-train's watcher credits the race-lock wait with merge-local's
+// loop, copied: the scripts are installed one file each, so there is none to
+// source. A fix to one is made in both, as the copies of merge-local are one
+// script (TestMergeLocalCopiesIdentical): yardr-bywx fixed merge-local alone,
+// and a train late in the queue was killed with every test green.
+func TestIntegrateTrainCreditLoopIsMergeLocals(t *testing.T) {
+	want, got := creditLoop(t, "merge-local"), creditLoop(t, "integrate-train")
+	if got != want {
+		t.Errorf("integrate-train's credit loop differs from merge-local's: change both\nmerge-local:\n%s\nintegrate-train:\n%s", want, got)
+	}
+}
