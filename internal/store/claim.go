@@ -200,6 +200,9 @@ func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text stri
 			return err
 		}
 		ask := Ask{Question: question, To: operator, Context: []string{contextLine}, Run: &card}
+		if ask.Weight, err = w.weighAsk(ask); err != nil {
+			return err
+		}
 		text, err := json.Marshal(ask)
 		if err != nil {
 			return err
@@ -411,6 +414,7 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 			Options:  options,
 			Identity: &AskIdentity{Source: sourceName, Sender: sender, Channel: channel, Users: users},
 		}
+		ask.Weight = mappingWeight(*ask.Identity)
 		text, err := json.Marshal(ask)
 		if err != nil {
 			return err
@@ -588,6 +592,15 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 	}
 	if actor != ask.To {
 		return fmt.Errorf("ask %d asks who %s in %s is of %s, the operator: this is %s", ans.Ask, id.Sender, id.Source, ask.To, or(actor, "nobody"))
+	}
+	// A pick that writes a user's identity is weighed again, as an
+	// approval weighs every card: a card from before mapping cards were
+	// weighed showed none, and writes no identity.
+	writes := ans.Option <= len(id.Users) || ans.Option <= len(ask.Options) && ask.Options[ans.Option-1].Label == MappingSomeoneNew
+	if writes {
+		if err := weightStale(ans.Ask, ask.Weight, mappingWeight(*id)); err != nil {
+			return err
+		}
 	}
 	if ans.Option > len(id.Users) {
 		// Someone new, nobody, or YouDecide, told by the stored

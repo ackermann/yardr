@@ -196,6 +196,7 @@ func TestRunAskCard(t *testing.T) {
 	got := y.asked(t, seq).Lines()
 	want := []string{
 		"ask 1 · open · to mckean · asked by yardmaster · 0m ago",
+		"  WEIGHTY · trust: widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now",
 		"  Take more mail from airy?",
 		"  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.",
 		"  yardmaster says: the yard says: nothing changes.",
@@ -224,12 +225,20 @@ func TestRunAskCard(t *testing.T) {
 		q.Open[0].Run.Back != "yardr peer allow airy --mail-limit 30" || len(q.Open[0].Run.Does) != 1 {
 		t.Fatalf("the queue's row = %+v", q.Open)
 	}
+	// Both carry the card's weight as the yard weighed it.
+	weight := []AskWeight{{Class: WeightTrust, Line: "widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now"}}
+	if !slices.Equal(q.Open[0].Weight, weight) {
+		t.Fatalf("the queue's row weighs %+v, want %+v", q.Open[0].Weight, weight)
+	}
 	v, err := y.Bead(y.ctx, y.bead)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(v.Asks) != 1 || v.Asks[0].Run == nil || !slices.Equal(v.Asks[0].Run.Argv, []string{"peer", "allow", "airy", "--mail-limit", "300"}) || v.Asks[0].Ran != nil {
 		t.Fatalf("the bead's ask = %+v", v.Asks)
+	}
+	if !slices.Equal(v.Asks[0].Weight, weight) {
+		t.Fatalf("the bead's ask weighs %+v, want %+v", v.Asks[0].Weight, weight)
 	}
 	// A peer that named itself nothing is named by its key alone.
 	if err := y.write(func(w *wtx) error {
@@ -311,7 +320,8 @@ func TestApproveAsk(t *testing.T) {
 		t.Errorf("the approved card still offers the approval:\n%s", strings.Join(card, "\n"))
 	}
 	q, err := y.UserAsks(y.ctx, "mckean")
-	if err != nil || len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].Ran == nil || q.Decided[0].Ran.Result != result || q.Decided[0].Run == nil {
+	if err != nil || len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].Ran == nil || q.Decided[0].Ran.Result != result || q.Decided[0].Run == nil ||
+		len(q.Decided[0].Weight) != 1 || q.Decided[0].Weight[0].Class != WeightTrust {
 		t.Fatalf("the queue after the approval = %+v, %v", q, err)
 	}
 	v, err := y.Bead(y.ctx, y.bead)
@@ -690,6 +700,7 @@ func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
 	got := y.asked(t, seq).Lines()
 	want := []string{
 		"ask 1 · open · to mckean · asked by yardmaster · 0m ago",
+		"  WEIGHTY · trust: widens who the yard listens to: the link with airy takes 300 mails and asks an hour from it, 30 now",
 		"  Take more?\n        when you approve, the yard runs this as mckean, and nothing else:\n        yardr peer list",
 		"  yardmaster says: airy's yard was refused 4 mails in the last hour: the link takes 30.",
 		"  yardmaster says: You write from airy all day, so most of its mail is yours.",

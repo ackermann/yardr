@@ -499,7 +499,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, r.Current.Note.Author)
 	}
 	was := *r.Ask.Run
-	_, argv, err := parseRun(was.Argv)
+	c, argv, err := parseRun(was.Argv)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w", seq, err)
 	}
@@ -508,6 +508,14 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	}
 	if !slices.Equal(argv, was.Argv) {
 		return nil, fmt.Errorf("ask %d holds a command the yard did not write (%s): nothing ran", seq, was.Command())
+	}
+	// Weighed again, as approveAsk weighs every other row.
+	weight, err := w.weighRun(c, was)
+	if err != nil {
+		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
+	}
+	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
 	}
 	name, sourceName, unknownWord := hookAddParts(argv)
 	src, d, err := sourceIn(w.Tx, sourceName)

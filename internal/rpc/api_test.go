@@ -106,7 +106,7 @@ var apiPNGHash = func() string {
 
 // A queue row is the same open and decided.
 func queueRow(prefix string) []field {
-	return []field{
+	return append([]field{
 		{prefix + "bead", "string", "the bead the question stands on: a handle, or `bead@peer` for a question another yard asked"},
 		{prefix + "bead_title", "string", "the bead's title"},
 		{prefix + "topic", "string", "the bead's topic: its first `topic:` label, `\"\"` when it has none"},
@@ -114,6 +114,15 @@ func queueRow(prefix string) []field {
 		{prefix + "question", "string", "the question in one line, as a person would ask it"},
 		{prefix + "asker", "string", "who asked: a name, or `name@peer` for a question another yard asked"},
 		{prefix + "since", "time", "when the ask was written: how long it waits (as sent, for a question another yard asked)"},
+	}, weighed(prefix)...)
+}
+
+// weighed is a card's weight, on a row of the queue and an ask of a bead.
+func weighed(prefix string) []field {
+	return []field{
+		{prefix + "weight", "array?", "the card's weight as the yard weighed it when it wrote the card: one entry a class, each a way approving it widens what the yard does ([weighty cards](#weighty-cards)). Absent on a routine card"},
+		{prefix + "weight[].class", "string", "`credential`, `as-user`, `outside`, `code`, `trust` or `reads`. A later build may add a class: draw one a client does not know as weighty, with its line"},
+		{prefix + "weight[].line", "string", "the yard's line for the class with what this card does, as a terminal card prints it after `WEIGHTY · <class>: `"},
 	}
 }
 
@@ -465,6 +474,7 @@ var apiCalls = []apiCall{
 			{"asks[].by", "string?", "who took the ask back, its asker or the operator; absent on every other state"},
 			{"asks[].return_at", "time?", "when a put-aside ask comes back; absent otherwise"},
 			{"asks[].picks_before", "number?", "how many picks there were before the current one, so a client can say \"changed\"; absent when there were none"},
+			weighed("asks[].")[0], weighed("asks[].")[1], weighed("asks[].")[2],
 			{"asks[].secret", "object?", "what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words"},
 			{"asks[].secret.source", "string", "the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login or harness-key ask"},
 			{"asks[].secret.env", "array of string", "the names to ask the person a value for, each a variable of the source's credential; with `user`, the one variable the source reads of a user's file; with `crew`, variables of the source's credential; with `as`, the names a call as that user mints or uses; on a login ask, the one name the input is asked for; on a harness-key ask, variables of the kind's `login_env`"},

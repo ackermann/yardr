@@ -1536,7 +1536,13 @@ POST /call/UserAsks
           "source": "crm",
           "env": ["CRM_UPDATE_TOKEN"],
           "line": "a secret: CRM_UPDATE_TOKEN, for the source crm (https://crm.example.com)"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_UPDATE_TOKEN, for the source crm (https://crm.example.com)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1550,7 +1556,13 @@ POST /call/UserAsks
           "source": "crm",
           "env": ["CRM_TOKEN"],
           "line": "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)"
+          }
+        ]
       },
       {
         "bead": "yd-greet",
@@ -1574,7 +1586,13 @@ POST /call/UserAsks
           "env": ["PHONE_USER"],
           "user": "jo",
           "line": "a secret: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1589,7 +1607,13 @@ POST /call/UserAsks
           "command": "yardr peer allow north --mail-limit 300",
           "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
           "back": "yardr peer allow north --mail-limit 100"
-        }
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: the link with north takes 300 mails and asks an hour from it, 100 now"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1620,7 +1644,13 @@ POST /call/UserAsks
           "env": ["INPUT"],
           "login": "claude-example2",
           "line": "a secret: INPUT, for the waiting login claude-example2"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: INPUT, for the waiting login claude-example2"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1635,7 +1665,13 @@ POST /call/UserAsks
           "env": ["CRM_UPDATE_TOKEN"],
           "crew": "yardmaster",
           "line": "a secret: CRM_UPDATE_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_UPDATE_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1650,7 +1686,17 @@ POST /call/UserAsks
           "env": ["CRM_TOKEN"],
           "as": "jo",
           "line": "a secret: CRM_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
+          },
+          {
+            "class": "as-user",
+            "line": "lets calls or words count as a person's: a call of the source crm made --as jo reads it as jo's own"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1665,7 +1711,13 @@ POST /call/UserAsks
           "env": ["GOG_ACCOUNT"],
           "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
         },
-        "concealed": false
+        "concealed": false,
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1720,7 +1772,21 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account COURIER_ACCOUNT of pack courier"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group builders and crew yardmaster call put of courier (an update)"
+          },
+          {
+            "class": "code",
+            "line": "brings a program the yard will run: the command file courier-mint of courier (new)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1772,7 +1838,21 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account COURIER_ACCOUNT of pack courier"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets crew yardmaster call put of courier (an update)"
+          },
+          {
+            "class": "code",
+            "line": "brings a program the yard will run: the command file courier-mint of courier (new)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1819,7 +1899,17 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN of pack ledger"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group builders and crew yardmaster call put of ledger (an update)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1866,7 +1956,17 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN of pack parcel"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group builders and crew yardmaster call put of parcel (an update)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1882,7 +1982,13 @@ POST /call/UserAsks
           "crew": "yardmaster",
           "harness": "claude",
           "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
+          }
+        ]
       }
     ],
     "decided": [
@@ -1902,7 +2008,13 @@ POST /call/UserAsks
           "harness": "claude",
           "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
         },
-        "given": ["ANTHROPIC_API_KEY"]
+        "given": ["ANTHROPIC_API_KEY"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -1951,7 +2063,17 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN of pack parcel"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group elders and crew yardmaster call put of parcel (an update)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2000,7 +2122,17 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN of pack ledger"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group elders and crew yardmaster call put of ledger (an update)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2057,7 +2189,21 @@ POST /call/UserAsks
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account COURIER_ACCOUNT of pack courier"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group elders and crew yardmaster call put of courier (an update)"
+          },
+          {
+            "class": "code",
+            "line": "brings a program the yard will run: the command file courier-mint of courier (new)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2074,7 +2220,13 @@ POST /call/UserAsks
           "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
         },
         "concealed": false,
-        "given": ["GOG_ACCOUNT"]
+        "given": ["GOG_ACCOUNT"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2091,7 +2243,17 @@ POST /call/UserAsks
           "as": "jo",
           "line": "a secret: CRM_UPDATE_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
         },
-        "given": ["CRM_UPDATE_TOKEN"]
+        "given": ["CRM_UPDATE_TOKEN"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_UPDATE_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
+          },
+          {
+            "class": "as-user",
+            "line": "lets calls or words count as a person's: a call of the source crm made --as jo reads it as jo's own"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2108,7 +2270,13 @@ POST /call/UserAsks
           "crew": "yardmaster",
           "line": "a secret: CRM_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
         },
-        "given": ["CRM_TOKEN"]
+        "given": ["CRM_TOKEN"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2125,7 +2293,13 @@ POST /call/UserAsks
           "login": "claude-example1",
           "line": "a secret: INPUT, for the waiting login claude-example1"
         },
-        "given": ["INPUT"]
+        "given": ["INPUT"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: INPUT, for the waiting login claude-example1"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2166,7 +2340,13 @@ POST /call/UserAsks
         "ran": {
           "argv": ["peer", "allow", "north", "--mail-limit", "100"],
           "result": "peer north: takes 100 mails and asks an hour, and 6400 files"
-        }
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: the link with north takes 100 mails and asks an hour from it, 30 now"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2183,7 +2363,13 @@ POST /call/UserAsks
           "user": "jo",
           "line": "a secret: PAGER_USER, jo's own address in the source pager (https://pager.example.com); jo is told through pager once it is given and yardr user set jo notify=pager is run"
         },
-        "given": ["PAGER_USER"]
+        "given": ["PAGER_USER"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: PAGER_USER, jo's own address in the source pager (https://pager.example.com); jo is told through pager once it is given and yardr user set jo notify=pager is run"
+          }
+        ]
       },
       {
         "bead": "yd-crm",
@@ -2211,7 +2397,13 @@ POST /call/UserAsks
           "env": ["BOOKS_TOKEN"],
           "line": "a secret: BOOKS_TOKEN, for the source books (https://books.example.com)"
         },
-        "given": ["BOOKS_TOKEN"]
+        "given": ["BOOKS_TOKEN"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: BOOKS_TOKEN, for the source books (https://books.example.com)"
+          }
+        ]
       },
       {
         "bead": "yd-links",
@@ -2273,6 +2465,9 @@ POST /call/UserAsks
 | `open[].question` | string | the question in one line, as a person would ask it |
 | `open[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `open[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `open[].weight` | array, may be absent | the card's weight as the yard weighed it when it wrote the card: one entry a class, each a way approving it widens what the yard does ([weighty cards](#weighty-cards)). Absent on a routine card |
+| `open[].weight[].class` | string | `credential`, `as-user`, `outside`, `code`, `trust` or `reads`. A later build may add a class: draw one a client does not know as weighty, with its line |
+| `open[].weight[].line` | string | the yard's line for the class with what this card does, as a terminal card prints it after `WEIGHTY · <class>: ` |
 | `open[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
 | `open[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login or harness-key ask |
 | `open[].secret.env` | array of string | the names to ask the person a value for; with a harness-key ask, variables in that harness kind's `login_env` |
@@ -2318,6 +2513,9 @@ POST /call/UserAsks
 | `decided[].question` | string | the question in one line, as a person would ask it |
 | `decided[].asker` | string | who asked: a name, or `name@peer` for a question another yard asked |
 | `decided[].since` | time | when the ask was written: how long it waits (as sent, for a question another yard asked) |
+| `decided[].weight` | array, may be absent | the card's weight as the yard weighed it when it wrote the card: one entry a class, each a way approving it widens what the yard does ([weighty cards](#weighty-cards)). Absent on a routine card |
+| `decided[].weight[].class` | string | `credential`, `as-user`, `outside`, `code`, `trust` or `reads`. A later build may add a class: draw one a client does not know as weighty, with its line |
+| `decided[].weight[].line` | string | the yard's line for the class with what this card does, as a terminal card prints it after `WEIGHTY · <class>: ` |
 | `decided[].secret` | object, may be absent | what a secret ask asks for, as `Bead` says it; absent on any other ask |
 | `decided[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login or harness-key ask |
 | `decided[].secret.env` | array of string | the names to ask the person a value for; with a harness-key ask, variables in that harness kind's `login_env` |
@@ -2601,7 +2799,13 @@ POST /call/Bead
           "env": ["BOOKS_TOKEN"],
           "line": "a secret: BOOKS_TOKEN, for the source books (https://books.example.com)"
         },
-        "given": ["BOOKS_TOKEN"]
+        "given": ["BOOKS_TOKEN"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: BOOKS_TOKEN, for the source books (https://books.example.com)"
+          }
+        ]
       },
       {
         "ask": 18,
@@ -2616,7 +2820,13 @@ POST /call/Bead
           "source": "crm",
           "env": ["CRM_UPDATE_TOKEN"],
           "line": "a secret: CRM_UPDATE_TOKEN, for the source crm (https://crm.example.com)"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_UPDATE_TOKEN, for the source crm (https://crm.example.com)"
+          }
+        ]
       },
       {
         "ask": 19,
@@ -2631,7 +2841,13 @@ POST /call/Bead
           "source": "crm",
           "env": ["CRM_TOKEN"],
           "line": "a secret: CRM_TOKEN, for the source crm (https://crm.example.com)"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)"
+          }
+        ]
       },
       {
         "ask": 20,
@@ -2669,7 +2885,13 @@ POST /call/Bead
           "user": "jo",
           "line": "a secret: PAGER_USER, jo's own address in the source pager (https://pager.example.com); jo is told through pager once it is given and yardr user set jo notify=pager is run"
         },
-        "given": ["PAGER_USER"]
+        "given": ["PAGER_USER"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: PAGER_USER, jo's own address in the source pager (https://pager.example.com); jo is told through pager once it is given and yardr user set jo notify=pager is run"
+          }
+        ]
       },
       {
         "ask": 25,
@@ -2685,7 +2907,13 @@ POST /call/Bead
           "env": ["PHONE_USER"],
           "user": "jo",
           "line": "a secret: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: PHONE_USER, jo's own address in the source phone (https://phone.example.com); jo is told through phone once it is given and yardr user set jo notify=phone is run"
+          }
+        ]
       },
       {
         "ask": 26,
@@ -2705,7 +2933,13 @@ POST /call/Bead
         "ran": {
           "argv": ["peer", "allow", "north", "--mail-limit", "100"],
           "result": "peer north: takes 100 mails and asks an hour, and 6400 files"
-        }
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: the link with north takes 100 mails and asks an hour from it, 30 now"
+          }
+        ]
       },
       {
         "ask": 28,
@@ -2721,7 +2955,13 @@ POST /call/Bead
           "command": "yardr peer allow north --mail-limit 300",
           "does": ["the link with north (key 6lHks9_z…) takes 300 mails and asks an hour from it. It takes 100 now."],
           "back": "yardr peer allow north --mail-limit 100"
-        }
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: the link with north takes 300 mails and asks an hour from it, 100 now"
+          }
+        ]
       },
       {
         "ask": 29,
@@ -2776,7 +3016,13 @@ POST /call/Bead
           "login": "claude-example1",
           "line": "a secret: INPUT, for the waiting login claude-example1"
         },
-        "given": ["INPUT"]
+        "given": ["INPUT"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: INPUT, for the waiting login claude-example1"
+          }
+        ]
       },
       {
         "ask": 34,
@@ -2792,7 +3038,13 @@ POST /call/Bead
           "env": ["INPUT"],
           "login": "claude-example2",
           "line": "a secret: INPUT, for the waiting login claude-example2"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: INPUT, for the waiting login claude-example2"
+          }
+        ]
       },
       {
         "ask": 35,
@@ -2809,7 +3061,13 @@ POST /call/Bead
           "crew": "yardmaster",
           "line": "a secret: CRM_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
         },
-        "given": ["CRM_TOKEN"]
+        "given": ["CRM_TOKEN"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          }
+        ]
       },
       {
         "ask": 37,
@@ -2825,7 +3083,13 @@ POST /call/Bead
           "env": ["CRM_UPDATE_TOKEN"],
           "crew": "yardmaster",
           "line": "a secret: CRM_UPDATE_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_UPDATE_TOKEN, for crew member yardmaster in the source crm (https://crm.example.com); the env_file line is the one written, and it takes effect when yardmaster next starts (rotation or yardr crew restart yardmaster)"
+          }
+        ]
       },
       {
         "ask": 38,
@@ -2842,7 +3106,17 @@ POST /call/Bead
           "as": "jo",
           "line": "a secret: CRM_UPDATE_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
         },
-        "given": ["CRM_UPDATE_TOKEN"]
+        "given": ["CRM_UPDATE_TOKEN"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_UPDATE_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
+          },
+          {
+            "class": "as-user",
+            "line": "lets calls or words count as a person's: a call of the source crm made --as jo reads it as jo's own"
+          }
+        ]
       },
       {
         "ask": 40,
@@ -2858,7 +3132,17 @@ POST /call/Bead
           "env": ["CRM_TOKEN"],
           "as": "jo",
           "line": "a secret: CRM_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: CRM_TOKEN, jo's own credential for the source crm (https://crm.example.com), read as jo when a call is made --as jo"
+          },
+          {
+            "class": "as-user",
+            "line": "lets calls or words count as a person's: a call of the source crm made --as jo reads it as jo's own"
+          }
+        ]
       },
       {
         "ask": 41,
@@ -2874,7 +3158,13 @@ POST /call/Bead
           "env": ["GOG_ACCOUNT"],
           "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
         },
-        "concealed": false
+        "concealed": false,
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+          }
+        ]
       },
       {
         "ask": 42,
@@ -2891,7 +3181,13 @@ POST /call/Bead
           "line": "a secret: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
         },
         "concealed": false,
-        "given": ["GOG_ACCOUNT"]
+        "given": ["GOG_ACCOUNT"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: GOG_ACCOUNT, for the source gog (https://gog.example.com)"
+          }
+        ]
       },
       {
         "ask": 44,
@@ -2975,7 +3271,21 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account COURIER_ACCOUNT of pack courier"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group builders and crew yardmaster call put of courier (an update)"
+          },
+          {
+            "class": "code",
+            "line": "brings a program the yard will run: the command file courier-mint of courier (new)"
+          }
+        ]
       },
       {
         "ask": 45,
@@ -3054,7 +3364,21 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account COURIER_ACCOUNT of pack courier"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets crew yardmaster call put of courier (an update)"
+          },
+          {
+            "class": "code",
+            "line": "brings a program the yard will run: the command file courier-mint of courier (new)"
+          }
+        ]
       },
       {
         "ask": 46,
@@ -3121,7 +3445,17 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN of pack ledger"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group builders and crew yardmaster call put of ledger (an update)"
+          }
+        ]
       },
       {
         "ask": 47,
@@ -3188,7 +3522,17 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN of pack parcel"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group builders and crew yardmaster call put of parcel (an update)"
+          }
+        ]
       },
       {
         "ask": 48,
@@ -3271,7 +3615,21 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account COURIER_ACCOUNT of pack courier"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group elders and crew yardmaster call put of courier (an update)"
+          },
+          {
+            "class": "code",
+            "line": "brings a program the yard will run: the command file courier-mint of courier (new)"
+          }
+        ]
       },
       {
         "ask": 50,
@@ -3339,7 +3697,17 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account LEDGER_TOKEN and LEDGER_UPDATE_TOKEN of pack ledger"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group elders and crew yardmaster call put of ledger (an update)"
+          }
+        ]
       },
       {
         "ask": 52,
@@ -3407,7 +3775,17 @@ POST /call/Bead
               "crew": "yardmaster"
             }
           ]
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: the account PARCEL_TOKEN and PARCEL_UPDATE_TOKEN of pack parcel"
+          },
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: the preset all lets group elders and crew yardmaster call put of parcel (an update)"
+          }
+        ]
       },
       {
         "ask": 54,
@@ -3424,7 +3802,13 @@ POST /call/Bead
           "crew": "yardmaster",
           "harness": "claude",
           "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
-        }
+        },
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
+          }
+        ]
       },
       {
         "ask": 55,
@@ -3442,7 +3826,13 @@ POST /call/Bead
           "harness": "claude",
           "line": "a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
         },
-        "given": ["ANTHROPIC_API_KEY"]
+        "given": ["ANTHROPIC_API_KEY"],
+        "weight": [
+          {
+            "class": "credential",
+            "line": "gives a credential or an address to the yard: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
+          }
+        ]
       }
     ]
   }
@@ -3489,6 +3879,9 @@ POST /call/Bead
 | `asks[].by` | string, may be absent | who took the ask back, its asker or the operator; absent on every other state |
 | `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
 | `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
+| `asks[].weight` | array, may be absent | the card's weight as the yard weighed it when it wrote the card: one entry a class, each a way approving it widens what the yard does ([weighty cards](#weighty-cards)). Absent on a routine card |
+| `asks[].weight[].class` | string | `credential`, `as-user`, `outside`, `code`, `trust` or `reads`. A later build may add a class: draw one a client does not know as weighty, with its line |
+| `asks[].weight[].line` | string | the yard's line for the class with what this card does, as a terminal card prints it after `WEIGHTY · <class>: ` |
 | `asks[].secret` | object, may be absent | what a secret ask asks for; absent on any other ask. Such an ask has no options and takes no words: show it with a field that does not echo, and answer it with [`GiveSecret`](#for-the-operator-alone). `AnswerAsk` refuses a pick and words on it, and `DeclineAsk` words |
 | `asks[].secret.source` | string | the declared source the secret is the credential of; with `user`, `crew` or `as`, the source the address or credential is in; empty on a login or harness-key ask |
 | `asks[].secret.env` | array of string | the names to ask the person a value for, each a variable of the source's credential; with `user`, the one variable the source reads of a user's file; with `crew`, variables of the source's credential; with `as`, the names a call as that user mints or uses; on a login ask, the one name the input is asked for; on a harness-key ask, variables of the kind's `login_env` |
@@ -3999,6 +4392,40 @@ A value given with `GiveSecret` is the person's secret. Read it into a
 field that does not echo, send it in this call and in nothing else, and
 keep it nowhere: not in a draft, a notice, a log or an error. Empty the
 field when the call returns, whatever it answered.
+
+### Weighty cards
+
+A card the person approves rather than answers in words (a run ask, a
+setup ask, a secret ask, a mapping ask) may be *weighty*: approving it
+widens what reaches outside the yard, whose word or credential counts as a
+person's, or what runs inside the yard. The yard weighs every card in the
+write that stores it, from the card it wrote and its own records, never
+from the asker's words, and puts the weight on the ask as `weight`
+(`open[].weight` and `decided[].weight` of [`UserAsks`](#userasks),
+`asks[].weight` of [`Bead`](#bead)): one entry a class, each with the
+yard's line for it and what this card does. A routine card has none.
+
+| class | the yard's line | the cards that carry it |
+|---|---|---|
+| `credential` | gives a credential or an address to the yard | every secret ask; `user key`; a setup ask, which takes the account |
+| `as-user` | lets calls or words count as a person's | `source grant ... --as <user>`; a secret ask with `secret.as`; `user identity`; a mapping ask, whose picks write a user's identity |
+| `outside` | lets the yard change something outside it | `source grant` of an update call, or of a preset holding one; `source set` of `calls_per_hour` or `updates_per_hour` that raises the updates a caller can make in an hour, the lower of the two; a setup ask whose presets grant an update call |
+| `code` | brings a program the yard will run | `source add` and `pack apply` whose command files are new or differ from the copies that stand; a setup ask whose pack brings such files |
+| `trust` | widens who the yard listens to | `user add`; `peer allow` adding a kind or raising the mail limit; `crew set peers=` adding a peer; `hook add` |
+| `reads` | widens what a standing grant of read reaches | `pack apply`, or a setup ask, that replaces a declaration with a new or changed read call while someone holds a grant of `read` of it |
+
+A card that narrows (a revoke, a lower limit, `user rm`, `timer rm`, a
+kind taken off a link) is never weighty. A later build may add a class: a
+client draws one it does not know as weighty, with its line. Show the
+lines first on the card, above everything the asker wrote, as `yardr bead
+ask` prints them: `WEIGHTY · <class>: <line>`.
+
+An approval (`ApproveAsk`, `ApproveSetup`, `GiveSecret`, a pick on a
+mapping ask with `AnswerAsk`) weighs the card again. Where the weight is
+not the one the card showed, or the card was written before cards were
+weighed and weighs as weighty now, nothing runs and the call is refused
+with the stale refusal: the ask stays open, to be declined and asked
+again.
 
 <!-- local: made by the test of internal/rpc from what a yard answers, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
 

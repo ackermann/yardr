@@ -335,6 +335,11 @@ type runCommand struct {
 	// approval reads the card again without that, and says in its own words
 	// what changed (stale).
 	card func(w *wtx, argv []string, asking bool) (AskRun, error)
+	// weigh is the card's weight (weight.go), from the card the row wrote
+	// and the yard's records, never from the asker's words: in the write
+	// that stores the ask and again in the approval's. nil for a routine
+	// row.
+	weigh func(w *wtx, run AskRun) ([]AskWeight, error)
 	// stale says why an approval of the ask seq is refused, when the card it
 	// was written with (was) is not the one the yard would write now. Nil
 	// carries the approval on: the row held it to the card as it stands,
@@ -393,6 +398,7 @@ var runList = []runCommand{{
 	check:       checkPeerAllow,
 	card:        (*wtx).peerAllowCard,
 	stale:       (*wtx).peerAllowStale,
+	weigh:       peerAllowWeight,
 	run:         runPeerAllow,
 	link:        func(argv []string) ([]string, string) { return []string{argv[2]}, "widen its own link" },
 	commas:      true,
@@ -425,6 +431,7 @@ var runList = []runCommand{{
 	check:       checkSourceLimit,
 	card:        (*wtx).sourceLimitCard,
 	stale:       (*wtx).sourceLimitStale,
+	weigh:       sourceLimitWeight,
 	run: func(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
 		name, key, n := sourceLimitOf(argv)
 		src, err := w.setSource(ctx, name, key, strconv.Itoa(n), n, actor, by)
@@ -441,6 +448,7 @@ var runList = []runCommand{{
 	check:       checkGrant,
 	card:        (*wtx).grantCard,
 	stale:       (*wtx).grantStale,
+	weigh:       grantWeight,
 	run:         runGrant,
 	sole: func(argv []string) string {
 		_, _, _, _, as := grantOf(argv)
@@ -454,6 +462,7 @@ var runList = []runCommand{{
 	checkRun:    checkSourceAdd,
 	cardRun:     (*wtx).sourceAddCard,
 	stale:       (*wtx).sourceAddStale,
+	weigh:       carriedRunWeight,
 	runRun:      runSourceAdd,
 }, {
 	words:       []string{"source", "ignore"},
@@ -482,6 +491,7 @@ var runList = []runCommand{{
 	checkRun:    checkPackApply,
 	cardRun:     (*wtx).packApplyCard,
 	stale:       (*wtx).packApplyStale,
+	weigh:       carriedRunWeight,
 	runRun:      runPackApply,
 }, {
 	words:       []string{"hook", "add"},
@@ -491,6 +501,7 @@ var runList = []runCommand{{
 	check:       checkHookAdd,
 	card:        (*wtx).hookAddCard,
 	stale:       (*wtx).hookAddStale,
+	weigh:       hookAddWeight,
 	run:         runHookAdd,
 }, {
 	words:       []string{"subscribe"},
@@ -519,6 +530,7 @@ var runList = []runCommand{{
 	checkRun:    checkUserKey,
 	cardRun:     (*wtx).userKeyCard,
 	stale:       (*wtx).userKeyStale,
+	weigh:       userKeyWeight,
 	runRun:      runUserKey,
 	whose:       func(argv []string) string { return argv[2] },
 }, {
@@ -529,6 +541,7 @@ var runList = []runCommand{{
 	check:       checkUserAdd,
 	card:        (*wtx).userAddCard,
 	stale:       (*wtx).userAddStale,
+	weigh:       userAddWeight,
 	run:         runUserAdd,
 }, {
 	words:       []string{"user", "rm"},
@@ -547,6 +560,7 @@ var runList = []runCommand{{
 	check:       checkCrewGrant,
 	card:        (*wtx).crewGrantCard,
 	stale:       (*wtx).crewGrantStale,
+	weigh:       crewGrantWeight,
 	run:         runCrewGrant,
 	link:        crewGrantLink,
 	commas:      true,
@@ -567,6 +581,7 @@ var runList = []runCommand{{
 	check:       checkUserIdentity,
 	card:        (*wtx).userIdentityCard,
 	stale:       (*wtx).userIdentityStale,
+	weigh:       userIdentityWeight,
 	run:         runUserIdentity,
 	whose:       func(argv []string) string { return argv[2] },
 }, {
@@ -1336,6 +1351,15 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 		// The row held the approval to the card as it stands now: the
 		// answer carries that card, drawn at approve time.
 		was.Does = card.Does
+	}
+	// Weighed again from the card as it stands: a card whose weight is
+	// not the one it showed, or that showed none, is approved no more.
+	weight, err := w.weighRun(c, card)
+	if err != nil {
+		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
+	}
+	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
 	}
 	var result string
 	if c.runRun != nil {

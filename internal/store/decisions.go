@@ -59,6 +59,10 @@ type OpenAsk struct {
 	Setup *SetupAsked `json:"setup,omitempty"`
 	// Identity is what a mapping ask maps; absent on any other ask.
 	Identity *IdentityAsked `json:"identity,omitempty"`
+	// Weight is the card's weight, each class with the yard's line, as
+	// the yard weighed it when it wrote the card; absent on a routine
+	// card.
+	Weight []AskWeight `json:"weight,omitempty"`
 }
 
 // DecidedAsk is one ask the person answered, declined or put aside, or its
@@ -107,6 +111,10 @@ type DecidedAsk struct {
 	Setup *SetupAsked `json:"setup,omitempty"`
 	// Identity is what a mapping ask maps; absent on any other ask.
 	Identity *IdentityAsked `json:"identity,omitempty"`
+	// Weight is the card's weight, each class with the yard's line, as
+	// the yard weighed it when it wrote the card; absent on a routine
+	// card.
+	Weight []AskWeight `json:"weight,omitempty"`
 }
 
 // AskQueue is what a person has to decide and has dealt with.
@@ -156,7 +164,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				q.Open = append(q.Open, OpenAsk{
 					Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 					Ask: r.Note.Seq, Question: r.Ask.Question,
-					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
+					Asker: r.Note.Author, Since: r.Note.At, Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(), Weight: r.Ask.Weight,
 				})
 				continue
 			}
@@ -164,7 +172,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 				Bead: b.ID, BeadTitle: b.Title, Topic: topic,
 				Ask: r.Note.Seq, Question: r.Ask.Question,
 				Asker: r.Note.Author, Since: r.Note.At,
-				State: r.State.String(), Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
+				State: r.State.String(), Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(), Weight: r.Ask.Weight,
 			}
 			// An ask that is not open has the answer its state is from.
 			d.decidedBy(r)
@@ -400,6 +408,10 @@ type BeadAsk struct {
 	Setup *SetupAsked `json:"setup,omitempty"`
 	// Identity is what a mapping ask maps; absent on any other ask.
 	Identity *IdentityAsked `json:"identity,omitempty"`
+	// Weight is the card's weight, each class with the yard's line, as
+	// the yard weighed it when it wrote the card; absent on a routine
+	// card.
+	Weight []AskWeight `json:"weight,omitempty"`
 }
 
 // BeadView is one bead whole: body, stage, labels, notes, its asks, and
@@ -461,7 +473,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		a := BeadAsk{
 			Ask: r.Note.Seq, To: r.Ask.To, Asker: r.Note.Author, Since: r.Note.At,
 			Question: r.Ask.Question, Context: r.Ask.Context, Options: r.Ask.Options,
-			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(),
+			Recommend: r.Ask.Recommend, Why: r.Ask.Why, State: r.State.String(), Secret: r.Ask.asked(), Concealed: r.Ask.concealed(), Run: r.Ask.proposed(), Setup: r.Ask.setup(), Identity: r.Ask.identityAsked(), Weight: r.Ask.Weight,
 		}
 		if a.Options == nil {
 			a.Options = []AskOption{}

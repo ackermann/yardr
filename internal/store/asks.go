@@ -124,6 +124,13 @@ type Ask struct {
 	// dropped delivery, never by AddAsk, and stays in the yard as a
 	// run ask does.
 	Identity *AskIdentity `json:"identity,omitempty"`
+	// Weight is the card's weight (weight.go): the classes by which
+	// approving it widens what reaches outside the yard, whose word or
+	// credential counts as a person's, or what runs inside, each with the
+	// yard's line. Empty on a routine card. It is the yard's own value,
+	// weighed in the write that stores the ask from the card the yard
+	// wrote: newAsk clears whatever a caller sends, as it clears Stage.
+	Weight []AskWeight `json:"weight,omitempty"`
 }
 
 // AskIdentity is what a mapping ask maps: the source hearing by
@@ -308,6 +315,7 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 	// secret and run asks are stored with the yard's own values: a person
 	// asking by hand puts no stage ask.
 	ask.Stage, ask.Move, ask.Entry, ask.Fallback = "", nil, 0, false
+	ask.Weight = nil
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
 		return nil, fmt.Errorf("an ask needs a question")
@@ -514,6 +522,11 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 				return 0, err
 			}
 			ask.Setup, ask.Options = setup, options
+		}
+		// Weighed from the card the yard has just written, never from
+		// what the writer sent.
+		if ask.Weight, err = w.weighAsk(ask); err != nil {
+			return 0, err
 		}
 		ask.About = handles
 		text, err := json.Marshal(ask)
@@ -1307,6 +1320,9 @@ func (r ResolvedAsk) LinesMarked(as map[string]string) []string {
 // never marked; the answer is the other yard's, and says whose word it
 // is.
 //
+// A weighty card's classes come first after its head, each a line of
+// "WEIGHTY · <class>: <line>" (weight.go).
+//
 // A run ask is drawn so that the asker's words cannot stand for the yard's:
 // each context line begins with who says it, a question's and an answer's
 // later lines stand further in than any line the yard prints, and the
@@ -1335,7 +1351,14 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	// text stands further in than its author line, so no line of it
 	// reads as another note. Its later lines stand further in than any
 	// line the yard prints, so none reads as one of the yard's.
-	out := []string{head, "  " + strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n        ")}
+	out := []string{head}
+	// The card's weight is the yard's, and stands before the asker's
+	// question, one line a class, so a weighty card reads as one before
+	// anything else on it is read.
+	for _, w := range r.Ask.Weight {
+		out = append(out, "  WEIGHTY · "+OneLine(w.String()))
+	}
+	out = append(out, "  "+strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n        "))
 	for _, line := range r.Ask.Context {
 		// A context line is one line, refused with a break at the
 		// write; one stored before that folds to the line it is.

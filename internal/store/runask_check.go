@@ -387,7 +387,7 @@ func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, act
 		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, r.Current.Note.Author)
 	}
 	was := *r.Ask.Run
-	_, argv, err := parseRun(was.Argv)
+	c, argv, err := parseRun(was.Argv)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w", seq, err)
 	}
@@ -404,6 +404,14 @@ func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, act
 	}
 	if !sameMap(card.Seen, was.Seen) || !slices.Equal(card.Does, was.Does) || card.Back != was.Back || card.BackBy != was.BackBy {
 		return nil, w.sourceCheckStale(seq, was, card)
+	}
+	// Weighed again, as approveAsk weighs every other row.
+	weight, err := w.weighRun(c, card)
+	if err != nil {
+		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
+	}
+	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
 	}
 	u, err := getUser(w.Tx, user)
 	if err != nil {

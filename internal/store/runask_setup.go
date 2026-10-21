@@ -1297,6 +1297,15 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	if err := w.setupHeldStale(seq, was, picked); err != nil {
 		return nil, err
 	}
+	// Weighed again from the card as it stands: a card whose weight is
+	// not the one it showed, or that showed none, is approved no more.
+	weight, err := w.setupWeight(now)
+	if err != nil {
+		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
+	}
+	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
+		return nil, err
+	}
 	// An approval the yard carries out after this write leaves its
 	// carrying record in it, for the server to take up (carry.go).
 	if err := w.recordSetupCarry(row.ID, seq, was, account, keep, actor); err != nil {

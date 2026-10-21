@@ -686,6 +686,11 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	if err != nil {
 		return err
 	}
+	// Weighed again, as an approval weighs every card: an ask written
+	// before secrets were weighed showed none, and is given no more.
+	if err := weightStale(ask, storedWeight(notes, ask), secretWeight(*sec)); err != nil {
+		return err
+	}
 	if sec.Harness != "" {
 		return w.giveHarnessKey(ctx, home, row, ask, sec, values, actor, k)
 	}
