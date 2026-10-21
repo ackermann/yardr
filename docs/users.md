@@ -567,8 +567,9 @@ device does not read whole is `Settings`, which answers a device the
 promised keys alone: `operator`, `blob_max_bytes` and `files_max`, and to
 a device of the operator alone the operator's own words to their agents,
 `operator_style` and `operator_note`. No other setting is told to a
-device, and the values in other settings' `setting_changed` events are
-held back the same way: the key comes without one.
+device (a lost token gives away no `edge`, `hook_public_url` or
+`backup_dir`), and the `setting_changed` event of such a setting comes
+with its key and without its value.
 
 **A stolen device of the operator can replace a source's credential, and
 cannot read one.** Until `yardr user device rm`, whoever holds its token

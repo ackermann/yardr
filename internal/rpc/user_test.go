@@ -478,6 +478,27 @@ func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 	check("the operator's stream", jos, store.StyleSetting, "work", true)
 }
 
+// The event a device is sent without its value is a copy. The store hands
+// one event, and one map of its data, to every stream and every
+// subscriber, so dropping the value from it would take it from the
+// operator's stream and the daemon's as well.
+func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
+	_, u, _ := userYard(t)
+	const url = "https://hooks.example.com/south"
+	e := store.Event{Kind: "setting_changed", Data: map[string]any{"key": store.HookPublicURLSetting, "value": url}}
+	sam := &Caller{User: "sam", SaidBy: "tablet", device: true}
+	sent := u.deviceEvent(context.Background(), sam, e)
+	if v, has := sent.Data["value"]; has {
+		t.Errorf("sam is sent %v as the value of a setting they are not told", v)
+	}
+	if sent.Data["key"] != store.HookPublicURLSetting {
+		t.Errorf("sam is sent %v, want the key kept", sent.Data)
+	}
+	if e.Data["value"] != url {
+		t.Errorf("the event every other stream is handed is now %v, want its value kept", e.Data)
+	}
+}
+
 // userPaths are requests of every kind the handler serves, and of none.
 var userPaths = [][2]string{
 	{http.MethodGet, "/user/me"},
