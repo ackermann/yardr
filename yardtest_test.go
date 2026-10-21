@@ -43,14 +43,18 @@ func gitT(t *testing.T, dir string, args ...string) string {
 // the script it is part of: the base and the landing of an agent's session
 // or the assembly, the socket client and the GOOS of a landing's steps, a
 // plan, the race lock the run's own race leg holds, and the quiet run's
-// own marks (YARDR_R1_STRICT and YARDR_QUIET_RUN), which would otherwise
-// judge the script's budgets strictly instead of as the case means. A case
-// sets what it means the script to have: one that runs the script sets
-// YARDR_RACE_HELD, so its race step shares the hold instead of taking the
-// machine's lock, except the lock's own test, which takes a lock of its
-// own.
+// marks (YARDR_R1_STRICT and YARDR_QUIET_RUN), which would otherwise change
+// strict-budget judging and enable quiet-run-only tests. A case sets what
+// it means the script to have: one that runs the script sets YARDR_RACE_HELD,
+// so its race step shares the hold instead of taking the machine's lock,
+// except the lock's own test, which takes a lock of its own.
 func scriptEnv() []string {
-	return slices.DeleteFunc(os.Environ(), func(kv string) bool {
+	return scriptEnvFrom(os.Environ())
+}
+
+// scriptEnvFrom lets a case check the filter with a synthetic run environment.
+func scriptEnvFrom(environ []string) []string {
+	return slices.DeleteFunc(environ, func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
 		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN"}, k)
 	})
@@ -2526,16 +2530,13 @@ func sleepSite(dur string) string {
 	return "time.Sleep" + "(" + dur + ")"
 }
 
-// runProbe runs the budget probe with args in dir: its exit code and its
-// combined output. The probe judges by the case's variables alone, never
-// the run's: scriptEnv withholds what the run gave the script it is part
-// of, so the quiet run's own strict setting does not fail the cases that
-// loud-pass without it.
-func runProbe(t *testing.T, probePath, dir string, env []string, args ...string) (string, int) {
+// runProbe runs the budget probe in dir with the run's environment filtered
+// before the case's variables are added; it returns the exit code and output.
+func runProbe(t *testing.T, probePath, dir string, inheritedEnv, env []string, args ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command("sh", append([]string{probePath}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(scriptEnv(), env...)
+	cmd.Env = append(scriptEnvFrom(inheritedEnv), env...)
 	out, err := cmd.CombinedOutput()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
@@ -2593,7 +2594,7 @@ func TestYardTestBudgets(t *testing.T) {
 	}
 	runEnv := func(dir string, env []string, args ...string) (string, int) {
 		t.Helper()
-		return runProbe(t, probePath, dir, env, args...)
+		return runProbe(t, probePath, dir, os.Environ(), env, args...)
 	}
 	run := func(dir string, args ...string) (string, int) {
 		t.Helper()
@@ -2772,6 +2773,30 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 	})
 
+	t.Run("quiet run marks do not reach the budget probe", func(t *testing.T) {
+		dir := t.TempDir()
+		write(dir, "leak.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		inheritedEnv := append(os.Environ(), "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1")
+		for _, kv := range scriptEnvFrom(inheritedEnv) {
+			k, _, _ := strings.Cut(kv, "=")
+			if k == "YARDR_R1_STRICT" || k == "YARDR_QUIET_RUN" {
+				t.Fatalf("scriptEnv carries %q from the run", kv)
+			}
+		}
+		_, env := r1go(t)
+		out, code := runProbe(t, probePath, dir, inheritedEnv, append(env,
+			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
+			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
+			"packagebudget", "leak.txt", "go", "test", "-race", "./...")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("output %q, want it to hold %q", out, want)
+		}
+	})
+
 	t.Run("the quiet run's strict setting fails over budget alone on a loaded machine", func(t *testing.T) {
 		// The same loaded re-measurement, judged twice: without the
 		// setting it loud-passes as at a landing, with YARDR_R1_STRICT,
@@ -2878,39 +2903,4 @@ func TestYardTestBudgets(t *testing.T) {
 			}
 		}
 	})
-}
-
-// The budget probe judges by the case's variables alone: under the quiet
-// run's own marks, a loaded over-budget re-measurement still loud-passes
-// instead of failing strictly (yardr-pxah). Sequential, so the marks it
-// sets cannot reach a parallel sibling's environment.
-func TestYardTestProbeDoesNotInheritTheRunsMarks(t *testing.T) {
-	t.Setenv("YARDR_R1_STRICT", "1")
-	t.Setenv("YARDR_QUIET_RUN", "1")
-	for _, kv := range scriptEnv() {
-		if k, _, _ := strings.Cut(kv, "="); k == "YARDR_R1_STRICT" || k == "YARDR_QUIET_RUN" {
-			t.Fatalf("scriptEnv carries %q from the run", kv)
-		}
-	}
-	probe, _, _ := yardTestProbe(t)
-	probePath := filepath.Join(t.TempDir(), "probe.sh")
-	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "leak.txt"), []byte("ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, env := r1go(t)
-	out, code := runProbe(t, probePath, dir, append(env,
-		"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
-		"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
-		"packagebudget", "leak.txt", "go", "test", "-race", "./...")
-	if code != 0 {
-		t.Fatalf("exit %d, output %q, want exit 0", code, out)
-	}
-	want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
-	if !strings.Contains(out, want+"\n") {
-		t.Errorf("output %q, want it to hold %q", out, want)
-	}
 }
