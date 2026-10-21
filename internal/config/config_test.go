@@ -223,6 +223,18 @@ func TestLoadReadOnlyWithCreatesNothing(t *testing.T) {
 // still defaults from the process's user home, and a relative HOME is
 // still resolved from its working directory.
 func TestLoadReadOnlyWithUsesProcessHomeAndDirectory(t *testing.T) {
+	// The relative home below resolves from the working directory, which
+	// is the checkout in a plain run and the quiet run's temporary
+	// worktree there; under a long one its socket would not fit a unix
+	// path and the load would rightly refuse it. Resolve from a short
+	// directory of this test's own instead, so the test judges the
+	// resolution and not the length of the path it runs under.
+	dir, err := os.MkdirTemp("/tmp", "ycr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Chdir(dir)
 	userHome, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)

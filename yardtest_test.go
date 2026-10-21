@@ -42,14 +42,17 @@ func gitT(t *testing.T, dir string, args ...string) string {
 // scriptEnv is this test's environment without what the run it is in gave
 // the script it is part of: the base and the landing of an agent's session
 // or the assembly, the socket client and the GOOS of a landing's steps, a
-// plan, and the race lock the run's own race leg holds. A case sets what it
-// means the script to have: one that runs the script sets YARDR_RACE_HELD,
-// so its race step shares the hold instead of taking the machine's lock,
-// except the lock's own test, which takes a lock of its own.
+// plan, the race lock the run's own race leg holds, and the quiet run's
+// own marks (YARDR_R1_STRICT and YARDR_QUIET_RUN), which would otherwise
+// judge the script's budgets strictly instead of as the case means. A case
+// sets what it means the script to have: one that runs the script sets
+// YARDR_RACE_HELD, so its race step shares the hold instead of taking the
+// machine's lock, except the lock's own test, which takes a lock of its
+// own.
 func scriptEnv() []string {
 	return slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "YARDR_RACE_HELD"}, k)
+		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN"}, k)
 	})
 }
 
@@ -2523,6 +2526,58 @@ func sleepSite(dur string) string {
 	return "time.Sleep" + "(" + dur + ")"
 }
 
+// runProbe runs the budget probe with args in dir: its exit code and its
+// combined output. The probe judges by the case's variables alone, never
+// the run's: scriptEnv withholds what the run gave the script it is part
+// of, so the quiet run's own strict setting does not fail the cases that
+// loud-pass without it.
+func runProbe(t *testing.T, probePath, dir string, env []string, args ...string) (string, int) {
+	t.Helper()
+	cmd := exec.Command("sh", append([]string{probePath}, args...)...)
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(), env...)
+	out, err := cmd.CombinedOutput()
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return string(out), ee.ExitCode()
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return string(out), 0
+}
+
+// r1go is a go for the package budget's re-run: it reports the alone
+// seconds FAKE_OVER names over budget, every other package fast, and
+// fails every re-run when FAKE_FAIL is set. It writes down every call
+// with YARDR_RACE_HELD.
+func r1go(t *testing.T) (fake string, env []string) {
+	t.Helper()
+	fake = t.TempDir()
+	goFake := `#!/bin/sh
+echo "$* held=${YARDR_RACE_HELD-unset}" >>"$FAKE/calls"
+for last in "$@"; do pkg=$last; done
+if [ -n "$FAKE_FAIL" ]; then
+  echo "--- FAIL: TestX (0.00s)"
+  echo "FAIL"
+  printf 'FAIL\t%s\t0.123s\n' "$pkg"
+  exit 1
+fi
+case " $FAKE_OVER " in
+ *" $pkg "*) secs=1m6.6s ;;
+ *) secs=12.3s ;;
+esac
+printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
+`
+	if err := os.WriteFile(filepath.Join(fake, "go"), []byte(goFake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env = []string{
+		"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"FAKE=" + fake, "YARDR_RACE_HELD=1",
+	}
+	return fake, env
+}
+
 // The budgets .yardr/test enforces (docs/testing.md R1 and R2), through the
 // script's own functions: an over-budget package or sleep fails unless the
 // allow-list names it, and the allow-list names nothing the tree no longer
@@ -2538,19 +2593,7 @@ func TestYardTestBudgets(t *testing.T) {
 	}
 	runEnv := func(dir string, env []string, args ...string) (string, int) {
 		t.Helper()
-		cmd := exec.Command("sh", append([]string{probePath}, args...)...)
-		cmd.Dir = dir
-		if env != nil {
-			cmd.Env = append(os.Environ(), env...)
-		}
-		out, err := cmd.CombinedOutput()
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			return string(out), ee.ExitCode()
-		} else if err != nil {
-			t.Fatal(err)
-		}
-		return string(out), 0
+		return runProbe(t, probePath, dir, env, args...)
 	}
 	run := func(dir string, args ...string) (string, int) {
 		t.Helper()
@@ -2619,38 +2662,6 @@ func TestYardTestBudgets(t *testing.T) {
 			t.Errorf("output %q, want it to contain %q", out, want)
 		}
 	})
-
-	// r1go is a go for the package budget's re-run: it reports the alone
-	// seconds FAKE_OVER names over budget, every other package fast, and
-	// fails every re-run when FAKE_FAIL is set. It writes down every call
-	// with YARDR_RACE_HELD.
-	r1go := func(t *testing.T) (fake string, env []string) {
-		t.Helper()
-		fake = t.TempDir()
-		goFake := `#!/bin/sh
-echo "$* held=${YARDR_RACE_HELD-unset}" >>"$FAKE/calls"
-for last in "$@"; do pkg=$last; done
-if [ -n "$FAKE_FAIL" ]; then
-  echo "--- FAIL: TestX (0.00s)"
-  echo "FAIL"
-  printf 'FAIL\t%s\t0.123s\n' "$pkg"
-  exit 1
-fi
-case " $FAKE_OVER " in
- *" $pkg "*) secs=1m6.6s ;;
- *) secs=12.3s ;;
-esac
-printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
-`
-		if err := os.WriteFile(filepath.Join(fake, "go"), []byte(goFake), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		env = []string{
-			"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH"),
-			"FAKE=" + fake, "YARDR_RACE_HELD=1",
-		}
-		return fake, env
-	}
 
 	t.Run("the package budget judges race legs by re-measuring alone", func(t *testing.T) {
 		dir := t.TempDir()
@@ -2867,4 +2878,39 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 			}
 		}
 	})
+}
+
+// The budget probe judges by the case's variables alone: under the quiet
+// run's own marks, a loaded over-budget re-measurement still loud-passes
+// instead of failing strictly (yardr-pxah). Sequential, so the marks it
+// sets cannot reach a parallel sibling's environment.
+func TestYardTestProbeDoesNotInheritTheRunsMarks(t *testing.T) {
+	t.Setenv("YARDR_R1_STRICT", "1")
+	t.Setenv("YARDR_QUIET_RUN", "1")
+	for _, kv := range scriptEnv() {
+		if k, _, _ := strings.Cut(kv, "="); k == "YARDR_R1_STRICT" || k == "YARDR_QUIET_RUN" {
+			t.Fatalf("scriptEnv carries %q from the run", kv)
+		}
+	}
+	probe, _, _ := yardTestProbe(t)
+	probePath := filepath.Join(t.TempDir(), "probe.sh")
+	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "leak.txt"), []byte("ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, env := r1go(t)
+	out, code := runProbe(t, probePath, dir, append(env,
+		"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
+		"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
+		"packagebudget", "leak.txt", "go", "test", "-race", "./...")
+	if code != 0 {
+		t.Fatalf("exit %d, output %q, want exit 0", code, out)
+	}
+	want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
+	if !strings.Contains(out, want+"\n") {
+		t.Errorf("output %q, want it to hold %q", out, want)
+	}
 }
