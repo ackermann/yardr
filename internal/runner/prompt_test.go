@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -653,7 +654,9 @@ func TestPromptEchoedBeforeTheInputIsDrawnIsSubmitted(t *testing.T) {
 // drawn no input yet, was taken as the echo. For a kind whose input mark is
 // known it is left pending; for any other kind it is all there is to go by,
 // as before. Since yardr-bcx5 a pane of a known kind without its input is
-// typed nothing at all: the look is "no screen", and herdr is not asked.
+// typed nothing at all: the look is "no screen", and herdr is not asked. A
+// pane at the harness's login screen is typed nothing either (see
+// TestStartAgentLeavesPromptPendingAtLoginScreen).
 func TestStartAgentTellsTypedFromTaken(t *testing.T) {
 	t.Parallel()
 	prompt := "Read /wt/brief-1.md and follow it."
@@ -715,9 +718,15 @@ esac`)
 			calls := readCalls(t, bin+".calls")
 			// One look for the harness's screen before anything is typed
 			// (yardr-bcx5), of a kind whose mark says what that is; one after.
+			// A kind with a login screen gets one more between them, the
+			// login read (yardr-khfs), unless the screen gate already held
+			// the prompt back.
 			_, marked := marksOf(c.kind)
 			want, typed := 1, true
 			if marked {
+				want++
+			}
+			if hn, _ := agents.Lookup(c.kind); len(hn.Login) > 0 && c.look != "no screen, not typed" {
 				want++
 			}
 			switch {
@@ -1197,6 +1206,46 @@ func TestFirstPromptWaitsForTheHarnessScreen(t *testing.T) {
 	if got := events(); got["session_harness_starting"] != 1 || got["session_prompt_lost"] != 0 ||
 		got["session_prompt_gave_up"] != 0 || got["session_prompted"] != 1 {
 		t.Fatalf("events = %v, want one session_harness_starting and one session_prompted", got)
+	}
+}
+
+// Found trialing yardr-71m2: the runner's start typed the first prompt into
+// a harness already at its login menu. The menu's selected option carries
+// the input mark, so the screen reads as up; the dispatcher reads the login
+// screen before trusting the mark and types nothing there (see loginAt), and
+// the starter does the same: the prompt stays pending for the dispatcher to
+// type once the harness is logged in. The dispatcher's next pass tells
+// nudge_held not_logged_in and marks the handle; the starter only leaves the
+// prompt pending.
+func TestStartAgentLeavesPromptPendingAtLoginScreen(t *testing.T) {
+	t.Parallel()
+	prompt := "Read /wt/brief-1.md and follow it."
+	bin := deafHerdrBin(t, `printf '%s\n' "$*" >> "$0.calls"
+case "$1 $2" in
+  "agent prompt") exit 1 ;;
+  "pane read") printf '%s\n' '`+claudeLoginMenu+`' ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)
+	handle, err := (&Herdr{Bin: bin}).startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", prompt,
+		map[string]any{"agent": "b1", "pane": "w1:p1", harnessKind: "claude"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle[store.PendingPrompt] != prompt {
+		t.Fatalf("pending prompt = %v, want the prompt left pending (%v)", handle[store.PendingPrompt], handle)
+	}
+	if got, _ := handle[dispatch.PromptLook].(string); got != "login screen, not typed" {
+		t.Errorf("%s = %q, want %q", dispatch.PromptLook, got, "login screen, not typed")
+	}
+	if handle[dispatch.HarnessLoginKey] != nil {
+		t.Errorf("HarnessLoginKey = %v, want the starter to set none (the dispatcher's pass marks the handle)", handle[dispatch.HarnessLoginKey])
+	}
+	calls := readCalls(t, bin+".calls")
+	if strings.Contains(calls, "agent prompt") {
+		t.Errorf("the prompt was typed into the login screen:\n%s", calls)
+	}
+	if got := strings.Count(calls, "pane read"); got != 2 {
+		t.Errorf("the pane was read %d times, want the screen gate's look and the login read:\n%s", got, calls)
 	}
 }
 

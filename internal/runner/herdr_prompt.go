@@ -73,6 +73,17 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		handle[dispatch.PromptLook] = PromptNotTyped
 		return handle, nil
 	}
+	if line, err := h.InputLogin(ctx, handle); err == nil && line != "" {
+		// At the harness's login screen: its menu carries the input
+		// mark, so the screen reads as up, but keys typed there would
+		// answer the menu. The dispatcher reads the login first for the
+		// same reason (see loginAt) and types the prompt once the
+		// harness is logged in. A look that failed tells nothing, as
+		// there.
+		handle[store.PendingPrompt] = prompt
+		handle[dispatch.PromptLook] = PromptLoginNotTyped
+		return handle, nil
+	}
 	pane, _ := handle["pane"].(string)
 	took, err := h.prompt(ctx, name, pane, prompt)
 	if err != nil {
@@ -202,6 +213,11 @@ const (
 // the dispatcher types it once the screen is up. The onboarding's wait for
 // the yardmaster reads it to say the harness waits in its pane.
 const PromptNotTyped = sawNoScreen + ", not typed"
+
+// PromptLoginNotTyped is the dispatch.PromptLook of a first prompt that was
+// not typed because the harness sits at its login screen (see startAgent);
+// the dispatcher types it once the harness is logged in.
+const PromptLoginNotTyped = "login screen, not typed"
 
 // arrived says what the pane of the agent shows of the prompt herdr just
 // sent it. It is one look: herdr has waited for the agent to start on the
