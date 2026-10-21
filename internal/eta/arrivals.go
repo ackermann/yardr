@@ -23,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/shared"
 )
 
 // ArrivalLimit is how many rows the board holds: the top of what is in
@@ -191,7 +193,7 @@ func arrivalRemark(b ArrivalBead) (remark, tone string) {
 	}
 	if b.Late {
 		if b.LateBy > 0 {
-			return "late by " + span(b.LateBy), "amber"
+			return "late by " + shared.Span(b.LateBy), "amber"
 		}
 		return "late", "amber"
 	}

@@ -210,7 +210,9 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	// primary is the group the routes would send a bead like b in stage
 	// to: the first of the matching route's groups.
 	primary := func(stage, typ string, depot *string, labels []string, priority int, originator string) (Group, bool) {
-		r := matchRoute(routes, stage, typ, depot, labels, priority, originator, operator)
+		eff := shared.EffectiveRoutes(routes, viewRoute, depot, operator)
+		r := shared.Match(eff, viewRoute, shared.Bead{Stage: stage, Type: typ, Depot: depot,
+			Labels: labels, Priority: priority, Originator: originator}, operator)
 		if r == nil || len(r.Groups) == 0 {
 			return Group{}, false
 		}
@@ -291,8 +293,8 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 		}
 		med, p90 = scale(med, stretch), scale(p90, stretch)
 		low, high = low+med, high+p90
-		parts = append(parts, lg.stage+" ~"+span(med))
-		stages = append(stages, ETAStage{Stage: lg.stage, Group: lg.group, Median: span(med)})
+		parts = append(parts, lg.stage+" ~"+shared.Span(med))
+		stages = append(stages, ETAStage{Stage: lg.stage, Group: lg.group, Median: shared.Span(med)})
 		consider(c.ClaimN)
 		clocked = true
 	}
@@ -305,14 +307,14 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 	var eta *ETA
 	if clocked || queueClocked {
 		low, high = low+wait, high+wait
-		line := "eta usual " + span(low) + "–" + span(high)
-		if span(low) == span(high) {
-			line = "eta usual " + span(low)
+		line := "eta usual " + shared.Span(low) + "–" + shared.Span(high)
+		if shared.Span(low) == shared.Span(high) {
+			line = "eta usual " + shared.Span(low)
 		}
-		eta = &ETA{Low: span(low), High: span(high), Stages: stages, Unclocked: unclocked, Samples: minN,
+		eta = &ETA{Low: shared.Span(low), High: shared.Span(high), Stages: stages, Unclocked: unclocked, Samples: minN,
 			Line: line + " (" + strings.Join(parts, "; ") + ")"}
 		if showQueue {
-			eta.Queue, eta.Ahead = span(wait), ahead
+			eta.Queue, eta.Ahead = shared.Span(wait), ahead
 		}
 	}
 	late := lateMark(b, label, primaryOf, cells, now)
@@ -489,10 +491,10 @@ func simulateQueue(b Bead, g Group, cells Cells, q Queue, now time.Time, primary
 		return out
 	}
 	if out.ahead == 0 {
-		out.part = "queue ~" + span(out.wait) + " for " + g.Name
+		out.part = "queue ~" + shared.Span(out.wait) + " for " + g.Name
 		return out
 	}
-	out.part = "queue ~" + span(out.wait) + " behind " + beads(out.ahead) + " for " + g.Name
+	out.part = "queue ~" + shared.Span(out.wait) + " behind " + beads(out.ahead) + " for " + g.Name
 	return out
 }
 
@@ -535,9 +537,9 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 		if c.EntryN < SampleFloor || age <= c.EntryP90 {
 			return nil
 		}
-		return &Late{Stage: b.Stage, Clock: "waiting", InStage: span(age), P90: span(c.EntryP90),
+		return &Late{Stage: b.Stage, Clock: "waiting", InStage: shared.Span(age), P90: shared.Span(c.EntryP90),
 			Line: fmt.Sprintf("late: waiting in %s %s, past the usual %s (p90 entry-to-exit for %s in %s)",
-				b.Stage, span(age), span(c.EntryP90), label, g.Name)}
+				b.Stage, shared.Span(age), shared.Span(c.EntryP90), label, g.Name)}
 	}
 	if b.SessionStart == nil {
 		return nil
@@ -547,9 +549,9 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 	if c.ClaimN < SampleFloor || age <= c.ClaimP90 {
 		return nil
 	}
-	return &Late{Stage: b.Stage, Clock: "running", InStage: span(age), P90: span(c.ClaimP90),
+	return &Late{Stage: b.Stage, Clock: "running", InStage: shared.Span(age), P90: shared.Span(c.ClaimP90),
 		Line: fmt.Sprintf("late: running in %s %s, past the usual %s (p90 claim-to-exit for %s in %s)",
-			b.Stage, span(age), span(c.ClaimP90), label, *b.Group)}
+			b.Stage, shared.Span(age), shared.Span(c.ClaimP90), label, *b.Group)}
 }
 
 // viewRoute is r as matching reads it: the shared shape, adapted at the
@@ -559,24 +561,9 @@ func viewRoute(r Route) shared.Route {
 		BeadPriority: r.BeadPriority, Originator: r.Originator}
 }
 
-// effectiveRoutes are a depot's routes: its own plus every yard default
-// whose key no own route states. The one implementation is shared's.
-func effectiveRoutes(routes []Route, depot *string, operator string) []Route {
-	return shared.EffectiveRoutes(routes, viewRoute, depot, operator)
-}
-
-// matchRoute is the first route in match order that applies to the bead,
-// inside the bead's depot's effective routes. The one implementation is
-// shared's; routes arrive in match order.
-func matchRoute(routes []Route, stage, typ string, depot *string, labels []string, priority int, originator, operator string) *Route {
-	routes = effectiveRoutes(routes, depot, operator)
-	return shared.Match(routes, viewRoute, shared.Bead{Stage: stage, Type: typ, Depot: depot,
-		Labels: labels, Priority: priority, Originator: originator}, operator)
-}
-
 // difficulty is the bead's estimate label for its cells: its difficulty:
-// label, else the "-" row. It mirrors store.DifficultyLabel; eta_test
-// pins the two equal.
+// label, else the "-" row. It must equal store.DifficultyLabel, which
+// this package cannot import; eta_test pins the two equal.
 func difficulty(labels []string) string {
 	for _, l := range labels {
 		if strings.HasPrefix(l, "difficulty:") {
@@ -594,7 +581,3 @@ func machineRunner(runner string) bool { return runner == "herdr" || runner == "
 func scale(d time.Duration, by float64) time.Duration {
 	return time.Duration(float64(d) * by)
 }
-
-// span is a length of time in its two largest units: 42m, 3h 5m, 3d 9h.
-// The one implementation is shared's.
-func span(d time.Duration) string { return shared.Span(d) }
