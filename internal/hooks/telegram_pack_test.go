@@ -467,6 +467,7 @@ func TestTelegramPackThread(t *testing.T) {
 	if _, err := ad.Reply(ctx, env, "", "hello?", "key-5", ""); err == nil || !strings.Contains(err.Error(), "TELEGRAM_BOT_TOKEN") {
 		t.Errorf("a reply with no credential: %v", err)
 	}
+	t.Run("files", testTelegramPackThreadFiles)
 }
 
 // telegramSend is one send a telegramMedia stand-in got: a sendMessage's
@@ -547,7 +548,7 @@ func telegramMediaFiles(t *testing.T) (png, txt string) {
 // sendDocument, the text as the caption of the first where it fits in 1024
 // characters. A longer text goes first as its own message and the files
 // follow without one, in order; the answer's id is the first message's.
-func TestTelegramPackThreadFiles(t *testing.T) {
+func testTelegramPackThreadFiles(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("curl is not installed, and the pack's thread command calls the service with it")
 	}

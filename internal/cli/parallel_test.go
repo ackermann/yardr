@@ -241,7 +241,6 @@ var allowSerial = map[string]string{
 	"TestReplyPlacement":                                      "t.Setenv",
 	"TestReplyRefusals":                                       "t.Setenv",
 	"TestReplyRetryDoesNotPostTwice":                          "t.Setenv",
-	"TestReplyWithFiles":                                      "t.Setenv",
 	"TestReviewRefusesStaleDecision":                          "assign:ask",
 	"TestSecondDaemonRefused":                                 "stub:daemonLockWait,t.Setenv",
 	"TestServeTakesTheAddrSetting":                            "statusYard",

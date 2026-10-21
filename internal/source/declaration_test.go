@@ -82,12 +82,13 @@ func TestParsePushover(t *testing.T) {
 	if body["token"] != CredentialMark || body["message"] != "{text}" || len(body) != 5 {
 		t.Fatalf("body = %v", c.Request.Body)
 	}
+	t.Run("image command", testParseNotifyImage)
 }
 
 // Image is the command that tells with a picture: one of the declaration's
 // commands, so its file is copied and shown as every command file is.
 // Absent, every message goes through the call.
-func TestParseNotifyImage(t *testing.T) {
+func testParseNotifyImage(t *testing.T) {
 	with := strings.Replace(pushover, "  link: link\n", "  link: link\n  image: [push/notify, image]\n", 1)
 	d, err := Parse("pushover.yaml", []byte(with))
 	if err != nil {
@@ -897,6 +898,7 @@ func TestParseThreadAndLink(t *testing.T) {
 	if strings.Join(keys, " ") != "thread.reply thread.posted thread.read thread.open thread.opened thread.state" {
 		t.Fatalf("commands = %v", keys)
 	}
+	t.Run("files", testParseThreadFiles)
 }
 
 // Labels says the source takes free-form tags: thread.state then takes
@@ -922,7 +924,7 @@ func TestParseThreadLabels(t *testing.T) {
 
 // Files says a reply takes files: thread.reply's in gains them. Absent,
 // the yard refuses --file there, as before.
-func TestParseThreadFiles(t *testing.T) {
+func testParseThreadFiles(t *testing.T) {
 	d, err := Parse("lin.yaml", []byte(linearish))
 	if err != nil {
 		t.Fatal(err)

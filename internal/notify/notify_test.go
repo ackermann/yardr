@@ -157,6 +157,7 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 	if sent, err = Send(ctx, st, "", "ada", Message{Text: "x"}); err != nil || sent.OK() || sent.Status != 500 {
 		t.Fatalf("a 500: %+v, %v", sent, err)
 	}
+	t.Run("image command", testSendImage)
 }
 
 // A message with a picture goes through the file's image command, handed
@@ -164,7 +165,7 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 // credential, and the command's status is the send's. One without goes
 // through the call, and a command that fails fails the send: nothing
 // falls back to the call after the picture was tried.
-func TestSendImage(t *testing.T) {
+func testSendImage(t *testing.T) {
 	srv := newStandIn(t)
 	st := storetest.New(t)
 	ctx := context.Background()
@@ -413,11 +414,12 @@ func TestSendThroughAnAdapter(t *testing.T) {
 	if _, err := Send(ctx, st, "", "ada", Message{Text: "x"}); !errors.As(err, &not) || !strings.Contains(err.Error(), "does not set TELL_KEY") {
 		t.Fatalf("an env file without one of the names: %v", err)
 	}
+	t.Run("image interface", testSendImageThroughAnAdapter)
 }
 
 // A source in Go that takes a picture with the message gets it; one that
 // takes none is told without, as before.
-func TestSendImageThroughAnAdapter(t *testing.T) {
+func testSendImageThroughAnAdapter(t *testing.T) {
 	a := &teller{}
 	hooks.Adapters["tell"] = a
 	t.Cleanup(func() { delete(hooks.Adapters, "tell") })

@@ -192,6 +192,7 @@ func TestReply(t *testing.T) {
 		res["crew"] != "yardmaster" || res["message"] != "c-9" || res["repeated"] != false {
 		t.Fatalf("json %q", out)
 	}
+	t.Run("files", testReplyWithFiles)
 }
 
 // With --file, given more than once for several, the reply carries files
@@ -199,7 +200,7 @@ func TestReply(t *testing.T) {
 // path. The same words with the same files run again are already posted;
 // with other files, or none, they post anew. A source whose file does not
 // say its replies take files is refused before anything is put.
-func TestReplyWithFiles(t *testing.T) {
+func testReplyWithFiles(t *testing.T) {
 	a, _, seqs, dir := replyYard(t)
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	a.env["YARDR_CREW"] = "yardmaster"

@@ -342,6 +342,9 @@ func TestPushBurstIsOneMessage(t *testing.T) {
 	if got := y.sent(); len(got) != 2 || got[1] != "2 new in your yardr inbox | mail from yardmaster (2)" {
 		t.Fatalf("after the burst: %q", got)
 	}
+	t.Run("mail image", testPushTellsMailImage)
+	t.Run("done bead image", testPushTellsDoneBeadScreenshot)
+	t.Run("first image across batch", testPushFirstImageAcrossBatch)
 }
 
 // A message waits for the grace of its newest item, and no longer than
@@ -563,7 +566,7 @@ var pushPNG = []byte("\x89PNG\r\n\x1a\nthe shed from the lane")
 // address, the words and the picture's path, whose bytes are the mail's.
 // A mail whose picture the yard no longer holds is told without: the call
 // tells, and the command runs no more.
-func TestPushTellsMailImage(t *testing.T) {
+func testPushTellsMailImage(t *testing.T) {
 	t.Parallel()
 	y := newPushYard(t)
 	dir := y.withImage(t)
@@ -602,7 +605,7 @@ func TestPushTellsMailImage(t *testing.T) {
 // A notification of a done bead is told with the newest note on that bead
 // with a picture: notes without one, and files that are no picture, are
 // passed over.
-func TestPushTellsDoneBeadScreenshot(t *testing.T) {
+func testPushTellsDoneBeadScreenshot(t *testing.T) {
 	t.Parallel()
 	y := newPushYard(t)
 	dir := y.withImage(t)
@@ -639,7 +642,7 @@ func TestPushTellsDoneBeadScreenshot(t *testing.T) {
 
 // Across a batch the first picture in order goes, whether a mail's or a
 // done bead's; the rest stay in the yard.
-func TestPushFirstImageAcrossBatch(t *testing.T) {
+func testPushFirstImageAcrossBatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	setup := func(t *testing.T, mailFirst bool) (*pushYard, string, store.BlobFile, store.BlobFile) {
