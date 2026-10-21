@@ -324,10 +324,10 @@ func (s *Store) approveSourceCheck(ctx context.Context, id string, seq uint64, a
 		if errors.As(err, &failed) && failed.Status != 0 {
 			answer = fmt.Sprintf("%s (the service answered %d)", answer, failed.Status)
 		}
-		return nil, fmt.Errorf("telling %s through %s failed: %s at %s: %s. Approve again to retry", job.user, job.d.Name, call.Request.Line(), job.d.Base, answer)
+		return nil, fmt.Errorf("telling %s through %s failed: %s at %s: %s. Approve again to retry", job.user, job.d.Name, call.Request.Line(), job.d.Address(), answer)
 	}
 	if !res.OK() {
-		return nil, fmt.Errorf("telling %s through %s failed: %s at %s was answered %d. Approve again to retry", job.user, job.d.Name, call.Request.Line(), job.d.Base, res.Status)
+		return nil, fmt.Errorf("telling %s through %s failed: %s at %s was answered %d. Approve again to retry", job.user, job.d.Name, call.Request.Line(), job.d.Address(), res.Status)
 	}
 	result := fmt.Sprintf("%s: told %s: %d in %dms", job.d.Name, job.user, res.Status, res.Took.Milliseconds())
 	if job.notify != job.src.Name {

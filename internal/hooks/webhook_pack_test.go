@@ -63,8 +63,8 @@ func webhookDecl(t *testing.T) hooks.Declared {
 }
 
 // The pack declares what the setup needs: a hook verified by the secret in
-// its header, with a delivery id where the sender has one and bodies that
-// may repeat, no keys, and one update call to a credential that is the
+// its header, with a delivery id where the sender has one and unique bodies,
+// no keys, and one update call to a credential that is the
 // address. Nothing else: no base, no read call, no check, no thread, link
 // or notify key.
 func TestWebhookPackDeclaration(t *testing.T) {
@@ -82,8 +82,8 @@ func TestWebhookPackDeclaration(t *testing.T) {
 	if h.Verify.Delivery.Header != "X-Yardr-Delivery" || h.Verify.Delivery.Body != "" {
 		t.Errorf("delivery = %+v, want the header X-Yardr-Delivery", h.Verify.Delivery)
 	}
-	if h.Bodies != source.BodiesRepeat {
-		t.Errorf("bodies = %q, want repeat: a sender posts the same words again on purpose", h.Bodies)
+	if h.Bodies != source.BodiesUnique {
+		t.Errorf("bodies = %q, want unique", h.Bodies)
 	}
 	if strings.Join(h.Normalize, " ") != "webhook/normalize" {
 		t.Errorf("normalize = %q", h.Normalize)
@@ -259,7 +259,7 @@ func TestWebhookPackNormalizeNeverPrintsBody(t *testing.T) {
 // The hook is verified by the secret in its header, compared as it arrives,
 // and nowhere else: a bearer token is none of its business. A sender's own
 // id of a delivery is read from X-Yardr-Delivery where it sends one, and
-// the same body may come again.
+// repeated bodies are duplicates.
 func TestWebhookPackVerify(t *testing.T) {
 	d, _, _ := webhookParse(t)
 	ad := hooks.Declared{D: d}
@@ -291,8 +291,8 @@ func TestWebhookPackVerify(t *testing.T) {
 			t.Errorf("%s: err = %v, want unauthorized", tc.name, err)
 		}
 	}
-	if ad.Bodies() != hooks.BodiesRepeat {
-		t.Errorf("bodies = %v, want repeat", ad.Bodies())
+	if ad.Bodies() != hooks.BodiesUniquePerSource {
+		t.Errorf("bodies = %v, want unique per source", ad.Bodies())
 	}
 }
 
@@ -346,8 +346,7 @@ func webhookPost(t *testing.T, r *depot, body []byte, headers map[string]string)
 }
 
 // A POST with the secret in its header is recorded and routed to a
-// subscription on its type, as many times as it comes, since a sender may
-// post the same words again; one with an id it has sent before is dropped;
+// subscription on its type; a repeated body or delivery id is dropped;
 // one without the header, or with a wrong secret, is refused with 401 and
 // recorded nowhere; words that are no JSON are heard as they are.
 func TestWebhookPackEndToEnd(t *testing.T) {
@@ -387,22 +386,23 @@ func TestWebhookPackEndToEnd(t *testing.T) {
 	if events() != 1 || inbox() != 1 {
 		t.Fatalf("after the delivery: %d hook events, inbox %d", events(), inbox())
 	}
-	// The same words again are another delivery.
-	if code, ans := webhookPost(t, r, body, signed); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
+	// Bodies are unique per source, even without a delivery id.
+	if code, ans := webhookPost(t, r, body, signed); code != http.StatusOK || !strings.Contains(ans, `"duplicate"`) {
 		t.Fatalf("the same body again answered %d %s", code, ans)
 	}
-	if events() != 2 || inbox() != 2 {
+	if events() != 1 || inbox() != 1 {
 		t.Fatalf("after the same body again: %d hook events, inbox %d", events(), inbox())
 	}
-	// A delivery id that was sent before is a retry, whatever the body.
-	if code, ans := webhookPost(t, r, body, with("X-Yardr-Delivery", "run-1")); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
+	// A new body with an id is recorded, then the same id marks its retry.
+	newBody := []byte(`{"type":"lead","action":"created","text":"New lead: Grace"}`)
+	if code, ans := webhookPost(t, r, newBody, with("X-Yardr-Delivery", "run-1")); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
 		t.Fatalf("a delivery with an id answered %d %s", code, ans)
 	}
-	retried := []byte(`{"type":"lead","action":"created","text":"New lead: Ada","retry":1}`)
+	retried := []byte(`{"type":"lead","action":"created","text":"New lead: Grace","retry":1}`)
 	if code, ans := webhookPost(t, r, retried, with("X-Yardr-Delivery", "run-1")); code != http.StatusOK || !strings.Contains(ans, `"duplicate"`) {
 		t.Fatalf("the retry answered %d %s", code, ans)
 	}
-	if events() != 3 || inbox() != 3 {
+	if events() != 2 || inbox() != 2 {
 		t.Fatalf("after the retry: %d hook events, inbox %d", events(), inbox())
 	}
 	// Without the header, with a wrong secret, and with the secret as a
@@ -419,7 +419,7 @@ func TestWebhookPackEndToEnd(t *testing.T) {
 			t.Fatalf("%s: answered %d, want 401", tc.name, code)
 		}
 	}
-	if events() != 3 || inbox() != 3 {
+	if events() != 2 || inbox() != 2 {
 		t.Fatalf("after the refusals: %d hook events, inbox %d", events(), inbox())
 	}
 	if got := r.rc.Rejected()["unauthorized"]; got != 3 {
@@ -430,10 +430,10 @@ func TestWebhookPackEndToEnd(t *testing.T) {
 	if code, ans := webhookPost(t, r, []byte("backup ok"), map[string]string{"X-Yardr-Secret": secret, "Content-Type": "text/plain"}); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
 		t.Fatalf("words answered %d %s", code, ans)
 	}
-	if events() != 4 || inbox() != 3 {
+	if events() != 3 || inbox() != 2 {
 		t.Fatalf("after the words: %d hook events, inbox %d", events(), inbox())
 	}
-	last := r.hookEvents(t)[3]
+	last := r.hookEvents(t)[2]
 	env, _ := json.Marshal(last.Data)
 	if !strings.Contains(string(env), `"type":"event"`) || !strings.Contains(string(env), `"text":"backup ok"`) || !strings.Contains(string(env), `"source":"webhook"`) {
 		t.Fatalf("the event of the words = %s", env)

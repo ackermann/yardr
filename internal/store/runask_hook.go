@@ -246,7 +246,7 @@ func (w *wtx) hookRegisterDoes(name, sourceName string, d *source.Declaration) (
 		fmt.Sprintf("it adds the hook %s: POST /hooks/%s takes deliveries from the source %s (%s).", name, name, sourceName, sourceHost(d)),
 		hookSays(d),
 		fmt.Sprintf("the yard makes the signing secret for %s and keeps it in %s (mode 0600); the hook names that file, and the value is in no note, event, answer or card. No secret is typed.", name, HookSecretFile(w.home, name)),
-		fmt.Sprintf("it will call %s at %s to register %s.", call.Request.Line(), d.Base, publicURL),
+		fmt.Sprintf("it will call %s at %s to register %s.", call.Request.Line(), d.Address(), publicURL),
 	}, publicURL, nil
 }
 
@@ -438,12 +438,12 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 		if errors.As(err, &failed) && failed.Status != 0 {
 			answer = fmt.Sprintf("%s (the service answered %d)", answer, failed.Status)
 		}
-		return nil, fmt.Errorf("hook %s is in place, but registering it failed: %s at %s to register %s: %s. Approve again to retry", job.name, call.Request.Line(), job.d.Base, job.publicURL, answer)
+		return nil, fmt.Errorf("hook %s is in place, but registering it failed: %s at %s to register %s: %s. Approve again to retry", job.name, call.Request.Line(), job.d.Address(), job.publicURL, answer)
 	}
 	if !res.OK() {
-		return nil, fmt.Errorf("hook %s is in place, but registering it failed: %s at %s to register %s was answered %d. Approve again to retry", job.name, call.Request.Line(), job.d.Base, job.publicURL, res.Status)
+		return nil, fmt.Errorf("hook %s is in place, but registering it failed: %s at %s to register %s was answered %d. Approve again to retry", job.name, call.Request.Line(), job.d.Address(), job.publicURL, res.Status)
 	}
-	result := fmt.Sprintf("hook %s saved: POST /hooks/%s (%s); registered with %s at %s to %s (%d)", job.name, job.name, job.d.Name, call.Request.Line(), job.d.Base, job.publicURL, res.Status)
+	result := fmt.Sprintf("hook %s saved: POST /hooks/%s (%s); registered with %s at %s to %s (%d)", job.name, job.name, job.d.Name, call.Request.Line(), job.d.Address(), job.publicURL, res.Status)
 	var out *AskApproved
 	err = s.writeVia(ctx, func(w *wtx) error {
 		var err error

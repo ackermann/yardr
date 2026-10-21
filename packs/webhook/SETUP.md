@@ -85,11 +85,11 @@ separate, and you can set up either without the other.
    ```sh
    yardr subscribe <hearer> webhook --scope all --where type=lead
    ```
-   A body that arrives twice is heard twice. A Zap that posts the same words
-   every morning is not retrying, and neither is a sample you replay while
-   you build one. A sender that does retry can add a second header,
-   `X-Yardr-Delivery`, with an id that is the same on every try of one event.
-   The yard drops a delivery whose id it has already heard.
+   Bodies are unique per source: if the exact same body arrives again, the
+   yard answers it as a duplicate and records no second event. A sender that
+   retries with a delivery id can add `X-Yardr-Delivery`, with the same id on
+   every try of one event; the yard drops a delivery whose id it has already
+   heard even when its body changed.
 
 ## Sending to a service
 

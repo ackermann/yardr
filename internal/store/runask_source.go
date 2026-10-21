@@ -206,7 +206,7 @@ func runSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string, by *app
 	if len(d.Calls) == 0 {
 		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), nil
 	}
-	return fmt.Sprintf("source %s saved: %s under %s", d.Name, pluralCalls(len(d.Calls)), d.Base), nil
+	return fmt.Sprintf("source %s saved: %s under %s", d.Name, pluralCalls(len(d.Calls)), d.Address()), nil
 }
 
 // pluralCalls is n with call or calls, as yardr source add prints it.

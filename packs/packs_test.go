@@ -1660,10 +1660,10 @@ func TestWebhookPack(t *testing.T) {
 	}
 	// The hook is verified by the secret in its header, compared as it
 	// arrives; the sender's id of a delivery is optional and in a header;
-	// a body may repeat, since a sender posts the same words on purpose.
+	// bodies are unique per source.
 	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret ||
 		h.Verify.Signature.Header != "X-Yardr-Secret" || h.Verify.Delivery.Header != "X-Yardr-Delivery" || h.Verify.Delivery.Body != "" ||
-		h.Verify.Timestamp != nil || h.Bodies != source.BodiesRepeat || len(h.Keys) != 0 ||
+		h.Verify.Timestamp != nil || h.Bodies != source.BodiesUnique || len(h.Keys) != 0 ||
 		!reflect.DeepEqual(h.Normalize, []string{"webhook/normalize"}) || h.Register != nil || h.Challenge != nil {
 		t.Fatalf("hook = %+v", d.Hook)
 	}
@@ -1696,7 +1696,8 @@ func TestWebhookPack(t *testing.T) {
 		`-H "X-Yardr-Secret: $(cat ~/.yardr/webhook.secret)"`,
 		"answers 401",
 		"yardr subscribe <hearer> webhook --scope all --where type=lead",
-		"A body that arrives twice is heard twice",
+		"Bodies are unique per source",
+		"answers it as a duplicate",
 		"*Catch Hook*",
 		"https://hooks.zapier.com/hooks/catch/<account>/<hook>/",
 		"*Custom webhook*",

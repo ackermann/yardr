@@ -46,12 +46,9 @@ hook:
     scheme: secret
     signature: { header: X-Yardr-Secret }
     delivery:  { header: X-Yardr-Delivery }
-  # Bodies repeat. A sender of this kind posts the same words again on
-  # purpose: a Zap that says "standup" every morning, or the sample a person
-  # replays while building one. With unique, the yard would drop every body
-  # after the first without a word. Only a repeated X-Yardr-Delivery is a
-  # retry.
-  bodies: repeat
+  # Bodies are unique per source. A repeated X-Yardr-Delivery is also a
+  # retry when the sender supplies delivery ids.
+  bodies: unique
 
   # Adapter.Normalize. stdin {"headers":{…},"body":…}, stdout the
   # envelope. The core sets source and delivery itself.

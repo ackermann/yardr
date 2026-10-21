@@ -406,6 +406,19 @@ func TestSourceAddApprove(t *testing.T) {
 	if _, err := y.GetSource(y.ctx, "phone"); err != nil {
 		t.Fatal(err)
 	}
+	const addressDecl = `name: webhook
+credential: { env: WEBHOOK_URL, url: true }
+calls:
+  send: { kind: update, request: { method: POST } }
+`
+	addressSeq := y.ask(t, sourceAddAsk(carriedOf(t, addressDecl, nil)), "yardmaster")
+	addressDone, err := y.ApproveAsk(y.ctx, y.bead, addressSeq, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "source webhook saved: 1 call under the URL in WEBHOOK_URL"; addressDone.Result != want {
+		t.Fatalf("the URL credential approval recorded %q, want %q", addressDone.Result, want)
+	}
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean"); err == nil || !strings.Contains(err.Error(), "was approved already") {
 		t.Fatalf("a second approval = %v", err)
 	}
