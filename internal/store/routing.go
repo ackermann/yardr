@@ -17,6 +17,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/shared"
 )
 
 // Group is whoever works a stage. Runner names the implementation (herdr,
@@ -455,9 +456,9 @@ type Route struct {
 const RouteWait = "wait"
 
 // OriginatorAny is the originator a route names to take every originator's
-// beads. It is a keyword, not a user: no user is named it, and no bead is
-// for it.
-const OriginatorAny = "any"
+// beads: the shared keyword. It is a keyword, not a user: no user is named
+// it, and no bead is for it.
+const OriginatorAny = shared.OriginatorAny
 
 // RouteGroup is one group a route names and the condition it takes the
 // route's beads under.
@@ -1133,7 +1134,7 @@ func describeKey(r Route, operator string) string {
 		beads = "beads " + r.BeadPriorities()
 	}
 	orig := "the operator's beads"
-	switch resolved := r.resolvedOriginator(operator); {
+	switch resolved := shared.ResolvedOriginator(r.Originator, operator); {
 	case resolved == OriginatorAny:
 		orig = "every originator's beads"
 	case resolved == operator:
@@ -1412,68 +1413,27 @@ func BeadOriginator(b Bead, operator string) string {
 // MatchesOriginator reports whether the route takes beads for originator,
 // whose subscription they build on. Any takes every originator's; a route
 // without one takes only the operator's, however high its priority or
-// specificity, so no general route swallows another person's work.
+// specificity, so no general route swallows another person's work. The one
+// implementation is shared's.
 func (r Route) MatchesOriginator(originator, operator string) bool {
-	if originator == "" {
-		originator = operator
-	}
-	switch {
-	case r.Originator == nil:
-		return originator == operator
-	case *r.Originator == OriginatorAny:
-		return true
-	default:
-		return originator == *r.Originator
-	}
+	return shared.MatchesOriginator(r.Originator, originator, operator)
 }
 
-// routeKey is which beads a route takes beside its scope: its stage, its
-// type (unset is any type), its set of labels (order does not matter), its
-// bead priority (unset is any) and its originator as MatchesOriginator
-// resolves it (unset is the operator, any is every originator, a name is
-// that user; a route that names the operator and one that names nobody
-// therefore state the same key while that user is operator). The depot
-// itself, the priority, the group chain and the note are left out: those
-// are what an override overrides.
-type routeKey struct {
-	stage           string
-	typ             string
-	hasType         bool
-	labels          string // the labels sorted, joined; "" for none
-	beadPriority    int
-	hasBeadPriority bool
-	originator      string
+// viewRoute is r as matching reads it: the shared shape, adapted at the
+// boundary, since the persisted route does not move below the store.
+func viewRoute(r Route) shared.Route {
+	return shared.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels(),
+		BeadPriority: r.BeadPriority, Originator: r.Originator}
 }
 
-// resolvedOriginator is whose beads the route takes as one word of its
-// key: the operator where it names nobody, any where it names any, else
-// the user it names.
-func (r Route) resolvedOriginator(operator string) string {
-	if r.Originator == nil {
-		return operator
-	}
-	return *r.Originator
+// viewBead is b as matching reads it: the shared shape.
+func viewBead(b Bead) shared.Bead {
+	return shared.Bead{Stage: b.Stage, Type: b.Type, Depot: b.Depot, Labels: b.Labels,
+		Priority: b.Priority, Originator: b.Originator}
 }
 
-func (r Route) matchKey(operator string) routeKey {
-	k := routeKey{stage: r.Stage, originator: r.resolvedOriginator(operator)}
-	if r.Type != nil {
-		k.typ, k.hasType = *r.Type, true
-	}
-	if ls := r.Labels(); len(ls) > 0 {
-		sorted := slices.Clone(ls)
-		slices.Sort(sorted)
-		var labels strings.Builder
-		for _, label := range slices.Compact(sorted) {
-			fmt.Fprintf(&labels, "%d:", len(label))
-			labels.WriteString(label)
-		}
-		k.labels = labels.String()
-	}
-	if r.BeadPriority != nil {
-		k.beadPriority, k.hasBeadPriority = *r.BeadPriority, true
-	}
-	return k
+func (r Route) matchKey(operator string) shared.Key {
+	return shared.KeyOf(viewRoute(r), operator)
 }
 
 // EffectiveRoutes are the routes of the depot a bead names: its own routes
@@ -1483,33 +1443,9 @@ func (r Route) matchKey(operator string) routeKey {
 // default, and a bead with no depot (nil) has the defaults alone. A route
 // naming another depot is never in the set. The result keeps the order of
 // routes: MatchRoute ranks it, and a listing sorts it with SortRoutes.
-// This is the one computation every match goes through.
+// The one implementation is shared's.
 func EffectiveRoutes(routes []Route, depot *string, operator string) []Route {
-	if depot == nil {
-		var out []Route
-		for _, r := range routes {
-			if r.Depot == nil {
-				out = append(out, r)
-			}
-		}
-		return out
-	}
-	own := map[routeKey]bool{}
-	for _, r := range routes {
-		if r.Depot != nil && *r.Depot == *depot {
-			own[r.matchKey(operator)] = true
-		}
-	}
-	var out []Route
-	for _, r := range routes {
-		switch {
-		case r.Depot != nil && *r.Depot == *depot:
-			out = append(out, r)
-		case r.Depot == nil && !own[r.matchKey(operator)]:
-			out = append(out, r)
-		}
-	}
-	return out
+	return shared.EffectiveRoutes(routes, viewRoute, depot, operator)
 }
 
 // SetAside is a yard default a depot's own routes set aside there: the
@@ -1526,7 +1462,7 @@ type SetAside struct {
 // aside. routes is the yard's routes in any order; the result keeps their
 // order.
 func SetAsideRoutes(routes []Route, depot string, operator string) []SetAside {
-	setter := map[routeKey]Route{}
+	setter := map[shared.Key]Route{}
 	for _, r := range routes {
 		if r.Depot == nil || *r.Depot != depot {
 			continue
@@ -1564,12 +1500,7 @@ func SetAsideRoutes(routes []Route, depot string, operator string) []SetAside {
 func MatchRoute(routes []Route, b Bead, operator string) *Route {
 	eff := EffectiveRoutes(routes, b.Depot, operator)
 	SortRoutes(eff)
-	for i := range eff {
-		if eff[i].Matches(b, operator) {
-			return &eff[i]
-		}
-	}
-	return nil
+	return shared.Match(eff, viewRoute, viewBead(b), operator)
 }
 
 // Matches reports whether r applies to b: its stage, and every filter it
@@ -1578,23 +1509,9 @@ func MatchRoute(routes []Route, b Bead, operator string) *Route {
 // unpinned twin does. MatchRoute returns the first matching route of the
 // bead's depot's effective routes in SortRoutes order; route explain
 // names every matching route and why each other effective route misses.
+// The one implementation is shared's.
 func (r Route) Matches(b Bead, operator string) bool {
-	if r.Stage != b.Stage {
-		return false
-	}
-	if r.Type != nil && *r.Type != b.Type {
-		return false
-	}
-	if r.Depot != nil && (b.Depot == nil || *r.Depot != *b.Depot) {
-		return false
-	}
-	if slices.ContainsFunc(r.Labels(), func(l string) bool { return !slices.Contains(b.Labels, l) }) {
-		return false
-	}
-	if r.BeadPriority != nil && b.Priority > *r.BeadPriority {
-		return false
-	}
-	return r.MatchesOriginator(b.Originator, operator)
+	return shared.Matches(viewRoute(r), viewBead(b), operator)
 }
 
 // stageGroup is the group a bead answers to in its stage: the group working

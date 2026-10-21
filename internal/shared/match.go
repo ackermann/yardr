@@ -100,13 +100,19 @@ type Key struct {
 	originator      string
 }
 
+// ResolvedOriginator is whose beads a route naming routeOriginator takes
+// as one word: the operator where it names nobody, any where it names
+// any, else the user it names.
+func ResolvedOriginator(routeOriginator *string, operator string) string {
+	if routeOriginator == nil {
+		return operator
+	}
+	return *routeOriginator
+}
+
 // KeyOf is r's match key for operator.
 func KeyOf(r Route, operator string) Key {
-	originator := operator
-	if r.Originator != nil {
-		originator = *r.Originator
-	}
-	k := Key{stage: r.Stage, originator: originator}
+	k := Key{stage: r.Stage, originator: ResolvedOriginator(r.Originator, operator)}
 	if r.Type != nil {
 		k.typ, k.hasType = *r.Type, true
 	}

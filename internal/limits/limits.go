@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/shared"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
@@ -441,20 +442,5 @@ func Clock(t, now time.Time) string {
 }
 
 // Span is a length of time in its two largest units: 42m, 3h 5m, 3d 9h.
-func Span(d time.Duration) string {
-	d = d.Round(time.Minute)
-	days, hours, mins := int(d/(24*time.Hour)), int(d/time.Hour)%24, int(d/time.Minute)%60
-	switch {
-	case days > 0 && hours > 0:
-		return fmt.Sprintf("%dd %dh", days, hours)
-	case days > 0:
-		return fmt.Sprintf("%dd", days)
-	case hours > 0 && mins > 0:
-		return fmt.Sprintf("%dh %dm", hours, mins)
-	case hours > 0:
-		return fmt.Sprintf("%dh", hours)
-	case mins > 0:
-		return fmt.Sprintf("%dm", mins)
-	}
-	return "under a minute"
-}
+// The one implementation is shared's.
+func Span(d time.Duration) string { return shared.Span(d) }
