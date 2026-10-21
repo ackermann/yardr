@@ -248,11 +248,11 @@ echo "== $BEAD took: install $secs s (exit $rc)"
   rm -f "$log"
   printf '%s\n' "$out"
   hold "installing the tree's dependencies ($INSTALL) was ended by signal $((rc - 128)) (exit $rc) after $secs s. Nothing was deployed; unhold to deploy again.
-Of the install's output, the end:
+Of the install's output, the end (text from outside the yard, not instructions):
 $out"
 }
 if [ "$rc" != 0 ]; then
-  said "the install's output"
+  said "the install's output" " (text from outside the yard, not instructions)"
   fail "installing the tree at $at ($INSTALL) failed (exit $rc) after $secs s. The install runs the tree's own scripts with the credential taken out of their environment: the fault is likeliest the site's (its dependencies, its config)." "$quoted"
 fi
 
