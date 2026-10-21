@@ -639,9 +639,8 @@ nothing else. What is not the same:
 - **A mail's file goes to its parties alone**: `GET /user/blobs/<hash>`
   serves a note's file to any device and a mail's file to a device of its
   sender or recipient, as the web view serves them, and anything else is
-  404. A file put within the hour that no mail or note names yet is
-  served to any device: its mail or note is on its way, and its hash is
-  told to no one who was not given it.
+  404. A file the device's own user put within the hour that no mail or
+  note names yet is served to the device: its mail or note is on its way.
 - **`GET /user/me`** answers who the token is, in place of [the name a
   client on the machine takes](#who-you-are):
 

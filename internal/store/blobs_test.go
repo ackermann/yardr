@@ -439,6 +439,61 @@ func TestPutBlobAgainIsYoung(t *testing.T) {
 	}
 }
 
+// A blob a device put names whose put it was, until the prune takes the
+// record with the file: what the listener serves an unclaimed upload by.
+// One put on the yard's own machine names nobody, and a name that is no
+// hash names nothing.
+func TestBlobPutBy(t *testing.T) {
+	t.Parallel()
+	api, s := storetest.NewOwned(t)
+	ctx := context.Background()
+	by := func(hash string) string {
+		t.Helper()
+		who, err := s.BlobPutBy(ctx, hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return who
+	}
+	own, err := s.PutBlob(store.WithVia(ctx, "jo", "phone"), pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := by(own.Hash); got != "jo" {
+		t.Errorf("a device's put is by %q, want jo", got)
+	}
+	plain, err := s.PutBlob(ctx, jpegBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := by(plain.Hash); got != "" {
+		t.Errorf("a put on the yard's machine is by %q, want nobody", got)
+	}
+	if got := by("nope"); got != "" {
+		t.Errorf("a name that is no hash is by %q, want nobody", got)
+	}
+	// Put again by another's device, the latest putter stands.
+	if _, err := s.PutBlob(store.WithVia(ctx, "sam", "tablet"), pngBytes); err != nil {
+		t.Fatal(err)
+	}
+	if got := by(own.Hash); got != "sam" {
+		t.Errorf("a put again is by %q, want sam", got)
+	}
+	// Aged past the grace and pruned, the record goes with the file.
+	old := time.Now().Add(-2 * store.BlobGrace)
+	for _, ref := range []*store.BlobRef{own, plain} {
+		if err := os.Chtimes(s.BlobPath(ref.Hash), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if res, err := api.Prune(ctx, store.Retention{}, "jo"); err != nil || res.Blobs != 2 {
+		t.Fatalf("prune = %+v, %v", res, err)
+	}
+	if got := by(own.Hash); got != "" {
+		t.Errorf("a pruned blob is still by %q, want nobody", got)
+	}
+}
+
 // A note written with files names the blobs, in order, and the bead whole
 // names them too; more than the bound, and one the yard does not hold,
 // are refused with nothing written.

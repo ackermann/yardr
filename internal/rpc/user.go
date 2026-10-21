@@ -837,19 +837,19 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 // file to any device, and a mail's file to a device of its sender or
 // recipient (NoteBlob, MailBlob). Anything else is 404, as there: one the
 // yard never held, a name that is no hash, another user's mail file. One
-// exception, which the web view has no use for: a file put within the
-// hour that no mail or note names yet is served to any device
-// (unclaimedPut).
+// exception, which the web view has no use for: a file the caller's own
+// user put within the hour that no mail or note names yet is served to
+// the caller's device (unclaimedPut).
 // A device puts before it sends, so its own upload would otherwise be
-// unreadable to it until its mail goes; the hash is unguessable, and only
-// whoever was told it — the upload's answer — asks.
+// unreadable to it until its mail goes; another user's device is served
+// no upload of this user's, whatever hash it asks with.
 func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
 	ctx, c := r.Context(), callerOf(r)
 	_, noteErr := u.st.NoteBlob(ctx, hash)
 	_, mailErr := u.st.MailBlob(ctx, c.User, hash)
 	switch {
-	case noteErr == nil || mailErr == nil || u.unclaimedPut(ctx, hash):
+	case noteErr == nil || mailErr == nil || u.unclaimedPut(ctx, c.User, hash):
 		u.api.blob(w, r)
 	case !errors.Is(noteErr, store.ErrNotFound):
 		http.Error(w, noteErr.Error(), http.StatusInternalServerError)
@@ -860,13 +860,17 @@ func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// unclaimedPut reports whether hash is a blob put within BlobGrace that no
-// mail or note names yet: one whose mail or note is on its way, as
-// pruneBlobs keeps it. The stat comes before the log: most such checks are
-// for old blobs, which never reach it.
-func (u *UserServer) unclaimedPut(ctx context.Context, hash string) bool {
+// unclaimedPut reports whether hash is a blob user's device put within
+// BlobGrace that no mail or note names yet: one whose mail or note is on
+// its way, as pruneBlobs keeps it. The stat comes before the lookups:
+// most such checks are for old blobs, which never reach them.
+func (u *UserServer) unclaimedPut(ctx context.Context, user, hash string) bool {
 	st, err := os.Stat(u.st.BlobPath(hash))
 	if err != nil || st.ModTime().Before(u.now().Add(-store.BlobGrace)) {
+		return false
+	}
+	by, err := u.st.BlobPutBy(ctx, hash)
+	if err != nil || by == "" || by != user {
 		return false
 	}
 	mailed, err := u.st.BlobMailed(ctx, hash)

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -143,11 +144,11 @@ func TestUserStreamShowsOnlyOwnMail(t *testing.T) {
 	}
 }
 
-// A device reads a note's file, its own mail's files, and a file put
-// within the hour whose mail or note is on its way; another user's mail
-// file is 404, as it is in the web view, as is anything the yard never
-// held, a name that is no hash, and a file put long ago that nothing
-// names.
+// A device reads a note's file, its own mail's files, and a file its own
+// user put within the hour whose mail or note is on its way; another
+// user's mail file is 404, as it is in the web view, and so is a file
+// another user just put, anything the yard never held, a name that is no
+// hash, and a file put long ago that nothing names.
 func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 	ctx := context.Background()
 	st, u, joToken, samToken := mailYard(t)
@@ -176,7 +177,14 @@ func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 		store.BlobFile{Hash: otherFile, Name: "chart.gif"}); err != nil {
 		t.Fatal(err)
 	}
-	fresh := put("put this moment, named by nothing yet")
+	// The fresh file goes up as sam's device puts it: through the
+	// authenticated call, so the yard knows whose upload it is.
+	freshReply := call(t, h, samToken, "PutBlob", `{"data":"`+
+		base64.StdEncoding.EncodeToString([]byte("put this moment, named by nothing yet"))+`"}`)
+	fresh, _, _ := strings.Cut(strings.TrimPrefix(freshReply, `{"result":{"hash":"`), `"`)
+	if len(fresh) != 64 {
+		t.Fatalf("PutBlob = %s", freshReply)
+	}
 	old := put("put long ago, named by nothing")
 	aged := time.Now().Add(-2 * store.BlobGrace)
 	if err := os.Chtimes(st.BlobPath(old), aged, aged); err != nil {
@@ -195,7 +203,7 @@ func TestUserBlobsServeOnlyWhatTheCallerMayRead(t *testing.T) {
 		{"another user's fresh mail file", samToken, otherFile, http.StatusNotFound},
 		{"the sender reads it", joToken, otherFile, http.StatusOK},
 		{"a file just put", samToken, fresh, http.StatusOK},
-		{"a file just put, another device", joToken, fresh, http.StatusOK},
+		{"a file another user just put", joToken, fresh, http.StatusNotFound},
 		{"a file put long ago, named by nothing", samToken, old, http.StatusNotFound},
 		{"a hash the yard never held", samToken, strings.Repeat("4", 64), http.StatusNotFound},
 		{"a name that is no hash", samToken, "nope", http.StatusNotFound},

@@ -62,6 +62,10 @@ const (
 	BlobGrace = time.Hour
 )
 
+var bBlobPuts = []byte("blob_puts") // <hash>: the user whose device put it
+
+func init() { allBuckets = append(allBuckets, bBlobPuts) }
+
 // blobPage is the type of a page: HTML, as the bytes say. FilesLine
 // counts it apart from images, and the view runs it where a file only
 // downloads.
@@ -382,7 +386,8 @@ func bytesSetting(tx *bolt.Tx, key string, unset int64) (int64, error) {
 // stored. Bytes the yard has already are not written again: the answer is
 // the same, and the file is only marked as put now, so that a blob nothing
 // names yet is not pruned before the mail or note it was put for is sent
-// (BlobGrace).
+// (BlobGrace). A put through a device keeps whose device's it was
+// (BlobPutBy); put again by another's, the latest putter stands.
 func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	s.blobMu.Lock()
 	defer s.blobMu.Unlock()
@@ -396,7 +401,23 @@ func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 	}
 	typ := blobType(data)
 	sum := sha256.Sum256(data)
-	return s.keepBlob(&BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}, data)
+	ref, err := s.keepBlob(&BlobRef{Hash: hex.EncodeToString(sum[:]), Type: typ, Bytes: int64(len(data))}, data)
+	if err != nil {
+		return nil, err
+	}
+	// Whose device put it is kept with the blob: the listener serves an
+	// upload whose mail or note is on its way to that user's own device
+	// alone. Only a call through a device names one (WithVia); what the
+	// yard's own machine puts, and what it takes from a peer, is read by
+	// what names it, never by this.
+	if v, ok := ctx.Value(viaKey{}).(via); ok && v.user != "" {
+		if err := s.write(func(w *wtx) error {
+			return put(w.Tx, bBlobPuts, ref.Hash, v.user)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return ref, nil
 }
 
 // keepBlob writes data, which ref names truly, where the yard keeps its
@@ -541,6 +562,24 @@ func (s *Store) BlobMailed(ctx context.Context, hash string) (bool, error) {
 	return named, err
 }
 
+// BlobPutBy is the user whose device put the blob hash: the one whose own
+// device the listener serves it to before any mail or note names it. ""
+// for one put on the yard's own machine, taken from a peer, or put before
+// the yard kept who put, and for a name that is no hash. What names a
+// blob serves it, not this (MailBlob, NoteBlob); the prune takes the
+// record with the file.
+func (s *Store) BlobPutBy(ctx context.Context, hash string) (string, error) {
+	if !blobHash.MatchString(hash) {
+		return "", nil
+	}
+	var by string
+	err := s.read(func(tx *bolt.Tx) error {
+		_, err := get(tx, bBlobPuts, hash, &by)
+		return err
+	})
+	return by, err
+}
+
 // mailBlobName is the name the first mail allow keeps gives the blob
 // hash: what MailBlob serves, and what tells a blob some mail names from
 // one none does (BlobMailed).
@@ -672,6 +711,7 @@ func (s *Store) pruneBlobs() (int, error) {
 		return 0, err
 	}
 	n, young := 0, now().Add(-BlobGrace)
+	var swept []string
 	for _, f := range files {
 		// Asked now, after the letters were read: a blob put again since
 		// is young again.
@@ -684,6 +724,23 @@ func (s *Store) pruneBlobs() (int, error) {
 		}
 		if blobHash.MatchString(f.Name()) {
 			n++
+			swept = append(swept, f.Name())
+		}
+	}
+	// What went takes whose put it was with it, in one write: a record
+	// without its file would serve no read, and the bucket would grow
+	// with every upload.
+	if len(swept) > 0 {
+		err := s.write(func(w *wtx) error {
+			for _, hash := range swept {
+				if err := w.Bucket(bBlobPuts).Delete([]byte(hash)); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return n, err
 		}
 	}
 	return n, nil
