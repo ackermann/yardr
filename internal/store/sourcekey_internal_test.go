@@ -20,6 +20,12 @@ calls:
   ping: { kind: read, request: { method: GET, path: /me } }
 `
 
+const urlKeyFile = `name: hook
+credential: { env: HOOK_URL, url: true }
+calls:
+  send: { kind: update, request: { method: POST } }
+`
+
 // keyedYard is a store with the source crm, and the file its credential
 // goes to when none is set.
 func keyedYard(t *testing.T) (*Store, string) {
@@ -199,6 +205,53 @@ func TestKeySourceRemovesALeftSecondFile(t *testing.T) {
 		t.Fatalf("the left file is still there: %v", err)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN=s3cret\n" {
+		t.Fatalf("the file holds %q", b)
+	}
+}
+
+// A value given for a credential that is the address is refused where it
+// is given when it is no address calls go to, in words that name the fault
+// and none of the value; an https address is accepted. The refusal comes
+// before any file write and before the env_file is set.
+func TestKeySourceRefusesACredentialThatIsNoAddress(t *testing.T) {
+	t.Parallel()
+	s, _ := keyedYard(t)
+	ctx := context.Background()
+	if _, err := s.PutSource(ctx, "hook.yaml", urlKeyFile, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	const secret = "abc123"
+	for _, tc := range []struct{ value, want string }{
+		{"https://hooks.example.com/catch/" + secret + "?key=" + secret, "has a query or a fragment"},
+		{"http://hooks.example.com/catch/" + secret, "is plain http to a machine that is not this one"},
+	} {
+		_, err := s.KeySource(ctx, "hook", map[string]string{"HOOK_URL": tc.value}, "jo")
+		if err == nil || !strings.Contains(err.Error(), "source hook: the value of HOOK_URL "+tc.want) {
+			t.Errorf("%q: err = %v, want the fault named", tc.value, err)
+			continue
+		}
+		if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "hooks.example.com") {
+			t.Errorf("%q: the error repeats the value: %v", tc.value, err)
+		}
+	}
+	file := filepath.Join(s.home, "sources", "hook.env")
+	if _, err := os.Lstat(file); !os.IsNotExist(err) {
+		t.Fatalf("a refused giving wrote the file: %v", err)
+	}
+	if src, err := s.GetSource(ctx, "hook"); err != nil || src.EnvFile != "" {
+		t.Fatalf("after refused givings the source = %+v, %v: want no env_file", src, err)
+	}
+	if n := sourceSetEvents(t, s); n != 0 {
+		t.Fatalf("%d source_set events after refused givings", n)
+	}
+	keyed, err := s.KeySource(ctx, "hook", map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyed.File != file || strings.Join(keyed.Given, ",") != "HOOK_URL" {
+		t.Fatalf("keyed = %+v", keyed)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "HOOK_URL=https://hooks.example.com/catch/"+secret+"\n" {
 		t.Fatalf("the file holds %q", b)
 	}
 }

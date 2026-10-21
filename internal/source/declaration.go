@@ -855,6 +855,18 @@ func checkAddress(s string) (*url.URL, addressFault) {
 	return u, addressOK
 }
 
+// AddressWords says what is wrong with s as the address calls go to,
+// "" when it is an acceptable one. It is checkAddress's fault in words,
+// for a credential that is the address where it is given: an error may
+// not repeat the value.
+func AddressWords(s string) string {
+	_, fault := checkAddress(s)
+	if fault == addressOK {
+		return ""
+	}
+	return fault.words()
+}
+
 // words says what is wrong with an address and nothing of the address
 // itself, for a credential that is one: an error may not repeat it.
 func (f addressFault) words() string {

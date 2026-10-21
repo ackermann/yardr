@@ -654,6 +654,33 @@ func (k *sourceKey) failed(err error) error {
 // a test of what that leaves; nil outside one.
 var afterKeyRename func() error
 
+// checkURLCredential holds a value given for a credential that is the
+// address to what a base is, refusing it where it is given instead of at
+// the first call, which for a webhook is also the test. The refusal is
+// phrased as the call's (doKeyed): what is wrong, and none of the value.
+// A credential the declaration does not mark url is not an address and
+// passes unchecked, as hook secrets do.
+func checkURLCredential(d *source.Declaration, name string, values map[string]string) error {
+	c := d.Credential
+	if c == nil || !c.URL {
+		return nil
+	}
+	names := []string{c.Env}
+	if c.UpdateEnv != "" {
+		names = append(names, c.UpdateEnv)
+	}
+	for _, n := range names {
+		v, ok := values[n]
+		if !ok {
+			continue
+		}
+		if words := source.AddressWords(v); words != "" {
+			return fmt.Errorf("source %s: the value of %s %s", name, n, words)
+		}
+	}
+	return nil
+}
+
 // keySource is KeySource inside the transaction, in the order that makes
 // one thing hold whatever fails: the store never says more than the file
 // holds. First the checks; then the setting and its event, put and not
@@ -699,6 +726,9 @@ func (w *wtx) keySource(ctx context.Context, home, name string, values map[strin
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if err := checkURLCredential(d, name, values); err != nil {
+		return err
+	}
 	file := src.EnvFile
 	if file == "" {
 		// The server chooses the path: nothing a caller sends is one.

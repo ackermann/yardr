@@ -327,3 +327,45 @@ func TestGiveCrewSecretKeepsAnEnvFileAndAnEnvCommand(t *testing.T) {
 		t.Fatalf("the definition moved: %+v", after)
 	}
 }
+
+// A crew ask answered with a URL-credential value that is no address is
+// refused before the answer note, in words that name the fault and none of
+// the value; an https address answers it. A refused value leaves no note
+// and no file.
+func TestGiveSecretRefusesACrewCredentialThatIsNoAddress(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, file := crewSecretYard(t)
+	if _, err := y.PutSource(y.ctx, "hook.yaml", urlKeyFile, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	ask := crewSecretAsk("yardmaster", "mckean")
+	ask.Secret.Source = "hook"
+	seq := y.ask(t, ask, "yardmaster")
+	const secret = "abc123"
+	for _, tc := range []struct{ value, want string }{
+		{"https://hooks.example.com/catch/" + secret + "?key=" + secret, "has a query or a fragment"},
+		{"http://hooks.example.com/catch/" + secret, "is plain http to a machine that is not this one"},
+	} {
+		_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": tc.value}, "mckean")
+		if err == nil || !strings.Contains(err.Error(), "source hook: the value of HOOK_URL "+tc.want) {
+			t.Errorf("%q: err = %v, want the fault named", tc.value, err)
+			continue
+		}
+		if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "hooks.example.com") {
+			t.Errorf("%q: the error repeats the value: %v", tc.value, err)
+		}
+	}
+	if _, err := os.Lstat(file); !os.IsNotExist(err) {
+		t.Fatalf("a refused giving wrote the file: %v", err)
+	}
+	if n := len(answerNotes(t, y)); n != 0 {
+		t.Fatalf("%d answer notes after refused givings", n)
+	}
+	keyed, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"HOOK_URL": "https://hooks.example.com/catch/" + secret}, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyed.File != file || keyed.Crew != "yardmaster" || strings.Join(keyed.Given, ",") != "HOOK_URL" {
+		t.Fatalf("keyed = %+v", keyed)
+	}
+}

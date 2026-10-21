@@ -701,6 +701,15 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 		return fmt.Errorf("ask %d says the secret is for the source %s at %s, and the source's calls go to %s now: the ask is from before the source was replaced, and is to be asked again",
 			ask, sec.Source, sec.Host, host)
 	}
+	// Before the note is put: a URL-credential value that is no address
+	// is refused here, as the writers below refuse it, so a refused value
+	// leaves neither the note nor the file. A user's own address and a
+	// hook's secret are not the credential and pass unchecked.
+	if sec.Hook == "" && sec.User == "" {
+		if err := checkURLCredential(d, sec.Source, values); err != nil {
+			return err
+		}
+	}
 	text, err := json.Marshal(Answer{Ask: ask, Given: sec.Env})
 	if err != nil {
 		return err
@@ -802,6 +811,9 @@ func (w *wtx) giveCrewSecret(ctx context.Context, home string, sec *AskSecret, s
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if err := checkURLCredential(d, sec.Source, values); err != nil {
+		return err
+	}
 	saved, file, err := w.crewSecretFile(ctx, home, &r, actor)
 	if err != nil {
 		return err

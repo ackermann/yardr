@@ -374,6 +374,9 @@ func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values ma
 			names = append(names, n)
 		}
 		sort.Strings(names)
+		if err := checkURLCredential(d, srcName, values); err != nil {
+			return err
+		}
 	} else {
 		if d.Notify == nil {
 			return fmt.Errorf("source %s: its declaration has no notify key, so it reaches no person and reads no address of %s's", srcName, name)
