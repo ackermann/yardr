@@ -26,6 +26,25 @@ import (
 // than the one that stands.
 const nothingRan = "Nothing ran. Decline it; it is asked again if it is still wanted."
 
+// CardedUnder is the head of a stale-build refusal: the build the ask was
+// carded under and the one the yard runs now. A card written before cards
+// kept the build names none: it was carded under an older yardr, and its
+// refusal says to decline it and ask again, so old cards drain.
+func CardedUnder(seq uint64, wasBuild, nowBuild string) string {
+	return fmt.Sprintf("ask %d was carded under %s and this yard now runs %s", seq, buildWords(wasBuild), buildWords(nowBuild))
+}
+
+// buildWords names a build in a stale-build refusal: "yardr <build>", or
+// "an older yardr" where the card kept none. The build is carried
+// structurally, never trimmed out of the label that holds it beside its
+// provenance.
+func buildWords(build string) string {
+	if build == "" {
+		return "an older yardr"
+	}
+	return "yardr " + build
+}
+
 // seen is what a run ask keeps of a thing its command names: a SHA-256 over
 // the parts of it the command's effect rests on, whole. The yard does not
 // judge which change of them matters: any makes the ask stale.
@@ -433,6 +452,7 @@ type PresetReading struct {
 	Pack   string
 	Preset string
 	Label  string // "embedded in yardr <build>"
+	Build  string // the <build> of Label, kept apart so refusals name it
 	Calls  []string
 }
 
@@ -544,14 +564,14 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	if err != nil {
 		return AskRun{}, err
 	}
-	var pack, label string
+	var pack, label, build string
 	calls := []string{what}
 	if preset != "" {
 		pr, err := w.presetOf(name, preset)
 		if err != nil {
 			return AskRun{}, err
 		}
-		pack, label, calls = pr.Pack, pr.Label, pr.Calls
+		pack, label, build, calls = pr.Pack, pr.Label, pr.Build, pr.Calls
 	} else if err := grantable(d, what); err != nil {
 		return AskRun{}, err
 	}
@@ -579,6 +599,7 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	card := AskRun{Argv: argv, Seen: map[string]string{"source " + name: fingerprint}}
 	if preset != "" {
 		card.Seen["pack "+pack] = label
+		card.Seen["pack "+pack+" build"] = build
 		card.Seen["preset "+pack+" "+preset] = seen(calls)
 	}
 	if as != "" {
@@ -712,23 +733,27 @@ func (w *wtx) presetBytesStale(seq uint64, name, preset string, was, now AskRun)
 		return fmt.Errorf("ask %d was written from the preset %s of pack %s: the source %s is declared by pack %s now. %s", seq, preset, wasPack, name, nowPack, nothingRan)
 	}
 	wasLabel, nowLabel := was.Seen["pack "+wasPack], now.Seen["pack "+nowPack]
+	head := CardedUnder(seq, was.Seen["pack "+wasPack+" build"], now.Seen["pack "+nowPack+" build"])
 	key := "preset " + wasPack + " " + preset
 	if was.Seen[key] != now.Seen[key] {
-		return fmt.Errorf("ask %d was written from the preset %s of pack %s as %s embeds it: this yard runs %s, whose preset differs. %s", seq, preset, wasPack, wasLabel, nowLabel, nothingRan)
+		return fmt.Errorf("%s, whose preset differs. %s", head, nothingRan)
 	}
 	if wasLabel != nowLabel {
-		return fmt.Errorf("ask %d was written from pack %s as %s embeds it: the preset is unchanged call for call, but the card named the build it was carded from, and this yard runs %s. %s", seq, wasPack, wasLabel, nowLabel, nothingRan)
+		return fmt.Errorf("%s. The preset is unchanged call for call, but an approval only runs what its card showed. %s", head, nothingRan)
 	}
 	return nil
 }
 
-// presetPackOf is the pack a preset grant card saw its preset in: the one
-// "pack <pack>" key the card keeps.
+// presetPackOf is the pack a preset grant card saw its preset in: the
+// "pack <pack>" key the card keeps, beside its "pack <pack> build". A
+// pack's name holds no space, so a remainder with one is the build key.
 func presetPackOf(seen map[string]string) string {
 	for key := range seen {
-		if pack, ok := strings.CutPrefix(key, "pack "); ok {
-			return pack
+		pack, ok := strings.CutPrefix(key, "pack ")
+		if !ok || strings.Contains(pack, " ") {
+			continue
 		}
+		return pack
 	}
 	return ""
 }

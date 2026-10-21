@@ -38,6 +38,7 @@ type PackReading struct {
 	Kind    string // pack.KindSource ("source") for a yard pack, else a depot kind
 	Depot   string
 	Label   string // "embedded in yardr <build>"
+	Build   string // the <build> of Label, kept apart so refusals name it
 	Sources []AskSource
 	Presets []AskPreset
 	Plan    *AskPlan
@@ -340,6 +341,7 @@ func (w *wtx) packApplyCard(run AskRun, asking bool) (AskRun, error) {
 	}
 	seenMap := map[string]string{
 		"pack " + name:            reading.Label,
+		"pack " + name + " build": reading.Build,
 		"pack " + name + " bytes": packBytesSeen(&PackReading{Sources: carried, Plan: reading.Plan}),
 	}
 	for i := range carried {
@@ -822,19 +824,13 @@ func (w *wtx) packApplyStale(seq uint64, was, now AskRun) error {
 			return fmt.Errorf("ask %d was written from the plan of pack %s for depot %s, and the plan the yard builds now differs at %s: the card is from before that changed. %s", seq, name, was.Pack.Depot, differ, nothingRan)
 		}
 	}
-	labelKey, bytesKey := "pack "+name, "pack "+name+" bytes"
+	labelKey, bytesKey, buildKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" build"
 	if was.Seen[labelKey] != now.Seen[labelKey] || was.Seen[bytesKey] != now.Seen[bytesKey] {
-		wasLabel, nowLabel := "", ""
-		if was.Pack != nil {
-			wasLabel = was.Pack.Label
-		}
-		if now.Pack != nil {
-			nowLabel = now.Pack.Label
-		}
+		head := CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey])
 		if was.Seen[bytesKey] == now.Seen[bytesKey] {
-			return fmt.Errorf("ask %d was written from pack %s as %s embeds it: the pack is unchanged file for file, but the card named the build it was carded from, and this yard runs %s. %s", seq, name, wasLabel, nowLabel, nothingRan)
+			return fmt.Errorf("%s. The pack is unchanged file for file, but an approval only runs what its card showed. %s", head, nothingRan)
 		}
-		return fmt.Errorf("ask %d was written from pack %s as %s embeds it: this yard runs %s, whose pack differs. %s", seq, name, wasLabel, nowLabel, nothingRan)
+		return fmt.Errorf("%s, whose pack differs. %s", head, nothingRan)
 	}
 	for i := range was.Carried {
 		srcName := was.Carried[i].Name

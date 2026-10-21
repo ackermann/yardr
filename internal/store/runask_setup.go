@@ -372,6 +372,7 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 	}
 	seenMap := map[string]string{
 		"pack " + pack:              reading.Label,
+		"pack " + pack + " build":   reading.Build,
 		"pack " + pack + " bytes":   packBytesSeen(&PackReading{Sources: carried}),
 		"pack " + pack + " presets": setupPresetsSeen(presets),
 	}
@@ -1384,15 +1385,16 @@ func sameNames(values map[string]string, names []string) bool {
 // now.
 func (w *wtx) setupStale(seq uint64, was, now AskSetup) error {
 	name := was.Pack
-	labelKey, bytesKey, presetsKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" presets"
+	labelKey, bytesKey, presetsKey, buildKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" presets", "pack "+name+" build"
 	if was.Seen[labelKey] != now.Seen[labelKey] || was.Seen[bytesKey] != now.Seen[bytesKey] {
+		head := CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey])
 		if was.Seen[bytesKey] == now.Seen[bytesKey] {
-			return fmt.Errorf("ask %d was written from pack %s as %s embeds it: the pack is unchanged file for file, but the card named the build it was carded from, and this yard runs %s. %s", seq, name, was.Label, now.Label, nothingRan)
+			return fmt.Errorf("%s. The pack is unchanged file for file, but an approval only runs what its card showed. %s", head, nothingRan)
 		}
-		return fmt.Errorf("ask %d was written from pack %s as %s embeds it: this yard runs %s, whose pack differs. %s", seq, name, was.Label, now.Label, nothingRan)
+		return fmt.Errorf("%s, whose pack differs. %s", head, nothingRan)
 	}
 	if was.Seen[presetsKey] != now.Seen[presetsKey] {
-		return fmt.Errorf("ask %d was written from the presets of pack %s as %s embeds them: this yard runs %s, whose presets differ. %s", seq, name, was.Label, now.Label, nothingRan)
+		return fmt.Errorf("%s, whose presets differ. %s", CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey]), nothingRan)
 	}
 	for i := range was.Carried {
 		srcName := was.Carried[i].Name

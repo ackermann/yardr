@@ -15,6 +15,7 @@ import (
 type presetFake struct {
 	pack  string
 	label string
+	build string
 	calls map[string][]string
 	err   error
 }
@@ -27,7 +28,7 @@ func (f *presetFake) read(source, preset string) (*PresetReading, error) {
 	if !ok {
 		return nil, fmt.Errorf("pack %s has no preset %s (yardr pack show %s prints its presets numbered): grant by name in a terminal (yardr source grant %s read|<call> --group <group> | --crew <crew member>)", f.pack, preset, f.pack, source)
 	}
-	return &PresetReading{Pack: f.pack, Preset: preset, Label: f.label, Calls: slices.Clone(calls)}, nil
+	return &PresetReading{Pack: f.pack, Preset: preset, Label: f.label, Build: f.build, Calls: slices.Clone(calls)}, nil
 }
 
 func presetYard(t *testing.T, f *presetFake) *askYard {
@@ -38,7 +39,7 @@ func presetYard(t *testing.T, f *presetFake) *askYard {
 }
 
 func presetStandard() *presetFake {
-	return &presetFake{pack: "crm-pack", label: "embedded in yardr test1",
+	return &presetFake{pack: "crm-pack", label: "embedded in yardr test1", build: "test1",
 		calls: map[string][]string{"standard": {"read", "note"}}}
 }
 
@@ -188,14 +189,14 @@ func TestRunAskPresetGrantStale(t *testing.T) {
 	y := presetYard(t, f)
 	seq := y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
 	f.calls["standard"] = []string{"read", "note", "get"}
-	f.label = "embedded in yardr test2"
-	y.refusedStale(t, seq, "was written from the preset standard of pack crm-pack as embedded in yardr test1 embeds it: this yard runs embedded in yardr test2, whose preset differs.")
+	f.label, f.build = "embedded in yardr test2", "test2"
+	y.refusedStale(t, seq, "was carded under yardr test1 and this yard now runs yardr test2, whose preset differs.")
 
 	f = presetStandard()
 	y = presetYard(t, f)
 	seq = y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
-	f.label = "embedded in yardr test2"
-	y.refusedStale(t, seq, "was written from pack crm-pack as embedded in yardr test1 embeds it: the preset is unchanged call for call, but the card named the build it was carded from, and this yard runs embedded in yardr test2.")
+	f.label, f.build = "embedded in yardr test2", "test2"
+	y.refusedStale(t, seq, "was carded under yardr test1 and this yard now runs yardr test2. The preset is unchanged call for call, but an approval only runs what its card showed.")
 
 	f = presetStandard()
 	y = presetYard(t, f)

@@ -40,7 +40,7 @@ func presetReaderFor() store.PresetReader {
 		if err != nil {
 			return nil, err
 		}
-		return &store.PresetReading{Pack: name, Preset: preset, Label: packs.Embedded + " in yardr " + version.Describe(), Calls: calls}, nil
+		return &store.PresetReading{Pack: name, Preset: preset, Label: packs.Embedded + " in yardr " + version.Describe(), Build: version.Describe(), Calls: calls}, nil
 	}
 }
 
@@ -60,7 +60,7 @@ func readEmbeddedPack(ctx context.Context, name string, yard store.API, home str
 	if err != nil {
 		return nil, err
 	}
-	reading := &store.PackReading{Name: p.Name, Kind: p.Kind, Label: label}
+	reading := &store.PackReading{Name: p.Name, Kind: p.Kind, Label: label, Build: version.Describe()}
 	for _, d := range p.Declared {
 		src := store.AskSource{Name: d.Name, Text: d.Text}
 		seenProg := map[string]bool{}

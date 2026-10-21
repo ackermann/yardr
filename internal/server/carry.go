@@ -293,7 +293,7 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 	}
 	// The pack's side, held whole: the build and the bytes as carded.
 	if reading.Name != run.Pack.Name || reading.Kind != run.Pack.Kind || reading.Label != run.Pack.Label || !sameSources(reading.Sources, run.Carried) {
-		return nil, nil, staleWords(fmt.Sprintf("ask %d was written from pack %s as %s embeds it: this yard runs %s, whose pack differs", rec.Ask, name, run.Pack.Label, reading.Label), terminal)
+		return nil, nil, staleWords(store.CardedUnder(rec.Ask, run.Seen["pack "+name+" build"], reading.Build)+", whose pack differs", terminal)
 	}
 	if reading.Depot != run.Pack.Depot {
 		return nil, nil, staleWords(fmt.Sprintf("pack %s would now be re-applied to depot %s, not %s", name, reading.Depot, run.Pack.Depot), terminal)

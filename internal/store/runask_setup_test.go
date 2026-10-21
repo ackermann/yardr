@@ -76,6 +76,7 @@ type setupSource struct {
 // test moves between asking and approving.
 type setupPack struct {
 	label   string
+	build   string
 	kind    string
 	sources []setupSource
 	presets []AskPreset
@@ -86,7 +87,7 @@ func (f *setupPack) reading() *PackReading {
 	if kind == "" {
 		kind = "source"
 	}
-	r := &PackReading{Name: "setupmail", Kind: kind, Label: f.label, Presets: f.presets}
+	r := &PackReading{Name: "setupmail", Kind: kind, Label: f.label, Build: f.build, Presets: f.presets}
 	for _, s := range f.sources {
 		src := AskSource{Name: s.name, Text: s.text}
 		var progs []string
@@ -111,7 +112,7 @@ func setupMailPresets() []AskPreset {
 }
 
 func setupMailPack() *setupPack {
-	return &setupPack{label: "embedded in yardr test1",
+	return &setupPack{label: "embedded in yardr test1", build: "test1",
 		sources: []setupSource{{name: "setupmail", text: setupDecl, files: map[string]string{"setup-mint": setupMint}}},
 		presets: setupMailPresets()}
 }
@@ -660,9 +661,9 @@ func TestSetupStaleBuild(t *testing.T) {
 	f := setupMailPack()
 	y.setSetupPack(f)
 	seq := y.ask(t, setupAsk(), "yardmaster")
-	f.label = "embedded in yardr test2"
+	f.label, f.build = "embedded in yardr test2", "test2"
 	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
-	if err == nil || !strings.Contains(err.Error(), "unchanged file for file") || !strings.Contains(err.Error(), "embedded in yardr test2") {
+	if err == nil || !strings.Contains(err.Error(), "unchanged file for file") || !strings.Contains(err.Error(), "was carded under yardr test1 and this yard now runs yardr test2") {
 		t.Errorf("an approval past a rebuild was recorded or refused otherwise: %v", err)
 	}
 }

@@ -16,6 +16,7 @@ import (
 // label and files the test moves between asking and approving.
 type fakePack struct {
 	label string
+	build string
 	files map[string]string
 	plan  *AskPlan
 	kind  string
@@ -34,7 +35,7 @@ func (f *fakePack) reading() *PackReading {
 	// In the declaration's command order, as a server reading builds it.
 	var srcs []AskSource
 	_ = srcs
-	return &PackReading{Name: "wired", Kind: kind, Depot: f.depot, Label: f.label,
+	return &PackReading{Name: "wired", Kind: kind, Depot: f.depot, Label: f.label, Build: f.build,
 		Sources: []AskSource{{Name: "wired", Text: wiredDecl, Files: askFilesOrdered(files)}}, Plan: f.plan}
 }
 
@@ -161,12 +162,12 @@ func TestPackApplyRefusals(t *testing.T) {
 // build, and changed bytes say the pack differs.
 func TestPackApplyStaleBuild(t *testing.T) {
 	y, _ := runYard(t)
-	f := &fakePack{label: "embedded in yardr one"}
+	f := &fakePack{label: "embedded in yardr one", build: "one"}
 	y.setPack(f)
 	seq := y.ask(t, packAsk(), "yardmaster")
-	f.label = "embedded in yardr two"
+	f.label, f.build = "embedded in yardr two", "two"
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
-		!strings.Contains(err.Error(), "the pack is unchanged file for file, but the card named the build") {
+		!strings.Contains(err.Error(), "was carded under yardr one and this yard now runs yardr two. The pack is unchanged file for file, but an approval only runs what its card showed.") {
 		t.Fatalf("a moved label: ApproveAsk = %v", err)
 	}
 	seq2 := y.ask(t, packAsk(), "yardmaster")
