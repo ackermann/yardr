@@ -845,7 +845,7 @@ func checkAddress(s string) (*url.URL, addressFault) {
 		return u, addressUser
 	case u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(s, "?#"):
 		return u, addressQuery
-	case u.Scheme == "http" && !loopbackHost(u.Hostname()):
+	case u.Scheme == "http" && !LoopbackHost(u.Hostname()):
 		return u, addressPlain
 	case u.Scheme != "https" && u.Scheme != "http":
 		return u, addressScheme
@@ -911,9 +911,11 @@ func (r *reader) base(n *yaml.Node, key, s string) string {
 	return ""
 }
 
-// loopbackHost reports whether host, as written, is this machine's
-// loopback: an address of it, or the name every system gives it.
-func loopbackHost(host string) bool {
+// LoopbackHost reports whether host, as written, is this machine's
+// loopback: an address of it, or the name every system gives it. It is the
+// one rule for where plain http may go: a declaration's base (checkAddress)
+// and a pack fetched by URL (pack.URLFS) both hold to it.
+func LoopbackHost(host string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}

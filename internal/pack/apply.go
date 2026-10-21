@@ -168,7 +168,9 @@ func (p *Plan) Missing(a Answers) []Question {
 // refused, that every question has an answer and the answers are usable,
 // that the pack's files are still the ones the plan was made from, that no
 // installed file edited by hand is overwritten unasked, and that no group
-// would be given a runner the store refuses. Past that the store
+// would be given a runner the store refuses. What it installs is the bytes
+// that check compared with the plan's hashes, never the pack read again: a
+// pack served over HTTP answers each read afresh. Past that the store
 // has no transaction spanning its calls, so a write that fails stops the
 // import where it is: the objects written so far stay, no record is
 // written, and since every object is matched by name, applying again
@@ -180,7 +182,7 @@ func (p *Plan) Missing(a Answers) []Question {
 // names the source.
 func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result, error) {
 	res := &Result{Pack: p.Pack, Depot: p.Depot, Pruned: []string{}, Left: []string{}, PruneErrors: []string{}, Restart: []string{}, Granted: []Grant{}, Calls: []CallGrant{}, Exposed: []Exposed{}, Mapped: []MapOp{}, Declared: []string{}, Folds: []Fold{}}
-	files, err := check(p, o)
+	ck, err := check(p, o)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +198,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 		if obj.refused(o) {
 			continue
 		}
-		if err := write(ctx, st, p, obj, o, files); err != nil {
+		if err := write(ctx, st, p, obj, o, ck); err != nil {
 			return nil, fmt.Errorf("%s %s: %w (the import stopped here: what it wrote before stays, nothing is recorded, and applying again finishes it)", obj.Kind, obj.Name, err)
 		}
 		if obj.Action == Create {
@@ -407,11 +409,22 @@ func (p *Plan) exposeAnswers(now map[string]map[string]bool) map[string]map[stri
 	return out
 }
 
+// checked is what check read of the pack and held to the plan's hashes: the
+// bytes write installs, so that nothing is read from the pack twice. A pack
+// served over HTTP answers every GET afresh, and an answer that arrives after
+// the hashes were compared is not the one they were compared on.
+type checked struct {
+	// files are the pack's files as they are installed (a role or stage file
+	// with the plan's names filled in), by destination.
+	files map[string][]byte
+	// commands are the files a declared source's commands name, by the
+	// source and then the program as its declaration has it.
+	commands map[string]map[string][]byte
+}
+
 // check is everything Apply can know to be wrong before it writes. It
-// returns the pack's files as they are installed (a role or stage file with
-// the plan's names filled in), by destination, so what is written is what
-// was checked.
-func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
+// returns the bytes it checked, so what is written is what was checked.
+func check(p *Plan, o ApplyOptions) (*checked, error) {
 	if len(p.Refused) > 0 {
 		return nil, fmt.Errorf("the import is refused: %s", strings.Join(p.Refused, "; "))
 	}
@@ -456,7 +469,7 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 			}
 		}
 	}
-	files := map[string][]byte{}
+	ck := &checked{files: map[string][]byte{}, commands: map[string]map[string][]byte{}}
 	for _, obj := range p.Objects {
 		if v := o.Answers["crew."+obj.Name+".crew"]; obj.Kind == "crew" && v != "" && v != obj.Name {
 			problems = append(problems, fmt.Sprintf("the plan gives the pack's %s to crew member %s, not %s: make it again with that crew member", obj.CrewMember.Pack, obj.Name, v))
@@ -482,22 +495,32 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 			} else if sum(text) != obj.File.SHA256 {
 				problems = append(problems, fmt.Sprintf("%s changed since the plan was made", obj.File.From))
 			}
-			files[obj.File.To] = text
+			ck.files[obj.File.To] = text
 		case obj.Kind == "source" && obj.Source != nil && len(obj.Source.Commands) > 0:
 			if p.src == nil {
 				problems = append(problems, "the plan no longer has its pack: make it again")
 				break
 			}
+			// A program once, whichever commands name it: the bytes that
+			// are hashed are the bytes kept, and a pack served over HTTP is
+			// asked for each program one time.
+			programs := map[string][]byte{}
 			for _, c := range obj.Source.Commands {
 				rel := path.Join(obj.Source.DeclDir, c.Program)
-				data, err := fs.ReadFile(p.src, rel)
-				switch {
-				case err != nil:
-					problems = append(problems, fmt.Sprintf("%s: %v", joinName(p.Dir, rel), err))
-				case sum(data) != c.SHA256:
+				data, read := programs[c.Program]
+				if !read {
+					var err error
+					if data, err = fs.ReadFile(p.src, rel); err != nil {
+						problems = append(problems, fmt.Sprintf("%s: %v", joinName(p.Dir, rel), err))
+						continue
+					}
+					programs[c.Program] = data
+				}
+				if sum(data) != c.SHA256 {
 					problems = append(problems, fmt.Sprintf("%s changed since the plan was made", joinName(p.Dir, rel)))
 				}
 			}
+			ck.commands[obj.Source.Name] = programs
 		case obj.Kind == "group":
 			if obj.Group.Runner != "manual" && len(obj.Group.Subscriptions) > 0 {
 				problems = append(problems, fmt.Sprintf("group %s has subscriptions, which only a people group may: unsubscribe it first (yardr unsubscribe %s)", obj.Name, obj.Name))
@@ -521,7 +544,7 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("nothing was changed: %s", strings.Join(problems, "; "))
 	}
-	return files, nil
+	return ck, nil
 }
 
 // read is the pack's file op copies, as the pack has it now. Only a plan
@@ -546,8 +569,8 @@ func (p *Plan) read(op *FileOp) ([]byte, error) {
 	return fs.ReadFile(p.src, rel)
 }
 
-// write does one object of the plan.
-func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptions, files map[string][]byte) error {
+// write does one object of the plan, installing the bytes check kept.
+func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptions, ck *checked) error {
 	answerOf := func(of *Object, field string) (string, bool) {
 		id := of.Kind + "." + of.Name + "." + field
 		v, ok := o.Answers[id]
@@ -556,7 +579,7 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 	answer := func(field string) (string, bool) { return answerOf(obj, field) }
 	switch obj.Kind {
 	case "file":
-		return install(obj.File, files[obj.File.To])
+		return install(obj.File, ck.files[obj.File.To])
 	case "group":
 		g := *obj.Group
 		g.Config = map[string]any{}
@@ -674,14 +697,15 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if _, err := st.PutSource(ctx, obj.Source.From, obj.Source.Text, o.Actor); err != nil {
 			return err
 		}
-		d, err := source.Parse(obj.Source.From, []byte(obj.Source.Text))
-		if err != nil {
-			return fmt.Errorf("source %s saved, but its commands' files were not copied: %v", obj.Source.Name, err)
+		// The copies are the programs check hashed, in a fixed order so a
+		// copy that stops part way leaves the same files every time. A
+		// declaration that names no file has none: its directory is removed.
+		programs := ck.commands[obj.Source.Name]
+		copies := make([]source.FileCopy, 0, len(programs))
+		for _, prog := range slices.Sorted(maps.Keys(programs)) {
+			copies = append(copies, source.FileCopy{Program: prog, Data: programs[prog]})
 		}
-		if p.src == nil {
-			return fmt.Errorf("source %s saved, but its commands' files were not copied: the plan no longer has its pack: make it again", obj.Source.Name)
-		}
-		if err := d.CopyCommandFilesFS(p.src, obj.Source.DeclDir, p.Home); err != nil {
+		if err := source.WriteCopies(p.Home, obj.Source.Name, copies); err != nil {
 			return fmt.Errorf("source %s saved, but its commands' files were not copied: %w", obj.Source.Name, err)
 		}
 		return nil

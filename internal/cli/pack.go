@@ -299,9 +299,9 @@ func (a *app) packCmd() *cobra.Command {
 <pack> is the pack's directory when it has a path separator in it
 (packs/starter, ./mine, ~/packs/team), or a URL: the pack's directory on a
 web server (https://yardr.dev/packs/starter/), fetched when the command
-runs. A bare word is a name: of a pack this yard has imported (yardr pack
-list), read again from where it was imported from, else of a pack yardr
-carries in the binary (` + strings.Join(embeddedPacks(), ", ") + `). A name is never
+runs; plain http is for a server on this machine only. A bare word is a name:
+of a pack this yard has imported (yardr pack list), read again from where it
+was imported from, else of a pack yardr carries in the binary (` + strings.Join(embeddedPacks(), ", ") + `). A name is never
 tried as a directory: write ./starter for a directory of that name.
 `
 

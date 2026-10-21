@@ -258,7 +258,11 @@ func (d *Declaration) CopyCommandFiles(declDir, home string) error {
 // CopyCommandFilesFS copies what CopyCommandFiles copies from fsys, which
 // the declaration's directory is declDir, a slash path, in: a pack's
 // directory, which may be no directory on this machine (one yardr embeds,
-// or one on a web server). Otherwise as CopyCommandFiles.
+// or one on a web server). Otherwise as CopyCommandFiles. It reads fsys as
+// it copies and holds the files to no hash, so it is no way to install files
+// that were checked: a pack served over HTTP answers each read afresh.
+// Whoever hashed the files writes those bytes, with WriteCopies, as
+// pack.Apply does.
 func (d *Declaration) CopyCommandFilesFS(fsys fs.FS, declDir, home string) error {
 	var copies []commandCopy
 	for _, prog := range d.programs() {

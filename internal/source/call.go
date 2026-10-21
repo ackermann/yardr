@@ -171,7 +171,7 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 		switch {
 		case err != nil || base.Host == "" || base.User != nil:
 			return nil, fail(Refused, 0, "its base is no address")
-		case base.Scheme == "http" && !loopbackHost(base.Hostname()):
+		case base.Scheme == "http" && !LoopbackHost(base.Hostname()):
 			return nil, fail(Refused, 0, "its base is plain http to %s, which is not this machine: a call goes over https", base.Hostname())
 		case base.Scheme != "https" && base.Scheme != "http":
 			return nil, fail(Refused, 0, "its base is %s://, not https://", base.Scheme)
