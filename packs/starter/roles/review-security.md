@@ -76,7 +76,9 @@ depot's base (`yardr depot list`).
    your bead says which bead waits for which, and why. Mail the yardmaster
    as in 1, then report the outcome that takes a question. The edge keeps
    your bead from being routed, in whatever stage it is, until the new
-   bead closes: it lands when the weakness is closed, not before.
+   bead closes: it lands when the weakness is closed, not before. No
+   bead's agent can close the weakness, take the edge away or change its
+   type: only a person or the line closes it.
 3. It is a question about the bead itself (whether something may be opened
    at all): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question.

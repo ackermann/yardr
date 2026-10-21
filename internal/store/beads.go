@@ -291,6 +291,8 @@ func createdData(b *Bead) map[string]any {
 // as the handle, and creates the bead. From a session's or a crew
 // member's pane the bead is created as that session's actor or that crew
 // member, whatever actor says; from anywhere else, as given (paneAuthor).
+// A bead's agent may not pin the new bead's flow or file it past its flow's
+// first stage where no person looks first (checkAgentCreate).
 func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead, error) {
 	create, err := s.newBead(ctx, nb, actor)
 	if err != nil {
@@ -461,6 +463,9 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		if err != nil {
 			return nil, err
 		}
+		if err := w.checkAgentCreate(ctx, f, Bead{Type: typ, Depot: depot, Priority: nb.Priority, Labels: nb.Labels, Metadata: nb.Metadata, Originator: originator}, stage); err != nil {
+			return nil, err
+		}
 		row := &beadRow{Bead: Bead{
 			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
 			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
@@ -531,6 +536,36 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		}
 		return row, nil
 	}, nil
+}
+
+// checkAgentCreate refuses a bead's agent (beadAgent) a new bead b, of flow
+// f, that would skip what the flow puts first: a flow pin, which chooses a
+// flow of the agent's own (UpdateBead refuses it too), or a stage past the
+// flow's first that no person the yard names looks at before work starts
+// (StageWork.Seen). A bead filed into its flow's first stage, or into one
+// people work (decide), is seen first; one filed into review or approved
+// would land without the stages before it.
+func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage string) error {
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil {
+		return err
+	}
+	if pin := PinnedFlow(&b); pin != "" {
+		return fmt.Errorf("the session %s of a bead's agent may not pin a new bead's flow (metadata flow %s), whatever actor the command names; file it without, and the yard chooses its flow", sess.ID, pin)
+	}
+	first := firstStage(f)
+	if f == nil || stage == first {
+		return nil
+	}
+	routes, err := sortedRoutes(w.Tx)
+	if err != nil {
+		return err
+	}
+	work, err := stageWork(w.Tx, routes, b, stage)
+	if err != nil || work.Seen() {
+		return err
+	}
+	return fmt.Errorf("stage %s: the session %s of a bead's agent may create a bead only in its flow's first stage %s or in a stage people work, whatever actor the command names; file it with --stage %s", stage, sess.ID, first, first)
 }
 
 // insertBead gives a new bead its UUID, from its creation time and after
@@ -1142,7 +1177,8 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // leaves no note, nor does a write by the session itself or one on a bead
 // with no live session. From a session's or a crew member's pane the
 // update is recorded as that session's actor or that crew member, whatever
-// actor says; from anywhere else, as given (paneAuthor).
+// actor says; from anywhere else, as given (paneAuthor). A bead's agent
+// may not change a bead's type or depot (checkFlowChange).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -1217,6 +1253,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 			exp.Revision = ""
 		}
 		result, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			if err := w.checkFlowChange(ctx, b, p); err != nil {
+				return "", nil, err
+			}
 			if err := w.check(ctx, exp, b); err != nil {
 				return "", nil, err
 			}
@@ -1429,9 +1468,36 @@ func (s *Store) Advance(ctx context.Context, id, stage string, exp Expect, actor
 // session's or a crew member's pane the move and its note are recorded as
 // that session's actor or that crew member, whatever actor says; from
 // anywhere else, as given (paneAuthor).
+//
+// A bead's agent that advances a bead to the stage DoneSafe would send it
+// to is held as that report is (checkDoneSafe): the edge is the outcome's,
+// and a move by hand along it must not pass a diff the outcome may not. A
+// person's or a crew member's advance stays free.
 func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Expect, actor string) (*Bead, error) {
+	// Read before the write, git must not run inside one, and only for an
+	// agent's call: nobody else's advance is held to the list. The agent is
+	// told as the write's other checks tell it (beadAgent).
+	var agent *Session
+	if err := s.read(func(tx *bolt.Tx) (err error) {
+		agent, err = beadAgent(tx, ctx)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	var safe *safeCheck
+	if agent != nil {
+		safe = s.checkDoneSafe(ctx, id, DoneSafe)
+	}
 	b, err := s.advance(ctx, id, note, exp, actor, false, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
-		return stage, checkAdvance(f, b.ID, b.Stage, stage)
+		if err := checkAdvance(f, b.ID, b.Stage, stage); err != nil {
+			return stage, err
+		}
+		if safe != nil && f != nil {
+			if to, err := f.Resolve(b.Stage, DoneSafe); err == nil && to == stage {
+				return stage, fmt.Errorf("advance to %s is the move %s makes, and a bead's agent is held to it as to that outcome: %w", stage, DoneSafe, safe.refusal(f, b.ID, b.Stage))
+			}
+		}
+		return stage, nil
 	})
 	return b, s.refused(ctx, id, "yardr bead advance "+id+" --to "+stage, exp, actor, err)
 }
@@ -1530,7 +1596,16 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 				return err
 			}
 		}
-		result, err = w.moveBead(ctx, exp, id, actor, repo, home, pick)
+		// A move into a terminal stage closes the bead, as CloseBead does,
+		// and is held as a close is.
+		closing := func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+			to, err := pick(f, b, data)
+			if err == nil && f != nil && f.IsTerminal(to) {
+				err = w.checkCloseOwn(ctx, b)
+			}
+			return to, err
+		}
+		result, err = w.moveBead(ctx, exp, id, actor, repo, home, closing)
 		if err != nil {
 			return err
 		}
@@ -1737,7 +1812,8 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 // Closing takes back the bead's open stage asks, with closed as the reason.
 // From a session's or a crew member's pane the close is recorded as that
 // session's actor or that crew member, whatever actor says; from anywhere
-// else, as given (paneAuthor).
+// else, as given (paneAuthor). A bead's agent closes its own bead and no
+// other (checkCloseOwn).
 func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error) {
 	// The repository flows the close's gate evaluation resolves blockers'
 	// flows through, read before the write: git must not run inside one.
@@ -1753,6 +1829,9 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 		if err != nil {
 			return err
 		}
+		if err := w.checkCloseOwn(ctx, cur); err != nil {
+			return err
+		}
 		if err := w.check(ctx, exp, cur); err != nil {
 			return err
 		}
@@ -1760,6 +1839,47 @@ func (s *Store) CloseBead(ctx context.Context, id, reason string, exp Expect, ac
 		return err
 	})
 	return b, s.refused(ctx, id, "yardr bead close "+id, exp, actor, err)
+}
+
+// checkCloseOwn refuses closing b to a bead's agent (beadAgent) whose
+// session does not own b. A closed blocker holds nothing, so an agent that
+// could close another bead could close the weakness the security stage
+// filed against its own and land it past the wait. check alone lets a pane
+// write any bead no session owns, which a filed weakness is. The agent
+// writes a note on the bead instead, and a person or the line closes it.
+// Moving a bead into a terminal stage closes it too, and is held the same
+// way (advance).
+func (w *wtx) checkCloseOwn(ctx context.Context, b *beadRow) error {
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil || sess.Bead == b.UUID {
+		return err
+	}
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may close only its own bead %s, whatever actor the command names; write a note on it instead, so a person or the line closes it: yardr bead note %s \"why it can close\"",
+		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
+}
+
+// checkFlowChange refuses a bead's agent (beadAgent) a patch that changes
+// b's type or depot, on any bead. The depot's pointers choose the flow a bead
+// goes by per type (resolveFlow), so either would let the agent move its own
+// bead to a flow with no review in it, as a pin would, and move a blocker to
+// a flow that walks it past the stage its until edge waits for. A patch that
+// names the value b already has changes nothing and passes.
+func (w *wtx) checkFlowChange(ctx context.Context, b *beadRow, p BeadPatch) error {
+	var what string
+	switch {
+	case p.Type != nil && *p.Type != b.Type:
+		what = "type"
+	case p.Depot != nil && (b.Depot == nil || *p.Depot != *b.Depot):
+		what = "depot"
+	default:
+		return nil
+	}
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil {
+		return err
+	}
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may not change a bead's %s, which chooses the flow it goes by, whatever actor the command names; ask the yardmaster: yardr bead note %s \"which %s, and why\"",
+		b.ID, sess.ID, what, b.ID, what)
 }
 
 // closeBead is CloseBead's write inside the caller's transaction, for the

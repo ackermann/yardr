@@ -61,9 +61,13 @@ A method a bead's agent has no class for is refused to it: what is not
 marked read or agent is not an agent's. The class is a first line, and the
 yard's own checks of a call come after it: a call it lets through may still
 be refused there, for its `actor` or for what it asks. An agent may update
-its bead but not pin the flow the bead goes by. It may hold a bead and add an
-edge but not lift a hold or remove a `blocks` edge, which only a person or a
-crew member does. Every call this page names is read or agent but those of
+its bead but not pin the flow the bead goes by, nor change a bead's type or
+depot, which choose it. It may create a bead, but not pin its flow or put it
+in a stage past its flow's first that no person looks at first. It may close
+its own bead and no other, and a move into a terminal stage closes. It may
+hold a bead and add an edge but not lift a hold or remove a `blocks` edge,
+which only a person or a crew member does. An advance along the edge
+`done-safe` takes is held to the depot's security paths as the outcome is. Every call this page names is read or agent but those of
 [`OperatorCalls`](#over-the-network), which are admin.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS

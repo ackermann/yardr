@@ -371,7 +371,23 @@ diff that touches one is refused, naming the files, so the reviewer reports
 `done` and the bead goes on to `review-security`
 ([flows.md](flows.md#done-safe-and-the-security-paths)). The rest of the
 list, which no path names (what the daemon runs as whom, a file's mode, text
-from outside), is still the reviewer's to judge.
+from outside), is still the reviewer's to judge. The move by hand is held
+too: an agent's `yardr bead advance <id> --to approved` from `review` takes
+the edge `done-safe` takes, and is refused for the same diff with the same
+message. A person's or a crew member's advance is not.
+
+A bead the security stage makes another wait for (`yardr dep add`) holds
+until it closes, and a bead's agent cannot close it. From an agent's session
+pane, `yardr bead close` works on its own bead alone; any other is refused,
+and so is an advance that moves another bead into a terminal stage. The
+agent writes a note on that bead instead, and a person or the line closes
+it. An agent cannot change a bead's type or depot either (`yardr bead
+update --type`, `--depot`), on its own bead or another: the depot's
+pointers pick the flow by them, so either could send its own bead by a flow
+with no review, or walk a blocker past the stage its `--until` waits for.
+What it files goes by the flow the yard picks, without a `flow` in its
+metadata, into the flow's first stage or a stage people work (`decide`);
+filed straight into `review` or `approved` it would skip the stages before.
 
 ## 4. Approved: the assembly lands it on main
 

@@ -27,7 +27,9 @@ const (
 	// work itself: note, ask, mail, create and update beads, move its own
 	// with an outcome, hold or close it, add an edge, call a source its
 	// grants allow. What it adds it may not take away. The store refuses it
-	// lifting a hold or removing a blocks edge.
+	// lifting a hold or removing a blocks edge, closing a bead not its own,
+	// changing a bead's type or depot, and choosing a new bead's flow or a
+	// stage past its first.
 	Agent
 	// Admin is what defines how the yard works (groups, routes, flows,
 	// crew, depots, packs): the operator's and the crew's, the yardmaster
@@ -123,19 +125,19 @@ func allowed(ctx context.Context, st *store.Store, name string) error {
 // is given one here, and the test of this file fails until then.
 var Access = map[string]Class{
 	// Beads.
-	"CreateBead":   Agent,
+	"CreateBead":   Agent, // but a pin of its flow or a stage past its first (store.CreateBead)
 	"GetBead":      Read,
 	"ListBeads":    Read,
 	"Ready":        Read,
 	"Waiting":      Read,
 	"Dispatchable": Read,
-	"UpdateBead":   Agent, // but a pin of its flow (store.UpdateBead)
+	"UpdateBead":   Agent, // but a pin of its flow, its type or depot (store.UpdateBead)
 	// A move is held by the store to the edges its flow allows, and to the
 	// members of the stage's group: it is no wider than an outcome.
 	"Advance":     Agent,
-	"AdvanceNote": Agent,
+	"AdvanceNote": Agent, // but along done-safe's edge on a security path (store.AdvanceNote)
 	"Done":        Agent,
-	"CloseBead":   Agent,
+	"CloseBead":   Agent, // its own bead alone (store.CloseBead)
 	"Reopen":      Admin,
 	"SetHold":     Agent, // but not to lift a hold (store.SetHold)
 	"Release":     Agent,

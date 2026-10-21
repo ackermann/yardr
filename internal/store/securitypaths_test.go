@@ -134,6 +134,59 @@ func TestDoneSafeRefusedOnASecurityPath(t *testing.T) {
 	}
 }
 
+// From a bead's agent, an advance to the stage done-safe sends a bead to is
+// held as the report is: review -> approved is the outcome's edge, and a
+// move by hand along it must not pass a diff done-safe may not. The agent's
+// advance on a diff that touches no listed path, and the yard's advance on
+// any, still go through.
+func TestDoneSafeEdgeHeldForABeadsAgentsAdvance(t *testing.T) {
+	t.Parallel()
+	dir := gitRepo(t, map[string]string{
+		".yardr/flows/default.flow": safeFlow,
+		store.SecurityPathsFile:     "internal/store/**\n",
+		"internal/store/auth.go":    "package store\n",
+		"docs/a.md":                 "a\n",
+	})
+	// The pane is this test process, which every call over the socket comes
+	// from: the yard's own calls go to the store itself.
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(own.SetSetting(ctx, store.OperatorSetting, "me", "me"))
+	must(own.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "me"))
+	must(own.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr", Limit: 3}, "me"))
+	reviewed(t, own, ctx, dir, "web-a", "main", touching(t, "internal/store/new.go"))
+	reviewed(t, own, ctx, dir, "web-d", "main", touching(t, "docs/b.md"))
+	sess, err := own.Claim(ctx, "web-a", "reviewers", "review", "yard")
+	must(err)
+	must(own.MarkRunning(ctx, sess.ID, paneShell(t, "yard-web-a-review")))
+	pane := store.WithCaller(ctx, os.Getpid())
+
+	_, err = s.AdvanceNote(pane, "web-a", "approved", "", store.Expect{Session: sess.ID}, "me")
+	if err == nil {
+		t.Fatal("the agent's advance to approved on a diff that touches internal/store was taken")
+	}
+	for _, want := range []string{"advance to approved", "done-safe is refused", "internal/store/new.go", "report done instead, which sends it to review-security"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal lacks %q: %v", want, err)
+		}
+	}
+	if got := stageOf(t, s, ctx, "web-a"); got != "review" {
+		t.Fatalf("a refused advance moved the bead to %s", got)
+	}
+	if b, err := s.AdvanceNote(pane, "web-d", "approved", "", store.Expect{}, "me"); err != nil || b.Stage != "approved" {
+		t.Errorf("the agent's advance to approved on a diff that touches no security path: %+v, %v", b, err)
+	}
+	if b, err := own.AdvanceNote(ctx, "web-a", "approved", "", store.Expect{}, "me"); err != nil || b.Stage != "approved" {
+		t.Errorf("the yard's advance to approved: %+v, %v", b, err)
+	}
+}
+
 // A file cannot be named to decide whether the report is safe when git
 // cannot resolve the configured base. Treating that as no list would let a
 // depot with a security_paths file on its base skip the check.
