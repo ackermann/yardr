@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/contrib/server-yard/managers"
 )
 
 // yard holds one test's directories: D is short (/tmp/sy.XXXXXX), since a
@@ -50,9 +52,7 @@ func build(t *testing.T) *yard {
 	y := &yard{d: d, bin: filepath.Join(d, "bin"), home: filepath.Join(d, "home"),
 		config: filepath.Join(d, "config"), yardhome: filepath.Join(d, "yard"),
 		sock: filepath.Join(d, "herdr.sock"), state: filepath.Join(d, "state")}
-	for _, dir := range []string{y.bin, y.home, y.config, y.yardhome,
-		filepath.Join(y.state, "systemctl"), filepath.Join(y.state, "loginctl"),
-		filepath.Join(y.state, "launchctl"), filepath.Join(y.state, "herdr")} {
+	for _, dir := range []string{y.bin, y.home, y.config, y.yardhome, filepath.Join(y.state, "herdr")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -67,14 +67,16 @@ func build(t *testing.T) *yard {
 	}
 	goBuild(filepath.Join(y.bin, "yardr"), "yardr.dev/yardr")
 	goBuild(filepath.Join(y.bin, "herdr"), "yardr.dev/yardr/contrib/server-yard/fake")
-	for _, name := range []string{"claude", "systemctl", "loginctl", "launchctl"} {
-		b, err := os.ReadFile(filepath.Join(root, "contrib/server-yard/fake", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(y.bin, name), b, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	b, err := os.ReadFile(filepath.Join(root, "contrib/server-yard/fake", "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(y.bin, "claude"), b, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	managerEnv, err := managers.Install(root, y.bin, y.state)
+	if err != nil {
+		t.Fatal(err)
 	}
 	// The test's own environment stays out: a YARDR_HOME or a
 	// HERDR_SOCKET_PATH inherited from it would reach the real yard.
@@ -85,12 +87,10 @@ func build(t *testing.T) *yard {
 		"PATH=" + y.bin + ":/usr/bin:/bin",
 		"HERDR_SOCKET_PATH=" + y.sock,
 		"HERDR_FAKE_STATE=" + filepath.Join(y.state, "herdr"),
-		"SYSTEMCTL_STATE=" + filepath.Join(y.state, "systemctl"),
-		"LOGINCTL_STATE=" + filepath.Join(y.state, "loginctl"),
-		"LAUNCHCTL_STATE=" + filepath.Join(y.state, "launchctl"),
 		"USER=sy-test",
 		"SHELL=/bin/sh",
 	}
+	y.env = append(y.env, managerEnv...)
 	t.Cleanup(y.stop)
 	return y
 }

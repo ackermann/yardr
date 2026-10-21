@@ -1,12 +1,22 @@
 // Package isolatedyard tests the isolated-yard script: that `down` stops
 // what runs in a yard and nothing else. The tests use bare yards (no herdr
 // server), so they run where herdr is not installed.
+//
+// The exception is TestYardShapes (matrix_test.go), the yard-shape matrix.
+// It brings up yards with a herdr server and a stand-in agent of their own
+// (isolated-yard up), so it needs herdr, and it takes minutes. It therefore
+// skips unless YARDR_QUIET_RUN is set, which only the daemon's quiet run
+// sets (docs/testing.md R6): `go test ./...`, a builder's gate and a
+// landing do not run it. By hand:
+//
+//	YARDR_QUIET_RUN=1 go test -run TestYardShapes ./contrib/isolated-yard
 package isolatedyard
 
 import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -46,8 +56,41 @@ func bare(t *testing.T) string {
 	if !strings.HasPrefix(d, "/tmp/iy.") {
 		t.Fatalf("isolated-yard bare printed %q", out)
 	}
-	// By the script, which goes by the yard's directory: a pid the test
-	// read earlier may be someone else's by then.
+	downAtEnd(t, d)
+	return d
+}
+
+// up makes a yard with a herdr server of its own (isolated-yard up), the
+// kind that may start agents, and returns its directory. A test that starts
+// agents must not go on in a yard that is not isolated, so it checks what
+// up printed: a pane of that herdr finds the stand-in as `claude`, and the
+// agent list is empty. Unlike bare it leaves t.Parallel to its caller.
+func up(t *testing.T) string {
+	t.Helper()
+	out, err := script(t, "up")
+	if err != nil {
+		t.Fatalf("isolated-yard up: %v\n%s", err, out)
+	}
+	m := regexp.MustCompile(`(?m)^isolated yard: (/tmp/iy\.\S+)\s`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("isolated-yard up named no yard:\n%s", out)
+	}
+	d := m[1]
+	downAtEnd(t, d)
+	for _, proof := range []string{"command -v claude, in a pane: " + d + "/bin/claude", `"agents":[]`} {
+		if !strings.Contains(out, proof) {
+			t.Fatalf("isolated-yard up did not show the yard isolated: no %q in\n%s", proof, out)
+		}
+	}
+	return d
+}
+
+// downAtEnd takes the yard in d down when the test ends, should the test
+// fail before its own `down`. It goes by the script, which goes by the
+// yard's directory: a pid the test read earlier may be someone else's by
+// then.
+func downAtEnd(t *testing.T, d string) {
+	t.Helper()
 	t.Cleanup(func() {
 		if _, err := os.Stat(d); err == nil {
 			if out, err := script(t, "down", d); err != nil {
@@ -55,7 +98,6 @@ func bare(t *testing.T) string {
 			}
 		}
 	})
-	return d
 }
 
 // in runs a command inside the yard, through its wrapper.

@@ -69,3 +69,9 @@ caller's environment:
   it would bind 127.0.0.1:8791.
 - `launchctl`: the same for the test on macOS, where yardr writes
   launchd agents.
+
+`managers/` installs the three service managers and holds which variable each
+reads its state directory from. The yard-shape matrix of
+[contrib/isolated-yard](../isolated-yard/README.md#the-yard-shape-matrix) uses
+it too, to run this script in a yard that has a real herdr and a stand-in
+agent that works beads.

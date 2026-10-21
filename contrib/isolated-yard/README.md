@@ -88,6 +88,45 @@ many requests it got for one; `curl -X POST http://A/notes/hold` has it
 write the next note and hold the answer until the caller gives up, which is
 how a trial gets a timeout after a write.
 
+## The yard-shape matrix
+
+`matrix_test.go` walks every way a yard is set up through the same list of
+steps, so that proving the default setup does not stand in for the others. A
+shape is a row of its table. The first three are a yard with a git depot, one
+with a directory depot, and one set up as a server by
+[contrib/server-yard](../server-yard/README.md), whose daemon and web view
+are login services kept by the script's stand-in service managers. Each shape
+is a yard of its own, made by `up`, and every step runs through its `D/e`
+(for the server yard, `D/e env ...` with the variables the managers read).
+
+The steps, in order: init; doctor; depot add; depot init, where the pack of
+the other kind of depot is refused; a bead created, listed and shown; the bead
+worked to its end by the stand-in agents, a builder and a reviewer that do
+what `D/run` tells them; land; status, and doctor with no setup step left;
+the daemon stopped, started (a second start is refused) and stopped again,
+then stopped once more with none running.
+
+A shape that cannot do a step does not skip it. Its table entry holds the
+refusal, and the matrix runs the attempt and pins the exit status and the
+start of the error. The exit status says what kind of refusal it is: 1 for a
+command refused, 2 for one that had to ask and had no terminal to ask in, 3
+for something not there (`exitCode` in `internal/cli/root.go`). A dir depot
+cannot land. Its flow ends at review, with no stage to hand a bead to, so
+that is its entry for `land`. A new shape is a new row, and each step it
+cannot do is one more entry.
+
+A shape takes 35 to 50 s and the three run beside one another. The matrix
+skips unless `YARDR_QUIET_RUN` is set, which the daemon's quiet run sets for
+the whole suite (docs/testing.md R6) and nothing else does. By hand, for all
+shapes or for one:
+
+```
+YARDR_QUIET_RUN=1 go test -run TestYardShapes ./contrib/isolated-yard
+YARDR_QUIET_RUN=1 go test -run TestYardShapes/dir ./contrib/isolated-yard
+```
+
+It needs herdr, as `up` does, and with the variable set it is red without it.
+
 ## What `down` stops
 
 `down D` stops a yard by its home, not by its binary. It stops every process

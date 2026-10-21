@@ -720,6 +720,7 @@ summary() {
 # it, but delete it anyway.
 over60='
 internal/web yardr-bds8 238 sequential tests, no t.Parallel; 52-54 s beside root and cli (16 Oct), 61-83 s alone (18-19 Oct); TestSteadyClient 16 s, TestBeadsPageManyBeads 7 s (design yardr-bds8 class C)
+contrib/isolated-yard yardr-n9ss TestYardShapes (the yard-shape matrix) walks three yards, 35-50 s beside one another, and runs only where YARDR_QUIET_RUN is set, which is the quiet run (docs/testing.md R6); the package is 18 s without it. No bead brings it under: it is an acceptance test, not a slow unit test
 '
 # loadedmachine prints the machine's one-minute load average and core count,
 # as "load <avg> on <cores> cores", when the machine is too loaded for a
@@ -1206,7 +1207,7 @@ contrib/peer/return-branch     internal/cli
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli
 contrib/isolated-yard/         contrib/isolated-yard .
-contrib/server-yard/           contrib/server-yard .
+contrib/server-yard/           contrib/server-yard contrib/isolated-yard .
 contrib/release/               contrib/release .
 README.md                      contrib/release .
 LICENSE                        contrib/release .

@@ -20,7 +20,16 @@ import (
 // nothing of stderr.
 func drive(t *testing.T, d string, v any, args ...string) int {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(d, "e"), append([]string{"yardr", "--json"}, args...)...)
+	return driveVia(t, []string{filepath.Join(d, "e")}, v, args...)
+}
+
+// driveVia is drive through the command via, which is D/e alone for most
+// yards. A yard whose commands need more of the environment than D/e gives
+// (the server yard's service managers read their state from it) passes
+// D/e followed by `env NAME=value ...`.
+func driveVia(t *testing.T, via []string, v any, args ...string) int {
+	t.Helper()
+	cmd := exec.Command(via[0], append(append(slices.Clone(via[1:]), "yardr", "--json"), args...)...)
 	cmd.Stdin = nil // the null device: nothing to read, and no terminal
 	var out bytes.Buffer
 	cmd.Stdout = &out

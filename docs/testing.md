@@ -9,7 +9,9 @@ gate, the roles and the assembly keep between them.
 
 An allow-list in `.yardr/test` names what is over budget today, each entry
 with why and which bead brings it under. A fix deletes its entries; a row
-whose site is gone is deleted with the fix, not left for later.
+whose site is gone is deleted with the fix, not left for later. One row has
+no fix: `contrib/isolated-yard`'s, since the yard-shape matrix is long by
+design and runs only in the quiet run (R6).
 
 R1. A package's tests finish in 60 s under `-race`, or the gate fails.
 The wall is the slowest package. When a non-allow-listed package takes over
@@ -122,7 +124,8 @@ the next quiet event. Quiet is the yard's, not the machine's: nothing
 here waits for low load, and the run starts however loaded the host,
 which is why it judges R1 strictly instead of loud-passing as a
 landing may. The run tests the depot's base in a worktree of
-its own with `YARDR_LANDING=1` and `YARDR_R1_STRICT=1`, holding the
+its own with `YARDR_LANDING=1`, `YARDR_R1_STRICT=1` and
+`YARDR_QUIET_RUN=1`, holding the
 machine-wide race lock for its whole length, so it never overlaps a
 landing leg, and it is
 single-flight: while one quiet run runs, a further event does not start
@@ -134,7 +137,27 @@ quiet run sets, turns off R1's loaded pass: a package over 60 s alone
 fails however loaded the machine. On a loaded host its failure line
 names both times and the load; on a quiet host it names both times, so a
 slowdown cannot hide behind a loaded host (yardr-8gdt).
-`YARDR_LANDING=1` with `YARDR_R1_STRICT=1` beside it stays the one command
+
+`YARDR_QUIET_RUN=1`, which like `YARDR_R1_STRICT` only the quiet run sets, is
+the mark a test reads when it costs minutes and belongs to no other run.
+Without it the test skips and says why, so `go test ./...`, a builder's gate
+and a landing stay as fast as they were. Today that is `TestYardShapes`
+(`contrib/isolated-yard/matrix_test.go`, yardr-n9ss), the yard-shape matrix.
+It walks a yard with a git depot, one with a directory depot and one set up
+as a server by `contrib/server-yard` through the same steps: init, doctor,
+depot add and depot init, a bead created, listed and shown and then worked to
+its end by the stand-in agent, status, and the daemon stopped, started and
+stopped again. A shape that cannot do a step does not skip it. Its table
+entry holds the refusal it gets, and the matrix pins the exit status and the
+start of the error. A peer-linked yard and a hosted one are not in the table
+yet.
+
+A shape takes 35 to 50 s on the yard's machine and the three run beside one
+another, which puts `contrib/isolated-yard` at about 75 s under `-race` (18 s
+without the matrix), over R1's 60 s. The package is on R1's allow-list for
+that, and no bead brings it under, because the matrix is an acceptance test
+and the quiet run is where its minutes are spent. `YARDR_LANDING=1` with
+`YARDR_R1_STRICT=1` and `YARDR_QUIET_RUN=1` beside it stays the one command
 anyone can run.
 
 R7. The rules are judged by re-measurement: the same per-package table one
