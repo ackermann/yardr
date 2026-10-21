@@ -15,6 +15,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/shared"
 )
 
 // SampleFloor is the durations a cell needs before it times a stage: below
@@ -28,10 +30,8 @@ const SampleFloor = 10
 const doneOutcome = "done"
 
 // OriginatorAny is the originator a route names to take every
-// originator's beads. The same keyword as store.OriginatorAny, which
-// this package cannot import (the store reads this package for its JSON
-// shapes); eta_test pins the two equal.
-const OriginatorAny = "any"
+// originator's beads: the shared keyword.
+const OriginatorAny = shared.OriginatorAny
 
 // A Cell is one group, label and stage's answered durations: the medians
 // and p90s of its entry-to-exit and claim-to-exit rings with the samples
@@ -552,127 +552,26 @@ func lateMark(b Bead, label string, primary func(stage string) (Group, bool), ce
 			b.Stage, span(age), span(c.ClaimP90), label, *b.Group)}
 }
 
-// routeKey is which beads a route takes beside its scope, as
-// store.Route's key is: stage, type, the set of labels, bead priority and
-// the originator resolved as matchesOriginator resolves it. It mirrors
-// the store's key, which this package cannot import.
-type routeKey struct {
-	stage           string
-	typ             string
-	hasType         bool
-	labels          string
-	beadPriority    int
-	hasBeadPriority bool
-	originator      string
+// viewRoute is r as matching reads it: the shared shape, adapted at the
+// boundary, since neither route type moves below the store.
+func viewRoute(r Route) shared.Route {
+	return shared.Route{Stage: r.Stage, Type: r.Type, Depot: r.Depot, Labels: r.Labels,
+		BeadPriority: r.BeadPriority, Originator: r.Originator}
 }
 
-func (r Route) resolvedOriginator(operator string) string {
-	if r.Originator == nil {
-		return operator
-	}
-	return *r.Originator
-}
-
-func (r Route) routeKey(operator string) routeKey {
-	k := routeKey{stage: r.Stage, originator: r.resolvedOriginator(operator)}
-	if r.Type != nil {
-		k.typ, k.hasType = *r.Type, true
-	}
-	if len(r.Labels) > 0 {
-		sorted := slices.Clone(r.Labels)
-		slices.Sort(sorted)
-		var labels strings.Builder
-		for _, label := range slices.Compact(sorted) {
-			fmt.Fprintf(&labels, "%d:", len(label))
-			labels.WriteString(label)
-		}
-		k.labels = labels.String()
-	}
-	if r.BeadPriority != nil {
-		k.beadPriority, k.hasBeadPriority = *r.BeadPriority, true
-	}
-	return k
-}
-
-// effectiveRoutes are a depot's routes as store.EffectiveRoutes computes
-// them: its own routes plus every yard default whose key no own route
-// states; the defaults alone for a bead with no depot. Routes arrive in
-// match order and keep it.
+// effectiveRoutes are a depot's routes: its own plus every yard default
+// whose key no own route states. The one implementation is shared's.
 func effectiveRoutes(routes []Route, depot *string, operator string) []Route {
-	if depot == nil {
-		var out []Route
-		for _, r := range routes {
-			if r.Depot == nil {
-				out = append(out, r)
-			}
-		}
-		return out
-	}
-	own := map[routeKey]bool{}
-	for _, r := range routes {
-		if r.Depot != nil && *r.Depot == *depot {
-			own[r.routeKey(operator)] = true
-		}
-	}
-	var out []Route
-	for _, r := range routes {
-		switch {
-		case r.Depot != nil && *r.Depot == *depot:
-			out = append(out, r)
-		case r.Depot == nil && !own[r.routeKey(operator)]:
-			out = append(out, r)
-		}
-	}
-	return out
+	return shared.EffectiveRoutes(routes, viewRoute, depot, operator)
 }
 
-// matchRoute is the first route in match order that applies to the bead:
-// what store.MatchRoute answers, inside the bead's depot's effective
-// routes. It mirrors that function, which this package cannot import;
-// eta_test pins the two equal.
+// matchRoute is the first route in match order that applies to the bead,
+// inside the bead's depot's effective routes. The one implementation is
+// shared's; routes arrive in match order.
 func matchRoute(routes []Route, stage, typ string, depot *string, labels []string, priority int, originator, operator string) *Route {
 	routes = effectiveRoutes(routes, depot, operator)
-	for i := range routes {
-		r := &routes[i]
-		if r.Stage != stage {
-			continue
-		}
-		if r.Type != nil && *r.Type != typ {
-			continue
-		}
-		if r.Depot != nil && (depot == nil || *r.Depot != *depot) {
-			continue
-		}
-		if slices.ContainsFunc(r.Labels, func(l string) bool { return !slices.Contains(labels, l) }) {
-			continue
-		}
-		if r.BeadPriority != nil && priority > *r.BeadPriority {
-			continue
-		}
-		if !r.matchesOriginator(originator, operator) {
-			continue
-		}
-		return r
-	}
-	return nil
-}
-
-// matchesOriginator reports whether the route takes beads for
-// originator, whose subscription they build on. It mirrors
-// store.Route.MatchesOriginator, which this package cannot import;
-// eta_test pins the two equal through Estimate.
-func (r Route) matchesOriginator(originator, operator string) bool {
-	if originator == "" {
-		originator = operator
-	}
-	switch {
-	case r.Originator == nil:
-		return originator == operator
-	case *r.Originator == OriginatorAny:
-		return true
-	default:
-		return originator == *r.Originator
-	}
+	return shared.Match(routes, viewRoute, shared.Bead{Stage: stage, Type: typ, Depot: depot,
+		Labels: labels, Priority: priority, Originator: originator}, operator)
 }
 
 // difficulty is the bead's estimate label for its cells: its difficulty:
@@ -697,22 +596,5 @@ func scale(d time.Duration, by float64) time.Duration {
 }
 
 // span is a length of time in its two largest units: 42m, 3h 5m, 3d 9h.
-// It mirrors limits.Span, which this package cannot import: limits reads
-// the store and the store reads this package. eta_test pins the two equal.
-func span(d time.Duration) string {
-	d = d.Round(time.Minute)
-	days, hours, mins := int(d/(24*time.Hour)), int(d/time.Hour)%24, int(d/time.Minute)%60
-	switch {
-	case days > 0 && hours > 0:
-		return fmt.Sprintf("%dd %dh", days, hours)
-	case days > 0:
-		return fmt.Sprintf("%dd", days)
-	case hours > 0 && mins > 0:
-		return fmt.Sprintf("%dh %dm", hours, mins)
-	case hours > 0:
-		return fmt.Sprintf("%dh", hours)
-	case mins > 0:
-		return fmt.Sprintf("%dm", mins)
-	}
-	return "under a minute"
-}
+// The one implementation is shared's.
+func span(d time.Duration) string { return shared.Span(d) }
