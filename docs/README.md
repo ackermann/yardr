@@ -32,7 +32,7 @@ commands. These pages go deeper. Yardr's [Principles](../README.md#principles) e
 | [api.md](api.md) | the socket API for a program that is not yardr (a chat window of its own): the socket and who may open it, a call by name and its reply, errors, what a server does with a caller of another build, the event stream, and each call and event a chat client needs with its fields and an example; the same calls over the network for a user's device (`/user/` on the listener, the token, `/user/me`, the 401, TLS and the client's rule); what is stable and what is not for a client |
 | [bdp.md](bdp.md) | serving the yard over the Bead Protocol |
 | [web.md](web.md) | `yardr web serve`: the yard in a browser, read-only; its pages and their JSON, the layout, the look's tokens, adding a page |
-| [upgrade.md](upgrade.md) | `yardr upgrade --check`: asserting the yard runs this build, read-only, one line per check; the install itself, planned |
+| [upgrade.md](upgrade.md) | `yardr upgrade`: the install, the scripts refresh, the gate, the check and the rollback; `upgrade --check` asserts the yard runs this build, read-only, one line per check |
 | [otel.md](otel.md) | OpenTelemetry: `yardr otel export` (the event log as OTLP traces and logs), how beads, stages and sessions map to traces and spans, `TRACEPARENT` and `OTEL_RESOURCE_ATTRIBUTES` in every session, Claude Code and Codex, a Grafana example |
 | [testing.md](testing.md) | the test rules: the 60 s package and 500 ms sleep budgets the gate enforces, parallelism, one race leg per sha, the incremental landing, the quiet whole-suite run, the re-measure |
 
