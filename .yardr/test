@@ -382,12 +382,19 @@ sub write_holder {
   print $fh "pid=$$\nstart=" . my_start() . "\nbead=$bead\ndir=$dir\nsince=" . time . "\n";
   close($fh) or do { cleanup(); die "test: cannot write $holder: $!\n"; };
 }
-# cleanup leaves the queue as this waiter found it: its ticket gone,
-# and the holder file gone where it names this holder. A TERM or INT on
-# the way in takes this path too; a KILL leaves a ticket the next
-# waiter skips and removes.
+# cleanup leaves the queue as this waiter found it: its ticket and any
+# temporary file it was writing are gone, and the holder file is gone
+# where it names this holder. The pid in temporary names lets a TERM or
+# INT remove one created before it had a ticket name; a KILL leaves a
+# ticket the next waiter skips and removes.
 sub cleanup {
   unlink("$qdir/$mine") if defined($mine);
+  if (opendir(my $dh, $qdir)) {
+    for my $name (readdir($dh)) {
+      unlink("$qdir/$name") if $name =~ /^\Q.tmp-$$-\E/;
+    }
+    closedir($dh);
+  }
   my $kv = read_kv($holder);
   if (defined($kv) && defined($kv->{pid}) && $kv->{pid} eq $$) {
     my $ms = my_start();

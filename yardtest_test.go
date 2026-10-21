@@ -1918,46 +1918,52 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	}
 }
 
-// A waiter that gets TERM as its ticket shows leaves no ticket behind. The
-// ticket is in the queue from the rename in mkticket, and cleanup goes by the
-// name the waiter holds, which was set only when mkticket returned: a TERM
-// handled in between exited 143 with its ticket still queued. The gap is
-// microseconds wide, and one waiter in 300 killed as its ticket showed, beside
-// a loaded machine, fell into it (yardr-m1br), so the probe does not wait for
-// chance: it sends the TERM itself on the line before mkticket returns. Its
-// own home stands in for the yard's, so no real gate waits on it.
-func TestYardTestRaceLockTermAsTheTicketShowsLeavesNoTicket(t *testing.T) {
+// A waiter that gets TERM while its ticket is being made leaves no queue file
+// behind: before the rename it is a .tmp file, after it a ticket. A TERM in
+// either gap can be handled between the filesystem operation and the next
+// assignment, so the probes send the signal at each point instead of waiting
+// for chance. Its own home stands in for the yard's, so no real gate waits on
+// it.
+func TestYardTestRaceLockTermDuringTicketCreationLeavesNoQueueFiles(t *testing.T) {
 	t.Parallel()
 	driver, home := raceLockDriver(t)
 	b, err := os.ReadFile(driver)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const returns = "      return $name;\n"
-	if strings.Count(string(b), returns) != 1 {
-		t.Fatalf("cannot find where mkticket returns the ticket in %s: move the probe with the script", yardTest)
-	}
-	probe := filepath.Join(filepath.Dir(driver), "probe.sh")
-	if err := os.WriteFile(probe, []byte(strings.Replace(string(b), returns, "      kill(\"TERM\", $$);\n"+returns, 1)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(probe, filepath.Join(home, "worker.status"), "true")
-	cmd.Env = append(scriptEnv(), "HOME="+home)
-	out, err := cmd.CombinedOutput()
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 143 {
-		t.Fatalf("a waiter that TERMs itself as its ticket shows: %v, want exit 143:\n%s", err, out)
-	}
-	// The queue directory is made before the ticket: it is there, so the
-	// TERM came after mkticket began, and nothing in it is a ticket.
-	entries, err := os.ReadDir(filepath.Join(home, ".yardr", "race.queue"))
-	if err != nil {
-		t.Fatalf("no queue: the TERM came before mkticket made one: %v", err)
-	}
-	for _, e := range entries {
-		if raceTicketName.MatchString(e.Name()) {
-			t.Errorf("ticket %s is still queued after its waiter was TERMed as it showed", e.Name())
-		}
+	for _, tc := range []struct {
+		name  string
+		point string
+	}{
+		{"before rename", "      $mine = $name;\n"},
+		{"after rename", "      return $name;\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if strings.Count(string(b), tc.point) != 1 {
+				t.Fatalf("cannot find the %s point in %s: move the probe with the script", tc.name, yardTest)
+			}
+			probe := filepath.Join(t.TempDir(), "probe.sh")
+			patched := strings.Replace(string(b), tc.point, "      kill(\"TERM\", $$);\n"+tc.point, 1)
+			if err := os.WriteFile(probe, []byte(patched), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(probe, filepath.Join(home, "worker.status"), "true")
+			cmd.Env = append(scriptEnv(), "HOME="+home)
+			out, err := cmd.CombinedOutput()
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) || exit.ExitCode() != 143 {
+				t.Fatalf("a waiter that TERMs itself %s: %v, want exit 143:\n%s", tc.name, err, out)
+			}
+			entries, err := os.ReadDir(filepath.Join(home, ".yardr", "race.queue"))
+			if err != nil {
+				t.Fatalf("no queue: the TERM came before mkticket made one: %v", err)
+			}
+			for _, e := range entries {
+				if raceTicketName.MatchString(e.Name()) || strings.HasPrefix(e.Name(), ".tmp-") {
+					t.Errorf("queue file %s remains after the waiter was TERMed %s", e.Name(), tc.name)
+				}
+			}
+		})
 	}
 }
 
