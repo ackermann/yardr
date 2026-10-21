@@ -367,22 +367,35 @@ func TestLinkCancelsHandlersWhenSocketCloses(t *testing.T) {
 
 // A socket that falls silent, with no close either side sees, is counted
 // dead after DeadAfter, told as unanswered pings, and dialled again; the
-// new link serves.
+// new link serves. The millisecond row pings hundreds of times across the
+// silence window, so a write that ended the link would cut it short as a
+// closed socket instead.
 func TestLinkDialsAgainAfterASilentSocket(t *testing.T) {
 	t.Parallel()
-	y := linkTo(t, func(l *Link) { l.PingEvery, l.DeadAfter = 20*time.Millisecond, 200*time.Millisecond }, nil)
-	first := y.next(t)
-	first.Silence()
-	down := y.until(t, func(s State) bool { return !s.Up })
-	if down.Reason != DownPings {
-		t.Errorf("down as %+v, want %q", down, DownPings)
-	}
-	second := y.next(t)
-	if a := deliver(t, second, second.Frame(http.MethodGet, "/hooks/back", nil, nil, false)); a.Status != http.StatusAccepted {
-		t.Errorf("the new link answered %+v", a)
-	}
-	if s := y.until(t, func(s State) bool { return s.Up }); s.Reconnects() != 1 {
-		t.Errorf("up again as %+v", s)
+	for _, ping := range []struct {
+		name  string
+		every time.Duration
+	}{
+		{"twenty milliseconds", 20 * time.Millisecond},
+		{"a millisecond", time.Millisecond},
+	} {
+		t.Run(ping.name, func(t *testing.T) {
+			t.Parallel()
+			y := linkTo(t, func(l *Link) { l.PingEvery, l.DeadAfter = ping.every, 200*time.Millisecond }, nil)
+			first := y.next(t)
+			first.Silence()
+			down := y.until(t, func(s State) bool { return !s.Up })
+			if down.Reason != DownPings {
+				t.Errorf("down as %+v, want %q", down, DownPings)
+			}
+			second := y.next(t)
+			if a := deliver(t, second, second.Frame(http.MethodGet, "/hooks/back", nil, nil, false)); a.Status != http.StatusAccepted {
+				t.Errorf("the new link answered %+v", a)
+			}
+			if s := y.until(t, func(s State) bool { return s.Up }); s.Reconnects() != 1 {
+				t.Errorf("up again as %+v", s)
+			}
+		})
 	}
 }
 

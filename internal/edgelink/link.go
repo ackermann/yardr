@@ -333,8 +333,14 @@ func (l *Link) once(ctx context.Context) (upFor time.Duration, reason, detail st
 		c.Close(websocket.StatusPolicyViolation, "the challenge is not the edge's")
 		return 0, reason, why
 	}
-	if err := l.write(ctx, c, map[string]string{"type": "hello", "sig": yardkey.SignLink(l.Key, yardNonce, edgeNonce)}); err != nil {
-		return 0, DownClosed, "the hello was not sent: " + err.Error()
+	// The hello keeps a budget: before serve starts no heard timer bounds a
+	// socket that takes nothing, and here an expired budget fails the dial,
+	// which the link dials again, instead of misjudging a live link.
+	hctx, hcancel := context.WithTimeout(ctx, or(l.HelloWithin, linkHello))
+	herr := l.write(hctx, c, map[string]string{"type": "hello", "sig": yardkey.SignLink(l.Key, yardNonce, edgeNonce)})
+	hcancel()
+	if herr != nil {
+		return 0, DownClosed, "the hello was not sent: " + herr.Error()
 	}
 	wctx, cancel := context.WithTimeout(ctx, or(l.HelloWithin, linkHello))
 	var welcome frameIn
@@ -783,8 +789,13 @@ func (l *Link) read(ctx context.Context, c *websocket.Conn, v any) error {
 	return json.Unmarshal(b, v)
 }
 
-// write sends one frame. A write that does not finish within the ping
-// interval is a socket that takes nothing, and ends with it.
+// write sends one frame. It waits on the link's context, with no budget of
+// its own: the socket library closes the link when a write's context
+// expires, so a budget would end the link whenever the machine is too
+// loaded to finish a write in time, and serve would read that death as a
+// closed socket instead of unanswered pings. The heard timer alone judges
+// the link dead; a socket that truly takes nothing goes quiet with it, its
+// pings unanswered.
 func (l *Link) write(ctx context.Context, c *websocket.Conn, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -795,9 +806,7 @@ func (l *Link) write(ctx context.Context, c *websocket.Conn, v any) error {
 
 // writeBytes sends b as the one frame it already encodes.
 func (l *Link) writeBytes(ctx context.Context, c *websocket.Conn, b []byte) error {
-	wctx, cancel := context.WithTimeout(ctx, or(l.PingEvery, linkPing))
-	defer cancel()
-	return c.Write(wctx, websocket.MessageText, b)
+	return c.Write(ctx, websocket.MessageText, b)
 }
 
 // closeText says how a socket ended: the edge's close and its reason, cut to
