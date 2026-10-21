@@ -1346,6 +1346,13 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	if err != nil {
 		return nil, err
 	}
+	// The run may have written the bead itself: a claim's approval closes
+	// its card's bead. The answer is recorded on the bead as the run left
+	// it, not as it was read before the run, which addNoted would write
+	// back over the run's write.
+	if row, err = w.loadBead(row.UUID); err != nil {
+		return nil, err
+	}
 	// An approval the yard carries out after this write leaves its
 	// carrying record in it, for the server to take up (carry.go).
 	if needsCarry(was) {

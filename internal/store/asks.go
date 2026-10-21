@@ -780,15 +780,23 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		// it, and this card's ask must be answered by then, not taken back;
 		// and addNoted wrote row, which a close made before it would lose
 		// to. A refusal (stale, or not the operator's to give) rolls the
-		// answer back with the write and leaves the card open.
+		// answer back with the write and leaves the card open. A declined
+		// claim ends its card beside it the same way (answerClaim).
 		for _, n := range notes {
 			if n.Seq != ans.Ask || n.Kind != NoteAsk {
 				continue
 			}
-			if ask, err := ParseAsk(n); err == nil && ask.Identity != nil {
+			ask, err := ParseAsk(n)
+			if err != nil {
+				continue
+			}
+			if ask.Identity != nil {
 				if err := w.answerMapping(ctx, row, ask, ans, actor); err != nil {
 					return err
 				}
+			}
+			if err := w.answerClaim(row, ask, ans, actor); err != nil {
+				return err
 			}
 		}
 		// A pick or words that fire an outcome move the bead in the same

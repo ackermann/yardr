@@ -86,7 +86,9 @@ func claimPending(tx *bolt.Tx, operator, sourceName string) (bool, error) {
 // Asked of the operator only, for the operator's own address: another
 // user's address is a later bead. The ask is the yard's (author
 // "yard"), on a question bead titled with the question, as a stage
-// ask is the yard's on its bead.
+// ask is the yard's on its bead. The yard closes that bead when the
+// card is settled: by an approval that writes the address, by a decline,
+// or by an address given by hand (retireClaimCards).
 func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text string) (bool, error) {
 	// Keep the normalized event's address byte-for-byte: trimming here
 	// could approve a different value than the one the next delivery
@@ -429,8 +431,8 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 	return created, nil
 }
 
-// closeCard closes the question bead of a mapping card with reason, as
-// the card's own writer: the yard asked it, so the yard ends it
+// closeCard closes the question bead of a mapping or claim card with
+// reason, as the card's own writer: the yard asked it, so the yard ends it
 // (TypeQuestion). No gate is read through a repository: a card blocks
 // nothing unless a person made it block (closeBead).
 func (w *wtx) closeCard(row *beadRow, reason, actor string) error {
@@ -475,6 +477,55 @@ func (w *wtx) retireMappingCards(source string, is func(sender string) bool, who
 			}
 		}
 		if reason == "" {
+			continue
+		}
+		row, err := w.loadBead(uuid)
+		if err != nil {
+			return err
+		}
+		if err := w.takeBackStage(row, reason, settled); err != nil {
+			return err
+		}
+		// The take-back wrote a note: close the bead as it stands now.
+		if row, err = w.loadBead(uuid); err != nil {
+			return err
+		}
+		if err := w.closeCard(row, reason, actor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retireClaimCards ends the claim cards for the address in source the write
+// calling it has given by hand, now addr. Each card's bead closes, and an
+// ask that still waits, open or put aside, is taken back first, as the yard
+// takes back a stage ask when its bead moves on: the operator's decisions
+// list the open asks of closed beads as well (UserAsks), and a waiting ask
+// counts as pending (claimPending), so closing the bead alone would leave
+// the card among their questions and block a fresh card. An ask that ended
+// already, answered or declined, is left as it is. KeyUser calls it after
+// writing; an approval closes its own card's bead beside the write
+// (runUserKey), where the ask is answered, not taken back.
+func (w *wtx) retireClaimCards(user, source, addr, actor string) error {
+	reason := fmt.Sprintf("%s is %s in %s", addr, user, source)
+	settled := func(a Ask) bool {
+		return a.Run != nil && isUserKeyRun(a.Run.Argv) && a.Run.Argv[2] == user && a.Run.Argv[3] == source
+	}
+	// The open index is a snapshot of keys: closing a bead below takes it
+	// out of the index without moving this loop.
+	for _, uuid := range keys(w.Tx, bBeadOpen, "") {
+		notes, err := beadNotes(w.Tx, uuid)
+		if err != nil {
+			return err
+		}
+		stands := false
+		for _, r := range ResolveAsks(notes, now()) {
+			if r.AskErr == nil && settled(r.Ask) {
+				stands = true
+			}
+		}
+		if !stands {
 			continue
 		}
 		row, err := w.loadBead(uuid)
@@ -615,4 +666,21 @@ func (w *wtx) answerNobody(ctx context.Context, ask Ask, ans Answer, actor strin
 		return err
 	}
 	return w.ignoreSender(ctx, id.Source, id.Sender, actor, nil)
+}
+
+// answerClaim ends a claim card declined in the write that recorded the
+// answer, closing its bead as declined by the one who declined: the address
+// stays ungiven, and the next delivery offers a new card, as one is offered
+// after none. Anything but a decline leaves the card open, as does a run
+// ask no claim carries. A card whose bead was closed by hand, with the ask
+// still open, has nothing left to close. row is the card's bead, as the
+// answer was written on it; the answer is recorded before this runs.
+func (w *wtx) answerClaim(row *beadRow, ask Ask, ans Answer, actor string) error {
+	if ask.Run == nil || !isUserKeyRun(ask.Run.Argv) || !ans.Decline {
+		return nil
+	}
+	if !row.open() {
+		return nil
+	}
+	return w.closeCard(row, "declined by "+actor, actor)
 }

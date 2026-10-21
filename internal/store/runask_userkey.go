@@ -33,6 +33,13 @@ func parseUserKey(rest []string) ([]string, error) {
 // userKeyOf is the user and the source of a parsed user key.
 func userKeyOf(argv []string) (user, src string) { return argv[2], argv[3] }
 
+// isUserKeyRun reports whether argv is a user key command in its stored
+// form. Only a claim card carries one: AddAsk refuses a user key it did
+// not offer, since only a dropped delivery may carry the address.
+func isUserKeyRun(argv []string) bool {
+	return len(argv) == 4 && argv[0] == "user" && argv[1] == "key"
+}
+
 // checkUserKey is giving a user's own address as the asker: it is that
 // user's to give, or the operator's for them (mayTell), and a crew
 // member's proposal of it is the operator's to approve. It returns nil
@@ -220,10 +227,10 @@ func (w *wtx) userKeyStale(seq uint64, was, now AskRun) error {
 }
 
 // runUserKey writes the carried address into the user's env file as
-// actor, through keyUser, and subscribes the yard's hearer to it beside
-// the write, as the card says. It answers what yardr user key prints,
-// without the file's path: the approval's line is read beside the
-// command's, and each yard's home is its own.
+// actor, through keyUser, subscribes the yard's hearer to it beside
+// the write, as the card says, and closes the card's bead. It answers
+// what yardr user key prints, without the file's path: the approval's
+// line is read beside the command's, and each yard's home is its own.
 func runUserKey(ctx context.Context, w *wtx, run AskRun, actor string, by *approvedOn) (string, error) {
 	user, srcName := userKeyOf(run.Argv)
 	_, d, err := sourceIn(w.Tx, srcName)
@@ -240,21 +247,34 @@ func runUserKey(ctx context.Context, w *wtx, run AskRun, actor string, by *appro
 	if err != nil {
 		return "", err
 	}
-	if member == "" {
-		return out, nil
+	if member != "" {
+		var r CrewMember
+		if ok, err := get(w.Tx, bCrew, member, &r); err != nil {
+			return "", err
+		} else if ok {
+			has := slices.ContainsFunc(r.Subscriptions, sub.same)
+			if err := w.addSubscription(ctx, member, sub, actor, by); err != nil {
+				return "", err
+			}
+			if has {
+				out += fmt.Sprintf("; %s already subscribed: %s", member, sub)
+			} else {
+				out += fmt.Sprintf("; %s subscribed: %s", member, sub)
+			}
+		}
 	}
-	var r CrewMember
-	if ok, err := get(w.Tx, bCrew, member, &r); err != nil {
-		return "", err
-	} else if !ok {
-		return out, nil
+	// The approval settles the claim: its card's bead closes, as a mapping
+	// card's does when its sender is settled. The answer is recorded after
+	// this runs, so the ask is answered, not taken back; a bead closed by
+	// hand meanwhile is left as it is.
+	if by != nil {
+		if row, err := w.loadBead(by.Bead); err != nil {
+			return "", err
+		} else if row.open() {
+			if err := w.closeCard(row, fmt.Sprintf("%s is %s in %s", run.Value, user, srcName), actor); err != nil {
+				return "", err
+			}
+		}
 	}
-	has := slices.ContainsFunc(r.Subscriptions, sub.same)
-	if err := w.addSubscription(ctx, member, sub, actor, by); err != nil {
-		return "", err
-	}
-	if has {
-		return out + fmt.Sprintf("; %s already subscribed: %s", member, sub), nil
-	}
-	return out + fmt.Sprintf("; %s subscribed: %s", member, sub), nil
+	return out, nil
 }

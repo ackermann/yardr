@@ -464,3 +464,90 @@ func TestClaimApprovalSubscribesHearerToAddressAlone(t *testing.T) {
 		t.Fatalf("the approval printed %q", done.Result)
 	}
 }
+
+// Approving a claim closes its card's bead once the address is written:
+// the bead does not sit open in stage new after its ask is done. The ask
+// is answered, not taken back, and the operator's queue holds no card for
+// an address that is given.
+func TestClaimApprovalClosesTheCardsBead(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := claimYard(t)
+	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
+		t.Fatalf("ClaimAddress = %v, %v", created, err)
+	}
+	open := claimQueue(t, y).Open[0]
+	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := y.GetBead(y.ctx, open.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "111 is mckean in chime" {
+		t.Fatalf("the card is %s with %v, want it closed with the address named", b.Status, b.CloseReason)
+	}
+	q := claimQueue(t, y)
+	if len(q.Open) != 0 {
+		t.Fatalf("open asks after the approval = %d, want 0", len(q.Open))
+	}
+	if len(q.Decided) != 1 || q.Decided[0].State != "answered" {
+		t.Fatalf("decided asks = %+v, want the approved ask answered", q.Decided)
+	}
+}
+
+// Declining a claim closes its card's bead too: the address stays ungiven,
+// and the next delivery offers a new card, as one is offered after none.
+func TestClaimDeclineClosesTheCardsBead(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := claimYard(t)
+	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
+		t.Fatalf("ClaimAddress = %v, %v", created, err)
+	}
+	open := claimQueue(t, y).Open[0]
+	if err := y.AddAnswer(y.ctx, open.Bead, Answer{Ask: open.Ask, Decline: true, Words: "not me"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := y.GetBead(y.ctx, open.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "declined by mckean" {
+		t.Fatalf("the card is %s with %v, want it closed as declined", b.Status, b.CloseReason)
+	}
+	if created, err := y.ClaimAddress(y.ctx, "chime", "222", "me again"); err != nil || !created {
+		t.Fatalf("a claim after a decline = %v, %v", created, err)
+	}
+}
+
+// An address given by hand after the claim was written closes its card's
+// bead and takes back its waiting ask: the operator's queue holds no card
+// for an address that is given, and the approval then goes nowhere, as a
+// taken-back ask's does.
+func TestClaimGivenByHandClosesTheCardsBead(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := claimYard(t)
+	if created, err := y.ClaimAddress(y.ctx, "chime", "111", "hi"); err != nil || !created {
+		t.Fatalf("ClaimAddress = %v, %v", created, err)
+	}
+	open := claimQueue(t, y).Open[0]
+	if _, err := y.KeyUser(y.ctx, "mckean", "chime", map[string]string{"CHIME_CHAT": "222"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := y.GetBead(y.ctx, open.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Status != "closed" || b.CloseReason == nil || *b.CloseReason != "222 is mckean in chime" {
+		t.Fatalf("the card is %s with %v, want it closed with the given address named", b.Status, b.CloseReason)
+	}
+	q := claimQueue(t, y)
+	if len(q.Open) != 0 {
+		t.Fatalf("open asks after the giving = %d, want 0", len(q.Open))
+	}
+	if len(q.Decided) != 1 || q.Decided[0].State != "taken back" || q.Decided[0].Words != "222 is mckean in chime" {
+		t.Fatalf("decided asks = %+v, want the waiting ask taken back with the giving as the reason", q.Decided)
+	}
+	if _, err := y.ApproveAsk(y.ctx, open.Bead, open.Ask, "mckean"); err == nil || !strings.Contains(err.Error(), "is asked no more") {
+		t.Fatalf("ApproveAsk = %v, want it refused as taken back", err)
+	}
+}

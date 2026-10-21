@@ -285,7 +285,20 @@ func userEnvFile(home, name string) (string, error) {
 // is, and what it answers names the command that sets it.
 func (s *Store) KeyUser(ctx context.Context, name, src string, values map[string]string, actor string) (*SourceKeyed, error) {
 	var k sourceKey
-	err := s.write(func(w *wtx) error { return w.keyUser(ctx, s.home, name, src, values, actor, false, &k) })
+	err := s.write(func(w *wtx) error {
+		if err := w.keyUser(ctx, s.home, name, src, values, actor, false, &k); err != nil {
+			return err
+		}
+		// The address given settles the claim: its card's bead closes and
+		// its waiting ask is taken back, as a mapping card's is when its
+		// sender is settled another way (retireClaimCards). After the
+		// file's rename, as the approval's subscription is (runUserKey).
+		// values holds the one address keyUser wrote.
+		var addr string
+		for _, addr = range values {
+		}
+		return w.retireClaimCards(name, src, addr, actor)
+	})
 	if err != nil {
 		return nil, k.failed(err)
 	}
