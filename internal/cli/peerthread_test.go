@@ -13,13 +13,12 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// The word thread in the commands: peer allow takes it and warns for a
-// peer that has not said it understands it, and a bead that is at a peer
-// which said how its bead stands has a second line in bead show and the
-// fields in its JSON. The line is this yard's sentence around the peer's
-// plain fields, and it goes when the stay ends.
-func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
-	t.Parallel()
+// peerThreadYard opens the yard the peer-thread tests share: the away
+// flow on the web depot, and a bead claimed and sent to the peer north.
+// Each test allows the peer its own way — the directions and what they
+// assert differ — after the flow is in place and before the bead goes.
+func peerThreadYard(t *testing.T, allow func(st store.API)) (store.API, *store.Store, string, context.Context, string) {
+	t.Helper()
 	st, own, key := beadYard(t)
 	ctx := context.Background()
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
@@ -38,17 +37,9 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	errs := errOutput(t)
-	if out := mustAsErr(t, st, "jo", errs, "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread"); !strings.Contains(out, "peer north: send bead, thread; receive thread;") {
-		t.Fatalf("peer allow:\n%s", out)
-	}
-	if got := errs.String(); !strings.Contains(got, "warning: north has not said what its yardr understands") || !strings.Contains(got, "a thread sent to it may be refused there") {
-		t.Fatalf("peer allow --send thread for a peer that has not said warned:\n%s", got)
-	}
-	refusedAs(t, st, "jo", `"bead-event" is no kind of message between yards: there is ask, bead, file, mail, ping, thread`, "peer", "allow", "north", "--send", "bead-event")
+	allow(st)
 	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
 	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
-
 	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--depot", "web", "--stage", "build"))[0]
 	sess, err := st.Claim(ctx, id, "at-north", "build", "yard")
 	if err != nil {
@@ -57,6 +48,26 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
 		t.Fatal(err)
 	}
+	return st, own, key, ctx, id
+}
+
+// The word thread in the commands: peer allow takes it and warns for a
+// peer that has not said it understands it, and a bead that is at a peer
+// which said how its bead stands has a second line in bead show and the
+// fields in its JSON. The line is this yard's sentence around the peer's
+// plain fields, and it goes when the stay ends.
+func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
+	t.Parallel()
+	st, own, key, ctx, id := peerThreadYard(t, func(st store.API) {
+		errs := errOutput(t)
+		if out := mustAsErr(t, st, "jo", errs, "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread"); !strings.Contains(out, "peer north: send bead, thread; receive thread;") {
+			t.Fatalf("peer allow:\n%s", out)
+		}
+		if got := errs.String(); !strings.Contains(got, "warning: north has not said what its yardr understands") || !strings.Contains(got, "a thread sent to it may be refused there") {
+			t.Fatalf("peer allow --send thread for a peer that has not said warned:\n%s", got)
+		}
+		refusedAs(t, st, "jo", `"bead-event" is no kind of message between yards: there is ask, bead, file, mail, ping, thread`, "peer", "allow", "north", "--send", "bead-event")
+	})
 	if show := mustAs(t, st, "jo", "bead", "show", id); !strings.Contains(show, "  at north: sent ") || strings.Contains(show, "there it is") {
 		t.Fatalf("bead show before north said anything:\n%s", show)
 	}
@@ -119,40 +130,14 @@ func TestBeadAtAPeerSaysHowItStands(t *testing.T) {
 // command.
 func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 	t.Parallel()
-	st, own, key := beadYard(t)
-	ctx := context.Background()
-	keyFile := filepath.Join(t.TempDir(), "peer.key")
-	if _, _, err := yardkey.Ensure(keyFile); err != nil {
-		t.Fatal(err)
-	}
-	own.SetYard(keyFile, "test")
-	f, err := store.ParseFlow("build -> review on done | decide on refused | decide on undelivered\nreview -> merged\ndecide -> build\nmerged terminal\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Name = "away"
-	if _, err := st.PutFlow(ctx, *f, "jo"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
-		t.Fatal(err)
-	}
-	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--receive", "thread")
-	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
-	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
+	st, own, key, ctx, id := peerThreadYard(t, func(st store.API) {
+		mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--receive", "thread")
+	})
 	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	mustAs(t, st, "jo", "subscribe", "clerk", "peer", "--scope", "all")
-	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--depot", "web", "--stage", "build"))[0]
 	here := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Stays here", "--depot", "web", "--stage", "review"))[0]
-	sess, err := st.Claim(ctx, id, "at-north", "build", "yard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
-		t.Fatal(err)
-	}
 	out, err := st.PeerOutbox(ctx, "north", 0)
 	if err != nil || len(out) != 1 {
 		t.Fatalf("what waits for north = %+v, %v", out, err)
@@ -296,35 +281,9 @@ func TestThreadShowOfABeadAtAPeer(t *testing.T) {
 // terminal would draw the mark for reads as letters, as in mail.
 func TestThreadShowOfABeadAtAPeerCannotForgeAFilesLine(t *testing.T) {
 	t.Parallel()
-	st, own, key := beadYard(t)
-	ctx := context.Background()
-	keyFile := filepath.Join(t.TempDir(), "peer.key")
-	if _, _, err := yardkey.Ensure(keyFile); err != nil {
-		t.Fatal(err)
-	}
-	own.SetYard(keyFile, "test")
-	f, err := store.ParseFlow("build -> review on done | decide on refused | decide on undelivered\nreview -> merged\ndecide -> build\nmerged terminal\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Name = "away"
-	if _, err := st.PutFlow(ctx, *f, "jo"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetFlowPointer(ctx, "web", "", "away", "jo"); err != nil {
-		t.Fatal(err)
-	}
-	mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread")
-	mustAs(t, st, "jo", "group", "add", "at-north", "--runner", "peer", "--set", "peer=north")
-	mustAs(t, st, "jo", "route", "add", "--stage", "build", "--group", "at-north", "--depot", "web")
-	id := strings.Fields(mustAs(t, st, "jo", "bead", "create", "Add the export", "--depot", "web", "--stage", "build"))[0]
-	sess, err := st.Claim(ctx, id, "at-north", "build", "yard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.PeerBeadSend(ctx, sess.ID); err != nil {
-		t.Fatal(err)
-	}
+	st, own, key, ctx, id := peerThreadYard(t, func(st store.API) {
+		mustAs(t, st, "jo", "peer", "allow", "north", "--send", "bead", "--send", "thread", "--receive", "thread")
+	})
 	// north answers the read with notes that forge the files line: one
 	// types the mark, one the escape a terminal draws it for.
 	forged := store.NoteFilesMark + " 1 image: /etc/hosts"

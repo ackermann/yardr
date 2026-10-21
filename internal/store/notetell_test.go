@@ -11,13 +11,11 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// A plain note on a bead with a live session, written by anyone but that
-// session, names the session it is for: the daemon tells it once, when
-// idle. The noted event says so with it. A note by the session itself,
-// one on a bead with no session, and one through any other write name
-// none.
-func TestNotedNamesTheSessionTold(t *testing.T) {
-	t.Parallel()
+// noteTellYard opens the yard the note-tell tests share: a group with a
+// claimed bead and a note told to its session. events reads back the
+// bead's events of one kind, as each test's filter did.
+func noteTellYard(t *testing.T) (store.API, context.Context, *store.Bead, *store.Session, *store.Note, func(string) []store.Event) {
+	t.Helper()
 	s := storetest.New(t)
 	ctx := context.Background()
 	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
@@ -31,6 +29,35 @@ func TestNotedNamesTheSessionTold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	n, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := func(kind string) []store.Event {
+		t.Helper()
+		evs, err := s.Events(ctx, b.ID, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []store.Event
+		for _, e := range evs {
+			if e.Kind == kind {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	return s, ctx, b, sess, n, events
+}
+
+// A plain note on a bead with a live session, written by anyone but that
+// session, names the session it is for: the daemon tells it once, when
+// idle. The noted event says so with it. A note by the session itself,
+// one on a bead with no session, and one through any other write name
+// none.
+func TestNotedNamesTheSessionTold(t *testing.T) {
+	t.Parallel()
+	s, ctx, b, sess, n, _ := noteTellYard(t)
 	notedOf := func(seq uint64) store.Event {
 		t.Helper()
 		evs, err := s.Events(ctx, b.ID, 50)
@@ -46,10 +73,6 @@ func TestNotedNamesTheSessionTold(t *testing.T) {
 		return store.Event{}
 	}
 
-	n, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if n.Notify != sess.ID {
 		t.Fatalf("Notify = %q, want the live session %s", n.Notify, sess.ID)
 	}
@@ -105,36 +128,10 @@ func TestNotedNamesTheSessionTold(t *testing.T) {
 // the telling is cancelled. Acking twice is the note again.
 func TestAckNote(t *testing.T) {
 	t.Parallel()
-	s := storetest.New(t)
-	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	n, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, ctx, b, sess, n, events := noteTellYard(t)
 	acked := func() []store.Event {
 		t.Helper()
-		evs, err := s.Events(ctx, b.ID, 50)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var out []store.Event
-		for _, e := range evs {
-			if e.Kind == "note_acked" {
-				out = append(out, e)
-			}
-		}
-		return out
+		return events("note_acked")
 	}
 
 	if _, err := s.AckNote(ctx, b.ID, n.Seq, "another", "builder"); err == nil {
@@ -176,36 +173,10 @@ func TestAckNote(t *testing.T) {
 // note's is refused.
 func TestMarkNoteTold(t *testing.T) {
 	t.Parallel()
-	s := storetest.New(t)
-	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	n, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, ctx, b, sess, n, events := noteTellYard(t)
 	told := func() []store.Event {
 		t.Helper()
-		evs, err := s.Events(ctx, b.ID, 50)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var out []store.Event
-		for _, e := range evs {
-			if e.Kind == "note_told" {
-				out = append(out, e)
-			}
-		}
-		return out
+		return events("note_told")
 	}
 
 	if err := s.MarkNoteTold(ctx, b.ID, n.Seq, "another", "typed"); err == nil {
@@ -232,36 +203,10 @@ func TestMarkNoteTold(t *testing.T) {
 // event, once. A note already told or read is not marked untold.
 func TestMarkNoteUntold(t *testing.T) {
 	t.Parallel()
-	s := storetest.New(t)
-	ctx := context.Background()
-	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 5}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: "new"}, "me")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sess, err := s.Claim(ctx, b.ID, "g", "new", "yard")
-	if err != nil {
-		t.Fatal(err)
-	}
-	n, err := s.AddNotedAs(ctx, b.ID, "narrower now", "yardmaster", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	s, ctx, b, sess, n, events := noteTellYard(t)
 	untold := func() []store.Event {
 		t.Helper()
-		evs, err := s.Events(ctx, b.ID, 50)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var out []store.Event
-		for _, e := range evs {
-			if e.Kind == "note_untold" {
-				out = append(out, e)
-			}
-		}
-		return out
+		return events("note_untold")
 	}
 
 	if err := s.MarkNoteUntold(ctx, b.ID, n.Seq, "another", "no agent"); err == nil {
