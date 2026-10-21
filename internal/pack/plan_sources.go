@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"os"
 	"path"
 	"reflect"
 	"slices"
@@ -119,18 +118,6 @@ func (b *planner) declared() error {
 			return err
 		}
 		dp.Commands = commands
-		seenAbs := map[string]bool{}
-		for _, c := range commands {
-			// An absolute program is the operator's own to have
-			// installed; the import only checks it is there.
-			if !strings.HasPrefix(c.Program, "/") || seenAbs[c.Program] {
-				continue
-			}
-			seenAbs[c.Program] = true
-			if _, err := os.Stat(c.Program); err != nil {
-				dp.Needs = append(dp.Needs, Need{"command", "missing", fmt.Sprintf("command %s names %s: %v (an absolute program is the operator's own to install)", c.Key, c.Program, err)})
-			}
-		}
 		have, err := b.st.GetSource(b.ctx, d.Name)
 		exists := err == nil
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -199,13 +186,9 @@ func (b *planner) declared() error {
 			}
 		}
 		op := &SourceOp{Name: d.Name, From: joinName(b.p.Dir, d.File), Text: d.Text, DeclDir: declDir(d.File)}
-		for _, c := range commands {
-			// The files the import copies: relative programs alone, an
-			// absolute one being the operator's own.
-			if c.SHA256 != "" {
-				op.Commands = append(op.Commands, c)
-			}
-		}
+		// The files the import copies: every command's, since an absolute
+		// program is refused above.
+		op.Commands = append(op.Commands, commands...)
 		b.add(Object{Kind: "source", Name: d.Name, Action: dp.Action, Changes: changes, Source: op})
 		b.plan.Declared = append(b.plan.Declared, dp)
 	}
@@ -222,20 +205,21 @@ func declDir(file string) string {
 }
 
 // sourceCommands are the declaration's commands as the pack has them: each
-// command, its program and the sha256 of the pack's file, "" for a program
-// the pack does not carry (the operator's own).
+// command, its program and the sha256 of the pack's file. An absolute
+// program is refused: every program a pack's declaration runs with a
+// credential is one the yard copies and hashes, so a loose declaration's
+// absolute program (the operator's own) is never a pack's to bring.
 func (b *planner) sourceCommands(d Declared) ([]CommandPlan, error) {
 	var out []CommandPlan
 	for _, c := range d.Declaration.Commands() {
-		cp := CommandPlan{Key: c.Key, Program: c.Argv[0]}
-		if c.Relative() {
-			data, err := fs.ReadFile(b.p.fsys, path.Join(declDir(d.File), c.Argv[0]))
-			if err != nil {
-				return nil, fmt.Errorf("declaration %s names the command file %s: %v", d.File, c.Argv[0], err)
-			}
-			cp.SHA256 = sum(data)
+		if !c.Relative() {
+			return nil, fmt.Errorf("declaration %s: %s: the program %q is absolute: a command a declaration in a pack brings is a file beside the declaration's file that the yard copies and hashes", d.File, c.Key, c.Argv[0])
 		}
-		out = append(out, cp)
+		data, err := fs.ReadFile(b.p.fsys, path.Join(declDir(d.File), c.Argv[0]))
+		if err != nil {
+			return nil, fmt.Errorf("declaration %s names the command file %s: %v", d.File, c.Argv[0], err)
+		}
+		out = append(out, CommandPlan{Key: c.Key, Program: c.Argv[0], SHA256: sum(data)})
 	}
 	return out, nil
 }
@@ -256,7 +240,7 @@ func (b *planner) commandDiffs(d Declared, was *source.Declaration, commands []C
 	}
 	seen := map[string]bool{}
 	for _, c := range commands {
-		if c.SHA256 == "" || seen[c.Program] {
+		if seen[c.Program] {
 			continue
 		}
 		seen[c.Program] = true

@@ -288,10 +288,10 @@ type SourceOp struct {
 	Commands []CommandPlan `json:"commands,omitempty"`
 }
 
-// CommandPlan is one command a declaration names: the key that names it
-// (thread.reply), its program, and for a program the pack carries the
-// sha256 of the pack's file. An absolute program is the operator's own,
-// which the pack does not carry: its SHA256 is "".
+// CommandPlan is one command a declaration in a pack names: the key that
+// names it (thread.reply), its program, and the sha256 of the pack's
+// file. Every program is a file the pack carries: an absolute one is
+// refused when the plan is made.
 type CommandPlan struct {
 	Key     string `json:"key"`
 	Program string `json:"program"`

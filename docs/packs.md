@@ -710,8 +710,10 @@ declared source pushover, from sources/pushover.yaml
   `<home>/sources/<name>/`, as `yardr source add` copies it. The plan names
   each command, its file and the file's sha256, and a second apply shows a
   changed file as a change (`file linear/thread: sha256 … -> sha256 …`). A
-  command with an absolute program is the operator's own: the import only
-  checks it is there. A prune removes the files with the source.
+  command with an absolute program is refused: every program a pack runs
+  with a credential is one the yard copies and hashes, so the operator's
+  own absolute program stays a loose declaration's. A prune removes the
+  files with the source.
 - **A declaration the yard has under that name is replaced**, and keeps its
   `env_file`. The object's lines show what changes: a `base`, the
   credential's name (and the one of its updates, `update_env`) or header,

@@ -262,6 +262,44 @@ func TestSourcePackPlansIntoAYardWithNoDepot(t *testing.T) {
 	}
 }
 
+// A pack's declaration never names an absolute program: every program it
+// runs with a credential is one the yard copies and hashes. The plan is
+// refused with the command named; the same file still reads, since a loose
+// declaration of it (the operator's own) may be absolute.
+func TestSourcePackRefusesAbsoluteProgram(t *testing.T) {
+	cases := []struct {
+		name     string
+		old, new string // the replacement in cmdDecl
+		key      string
+	}{
+		{name: "thread.reply", old: "reply: [acme/thread, reply]", new: `reply: [/bin/sh, -c, "true"]`, key: "thread.reply"},
+		{name: "hook.normalize", old: "normalize: [acme/normalize]", new: `normalize: [/bin/sh, -c, "true"]`, key: "hook.normalize"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			decl := strings.Replace(cmdDecl, c.old, c.new, 1)
+			if decl == cmdDecl {
+				t.Fatalf("no %q in the declaration", c.old)
+			}
+			files := sourcePackFiles()
+			files["acme.yaml"] = decl
+			// The file reads: a loose declaration may name the
+			// operator's own absolute program.
+			p := load(t, writePack(t, files))
+			st := storetest.New(t)
+			_, err := pack.Build(ctx, st, p, pack.Options{Home: t.TempDir()})
+			if err == nil {
+				t.Fatalf("Build took %s with an absolute program", c.key)
+			}
+			for _, want := range []string{c.key, `"/bin/sh"`, "is absolute", "a file beside the declaration's file"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("err = %v, want it to name %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 // A pack of kind source applies into a yard with no depot: the source is
 // added, its commands' files copied as yardr source add copies them, and
 // the import recorded into the yard. A second apply after a script changed

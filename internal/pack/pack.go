@@ -917,8 +917,8 @@ func (r *reader) declared(e entry, kind string) (d Declared, ok bool) {
 // commandFiles checks the files the declaration's commands name by a
 // relative program: each is a regular file of the pack, beside the
 // declaration's file, since the import copies it into the yard. An absolute
-// program is the operator's own, and is checked when the plan is made, on
-// the machine the yard runs on.
+// program is refused when the plan is made: a pack's declaration names its
+// programs as files it carries, never the operator's own.
 func (r *reader) commandFiles(n *yaml.Node, key, rel string, decl *source.Declaration) bool {
 	ok := true
 	dir := path.Dir(rel)
