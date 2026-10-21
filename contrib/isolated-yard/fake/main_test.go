@@ -115,6 +115,12 @@ func start(t *testing.T, loginNeeded bool) *standIn {
 	return &standIn{t: t, d: d, pid: cmd.Process.Pid, in: in, out: bufio.NewReader(out)}
 }
 
+// drawFuse is how long draw waits for the stand-in before it gives up on it:
+// a fuse against a stand-in that never draws, not a window its start must fit
+// in. Beside a full race run the start of a binary just built, and its answer
+// to a line it is sent, took longer than the 10 s this once was (yardr-g9tn).
+const drawFuse = time.Minute
+
 // draw reads the stand-in's output onto the screen up to the next thing that
 // ends with end.
 func (s *standIn) draw(end string) {
@@ -137,8 +143,8 @@ func (s *standIn) draw(end string) {
 		if err != nil {
 			s.t.Fatalf("the stand-in's output ended at %q: %v", got.String(), err)
 		}
-	case <-time.After(10 * time.Second):
-		s.t.Fatalf("no %q from the stand-in in 10s", end)
+	case <-time.After(drawFuse):
+		s.t.Fatalf("no %q from the stand-in in %s", end, drawFuse)
 	}
 	// As the pane's terminal passes it on: a line feed returns the carriage.
 	s.scr.write(strings.ReplaceAll(got.String(), "\n", "\r\n"))
