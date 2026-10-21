@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/web"
 )
 
@@ -104,6 +106,64 @@ func secretActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
 	return f, b, seq
 }
 
+const mappingActSource = `name: talk
+base: https://talk.example.com
+credential: { env: TALK_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { text: { type: string } }
+    request: { method: POST, path: /send, body: { text: "{text}" } }
+hook:
+  verify: { scheme: secret, signature: { header: Talk-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [sender, channel]
+hear:
+  field: sender
+  by: identity
+`
+
+// mappingActYard is a yard with the users mckean and ada, the depot home
+// and the identity-hearing source talk, acting as its operator mckean,
+// holding a mapping card for a sender no user maps. A mapping ask is the
+// yard's own, so the card is written through the owning store, as
+// ownedFixture's tests do. It answers the card bead and the ask's seq.
+func mappingActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
+	t.Helper()
+	api, own := storetest.NewOwned(t)
+	home := filepath.Join(t.TempDir(), ".depot")
+	srv, err := web.NewServer(api, home, nil)
+	must(t, err)
+	ts := httptest.NewServer(srv)
+	t.Cleanup(func() { shut(ts) })
+	f := &fixture{t: t, st: api, ts: ts, home: home}
+	f.signIn(srv, srv.ActAs("mckean"))
+	ctx := context.Background()
+	must(t, func() error { _, err := f.st.AddUser(ctx, "mckean", "mckean"); return err }())
+	must(t, func() error { _, err := f.st.AddUser(ctx, "ada", "ada"); return err }())
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "mckean"))
+	must(t, f.st.SetSetting(ctx, "operator", "mckean", "mckean"))
+	_, err = f.st.PutSource(ctx, "talk.yaml", mappingActSource, "mckean")
+	must(t, err)
+	created, err := own.ClaimIdentity(ctx, "talk", "U777", "C1", "hi")
+	must(t, err)
+	if !created {
+		t.Fatal("ClaimIdentity offered no card")
+	}
+	q, err := f.st.UserAsks(ctx, "mckean")
+	must(t, err)
+	for _, o := range q.Open {
+		if o.Identity != nil && o.Identity.Sender == "U777" {
+			b, err := f.st.GetBead(ctx, o.Bead)
+			must(t, err)
+			return f, b, o.Ask
+		}
+	}
+	t.Fatal("mckean's queue holds no card for U777")
+	return nil, nil, 0
+}
+
 // An asked bead's page, with --as, answers with buttons: the options, an
 // Answer for words, Later and Decline. Without --as it shows no form.
 func TestBeadAskButtons(t *testing.T) {
@@ -130,12 +190,23 @@ func TestBeadAskButtons(t *testing.T) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
 		}
 	}
+	// A routine card carries no weight and no decline path.
+	for _, foreign := range []string{`class="weighty"`, "WEIGHTY", "no gate"} {
+		if strings.Contains(r.body, foreign) {
+			t.Errorf("the routine card shows %q:\n%s", foreign, r.body)
+		}
+	}
 	// A words ask answers with words.
 	f2, _ := talkFixture(t, "jo")
 	b2, _ := actYard(t, f2, store.Ask{Question: "What should it say?", Context: []string{"the sign."}})
 	r = f2.get("/beads/" + b2.ID)
 	if !strings.Contains(r.body, `<button type="submit" name="action" value="answer">Answer</button>`) {
 		t.Errorf("the words ask has no Answer:\n%s", r.body)
+	}
+	for _, foreign := range []string{`class="weighty"`, "WEIGHTY", "no gate"} {
+		if strings.Contains(r.body, foreign) {
+			t.Errorf("the routine card shows %q:\n%s", foreign, r.body)
+		}
 	}
 	// Without --as the page shows the bead and no form.
 	f3 := newFixture(t)
@@ -535,19 +606,21 @@ func TestNeedsAnswerButtons(t *testing.T) {
 	}
 }
 
-// A secret ask on the bead's page, with --as, shows a field that does not
-// echo for each name it asks for, with a Give button beside Later and
-// Decline, and still names the terminal command.
-func TestBeadSecretField(t *testing.T) {
+// A secret ask is weighty, and the page has no gate to put in front of a
+// weighty card, so its card shows the weight first and the decline path
+// instead of a giving: no field that does not echo, no Give button. Later
+// and Decline stay, and the terminal command beside is where the card is
+// given.
+func TestBeadSecretWeightyCard(t *testing.T) {
 	t.Parallel()
 	f, b, seq := secretActYard(t)
 	r := f.get("/beads/" + b.ID)
 	for _, want := range []string{
 		`<h3 class="label">asks for mckean</h3>`,
+		`<p class="weighty">WEIGHTY · credential: gives a credential or an address to the yard: CRM_TOKEN, for the source crm (https://crm.example.com)</p>`,
 		`a secret: CRM_TOKEN, for the source crm (https://crm.example.com)`,
+		`This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:`,
 		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
-		`<input type="password" name="secret-CRM_TOKEN"`,
-		`<button type="submit" name="action" value="give">Give</button>`,
 		`<button type="submit" name="action" value="later">Later</button>`,
 		`<button type="submit" name="action" value="decline">Decline</button>`,
 	} {
@@ -555,18 +628,31 @@ func TestBeadSecretField(t *testing.T) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
 		}
 	}
-	// A secret ask takes no words: the store refuses them, so the page
+	// No giving, and no words: a secret ask takes none, so the page
 	// offers no field they could be typed into by mistake.
-	if strings.Contains(r.body, `name="words"`) {
-		t.Errorf("the secret ask offers a words field:\n%s", r.body)
+	for _, gone := range []string{`type="password"`, `value="give"`, `name="words"`} {
+		if strings.Contains(r.body, gone) {
+			t.Errorf("the weighty card offers %q:\n%s", gone, r.body)
+		}
+	}
+	// Later still posts: putting the card aside needs no word.
+	rev := revOf(t, f, b.ID)
+	if r := f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {strconv.FormatUint(seq, 10)}, "action": {"later"}}, "Origin", f.ts.URL); r.status != http.StatusSeeOther {
+		t.Fatalf("later: status %d", r.status)
+	}
+	v, err := f.st.Bead(context.Background(), b.ID)
+	must(t, err)
+	if v.Asks[0].State != "put aside" {
+		t.Errorf("later: the ask is %s", v.Asks[0].State)
 	}
 }
 
-// Giving through the bead's form is refused: a secret ask is weighty, and
-// the page has no gate to put in front of it, so it does not say that its
-// person saw the weight (weighed). The yard refuses in its own words, which
-// the page shows; nothing is written, the ask stays open, and the value is
-// in nothing that comes back.
+// A giving posted straight at the handler is refused: a secret ask is
+// weighty, and the page has no gate to put in front of it, so the post
+// says nothing of its person's having seen the weight (weighed). The yard
+// refuses in its own words, which the redrawn page shows with the card's
+// decline path and no giving; nothing is written, the ask stays open, and
+// the value is in nothing that comes back.
 func TestBeadSecretGiveIsRefusedAsWeighty(t *testing.T) {
 	t.Parallel()
 	f, b, seq := secretActYard(t)
@@ -580,6 +666,14 @@ func TestBeadSecretGiveIsRefusedAsWeighty(t *testing.T) {
 	}
 	if strings.Contains(r.body, value) {
 		t.Errorf("the redrawn page holds the value:\n%s", r.body)
+	}
+	if !strings.Contains(r.body, "This card is weighty and this window has no gate.") {
+		t.Errorf("the redrawn page shows no decline path:\n%s", r.body)
+	}
+	for _, gone := range []string{`type="password"`, `value="give"`} {
+		if strings.Contains(r.body, gone) {
+			t.Errorf("the redrawn page offers %q:\n%s", gone, r.body)
+		}
 	}
 	src, err := f.st.GetSource(ctx, "crm")
 	must(t, err)
@@ -600,9 +694,10 @@ func TestBeadSecretGiveIsRefusedAsWeighty(t *testing.T) {
 	}
 }
 
-// A login-input ask on the bead's page shows the same field that does not
-// echo, and giving through it is refused as any secret ask's is: the value
-// is handed to no waiting login, and is in no note.
+// A login-input ask is a secret ask, so its card shows the weight first
+// and the decline path instead of a giving, and a giving posted straight
+// at the handler is refused as any secret ask's is: the value is handed
+// to no waiting login, and is in no note.
 func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 	t.Parallel()
 	f, _ := talkFixture(t, "mckean")
@@ -618,11 +713,19 @@ func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 	r := f.get("/beads/" + b.ID)
 	for _, want := range []string{
 		`a secret: INPUT, for the waiting login claude-a1b2c3d4`,
-		`<input type="password" name="secret-INPUT"`,
-		`<button type="submit" name="action" value="give">Give</button>`,
+		`<p class="weighty">WEIGHTY · credential:`,
+		`This card is weighty and this window has no gate.`,
+		`Give it with <code>yardr bead answer ` + b.ID + ` ` + strconv.FormatUint(seq, 10) + ` --secret</code>`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
 	} {
 		if !strings.Contains(r.body, want) {
 			t.Errorf("the page lacks %q:\n%s", want, r.body)
+		}
+	}
+	for _, gone := range []string{`type="password"`, `value="give"`} {
+		if strings.Contains(r.body, gone) {
+			t.Errorf("the weighty card offers %q:\n%s", gone, r.body)
 		}
 	}
 	rev := revOf(t, f, b.ID)
@@ -631,6 +734,9 @@ func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 		"secret-INPUT": {value}, "action": {"give"}}, "Origin", f.ts.URL)
 	if r.status != 200 || !strings.Contains(r.body, "is weighty (credential)") || strings.Contains(r.body, value) {
 		t.Fatalf("status %d, want the redrawn page with the yard's refusal and no value:\n%s", r.status, r.body)
+	}
+	if !strings.Contains(r.body, "This card is weighty and this window has no gate.") {
+		t.Errorf("the redrawn page shows no decline path:\n%s", r.body)
 	}
 	notes, err := f.st.Notes(ctx, b.ID)
 	must(t, err)
@@ -641,6 +747,65 @@ func TestBeadSecretLoginGiveIsRefusedAsWeighty(t *testing.T) {
 	}
 	if last := notes[len(notes)-1]; last.Kind == store.NoteAnswer {
 		t.Errorf("the last note is %+v, want no answer", last)
+	}
+}
+
+// A weighty mapping card's picks write a user's identity, which the yard
+// refuses without its person's word that the weight was seen, and the
+// page has no gate to ask for it: the card shows the weight first and
+// the decline path with the terminal command instead of the pick buttons.
+// The options still read as a list, and the words stay with Later and
+// Decline, riding them as the reason.
+func TestBeadMappingWeightyCard(t *testing.T) {
+	t.Parallel()
+	f, b, seq := mappingActYard(t)
+	ctx := context.Background()
+	ask := strconv.FormatUint(seq, 10)
+	r := f.get("/beads/" + b.ID)
+	for _, want := range []string{
+		`<h3 class="label">asks for mckean</h3>`,
+		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
+		`A message reached talk from U777 in channel C1 (first words: &#39;hi&#39;). Who is this?`,
+		`<li><span>1. ada</span>`,
+		`<li><span>2. mckean</span>`,
+		`This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:`,
+		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
+		`<input type="text" name="words"`,
+		`<button type="submit" name="action" value="later">Later</button>`,
+		`<button type="submit" name="action" value="decline">Decline</button>`,
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the page lacks %q:\n%s", want, r.body)
+		}
+	}
+	if strings.Contains(r.body, `name="option"`) {
+		t.Errorf("the weighty card offers its picks:\n%s", r.body)
+	}
+	// A writing pick posted straight at the handler is still the yard's
+	// to refuse: the redrawn page carries the refusal with the decline
+	// path and no pick, and the ask stays open.
+	rev := revOf(t, f, b.ID)
+	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "option": {"1"}}, "Origin", f.ts.URL)
+	if r.status != 200 || !strings.Contains(r.body, "is weighty (as-user)") || !strings.Contains(r.body, "approve it where its weight is shown") {
+		t.Fatalf("status %d, want the redrawn page with the yard's refusal:\n%s", r.status, r.body)
+	}
+	if !strings.Contains(r.body, "This card is weighty and this window has no gate.") || strings.Contains(r.body, `name="option"`) {
+		t.Errorf("the redrawn page is no decline path:\n%s", r.body)
+	}
+	v, err := f.st.Bead(ctx, b.ID)
+	must(t, err)
+	if v.Asks[0].State != "open" {
+		t.Fatalf("the ask is %s after a refused pick", v.Asks[0].State)
+	}
+	// Decline with words still posts: the words are why not.
+	r = f.postForm("/beads/"+b.ID, url.Values{"rev": {rev}, "ask": {ask}, "words": {"not now"}, "action": {"decline"}}, "Origin", f.ts.URL)
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("decline: status %d", r.status)
+	}
+	v, err = f.st.Bead(ctx, b.ID)
+	must(t, err)
+	if v.Asks[0].State != "declined" || v.Asks[0].Words != "not now" {
+		t.Errorf("the ask is %s with %q, want it declined with the words", v.Asks[0].State, v.Asks[0].Words)
 	}
 }
 

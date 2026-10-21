@@ -152,6 +152,9 @@ ul, ol { list-style: none; }
   text-transform: uppercase;
 }
 .faint { color: var(--faint); }
+/* A weighty card's WEIGHTY lines are the person's turn to weigh, so rust,
+   never the red of a fault. */
+.weighty { color: var(--accent); }
 .held { color: var(--held); }
 .late { color: var(--late); }
 .landed { color: var(--landed); }

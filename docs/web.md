@@ -323,15 +323,16 @@ member or another user,
 live, with the form that sends it mail as them through the socket's `Mail`
 ([api.md](api.md#mail)), as that user. An ask to the user answers with
 buttons, on the needs rows and on its bead's page, through the socket's
-`AnswerAsk`, `DeferAsk` and `DeclineAsk`; a secret ask on its bead's page
-shows a field that does not echo, to be given through the socket's
-`GiveSecret`, and its value is in no note, as a terminal giving. A secret
-ask is weighty, and the page has no gate to put before a weighty card, so it
-does not say that its person saw the weight (`weighed`,
-[api.md](api.md#weighty-cards)): the yard refuses the giving in its own
-words, which the page shows, and the card is given in a terminal as its line
-names. The same holds for a pick on a mapping ask that writes a user's
-identity. A bead in a stage that waits for
+`AnswerAsk`, `DeferAsk` and `DeclineAsk`. On its bead's page a weighty
+card shows its weight first, one line a class, and since the page has no
+gate to put before it, the card offers no control the yard would refuse
+for want of its person's word that the weight was seen (`weighed`,
+[api.md](api.md#weighty-cards)): a secret ask shows no field and no
+giving, a mapping ask shows its options as a list with no pick, and each
+names the terminal command instead, where the card is given or picked,
+with Later and Decline staying as ever. A giving or a writing pick
+posted straight at the handler is still the yard's to refuse, in its own
+words, with nothing written. A bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
 ([One bead](#one-bead)). Every other route stays GET, and with none of
 them every route is GET as before: the talk page then says the view does
@@ -1364,14 +1365,17 @@ On a view that acts, the page answers the bead's open asks to its user,
 oldest first: the question, who asked, the context, the
 options numbered with what each does, the recommendation, and for a secret
 what it asks for, for a run the command with what it changes and the way
-back. Each answers under itself, with its options as buttons, with Later
-and Decline; a secret ask shows a field that does not echo for each name
-it asks for, to be given through `GiveSecret` with the names recorded and the
-value in no note, and still names the terminal command beside, as does a
-run ask, which is approved with `yardr bead answer`. The page sends no
-word that its person saw a weighty card's weight, so the yard refuses a
-giving from it and the page says why, with nothing written: the terminal
-command beside is where the card is given. Where the bead waits
+back. A weighty card shows its weight first, one line a class, and
+since the page has no gate to put before it, the card offers no control
+the yard would refuse for want of its person's word: a secret ask shows
+no field and no giving, a mapping ask shows its options as a list with no
+pick, and each names the terminal command instead, where the card is
+given or picked. Each answers under itself, with its options as buttons
+where the card offers any, with Later and Decline; a secret ask still
+names the terminal command beside, as does a run ask, which is approved
+with `yardr bead answer`. A giving or a writing pick posted straight at
+the handler is still the yard's to refuse, in its own words, with nothing
+written. Where the bead waits
 for the user in a stage a manual group works, the outcomes send it on as
 `yardr review` offers them, with a note. Each write carries the revision
 the page was drawn from ([Acting as a user](#acting-as-a-user)).
