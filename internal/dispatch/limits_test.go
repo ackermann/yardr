@@ -114,13 +114,16 @@ func TestSnoozedSessionIsNotIdleAndCountsFreshAfter(t *testing.T) {
 // max_age is told with session_aged, and the wait is kept.
 func TestSnoozedSessionStillAges(t *testing.T) {
 	t.Parallel()
-	s, r, d, b := harnessSetup(t, "muse", map[string]any{"idle": "off", "stall": "off", "max_age": "1s", "grace": "1h"})
+	s, r, d, b := harnessSetup(t, "muse", map[string]any{"idle": "off", "stall": "off", "max_age": "500ms", "grace": "1h"})
 	ctx := context.Background()
 	sess := liveSession(t, s, b.ID)
 	must(t, s.SetHandle(ctx, sess, map[string]any{"session": sess, "agent": "yard-x-new",
 		"snooze_until": time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339), "snooze_count": 1}))
 	r.show("idle", museGone)
-	time.Sleep(time.Second) // age is read from the wall clock, not the dispatcher's
+	// Age is read from the wall clock, not the dispatcher's, so the test
+	// sleeps past max_age; 500 ms is the sleep budget (docs/testing.md
+	// R2), and a sleep waits at least its duration against a >= limit.
+	time.Sleep(500 * time.Millisecond)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if n := len(eventKinds(t, s, b.ID, "session_aged")); n != 1 {
