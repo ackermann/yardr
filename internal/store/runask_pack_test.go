@@ -187,6 +187,19 @@ func TestPackApplyStaleBuild(t *testing.T) {
 	if answers := answerNotes(t, y); len(answers) != 0 {
 		t.Fatalf("refused approvals recorded %d answers", len(answers))
 	}
+
+	// A card written before it kept the build has no build key, so its
+	// refusal names an older yardr and still tells the operator to ask again.
+	oldYard, _ := runYard(t)
+	oldPack := &fakePack{label: "embedded in yardr one"}
+	oldYard.setPack(oldPack)
+	oldSeq := oldYard.ask(t, packAsk(), "yardmaster")
+	oldPack.label, oldPack.build = "embedded in yardr two", "two"
+	if _, err := oldYard.ApproveAsk(oldYard.ctx, oldYard.bead, oldSeq, "mckean", false); err == nil ||
+		!strings.Contains(err.Error(), "was carded under an older yardr and this yard now runs yardr two") ||
+		!strings.Contains(err.Error(), "Nothing ran. Decline it; it is asked again if it is still wanted.") {
+		t.Fatalf("an older card: ApproveAsk = %v", err)
+	}
 }
 
 // plantWired puts the wired source in the yard with its copies on disk
