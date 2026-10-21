@@ -107,11 +107,14 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # be sent chasing a flake either. Seen on 14 Oct 2026 (yardr-2nss's landing):
 # three packages that fail only under load sent an approved change back to
 # new, for a session, two reviews and a 15-minute landing run, all for load.
-# What this costs: a test that fails one time in two for a real race now gets
-# through a landing half the time. That is the trade; the flaky line in the
-# output is what makes it visible, and one line per flaky line is appended
-# to yardr-flaky.log in the git common dir, which the repo owns and every
-# worktree shares. AGENTS.md says when that line becomes a bead.
+# A failure whose log reports `WARNING: DATA RACE` is never run again, for
+# the cache either: a race fails one time in two and still accuses the
+# branch, so retrying would land it half the time. The step fails instead,
+# naming the failed packages. What the retry still costs is an ordinary
+# flake passing second time; the flaky line in the output is what makes it
+# visible, and one line per flaky line is appended to yardr-flaky.log in
+# the git common dir, which the repo owns and every worktree shares.
+# AGENTS.md says when that line becomes a bead.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
 # A step's output is kept in its log and printed. Outside the race worker it
@@ -593,7 +596,14 @@ again() {
       ;;
   esac
   retried=0
-  if [ "$rc" != 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
+  # A failure whose log reports a race is run again for neither the cache
+  # nor the failed packages below: the race accuses the branch however
+  # seldom it reproduces.
+  raced=0
+  if [ "$rc" != 0 ] && grep -q 'WARNING: DATA RACE' "$log"; then
+    raced=1
+  fi
+  if [ "$rc" != 0 ] && [ "$raced" = 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
     rc=0
     runlogged "$log" "$under" "$@" || rc=$?
@@ -612,50 +622,56 @@ again() {
       *" go test "*)
         pkgs=$(grep -E '^FAIL[[:space:]]+[^[:space:]]+' "$log" | awk '{print $2}' | sort -u || true)
         if [ -n "$pkgs" ]; then
-          tests=$(sed -n 's/.*--- FAIL: \([^ ][^ ]*\).*/\1/p' "$log" | sort -u || true)
           pkgs_line=$(printf '%s\n' "$pkgs" | tr '\n' ' ' | sed 's/ $//' || true)
-          tests_line=$(printf '%s\n' "$tests" | tr '\n' ' ' | sed 's/ $//' || true)
-          # The same flags, the failed packages only: the prefix up to and
-          # including "test" (env ... go test), then the flags (what after
-          # test starts with -), then the failed packages. Packages and
-          # flags have no spaces.
-          prefix=""
-          flags=""
-          seen_test=0
-          for a in "$@"; do
-            if [ "$seen_test" = 0 ]; then
-              prefix="$prefix $a"
-              if [ "$a" = "test" ]; then
-                seen_test=1
+          if [ "$raced" = 1 ]; then
+            # The race stands: the step fails, naming the failed packages,
+            # and the summary below shows the race itself.
+            echo "test: not running the failed packages again: DATA RACE in $pkgs_line" >&2
+          else
+            tests=$(sed -n 's/.*--- FAIL: \([^ ][^ ]*\).*/\1/p' "$log" | sort -u || true)
+            tests_line=$(printf '%s\n' "$tests" | tr '\n' ' ' | sed 's/ $//' || true)
+            # The same flags, the failed packages only: the prefix up to and
+            # including "test" (env ... go test), then the flags (what after
+            # test starts with -), then the failed packages. Packages and
+            # flags have no spaces.
+            prefix=""
+            flags=""
+            seen_test=0
+            for a in "$@"; do
+              if [ "$seen_test" = 0 ]; then
+                prefix="$prefix $a"
+                if [ "$a" = "test" ]; then
+                  seen_test=1
+                fi
+              else
+                case "$a" in
+                  -*) flags="$flags $a" ;;
+                esac
               fi
-            else
-              case "$a" in
-                -*) flags="$flags $a" ;;
-              esac
-            fi
-          done
-          echo "test: running the failed packages again: $pkgs_line" >&2
-          # shellcheck disable=SC2086
-          rc=0
-          runlogged "$log" "$under" $prefix $flags $pkgs || rc=$?
-          if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
-          waited_total=$((waited_total + $(waitcount "$log")))
-          # The rerun ran only the failed packages: its passes add to the
-          # first run's.
-          step_ok=$((step_ok + $(okcount "$log")))
-          if [ "$rc" = 0 ]; then
-            if [ -n "$tests" ]; then
-              flaky="$tests_line ($pkgs_line) passed on rerun"
-            else
-              flaky="$pkgs_line passed on rerun"
-            fi
-            echo "test: flaky: $flaky"
-            # The same line in the log the repo owns: date, short sha, and
-            # the names the printed line carries. It is not committed. A
-            # run that cannot write it still passes: the line above stays
-            # the record.
-            if common=$(git rev-parse --git-common-dir 2>/dev/null); then
-              echo "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky" >>"$common/yardr-flaky.log" || true
+            done
+            echo "test: running the failed packages again: $pkgs_line" >&2
+            # shellcheck disable=SC2086
+            rc=0
+            runlogged "$log" "$under" $prefix $flags $pkgs || rc=$?
+            if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
+            waited_total=$((waited_total + $(waitcount "$log")))
+            # The rerun ran only the failed packages: its passes add to the
+            # first run's.
+            step_ok=$((step_ok + $(okcount "$log")))
+            if [ "$rc" = 0 ]; then
+              if [ -n "$tests" ]; then
+                flaky="$tests_line ($pkgs_line) passed on rerun"
+              else
+                flaky="$pkgs_line passed on rerun"
+              fi
+              echo "test: flaky: $flaky"
+              # The same line in the log the repo owns: date, short sha, and
+              # the names the printed line carries. It is not committed. A
+              # run that cannot write it still passes: the line above stays
+              # the record.
+              if common=$(git rev-parse --git-common-dir 2>/dev/null); then
+                echo "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky" >>"$common/yardr-flaky.log" || true
+              fi
             fi
           fi
         fi
