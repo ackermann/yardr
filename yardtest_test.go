@@ -807,13 +807,17 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // line starting with `test: flaky:` names the tests that failed the first
 // time. A package that fails twice fails the step as before, with the failed
 // lines. The plain run does the same as a landing. A run whose log reports a
-// data race is never run again: the step fails, naming the failed packages.
+// data race is never run again: the step fails, naming packages whose output
+// reported the race.
 func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	t.Parallel()
 	const pkg = "m.test/m"
 	const test = "TestX"
 	flakyFail := "--- FAIL: " + test + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
 	raceFail := "WARNING: DATA RACE\n" + flakyFail
+	racePkg, ordinaryPkg := pkg+"/race", pkg+"/ordinary"
+	raceFailMixed := "WARNING: DATA RACE\n--- FAIL: TestRace (0.00s)\nFAIL\nFAIL\t" + racePkg + " 0.123s\n" +
+		"--- FAIL: TestOrdinary (0.00s)\nFAIL\nFAIL\t" + ordinaryPkg + " 0.123s"
 	flaky := "test: flaky: " + test + " (" + pkg + ") passed on rerun"
 	running := "test: running the failed packages again: " + pkg
 	norace := "test: not running the failed packages again: DATA RACE in " + pkg
@@ -823,33 +827,36 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	plainNoRetry := []string{"vet ./...", "build ./...", "test -race ./..."}
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
 	for _, c := range []struct {
-		name  string
-		times string // how often the test step fails: once (flaky) or twice
-		ok    bool
-		calls []string
-		env   []string // variables of the script's environment beyond the base
-		steps []string
-		line  string // the failure the step fails with: empty for a flake
-		raced bool   // the failure reports a race, so there is no rerun
+		name     string
+		times    string // how often the test step fails: once (flaky) or twice
+		ok       bool
+		calls    []string
+		env      []string // variables of the script's environment beyond the base
+		steps    []string
+		line     string // the failure the step fails with: empty for a flake
+		racePkgs string // packages whose output includes the race warning
+		raced    bool   // the failure reports a race, so there is no rerun
 	}{
 		{"plain: passes on rerun", "1", true, plain, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, "", false},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, "", "", false},
 		{"plain: fails twice", "2", false, plain, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, "", false},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, "", "", false},
 		{"plain: a race fails without a retry", "1", false, plainNoRetry, nil,
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, raceFail, true},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, raceFail, pkg, true},
+		{"plain: a race names only the racing package", "1", false, plainNoRetry, nil,
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race ./..."}, raceFailMixed, racePkg, true},
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
 		// itself rather than the gate.
 		{"landing: passes on rerun", "1", true, landing, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, "", false},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, "", "", false},
 		{"landing: fails twice", "2", false, landing, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, "", false},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, "", "", false},
 		{"landing: a race fails without a retry", "1", false, landingNoRetry, noBase,
 			[]string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, raceFail, true},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, raceFail, pkg, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			script, err := os.ReadFile(yardTest)
@@ -913,8 +920,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if strings.Contains(out, running+"\n") {
 					t.Errorf("the output runs a race again")
 				}
-				if !strings.Contains(out, norace+"\n") {
-					t.Errorf("the output has no %q line", norace)
+				raceMessage := strings.Replace(norace, pkg, c.racePkgs, 1)
+				if !strings.Contains(out, raceMessage+"\n") {
+					t.Errorf("the output has no %q line", raceMessage)
 				}
 			} else if !strings.Contains(out, running+"\n") {
 				t.Errorf("the output has no %q line", running)

@@ -110,8 +110,8 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # A failure whose log reports `WARNING: DATA RACE` is never run again, for
 # the cache either: a race fails one time in two and still accuses the
 # branch, so retrying would land it half the time. The step fails instead,
-# naming the failed packages. What the retry still costs is an ordinary
-# flake passing second time; the flaky line in the output is what makes it
+# naming the packages whose output reported the race. An ordinary flake can
+# still pass on its second run; the flaky line in the output makes that
 # visible, and one line per flaky line is appended to yardr-flaky.log in
 # the git common dir, which the repo owns and every worktree shares.
 # AGENTS.md says when that line becomes a bead.
@@ -624,9 +624,22 @@ again() {
         if [ -n "$pkgs" ]; then
           pkgs_line=$(printf '%s\n' "$pkgs" | tr '\n' ' ' | sed 's/ $//' || true)
           if [ "$raced" = 1 ]; then
-            # The race stands: the step fails, naming the failed packages,
-            # and the summary below shows the race itself.
-            echo "test: not running the failed packages again: DATA RACE in $pkgs_line" >&2
+            # Go prints each failed package's buffered output before its
+            # FAIL line. Use that boundary so an unrelated failed package
+            # is not attributed to the race in the same run.
+            raced_pkgs=$(awk '
+              /WARNING: DATA RACE/ { race = 1 }
+              /^FAIL[[:space:]]+[^[:space:]]+/ {
+                if (race) print $2
+                race = 0
+              }
+            ' "$log" | sort -u || true)
+            if [ -n "$raced_pkgs" ]; then
+              raced_pkgs_line=$(printf '%s\n' "$raced_pkgs" | tr '\n' ' ' | sed 's/ $//' || true)
+              echo "test: not running the failed packages again: DATA RACE in $raced_pkgs_line" >&2
+            else
+              echo "test: not running the failed packages again: DATA RACE reported; failed packages: $pkgs_line" >&2
+            fi
           else
             tests=$(sed -n 's/.*--- FAIL: \([^ ][^ ]*\).*/\1/p' "$log" | sort -u || true)
             tests_line=$(printf '%s\n' "$tests" | tr '\n' ' ' | sed 's/ $//' || true)
