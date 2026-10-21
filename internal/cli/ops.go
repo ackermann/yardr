@@ -1429,7 +1429,7 @@ fewer, and --all every session there is, which is what a script wants.
 	}
 	cut.flags(list, "ended", "ended sessions")
 	list.Flags().StringVar(&bead, "bead", "", "only this bead's sessions")
-	list.Flags().BoolVar(&running, "running", false, "only sessions an agent or a script is behind: leave out the beads a manual group holds for a person")
+	list.Flags().BoolVar(&running, "running", false, "only sessions an agent or a script is behind: leave out what a person holds and what another yard works (plain session list lists both)")
 	cmd.AddCommand(list)
 	return cmd
 }

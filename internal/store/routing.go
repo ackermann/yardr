@@ -2384,7 +2384,8 @@ type SessionFilter struct {
 	All bool // include ended
 	// Bead keeps the sessions of this bead (a handle or UUID).
 	Bead string
-	// Running leaves out a manual group's claims, which nothing runs in.
+	// Running leaves out what nothing here runs: a manual group's claims,
+	// which a person holds, and a peer group's, which another yard works.
 	Running bool
 	// Since keeps the sessions that started at it or later.
 	Since time.Time
@@ -2427,7 +2428,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, e
 				if f.Limit > 0 && len(out) == f.Limit {
 					break
 				}
-				if (bead == "" || sess.Bead == bead) && !(f.Running && sess.Manual()) && !sess.StartedAt.Before(f.Since) {
+				if (bead == "" || sess.Bead == bead) && !(f.Running && !RunsHere(sess.RunnerName())) && !sess.StartedAt.Before(f.Since) {
 					keep(&sess)
 				}
 			}
@@ -2466,7 +2467,7 @@ func (s *Store) ListSessions(ctx context.Context, f SessionFilter) ([]Session, e
 				continue
 			}
 			n++
-			if (f.All || sess.live()) && !(f.Running && sess.Manual()) {
+			if (f.All || sess.live()) && !(f.Running && !RunsHere(sess.RunnerName())) {
 				keep(sess)
 			}
 		}
