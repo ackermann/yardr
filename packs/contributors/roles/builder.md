@@ -90,6 +90,13 @@ command is empty in a later one, and `rm -rf "$S"/x` there deletes `/x`. Set
 the variable on the line that deletes under it and write it `"${S:?}"`, which
 fails when it is empty: `S=<dir>; rm -rf "${S:?}"/x`.
 
+Keep rm out of long inline shell scripts: the harness cannot check a
+compound script that deletes, and on an unattended session it waits for
+a person and then denies the command. Empty a file with `: > file`
+rather than deleting it; where a delete is needed, run it as a
+single-line command of its own. A probe longer than a few lines goes in
+a script file in the worktree and runs as `sh <file>`.
+
 If you are stuck and the stage offers no outcome for it:
 `yardr bead note <id> "..."`, then `yardr bead hold <id>`; a hold reaches the
 yardmaster's inbox.
