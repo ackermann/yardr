@@ -51,6 +51,7 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	berrors "go.etcd.io/bbolt/errors"
 
 	"yardr.dev/yardr/internal/config"
 )
@@ -197,7 +198,7 @@ const NoSyncEnv = "STORE_NOSYNC"
 func Open(path string) (*Store, error) {
 	noSync := config.Getenv(NoSyncEnv) == "1"
 	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, NoSync: noSync, NoGrowSync: noSync})
-	if errors.Is(err, bolt.ErrTimeout) {
+	if errors.Is(err, berrors.ErrTimeout) {
 		return nil, fmt.Errorf("%s: %w", path, ErrLocked)
 	} else if err != nil {
 		return nil, err

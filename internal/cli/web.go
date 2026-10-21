@@ -494,14 +494,13 @@ func webJWTConfig(ctx context.Context, st store.API, all map[string]string, as, 
 	}
 	header, _ := store.SettingOf(store.WebJWTHeaderSetting)
 	headerValue, _ := header.Effective(all)
-	users := map[string]string{}
 	rawUsers := all[store.WebJWTUsersSetting]
 	if rawUsers == "" {
 		return none, webJWTMissing(store.WebJWTUsersSetting, "the email-to-user table")
 	}
 	// The shape was checked when it was set; what is stored parses.
-	var err error
-	if users, err = store.ParseWebJWTUsers(rawUsers); err != nil {
+	users, err := store.ParseWebJWTUsers(rawUsers)
+	if err != nil {
 		return none, fmt.Errorf("%s refused: %w", store.WebJWTUsersSetting, err)
 	}
 	for _, email := range slices.Sorted(maps.Keys(users)) {

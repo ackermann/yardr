@@ -409,26 +409,130 @@ func (f *parFacts) union(g parFacts) {
 }
 
 // parStateRoot is the package variable an assignment target writes through,
-// including a field, map entry or pointer rooted at that variable. Obj
+// including a field, map entry or pointer rooted at that variable. locals
 // distinguishes a local that shadows a package variable with the same name.
-func parStateRoot(expr ast.Expr, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) string {
+func parStateRoot(expr ast.Expr, pkgVars map[string]bool, locals map[*ast.Ident]bool) string {
 	switch e := expr.(type) {
 	case *ast.Ident:
-		if e.Name != "_" && pkgVars[e.Name] && (e.Obj == nil || pkgObjs[e.Obj]) {
+		if e.Name != "_" && pkgVars[e.Name] && !locals[e] {
 			return e.Name
 		}
 	case *ast.SelectorExpr:
-		return parStateRoot(e.X, pkgVars, pkgObjs)
+		return parStateRoot(e.X, pkgVars, locals)
 	case *ast.IndexExpr:
-		return parStateRoot(e.X, pkgVars, pkgObjs)
+		return parStateRoot(e.X, pkgVars, locals)
 	case *ast.SliceExpr:
-		return parStateRoot(e.X, pkgVars, pkgObjs)
+		return parStateRoot(e.X, pkgVars, locals)
 	case *ast.StarExpr:
-		return parStateRoot(e.X, pkgVars, pkgObjs)
+		return parStateRoot(e.X, pkgVars, locals)
 	case *ast.ParenExpr:
-		return parStateRoot(e.X, pkgVars, pkgObjs)
+		return parStateRoot(e.X, pkgVars, locals)
 	}
 	return ""
+}
+
+// parScope is the names one block, or the parameters of one function, have
+// declared so far.
+type parScope struct {
+	names  map[string]bool
+	parent *parScope
+}
+
+func newParScope(parent *parScope) *parScope {
+	return &parScope{names: map[string]bool{}, parent: parent}
+}
+
+// declared is whether this scope or one around it has declared name.
+func (s *parScope) declared(name string) bool {
+	for ; s != nil; s = s.parent {
+		if s.names[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// fields declares the names of parameter, result and receiver lists.
+func (s *parScope) fields(lists ...*ast.FieldList) {
+	for _, l := range lists {
+		if l == nil {
+			continue
+		}
+		for _, f := range l.List {
+			for _, n := range f.Names {
+				s.names[n.Name] = true
+			}
+		}
+	}
+}
+
+// parLocals are the identifiers of fn that name something fn declares, a
+// parameter or a variable of a block before them, and so shadow a package
+// variable of the same name where they stand. go/ast once resolved them
+// (the Obj of an identifier), and deprecates that, since without types it
+// cannot always be right, as for the keys of a struct literal. The root of
+// an assignment target is plain lexical scoping, which the syntax settles:
+// read in source order, a name is declared for what follows it and for no
+// more than its block.
+func parLocals(fn *ast.FuncDecl) map[*ast.Ident]bool {
+	root := newParScope(nil)
+	root.fields(fn.Recv, fn.Type.Params, fn.Type.Results)
+	r := parResolver{scope: root, locals: map[*ast.Ident]bool{}}
+	ast.Walk(r, fn.Body)
+	return r.locals
+}
+
+// parResolver is the visitor parLocals walks with: the scope of the node it
+// is visiting, and the identifiers found local so far.
+type parResolver struct {
+	scope  *parScope
+	locals map[*ast.Ident]bool
+}
+
+func (r parResolver) Visit(n ast.Node) ast.Visitor {
+	switch n := n.(type) {
+	case nil:
+		return nil
+	case *ast.FuncLit:
+		r.scope = newParScope(r.scope)
+		r.scope.fields(n.Type.Params, n.Type.Results)
+	case *ast.BlockStmt, *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.CaseClause, *ast.CommClause:
+		r.scope = newParScope(r.scope)
+	}
+	switch n := n.(type) {
+	case *ast.AssignStmt:
+		if n.Tok == token.DEFINE {
+			r.define(n.Lhs...)
+		}
+	case *ast.RangeStmt:
+		if n.Tok == token.DEFINE {
+			r.define(n.Key, n.Value)
+		}
+	case *ast.DeclStmt:
+		if g, ok := n.Decl.(*ast.GenDecl); ok && (g.Tok == token.VAR || g.Tok == token.CONST) {
+			for _, spec := range g.Specs {
+				if v, ok := spec.(*ast.ValueSpec); ok {
+					for _, id := range v.Names {
+						r.scope.names[id.Name] = true
+					}
+				}
+			}
+		}
+	case *ast.Ident:
+		if r.scope.declared(n.Name) {
+			r.locals[n] = true
+		}
+	}
+	return r
+}
+
+// define declares the identifiers among lhs, as := does.
+func (r parResolver) define(lhs ...ast.Expr) {
+	for _, e := range lhs {
+		if id, ok := e.(*ast.Ident); ok {
+			r.scope.names[id.Name] = true
+		}
+	}
 }
 
 // parMarked reports whether f touches process or package state: the
@@ -443,8 +547,9 @@ func parEnvironmentFact(f parFacts) bool {
 
 // parCollect reads fn's own facts. A method sharing a helper's name merges
 // with it at the caller's, so the reachability stays conservative.
-func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) parFacts {
+func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool) parFacts {
 	f := parFacts{calls: map[string]bool{}, sels: map[string]bool{}, assigns: map[string]bool{}, stubVars: map[string]bool{}}
+	locals := parLocals(fn)
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.CallExpr:
@@ -453,7 +558,7 @@ func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool, pkgObjs map[*ast.Obje
 				f.calls[fun.Name] = true
 				if fun.Name == "stub" && len(n.Args) >= 2 {
 					if u, ok := n.Args[1].(*ast.UnaryExpr); ok && u.Op == token.AND {
-						if name := parStateRoot(u.X, pkgVars, pkgObjs); name != "" {
+						if name := parStateRoot(u.X, pkgVars, locals); name != "" {
 							f.stubVars[name] = true
 						}
 					}
@@ -469,7 +574,7 @@ func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool, pkgObjs map[*ast.Obje
 				return true
 			}
 			for _, lhs := range n.Lhs {
-				if name := parStateRoot(lhs, pkgVars, pkgObjs); name != "" {
+				if name := parStateRoot(lhs, pkgVars, locals); name != "" {
 					f.assigns[name] = true
 				}
 			}
@@ -478,12 +583,12 @@ func parCollect(fn *ast.FuncDecl, pkgVars map[string]bool, pkgObjs map[*ast.Obje
 				return true
 			}
 			for _, lhs := range []ast.Expr{n.Key, n.Value} {
-				if name := parStateRoot(lhs, pkgVars, pkgObjs); name != "" {
+				if name := parStateRoot(lhs, pkgVars, locals); name != "" {
 					f.assigns[name] = true
 				}
 			}
 		case *ast.IncDecStmt:
-			if name := parStateRoot(n.X, pkgVars, pkgObjs); name != "" {
+			if name := parStateRoot(n.X, pkgVars, locals); name != "" {
 				f.assigns[name] = true
 			}
 		}
@@ -673,9 +778,7 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
 	for name, src := range sources {
-		// Keep object resolution on so local shadows can be separated from
-		// package variables when the AST checks assignment targets.
-		f, err := parser.ParseFile(fset, name, src, 0)
+		f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
 		if err != nil {
 			return nil, err
 		}
@@ -684,7 +787,6 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	// Package vars live in test files too (strayKill, yardEnvs), and
 	// assigning one pins the test just the same.
 	pkgVars := map[string]bool{}
-	pkgObjs := map[*ast.Object]bool{}
 	for _, f := range parsed {
 		for _, d := range f.Decls {
 			g, ok := d.(*ast.GenDecl)
@@ -695,9 +797,6 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 				if v, ok := s.(*ast.ValueSpec); ok {
 					for _, n := range v.Names {
 						pkgVars[n.Name] = true
-						if n.Obj != nil {
-							pkgObjs[n.Obj] = true
-						}
 					}
 				}
 			}
@@ -713,7 +812,7 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			got := parCollect(fd, pkgVars, pkgObjs)
+			got := parCollect(fd, pkgVars)
 			if old, ok := own[fd.Name.Name]; ok {
 				old.union(got)
 				got = old
@@ -805,6 +904,37 @@ func TestParallelNestedShadowDoesNotHidePackageWrite(t *testing.T) {
 	state.n++
 }
 
+func shadowedParam(state *struct{ n int }) { state.n++ }
+
+func TestParallelOtherShadows(t *testing.T) {
+	t.Parallel()
+	shadowedParam(nil)
+	if state := 1; state > 0 {
+		state++
+	}
+	var seam int
+	seam++
+	for stateMap := range 3 {
+		stateMap++
+	}
+	func(stateMap map[string]bool) { stateMap["x"] = true }(nil)
+}
+
+func TestParallelWriteBeforeShadow(t *testing.T) {
+	t.Parallel()
+	state.n++
+	state := struct{ n int }{}
+	_ = state
+}
+
+func TestParallelWriteAfterShadowScope(t *testing.T) {
+	t.Parallel()
+	if state := 1; state > 0 {
+		state++
+	}
+	state.n++
+}
+
 func TestSerialOK(t *testing.T) { stubIt(t) }
 
 func TestParallelOK(t *testing.T) { t.Parallel() }
@@ -824,6 +954,8 @@ func TestSerialCycleUnlisted(t *testing.T) { first() }
 		"TestParallelBadViaHelper calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelNestedShadowDoesNotHidePackageWrite calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelUnsetenvBad calls t.Parallel but reaches the process environment (os.Unsetenv) in its own body",
+		"TestParallelWriteAfterShadowScope calls t.Parallel but reaches package state (assign:state) in its own body",
+		"TestParallelWriteBeforeShadow calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestSerialCycleUnlisted calls no t.Parallel and is not listed in allowSerial (reaches first): parallelise it, or list it with its seam",
 		"TestSerialUnlisted calls no t.Parallel and is not listed in allowSerial (reaches assign:seam, stubIt): parallelise it, or list it with its seam",
 		"allowSerial lists TestSerialOK without naming its seam",

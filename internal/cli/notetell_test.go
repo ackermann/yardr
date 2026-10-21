@@ -94,7 +94,7 @@ func TestBeadNoteAck(t *testing.T) {
 	// A note neither delivery took says so, with why, instead of "will be
 	// told".
 	yardEnv(t, st)["YARDR_SESSION"] = ""
-	out, err = run(t, a.beadCmd(), "note", "yd-1", "wider: the fence too")
+	_, err = run(t, a.beadCmd(), "note", "yd-1", "wider: the fence too")
 	if err != nil {
 		t.Fatal(err)
 	}

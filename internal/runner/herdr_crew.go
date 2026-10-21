@@ -180,9 +180,9 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 		name, label = CrewConversationAgentName(yard, r.Name, user), CrewConversationLabel(yard, r.Name, user)
 	}
 	// The settings of the yard's server are blanked, as for a bead's agent
-	// (agentEnv). The kind's trust-bypass environment goes with them only
-	// when this crew member allows automatic trust; env_file cannot set it
-	// in its place (withEnvFile).
+	// (agentEnvWithHook). The kind's trust-bypass environment goes with them
+	// only when this crew member allows automatic trust; env_file cannot set
+	// it in its place (withEnvFile).
 	kind := agents.Kind(r.Config)
 	env := slices.Concat(config.Env("CREW", r.Name), config.Env("ACTOR", r.Name), config.BlankServerSettings())
 	// As for a bead's agent, a harness can skip its folder-trust dialog

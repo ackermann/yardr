@@ -79,12 +79,20 @@ func rsaJWK(kid string, pub *rsa.PublicKey) map[string]any {
 	}
 }
 
-// ecJWK is the public key as a JWKS entry under kid.
-func ecJWK(kid string, pub *ecdsa.PublicKey) map[string]any {
+// ecJWK is the public key as a JWKS entry under kid, its coordinates at the
+// field's width as RFC 7518 asks (TestParseJWKSECCoordinates has the ones
+// that are not).
+func ecJWK(t *testing.T, kid string, pub *ecdsa.PublicKey) map[string]any {
+	t.Helper()
+	point, err := pub.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := (len(point) - 1) / 2
 	return map[string]any{
 		"kty": "EC", "kid": kid, "alg": "ES256", "use": "sig", "crv": "P-256",
-		"x": base64.RawURLEncoding.EncodeToString(pub.X.Bytes()),
-		"y": base64.RawURLEncoding.EncodeToString(pub.Y.Bytes()),
+		"x": base64.RawURLEncoding.EncodeToString(point[1 : 1+size]),
+		"y": base64.RawURLEncoding.EncodeToString(point[1+size:]),
 	}
 }
 
@@ -253,7 +261,7 @@ func jwtGet(t *testing.T, ts *httptest.Server, target string, headers ...string)
 func TestJWTModeServesAndRefuses(t *testing.T) {
 	t.Parallel()
 	keys := mustJWTTestKeys(t)
-	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey), ecJWK("d", &keys.d.PublicKey)))
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey), ecJWK(t, "d", &keys.d.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
 	header := web.DefaultJWTHeader
 

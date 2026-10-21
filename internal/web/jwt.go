@@ -502,8 +502,24 @@ func jwkEC(crv, x, y string) (*ecdsa.PublicKey, error) {
 	if err != nil || len(yb) == 0 {
 		return nil, errors.New("no y")
 	}
-	key := &ecdsa.PublicKey{Curve: curve, X: new(big.Int).SetBytes(xb), Y: new(big.Int).SetBytes(yb)}
-	if !curve.IsOnCurve(key.X, key.Y) {
+	// ParseUncompressedPublicKey takes the point at the field's width and
+	// refuses one that is off the curve or is the point at infinity, as the
+	// IsOnCurve this replaces did. A coordinate is the integer it names,
+	// though, and a set whose producer dropped its leading zero bytes, or
+	// added some, has always been taken: so each goes in at the field's width
+	// unless the integer has no room in the field.
+	bits := curve.Params().BitSize
+	xi, yi := new(big.Int).SetBytes(xb), new(big.Int).SetBytes(yb)
+	if xi.BitLen() > bits || yi.BitLen() > bits {
+		return nil, fmt.Errorf("not a point on %s", crv)
+	}
+	size := (bits + 7) / 8
+	point := make([]byte, 1+2*size)
+	point[0] = 4 // uncompressed
+	xi.FillBytes(point[1 : 1+size])
+	yi.FillBytes(point[1+size:])
+	key, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+	if err != nil {
 		return nil, fmt.Errorf("not a point on %s", crv)
 	}
 	return key, nil

@@ -1177,15 +1177,10 @@ func forSlice(r *CrewMember, user string, e Event) bool {
 	}
 }
 
-// inboxKeys are the event keys after r's cursor that may be in its inbox,
+// inboxKeysFrom are the event keys after cursor that may be in r's inbox,
 // in seq order: its inbox index entries and those of the kinds it hears of
-// through --on.
-func inboxKeys(tx *bolt.Tx, r *CrewMember) []string {
-	return inboxKeysFrom(tx, r, r.Cursor)
-}
-
-// inboxKeysFrom is inboxKeys after cursor: one session's slice of the
-// same index entries.
+// through --on. The cursor is one session's, so the keys are that session's
+// slice of the same index entries.
 func inboxKeysFrom(tx *bolt.Tx, r *CrewMember, cursor uint64) []string {
 	from := seqKey(cursor + 1)
 	seen := map[string]bool{}

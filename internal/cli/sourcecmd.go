@@ -103,6 +103,7 @@ func readKeys(d *source.Declaration, names []string, in io.Reader, typed func(pr
 // is not known.
 func secretErr(err error) error {
 	if errors.Is(err, store.ErrNoAnswer) {
+		//lint:ignore ST1005 the words are sentences for the person, the same in every client and quoted in docs/chat.md, and are never wrapped
 		return errors.New(store.SecretNoAnswer)
 	}
 	return err

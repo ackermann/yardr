@@ -130,7 +130,7 @@ func TestHomeAnswer(t *testing.T) {
 			t.Errorf("the answer is %q, want two needs and one fault", s)
 		}
 		// Faults first: the held row stands before the parked one.
-		if strings.Index(s, hb.ID) < 0 || strings.Index(s, hb.ID) > strings.Index(s, pb.ID) {
+		if !strings.Contains(s, hb.ID) || strings.Index(s, hb.ID) > strings.Index(s, pb.ID) {
 			t.Error("the held row does not stand before the parked one")
 		}
 	})

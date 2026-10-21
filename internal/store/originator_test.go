@@ -289,7 +289,6 @@ func TestBeadUpdateOriginator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, _ := s.Head(ctx)
 	hal, mallory, jo := "hal", "mallory", "jo"
 	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Originator: &hal}, store.Expect{}, "hal"); err == nil ||
 		!strings.Contains(err.Error(), "only the operator (jo) may change a bead's originator; this is hal") {
@@ -313,7 +312,7 @@ func TestBeadUpdateOriginator(t *testing.T) {
 	}
 	// Setting what it already is logs nothing; another actor is refused
 	// even for that.
-	head, _ = s.Head(ctx)
+	head, _ := s.Head(ctx)
 	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Originator: &hal}, store.Expect{}, "jo"); err != nil {
 		t.Fatalf("setting what it is: %v", err)
 	}

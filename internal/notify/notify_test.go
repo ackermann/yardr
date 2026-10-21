@@ -258,8 +258,8 @@ func TestReady(t *testing.T) {
 // teller is an adapter that can tell a person, as none yardr has can yet.
 type teller struct {
 	hooks.Adapter
-	env                         map[string]string
-	title, text, link, notified string
+	env               map[string]string
+	title, text, link string
 }
 
 func (*teller) NotifyEnv() []string { return []string{"TELL_ID", "TELL_KEY"} }

@@ -99,7 +99,7 @@ func TestDepotSourceRoleOfAGroup(t *testing.T) {
 	}
 
 	a.json = true
-	out, err = run(t, a.depotSourceCmd(), "web", "role", "web-builders", "pack")
+	out, _ = run(t, a.depotSourceCmd(), "web", "role", "web-builders", "pack")
 	a.json = false
 	var res sourceSwitch
 	if err := json.Unmarshal([]byte(out), &res); err != nil || !res.Changed || len(res.Lines) != 1 ||
@@ -256,7 +256,7 @@ func TestDepotSourceFlowOfAType(t *testing.T) {
 	if got := sourceLines(t, out); got[0] != "flow type/decision pack ask (store code) shadows .yardr/flows/type/decision.flow, .yardr/flows/type/decision/ask.md" {
 		t.Errorf("to the pack's:\n%s", out)
 	}
-	if out, err = run(t, a.depotSourceCmd(), "web", "flow", "pack"); err != nil {
+	if _, err = run(t, a.depotSourceCmd(), "web", "flow", "pack"); err != nil {
 		t.Fatal(err)
 	}
 	// Under the depot's pointer no type file governs.

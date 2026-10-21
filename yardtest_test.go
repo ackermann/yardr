@@ -1049,13 +1049,14 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d) plus the %d priors", len(logged), n, len(c.seed))
 				}
 				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
+				dated := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} `)
 				for _, line := range logged {
 					for _, want := range []string{sha, pkg, testName} {
 						if !strings.Contains(line, want) {
 							t.Errorf("flaky log line %q, want it to carry %q", line, want)
 						}
 					}
-					if ok, _ := regexp.MatchString(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} `, line); !ok {
+					if !dated.MatchString(line) {
 						t.Errorf("flaky log line %q, want it to start with the date", line)
 					}
 				}

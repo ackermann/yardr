@@ -743,6 +743,9 @@ func TestPutHookCreateAndSourceChangeAreTheOperators(t *testing.T) {
 	} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
 		t.Errorf("changing a hook's secret file as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", err, ask, ok)
 	}
+	if now, _ := api.Head(ctx); now != head {
+		t.Fatalf("the refusals logged %d events", now-head)
+	}
 	// The unknown sender policy decides whether unrecognized people may
 	// reach the yard, so only the operator may change it on an existing
 	// identity-hearing hook.

@@ -108,10 +108,6 @@ func Stateable(decls ...*source.Declaration) []string {
 	return slices.Compact(out)
 }
 
-func noState(state string) error {
-	return final(fmt.Errorf("%q is no state: want %s", state, strings.Join(States(), ", ")))
-}
-
 // noLabel refuses a label in a source whose threads yardr sets none on.
 func noLabel(source, word string) error {
 	return final(fmt.Errorf("%s: yardr sets no label there, so %q is no state: want %s", source, word, strings.Join(States(), ", ")))

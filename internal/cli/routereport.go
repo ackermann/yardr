@@ -115,10 +115,6 @@ func reportOriginator(b store.Bead, operator string) string {
 	return operator
 }
 
-// reviewFixStages are the stages whose forward fixes the report counts.
-// Stays in any other stage count nowhere.
-var reviewFixStages = []string{"review", "review-security"}
-
 // reviewStages are the stages where review happens: the default flow's
 // two, and design's critique, which is review work under another name
 // (packs/design/flows/design/critique.md, worked by the reviewers). A

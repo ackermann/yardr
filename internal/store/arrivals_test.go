@@ -116,26 +116,6 @@ func (y *arrivalsTest) travel(t testing.TB, id, depot, stage string) *Bead {
 	return b
 }
 
-func arrivalIDs(rows []arrivalRowForTest) []string {
-	var out []string
-	for _, r := range rows {
-		out = append(out, r.Bead)
-	}
-	return out
-}
-
-// arrivalRowForTest names the served row's fields without importing eta
-// in the test's helpers; the tests below read the real rows.
-type arrivalRowForTest = struct {
-	Bead     string
-	Title    string
-	Platform string
-	Line     string
-	Expected string
-	Remark   string
-	Tone     string
-}
-
 func TestArrivalsServesTravelling(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)

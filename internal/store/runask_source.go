@@ -678,16 +678,11 @@ func carriedSHA(carried AskSource, prog string) string {
 	return ""
 }
 
-// commandSays groups every command by the file the yard would run, with
-// its whole command and its file's SHA-256 whole, or says the source
-// names no command. A command is never named by its key alone.
-func commandSays(d *source.Declaration, carried AskSource) []string {
-	return commandSaysChanged(d, carried, nil)
-}
-
-// commandSaysChanged groups as commandSays does, and where diffs names a
-// file's change the file's line holds the change whole: its old and new
-// hashes with its insertions and deletions counted.
+// commandSaysChanged groups every command by the file the yard would run,
+// with its whole command and its file's SHA-256 whole, or says the source
+// names no command. A command is never named by its key alone. Where diffs
+// names a file's change the file's line holds the change whole: its old and
+// new hashes with its insertions and deletions counted.
 func commandSaysChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) []string {
 	commands := d.Commands()
 	if len(commands) == 0 {

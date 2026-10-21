@@ -405,7 +405,6 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 			if err := st.LoginWaitReady(readyCtx, id); err != nil {
 				stopWait()
 				stopReady()
-				waiting, leave = "", func() {}
 				_ = halt()
 				select {
 				case res := <-given:
@@ -450,12 +449,12 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 		}
 	}
 	leave()
-	switch said := lastLines(errs.String(), 3); {
+	switch {
 	case err == nil:
 	case errors.Is(loginCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil:
 		return fmt.Errorf("%s did not end within %s: the login was stopped", command, loginTimeout)
 	default:
-		said = lastLines(secrets.redact(errs.String()), 3)
+		said := lastLines(secrets.redact(errs.String()), 3)
 		if said == "" {
 			said = lastLines(secrets.redact(printed.String()), 3)
 		}

@@ -368,7 +368,7 @@ func TestHomeOverview(t *testing.T) {
 	heads := []string{`<p class="answer">`, `>Running 2 · oldest `, `>Yard 5 · working 2 · held 1 ›<`,
 		`>Closed today 1 ›<`, "What happened"}
 	for i := 1; i < len(heads); i++ {
-		if strings.Index(text, heads[i-1]) < 0 || strings.Index(text, heads[i-1]) > strings.Index(text, heads[i]) {
+		if !strings.Contains(text, heads[i-1]) || strings.Index(text, heads[i-1]) > strings.Index(text, heads[i]) {
 			t.Errorf("the page does not run %q before %q", heads[i-1], heads[i])
 		}
 	}
@@ -391,7 +391,7 @@ func TestHomeOverview(t *testing.T) {
 		}
 	}
 	for _, id := range []string{held.ID, blocked.ID} {
-		if strings.Index(waits, id) < 0 || strings.Index(waits, id) > strings.Index(waits, decide.ID) {
+		if !strings.Contains(waits, id) || strings.Index(waits, id) > strings.Index(waits, decide.ID) {
 			t.Errorf("the fault %s does not stand before the parked bead", id)
 		}
 	}

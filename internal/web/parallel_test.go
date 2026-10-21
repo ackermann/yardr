@@ -49,10 +49,10 @@ func (f *parFacts) union(g parFacts) {
 
 // parAssigned is the package state an assignment target writes: a package
 // variable of this directory's packages, through a field, map entry or
-// pointer, or a variable of an imported package, dotted. Obj distinguishes
+// pointer, or a variable of an imported package, dotted. locals distinguishes
 // a local that shadows a package variable with the same name. Anything
 // else writes no shared state.
-func parAssigned(expr ast.Expr, imports map[string]bool, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) string {
+func parAssigned(expr ast.Expr, imports map[string]bool, pkgVars map[string]bool, locals map[*ast.Ident]bool) string {
 	root := expr
 	var sel []string
 	for {
@@ -80,10 +80,114 @@ found:
 	if imports[id.Name] {
 		return id.Name + "." + strings.Join(sel, ".")
 	}
-	if pkgVars[id.Name] && (id.Obj == nil || pkgObjs[id.Obj]) {
+	if pkgVars[id.Name] && !locals[id] {
 		return id.Name
 	}
 	return ""
+}
+
+// parScope is the names one block, or the parameters of one function, have
+// declared so far.
+type parScope struct {
+	names  map[string]bool
+	parent *parScope
+}
+
+func newParScope(parent *parScope) *parScope {
+	return &parScope{names: map[string]bool{}, parent: parent}
+}
+
+// declared is whether this scope or one around it has declared name.
+func (s *parScope) declared(name string) bool {
+	for ; s != nil; s = s.parent {
+		if s.names[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// fields declares the names of parameter, result and receiver lists.
+func (s *parScope) fields(lists ...*ast.FieldList) {
+	for _, l := range lists {
+		if l == nil {
+			continue
+		}
+		for _, f := range l.List {
+			for _, n := range f.Names {
+				s.names[n.Name] = true
+			}
+		}
+	}
+}
+
+// parLocals are the identifiers of fn that name something fn declares, a
+// parameter or a variable of a block before them, and so shadow a package
+// variable of the same name where they stand. go/ast once resolved them
+// (the Obj of an identifier), and deprecates that, since without types it
+// cannot always be right, as for the keys of a struct literal. The root of
+// an assignment target is plain lexical scoping, which the syntax settles:
+// read in source order, a name is declared for what follows it and for no
+// more than its block.
+func parLocals(fn *ast.FuncDecl) map[*ast.Ident]bool {
+	root := newParScope(nil)
+	root.fields(fn.Recv, fn.Type.Params, fn.Type.Results)
+	r := parResolver{scope: root, locals: map[*ast.Ident]bool{}}
+	ast.Walk(r, fn.Body)
+	return r.locals
+}
+
+// parResolver is the visitor parLocals walks with: the scope of the node it
+// is visiting, and the identifiers found local so far.
+type parResolver struct {
+	scope  *parScope
+	locals map[*ast.Ident]bool
+}
+
+func (r parResolver) Visit(n ast.Node) ast.Visitor {
+	switch n := n.(type) {
+	case nil:
+		return nil
+	case *ast.FuncLit:
+		r.scope = newParScope(r.scope)
+		r.scope.fields(n.Type.Params, n.Type.Results)
+	case *ast.BlockStmt, *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.CaseClause, *ast.CommClause:
+		r.scope = newParScope(r.scope)
+	}
+	switch n := n.(type) {
+	case *ast.AssignStmt:
+		if n.Tok == token.DEFINE {
+			r.define(n.Lhs...)
+		}
+	case *ast.RangeStmt:
+		if n.Tok == token.DEFINE {
+			r.define(n.Key, n.Value)
+		}
+	case *ast.DeclStmt:
+		if g, ok := n.Decl.(*ast.GenDecl); ok && (g.Tok == token.VAR || g.Tok == token.CONST) {
+			for _, spec := range g.Specs {
+				if v, ok := spec.(*ast.ValueSpec); ok {
+					for _, id := range v.Names {
+						r.scope.names[id.Name] = true
+					}
+				}
+			}
+		}
+	case *ast.Ident:
+		if r.scope.declared(n.Name) {
+			r.locals[n] = true
+		}
+	}
+	return r
+}
+
+// define declares the identifiers among lhs, as := does.
+func (r parResolver) define(lhs ...ast.Expr) {
+	for _, e := range lhs {
+		if id, ok := e.(*ast.Ident); ok {
+			r.scope.names[id.Name] = true
+		}
+	}
 }
 
 // parMarked reports whether f touches process or package state: the
@@ -95,8 +199,9 @@ func parMarked(f parFacts) bool {
 // parCollect reads fn's own facts. Imported package functions enter the
 // call graph by name; a method sharing a helper's name merges with it at
 // the caller's, so reachability stays conservative across the test packages.
-func parCollect(fn *ast.FuncDecl, imports map[string]bool, pkgVars map[string]bool, pkgObjs map[*ast.Object]bool) parFacts {
+func parCollect(fn *ast.FuncDecl, imports map[string]bool, pkgVars map[string]bool) parFacts {
 	f := parFacts{calls: map[string]bool{}, sels: map[string]bool{}, assigns: map[string]bool{}}
+	locals := parLocals(fn)
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.CallExpr:
@@ -117,7 +222,7 @@ func parCollect(fn *ast.FuncDecl, imports map[string]bool, pkgVars map[string]bo
 				return true
 			}
 			for _, lhs := range n.Lhs {
-				if name := parAssigned(lhs, imports, pkgVars, pkgObjs); name != "" {
+				if name := parAssigned(lhs, imports, pkgVars, locals); name != "" {
 					f.assigns[name] = true
 				}
 			}
@@ -129,12 +234,12 @@ func parCollect(fn *ast.FuncDecl, imports map[string]bool, pkgVars map[string]bo
 				if lhs == nil {
 					continue
 				}
-				if name := parAssigned(lhs, imports, pkgVars, pkgObjs); name != "" {
+				if name := parAssigned(lhs, imports, pkgVars, locals); name != "" {
 					f.assigns[name] = true
 				}
 			}
 		case *ast.IncDecStmt:
-			if name := parAssigned(n.X, imports, pkgVars, pkgObjs); name != "" {
+			if name := parAssigned(n.X, imports, pkgVars, locals); name != "" {
 				f.assigns[name] = true
 			}
 		}
@@ -311,9 +416,7 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	fset := token.NewFileSet()
 	parsed := map[string]*ast.File{}
 	for name, src := range sources {
-		// Keep object resolution on so local shadows can be separated from
-		// package variables when the AST checks assignment targets.
-		f, err := parser.ParseFile(fset, name, src, 0)
+		f, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
 		if err != nil {
 			return nil, err
 		}
@@ -322,7 +425,6 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 	// Package vars live in test files too (etaRunning, wantHome), and
 	// assigning one pins the test just the same.
 	pkgVars := map[string]bool{}
-	pkgObjs := map[*ast.Object]bool{}
 	for _, f := range parsed {
 		for _, d := range f.Decls {
 			g, ok := d.(*ast.GenDecl)
@@ -333,9 +435,6 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 				if v, ok := s.(*ast.ValueSpec); ok {
 					for _, n := range v.Names {
 						pkgVars[n.Name] = true
-						if n.Obj != nil {
-							pkgObjs[n.Obj] = true
-						}
 					}
 				}
 			}
@@ -363,7 +462,7 @@ func parLoad(sources map[string][]byte) (map[string]parFacts, error) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			got := parCollect(fd, imports, pkgVars, pkgObjs)
+			got := parCollect(fd, imports, pkgVars)
 			if old, ok := own[fd.Name.Name]; ok {
 				old.union(got)
 				got = old
@@ -406,7 +505,7 @@ func TestOnlyAllowedTestsStaySerial(t *testing.T) {
 func TestParCheckFindsViolations(t *testing.T) {
 	t.Parallel()
 	own, err := parLoad(map[string][]byte{
-		"z.go": []byte("package x\n\nvar seam = 1\nvar state = struct{ n int }{}\n"),
+		"z.go": []byte("package x\n\nvar seam = 1\nvar state = struct{ n int }{}\nvar stateMap = map[string]bool{}\n"),
 		"web_export_test.go": []byte(`package web
 
 var describeServer = 0
@@ -467,6 +566,37 @@ func TestParallelLocalShadow(t *testing.T) {
 	state.n++
 }
 
+func shadowedParam(state *struct{ n int }) { state.n++ }
+
+func TestParallelOtherShadows(t *testing.T) {
+	t.Parallel()
+	shadowedParam(nil)
+	if state := 1; state > 0 {
+		state++
+	}
+	var seam int
+	seam++
+	for stateMap := range 3 {
+		stateMap++
+	}
+	func(stateMap map[string]bool) { stateMap["x"] = true }(nil)
+}
+
+func TestParallelWriteBeforeShadow(t *testing.T) {
+	t.Parallel()
+	state.n++
+	state := struct{ n int }{}
+	_ = state
+}
+
+func TestParallelWriteAfterShadowScope(t *testing.T) {
+	t.Parallel()
+	if state := 1; state > 0 {
+		state++
+	}
+	state.n++
+}
+
 func TestSerialOK(t *testing.T) { stubIt(t) }
 
 func TestParallelOK(t *testing.T) { t.Parallel() }
@@ -487,6 +617,8 @@ func TestSerialCycleUnlisted(t *testing.T) { first() }
 		"TestParallelForeignAssignBad calls t.Parallel but reaches package state (assign:limits.Timeout) in its own body",
 		"TestParallelServerStubBad calls t.Parallel but reaches package state (assign:describeServer) via stubServer -> SetDescribeServer",
 		"TestParallelUnsetenvBad calls t.Parallel but reaches the process environment (os.Unsetenv) in its own body",
+		"TestParallelWriteAfterShadowScope calls t.Parallel but reaches package state (assign:state) in its own body",
+		"TestParallelWriteBeforeShadow calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestSerialCycleUnlisted calls no t.Parallel and is not listed in allowSerial (reaches first): parallelise it, or list it with its seam",
 		"TestSerialUnlisted calls no t.Parallel and is not listed in allowSerial (reaches assign:seam, stubIt): parallelise it, or list it with its seam",
 		"allowSerial lists TestParallelOK, which calls t.Parallel now: delete the entry",

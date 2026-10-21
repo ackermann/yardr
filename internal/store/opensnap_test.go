@@ -54,10 +54,10 @@ func TestPassQuestionsDecodeOpenBeadsOnce(t *testing.T) {
 	}
 
 	type answers struct {
-		expired           int
-		trains, ready     []string
-		stranded          []string
-		reads, flowsAsked int64
+		expired       int
+		trains, ready []string
+		stranded      []string
+		reads         int64
 	}
 	pass := func() answers {
 		t.Helper()

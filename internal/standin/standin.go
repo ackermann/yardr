@@ -1204,10 +1204,7 @@ func (s *Server) branch(w http.ResponseWriter, r *http.Request, repo, branch str
 		fail(http.StatusNotFound, "Not Found")
 		return
 	}
-	contexts := []string{}
-	for _, c := range i.Required {
-		contexts = append(contexts, c)
-	}
+	contexts := append([]string{}, i.Required...)
 	_ = json.NewEncoder(w).Encode(map[string]any{"name": branch,
 		"protection": map[string]any{"required_status_checks": map[string]any{"contexts": contexts}}})
 }

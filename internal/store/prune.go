@@ -10,6 +10,7 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	berrors "go.etcd.io/bbolt/errors"
 )
 
 // Retention is how long Prune keeps what it may remove; zero keeps it for
@@ -519,7 +520,7 @@ func Compact(path string) (*CompactResult, error) {
 		return nil, err
 	}
 	src, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: time.Second, ReadOnly: true})
-	if errors.Is(err, bolt.ErrTimeout) {
+	if errors.Is(err, berrors.ErrTimeout) {
 		return nil, fmt.Errorf("%s: %w", path, ErrLocked)
 	} else if err != nil {
 		return nil, err

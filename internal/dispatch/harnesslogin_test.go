@@ -180,8 +180,6 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	t.Parallel()
 	s, f, d, l := loginSetup(t)
 	ctx := context.Background()
-	r, err := s.GetCrew(ctx, "yardmaster")
-	must(t, err)
 
 	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
 	pick := openAsks(t, s)[0]
@@ -194,7 +192,8 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	// Crew says the session sits at its screen and the yard leads the
 	// login, and a client was told of each as it came: the session sat
 	// down, then the yard asked how to log it in.
-	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil || !r.LoginScreen || !r.LoginLed {
+	r, err := s.GetCrew(ctx, "yardmaster")
+	if err != nil || !r.LoginScreen || !r.LoginLed {
 		t.Fatalf("while the yard leads the login: Crew says login_screen %v and login_led %v (%v), want both", r.LoginScreen, r.LoginLed, err)
 	}
 	if evs := crewLogins(t, s); len(evs) != 2 || evs[0].Data["login_screen"] != true || evs[0].Data["login_led"] != false ||

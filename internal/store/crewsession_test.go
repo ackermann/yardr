@@ -568,14 +568,14 @@ func TestContextAskedAndReadings(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
-	r := yardmaster(t, s)
+	yardmaster(t, s)
 	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetContext(ctx, "yardmaster", 50, 200000); err != nil {
 		t.Fatal(err)
 	}
-	r, _ = s.GetCrew(ctx, "yardmaster")
+	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.ContextAskedAt != nil || r.ContextPct != 50 || r.ContextWindow != 200000 || r.ContextAt == nil {
 		t.Fatalf("reading = %+v", r.CrewSession)
 	}

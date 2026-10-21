@@ -32,6 +32,11 @@ import (
 // named so (store.NameSetting takes no '?').
 const purgeAsk = "?"
 
+// nothingStopped is the sentence a refusal of --purge ends with: it came
+// before anything was stopped or deleted. It is a sentence of its own, passed
+// through %s, so the error strings that carry it do not end in a period.
+const nothingStopped = "Nothing was stopped or deleted."
+
 // purgeFlag is --purge: whether it was given, and the name it was given.
 type purgeFlag struct {
 	set  bool
@@ -266,7 +271,7 @@ func (a *app) uninstallYard(w, warn io.Writer, ctx context.Context, cfg *config.
 			// The store goes with the home, and in it what only the operator
 			// may change: a line, as operatorOnly is, before anything stops.
 			if err := a.operatorOnly(ctx, st, "delete the yard's home"); err != nil {
-				return fmt.Errorf("%w. Nothing was stopped or deleted.", err)
+				return fmt.Errorf("%w. %s", err, nothingStopped)
 			}
 			return a.agreePurge(w, cfg, f, purge.name, yes)
 		}
@@ -412,21 +417,20 @@ func (a *app) agreePurge(w io.Writer, cfg *config.Config, f *yardFacts, given st
 	if err := purgeable(cfg, f); err != nil {
 		return err
 	}
-	const nothing = "Nothing was stopped or deleted."
 	what := fmt.Sprintf("the home of the yard %s, %s, with %s in its store", f.name, cfg.Home, plural(f.beads, "bead"))
 	both := fmt.Sprintf("%s uninstall --purge=%s --yes", yardrAt(cfg.Home), shellQuote(f.name))
 	asks := interactive() && !a.json
 	switch {
 	case given != purgeAsk && given != f.name:
-		return fmt.Errorf("--purge=%s does not name this yard: --purge deletes %s. %s", given, what, nothing)
+		return fmt.Errorf("--purge=%s does not name this yard: --purge deletes %s. %s", given, what, nothingStopped)
 	case given != purgeAsk && (yes || asks):
 		// Named on the command line: by a person at a terminal, or by a
 		// caller that says --yes too.
 		return nil
 	case given != purgeAsk:
-		return fmt.Errorf("--purge deletes %s. With nobody to ask (no terminal) it needs --yes beside the yard's name: %s. %s", what, both, nothing)
+		return fmt.Errorf("--purge deletes %s. With nobody to ask (no terminal) it needs --yes beside the yard's name: %s. %s", what, both, nothingStopped)
 	case !asks:
-		return fmt.Errorf("--purge deletes %s. With nobody to ask (no terminal) it takes the yard's name as its value, and --yes: %s. %s", what, both, nothing)
+		return fmt.Errorf("--purge deletes %s. With nobody to ask (no terminal) it takes the yard's name as its value, and --yes: %s. %s", what, both, nothingStopped)
 	}
 	fmt.Fprintf(w, "yardr uninstall --purge deletes %s.\n", what)
 	fmt.Fprintln(w, "Kept: a depot's repository, a worktree with uncommitted changes, every branch, and this program.")
@@ -436,7 +440,7 @@ func (a *app) agreePurge(w io.Writer, cfg *config.Config, f *yardFacts, given st
 		return err
 	}
 	if strings.TrimSpace(typed) != f.name {
-		return fmt.Errorf("%q is not the yard's name. %s", strings.TrimSpace(typed), nothing)
+		return fmt.Errorf("%q is not the yard's name. %s", strings.TrimSpace(typed), nothingStopped)
 	}
 	return nil
 }

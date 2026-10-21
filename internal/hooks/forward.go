@@ -27,18 +27,6 @@ const (
 	StoodOther  = "other"
 )
 
-// standings orders where an issue can stand.
-var standings = []string{StoodBefore, StateStarted, StateReview, StateDone, StoodOther}
-
-func standing(stood string) int {
-	for i, s := range standings {
-		if s == stood {
-			return i
-		}
-	}
-	return len(standings) // unknown: past everything
-}
-
 // Forwarded is what Forward found and did.
 type Forwarded struct {
 	Stated

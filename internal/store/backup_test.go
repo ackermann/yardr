@@ -104,7 +104,8 @@ func TestDatedBackups(t *testing.T) {
 		t.Fatalf("BackupName = %s", got)
 	}
 	for _, name := range []string{store.BackupName(at), store.BackupName(at.Add(-time.Hour)),
-		"yard.db.before-the-move", "yard-20261013.db", "yard-20261313T122233Z.db", ".yard-20261013T122233Z.db.tmp-1", "yard-20261013T122233Z.db.bak"} {
+		"yard.db.before-the-move", "yard-20261013.db", "yard-20261313T122233Z.db", ".yard-20261013T122233Z.db.tmp-1", "yard-20261013T122233Z.db.bak",
+		"20261013T122233Z.db"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}

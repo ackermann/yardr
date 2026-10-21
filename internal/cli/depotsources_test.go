@@ -144,7 +144,7 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	)
 
 	a.json = true
-	out, err = run(t, a.depotSourcesCmd(), "web")
+	out, _ = run(t, a.depotSourcesCmd(), "web")
 	a.json = false
 	var lines []depotSource
 	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 22 {

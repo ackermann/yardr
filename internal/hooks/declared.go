@@ -84,8 +84,6 @@ func (d Declared) forwardable() bool {
 	return d.stateable() && d.D.Link != nil
 }
 
-func (d Declared) linkable() bool { return d.D.Link != nil }
-
 // A declared source with the keys speaks in its threads: each method by
 // the thread command of the same name, the link by its data.
 var (

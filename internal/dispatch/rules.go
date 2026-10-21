@@ -614,10 +614,3 @@ func metaSeq(v any) uint64 {
 	}
 	return 0
 }
-
-func or(s, def string) string {
-	if s != "" {
-		return s
-	}
-	return def
-}

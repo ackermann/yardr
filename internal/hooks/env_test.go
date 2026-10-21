@@ -16,7 +16,7 @@ import (
 // the environment, TestGitHubCredentialOfACrew with YARDR_RESIDENT, which
 // neither blanked (yardr-n1v5). So every run of this package is in a pane
 // that says the wrong thing under each name the package reads, and a test
-// sets what it needs (asCrew, noGitHubCredential, t.Setenv).
+// sets what it needs with t.Setenv.
 func TestMain(m *testing.M) {
 	for _, name := range []string{"CREW", "ACTOR", "SESSION", "BEAD"} {
 		for _, kv := range config.Env(name, "not-this-test") {
@@ -38,24 +38,4 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	scripttest.Remove()
 	os.Exit(code)
-}
-
-// asCrew makes the test's environment the pane of crew member name, or with
-// "" a person's own shell, under every name the crew member is read by: one
-// left out is one the pane the tests run in answers for.
-func asCrew(t *testing.T, name string) {
-	t.Helper()
-	for _, kv := range config.Env("CREW", name) {
-		k, v, _ := strings.Cut(kv, "=")
-		t.Setenv(k, v)
-	}
-}
-
-// noGitHubCredential leaves the test's environment with neither a GitHub
-// App nor a token; the test sets the one it is about.
-func noGitHubCredential(t *testing.T) {
-	t.Helper()
-	for _, name := range []string{"GITHUB_TOKEN", "GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY_FILE"} {
-		t.Setenv(name, "")
-	}
 }

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,15 +145,18 @@ func TestQuietStreamIsNotCutOff(t *testing.T) {
 	}
 }
 
-// heldConn is a connection whose reads wait while hold is locked.
+// heldConn is a connection whose reads wait while hold holds a channel: the
+// test puts one there to hold its reader back, and closes it to let it go. A
+// read that is already in the connection is not held; only the next one is.
 type heldConn struct {
 	net.Conn
-	hold *sync.Mutex
+	hold *atomic.Pointer[chan struct{}]
 }
 
 func (c heldConn) Read(p []byte) (int, error) {
-	c.hold.Lock()
-	c.hold.Unlock()
+	if released := c.hold.Load(); released != nil {
+		<-*released
+	}
 	return c.Conn.Read(p)
 }
 
@@ -172,7 +175,7 @@ func TestStalledClientSubscriberIsClosed(t *testing.T) {
 	serve(t, sock, handler(st, nil, 200*time.Millisecond).ServeHTTP)
 	ctx := context.Background()
 
-	var hold sync.Mutex
+	var hold atomic.Pointer[chan struct{}]
 	c := NewClient(sock)
 	c.http = &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -198,7 +201,8 @@ func TestStalledClientSubscriberIsClosed(t *testing.T) {
 		t.Fatal("the event never came")
 	}
 
-	hold.Lock()
+	released := make(chan struct{})
+	hold.Store(&released)
 	pad := strings.Repeat("x", 256<<10)
 	for i := 0; i < 16; i++ { // 4MB: more than any socket buffers between them
 		if err := st.LogEvent(ctx, "", "noise", "test", map[string]any{"pad": pad}); err != nil {
@@ -206,7 +210,7 @@ func TestStalledClientSubscriberIsClosed(t *testing.T) {
 		}
 	}
 	time.Sleep(600 * time.Millisecond) // the blocked write hits its deadline
-	hold.Unlock()
+	close(released)
 
 	// At most the one read that was already waiting got through, so no
 	// event of 256KB arrived whole.

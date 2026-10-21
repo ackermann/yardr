@@ -331,7 +331,7 @@ func TestEnrolRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 	t.Parallel()
 	edgeKey := newKey(t)
 	signed := func(status int, v any) *httptest.Server { return answersSigned(t, edgeKey, status, v) }
-	unsigned := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "origin down", 502) }))
+	unsigned := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "origin down", http.StatusBadGateway) }))
 	t.Cleanup(unsigned.Close)
 	for name, tc := range map[string]struct {
 		srv  *httptest.Server

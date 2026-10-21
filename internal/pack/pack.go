@@ -328,8 +328,7 @@ var placeholder = regexp.MustCompile(`\{\{[^{}\n]*\}\}`)
 // key's value. A placeholder without a key in names is left as it is.
 func Fill(text []byte, names map[string]string) []byte {
 	return placeholder.ReplaceAllFunc(text, func(m []byte) []byte {
-		key := string(m[2 : len(m)-2])
-		if v, ok := names[key]; ok {
+		if v, ok := names[string(m[2:len(m)-2])]; ok {
 			return []byte(v)
 		}
 		return m

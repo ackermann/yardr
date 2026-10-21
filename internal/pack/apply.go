@@ -527,7 +527,7 @@ func check(p *Plan, o ApplyOptions) (map[string][]byte, error) {
 // read is the pack's file op copies, as the pack has it now. Only a plan
 // Build made knows the pack's directory: one read back from JSON does not.
 func (p *Plan) read(op *FileOp) ([]byte, error) {
-	rel := op.From
+	var rel string
 	if IsURL(p.Dir) {
 		var ok bool
 		if rel, ok = strings.CutPrefix(op.From, strings.TrimSuffix(p.Dir, "/")+"/"); !ok {

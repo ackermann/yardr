@@ -266,13 +266,12 @@ func TestWorkingClearsTheLoginMark(t *testing.T) {
 	ctx := context.Background()
 	must(t, d.Reconcile(ctx))
 	agent := agentOf(t, s)
-	r, err := s.GetCrew(ctx, "yardmaster")
-	must(t, err)
 
 	f.login = "Select login method:"
 	must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
 	must(t, d.Reconcile(ctx))
-	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil {
+	r, err := s.GetCrew(ctx, "yardmaster")
+	if err != nil {
 		t.Fatal(err)
 	} else if r.Handle[dispatch.HarnessLoginKey] == nil {
 		t.Fatal("handle not marked at the login screen")

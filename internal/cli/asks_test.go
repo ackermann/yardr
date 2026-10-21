@@ -138,7 +138,7 @@ func TestBeadAnswer(t *testing.T) {
 	if _, err := run(t, me.beadCmd(), "answer", id, "1", "3"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = run(t, me.beadCmd(), "answer", id, "1", "2", "soon", "--words", "x")
+	_, err = run(t, me.beadCmd(), "answer", id, "1", "2", "soon", "--words", "x")
 	if err == nil || !strings.Contains(err.Error(), "one of the two") {
 		t.Fatalf("words twice: err = %v", err)
 	}

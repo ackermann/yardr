@@ -53,9 +53,8 @@ func stocked(t *testing.T, f *fixture) (run, w1, w2, train, six *store.Bead) {
 		must(t, err)
 		return b
 	}
-	backlog := []*store.Bead{}
 	for i := 1; i <= 10; i++ {
-		backlog = append(backlog, bead(fmt.Sprintf("stock %d", i), "task", "backlog"))
+		bead(fmt.Sprintf("stock %d", i), "task", "backlog")
 	}
 	// The train's children are not the newest two: standing together is
 	// then the row's doing, not the order's.

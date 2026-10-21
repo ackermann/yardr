@@ -693,24 +693,16 @@ func (h *Herdr) trainBranch(ctx context.Context, job dispatch.Job) error {
 	return nil
 }
 
-// agentEnv is the environment of a bead agent's tab: what every started
-// process gets (see Env), with the agent as actor, plus this yard's home and
-// binary so its yardr commands reach this yard. A bead of a git depot gets
-// what it lands on (YARDR_BASE); one of a dir depot, which has no base or
-// branch, gets the directory it works in (YARDR_DEPOT, YARDR_DEPOT_PATH).
-// Every agent gets what the yard's commit-msg hook names its commits with
-// (YARDR_KIND, YARDR_MODEL) and the core.hooksPath that points its git at
-// the hook.
-func (h *Herdr) agentEnv(job dispatch.Job, name string) ([]string, error) {
-	hookEnv, err := commitHookEnv(h.YardHome)
-	if err != nil {
-		return nil, err
-	}
-	return h.agentEnvWithHook(job, name, hookEnv), nil
-}
-
-// agentEnvWithHook is agentEnv with the commit hook already ensured before
-// the runner creates a worktree, so an installation error starts no work.
+// agentEnvWithHook is the environment of a bead agent's tab: what every
+// started process gets (see Env), with the agent as actor, plus this yard's
+// home and binary so its yardr commands reach this yard. A bead of a git
+// depot gets what it lands on (YARDR_BASE); one of a dir depot, which has no
+// base or branch, gets the directory it works in (YARDR_DEPOT,
+// YARDR_DEPOT_PATH). Every agent gets what the yard's commit-msg hook names
+// its commits with (YARDR_KIND, YARDR_MODEL) and the core.hooksPath that
+// points its git at the hook. hookEnv is that last part, ensured by Start
+// before the runner creates a worktree, so an installation error starts no
+// work.
 func (h *Herdr) agentEnvWithHook(job dispatch.Job, name string, hookEnv []string) []string {
 	env := Env(job, name)
 	// The harness kind and the agent model, beside the bead and group Env

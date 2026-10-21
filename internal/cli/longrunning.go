@@ -429,10 +429,10 @@ func (k *longRunning) stop(cfg *config.Config, wait time.Duration) ([]instance, 
 		if r.PID <= 0 {
 			return nil, fmt.Errorf("a %s holds %s, and the file names no pid to stop", k.What, r.path)
 		}
-		pid := r.PID
 		// The pid is read again and verified before it is signalled: the
 		// holder may have let go since running saw it, and the pid may
 		// be another process's now.
+		var pid int
 		var gone bool
 		var err error
 		if k.Lock != nil {

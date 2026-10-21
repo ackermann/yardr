@@ -130,7 +130,11 @@ func named(method string, body json.RawMessage) ([]json.RawMessage, error) {
 			delete(given, name)
 		}
 	}
-	for _, name := range slices.Sorted(maps.Keys(given)) {
+	if len(given) > 0 {
+		// One stray name refuses the call, and the first by order is the one
+		// said, so the refusal reads the same on every call whatever order
+		// the map gives.
+		name := slices.Min(slices.Collect(maps.Keys(given)))
 		takes := "none"
 		if len(names) > 0 {
 			takes = strings.Join(names, ", ")

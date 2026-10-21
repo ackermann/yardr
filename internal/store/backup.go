@@ -231,6 +231,9 @@ func DatedBackups(dir string) ([]DatedBackup, error) {
 	for _, e := range entries {
 		name := e.Name()
 		stamp, ok := strings.CutPrefix(name, backupPrefix)
+		if !ok {
+			continue
+		}
 		if stamp, ok = strings.CutSuffix(stamp, backupSuffix); !ok || !e.Type().IsRegular() {
 			continue
 		}

@@ -616,7 +616,7 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 			a.About = append(a.About, *mine)
 		}
 		for _, about := range rec.About {
-			a.About = append(a.About, AboutBead{ID: about.ID, Title: about.Title, Stage: about.Stage})
+			a.About = append(a.About, AboutBead(about))
 		}
 		if rec.Outcome != "" {
 			a.State = outcomeState(rec.Outcome).String()
