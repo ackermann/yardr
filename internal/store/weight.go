@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"yardr.dev/yardr/internal/source"
 )
@@ -53,13 +54,42 @@ type AskWeight struct {
 	Line  string `json:"line"`
 }
 
-// String is the weight as a terminal card prints it, after "WEIGHTY · ".
+// WeightMark starts a card's weight lines where they are shown (Marked):
+// its words end where the line begins, so nothing its asker typed stands
+// for a weight the yard gave. Every renderer of cards keeps the mark out
+// of the asker's own words (WithoutWeightMark), so a line starting with
+// it is the yard's, and any other "WEIGHTY · ..." is words.
+const WeightMark = "WEIGHTY · "
+
+// String is the weight as a terminal card prints it, after the mark.
 func (a AskWeight) String() string { return a.Class + ": " + a.Line }
 
 // Marked is the weight as a terminal prints it on a line of its own: the
 // card's line, and the gate's before a weighty approval, so that both say
 // it in the same words.
-func (a AskWeight) Marked() string { return "WEIGHTY · " + OneLine(a.String()) }
+func (a AskWeight) Marked() string { return WeightMark + OneLine(a.String()) }
+
+// WithoutWeightMark is s without the mark that starts a card's weight
+// line: what an asker's own words are shown as, so an asker cannot forge
+// the line by typing the mark (WeightMark). Only the mark at a line's
+// first non-whitespace position goes, the only position the line is
+// recognised by; a mark further in is an asker's own words and stays
+// byte-identical. Residual: an asker's mark at a line's first non-space
+// position still drops. That is the safe direction (it is exactly the
+// forgery shape), vanishingly rare, and the stored bytes are untouched,
+// so any future escape re-renders them.
+func WithoutWeightMark(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+		rest := trimmed
+		for strings.HasPrefix(rest, WeightMark) {
+			rest = rest[len(WeightMark):]
+		}
+		lines[i] = line[:len(line)-len(trimmed)] + rest
+	}
+	return strings.Join(lines, "\n")
+}
 
 // weighs is the class's weight with the yard's particulars after its line.
 func weighs(class, particulars string) AskWeight {

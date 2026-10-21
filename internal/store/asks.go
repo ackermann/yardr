@@ -1328,7 +1328,10 @@ func (r ResolvedAsk) LinesMarked(as map[string]string) []string {
 // is.
 //
 // A weighty card's classes come first after its head, each a line of
-// "WEIGHTY · <class>: <line>" (weight.go).
+// WeightMark and "<class>: <line>" (weight.go). The question's first line
+// and the bare context lines stand at the same column, so the mark goes
+// from them where they carry it: a line starting with the mark is the
+// yard's.
 //
 // A run ask is drawn so that the asker's words cannot stand for the yard's:
 // each context line begins with who says it, a question's and an answer's
@@ -1365,7 +1368,17 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	for _, w := range r.Ask.Weight {
 		out = append(out, "  "+w.Marked())
 	}
-	out = append(out, "  "+strings.ReplaceAll(strings.TrimSpace(NoteLetters(r.Ask.Question)), "\n", "\n        "))
+	// The question's first line stands where the card's weight lines do,
+	// so the mark goes from it: an asker cannot type a weight line. Its
+	// later lines stand further in than any line the yard prints, and keep
+	// their words.
+	question := strings.TrimSpace(NoteLetters(r.Ask.Question))
+	if i := strings.Index(question, "\n"); i >= 0 {
+		question = WithoutWeightMark(question[:i]) + question[i:]
+	} else {
+		question = WithoutWeightMark(question)
+	}
+	out = append(out, "  "+strings.ReplaceAll(question, "\n", "\n        "))
 	for _, line := range r.Ask.Context {
 		// A context line is one line, refused with a break at the
 		// write; one stored before that folds to the line it is.
@@ -1373,7 +1386,10 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		if r.Ask.Run != nil || r.Ask.Setup != nil {
 			line = OneLine(r.Note.Author) + " says: " + line
 		}
-		out = append(out, "  "+line)
+		// A bare line stands where the weight lines do, so the mark goes
+		// from it too; where "says:" stands the asker's mark is mid-line
+		// and stays.
+		out = append(out, "  "+WithoutWeightMark(line))
 	}
 	switch {
 	case r.Ask.Run != nil && r.State == AskAnswered:

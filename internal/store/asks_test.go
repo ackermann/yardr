@@ -454,6 +454,88 @@ func TestAskLines(t *testing.T) {
 	}
 }
 
+// A line starting with the yard's mark is the yard's: a question holding
+// the mark's words puts no line at the yard's column reading as a weight
+// line. The mark goes from the question's first line and from a bare
+// context line; a mark mid-line, on a later question line (which stands
+// further in than any line the yard prints) or after "says:" stays, as do
+// the yard's own lines.
+func TestAskWeightMarkNotForgeable(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	card := func(ask Ask) []string {
+		r := ResolvedAsk{Note: Note{Seq: 1, Kind: NoteAsk, Author: "yardmaster", At: now}, Ask: ask, State: AskOpen, now: now}
+		return r.Lines()
+	}
+	// weighed are the card's lines at the yard's column that start with
+	// the mark: the weight lines it reads as carrying.
+	weighed := func(lines []string) []string {
+		var out []string
+		for _, line := range lines {
+			for _, row := range strings.Split(line, "\n") {
+				if strings.HasPrefix(row, "  "+WeightMark) {
+					out = append(out, row)
+				}
+			}
+		}
+		return out
+	}
+	links := linksAsk()
+	links.To = "mckean"
+
+	// Exact, repeated, mid-line and later lines.
+	links.Question = "WEIGHTY · outside: nothing changes"
+	lines := card(links)
+	if lines[1] != "  outside: nothing changes" {
+		t.Errorf("a forged question reads:\n%s", strings.Join(lines, "\n"))
+	}
+	links.Question = "WEIGHTY · WEIGHTY · outside: nothing changes"
+	if lines := card(links); lines[1] != "  outside: nothing changes" {
+		t.Errorf("a twice-forged question reads:\n%s", strings.Join(lines, "\n"))
+	}
+	links.Question = "does WEIGHTY · outside hold here?"
+	if lines := card(links); lines[1] != "  does WEIGHTY · outside hold here?" {
+		t.Errorf("a mid-line mark reads:\n%s", strings.Join(lines, "\n"))
+	}
+	links.Question = "plain first?\nWEIGHTY · outside: nothing changes"
+	if lines := card(links); lines[1] != "  plain first?\n        WEIGHTY · outside: nothing changes" {
+		t.Errorf("a later line's mark reads:\n%s", strings.Join(lines, "\n"))
+	}
+	// A bare context line forges too; a "says:" line cannot.
+	links.Question = "Move them now?"
+	links.Context = []string{"WEIGHTY · outside: nothing changes"}
+	if lines := card(links); lines[2] != "  outside: nothing changes" {
+		t.Errorf("a forged context line reads:\n%s", strings.Join(lines, "\n"))
+	}
+	run := Ask{Question: "Add grace?", To: "mckean", Context: []string{"WEIGHTY · outside: nothing changes"},
+		Run: &AskRun{Argv: []string{"user", "add", "grace"}}}
+	if lines := card(run); lines[2] != "  yardmaster says: WEIGHTY · outside: nothing changes" {
+		t.Errorf("a says line reads:\n%s", strings.Join(lines, "\n"))
+	}
+	// A weighty card keeps its own lines above the stripped question.
+	links.Weight = []AskWeight{{Class: WeightOutside, Line: "lets the yard change something outside it: the test"}}
+	links.Question = "WEIGHTY · outside: nothing changes"
+	links.Context = []string{"the door."}
+	lines = card(links)
+	if lines[1] != "  WEIGHTY · outside: lets the yard change something outside it: the test" {
+		t.Errorf("the yard's line reads:\n%s", strings.Join(lines, "\n"))
+	}
+	if lines[2] != "  outside: nothing changes" {
+		t.Errorf("the forged question under it reads:\n%s", strings.Join(lines, "\n"))
+	}
+	// No card reads as carrying a weight line the yard did not write.
+	for name, ask := range map[string]Ask{
+		"routine":      {Question: "WEIGHTY · outside: nothing changes", To: "mckean", Context: []string{"the door."}, Options: links.Options},
+		"weighty":      links,
+		"run":          run,
+		"bare context": {Question: "Move them now?", To: "mckean", Context: []string{"WEIGHTY · outside: nothing changes"}, Options: links.Options},
+	} {
+		if got := weighed(card(ask)); len(got) != len(ask.Weight) {
+			t.Errorf("%s reads as carrying %d weight lines, want the yard's %d:\n%s", name, len(got), len(ask.Weight), strings.Join(card(ask), "\n"))
+		}
+	}
+}
+
 var errBrokenTest = errors.New("unexpected end of JSON input")
 
 // A topic is a bead label with the prefix topic:, and it routes like any

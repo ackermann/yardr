@@ -305,10 +305,13 @@ func TestConversationDrawsWeightyCardsInAlarm(t *testing.T) {
 				t.Fatalf("dark %v: %s: no card in\n%s", dark, c.name, strings.Join(plain, "\n"))
 			}
 			// The question stands after the yard's WEIGHTY rows, and the
-			// card ends where the next one's head, or the rows, do.
+			// card ends where the next one's head, or the rows, do. The
+			// render keeps the yard's mark out of the asker's words, so
+			// a question that begins with it is looked up stripped.
 			question, end := -1, len(plain)
+			want := store.WithoutWeightMark(c.ask.Question)
 			for j := head + 1; j < len(plain); j++ {
-				if question < 0 && strings.TrimSpace(plain[j]) == c.ask.Question {
+				if question < 0 && strings.TrimSpace(plain[j]) == want {
 					question = j
 				}
 				if strings.HasPrefix(plain[j], "ask ") {

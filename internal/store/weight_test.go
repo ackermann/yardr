@@ -481,3 +481,28 @@ func sha256Hex(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:])
 }
+
+// WithoutWeightMark keeps an asker's own marks: only the mark at a line's
+// first non-whitespace position goes, the forgery shape.
+func TestWithoutWeightMarkKeepsMidLineMarks(t *testing.T) {
+	t.Parallel()
+	mark := WeightMark
+	for _, s := range []string{
+		"does " + mark + "outside hold here?",
+		"a pick, " + mark + "then words",
+	} {
+		if got := WithoutWeightMark(s); got != s {
+			t.Errorf("WithoutWeightMark(%q) = %q", s, got)
+		}
+	}
+	for in, want := range map[string]string{
+		mark + "outside: nothing changes":        "outside: nothing changes",
+		"  " + mark + "outside: nothing changes": "  outside: nothing changes",
+		mark + mark + "outside: nothing changes": "outside: nothing changes",
+		"kept " + mark + "\n" + mark + "gone":    "kept " + mark + "\ngone",
+	} {
+		if got := WithoutWeightMark(in); got != want {
+			t.Errorf("WithoutWeightMark(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
