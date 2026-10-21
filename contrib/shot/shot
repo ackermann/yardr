@@ -76,7 +76,26 @@ esac
 
 prof=$(mktemp -d "${TMPDIR:-/tmp}/shot.XXXXXX") ||
   { echo "shot: cannot make a profile directory" >&2; exit 1; }
-trap 'rm -rf "${prof:?}"' EXIT INT TERM HUP
+trap 'rm -rf "${prof:?}"' EXIT
+# A stop in mid-shot stops Chrome too: the exit path below kills the
+# watcher alone, so without this a Chrome that ignores TERM outlives the
+# script. Each trap names its signal and exit code, and the handler stops
+# the watcher, gives Chrome TERM with the watchdog's grace and then KILL
+# whatever it did, removes the profile, and exits 128+n; it ends with
+# exit, never falling through to the normal path.
+stop_shot() {
+  kill "${watcher:-}" 2>/dev/null
+  wait "${watcher:-}" 2>/dev/null
+  kill -TERM "${pid:-}" 2>/dev/null
+  sleep 5
+  kill -KILL "${pid:-}" 2>/dev/null
+  rm -rf "${prof:?}"
+  echo "shot: stopped by SIG${stop_sig}; Chrome stopped" >&2
+  exit "$stop_code"
+}
+trap 'stop_sig=TERM; stop_code=143; stop_shot' TERM
+trap 'stop_sig=INT; stop_code=130; stop_shot' INT
+trap 'stop_sig=HUP; stop_code=129; stop_shot' HUP
 # A previous shot at this path must not make a Chrome run that writes
 # nothing look successful.
 : >"$out" || { echo "shot: cannot prepare $out for Chrome" >&2; exit 1; }

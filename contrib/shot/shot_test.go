@@ -812,6 +812,89 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 	})
 }
 
+// A script stopped by SIGTERM stops its Chrome with it: the script exits
+// 143 with the stopped line, the Chrome is dead even when it ignores TERM
+// (so the trap's grace path KILLs it), and the throwaway profile is gone.
+// The signal goes to the script's pid alone: a group kill would take the
+// stand-in and prove nothing. TERM stands for the three trap lines, which
+// are identical but for the signal and the exit code.
+func TestShotStopsChromeWhenTheScriptIsStopped(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	dir := t.TempDir()
+	pids := filepath.Join(dir, "pids")
+	argsFile := filepath.Join(dir, "args")
+	bin := filepath.Join(dir, "chrome")
+	script := "#!/bin/sh\n" +
+		"trap '' TERM\n" +
+		"echo \"$@\" >" + argsFile + "\n" +
+		"echo $$ >" + pids + "\n" +
+		"exec sleep 30\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "shot.png")
+	combined, err := os.Create(filepath.Join(t.TempDir(), "output"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("./shot", s.URL+"/page", out)
+	cmd.Env = append(os.Environ(), "SHOT_CHROME="+bin)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A file, not a buffer: a buffer's pipe stays open in an orphaned
+	// stand-in, and Wait waits out its sleep instead of returning at the
+	// script's exit, so dead below would pass without any kill.
+	cmd.Stdout = combined
+	cmd.Stderr = combined
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pgid := cmd.Process.Pid
+	t.Cleanup(func() { syscall.Kill(-pgid, syscall.SIGKILL) })
+	backstop := time.AfterFunc(shotTimeout, func() { syscall.Kill(-pgid, syscall.SIGKILL) })
+	defer backstop.Stop()
+	ready(t, pids, 30*time.Second)
+	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	err = cmd.Wait()
+	rc := 0
+	if err != nil {
+		exit, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("shot: %v", err)
+		}
+		rc = exit.ExitCode()
+	}
+	rawOut, err := os.ReadFile(combined.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(rawOut)
+	if rc != 143 || !strings.Contains(text, "shot: stopped by SIGTERM; Chrome stopped") {
+		t.Errorf("a stopped script: exit %d, %q, want exit 143 with the stopped line", rc, text)
+	}
+	dead(t, pids)
+	raw, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prof := ""
+	for _, field := range strings.Fields(string(raw)) {
+		if rest, ok := strings.CutPrefix(field, "--user-data-dir="); ok {
+			prof = rest
+		}
+	}
+	if prof == "" {
+		t.Fatalf("Chrome was passed %q, with no --user-data-dir", string(raw))
+	}
+	if _, err := os.Stat(prof); !os.IsNotExist(err) {
+		t.Errorf("the throwaway profile %s is still there: %v", prof, err)
+	}
+}
+
 // A Chrome that never finishes must fail at its deadline on every run, not
 // just usually: the watchdog once lost its TERM to a timer that had forked
 // but not exec'd, waited out its 5 s grace sleep, and returned SHOT_TIMEOUT
