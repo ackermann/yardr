@@ -116,13 +116,13 @@ back() {
   took
   echo "== $BEAD failed"
   if has_outcome failed; then
-    printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+    printf '%s\n' "assembly: $1" | "$Y" bead "done" "$BEAD" --outcome failed --note - && exit 0
     to new "$1"
   fi
   if has_stage new; then
     to new "$1"
   fi
-  printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  printf '%s\n' "assembly: $1" | "$Y" bead "done" "$BEAD" --outcome failed --note - && exit 0
   to new "$1"
 }
 hold() { took; echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "assembly: $1"; "$Y" bead hold "$BEAD"; exit 0; }
@@ -133,7 +133,7 @@ conflict() {
   took
   echo "== $BEAD conflicts"
   if has_outcome conflict; then
-    printf '%s\n' "assembly: $1" | "$Y" bead done "$BEAD" --outcome conflict --note - && exit 0
+    printf '%s\n' "assembly: $1" | "$Y" bead "done" "$BEAD" --outcome conflict --note - && exit 0
   elif has_stage merge; then
     printf '%s\n' "assembly: $1" | "$Y" bead advance "$BEAD" --to merge --note - && exit 0
   fi
