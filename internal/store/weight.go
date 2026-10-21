@@ -74,10 +74,12 @@ func (a AskWeight) Marked() string { return WeightMark + OneLine(a.String()) }
 // the line by typing the mark (WeightMark). Only the mark at a line's
 // first non-whitespace position goes, the only position the line is
 // recognised by; a mark further in is an asker's own words and stays
-// byte-identical. Residual: an asker's mark at a line's first non-space
-// position still drops. That is the safe direction (it is exactly the
-// forgery shape), vanishingly rare, and the stored bytes are untouched,
-// so any future escape re-renders them.
+// byte-identical. Whitespace between two marks saves neither: the second
+// would otherwise stand one space over and still read as the yard's.
+// Residual: an asker's mark at a line's first non-space position still
+// drops. That is the safe direction (it is exactly the forgery shape),
+// vanishingly rare, and the stored bytes are untouched, so any future
+// escape re-renders them.
 func WithoutWeightMark(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
@@ -85,6 +87,9 @@ func WithoutWeightMark(s string) string {
 		rest := trimmed
 		for strings.HasPrefix(rest, WeightMark) {
 			rest = rest[len(WeightMark):]
+			if next := strings.TrimLeftFunc(rest, unicode.IsSpace); strings.HasPrefix(next, WeightMark) {
+				rest = next
+			}
 		}
 		lines[i] = line[:len(line)-len(trimmed)] + rest
 	}

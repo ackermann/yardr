@@ -494,6 +494,10 @@ func testAskWeightMarkNotForgeable(t *testing.T) {
 	if lines := card(links); lines[1] != "  outside: nothing changes" {
 		t.Errorf("a twice-forged question reads:\n%s", strings.Join(lines, "\n"))
 	}
+	links.Question = "WEIGHTY ·  WEIGHTY · outside: nothing changes"
+	if lines := card(links); lines[1] != "  outside: nothing changes" {
+		t.Errorf("a twice-forged question with a gap reads:\n%s", strings.Join(lines, "\n"))
+	}
 	links.Question = "does WEIGHTY · outside hold here?"
 	if lines := card(links); lines[1] != "  does WEIGHTY · outside hold here?" {
 		t.Errorf("a mid-line mark reads:\n%s", strings.Join(lines, "\n"))

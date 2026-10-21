@@ -496,10 +496,12 @@ func TestWithoutWeightMarkKeepsMidLineMarks(t *testing.T) {
 		}
 	}
 	for in, want := range map[string]string{
-		mark + "outside: nothing changes":        "outside: nothing changes",
-		"  " + mark + "outside: nothing changes": "  outside: nothing changes",
-		mark + mark + "outside: nothing changes": "outside: nothing changes",
-		"kept " + mark + "\n" + mark + "gone":    "kept " + mark + "\ngone",
+		mark + "outside: nothing changes":               "outside: nothing changes",
+		"  " + mark + "outside: nothing changes":        "  outside: nothing changes",
+		mark + mark + "outside: nothing changes":        "outside: nothing changes",
+		mark + " " + mark + "outside: nothing changes":  "outside: nothing changes",
+		mark + "\t" + mark + "outside: nothing changes": "outside: nothing changes",
+		"kept " + mark + "\n" + mark + "gone":           "kept " + mark + "\ngone",
 	} {
 		if got := WithoutWeightMark(in); got != want {
 			t.Errorf("WithoutWeightMark(%q) = %q, want %q", in, got, want)
