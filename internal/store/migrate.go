@@ -32,6 +32,10 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 29 has each call of a source grant carry its own grant,
+// Given: when, by whom and on which card (migrateGrantGiven, from the
+// source_granted events still kept). A build before it drops Given when it
+// rewrites a grant; the calls themselves are kept.
 // schemaVersion 28 has the forced rotation at a day: a crew member whose
 // stored max_age is 6h is moved to 24h (migrateCrewRotation), and the
 // rotation itself is by context use past 60% of the window. A build
@@ -183,7 +187,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 28
+const schemaVersion = 29
 
 var kSchema = []byte("schema")
 
@@ -335,6 +339,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 26, run: atVersion(migratePeerIntakes)},
 		{version: 27, run: atVersion(migrateHearer)},
 		{version: 28, run: atVersion(migrateCrewRotation)},
+		{version: 29, run: atVersion(migrateGrantGiven)},
 	}
 }
 

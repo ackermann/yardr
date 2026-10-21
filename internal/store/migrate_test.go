@@ -108,8 +108,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 28 {
-		t.Fatalf("a new store is stamped %d; want 28", got)
+	if got := schemaOf(t, fixture); got != 29 {
+		t.Fatalf("a new store is stamped %d; want 29", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -169,8 +169,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 28 {
-				t.Fatalf("schema after Open = %d; want 28", got)
+			if got := schemaOf(t, path); got != 29 {
+				t.Fatalf("schema after Open = %d; want 29", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -178,7 +178,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 28 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 29 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -299,8 +299,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 28 {
-				t.Fatalf("schema after Open = %d; want 28", got)
+			if got := schemaOf(t, path); got != 29 {
+				t.Fatalf("schema after Open = %d; want 29", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			renamed, heard := 0, 0
@@ -523,8 +523,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 28 {
-		t.Fatalf("schema after Open = %d; want 28", got)
+	if got := schemaOf(t, path); got != 29 {
+		t.Fatalf("schema after Open = %d; want 29", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	for k, v := range after {
@@ -722,8 +722,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 28 {
-		t.Fatalf("schema after Open = %d; want 28", got)
+	if got := schemaOf(t, path); got != 29 {
+		t.Fatalf("schema after Open = %d; want 29", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	for k, v := range after {
@@ -943,8 +943,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 28 {
-			t.Fatalf("%s: schema = %d; want 28", pass, got)
+		if got := schemaOf(t, path); got != 29 {
+			t.Fatalf("%s: schema = %d; want 29", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1122,8 +1122,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 28 {
-			t.Fatalf("%s: schema = %d; want 28", pass, got)
+		if got := schemaOf(t, path); got != 29 {
+			t.Fatalf("%s: schema = %d; want 29", pass, got)
 		}
 		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
 		var added []string
@@ -1197,7 +1197,7 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 28 {
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 29 {
 		t.Fatalf("a store with no check changed, or is not stamped 26 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }
@@ -1385,8 +1385,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 28 {
-			t.Fatalf("%s: schema = %d; want 28", pass, got)
+		if got := schemaOf(t, path); got != 29 {
+			t.Fatalf("%s: schema = %d; want 29", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1822,8 +1822,8 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 28 {
-		t.Fatalf("a new store is stamped %d; want 28", got)
+	if got := schemaOf(t, fixture); got != 29 {
+		t.Fatalf("a new store is stamped %d; want 29", got)
 	}
 	for v := uint64(1); v < 23; v++ {
 		t.Run(fmt.Sprintf("schema %d", v), func(t *testing.T) {
@@ -1859,12 +1859,12 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 28 {
-				t.Errorf("schema after Open at %d = %d; want 28", v, got)
+			if got := schemaOf(t, path); got != 29 {
+				t.Errorf("schema after Open at %d = %d; want 29", v, got)
 			}
 		})
 	}
-	if got := schemaOf(t, fixture); got != 28 {
+	if got := schemaOf(t, fixture); got != 29 {
 		t.Fatal("the fixture changed; the migrations ran on the copies")
 	}
 }
@@ -1962,8 +1962,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 28 {
-				t.Fatalf("%s: schema = %d; want 28", pass, got)
+			if got := schemaOf(t, path); got != 29 {
+				t.Fatalf("%s: schema = %d; want 29", pass, got)
 			}
 			if head != before {
 				t.Fatalf("%s logged %d events", pass, head-before)
@@ -1988,8 +1988,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 28 {
-			t.Fatalf("schema = %d; want 28", got)
+		if got := schemaOf(t, path); got != 29 {
+			t.Fatalf("schema = %d; want 29", got)
 		}
 	})
 }
@@ -2065,8 +2065,8 @@ func TestSchema25PeerGainsIntakes(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 28 {
-		t.Fatalf("schema = %d; want 28", got)
+	if got := schemaOf(t, path); got != 29 {
+		t.Fatalf("schema = %d; want 29", got)
 	}
 }
 
@@ -2151,8 +2151,8 @@ func TestSchema26StoreGainsHearer(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 28 {
-				t.Fatalf("schema after Open = %d; want 28", got)
+			if got := schemaOf(t, path); got != 29 {
+				t.Fatalf("schema after Open = %d; want 29", got)
 			}
 		})
 	}
@@ -2216,7 +2216,168 @@ func TestSchema27CrewRotationMoves6hTo24h(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := schemaOf(t, path); got != 28 {
-		t.Fatalf("schema after Open = %d; want 28", got)
+	if got := schemaOf(t, path); got != 29 {
+		t.Fatalf("schema after Open = %d; want 29", got)
+	}
+}
+
+// A store of schema 28, from before each call of a grant kept its own,
+// comes out of Open with Given filled from the source_granted events still
+// kept, and from nothing else. The builders' read, approved on a card,
+// gets its event's time, approver, bead and ask, and the asker from the
+// ask's note, which the event does not carry; their note, whose event was
+// pruned, gets no entry, and the record's At and By, which are the note's,
+// stay the record's and are given to no call. The crew member's read,
+// approved on a card whose ask note is gone, gets no asker.
+func TestSchema28GrantsGainGiven(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SetSetting(ctx, "default_kind", "claude", "jo"))
+	_, err = s.AddUser(ctx, "jo", "jo")
+	must(err)
+	must(s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	_, err = s.PutSource(ctx, "crm.yaml", "name: crm\nbase: https://crm.example.com/api\n"+
+		"credential: { env: CRM_TOKEN, header: \"Authorization: Bearer {credential}\" }\n"+
+		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"+
+		"  note: { kind: update, request: { method: POST, path: /notes } }\n", "jo")
+	must(err)
+	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"))
+	_, err = s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
+	must(err)
+	bead, err := s.CreateBead(ctx, store.NewBead{Title: "read the CRM"}, "yardmaster")
+	must(err)
+	approved := func(command string) uint64 {
+		t.Helper()
+		seq, err := s.AddAsk(ctx, bead.ID, store.Ask{Question: "May it?", To: "jo", Context: []string{"the import."},
+			Run: &store.AskRun{Argv: []string{command}}}, "yardmaster")
+		must(err)
+		_, err = s.ApproveAsk(ctx, bead.ID, seq, "jo", true)
+		must(err)
+		return seq
+	}
+	readAsk := approved("source grant crm read --group builders")
+	crewAsk := approved("source grant crm read --crew yardmaster")
+	_, err = s.GrantSource(ctx, "crm", "note", store.Grantee{Group: "builders"}, "", "jo")
+	must(err)
+	evs, err := s.EventsOfKind(ctx, "source_granted", 10)
+	must(err)
+	if len(evs) != 3 {
+		t.Fatalf("source_granted events = %+v", evs)
+	}
+	readEvent, crewEvent := evs[0], evs[1]
+	before, err := s.SourceGrants(ctx, "crm")
+	must(err)
+	must(s.Close(ctx))
+
+	// Age it: stamped 28, the grants without Given as a build before it
+	// wrote them, the note's event pruned, and the crew card's ask note
+	// gone.
+	db, err := bolt.Open(path, 0o600, nil)
+	must(err)
+	err = db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 28)); err != nil {
+			return err
+		}
+		grants := tx.Bucket([]byte("source_grants"))
+		if err := grants.ForEach(func(k, raw []byte) error {
+			var g map[string]any
+			if err := json.Unmarshal(raw, &g); err != nil {
+				return err
+			}
+			delete(g, "given")
+			old, err := json.Marshal(g)
+			if err != nil {
+				return err
+			}
+			return grants.Put(k, old)
+		}); err != nil {
+			return err
+		}
+		kinds, events := tx.Bucket([]byte("events_by_kind")), tx.Bucket([]byte("events"))
+		var pruned [][]byte
+		c := kinds.Cursor()
+		prefix := []byte("source_granted\x00")
+		for k, _ := c.Seek(prefix); k != nil && strings.HasPrefix(string(k), string(prefix)); k, _ = c.Next() {
+			var e store.Event
+			if err := json.Unmarshal(events.Get(k[len(prefix):]), &e); err != nil {
+				return err
+			}
+			if e.Data["what"] == "note" {
+				pruned = append(pruned, slices.Clone(k))
+			}
+		}
+		if len(pruned) != 1 {
+			return fmt.Errorf("the note's events = %d, want one", len(pruned))
+		}
+		// The event goes, and an index entry is left behind it, which the
+		// migration passes over to the events after it.
+		for _, k := range pruned {
+			if err := events.Delete(k[len(prefix):]); err != nil {
+				return err
+			}
+		}
+		if err := kinds.Put([]byte("source_granted\x00\x00\x00\x00\x00\x00\x00\x00\x01"), []byte{}); err != nil {
+			return err
+		}
+		notes := tx.Bucket([]byte("notes"))
+		var gone [][]byte
+		if err := notes.ForEach(func(k, raw []byte) error {
+			var n store.Note
+			if err := json.Unmarshal(raw, &n); err != nil {
+				return err
+			}
+			if n.Kind == store.NoteAsk && n.Seq == crewAsk {
+				gone = append(gone, slices.Clone(k))
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(gone) != 1 {
+			return fmt.Errorf("the crew card's ask notes = %d, want one", len(gone))
+		}
+		return notes.Delete(gone[0])
+	})
+	db.Close()
+	must(err)
+
+	same := func(a, b store.GrantGiven) bool {
+		return a.At.Equal(b.At) && a.By == b.By && a.Bead == b.Bead && a.Ask == b.Ask && a.Asker == b.Asker
+	}
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		must(err)
+		after, err := s.SourceGrants(ctx, "crm")
+		must(err)
+		if len(after) != len(before) {
+			t.Fatalf("%s: grants = %+v, want %+v", pass, after, before)
+		}
+		want := map[string]map[string]store.GrantGiven{
+			"group builders":         {"read": {At: readEvent.At, By: "jo", Bead: bead.ID, Ask: readAsk, Asker: "yardmaster"}},
+			"crew member yardmaster": {"read": {At: crewEvent.At, By: "jo", Bead: bead.ID, Ask: crewAsk}},
+		}
+		for i, g := range after {
+			if !maps.EqualFunc(g.Given, want[g.Holder()], same) {
+				t.Errorf("%s: %s given = %+v, want %+v", pass, g.Holder(), g.Given, want[g.Holder()])
+			}
+			if !g.At.Equal(before[i].At) || g.By != before[i].By || !slices.Equal(g.Calls, before[i].Calls) {
+				t.Errorf("%s: %s's record = %+v, want it as it was, %+v", pass, g.Holder(), g, before[i])
+			}
+		}
+		must(s.Close(ctx))
+	}
+	if got := schemaOf(t, path); got != 29 {
+		t.Fatalf("schema after Open = %d; want 29", got)
 	}
 }

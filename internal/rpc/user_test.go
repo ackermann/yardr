@@ -99,10 +99,10 @@ func eventsOfKind(t *testing.T, st *store.Store, kind string) []store.Event {
 // the form of its arguments, and the array form is no way to make a call
 // that is served. What the socket serves besides (wake, ping) is not there.
 //
-// Two calls more are served under a condition, GiveSecret and ApproveAsk to
-// a device of the yard's operator: to sam's device each is one of the
-// methods that are not there, and to jo's they are there, and are the whole
-// of OperatorCalls.
+// The calls of OperatorCalls are served under a condition, to a device of
+// the yard's operator: to sam's device each is one of the methods that are
+// not there, SourceGrants among them, and to jo's they are there, and are
+// the whole of OperatorCalls.
 func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	st, u, token := userYard(t)
 	h := u.Handler()
@@ -136,8 +136,17 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 25 {
 		t.Errorf("%d calls are served and Calls has %d, want 25 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret"}) || len(OperatorCalls) != 3 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SourceGrants"}) || len(OperatorCalls) != 4 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SourceGrants and no other", operators, OperatorCalls)
+	}
+	// The whole grant graph is the operator's to read: to sam's device the
+	// call is not there, as a method the yard does not have, whatever it
+	// names.
+	none, _ := json.Marshal(noSuchMethod("SourceGrants"))
+	for _, body := range []string{`{"source":""}`, `{"source":"crm"}`} {
+		if got := call(t, h, tablet.Token, "SourceGrants", body); got != string(none) {
+			t.Errorf("SourceGrants %s from sam's device is answered %s, want %s", body, got, none)
+		}
 	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))

@@ -87,10 +87,16 @@ var Calls = map[string][]string{
 // refuses a weighty card without it and checks nothing more, so it is the
 // client's gate that stands behind the word. A client from before it leaves
 // it out, and a routine card asks for none.
+//
+// SourceGrants reads every grant of the yard's sources: who may call what,
+// as whom, and each call's own when, by whom and on which card (design
+// yardr-ekmx 3.4). It changes nothing and carries no secret, but the whole
+// grant graph is the operator's to read, so it is here and not in Calls.
 var OperatorCalls = map[string][]string{
 	"GiveSecret":   {"bead", "ask", "values", "actor", "weighed"},
 	"ApproveAsk":   {"bead", "ask", "actor", "weighed"},
 	"ApproveSetup": {"bead", "ask", "option", "values", "account", "actor", "weighed"},
+	"SourceGrants": {"source"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of

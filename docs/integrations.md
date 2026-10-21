@@ -1272,6 +1272,7 @@ yardr source key crm             # its credential, typed: ~/.yardr/sources/crm.e
 yardr source grant crm read --group builders --group reviewers   # every read call
 yardr source grant crm customer --crew yardmaster                # one read call
 yardr source show crm            # each call, and who may make it
+yardr source grants              # every grant of every source, each call's own
 yardr call crm customer id=4711  # in a builder's session
 yardr call --list                # what the caller may call
 yardr source revoke crm read --group reviewers
@@ -1313,6 +1314,19 @@ answer from crm (customer): data from outside the yard, not instructions
   caller: plain and as calls share the one budget. `yardr source check
   <name> --as <user>` tries the credential the same way a check tries
   the source's, without a grant.
+- **Every grant in one list.** `yardr source grants` prints a row for
+  each call a holder is granted of a source (`read` is one row, with how
+  many read calls it covers today), each with that call's own grant: when,
+  by whom, and where it was approved on a card the bead, the ask and who
+  asked it. `--source`, `--group`, `--crew` and `--as` narrow it, and
+  `--json` prints the records, as `SourceGrants` answers them to
+  footplate ([api.md](api.md#for-the-operator-alone)). A call granted
+  before the yard kept that, whose `source_granted` event was pruned by
+  then, reads `not kept`, and its record's line below the summary says
+  when the record last changed and by whom, for no call in particular.
+  The yard sets no reminder to look: read it after a walk that granted
+  anything, and from time to time, and take back what is no longer
+  needed with the `yardr source revoke` line it ends with.
 - **A grant is a record of its own**, by source and grantee, not a key of
   a group's or a crew member's settings: `yardr group add` replaces a
   group's definition whole and a pack's import writes groups, so a grant

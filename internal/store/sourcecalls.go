@@ -122,9 +122,28 @@ type SourceGrant struct {
 	// call.
 	As string `json:"as,omitempty"`
 	// Calls are GrantRead and the names of calls, sorted.
-	Calls []string  `json:"calls"`
+	Calls []string `json:"calls"`
+	// At and By are when the record last gained a call and who gave it:
+	// the record's, for no call in particular, since Calls is sorted on
+	// every grant and a revoke leaves them as they were.
+	At time.Time `json:"at"`
+	By string    `json:"by"`
+	// Given is each call's own grant, by its entry of Calls. A call
+	// granted before Given was kept, whose source_granted event was pruned
+	// by then, has no entry (migrateGrantGiven): nothing durable says when
+	// or by whom it was given.
+	Given map[string]GrantGiven `json:"given,omitempty"`
+}
+
+// GrantGiven is when one call of a grant was given and by whom, and the
+// card it was approved on where it was: the bead, the ask and who asked
+// it. Asker is "" where the ask's note is gone; it is never guessed.
+type GrantGiven struct {
 	At    time.Time `json:"at"`
 	By    string    `json:"by"`
+	Bead  string    `json:"bead,omitempty"`
+	Ask   uint64    `json:"ask,omitempty"`
+	Asker string    `json:"asker,omitempty"`
 }
 
 // Holder is who holds the grant, with the user called as where there is
@@ -195,6 +214,17 @@ func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, as 
 	g.Source, g.Grantee, g.As, g.At, g.By = src, to, as, now(), actor
 	g.Calls = append(g.Calls, what)
 	sort.Strings(g.Calls)
+	given := GrantGiven{At: g.At, By: actor}
+	if by != nil {
+		given.Bead, given.Ask = by.Bead, by.Ask
+		if given.Asker, err = askerOf(w.Tx, by.Bead, by.Ask); err != nil {
+			return nil, err
+		}
+	}
+	if g.Given == nil {
+		g.Given = map[string]GrantGiven{}
+	}
+	g.Given[what] = given
 	if err := put(w.Tx, bSourceGrants, grantKey(src, to, as), g); err != nil {
 		return nil, err
 	}
@@ -296,6 +326,7 @@ func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, 
 			return fmt.Errorf("%s has no grant of %s of the source %s: %w", (&SourceGrant{Grantee: to, As: as}).Holder(), what, src, ErrNotFound)
 		}
 		g.Calls = slices.DeleteFunc(g.Calls, func(c string) bool { return c == what })
+		delete(g.Given, what)
 		if len(g.Calls) == 0 {
 			err = w.Bucket(bSourceGrants).Delete([]byte(grantKey(src, to, as)))
 		} else {
@@ -310,6 +341,21 @@ func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, 
 		return nil, err
 	}
 	return g, nil
+}
+
+// askerOf is who asked the ask seq of the bead id (a handle or a UUID): the
+// author of its note, "" where the bead or the note is gone: a bead the
+// handle no longer names is one whose asker is not known.
+func askerOf(tx *bolt.Tx, id string, seq uint64) (string, error) {
+	uuid, err := resolve(tx, id)
+	if err != nil {
+		return "", nil
+	}
+	var n Note
+	if ok, err := get(tx, bNotes, join(uuid, seqKey(seq)), &n); err != nil || !ok || n.Kind != NoteAsk {
+		return "", err
+	}
+	return n.Author, nil
 }
 
 // grantData is the data of a source_granted event: the source, what was

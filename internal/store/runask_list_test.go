@@ -387,6 +387,8 @@ func TestRunAskGrant(t *testing.T) {
 	if _, err := y.RevokeSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "ada"); err != nil {
 		t.Fatal(err)
 	}
+	readAsk, readAt := seq, y.now
+	y.tick(time.Hour)
 
 	// One call by its name: an update changes something there, and the
 	// card says what the grantee holds now.
@@ -399,11 +401,62 @@ func TestRunAskGrant(t *testing.T) {
 	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil || done.Result != "group builders may call crm: note (update), read" {
 		t.Fatalf("the approval = %+v, %v", done, err)
 	}
+	noteAsk, noteAt := seq, y.now
 	seq = y.ask(t, listAsk("mckean", "source grant crm get --crew yardmaster"), "yardmaster")
 	if does := y.asked(t, seq).Ask.Run.Does[0]; !strings.Contains(does, "may make the call get (GET /contacts/{id}) of "+crmAt) ||
 		!strings.Contains(does, "which the declaration says reads there and changes nothing. It is granted nothing of crm now.") {
 		t.Fatalf("the sentence of a read call = %q", does)
 	}
+
+	// Each call of the builders' grant keeps its own: when, by whom, and on
+	// which card asked by whom, whatever the record's At and By say. A
+	// third, given at a terminal an hour later by another operator, has no
+	// card; the record's At and By are its. A revoke takes its call's away
+	// and leaves the record's as they were.
+	y.tick(time.Hour)
+	if err := y.SetSetting(y.ctx, OperatorSetting, "ada", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.GrantSource(y.ctx, "crm", "find", Grantee{Group: "builders"}, "", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	findAt := y.now
+	builders := func() SourceGrant {
+		t.Helper()
+		gs, err := y.SourceGrants(y.ctx, "crm")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range gs {
+			if g.Group == "builders" && g.As == "" {
+				return g
+			}
+		}
+		t.Fatalf("the builders hold no grant of crm: %+v", gs)
+		return SourceGrant{}
+	}
+	g := builders()
+	given := map[string]GrantGiven{
+		"read": {At: readAt, By: "mckean", Bead: y.bead, Ask: readAsk, Asker: "yardmaster"},
+		"note": {At: noteAt, By: "mckean", Bead: y.bead, Ask: noteAsk, Asker: "yardmaster"},
+		"find": {At: findAt, By: "ada"},
+	}
+	if !maps.EqualFunc(g.Given, given, sameGiven) || !g.At.Equal(findAt) || g.By != "ada" {
+		t.Fatalf("the builders' grant = %+v, want given %+v and the record at %v by ada", g, given, findAt)
+	}
+	y.tick(time.Hour)
+	if _, err := y.RevokeSource(y.ctx, "crm", "note", Grantee{Group: "builders"}, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	delete(given, "note")
+	if g = builders(); !maps.EqualFunc(g.Given, given, sameGiven) || !g.At.Equal(findAt) || g.By != "ada" {
+		t.Fatalf("the builders' grant after the revoke = %+v, want given %+v and the record as it was", g, given)
+	}
+}
+
+// sameGiven compares two grants of a call, their times by the instant.
+func sameGiven(a, b GrantGiven) bool {
+	return a.At.Equal(b.At) && a.By == b.By && a.Bead == b.Bead && a.Ask == b.Ask && a.Asker == b.Asker
 }
 
 // writes is how many write transactions the store has committed: each takes

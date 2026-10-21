@@ -38,8 +38,10 @@ import (
 // the server does not give.
 
 // field is one promised field: where it is in the answer ("mail[].seq",
-// "[].name", "" for the answer itself), its type, and what it says. A type
-// ending in "?" is of a field that is absent when it has nothing to say.
+// "[].name", "" for the answer itself; "given{}.at" for the at of each
+// value of the object given, whose keys are data), its type, and what it
+// says. A type ending in "?" is of a field that is absent when it has
+// nothing to say.
 type field struct{ path, typ, says string }
 
 // apiCall is one call of the doc. Its args are named as Calls names them;
@@ -729,6 +731,32 @@ var apiOperatorCalls = []apiCall{
 			"The reply has one of `given` (the names typed), `account` (the candidate taken) and `keep`.\n\n" +
 			"The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.",
 	},
+	{
+		method: "SourceGrants",
+		says: "Every grant of the yard's sources: who may make which calls of each, and as whom, with when, by whom and on which card each call was given. It is what `yardr source grants` prints. It changes nothing. A record is one source, one holder (a group or a crew member) and one user called as, `as`, absent for a plain grant: a holder's plain grant and its grant as a user are two records. " +
+			"`calls` holds `read`, the grant of every read call of the source, and the names of calls granted one by one, an update call always so. " +
+			"`given` maps each entry of `calls` to that call's own grant: `at` and `by`, and where it was approved on a card `bead`, `ask` and `asker`, who asked it, absent where the ask's note is gone. A call granted before the yard kept `given`, whose history was pruned by then, has no entry: show it as not kept, and never with the record's `at` and `by`, which are when the record last gained a call and who gave it, for no call in particular. " +
+			"It is the operator's to read: on the socket it is a read, served as every read of the store is to a caller on the yard's machine, and on the listener it is there for a device of the operator and for no other caller, since the whole grant graph is theirs. Unlike the other calls of this list it holds no secret and approves nothing, so it is taken over any request the listener takes.",
+		args: []field{
+			{"source", "string", "the source whose grants are read; empty or left out for every source's"},
+		},
+		requests: []string{`{}`},
+		fields: []field{
+			{"[].source", "string", "the source"},
+			{"[].group", "string?", "the group that holds it, each session it starts; absent for a crew member's"},
+			{"[].crew", "string?", "the crew member that holds it; absent for a group's"},
+			{"[].as", "string?", "the user whose credential a call under it is made with; absent for a plain grant"},
+			{"[].calls", "array of string", "`read` and the names of calls granted, sorted"},
+			{"[].at", "time", "when the record last gained a call: the record's, for no call in particular"},
+			{"[].by", "string", "who gave that call: the record's, for no call in particular"},
+			{"[].given", "object?", "each entry of `calls` to its own grant, keyed by the entry; a call with no key was granted before its history was kept, and a record with none has no `given`"},
+			{"[].given{}.at", "time", "when the call was granted"},
+			{"[].given{}.by", "string", "who granted it"},
+			{"[].given{}.bead", "string?", "the bead of the card it was approved on; absent for a grant given at a terminal"},
+			{"[].given{}.ask", "number?", "the ask it was approved on; absent with `bead`"},
+			{"[].given{}.asker", "string?", "who asked it; absent with `bead`, and where the ask's note is gone"},
+		},
+	},
 }
 
 // apiEvent is one kind of event of the doc: is picks it from the stream.
@@ -1403,6 +1431,20 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	handle = map[string]any{"pane": "p2", store.HarnessLoginKey: "Select login method:",
 		store.HarnessLoginAskKey: map[string]any{"journal": "signalman-journal", "ask": 1, "step": "pick", "kind": "claude"}}
 	must(st.SetCrewHandle(ctx, "signalman", handle))
+	// Grants of the crm source: read to the builders, given at a terminal,
+	// and its put call to them, approved on a card, so SourceGrants has
+	// each kind of call to show with its own grant, and a record of each
+	// holder. Last again, for the
+	// seqs above.
+	_, err = st.GrantSource(ctx, "crm", "read", store.Grantee{Group: "builders"}, "", "jo")
+	must(err)
+	// And one as a user, to a crew member, which jo gives as jo.
+	_, err = st.GrantSource(ctx, "crm", "read", store.Grantee{Crew: "yardmaster"}, "jo", "jo")
+	must(err)
+	_, err = st.ApproveAsk(ctx, crm.ID, ask(crm.ID, store.Ask{Question: "May the builders write notes in the CRM?", To: "jo",
+		Context: []string{"The import leaves a note on each account it touches."},
+		Run:     &store.AskRun{Argv: []string{"source grant crm put --group builders"}}}), "jo", true)
+	must(err)
 	return st, d.Token
 }
 
@@ -1660,11 +1702,11 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the three calls
+	// there was a second list, and a device of the operator the four calls
 	// of OperatorCalls besides: a call is added to either on purpose, here
 	// too.
-	if len(Calls) != 25 || len(OperatorCalls) != 3 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 25 and 3", len(Calls), len(OperatorCalls))
+	if len(Calls) != 25 || len(OperatorCalls) != 4 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 25 and 4", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
@@ -2049,18 +2091,26 @@ func prune(v any, prefix string, fields []field) any {
 			if f.path == path {
 				exact, typ = true, f.typ
 			}
-			if strings.HasPrefix(f.path, path+".") || strings.HasPrefix(f.path, path+"[]") {
+			if strings.HasPrefix(f.path, path+".") || strings.HasPrefix(f.path, path+"[]") || strings.HasPrefix(f.path, path+"{}") {
 				deeper = true
 			}
 		}
 		return
+	}
+	// An object whose keys are data: each value is where the fields of
+	// prefix{} say.
+	values := false
+	for _, f := range fields {
+		values = values || strings.HasPrefix(f.path, prefix+"{}")
 	}
 	switch v := v.(type) {
 	case object:
 		out := object{}
 		for _, m := range v {
 			path := m.key
-			if prefix != "" {
+			if values {
+				path = prefix + "{}"
+			} else if prefix != "" {
 				path = prefix + "." + m.key
 			}
 			exact, typ, deeper := promised(path)
@@ -2101,8 +2151,19 @@ func at(v any, path string) (vals []any, missing int) {
 		}
 		return vals, missing
 	}
+	if rest, ok := strings.CutPrefix(path, "{}"); ok {
+		o, isObject := v.(object)
+		if !isObject {
+			return nil, 1
+		}
+		for _, m := range o {
+			got, n := at(m.val, strings.TrimPrefix(rest, "."))
+			vals, missing = append(vals, got...), missing+n
+		}
+		return vals, missing
+	}
 	key, rest := path, ""
-	if i := strings.IndexAny(path, ".["); i >= 0 {
+	if i := strings.IndexAny(path, ".[{"); i >= 0 {
 		key, rest = path[:i], strings.TrimPrefix(path[i:], ".")
 	}
 	o, _ := v.(object)
@@ -2134,7 +2195,7 @@ func checkFields(t *testing.T, what string, fields []field, answers []any) {
 	t.Helper()
 	optional := func(path string) bool {
 		for _, f := range fields {
-			if strings.HasSuffix(f.typ, "?") && (strings.HasPrefix(path, f.path+".") || strings.HasPrefix(path, f.path+"[]")) {
+			if strings.HasSuffix(f.typ, "?") && (strings.HasPrefix(path, f.path+".") || strings.HasPrefix(path, f.path+"[]") || strings.HasPrefix(path, f.path+"{}")) {
 				return true
 			}
 		}

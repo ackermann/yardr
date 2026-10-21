@@ -1528,7 +1528,7 @@ process for it. Nothing of the request is written anywhere.`,
 	check.Flags().StringVar(&checkUser, "user", "", "tell this user through the source: one real test message")
 	check.Flags().StringVar(&checkAs, "as", "", "look at this user's credential, and make the check call as them")
 
-	cmd.AddCommand(add, list, show, ignore, rm, set, key, check, grant, revoke)
+	cmd.AddCommand(add, list, show, ignore, rm, set, key, check, grant, revoke, a.grantsCmd())
 	return cmd
 }
 

@@ -107,8 +107,8 @@ func TestSchema23StoreGainsRouteOriginators(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 28 {
-			t.Fatalf("%s: schema = %d; want 28", pass, got)
+		if got := schemaOf(t, path); got != 29 {
+			t.Fatalf("%s: schema = %d; want 29", pass, got)
 		}
 		if headAfter != head {
 			t.Fatalf("%s logged %d events", pass, headAfter-head)

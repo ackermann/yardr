@@ -318,8 +318,8 @@ func TestSchema24StoreClearsDanglingUpgradeFrom(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, dangling); got != 28 {
-			t.Fatalf("%s: schema = %d; want 28", pass, got)
+		if got := schemaOf(t, dangling); got != 29 {
+			t.Fatalf("%s: schema = %d; want 29", pass, got)
 		}
 		if pass == "the upgrade" {
 			if headAfter != danglingHead+1 {
@@ -348,8 +348,8 @@ func TestSchema24StoreClearsDanglingUpgradeFrom(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, kept); got != 28 {
-			t.Fatalf("%s: schema = %d; want 28", pass, got)
+		if got := schemaOf(t, kept); got != 29 {
+			t.Fatalf("%s: schema = %d; want 29", pass, got)
 		}
 		if keptAfter != keptHead {
 			t.Fatalf("%s logged %d events", pass, keptAfter-keptHead)
@@ -465,8 +465,8 @@ func TestMigrateUpgradeTell(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 28 {
-		t.Fatalf("schema after Open = %d; want 28", got)
+	if got := schemaOf(t, path); got != 29 {
+		t.Fatalf("schema after Open = %d; want 29", got)
 	}
 	// Once: a second open adds no other.
 	s, err = store.Open(path)

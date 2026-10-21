@@ -781,6 +781,11 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				for i := range grants {
 					grants[i].At = time.Time{}
+					// As the events' approved: an approval names its
+					// card, and each call keeps when it was given.
+					for call, given := range grants[i].Given {
+						grants[i].Given[call] = store.GrantGiven{By: given.By}
+					}
 				}
 				jo, err := y.st.GetUser(ctx, "jo")
 				if err != nil {

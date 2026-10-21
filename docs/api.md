@@ -68,7 +68,9 @@ its own bead and no other, and a move into a terminal stage closes. It may
 hold a bead and add an edge but not lift a hold or remove a `blocks` edge,
 which only a person or a crew member does. An advance along the edge
 `done-safe` takes is held to the depot's security paths as the outcome is. Every call this page names is read or agent but those of
-[`OperatorCalls`](#over-the-network), which are admin.
+[`OperatorCalls`](#over-the-network), which are admin, all but
+`SourceGrants`, which is read on the socket and the operator's on the
+listener.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS
 user the yard runs as, and the pane is told by the process tree: an agent
@@ -108,6 +110,11 @@ The reply has status 200 and is one JSON object:
   status is 200 here too: the call reached the yard, and the yard said no.
 
 Take `null` where a list is promised as the list with nothing in it.
+
+A field of a reply is named by its path: `mail[].seq` is the `seq` of
+each element of the array `mail`, and `given{}.at` the `at` of each value
+of the object `given`, whose keys are data rather than names the doc
+promises.
 
 Every reply of the yard's server carries two headers: `X-Yardr-Revision`,
 the build of yardr that serves, and `X-Yardr-Pid`, its process.
@@ -268,7 +275,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 136,
+  "seq": 141,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -296,7 +303,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 138,
+  "seq": 143,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -416,7 +423,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 139,
+  "seq": 144,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -789,7 +796,7 @@ POST /call/Head
 {}
 
 {
-  "result": 133
+  "result": 138
 }
 ```
 
@@ -1275,7 +1282,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 134,
+      "seq": 139,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1283,7 +1290,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 135,
+      "seq": 140,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1309,7 +1316,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 134,
+      "seq": 139,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1317,7 +1324,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 135,
+      "seq": 140,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1344,7 +1351,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 136,
+      "seq": 141,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -2002,6 +2009,32 @@ POST /call/UserAsks
       }
     ],
     "decided": [
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 57,
+        "question": "May the builders write notes in the CRM?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "run": {
+          "argv": ["source", "grant", "crm", "put", "--group", "builders"],
+          "command": "yardr source grant crm put --group builders",
+          "does": ["the group builders (herdr, claude), and so each session it starts, may make the call put (POST /it) of the source crm (https://crm.example.com), with the credential the yard holds for it, which changes something there. It is granted read (every read call) of crm now."],
+          "back": "yardr source revoke crm put --group builders"
+        },
+        "ran": {
+          "argv": ["source", "grant", "crm", "put", "--group", "builders"],
+          "result": "group builders may call crm: put (update), read"
+        },
+        "weight": [
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: group builders may call put of crm (an update)"
+          }
+        ]
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -3843,6 +3876,32 @@ POST /call/Bead
             "line": "gives a credential or an address to the yard: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
           }
         ]
+      },
+      {
+        "ask": 57,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "May the builders write notes in the CRM?",
+        "context": ["The import leaves a note on each account it touches."],
+        "options": [],
+        "state": "answered",
+        "run": {
+          "argv": ["source", "grant", "crm", "put", "--group", "builders"],
+          "command": "yardr source grant crm put --group builders",
+          "does": ["the group builders (herdr, claude), and so each session it starts, may make the call put (POST /it) of the source crm (https://crm.example.com), with the credential the yard holds for it, which changes something there. It is granted read (every read call) of crm now."],
+          "back": "yardr source revoke crm put --group builders"
+        },
+        "ran": {
+          "argv": ["source", "grant", "crm", "put", "--group", "builders"],
+          "result": "group builders may call crm: put (update), read"
+        },
+        "weight": [
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: group builders may call put of crm (an update)"
+          }
+        ]
       }
     ]
   }
@@ -4357,14 +4416,15 @@ POST /call/AddNote
 
 The calls of this list are as stable as the calls above, and are the
 operator's alone to make. In yardr's code the list is `OperatorCalls`, and
-it has three calls: `GiveSecret`, which gives the credential a secret ask
+it has four calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
-the command it holds, and `ApproveSetup`, which approves a setup ask with
+the command it holds, `ApproveSetup`, which approves a setup ask with
 the preset pick and the account together: typed, taken from a candidate, or
-kept as it stands. Each of the three takes `weighed`, the client's word that
-its person saw the card's weight, and the yard refuses a weighty card
-without it ([weighty cards](#weighty-cards)). Where they are served, and
-to whom:
+kept as it stands, and `SourceGrants`, which reads every grant of the
+yard's sources, the whole of who may call what. Each of the first three
+takes `weighed`, the client's word that its person saw the card's weight,
+and the yard refuses a weighty card without it ([weighty
+cards](#weighty-cards)). Where they are served, and to whom:
 
 - **On the socket**, to the operator: `actor` is the operator's name, and
   the call does not come from the pane of an agent.
@@ -4388,9 +4448,10 @@ to whom:
 - **To nobody else.** A device of any other user, and a caller the yard
   knows by anything but a device token of its own, is answered as for a
   method the yard does not have (`no such method GiveSecret`, `no such
-  method ApproveAsk`). So is every device in a yard with no operator, but
-  for an ask for its user's own address. For `ApproveAsk` each of them is
-  answered before the request's body is read. For `GiveSecret` a caller
+  method ApproveAsk`, `no such method SourceGrants`). So is every device in a yard with no operator, but
+  for an ask for its user's own address. For `ApproveAsk` and
+  `SourceGrants` each of them is answered before the request's body is
+  read. For `GiveSecret` a caller
   without a device token is; a device of a user who is not the operator
   is read for the ask it names, and nothing of it is said back. Against
   such an answer a client says "answer it at the yard" and sends its user
@@ -4400,6 +4461,8 @@ to whom:
 Over the listener the value travels under the TLS in front of it and under
 no other protection, and the yard takes it only where it can see that the
 request did not come in plain ([TLS is yours](#tls-is-yours-and-the-clients-rule)).
+`SourceGrants` carries no secret and approves nothing, so it is taken
+over any request the listener takes, as a call of the list above is.
 It never crosses a link to another yard: a secret ask is not sent to a
 peer, and is answered at the yard that asked.
 
@@ -4772,6 +4835,74 @@ POST /call/ApproveSetup
 What the card holds decides the account. On a first setup, neither `setup.given` nor `setup.missing`, nothing stands yet: the request types every name of `setup.account` in `values`, or names a candidate in `account`. On an update the account file that stands is `setup.account_file`. When it holds every name (`setup.given`), the request sends neither `values` nor `account` to keep it, which the reply says as `keep`, or types every name of `setup.account` to change it, or names a candidate. When it lacks some (`setup.missing`), the request types exactly those names and the others stay where they are, or names a candidate. The reply has one of `given` (the names typed), `account` (the candidate taken) and `keep`.
 
 The approval and the answer are one write: the ask is approved, or neither. The carrying out follows after the call: while `ran.result` is `approved, to be carried out` the setup reads as being carried out, and as ran or failed once the server finishes it; read `Bead` again for it. When the call ends without a reply (the server went away), a client cannot know whether the approval landed: say "the yard did not answer; read the card again", never "approved", and read `Bead` again. An open ask is approved again; an approved one is left for the server, whose failure names the account asked again.
+
+### `SourceGrants`
+
+Every grant of the yard's sources: who may make which calls of each, and as whom, with when, by whom and on which card each call was given. It is what `yardr source grants` prints. It changes nothing. A record is one source, one holder (a group or a crew member) and one user called as, `as`, absent for a plain grant: a holder's plain grant and its grant as a user are two records. `calls` holds `read`, the grant of every read call of the source, and the names of calls granted one by one, an update call always so. `given` maps each entry of `calls` to that call's own grant: `at` and `by`, and where it was approved on a card `bead`, `ask` and `asker`, who asked it, absent where the ask's note is gone. A call granted before the yard kept `given`, whose history was pruned by then, has no entry: show it as not kept, and never with the record's `at` and `by`, which are when the record last gained a call and who gave it, for no call in particular. It is the operator's to read: on the socket it is a read, served as every read of the store is to a caller on the yard's machine, and on the listener it is there for a device of the operator and for no other caller, since the whole grant graph is theirs. Unlike the other calls of this list it holds no secret and approves nothing, so it is taken over any request the listener takes.
+
+| argument | type | |
+|---|---|---|
+| `source` | string | the source whose grants are read; empty or left out for every source's |
+
+```
+POST /call/SourceGrants
+{}
+
+{
+  "result": [
+    {
+      "source": "crm",
+      "crew": "yardmaster",
+      "as": "jo",
+      "calls": ["read"],
+      "at": "2026-10-08T09:30:00Z",
+      "by": "jo",
+      "given": {
+        "read": {
+          "at": "2026-10-08T09:30:00Z",
+          "by": "jo"
+        }
+      }
+    },
+    {
+      "source": "crm",
+      "group": "builders",
+      "calls": ["put", "read"],
+      "at": "2026-10-08T09:30:00Z",
+      "by": "jo",
+      "given": {
+        "put": {
+          "at": "2026-10-08T09:30:00Z",
+          "by": "jo",
+          "bead": "yd-crm",
+          "ask": 57,
+          "asker": "yardmaster"
+        },
+        "read": {
+          "at": "2026-10-08T09:30:00Z",
+          "by": "jo"
+        }
+      }
+    }
+  ]
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `[].source` | string | the source |
+| `[].group` | string, may be absent | the group that holds it, each session it starts; absent for a crew member's |
+| `[].crew` | string, may be absent | the crew member that holds it; absent for a group's |
+| `[].as` | string, may be absent | the user whose credential a call under it is made with; absent for a plain grant |
+| `[].calls` | array of string | `read` and the names of calls granted, sorted |
+| `[].at` | time | when the record last gained a call: the record's, for no call in particular |
+| `[].by` | string | who gave that call: the record's, for no call in particular |
+| `[].given` | object, may be absent | each entry of `calls` to its own grant, keyed by the entry; a call with no key was granted before its history was kept, and a record with none has no `given` |
+| `[].given{}.at` | time | when the call was granted |
+| `[].given{}.by` | string | who granted it |
+| `[].given{}.bead` | string, may be absent | the bead of the card it was approved on; absent for a grant given at a terminal |
+| `[].given{}.ask` | number, may be absent | the ask it was approved on; absent with `bead` |
+| `[].given{}.asker` | string, may be absent | who asked it; absent with `bead`, and where the ask's note is gone |
 
 <!-- /local -->
 

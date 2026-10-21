@@ -48,10 +48,11 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     calls more are the three of OperatorCalls, GiveSecret, ApproveAsk and
-//     ApproveSetup, for a device of the operator, and not there for anyone
-//     else (operatorCall), but GiveSecret for a device of a user whose own
-//     address or credential in a source is asked for (ownSecret);
+//     calls more are the four of OperatorCalls, GiveSecret, ApproveAsk,
+//     ApproveSetup and SourceGrants, for a device of the operator, and not
+//     there for anyone else (operatorCall), but GiveSecret for a device of
+//     a user whose own address or credential in a source is asked for
+//     (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - Settings answers the keys of deviceSettings and no other, and the
 //     stream carries the value of a setting_changed for those alone
@@ -795,7 +796,10 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	if operators {
+	// A read of the operator's carries no secret and runs nothing: what
+	// crosses with it is the token, as on every call of Calls, so the rule
+	// for a secret and an approval does not hold it.
+	if operators && name != "SourceGrants" {
 		if why := inTheClear(r, name, u.routerAddr(r.Context())); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
