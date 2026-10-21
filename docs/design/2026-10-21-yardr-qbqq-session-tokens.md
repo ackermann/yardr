@@ -67,13 +67,31 @@ calls `MarkCleaned`. Neither step deletes the session record. `Prune`
 removes ended sessions together with events, after
 `YARDR_EVENT_RETENTION` (90 days by default, `docs/configuration.md`,
 "Retention"). The yard does not keep the harness's own session id
-anywhere: `sessionKind` asks herdr for it each time it is needed, and
-after `tab close` herdr no longer knows the agent.
+anywhere: `sessionKind` (`internal/runner/model.go`) asks herdr for it
+each time it is needed and hands back only what it read with it.
+`Dispatcher.model` (`internal/dispatch/model.go`) stores
+`model_reported` and nothing else, and only once a model was read. After
+`tab close` herdr no longer knows the agent. A group with `keep: true`
+in its config is the exception in `teardown`: `Stop` is skipped, the
+pane and its agent stay alive for inspection, and the session is still
+marked stopped.
 
-**Crew sessions.** `store.CrewSession` has its own `Handle`, plus the
-context reading (`ContextPct`, `ContextWindow`, `ContextAt`). A crew
-session ends in `Dispatcher.stopCrew` (`internal/dispatch/crew.go`),
-on a rotation or a restart.
+Each of these store calls is one bbolt transaction (`Store.write`).
+`SetHandle` and `LogDispatch` are two separate ones. `changeSession`
+(`internal/store/routing.go`) hands its function a `wtx`, whose `event`
+method appends an event inside the same transaction, so one store call
+can change a session and log an event together, or do neither.
+
+**Crew sessions.** `store.CrewSession` (`internal/store/crew.go`) has
+its own `Handle`, plus the context reading (`ContextPct`,
+`ContextWindow`, `ContextAt`). A crew session ends in two ways. On a
+rotation, a restart or a disable, `Dispatcher.stopCrew`
+(`internal/dispatch/crew.go`) closes it and calls `CrewStoppedFor`,
+which sets `Handle` to nil and logs `crew_stopped` in the same
+transaction (`internal/store/crewsession.go`). When the agent is found
+gone, `CrewGoneFor` moves the handle to the end of `Left` (what the
+daemon closes later) and logs the same event. So once a crew session
+has ended, its handle is no longer where the running session's was.
 
 **The event log and the route report.** `LogDispatch`
 (`internal/store/events.go`) appends one event of a kind listed in
@@ -191,6 +209,15 @@ one total per session, declared in each harness's file.
   builder session: 29,069,759 input, of which 28,600,326 cached. The
   cached tokens are read here as part of the input, as Codex's are; no
   Muse documentation was found that says so.
+- `reasoning_tokens` is part of `output_tokens`, as Codex's
+  `reasoning_output_tokens` is. Over every Muse file on this machine
+  (1,358 sessions, 189,071 `quantity` records), 65,841 records have
+  reasoning tokens, and in none of them is `reasoning_tokens` equal to or
+  above `output_tokens`; the highest share is 98.6 per cent. Were
+  reasoning counted apart, a call that thought at length and answered
+  with a short tool call would show more reasoning than output, and
+  there are tens of thousands of such calls (`finish_reason:
+  tool_calls`). No Muse documentation was found that says so.
 - herdr 0.9.0 reports no `agent_session` for Muse panes (`herdr agent
   list`, checked today), so the `{session}` glob finds nothing for them.
   That is why `model_reported` is empty for every Muse session. The
@@ -215,29 +242,43 @@ number that adds them in is mostly cache reads.
 
 ## 3. The proposal
 
-The count is read **once per session, after its agent has exited**, from
-the harness's own transcript. Each harness file declares where its
+The count is read **once per session, after the yard has stopped it**,
+from the harness's own transcript. Each harness file declares where its
 count is, in a `usage:` key next to `context:`, so no Go code is
-written for any one harness. The reading is kept on the session's handle,
-as `model_reported` is, and logged as one `session_usage` event (for a
-crew session, `crew_usage`), which the route report reads next to its
-`claimed` events. Nothing reads the transcripts during the session.
+written for any one harness. The harness's session id is recorded on the
+handle while the session runs, because herdr forgets it at teardown. The
+reading is kept on the session's handle and logged as one
+`session_usage` event, both in one store transaction; for a crew
+session, the `crew_usage` event is the record. The route report reads
+these events next to its `claimed` events. Nothing reads the
+transcripts for tokens during the session.
 
 ### 3.1 Where and when the count is read (question 1)
 
-- **When the session ends.** `teardown` already closes the tab. Just
-  before `Stop`, the dispatcher asks herdr for the agent's session id
-  once more and keeps it on the handle as `agent_session` (the same
-  `sessionKind` call that reads the model). The model check already
-  records it on its first reading, so a session whose agent died before
-  teardown still has it. After `MarkStopped`, the session waits on the
-  handle with no `usage` yet. On each later pass (`d.Interval` ticks and
-  committed writes), `Dispatcher.usage` reads every stopped session
-  that has no `usage`, by its `agent_session`. A process that has
-  exited has written its last line, so one read is enough. Claude
-  writes `cost-state` as it exits, a moment after the tab closes, so a
-  Claude session whose file does not have that line yet is read again
-  on the next pass.
+- **The id, while the session runs.** A new step,
+  `Dispatcher.agentSession`, runs on every pass for each running session
+  whose handle has no `agent_session` yet. It asks the runner for the
+  id alone (`Herdr.SessionID`: what `sessionKind` reads, without the
+  model) and writes it with `SetHandle` as soon as herdr gives one. It
+  does not wait for a model line and does not depend on what the model
+  check finds, so a session that dies before its first answer, or whose
+  harness names no model, still has its id. Like the model check, it
+  stops asking `modelWindow` (15 minutes) after the start: herdr knows a
+  Claude or Codex id within seconds of the agent starting, and a kind it
+  gives none for (Muse today) is not asked about on every pass for ever.
+  `teardown` asks once more just before `Stop` when the handle still has
+  none. Because the id is on the stored handle, a daemon that replaces
+  itself in between finds it there.
+- **The count, after the session is stopped.** After `MarkStopped`,
+  the session waits with no `usage` on its handle. On each later pass
+  (`d.Interval` ticks and committed writes), `Dispatcher.usage` reads
+  every stopped session that has an `agent_session` and no `usage`. A
+  process that has exited has written its last line, so one read is
+  enough. Claude writes `cost-state` as it exits, a moment after the tab
+  closes, so a Claude session whose file does not have that line yet is
+  read again on the next pass. The result is written by one store call,
+  `RecordUsage` (3.2), which sets `usage` on the handle and logs the
+  event in a single transaction.
 - **When the count is not there.** A source declares its readings in
   order (3.3). The first is the harness's own total. If it is still
   missing 10 minutes after `MarkStopped` (a Claude process that was
@@ -260,23 +301,39 @@ crew session, `crew_usage`), which the route report reads next to its
   still read once, at the end. Its file is a few MB (the yardr-mnc8
   builder file was 2.2 MB), and one read at the end is cheaper than
   following the file with a cursor as Gas City does.
-- **Crew sessions.** `stopCrew` does what `teardown` does: it records
-  `agent_session` on the crew handle before closing. The count goes on
-  the crew member's handle and into a `crew_usage` event with `member`
-  and `user`. It is not attached to any bead, even when the crew member
+- **Crew sessions.** `agentSession` records the id on the crew handle
+  too (`SetCrewHandleFor`), in the first 15 minutes of the crew session.
+  Since `CrewStoppedFor` clears the handle and `CrewGoneFor` moves it to
+  `Left`, both are extended to keep what the count needs in the same
+  transaction that ends the session: one entry `{agent_session, kind,
+  started_at, stopped_at}` appended to a new list on the crew session,
+  `Uncounted`. `Dispatcher.usage` reads each entry, and
+  `RecordCrewUsage` removes it and logs a `crew_usage` event with
+  `member` and `user`, again in one transaction. The event is the
+  durable record of a crew session's count; nothing is written to a
+  handle. It is not attached to any bead, even when the crew member
   shaped one: crew members are tied to no bead (glossary). A crew
   session runs until it is rotated, so its count arrives at rotation.
   The live context percentage that exists today stays as it is.
 - **Sessions with nothing to read.** Manual sessions and exec runners
   have no herdr agent, and so no id and no count. They get `missing: no
   session id`.
-- **A `keep: true` group** leaves its pane open for inspection. Its
-  session is read at the point where it is marked stopped, and the
-  result is `partial` when the first reading finds nothing.
+- **A `keep: true` group** leaves its agent running for inspection.
+  The amount this design counts is the **yard-stop snapshot**: what the
+  session had spent when the yard marked it stopped. The work the yard
+  asked of the session ended there; whatever a person does in a kept
+  pane afterwards is not the bead's. The handle gets `kept: true` from
+  `teardown`, and the reading carries it as well. Codex's last
+  `token_count` and Muse's sum are complete for the work up to that
+  moment, so their reading is not marked short. Claude writes no
+  `cost-state` until its process exits, so a kept Claude session falls
+  back after the 10 minutes to its message lines and reads `partial`.
+  What `kept` changes in the report is nothing more than the `--json`
+  field; `partial` is what marks a count as short.
 
 ### 3.2 What is stored, and where (question 2)
 
-The reading has the same shape in all three places it is kept:
+The reading has the same shape wherever it is kept:
 
 ```json
 {"input": 469433, "output": 122644, "cache_read": 28600326, "cache_write": 0,
@@ -285,18 +342,38 @@ The reading has the same shape in all three places it is kept:
 
 `input` never includes cache reads. Each harness's figures are
 converted to these four as part of the reading (3.3), so a Codex row and
-a Claude row can be added together.
+a Claude row can be added together. `partial` and `kept` (3.1) appear
+only when true. A session with nothing to count has `{"missing": "<why>",
+"read_at": …}` in its place.
 
-1. **On the session handle**, under the key `usage`, with
-   `agent_session` next to it. This uses the existing `SetHandle`, needs
-   no migration, and `yardr session list --all --json` shows it.
-2. **As an event**: `session_usage`, logged for the bead with
-   `LogDispatch` (one more entry in `DispatchKinds`), with data
-   `{session, group, stage, kind, usage}`; or `{session, …, missing}`.
-   The route report reads it with its `claimed` events. For a crew
-   session the event is `crew_usage`, with no bead and data `{member,
-   user, kind, usage}`.
-3. **On the crew handle** (`SetCrewHandleFor`), for a crew session.
+**A bead's session** keeps it in two places, written by one new store
+call, `RecordUsage(ctx, sessionID, usage)`. It is the daemon's alone
+(`daemonOnly`, as `SetHandle` is) and runs inside `changeSession`, so
+the two writes are one transaction:
+
+1. **On the session handle**, under the key `usage`, next to the
+   `agent_session` recorded earlier. No migration: the handle is a free
+   map, and `yardr session list --all --json` shows it.
+2. **As an event**, `session_usage`, logged for the session's bead
+   through the `wtx`'s `event` (one more entry in `DispatchKinds`), with
+   data `{session, group, stage, kind, usage}`. The route report reads
+   it with its `claimed` events.
+
+If the daemon dies before the transaction commits, neither write is
+there and the session is read again on the next pass. If it dies after,
+both are there. `RecordUsage` does nothing when the handle already has a
+`usage`, so a repeated call logs no second event.
+
+**A crew session** keeps it in one place: the `crew_usage` event, with
+no bead and data `{member, user, kind, agent_session, usage}`. The crew
+handle is not used, because it is cleared or moved when the session
+ends (section 2). Until the count is read, the session's entry waits in
+`CrewSession.Uncounted`, written in the same transaction as
+`crew_stopped` (3.1). `RecordCrewUsage(ctx, name, user, agentSession,
+usage)` removes that entry and logs `crew_usage` in one transaction, so
+an entry is either still waiting or counted, never lost and never
+counted twice. `Uncounted` is a new field on a JSON-encoded record, and
+needs no migration.
 
 `MarkCleaned` deletes nothing, so the count outlives the removal of the
 session's worktree. It is pruned with the session and its events, after
@@ -369,7 +446,8 @@ usage:
     output: output_tokens
 
 # muse.yaml: no total is written; every call has a record in the
-# parent's file, side calls included.
+# parent's file, side calls included. reasoning_tokens is inside
+# output_tokens (never above it in 65,841 records), so it is not added.
 usage:
   - type_field: payload.event.kind
     type: goal_usage_attribution
@@ -423,9 +501,9 @@ total that included them. Which number leads is open question 1.
 `yardr route report` gains two columns and one table:
 
 ```
-GROUP            ORIGINATOR  LABEL         BEADS  SENT BACK  …  MEDIAN BUILD  TOKENS/BEAD  TOKENS
-muse-builders    mckean      difficulty:2  290    0.3        …  20m           640k         181M
-yardr-reviewers  mckean      difficulty:2  301    0.1        …  3m            235k         70.6M
+GROUP            ORIGINATOR  LABEL         BEADS  SENT BACK  …  MEDIAN BUILD  TOKENS/BEAD  TOKENS  UNCOUNTED
+muse-builders    mckean      difficulty:2  290    0.3        …  20m           640k         ≥181M   3
+yardr-reviewers  mckean      difficulty:2  301    0.1        …  3m            235k         70.6M   0
 
 BY HARNESS
 KIND    SESSIONS  HOURS   MEDIAN  TOKENS  UNCOUNTED  STAGES
@@ -441,10 +519,15 @@ yardmaster   4         3.1M    0
 yet.)
 
 - **TOKENS/BEAD** is the median, over the cell's beads, of the new
-  tokens the group's counted sessions spent on each bead. **TOKENS** is
-  their total. A bead none of whose sessions has a count shows `-`, as
-  MEDIAN BUILD does. A cell that includes a `partial` count prints `≥`
-  in front of its total.
+  tokens the group's sessions spent on each bead. Only beads all of
+  whose sessions in that group were counted take part, so a bead with a
+  missing session does not drag the median down. A cell with no such
+  bead shows `-`, as MEDIAN BUILD does. **TOKENS** is the total of every
+  counted session in the cell.
+- **UNCOUNTED** is the number of the cell's sessions whose result is
+  `missing`. Whenever a cell holds a `missing` or a `partial` result,
+  TOKENS prints `≥` in front: the total is then a lower bound, and the
+  mark says so on the row where it applies, not only in BY HARNESS.
 - **BY HARNESS** gains TOKENS (the total over its sessions) and
   UNCOUNTED (sessions whose result was `missing`).
 - **CREW** is new: one row per crew member with `crew_usage` in the
@@ -461,10 +544,20 @@ yet.)
   tokens   1.06M new, 33.0M cache read · new muse 592k · review codex 235k · review-security muse 231k
 ```
 
-There is no `yardr session show` to extend, so the count is in `yardr
-session list --all --json` (`handle.usage`) and nowhere else in the
-session listing. Adding a TOKENS column to `session list --all` would
-make a 12-column table wider still, and is left to a later bead.
+When one of the bead's sessions is `missing` or `partial`, the total
+takes `≥` and that session's entry says why, so the line cannot pass
+for a complete count:
+
+```
+  tokens   ≥827k new, 31.2M cache read · new muse 592k · review codex missing (no file) · review-security muse 235k
+```
+
+There is no `yardr session show` to extend. Without one, a session's
+count is in `yardr session list --all --json` (`handle.usage`) and,
+per stage, on the bead's `tokens` line. Whether to add `yardr session
+show <id>` is open question 6. Adding a TOKENS column to `session list
+--all` would make a 12-column table wider still, and is left to a later
+bead.
 
 **Routes reading it.** A route that sends a costly label to a cheaper
 group would read the same events. It is a later bead, named here and
@@ -520,11 +613,12 @@ the collector, and the yard's numbers do not depend on it.
   the session's model is already on the session record, and Claude's
   side calls are small (54k input in the largest case checked). Adding
   across models with `*` keeps one shape for every harness.
-- **Reasoning and thinking as their own column.** Both are already
-  inside output for Codex and Claude (`total_tokens` adds up without
-  them; `cost-state`'s `outputTokens` exceeds its `thinkingTokens`).
-  Muse's `reasoning_tokens` are taken to be inside its output in the
-  same way, which was not confirmed.
+- **Reasoning and thinking as their own column.** All three harnesses
+  count them inside output: Codex (`total_tokens` adds up without
+  them), Claude (`cost-state`'s `outputTokens` exceeds its
+  `thinkingTokens`), and Muse (reasoning never reached output in 65,841
+  records, section 2). Muse's documentation does not say so, so build
+  bead 1 pins it with a test on a real record.
 - **For a later enterprise layer, only named here:** budgets per person
   or team that stop work when exceeded; dollar pricing for chargeback
   (Gas City's `internal/pricing` is that); rollups across linked yards;
@@ -567,6 +661,16 @@ the collector, and the yard's numbers do not depend on it.
 5. **Where do crew counts show?** (a) A CREW table in `route report`.
    (b) A column in `yardr crew list`. (c) Both. I would take (a): that
    report is where someone would look for what burned the window.
+6. **Should there be a `yardr session show <id>`?** The bead names it,
+   and it does not exist.
+   (a) No: the count is in `session list --all --json` and on the
+   bead's `tokens` line, stage by stage. Nothing new to keep.
+   (b) Yes: a new command that prints one session's record (bead,
+   group, stage, kind, model asked and reported, times, worktree) and
+   its four counts, with `--json`. One session's work (build bead 9),
+   but a new command whose token fields the bead's line already shows.
+   I would take (a), and build (b) once something other than tokens
+   asks for a view of one session.
 
 ## 6. The beads it would become
 
@@ -584,64 +688,102 @@ In the order they would land. Each is one session's work.
    taken from the three real files and get the figures in section 2
    (Claude `cost-state` 752 / 74,978 / 23,562,912 / 247,751 plus Haiku;
    repeated assistant lines counted once per `message.id`; Codex's last
-   `token_count` with the cache subtracted; Muse's sum of records);
+   `token_count` with the cache subtracted; Muse's sum of records); a
+   Muse record with reasoning tokens (the `output_tokens` 435,
+   `reasoning_tokens` 337 record of `01a15ffe…`) reads as output 435, so
+   a change that starts adding reasoning on top fails the test;
    `validate` refuses a `usage:` with no `model:` and one with no
    fields; `ContextSource` behaves exactly as before.
-2. **The runner reads a session's count by its recorded id.** Goal:
-   `Herdr.Usage(ctx, handle)`, which reads the file named by
-   `handle["agent_session"]` and returns the four counts with `partial`,
-   or why it found none. It tries the kind's readings in order; a first
-   reading that finds nothing is reported as "not yet", so the caller
-   can wait. Also `Herdr.SessionID(ctx, handle)` (what `sessionKind`
-   returns), for the dispatcher to record. Where to look:
-   `internal/runner/context.go`, `model.go`. Depends on 1. Done when:
-   tests with an `AgentHomes` temp directory read each kind's fixture
-   file; a Claude file without `cost-state` reads "not yet", and reads
-   as `partial` when the caller allows the fallback; a missing file
-   gives `no file`.
-3. **The dispatcher records each session's count after it ends.** Goal:
-   `agent_session` is kept on the handle by the model check and just
-   before `Stop` in `teardown`; `Dispatcher.usage` reads stopped
-   sessions that have no `usage`, waits 10 minutes for a missing first
-   reading, then falls back, and writes `handle.usage` and a
-   `session_usage` event (added to `DispatchKinds`), with `missing`
-   when nothing was found. Where to look: `internal/dispatch/dispatch.go`
+2. **The runner reads a session's id and its count.** Goal:
+   `Herdr.SessionID(ctx, handle)`, the id `sessionKind` reads, on its own
+   and whether or not the kind names a model; and `Herdr.Usage(ctx,
+   handle)`, which reads the file named by `handle["agent_session"]` and
+   returns the four counts with `partial`, or why it found none. It
+   tries the kind's readings in order; a first reading that finds
+   nothing is reported as "not yet", so the caller can wait. Where to
+   look: `internal/runner/context.go`, `model.go`. Depends on 1. Done
+   when: tests with an `AgentHomes` temp directory read each kind's
+   fixture file; `SessionID` returns the id for a pane whose file has no
+   model line yet; a Claude file without `cost-state` reads "not yet",
+   and reads as `partial` when the caller allows the fallback; a missing
+   file gives `no file`.
+3. **The store records a session's count in one write.** Goal:
+   `RecordUsage(ctx, sessionID, usage)` on `store.API`, daemon-only,
+   which in one `changeSession` sets `handle.usage` and logs
+   `session_usage` (added to `DispatchKinds`) for the session's bead,
+   and does nothing when the handle already has a `usage`. `go generate
+   ./internal/rpc` for the client. Where to look:
+   `internal/store/routing.go` (`changeSession`, `SetHandle`),
+   `internal/store/events.go`, `internal/store/api.go`. Done when: a
+   store test shows the handle and the event after one call, nothing new
+   after a second; a call whose transaction fails (a session id that is
+   not there) leaves no event; a call from a pane is refused as
+   `SetHandle`'s is.
+4. **The dispatcher records each session's id and, after it stops, its
+   count.** Goal: `Dispatcher.agentSession` writes `agent_session` on
+   the handle of every running session that lacks one, within
+   `modelWindow`, independent of the model check, and `teardown` asks
+   once more before `Stop` and sets `kept: true` on a `keep: true`
+   group's handle; `Dispatcher.usage` reads stopped sessions that have
+   an id and no `usage`, waits 10 minutes for a missing first reading,
+   then falls back, and calls `RecordUsage`, with `missing` when nothing
+   was found. Where to look: `internal/dispatch/dispatch.go`
    (`teardown`), `model.go`, `crewcontext.go` (the `ContextReader`
-   interface pattern), `internal/store/events.go`. Depends on 2. Done
-   when: a dispatch test with a stand-in runner shows one event per
-   session, the 10-minute wait measured on the dispatcher's own clock
-   (`d.now`), and nothing read twice after the daemon re-execs.
-4. **Crew sessions are counted to their member.** Goal: the same as 3,
-   in `stopCrew`, writing the crew handle and a `crew_usage` event
-   `{member, user, kind, usage}`; no bead. Where to look:
-   `internal/dispatch/crew.go`. Depends on 3. Done when: a rotation in
-   a dispatch test leaves one `crew_usage` event, and a Muse crew
+   interface pattern). Depends on 2 and 3. Done when: dispatch tests
+   with a stand-in runner show one `session_usage` per session; a
+   session whose stand-in reports an id and never a model has its id on
+   the handle, and after a new `Dispatcher` is made on the same store
+   (the daemon replaced) and the stand-in no longer knows the agent, the
+   count is still read by that id; the 10-minute wait is measured on
+   the dispatcher's own clock (`d.now`); a `keep: true` session is read
+   once, at its stop, and carries `kept`.
+5. **Crew sessions are counted to their member.** Goal:
+   `agentSession` also writes the crew handle; `CrewStoppedFor` and
+   `CrewGoneFor` append `{agent_session, kind, started_at, stopped_at}`
+   to a new `CrewSession.Uncounted` in the transaction that ends the
+   session; `RecordCrewUsage` removes the entry and logs `crew_usage`
+   `{member, user, kind, agent_session, usage}` in one transaction; the
+   dispatcher reads each waiting entry as in 4. Where to look:
+   `internal/store/crewsession.go`, `internal/store/crew.go`,
+   `internal/dispatch/crew.go`. Depends on 4. Done when: a rotation and a
+   gone session in dispatch tests each leave one `crew_usage` event and
+   an empty `Uncounted`, the count read after the handle was cleared; a
+   second `RecordCrewUsage` for the same id logs nothing; a Muse crew
    session with no herdr id reads `missing: no session id`.
-5. **Muse sessions are found by their worktree** (if open question 2 is
+6. **Muse sessions are found by their worktree** (if open question 2 is
    decided (a)). Goal: `ModelSource.Workspace` and the match in 3.3;
-   the model check and the usage reading both use it when herdr gives
-   no id. Where to look: `internal/agents/harness.go`,
-   `internal/runner/model.go`, `harnesses/muse.yaml`. Depends on 2.
-   Done when: with two Muse fixture files for one worktree, each of two
-   sessions is matched to its own file (the yardr-58xw case: starts 4 s
-   and 3 s after their claims); a file that starts before `StartedAt` or
-   after `modelWindow` is not matched; Muse's `model_reported` is filled
-   in a test.
-6. **The route report shows tokens.** Goal: TOKENS/BEAD and TOKENS in
-   the main table, TOKENS and UNCOUNTED in BY HARNESS, the CREW table,
-   `≥` on cells that include a partial count, and `usage` in `--json`,
-   all read from `session_usage` and `crew_usage` events through
-   `sessionOf`. The command's help is updated to match. Where to look:
-   `internal/cli/routereport.go`, `routereport_test.go`. Depends on 3
-   and 4. Done when: `summarizeRouteEvents` tests cover a cell with
-   counted, partial and missing sessions, a bead two groups worked, and
-   a crew row; the help text describes each new column.
-7. **`yardr bead show` prints the bead's tokens.** Goal: the `tokens`
-   line from 3.4, from the bead's `session_usage` events, and the same
-   in `--json`. Where to look: the bead show command in
-   `internal/cli`. Depends on 3. Done when: a test shows the line for a
-   bead with three counted sessions and leaves it out for a bead with
-   none.
+   `SessionID` uses it when herdr gives no id, so the model check and
+   the count both gain Muse. Where to look:
+   `internal/agents/harness.go`, `internal/runner/model.go`,
+   `harnesses/muse.yaml`. Depends on 4. Done when: with two Muse fixture
+   files for one worktree, each of two sessions is matched to its own
+   file (the yardr-58xw case: starts 4 s and 3 s after their claims); a
+   file that starts before `StartedAt` or after `modelWindow` is not
+   matched; Muse's `model_reported` is filled in a test.
+7. **The route report shows tokens.** Goal: TOKENS/BEAD, TOKENS and
+   UNCOUNTED in the main table, TOKENS and UNCOUNTED in BY HARNESS, the
+   CREW table, `≥` on every TOKENS cell that holds a partial or missing
+   result, TOKENS/BEAD over fully counted beads only, and `usage`,
+   `partial` and `uncounted` in `--json`, all read from `session_usage`
+   and `crew_usage` events through `sessionOf`. The command's help is
+   updated to match. Where to look: `internal/cli/routereport.go`,
+   `routereport_test.go`. Depends on 4 and 5. Done when:
+   `summarizeRouteEvents` tests cover a cell with counted, partial and
+   missing sessions (it prints `≥`, UNCOUNTED 1, and a median that
+   leaves the bead with the missing session out), a bead two groups
+   worked, and a crew row; the help text describes each new column.
+8. **`yardr bead show` prints the bead's tokens.** Goal: the `tokens`
+   line from 3.4, from the bead's `session_usage` events, with `≥` and
+   the reason on a missing or partial session, and the same in
+   `--json`. Where to look: the bead show command in `internal/cli`.
+   Depends on 4. Done when: a test shows the line for a bead with three
+   counted sessions, the `≥` line for a bead with one counted and one
+   missing session, and no line for a bead with none.
+9. **`yardr session show <id>`** (only if open question 6 is decided
+   (b)). Goal: a `show` subcommand beside `list` and `snooze` (the
+   `session` command in `internal/cli/ops.go`) printing the session
+   record and its counts, with `--json`. Depends on 4. Done
+   when: a test prints a counted, a partial and a missing session.
 
 Named and not designed: routes that prefer a group by tokens per bead
 for a label; the share of a window, once a source gives a window's size
