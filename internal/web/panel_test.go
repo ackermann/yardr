@@ -97,6 +97,7 @@ var blockTitle = regexp.MustCompile(`<title>([^<]+)</title>`)
 // beads; a train's children stand together; beads in no stage stand off the
 // line; and an empty flow draws its bare track.
 func TestPanelHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	run, _, _, _, six := stocked(t, f)
 	ctx := context.Background()
@@ -203,6 +204,7 @@ func TestPanelHTML(t *testing.T) {
 // The panel is HTML alone: as JSON the page answers the same with the
 // parameter as without it.
 func TestPanelJSONUnchanged(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	stocked(t, f)
 	plain := f.get("/flows", "Accept", "application/json")
@@ -229,6 +231,7 @@ func TestPanelJSONUnchanged(t *testing.T) {
 // A depot whose flows cannot be read draws no diagram and still names its
 // beads off the line; a depot with no flow at all says so.
 func TestPanelReadError(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	srv, err := web.NewServer(failingDepotFlows{API: f.st, depot: "line"}, f.home, nil)
@@ -255,6 +258,7 @@ func TestPanelReadError(t *testing.T) {
 // /flows without the parameter is unchanged: no panel markup, the card
 // stream, the Flows entry current.
 func TestFlowsWithoutPanel(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	stocked(t, f)
 	r := f.get("/flows")
@@ -398,6 +402,7 @@ func stagePart(t *testing.T, svg, stage string) string {
 // Every blocked kind renders as section 3.1 says, lamps light exactly where
 // a wait sits, and a waiting light's title names what holds it.
 func TestPanelBlockedKinds(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	held, gave, stall, block, dep, back, holder := kindsYard(t, f)
 	r := f.get("/flows?panel=1")
@@ -500,6 +505,7 @@ func TestPanelBlockedKinds(t *testing.T) {
 // group, beads and lamp, the same Elsewhere rows, and the travelling totals
 // over the same beads.
 func TestFlowsCallMatchesFlowsPage(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	kindsYard(t, f)
 	ctx := context.Background()
@@ -662,6 +668,7 @@ func quietYard(t *testing.T, f *fixture) {
 // on the panel: no held, gave-up or blocked light, no diamond, no fault
 // lamp, and no bare signal lamp burning red.
 func TestPanelQuietHasNoRed(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	quietYard(t, f)
 	r := f.get("/flows?panel=1")
@@ -689,6 +696,7 @@ func TestPanelQuietHasNoRed(t *testing.T) {
 // each depot as wide as its widest plan needs, side by side where there
 // is room.
 func TestYardPageIsWide(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	stocked(t, f)
 	r := f.get("/flows?panel=1")

@@ -113,6 +113,7 @@ func BenchmarkBeadsPageManyBeads(b *testing.B) {
 // /beads over a few hundred beads lists every one: the perf fixture is a
 // page like any other, newest change first.
 func TestBeadsPageManyBeads(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	seedPerfBeads(t, f.st, 300)
 	var got web.Beads

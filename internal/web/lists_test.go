@@ -51,6 +51,7 @@ func (f *fixture) listOf(target, key string, headers ...string) (list any, head 
 // route's name, with the yard's head, and an empty list for a yard that
 // has none. Each has a page, so only a client that asks for JSON gets it.
 func TestLists(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	routes := map[string]func() any{
@@ -174,6 +175,7 @@ func TestLists(t *testing.T) {
 // print: `yardr depot list`, `yardr group list` and `yardr route list`.
 // The routes stand in match order, as the command prints them.
 func TestConfigPages(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -288,6 +290,7 @@ func TestConfigPages(t *testing.T) {
 // `yardr peer list` and every bead's `yardr dep list`, each edge once, a
 // staged edge with the stages it names.
 func TestConfigPagesPeersDeps(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -370,6 +373,7 @@ func TestConfigPagesPeersDeps(t *testing.T) {
 // edge with one open end shows, whichever end is open, the closed end
 // marked.
 func TestDepsOpenEnds(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -498,6 +502,7 @@ func TestDepsOpenEnds(t *testing.T) {
 // What someone wrote for a group's config is shown as text, never as
 // markup; JSON carries it as it is.
 func TestConfigEscapes(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	const evil = `<script>alert(1)</script>`
@@ -521,6 +526,7 @@ func TestConfigEscapes(t *testing.T) {
 // the Config entry current and links back. The hub itself is static links
 // with no live part.
 func TestConfigHub(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	hub := squash(f.get("/config").body)
@@ -566,6 +572,7 @@ func TestConfigHub(t *testing.T) {
 // /beads has every field `yardr bead list --json` prints of a bead, and
 // with ?all=1 the closed beads too, as bead list --all.
 func TestBeadsAll(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -645,6 +652,7 @@ func ptr[T any](v T) *T { return &v }
 // under list, with the wait for a usage limit; with ?all=1 the
 // ended ones too, with how they ended.
 func TestSessionsList(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	b, sess := blockedYard(t, f)
@@ -693,6 +701,7 @@ func TestSessionsList(t *testing.T) {
 
 // /crew says what a crew member's session is doing, as crew list --json.
 func TestCrewStatus(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Enabled: true, Config: map[string]any{"kind": "codex", "model": "o3"}}, "me")
@@ -727,6 +736,7 @@ func TestCrewStatus(t *testing.T) {
 // a group or crew member with no kind, or for another runner. Resolving
 // runs no command.
 func TestRowsCarryProvider(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	asked := limitsSource(t, f, limitsAnswer())
@@ -825,6 +835,7 @@ func (s answerStore) Sources(context.Context) ([]store.Source, error) { return s
 // yard: this is the rows' resolution alone, against two sources that both
 // list pi.
 func TestProviderFirstByName(t *testing.T) {
+	t.Parallel()
 	st := answerStore{
 		{Name: "zeta", Text: "name: zeta\nlimits:\n  command: [\"/bin/true\", \"{provider}\"]\n  kinds: { pi: openai }\n"},
 		{Name: "alpha", Text: "name: alpha\nlimits:\n  command: [\"/bin/true\", \"{provider}\"]\n  kinds: { pi: zai }\n"},

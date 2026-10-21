@@ -251,6 +251,7 @@ func jwtGet(t *testing.T, ts *httptest.Server, target string, headers ...string)
 // missing header or an invalid token is 401, an unmapped email 403, and
 // /health stays open without a token.
 func TestJWTModeServesAndRefuses(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey), ecJWK("d", &keys.d.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -328,6 +329,7 @@ func TestJWTModeServesAndRefuses(t *testing.T) {
 
 // A token with no key id takes the key when exactly one is cached.
 func TestJWTNoKIDTakesTheOnlyKey(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -340,6 +342,7 @@ func TestJWTNoKIDTakesTheOnlyKey(t *testing.T) {
 // taken as it is; on any other header a Bearer word is part of the token,
 // and no valid token carries one.
 func TestJWTAuthorizationBearer(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	users := map[string]string{jwtTestEmail: "mckean"}
@@ -370,6 +373,7 @@ func TestJWTAuthorizationBearer(t *testing.T) {
 // An unknown key id refetches, but at most once a minute: misses cannot
 // burst the issuer.
 func TestJWTUnknownKIDRefetchBounded(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -394,6 +398,7 @@ func TestJWTUnknownKIDRefetchBounded(t *testing.T) {
 // A rotation lands without a restart: the unknown key id refetches, and
 // the token verifies against the new set.
 func TestJWTRotationLandsWithoutRestart(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -409,6 +414,7 @@ func TestJWTRotationLandsWithoutRestart(t *testing.T) {
 // When a refresh fails the cached keys keep serving: a known key id is
 // served, an unknown one refused, and neither hangs on the issuer.
 func TestJWTStaleKeysServeWhenRefreshFails(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -425,6 +431,7 @@ func TestJWTStaleKeysServeWhenRefreshFails(t *testing.T) {
 // answers, concurrent misses wait for its keys instead of fetching or
 // refusing each alone.
 func TestJWTSharedInFlightFetch(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -458,6 +465,7 @@ func TestJWTSharedInFlightFetch(t *testing.T) {
 // oversized or keyless set refuses UseJWT, as does a config without an
 // issuer, an audience or a keys' URL.
 func TestUseJWTRefuses(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	serve := func(t *testing.T, cfg web.JWTConfig) error {
 		t.Helper()
@@ -516,6 +524,7 @@ func TestUseJWTRefuses(t *testing.T) {
 // a public cleartext URL and make the verifier trust keys fetched without
 // TLS.
 func TestUseJWTRefusesInsecureJWKSRedirect(t *testing.T) {
+	t.Parallel()
 	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://keys.example.invalid/jwks", http.StatusFound)
 	}))
@@ -538,6 +547,7 @@ func TestUseJWTRefusesInsecureJWKSRedirect(t *testing.T) {
 // yard's own network; here the attempt ends at the lookup, which names
 // the router instead of refusing it.)
 func TestUseJWTFollowsJWKSRedirectToRouter(t *testing.T) {
+	t.Parallel()
 	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, port, _ := net.SplitHostPort(r.Host)
 		http.Redirect(w, r, "http://router:"+port+"/jwks", http.StatusFound)
@@ -561,6 +571,7 @@ func TestUseJWTFollowsJWKSRedirectToRouter(t *testing.T) {
 // An hour's keys are replaced on a request; when the fetch fails the old
 // ones keep serving, and the next hour fetches again.
 func TestJWTHourlyRefresh(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, srv := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -596,6 +607,7 @@ func TestJWTHourlyRefresh(t *testing.T) {
 // With no usable keys at all the view refuses with 503, and says when to
 // try again.
 func TestJWTNoKeysIs503(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, srv := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -612,6 +624,7 @@ func TestJWTNoKeysIs503(t *testing.T) {
 // The header the view reads with web_jwt_header unset is the setting's
 // default: the two literals must not drift apart.
 func TestJWTHeaderDefaultMatchesSetting(t *testing.T) {
+	t.Parallel()
 	set, ok := store.SettingOf(store.WebJWTHeaderSetting)
 	if !ok || set.Default != web.DefaultJWTHeader {
 		t.Fatalf("web_jwt_header defaults to %q, the view reads %q unset", set.Default, web.DefaultJWTHeader)
@@ -623,6 +636,7 @@ func TestJWTHeaderDefaultMatchesSetting(t *testing.T) {
 // token-shaped header can keep a rotation from landing by cancelling one
 // unknown-key request a minute.
 func TestJWTRefreshOutlivesItsRequest(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, _ := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -661,6 +675,7 @@ func TestJWTRefreshOutlivesItsRequest(t *testing.T) {
 // addressed to them. The POST routes answer (no 405), and the policy opens
 // form-action 'self' on a request with a resolved user.
 func TestJWTTwoUsersActAsThemselves(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	f := jwtFixture(t, jwks, "", map[string]string{
@@ -871,6 +886,7 @@ func TestJWTTwoUsersActAsThemselves(t *testing.T) {
 // token already past its expiry — verified within the minute's leeway —
 // ends at once.
 func TestJWTStreamEndsAtExpiry(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	ts, srv := serveJWT(t, jwks, "", map[string]string{jwtTestEmail: "mckean"})
@@ -914,8 +930,9 @@ func TestJWTStreamEndsAtExpiry(t *testing.T) {
 		}
 	}
 	// The end comes at the expiry, neither at once nor never. Give the
-	// request enough time to verify and start the stream before that expiry.
-	body, took, err := stream(time.Now().Add(5 * time.Second))
+	// request enough time to verify and start the stream before that
+	// expiry: two seconds is four times the assertion's floor.
+	body, took, err := stream(time.Now().Add(2 * time.Second))
 	must(t, err)
 	if !strings.HasPrefix(body, "retry: 500\n\n") {
 		t.Errorf("the stream sent %q, want the retry and then the end", body)

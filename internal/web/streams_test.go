@@ -45,6 +45,7 @@ func shut(ts *httptest.Server) {
 // A client that keeps its stream open does not keep a test's server from
 // closing, and the stream ends with the connection.
 func TestShutWithAStreamOpen(t *testing.T) {
+	t.Parallel()
 	srv, ts, _ := streamsFixture(t, 8, 2)
 	addr := ts.Listener.Addr().String()
 	stays, err := net.Dial("tcp", addr)
@@ -133,6 +134,7 @@ func refused(t *testing.T, srv *web.Server, remote string, status int, what stri
 // next is answered 429, a stream that closes frees its place, and neither
 // another address nor a page on this machine is refused meanwhile.
 func TestStreamsPerAddress(t *testing.T) {
+	t.Parallel()
 	srv, ts, st := streamsFixture(t, 8, 2)
 	const phone, laptop = "192.168.178.20:50001", "192.168.178.21:50001"
 
@@ -174,6 +176,7 @@ func TestStreamsPerAddress(t *testing.T) {
 // address is answered 503, and loopback, counted apart, is still served up
 // to as many again.
 func TestStreamsTotal(t *testing.T) {
+	t.Parallel()
 	srv, ts, _ := streamsFixture(t, 3, 2)
 	a := served(t, srv, "10.0.0.1:1", "under the limit")
 	served(t, srv, "10.0.0.1:2", "under the limit")
@@ -209,6 +212,7 @@ func TestStreamsTotal(t *testing.T) {
 // A request that is no stream after all (a cursor that is no seq) gives
 // its place back.
 func TestStreamsBadRequestFreesPlace(t *testing.T) {
+	t.Parallel()
 	srv, _, _ := streamsFixture(t, 1, 1)
 	for range 3 {
 		req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/events?after=x", nil)
@@ -225,6 +229,7 @@ func TestStreamsBadRequestFreesPlace(t *testing.T) {
 // What a stream is counted under: loopback is one client however it is
 // written, an IPv6 address stands for its /64, and a port tells nothing.
 func TestStreamKey(t *testing.T) {
+	t.Parallel()
 	for remote, want := range map[string]string{
 		"127.0.0.1:1":              "loopback",
 		"127.8.9.1:1":              "loopback",

@@ -12,6 +12,7 @@ import (
 // crew member stopping at a prompt, or leaving it, is news. So is a timer
 // firing, and nothing else of a timer.
 func TestFeedLeavesOutTurnsAndReading(t *testing.T) {
+	t.Parallel()
 	status := func(was, now string) store.Event {
 		return store.Event{Kind: "crew_status", Data: map[string]any{"crew": "yardmaster", "status": now, "was": was}}
 	}

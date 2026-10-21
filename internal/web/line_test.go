@@ -49,6 +49,7 @@ func timeless(ws []web.Waiting) []web.Waiting {
 // gave; unholding it takes it off again. The line shows it, home's aside
 // the line alone, and every other page counts it in its header.
 func TestWaitsHeld(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -124,6 +125,7 @@ func TestWaitsHeld(t *testing.T) {
 // what waits, and its claim is no session and no work in progress. One
 // routed to an agent's group is not listed at all.
 func TestWaitsManual(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -201,6 +203,7 @@ func TestWaitsManual(t *testing.T) {
 // as does a bead with an open ask, one never asked, one in a sole-member or
 // memberless group, and one the viewer answered but may not move.
 func TestWaitsManualAnswered(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	for _, u := range []string{"anna", "ben", "cid"} {
@@ -389,6 +392,7 @@ func backlogYard(t *testing.T, f *fixture, n int) []*store.Bead {
 // nothing that waits. The claims are on the sessions page apart from the
 // running sessions, and the beads are parked. JSON and page agree.
 func TestManualClaimsOnly(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	beads := backlogYard(t, f, 5)
 
@@ -476,6 +480,7 @@ func TestManualClaimsOnly(t *testing.T) {
 // agents' alone, and a parked bead something stops (a hold) waits with the
 // rest, with every reason, and is parked no longer.
 func TestManualClaimsMixed(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	beads := backlogYard(t, f, 3)
@@ -578,6 +583,7 @@ func blockedYard(t *testing.T, f *fixture) (*store.Bead, *store.Session) {
 // for a person until the dispatcher reports it unblocked. Another
 // session's report does not count.
 func TestWaitsBlocked(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	b, sess := blockedYard(t, f)
@@ -617,6 +623,7 @@ func (s strandedStore) Stranded(context.Context, string) ([]store.StrandedBead, 
 // A bead stranded in a stage its flow lacks waits for a person. When the
 // yard cannot say which are stranded, the column still shows the rest.
 func TestWaitsStranded(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -657,6 +664,7 @@ func TestWaitsStranded(t *testing.T) {
 // the same for its own copy; home's aside reads the home mode, which is
 // the line alone.
 func TestColumnIsLive(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	head, err := f.st.Head(context.Background())
@@ -712,6 +720,7 @@ func TestColumnIsLive(t *testing.T) {
 // message. Home's aside re-reads the home mode of /line, which renders
 // only the line panel; the parameter shapes the HTML alone.
 func TestHomeColumnIsTheLineAlone(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	text := squash(f.get("/").body)
@@ -810,6 +819,7 @@ func TestHomeColumnIsTheLineAlone(t *testing.T) {
 // The count is home's: a bead parked where its flow starts is on /line,
 // not in the header.
 func TestHeaderNeedsCount(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newFixture(t)
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -930,6 +940,7 @@ func itoa(n uint64) string {
 // group, runner, state and age, as JSON and as the page, and a manual
 // group's claim apart from them; an ended session is not on it.
 func TestSessions(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	var empty web.Sessions
@@ -1018,6 +1029,7 @@ func TestSessions(t *testing.T) {
 // originator, as JSON and as the page: the group's login_for, else the
 // operator's (yardr-q0xd).
 func TestSessionsLogin(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	if _, err := f.st.AddUser(ctx, "jo", "jo"); err != nil {
@@ -1070,6 +1082,7 @@ func TestSessionsLogin(t *testing.T) {
 // The sessions page shows each session's bead originator beside its group,
 // as JSON and as the page.
 func TestSessionsOriginator(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	if _, err := f.st.AddUser(ctx, "jo", "jo"); err != nil {
@@ -1118,6 +1131,7 @@ func TestSessionsOriginator(t *testing.T) {
 
 // How long ago, in its two largest units.
 func TestAge(t *testing.T) {
+	t.Parallel()
 	for d, want := range map[time.Duration]string{
 		-time.Second:                    "0s",
 		42 * time.Second:                "42s",
@@ -1139,6 +1153,7 @@ func TestAge(t *testing.T) {
 // and how many events of its inbox it has not read. What its journal says
 // is not on it.
 func TestCrew(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	var empty web.Crew
@@ -1230,6 +1245,7 @@ func (s busyStore) Depots(ctx context.Context) ([]store.Depot, error) {
 // happens in between is in neither the page nor a stream that starts
 // later, and a card that moved then would stay where it was.
 func TestStreamStartsBeforeThePageWasRead(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()

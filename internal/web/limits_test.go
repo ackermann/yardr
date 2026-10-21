@@ -94,6 +94,7 @@ func useKinds(t *testing.T, f *fixture, def string, rest ...string) {
 // read, and empty lists, never null, for a yard with nothing to ask. It has
 // a page, so only a client that asks for JSON gets it.
 func TestLimits(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	var empty web.Limits
@@ -208,6 +209,7 @@ func selfAnswer() string {
 // windows with their targets. The minute's cache holds for sources as for
 // providers: a second read asks nothing again.
 func TestLimitsOfASourceThatAnswersForItself(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	asked := selfSource(t, f, selfAnswer())
 	var got web.Limits
@@ -247,6 +249,7 @@ func TestLimitsOfASourceThatAnswersForItself(t *testing.T) {
 // setting is asked as named even where no table lists the kind, and a
 // provider no source names is not known, with who burns it.
 func TestLimitsByProvider(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	asked := limitsSource(t, f, limitsAnswer())
@@ -347,6 +350,7 @@ func TestLimitsByProvider(t *testing.T) {
 // nothing. A re-read costs no extra provider run: the page reads through
 // the same handler, which answers from its last ask until the minute is up.
 func TestLimitsPage(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	asked := limitsSource(t, f, limitsAnswer())
 	useKinds(t, f, "claude", "kimi", "codex")
@@ -391,6 +395,7 @@ func TestLimitsPage(t *testing.T) {
 // What a provider's command wrote is shown as text, never as markup;
 // JSON carries it as it is.
 func TestLimitsEscapes(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	const evil = `<script>alert(1)</script>`
 	limitsSource(t, f, `echo "`+evil+`" >&2; exit 1`)
@@ -413,6 +418,7 @@ func TestLimitsEscapes(t *testing.T) {
 // /limits asks the source at most once a minute per provider, however often
 // it is read: the second read shares the last answer and runs nothing.
 func TestLimitsCached(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	asked := limitsSource(t, f, limitsAnswer())
 	useKinds(t, f, "", "kimi")
@@ -428,6 +434,7 @@ func TestLimitsCached(t *testing.T) {
 
 // Once the last answer is older than the minute, the next read asks again.
 func TestLimitsAskedAgain(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	home := t.TempDir()
 	srv, err := web.NewServer(st, home, nil)
@@ -449,6 +456,7 @@ func TestLimitsAskedAgain(t *testing.T) {
 // Concurrent reads share the one run on its way and never start a second
 // per provider.
 func TestLimitsConcurrent(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	asked := limitsSource(t, f, "sleep 0.5; "+limitsAnswer())
 	useKinds(t, f, "", "kimi")
@@ -481,6 +489,7 @@ func TestLimitsConcurrent(t *testing.T) {
 // A failing provider nulls its entry without failing the route, and the
 // null stands like any answer: no run per read.
 func TestLimitsFailure(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	asked := limitsSource(t, f, `echo "aiquokka: kimi: not logged in" >&2; exit 1`)
 	useKinds(t, f, "", "kimi")
@@ -546,6 +555,7 @@ func TestLimitsTimeout(t *testing.T) {
 // One shape, the command's, on loopback and with --unsafe alike: the same
 // bytes under a network name as under a loopback one.
 func TestLimitsUnsafeSame(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	home := t.TempDir()
 	srv, err := web.NewServer(st, home, nil)

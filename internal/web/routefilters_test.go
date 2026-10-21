@@ -11,6 +11,7 @@ import (
 // The routes page says every label a route asks for and the bead
 // priorities it takes, and a route that asks for neither says neither.
 func TestRoutesPageSaysLabelsAndBeadPriorities(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "g", Runner: "manual"}, "me"))

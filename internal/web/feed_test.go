@@ -81,6 +81,7 @@ func homeJSON(t *testing.T, f *fixture, target string) web.Home {
 // its outcome, a hold with its reason, a landing with its commit. A
 // crew member's journal entries are left out.
 func TestFeedWords(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	b := landing(t, f.st)
 	h := homeJSON(t, f, "/")
@@ -127,6 +128,7 @@ func TestFeedWords(t *testing.T) {
 // no reason, sessions start and end, and an event the feed has no words
 // for is shown by its name with what it carries.
 func TestFeedOtherWords(t *testing.T) {
+	t.Parallel()
 	api, own := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
@@ -195,6 +197,7 @@ func TestFeedOtherWords(t *testing.T) {
 // the pages to the end shows every event once, newest first, the journal
 // entries left out however many there are.
 func TestFeedPages(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
@@ -252,6 +255,7 @@ func TestFeedPages(t *testing.T) {
 // ?all=1 the full 50 with the next page as a link that htmx follows when
 // it scrolls into view. An older page's feed is not live.
 func TestFeedHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	b := landing(t, f.st)
 	ctx := context.Background()
@@ -327,6 +331,7 @@ func TestFeedHTML(t *testing.T) {
 
 // What an event says is text to the page, never markup.
 func TestFeedEscapes(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: `<script>alert(1)</script>`, Stage: "new"}, "me")
@@ -461,6 +466,7 @@ func bead(t *testing.T, st store.API, title string) *store.Bead {
 // from ?after, from Last-Event-ID when both are given, and from now with
 // neither.
 func TestEventsJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
@@ -517,6 +523,7 @@ func TestEventsJSON(t *testing.T) {
 // markup the page has. An event the feed leaves out still comes, as an id
 // with no data: the client's cursor passes it.
 func TestEventsHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
@@ -563,6 +570,7 @@ func drain(t *testing.T, s *stream, through uint64) []uint64 {
 // it got, and the new server goes on after it, including what happened
 // while none was up.
 func TestStreamAcrossWebRestart(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	home := filepath.Join(t.TempDir(), ".depot")
 	serve := func() *httptest.Server {
@@ -654,6 +662,7 @@ func (f *flaky) Subscribe(ctx context.Context, after uint64) (<-chan store.Event
 // A yardr server restart under the web view is ridden out inside the
 // stream: the client's connection stays, and it gets every event once.
 func TestStreamAcrossServerRestart(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	fl := &flaky{API: st}
 	srv, err := web.NewServer(fl, filepath.Join(t.TempDir(), ".depot"), nil)
@@ -690,6 +699,7 @@ func settle(t *testing.T, what string, cond func() bool) {
 // A client that goes away takes its stream with it: no handler and no
 // goroutine stays behind.
 func TestGoneClients(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
@@ -722,6 +732,7 @@ func TestGoneClients(t *testing.T) {
 // the connection's buffers grow to megabytes on their own, so no small
 // cap set for the test would hold one.
 func TestSlowClient(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
@@ -752,6 +763,7 @@ func TestSlowClient(t *testing.T) {
 // nothing here waits on pace: the drop is TestSlowClient's, with the
 // megabytes stalling takes.
 func TestSlowClientNoHoldUp(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
@@ -852,6 +864,7 @@ func (l *writeDeadlineListener) Accept() (net.Conn, error) {
 // cannot drain in one deadline still arrives whole, since the stream
 // renews the deadline as its bytes flow.
 func TestSteadyClient(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
@@ -873,7 +886,7 @@ func TestSteadyClient(t *testing.T) {
 	must(t, err)
 	defer c.Close()
 	serverConn := <-listener.accepted
-	// Bound, not pace: the frame below takes thirteen seconds
+	// Bound, not pace: the frame below takes past eleven seconds
 	// unloaded, and a loaded machine stretches every paced sleep.
 	must(t, c.SetDeadline(time.Now().Add(180*time.Second)))
 	// HTTP/1.0: the frame comes as plain bytes, not in chunks.
@@ -898,7 +911,7 @@ func TestSteadyClient(t *testing.T) {
 	// One frame, larger than any buffering: the buffers take megabytes
 	// at once, so only tens of megabytes keep a steady reader on one
 	// write past one deadline.
-	big := strings.Repeat("x", 64<<20)
+	big := strings.Repeat("x", 56<<20)
 	must(t, st.LogDispatch(context.Background(), "", "backoff", "me", map[string]any{"reason": big}))
 	var got []byte
 	// Whole when the frame's bytes are all here: the retry line comes
@@ -906,7 +919,7 @@ func TestSteadyClient(t *testing.T) {
 	whole := func() bool {
 		return len(got) >= len(big) && strings.HasSuffix(string(got[max(0, len(got)-2):]), "\n\n")
 	}
-	// A steady 256 KB every 50 ms: nearly thirteen seconds for the
+	// A steady 256 KB every 50 ms: past eleven seconds for the
 	// frame, which one 10 s deadline could never cover, so only a
 	// stream that renews its deadline as the bytes flow serves it
 	// whole.
@@ -937,6 +950,7 @@ func TestSteadyClient(t *testing.T) {
 // A timer is in the feed when it fires, once, in the yard's words: not
 // when it is set, and not a second time as the mail a firing is to a user.
 func TestFeedTimers(t *testing.T) {
+	t.Parallel()
 	api, _ := storetest.NewOwned(t)
 	srv, err := web.NewServer(api, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)

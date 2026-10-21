@@ -14,6 +14,7 @@ import (
 // fluid centre, the readable measure and the unchanged narrower windows;
 // what the pixels do is the bead's screenshots'.
 func TestPagesFillTheWindow(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	run, _, _, _, _ := stocked(t, f)
 	for _, path := range []string{"/", "/line"} {
@@ -80,6 +81,7 @@ func TestPagesFillTheWindow(t *testing.T) {
 // words (ids, counts, times, stages) stay monospace, and every row runs
 // one line with an ellipsis. What the pixels do is the bead's screenshot.
 func TestHomeWeight(t *testing.T) {
+	t.Parallel()
 	answer := cssRule(t, ".answer")
 	for _, want := range []string{"font-family: var(--sans);", "font-size: var(--large);"} {
 		if !strings.Contains(answer, want) {
@@ -177,6 +179,7 @@ func mediaCSS(t *testing.T, css, query string) string {
 // below 700 px, and a group's config keys stand bare under their heading.
 // What the pixels do is the bead's screenshot.
 func TestRoutesCompactRows(t *testing.T) {
+	t.Parallel()
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	text := string(css)
@@ -232,6 +235,7 @@ func TestRoutesCompactRows(t *testing.T) {
 // one the bar hides. The desktop menu shows all nine, as before. What the
 // pixels do is the bead's screenshots.
 func TestPhoneBarMore(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	body := f.get("/").body
 	// The bar's entries carry no class; the entries More opens carry
@@ -322,6 +326,7 @@ func TestPhoneBarMore(t *testing.T) {
 // ellipsis. At 700 px and wider the row is one line, as today. What the
 // pixels do is the bead's screenshots.
 func TestFeedRowOnPhone(t *testing.T) {
+	t.Parallel()
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	text := string(css)
@@ -357,6 +362,7 @@ func TestFeedRowOnPhone(t *testing.T) {
 // so the sheet's edge reads, and a tap on it closes the sheet. What the
 // pixels do is the bead's screenshot.
 func TestMoreBackdrop(t *testing.T) {
+	t.Parallel()
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	phone := mediaCSS(t, string(css), "max-width: 699px")
@@ -376,6 +382,7 @@ func TestMoreBackdrop(t *testing.T) {
 // At 1100 px and wider the row is one line, as today. What the pixels do is
 // the bead's screenshot.
 func TestAskRowOnPhone(t *testing.T) {
+	t.Parallel()
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	text := string(css)
@@ -423,6 +430,7 @@ func TestAskRowOnPhone(t *testing.T) {
 // the centre takes what the bottom bar leaves. What the pixels do is the
 // bead's screenshot.
 func TestTalkLayout(t *testing.T) {
+	t.Parallel()
 	centre := cssRule(t, ".centre:has(#talk)")
 	for _, want := range []string{"display: flex;", "flex-direction: column;", "height: 100dvh;"} {
 		if !strings.Contains(centre, want) {

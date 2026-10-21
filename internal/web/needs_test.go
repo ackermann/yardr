@@ -35,6 +35,7 @@ func sameReason(a, b web.Reason) bool {
 // The top of / answers whether anything needs the person: nothing, one need,
 // or needs with the faults counted apart. One waiting bead counts once.
 func TestHomeAnswer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	setup := func(t *testing.T) *fixture {
 		t.Helper()
@@ -145,6 +146,7 @@ func TestHomeAnswer(t *testing.T) {
 
 // The answer line in every count, without a yard.
 func TestAnswer(t *testing.T) {
+	t.Parallel()
 	fault := web.Waiting{Bead: "a", Why: []web.Reason{{Kind: "held", Text: "held by me"}}}
 	parked := web.Waiting{Bead: "b", Stage: "decide", Why: []web.Reason{{Kind: "manual", Text: "waits"}}}
 	stranded := web.Waiting{Bead: "c", Why: []web.Reason{{Kind: "stranded", Text: "stranded"}}}
@@ -170,6 +172,7 @@ func TestAnswer(t *testing.T) {
 // The page names five waiting beads; past five the rest are one tap away on
 // /line. The JSON names them all either way.
 func TestHomeNeedsOverflow(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	yard := func(t *testing.T, n int) *fixture {
 		t.Helper()
@@ -247,6 +250,7 @@ func TestHomeNeedsOverflow(t *testing.T) {
 // A held row whose bead's events hold a gave_up for that hold names the
 // give-up, on / and on /line alike, and still counts once, as a fault.
 func TestHomeNeedsGaveUp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newFixture(t)
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "me"))
@@ -309,6 +313,7 @@ func TestHomeNeedsGaveUp(t *testing.T) {
 // A give-up said with what its event has: the dispatcher's has the count
 // and the stage, a hand-logged one may have less.
 func TestHomeNeedsGaveUpText(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := newFixture(t)
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "me"))
@@ -344,6 +349,7 @@ func TestHomeNeedsGaveUpText(t *testing.T) {
 // A row's first words: what happened for a bead something stops, the stage
 // for one that only waits its turn.
 func TestWaitingLead(t *testing.T) {
+	t.Parallel()
 	held := web.Reason{Kind: "held", Text: "held by me"}
 	gaveUp := web.Reason{Kind: "held", Text: "gave up after 3 failures in new", GaveUp: true}
 	blocked := web.Reason{Kind: "blocked", Text: "its session waits on a prompt: x"}

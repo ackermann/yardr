@@ -109,6 +109,7 @@ func secretActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
 // An asked bead's page, with --as, answers with buttons: the options, an
 // Answer for words, Later and Decline. Without --as it shows no form.
 func TestBeadAskButtons(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	r := f.get("/beads/" + b.ID)
@@ -158,6 +159,7 @@ func TestBeadAskButtons(t *testing.T) {
 // An ask remains available on the bead page even if the flow cannot be
 // read: answering it does not depend on the flow.
 func TestBeadAskVisibleWithBrokenFlow(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	srv, err := web.NewServer(flowUnavailableStore{API: f.st}, f.home, nil)
@@ -186,6 +188,7 @@ func TestBeadAskVisibleWithBrokenFlow(t *testing.T) {
 // review` offers it, with a note. Otherwise the page names the outcomes
 // as commands, as today.
 func TestBeadMoveButtons(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, _ := actYard(t, f, pickAsk())
 	actFlow(t, f)
@@ -243,6 +246,7 @@ func TestBeadMoveButtons(t *testing.T) {
 // A pick through the bead's form lands as the view's user; Later and
 // Decline do too.
 func TestBeadAnswerPost(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	rev := revOf(t, f, b.ID)
@@ -289,6 +293,7 @@ func TestBeadAnswerPost(t *testing.T) {
 // A move through the bead's form sends the bead on with the note as the
 // view's user.
 func TestBeadMovePost(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, _ := actYard(t, f, pickAsk())
 	actFlow(t, f)
@@ -322,6 +327,7 @@ func TestBeadMovePost(t *testing.T) {
 // second tab's revision is stale, and the page comes back redrawn with
 // why. A move from a stale page is refused the same way.
 func TestBeadStaleRevision(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	rev := revOf(t, f, b.ID)
@@ -361,6 +367,7 @@ func TestBeadStaleRevision(t *testing.T) {
 // revision in the write, so one answer lands and the other is redrawn as
 // stale instead of overwriting the first pick.
 func TestBeadConcurrentAnswers(t *testing.T) {
+	t.Parallel()
 	base, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, base, pickAsk())
 	barrier := &answerBarrier{API: base.st, ready: make(chan struct{})}
@@ -410,6 +417,7 @@ func TestBeadConcurrentAnswers(t *testing.T) {
 // Sending back without a note is refused, as `yardr review` refuses it;
 // a forged move, one the page offers no button for, is refused too.
 func TestBeadMoveRefused(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, _ := actYard(t, f, pickAsk())
 	actFlow(t, f)
@@ -432,6 +440,7 @@ func TestBeadMoveRefused(t *testing.T) {
 
 // A POST from another origin, and any POST without --as, writes nothing.
 func TestBeadPostRefused(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	rev := revOf(t, f, b.ID)
@@ -458,6 +467,7 @@ func TestBeadPostRefused(t *testing.T) {
 // POST (Fetch, "append a request Origin header") and ownOrigin would
 // refuse it; the policy is why this POST carries an origin at all.
 func TestBeadPostPlainFormCarriesOwnOrigin(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	rev := revOf(t, f, b.ID)
@@ -475,6 +485,7 @@ func TestBeadPostPlainFormCarriesOwnOrigin(t *testing.T) {
 // The needs rows answer where the view acts: home's oldest ask under its
 // row, /line's every ask under its reason. Without --as neither answers.
 func TestNeedsAnswerButtons(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	ctx := context.Background()
 	must(t, func() error { _, err := f.st.AddUser(ctx, "jo", "jo"); return err }())
@@ -530,6 +541,7 @@ func TestNeedsAnswerButtons(t *testing.T) {
 // echo for each name it asks for, with a Give button beside Later and
 // Decline, and still names the terminal command.
 func TestBeadSecretField(t *testing.T) {
+	t.Parallel()
 	f, b, seq := secretActYard(t)
 	r := f.get("/beads/" + b.ID)
 	for _, want := range []string{
@@ -556,6 +568,7 @@ func TestBeadSecretField(t *testing.T) {
 // the file the source's credential is read from, and the answer on the bead
 // holds the names that were given and never the value.
 func TestBeadSecretGivePost(t *testing.T) {
+	t.Parallel()
 	f, b, seq := secretActYard(t)
 	ctx := context.Background()
 	rev := revOf(t, f, b.ID)
@@ -597,6 +610,7 @@ func TestBeadSecretGivePost(t *testing.T) {
 // echo, and giving through it hands the value to the waiting login: the
 // answer holds the names that were given, and the value is in no note.
 func TestBeadSecretLoginGivePost(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "mckean")
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "home", Base: "origin/main"}, "mckean"))
@@ -673,6 +687,7 @@ func TestBeadSecretLoginGivePost(t *testing.T) {
 // A giving with no value, and one to an ask that asks for no secret, are
 // refused with the page redrawn, and write nothing.
 func TestBeadSecretGiveRefused(t *testing.T) {
+	t.Parallel()
 	f, b, seq := secretActYard(t)
 	ctx := context.Background()
 	rev := revOf(t, f, b.ID)

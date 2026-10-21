@@ -59,6 +59,7 @@ func pickAsk() store.Ask {
 // question first, the bead small, the recommendation and the age faint.
 // It counts as a need, not a fault.
 func TestHomeNeedsAsk(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
@@ -140,6 +141,7 @@ func TestHomeNeedsAsk(t *testing.T) {
 // page: the context lines, each option with its consequence, and the
 // recommendation labelled. The row above it links to the bead.
 func TestHomeNeedsAskDetail(t *testing.T) {
+	t.Parallel()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
 	askOn(t, f, b.ID, pickAsk())
@@ -166,6 +168,7 @@ func TestHomeNeedsAskDetail(t *testing.T) {
 // A bead that both waits and carries an open ask stands once, fault first:
 // the held lead, then the question. It counts once, as a fault.
 func TestHomeNeedsAskAndFault(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
@@ -202,6 +205,7 @@ func TestHomeNeedsAskAndFault(t *testing.T) {
 // lines, each option with its consequence, and the recommendation
 // labelled. The bead id links to the bead.
 func TestLineAskContext(t *testing.T) {
+	t.Parallel()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
 	askOn(t, f, b.ID, pickAsk())
@@ -229,6 +233,7 @@ func TestLineAskContext(t *testing.T) {
 // The row does not duplicate recommendations. An ask with no options and
 // one with options but no recommendation both leave the detail to speak.
 func TestHomeNeedsAskRecommend(t *testing.T) {
+	t.Parallel()
 	f := askFixture(t)
 	words := askBead(t, f, "words", "new")
 	askOn(t, f, words.ID, store.Ask{
@@ -277,6 +282,7 @@ func TestHomeNeedsAskRecommend(t *testing.T) {
 // The web stays flat and shows the bead's first topic label small where
 // there is one.
 func TestHomeNeedsAskTopic(t *testing.T) {
+	t.Parallel()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new", "topic:linear-out", "area:web")
 	askOn(t, f, b.ID, pickAsk())
@@ -309,6 +315,7 @@ func TestHomeNeedsAskTopic(t *testing.T) {
 // An ask in the backlog stands in the home list: it waits on the operator
 // in particular, where a backlog otherwise waits on no one.
 func TestHomeNeedsAskBacklog(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual"}, "me"))
@@ -333,6 +340,7 @@ func TestHomeNeedsAskBacklog(t *testing.T) {
 // Only an open ask to the operator stands: answered, declined, put aside,
 // addressed elsewhere, and on a closed bead stand in no row.
 func TestHomeNeedsAskOnlyOpen(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	open := askBead(t, f, "open", "new")
@@ -372,6 +380,7 @@ func TestHomeNeedsAskOnlyOpen(t *testing.T) {
 // One row per waiting bead: two open asks stand once on home, with the
 // oldest question, and both on /line with their context.
 func TestHomeNeedsAskTwice(t *testing.T) {
+	t.Parallel()
 	f := askFixture(t)
 	b := askBead(t, f, "a door", "new")
 	askOn(t, f, b.ID, pickAsk())
@@ -401,6 +410,7 @@ func TestHomeNeedsAskTwice(t *testing.T) {
 // An asked stage carries the blue lamp on the panel, as a manual wait
 // does; a fault on the same stage burns red instead.
 func TestPanelAskLamp(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	fl, err := store.ParseFlow("backlog -> new\nnew -> review\nreview -> merged\nmerged terminal\n")
@@ -435,6 +445,7 @@ func TestPanelAskLamp(t *testing.T) {
 // recommendation, and a lead that names a fault or the stage, never the
 // ask itself.
 func TestWaitingAsk(t *testing.T) {
+	t.Parallel()
 	ask := web.Reason{Kind: "ask", Text: "Move them now?", Recommend: "1. Move them now"}
 	held := web.Reason{Kind: "held", Text: "held by me"}
 	manual := web.Reason{Kind: "manual", Text: "waits for decisions in decide"}
@@ -463,6 +474,7 @@ func TestWaitingAsk(t *testing.T) {
 // approval block above the real one. The context stands as its genuine
 // lines.
 func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	f := askFixture(t)
 	_, key, err := ed25519.GenerateKey(nil)
@@ -529,6 +541,7 @@ func TestHomeNeedsRunAskForgedQuestion(t *testing.T) {
 // A secret ask reads as what it asks for, in the yard's words from the
 // source's declaration, and not as words wanted.
 func TestHomeNeedsASecretAsk(t *testing.T) {
+	t.Parallel()
 	f := askFixture(t)
 	must(t, func() error {
 		_, err := f.st.PutSource(context.Background(), "crm.yaml",

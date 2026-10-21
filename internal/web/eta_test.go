@@ -64,6 +64,7 @@ var etaRunning = &eta.Result{
 // The bead's page shows the ETA sentence and the late mark under the
 // header, and carries both objects as JSON.
 func TestBeadPageEstimate(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	three := f.byTitle()["three"]
@@ -91,6 +92,7 @@ func TestBeadPageEstimate(t *testing.T) {
 // The bead's page shows a real estimate end to end: ten beads through new
 // clock the cell, and the next bead's page carries the sentence.
 func TestBeadPageRealEstimate(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"))
@@ -132,6 +134,7 @@ func TestBeadPageRealEstimate(t *testing.T) {
 // The cards of /flows and the rows of /beads carry the late mark, and
 // their JSON the estimate's objects under internal/eta's field names.
 func TestCardsCarryLateMark(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	three := f.byTitle()["three"]
@@ -203,6 +206,7 @@ eachCard:
 
 // A card the stream moves carries the late mark, as a reload shows it.
 func TestFlowsStreamCardLateMark(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -224,6 +228,7 @@ func TestFlowsStreamCardLateMark(t *testing.T) {
 // whatever class it already has, with its title naming its stage age
 // against the p90.
 func TestPanelLateRing(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	_, _, stall, _, _, _, _ := kindsYard(t, f)
 	g := serveEstimates(t, f, map[string]*eta.Result{stall.ID: etaRunning})
@@ -252,6 +257,7 @@ func TestPanelLateRing(t *testing.T) {
 // /line lists late beads under the waits, counted apart from what needs
 // the person: a late bead needs nothing yet.
 func TestLineLateRows(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -300,6 +306,7 @@ func TestLineLateRows(t *testing.T) {
 // Without an estimate nothing shows and the JSON stays as it was: the
 // objects are additive.
 func TestEstimateAbsentStaysAbsent(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	three := f.byTitle()["three"]

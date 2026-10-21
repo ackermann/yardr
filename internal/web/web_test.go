@@ -201,6 +201,7 @@ var wantHome = web.Home{Yard: "depot", Depots: []web.HomeDepot{
 // beads per stage of its flows. A terminal stage holds no open bead and is
 // left out; a closed bead is not counted.
 func TestHomeJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	r := f.get("/", "Accept", "application/json")
@@ -242,6 +243,7 @@ func TestHomeJSON(t *testing.T) {
 // Closed row to the beads; each row hides at zero and the page prints no
 // zero.
 func TestHomeHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	r := f.get("/")
@@ -290,6 +292,7 @@ func TestHomeHTML(t *testing.T) {
 // waits for a person first. A bead parked where its flow starts waits on no
 // one in particular: it is on /line, not here.
 func TestHomeOverview(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "empty", Base: "origin/main"}, "me"))
@@ -434,6 +437,7 @@ func TestHomeOverview(t *testing.T) {
 // An empty row of the overview is absent: a yard with one plain bead and
 // nothing else shows the answer and its Yard row alone.
 func TestHomeOverviewEmpty(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "solo", Base: "origin/main"}, "me"))
@@ -467,6 +471,7 @@ func TestHomeOverviewEmpty(t *testing.T) {
 // The rows' counts: the Yard row sums the depots, and the Running row's age
 // is the oldest session's, empty when nothing runs.
 func TestHomeRows(t *testing.T) {
+	t.Parallel()
 	h := web.Home{Depots: []web.HomeDepot{{Open: 2, Working: 1}, {Open: 3, Held: 1}},
 		Running: []web.SessionRow{{Age: "3h"}, {Age: "2m"}}}
 	if h.YardOpen() != 5 || h.YardWorking() != 1 || h.YardHeld() != 1 {
@@ -484,6 +489,7 @@ func TestHomeRows(t *testing.T) {
 // first, at most ten. The open, the dateless and the older ones are none
 // of it.
 func TestClosedToday(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 11, 15, 4, 5, 0, time.Local)
 	at := func(day, h, m int) *time.Time {
 		t := time.Date(2026, 10, day, h, m, 0, 0, time.Local)
@@ -524,6 +530,7 @@ func TestClosedToday(t *testing.T) {
 // though its UTC date is yesterday's as well. Last night's beads are none
 // of it in either case.
 func TestClosedTodayDayBoundary(t *testing.T) {
+	t.Parallel()
 	loc := time.FixedZone("UTC+2", 2*60*60)
 	utc := func(day, h, m int) *time.Time {
 		t := time.Date(2026, 10, day, h, m, 0, 0, loc).UTC()
@@ -567,6 +574,7 @@ func squash(html string) string {
 
 // The yard's name is the `name` setting when there is one.
 func TestYardNameSetting(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	if err := f.st.SetSetting(context.Background(), "name", "north", "me"); err != nil {
 		t.Fatal(err)
@@ -606,6 +614,7 @@ func (s failingDepotFlows) DepotFlows(ctx context.Context, depot string) ([]stor
 }
 
 func TestFlowReadErrorKeepsOtherDepots(t *testing.T) {
+	t.Parallel()
 	base := storetest.New(t)
 	ctx := context.Background()
 	for _, name := range []string{"broken", "healthy"} {
@@ -650,6 +659,7 @@ func TestFlowReadErrorKeepsOtherDepots(t *testing.T) {
 
 // Which of the two a request gets: HTML unless it names JSON above HTML.
 func TestNegotiation(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	for accept, wantJSON := range map[string]bool{
 		"":    false,
@@ -677,6 +687,7 @@ func TestNegotiation(t *testing.T) {
 
 // The line page is the right column's data, for a window without the column.
 func TestLine(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	var got web.Line
@@ -708,6 +719,7 @@ func TestLine(t *testing.T) {
 // Every menu entry answers; the pages later children add say so, in both
 // forms, under a status no client takes for an empty answer.
 func TestMenuPages(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	links := regexp.MustCompile(`<li[^>]*><a href="([^"]+)"`).FindAllStringSubmatch(f.get("/").body, -1)
 	// The phone's More entry repeats the entries the bottom bar hides,
@@ -748,6 +760,7 @@ func TestMenuPages(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	if r := f.get("/nowhere"); r.status != 404 || !strings.Contains(r.body, "no page at /nowhere") || !strings.Contains(r.body, `class="menu"`) {
 		t.Errorf("status %d, want 404 inside the shell: %s", r.status, r.body)
@@ -768,6 +781,7 @@ func TestNotFound(t *testing.T) {
 // Without --as the view reads the yard and changes nothing: no route takes
 // a write, the talk and bead pages' included.
 func TestReadOnly(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
 		for _, path := range []string{"/", "/talk", "/line", "/beads", "/beads/abc", "/assets/yard.css", "/nowhere"} {
@@ -781,6 +795,7 @@ func TestReadOnly(t *testing.T) {
 // An address off the loopback interface is refused, and the message says
 // why: there is no authentication yet.
 func TestRefusedAddress(t *testing.T) {
+	t.Parallel()
 	for _, addr := range []string{":8791", "0.0.0.0:8791", "192.168.1.10:8791", "[::]:8791", "example.com:80", "[2001:db8::1]:80"} {
 		err := web.CheckAddr("--addr", addr, false)
 		if err == nil {
@@ -815,6 +830,7 @@ func TestRefusedAddress(t *testing.T) {
 // --unsafe lets every address through, the ones on every interface too,
 // and Listen opens one; what is no address is still an error.
 func TestUnsafeAddress(t *testing.T) {
+	t.Parallel()
 	for _, addr := range []string{":9000", "0.0.0.0:9000", "[::]:9000", "192.168.178.90:8791", "127.0.0.1:8791", "example.com:80"} {
 		if err := web.CheckAddr("--addr", addr, true); err != nil {
 			t.Errorf("%s: %v", addr, err)
@@ -836,6 +852,7 @@ func TestUnsafeAddress(t *testing.T) {
 // Under --unsafe a request names the machine by any IP or by its host
 // name; another site's name is still refused (DNS rebinding).
 func TestUnsafeHost(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	if err != nil {
@@ -885,6 +902,7 @@ func TestUnsafeHost(t *testing.T) {
 // in any case and with any port; a name not given is still refused, and
 // the refusal says how to give it.
 func TestGivenHost(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	if err != nil {
@@ -933,6 +951,7 @@ func TestGivenHost(t *testing.T) {
 // names the flag for a name, on a view with no names too, and not for an
 // IP address, which the flag does not take there.
 func TestLoopbackHost(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	if err != nil {
@@ -1014,6 +1033,7 @@ func TestLoopbackHost(t *testing.T) {
 // ends a full name; a wildcard, an empty name and what is no name at all
 // are refused.
 func TestCheckHost(t *testing.T) {
+	t.Parallel()
 	for name, want := range map[string]string{
 		"adventuretime":                    "adventuretime",
 		"AdventureTime.Tail5cf2e8.ts.net.": "adventuretime.tail5cf2e8.ts.net",
@@ -1035,6 +1055,7 @@ func TestCheckHost(t *testing.T) {
 // A request that reached the loopback listener under another host's name
 // (DNS rebinding from a page elsewhere) is refused before any page is built.
 func TestForeignHostRefused(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	for _, host := range []string{"evil.example", "evil.example:8791", "127.0.0.1.evil.example", "10.0.0.1:8791"} {
@@ -1056,6 +1077,7 @@ var otherHost = regexp.MustCompile(`(?i)\b(?:https?:)?//[^\s"'<>()\\]+`)
 // HTML, CSS or JS, names a URL on another host, and the policy it sends
 // keeps the browser to this one.
 func TestNoOtherHost(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	// One bead carries a page, so the walk meets a run link: the one
@@ -1150,6 +1172,7 @@ func TestNoOtherHost(t *testing.T) {
 // Assets are served with their type and a checksum in the URL that lets a
 // browser keep them for good.
 func TestAssets(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	page := f.get("/").body
 	for name, ctype := range map[string]string{
@@ -1183,6 +1206,7 @@ func TestAssets(t *testing.T) {
 
 // The vendored scripts are the files assets/README.md says they are.
 func TestVendoredAssets(t *testing.T) {
+	t.Parallel()
 	readme, err := os.ReadFile("assets/README.md")
 	if err != nil {
 		t.Fatal(err)
@@ -1211,6 +1235,7 @@ func TestVendoredAssets(t *testing.T) {
 
 // The stylesheet carries the yardr design tokens used by the web view.
 func TestTokens(t *testing.T) {
+	t.Parallel()
 	css, err := os.ReadFile("assets/yard.css")
 	if err != nil {
 		t.Fatal(err)
@@ -1289,6 +1314,7 @@ func cssRule(t *testing.T, selector string) string {
 // grid) is the flow's alone, under .column, and no bare .stage rule draws
 // it beside anything else that takes the name.
 func TestStageRuleIsTheFlows(t *testing.T) {
+	t.Parallel()
 	css, err := os.ReadFile("assets/yard.css")
 	if err != nil {
 		t.Fatal(err)
@@ -1305,6 +1331,7 @@ func TestStageRuleIsTheFlows(t *testing.T) {
 // block: wrapped again at the column's width its lines end ragged and lose
 // their indent. What a person wrote in a body or a note still wraps.
 func TestStageFileKeepsItsLines(t *testing.T) {
+	t.Parallel()
 	file := cssRule(t, ".text.file")
 	for _, want := range []string{"white-space: pre;", "overflow-x: auto;"} {
 		if !strings.Contains(file, want) {

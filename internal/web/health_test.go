@@ -219,6 +219,7 @@ func (unreadableHealth) EventsOfKind(context.Context, string, int) ([]store.Even
 
 // GET /health on a yard it cannot read at all fails through the error path.
 func TestHealthStoreError(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	srv, err := web.NewServer(unreadableHealth{f.st}, f.home, nil)
 	if err != nil {

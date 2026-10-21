@@ -103,6 +103,7 @@ func refusedWrites(t *testing.T, f *fixture, target string, form url.Values, unc
 // no cookie. None sends the mail. A write with both lands, whether the CSRF
 // value comes in the form or in a header, as a fetch would send it.
 func TestTokenTalkWriteNeedsCookieAndCSRF(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	mails := func() int {
@@ -129,6 +130,7 @@ func TestTokenTalkWriteNeedsCookieAndCSRF(t *testing.T) {
 // The same on a bead's page, where the report answered the operator's ask
 // with the curl: the ask stays open until a write holds both proofs.
 func TestTokenBeadWriteNeedsCookieAndCSRF(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, seq := actYard(t, f, pickAsk())
 	open := func() bool {
@@ -149,6 +151,7 @@ func TestTokenBeadWriteNeedsCookieAndCSRF(t *testing.T) {
 // Whatever the method, a write without the proofs is 403 before any route
 // is looked for: a handler added later is guarded without being named.
 func TestTokenGuardsEveryWrite(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	visitor := f.bare()
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
@@ -164,6 +167,7 @@ func TestTokenGuardsEveryWrite(t *testing.T) {
 // view and for the browser's session, not the token itself, and a redirect
 // to the same URL without the token. Only a GET with the right token does.
 func TestTokenURLSetsTheCookie(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	visitor := f.bare()
 	port := strings.TrimPrefix(f.ts.URL, "http://127.0.0.1:")
@@ -226,6 +230,7 @@ func TestTokenURLSetsTheCookie(t *testing.T) {
 // without the token, takes the CSRF value from the form it finds there, and
 // its write lands.
 func TestTokenURLThenTheWriteLands(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	jar, err := cookiejar.New(nil)
@@ -274,6 +279,7 @@ func TestTokenURLThenTheWriteLands(t *testing.T) {
 // drawn to write with, the page says why, and it acts as no one, so it is
 // shown none of the user's conversation. The JSON says why too.
 func TestVisitorWithoutCookieReads(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	visitor := f.bare()
@@ -303,6 +309,7 @@ func TestVisitorWithoutCookieReads(t *testing.T) {
 // the cookie, on every page that draws one, and none for a request that
 // does not, which is drawn no form at all.
 func TestEveryFormCarriesTheCSRFValue(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	b, _ := actYard(t, f, pickAsk())
 	_, err := f.st.PutCrew(context.Background(), store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo")
@@ -340,6 +347,7 @@ func TestEveryFormCarriesTheCSRFValue(t *testing.T) {
 // the CSRF value are other than it and than each other, and none of them
 // carries over to a second view or to the same one started again.
 func TestTokenIsPerView(t *testing.T) {
+	t.Parallel()
 	a, _ := talkFixture(t, "jo")
 	b, _ := talkFixture(t, "jo")
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(a.token) {
@@ -372,6 +380,7 @@ func TestTokenIsPerView(t *testing.T) {
 // would otherwise take one cookie from each other. A cookie of another
 // port's name acts for no one here.
 func TestTokenCookieIsNamedForThePort(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	for host, want := range map[string]string{
 		"127.0.0.1:8791": "yardr_web_8791",
@@ -398,6 +407,7 @@ func TestTokenCookieIsNamedForThePort(t *testing.T) {
 // A view with no --as takes no token, and the token URL is a page like any
 // other there: a ?token= buys nothing and redirects nowhere.
 func TestReadOnlyViewTakesNoToken(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	r, body := f.noRedirect(http.MethodGet, "/?token=anything")
 	if r.StatusCode != 200 || len(r.Cookies()) != 0 || strings.Contains(body, "csrf") {

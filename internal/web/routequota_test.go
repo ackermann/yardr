@@ -17,6 +17,7 @@ import (
 // of beads that wait answers for a manual group's route as it did. No page
 // runs the limits command: only the dispatcher may.
 func TestFlowsListARoutesGroupsInOrder(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	dir := t.TempDir()

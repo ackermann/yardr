@@ -22,6 +22,7 @@ func (talkNotTakenBlobStore) NoteBlob(context.Context, string) (*store.BlobRef, 
 // A peer file explicitly marked NotTaken was never held by this yard, so
 // talk keeps the peer's reason instead of calling it a file the yard lost.
 func TestTalkNotTakenFile(t *testing.T) {
+	t.Parallel()
 	s, err := NewServer(nil, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)

@@ -136,6 +136,7 @@ func (f *pagesFixture) notedPage(t *testing.T) (bead string, page, shot *store.B
 // or no longer holds, a name that is no hash — answers plainly: the
 // origin answers no yard route, not even the yard's error page.
 func TestSandboxServesNoteBlobs(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	ctx := context.Background()
 	_, page, shot := f.notedPage(t)
@@ -229,6 +230,7 @@ func TestSandboxServesNoteBlobs(t *testing.T) {
 // the view's own Origin (under no-referrer a browser sends null for a
 // navigate-mode POST: Fetch, "append a request Origin header").
 func TestReferrerPolicyViewAndSandbox(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	_, page, _ := f.notedPage(t)
 	r := f.get("/blobs/" + page.Hash)
@@ -252,6 +254,7 @@ func TestReferrerPolicyViewAndSandbox(t *testing.T) {
 // under the scripted policy. The origin stays fenced and note-only: an
 // unknown Host is 421, a mail's file 404s even with a token.
 func TestSandboxRequiresJWT(t *testing.T) {
+	t.Parallel()
 	keys := mustJWTTestKeys(t)
 	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
 	f := newPagesJWTFixture(t, jwks, map[string]string{"jo@example.net": "jo"})
@@ -347,6 +350,7 @@ func assertScriptedPolicy(t *testing.T, csp string) {
 // The sandbox origin answers no yard route: every page of the view is
 // its mux's own 404 there.
 func TestSandboxAnswersNoYardRoute(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	for _, path := range []string{"/", "/beads", "/beads/some-bead", "/talk", "/health", "/assets/yard.css", "/favicon.ico", "/events"} {
 		r := f.getPages(path)
@@ -365,6 +369,7 @@ func TestSandboxAnswersNoYardRoute(t *testing.T) {
 // The sandbox origin is fenced as the view itself is: the same names
 // answer, and any other is the same 421.
 func TestSandboxHostRulesMatchTheView(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	_, _, shot := f.notedPage(t)
 	for _, host := range []string{"127.0.0.1", "localhost", "[::1]"} {
@@ -393,6 +398,7 @@ func TestSandboxHostRulesMatchTheView(t *testing.T) {
 // the view's names, in any case and with any port; the view itself
 // answers to no name of the origin's.
 func TestSandboxAnswersToPagesHost(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	_, _, shot := f.notedPage(t)
 	f.srv.SetPagesHost("pages.example.net")
@@ -415,6 +421,7 @@ func TestSandboxAnswersToPagesHost(t *testing.T) {
 // to where the origin listens. The JSON names the files as the notes
 // have them, with no run base.
 func TestBeadPageNoteRunLink(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	bead, page, _ := f.notedPage(t)
 
@@ -440,6 +447,7 @@ func TestBeadPageNoteRunLink(t *testing.T) {
 // one is given — and a reader here goes to the address the origin
 // listens on, whatever the view was reached by.
 func TestRunLinkBase(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	bead, page, _ := f.notedPage(t)
 	f.srv.AllowHosts("yard.example.net")
@@ -501,6 +509,7 @@ func TestRunLinkBase(t *testing.T) {
 // A page the yard no longer holds is the Missing line, with neither its
 // static link nor its run link.
 func TestRunLinkMissing(t *testing.T) {
+	t.Parallel()
 	f := newPagesFixture(t)
 	bead, page, _ := f.notedPage(t)
 	must(t, os.Remove(store.BlobPath(f.home, page.Hash)))

@@ -62,6 +62,7 @@ func (f *fixture) as(t *testing.T, as string) *fixture {
 // opens under the page policy, inert; an image keeps the yard page's
 // policy.
 func TestBlobRoute(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
@@ -181,6 +182,7 @@ func TestBlobRoute(t *testing.T) {
 // and not by type — a PDF, an SVG and prose all download. An image and a
 // page carry no such header, served as ever.
 func TestBlobFileDownloads(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
@@ -251,6 +253,7 @@ func TestBlobFileDownloads(t *testing.T) {
 // the blob under that name when the name passes the rule; a name that
 // fails it is a 404, as is a hash no letter names.
 func TestBlobNamedURL(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
@@ -345,6 +348,7 @@ func assertPagePolicy(t *testing.T, csp string) {
 // words as their alt text; one the yard no longer holds is a line saying
 // so, never a broken icon. The JSON names the files.
 func TestBeadPageNoteImages(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
@@ -388,6 +392,7 @@ func TestBeadPageNoteImages(t *testing.T) {
 // holds is a line saying so, never a broken link. The JSON names the
 // files with their names.
 func TestBeadPageNoteFiles(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "the report"}, "me")
@@ -427,6 +432,7 @@ func TestBeadPageNoteFiles(t *testing.T) {
 // broken link. The JSON names the files, and the bead's own page keeps
 // the yard page's policy.
 func TestBeadPageNotePages(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
@@ -472,6 +478,7 @@ func TestBeadPageNotePages(t *testing.T) {
 // note's words under it. Images stand on no board, and the JSON names the
 // files as the notes have them, with no board of its own.
 func TestBeadBoardLaysPagesInNoteOrder(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a board"}, "me")
@@ -539,6 +546,7 @@ func TestBeadBoardLaysPagesInNoteOrder(t *testing.T) {
 // A bead with no note page shows no board: no note, a plain note, or an
 // image's note only.
 func TestBeadBoardAbsentWithoutPages(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "no board"}, "me")
@@ -562,6 +570,7 @@ func TestBeadBoardAbsentWithoutPages(t *testing.T) {
 // Mail pages stand on no board: the board is the bead's note pages, and
 // the bead's page shows no mail at all.
 func TestBeadBoardHoldsNoMailPage(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a board"}, "me")
@@ -597,6 +606,7 @@ func TestBeadBoardHoldsNoMailPage(t *testing.T) {
 // A board page the yard no longer holds is the Missing line, never a
 // broken link.
 func TestBeadBoardMissingPage(t *testing.T) {
+	t.Parallel()
 	f := blobFixture(t)
 	ctx := context.Background()
 	b, err := f.st.CreateBead(ctx, store.NewBead{Title: "a board"}, "me")

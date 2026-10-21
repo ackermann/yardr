@@ -12,6 +12,7 @@ import (
 // the routes and the event beside it, so moves are tried over HTTP
 // (homefeed_test.go).
 func TestHomeKeepsKinds(t *testing.T) {
+	t.Parallel()
 	rd := readerOf(nil, nil)
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -83,6 +84,7 @@ func TestHomeKeepsKinds(t *testing.T) {
 // the bead's own agent (<bead>-<stage>). A script group's (the landing's)
 // needs the groups, so it is tried over HTTP (homefeed_test.go).
 func TestHomeKeepsNotes(t *testing.T) {
+	t.Parallel()
 	rd := readerOf(nil, nil)
 	ctx := context.Background()
 	bead := "b-1"

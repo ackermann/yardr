@@ -12,6 +12,7 @@ import (
 )
 
 func TestUnified(t *testing.T) {
+	t.Parallel()
 	seq := func(from, to int) string {
 		var b strings.Builder
 		for i := from; i <= to; i++ {
@@ -39,6 +40,7 @@ func TestUnified(t *testing.T) {
 }
 
 func TestUpdatedWording(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		data map[string]any
 		want string
@@ -94,6 +96,7 @@ const (
 // The bead's page carries its history, the oldest event first: each as the
 // feed words it, and under an update of the body, the diff.
 func TestBeadHistoryJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	b := edited(t, f.st)
 	var got web.BeadPage
@@ -121,6 +124,7 @@ func TestBeadHistoryJSON(t *testing.T) {
 // The page shows the history, written as text, and shows a later update
 // when it is read again, which it is at the stream's next event.
 func TestBeadHistoryHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	b := edited(t, f.st)
 	ctx := context.Background()
@@ -178,6 +182,7 @@ func (s bare) Events(ctx context.Context, bead string, limit int) ([]store.Event
 // none from the updates after it; a bead nobody changed has its making; an
 // unknown bead is an error.
 func TestHistoryOfOldEvents(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	b := edited(t, f.st)

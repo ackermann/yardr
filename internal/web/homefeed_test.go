@@ -41,6 +41,7 @@ func ownedFixture(t *testing.T) (*fixture, *store.Store) {
 // "All activity" carrying the rest to the full feed. A landing stands
 // once: its move to the terminal stage is hidden beside it.
 func TestHomeFeedKeeps(t *testing.T) {
+	t.Parallel()
 	f, own := ownedFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -168,6 +169,7 @@ func TestHomeFeedKeeps(t *testing.T) {
 // back on failed or changes; every other move is agents doing their jobs.
 // A close by hand, a release, a reopen and a firing timer stand.
 func TestHomeFeedMoves(t *testing.T) {
+	t.Parallel()
 	f, own := ownedFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -250,6 +252,7 @@ func TestHomeFeedMoves(t *testing.T) {
 // rest to the full feed; with nothing kept and nothing at all the feed
 // says so.
 func TestHomeFeedTen(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	b := bead(t, f.st, "a door")
@@ -297,6 +300,7 @@ func TestHomeFeedTen(t *testing.T) {
 // ?all=1 changes the page, never the JSON: / and /?all=1 carry the same
 // full events (TestFeedHTML tries the pages).
 func TestHomeFeedAllJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	landing(t, f.st)
 	ctx := context.Background()
@@ -317,6 +321,7 @@ func TestHomeFeedAllJSON(t *testing.T) {
 // rest as their ids alone, so the client's cursor still passes them. A
 // kept fragment is a message: the column still re-reads on it.
 func TestHomeStream(t *testing.T) {
+	t.Parallel()
 	f, own := ownedFixture(t)
 	ctx := context.Background()
 	b := bead(t, f.st, "a door")
@@ -358,6 +363,7 @@ func TestHomeStream(t *testing.T) {
 // keeps one by a user or a crew member. ?all=1, the JSON and the bead's own
 // page keep every note, as today.
 func TestHomeFeedNotes(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutGroup(ctx, store.Group{Name: "yardr-refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"))

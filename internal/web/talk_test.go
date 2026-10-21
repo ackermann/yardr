@@ -96,6 +96,7 @@ func talkYard(t *testing.T, f *fixture) {
 // Without --as the talk page says the view does not act, and takes no
 // write with the rest of the routes (TestReadOnly).
 func TestTalkWithoutAs(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	r := f.get("/talk")
 	if r.status != 200 || !strings.Contains(r.body, "does not act") || strings.Contains(r.body, "<form") {
@@ -108,6 +109,7 @@ func TestTalkWithoutAs(t *testing.T) {
 
 // With --as and no crew the page says whose command that is.
 func TestTalkNoCrew(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	if _, err := f.st.AddUser(context.Background(), "jo", "jo"); err != nil {
 		t.Fatal(err)
@@ -121,6 +123,7 @@ func TestTalkNoCrew(t *testing.T) {
 // The conversation with the yardmaster, the form that writes to it, and
 // the crew to talk to instead.
 func TestTalk(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	r := f.get("/talk")
@@ -161,6 +164,7 @@ func TestTalk(t *testing.T) {
 // The conversation as JSON: the user, the member, the letters oldest
 // first, each saying whether its user wrote it.
 func TestTalkJSON(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	r := f.get("/talk?with=yardmaster", "Accept", "application/json")
@@ -183,6 +187,7 @@ func TestTalkJSON(t *testing.T) {
 // Past the page's limit the oldest letters are an "Older mail" link away,
 // on a page that is a snapshot: it does not read itself again.
 func TestTalkOlder(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -217,6 +222,7 @@ func TestTalkOlder(t *testing.T) {
 // live letters below the earlier block in the pane, every block oldest
 // first; an older page on its own is a snapshot with the way back.
 func TestTalkPaging(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -348,6 +354,7 @@ func talkBlobFixture(t *testing.T, as string) *fixture {
 // The talk page draws each mail's images below its words, with the
 // letter's words as their alt text. The JSON names the files.
 func TestTalkShowsMailImages(t *testing.T) {
+	t.Parallel()
 	f := talkBlobFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -382,6 +389,7 @@ func TestTalkShowsMailImages(t *testing.T) {
 // broken image: an image's line where the picture stood, a page's where
 // its name stood.
 func TestTalkMissingFile(t *testing.T) {
+	t.Parallel()
 	f := talkBlobFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -420,6 +428,7 @@ func TestTalkMissingFile(t *testing.T) {
 // A mail's page is named, never drawn as an image: no link here opens
 // one.
 func TestTalkNamesPages(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -442,6 +451,7 @@ func TestTalkNamesPages(t *testing.T) {
 // Mail the crew member acknowledged says read under the user's own; mail
 // it has not says nothing.
 func TestTalkRead(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -471,6 +481,7 @@ func TestTalkRead(t *testing.T) {
 // while it is stopped, and not logged in at a login screen, where it reads
 // no mail until the login the yard leads is made (yardr-302g).
 func TestTalkStatus(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -526,6 +537,7 @@ func TestTalkStatus(t *testing.T) {
 // crew. The picker lists the yard's other users after its crew, never the
 // user the view acts as.
 func TestTalkPerson(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	ctx := context.Background()
@@ -601,6 +613,7 @@ func TestTalkPerson(t *testing.T) {
 // With no crew, the talk page still opens on another user and shows the
 // picker and form; the acting user is not a conversation partner.
 func TestTalkPersonWithoutCrew(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	ctx := context.Background()
 	if _, err := f.st.AddUser(ctx, "jo", "jo"); err != nil {
@@ -646,6 +659,7 @@ func TestTalkPersonWithoutCrew(t *testing.T) {
 // A POST from the view's own origin sends mail as the view's user, and
 // lands on the conversation; anything else is refused.
 func TestTalkPost(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	form := url.Values{"text": {"and the fence"}}
@@ -685,6 +699,7 @@ func TestTalkPost(t *testing.T) {
 
 // A text over one mail's size is sent as numbered mails, in order.
 func TestTalkPostLong(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	text := strings.Repeat("x", 10<<10)
@@ -705,6 +720,7 @@ func TestTalkPostLong(t *testing.T) {
 
 // Mail refused stays in the form with the reason, as JSON too.
 func TestTalkPostInvalid(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	r := f.postForm("/talk?with=yardmaster", url.Values{"text": {""}}, "Origin", f.ts.URL)
@@ -728,6 +744,7 @@ func TestTalkPostInvalid(t *testing.T) {
 // address off loopback is the request's host, including an IP under
 // --unsafe. Other hosts and ports the view answers to are distinct origins.
 func TestTalkPostOrigin(t *testing.T) {
+	t.Parallel()
 	form := url.Values{"text": {"and the fence"}}
 	post := func(t *testing.T, f *fixture, requestHost, origin string) int {
 		t.Helper()
@@ -812,6 +829,7 @@ func TestTalkPostOrigin(t *testing.T) {
 
 // With --as the talk and bead pages take writes; no other route does.
 func TestTalkOnlyWrite(t *testing.T) {
+	t.Parallel()
 	f, _ := talkFixture(t, "jo")
 	talkYard(t, f)
 	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {

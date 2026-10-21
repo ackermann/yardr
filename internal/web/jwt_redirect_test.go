@@ -12,6 +12,7 @@ import (
 // lets come over http; any other http target is refused, and an https
 // fetch is never downgraded, to the router either.
 func TestCheckJWKSRedirect(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		to   string

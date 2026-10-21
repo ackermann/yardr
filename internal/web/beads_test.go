@@ -70,6 +70,7 @@ func cards(rs []web.BeadRow) []web.Card {
 // file and the open beads in it, the newest change first. A bead of a depot
 // with no flow is in the depot's elsewhere; a closed one is nowhere.
 func TestFlowsJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -137,6 +138,7 @@ func TestFlowsJSON(t *testing.T) {
 // the depot's flow even in a stage the depot's flow has (as `yardr flow show`
 // counts it).
 func TestFlowsPinnedBead(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -159,6 +161,7 @@ func TestFlowsPinnedBead(t *testing.T) {
 // A depot whose flows cannot be read still shows its beads, and the other
 // depots their flows.
 func TestFlowsReadError(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	srv, err := web.NewServer(failingDepotFlows{API: f.st, depot: "line"}, f.home, nil)
@@ -203,6 +206,7 @@ func squashLines(s string) string { return strings.ReplaceAll(s, "\n", " ") }
 // it, each bead a card that links to its page; and the stream it listens
 // to, after the page's head.
 func TestFlowsHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -285,6 +289,7 @@ func put(fr frame) string {
 // and arrives in the other, and leaves the page when the bead lands. What
 // an open page then shows is what a reload shows.
 func TestFlowsStream(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -378,6 +383,7 @@ func TestFlowsStream(t *testing.T) {
 // seq before and is sent the whole move again; with the id on the first,
 // the card would be gone from the page for good.
 func TestCardStreamCursor(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -409,6 +415,7 @@ func TestCardStreamCursor(t *testing.T) {
 // /beads: the open beads, the newest change first, with the query string's
 // filters for depot and stage.
 func TestBeadsJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	ctx := context.Background()
@@ -448,6 +455,7 @@ func TestBeadsJSON(t *testing.T) {
 // The page: the cards, the filters as links that keep each other, and the
 // request it repeats when the stream says something happened.
 func TestBeadsHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	f.populate()
 	head, err := f.st.Head(context.Background())
@@ -524,6 +532,7 @@ func whole(t *testing.T, f *fixture) (train, blocker, b *store.Bead) {
 
 // A bead's page as JSON: what `yardr prime --bead` knows.
 func TestBeadJSON(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	train, blocker, b := whole(t, f)
 	head, err := f.st.Head(context.Background())
@@ -577,6 +586,7 @@ func TestBeadJSON(t *testing.T) {
 
 // The page, for a person; an unknown bead is a 404 in both forms.
 func TestBeadHTML(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	train, blocker, b := whole(t, f)
 	head, err := f.st.Head(context.Background())
@@ -621,6 +631,7 @@ func TestBeadHTML(t *testing.T) {
 // A bead found from another names it, and the origin's page lists what it
 // led to, closed beads too.
 func TestBeadDiscoveredFrom(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	origin, err := f.st.CreateBead(ctx, store.NewBead{Title: "the origin"}, "me")
@@ -653,6 +664,7 @@ func TestBeadDiscoveredFrom(t *testing.T) {
 // page and the card stream write them as text, never as markup; JSON
 // carries them as they are.
 func TestBeadEscapes(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	_, _, b := whole(t, f)
 	ctx := context.Background()
@@ -705,6 +717,7 @@ func TestBeadEscapes(t *testing.T) {
 // foreign line otherwise. A note of this yard's own carries neither, and
 // the page's JSON names the author as the note has it.
 func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
@@ -798,6 +811,7 @@ func TestBeadPageMarksTrustedNoteAuthor(t *testing.T) {
 // <user>) where a link trusts the name, the foreign line otherwise,
 // and neither for a name of this yard.
 func TestBeadPageMarksHistoryActor(t *testing.T) {
+	t.Parallel()
 	st, own := storetest.NewOwned(t)
 	ctx := context.Background()
 	if _, err := st.AddUser(ctx, "ada", "me"); err != nil {
@@ -880,6 +894,7 @@ func (s unreadableTrusts) Peers(ctx context.Context) ([]store.Peer, error) {
 // a name of another yard: with the foreign line, never (as <user>), and
 // never unmarked.
 func TestBeadPageMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door"}, "me")
@@ -925,6 +940,7 @@ func TestBeadPageMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
 // ?format=seq carries each event's seq and nothing else, whatever the
 // event is of: what a page that reads itself again listens to.
 func TestEventsSeq(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	head, err := f.st.Head(ctx)
@@ -950,6 +966,7 @@ func TestEventsSeq(t *testing.T) {
 // listed as claimed, not running. A bead an agent's session has claimed is
 // working everywhere, as before.
 func TestManualClaimIsNotWorking(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	idea := backlogYard(t, f, 1)[0]
@@ -1087,6 +1104,7 @@ func TestManualClaimIsNotWorking(t *testing.T) {
 // The card stream places a bead a manual group claims as not working, and
 // one an agent's session claims as working: what a reload shows.
 func TestFlowsStreamManualClaim(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	must(t, f.st.PutDepot(ctx, store.Depot{Name: "line", Base: "origin/main"}, "me"))
@@ -1157,6 +1175,7 @@ func (a *asked) ListSessions(ctx context.Context, f store.SessionFilter) ([]stor
 // ones: never every session the yard keeps, which took a second at 20,000
 // beads (yardr-wav4).
 func TestBeadPageReadsItsOwnSessions(t *testing.T) {
+	t.Parallel()
 	st := &asked{API: storetest.New(t), n: map[string]int{}}
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
@@ -1208,6 +1227,7 @@ func (a *asked) Events(ctx context.Context, bead string, limit int) ([]store.Eve
 // manual group's claim runs nothing that could, and a yard has one on
 // every parked bead.
 func TestBeadsReadsTheYardOnce(t *testing.T) {
+	t.Parallel()
 	st := &asked{API: storetest.New(t), n: map[string]int{}}
 	srv, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
 	must(t, err)
