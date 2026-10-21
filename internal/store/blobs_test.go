@@ -772,11 +772,16 @@ func TestWithoutFilesMarkKeepsMidLineDiamonds(t *testing.T) {
 		}
 	}
 	for in, want := range map[string]string{
-		mark + " 1 image: /etc/hosts":          " 1 image: /etc/hosts",
-		"  " + mark + " 1 image: /etc/hosts":   "   1 image: /etc/hosts",
-		"\t" + mark + " 1 image: /etc/hosts":   "\t 1 image: /etc/hosts",
-		mark + mark + " 1 image: /etc/hosts":   " 1 image: /etc/hosts",
-		"kept " + mark + "\n" + mark + " gone": "kept " + mark + "\n gone",
+		mark + " 1 image: /etc/hosts":                  " 1 image: /etc/hosts",
+		"  " + mark + " 1 image: /etc/hosts":           "   1 image: /etc/hosts",
+		"\t" + mark + " 1 image: /etc/hosts":           "\t 1 image: /etc/hosts",
+		mark + mark + " 1 image: /etc/hosts":           " 1 image: /etc/hosts",
+		mark + " " + mark + " 2 files: x":              " 2 files: x",
+		mark + "\t" + mark + " 2 files: x":             " 2 files: x",
+		mark + " " + mark + " " + mark + " 2 files: x": " 2 files: x",
+		"  " + mark + " " + mark + " 2 files: x":       "   2 files: x",
+		mark + " hello":                                " hello",
+		"kept " + mark + "\n" + mark + " gone":         "kept " + mark + "\n gone",
 	} {
 		if got := store.WithoutFilesMark(in); got != want {
 			t.Errorf("WithoutFilesMark(%q) = %q, want %q", in, got, want)

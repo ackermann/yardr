@@ -272,8 +272,10 @@ func NoteFilesLine(home string, files []BlobRef) string {
 // forge the line by typing the mark (NoteFilesMark). Only the mark at a
 // line's first non-whitespace position goes, the only position the line
 // is recognised by (a line with HasPrefix(TrimSpace(line), mark)); a mark
-// further in is a writer's own diamond and stays byte-identical. A bead's
-// title and body are shown so too, where they stand in the same output as
+// further in is a writer's own diamond and stays byte-identical.
+// Whitespace between two marks saves neither: the second would otherwise
+// stand one space over and still read as the yard's. A bead's title and
+// body are shown so too, where they stand in the same output as
 // its notes (bead show, prime, the brief), and a mail's sender where it
 // stands on the mail's line (inbox, conversation, chat): they are
 // writers' words as well. Residual: a writer's mark at a line's first
@@ -287,6 +289,9 @@ func WithoutFilesMark(s string) string {
 		rest := trimmed
 		for strings.HasPrefix(rest, NoteFilesMark) {
 			rest = rest[len(NoteFilesMark):]
+			if next := strings.TrimLeftFunc(rest, unicode.IsSpace); strings.HasPrefix(next, NoteFilesMark) {
+				rest = next
+			}
 		}
 		lines[i] = line[:len(line)-len(trimmed)] + rest
 	}
