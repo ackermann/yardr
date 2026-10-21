@@ -508,15 +508,17 @@ type SourceKeyed struct {
 	// file, and "" for a source's credential or a user's address.
 	Login string `json:"login,omitempty"`
 	// User is whose own address in the source was given, and whose file
-	// File is; "" for a source's credential and for a user's own
-	// credential (As). Next is then the command that comes after it, in
+	// File is; with Harness, whose login's key file File is. It is "" for
+	// a source's credential and for a user's own credential (As). Next is
+	// then the command that comes after it, in
 	// a line: the one that tells the user through the source, or once
 	// that is said the one that tries it.
 	User string `json:"user,omitempty"`
 	// Crew is whose own credential in a source was given, and
-	// whose file File is; "" for a source's credential and for a user's
-	// address. Next is then when the value takes effect, in a line: the
-	// running session does not see it, so when its next one starts.
+	// whose file File is; "" for a source's credential, a harness API key,
+	// and a user's address. Next is then when the value takes effect, in a
+	// line: the running session does not see it, so it is used when the next
+	// one starts.
 	Crew string `json:"crew,omitempty"`
 	// Harness is the kind whose API key was given, and User then whose
 	// login's key file of the kind File is (HarnessKeyFile). Next is when

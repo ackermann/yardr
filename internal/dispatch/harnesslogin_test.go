@@ -286,9 +286,9 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 }
 
 // Picking "API key" on the first ask leads no login program: one secret
-// ask brings the key, GiveSecret writes it into the crew member's env
-// file, and the crew member starts again with its first prompt. No leader
-// runs, and the value is in the file and nowhere else in the yard.
+// ask brings the key, GiveSecret writes it into the operator's key file
+// for the kind, and the crew member starts again with its first prompt. No
+// leader runs, and the value is in the file and nowhere else in the yard.
 func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 	t.Parallel()
 	s, f, d, l := loginSetup(t)

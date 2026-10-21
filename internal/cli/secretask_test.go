@@ -452,7 +452,7 @@ func TestBeadAnswerAHarnessKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.AddAsk(ctx, id, store.Ask{Question: "The key it runs with", To: "mckean",
-		Context: []string{"Create one at https://console.anthropic.com/ (API usage billing).", "It is written into the crew member's environment."},
+		Context: []string{"Create one at https://console.anthropic.com/ (API usage billing).", "It is written into the operator's harness key file and read by every Claude Code session on the operator's login."},
 		Secret:  &store.AskSecret{Harness: "claude", Crew: "yardmaster"}}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func TestBeadAnswerAHarnessKey(t *testing.T) {
 	}
 	for _, want := range []string{
 		"a secret: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login",
-		"it goes to a file only the yard's server reads; no agent is shown it",
+		"the value is kept out of notes, events and logs; each such session receives it in its environment",
 		"answer with: yardr bead answer " + id + " 1 --secret",
 	} {
 		if !strings.Contains(out, want) {

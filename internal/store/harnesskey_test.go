@@ -49,12 +49,15 @@ func TestHarnessKeyAskIsStoredWithTheFilesNames(t *testing.T) {
 	lines := strings.Join(rs[0].Lines(), "\n")
 	for _, want := range []string{
 		"  " + harnessKeyLine,
-		"  it goes to a file only the yard's server reads; no agent is shown it",
+		"  the value is kept out of notes, events and logs; each such session receives it in its environment",
 		"  answer with: yardr bead answer " + y.bead + " " + itoa(seq) + " --secret",
 	} {
 		if !strings.Contains(lines, want) {
 			t.Errorf("the card lacks %q:\n%s", want, lines)
 		}
+	}
+	if strings.Contains(lines, "no agent is shown it") {
+		t.Fatalf("the card hides the fact that the harness receives the key:\n%s", lines)
 	}
 	if strings.Contains(lines, "words wanted") {
 		t.Errorf("the card:\n%s", lines)

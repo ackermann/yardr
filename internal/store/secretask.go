@@ -16,8 +16,8 @@
 // (AskSecret.As), kept in that user's env file: the user's to give, or
 // the operator's for them, as their address is.
 // A waiting login's input (AskSecret.Login) is handed to it and kept
-// nowhere; a harness API key (AskSecret.Harness) is kept in its crew
-// member's env file.
+// nowhere; a harness API key (AskSecret.Harness) is kept in the operator's
+// key file for its kind and read by sessions on that login.
 package store
 
 import (
