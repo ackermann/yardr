@@ -665,7 +665,7 @@ func (w *wtx) answerNobody(ctx context.Context, ask Ask, ans Answer, actor strin
 	if err := w.mappingStale(id, ans.Ask); err != nil {
 		return err
 	}
-	return w.ignoreSender(ctx, id.Source, id.Sender, actor, nil)
+	return w.ignoreSender(ctx, id.Source, id.Sender, actor)
 }
 
 // answerClaim ends a claim card declined in the write that recorded the

@@ -25,7 +25,7 @@ func migrateTrains(tx *bolt.Tx, from uint64) error {
 	if from >= 10 {
 		return nil
 	}
-	return renameTypes(tx, "types "+oldTypeTrain+" and "+oldTypeWagon, oldBeadType, trainWhere)
+	return renameTypes(tx, oldBeadType, trainWhere)
 }
 
 // oldBeadType is the bead type t names in a store from before schema 10: t

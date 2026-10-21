@@ -775,9 +775,9 @@ type Note struct {
 	Notify string `json:"notify,omitempty"`
 	// Told says the session's agent was nudged about the note
 	// (MarkNoteTold, the note_told event), and Acked that the session
-	// recorded having read it (AckNote, the note_acked event). A note
-	// told and not acked when the session ends shows as such, so the
-	// reviewer and the yardmaster know the work may not reflect it.
+	// recorded having read it (AckNote). A note told and not acked
+	// when the session ends shows as such, so the reviewer and the
+	// yardmaster know the work may not reflect it.
 	// Untold says the note could not be told to its session, and why
 	// (MarkNoteUntold, the note_untold event): neither delivery was
 	// taken. An acked note needs no telling, told or untold.
@@ -952,27 +952,21 @@ func (s *Store) AddNotedAs(ctx context.Context, id, text, actor, session string,
 // AckNote records that session has read the bead's note seq (yardr bead
 // note --ack): the session the note was told to, and no other. An ack of
 // a note still untold cancels its telling: the session read it from the
-// bead. Acking twice is the note again, not a second event.
+// bead. Acking twice is the note again. The ack keeps no name, only that
+// the session read it.
 //
 // session is the caller's word ($YARDR_SESSION). A call that comes from a
 // session's pane (WithCaller, as a move is checked: see Expect) acks as
 // that pane's session whatever session says, and one naming another is
 // refused: an agent cannot mark a note for another session read, nor
-// cancel its telling. From a session's or a crew member's pane the ack is
-// recorded as that session's actor or that crew member, whatever actor
-// says; from anywhere else, as given (paneAuthor).
-func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, actor string) (*Note, error) {
+// cancel its telling.
+func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, _ string) (*Note, error) {
 	var out *Note
 	err := s.writeVia(ctx, func(w *wtx) error {
 		row, err := w.loadBead(id)
 		if err != nil {
 			return err
 		}
-		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-		if err != nil {
-			return err
-		}
-		actor = resolved
 		pane, err := paneSession(w.Tx, callerOf(ctx))
 		if err != nil {
 			return err
@@ -1000,9 +994,6 @@ func (s *Store) AckNote(ctx context.Context, id string, seq uint64, session, act
 		if !n.Acked {
 			n.Acked = true
 			if err := put(w.Tx, bNotes, join(row.UUID, seqKey(seq)), n); err != nil {
-				return err
-			}
-			if err := w.event(row.UUID, "note_acked", actor, map[string]any{"note": seq, "session": session}); err != nil {
 				return err
 			}
 		}

@@ -36,5 +36,5 @@ func migrateWagons(tx *bolt.Tx, from uint64) error {
 		}
 		return out, changed
 	}
-	return renameTypes(tx, "type "+typeCar, typ, where)
+	return renameTypes(tx, typ, where)
 }

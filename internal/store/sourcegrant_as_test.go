@@ -14,8 +14,7 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// grantEvents are the source_granted and source_revoked events, oldest
-// first.
+// grantEvents are the source_granted events, oldest first.
 func grantEvents(t *testing.T, s store.API, ctx context.Context) []store.Event {
 	t.Helper()
 	evs, err := s.EventsSince(ctx, 0, 1000)
@@ -24,7 +23,7 @@ func grantEvents(t *testing.T, s store.API, ctx context.Context) []store.Event {
 	}
 	var out []store.Event
 	for _, e := range evs {
-		if e.Kind == "source_granted" || e.Kind == "source_revoked" {
+		if e.Kind == "source_granted" {
 			out = append(out, e)
 		}
 	}
@@ -146,18 +145,16 @@ func TestGrantAsAUser(t *testing.T) {
 	if gs, _ := s.SourceGrants(ctx, "crm"); len(gs) != 2 {
 		t.Fatalf("the grants after the revokes = %+v", gs)
 	}
-	var grantedAs, grantedPlain, revokedAs bool
+	var grantedAs, grantedPlain bool
 	for _, e := range grantEvents(t, s, ctx) {
 		switch {
 		case e.Kind == "source_granted" && e.Data["as"] == "ada" && e.Actor == "ada":
 			grantedAs = true
 		case e.Kind == "source_granted" && e.Data["as"] == "":
 			grantedPlain = true
-		case e.Kind == "source_revoked" && e.Data["as"] == "ada":
-			revokedAs = true
 		}
 	}
-	if !grantedAs || !grantedPlain || !revokedAs {
+	if !grantedAs || !grantedPlain {
 		t.Fatalf("the grant events carry no as as they should: %+v", grantEvents(t, s, ctx))
 	}
 

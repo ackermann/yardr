@@ -54,10 +54,8 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 	if from >= 11 {
 		return nil
 	}
-	counts := map[string]any{}
-	// rewrite puts back each record of bucket that fix changed and counts
-	// them as what.
-	rewrite := func(what string, bucket []byte, fix func(raw []byte) (any, error)) error {
+	// rewrite puts back each record of bucket that fix changed.
+	rewrite := func(bucket []byte, fix func(raw []byte) (any, error)) error {
 		changes := map[string]any{}
 		err := tx.Bucket(bucket).ForEach(func(k, raw []byte) error {
 			v, err := fix(raw)
@@ -74,9 +72,6 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 				return err
 			}
 		}
-		if len(changes) > 0 {
-			counts[what] = len(changes)
-		}
 		return nil
 	}
 	subs := func(list []Subscription) bool {
@@ -88,7 +83,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 		}
 		return changed
 	}
-	err := rewrite("crew", bCrew, func(raw []byte) (any, error) {
+	err := rewrite(bCrew, func(raw []byte) (any, error) {
 		var r CrewMember
 		if err := json.Unmarshal(raw, &r); err != nil {
 			return nil, err
@@ -111,7 +106,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 	if err != nil {
 		return err
 	}
-	err = rewrite("user_subscriptions", bUsers, func(raw []byte) (any, error) {
+	err = rewrite(bUsers, func(raw []byte) (any, error) {
 		var u User
 		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
 			return nil, err
@@ -121,7 +116,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 	if err != nil {
 		return err
 	}
-	err = rewrite("group_subscriptions", bGroups, func(raw []byte) (any, error) {
+	err = rewrite(bGroups, func(raw []byte) (any, error) {
 		var g Group
 		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
 			return nil, err
@@ -131,7 +126,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 	if err != nil {
 		return err
 	}
-	err = rewrite("beads", bBeads, func(raw []byte) (any, error) {
+	err = rewrite(bBeads, func(raw []byte) (any, error) {
 		var r beadRow
 		if err := json.Unmarshal(raw, &r); err != nil {
 			return nil, err
@@ -149,7 +144,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 	if err != nil {
 		return err
 	}
-	err = rewrite("threads", bThreads, func(raw []byte) (any, error) {
+	err = rewrite(bThreads, func(raw []byte) (any, error) {
 		var p struct {
 			Participation
 			Old string `json:"resident"`
@@ -165,7 +160,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 	if err != nil {
 		return err
 	}
-	err = rewrite("packs", bPacks, func(raw []byte) (any, error) {
+	err = rewrite(bPacks, func(raw []byte) (any, error) {
 		type object struct {
 			PackObject
 			Old string `json:"resident"`
@@ -202,11 +197,7 @@ func migrateCrew(tx *bolt.Tx, from uint64, home string, moved bool) error {
 		}
 		return rec, nil
 	})
-	if err != nil || len(counts) == 0 {
-		return err
-	}
-	counts["from"] = oldCrewBucket
-	return (&wtx{Tx: tx}).event("", "crew_migrated", "yardr", counts)
+	return err
 }
 
 // crewLabel is label with the word an earlier release used replaced:

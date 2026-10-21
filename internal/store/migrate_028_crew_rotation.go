@@ -2,7 +2,6 @@ package store
 
 import (
 	"encoding/json"
-	"sort"
 
 	bolt "go.etcd.io/bbolt"
 )
@@ -39,14 +38,5 @@ func migrateCrewRotation(tx *bolt.Tx, from uint64) error {
 			return err
 		}
 	}
-	if len(changes) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(changes))
-	for _, c := range changes {
-		names = append(names, c.key)
-	}
-	sort.Strings(names)
-	return (&wtx{Tx: tx}).event("", "crew_migrated", "yardr",
-		map[string]any{"from": "6h", "to": "24h", "crew": names})
+	return nil
 }

@@ -283,18 +283,10 @@ func (g SourceGrant) Words(d *source.Declaration) string {
 
 // RevokeSource takes what of src back from to. Anyone may narrow a grant,
 // as anyone may narrow what a crew member is allowed. It returns what the
-// grantee is left with, Calls empty when that is nothing. From a session's
-// or a crew member's pane the write is recorded as that session's actor or
-// that crew member, whatever actor says; from anywhere else, as given
-// (paneAuthor).
-func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, as, actor string) (*SourceGrant, error) {
+// grantee is left with, Calls empty when that is nothing.
+func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, as, _ string) (*SourceGrant, error) {
 	g := &SourceGrant{}
 	err := s.write(func(w *wtx) error {
-		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-		if err != nil {
-			return err
-		}
-		actor = resolved
 		*g = SourceGrant{}
 		ok, err := get(w.Tx, bSourceGrants, grantKey(src, to, as), g)
 		if err != nil {
@@ -312,7 +304,7 @@ func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, 
 		if err != nil {
 			return err
 		}
-		return w.event("", "source_revoked", actor, grantData(src, what, to, as))
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -320,9 +312,9 @@ func (s *Store) RevokeSource(ctx context.Context, src, what string, to Grantee, 
 	return g, nil
 }
 
-// grantData is the data of a source_granted or source_revoked event: the
-// source, what was granted, the grantee, and the user called as under
-// "as", "" for a plain grant. It never holds a credential.
+// grantData is the data of a source_granted event: the source, what was
+// granted, the grantee, and the user called as under "as", "" for a plain
+// grant. It never holds a credential.
 func grantData(src, what string, to Grantee, as string) map[string]any {
 	data := map[string]any{"source": src, "what": what, "as": as}
 	if to.Crew != "" {

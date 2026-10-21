@@ -527,19 +527,11 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		t.Fatalf("schema after Open = %d; want 28", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
-	added := 0
 	for k, v := range after {
 		was, ok := before[k]
 		switch {
 		case ok && was != v:
 			t.Errorf("%q changed:\n was %s\n now %s", k, was, v)
-		case !ok && strings.HasPrefix(k, "events\x00") && strings.Contains(v, `"types_migrated"`):
-			added++
-			for _, part := range []string{`"beads":2`, `"routes":1`, `"flow_pointers":1`, `"hooks":1`, `"subscriptions":1`, `"user_subscriptions":1`, `"group_subscriptions":1`, `"packs":1`} {
-				if !strings.Contains(v, part) {
-					t.Errorf("types_migrated lacks %s: %s", part, v)
-				}
-			}
 		case !ok:
 			t.Errorf("%q was added: %s", k, v)
 		}
@@ -548,9 +540,6 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		if _, ok := after[k]; !ok && (strings.HasPrefix(k, "events\x00") || strings.HasPrefix(k, "named_flows\x00")) {
 			t.Errorf("%q is gone", k)
 		}
-	}
-	if added != 1 {
-		t.Errorf("%d types_migrated events, want one: the next start adds none", added)
 	}
 }
 
@@ -737,19 +726,11 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		t.Fatalf("schema after Open = %d; want 28", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
-	added := 0
 	for k, v := range after {
 		was, ok := before[k]
 		switch {
 		case ok && was != v:
 			t.Errorf("%q changed:\n was %s\n now %s", k, was, v)
-		case !ok && strings.HasPrefix(k, "events\x00") && strings.Contains(v, `"types_migrated"`):
-			added++
-			for _, part := range []string{`"beads":1`, `"routes":1`, `"flow_pointers":1`, `"hooks":1`, `"subscriptions":1`, `"user_subscriptions":1`, `"group_subscriptions":1`, `"packs":1`, `"from":"type car"`} {
-				if !strings.Contains(v, part) {
-					t.Errorf("types_migrated lacks %s: %s", part, v)
-				}
-			}
 		case !ok:
 			t.Errorf("%q was added: %s", k, v)
 		}
@@ -758,9 +739,6 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		if _, ok := after[k]; !ok && (strings.HasPrefix(k, "events\x00") || strings.HasPrefix(k, "named_flows\x00")) {
 			t.Errorf("%q is gone", k)
 		}
-	}
-	if added != 1 {
-		t.Errorf("%d types_migrated events, want one: the next start adds none", added)
 	}
 
 	// No release had the word, so it names no wagon now: a bead of type car
@@ -992,20 +970,11 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		})
 		db.Close()
 		after := bucketDump(t, path, "events")
-		var added []string
 		for k, v := range after {
 			if _, had := events[k]; !had {
-				added = append(added, v)
+				t.Fatalf("%s: an event was added: %s", pass, v)
 			} else if events[k] != v {
 				t.Fatalf("%s: an event was rewritten: %s, was %s", pass, v, events[k])
-			}
-		}
-		if len(added) != 1 || !strings.Contains(added[0], `"kind":"crew_migrated"`) || !strings.Contains(added[0], `"from":"residents"`) {
-			t.Fatalf("%s: events added = %q, want one crew_migrated", pass, added)
-		}
-		for _, want := range []string{`"crew":1`, `"beads":2`, `"threads":1`, `"packs":1`, `"user_subscriptions":1`, `"group_subscriptions":1`} {
-			if !strings.Contains(added[0], want) {
-				t.Fatalf("%s: crew_migrated = %s, want %s in it", pass, added[0], want)
 			}
 		}
 		if first == nil {
@@ -2192,7 +2161,7 @@ func TestSchema26StoreGainsHearer(t *testing.T) {
 // A store of schema 27, from when the forced rotation was every 6h, comes
 // out of Open with a 6h max_age moved to 24h and anything else kept: a
 // rotation by context use asks past 60% instead, so the clock is a
-// failsafe. The move is logged once, and the next start changes nothing.
+// failsafe. The next start changes nothing.
 func TestSchema27CrewRotationMoves6hTo24h(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -2242,22 +2211,6 @@ func TestSchema27CrewRotationMoves6hTo24h(t *testing.T) {
 		}
 		if r, _ := s.GetCrew(ctx, "boss"); r.Revision != boss.Revision {
 			t.Fatalf("%s: the move re-minted the revision", pass)
-		}
-		evs, err := s.Events(ctx, "", 100)
-		if err != nil {
-			t.Fatal(err)
-		}
-		moved := 0
-		for _, e := range evs {
-			if e.Kind == "crew_migrated" {
-				moved++
-				if e.Data["from"] != "6h" || e.Data["to"] != "24h" {
-					t.Fatalf("%s: crew_migrated = %+v", pass, e.Data)
-				}
-			}
-		}
-		if moved != 1 {
-			t.Fatalf("%s: crew_migrated events = %d, want the one's", pass, moved)
 		}
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)

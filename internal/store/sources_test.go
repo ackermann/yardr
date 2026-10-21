@@ -29,7 +29,8 @@ notify: { call: message, address: { param: user, env: PUSHOVER_USER }, text: tex
 `
 
 // A declared source is kept as its file, under the name the file gives it;
-// replacing it keeps where its credential is; each change is an event.
+// replacing it keeps where its credential is; each change but the removal
+// is an event.
 func TestDeclaredSource(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
@@ -98,7 +99,7 @@ func TestDeclaredSource(t *testing.T) {
 			}
 		}
 	}
-	if got := strings.Join(kinds, " "); got != "source_added source_set source_set source_added source_set source_removed" {
+	if got := strings.Join(kinds, " "); got != "source_added source_set source_set source_added source_set" {
 		t.Fatalf("events = %s", got)
 	}
 	if raw, _ := json.Marshal(evs); strings.Contains(string(raw), "{credential}") || strings.Contains(string(raw), "messages.json") {

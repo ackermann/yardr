@@ -365,67 +365,6 @@ func TestBeadWriteFromAPaneIsThatPanesActor(t *testing.T) {
 	})
 }
 
-// An ack from a session's pane is recorded as that session's actor,
-// whatever --actor says. From no pane the actor stands as given.
-func TestAckFromAPaneIsThatPanesActor(t *testing.T) {
-	t.Parallel()
-	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
-		t.Helper()
-		s := storetest.New(t)
-		ctx := context.Background()
-		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "op"); err != nil {
-			t.Fatal(err)
-		}
-		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "op")
-		if err != nil {
-			t.Fatal(err)
-		}
-		sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
-		if err != nil {
-			t.Fatal(err)
-		}
-		actor := b.ID + "-new"
-		if withPane {
-			if err := s.MarkRunning(ctx, sess.ID, paneShell(t, actor)); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return s, ctx, b, sess, actor
-	}
-
-	t.Run("pane", func(t *testing.T) {
-		s, ctx, b, sess, actor := setup(t, true)
-		n, err := s.AddNotedAs(ctx, b.ID, "words", "op", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		pane := store.WithCaller(ctx, os.Getpid())
-		if _, err := s.AckNote(pane, b.ID, n.Seq, sess.ID, "op"); err != nil {
-			t.Fatal(err)
-		}
-		if a := lastEventActor(t, s, ctx, b.ID, "note_acked"); a != actor {
-			t.Fatalf("note_acked event actor = %q, want %q", a, actor)
-		}
-	})
-
-	t.Run("no pane", func(t *testing.T) {
-		s, ctx, b, sess, _ := setup(t, false)
-		n, err := s.AddNotedAs(ctx, b.ID, "words", "op", "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.AckNote(ctx, b.ID, n.Seq, sess.ID, "op"); err != nil {
-			t.Fatal(err)
-		}
-		if a := lastEventActor(t, s, ctx, b.ID, "note_acked"); a != "op" {
-			t.Fatalf("note_acked event actor = %q, want op", a)
-		}
-	})
-}
-
 // An ask from a session's pane is asked as that session's actor,
 // whatever --actor says: the ask note's author and the yard's own
 // "leave it to" name it. From no pane the actor stands as given.
@@ -1123,7 +1062,6 @@ func TestSetupWritesFromAPaneAreThatPanesActor(t *testing.T) {
 		} else if len(g.Calls) != 0 {
 			t.Fatalf("grant after the revoke = %+v", g)
 		}
-		as("source_revoked")
 		if err := api.SetCrewEnabled(pane, "clerk", false, "", "jo"); err != nil {
 			t.Fatalf("disabling a crew member from the pane as the operator: %v", err)
 		}

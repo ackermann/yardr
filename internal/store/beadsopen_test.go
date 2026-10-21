@@ -164,7 +164,9 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 		}},
 	}
 	// reopenAs closes the store, ages its beads to schema and opens it
-	// again, which migrates them back.
+	// again, which migrates them back. The migration's event of kind says
+	// how many beads it aged back; "" for a migration that logs nothing,
+	// where the beads themselves are read back instead.
 	reopenAs := func(schema uint64, kind string, old *strings.Replacer) {
 		t.Helper()
 		must(s.Close(ctx))
@@ -174,6 +176,16 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 		}
 		s, err = store.Open(path)
 		must(err)
+		if kind == "" {
+			bs, err := s.ListBeads(ctx, store.BeadFilter{All: true})
+			must(err)
+			for _, b := range bs {
+				if got := fmt.Sprintf("%+v", b); strings.Contains(got, "resident") {
+					t.Fatalf("opening the store aged to schema %d: %s still says %s", schema, b.ID, got)
+				}
+			}
+			return
+		}
 		evs, err := s.Events(ctx, "", 0)
 		must(err)
 		i := slices.IndexFunc(evs, func(e store.Event) bool { return e.Kind == kind })
@@ -197,7 +209,7 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 			reopenAs(11, "depots_migrated", strings.NewReplacer(`"depot":"web"`, `"rig":"web"`))
 			same("the depot rename")
 		case 400:
-			reopenAs(10, "crew_migrated", strings.NewReplacer(`"scope:crew:boss"`, `"scope:resident:boss"`, `"crew:boss"`, `"resident:boss"`))
+			reopenAs(10, "", strings.NewReplacer(`"scope:crew:boss"`, `"scope:resident:boss"`, `"crew:boss"`, `"resident:boss"`))
 			same("the crew rename")
 		}
 		op := ops[rng.Intn(len(ops))]

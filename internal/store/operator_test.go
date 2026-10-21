@@ -1380,7 +1380,7 @@ func TestCompletionsAndFollowsSpeakAsTheCrewMember(t *testing.T) {
 		}
 	}
 	// The operator, from a terminal with no pane on record: every
-	// completion lands its event.
+	// completion lands, three of them with an event.
 	s, ctx := speakYard(t)
 	reply, opened := ready(t, s, ctx)
 	head, err := s.Head(ctx)
@@ -1392,8 +1392,8 @@ func TestCompletionsAndFollowsSpeakAsTheCrewMember(t *testing.T) {
 			t.Errorf("%s as the operator: %v", does, err)
 		}
 	}
-	if now, _ := s.Head(ctx); now-head != 5 {
-		t.Errorf("the operator's completions logged %d events, want 5", now-head)
+	if now, _ := s.Head(ctx); now-head != 3 {
+		t.Errorf("the operator's completions logged %d events, want 3", now-head)
 	}
 	if got, want := threads(t, s, "yardmaster"), []string{"linear/T-follow followed", "linear/T-open opened", "linear/T-reply replied", "linear/T-state followed"}; !slices.Equal(got, want) {
 		t.Errorf("threads after the operator's completions = %v, want %v", got, want)
@@ -1446,7 +1446,7 @@ func TestCompletionsAndFollowsSpeakAsTheCrewMember(t *testing.T) {
 			t.Errorf("%s from yardmaster's own pane, naming another: %v", does, err)
 		}
 	}
-	if now, _ := s.Head(ctx); now-head != 5 {
-		t.Errorf("the pane's completions logged %d events, want 5", now-head)
+	if now, _ := s.Head(ctx); now-head != 3 {
+		t.Errorf("the pane's completions logged %d events, want 3", now-head)
 	}
 }

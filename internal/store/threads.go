@@ -105,7 +105,7 @@ func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor st
 		if err := put(w.Tx, bThreads, threadKey(name, source, thread), p); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "thread_followed", actor, map[string]any{"crew": name, "source": source, "thread": thread})
+		return nil
 	})
 }
 
@@ -522,7 +522,7 @@ func (s *Store) UnfollowThread(ctx context.Context, name, source, thread, actor 
 		if err := w.Bucket(bThreads).Delete(key); err != nil {
 			return err
 		}
-		return w.event(r.Journal, "thread_unfollowed", actor, map[string]any{"crew": name, "source": source, "thread": thread})
+		return nil
 	})
 }
 

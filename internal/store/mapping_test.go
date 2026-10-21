@@ -633,7 +633,7 @@ func TestIgnoreEntryEndsTheCard(t *testing.T) {
 	card := claimCard(t, y, "U123")
 	ignore := func(sender string) {
 		t.Helper()
-		if err := y.write(func(w *wtx) error { return w.ignoreSender(y.ctx, "talk", sender, "mckean", nil) }); err != nil {
+		if err := y.write(func(w *wtx) error { return w.ignoreSender(y.ctx, "talk", sender, "mckean") }); err != nil {
 			t.Fatal(err)
 		}
 	}

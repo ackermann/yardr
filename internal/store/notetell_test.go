@@ -128,11 +128,7 @@ func TestNotedNamesTheSessionTold(t *testing.T) {
 // the telling is cancelled. Acking twice is the note again.
 func TestAckNote(t *testing.T) {
 	t.Parallel()
-	s, ctx, b, sess, n, events := noteTellYard(t)
-	acked := func() []store.Event {
-		t.Helper()
-		return events("note_acked")
-	}
+	s, ctx, b, sess, n, _ := noteTellYard(t)
 
 	if _, err := s.AckNote(ctx, b.ID, n.Seq, "another", "builder"); err == nil {
 		t.Fatal("another session acked the note")
@@ -154,14 +150,8 @@ func TestAckNote(t *testing.T) {
 	if !got.Acked {
 		t.Fatalf("acked note = %+v", got)
 	}
-	if evs := acked(); len(evs) != 1 || evs[0].Data["note"] != float64(n.Seq) || evs[0].Data["session"] != sess.ID {
-		t.Fatalf("note_acked events = %+v", evs)
-	}
 	if _, err := s.AckNote(ctx, b.ID, n.Seq, sess.ID, "builder"); err != nil {
 		t.Fatal(err)
-	}
-	if evs := acked(); len(evs) != 1 {
-		t.Fatalf("acking twice logged %d events", len(evs))
 	}
 	if notes, _ := s.Notes(ctx, b.ID); !notes[0].Acked {
 		t.Fatalf("Notes = %+v, want the ack", notes)

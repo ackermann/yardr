@@ -341,14 +341,11 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 // renameTypes rewrites every record that names a bead type typ replaces, or
 // holds a subscription's filter where does: beads, routes, flow pointers
 // (their key too), hooks' stage maps, the subscriptions of the crew, of
-// users and of groups, and the records of imported packs. It logs one
-// types_migrated event with the counts, saying they were renamed from what
-// from names, and none when nothing was.
-func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(map[string]string) (map[string]string, bool)) error {
-	counts := map[string]any{}
+// users and of groups, and the records of imported packs.
+func renameTypes(tx *bolt.Tx, typ func(string) string, where func(map[string]string) (map[string]string, bool)) error {
 	// rewrite puts back each record of bucket that fix changed, under the
-	// key fix gives it, and counts them as what.
-	rewrite := func(what string, bucket []byte, fix func(key string, raw []byte) (newKey string, v any, err error)) error {
+	// key fix gives it.
+	rewrite := func(bucket []byte, fix func(key string, raw []byte) (newKey string, v any, err error)) error {
 		type change struct {
 			old, key string
 			v        any
@@ -379,9 +376,6 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 				return err
 			}
 		}
-		if len(changes) > 0 {
-			counts[what] = len(changes)
-		}
 		return nil
 	}
 	subs := func(list []Subscription) bool {
@@ -393,7 +387,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 		}
 		return changed
 	}
-	err := rewrite("beads", bBeads, func(k string, raw []byte) (string, any, error) {
+	err := rewrite(bBeads, func(k string, raw []byte) (string, any, error) {
 		var r beadRow
 		if err := json.Unmarshal(raw, &r); err != nil || typ(r.Type) == r.Type {
 			return k, nil, err
@@ -404,7 +398,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("routes", bRoutes, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bRoutes, func(k string, raw []byte) (string, any, error) {
 		var r Route
 		if err := json.Unmarshal(raw, &r); err != nil || r.Type == nil || typ(*r.Type) == *r.Type {
 			return k, nil, err
@@ -416,7 +410,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("flow_pointers", bFlowPtrs, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bFlowPtrs, func(k string, raw []byte) (string, any, error) {
 		var p FlowPointer
 		if err := json.Unmarshal(raw, &p); err != nil || typ(p.Type) == p.Type {
 			return k, nil, err
@@ -427,7 +421,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("hooks", bHooks, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bHooks, func(k string, raw []byte) (string, any, error) {
 		var h Hook
 		if err := json.Unmarshal(raw, &h); err != nil {
 			return k, nil, err
@@ -442,7 +436,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("subscriptions", bCrew, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bCrew, func(k string, raw []byte) (string, any, error) {
 		var r CrewMember
 		if err := json.Unmarshal(raw, &r); err != nil || !subs(r.Subscriptions) {
 			return k, nil, err
@@ -452,7 +446,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("user_subscriptions", bUsers, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bUsers, func(k string, raw []byte) (string, any, error) {
 		var u User
 		if err := json.Unmarshal(raw, &u); err != nil || !subs(u.Subscriptions) {
 			return k, nil, err
@@ -462,7 +456,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("group_subscriptions", bGroups, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bGroups, func(k string, raw []byte) (string, any, error) {
 		var g Group
 		if err := json.Unmarshal(raw, &g); err != nil || !subs(g.Subscriptions) {
 			return k, nil, err
@@ -472,7 +466,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 	if err != nil {
 		return err
 	}
-	err = rewrite("packs", bPacks, func(k string, raw []byte) (string, any, error) {
+	err = rewrite(bPacks, func(k string, raw []byte) (string, any, error) {
 		var rec PackImport
 		if err := json.Unmarshal(raw, &rec); err != nil {
 			return k, nil, err
@@ -497,11 +491,7 @@ func renameTypes(tx *bolt.Tx, from string, typ func(string) string, where func(m
 		}
 		return k, rec, nil
 	})
-	if err != nil || len(counts) == 0 {
-		return err
-	}
-	counts["from"] = from
-	return (&wtx{Tx: tx}).event("", "types_migrated", "yardr", counts)
+	return err
 }
 
 // mapTypes is a hook's stage map with each bead type replaced by what typ

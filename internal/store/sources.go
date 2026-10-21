@@ -411,12 +411,11 @@ func ignoredIn(tx *bolt.Tx, name, sender string) bool {
 // ignoreSender records the sender id on the source's ignore list, so its
 // later deliveries are dropped without a second card. It is the
 // operator's alone to say (maySource), refused from an agent pane, and
-// an id already on the list is kept once. by is the ask the change was
-// answered on, nil for none: adding happens only by picking "nobody" on
-// a mapping card, never by a command. It ends the mapping cards for the
-// sender (retireMappingCards), also where the id was on the list already:
-// the sender is settled either way.
-func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string, by *approvedOn) error {
+// an id already on the list is kept once. Adding happens only by picking
+// "nobody" on a mapping card, never by a command. It ends the mapping
+// cards for the sender (retireMappingCards), also where the id was on
+// the list already: the sender is settled either way.
+func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string) error {
 	if err := w.maySource(ctx, actor, "ignoring a sender in a source", Askable); err != nil {
 		return err
 	}
@@ -430,13 +429,6 @@ func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string, by *
 		src.Ignored = append(src.Ignored, sender)
 		slices.Sort(src.Ignored)
 		if err := put(w.Tx, bSources, name, src); err != nil {
-			return err
-		}
-		data := map[string]any{"source": name, "sender": sender}
-		if by != nil {
-			data["approved"] = by
-		}
-		if err := w.event("", "sender_ignored", actor, data); err != nil {
 			return err
 		}
 	}
@@ -780,15 +772,14 @@ func (w *wtx) keySource(ctx context.Context, home, name string, values map[strin
 // The file its credential is in is the operator's and stays.
 func (s *Store) DeleteSource(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
-		return w.deleteSource(ctx, name, actor, nil)
+		return w.deleteSource(ctx, name, actor)
 	})
 }
 
 // deleteSource is DeleteSource inside the transaction, so that an
 // approved run ask removes the source in the write that records its
-// approval: by is then the ask it was approved on, which the event
-// carries.
-func (w *wtx) deleteSource(ctx context.Context, name, actor string, by *approvedOn) error {
+// approval.
+func (w *wtx) deleteSource(ctx context.Context, name, actor string) error {
 	// Alone: removing a source also removes the files of its commands
 	// from disk, which no write of the store takes back.
 	if err := w.maySource(ctx, actor, "removing a source", Alone); err != nil {
@@ -803,9 +794,5 @@ func (w *wtx) deleteSource(ctx context.Context, name, actor string, by *approved
 	if err := dropSourceRecords(w.Tx, name); err != nil {
 		return err
 	}
-	data := map[string]any{"source": name}
-	if by != nil {
-		data["approved"] = by
-	}
-	return w.event("", "source_removed", actor, data)
+	return nil
 }

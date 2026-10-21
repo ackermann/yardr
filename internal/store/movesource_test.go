@@ -92,13 +92,6 @@ func TestMoveSourceRecords(t *testing.T) {
 	if now, _ := s.Head(ctx); now != head {
 		t.Fatalf("second move logged %d events", now-head)
 	}
-	evs, err := s.EventsOfKind(ctx, "source_migrated", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(evs) != 1 || evs[0].Data["from"] != "linear-declared" || evs[0].Data["to"] != "linear" {
-		t.Fatalf("events = %+v", evs)
-	}
 }
 
 // An identity under both names that disagrees refuses the whole move,
