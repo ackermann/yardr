@@ -434,22 +434,30 @@ func parStateRoot(expr ast.Expr, pkgVars map[string]bool, locals map[*ast.Ident]
 // parScope is the names one block, or the parameters of one function, have
 // declared so far.
 type parScope struct {
-	names  map[string]bool
+	names  map[string]token.Pos
 	parent *parScope
 }
 
 func newParScope(parent *parScope) *parScope {
-	return &parScope{names: map[string]bool{}, parent: parent}
+	return &parScope{names: map[string]token.Pos{}, parent: parent}
 }
 
-// declared is whether this scope or one around it has declared name.
-func (s *parScope) declared(name string) bool {
+// declared is whether name has entered scope here or in a scope around it.
+func (s *parScope) declared(name string, at token.Pos) bool {
 	for ; s != nil; s = s.parent {
-		if s.names[name] {
+		if from, ok := s.names[name]; ok && at >= from {
 			return true
 		}
 	}
 	return false
+}
+
+// declare records where a name enters scope. A short declaration can reuse
+// a name already declared in this block, so keep the earlier binding.
+func (s *parScope) declare(name string, from token.Pos) {
+	if old, ok := s.names[name]; !ok || from < old {
+		s.names[name] = from
+	}
 }
 
 // fields declares the names of parameter, result and receiver lists.
@@ -460,7 +468,7 @@ func (s *parScope) fields(lists ...*ast.FieldList) {
 		}
 		for _, f := range l.List {
 			for _, n := range f.Names {
-				s.names[n.Name] = true
+				s.declare(n.Name, token.NoPos)
 			}
 		}
 	}
@@ -502,35 +510,36 @@ func (r parResolver) Visit(n ast.Node) ast.Visitor {
 	switch n := n.(type) {
 	case *ast.AssignStmt:
 		if n.Tok == token.DEFINE {
-			r.define(n.Lhs...)
+			r.define(n.End(), n.Lhs...)
 		}
 	case *ast.RangeStmt:
 		if n.Tok == token.DEFINE {
-			r.define(n.Key, n.Value)
+			r.define(n.X.End(), n.Key, n.Value)
 		}
 	case *ast.DeclStmt:
 		if g, ok := n.Decl.(*ast.GenDecl); ok && (g.Tok == token.VAR || g.Tok == token.CONST) {
 			for _, spec := range g.Specs {
 				if v, ok := spec.(*ast.ValueSpec); ok {
 					for _, id := range v.Names {
-						r.scope.names[id.Name] = true
+						r.scope.declare(id.Name, v.End())
 					}
 				}
 			}
 		}
 	case *ast.Ident:
-		if r.scope.declared(n.Name) {
+		if r.scope.declared(n.Name, n.Pos()) {
 			r.locals[n] = true
 		}
 	}
 	return r
 }
 
-// define declares the identifiers among lhs, as := does.
-func (r parResolver) define(lhs ...ast.Expr) {
+// define declares the identifiers among lhs when the declaration ends, as
+// := does: its names do not shadow an outer one in their initializer.
+func (r parResolver) define(from token.Pos, lhs ...ast.Expr) {
 	for _, e := range lhs {
 		if id, ok := e.(*ast.Ident); ok {
-			r.scope.names[id.Name] = true
+			r.scope.declare(id.Name, from)
 		}
 	}
 }
@@ -920,6 +929,18 @@ func TestParallelOtherShadows(t *testing.T) {
 	func(stateMap map[string]bool) { stateMap["x"] = true }(nil)
 }
 
+func TestParallelShortInitializer(t *testing.T) {
+	t.Parallel()
+	state := func() { state.n++ }
+	state()
+}
+
+func TestParallelVarInitializer(t *testing.T) {
+	t.Parallel()
+	var state = func() { state.n++ }
+	state()
+}
+
 func TestParallelWriteBeforeShadow(t *testing.T) {
 	t.Parallel()
 	state.n++
@@ -953,7 +974,9 @@ func TestSerialCycleUnlisted(t *testing.T) { first() }
 		"TestParallelBad calls t.Parallel but reaches the process environment (t.Setenv or os.Setenv) via stubIt",
 		"TestParallelBadViaHelper calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelNestedShadowDoesNotHidePackageWrite calls t.Parallel but reaches package state (assign:state) in its own body",
+		"TestParallelShortInitializer calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelUnsetenvBad calls t.Parallel but reaches the process environment (os.Unsetenv) in its own body",
+		"TestParallelVarInitializer calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelWriteAfterShadowScope calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestParallelWriteBeforeShadow calls t.Parallel but reaches package state (assign:state) in its own body",
 		"TestSerialCycleUnlisted calls no t.Parallel and is not listed in allowSerial (reaches first): parallelise it, or list it with its seam",
