@@ -1,0 +1,154 @@
+<!doctype html>
+<!-- Mockup of the proposed yardr.dev front page (design yardr-q04p). Not the
+     site: a static picture source, shot at 1280 wide in both themes. Open as
+     front.html#light or front.html#dark; the site itself follows the visitor's
+     system setting. Colours, radii and faces are copied from yardr-design's
+     tokens/ (colors.css, typography.css, spacing.css); sizes are the web scale
+     the design proposes. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yardr: each issue to whoever works its next step</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script>document.documentElement.dataset.theme = location.hash === '#light' ? 'light' : 'dark';</script>
+<style>
+/* yardr-design tokens/colors.css: Dusk (dark) and the light theme. */
+:root {
+  --surface-app:#161718; --surface-sunken:#101112; --surface-raised:#1C1D1F;
+  --border-subtle:#27282B; --border-strong:#333538; --border-hover:#46484C;
+  --text-primary:#E9E9EA; --text-secondary:#ABADB0; --text-accent:#E2794A;
+  --button-primary:#B54E22; --button-primary-hover:#C0552A; --button-primary-pressed:#8F3C19;
+  --focus-ring:#E2794A; --text-on-accent:#FFFFFF;
+  --lockup:url(yardr-lockup-mark-right-light.svg);
+}
+[data-theme="light"] {
+  --surface-app:#F7F7F6; --surface-sunken:#EDEDEB; --surface-raised:#FFFFFF;
+  --border-subtle:#E2E2DF; --border-strong:#CFCFCB; --border-hover:#B3B3AE;
+  --text-primary:#161718; --text-secondary:#5B5E64; --text-accent:#B54E22;
+  --focus-ring:#B54E22;
+  --lockup:url(yardr-lockup-mark-right-accent.svg);
+}
+:root {
+  --font-sans:"IBM Plex Sans","Noto Sans","Cantarell","Segoe UI",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono","JetBrains Mono","DejaVu Sans Mono",ui-monospace,monospace;
+  /* The five roles of typography.css, scaled for reading (open question 4). */
+  --type-title:600 36px/44px var(--font-sans);
+  --type-section:600 22px/30px var(--font-sans);
+  --type-label:500 17px/28px var(--font-sans);
+  --type-body:400 17px/28px var(--font-sans);
+  --type-meta:400 15px/24px var(--font-sans);
+  --type-code:400 15px/24px var(--font-mono);
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--surface-app); color:var(--text-primary); font:var(--type-body); }
+.wrap { width:min(100% - 32px, 704px); margin-inline:auto; }
+a { color:inherit; text-decoration-color:var(--text-accent); text-underline-offset:.2em; transition:color 120ms cubic-bezier(.2,.7,.3,1); }
+a:hover { color:var(--text-accent); }
+:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
+code { font:var(--type-code); padding:2px 6px; border-radius:4px; background:var(--surface-sunken); }
+
+/* The plain word first, the yard's own word beside it, quieter. */
+.rw { color:var(--text-secondary); }
+
+.hero { position:relative; overflow:hidden; padding:72px 0 64px; border-bottom:1px solid var(--border-subtle); }
+.hero .wrap { position:relative; }
+/* The big ram stays as decoration (mckean, 21 Oct): yardr-mark.svg as a mask
+   over the text colour, so one file serves both themes. */
+.ram { position:absolute; top:50%; right:max(-16px, calc(50% - 736px)); width:min(62vw, 704px); aspect-ratio:1;
+  translate:0 -50%; background:var(--text-primary); opacity:.06; pointer-events:none;
+  -webkit-mask:url(yardr-mark.svg) center / contain no-repeat; mask:url(yardr-mark.svg) center / contain no-repeat; }
+.lockup { display:block; width:240px; aspect-ratio:210.6 / 76; background:var(--lockup) left center / contain no-repeat; margin-bottom:48px; }
+h1 { font:var(--type-title); margin:0 0 20px; max-width:620px; }
+.lede { margin:0 0 32px; max-width:620px; color:var(--text-primary); }
+.invite { display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px; }
+.button { display:inline-flex; align-items:center; height:40px; padding:0 20px; border-radius:6px;
+  background:var(--button-primary); color:var(--text-on-accent); font:var(--type-label); text-decoration:none; }
+.button:hover { background:var(--button-primary-hover); color:var(--text-on-accent); }
+.invite p { margin:0; font:var(--type-meta); color:var(--text-secondary); }
+
+section, footer { padding:56px 0; }
+section + section, footer { border-top:1px solid var(--border-subtle); }
+h2 { font:var(--type-section); margin:0 0 20px; }
+p { margin:0 0 16px; }
+.meta { font:var(--type-meta); color:var(--text-secondary); }
+
+ol.steps { list-style:none; margin:0 0 24px; padding:0; }
+ol.steps li { display:grid; grid-template-columns:200px 1fr; gap:16px; padding:16px 0; border-top:1px solid var(--border-subtle); }
+ol.steps li:last-child { border-bottom:1px solid var(--border-subtle); }
+ol.steps b { font:var(--type-label); }
+ol.steps span { color:var(--text-primary); }
+ol.steps span .rw { color:var(--text-secondary); }
+
+ul.plain { margin:0 0 24px; padding:0 0 0 20px; }
+ul.plain li { margin-bottom:8px; }
+
+.yard img { width:100%; display:block; border:1px solid var(--border-subtle); border-radius:8px; margin:8px 0 16px; }
+
+footer { color:var(--text-secondary); font:var(--type-meta); }
+footer nav { display:flex; flex-wrap:wrap; gap:8px 24px; margin-bottom:24px; font:var(--type-label); }
+footer nav a { color:var(--text-primary); }
+footer p { margin:0 0 8px; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="ram" aria-hidden="true"></div>
+  <div class="wrap">
+    <span class="lockup" role="img" aria-label="yardr"></span>
+    <h1>Each issue goes to whoever works its next step.</h1>
+    <p class="lede">
+      yardr takes the issues of your repos and passes each one along its steps:
+      an AI agent builds it, another reviews it, a script tests and merges it.
+      When a step is yours to decide, it waits for you.
+    </p>
+    <div class="invite">
+      <a class="button" href="mailto:yardmaster@yardr.dev?subject=yardr%20invite">Ask for an invite</a>
+      <p>yardr is in preview. A mail to <code>yardmaster@yardr.dev</code> asks for yours.</p>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2>How an issue moves</h2>
+    <ol class="steps">
+      <li><b>You write it</b><span>An issue <span class="rw">· bead</span> in one of your repos <span class="rw">· depot</span>, typed in yardr or taken from GitHub or Linear.</span></li>
+      <li><b>An agent builds it</b><span>In a copy of the repo of its own, with your own Claude or Codex login, and commits.</span></li>
+      <li><b>Another reviews it</b><span>A second agent reads the change, and sends it back or passes it on.</span></li>
+      <li><b>A script merges it</b><span>The merge queue <span class="rw">· assembly</span> runs your tests on exactly what merges, then merges it.</span></li>
+    </ol>
+    <p>Which steps there are, and who works each, is yours to set: agents, scripts, people, or another yardr. Every step is recorded: who did what, when, and the notes they left.</p>
+    <p class="meta"><a href="/how">How it works, drawn</a></p>
+  </section>
+
+  <section>
+    <h2>The preview</h2>
+    <ul class="plain">
+      <li>Your own workspace <span class="rw">· yard</span>, hosted at my.yardr.dev, with its own agents <span class="rw">· crew</span> and repos.</li>
+      <li>Agents run with your own Claude or Codex login: the hosted service keeps no AI key of its own.</li>
+      <li>footplate, the desktop app for macOS and Linux, puts the questions waiting for you in one window.</li>
+      <li>yardr is free to run on your own machines; a hosted workspace is paid.</li>
+    </ul>
+    <div class="invite">
+      <a class="button" href="mailto:yardmaster@yardr.dev?subject=yardr%20invite">Ask for an invite</a>
+      <p>By invite while it is in preview.</p>
+    </div>
+  </section>
+
+  <section class="yard">
+    <h2>One at work</h2>
+    <img src="signalbox.jpg" alt="The workspace where yardr is built, drawn as a railway by signalbox">
+    <p>signalbox draws the workspace <span class="rw">· yard</span> where yardr is built as a railway, live: each repo a station, each issue a wagon. <a href="https://signalbox.yardr.dev">signalbox.yardr.dev</a></p>
+  </section>
+</main>
+
+<footer class="wrap">
+  <nav>
+    <a href="/how">How it works</a><a href="/packs">Packs</a><a href="/self-host">Run it yourself</a><a href="/edge">The edge's key</a>
+  </nav>
+  <p>yardr starts every agent through <a href="https://herdr.dev">herdr</a>, implements <a href="https://github.com/gastownhall/bdp">BDP</a>, the Bead Protocol, and owes its ideas and words to <a href="https://github.com/steveyegge/beads">Beads</a>, <a href="https://github.com/steveyegge/gastown">Gas Town</a> and <a href="https://github.com/gastownhall/gascity">Gas City</a>. Thank you to everyone who built them.</p>
+</footer>
+</body>
+</html>
