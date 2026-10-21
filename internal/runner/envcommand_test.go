@@ -38,7 +38,13 @@ func writeProvider(t *testing.T, cmd, runs, body string) {
 // the socket request that opens it, under the same rule for yardr's own
 // keys, with only the names logged. It is asked at every start.
 func TestStartCrewLoadsEnvCommand(t *testing.T) {
-	t.Parallel()
+	// Serial: the provider gets an hour to answer, so no case is decided
+	// by how fast the machine starts a script: under load that alone has
+	// spent the production 10 s, and an answer was taken for a hang
+	// (yardr-gdes).
+	old := config.EnvCommandTimeout
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
+	config.EnvCommandTimeout = time.Hour
 	cmd, runs := providerT(t, `echo "# from the vault"; echo "LINEAR_API_KEY=`+envSecret+`"; echo "YARDR_ACTOR=someone-else"`)
 	h, calls, logs := envHerdr(t, "")
 	r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: map[string]any{"env_command": cmd + " --env"}}
@@ -60,7 +66,10 @@ func TestStartCrewLoadsEnvCommand(t *testing.T) {
 // An env_file and a provider: the pane has both, and the provider's value
 // for a key in both.
 func TestStartCrewEnvCommandWinsOverEnvFile(t *testing.T) {
-	t.Parallel()
+	// Serial: the provider gets an hour to answer, as the test above does.
+	old := config.EnvCommandTimeout
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
+	config.EnvCommandTimeout = time.Hour
 	file := filepath.Join(t.TempDir(), "yardmaster.env")
 	if err := os.WriteFile(file, []byte("LINEAR_API_KEY=from-the-file\nGITHUB_TOKEN=gh-file\n"), 0o600); err != nil {
 		t.Fatal(err)

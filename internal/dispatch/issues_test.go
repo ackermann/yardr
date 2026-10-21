@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/scripttest"
@@ -663,7 +664,13 @@ func TestIssuesOfTwoSources(t *testing.T) {
 // the move wait with nothing sent, saying which command and how it ended,
 // and what it printed is in no event or log.
 func TestIssueMoveUsesTheCrewEnvCommand(t *testing.T) {
-	t.Parallel()
+	// Serial: the provider gets an hour to answer (config.EnvCommandTimeout),
+	// which parallel tests cannot share, so no case is decided by how fast
+	// the machine starts a script: under load that alone has spent the
+	// production 10 s, and an answer was taken for a hang.
+	old := config.EnvCommandTimeout
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
+	config.EnvCommandTimeout = time.Hour
 	y := newIssueYard(t)
 	var logged bytes.Buffer
 	y.d.Log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))

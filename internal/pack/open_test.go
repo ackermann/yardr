@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 )
@@ -87,6 +89,12 @@ func mayOpen(t *testing.T, st store.API, member string) string {
 // what the yard has no hook or credential for, and what is left to ask the
 // operator. Building it grants nothing.
 func TestPlanSortsWhatThePackAsksToOpen(t *testing.T) {
+	// Serial: the provider gets an hour to answer, so no case is decided
+	// by how fast the machine starts a script: under load that alone has
+	// spent the production 10 s, and an answer was taken for a hang.
+	old := config.EnvCommandTimeout
+	t.Cleanup(func() { config.EnvCommandTimeout = old })
+	config.EnvCommandTimeout = time.Hour
 	st, o := yard(t)
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	dir := copyStarter(t)
