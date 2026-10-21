@@ -63,10 +63,16 @@ func TestRouteMatchesOriginator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.SortRoutes(routes)
+	var newRoutes []store.Route
+	for _, r := range routes {
+		if r.Stage == "new" {
+			newRoutes = append(newRoutes, r)
+		}
+	}
+	store.SortRoutes(newRoutes)
 	// In new, hal's route (one filter) reads before the operator's (none).
-	if routes[0].ID != halRoute.ID || routes[1].ID != operatorRoute.ID {
-		t.Fatalf("sorted new routes = %v, want hal's first", routes)
+	if len(newRoutes) != 2 || newRoutes[0].ID != halRoute.ID || newRoutes[1].ID != operatorRoute.ID {
+		t.Fatalf("sorted new routes = %v, want hal's first", newRoutes)
 	}
 	for _, tc := range []struct {
 		stage, originator, want string
