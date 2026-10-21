@@ -1852,34 +1852,17 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	if code, _ := finish(term); code != 143 {
 		t.Errorf("a waiter killed with TERM exits %d, want 143", code)
 	}
+	// Its handler removes the ticket before the process exits, so it is gone
+	// the moment the waiter is, with no later pass to reap it (a TERM that
+	// came as the ticket showed once left it, which
+	// TestYardTestRaceLockTermAsTheTicketShowsLeavesNoTicket pins). The
+	// directory is the oracle, not --race-queue, which skips dead tickets
+	// without removing them.
+	if slices.Contains(tickets(), termTicket) {
+		t.Errorf("the TERM killed waiter's ticket is still queued")
+	}
 	if code, out := finish(holder); code != 0 {
 		t.Fatalf("the holder exits %d, want 0:\n%s", code, out)
-	}
-	// The TERM waiter's ticket is gone by w2's acquisition at the
-	// latest: the handler removes it on exit, or w2's servicing pass
-	// reaps it as dead. A dead ticket behind the acquirer is reached
-	// only when the next waiter takes the lock — front on the way to
-	// the front, fullclean as it acquires — so the poll starts after
-	// the holder finishes. The directory is the oracle, not
-	// --race-queue, which skips dead tickets without removing them.
-	termGone := func() bool { return !slices.Contains(tickets(), termTicket) }
-	w2Acquired := func() bool {
-		b, err := os.ReadFile(holderFile)
-		return err == nil && strings.Contains(string(b), "bead=w2-bead\n")
-	}
-	termDeadline := time.Now().Add(30 * time.Second)
-	for {
-		if termGone() {
-			break
-		}
-		if w2Acquired() {
-			t.Errorf("the TERM killed waiter's ticket is still queued after w2 acquired the lock")
-			break
-		}
-		if time.Now().After(termDeadline) {
-			t.Fatalf("the TERM killed waiter's ticket never left the queue")
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	w2code, w2out := finish(w2)
 	w3code, w3out := finish(w3)
@@ -1932,6 +1915,49 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	}
 	if slices.Contains(tickets(), seedName) {
 		t.Errorf("the pre-seeded dead ticket is still queued after the next acquisition")
+	}
+}
+
+// A waiter that gets TERM as its ticket shows leaves no ticket behind. The
+// ticket is in the queue from the rename in mkticket, and cleanup goes by the
+// name the waiter holds, which was set only when mkticket returned: a TERM
+// handled in between exited 143 with its ticket still queued. The gap is
+// microseconds wide, and one waiter in 300 killed as its ticket showed, beside
+// a loaded machine, fell into it (yardr-m1br), so the probe does not wait for
+// chance: it sends the TERM itself on the line before mkticket returns. Its
+// own home stands in for the yard's, so no real gate waits on it.
+func TestYardTestRaceLockTermAsTheTicketShowsLeavesNoTicket(t *testing.T) {
+	t.Parallel()
+	driver, home := raceLockDriver(t)
+	b, err := os.ReadFile(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const returns = "      return $name;\n"
+	if strings.Count(string(b), returns) != 1 {
+		t.Fatalf("cannot find where mkticket returns the ticket in %s: move the probe with the script", yardTest)
+	}
+	probe := filepath.Join(filepath.Dir(driver), "probe.sh")
+	if err := os.WriteFile(probe, []byte(strings.Replace(string(b), returns, "      kill(\"TERM\", $$);\n"+returns, 1)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(probe, filepath.Join(home, "worker.status"), "true")
+	cmd.Env = append(scriptEnv(), "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 143 {
+		t.Fatalf("a waiter that TERMs itself as its ticket shows: %v, want exit 143:\n%s", err, out)
+	}
+	// The queue directory is made before the ticket: it is there, so the
+	// TERM came after mkticket began, and nothing in it is a ticket.
+	entries, err := os.ReadDir(filepath.Join(home, ".yardr", "race.queue"))
+	if err != nil {
+		t.Fatalf("no queue: the TERM came before mkticket made one: %v", err)
+	}
+	for _, e := range entries {
+		if raceTicketName.MatchString(e.Name()) {
+			t.Errorf("ticket %s is still queued after its waiter was TERMed as it showed", e.Name())
+		}
 	}
 }
 

@@ -359,6 +359,12 @@ sub mkticket {
     if (sysopen(my $fh, $tmp, O_WRONLY | O_CREAT | O_EXCL, 0600)) {
       print $fh "pid=$$\nstart=$start\nbead=$bead\ndir=$dir\ncreated=$s\n";
       if (!close($fh)) { unlink($tmp); die "test: cannot write $tmp: $!\n"; }
+      # The ticket is named in $mine before it shows, not by the caller once
+      # mkticket returns: cleanup goes by $mine, and a TERM handled between
+      # the rename and that assignment left the ticket in the queue (once in
+      # 300 waiters killed as their ticket showed, on a loaded machine;
+      # yardr-m1br).
+      $mine = $name;
       if (!rename($tmp, "$qdir/$name")) { unlink($tmp); die "test: cannot queue in $qdir: $!\n"; }
       return $name;
     }
