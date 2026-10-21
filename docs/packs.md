@@ -1201,7 +1201,11 @@ It writes `pack.yaml` with the depot's kind, the flows that govern the depot
 file of each stage under `flows/`, the groups that work the stages, each
 agent group's role under `roles/` and each script group's script under
 `scripts/`. A group gets the yard's name less the depot's prefix
-(`web-builders` is `builders`), which an import puts back.
+(`web-builders` is `builders`), which an import puts back. A group the
+depot's import bound as another is written with `binds_as` again while the
+yard still runs both with the same agent kind, model and arguments; one the
+depot changed since, or bound as a group the pack does not carry, is
+written as its own agent group and said under `left out`.
 
 In the role and stage files the operator's name becomes `{{operator}}`
 again wherever it stands as a whole word. The command prints each such line:

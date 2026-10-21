@@ -243,6 +243,15 @@ func (b *planner) groups() error {
 			}
 		}
 		o.Action, o.Changes, o.Group = action(exists, changes), changes, &want
+		// A group the yard has keeps the last import's binding in the
+		// record while the pack still says binds_as: the import binds
+		// nothing anew, so the record must not change either, or no
+		// re-import is ever unchanged.
+		if exists && o.Binds == "" && g.BindsAs != "" && !slices.Contains(b.o.Bound, g.Name) && b.rec != nil {
+			if i := slices.IndexFunc(b.rec.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == name }); i >= 0 {
+				o.bindsKept = b.rec.Objects[i].Binds
+			}
+		}
 		b.add(o)
 	}
 	// The depot's other groups, by the name an import gives a depot's groups.

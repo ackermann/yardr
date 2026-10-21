@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -212,6 +213,121 @@ func TestExportRoundTrip(t *testing.T) {
 		if _, ok := t1[name]; !ok {
 			t.Errorf("the second export has %s, the first has not", name)
 		}
+	}
+}
+
+// A depot set up from the starter exports its bound group with binds_as
+// again, and a yard set up from that export binds the same agent: the
+// binding round-trips instead of becoming a group the import asks about.
+func TestExportKeepsAgentGroupBindings(t *testing.T) {
+	st, o := yard(t)
+	apply(t, st, build(t, st, load(t, starter), o), answers)
+	rec := record(t, st)
+	if i := slices.IndexFunc(rec.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == "web-security-reviewers" }); i < 0 || rec.Objects[i].Binds != "web-reviewers" {
+		t.Fatalf("the record binds nothing as web-reviewers: %+v", rec.Objects)
+	}
+
+	_, dir := export(t, st, "web", o.Home, "mine")
+	p := load(t, dir)
+	i := slices.IndexFunc(p.Groups, func(g pack.Group) bool { return g.Name == "security-reviewers" })
+	if i < 0 {
+		t.Fatalf("the export has no security-reviewers: %+v", p.Groups)
+	}
+	if p.Groups[i].BindsAs != "reviewers" {
+		t.Errorf("security-reviewers binds as %q, want reviewers", p.Groups[i].BindsAs)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "binds_as: reviewers") {
+		t.Errorf("pack.yaml names no binds_as:\n%s", raw)
+	}
+
+	st2 := storetest.New(t)
+	if err := st2.PutDepot(ctx, store.Depot{Name: "site", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	o2 := pack.Options{Depot: "site", Home: t.TempDir()}
+	plan := build(t, st2, p, o2)
+	sec := find(t, plan, "group", "site-security-reviewers")
+	if sec.Binds != "site-reviewers" || len(sec.Asks) != 0 {
+		t.Fatalf("site-security-reviewers = %+v, want a create that binds as site-reviewers and asks nothing", sec)
+	}
+	for _, id := range questionIDs(plan) {
+		if strings.Contains(id, "site-security-reviewers") {
+			t.Fatalf("the import asks %s", id)
+		}
+	}
+	apply(t, st2, plan, map[string]string{"group.site-reviewers.kind": "codex", "group.site-reviewers.model": "luna"})
+	want := []any{"codex", "luna", nil}
+	for _, name := range []string{"site-reviewers", "site-security-reviewers"} {
+		if got := agentOf(groupOf(t, st2, name)); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s runs %v, want %v", name, got, want)
+		}
+	}
+}
+
+// A bound group the depot changed since its import runs another agent, so
+// binds_as would say what is no longer so: it is exported as its own
+// agent group, and said.
+func TestExportDropsABindingTheDepotChanged(t *testing.T) {
+	st, o := yard(t)
+	apply(t, st, build(t, st, load(t, starter), o), answers)
+	g, err := st.GetGroup(ctx, "web-security-reviewers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Config["model"] = "someone-else"
+	if err := st.PutGroup(ctx, *g, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	ex, dir := export(t, st, "web", o.Home, "mine")
+	p := load(t, dir)
+	i := slices.IndexFunc(p.Groups, func(g pack.Group) bool { return g.Name == "security-reviewers" })
+	if i < 0 {
+		t.Fatalf("the export has no security-reviewers: %+v", p.Groups)
+	}
+	if p.Groups[i].Agent == "" || p.Groups[i].BindsAs != "" {
+		t.Errorf("security-reviewers = %+v, want an agent group that binds as none", p.Groups[i])
+	}
+	if !leftHas(ex, "group web-security-reviewers", "bound as web-reviewers") {
+		t.Errorf("left out lacks the dropped binding:\n%s", strings.Join(ex.Left, "\n"))
+	}
+}
+
+// A bound group whose binding names a group outside the pack is exported
+// as its own agent group: binds_as cannot name what the pack has not.
+func TestExportDropsABindingToAGroupOutsideThePack(t *testing.T) {
+	st, o := yard(t)
+	apply(t, st, build(t, st, load(t, starter), o), answers)
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(routes, func(r store.Route) bool { return r.Stage == "review" && r.Group == "web-reviewers" })
+	if i < 0 {
+		t.Fatalf("no route works review with web-reviewers: %+v", routes)
+	}
+	if err := st.DeleteRoute(ctx, routes[i].ID, "me"); err != nil {
+		t.Fatal(err)
+	}
+
+	ex, dir := export(t, st, "web", o.Home, "mine")
+	p := load(t, dir)
+	if slices.ContainsFunc(p.Groups, func(g pack.Group) bool { return g.Name == "reviewers" }) {
+		t.Fatalf("the export has reviewers, which no route leads to: %+v", p.Groups)
+	}
+	i = slices.IndexFunc(p.Groups, func(g pack.Group) bool { return g.Name == "security-reviewers" })
+	if i < 0 {
+		t.Fatalf("the export has no security-reviewers: %+v", p.Groups)
+	}
+	if p.Groups[i].Agent == "" || p.Groups[i].BindsAs != "" {
+		t.Errorf("security-reviewers = %+v, want an agent group that binds as none", p.Groups[i])
+	}
+	if !leftHas(ex, "group web-security-reviewers", "bound as web-reviewers") {
+		t.Errorf("left out lacks the dropped binding:\n%s", strings.Join(ex.Left, "\n"))
 	}
 }
 

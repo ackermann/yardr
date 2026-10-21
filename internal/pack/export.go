@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"unicode"
@@ -589,6 +590,9 @@ func (e *exporter) groups() error {
 		e.p.Groups = append(e.p.Groups, pg)
 		e.out.Groups = append(e.out.Groups, eg)
 	}
+	if err := e.bindings(have); err != nil {
+		return err
+	}
 	for i := range e.p.Flows {
 		for j := range e.p.Flows[i].Stages {
 			if s := &e.p.Flows[i].Stages[j]; s.Group != "" {
@@ -597,6 +601,101 @@ func (e *exporter) groups() error {
 		}
 	}
 	return nil
+}
+
+// bindings says binds_as again where the depot's import bound a group as
+// another, so the pack asks once for both: the record of the last import
+// that bound it names the yard's group, and the pack names that one's own
+// name in the pack. Only while the yard still runs the two with the same
+// agent: a group the depot changed since is its own group, which an import
+// asks about, as one is whose binding names a group outside the pack. The
+// group bound as is declared first, as a pack requires.
+func (e *exporter) bindings(have []store.Group) error {
+	all, err := e.st.Packs(e.ctx)
+	if err != nil {
+		return err
+	}
+	binds := map[string]string{}
+	from := map[string]store.PackImport{}
+	for _, p := range all {
+		if p.Depot != e.depot.Name {
+			continue
+		}
+		for _, o := range p.Objects {
+			if o.Kind != "group" || o.Binds == "" {
+				continue
+			}
+			if r, ok := from[o.Name]; ok && !p.At.After(r.At) {
+				continue
+			}
+			binds[o.Name], from[o.Name] = o.Binds, p
+		}
+	}
+	if len(binds) == 0 {
+		return nil
+	}
+	byYard := map[string]store.Group{}
+	for _, g := range have {
+		byYard[g.Name] = g
+	}
+	atYard, atPack := map[string]int{}, map[string]int{}
+	for i := range e.p.Groups {
+		atYard[e.out.Groups[i].Yard] = i
+		atPack[e.p.Groups[i].Name] = i
+	}
+	for _, name := range slices.Sorted(maps.Keys(binds)) {
+		i, ok := atYard[name]
+		if !ok {
+			continue
+		}
+		pg := &e.p.Groups[i]
+		if pg.Agent == "" {
+			continue
+		}
+		as := binds[name]
+		j, ok := atYard[as]
+		switch {
+		case !ok:
+			e.left("group %s: bound as %s at its import, which no exported route leads to: it is written as its own agent group, which an import asks about", name, as)
+		case e.p.Groups[j].Agent == "" || !sameAgent(byYard[name], byYard[as]):
+			e.left("group %s: bound as %s at its import, but the yard no longer runs both with the same agent: it is written as its own agent group, which an import asks about", name, as)
+		default:
+			pg.BindsAs = e.p.Groups[j].Name
+		}
+	}
+	// Each group after the one it binds as; routed order otherwise stands.
+	done := map[string]bool{}
+	ordered := make([]Group, 0, len(e.p.Groups))
+	out := make([]ExportedGroup, 0, len(e.out.Groups))
+	var visit func(i int)
+	visit = func(i int) {
+		g := &e.p.Groups[i]
+		if done[g.Name] {
+			return
+		}
+		done[g.Name] = true
+		if g.BindsAs != "" {
+			visit(atPack[g.BindsAs])
+		}
+		ordered = append(ordered, *g)
+		out = append(out, e.out.Groups[i])
+	}
+	for i := range e.p.Groups {
+		visit(i)
+	}
+	e.p.Groups, e.out.Groups = ordered, out
+	return nil
+}
+
+// sameAgent reports whether two groups of the yard run with the same agent
+// kind, model and arguments: what a group that binds as another takes of it.
+func sameAgent(a, b store.Group) bool {
+	for _, k := range []string{"kind", "model", "args"} {
+		if !reflect.DeepEqual(a.Config[k], b.Config[k]) {
+			return false
+		}
+	}
+	return true
 }
 
 // unset reports whether a config value is one its reader takes as not set.
@@ -917,6 +1016,9 @@ func (e *exporter) yaml() ([]byte, error) {
 			}
 			if g.Limit > 0 {
 				add(gn, "limit", scalar("!!int", fmt.Sprint(g.Limit)))
+			}
+			if g.BindsAs != "" {
+				add(gn, "binds_as", str(g.BindsAs))
 			}
 			add(groups, g.Name, gn)
 		}

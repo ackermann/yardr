@@ -95,6 +95,10 @@ type PackObject struct {
 	Type  string `json:"type,omitempty"`
 	Group string `json:"group,omitempty"`
 	Flow  string `json:"flow,omitempty"`
+	// Binds is the yard's group whose agent kind, model and arguments a
+	// group took when the pack was imported (pack binds_as), "" for one
+	// bound no other. Records older than the field lack it.
+	Binds string `json:"binds,omitempty"`
 	// A subscription and the crew member it is of.
 	CrewMember   string        `json:"crew,omitempty"`
 	Subscription *Subscription `json:"subscription,omitempty"`

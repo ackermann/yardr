@@ -87,7 +87,14 @@ func Ident(o Object) (po store.PackObject, ok bool) {
 	switch {
 	case o.Kind == "file" && o.File != nil:
 		return store.PackObject{Kind: o.Kind, Name: o.File.To, SHA256: o.File.SHA256}, true
-	case o.Kind == "group" || o.Kind == "flow":
+	case o.Kind == "group":
+		// What this import binds, or what the last one did and still stands.
+		binds := o.bindsKept
+		if o.Binds != "" {
+			binds = o.Binds
+		}
+		return store.PackObject{Kind: o.Kind, Name: o.Name, Binds: binds}, true
+	case o.Kind == "flow":
 		return store.PackObject{Kind: o.Kind, Name: o.Name}, true
 	case o.Kind == "pointer" && o.Pointer != nil:
 		return store.PackObject{Kind: o.Kind, Type: o.Pointer.Type, Flow: o.Pointer.Flow}, true

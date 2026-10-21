@@ -167,6 +167,10 @@ type Object struct {
 	// copied into Group; one the same import makes has them from its
 	// answers, when it is applied.
 	Binds string `json:"binds,omitempty"`
+	// bindsKept is the binding the record keeps where the plan binds
+	// nothing anew: the last import's, while the pack still says binds_as.
+	// Unexported: it is the record's, not the plan's to show.
+	bindsKept string
 	// Keeps says what the import leaves as the yard has it though the pack
 	// carries it, and why: a prompt, where the depot has its own role and the
 	// import was told to keep those; the role and the limit of a group of
