@@ -87,7 +87,17 @@ func TestHoldRecordsWhoHeld(t *testing.T) {
 	})
 
 	t.Run("a session's pane", func(t *testing.T) {
-		s, ctx, b, sess, actor := paneMoveYard(t)
+		s, ctx, b, sess, actor := moveYardClaim(t)
+		// Made before the pane is on record: over the socket every call of
+		// this process is the pane's after that, and an agent files no bead
+		// into new.
+		other, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkRunning(ctx, sess.ID, paneShell(t, actor)); err != nil {
+			t.Fatal(err)
+		}
 		pane := store.WithCaller(ctx, os.Getpid())
 		// The pane names the operator and is still its session.
 		got := holdBy(t, s, pane, b, store.Expect{Session: sess.ID}, "op")
@@ -98,10 +108,6 @@ func TestHoldRecordsWhoHeld(t *testing.T) {
 			t.Fatalf("held event actor = %q, want %q", a, actor)
 		}
 		// Another bead no session owns is held from the pane as well.
-		other, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "op")
-		if err != nil {
-			t.Fatal(err)
-		}
 		if got := holdBy(t, s, pane, other, store.Expect{}, "op"); got.HeldBy != actor {
 			t.Fatalf("held from the pane of %s = %+v, want it held by %q", b.ID, got, actor)
 		}

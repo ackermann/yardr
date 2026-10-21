@@ -143,10 +143,12 @@ func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
 	})
 
 	t.Run("reopen hold release", func(t *testing.T) {
-		s, ctx, a, asess, actor := paneMoveYard(t)
-		pane := store.WithCaller(ctx, os.Getpid())
+		s, ctx, a, asess, actor := moveYardClaim(t)
 		// Another bead no session owns, closed from no pane: the pane
-		// moves it as anyone's would be, recorded as its own actor.
+		// moves it as anyone's would be, recorded as its own actor. Made
+		// and closed before the pane is on record: over the socket every
+		// call of this process is the pane's after that, and an agent
+		// files no bead into new and closes no other bead.
 		b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "op")
 		if err != nil {
 			t.Fatal(err)
@@ -154,6 +156,10 @@ func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
 		if _, err := s.CloseBead(ctx, b.ID, "done", store.Expect{}, "op"); err != nil {
 			t.Fatal(err)
 		}
+		if err := s.MarkRunning(ctx, asess.ID, paneShell(t, actor)); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, os.Getpid())
 		if _, err := s.Reopen(pane, b.ID, store.Expect{}, "op"); err != nil {
 			t.Fatal(err)
 		}
