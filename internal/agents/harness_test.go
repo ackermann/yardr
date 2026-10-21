@@ -334,15 +334,19 @@ func TestBackground(t *testing.T) {
 	}
 	muse, _ := Lookup("muse")
 	for line, want := range map[string]bool{
-		"└ ◆ Run depot test gate in worktree  running          27m 03s": true,
-		"└ ◆ Build the docs  running  5s":                               true,
-		"Run depot test gate in worktree  running  14m 01s":             false,
-		" Backgrounded · Run depot test gate in worktree · 5m · ctrl+o": false,
-		"◆ Ran command · Verify gate tests still … · ✓ · 0.2s · ctrl+o": false,
-		"main · ↓ to select":                                            false,
-		"muse-spark-1.3 · max · /tmp/work · Auto-review":                false,
-		"◆ Still blocked on the gate run — no result yet.":              false,
-		"◆ The build is still running 5m":                               false,
+		"└ ◆ Run depot test gate in worktree  running          27m 03s":           true,
+		"└ ◆ Build the docs  running  5s":                                         true,
+		"└ ◈ Re-run depot gate on commit  running                     5m 34s":     true,
+		"└ Managed command · running · Work: work.v2.managed_bash.sha256.eb19...": false,
+		"└ (ctrl+b to send to background)":                                        false,
+		"◇ Checked terminal bash session — running (7s · esc to interrupt)":       false,
+		"Run depot test gate in worktree  running  14m 01s":                       false,
+		" Backgrounded · Run depot test gate in worktree · 5m · ctrl+o":           false,
+		"◆ Ran command · Verify gate tests still … · ✓ · 0.2s · ctrl+o":           false,
+		"main · ↓ to select":                               false,
+		"muse-spark-1.3 · max · /tmp/work · Auto-review":   false,
+		"◆ Still blocked on the gate run — no result yet.": false,
+		"◆ The build is still running 5m":                  false,
 	} {
 		if got := runs(muse, line); got != want {
 			t.Errorf("muse: %q says background work runs: %v, want %v", line, got, want)

@@ -131,9 +131,14 @@ errors:
 # the status word "running" and how long it has run.
 #   main · ↓ to select
 #   └ ◆ Run depot test gate in worktree  running                     14m 01s
+# 1.4.11 draws the glyph as ◈ instead (read live from pane w18H:p2, 21 Oct
+# 2026, Muse Code 1.4.11): both are matched, and the glyph stays explicit
+# rather than \S, which would also match the "└ (ctrl+b ..." hint and the
+# "└ Managed command · running ..." line.
+#   └ ◈ Re-run depot gate on commit  running                     5m 34s
 # Muse wakes the agent when the command exits, so the agent is not idle
 # to the group's idle limit while it shows. The transcript's "Backgrounded
 # · <title> · <elapsed> · ctrl+o" line is no pattern here: it stays on
 # screen after the command exits.
 background:
-  - pattern: '^└ ◆ .+ running +\d+[smh]( +\d+[ms])?$'
+  - pattern: '^└ [◆◈] .+ running +\d+[smh]( +\d+[ms])?$'

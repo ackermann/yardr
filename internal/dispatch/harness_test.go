@@ -281,7 +281,9 @@ func (n *tallyRunner) reads() int {
 
 // The pane of a builder that waits for a command it started in the
 // background, as Muse Code 1.4.9 drew it (read live from pane w114:p2, 20
-// Oct 2026), and the same pane with the command gone.
+// Oct 2026), and the same pane with the command gone. museRuns1411 is the
+// same wait as 1.4.11 draws it, with ◈ for ◆ (read live from pane
+// w18H:p2, 21 Oct 2026).
 const (
 	museRuns = "◆ Still blocked on the gate run — no result yet.\n" +
 		"── Voice input (alt(option)+v to start) ──…\n" +
@@ -289,6 +291,13 @@ const (
 		"───…\n" +
 		"main · ↓ to select\n" +
 		"└ ◆ Run depot test gate in worktree  running          27m 03s\n" +
+		"  muse-spark-1.3 · max · /tmp/work · Auto-review"
+	museRuns1411 = "◆ Still blocked on the gate run — no result yet.\n" +
+		"── Voice input (alt(option)+v to start) ──…\n" +
+		"❯ \n" +
+		"───…\n" +
+		"main · ↓ to select\n" +
+		"└ ◈ Run depot test gate in worktree  running          27m 03s\n" +
 		"  muse-spark-1.3 · max · /tmp/work · Auto-review"
 	museGone = "◆ The gate passed; handing on now.\n" +
 		"── Voice input (alt(option)+v to start) ──…\n" +
@@ -321,6 +330,11 @@ func TestIdleSessionWithBackgroundWorkIsNotNudged(t *testing.T) {
 	r.show("working", "◆ Working")
 	must(t, d.Reconcile(ctx))
 	r.show("idle", museRuns)
+	must(t, d.Reconcile(ctx))
+	// The same wait as 1.4.11 draws it: a new spell, still no nudge.
+	r.show("working", "◆ Working")
+	must(t, d.Reconcile(ctx))
+	r.show("idle", museRuns1411)
 	must(t, d.Reconcile(ctx))
 	if got := n.told(); len(got) != 0 || nudged() != 0 {
 		t.Fatalf("nudges = %q, session_idle_nudge events = %d; want none while a background shell runs", got, nudged())
