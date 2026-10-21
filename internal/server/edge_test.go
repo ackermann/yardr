@@ -118,9 +118,9 @@ func waitEvent(t *testing.T, cl *rpc.Client, kind string, ok func(store.Event) b
 // what comes down the link with the listener's own handlers: a delivery is
 // verified by the hook's secret, which the edge never holds (the right token
 // recorded, a wrong one 401); a device's call is served as the device, and
-// GiveSecret refused, since the link is no loopback; /peers/ is not served
-// through the edge. The link is told as an event and in its state, and
-// nothing listens on a port.
+// GiveSecret refused, since secrets never cross the edge; /peers/ is not
+// served through the edge. The link is told as an event and in its state,
+// and nothing listens on a port.
 func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 	edge, srv := stubEdge(t)
 	c := home(t)
@@ -150,8 +150,8 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 	if a := overLink(t, l, "/user/call/GetUser", bearer(token), `{}`); a.Status != http.StatusOK || !strings.Contains(string(a.Body), `"name":"jo"`) {
 		t.Errorf("GetUser over the link answered %d %s", a.Status, a.Body)
 	}
-	if a := overLink(t, l, "/user/call/GiveSecret", bearer(token), `{}`); !strings.Contains(string(a.Body), "a secret is taken over https only, or from the yard's own machine") {
-		t.Errorf("GiveSecret over the link answered %d %s, want it refused as not from the yard's machine", a.Status, a.Body)
+	if a := overLink(t, l, "/user/call/GiveSecret", bearer(token), `{}`); !strings.Contains(string(a.Body), "a secret never crosses the edge") {
+		t.Errorf("GiveSecret over the link answered %d %s, want it refused as never crossing the edge", a.Status, a.Body)
 	}
 	if a := overLink(t, l, "/peers/messages", nil, `{}`); a.Status != http.StatusNotFound {
 		t.Errorf("/peers/ over the link answered %d, want 404", a.Status)

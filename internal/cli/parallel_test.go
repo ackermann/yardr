@@ -125,6 +125,7 @@ var allowSerial = map[string]string{
 	"TestHomeFlagReachesChildren":                           "answeredTools,noHome,t.Chdir,t.Setenv",
 	"TestHomeFlagTooLong":                                   "answeredTools,noHome",
 	"TestHookAddMap":                                        "stateYard",
+	"TestHookAddNamesTheEdgeWhereTheLinkServesAlone":        "answeredTools",
 	"TestHookListShowsQuiet":                                "stub:hookNow",
 	"TestInitAgainKeepsStyle":                               "styledYard",
 	"TestInitFinishesAfterAFailedRun":                       "t.Setenv",
