@@ -640,6 +640,15 @@ func TestUserGiveSecretIsNotTakenInTheClear(t *testing.T) {
 	}
 }
 
+// The link's address, as the user server reads it, is the link's own:
+// the two packages cannot import each other (the link's tests serve the
+// user server), so a test holds them equal.
+func TestLinkRemoteAddrMatchesTheLink(t *testing.T) {
+	if linkRemoteAddr != edgelink.RemoteAddr {
+		t.Fatalf("linkRemoteAddr = %q, edgelink.RemoteAddr = %q", linkRemoteAddr, edgelink.RemoteAddr)
+	}
+}
+
 // Over the link from the edge a secret is refused with the link's own
 // reason: secrets never cross the edge, and the edge saw what this one
 // carried. The fix is to answer on the yard's own machine. The refusal is

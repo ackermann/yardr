@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
@@ -663,6 +662,12 @@ func (u *UserServer) ownSecret(ctx context.Context, c *Caller, body []byte) bool
 	return false
 }
 
+// linkRemoteAddr is the RemoteAddr of a request that came down the link
+// from the edge. It is the link's own address said here, not imported:
+// the link's tests serve this package's user server, so the import would
+// cycle. A test holds the two equal.
+const linkRemoteAddr = "edge:0"
+
 // inTheClear says why the call name of OperatorCalls is not taken from the
 // request r, "" when it is taken. router is the yard's router_addr setting:
 // the address of its router on the user's network, "" when unset.
@@ -703,7 +708,7 @@ func inTheClear(r *http.Request, name, router string) string {
 		}
 		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
 	}
-	if r.RemoteAddr == edgelink.RemoteAddr {
+	if r.RemoteAddr == linkRemoteAddr {
 		never, seen := "a secret never crosses the edge",
 			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
 		if name == "ApproveAsk" || name == "ApproveSetup" {
