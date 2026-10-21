@@ -71,16 +71,18 @@ depot under a dangling name and choose the install source.
 
 The groups of a yard run scripts from `<home>/scripts`: `merge-local` for
 the assembly, `integrate-train`, `pr-train` and `pr-merge` for trains,
-`deploy-dokku` for a deploy stage, `return-branch` for a peer. The
+`deploy-dokku` and `deploy-void` for deploy stages, `return-branch` for a
+peer. The
 operator installs each once by hand (`install contrib/assembly/merge-local
 ~/.yardr/scripts/`, [line.md](line.md#setup)), and a copy is only as new
 as that step. A fix that lands in a script then reaches no landing until
 someone installs it again. So after `go install .` the upgrade refreshes
 the copies from the same checkout, and a fix to a script is live for the
-next landing, as a fix to the binary is. It reads the six scripts from
+next landing, as a fix to the binary is. It reads the seven scripts from
 where the docs have the operator install them from, `contrib/assembly/`
 (`merge-local`, `integrate-train`, `pr-train`, `pr-merge`),
-`contrib/deploy/deploy-dokku` and `contrib/peer/return-branch`, and
+`contrib/deploy/` (`deploy-dokku`, `deploy-void`) and
+`contrib/peer/return-branch`, and
 writes each under its own name.
 
 It touches only what is there. A script the yard does not have is not

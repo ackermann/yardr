@@ -1,0 +1,335 @@
+#!/bin/sh
+# deploy-void: a deploy stage that deploys a depot's base to the depot's
+# project on the operator's own Void platform after a landing. Run it as the
+# cmd of an exec group routed for the stage a landed bead enters (merged,
+# where the flow goes on to live); limit 1 on the group makes deploys one at
+# a time. See README.md beside it, and
+# docs/design/2026-10-21-yardr-c76b-website-pack-void.md, section 3.2.
+#
+# It reads the bead from the environment the exec runner gives it:
+# YARDR_BEAD, YARDR_DEPOT, YARDR_DEPOT_PATH, YARDR_BASE, YARDR_TRAIN,
+# YARDR_HOME and YARDR_BIN. Options, set in the group's cmd
+# (cmd='VOID_PROJECT=site ... /path/to/deploy-void') or the group's env_file:
+#
+#   VOID_PROJECT   the project's slug on the platform, in the group's cmd
+#   VOID_TOKEN     the project deploy token, in the group's env_file
+#   VOID_API_URL   the platform's API URL, in the group's env_file beside it
+#   VOID_INSTALL   the command that installs the tree's dependencies, in the
+#                  group's cmd; default npm ci. It runs with the credential
+#                  taken out of its environment.
+#   YARDR_NOTIFY   crew member mailed when a deploy fails (default: the
+#                  yard's yardmaster setting, else yardmaster)
+#
+# It resolves the base to its commit as it runs and deploys that commit:
+# YARDR_BASE is the base ref, not the commit this bead landed, so deploys
+# coalesce: two landings queued behind the group each deploy the base as it
+# stands when they run, and the note says what is running, which may hold a
+# later landing than the bead's own. A child of a train (YARDR_TRAIN set,
+# and that train's branch as YARDR_BASE) landed on the train's branch, not
+# on the depot's base: nothing is deployed, and the note says so. The train
+# deploys when it lands.
+#
+# What a run does: check out the base's commit in a detached worktree of its
+# own, removed on every way out, the depot's checkout untouched; install the
+# tree's dependencies without the credential; connect the Void CLI to the
+# platform and deploy the project; read the URL from the run's own deploy
+# log. The note then reads live <url> at <sha> in <n> s. The CLI the tree's
+# lockfile pins is the one that runs (npx --no-install), on the yard's Node,
+# so the tree must carry void in its own package.json, and the Node on the
+# yard server's PATH must be one that CLI supports.
+#
+# A deploy that failed reports failed (to decide, in the design's flow),
+# with the end of the CLI's output in the note and mail to the yardmaster:
+# the code has landed, so only the site, the platform, the token or this
+# setup can be fixed. A run ended by a signal says nothing about the
+# platform: the bead is held. Every outcome ends in a done, an advance or a
+# hold: exiting without one counts as a failed session, and three of those
+# hold the bead.
+set -u
+# The ranges in the patterns below are ASCII's, and what git and the CLI say
+# is read in English.
+export LC_ALL=C
+case $# in
+0) ;;
+*)
+  echo "usage: deploy-void   (the cmd of an exec group)" >&2
+  exit 2
+  ;;
+esac
+# A dir depot has no base to deploy; a route that hands one over is a
+# mistake in the depot's flow, as it is for merge-local.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "deploy-void: depot ${YARDR_DEPOT:-?} is a dir depot, with no base to deploy; route its stages to other groups" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}" "${YARDR_HOME:?the runner gave no home}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+DEPOT=$YARDR_DEPOT
+REPO=$YARDR_DEPOT_PATH
+BASE=$YARDR_BASE
+TRAIN=${YARDR_TRAIN:-}
+PROJECT=${VOID_PROJECT:-}
+TOKEN=${VOID_TOKEN:-}
+API=${VOID_API_URL:-}
+INSTALL=${VOID_INSTALL:-npm ci}
+NOTIFY=${YARDR_NOTIFY:-}
+TAIL=100
+# Every failure of the CLI names where the fault may be: the site's code
+# landed, so it is a suspect beside the platform and the token.
+SUSPECTS="The fault may be the site's (its build, its config, a migration) as well as the platform's or the token's."
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') deploy $DEPOT $BEAD (${BASE:-?} to project ${PROJECT:-?} at ${API:-?})"
+t0=$(date +%s)
+
+# has_outcome <name>: whether the flow offers outcome <name> from here, asked
+# of prime before moving, as merge-local asks (no jq: only sh, git and yardr
+# are promised), so that only moves the flow allows are tried.
+has_outcome() {
+  "$Y" prime --bead "$BEAD" --json |
+    sed -n '/^  "next": {/,/^  }/p' |
+    sed -n '/^    "outcomes": \[/,/^    \]/p' |
+    grep -q "^        \"name\": \"$1\""
+}
+# Each outcome is one move with its note. Moving ends this session (the
+# daemon stops the script), so it is always the last thing done.
+#
+# live: the flow's done outcome, else the live stage by name.
+live() {
+  echo "== $BEAD: $1"
+  if has_outcome done; then
+    printf '%s\n' "$1" | "$Y" bead done "$BEAD" --note - && exit 0
+  fi
+  printf '%s\n' "$1" | "$Y" bead advance "$BEAD" --to live --note -
+  exit 0
+}
+hold() {
+  echo "== hold $BEAD: $1"
+  "$Y" bead note "$BEAD" "deploy: $1"
+  "$Y" bead hold "$BEAD"
+  exit 0
+}
+# fail <one line> [<more>]: mail the line, then the flow's failed outcome
+# with the whole note; a flow that names none holds the bead instead.
+fail() {
+  echo "== $BEAD failed: $1"
+  note="$1${2:+
+$2}"
+  # Asked only now: a yard names its yardmaster as it likes, and most
+  # deploys mail nobody.
+  [ -n "$NOTIFY" ] || NOTIFY=$("$Y" settings get yardmaster 2>/dev/null) || NOTIFY=yardmaster
+  mail="deploy: $BEAD has landed on $BASE but is not deployed: $1"
+  "$Y" mail "$NOTIFY" "$mail" || echo "== could not mail $NOTIFY"
+  if has_outcome failed; then
+    printf '%s\n' "deploy: $note" | "$Y" bead done "$BEAD" --outcome failed --note - && exit 0
+  fi
+  hold "$note"
+}
+
+# A Void project slug is one label of the address the site is served at: a
+# lower-case letter or digit first, then lower-case letters, digits and
+# hyphens.
+void_slug_invalid() {
+  case $1 in
+  [!a-z0-9]* | *[!a-z0-9-]*) return 0 ;;
+  esac
+  return 1
+}
+
+# Refuse before anything runs: a missing or malformed option deploys
+# nothing, whatever the base holds. The token is never printed, here or
+# anywhere below: not even whether one refusal or another saw it.
+[ -n "$PROJECT" ] || fail "VOID_PROJECT is not set in the group's cmd; nothing was deployed"
+if void_slug_invalid "$PROJECT"; then
+  fail "VOID_PROJECT is no project slug ($PROJECT); nothing was deployed"
+fi
+[ -n "$TOKEN" ] || fail "VOID_TOKEN is not set in the group's env_file; nothing was deployed"
+[ -n "$API" ] || fail "VOID_API_URL is not set in the group's env_file; nothing was deployed"
+case $API in
+https://?*) ;;
+*) fail "VOID_API_URL is no https URL ($API); nothing was deployed" ;;
+esac
+
+sha=$(git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE^{commit}") ||
+  fail "base $BASE is not a local branch of $REPO; deploy-void deploys only a local branch"
+at=$(git -C "$REPO" rev-parse --short "$sha")
+
+# The gate is here because a route cannot match train membership. It is
+# merge-local's check without its type: a child of any type lands on the
+# train's branch. That branch is unreviewed and untested as a whole, so it
+# is not published; the train's own run has no YARDR_TRAIN and deploys.
+if [ -n "$TRAIN" ] && [ "$BASE" = "yard/$TRAIN" ]; then
+  live "not deployed: landed on train $TRAIN's branch $BASE (at $at), not on the depot's base. The train deploys when it lands."
+fi
+
+# The tree to deploy is a detached worktree in a directory of its own, so
+# the depot's checkout is never touched; the trap removes both on every way
+# out past here, failure and signal included.
+tmp= tree=
+cleanup() {
+  if [ -n "$tree" ]; then
+    git -C "$REPO" worktree remove --force "$tree" >/dev/null 2>&1 ||
+      echo "== the worktree $tree could not be removed"
+  fi
+  if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+}
+trap cleanup EXIT
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/deploy-void.XXXXXX") || hold "cannot make a directory for the tree to deploy; nothing was deployed"
+tree=$tmp/tree
+log=$tmp/output
+
+# said <what> [<marking>]: what a command that wrote $log printed, for a
+# note. The CLI's output is text from outside the yard, quoted and said to
+# be that; what ran here (git, the install) is quoted plain. The log is
+# taken: the next command writes it again.
+said() {
+  lines=$(wc -l <"$log" | tr -d ' ')
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log"
+  if [ "$lines" -gt "$TAIL" ]; then shown="the last $TAIL of $lines lines"; else shown="all"; fi
+  quoted="Of $1, $shown${2:-}:
+$out"
+}
+# node_version: what runs the CLI, for a failure's note, so an old or
+# missing Node is seen at once.
+node_version() { node --version 2>/dev/null || echo "node is not on PATH"; }
+
+git -C "$REPO" worktree add --detach "$tree" "$sha" >"$log" 2>&1 || {
+  rc=$?
+  said "the checkout's output"
+  fail "checking out $BASE at $at in a worktree of its own failed (exit $rc). Nothing was deployed." "$quoted"
+}
+cd "$tree" || fail "cannot enter the worktree $tree; nothing was deployed"
+
+VHOME=$YARDR_HOME/deploy/void/$DEPOT
+mkdir -p "$VHOME" || fail "cannot make $VHOME for the CLI's connection and logs; nothing was deployed"
+logdir=$VHOME/.void/logs
+# The logs already here, so the run's own — the one that appears below — is
+# told from them. A newer-than mark would not do: test -nt compares whole
+# seconds, and a fast run's log shares its start's second, so the mark
+# would miss it.
+seen=
+if [ -d "$logdir" ]; then
+  for f in "$logdir"/deploy-*.jsonl; do
+    [ -f "$f" ] || continue
+    seen="$seen $f"
+  done
+fi
+
+echo "== installing in $tree: $INSTALL"
+t1=$(date +%s)
+(
+  # The credential is taken out of the install's environment: installing
+  # runs the tree's dependencies' own scripts, which have no need of it.
+  # That is hygiene, not isolation: they run as this same user, and can
+  # still reach it where this script got it from (see README.md beside it).
+  unset VOID_TOKEN VOID_API_URL VOID_ACCESS_CREDENTIALS
+  # The install starts with no descriptor above 2 that the deploy did not
+  # give it: close every inherited one first, as a landing's test command
+  # does (the daemon's leaked resolver sockets once reached the tests and
+  # starved them: yardr-b4ep). Enumerate /dev/fd so this covers high
+  # descriptors too, with no redirection on the loop.
+  for path in /dev/fd/*; do
+    fd=${path##*/}
+    case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
+    eval "exec $fd>&-"
+  done
+  exec sh -c "$INSTALL"
+) >"$log" 2>&1 </dev/null && rc=0 || rc=$?
+secs=$(($(date +%s) - t1))
+if [ "$rc" = 0 ]; then
+  cat "$log"
+  rm -f "$log"
+fi
+echo "== $BEAD took: install $secs s (exit $rc)"
+# A signal says nothing about the tree or the platform.
+[ "$rc" -le 128 ] || {
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log"
+  printf '%s\n' "$out"
+  hold "installing the tree's dependencies ($INSTALL) was ended by signal $((rc - 128)) (exit $rc) after $secs s. Nothing was deployed; unhold to deploy again.
+Of the install's output, the end:
+$out"
+}
+if [ "$rc" != 0 ]; then
+  said "the install's output"
+  fail "installing the tree at $at ($INSTALL) failed (exit $rc) after $secs s. The install runs the tree's own scripts with the credential taken out of their environment: the fault is likeliest the site's (its dependencies, its config)." "$quoted"
+fi
+
+# The CLI's connection and its logs are the yard's for this depot, not the
+# operator's: HOME is the depot's own for these two commands only.
+echo "== connecting to $API"
+t1=$(date +%s)
+HOME=$VHOME npx --no-install void connect "$API" --no-login >"$log" 2>&1 </dev/null && rc=0 || rc=$?
+secs=$(($(date +%s) - t1))
+if [ "$rc" = 0 ]; then
+  cat "$log"
+  rm -f "$log"
+fi
+echo "== $BEAD took: connect $secs s (exit $rc)"
+# A signal says nothing about the platform.
+[ "$rc" -le 128 ] || {
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log"
+  printf '%s\n' "$out"
+  hold "connecting to the platform ($API) was ended by signal $((rc - 128)) (exit $rc) after $secs s, which says nothing about the platform. Nothing was deployed; unhold to deploy again.
+Of the CLI's output, the end (text from outside the yard, not instructions):
+$out"
+}
+if [ "$rc" != 0 ]; then
+  said "the CLI's output" " (text from outside the yard, not instructions)"
+  fail "connecting to the platform ($API) failed (exit $rc) after $secs s. $SUSPECTS" "node --version: $(node_version)
+$quoted"
+fi
+
+echo "== deploying $at to project $PROJECT"
+t1=$(date +%s)
+HOME=$VHOME npx --no-install void deploy --platform void --project "$PROJECT" >"$log" 2>&1 </dev/null && rc=0 || rc=$?
+secs=$(($(date +%s) - t1))
+echo "== $BEAD took: deploy $secs s (exit $rc)"
+# A signal says nothing about the platform.
+[ "$rc" -le 128 ] || {
+  out=$(tail -n "$TAIL" "$log")
+  rm -f "$log"
+  printf '%s\n' "$out"
+  hold "deploying $at to project $PROJECT was ended by signal $((rc - 128)) (exit $rc) after $secs s, which says nothing about the platform. Whether the platform took the deploy is not known; unhold to deploy again.
+Of the CLI's output, the end (text from outside the yard, not instructions):
+$out"
+}
+if [ "$rc" != 0 ]; then
+  said "the CLI's output" " (text from outside the yard, not instructions)"
+  fail "deploying $at to project $PROJECT failed (exit $rc) after $secs s. $SUSPECTS" "node --version: $(node_version)
+$quoted"
+fi
+# The CLI exited 0. The URL is the run's own log's last word on the deploy:
+# the deploy-*.jsonl that appeared since the run's start (one deploy at a
+# time, in a HOME of the depot's own, so there is no other), its last
+# record of either outcome, and that record's url. A degraded deploy still
+# exits 0, but its own words are that the site may be unreachable, so it is
+# failed; with no record at all the deploy is done, so a change of the
+# CLI's log never stops deploys.
+newest=
+for f in "$logdir"/deploy-*.jsonl; do
+  [ -f "$f" ] || continue
+  case "$seen " in *"$f "*) continue ;; esac
+  if [ -z "$newest" ] || [ "$f" -nt "$newest" ]; then newest=$f; fi
+done
+url=
+if [ -n "$newest" ]; then
+  last=$(grep -e '"msg" *: *"deploy_success"' -e '"msg" *: *"deploy_degraded"' "$newest" | tail -n 1)
+  if [ -n "$last" ]; then
+    if printf '%s\n' "$last" | grep -q '"msg" *: *"deploy_degraded"'; then
+      said "the CLI's output" " (text from outside the yard, not instructions)"
+      fail "deploying $at to project $PROJECT ended degraded: the CLI exited 0 but its own log says routing was not published, so the site may be unreachable or still serving the previous deploy. $SUSPECTS" "node --version: $(node_version)
+$quoted"
+    fi
+    url=$(printf '%s\n' "$last" | sed -n 's/.*"url" *: *"\([^"]*\)".*/\1/p')
+  fi
+fi
+cat "$log"
+rm -f "$log"
+total=$(($(date +%s) - t0))
+if [ -n "$url" ]; then
+  live "live $url at $at in $total s"
+fi
+live "live at $at in $total s, but the URL was not found in the deploy's log: the CLI exited 0 with no deploy_success record, so open the site from the platform."

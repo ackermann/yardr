@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 	noSync := config.Getenv(store.NoSyncEnv)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "GIT_") || strings.HasPrefix(k, "DOKKU_") {
+		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "GIT_") || strings.HasPrefix(k, "DOKKU_") || strings.HasPrefix(k, "VOID_") {
 			os.Unsetenv(k)
 		}
 	}
@@ -151,11 +151,14 @@ type yard struct {
 	t          *testing.T
 	home, repo string
 	env        []string
-	state      string            // the fake ssh's directory: bin/ssh, calls, host/app.git
-	opts       map[string]string // the assignments of the group's cmd
+	state      string            // the stand-ins' directory: bin/ssh, calls, host/app.git
+	opts       map[string]string // the assignments of the group's cmd: the script's options and the stand-ins' state
 	mode       string            // the script's argument: "" for a deploy, or preview
 	depot      string            // the depot of the beads deploy runs for
 	log        string            // what the last run wrote to its group's log
+	script     string            // the deploy script the run tests, in this directory
+	bin        string            // first on the run's PATH: the stand-ins' directory
+	envFile    string            // the group's env_file, "" for none
 }
 
 func newYard(t *testing.T) *yard {
@@ -174,7 +177,8 @@ func newYard(t *testing.T) *yard {
 		}
 		os.RemoveAll(home)
 	})
-	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"), state: t.TempDir(), depot: "r"}
+	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"), state: t.TempDir(), depot: "r",
+		script: "deploy-dokku"}
 	// The test names itself to the servers it starts, so a run killed by its
 	// timeout leaves none behind (storetest.TestOwnerEnv).
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
@@ -192,10 +196,12 @@ func newYard(t *testing.T) *yard {
 			t.Fatal(err)
 		}
 	}
+	y.bin = filepath.Join(y.state, "bin")
 	y.write("bin/ssh", fakeSSH, 0o755)
 	y.write("known_hosts", "dokku.test ssh-ed25519 AAAA\n", 0o600)
 	y.git(".", "init", "-q", "--bare", "-b", "main", y.app())
 	y.opts = map[string]string{
+		"FAKE_SSH":          y.state,
 		"DOKKU_HOST":        "dokku.test",
 		"DOKKU_APP":         "app",
 		"DOKKU_KNOWN_HOSTS": filepath.Join(y.state, "known_hosts"),
@@ -268,11 +274,11 @@ func (y *yard) commit(dir, file, content string) string {
 	return y.git(dir, "rev-parse", "HEAD")
 }
 
-// deploy runs deploy-dokku for bead id through the exec runner, as the
+// deploy runs the yard's script for bead id through the exec runner, as the
 // group would whose cmd it is, and waits for it to exit.
 func (y *yard) deploy(id string) {
 	y.t.Helper()
-	script, err := filepath.Abs("deploy-dokku")
+	script, err := filepath.Abs(y.script)
 	if err != nil {
 		y.t.Fatal(err)
 	}
@@ -282,9 +288,9 @@ func (y *yard) deploy(id string) {
 		y.t.Fatal(err)
 	}
 	logPath := filepath.Join(y.home, "deploy.log")
-	// The script finds this test's fake ssh by its command line: the
+	// The script finds this test's stand-ins by its command line: the
 	// environment is every test's.
-	cmd := "PATH=" + shellQuote(filepath.Join(y.state, "bin")) + ":$PATH FAKE_SSH=" + shellQuote(y.state)
+	cmd := "PATH=" + shellQuote(y.bin) + ":$PATH"
 	for k, v := range y.opts {
 		cmd += " " + k + "=" + shellQuote(v)
 	}
@@ -293,15 +299,27 @@ func (y *yard) deploy(id string) {
 	ctx := context.Background()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
 	// The train and base as the dispatcher passes them, read the way bead
-	// show --json shows them.
-	b, fam := y.bead(id), y.family(id)
+	// show --json shows them: one call, unmarshalled twice.
+	shown := y.yardr("bead", "show", id, "--json")
+	var b store.Bead
+	if err := json.Unmarshal([]byte(shown), &b); err != nil {
+		y.t.Fatal(err)
+	}
+	var fam store.Family
+	if err := json.Unmarshal([]byte(shown), &fam); err != nil {
+		y.t.Fatal(err)
+	}
 	depot, err := st.GetDepot(ctx, y.depot)
 	if err != nil {
 		y.t.Fatal(err)
 	}
+	cfg := map[string]any{"cmd": cmd, "log": logPath}
+	if y.envFile != "" {
+		cfg["env_file"] = y.envFile
+	}
 	// The bead is the group's, as the dispatcher would have claimed it: a
 	// move from a session that does not own it is refused as stale.
-	if err := st.PutGroup(ctx, store.Group{Name: "deploy", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "deploy", Runner: "exec", Config: cfg}, "me"); err != nil {
 		y.t.Fatal(err)
 	}
 	// The claim is the dispatcher's to make, so the test holds the
@@ -314,7 +332,7 @@ func (y *yard) deploy(id string) {
 	}
 	h, err := e.Start(ctx, dispatch.Job{
 		Bead:     store.Bead{ID: id, Stage: b.Stage, Type: b.Type},
-		Group:    store.Group{Name: "deploy", Config: map[string]any{"cmd": cmd, "log": logPath}},
+		Group:    store.Group{Name: "deploy", Config: cfg},
 		Depot:    depot,
 		Session:  *sess,
 		Train:    fam.Train,
@@ -330,7 +348,7 @@ func (y *yard) deploy(id string) {
 		}
 		if time.Now().After(deadline) {
 			_ = e.Stop(ctx, h)
-			y.t.Fatal("deploy-dokku did not finish")
+			y.t.Fatalf("%s did not finish", y.script)
 		}
 	}
 	out, _ := os.ReadFile(logPath)
@@ -407,9 +425,7 @@ func (y *yard) lead() {
 	y.yardr("settings", "set", "yardmaster", "lead")
 }
 
-func (y *yard) mailed() bool {
-	return strings.Contains(y.yardr("crew", "show", "lead"), "inbox 1 unread")
-}
+func (y *yard) mailed() bool { return y.mailedAs("lead") }
 
 // refusedBeforePush fails the test unless r-1 went to decide with want in
 // its note, the yardmaster was mailed, and ssh was never run.

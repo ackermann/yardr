@@ -54,8 +54,8 @@ func (y *yard) remove(depot string) (string, bool) {
 	}
 	cmd := exec.Command(script, "remove", depot)
 	cmd.Dir = y.home
-	cmd.Env = append(append([]string{}, y.env...), "PATH="+filepath.Join(y.state, "bin")+":"+os.Getenv("PATH"),
-		"FAKE_SSH="+y.state, "YARDR_BIN="+yardrBin,
+	cmd.Env = append(append([]string{}, y.env...), "PATH="+y.bin+":"+os.Getenv("PATH"),
+		"YARDR_BIN="+yardrBin,
 		// The session that runs it may be working a bead of its own.
 		"YARDR_BEAD=r-1", "YARDR_DEPOT=other")
 	for k, v := range y.opts {
