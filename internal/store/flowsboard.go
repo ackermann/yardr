@@ -107,8 +107,8 @@ type FlowBead struct {
 	// which names no worker.
 	Worker string `json:"worker,omitempty"`
 	// Group is the group working the bead, as the claiming session
-	// recorded it at claim. Absent where Worker is, so a reader tells a
-	// worked bead by either.
+	// recorded it at claim. Absent wherever Worker is absent, so a reader
+	// can tell a worked bead from either field.
 	Group string `json:"group,omitempty"`
 	// Kind and Model are the harness kind and model the claiming session
 	// started with, as it recorded them at claim and served unchanged: a
@@ -212,8 +212,10 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 		if b.Session != nil {
 			if sess, ok := bySession[*b.Session]; ok {
 				if !sess.Manual() {
-					fb.Worker = sess.RunnerShown()
-					fb.Group, fb.Kind, fb.Model = sess.Group, sess.Kind, sess.Model
+					if worker := sess.RunnerShown(); worker != "" {
+						fb.Worker = worker
+						fb.Group, fb.Kind, fb.Model = sess.Group, sess.Kind, sess.Model
+					}
 				}
 				if entry := stay[b.UUID]; !entry.IsZero() {
 					fb.EnteredStageAt = &entry

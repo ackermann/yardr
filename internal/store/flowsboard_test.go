@@ -752,6 +752,25 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// An older starting session can still be live without a runner in its
+	// record or handle. Its group is not served when its worker is unknown.
+	unattributed := y.travel(t, "unattributed", "shop", "new")
+	usess, err := y.Claim(ctx, unattributed.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.write(func(w *wtx) error {
+		var s Session
+		if ok, err := get(w.Tx, bSessions, usess.ID, &s); err != nil {
+			return err
+		} else if !ok {
+			return ErrNotFound
+		}
+		s.Runner, s.Kind, s.Model, s.Handle = "", "", "", nil
+		return putSession(w.Tx, &s)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	// A bead that pins its flow stands off the line, in Elsewhere.
 	stray, err := y.CreateBead(ctx, NewBead{Title: "stray", ID: "stray", Stage: "new", Depot: "shop",
 		Metadata: map[string]any{"flow": "code"}}, "me")
@@ -847,6 +866,9 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if got := who(rows["oldie"]); got != [4]string{"herdr oldie-new", "builders", "", ""} {
 		t.Errorf("oldie who = %v, want group alone: a session recorded without kind or model", got)
 	}
+	if got := who(rows["unattributed"]); got != [4]string{} {
+		t.Errorf("unattributed who = %v, want none when no worker can be named", got)
+	}
 	if got := who(rows["stray"]); got != [4]string{"herdr stray-new", "builders", "claude", "opus"} {
 		t.Errorf("stray who = %v, want the worker, group, kind and model off the line, in Elsewhere", got)
 	}
@@ -860,6 +882,14 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if strings.Contains(string(raw), `"worker":`) || strings.Contains(string(raw), `"entered_stage_at":`) ||
 		strings.Contains(string(raw), `"group":`) || strings.Contains(string(raw), `"kind":`) || strings.Contains(string(raw), `"model":`) {
 		t.Errorf("idle serves a worker, an entry or who works it in JSON: %s", raw)
+	}
+	raw, err = json.Marshal(rows["unattributed"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"worker":`) || strings.Contains(string(raw), `"group":`) ||
+		strings.Contains(string(raw), `"kind":`) || strings.Contains(string(raw), `"model":`) {
+		t.Errorf("unattributed serves %s, want no worker metadata", raw)
 	}
 	raw, err = json.Marshal(rows["run"])
 	if err != nil {
