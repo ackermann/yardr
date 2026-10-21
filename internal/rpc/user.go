@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
@@ -686,6 +687,12 @@ func (u *UserServer) ownSecret(ctx context.Context, c *Caller, body []byte) bool
 // have the operator's commands run from wherever it was read.
 //
 // The refusal comes after the request has crossed, so it says that too.
+//
+// Over the link from the edge the listener's reason does not hold: the
+// request came down the link, and secrets and approvals never cross the
+// edge (design yardr-hosted-050n 3.6). The refusal names that reason,
+// answers on the yard's own machine as the fix, and says the edge saw
+// what this one carried, so the key or the device is remade.
 func inTheClear(r *http.Request, name, router string) string {
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
@@ -695,6 +702,16 @@ func inTheClear(r *http.Request, name, router string) string {
 			flag = "<n> --secret"
 		}
 		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	}
+	if r.RemoteAddr == edgelink.RemoteAddr {
+		never, seen := "a secret never crosses the edge",
+			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
+		if name == "ApproveAsk" || name == "ApproveSetup" {
+			never, seen = "an approval never crosses the edge",
+				" The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+		}
+		return never + ": this request came down the link from the edge. " +
+			"Answer on the yard's machine (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." + seen
 	}
 	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
 		if name == "GiveSecret" && fromRouter(r, router) {

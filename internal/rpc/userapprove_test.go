@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -256,6 +257,35 @@ func TestUserApproveAskIsNotTakenInTheClear(t *testing.T) {
 	if w := y.approve(onTheMachine, y.jo, strings.NewReader(y.args()), "X-Forwarded-Proto", "https"); !strings.Contains(w.Body.String(), `"result":{`) {
 		t.Errorf("an approval through the proxy on the yard's machine is answered %s", w.Body)
 	}
+}
+
+// Over the link from the edge an approval is refused with the link's own
+// reason: approvals never cross the edge, and the edge saw the token this
+// one carried. The fix is to answer on the yard's own machine. The
+// refusal is made before the body is read, and nothing runs.
+func TestUserApproveAskIsNotTakenOverTheLink(t *testing.T) {
+	y := newRunYard(t)
+	w := y.approve(edgelink.RemoteAddr, y.jo, unread{t})
+	for _, want := range []string{
+		"an approval never crosses the edge",
+		"this request came down the link from the edge",
+		"Answer on the yard's machine",
+		"The edge saw the device's token with it",
+		"yardr user device rm",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	for _, not := range []string{"in plain HTTP from another machine", "the yard's listener", "Put the proxy or tunnel"} {
+		if strings.Contains(w.Body.String(), not) {
+			t.Errorf("answered %s, want none of %q", w.Body, not)
+		}
+	}
+	if strings.Contains(w.Body.String(), "secret") {
+		t.Errorf("answered %s: an approval holds no secret", w.Body)
+	}
+	y.nothingRan(t, "an approval over the link")
 }
 
 // An approval stays loopback-only: from the router's peer, said https, it

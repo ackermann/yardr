@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -637,6 +638,32 @@ func TestUserGiveSecretIsNotTakenInTheClear(t *testing.T) {
 	if got := call(t, y.h, y.jo, "Head", `{}`); !strings.Contains(got, `"result"`) {
 		t.Errorf("Head from another machine = %s", got)
 	}
+}
+
+// Over the link from the edge a secret is refused with the link's own
+// reason: secrets never cross the edge, and the edge saw what this one
+// carried. The fix is to answer on the yard's own machine. The refusal is
+// made before the body is read, and nothing is given.
+func TestUserGiveSecretIsNotTakenOverTheLink(t *testing.T) {
+	y := newSecretYard(t)
+	w := y.give(edgelink.RemoteAddr, y.jo, unread{t})
+	for _, want := range []string{
+		"a secret never crosses the edge",
+		"this request came down the link from the edge",
+		"Answer on the yard's machine",
+		"The edge saw what was sent with it",
+		"make a new one at the service",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	for _, not := range []string{"in plain HTTP from another machine", "the yard's listener", "Put the proxy or tunnel"} {
+		if strings.Contains(w.Body.String(), not) {
+			t.Errorf("answered %s, want none of %q", w.Body, not)
+		}
+	}
+	y.untouched(t, "a giving over the link")
 }
 
 // A hosted yard takes a secret from its router: the peer the router_addr

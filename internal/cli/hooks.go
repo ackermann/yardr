@@ -162,6 +162,9 @@ of its inbox.`,
 					return
 				}
 				if listening, text := receiver(c.Context(), a.cfg, st); !listening {
+					if note, ok := edgeHookNote(c.Context(), a.cfg, st, saved.Name); ok {
+						text = note
+					}
 					fmt.Fprintln(w, "note: "+text)
 				}
 			})
@@ -623,6 +626,32 @@ func receiver(ctx context.Context, cfg *config.Config, st store.API) (listening 
 	l, known := hooks.ReadListener(cfg)
 	listening, text = hooks.Listens(l, known, all[hooks.FromSetting])
 	return listening, strings.ReplaceAll(text, "yardr ", yardrAt(cfg.Home)+" ")
+}
+
+// linkAlone reports whether the yard's hooks are served by the link to the
+// edge alone: the yard is connected, and neither the server nor the
+// hook_addr setting names an address for the listener. Such a yard needs
+// no address: the link serves its hooks, and the listener's note would
+// send the operator to set one for nothing.
+func linkAlone(connected bool, setting string, l hooks.Listener) bool {
+	return connected && l.Addr == "" && setting == ""
+}
+
+// edgeHookNote names where the hook is reached when the link to the edge
+// serves the yard's hooks alone (linkAlone): the edge's hooks address
+// plus the hook's name. ok is false for any other yard, which the
+// receiver's own note covers.
+func edgeHookNote(ctx context.Context, cfg *config.Config, st store.API, name string) (note string, ok bool) {
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return "", false
+	}
+	e, connected, _ := store.EdgeOf(all)
+	l, _ := hooks.ReadListener(cfg)
+	if !linkAlone(connected, all[hooks.FromSetting], l) {
+		return "", false
+	}
+	return "the hook is reached at " + e.HooksURL() + "/" + name + " through the link to the edge", true
 }
 
 // hookAddrTakes is what yardr settings set hook_addr says after the value:

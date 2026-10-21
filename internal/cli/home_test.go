@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -19,6 +21,7 @@ import (
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // noHome is a machine where nothing names a yard: a user's home of its own,
@@ -395,4 +398,45 @@ func TestDoctorSaysWhatTheReceiverListensOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantText(t, doctor(), note+"the server has not said what it takes webhooks on")
+}
+
+// hook add on a yard whose hooks the link to the edge serves alone (no
+// listener address, no hook_addr setting) names where the hook is
+// reached, not the address the server has none of.
+func TestHookAddNamesTheEdgeWhereTheLinkServesAlone(t *testing.T) {
+	home := newHomeDir(t)
+	cfg := &config.Config{Home: home}
+	answeredTools(t, "git", "herdr", "claude")
+	st := storetest.New(t)
+	testYard(t, st, home)
+	ctx := context.Background()
+	a := appOn(st)
+	a.actor = "me"
+	declareGitHubPack(t, st, "", "", "me")
+	if _, err := run(t, a.rootCmd(), "init", "--harness", "claude"); err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean"}
+	if err := st.SetSetting(ctx, store.EdgeSetting, edge.String(), yardOperator(ctx, st)); err != nil {
+		t.Fatal(err)
+	}
+	said(t, cfg, hooks.Listener{})
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a.cfg = cfg
+	a.actor = yardOperator(ctx, st)
+	out, err := run(t, a.hookCmd(), "add", "gh", "--source", "github", "--secret-file", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, out, "note: the hook is reached at https://my.yardr.dev/hooks/mckean/gh through the link to the edge")
+	if strings.Contains(out, "no address to take webhooks on") {
+		t.Errorf("hook add names the missing address too:\n%s", out)
+	}
 }

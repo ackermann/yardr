@@ -542,8 +542,7 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 	// A yard connected to an edge needs no address: the link serves its
 	// hooks, and its line says how it is.
 	l, known := hooks.ReadListener(cfg)
-	linkAlone := connected && l.Addr == "" && all[hooks.FromSetting] == ""
-	if len(hs) > 0 && !linkAlone || known && l.Addr != "" {
+	if len(hs) > 0 && !linkAlone(connected, all[hooks.FromSetting], l) || known && l.Addr != "" {
 		_, text := receiver(ctx, cfg, st)
 		hook.Notes = append(hook.Notes, text)
 	}
