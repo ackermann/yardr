@@ -361,6 +361,7 @@ func TestSourceCallGrants(t *testing.T) {
 	if gs, _ := s.SourceGrants(ctx, ""); len(gs) != 0 {
 		t.Fatalf("grants after the source was removed = %+v", gs)
 	}
+	t.Run("kinds", testSourceGrantsKinds)
 }
 
 // SourceGrants says what each granted call is, read or update, as the
@@ -368,8 +369,7 @@ func TestSourceCallGrants(t *testing.T) {
 // read from an update: read is read, a call granted by name is what the file
 // says, and the file is read each time, so one that changed a call has its
 // new kind served and a call it no longer has is left without one.
-func TestSourceGrantsKinds(t *testing.T) {
-	t.Parallel()
+func testSourceGrantsKinds(t *testing.T) {
 	s := storetest.New(t)
 	ctx := crmYard(t, s)
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
