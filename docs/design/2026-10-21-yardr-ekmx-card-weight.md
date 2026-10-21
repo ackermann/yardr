@@ -278,9 +278,10 @@ $ yardr source grants
 SOURCE        HOLDER                         CALLS            GRANTED       BY
 google-mail   crew member yardmaster         read (4 calls)   17 Oct 19:02  mckean, on yd-c546 ask 409 asked by yardmaster
 google-mail   crew member yardmaster as ada  send (update)    17 Oct 19:04  mckean, on yd-c546 ask 412 asked by yardmaster
-telegram      group builders                 read (2 calls)   before 12 Oct -
-telegram      group builders                 reply (update)   12 Oct 10:15  mckean
+telegram      group builders                 read (2 calls)   not kept      -
+telegram      group builders                 reply (update)   not kept      -
 4 calls granted of 2 sources to 2 holders: 2 may change something outside the yard, 1 calls as a user.
+telegram to group builders: granted before its history was kept; its record last changed 12 Oct 10:15 by mckean.
 take one back: yardr source revoke <source> <call> --crew|--group <holder> [--as <user>]
 ```
 
@@ -298,10 +299,17 @@ field, `SourceGrant.Given`, a map from each entry of `Calls` to
 `GrantGiven{At, By, Bead, Ask, Asker}`, written by `grant` for the call it
 adds and removed by `revoke` with it. The `on ...` part comes from its
 bead, ask and asker, set when the grant was approved on a card. A
-migration fills `Given` from the `source_granted` events still kept; the
-newest call of a record takes the record's `At` and `By`, which are its
-own; any other call of a record written before shows `before <At>` and
-`BY` as `-`, which is all that is known of it.
+migration fills `Given` from the `source_granted` events still kept, and
+from nothing else. Pruned history cannot be backfilled exactly: the
+record's `At` and `By` are those of its last grant, but `Calls` is sorted
+on every grant and `revoke` leaves `At` and `By` as they were, so nothing
+durable says which call they belong to, or whether that call is still
+held; giving them to any one call would invent who granted it. A call the
+migration finds no event for therefore has no `Given` entry, and its row
+shows `not kept` and `-`. Below the summary, each record holding such a
+call gets one line with the record's own `At` and `By`, as what they are:
+when the record last changed and who changed it, for no call in
+particular. Every call granted after the migration has its own entry.
 
 **The socket.** `SourceGrants` joins `OperatorCalls` in
 `internal/rpc/api.go` and is documented in `docs/api.md` under "For the
@@ -480,16 +488,18 @@ event and its `approved`), a new `internal/store/migrate_NNN_grant_given.go`,
 operator alone"), `docs/integrations.md`. Done when: `SourceGrant.Given`
 holds each call's `At`, `By` and, when approved on a card, its bead, ask
 and asker, written by `grant` and removed by `revoke`; the migration fills
-it from the kept `source_granted` events and the record's own `At` and
-`By` for its newest call; `yardr source grants` prints one row per
-source × holder × call (read as one row) and the summary of 3.4, with
-`before <At>` and `-` for a call nothing is known of, its narrowing flags
+it from the kept `source_granted` events alone, and never gives the
+record's `At` and `By` to any one call; `yardr source grants` prints one
+row per source × holder × call (read as one row) and the summary of 3.4,
+with `not kept` and `-` for a call with no `Given` entry and, below the
+summary, one line per such record with its `At` and `By` as when it last
+changed and by whom, its narrowing flags
 and `--json`; `SourceGrants` is in `OperatorCalls`, documented under "For
 the operator alone", and a test shows the listener refuses it to a
 non-operator user's device as a method the yard does not have;
 `docs/integrations.md` names the command; tests for the command, the
 provenance of a record with two calls granted at different times by
-different people, and the migration; `sh .yardr/test` passes.
+different people, and the migration (a record with one call whose event is kept and one whose event was pruned: the first gets its event's provenance, the second none, and the record's `At` and `By` appear only on its record line); `sh .yardr/test` passes.
 
 **W6. footplate's grants view (footplate).** Goal: footplate shows every
 grant as `yardr source grants` does. Depends on W5, and on W4 because
