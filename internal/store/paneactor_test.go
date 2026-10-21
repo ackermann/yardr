@@ -520,6 +520,123 @@ func TestAskFromAPaneIsThatPanesActor(t *testing.T) {
 	})
 }
 
+// Mail from a bead session's pane is recorded as that session's actor and
+// names the session's bead as from_bead: the actor is no inbox, so the bead
+// is what a reply to the mail is written on (yardr reply). It names it for a
+// session that has ended since, whose agent is still open in its pane. The
+// bead is in the mail's data and not on the event, whose bead's history and
+// subscribers are not the mail's readers. Mail from a crew member's pane and
+// from no pane names none.
+func TestMailFromAPaneNamesItsBead(t *testing.T) {
+	t.Parallel()
+	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
+		t.Helper()
+		s := storetest.New(t)
+		ctx := context.Background()
+		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"yardmaster", "clerk"} {
+			if _, err := s.PutCrew(ctx, store.CrewMember{Name: name, Runner: "herdr"}, "op"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		actor := b.ID + "-new"
+		if withPane {
+			if err := s.MarkRunning(ctx, sess.ID, paneShell(t, actor)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return s, ctx, b, sess, actor
+	}
+	lastMail := func(t *testing.T, s store.API, ctx context.Context) store.Event {
+		t.Helper()
+		evs, err := s.EventsOfKind(ctx, "mail", 50)
+		if err != nil || len(evs) == 0 {
+			t.Fatalf("mail events = %+v, %v", evs, err)
+		}
+		return evs[len(evs)-1]
+	}
+
+	t.Run("session", func(t *testing.T) {
+		s, ctx, b, _, actor := setup(t, true)
+		pane := store.WithCaller(ctx, os.Getpid())
+		if err := s.Mail(pane, "yardmaster", "may I narrow it?", "op"); err != nil {
+			t.Fatal(err)
+		}
+		e := lastMail(t, s, ctx)
+		if e.Actor != actor || e.Data["from_bead"] != b.ID || e.Data["to"] != "yardmaster" {
+			t.Fatalf("mail from the session's pane = %+v, want actor %q, from_bead %q, to yardmaster", e, actor, b.ID)
+		}
+		if e.Bead != nil {
+			t.Fatalf("the mail event is on bead %s: its history would show the mail", *e.Bead)
+		}
+		evs, err := s.Events(ctx, b.ID, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ev := range evs {
+			if ev.Kind == "mail" {
+				t.Fatalf("the bead's history holds the mail: %+v", ev)
+			}
+		}
+	})
+
+	t.Run("ended session", func(t *testing.T) {
+		if !peer.HaveStat() {
+			t.Skip("this OS reports no process start time")
+		}
+		s, ctx, b, sess, actor := setup(t, true)
+		if err := s.EndSession(ctx, sess.ID, "died", "x"); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, os.Getpid())
+		if err := s.Mail(pane, "yardmaster", "I am still here", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if e := lastMail(t, s, ctx); e.Actor != actor || e.Data["from_bead"] != b.ID {
+			t.Fatalf("mail from an ended session's open pane = %+v, want actor %q, from_bead %q", e, actor, b.ID)
+		}
+	})
+
+	t.Run("crew pane", func(t *testing.T) {
+		s, ctx, _, _, _ := setup(t, false)
+		if err := s.CrewStarted(ctx, "yardmaster", paneShell(t, "yardmaster")); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, os.Getpid())
+		if err := s.Mail(pane, "clerk", "the shed is painted", "op"); err != nil {
+			t.Fatal(err)
+		}
+		e := lastMail(t, s, ctx)
+		if _, named := e.Data["from_bead"]; e.Actor != "yardmaster" || named {
+			t.Fatalf("mail from a crew member's pane = %+v, want actor yardmaster and no from_bead", e)
+		}
+	})
+
+	t.Run("no pane", func(t *testing.T) {
+		s, ctx, _, _, _ := setup(t, false)
+		if err := s.Mail(ctx, "yardmaster", "from a terminal", "op"); err != nil {
+			t.Fatal(err)
+		}
+		e := lastMail(t, s, ctx)
+		if _, named := e.Data["from_bead"]; e.Actor != "op" || named {
+			t.Fatalf("mail from no pane = %+v, want actor op and no from_bead", e)
+		}
+	})
+}
+
 // An answer from a session's pane is recorded as that session's actor,
 // whatever --actor says, and only the pane's actor's own asks are its
 // to take back: one of the operator's is refused as the pane's. From

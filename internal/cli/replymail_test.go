@@ -19,7 +19,16 @@ import (
 // test sets the crew it acts as.
 func replyMailYard(t *testing.T) (*app, store.API) {
 	t.Helper()
-	st, _ := storetest.NewOwned(t)
+	a, st, _ := replyMailYardOwned(t)
+	return a, st
+}
+
+// replyMailYardOwned is replyMailYard with the store behind its API, for a
+// test that writes mail as a pane it makes up (store.WithCaller), which
+// only a call in the owning process can.
+func replyMailYardOwned(t *testing.T) (*app, store.API, *store.Store) {
+	t.Helper()
+	st, owned := storetest.NewOwned(t)
 	ctx := context.Background()
 	if err := st.SetSetting(ctx, "operator", "jo", "jo"); err != nil {
 		t.Fatal(err)
@@ -33,7 +42,7 @@ func replyMailYard(t *testing.T) (*app, store.API) {
 	}
 	a := testApp(t, st, newHomeDir(t))
 	a.actor = "yardmaster"
-	return a, st
+	return a, st, owned
 }
 
 // mailSeq is the seq of the mail the test sent: the yardmaster's inbox has
@@ -305,7 +314,7 @@ func TestReplyHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"hook", "mail to", "sender", "yardr reply 13974"} {
+	for _, want := range []string{"hook", "mail to", "sender", "yardr reply 13974", "a note on that bead"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("reply --help has no %q:\n%s", want, help)
 		}

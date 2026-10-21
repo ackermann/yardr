@@ -127,7 +127,8 @@ a bead is refused**: what it has to say to a person goes on its bead
 outcome. That is a rule of the `mail` command, not of the user's record.
 
 A crew member answers mail with `yardr reply <seq> <text|->`, the number
-its inbox line starts with: the reply is mail to that mail's sender.
+its inbox line starts with: the reply is mail to that mail's sender, or,
+when the sender is a bead's session, a note on that bead.
 `yardr mail` is for writing first.
 
 ### A file in mail

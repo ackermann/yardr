@@ -115,7 +115,10 @@ from <name>@<peer> as yardr mail <name>@<peer> would (it is queued for the
 peer, which the crew member must be allowed, and a refusal reads as that
 command's). A reply to local mail sends one mail, or several numbered ones
 for a long text, as yardr mail does; a reply to peer mail keeps its separate
-16 KB per-mail limit.
+16 KB per-mail limit. Mail from the session of a bead has no inbox to answer
+into: the reply is a note on that bead, as yardr bead note writes it, so its
+live session is told of it, and with none running it waits on the bead for
+whoever works it next.
 
 The call to a source is made from this process with your own credential,
 from your environment: the variable its declaration names (credential.env),
@@ -308,10 +311,38 @@ func (a *app) replyPeer(c *cobra.Command, st store.API, bead, crew string, text 
 	})
 }
 
+// replyNote answers mail from the session of bead (seq, the mail's number)
+// as a note on that bead, by the crew member crew, written as yardr bead
+// note writes one. A session's actor is no inbox, so the note is what
+// reaches it: the bead's live session is told of it by the daemon
+// (notetell), and with none running it waits on the bead for whoever works
+// it next. The bead is the one the mail named when it was written
+// (store.Mail), which need not be the session still running on it.
+func (a *app) replyNote(c *cobra.Command, st store.API, seq uint64, bead, crew, body string) error {
+	n, err := st.AddNotedAs(c.Context(), bead, body, crew, a.identity().session)
+	if err != nil {
+		return fmt.Errorf("reply to event %d, mail from a session of %s: %w", seq, bead, err)
+	}
+	out := map[string]any{"seq": seq, "crew": crew, "bead": n.Bead, "note": n.Seq, "noted": "ok"}
+	if n.Notify != "" {
+		out["notify"] = n.Notify
+	}
+	return a.out(c.OutOrStdout(), out, func(w io.Writer) {
+		said := fmt.Sprintf("note %d on %s", n.Seq, n.Bead)
+		if n.Notify != "" {
+			said += fmt.Sprintf(" (session %s will be told)", n.Notify)
+		} else {
+			said += " (no session runs on it now; the note waits on the bead)"
+		}
+		fmt.Fprintln(w, said)
+	})
+}
+
 // replyMail answers the mail event e (seq) by mail to its sender, as the
 // crew member name: mail from this yard (a user or a crew member) as yardr
 // mail <sender> would send it, mail from <name>@<peer> as yardr mail
-// <name>@<peer> would. A refusal reads as that command's.
+// <name>@<peer> would, mail from a bead's session as a note on its bead.
+// A refusal reads as that command's.
 func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Event, name, body, to string) error {
 	ctx := c.Context()
 	if to != "" {
@@ -346,6 +377,9 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 		return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
 			fmt.Fprintf(w, "mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", from, peer, peer)
 		})
+	}
+	if bead, _ := e.Data["from_bead"].(string); bead != "" {
+		return a.replyNote(c, st, seq, bead, name, body)
 	}
 	from := e.Actor
 	if from == "" {

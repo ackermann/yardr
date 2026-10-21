@@ -811,19 +811,28 @@ type Note struct {
 // write that records who did it resolves its actor through here, once,
 // before any other use of it.
 func paneAuthor(tx *bolt.Tx, pid int, actor string) (string, error) {
+	author, _, err := paneAuthorSession(tx, pid, actor)
+	return author, err
+}
+
+// paneAuthorSession is paneAuthor that also answers the bead session whose
+// pane the call comes from, for a write that records which session it came
+// from. The session is nil when the author is a crew member, and when it is
+// the actor as given.
+func paneAuthorSession(tx *bolt.Tx, pid int, actor string) (string, *Session, error) {
 	if sess, err := paneSession(tx, pid); err != nil {
-		return "", err
+		return "", nil, err
 	} else if sess != nil && !sess.Manual() {
 		if a := sessionActor(sess); a != "" {
-			return a, nil
+			return a, sess, nil
 		}
 	}
 	if r, err := paneCrew(tx, pid); err != nil {
-		return "", err
+		return "", nil, err
 	} else if r != nil {
-		return r.Name, nil
+		return r.Name, nil, nil
 	}
-	return actor, nil
+	return actor, nil, nil
 }
 
 // sessionActor is the actor the session runs as: the agent its runner

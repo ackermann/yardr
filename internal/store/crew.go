@@ -833,7 +833,10 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 // the name the sender gives it: the mail event names them (MailFiles),
 // and mail with a file needs no text. From a session's or a crew member's
 // pane the mail is recorded as that session's actor or that crew member,
-// whatever actor says; from anywhere else, as given (paneAuthor).
+// whatever actor says; from anywhere else, as given (paneAuthor). Mail from
+// a bead session's pane also names that session's bead as from_bead: the
+// session's actor is no inbox, so a reply to it (yardr reply) goes on the
+// bead as a note.
 func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...BlobFile) error {
 	if strings.TrimSpace(text) == "" && len(files) == 0 || len(text) > MaxMailBytes {
 		return fmt.Errorf("mail must be 1..%d bytes", MaxMailBytes)
@@ -843,7 +846,7 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...BlobF
 		return fmt.Errorf("mail to %s: %w", to, err)
 	}
 	return s.writeVia(ctx, func(w *wtx) error {
-		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		resolved, sess, err := paneAuthorSession(w.Tx, callerOf(ctx), actor)
 		if err != nil {
 			return err
 		}
@@ -851,6 +854,12 @@ func (s *Store) Mail(ctx context.Context, to, text, actor string, files ...BlobF
 		data := map[string]any{"to": to, "text": text}
 		if len(refs) > 0 {
 			data["files"] = refs
+		}
+		if sess != nil {
+			// In the data and not on the event's bead: the event would
+			// then reach the bead's subscribers and its history, which
+			// are not the mail's readers.
+			data["from_bead"] = handlesIn(w.Tx).of(sess.Bead)
 		}
 		switch {
 		case w.Bucket(bCrew).Get([]byte(to)) != nil:
