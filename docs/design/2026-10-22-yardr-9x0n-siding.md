@@ -35,8 +35,10 @@ the size weight the ceiling counts (3.4).
 ## 2. What exists today
 
 **The hand fold.** It happens all the time: in the 30 days of this yard's
-log (`yardr events --kind closed --since 30d`, read 22 Oct) 117 beads were
-closed "folded into <id>", into 50 carriers. 26 carriers took one other
+log (`yardr events --kind closed --since 30d`) 117 beads had been closed
+"folded into <id>", into 50 carriers, when it was read at 01:40 on 22 Oct;
+the same command read at 02:00 counts 106, as the window slides past early
+October's sweeps. 26 carriers took one other
 bead, 17 two, 5 three, 1 four and one (a yardr-hosted sweep) seventeen.
 The shaper's prompt (`~/.yardr/roles/shaper-crew.md`, "A batch", step 3)
 writes the shape: keep the member that carries the most, retitle it
@@ -178,9 +180,15 @@ Per depot: a depot route names the depot's own siding group, so yardr and
 signalbox may fold at different counts; a yard default route serves every
 depot that states none, and each depot's members are still counted apart
 (the area is the depot). `fold` is what makes a stage a siding, so
-`fold_after` and `fold_max` have defaults and `fold` has none. A siding
-whose stage has no next stage, or whose group is not manual, is refused
-when the key is set (`ConfigError`, `internal/store/configkeys.go:130`).
+`fold_after` and `fold_max` have defaults and `fold` has none. The keys
+list `manual` as their only runner in `ConfigKeys`, so setting them on an
+exec or herdr group is refused by `ConfigError`
+(`internal/store/configkeys.go:130`) as `wait` is today. Whether the
+group's stage has a next stage cannot be checked there: `ConfigProblems`
+sees only the runner and the config, not routes or flows, and a flow can
+change after the group is set. That case is caught later, twice: `flow
+show` prints a `warning:` line for it (below), and the readiness check
+refuses to fold such a siding and says so (3.2).
 
 `yardr flow show` adds one line under the table for each siding stage, and
 a `siding` object in `--json`:
@@ -197,7 +205,16 @@ siding: folds at 4 beads, or 8h after the latest arrives; at most 6 points; the 
 ```
 
 The rows come from `flowViews` (`internal/cli/flows.go:569`), which
-already resolves each stage's group by `store.MatchRoute`.
+already resolves each stage's group by `store.MatchRoute`. `flow show`
+shows one flow at a time, so the line is per stage of that flow: a group
+with `fold` that serves two stages gets a line under each, with that
+stage's own count. A stage whose group sets `fold` but that has no next
+stage (a terminal stage, or one no edge leaves) gets, in place of the
+second line:
+
+```
+warning: siding has fold=4 but no next stage; nothing will fold here
+```
 
 ### 3.2 What runs the readiness check (question 1)
 
@@ -207,7 +224,19 @@ shape as `FireTimers` and `timers`:
 
 1. Outside the write: list the open beads, resolve each one's route
    (`MatchRoute` with the effective routes), and keep those in a stage whose
-   manual group sets `fold`. Group them by **(depot, stage)**: one siding.
+   manual group sets `fold`. Read the repository flows of each depot that
+   has such beads (`s.RepoFlows`, as `gateRepos` does at
+   `internal/store/flows.go:832`, since git must not run inside a write).
+   Group the beads by **(depot, flow, stage)**: one siding. The flow is
+   the one that governs the bead, resolved as every move resolves it
+   (`resolveFlow`, `flows.go:1001`, through a `flowMemo` so each depot and
+   type is asked once): a depot may point one bead type at its own flow
+   (`FlowPointer.Type`, `flows.go:515`), and two flows of one depot may
+   both name a stage `siding`. Those are two sidings, each with its own
+   count, its own next stage and its own carrier, never one set that the
+   fold would then refuse. A bead whose depot's repository could not be
+   read is left out of this pass (its flow is unknown) and counted on the
+   next one, as `untilLooks` leaves a blocker it cannot resolve.
 2. A siding is **ready** when its eligible members (3.5) number at least
    `fold`, or when `at - latest StayStart >= fold_after`. Otherwise its due
    time is `latest StayStart + fold_after`.
@@ -218,6 +247,17 @@ shape as `FireTimers` and `timers`:
 4. Return `SidingPass{Folded, Refused, Next}`; `Next` is the earliest due
    time, and the dispatcher keeps it as `sidingDue` and adds it to the
    `next` it arms in `Run` (dispatch.go:694-706).
+
+Two cases the key alone does not settle. **A group that serves several
+stages** (one manual `siding` group routed on two stages, or on a stage
+that two flows share) makes one siding per (depot, flow, stage) it serves,
+each read against the group's `fold`, `fold_after` and `fold_max`.
+**A siding whose stage has no next stage** in its flow is ready as any
+other, but the write folds nothing: it logs `fold_refused` with reason
+`next` on the latest member, once per member set (the rule in 3.4), so
+the yardmaster learns that the flow, not the siding, is wrong. The members
+wait where they are until a person moves them or the flow gains an
+edge.
 
 What it costs: a count reaches N on the very write that brings the Nth
 member, since every store write wakes the pass; the time trigger fires on
@@ -240,7 +280,7 @@ carrier of one part is the same bead with a worse title.
 **Automatic.** The dispatcher folds on readiness; nothing waits for a
 person to type `bead fold`. Quota is the flow's business: a depot that
 wants a person before the carrier builds writes `siding -> ready`, with
-`ready` routed to a manual group, which this yard's depots do (3.7). An
+`ready` routed to a manual group, which this yard's depots do (3.8). An
 exec group could not do it: it is dispatched once per member (2).
 
 **One write**, `w.fold(members, to, trigger, actor)`, shared by
@@ -250,9 +290,13 @@ actor)` (`yardr bead fold`):
 - **The carrier** is made by `newBead`'s closure in the same write (as
   `AskNew` does):
   - **depot**: the members' (one depot, or the fold is refused);
-  - **type**: the members' common type, else `task`; the carrier's flow
-    must be the members' flow, or the fold is refused (`fold_refused`,
-    reason `flow`);
+  - **type**: the members' common type, else the oldest member's type.
+    Not a fixed `task`: a depot may point `task` at a flow of its own, and
+    the carrier must be governed by the members' flow. Every member of a
+    siding is governed by one flow (3.2), so the oldest member's type
+    resolves to it. A hand fold whose members are governed by different
+    flows is refused with an error naming each member's flow; it is a
+    person's command, so the refusal is told to that person, not logged;
   - **stage**: for a siding fold, `Next(siding)[0]`; for `bead fold`,
     `--to`, else that same stage when every member is in one siding, else
     the members' common stage (two backlog beads folded by hand stay in
@@ -331,7 +375,8 @@ yardr-k9p2 folded from yardr-ab12, yardr-cd34, yardr-ef56 (3 points, size:medium
 Points per member by its `size:` label: small 1, medium 2, large 4, none 2.
 A fold of more than `fold_max` points (default 6: six smalls, or three
 mediums) is refused: nothing moves, and `fold_refused` is logged on the
-siding's latest member, with the members, their points and `fold_max`. It
+siding's latest member, with reason `ceiling`, the members, their points
+and `fold_max`. It
 is logged once for a set of members: a pass that finds the same latest
 member already told says nothing (the event is its own memory, as
 `waited`'s is), and a new arrival, which changes the latest member, tells
@@ -353,7 +398,7 @@ siding and count for neither N nor x.
 |---|---|---|---|---|
 | `folded` | the carrier | `members`, `from` (stage or `-` by hand), `to`, `trigger` (`count`, `wait` or `hand`), `points` | none | the members' watchers (copied, 3.3), any subscription that matches the carrier; the `ready` group as any manual stage tells |
 | `closed` | each member | `reason: folded into <carrier>` | none | as any close |
-| `fold_refused` | the latest member | `members`, `points`, `fold_max`, `reason` (`ceiling` or `flow`) | `attention` | the yardmaster |
+| `fold_refused` | the latest member | `members`, `points`, `fold_max`, `reason` (`ceiling`, or `next` for a siding with no next stage) | `attention` | the yardmaster |
 | `unfolded` | the carrier | `member`, `to`, `reason` | none | the carrier's watchers |
 
 `fold_refused` goes into `AttentionKinds`, `knownKinds` in
@@ -505,23 +550,36 @@ I would take (a).
 ## 6. The beads it would become
 
 In landing order. Checked for overlap per mem-b1dm: each done-when names
-only its own behaviours, and none lists more than ten.
+only its own behaviours, each is counted check by check (a field, a case
+or a refusal is one check), and none lists more than nine.
 
-**1. The fold write: carrier and members.** Goal: `Store.FoldBeads` folds
-named beads into one carrier in one write. Where: `internal/store/beads.go`
-(`newBead`, `w.closeBead`, `checkCloseOwn`), `graph.go` (`w.addDep`, a
-`DepFolded` kind beside `DepBlocks`), `store/api.go` and `go generate
-./internal/rpc`. Done when (8): a table test in `internal/store` shows the
-carrier's depot, type (common or `task`), stage (`To`), title (cut at 100
-with `(+n more)`), priority, originator (oldest member's), labels (union,
-estimate from points) and body (parts, `## The bundle`); each member has a
-`folded` edge and is closed "folded into <carrier>"; members of two depots,
-a closed member and a claimed member are refused; an agent in another
-bead's pane is refused; one `folded` event is logged; everything is one
-write (a refused member leaves nothing changed).
+**1. The carrier.** Goal: `Store.FoldBeads` makes one carrier from named
+beads, inside one write. Where: `internal/store/beads.go` (`newBead`'s
+closure, run with more writes in one transaction as `AskNew` does at
+`asks.go:645`), a new `internal/store/fold.go` for `w.fold` and
+`FoldOptions`, `store/api.go` and `go generate ./internal/rpc`. Done when
+(8), each a row of one table test in `internal/store`: the carrier's depot
+is the members'; its type is their common type, else the oldest member's;
+its stage is `To`; its title is `<depot> bundle: …`, cut on a word at 100
+characters with `(+n more)`, and `Title` replaces it; its priority is the
+highest member's; its originator is the oldest member's; its labels are
+the union without `size:`/`difficulty:`, plus `difficulty:` the highest and
+`size:` from the points (3.3); its body has one `## Part n` per member,
+verbatim, and `## The bundle`.
 
-**2. What moves with a fold.** Depends on 1. Goal: a fold keeps a member's
-links, dependents, watchers and asks right. Where: `w.fold` from bead 1,
+**2. The members.** Depends on 1. Goal: a fold closes its members and
+refuses what it cannot fold, all or nothing. Where: `w.fold` from bead 1,
+`graph.go` (a `DepFolded` kind beside `DepBlocks`, `w.addDep`),
+`beads.go` (`w.closeBead`, `checkCloseOwn`), `events.go`. Done when (8):
+each member has a `folded` edge from the carrier; each member is closed
+"folded into <carrier>"; one `folded` event is logged on the carrier with
+the data in 3.6; members of two depots are refused; members governed by
+two flows are refused with each member's flow named; a closed member and a
+claimed member are refused; an agent in another bead's pane is refused; a
+refusal leaves the store unchanged (no carrier, no closed member).
+
+**3. What moves with a fold.** Depends on 2. Goal: a fold keeps a member's
+links, dependents, watchers and asks right. Where: `w.fold`,
 `links.go` (`MoveLink` lifted into `w.moveLink`), `graph.go`
 (`w.removeDep`/`w.addDep`), `yardrsource.go` (watch subscriptions),
 `stageasks.go`. Done when (7): a member's `tracks` link moves to the
@@ -532,44 +590,59 @@ carrier; `discovered-from` stays on the member; `bead=<member>` watches are
 copied to the carrier; a member's stage asks are taken back; the carrier's
 fold note lists each member's note count and files.
 
-**3. `yardr bead fold` and how a fold shows.** Depends on 1. Goal: a
-person folds by hand and reads a fold back. Where: `internal/cli/bead_move.go`
-or a new `internal/cli/bead_fold.go`, registered in `beads.go`;
-`yardr bead show` (folded into / folded from lines, and `--json`);
-docs/line.md (a section "Folding beads" after "Trains"). Done when (6):
-`bead fold <ids>` prints the carrier line shown in 3.3; `--to` and
-`--title` apply; without `--to` it takes the siding's next stage or the
-common stage and asks for `--to` otherwise; `bead show` prints "folded
-into" and "folded from"; `--json` holds both; docs/line.md describes it.
+**4. `yardr bead fold` and how a fold shows.** Depends on 2. Goal: a
+person folds by hand and reads a fold back. Where: a new
+`internal/cli/bead_fold.go`, registered in `beads.go`; `yardr bead show`
+(folded into / folded from lines, and `--json`); docs/line.md (a section
+"Folding beads" after "Trains"). Done when (6): `bead fold <ids>` prints
+the carrier line shown in 3.3; `--to` and `--title` apply; without `--to`
+it takes the siding's next stage or the common stage and asks for `--to`
+otherwise; `bead show` prints "folded into" and "folded from"; `--json`
+holds both; docs/line.md describes it.
 
-**4. Siding config keys and `flow show`.** Independent of 1-3. Goal: a
+**5. Siding config keys and `flow show`.** Independent of 1-4. Goal: a
 manual group can be a siding, and `flow show` says so. Where:
-`internal/store/configkeys.go` (`fold`, `fold_after`, `fold_max`, with a
-count type if none fits), `internal/cli/flows.go` (`flowViews`, the line
-under the table, `siding` in `--json`), docs/groups.md (beside `wait`),
-docs/flows.md. Done when (6): the three keys are accepted on a manual
-group and refused on others; `fold` below 2 is refused; the line and the
-`now` line print as in 3.1 for a siding with members and without; `--json`
-carries them; a stage whose group sets `fold` but that has no next stage
-gets a `warning:` line; docs describe the keys.
+`internal/store/configkeys.go` (`fold`, `fold_after`, `fold_max`, runner
+`manual`, with a count type if none fits), `internal/cli/flows.go`
+(`flowViews`, the lines under the table, `siding` in `--json`),
+docs/groups.md (beside `wait`), docs/flows.md. Done when (7): the three
+keys are accepted on a manual group and refused on others; `fold` below 2
+is refused; the two lines print as in 3.1 for a siding with members and
+without; a group with `fold` on two stages of one flow gets a line under
+each, with each stage's count; a siding stage with no next stage prints
+the `warning:` line instead of the second; `--json` carries the same;
+docs describe the keys.
 
-**5. The readiness check.** Depends on 1 and 4. Goal: the dispatcher folds
+**6. The readiness check.** Depends on 2 and 5. Goal: the dispatcher folds
 a ready siding on time. Where: a new `internal/store/sidings.go`
-(`FoldSidings`, `SidingPass`, after `timers.go`'s `FireTimers`);
-`internal/dispatch` (a `sidings` step after `timers`, `sidingDue` in
-`Run`'s next-due, sharing `waits`' bead list and routes). Done when (9): a
-siding folds when its eligible members reach `fold`; one member past
-`fold_after` with others folds them all; one alone past `fold_after` is
-advanced, not folded; held, blocked, claimed and asked members are
-neither counted nor folded; two depots on one yard default route fold
-apart; members arriving between decision and write are folded too; a
-fold over `fold_max` logs one `fold_refused` (attention) on the latest
-member and none on the next pass, and a new arrival tells again; the
-dispatcher wakes at the due time (a fake clock in a dispatch test, no
-sleep); `fold_refused` is in `AttentionKinds`, `knownKinds`, the attention
-test and docs/subscriptions.md.
+(`FoldSidings`, `SidingPass`, built after `timers.go`'s `FireTimers`; the
+repository flows read before the write as `gateRepos` does, and
+`flowMemo.resolve` inside it); `internal/dispatch` (a `sidings` step after
+`timers`, `sidingDue` in `Run`'s next-due, sharing `waits`' bead list and
+routes). Done when (9): a siding folds when its eligible members reach
+`fold`; one member past `fold_after` with others folds them all; one alone
+past `fold_after` is advanced, not folded; held, blocked, claimed and asked
+members are neither counted nor folded; two depots on one yard default
+route fold apart; two flows of one depot that both name the siding stage
+(a type pointed at its own flow) fold apart, each into its own flow's next
+stage; members arriving between decision and write are folded too; a bead
+whose depot's repository cannot be read is left out of the pass and folded
+on a later one; the dispatcher wakes at the due time (a fake clock in a
+dispatch test, no sleep).
 
-**6. `yardr bead unfold`.** Depends on 1 and 3. Goal: a reviewer takes a
+**7. The refusals.** Depends on 6. Goal: a siding that cannot fold tells
+the yardmaster once. Where: `internal/store/sidings.go`,
+`store.AttentionKinds` (`crew.go:1040`), `knownKinds`
+(`internal/cli/crew.go:77`), `internal/cli/attention_test.go`,
+docs/subscriptions.md "The class attention". Done when (6): a fold over
+`fold_max` changes nothing and logs one `fold_refused` (reason `ceiling`)
+on the latest member; the next pass logs none; a new arrival logs one
+again; a siding whose stage has no next stage folds nothing and logs one
+`fold_refused` (reason `next`) by the same once-per-set rule; a hand fold
+over `fold_max` is not refused; `fold_refused` is in `AttentionKinds`,
+`knownKinds`, the attention test and docs/subscriptions.md.
+
+**8. `yardr bead unfold`.** Depends on 2 and 4. Goal: a reviewer takes a
 failing part out of a carrier. Where: `Store.Unfold` beside `Reopen`
 (`beads.go:2062`), the CLI beside `bead fold`, the `## The bundle` line,
 packs' `reviewer.md` (the starter's and its byte-identical copies, see
@@ -580,8 +653,8 @@ packs' `reviewer.md` (the starter's and its byte-identical copies, see
 refused; the reviewer role says when to unfold and to revert the part's
 commit.
 
-**7. This yard's sidings.** Depends on 5. Goal: yardr's own flow has the siding and
-`ready`. Where: `.yardr/flows/default.flow`, new
+**9. This yard's sidings.** Depends on 7. Goal: yardr's own flow has the
+siding and `ready`. Where: `.yardr/flows/default.flow`, new
 `.yardr/flows/default/siding.md` and `ready.md`, `default/backlog.md` (a
 line naming siding), docs/flows.md's copy of this depot's flow, docs/
 glossary.md (`siding`, `carrier`, `fold` as yard words). Done when (4): the
