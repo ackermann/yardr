@@ -141,8 +141,12 @@ type HookVerify struct {
 	// for a service that sends none.
 	Delivery HookDelivery `json:"delivery"`
 	// Timestamp is when the delivery was sent, checked after the
-	// signature, so it is one the sender signed. Nil for a service that
-	// sends none, whose deliveries cannot be told from a replay by age.
+	// signature, so with hmac-sha256 it is one the sender signed: a body
+	// timestamp is in what signed: body covers, and a header one only in a
+	// template naming {timestamp} (the reader refuses signed: body beside a
+	// header timestamp). With scheme secret nothing signs it. Nil for a
+	// service that sends none, whose deliveries cannot be told from a replay
+	// by age.
 	Timestamp *HookTimestamp `json:"timestamp,omitempty"`
 }
 
@@ -200,9 +204,9 @@ type Events struct {
 // webhooks, the command that turns a verified body into the envelope, and
 // the keys its events' fields may carry. Refused is what would fail at
 // every delivery: no way to verify one, a command that is no list of
-// strings or has no program, a timestamp in two places or none, a delivery
-// id in two places, and bodies that may come again with no delivery id to
-// tell a retry by.
+// strings or has no program, a timestamp in two places or none, a header
+// timestamp that signed: body leaves unsigned, a delivery id in two places,
+// and bodies that may come again with no delivery id to tell a retry by.
 func (r *reader) hook(e entry) *Hook {
 	h := &Hook{}
 	var verify, bodies, normalize, register *entry
@@ -319,7 +323,7 @@ func (r *reader) hookRegister(e entry) *HookRegister {
 // bodies check in hook.
 func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 	v := HookVerify{}
-	var scheme, signed, signature, delivery, timestamp *entry
+	var scheme, signed, signature, delivery *entry
 	for _, f := range r.entries(e.v, e.path, "scheme", "signed", "signature", "delivery", "timestamp") {
 		switch f.key {
 		case "scheme":
@@ -336,7 +340,6 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 		case "delivery":
 			delivery = &f
 		case "timestamp":
-			timestamp = &f
 			v.Timestamp = r.hookTimestamp(f)
 		}
 	}
@@ -356,7 +359,7 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 	} else if secret {
 		r.errf(signed.v, signed.path, "is for scheme %s: with %s the header holds the secret itself", HookScheme, HookSecret)
 	} else if s, ok := r.str(signed.v, signed.path); ok {
-		if signed, ok := r.signedTemplate(*signed, s, timestamp != nil); ok {
+		if signed, ok := r.signedTemplate(*signed, s, v.Timestamp); ok {
 			v.Signed = signed
 		}
 	}
@@ -384,9 +387,19 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 // service's literal text around them (v0:{timestamp}:{body}). A
 // template names {timestamp} and {body} once each, names no other
 // placeholder, and names {timestamp} only where verify names a
-// timestamp to read it from. One mistake is one line, as elsewhere.
-func (r *reader) signedTemplate(e entry, s string, hasTimestamp bool) (string, bool) {
+// timestamp to read it from. The body alone covers a timestamp in the body
+// and no other: one in a header is checked against the clock after the
+// signature, but nobody signed it, so whoever holds a captured delivery
+// can send it again with a fresh one. One mistake is one line, as
+// elsewhere.
+func (r *reader) signedTemplate(e entry, s string, ts *HookTimestamp) (string, bool) {
+	hasTimestamp := ts != nil
 	if s == HookSigned {
+		// Both places is hookTimestamp's own error, not this one.
+		if hasTimestamp && ts.Header != "" && ts.Body == "" {
+			r.errf(e.v, e.path, "%q with the timestamp in the header %s: nothing signs a header, so a captured delivery could be sent again with a fresh one; sign it with a template naming {timestamp} (v0:{timestamp}:{body}), or read the timestamp from the body", s, ts.Header)
+			return "", false
+		}
 		return s, true
 	}
 	counts := map[string]int{}

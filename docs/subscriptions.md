@@ -759,11 +759,22 @@ verified:
   so a captured delivery sent again under a new id is still the body seen
   before, and is dropped. The key is per hook because GitHub sends one
   event's body to every webhook on the repository.
-- **token:** the `Yard-Delivery` header, per hook, when the sender sets one.
-  The body is not a key: a cron job may send `backup ok` every hour.
+- **token:** the `Yard-Delivery` header, per hook. The body is not a key: a
+  cron job may send `backup ok` every hour, so only the sender's id says a
+  delivery is one sent again, and a delivery with none is refused (400,
+  `no_delivery`, below). A sender gives each delivery it means a new id and
+  sends the same id again for a resend. The same holds for a declared
+  source whose `hook.bodies` is `repeat`.
 
 A duplicate is answered 200 with `{"duplicate": true, "seq": <first>}`, so the
 sender stops retrying, and leaves no event.
+
+The keys stay as long as the delivery's event does, and no less than a replay
+of it could still pass a source's timestamp window: twice the longest
+`hook.verify.timestamp.window` any declared source takes, and 7 days more,
+whatever `YARDR_EVENT_RETENTION` is: the week is for a delivery the edge kept
+and sends again when its ack was lost ([edge.md](edge.md)). A prune of the log
+does not make a captured delivery new again.
 
 ### The secret file
 
@@ -807,6 +818,7 @@ yardr hook list       # LAST ACCEPTED and LAST REFUSED, per hook
 | `unknown_hook` | 404 | named no hook: a mistyped URL, a hook removed, or another yard's listener on the address |
 | `unauthorized` | 401 | had no signature or token, a wrong one, or a timestamp too old |
 | `bad_request` | 400 | was signed but is not what the source sends (no JSON, a missing header) |
+| `no_delivery` | 400 | was verified but names no delivery id, and its source repeats bodies: a `token` delivery without `Yard-Delivery`, say |
 | `too_large` | 413 | was larger than 1 MiB |
 | `blocked` | 503 | came while the hook's secret file fails the rule (above) |
 | `secret` | 500 | came while the secret file is empty |

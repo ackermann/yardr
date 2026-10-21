@@ -97,7 +97,8 @@ func (e *Envelope) Map() map[string]any {
 type Adapter interface {
 	// Verify proves the delivery came from the source, from r's headers and
 	// the raw body, using the hook's secret. It returns the source's
-	// delivery id, used to drop redeliveries ("" when the source has none).
+	// delivery id, used to drop redeliveries ("" when the source has none,
+	// which the receiver refuses for a source whose bodies repeat).
 	// Errors wrap ErrUnauthorized or ErrBadRequest.
 	Verify(r *http.Request, body, secret []byte, now time.Time) (delivery string, err error)
 	// Normalize turns a verified body into an Envelope. The headers are
@@ -105,7 +106,8 @@ type Adapter interface {
 	Normalize(h http.Header, body []byte) (*Envelope, error)
 	// Bodies reports how far a body identifies a delivery, so that a body
 	// seen before is a redelivery. A source whose senders may repeat a body
-	// on purpose (a cron job's "backup ok") dedupes on delivery ids alone.
+	// on purpose (a cron job's "backup ok") dedupes on delivery ids alone,
+	// and so takes no delivery that names none.
 	Bodies() BodyScope
 }
 
@@ -129,7 +131,9 @@ const (
 // sha256 of its body, under the source or the hook as the adapter's
 // Bodies says; and the source's delivery id, under the hook, when it sent
 // one (ids are chosen per endpoint by token senders). The store drops a
-// delivery any of whose keys it has recorded.
+// delivery any of whose keys it has recorded. A source whose bodies repeat
+// has no key but the id, so the receiver takes none of its deliveries
+// without one.
 func DedupeKeys(name, src string, ad Adapter, body []byte, delivery string) []string {
 	var keys []string
 	sum := sha256.Sum256(body)

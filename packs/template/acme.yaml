@@ -57,12 +57,15 @@ hook:
     # Drop the timestamp where the service signs none: without it a replay
     # cannot be told by age, and the signed body drops it instead
     # (bodies). In the body at the dot path, or in a header, in ms or s,
-    # within window of the yard's clock.
+    # within window of the yard's clock. One in a header is signed only by
+    # a template naming it (signed: "v0:{timestamp}:{body}"): signed: body
+    # beside it is refused, since nothing would sign the header.
     timestamp: { body: sent_at, unit: ms, window: 1m }
   # unique drops a body the source sent before, whichever hook it reached;
   # unique-per-hook drops one the hook saw before, where one event's body
   # goes to every webhook that asked for it; repeat takes a body again as
-  # a new delivery, told from its retry by the delivery id alone.
+  # a new delivery, told from its retry by the delivery id alone, so a
+  # delivery that names none is refused.
   bodies: unique
 
   # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the

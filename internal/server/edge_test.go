@@ -131,7 +131,11 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 	defer cl.Close(context.Background())
 
 	bearer := func(tok string) http.Header { return http.Header{"Authorization": {"Bearer " + tok}} }
-	if a := overLink(t, l, "/hooks/adhoc", bearer(hookToken), `{"text":"deployed"}`); a.Status != http.StatusOK {
+	// A token delivery names its id: the hook's source repeats bodies, and
+	// takes none that does not.
+	delivery := bearer(hookToken)
+	delivery.Set("Yard-Delivery", "deploy-1")
+	if a := overLink(t, l, "/hooks/adhoc", delivery, `{"text":"deployed"}`); a.Status != http.StatusOK {
 		t.Errorf("a delivery with the hook's token answered %d %s", a.Status, a.Body)
 	}
 	if a := overLink(t, l, "/hooks/adhoc", bearer("not-it"), `{"text":"forged"}`); a.Status != http.StatusUnauthorized {
@@ -184,7 +188,7 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := nextLink(t, edge)
-	if a := overLink(t, l, "/hooks/adhoc", http.Header{"Authorization": {"Bearer " + hookToken}}, `{"text":"linked"}`); a.Status != http.StatusOK {
+	if a := overLink(t, l, "/hooks/adhoc", http.Header{"Authorization": {"Bearer " + hookToken}, "Yard-Delivery": {"linked-1"}}, `{"text":"linked"}`); a.Status != http.StatusOK {
 		t.Errorf("a delivery over the link answered %d %s", a.Status, a.Body)
 	}
 	if !listens(addr) {

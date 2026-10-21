@@ -64,7 +64,9 @@ func hookRunAsk(command string) Ask {
 // and the hook-add card print the same sentence.
 func TestHookSaysNamesWhatTheSignatureCovers(t *testing.T) {
 	t.Parallel()
-	decl := func(signed string) string {
+	// The body alone covers a timestamp in the body; one in a header is
+	// signed only by a template naming it.
+	decl := func(signed, timestamp string) string {
 		return `name: chat
 base: https://chat.example.com
 credential: { env: CHAT_TOKEN }
@@ -74,7 +76,7 @@ hook:
     signed: ` + signed + `
     signature: { header: Chat-Signature, encoding: hex, prefix: "v0=" }
     delivery: { body: event_id }
-    timestamp: { header: Chat-Timestamp, unit: s, window: 5m }
+    timestamp: ` + timestamp + `
   bodies: repeat
   normalize: [chat/normalize]
   keys: [sender]
@@ -82,15 +84,17 @@ calls:
   viewer: { kind: read, request: { method: GET, path: /viewer } }
 `
 	}
+	const inBody, inHeader = "{ body: sent_at, unit: s, window: 5m }", "{ header: Chat-Timestamp, unit: s, window: 5m }"
 	for _, tc := range []struct {
-		name   string
-		signed string
-		want   string
+		name      string
+		signed    string
+		timestamp string
+		want      string
 	}{
-		{"the body alone", "body", "HMAC-SHA256 over the body (scheme hmac-sha256, signed: body)"},
-		{"a template over timestamp and body", `"v0:{timestamp}:{body}"`, "HMAC-SHA256 over v0:{timestamp}:{body} (scheme hmac-sha256, signed: v0:{timestamp}:{body})"},
+		{"the body alone", "body", inBody, "HMAC-SHA256 over the body (scheme hmac-sha256, signed: body)"},
+		{"a template over timestamp and body", `"v0:{timestamp}:{body}"`, inHeader, "HMAC-SHA256 over v0:{timestamp}:{body} (scheme hmac-sha256, signed: v0:{timestamp}:{body})"},
 	} {
-		d, err := source.Parse("chat.yaml", []byte(decl(tc.signed)))
+		d, err := source.Parse("chat.yaml", []byte(decl(tc.signed, tc.timestamp)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +104,7 @@ calls:
 	}
 	// Unset reads as the body alone: the reader refuses a missing
 	// signed, so only a declaration built by hand arrives without one.
-	d, err := source.Parse("chat.yaml", []byte(decl("body")))
+	d, err := source.Parse("chat.yaml", []byte(decl("body", inBody)))
 	if err != nil {
 		t.Fatal(err)
 	}

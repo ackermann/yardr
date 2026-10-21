@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"maps"
 	"sort"
 	"strings"
@@ -322,7 +323,8 @@ func (s *Store) BulkEvents(n int, kind string, data map[string]any) error {
 	return nil
 }
 
-// Backdate moves the time of events first..last (inclusive) to at.
+// Backdate moves the time of events first..last (inclusive) to at, and the
+// time of the dedupe keys they recorded: a key is recorded with its event.
 func (s *Store) Backdate(first, last uint64, at time.Time) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		for seq := first; seq <= last; seq++ {
@@ -337,7 +339,36 @@ func (s *Store) Backdate(first, last uint64, at time.Time) error {
 				return err
 			}
 		}
+		seen := tx.Bucket(bHookSeen)
+		moved := map[string][]byte{}
+		if err := seen.ForEach(func(k, v []byte) error {
+			if seq, _ := seenRecord(v); seq >= first && seq <= last {
+				moved[string(k)] = seenValue(seq, at)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		for k, v := range moved {
+			if err := seen.Put([]byte(k), v); err != nil {
+				return err
+			}
+		}
 		return nil
+	})
+}
+
+// UnstampHookSeen rewrites the dedupe key as a build from before keys had a
+// time wrote it: the seq of its event, and no more.
+func (s *Store) UnstampHookSeen(key string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		seen := tx.Bucket(bHookSeen)
+		v := seen.Get([]byte(key))
+		if v == nil {
+			return fmt.Errorf("no dedupe key %q", key)
+		}
+		seq, _ := seenRecord(v)
+		return seen.Put([]byte(key), []byte(seqKey(seq)))
 	})
 }
 

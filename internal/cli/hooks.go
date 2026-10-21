@@ -34,14 +34,18 @@ YARDR_HOOK_ADDR, so a server started from one does not listen there. The listene
 /peers/ (yardr peer --help), and nothing else. Each verified delivery becomes one 'hook' event; its raw body is
 kept for 'yardr hook show <seq>'. A redelivery (the same Linear or GitHub body,
 or a repeated Linear-Delivery, X-GitHub-Delivery or Yard-Delivery id) is
-answered 200 and dropped.
+answered 200 and dropped. The listener is plain HTTP: an address reachable from
+beyond a network you trust needs a TLS terminator in front of it
+(docs/integrations.md).
 
 The secret stays in --secret-file and is read on every delivery, so rotating it
 is rewriting the file. It must be a regular file of mode 0600 or stricter, as
 an env_file must: a file that is not is refused here, and one that stops being
 so later blocks the hook (503 to the sender, 'blocked' in 'yardr hook list')
 until it is fixed. Sources:
-  token   a shared bearer token (Authorization: Bearer <token>)
+  token   a shared bearer token (Authorization: Bearer <token>), and an id for
+          each delivery in Yard-Delivery: the same id again is a resend, and a
+          delivery without one is refused (400), since a body may come again
 
 or a declared source with a hook key (yardr source --help): the secret its
 webhooks are signed with, verified as the file says. GitHub's is the
@@ -194,7 +198,8 @@ tells of its broken webhook as a hook_quiet event instead
 
 LAST REFUSED is the time and the reason of the hook's last hook_rejected
 event: unauthorized (no signature, a wrong one, or a timestamp too old),
-bad_request, too_large, blocked (the secret file), secret (it is empty). A
+bad_request, no_delivery (no delivery id, where the source needs one),
+too_large, blocked (the secret file), secret (it is empty). A
 hook that was last refused after it last accepted is not reached by its
 source as it is set up; one with neither time has been sent nothing the
 server saw. Refusals are logged at most once per hook and reason in ten

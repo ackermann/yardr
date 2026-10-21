@@ -281,6 +281,18 @@ func TestLinkAcksAQueuedDeliveryItRefuses(t *testing.T) {
 	if evs := y.hookEvents(t); len(evs) != 0 {
 		t.Fatalf("a refused delivery recorded: %+v", evs)
 	}
+	// A token delivery that names no id is refused as well, since nothing
+	// could tell its resend from a new delivery, and acked all the same.
+	tok := http.Header{}
+	tok.Set("Authorization", "Bearer "+cronSecret)
+	g := queued(t, l, "/hooks/cron", tok, []byte(`{"text":"backup ok"}`), y.now)
+	send(t, l, g)
+	if id := acked(t, l); id != g.ID {
+		t.Fatalf("acked %q, want %q", id, g.ID)
+	}
+	if evs := y.hookEvents(t); len(evs) != 0 {
+		t.Fatalf("a token delivery with no id recorded: %+v", evs)
+	}
 }
 
 // A delivery to a hook with a delivery id, sent over the link a second time
@@ -318,11 +330,12 @@ func TestLinkRecordsARedeliveryAfterALostAckOnce(t *testing.T) {
 	}
 }
 
-// A token hook with no delivery id has no dedupe key, so the same delivery
-// sent again after its ack was lost is recorded again: for those hooks the
-// link delivers at least once (design yardr-hosted-050n, 3.4). The count is
-// pinned exactly, so a change to at-least-once is seen.
-func TestLinkRecordsATokenDeliveryTwiceAfterALostAck(t *testing.T) {
+// A token hook takes no delivery without its id, so every delivery it records
+// has a dedupe key: the same delivery sent again after its ack was lost is
+// recorded once, as an acme delivery is, and the link delivers it exactly
+// once. The count is pinned, so a hook that records a delivery with no key,
+// and so at least once, is seen.
+func TestLinkRecordsATokenDeliveryOnceAfterALostAck(t *testing.T) {
 	t.Parallel()
 	barrier := &handlerBarrier{entered: make(chan struct{}), release: make(chan struct{})}
 	y := queuedLinkWithBarrier(t, barrier)
@@ -330,6 +343,7 @@ func TestLinkRecordsATokenDeliveryTwiceAfterALostAck(t *testing.T) {
 	body := []byte(`{"text":"backup ok"}`)
 	h := http.Header{}
 	h.Set("Authorization", "Bearer "+cronSecret)
+	h.Set("Yard-Delivery", "cron-1")
 	h.Set("Content-Type", "application/json")
 	f := queued(t, first, "/hooks/cron", h, body, y.now)
 	send(t, first, f)
@@ -343,8 +357,8 @@ func TestLinkRecordsATokenDeliveryTwiceAfterALostAck(t *testing.T) {
 	if id := acked(t, second); id != f.ID {
 		t.Fatalf("acked %q, want %q", id, f.ID)
 	}
-	if evs := y.hookEvents(t); len(evs) != 2 {
-		t.Fatalf("want 2 recorded deliveries, have %d: %+v", len(evs), evs)
+	if evs := y.hookEvents(t); len(evs) != 1 {
+		t.Fatalf("want 1 recorded delivery, have %d: %+v", len(evs), evs)
 	}
 }
 

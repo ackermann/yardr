@@ -639,7 +639,13 @@ func TestDeclaredVerify(t *testing.T) {
 		return hooks.Declared{D: d}
 	}
 	sig := func(prefix string, body []byte) string { return prefix + sign(secret, body) }
+	// A timestamp in a header is signed with the body, as a reader that
+	// takes one requires: the signature covers v0:{timestamp}:{body}, the
+	// header's raw string and the raw body.
+	const headerTimed = "    scheme: hmac-sha256\n    signed: \"v0:{timestamp}:{body}\"\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n"
+	sigAt := func(ts string, body []byte) string { return sign(secret, []byte("v0:"+ts+":"+string(body))) }
 	now := time.Now()
+	sent, stale, beyond := fmt.Sprint(now.Unix()), fmt.Sprint(now.Add(-6*time.Minute).Unix()), "9223372036854775807"
 	for _, tc := range []struct {
 		name     string
 		verify   string
@@ -651,17 +657,17 @@ func TestDeclaredVerify(t *testing.T) {
 		{"no timestamp", "    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n",
 			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, "", ""},
 		{"a timestamp in seconds in a header",
-			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": fmt.Sprint(now.Unix())}, `{}`, "", ""},
+			headerTimed + "    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
+			map[string]string{"Q-Sig": sigAt(sent, []byte(`{}`)), "Q-Sent": sent}, `{}`, "", ""},
 		{"a stale header timestamp",
-			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": fmt.Sprint(now.Add(-6 * time.Minute).Unix())}, `{}`, "unauthorized", ""},
+			headerTimed + "    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
+			map[string]string{"Q-Sig": sigAt(stale, []byte(`{}`)), "Q-Sent": stale}, `{}`, "unauthorized", ""},
 		{"a timestamp beyond the largest window",
-			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 2562047h47m16.854775807s }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`)), "Q-Sent": "9223372036854775807"}, `{}`, "unauthorized", ""},
+			headerTimed + "    timestamp: { header: Q-Sent, unit: s, window: 2562047h47m16.854775807s }\n",
+			map[string]string{"Q-Sig": sigAt(beyond, []byte(`{}`)), "Q-Sent": beyond}, `{}`, "unauthorized", ""},
 		{"a missing header timestamp",
-			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
-			map[string]string{"Q-Sig": sig("", []byte(`{}`))}, `{}`, "unauthorized", ""},
+			headerTimed + "    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
+			map[string]string{"Q-Sig": sigAt("", []byte(`{}`))}, `{}`, "unauthorized", ""},
 		{"a nested body path",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { body: meta.sent, unit: ms, window: 1m }\n",
 			map[string]string{"Q-Sig": sig("", []byte(`{"meta":{"sent":"`+fmt.Sprint(now.UnixMilli())+`"}}`))},
@@ -877,7 +883,8 @@ func TestDeclaredChallengeAnsweredAfterVerify(t *testing.T) {
 	r := challengeDepot(t)
 	r.now = time.Now()
 	ts := fmt.Sprint(r.now.Unix())
-	challengeBody := []byte(`{"type":"url_verification","challenge":"tok-123","event_id":"Ev1"}`)
+	// A handshake names no delivery, as Slack's does not.
+	challengeBody := []byte(`{"type":"url_verification","challenge":"tok-123"}`)
 	signFor := func(key, stamp string, b []byte) string {
 		return "v0=" + sign(key, []byte("v0:"+stamp+":"+string(b)))
 	}
@@ -928,6 +935,20 @@ func TestDeclaredChallengeAnsweredAfterVerify(t *testing.T) {
 	}
 	if n := len(r.hookEvents(t)); n != 1 {
 		t.Fatalf("a verified non-challenge left %d hook events, want 1", n)
+	}
+	// The source repeats bodies, so a verified delivery that names no
+	// event_id has no key to be told from its resend by: it is refused,
+	// however often it is sent. The handshake above names none either, and
+	// is not refused: it is answered before anything is kept.
+	noID := []byte(`{"type":"app_rate_limited"}`)
+	noIDHdr := map[string]string{"Chal-Signature": signFor(secret, ts, noID), "Chal-Timestamp": ts}
+	for i := 1; i <= 2; i++ {
+		if code, _ := post(noID, noIDHdr); code != http.StatusBadRequest {
+			t.Fatalf("verified delivery with no id, sent %d times: %d", i, code)
+		}
+	}
+	if n := len(r.hookEvents(t)); n != 1 {
+		t.Fatalf("a delivery with no id left %d hook events, want the 1 before it", n)
 	}
 	// No challenge key: the same handshake-shaped body is a delivery.
 	plain := secretDepot(t, "    scheme: secret\n    signature: { header: Sentry-Secret }\n")

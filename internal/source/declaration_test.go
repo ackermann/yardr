@@ -1248,6 +1248,10 @@ func TestParseHookSecret(t *testing.T) {
 			"    scheme: secret\n    signature: { header: Q-Secret }\n    delivery: { body: update_id }\n",
 			"repeat", "secret", "", "Q-Secret", "", "", "update_id",
 		},
+		"a header timestamp": {
+			"    scheme: secret\n    signature: { header: Q-Secret }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n",
+			"repeat", "secret", "", "Q-Secret", "", "Q-Delivery", "",
+		},
 		"a delivery in the body with hmac": {
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: meta.id }\n",
 			"repeat", "hmac-sha256", "body", "Q-Sig", "hex", "", "meta.id",
@@ -1386,6 +1390,7 @@ func TestParseHookRefusals(t *testing.T) {
 		"a window that is none":               {hooked(verify + "    timestamp: { body: ts, unit: ms, window: a minute }\n  bodies: unique\n  normalize: [normalize]\n"), `"a minute": a window is a positive duration (1m)`},
 		"a window that is not positive":       {hooked(verify + "    timestamp: { body: ts, unit: ms, window: 0s }\n  bodies: unique\n  normalize: [normalize]\n"), `"0s": a window is a positive duration (1m)`},
 		"a path that is none":                 {hooked(verify + "    timestamp: { body: data..ts, unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), `"data..ts": a dot path into the body`},
+		"a header time left unsigned":         {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n"), `hook.verify.signed: "body" with the timestamp in the header S-Ts: nothing signs a header`},
 		"a secret with signed":                {hooked("  verify:\n    scheme: secret\n    signed: body\n    signature: { header: S-Secret }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signed: is for scheme hmac-sha256"},
 		"a secret with encoding":              {hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret, encoding: hex }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.encoding: is for scheme hmac-sha256"},
 		"a secret with a prefix":              {hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret, prefix: \"Token \" }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.prefix: is for scheme hmac-sha256"},
@@ -1423,6 +1428,12 @@ func TestParseHookRefusals(t *testing.T) {
 	// Bodies that repeat with no delivery under scheme secret are the one
 	// error: no delivery is only refused then.
 	_, err = Parse("f", []byte(hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret }\n  bodies: repeat\n  normalize: [normalize]\n")))
+	if !errors.As(err, &errs) || len(errs) != 1 {
+		t.Fatalf("errors = %v, want one", err)
+	}
+	// A timestamp in both places is its own error, and not also the header
+	// that signed: body leaves unsigned.
+	_, err = Parse("f", []byte(hooked(verify+"    timestamp: { body: ts, header: S-Ts, unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n")))
 	if !errors.As(err, &errs) || len(errs) != 1 {
 		t.Fatalf("errors = %v, want one", err)
 	}

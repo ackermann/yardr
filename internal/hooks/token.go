@@ -12,10 +12,17 @@ import (
 // ad hoc senders (a script, a cron job):
 //
 //	Authorization: Bearer <token>
-//	Yard-Delivery: <id>   optional; repeats of an id are dropped
+//	Yard-Delivery: <id>   required; repeats of an id are dropped
 //
 // A JSON object body may set type, action, text, url and actor {id, name};
 // any other body becomes a "message" whose text is the body.
+//
+// The id is required because nothing else tells a resend from a new
+// delivery: the token signs no time, so a body that comes again may be a
+// replay or a cron job saying "backup ok" once more, and only the sender
+// can say which. The receiver refuses a delivery with no id, as it does of
+// any source whose bodies repeat (Receiver.serve), so Verify returns the
+// header as it is.
 type Token struct{}
 
 func (Token) Verify(r *http.Request, body, secret []byte, now time.Time) (string, error) {

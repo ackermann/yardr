@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -67,6 +68,10 @@ const pruneBatch = 1000
 // anything was removed. Pruning the store is the daemon's or the
 // operator's to do (daemonOrOperator): the automatic prune runs in-process,
 // and anyone else asking must be the operator.
+//
+// A delivery's dedupe keys go with its event, but not while younger than a
+// replay of the delivery could still pass for (hookSeenKeep): pruning the
+// log does not let a captured delivery in again.
 func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*PruneResult, error) {
 	if err := s.read(func(tx *bolt.Tx) error {
 		resolved, err := paneAuthor(tx, callerOf(ctx), actor)
@@ -385,12 +390,23 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 			return nil
 		}
 		// A redelivery whose first delivery is gone from the log is new
-		// again: drop the dedupe keys that point at removed events.
+		// again: drop the dedupe keys that point at removed events, once
+		// they are older than a replay could still pass for (hookSeenKeep).
+		// A key from before its time was kept has none, and goes with its
+		// event as it did.
 		oldest := dead[n-1].Seq + 1
+		keepSeen, err := hookSeenKeep(w.Tx)
+		if err != nil {
+			return err
+		}
+		recorded := now().Add(-keepSeen)
 		var stale [][]byte
 		seen := w.Bucket(bHookSeen)
 		if err := seen.ForEach(func(k, v []byte) error {
-			if len(v) == 8 && binary.BigEndian.Uint64(v) < oldest {
+			if len(v) < 8 {
+				return nil
+			}
+			if seq, at := seenRecord(v); seq < oldest && at.Before(recorded) {
 				stale = append(stale, append([]byte(nil), k...))
 			}
 			return nil
@@ -410,6 +426,36 @@ func (s *Store) pruneEvents(floor uint64, cutoff time.Time, expired map[string]i
 		}
 	}
 	return n, more, err
+}
+
+// hookSeenKeep is how long a dedupe key outlives the event that recorded
+// it. A source that checks a timestamp takes a delivery whose timestamp is up
+// to its window ahead of the yard's clock and one up to its window behind,
+// so a delivery first taken a window before its timestamp can be sent again
+// until a window after it: twice the window, for the longest window any
+// source declares, plus hookSeenMargin. Whatever the log keeps, a key younger
+// than that stays, or a captured delivery could be sent again as soon as its
+// event was pruned. A window too long to double is kept for good.
+func hookSeenKeep(tx *bolt.Tx) (time.Duration, error) {
+	var longest time.Duration
+	if err := each(tx, bSources, "", func(_ []byte, src *Source) error {
+		// A file this build reads less of than the one that added it says
+		// no window.
+		d, err := src.Declaration()
+		if err != nil || d.Hook == nil || d.Hook.Verify.Timestamp == nil {
+			return nil
+		}
+		if window, err := time.ParseDuration(d.Hook.Verify.Timestamp.Window); err == nil {
+			longest = max(longest, window)
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	if longest > (math.MaxInt64-hookSeenMargin)/2 {
+		return math.MaxInt64, nil
+	}
+	return 2*longest + hookSeenMargin, nil
 }
 
 // pruneSessions removes up to pruneBatch of the sessions that ended before

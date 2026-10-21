@@ -137,6 +137,10 @@ up to 1 MiB, is kept beside it under the event's seq for `yardr hook show
 <seq>`, for 30 days (`YARDR_HOOK_PAYLOAD_RETENTION`). A larger body is
 refused with 413
 ([configuration.md](configuration.md#retention-keeping-yarddb-bounded)).
+The delivery's dedupe keys (below) go with the event, but not while a replay
+of the delivery could still pass a source's timestamp window: a key is kept
+for twice the longest `hook.verify.timestamp.window` any declared source
+takes, and 7 days more, however short the retention of events is set.
 
 *Dedupe.* A delivery is recorded at most once. Its keys are checked after
 `Verify`, in the write that records it:
@@ -145,20 +149,25 @@ refused with 413
 |---|---|---|
 | `unique` | `linear` | the body's sha256, per source; the delivery id, per hook |
 | `unique-per-hook` | `github` | the body's sha256, per hook; the delivery id, per hook |
-| `repeat` | `token` | the delivery id (`Yard-Delivery`), per hook, when the sender sets one |
+| `repeat` | `token` | the delivery id (`Yard-Delivery`), per hook |
 
 A declared source says one of the three under `hook.bodies`: `unique`
 dedupes a body once per source, `unique-per-hook` once per hook (one
 event's body goes to every webhook on a GitHub repository), `repeat` on
-the delivery id in the header its file names alone.
+the delivery id in the header its file names alone. A body that may come
+again is told from a resend by that id and nothing else, so a delivery of
+a `repeat` source that names none is refused with 400 (`no_delivery`): a
+`token` sender sets `Yard-Delivery` on every delivery, a new id for each
+one it means, and the same id again for a resend.
 
 A duplicate is answered 200 and leaves no event
 ([subscriptions.md](subscriptions.md#redeliveries)).
 
 *A refused delivery* is answered with its status and logged as a
 `hook_rejected` event with the hook's name, the reason (`unauthorized`,
-`bad_request`, `too_large`, `blocked`, `secret`, `unknown_hook` among
-them) and a count, at most one per name and reason in ten minutes
+`bad_request`, `no_delivery`, `too_large`, `blocked`, `secret`,
+`unknown_hook` among them) and a count, at most one per name and reason in
+ten minutes
 ([subscriptions.md](subscriptions.md#a-refused-delivery)).
 
 *Where a user sees it.* `yardr hook add`, `hook list`, `hook show <name>`,
@@ -1001,7 +1010,14 @@ hook:
   once the delivery is verified: in the body at the dot path or in a
   header, in `ms` or `s`, within `window` of the yard's clock, so a
   replayed body whose signature covers its timestamp still fails on
-  age. A delivery with a bad signature or secret, or a timestamp
+  age. With `hmac-sha256` the signature must cover the timestamp: one in
+  the body is covered by `signed: body`, and one in a header only by a
+  template naming `{timestamp}`, so `signed: body` beside a header
+  timestamp is refused when the file is added (nothing signs a header,
+  and a captured delivery could be sent again with a fresh one). With
+  `secret` nothing signs a timestamp, so its window does not stop a
+  captured delivery from being sent again. A delivery with a bad signature
+  or secret, or a timestamp
   outside the window, is refused, as Linear's is. The signing secret is
   handed to no command, and an unverified body reaches none: with
   `secret`, normalize is handed the request's headers without the one
@@ -1016,7 +1032,11 @@ hook:
   as Linear's, each signed with its timestamp), `unique-per-hook` (no two
   deliveries to one hook share a body, but one event's body goes to every
   hook that asked for it) or `repeat` (a body may come again as a new
-  delivery, as a `token` sender's may).
+  delivery, as a `token` sender's may). A retry of a `repeat` source is
+  told by the delivery id alone, so a verified delivery that names none
+  (the body lacks the field, the header is empty) is refused with 400 and
+  recorded as `no_delivery`; a handshake the file's `challenge` answers is
+  not a delivery and needs no id.
 - **Untimed** (`untimed: true`) says the source's deliveries follow events,
   not a rhythm: a commit, not a heartbeat. Such a hook is never quiet by
   silence alone ([subscriptions.md](subscriptions.md#a-quiet-hook)), since
@@ -1071,7 +1091,8 @@ hook:
   `answer` or one that is no dot path into the body, an encoding
   that is not `hex`, a delivery id in a header and in the body, bodies
   that repeat with no delivery, a timestamp in the body and in a header,
-  or in neither, a unit that is not `ms` or `s`, a window that is no
+  or in neither, `signed: body` with the timestamp in a header, a unit
+  that is not `ms` or `s`, a window that is no
   positive duration, bodies that are none of `unique`, `unique-per-hook`
   and `repeat`, an `untimed` that is neither `true` nor `false`, a command
   that is no list of strings or has no program, a key that is not lowercase
@@ -1545,6 +1566,15 @@ that arrives at `hook_addr`'s `/hooks/<name>`. How that URL comes to be is
 outside yardr; let what stands in front pass `/hooks/` and nothing more.
 yardr does not know its public address and never calls the service to
 register a webhook ([configuration.md](configuration.md#settings)).
+
+The listener speaks plain HTTP, and yardr does not do TLS itself. An address
+that is reachable from beyond a network you trust needs a TLS terminator in
+front of it (a reverse proxy or a tunnel of your own), and the `https://` URL
+given to the service is the terminator's. Without one every delivery crosses
+the network in the clear: anyone on the path reads it, and from a `token` or
+`secret` hook's delivery reads the secret too, which is all it takes to send
+deliveries of their own. A signed delivery keeps its secret off the wire, but
+is read all the same.
 
 ### 2. The pack
 

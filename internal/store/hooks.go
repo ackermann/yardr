@@ -20,7 +20,7 @@ import (
 var (
 	bHooks        = []byte("hooks")
 	bHookPayloads = []byte("hook_payloads") // <event seq>: the raw body as received
-	bHookSeen     = []byte("hook_seen")     // <dedupe key>: seq of the event that recorded it
+	bHookSeen     = []byte("hook_seen")     // <dedupe key>: seq of the event that recorded it, and when (seenValue)
 	bHookMentions = []byte("hook_mentions") // <source> 0 <entity>: who its text mentioned last
 )
 
@@ -29,6 +29,38 @@ func init() { allBuckets = append(allBuckets, bHooks, bHookPayloads, bHookSeen, 
 // MaxHookPayload bounds a stored delivery; the receiver rejects larger
 // bodies before they reach the store.
 const MaxHookPayload = 1 << 20
+
+// hookSeenMargin is what a dedupe key is kept beyond the time a replay of
+// its delivery could still pass the sources' timestamp windows (see
+// hookSeenKeep), however short the retention of events is set. A key
+// forgotten lets its delivery in again as new, so it must outlast every way
+// a delivery comes back: a sender retries within hours, and the edge sends
+// a delivery it kept once more when the ack was lost, having kept it for 7
+// days at most (docs/edge.md), as a link's seen ids are kept (PeerKeep).
+// It holds for every key, so with no window declared a key stays this long
+// after its event goes.
+const hookSeenMargin = 7 * 24 * time.Hour
+
+// seenValue is what bHookSeen holds for a dedupe key: the seq of the event
+// that recorded it, as seqKey writes it, then when it was recorded in unix
+// microseconds, so that Prune can keep the key for a while after its event
+// is gone. The seq comes first, as it did when it was all there was.
+func seenValue(seq uint64, at time.Time) []byte {
+	v := make([]byte, 16)
+	binary.BigEndian.PutUint64(v, seq)
+	binary.BigEndian.PutUint64(v[8:], uint64(at.UnixMicro()))
+	return v
+}
+
+// seenRecord reads a bHookSeen value: the seq, and when the key was
+// recorded, the zero time for a key written before the time was kept.
+func seenRecord(v []byte) (seq uint64, at time.Time) {
+	seq = binary.BigEndian.Uint64(v)
+	if len(v) >= 16 {
+		at = time.UnixMicro(int64(binary.BigEndian.Uint64(v[8:]))).UTC()
+	}
+	return seq, at
+}
 
 // hookName is what may appear in /hooks/<name>.
 var hookName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
@@ -910,7 +942,9 @@ func (s *Store) RejectHook(ctx context.Context, name, reason string, status, cou
 // When any of them was recorded before, nothing is written and RecordHook
 // returns that delivery's seq with duplicate set. The check and the write
 // share one transaction, so of two concurrent redeliveries exactly one is
-// recorded.
+// recorded. A key is kept with the time it was recorded: for as long as its
+// event is, and never less than a replay of the delivery could still pass
+// the sources' timestamp windows, whatever the log keeps (Prune).
 //
 // When the envelope names an entity (an issue whose description persists
 // across deliveries), only the mentions that entity's text did not already
@@ -927,7 +961,8 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		seen := w.Bucket(bHookSeen)
 		for _, k := range dedupe {
 			if v := seen.Get([]byte(k)); v != nil {
-				seq, duplicate = binary.BigEndian.Uint64(v), true
+				seq, _ = seenRecord(v)
+				duplicate = true
 				return nil
 			}
 		}
@@ -939,8 +974,9 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		if seq, err = w.delivered("hook:"+name, data); err != nil {
 			return err
 		}
+		at := now()
 		for _, k := range dedupe {
-			if err := seen.Put([]byte(k), []byte(seqKey(seq))); err != nil {
+			if err := seen.Put([]byte(k), seenValue(seq, at)); err != nil {
 				return err
 			}
 		}
@@ -950,7 +986,6 @@ func (s *Store) RecordHook(ctx context.Context, name string, envelope map[string
 		if ok, err := get(w.Tx, bHooks, name, &h); err != nil {
 			return err
 		} else if ok {
-			at := now()
 			h.Accepted = &at
 			if err := put(w.Tx, bHooks, name, h); err != nil {
 				return err

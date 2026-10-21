@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -651,7 +652,10 @@ func TestPruneIsNotHeldByAManualClaim(t *testing.T) {
 	}
 }
 
-// Webhook bodies go after their own retention; the event stays.
+// Webhook bodies go after their own retention; the event stays. A dedupe key
+// goes with its event, but not while a replay of the delivery could still
+// pass the sources' timestamp windows: whatever the log keeps, a captured
+// delivery is not new again the day its event is pruned.
 func TestPruneHookPayloads(t *testing.T) {
 	t.Parallel()
 	s, own := storetest.NewOwned(t)
@@ -692,6 +696,75 @@ func TestPruneHookPayloads(t *testing.T) {
 	}
 	if _, dup, err := own.RecordHook(ctx, "linear", map[string]any{"source": "linear"}, nil, []string{"d2"}); err != nil || !dup {
 		t.Fatalf("redelivery of a kept delivery: dup=%v %v", dup, err)
+	}
+	// A short retention takes the events and not the keys younger than a
+	// week (hookSeenMargin) when no source declares a window. A source that
+	// takes a timestamp within 48h lengthens that to twice the window and a
+	// week, 264h, so a key 250h old stays and one 280h old goes. Each row is
+	// a yard of its own, whose log holds nothing younger than what it prunes
+	// (the log is in time order).
+	const slow = `name: slow
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: "v0:{timestamp}:{body}"
+    signature: { header: S-Sig, encoding: hex }
+    delivery: { header: S-Delivery }
+    timestamp: { header: S-Ts, unit: s, window: 48h }
+  bodies: unique
+  normalize: [normalize]
+`
+	// A key written before keys had a time still dedupes, and goes with its
+	// event whatever its age, as it did.
+	for name, tc := range map[string]struct {
+		source string
+		legacy bool                     // the keys are as an older build wrote them
+		ages   map[string]time.Duration // each delivery's age, by its key
+		kept   []string                 // the keys still duplicates once the events are pruned
+	}{
+		"no window":    {"", false, map[string]time.Duration{"six days": 144 * time.Hour, "ten days": 240 * time.Hour}, []string{"six days"}},
+		"a 48h window": {slow, false, map[string]time.Duration{"250 hours": 250 * time.Hour, "280 hours": 280 * time.Hour}, []string{"250 hours"}},
+		"no time kept": {"", true, map[string]time.Duration{"an hour": time.Hour}, nil},
+	} {
+		api, yard := storetest.NewOwned(t)
+		for key, age := range tc.ages {
+			seq, _, err := yard.RecordHook(ctx, "linear", map[string]any{"source": "linear"}, nil, []string{key})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := yard.Backdate(seq, seq, time.Now().Add(-age)); err != nil {
+				t.Fatal(err)
+			}
+			if !tc.legacy {
+				continue
+			}
+			if err := yard.UnstampHookSeen(key); err != nil {
+				t.Fatal(err)
+			}
+			if _, dup, err := yard.RecordHook(ctx, "linear", map[string]any{"source": "linear"}, nil, []string{key}); err != nil || !dup {
+				t.Fatalf("%s: a key with no time, sent again before the prune: dup=%v %v", name, dup, err)
+			}
+		}
+		if tc.source != "" { // after them: declaring it logs an event, which is young
+			if _, err := api.PutSource(ctx, "slow.yaml", tc.source, "me"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := yard.BulkEvents(1, "noise", nil); err != nil { // the newest event stays
+			t.Fatal(err)
+		}
+		if res, err := api.Prune(ctx, store.Retention{Events: time.Minute}, "me"); err != nil || res.Events != len(tc.ages) {
+			t.Fatalf("%s: prune = %+v %v, want %d events", name, res, err, len(tc.ages))
+		}
+		for key := range tc.ages {
+			_, dup, err := yard.RecordHook(ctx, "linear", map[string]any{"source": "linear"}, nil, []string{key})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := slices.Contains(tc.kept, key); dup != want {
+				t.Errorf("%s: after the prune, %q is a duplicate = %v, want %v", name, key, dup, want)
+			}
+		}
 	}
 }
 

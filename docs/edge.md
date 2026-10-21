@@ -196,15 +196,15 @@ the first refusal for a yard and then at most one an hour, through the
 router's notify command or its log. Each refusal and each drop is counted on
 the yard's row.
 
-**Twice, for a hook with no delivery id.** A delivery can reach the yard
-twice: an ack lost with the link, or a late live answer beside the queued
-copy. The yard catches the second with its existing dedupe, and that holds
-only for a hook whose delivery has a key: the sender's delivery id, or a body
-the source declares unique. A hook with neither, a `token` hook whose sender
-sends no id, is recorded twice. For those hooks the link delivers at least
-once, not exactly once, and the person who wants one record per delivery has
-the sender send an id. The edge does not dedupe for them: judging which two
-bodies are one delivery is the yard's knowledge.
+**Twice, and caught.** A delivery can reach the yard twice: an ack lost with
+the link, or a late live answer beside the queued copy. The yard catches the
+second with its existing dedupe, which holds for every delivery it records:
+each has a key, the sender's delivery id or a body the source declares
+unique. A source whose bodies repeat, a `token` hook for one, takes no
+delivery that names no id, so the sender sets `Yard-Delivery` and a delivery
+without one is refused (and acked, so the edge does not send it again). The
+edge does not dedupe: judging which two bodies are one delivery is the yard's
+knowledge.
 
 **A queued delivery's timestamp.** A declared source may refuse a delivery
 whose timestamp is further than its window from now, which would fail every

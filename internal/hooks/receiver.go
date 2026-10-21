@@ -268,6 +268,17 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// A source whose bodies repeat tells a redelivery by the delivery id
+	// alone: DedupeKeys has no body key for it, since the same body may
+	// come again on purpose. A delivery that names none has no key at all,
+	// so a copy of it (a retry, a replay) would be recorded again: it is
+	// refused, as a declaration that could not name one is refused when it
+	// is added. It comes after the handshake and the drops above, which
+	// need no id, and so refuses only what would have been recorded.
+	if delivery == "" && ad.Bodies() == BodiesRepeat {
+		rc.reject(w, h, name, "no_delivery", http.StatusBadRequest, errors.New("the source repeats bodies, so a delivery must name its own id (Yard-Delivery for token), and this one names none"))
+		return
+	}
 	// Dedupe after Verify, so only the source can claim a body or a
 	// delivery id; the store checks and records the keys in the write that
 	// records the delivery, so a concurrent redelivery cannot slip through.

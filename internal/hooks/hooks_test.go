@@ -111,6 +111,12 @@ func (r *depot) github(t *testing.T, event string, body []byte, key, delivery st
 		"X-GitHub-Event": event, "Content-Type": "application/json", "User-Agent": "GitHub-Hookshot/0"})
 }
 
+// bearer is the headers of a token sender holding the secret and naming the
+// delivery: a source whose bodies repeat takes no delivery without an id.
+func bearer(id string) map[string]string {
+	return map[string]string{"Authorization": "Bearer " + secret, "Yard-Delivery": id}
+}
+
 func (r *depot) post(t *testing.T, path string, body []byte, hdr map[string]string) int {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, r.srv.URL+path, strings.NewReader(string(body)))
@@ -182,29 +188,45 @@ func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
 	}
 }
 
-// A token sender may repeat a body on purpose; only a repeated
-// Yard-Delivery is a redelivery.
+// A token sender may repeat a body on purpose, so only a repeated
+// Yard-Delivery is a redelivery. A delivery that names none is refused: the
+// token signs no time, and nothing else would tell its resend, or a replay of
+// it, from a new delivery.
 func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
 	r := newDepot(t)
 	r.now = time.Now()
-	send := func(body, id string) {
+	send := func(body, id string, want int) {
 		t.Helper()
 		hdr := map[string]string{"Authorization": "Bearer " + secret}
 		if id != "" {
 			hdr["Yard-Delivery"] = id
 		}
-		if code := r.post(t, "/hooks/adhoc", []byte(body), hdr); code != http.StatusOK {
-			t.Fatalf("%q %q: %d", body, id, code)
+		if code := r.post(t, "/hooks/adhoc", []byte(body), hdr); code != want {
+			t.Fatalf("%q %q: %d, want %d", body, id, code, want)
 		}
 	}
-	send("backup ok", "")
-	send("backup ok", "") // same body again: recorded
-	send("deploy", "t-1")
-	send("deploy", "t-1")   // same id: dropped
-	send("rollback", "t-1") // same id, other body: dropped
-	send("deploy", "t-2")   // same body, new id: recorded
+	send("backup ok", "", http.StatusBadRequest)
+	send("backup ok", "", http.StatusBadRequest) // sent again: still nothing
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("deliveries with no id left %d hook events", n)
+	}
+	send("deploy", "t-1", http.StatusOK)
+	send("deploy", "t-1", http.StatusOK)   // same id: dropped
+	send("rollback", "t-1", http.StatusOK) // same id, other body: dropped
+	send("deploy", "t-2", http.StatusOK)   // same body, new id: recorded
+	send("backup ok", "t-3", http.StatusOK)
+	send("backup ok", "t-4", http.StatusOK) // a body that comes again on purpose: recorded
 	if n := len(r.hookEvents(t)); n != 4 {
 		t.Fatalf("want 4 hook events, got %d", n)
+	}
+	rejected := r.rc.Rejected()
+	if rejected["no_delivery"] != 2 || rejected["duplicate"] != 2 {
+		t.Fatalf("rejected = %v, want 2 with no delivery and 2 duplicates", rejected)
+	}
+	// The refusal is told as its own reason, once for the stretch.
+	evs := r.eventsOfKind(t, "hook_rejected")
+	if len(evs) != 1 || evs[0].Data["reason"] != "no_delivery" || evs[0].Data["status"] != float64(http.StatusBadRequest) {
+		t.Fatalf("hook_rejected events = %+v, want one for no_delivery", evs)
 	}
 }
 
@@ -331,10 +353,10 @@ func TestTokenSource(t *testing.T) {
 			t.Fatalf("auth %q: %d", auth, code)
 		}
 	}
-	if code := r.post(t, "/hooks/adhoc", body, map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusOK {
+	if code := r.post(t, "/hooks/adhoc", body, bearer("t-1")); code != http.StatusOK {
 		t.Fatalf("good token: %d", code)
 	}
-	if code := r.post(t, "/hooks/adhoc", []byte("plain words"), map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusOK {
+	if code := r.post(t, "/hooks/adhoc", []byte("plain words"), bearer("t-2")); code != http.StatusOK {
 		t.Fatalf("plain body: %d", code)
 	}
 	evs := r.hookEvents(t)
@@ -368,7 +390,7 @@ func TestEmptySecretFailsClosed(t *testing.T) {
 	if err := os.WriteFile(empty, []byte("now-set"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := r.post(t, "/hooks/open", []byte("hi"), map[string]string{"Authorization": "Bearer now-set"}); code != http.StatusOK {
+	if code := r.post(t, "/hooks/open", []byte("hi"), map[string]string{"Authorization": "Bearer now-set", "Yard-Delivery": "t-1"}); code != http.StatusOK {
 		t.Fatalf("after setting secret: %d", code)
 	}
 	if n := len(r.hookEvents(t)); n != 1 {
@@ -528,15 +550,14 @@ func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	good := map[string]string{"Authorization": "Bearer " + secret}
-	if code := r.post(t, "/hooks/adhoc", []byte("one"), good); code != http.StatusOK {
+	if code := r.post(t, "/hooks/adhoc", []byte("one"), bearer("one")); code != http.StatusOK {
 		t.Fatalf("before loosening: %d", code)
 	}
 	if err := os.Chmod(h.SecretFile, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 3; i++ {
-		if code := r.post(t, "/hooks/adhoc", []byte("two"), good); code != http.StatusServiceUnavailable {
+		if code := r.post(t, "/hooks/adhoc", []byte("two"), bearer("two")); code != http.StatusServiceUnavailable {
 			t.Fatalf("delivery %d against a 0644 secret file: %d", i, code)
 		}
 	}
@@ -565,7 +586,7 @@ func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
 	if err := os.Chmod(h.SecretFile, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := r.post(t, "/hooks/adhoc", []byte("three"), good); code != http.StatusOK {
+	if code := r.post(t, "/hooks/adhoc", []byte("three"), bearer("three")); code != http.StatusOK {
 		t.Fatalf("after chmod 600: %d", code)
 	}
 	if got, err := r.st.GetHook(ctx, "adhoc"); err != nil || got.Blocked != "" {
@@ -575,7 +596,7 @@ func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
 	if err := os.Chmod(h.SecretFile, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if code := r.post(t, "/hooks/adhoc", []byte("four"), good); code != http.StatusServiceUnavailable {
+	if code := r.post(t, "/hooks/adhoc", []byte("four"), bearer("four")); code != http.StatusServiceUnavailable {
 		t.Fatalf("0640: %d", code)
 	}
 	if n := len(r.eventsOfKind(t, "hook_blocked")); n != 2 {
@@ -595,9 +616,8 @@ func TestMissingSecretFileBlocksHook(t *testing.T) {
 	if err := os.Remove(h.SecretFile); err != nil {
 		t.Fatal(err)
 	}
-	good := map[string]string{"Authorization": "Bearer " + secret}
 	for i := 0; i < 2; i++ {
-		if code := r.post(t, "/hooks/adhoc", []byte("x"), good); code != http.StatusServiceUnavailable {
+		if code := r.post(t, "/hooks/adhoc", []byte("x"), bearer("x")); code != http.StatusServiceUnavailable {
 			t.Fatalf("delivery %d with no secret file: %d", i, code)
 		}
 	}
@@ -611,7 +631,7 @@ func TestMissingSecretFileBlocksHook(t *testing.T) {
 	if err := os.WriteFile(h.SecretFile, []byte(secret), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := r.post(t, "/hooks/adhoc", []byte("x"), good); code != http.StatusOK {
+	if code := r.post(t, "/hooks/adhoc", []byte("x"), bearer("x")); code != http.StatusOK {
 		t.Fatalf("after restoring the file: %d", code)
 	}
 	if got, err := r.st.GetHook(ctx, "adhoc"); err != nil || got.Blocked != "" {
