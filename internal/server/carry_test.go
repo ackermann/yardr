@@ -299,7 +299,7 @@ func TestCarryPackStaleCopiesFail(t *testing.T) {
 
 func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
 	ctx := context.Background()
-	for _, change := range []string{"name", "kind"} {
+	for _, change := range []string{"name", "kind", "label"} {
 		t.Run(change, func(t *testing.T) {
 			st, home, bead := carryYard(t)
 			seq := askApprove(t, st, bead, packAskOf("telegram"))
@@ -307,17 +307,25 @@ func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			wasBuild := reading.Build
 			if change == "name" {
 				reading.Name = "different"
-			} else {
+			} else if change == "kind" {
 				reading.Kind = "depot"
+			} else {
+				reading.Label, reading.Build = "embedded in yardr test2", "test2"
 			}
 			st.SetPackReader(func(context.Context, string, store.API) (*store.PackReading, error) {
 				return reading, nil
 			})
 			drain(t, st, home, "boot-one")
-			if rec := carryState(t, st, bead, seq); rec.State != store.CarryFailed {
+			rec := carryState(t, st, bead, seq)
+			if rec.State != store.CarryFailed {
 				t.Fatalf("a changed pack %s was carried out: %+v", change, rec)
+			}
+			if change == "label" && !strings.Contains(rec.Result,
+				"was carded under yardr "+wasBuild+" and this yard now runs yardr test2, whose pack differs") {
+				t.Fatalf("a changed build's refusal = %q", rec.Result)
 			}
 			if _, err := st.GetSource(ctx, "telegram"); err == nil {
 				t.Fatal("the changed pack was applied")
