@@ -146,6 +146,7 @@ var allowSerial = map[string]string{
 	"TestInitStyleFlags":                                    "styledYard",
 	"TestInitSummaryNamesTheHome":                           "t.Setenv",
 	"TestInitWithoutLoginName":                              "noLogin",
+	"TestInstallMakesTheLogPrivate":                         "stubLookPath,stubServices",
 	"TestKillStrayLeavesAReusedPidAlone":                    "assign:strayDescribe,assign:strayKill",
 	"TestLimitsGroupReadsTheGroupsLogin":                    "t.Setenv",
 	"TestLoginNameNobodyHas":                                "chatYard",
