@@ -195,6 +195,8 @@ func crewMember(prefix string) []field {
 		{prefix + "state", "string", "`stopped`, `running` or `failed`"},
 		{prefix + "status", "string?", "what a running session does, as the daemon last saw it: `working`, `idle`, `blocked` (it waits at a prompt only a person in its pane can answer) or `unknown`; absent when none runs or the daemon has not looked yet"},
 		{prefix + "started_at", "time?", "when the running session started"},
+		{prefix + "model", "string?", "the model its config names; absent when it names none, and the harness's own is then used"},
+		{prefix + "kind", "string?", "the harness kind its config names (`claude`, `codex`, ...); absent when it names none, and the yard's `default_kind` is then used"},
 	}
 }
 
@@ -875,7 +877,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	_, err = st.AddUser(ctx, "jo", "jo")
 	must(err)
 	must(st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
-	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo")
+	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Config: map[string]any{"kind": "claude", "model": "opus"}}, "jo")
 	must(err)
 	must(st.CrewStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}))
 	must(st.CrewStatus(ctx, "yardmaster", "working"))

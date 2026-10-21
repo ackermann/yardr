@@ -831,7 +831,7 @@ Home as JSON:
   "crew": [
     {"name": "yardmaster", "state": "running", "running": true, "enabled": true,
      "status": "idle", "since": "2026-10-03T21:14:02Z", "up": "5h 52m",
-     "agent": "herdr · claude · opus", "kind": "claude", "provider": "claude", "unread": 3},
+     "agent": "herdr · claude · opus", "kind": "claude", "model": "opus", "provider": "claude", "unread": 3},
     {"name": "night", "state": "stopped", "running": false, "enabled": false,
      "agent": "herdr · claude", "kind": "claude", "provider": "claude", "unread": 0}
   ],
@@ -845,7 +845,7 @@ Home as JSON:
   it: `working`, `idle`, `blocked` or `unknown`; absent when none runs.
 - `since` and `up` are there while it runs: when its session started.
 - `agent` is its runner, kind and model in one string, for the page;
-  `kind` is the kind alone (`config.kind` of `yardr crew list --json`).
+  `kind` and `model` are each alone, as `yardr crew list --json` has them.
 - `provider` is the subscription it burns: its `provider` setting where
   set, even where no source answers for it, else its kind's mapping
   through the first source by name that lists it; absent where neither
@@ -905,7 +905,7 @@ and the command's are added:
   change first, not the command's.
 - `/sessions` has the command's rows under `list`, beside its own.
 - `/crew` has every field of `crew list --json`, and the page's `running`,
-  `since`, `up`, `agent`, `kind`, `provider`, `unread` and `restart`
+  `since`, `up`, `agent`, `provider`, `unread` and `restart`
   beside them. The page's fields keep their names and meanings.
 - A group of `/groups` has every field of `group list --json` and the
   resolved `provider` beside them: the group's `provider` setting where

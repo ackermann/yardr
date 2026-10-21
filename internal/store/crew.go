@@ -118,6 +118,13 @@ type CrewMember struct {
 	// read, and the write is refused with ErrConflict if it moved since.
 	Revision string `json:"revision,omitempty"`
 
+	// Model and Kind are the model and the harness kind the config names,
+	// read out of it for a client that has no use for its other keys
+	// (Crew and GetCrew). They are derived on reading, never stored, and
+	// absent where the config names none.
+	Model string `json:"model,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+
 	// Who it is in each source (by source name), and which hook events it
 	// hears about. Kept when the definition is replaced.
 	Identities    map[string]Identity `json:"identities,omitempty"`
@@ -517,10 +524,17 @@ func checkCrewUsers(tx *bolt.Tx, def *CrewMember) error {
 	return nil
 }
 
+// configured fills the fields of r that are read out of its config.
+func (r *CrewMember) configured() {
+	r.Model, _ = r.Config["model"].(string)
+	r.Kind, _ = r.Config["kind"].(string)
+}
+
 func (s *Store) Crew(ctx context.Context) ([]CrewMember, error) {
 	out := []CrewMember{}
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bCrew, "", func(_ []byte, r *CrewMember) error {
+			r.configured()
 			out = append(out, *r)
 			return nil
 		})
@@ -540,6 +554,7 @@ func (s *Store) GetCrew(ctx context.Context, name string) (*CrewMember, error) {
 	if err != nil {
 		return nil, err
 	}
+	r.configured()
 	return r, nil
 }
 

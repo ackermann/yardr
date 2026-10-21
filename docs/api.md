@@ -850,6 +850,8 @@ POST /call/Crew
     {
       "name": "yardmaster",
       "enabled": true,
+      "model": "opus",
+      "kind": "claude",
       "state": "running",
       "status": "working",
       "started_at": "2026-10-08T09:30:00Z"
@@ -865,6 +867,8 @@ POST /call/Crew
 | `[].state` | string | `stopped`, `running` or `failed` |
 | `[].status` | string, may be absent | what a running session does, as the daemon last saw it: `working`, `idle`, `blocked` (it waits at a prompt only a person in its pane can answer) or `unknown`; absent when none runs or the daemon has not looked yet |
 | `[].started_at` | time, may be absent | when the running session started |
+| `[].model` | string, may be absent | the model its config names; absent when it names none, and the harness's own is then used |
+| `[].kind` | string, may be absent | the harness kind its config names (`claude`, `codex`, ...); absent when it names none, and the yard's `default_kind` is then used |
 
 Mail to a crew member that is not running is kept, and read when it next starts.
 
@@ -884,6 +888,8 @@ POST /call/GetCrew
   "result": {
     "name": "yardmaster",
     "enabled": true,
+    "model": "opus",
+    "kind": "claude",
     "state": "running",
     "status": "working",
     "started_at": "2026-10-08T09:30:00Z"
@@ -898,6 +904,8 @@ POST /call/GetCrew
 | `state` | string | `stopped`, `running` or `failed` |
 | `status` | string, may be absent | what a running session does, as the daemon last saw it: `working`, `idle`, `blocked` (it waits at a prompt only a person in its pane can answer) or `unknown`; absent when none runs or the daemon has not looked yet |
 | `started_at` | time, may be absent | when the running session started |
+| `model` | string, may be absent | the model its config names; absent when it names none, and the harness's own is then used |
+| `kind` | string, may be absent | the harness kind its config names (`claude`, `codex`, ...); absent when it names none, and the yard's `default_kind` is then used |
 
 ### `Peers`
 

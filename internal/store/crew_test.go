@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -45,6 +46,68 @@ func TestCrewJournalIsNotWork(t *testing.T) {
 	}
 	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", MaxAge: "soon"}, "me"); err == nil {
 		t.Fatal("bad duration accepted")
+	}
+}
+
+// Crew and GetCrew carry the model and the harness kind the config names,
+// for a client that reads no config. They are read out of the config each
+// time and stored nowhere: a crew member whose config names neither has
+// neither, in the JSON too, and a definition that comes back with the ones
+// of an earlier read is held to its config, which is the only thing a
+// write takes them from.
+func TestCrewCarriesItsModelAndKind(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	put := func(name string, def store.CrewMember) {
+		t.Helper()
+		def.Name, def.Runner = name, "herdr"
+		if _, err := s.PutCrew(ctx, def, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("yardmaster", store.CrewMember{Config: map[string]any{"kind": "claude", "model": "opus"}})
+	put("night", store.CrewMember{})
+
+	rows, err := s.Crew(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]store.CrewMember{}
+	for _, r := range rows {
+		listed[r.Name] = r
+	}
+	one, err := s.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := listed["yardmaster"]; got.Model != "opus" || got.Kind != "claude" {
+		t.Errorf("Crew: yardmaster has model %q and kind %q, want opus and claude", got.Model, got.Kind)
+	}
+	if one.Model != "opus" || one.Kind != "claude" {
+		t.Errorf("GetCrew: yardmaster has model %q and kind %q, want opus and claude", one.Model, one.Kind)
+	}
+	night, err := s.GetCrew(ctx, "night")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed["night"].Model != "" || listed["night"].Kind != "" || night.Model != "" || night.Kind != "" {
+		t.Errorf("night names neither: Crew %q %q, GetCrew %q %q", listed["night"].Model, listed["night"].Kind, night.Model, night.Kind)
+	}
+	raw, err := json.Marshal(night)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"model"`) || strings.Contains(string(raw), `"kind"`) {
+		t.Errorf("night is served as %s, want neither model nor kind", raw)
+	}
+
+	// A write takes them from its config. The definition read back before
+	// carries the old model, and the config no longer names one.
+	one.Config = map[string]any{"kind": "codex"}
+	put("yardmaster", *one)
+	if got, err := s.GetCrew(ctx, "yardmaster"); err != nil || got.Model != "" || got.Kind != "codex" {
+		t.Errorf("after the config dropped its model: %+v, %v, want kind codex and no model", got, err)
 	}
 }
 

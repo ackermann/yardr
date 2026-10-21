@@ -36,9 +36,6 @@ type CrewRow struct {
 	Up string `json:"up,omitempty"`
 	// Agent is what it runs: its runner, kind and model.
 	Agent string `json:"agent"`
-	// Kind is the kind of agent alone, as its config has it (`yardr crew
-	// list --json`: config.kind); absent for a crew member with none.
-	Kind string `json:"kind,omitempty"`
 	// Provider is the subscription it burns (providerOf); absent where
 	// none is known and for a crew member of another runner.
 	Provider string `json:"provider,omitempty"`
@@ -93,7 +90,6 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 	for _, res := range rs {
 		row := CrewRow{CrewMember: res, Name: res.Name, State: res.State, Status: res.Status, Running: res.Live(), Enabled: res.Enabled,
 			Agent: agentOf(res), Restart: res.RestartRequested}
-		row.Kind, _ = res.Config["kind"].(string)
 		row.Provider = providerOf(res.Runner, res.Config, as)
 		if res.Live() && res.StartedAt != nil {
 			row.Since, row.Up = res.StartedAt, age(time.Since(*res.StartedAt))

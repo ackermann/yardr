@@ -695,19 +695,20 @@ func TestSessionsList(t *testing.T) {
 func TestCrewStatus(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
-	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Enabled: true, Config: map[string]any{"kind": "codex"}}, "me")
+	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr", Enabled: true, Config: map[string]any{"kind": "codex", "model": "o3"}}, "me")
 	must(t, err)
 	must(t, f.st.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}))
 	must(t, f.st.CrewStatus(ctx, "yardmaster", "idle"))
 	var got web.Crew
 	f.getJSON("/crew", &got)
-	if len(got.Crew) != 1 || got.Crew[0].Status != "idle" || got.Crew[0].Kind != "codex" || got.Crew[0].Agent != "herdr · codex" {
+	if len(got.Crew) != 1 || got.Crew[0].Status != "idle" || got.Crew[0].Kind != "codex" || got.Crew[0].Model != "o3" ||
+		got.Crew[0].Agent != "herdr · codex · o3" {
 		t.Errorf("crew: %+v", got.Crew)
 	}
 	rows, err := f.st.Crew(ctx)
 	must(t, err)
 	if len(got.Crew) == 1 {
-		pageFields := map[string]bool{"running": true, "since": true, "up": true, "agent": true, "kind": true, "provider": true, "unread": true, "restart": true}
+		pageFields := map[string]bool{"running": true, "since": true, "up": true, "agent": true, "provider": true, "unread": true, "restart": true}
 		var want, actual map[string]any
 		want = printed(t, rows[0]).(map[string]any)
 		actual = printed(t, got.Crew[0]).(map[string]any)
