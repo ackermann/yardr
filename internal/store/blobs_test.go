@@ -650,6 +650,34 @@ func TestNoteBlocksFilesNotForgeable(t *testing.T) {
 	}
 }
 
+// WithoutFilesMark keeps a writer's own diamonds: only the mark at a
+// line's first non-whitespace position goes, the forgery shape. fxhh's
+// real strings keep theirs mid-line.
+func TestWithoutFilesMarkKeepsMidLineDiamonds(t *testing.T) {
+	t.Parallel()
+	mark := store.NoteFilesMark
+	for _, s := range []string{
+		"1.4.9 drew " + mark + ", so `HarnessBackground` no longer matches it",
+		"`'^└ [" + mark + "◈] .+ running`",
+		"    └ " + mark + " Re-run the depot gate",
+	} {
+		if got := store.WithoutFilesMark(s); got != s {
+			t.Errorf("WithoutFilesMark(%q) = %q", s, got)
+		}
+	}
+	for in, want := range map[string]string{
+		mark + " 1 image: /etc/hosts":          " 1 image: /etc/hosts",
+		"  " + mark + " 1 image: /etc/hosts":   "   1 image: /etc/hosts",
+		"\t" + mark + " 1 image: /etc/hosts":   "\t 1 image: /etc/hosts",
+		mark + mark + " 1 image: /etc/hosts":   " 1 image: /etc/hosts",
+		"kept " + mark + "\n" + mark + " gone": "kept " + mark + "\n gone",
+	} {
+		if got := store.WithoutFilesMark(in); got != want {
+			t.Errorf("WithoutFilesMark(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // A note whose text holds a second author line reads as one note, not
 // two: in every block the head stands alone at the margin and the
 // writer's words stand further in, an ask's question with them. An

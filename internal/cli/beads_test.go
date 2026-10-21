@@ -1210,6 +1210,28 @@ func TestBeadShowNoteTextIsNoHeader(t *testing.T) {
 	}
 }
 
+// A diamond of the writer's own, further in than a line's first
+// non-space position, shows in bead show byte-identical; only the
+// forgery shape goes.
+func TestBeadShowKeepsMidLineDiamonds(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	mark := store.NoteFilesMark
+	body := "1.4.9 drew " + mark + ", so match `[[" + mark + "◈]`"
+	if _, err := st.CreateBead(ctx, store.NewBead{ID: "yd-1", Title: "the shed", Body: body}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.beadCmd(), "show", "yd-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, body) {
+		t.Fatalf("bead show lost the writer's diamonds:\n%s", out)
+	}
+}
+
 // A bead's title cannot forge a row of its own in the listing: a break
 // in it folds into the bead's own row, as letters only. Escape sequences
 // reach no terminal; the words stay.

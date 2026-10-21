@@ -265,13 +265,28 @@ func NoteFilesLine(home string, files []BlobRef) string {
 
 // WithoutFilesMark is s without the mark that starts a note's or a mail's
 // files line: what a writer's own words are shown as, so a writer cannot
-// forge the line by typing the mark (NoteFilesMark). A bead's title and
-// body are shown so too, where they stand in the same output as its notes
-// (bead show, prime, the brief), and a mail's sender where it stands on
-// the mail's line (inbox, conversation, chat): they are writers' words
-// as well.
+// forge the line by typing the mark (NoteFilesMark). Only the mark at a
+// line's first non-whitespace position goes, the only position the line
+// is recognised by (a line with HasPrefix(TrimSpace(line), mark)); a mark
+// further in is a writer's own diamond and stays byte-identical. A bead's
+// title and body are shown so too, where they stand in the same output as
+// its notes (bead show, prime, the brief), and a mail's sender where it
+// stands on the mail's line (inbox, conversation, chat): they are
+// writers' words as well. Residual: a writer's mark at a line's first
+// non-space position still drops. That is the safe direction (it is
+// exactly the forgery shape), vanishingly rare, and the stored bytes are
+// untouched, so any future escape re-renders them.
 func WithoutFilesMark(s string) string {
-	return strings.ReplaceAll(s, NoteFilesMark, "")
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+		rest := trimmed
+		for strings.HasPrefix(rest, NoteFilesMark) {
+			rest = rest[len(NoteFilesMark):]
+		}
+		lines[i] = line[:len(line)-len(trimmed)] + rest
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Letters is a writer's words as a terminal is given them: without what
@@ -305,9 +320,11 @@ func NoteLetters(s string) string {
 // OneLine is a writer's words where a single line of the yard's stands
 // for them: a note's author, a bead's title, an ask's short fields. As
 // letters only (NoteLetters), and without the line break, so the words
-// cannot start a line of their own where they are shown.
+// cannot start a line of their own where they are shown. The letters come
+// first, so the files-mark guard still reads the line starts the writer
+// typed: folded first, a forged mark would stand mid-line and stay.
 func OneLine(s string) string {
-	return NoteLetters(strings.ReplaceAll(s, "\n", " "))
+	return strings.ReplaceAll(NoteLetters(s), "\n", " ")
 }
 
 // MailFiles are the files the mail e carries, nil for mail without any.
