@@ -219,6 +219,10 @@ calls:
 	if got := setup(AskPreset{Name: "reader", Grants: []AskPresetGrant{{Source: "crm", Calls: []string{GrantRead}}}}); !slices.Equal(got, []string{WeightCredential, WeightCode}) {
 		t.Errorf("a setup whose pack brings a command weighs %v", got)
 	}
+	carried.Inventory = []AskInventory{{Path: "./thread.sh", SHA256: sha256Hex("#!/bin/sh\n")}}
+	if got := setup(AskPreset{Name: "reader", Grants: []AskPresetGrant{{Source: "crm", Calls: []string{GrantRead}}}}); !slices.Equal(got, []string{WeightCredential, WeightCode}) {
+		t.Errorf("a setup whose pack brings the copy that stands weighs %v", got)
+	}
 
 	// Every other row is routine whatever it is asked.
 	weighty := []string{"peer allow", "source set", "source grant", "source add", "pack apply", "hook add", "user key", "user add", "crew set", "user identity"}

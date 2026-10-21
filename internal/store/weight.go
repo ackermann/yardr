@@ -251,6 +251,25 @@ func (w *wtx) setupWeight(s AskSetup) ([]AskWeight, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A setup brings the pack's command files as part of the whole setup,
+	// even where their bytes match the copies that stand already. Source
+	// add and pack apply weigh only files that are new or changed.
+	hasFiles := false
+	for _, c := range s.Carried {
+		if len(c.Files) > 0 {
+			hasFiles = true
+			break
+		}
+	}
+	if hasFiles && !slices.ContainsFunc(carried, func(w AskWeight) bool { return w.Class == WeightCode }) {
+		var files []string
+		for _, c := range s.Carried {
+			for _, f := range c.Files {
+				files = append(files, fmt.Sprintf("%s of %s", f.Program, c.Name))
+			}
+		}
+		carried = append(carried, weighs(WeightCode, "the command file "+andList(files)))
+	}
 	return append(out, carried...), nil
 }
 
