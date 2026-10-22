@@ -142,7 +142,7 @@ one total per session, declared in each harness's file.
 
 ### What the transcripts say, checked on this machine on 21 Oct 2026
 
-**Claude Code 2.1.296.** File: `~/.claude/projects/<dir>/<id>.jsonl`.
+**Claude Code 2.1.288.** File: `~/.claude/projects/<dir>/<id>.jsonl`.
 
 - Each `assistant` line carries `message.usage`. Claude Code writes one
   line per *content block*, and every line of a message repeats the
@@ -646,10 +646,10 @@ label."*
 **No: a bead's tokens cannot be shown as a share of the weekly window
 today.** aiquokka gives, for each window, `used_percent` (a whole
 number: 11, 33, 29), `target_percent`, `resets_at` and
-`duration_seconds` (read today for `claude`, `codex` and `muse`). It
+`duration_seconds` (read today for `claude` and `codex`; `muse`
+answered with no windows at all, "has observed no usage yet"). It
 gives no window size in tokens. `limits.Window` has `Used` and `Limit`
-fields, but no provider fills them. Muse answered with no windows at
-all ("has observed no usage yet"). Codex's `token_count` lines carry
+fields, but no provider fills them. Codex's `token_count` lines carry
 the same percentages, not sizes. A share would also need weights. Claude
 counts its windows by model (it has a separate "Weekly Fable" window),
 and a cache read does not cost what an output token costs, so a window
