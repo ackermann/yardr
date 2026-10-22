@@ -941,10 +941,39 @@ func TestContributorsPack(t *testing.T) {
 	}
 	if want := []string{
 		"action=opened action=ready_for_review association=MEMBER association=OWNER event=pull_request -> pr:review",
+		"action=opened action=ready_for_review event=pull_request sender=bot -> pr:review",
 		"action=opened action=ready_for_review event=pull_request -> pr:triage",
 		"action=opened event=issues -> issue:triage",
 	}; !slices.Equal(makes, want) {
 		t.Errorf("makes:\n%s\nwant:\n%s", strings.Join(makes, "\n"), strings.Join(want, "\n"))
+	}
+	// Who skips the maintainer on the strength of a bot alone, by the fields
+	// of the event that opens a pull request: every bot, whatever its login
+	// (sender is a kind, never a name), and not a human from outside, an
+	// organization or a bot's issue. association is as the envelope has it,
+	// in lowercase.
+	made := store.Hook{Name: "gh", Source: "github", Makes: gh.Makes}
+	for _, c := range []struct {
+		event, action, sender, association, want string
+	}{
+		{"pull_request", "opened", "user", "contributor", "pr:triage"},
+		{"pull_request", "opened", "user", "none", "pr:triage"},
+		{"pull_request", "ready_for_review", "user", "first_time_contributor", "pr:triage"},
+		{"pull_request", "opened", "bot", "none", "pr:review"},
+		{"pull_request", "ready_for_review", "bot", "contributor", "pr:review"},
+		{"pull_request", "opened", "organization", "none", "pr:triage"},
+		{"pull_request", "synchronize", "bot", "none", ""},
+		{"issues", "opened", "bot", "none", "issue:triage"},
+		{"issues", "opened", "user", "none", "issue:triage"},
+	} {
+		fields := map[string][]string{"event": {c.event}, "action": {c.action}, "sender": {c.sender}, "association": {c.association}}
+		var got string
+		if m := made.Made(map[string]any{"type": c.event, "action": c.action, "fields": fields}); m != nil {
+			got = m.Type + ":" + m.Stage
+		}
+		if got != c.want {
+			t.Errorf("%s %s by a %s (%s) makes %q, want %q", c.event, c.action, c.sender, c.association, got, c.want)
+		}
 	}
 	says := map[string]bool{}
 	for _, s := range gh.Says {
@@ -2027,6 +2056,12 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"its review stage file",
 			"fit:", "maintenance cost:", "licences:",
 			"Leave one note on the bead (`yardr bead note <id> \"...\"`): the review.",
+			"`yardr bead update <id> --add-label merge-ok`",
+			"the pull request's title opens `build(deps)`",
+			"`git diff --stat <base>...HEAD` shows `go.mod` or `go.sum` changed and\n     nothing else",
+			"Never for a bump\n   of GitHub Actions or of anything but Go modules, never for a human's pull\n   request",
+			"take the label off (`--remove-label merge-ok`) when it no longer\n   holds",
+			"You set no other field of the bead",
 			"A command the sandbox refuses is not tried another\nway",
 			"yardr mail {{yardmaster}} ",
 		},
@@ -2038,7 +2073,7 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"starts in `review` and\nnever comes here",
 		},
 		"contributors/flows/issue/triage.md": {"the label `accepted` on the issue"},
-		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait`", "The reviewer does not wait for CI and cannot see it."},
+		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait`", "The reviewer does not wait for CI and cannot see it.", "is the one pull request the\nreviewer may mark `merge-ok`", "and the reviewer never does"},
 		"contributors/flows/pr/ciwait.md": {
 			"Nobody works this stage",
 			"nothing of the pull request is fetched, built or run by the yard",

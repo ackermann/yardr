@@ -1380,7 +1380,7 @@ yardr knows the verbs alone:
 
 | verb | direction | in this pack |
 |---|---|---|
-| `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) |
+| `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
 | `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor` and `changes` in `review` and `ciwait`; a run of CI that failed says `changes` in `review` and `ciwait`, one that succeeded `done` in `ciwait`; a merge says `merged`, a close `dropped` |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
@@ -1389,6 +1389,11 @@ yardr knows the verbs alone:
   before anything of a pull request is run anywhere. Which stage a bead
   starts in is a line of `makes`: a trusted author's pull request starts in
   `review`, and a copy of the pack may trust more authors, or all.
+- **`merge-ok` is the reviewer's to give for one kind of pull request.** A
+  bump of Go modules from a bot (title opening `build(deps)`, diff changing
+  `go.mod` or `go.sum` and nothing else) gets the label from the reviewer
+  when it reports `done`; it says the yard may merge the pull request from
+  `approved`. For any other pull request it is a maintainer's to add.
 - **`ciwait` has no group.** A reviewed pull request waits there for the
   repository's CI to pass on its head; nobody of the yard works it and no
   route is written for it, and only the source's events move it (`done`

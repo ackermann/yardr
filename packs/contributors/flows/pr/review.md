@@ -31,6 +31,13 @@ and that nothing was run. Outcomes:
   make (does the project want this at all). The note has the question and
   the options, and the bead goes to `decide`.
 
+A bump of Go modules from a dependency bot is the one pull request the
+reviewer may mark `merge-ok` (`yardr bead update <id> --add-label merge-ok`),
+when it reports `done`: the title opens `build(deps)` and the diff changes
+`go.mod` or `go.sum` and nothing else. The label says the yard may merge the
+pull request from `approved`, once CI has passed on its head. For any other
+pull request it is a maintainer's to add, and the reviewer never does.
+
 New commits on the pull request while it is here say `changes` too: the
 bead leaves for `contributor` with the note "the PR changed under review",
 and the next commits bring it back, to be read as it then is.

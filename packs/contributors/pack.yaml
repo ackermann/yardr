@@ -89,6 +89,13 @@ sources:
       # Trust is a where: the pull request of someone the repository knows
       # skips the maintainer. association is GitHub's author_association.
       - { where: "event=pull_request action=opened action=ready_for_review association=OWNER association=MEMBER", bead: { type: pr, stage: review } }
+      # A bot's pull request skips the maintainer too: the dependency bumps of
+      # the repository's tooling are the bulk of them, and the reviewer after
+      # this stage reads what a maintainer would. sender is GitHub's kind of
+      # what acted (user, bot or organization), never a login, so no line can
+      # name one bot: every bot's pull request goes to review, and a human
+      # from outside keeps the hold.
+      - { where: "event=pull_request action=opened action=ready_for_review sender=bot", bead: { type: pr, stage: review } }
       - { where: "event=pull_request action=opened action=ready_for_review", bead: { type: pr, stage: triage } }
       - { where: "event=issues action=opened", bead: { type: issue, stage: triage } }
 

@@ -38,7 +38,7 @@ who is trusted. yardr knows three verbs and none of the choices:
 
 | verb | direction | here |
 |---|---|---|
-| `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository |
+| `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
 | `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`, `changes` from `review` and from `ciwait`. A run of CI that failed (`workflow_run` or `check_suite`): `changes` from `review` and from `ciwait`; one that succeeded: `done` from `ciwait` alone. Merged: `merged`. Closed: `dropped` |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
@@ -49,6 +49,19 @@ the stage is for is in its stage file: nothing of the yard runs outside
 code, so a maintainer checks whether the person and the code are legit
 before anything of the pull request is run anywhere, and the label
 `accepted` sends it on.
+
+**A bot's pull request skips triage, whichever bot.** The line of `makes`
+that sends it to `review` is `sender=bot`: `sender` is the kind GitHub types
+what acted as (user, bot or organization) and never a login, so no line can
+name Dependabot alone. A human from outside keeps the hold.
+
+**`merge-ok` is the reviewer's to give for one kind of pull request.** A
+bump of Go modules from a bot, whose title opens `build(deps)` and whose
+diff changes `go.mod` or `go.sum` and nothing else, gets the label from the
+reviewer when it reports `done` (`yardr bead update <id> --add-label
+merge-ok`, which goes over the yard's socket). The label says the yard may
+merge the pull request from `approved`. For any other pull request it is a
+maintainer's to add.
 
 **The stage `ciwait` has no group, so no route.** A reviewed pull request
 waits there for the repository's CI to pass on its head, and nobody of the
