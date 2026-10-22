@@ -476,8 +476,8 @@ func TestMergePRHoldsForTheYes(t *testing.T) {
 // ci_head, one of another commit (the pull request was pushed to since the run,
 // for a bot's too), one that is not a full sha and a head that is another
 // commit than the yes's all hold the bead before anything is merged, and the
-// note says what CI passed on and how to have it run again. The commit is
-// the same in any case of its letters.
+// note says what CI passed on and how to have it run again, on a head a
+// reviewer read. The commit is the same in any case of its letters.
 func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
 	y, gh := mergeYard(t)
 	y.prBead("r-p", prURL, true)
@@ -488,7 +488,7 @@ func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
 		wants []string
 	}{
 		{"no ci_head", mergeOpts{noCI: true},
-			[]string{"CI has not passed on 4f2c9e1 (yard CI passed nothing)", "pr-ci", again}},
+			[]string{"CI has not passed on 4f2c9e1 (yard CI passed nothing)", "pr-ci", "only on a head a reviewer read", again}},
 		{"a ci_head of another commit", mergeOpts{ci: headB},
 			[]string{"CI has not passed on 4f2c9e1 (yard CI passed 9b8a7c6)", again}},
 		{"a ci_head that is no full sha", mergeOpts{ci: headA[:7]},

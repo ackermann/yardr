@@ -39,7 +39,8 @@
 # no yes, a head that moved, CI not passed on it, the App without the
 # permissions it needs, GitHub's refusal) holds the bead with a note, for a
 # maintainer to act on, on GitHub or by sending the bead back to ciwait, then
-# unhold. Nothing here retries.
+# unhold (pr-ci tests only a head a reviewer read, and holds one none did).
+# Nothing here retries.
 #
 # It reads the environment the exec runner gives it: YARDR_BEAD and YARDR_BIN.
 # The depot's checkout is never touched: GitHub is the whole of it.
@@ -182,19 +183,19 @@ else
   sha=$head
 fi
 
-# CI: the yard's own. pr-ci runs the depot's test command on the head in ciwait
-# and records the head it passed on as the bead's metadata ci_head, which counts
-# for that commit and no other: a head that is another commit (the pull request
-# was pushed to since the run, or the bead was moved here by hand) has not
-# passed. Nothing is asked of GitHub for it: Actions is off, and one source of
-# truth is enough.
+# CI: the yard's own. pr-ci runs the depot's test command on the head in ciwait,
+# when a reviewer read that head, and records the head it passed on as the
+# bead's metadata ci_head, which counts for that commit and no other: a head
+# that is another commit (the pull request was pushed to since the run, or the
+# bead was moved here by hand) has not passed. Nothing is asked of GitHub for
+# it: Actions is off, and one source of truth is enough.
 ciat=$(printf '%s' "$bead" | jq -r '.metadata.ci_head // empty')
 case $ciat in *[!0-9a-fA-F]*) ciat= ;; esac
 case ${#ciat} in 40 | 64) ;; *) ciat= ;; esac
 passed=nothing
 [ -z "$ciat" ] || passed=$(short "$ciat")
 { [ -n "$ciat" ] && [ "$(lower "$ciat")" = "$(lower "$sha")" ]; } ||
-  hold "CI has not passed on $(short "$sha") (yard CI passed $passed). Not merging. The yard runs CI on a pull request's head in ciwait (pr-ci); to have it run on the head as it is now: yardr bead advance $BEAD --to ciwait, then yardr bead unhold $BEAD."
+  hold "CI has not passed on $(short "$sha") (yard CI passed $passed). Not merging. The yard runs CI on a pull request's head in ciwait (pr-ci), and only on a head a reviewer read; to have it run on the head as it is now: yardr bead advance $BEAD --to ciwait, then yardr bead unhold $BEAD. A head no reviewer read is held there, with the command that sends the bead to review."
 
 # The merge. --match-head-commit makes GitHub refuse when the head is no
 # longer the commit looked at; gh can merge and still exit non-zero (a local

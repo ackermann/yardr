@@ -10,12 +10,14 @@ package assembly
 // pr-ci has fetched it.
 //
 // A yard costs more than a run of the script, so each test has one yard and a
-// bead for each run.
+// bead for each run. A bead in ciwait carries reviewed_head, the commit its
+// reviewer recorded before it reported done, as the pr flow's bead does.
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -110,6 +112,26 @@ func (c *ciYard) pull(n int, files map[string]string) string {
 	return c.git(c.work, "rev-parse", "HEAD")
 }
 
+// reviewed records on bead id the commit its reviewer read, as the reviewer does
+// before it reports done; none (empty) records nothing, a reviewer that did not.
+func (c *ciYard) reviewed(id, head string) {
+	c.t.Helper()
+	if head == "" {
+		return
+	}
+	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
+	if _, err := st.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"reviewed_head": head}}, store.Expect{}, "test"); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+// fetched reports whether the depot has commit sha.
+func (c *ciYard) fetched(sha string) bool {
+	cmd := exec.Command("git", "cat-file", "-e", sha+"^{commit}")
+	cmd.Dir, cmd.Env = c.repo, c.env
+	return cmd.Run() == nil
+}
+
 // ci runs pr-ci on bead id once: with the stand-in as o and files make it, and
 // the base's script told nothing but what files say.
 func (c *ciYard) ci(id string, o mergeOpts, files map[string]string) {
@@ -176,7 +198,8 @@ func (c *ciYard) checkoutGone(id, what string) {
 	}
 }
 
-// pr-ci runs the depot's test command on the head GitHub names, in a checkout
+// pr-ci runs the depot's test command on the head GitHub names when it is the
+// one the bead's reviewer recorded (in any case of its letters), in a checkout
 // of its own: the base's copy of the script, however the pull request edited
 // it, without YARDR_LANDING and without the App's inputs, and records the head
 // it passed on as ci_head and reports done; a red run, one past its deadline
@@ -191,19 +214,20 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 	depot := c.git(c.repo, "status", "--porcelain") + c.git(c.repo, "rev-parse", "HEAD")
 	refs := c.git(c.repo, "for-each-ref")
 	for i, tc := range []struct {
-		what   string
-		files  map[string]string // the pull request's, on top of main
-		stand  map[string]string // the stand-in's, besides the head; {sha} is the pull request's commit
-		head   string            // what GitHub says the head is at first, the pull request's commit unless written
-		opts   string            // more for the group's cmd
-		stage  string            // where the bead ends
-		hold   bool
-		signal bool     // stop the script while its test command has a child running
-		norun  bool     // the tests were never started
-		wants  []string // in its notes, {url}, {sha} and {short} being the pull request's
-		not    []string // and not
+		what     string
+		files    map[string]string // the pull request's, on top of main
+		stand    map[string]string // the stand-in's, besides the head; {sha} is the pull request's commit
+		head     string            // what GitHub says the head is at first, the pull request's commit unless written
+		reviewed string            // what the reviewer recorded, the head GitHub says unless written; {SHA} is the pull request's commit in capitals
+		opts     string            // more for the group's cmd
+		stage    string            // where the bead ends
+		hold     bool
+		signal   bool     // stop the script while its test command has a child running
+		norun    bool     // the tests were never started
+		wants    []string // in its notes, {url}, {sha} and {short} being the pull request's
+		not      []string // and not
 	}{
-		{what: "green", files: map[string]string{"feature.txt": "new\n"}, stage: "approved",
+		{what: "green", files: map[string]string{"feature.txt": "new\n"}, reviewed: "{SHA}", stage: "approved",
 			wants: []string{"the tests passed on {url} at {sha} (the base's copy of ci.sh,", "ci_head={sha}", "Its last line: test: ci.sh @ {short}: pass"}},
 		{what: "red, though the pull request rewrote the test script to pass", files: map[string]string{"ci.sh": "echo the copy on the branch\nexit 0\n", "RED": "red\n"}, stage: "contributor",
 			wants: []string{"the tests failed on {url} at {short} (the base's copy of ci.sh, exit 1); its output:", "ci.sh of the base: in ", "RED is in the tree"},
@@ -225,8 +249,9 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 	} {
 		id, num := fmt.Sprintf("r-j%d", i), 20+i
 		sha := c.pull(num, tc.files)
-		fill := strings.NewReplacer("{url}", prURLn(num), "{sha}", sha, "{short}", sha[:7])
+		fill := strings.NewReplacer("{url}", prURLn(num), "{sha}", sha, "{short}", sha[:7], "{SHA}", strings.ToUpper(sha))
 		c.prBeadIn(id, prURLn(num), "ciwait", false)
+		c.reviewed(id, fill.Replace(or(tc.reviewed, or(tc.head, sha))))
 		opts := c.opts
 		if tc.opts != "" {
 			c.opts += " " + tc.opts
@@ -330,40 +355,50 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 	}
 
 	// A bot's bump of Go modules, end to end through the real pr flow: the
-	// reviewer marks it merge-ok and reports done, which has it wait in
-	// ciwait; pr-ci passes it to approved with the head it tested. The bot
-	// rebases before anything merges it: merge-pr holds, since the yard's CI
-	// passed on another commit, and the way back the hold gives (to ciwait,
-	// unheld) has the tests run on the new head, which merge-pr then merges.
-	// The yard's CI is the only CI asked.
+	// reviewer reads the head, records it as reviewed_head, marks the bump
+	// merge-ok and reports done, which has it wait in ciwait. The bot rebases
+	// before pr-ci runs and the event of that push is lost (nothing here
+	// delivers one, which is what a missed webhook is), so the bead is still in
+	// ciwait: pr-ci holds it at a head no reviewer read, and fetches nothing.
+	// The way back the hold gives is a review: the reviewer records the head it
+	// now reads, pr-ci passes the bump to approved with that head, and merge-pr
+	// merges it. The yard's CI is the only CI asked.
 	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
 	id, num := "r-e", 60
-	sha := c.pull(num, map[string]string{"go.sum": "bump\n"})
+	read := c.pull(num, map[string]string{"go.sum": "bump\n"})
 	c.prBeadIn(id, prURLn(num), "review", false)
-	if _, err := st.UpdateBead(ctx, id, store.BeadPatch{AddLabels: []string{"merge-ok"}}, store.Expect{}, "test"); err != nil {
-		t.Fatal(err)
+	reviewerDone := func(head string) {
+		t.Helper()
+		if _, err := st.UpdateBead(ctx, id, store.BeadPatch{AddLabels: []string{"merge-ok"}, Metadata: map[string]any{"reviewed_head": head}}, store.Expect{}, "test"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Done(ctx, id, "done", "Ready", store.Expect{Stage: "review"}, "test"); err != nil {
+			t.Fatal(err)
+		}
+		c.has(id, "reported done by the reviewer", "ciwait", false)
 	}
-	if _, err := st.Done(ctx, id, "done", "Ready", store.Expect{Stage: "review"}, "test"); err != nil {
-		t.Fatal(err)
-	}
-	c.has(id, "reported done by the reviewer", "ciwait", false)
-	c.ci(id, mergeOpts{head: sha}, nil)
-	if b := c.has(id, "passed by pr-ci", "approved", false); b.Metadata["ci_head"] != sha {
-		t.Fatalf("ci_head = %v, want %s", b.Metadata["ci_head"], sha)
-	}
+	reviewerDone(read)
 	pushed := c.pull(num, map[string]string{"go.sum": "bump, rebased\n"})
-	standIn(t, c.gh, mergeOpts{head: pushed}, nil)
-	c.exec("merge-pr", "pr-merges", id)
-	c.held(c.gh, id, "pushed to after its tests", 0, "CI has not passed on "+pushed[:7]+" (yard CI passed "+sha[:7]+")")
-	if _, err := st.Advance(ctx, id, "ciwait", store.Expect{}, "test"); err != nil {
+	c.ci(id, mergeOpts{head: pushed}, nil)
+	c.has(id, "pushed to after its review, the event lost", "ciwait", true)
+	c.noted(id, "pushed to after its review", "head "+pushed+" is not the reviewed "+read+": needs re-review")
+	c.clean(id, "pushed to after its review")
+	if c.fetched(pushed) {
+		t.Errorf("pr-ci fetched the head %s, which no reviewer read", pushed)
+	}
+	if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
+		t.Errorf("ci_head = %v on a bead held for a head no reviewer read", b.Metadata["ci_head"])
+	}
+	if _, err := st.Advance(ctx, id, "review", store.Expect{}, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.SetHold(ctx, id, false, store.Expect{}, "test"); err != nil {
 		t.Fatal(err)
 	}
+	reviewerDone(pushed)
 	c.ci(id, mergeOpts{head: pushed}, nil)
-	if b := c.has(id, "tested again", "approved", false); b.Metadata["ci_head"] != pushed {
-		t.Fatalf("ci_head = %v, want the new head %s", b.Metadata["ci_head"], pushed)
+	if b := c.has(id, "tested at the head its reviewer read", "approved", false); b.Metadata["ci_head"] != pushed {
+		t.Fatalf("ci_head = %v, want the head its reviewer read, %s", b.Metadata["ci_head"], pushed)
 	}
 	standIn(t, c.gh, mergeOpts{head: pushed}, nil)
 	c.exec("merge-pr", "pr-merges", id)
@@ -375,28 +410,38 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 
 // What is no verdict on a pull request holds the bead, with a note that says
 // why and nothing run: a bead that is not in ciwait, where no reviewer has read
-// the code; a depot with no test command; a pull request that is not open or
-// that GitHub will not show; a remote that does not give the head or does not
-// have the pull request; a token that cannot be had; a link that is no pull
-// request address. Nothing is fetched or run for the ones that are known
-// before it is, and the bead's checkout is never made.
+// the code; a head that is not the one its reviewer recorded, or a bead whose
+// reviewer recorded none or no full sha; a depot with no test command; a pull
+// request that is not open or that GitHub will not show; a remote that does not
+// give the head or does not have the pull request; a token that cannot be had;
+// a link that is no pull request address. Nothing is fetched or run for the
+// ones that are known before it is, and the bead's checkout is never made.
 func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 	c := newCIYard(t)
 	none := ""
 	for i, tc := range []struct {
-		what   string
-		stage  string            // the bead's stage, ciwait unless written
-		url    string            // its link, its pull request's unless written
-		bare   bool              // origin has no head for its pull request
-		stand  map[string]string // the stand-in's, besides the head
-		head   string            // what GitHub says the head is, the pull request's unless written
-		tests  *string           // the depot's test command, ci.sh unless written
-		change func()            // changes the group for this run
-		wants  []string          // in its notes
-		asked  bool              // GitHub is asked about the pull request
+		what      string
+		stage     string            // the bead's stage, ciwait unless written
+		url       string            // its link, its pull request's unless written
+		bare      bool              // origin has no head for its pull request
+		stand     map[string]string // the stand-in's, besides the head
+		head      string            // what GitHub says the head is, the pull request's unless written
+		reviewed  string            // what the reviewer recorded, the head GitHub says unless written, - for nothing
+		tests     *string           // the depot's test command, ci.sh unless written
+		change    func()            // changes the group for this run
+		wants     []string          // in its notes, {n}, {id} and {sha} being the pull request's number, the bead and the commit
+		not       []string          // and not
+		asked     bool              // GitHub is asked about the pull request
+		unfetched bool              // and nothing of it was fetched, whatever origin has
 	}{
 		{what: "a bead no reviewer has read the pull request of", stage: "review",
 			wants: []string{"is not in ciwait", "runs a pull request's code nowhere before it"}},
+		{what: "a head that is not the one its reviewer read", reviewed: headB, asked: true, unfetched: true,
+			wants: []string{"head {sha} is not the reviewed " + headB + ": needs re-review", "Nothing of https://github.com/o/r/pull/{n} was fetched or run", "yardr bead advance {id} --to review, then yardr bead unhold {id}"}},
+		{what: "a bead whose reviewer recorded no head", reviewed: "-", asked: true, unfetched: true,
+			wants: []string{"{id} has no reviewed_head that is a full commit sha", "the head of https://github.com/o/r/pull/{n}, {sha}", "yardr bead advance {id} --to review"}},
+		{what: "a recorded head that is no sha, and not copied to the bead", reviewed: strings.Repeat("z", 40), asked: true, unfetched: true,
+			wants: []string{"{id} has no reviewed_head that is a full commit sha"}, not: []string{strings.Repeat("z", 40)}},
 		{what: "a depot with no test command", tests: &none,
 			wants: []string{"has no test command", "yardr depot add r ", "a pull request is not called green untested"}},
 		{what: "a link that is no pull request address", url: "https://github.com/o/r/pull/31/files",
@@ -426,6 +471,10 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 			tests = *tc.tests
 		}
 		c.prBeadIn(id, url, stage, false)
+		fill := strings.NewReplacer("{n}", strconv.Itoa(num), "{id}", id, "{sha}", sha)
+		if reviewed := or(tc.reviewed, or(tc.head, sha)); reviewed != "-" {
+			c.reviewed(id, fill.Replace(reviewed))
+		}
 		c.tests(tests)
 		envFile, opts := c.envFile, c.opts
 		if tc.change != nil {
@@ -436,9 +485,17 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 
 		c.has(id, tc.what, stage, true)
 		for _, want := range tc.wants {
-			c.noted(id, tc.what, strings.ReplaceAll(want, "{n}", strconv.Itoa(num)))
+			c.noted(id, tc.what, fill.Replace(want))
+		}
+		for _, not := range tc.not {
+			if notes := c.notesOf(id); strings.Contains(notes, not) {
+				t.Errorf("%s: a note has %q:\n%s", tc.what, not, notes)
+			}
 		}
 		c.clean(id, tc.what)
+		if tc.unfetched && c.fetched(sha) {
+			t.Errorf("%s: the depot has the commit %s of the pull request, which pr-ci was to leave where it was", tc.what, sha)
+		}
 		if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
 			t.Errorf("%s: ci_head = %v on a bead no verdict was given for", tc.what, b.Metadata["ci_head"])
 		}

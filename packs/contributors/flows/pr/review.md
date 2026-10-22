@@ -24,6 +24,9 @@ and that nothing was run. Outcomes:
   the depot's tests on the head that was read; it reaches `approved`, to the
   maintainers, only when that run passes, and a run that fails sends it to
   the contributor. The reviewer does not wait for CI and cannot see it.
+  The reviewer records the commit it read as the bead's `reviewed_head`
+  before it reports (after a look at the pull request's head where its
+  sandbox lets it), and CI runs on that head and on no other.
 - `changes`: the contributor has to change it. The note has findings they
   can act on, by file and line. The bead goes to `contributor` and comes
   back when the pull request has new commits.

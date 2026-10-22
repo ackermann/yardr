@@ -589,11 +589,12 @@ func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *b
 
 // checkAgentCreate refuses a bead's agent (beadAgent) a new bead b, of flow
 // f, that would skip what the flow puts first: a flow pin, which chooses a
-// flow of the agent's own (UpdateBead refuses it too), a merge permission or
-// CI verdict, or a stage past the flow's first that no person the yard names
-// looks at before work starts (StageWork.Seen). A bead filed into its flow's
-// first stage, or into one people work (decide), is seen first; one filed into
-// review or approved would land without the stages before it.
+// flow of the agent's own (UpdateBead refuses it too), a merge permission,
+// CI verdict or review's head, or a stage past the flow's first that no
+// person the yard names looks at before work starts (StageWork.Seen). A bead
+// filed into its flow's first stage, or into one people work (decide), is
+// seen first; one filed into review or approved would land without the stages
+// before it.
 func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage string) error {
 	sess, err := beadAgent(w.Tx, ctx)
 	if err != nil || sess == nil {
@@ -607,6 +608,9 @@ func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage strin
 	}
 	if _, ok := b.Metadata[metaCIHead]; ok {
 		return fmt.Errorf("the session %s of a bead's agent may not create a bead with ci_head, whatever actor the command names; the script that ran the tests writes it", sess.ID)
+	}
+	if _, ok := b.Metadata[metaReviewedHead]; ok {
+		return fmt.Errorf("the session %s of a bead's agent may not create a bead with reviewed_head, whatever actor the command names; a reviewer records it on the pull request it read", sess.ID)
 	}
 	if pin := PinnedFlow(&b); pin != "" {
 		return fmt.Errorf("the session %s of a bead's agent may not pin a new bead's flow (metadata flow %s), whatever actor the command names; file it without, and the yard chooses its flow", sess.ID, pin)
@@ -1241,8 +1245,9 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // update is recorded as that session's actor or that crew member, whatever
 // actor says; from anywhere else, as given (paneAuthor). A bead's agent
 // may not change a bead's type or depot (checkFlowChange), may say
-// merge-ok, or record merge_head, only on its own bead (checkMergeOK), and
-// may not record ci_head on any (checkCIHead).
+// merge-ok, or record merge_head, only on its own bead (checkMergeOK), may
+// record reviewed_head only on its own too (checkReviewedHead), and may not
+// record ci_head on any (checkCIHead).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -1321,6 +1326,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 				return "", nil, err
 			}
 			if err := w.checkMergeOK(ctx, b, p); err != nil {
+				return "", nil, err
+			}
+			if err := w.checkReviewedHead(ctx, b, p); err != nil {
 				return "", nil, err
 			}
 			if err := w.checkCIHead(ctx, b, p); err != nil {
@@ -2023,6 +2031,32 @@ func (w *wtx) checkMergeOK(ctx context.Context, b *beadRow, p BeadPatch) error {
 		return err
 	}
 	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s, whatever actor the command names; the reviewer says it on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
+		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
+}
+
+// metaReviewedHead is the commit a reviewer read, as the reviewer records it
+// on the pull request's bead before it reports done (the contributors pack's
+// review stage): pr-ci runs the depot's tests on the head the bead names and
+// on no other.
+const metaReviewedHead = "reviewed_head"
+
+// checkReviewedHead refuses a bead's agent (beadAgent) a patch that records
+// reviewed_head on a bead its session does not own, as checkMergeOK does for
+// merge-ok. pr-ci runs a pull request's code only on the head the bead says
+// was read, so an agent that could say it on another bead could have the yard
+// run a head nobody read, as the operator. On its own bead the agent may: what
+// the field answers is a push between the read and the run, not a reviewer
+// that lies about what it read. A person may write it anywhere, a maintainer
+// who read the head themselves included.
+func (w *wtx) checkReviewedHead(ctx context.Context, b *beadRow, p BeadPatch) error {
+	if _, ok := p.Metadata[metaReviewedHead]; !ok {
+		return nil
+	}
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil || sess.Bead == b.UUID {
+		return err
+	}
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may record reviewed_head only on its own bead %s, whatever actor the command names; it says which head the reviewer read, and the reviewer records it on the pull request it read: yardr bead note %s \"which head should be read\"",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 

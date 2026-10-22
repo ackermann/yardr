@@ -1516,8 +1516,12 @@ yardr knows the verbs alone:
   commits meanwhile `pushed` back to `review`. The reviewer runs nothing,
   which is why the wait is a stage of its own and not the end of `review`,
   and a fork's code runs on the yard's machine only after a reviewer has
-  read it. The script works as the yard's GitHub App, whose id and key file
-  are the group's `env_file`, so a yard makes the group first and maps it
+  read it. The head tested is the one the reviewer read: it records the
+  commit as the bead's `reviewed_head` before it reports `done`, and `pr-ci`
+  holds a bead whose pull request has another head when it starts, or none
+  recorded, instead of running unread code. The script works as the yard's
+  GitHub App, whose id and key file are the group's `env_file`, so a yard
+  makes the group first and maps it
   (`--group pr-ci=pr-ci`, [line.md](line.md#the-yard-as-the-ci-of-a-pull-request)).
 - **A bot's push starts the read again.** A bot's rebase is the only push
   it makes, so a bead sent to `contributor` by it would wait there for one

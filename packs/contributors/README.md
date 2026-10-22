@@ -78,6 +78,20 @@ getting to `ciwait` means. A run that is no verdict on the pull request (no
 test command, no token, a failed fetch) holds the bead for the yard's
 operator, and the pull request is not called green untested.
 
+**The head that is tested is the head the reviewer read.** The reviewer
+records the commit it read as the bead's `reviewed_head` right before it
+reports `done` (`yardr bead update <id> --meta reviewed_head=<sha>`, over the
+yard's socket, on its own bead only). That is the head its worktree stands on,
+which the yard fetched when its session began; where its sandbox lets it
+fetch, it looks at the pull request's head once more first, and at the diff
+again if it moved, but the read-only sandbox reaches no network. `pr-ci` runs
+the tests only if the head GitHub says the pull request has when it starts is
+that commit. A push in between whose event came late or never, as an event
+can, leaves another head: the bead is held with both commits named, nothing
+of the pull request is fetched or run, and `yardr bead advance <id> --to
+review` (then `yardr bead unhold <id>`) has it read again as it now is. A
+bead with no `reviewed_head` is held the same way.
+
 **`pr-ci` works as the yard's GitHub App, so the yard sets its group up
 first.** The script is `scripts/pr-ci`, the copy of `contrib/assembly/pr-ci`
 (a test fails when they differ). The App's id and key file are the group's

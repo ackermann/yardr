@@ -1528,11 +1528,23 @@ merge-pr does (below), and:
 - refuses a bead that is not in `ciwait`, before it fetches anything: the
   stage is the one after a reviewer has read the pull request, and the yard
   runs a pull request's code nowhere before that, a fork's least of all;
-- reads the pull request's head from GitHub, fetches `refs/pull/<n>/head`
-  from the depot's `origin` with the operator's own git credentials, and
-  checks that exact commit out, detached, in a worktree of its own beside
-  the bead's (`<worktrees>/<depot>/<bead>-ci`), which it removes when it
-  ends, however it ends;
+- reads the pull request's head from GitHub and holds the bead unless that is
+  the commit the bead's reviewer read, before it fetches anything. The
+  reviewer records the commit as the bead's `reviewed_head` right before it
+  reports `done`: the head its worktree stands on, which the yard fetched when
+  its session began (where its sandbox lets it fetch it looks at the head once
+  more first, and the read-only sandbox reaches no network). A pull request
+  pushed to since, whose event came late or never, has another head: the bead
+  is held, the note names both commits, and `yardr bead advance <id> --to
+  review` (then `yardr bead unhold <id>`) has the pull request read as it now
+  is. A bead with no `reviewed_head` is held the same way. A bead's agent
+  writes `reviewed_head` on its own bead only (the rule for `merge-ok`,
+  whatever actor the command names), and a person on any, a maintainer who has
+  read the head themselves included;
+- fetches `refs/pull/<n>/head` from the depot's `origin` with the operator's
+  own git credentials, and checks that exact commit out, detached, in a
+  worktree of its own beside the bead's (`<worktrees>/<depot>/<bead>-ci`),
+  which it removes when it ends, however it ends;
 - runs the depot's test command there, the one every landing runs
   (`yardr depot show`). Where the command is a file the base has
   (`.yardr/test`), the **base's** copy of it runs, never the pull request's,
@@ -1555,15 +1567,17 @@ A push to the pull request while the bead waits or the tests run moves the
 bead before any report, by the pack's lines for the source: a person's push is
 `changes`, to `contributor`, and a bot's is `pushed`, back to `review` to be
 read at the new head. The run is stopped with its session, and a report of it
-that still comes is refused. The script's own read of the head, at the end of
-the run, is for a push whose event has not come yet.
+that still comes is refused. The script's own reads of the head, against
+`reviewed_head` when it starts and against the commit it tested at the end of
+the run, are for a push whose event has not come yet or never will.
 
 Whatever is no verdict on the pull request holds the bead in `ciwait` with a
 note and reports nothing: no token, GitHub or the fetch refusing, a depot with
 no test command (a pull request is not called green untested), tests that
 could not run or that a signal ended twice, a pull request that is no longer
-open. The operator puts it right, then `yardr bead unhold <id>` runs the tests
-again. Nothing is written to GitHub, no commit status and no check run: the
+open, a head that is not the one its reviewer read. The operator puts it
+right, then `yardr bead unhold <id>` runs the tests again. Nothing is written
+to GitHub, no commit status and no check run: the
 App has no permission for the first, and nothing would read either. What
 reads the verdict is merge-pr, which merges only a head that is the bead's
 `ci_head`. So `ci_head` is the script's and a person's to write, and a bead's
@@ -1599,7 +1613,12 @@ stage by hand instead (`yardr route add --stage ciwait --type pr --originator
 any --group pr-ci`), a default that a later apply with the mapping leaves to
 work the stage. The script is refreshed by `yardr upgrade` from the checkout
 it builds, once installed ([upgrade.md](upgrade.md#the-scripts)); the pack
-carries a copy that a test holds equal.
+carries a copy that a test holds equal. The script tests only a head the
+reviewer recorded as `reviewed_head`, and the pack's reviewer role is what
+records it, so a yard that upgrades the script applies the pack again too. A
+pull request that waits in `ciwait` before then is held until its head has been
+read and recorded (`yardr bead advance <id> --to review`, then `yardr bead
+unhold <id>`).
 
 ## Merging pull requests
 
@@ -1649,7 +1668,9 @@ pull request pushed to since its tests ran, a bot's included, has no CI on
 its new head and is held with "CI has not passed on <head>": `yardr bead
 advance <id> --to ciwait` has the yard run the tests again (the bead is held,
 so `yardr bead unhold <id>` too), and the bead comes back to `approved` with
-the new head recorded.
+the new head recorded. The tests run on a head a reviewer read: for one none
+did, `ciwait` holds the bead (above) and `yardr bead advance <id> --to review`
+has the pull request read first.
 
 ### Setup
 

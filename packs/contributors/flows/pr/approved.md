@@ -38,7 +38,10 @@ nothing was merged: a maintainer acts on GitHub, then unholds the bead,
 which is looked at again. A pull request pushed to since its tests ran has no
 CI on its new head: `yardr bead advance <id> --to ciwait` has the yard run
 them again (the bead is held, so `yardr bead unhold <id>` too), and the bead
-comes back here. The yard reports a bead merged or dropped and nothing else.
+comes back here. The yard tests only a head a reviewer read, so for a head
+none did, `ciwait` holds the bead instead and its note says how to send it to
+`review`: it comes back here after the reviewer and the tests. The yard
+reports a bead merged or dropped and nothing else.
 
 What of the review reaches the contributor is the maintainer's to post, in
 their own words or the note's, approved text only: `yardr reply --crew

@@ -365,9 +365,10 @@ func TestReusedPidIsNobodysPane(t *testing.T) {
 // merge-ok is the yard's permission to merge a pull request (merge-pr
 // merges only what carries it), and merge_head the commit a maintainer's
 // yes recorded: a bead's agent says them on its own bead only, whatever
-// actor the command names. ci_head, the commit the yard's CI passed on, it
-// does not say at all. Anyone else (no pane at all) is checked as before,
-// and any other label or metadata still goes anywhere.
+// actor the command names. So it does reviewed_head, the commit its reviewer
+// read, which pr-ci tests and no other. ci_head, the commit the yard's CI
+// passed on, it does not say at all. Anyone else (no pane at all) is checked
+// as before, and any other label or metadata still goes anywhere.
 func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
 	t.Parallel()
 	s, ctx := flowDepot(t)
@@ -390,14 +391,14 @@ func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
 	sha := "9f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 	if got, err := s.CreateBead(ctx, store.NewBead{
 		ID: "yard-person-pr", Title: "person", Depot: "yard", Stage: "new",
-		Labels: []string{"merge-ok"}, Metadata: map[string]any{"merge_head": sha, "ci_head": sha},
+		Labels: []string{"merge-ok"}, Metadata: map[string]any{"merge_head": sha, "ci_head": sha, "reviewed_head": sha},
 	}, "me"); err != nil {
-		t.Fatalf("a person creating a bead with merge permission and CI verdict: %v", err)
-	} else if !slices.Contains(got.Labels, "merge-ok") || got.Metadata["merge_head"] != sha || got.Metadata["ci_head"] != sha {
-		t.Fatalf("a person's merge permission and CI verdict were not stored: %+v", got)
+		t.Fatalf("a person creating a bead with merge permission, CI verdict and reviewed head: %v", err)
+	} else if !slices.Contains(got.Labels, "merge-ok") || got.Metadata["merge_head"] != sha || got.Metadata["ci_head"] != sha || got.Metadata["reviewed_head"] != sha {
+		t.Fatalf("a person's merge permission, CI verdict and reviewed head were not stored: %+v", got)
 	}
-	if got, err := s.UpdateBead(ctx, c.ID, store.BeadPatch{Metadata: map[string]any{"ci_head": sha}}, store.Expect{}, "me"); err != nil || got.Metadata["ci_head"] != sha {
-		t.Fatalf("a person's ci_head: %+v, %v", got, err)
+	if got, err := s.UpdateBead(ctx, c.ID, store.BeadPatch{Metadata: map[string]any{"ci_head": sha, "reviewed_head": sha}}, store.Expect{}, "me"); err != nil || got.Metadata["ci_head"] != sha || got.Metadata["reviewed_head"] != sha {
+		t.Fatalf("a person's ci_head and reviewed_head: %+v, %v", got, err)
 	}
 	owner, err := s.Claim(ctx, a.ID, "builders", "new", "yard")
 	if err != nil {
@@ -417,8 +418,9 @@ func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
 	unset := store.Expect{}
 	want := "may say merge-ok only on its own bead"
 
-	// Creating a bead directly with a permission or verdict would skip the
-	// update guards and could make merge-pr trust a head nobody reviewed or ran.
+	// Creating a bead directly with a permission, verdict or reviewed head would
+	// skip the update guards and could make merge-pr trust a head nobody
+	// reviewed or ran, or pr-ci run one nobody read.
 	for i, tc := range []struct {
 		name string
 		nb   store.NewBead
@@ -427,8 +429,9 @@ func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
 		{name: "merge-ok", nb: store.NewBead{Labels: []string{"merge-ok"}}, want: "may not create a bead with merge-ok"},
 		{name: "merge_head", nb: store.NewBead{Metadata: map[string]any{"merge_head": sha}}, want: "may not create a bead with merge_head"},
 		{name: "ci_head", nb: store.NewBead{Metadata: map[string]any{"ci_head": sha}}, want: "may not create a bead with ci_head"},
+		{name: "reviewed_head", nb: store.NewBead{Metadata: map[string]any{"reviewed_head": sha}}, want: "may not create a bead with reviewed_head"},
 	} {
-		id := []string{"yard-forged-merge-ok", "yard-forged-merge-head", "yard-forged-ci-head"}[i]
+		id := []string{"yard-forged-merge-ok", "yard-forged-merge-head", "yard-forged-ci-head", "yard-forged-reviewed-head"}[i]
 		tc.nb.ID, tc.nb.Title, tc.nb.Depot, tc.nb.Stage = id, "forged", "yard", "new"
 		if _, err := s.CreateBead(pane, tc.nb, "yard-a-new"); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("agent created a bead with %s: %v, want refusal %q", tc.name, err, tc.want)
@@ -466,6 +469,25 @@ func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
 	}
 	if _, err := s.UpdateBead(pane, b.ID, store.BeadPatch{AddLabels: []string{"topic:x"}, Metadata: map[string]any{"seen": true}}, unset, "yard-a-new"); err != nil {
 		t.Fatalf("another label from the pane: %v", err)
+	}
+
+	// reviewed_head, the head pr-ci tests, is the reviewer's to record on the
+	// pull request it read: refused on another bead, accepted on its own, and
+	// again over a head already there (a bead that came back to be read at a
+	// new head).
+	if _, err := s.UpdateBead(pane, b.ID, store.BeadPatch{Metadata: map[string]any{"reviewed_head": sha}}, unset, "yard-a-new"); err == nil || !strings.Contains(err.Error(), "may record reviewed_head only on its own bead") {
+		t.Errorf("reviewed_head on another bead from its pane: %v, want it refused", err)
+	}
+	if got, _ := s.GetBead(ctx, b.ID); got.Metadata["reviewed_head"] != nil {
+		t.Fatalf("a refused reviewed_head changed another bead: %+v", got)
+	}
+	newer := "0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3"
+	for _, head := range []string{sha, newer} {
+		if got, err := s.UpdateBead(pane, a.ID, store.BeadPatch{Metadata: map[string]any{"reviewed_head": head}}, unset, "yard-a-new"); err != nil {
+			t.Fatalf("the pane's own reviewed_head %s: %v", head, err)
+		} else if got.Metadata["reviewed_head"] != head {
+			t.Fatalf("the pane's own reviewed_head %s is not on the bead: %+v", head, got)
+		}
 	}
 
 	// ci_head, the head the yard's CI passed on, which merge-pr merges on as

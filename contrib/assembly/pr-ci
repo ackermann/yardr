@@ -17,6 +17,14 @@
 # group's env_file supplies; the operator's own gh login is never used. Needs gh
 # and jq on PATH. Nothing is written to GitHub: no commit status, no check run.
 #
+# What is tested is the head the reviewer read. The reviewer records the commit
+# it read as the bead's metadata reviewed_head before it reports done (the
+# contributors pack's roles/pr-reviewer.md), and the head GitHub says the pull
+# request has now is tested only if it is that commit: a pull request pushed to
+# between the review and this run, whose event came late or not at all, holds
+# the bead for a new review before anything of it is fetched or run. A bead with
+# no reviewed_head holds too, since nothing says which head was read.
+#
 # The code is the head GitHub says the pull request has now. It is fetched from
 # the depot's remote origin by the ref GitHub keeps for the pull request, a
 # fork's included (git fetch origin refs/pull/<n>/head), with the operator's own
@@ -59,8 +67,8 @@
 # Done is never reported without a green run on the exact head. Everything that
 # is no verdict on the pull request (no token, a refused gh, a failed fetch, a
 # depot with no test command, a run that could not run, a pull request that is
-# not open) holds the bead with a note, for a maintainer to put right and unhold.
-# Nothing here retries.
+# not open, a head no reviewer read) holds the bead with a note, for a
+# maintainer to put right and unhold. Nothing here retries.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
@@ -296,6 +304,21 @@ case ${#head} in 40 | 64) ;; *) head= ;; esac
 [ -n "$head" ] || hold "GitHub gave a head for $url that is no commit sha; not running the tests."
 at=$(short "$head")
 number=${url##*/}
+
+# The head is the one a reviewer read, or nothing of it is fetched or run. The
+# reviewer's record is taken as a full sha, as merge-pr takes merge_head, and
+# compared without regard to case; anything else it holds is not echoed.
+# Whatever differs, or is missing, needs a review of the head as it now is: the
+# bead goes back to review (a person's command), and its reviewer records the
+# head it then reads.
+reviewed=$(printf '%s' "$bead" | jq -r '.metadata.reviewed_head // empty')
+case $reviewed in *[!0-9a-fA-F]*) reviewed= ;; esac
+case ${#reviewed} in 40 | 64) ;; *) reviewed= ;; esac
+rereview="Send it back to be read: yardr bead advance $BEAD --to review, then yardr bead unhold $BEAD; its reviewer records the head it reads."
+[ -n "$reviewed" ] ||
+  hold "$BEAD has no reviewed_head that is a full commit sha (40 hex digits; 64 for a repository on sha256), so there is no telling that the head of $url, $head, was read. Not running anything. $rereview"
+[ "$(lower "$reviewed")" = "$(lower "$head")" ] ||
+  hold "head $head is not the reviewed $reviewed: needs re-review. Nothing of $url was fetched or run. $rereview"
 
 # The head, fetched from the remote the pull request is on by the ref GitHub
 # keeps for it (a fork's pull request has one too), with the operator's own git
