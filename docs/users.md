@@ -584,15 +584,19 @@ It reads every bead with its notes, the crew, the users, and through the
 stream the mail of its user alone: its own mail, the reactions on it and
 its own read receipts, nothing of anyone else's. `device add` for a user
 who is not the operator says that it reads every bead. It is also what a
-lost token gives away until its device is removed. Two things at the
-terminal a device does not read whole are the mail of others and
-`Settings`, which answers a device the promised keys alone: `operator`,
-`blob_max_bytes` and `files_max`, and to a device of the operator alone
-the operator's own words to their agents, `operator_style` and
-`operator_note`. No other setting is told to a device (a lost token gives
-away no `edge`, `hook_public_url` or `backup_dir`), and the
-`setting_changed` event of such a setting comes with its key and without
-its value.
+lost token gives away until its device is removed. Three things at the
+terminal a device does not read whole: the mail of others; the candidates
+of a setup card, the yard's other accounts the card offers to reuse, each
+a file of the yard's with the values it holds, which `Bead` tells to a
+device of the operator alone (to any other the card reads as one with
+none, so a lost token of another user gives away no address of an account
+the yard keeps); and `Settings`, which answers a device the promised keys
+alone: `operator`, `blob_max_bytes` and `files_max`, and to a device of
+the operator alone the operator's own words to their agents,
+`operator_style` and `operator_note`. No other setting is told to a device
+(a lost token gives away no `edge`, `hook_public_url` or `backup_dir`),
+and the `setting_changed` event of such a setting comes with its key and
+without its value.
 
 **A stolen device of the operator can replace a source's credential, and
 cannot read one.** Until `yardr user device rm`, whoever holds its token

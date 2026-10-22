@@ -670,6 +670,14 @@ nothing else. What is not the same:
   setting is answered on the listener. A `setting_changed` in the stream
   follows the same rule: it has its `value` only for a key the device is
   told, and for any other it has the `key` and no `value`.
+- **`Bead` tells a setup card's candidates to a device of the operator
+  alone**: the yard sources whose account the card offers to reuse
+  (`asks[].setup.candidates`), each a file of the yard's with the values it
+  holds, and the sentence of `asks[].setup.does` that names them. To any
+  other device the card is that of a setup with none: the field is absent,
+  and the sentence says the account as such a card does. So it is to every
+  device of a yard with no operator. The socket tells the whole card, as
+  it tells the operator's words in `Settings`.
 - **The stream carries the device's own mail alone**: a `mail`, `mail_read`
   or `reaction` event is sent only to a device of its sender or its
   receiver (a read receipt to its reader alone), however far back the
@@ -2574,10 +2582,10 @@ POST /call/UserAsks
 | `open[].setup.account_file` | string | the file the value goes to, on the yard's machine |
 | `open[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
 | `open[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name |
-| `open[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse |
+| `open[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse, as `Bead` tells them: a setup ask is put to the operator alone, so they reach a device of the operator and no other |
 | `open[].setup.candidates[].source` | string | the source whose account the card offers |
-| `open[].setup.candidates[].file` | string | the file holding the shared account inputs |
-| `open[].setup.candidates[].values` | object | the shared account input names and values the file holds |
+| `open[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the operator alone |
+| `open[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the operator alone |
 | `open[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
 | `open[].setup.back` | string | the commands that take the setup back |
 | `open[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
@@ -2622,10 +2630,10 @@ POST /call/UserAsks
 | `decided[].setup.account_file` | string | the file the value goes to, on the yard's machine |
 | `decided[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
 | `decided[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name |
-| `decided[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse |
+| `decided[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse, as `Bead` tells them: a setup ask is put to the operator alone, so they reach a device of the operator and no other |
 | `decided[].setup.candidates[].source` | string | the source whose account the card offers |
-| `decided[].setup.candidates[].file` | string | the file holding the shared account inputs |
-| `decided[].setup.candidates[].values` | object | the shared account input names and values the file holds |
+| `decided[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the operator alone |
+| `decided[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the operator alone |
 | `decided[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
 | `decided[].setup.back` | string | the commands that take the setup back |
 | `decided[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
@@ -4018,11 +4026,11 @@ POST /call/Bead
 | `asks[].setup.account_file` | string | the file a typed value goes to, on the yard's machine; on an update, the account file that stands |
 | `asks[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it, typing every name changes it, and a candidate may be taken instead; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
 | `asks[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, and the names that stand stay, or takes a candidate; absent on a first setup and where the file holds every name |
-| `asks[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse; absent where none match |
+| `asks[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse; absent where none match. Told to a device of the operator alone ([over the network](#over-the-network)): any other device is told the card as one with none, and so is every device of a yard with no operator. The socket tells the whole card |
 | `asks[].setup.candidates[].source` | string | the source whose account the card offers |
-| `asks[].setup.candidates[].file` | string | the file holding the shared account inputs |
-| `asks[].setup.candidates[].values` | object | the shared account input names and values the file holds |
-| `asks[].setup.does` | array of string | what approving changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
+| `asks[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the operator alone |
+| `asks[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the operator alone |
+| `asks[].setup.does` | array of string | what approving changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it. The sentence that names the candidates, by source, values and file, is told to a device of the operator alone: any other device is told the account sentence of a card with none |
 | `asks[].setup.back` | string | the commands that take the setup back |
 | `asks[].setup.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back". Absent where that is anyone, which reads "anyone can take it back" |
 | `asks[].setup.carried` | array | what the pack brings, behind the card's sentences for checking the reading: each source's whole declaration with its command files' bytes, the inventory of the copies it would replace, and the replacement diffs |
