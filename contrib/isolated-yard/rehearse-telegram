@@ -37,10 +37,13 @@
 # takes two minutes or so besides the builds. With --keep it leaves the yard
 # and the stand-in up for a look, and says how to end them.
 #
-# Needs go, curl, jq, perl (for a free port), file, and shasum or sha256sum:
-# the pack's scripts need curl, jq and file, and the gate perl. A port the
-# script takes is a free one on the loopback (the stand-in's, the hook
-# listener's): never 8791, yardr web's, or 8790, the hooks' suggestion.
+# Needs go, curl, jq, perl (for a free port), file, and shasum or sha256sum.
+# The pack's scripts need curl, jq and file, and they look for them on the
+# yard's PATH (D/bin and the system's directories), so the script checks
+# they are there. A port the script takes is a free one on the loopback (the
+# stand-in's, the hook listener's): never 8791, yardr web's, or 8790, the
+# hooks' suggestion.
+
 # The jq programs below, and the one sh -c body, are single-quoted on
 # purpose: their $ are for jq and for the shell inside the yard.
 # shellcheck disable=SC2016
@@ -84,7 +87,9 @@ cleanup() {
   if [ -n "$D" ] && [ -d "$D" ]; then
     if [ "$status" -ne 0 ]; then
       echo "--- the daemon's last lines, and what the stand-in holds:" >&2
-      tail -n 12 "$D/y/daemon.log" 2>/dev/null | cut -c1-240 >&2 || true
+      # A bare yard has no herdr, so the daemon says every 30 s that the
+      # yardmaster cannot start: not what a reader is looking for.
+      grep -v -e 'crew start failed' -e 'runner events' "$D/y/daemon.log" 2>/dev/null | tail -n 12 | cut -c1-240 >&2 || true
       if [ -n "$addr" ]; then curl -sS --max-time 5 "http://$addr/requests" 2>/dev/null | jq -c '.requests[]' >&2 || true; fi
     fi
     if [ -n "$keep" ]; then
@@ -116,6 +121,10 @@ echo "\$ D/e yardr version"; "$E" yardr version
 # only yard variable D/e passes is the home it works in.
 echo "\$ D/e sh -c 'command -v claude; command -v herdr; env | grep YARDR'"
 "$E" sh -c 'echo "claude: $(command -v claude)"; echo "herdr: $(command -v herdr || echo none)"; env | grep -E "^(YARDR|HERDR)" | sort'
+
+for tool in curl jq file; do
+  "$E" sh -c "command -v $tool" >/dev/null 2>&1 || die "$tool is not on the yard's PATH ($D/bin:/usr/bin:/bin:/usr/sbin:/sbin), where the pack's scripts look for it"
+done
 
 say "the stand-in: a bot API on a free loopback port, keeping its files under D/bot"
 go build -o "$D/bin/sources" ./contrib/isolated-yard/sources
@@ -188,19 +197,28 @@ echo "hook listener on 127.0.0.1:$hookport answers 401 without the secret"
 # ---- what the scenarios check ---------------------------------------------
 
 list() { curl -sS --max-time 10 "http://$addr/requests"; }
+# count is how many requests the stand-in holds. One that does not answer is
+# an error, never a count of none.
+count() {
+  held_n=$(list | jq -e '.requests | length') || die "the stand-in does not answer at http://$addr/requests"
+  echo "$held_n"
+}
 # wait_for N waits until the stand-in holds N requests: a fuse of 120 s against
 # a hang, never the measure of anything.
 wait_for() {
   i=0
   while :; do
-    held=$(list | jq '.requests | length') || die "the stand-in does not answer at http://$addr/requests"
+    held=$(count)
     [ "$held" -ge "$1" ] && return 0
     i=$((i + 1))
     [ "$i" -le 120 ] || die "the stand-in holds $held requests after 120 s, wanted $1"
     sleep 1
   done
 }
-told() { grep -c 'msg="user told' "$D/y/daemon.log" 2>/dev/null || true; }
+told() {
+  told_n=$(grep -c 'msg="user told' "$D/y/daemon.log" 2>/dev/null) || told_n=${told_n:-0}
+  echo "$told_n"
+}
 wait_told() {
   i=0
   while [ "$(told)" -lt "$1" ]; do
@@ -227,7 +245,7 @@ JQ
 # show FROM prints the requests after the FROMth.
 show() { list | jq -r --argjson from "$1" --slurpfile sent "$D/sent.json" -f "$D/receipt.jq"; }
 defs='def file($n): .sha256 == $sent[0][$n].sha256 and .bytes == $sent[0][$n].bytes;
-def photo($n): .method == "sendPhoto" and .answer == 200 and .chat == $chat and file($n);'
+def photo($n): .method == "sendPhoto" and .answer == 200 and .chat == $chat and .type == "image/png" and file($n);'
 checks=0
 failed=0
 pass() { checks=$((checks + 1)); printf '   ok    %s\n' "$1"; }
@@ -262,51 +280,55 @@ echo "delivered, HTTP 200; the yardmaster's inbox holds it as $seq"
 reply() { run_text=$1; shift; "$E" env TELEGRAM_BOT_TOKEN="$token" yardr --actor ada reply "$seq" "$run_text" --crew yardmaster "$@"; }
 
 say "C1: yardr reply $seq \"Yes, the shed lands Monday. Here it is, as built.\" --file reply.png"
-b=$(list | jq '.requests | length')
+b=$(count)
 words='Yes, the shed lands Monday. Here it is, as built.'
 out=$(reply "$words" --file "$D/pics/reply.png" 2>&1) || die "reply failed: $out"
 show "$b"
 expect $((b + 1)) 'a reply with a picture goes by sendPhoto, the words its caption, the file the one sent' \
-  'photo("reply.png") and .caption == $words'
+  'photo("reply.png") and .filename == "reply.png" and .caption == $words'
 
 say "C2: yardr reply $seq <1025 characters> --file reply.png --file second.png --file '$doc'"
-b=$(list | jq '.requests | length')
+b=$(count)
 long=$(awk 'BEGIN { s = ""; while (length(s) < 1025) s = s "The shed, in words. "; print substr(s, 1, 1025) }')
 out=$(reply "$long" --file "$D/pics/reply.png" --file "$D/pics/second.png" --file "$D/pics/$doc" 2>&1) || die "reply failed: $out"
 show "$b"
 expect $((b + 1)) 'the text goes whole, first, as a message of its own (a caption holds 1024)' \
   '.method == "sendMessage" and .answer == 200 and .chat == $chat and .text == $long'
-expect $((b + 2)) 'then the first picture, captionless' 'photo("reply.png") and .caption == null'
-expect $((b + 3)) 'then the second, captionless' 'photo("second.png") and .caption == null'
+expect $((b + 2)) 'then the first picture, captionless' 'photo("reply.png") and .filename == "reply.png" and .caption == null'
+expect $((b + 3)) 'then the second, captionless' 'photo("second.png") and .filename == "second.png" and .caption == null'
 expect $((b + 4)) 'then the document, captionless, under its own name and type' \
   '.method == "sendDocument" and .answer == 200 and .chat == $chat and file($doc) and .filename == $doc and .type == "text/plain" and .caption == null'
 
 say "C3: yardr reply $seq \"x\" --file 'bad<LF>name.txt' (a name with a line feed)"
-b=$(list | jq '.requests | length')
+b=$(count)
 blobs=$(entries "$D/y/blobs")
 if out=$(reply x --file "$D/refused/$(printf 'bad\nname.txt')" 2>&1); then
   flunk 'a file named with a control character is refused' "it was taken: $out"
 else
   printf '%s\n' "$out" | cat -v | sed 's/^/  /'
-  if [ "$(entries "$D/y/blobs")" = "$blobs" ] && [ "$(list | jq '.requests | length')" = "$b" ]; then
+  case $out in
+  *"holds no control character"*) ;;
+  *) flunk 'the refusal is the one for a control character' "it said: $out" ;;
+  esac
+  if [ "$(entries "$D/y/blobs")" = "$blobs" ] && [ "$(count)" = "$b" ]; then
     pass "refused before anything was stored or sent (blobs held $blobs, stand-in requests $b, before and after)"
   else
-    flunk 'refused before anything was stored or sent' "the yard now holds $(entries "$D/y/blobs") blobs, the stand-in $(list | jq '.requests | length') requests"
+    flunk 'refused before anything was stored or sent' "the yard now holds $(entries "$D/y/blobs") blobs, the stand-in $(count) requests"
   fi
 fi
 
 say "T1: yardr --actor yardmaster mail ada \"the shed lands Monday; plans attached\" --file mail.png"
-b=$(list | jq '.requests | length')
+b=$(count)
 words='the shed lands Monday; plans attached'
 "$E" yardr --actor yardmaster mail ada "$words" --file "$D/pics/mail.png" | head -n 1
 wait_for $((b + 1))
 wait_told 1
 show "$b"
 expect $((b + 1)) 'the daemon told ada with the picture: sendPhoto, the title and the words its caption' \
-  'photo("mail.png") and (.caption | startswith("mail from yardmaster\n")) and (.caption | endswith($words))'
+  'photo("mail.png") and .filename == "photo.png" and (.caption | startswith("mail from yardmaster\n")) and (.caption | endswith($words))'
 
 say "T2: a bead closed by a builder, a screenshot on its second of three notes"
-b=$(list | jq '.requests | length')
+b=$(count)
 bead=$(ada --json bead create "The shed, built" | jq -r .id)
 # Her own acts are never told to her, so the builder closes it.
 "$E" yardr --actor yd-builder bead note "$bead" "plans, no picture" | head -n 1
@@ -317,17 +339,17 @@ wait_for $((b + 1))
 wait_told 2
 show "$b"
 expect $((b + 1)) 'the daemon told ada with the newest picture on the bead: sendPhoto of done.png, the bead and its title in the caption' \
-  'photo("done.png") and (.caption | contains($bead)) and (.caption | contains("The shed, built"))'
+  'photo("done.png") and .filename == "photo.png" and (.caption | contains($bead)) and (.caption | contains("The shed, built"))'
 
 say "T3: yardr --actor yardmaster mail ada \"a very long page, full length\" --file tall.png (1280x9000)"
-b=$(list | jq '.requests | length')
+b=$(count)
 words='a very long page, full length'
 "$E" yardr --actor yardmaster mail ada "$words" --file "$D/pics/tall.png" | head -n 1
 wait_for $((b + 2))
 wait_told 4
 show "$b"
 expect $((b + 1)) 'the stand-in refused the picture as the service does: 400, 1280x9000 is over 10000 in width and height together' \
-  '.method == "sendPhoto" and .answer == 400 and .refusal == "Bad Request: PHOTO_INVALID_DIMENSIONS" and file("tall.png") and .width == 1280 and .height == 9000'
+  '.method == "sendPhoto" and .answer == 400 and .refusal == "Bad Request: PHOTO_INVALID_DIMENSIONS" and .filename == "photo.png" and file("tall.png") and .width == 1280 and .height == 9000'
 expect $((b + 2)) 'and the same words went on alone, by sendMessage' \
   '.method == "sendMessage" and .answer == 200 and .chat == $chat and (.text | endswith($words))'
 
