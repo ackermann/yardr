@@ -231,6 +231,25 @@ func TestBuilderRolesSayUpFrontThatOnlyAnOutcomeEndsTheSession(t *testing.T) {
 	}
 }
 
+// Builders lost two minutes and a retry each to the harness refusing an rm
+// it could not check (yardr-rf77: eleven in a week), always inside `sh -c`,
+// a heredoc piped to sh, or a compound line that also launched a background
+// process, so the roles that work a bead in a worktree name those three and
+// the order that avoids them: the delete as a command of its own, the script
+// or process in the next. The words are compared with the paragraph's line
+// breaks folded, so rewrapping it breaks nothing.
+func TestBuilderRolesNameWhereTheHarnessRefusesRm(t *testing.T) {
+	files := packFiles(t)
+	for _, name := range []string{"starter/roles/builder.md", "contributors/roles/builder.md", "design/roles/builder.md", "website/roles/builder.md"} {
+		body := strings.Join(strings.Fields(files[name]), " ")
+		for _, want := range []string{"`sh -c", "`bash -c`", "heredoc", "background process", "command of its own", "in the next command"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s lacks %q, which its paragraph on keeping rm out of inline scripts names", name, want)
+			}
+		}
+	}
+}
+
 // A pack's stage file's one line on the map of the flow (yardr prime
 // --bead, the brief) is its `summary:` line, else its first sentence, and
 // the map cuts it at store.SummaryMax characters. Most pack summaries fit
