@@ -79,7 +79,7 @@ exception, below:
 | `--depot <depot>` | beads in this depot |
 | `--label <label>` | beads with this label; given more than once, beads that have every one |
 | `--bead-priority <n>` | beads of priority n or more urgent: `--bead-priority 1` is P0 and P1 and no others |
-| `--originator <user>` | beads for this user alone; `any` takes every originator's, and a route without the flag only the operator's |
+| `--originator <user>` | beads for this user alone; `any` takes every originator's, and a route without the flag only the operator's, unless its first group starts no agents (below) |
 
 ```sh
 yardr route add --stage new --depot web --label difficulty:3 --label size:large --group heavy-builders
@@ -99,7 +99,10 @@ own is carried on the operator's accounts until they have one. A route
 whose first group starts no agents (a script,
 people, another yard) takes every originator's beads: `route add` defaults
 it to `any`, as packs and the migration do, since none burns a local
-subscription.
+subscription, and the commands in these docs say `--originator any`. Naming
+a user on such a route protects nothing and leaves everyone else's beads
+waiting at its stage unless another route takes them, so `yardr doctor`
+notes it, with the commands that restate it.
 
 Whose login a group carries is declared on the group: `login_for=<user>`
 in its config, for herdr groups only, naming a user that must exist. A
@@ -1024,7 +1027,7 @@ them it is a matter of the route, not of the flow file:
 ```sh
 yardr peer allow north --send bead
 yardr group add at-north --runner peer --set peer=north --limit 3
-yardr route add --stage build --group at-north --depot web
+yardr route add --stage build --group at-north --depot web --originator any
 ```
 
 ```text
@@ -1618,7 +1621,7 @@ second opinion on another model, reviews the beads labelled
 
 ```sh
 yardr group add brakeman-reviews --runner manual --members brakeman,yardmaster --limit 3
-yardr route add --stage review --depot yardr --label brakeman-review --priority 10 --group brakeman-reviews
+yardr route add --stage review --depot yardr --label brakeman-review --priority 10 --group brakeman-reviews --originator any
 yardr subscribe brakeman yardr --where stage=review --where label=brakeman-review
 yardr bead update <id> --add-label brakeman-review        # per bead, before it reaches review
 ```

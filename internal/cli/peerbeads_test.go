@@ -121,7 +121,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 	// yardr setup. One that is there is kept.
 	script := filepath.Join(yardEnv(t, st)["YARDR_HOME"], "scripts", "return-branch")
 	if have, err := os.ReadFile(script); err != nil || !bytes.Equal(have, peerscripts.ReturnBranch) ||
-		!strings.Contains(out, "return-branch installed: "+script) || !strings.Contains(out, "yardr route add --stage push --depot web --group web/return") ||
+		!strings.Contains(out, "return-branch installed: "+script) || !strings.Contains(out, "yardr route add --stage push --depot web --group web/return --originator any") ||
 		!strings.Contains(out, "--set cmd='YARDR_PUSH=origin ") {
 		t.Fatalf("peer intake for a git depot (script: %v):\n%s", err, out)
 	}

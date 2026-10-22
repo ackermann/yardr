@@ -24,7 +24,7 @@ mkdir -p ~/reports
 yardr depot add reports ~/reports --kind dir
 yardr group add report-readers --runner manual --members mckean
 yardr flow set report -f report.flow
-yardr route add --stage accepted --depot reports --group report-readers
+yardr route add --stage accepted --depot reports --group report-readers --originator any
 ```
 
 with `report.flow`:
@@ -161,7 +161,7 @@ yardr peer add <yard> <its invite line>
 yardr peer allow <yard> --send ping --receive ping
 yardr peer allow <yard> --receive bead
 yardr peer intake <yard> --depot reports --flow report --default --limit 3
-yardr route add --stage arrived --depot reports --label from-<yard> --group report-readers
+yardr route add --stage arrived --depot reports --label from-<yard> --group report-readers --originator any
 ```
 
 Nothing else is allowed: no `mail`, no `ask`, no `thread`, no `file`,

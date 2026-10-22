@@ -928,8 +928,10 @@ given more than once, and the bead must have every one. --bead-priority
 <n> matches beads of priority n or more urgent: 1 is P0 and P1.
 --originator <user> takes only that user's beads, and --originator any
 every originator's; a route without it takes only the operator's beads, so
-no general route swallows another person's work. A named originator must be
-a user that exists. Without --depot a route is a yard default: it serves
+no general route swallows another person's work, unless its first group
+starts no agents (a script, people, another yard): none burns a
+subscription, so that route is any. A named originator must be a user that
+exists. Without --depot a route is a yard default: it serves
 every depot that does not state its own route for the same beads (the
 same stage, type, labels, bead priority and originator); with --depot it
 is that depot's own, and sets a default aside only for those beads and
@@ -1001,7 +1003,7 @@ cannot: why this route ranks as it does. route list prints it.`,
 	f.StringVarP(&depot, "depot", "d", "", "only beads in this depot")
 	f.StringArrayVarP(&labels, "label", "l", nil, "only beads with this label; repeatable, and the bead must have every one")
 	f.IntVar(&beadPriority, "bead-priority", 0, "only beads of this priority or more urgent: 1 is P0 and P1")
-	f.StringVar(&originator, "originator", "", "only beads for this user, or any for every originator's; unset: only the operator's")
+	f.StringVar(&originator, "originator", "", "only beads for this user, or any for every originator's; unset: the operator's, or any when the first group starts no agents")
 	f.IntVarP(&r.Priority, "priority", "p", 0, "higher wins when several routes match")
 	f.StringVar(&r.Note, "note", "", "why this route ranks as it does, in words; route list prints it")
 
@@ -1359,6 +1361,41 @@ func routeChanges(was, is store.Route) []defChange {
 		out = append(out, defChange{"--note", store.OneLine(was.Note), store.OneLine(is.Note)})
 	}
 	return out
+}
+
+// routeAddArgs are the words after `yardr route add` that make route r
+// again, in the order the docs write them: its stage, the filters it sets,
+// its groups with their conditions, its priority and its note. The
+// originator is left to the caller, since restating a route is how one
+// changes it (route set does not): an add of this with the originator
+// wanted, then a remove of r. The words are as the shell takes them;
+// shellQuote makes them one line.
+func routeAddArgs(r store.Route) []string {
+	args := []string{"--stage", r.Stage}
+	if r.Type != nil {
+		args = append(args, "--type", *r.Type)
+	}
+	if r.Depot != nil {
+		args = append(args, "--depot", *r.Depot)
+	}
+	for _, l := range r.Labels() {
+		args = append(args, "--label", l)
+	}
+	if r.BeadPriority != nil {
+		args = append(args, "--bead-priority", strconv.Itoa(*r.BeadPriority))
+	}
+	groups := r.Groups()
+	args = append(args, "--group", groups[0].String())
+	for _, g := range groups[1:] {
+		args = append(args, "--else", g.String())
+	}
+	if r.Priority != 0 {
+		args = append(args, "--priority", strconv.Itoa(r.Priority))
+	}
+	if r.Note != "" {
+		args = append(args, "--note", r.Note)
+	}
+	return args
 }
 
 func (a *app) sessionCmd() *cobra.Command {

@@ -795,7 +795,7 @@ with this yard's permissions, so choose the stage for that:
     a move by anyone else is refused, from a crew member's pane whatever
     name the command gives:
       yardr group add arrivals --runner manual --members <you> --set wait=1d
-      yardr route add --stage <first stage> --group arrivals --label from-<name>
+      yardr route add --stage <first stage> --group arrivals --label from-<name> --originator any
   - routed to a manual group without members, anyone of this yard may move
     it on, a crew member too;
   - routed to agents, a script or another yard, work starts on it unseen.
@@ -922,7 +922,7 @@ func (a *app) returnBranchHint(w io.Writer, flow, depot string) {
 	}
 	fmt.Fprintf(w, "Its beads' code goes back when a stage of flow %s pushes their branch (docs/peers.md, \"Code that comes back\"):\n"+
 		"  yardr group add %s/return --runner exec --limit 1 --set cmd=%s\n"+
-		"  yardr route add --stage push --depot %s --group %s/return\n"+
+		"  yardr route add --stage push --depot %s --group %s/return --originator any\n"+
 		"Without such a stage the outcome and the notes go back, and no code.\n",
 		flow, depot, shellQuote("YARDR_PUSH=origin "+shellQuote(path)), depot, depot)
 }

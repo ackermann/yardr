@@ -1556,12 +1556,12 @@ branch, and the yard that asked fetches it
 # on the yard that sends
 yardr peer allow north --send bead
 yardr group add at-north --runner peer --set peer=north --limit 3
-yardr route add --stage build --group at-north --depot web
+yardr route add --stage build --group at-north --depot web --originator any
 
 # on the yard that takes
 yardr peer allow laptop --receive bead
 yardr group add arrivals --runner manual --members mckean --set wait=1d
-yardr route add --stage arrived --group arrivals --label from-laptop   # a person looks at each bead first
+yardr route add --stage arrived --group arrivals --label from-laptop --originator any   # a person looks at each bead first
 yardr peer intake laptop --depot web --flow incoming            # beads arrive in the flow's first stage
 yardr peer intake laptop --depot web --flow incoming --limit 3  # at most 3 open at once
 yardr peer intake laptop --none
@@ -1835,7 +1835,7 @@ A flow and a group for a yard that looks at each bead:
 
 ```sh
 yardr group add arrivals --runner manual --members mckean --set wait=1d
-yardr route add --stage arrived --group arrivals --label from-laptop
+yardr route add --stage arrived --group arrivals --label from-laptop --originator any
 yardr peer intake laptop --depot web --flow incoming
 ```
 
@@ -2596,7 +2596,7 @@ returned terminal
 ```sh
 yardr group add web/return --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/return-branch'
-yardr route add --stage push --depot web --group web/return
+yardr route add --stage push --depot web --group web/return --originator any
 ```
 
 `yardr peer intake` for a depot that is a repository installs the script in

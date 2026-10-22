@@ -29,7 +29,7 @@ ssh-keyscan -t ed25519 dokku.example.com > ~/.yardr/deploy/known_hosts
 yardr group add app-deploy --runner exec --limit 1 \
   --set cmd="DOKKU_HOST=dokku.example.com DOKKU_APP=app DOKKU_KNOWN_HOSTS=$HOME/.yardr/deploy/known_hosts DOKKU_URL=https://app.example.com $HOME/.yardr/scripts/deploy-dokku" \
   --set log="$HOME/.yardr/logs/app-deploy.log"
-yardr route add --stage merged --group app-deploy --depot app
+yardr route add --stage merged --group app-deploy --depot app --originator any
 ```
 
 Install it from `main`, not a checkout, so a branch cannot change how it is
@@ -123,7 +123,7 @@ look    -> approved | new
 yardr group add app-preview --runner exec --limit 1 \
   --set cmd="DOKKU_HOST=dokku.example.com DOKKU_KNOWN_HOSTS=$HOME/.yardr/deploy/known_hosts DOKKU_URL=http://{app}.dokku.example.com $HOME/.yardr/scripts/deploy-dokku preview" \
   --set log="$HOME/.yardr/logs/app-preview.log"
-yardr route add --stage preview --group app-preview --depot app
+yardr route add --stage preview --group app-preview --depot app --originator any
 ```
 
 **A preview runs code no reviewer has read, on the host.** Its build runs
@@ -217,7 +217,7 @@ yardr group add site-deploy --runner exec --limit 1 \
   --set cmd="VOID_PROJECT=site $HOME/.yardr/scripts/deploy-void" \
   --set env_file="$HOME/.yardr/deploy/site.env" \
   --set log="$HOME/.yardr/logs/site-deploy.log"
-yardr route add --stage merged --group site-deploy --depot site
+yardr route add --stage merged --group site-deploy --depot site --originator any
 ```
 
 Install it from `main`, not a checkout, so a branch cannot change how it is

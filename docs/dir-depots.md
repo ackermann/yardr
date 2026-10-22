@@ -117,7 +117,7 @@ send `review` to a manual group:
 
 ```sh
 yardr group add invoices/review --runner manual
-yardr route add --stage review --depot invoices --group invoices/review
+yardr route add --stage review --depot invoices --group invoices/review --originator any
 ```
 
 A train's `open` stays with `invoices-reviewers`: an agent looks at the

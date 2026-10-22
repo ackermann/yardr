@@ -587,8 +587,12 @@ install contrib/assembly/merge-local ~/.yardr/scripts/    # from main
 yardr group add yardr-refinery --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_NOTIFY=yardmaster ~/.yardr/scripts/merge-local' \
   --set log="$HOME/.yardr/logs/refinery.log"
-yardr route add --stage approved --group yardr-refinery --depot yardr
+yardr route add --stage approved --group yardr-refinery --depot yardr --originator any
 ```
+
+The route says `--originator any`: a script bills no subscription, so the
+assembly lands every user's beads, not only the operator's
+([groups.md](groups.md#which-beads-a-route-takes)).
 
 The script is installed from `main` rather than run from a checkout: a bead
 branch must not change how it is landed. That install is the first-time step.
@@ -1467,7 +1471,7 @@ yardr depot flow yardr --type train yardr.train                  # the repo's .y
 yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-train' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr route add --stage open --type train --depot yardr --group yardr-integrators --priority 10
+yardr route add --stage open --type train --depot yardr --group yardr-integrators --priority 10 --originator any
 ```
 
 Each install is the first-time step. Once a script is there, `yardr upgrade`
@@ -1489,10 +1493,10 @@ yardr group add yardr-pr --runner exec --limit 1 \
 yardr group add yardr-pr-merge --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
-yardr route add --stage approved --type train --depot yardr --group yardr-pr --priority 10
+yardr route add --stage approved --type train --depot yardr --group yardr-pr --priority 10 --originator any
 yardr group add decisions --runner manual --limit 50 --members mckean,yardmaster,yard   # yard: the daemon, for the hook rules
-yardr route add --stage in-pr --type train --depot yardr --group decisions
-yardr route add --stage land --type train --depot yardr --group yardr-pr-merge
+yardr route add --stage in-pr --type train --depot yardr --group decisions --originator any
+yardr route add --stage land --type train --depot yardr --group yardr-pr-merge --originator any
 ```
 
 The train flow's stage file for review (`.yardr/flows/yardr.train/review.md`,

@@ -230,13 +230,13 @@ install contrib/assembly/merge-local contrib/assembly/integrate-train ~/.yardr/s
 yardr group add yard-assembly --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/merge-local' \
   --set log="$HOME/.yardr/logs/assembly.log"
-yardr route add --stage approved --group yard-assembly --depot yard
+yardr route add --stage approved --group yard-assembly --depot yard --originator any
 
 yardr depot flow yardr --type train yardr.train                  # the repo's .yardr/flows/yardr.train.flow
 yardr group add yard-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-train' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr route add --stage open --type train --depot yard --group yard-integrators --priority 10
+yardr route add --stage open --type train --depot yard --group yard-integrators --priority 10 --originator any
 ```
 
 The install is the first-time step: from then on `yardr upgrade` refreshes

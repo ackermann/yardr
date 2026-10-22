@@ -890,9 +890,10 @@ func upgradeFailedLine(home string) (docLine, bool) {
 // configNotes are what yardr doctor notes about the yard's stored config:
 // everything the store would refuse were it written now (a group's or a
 // crew member's config key nothing reads, a value its reader takes as not
-// set, a setting nothing reads), each with how it is removed. Notes, not
-// faults: the store took them when it checked nothing, and the yard runs
-// as it did.
+// set, a setting nothing reads), each with how it is removed, and the routes
+// that narrow a stage no subscription is at stake in (narrowedRouteNotes).
+// Notes, not faults: the store took them when it checked nothing, and the
+// yard runs as it did.
 func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, groups []store.Group, yardr string) ([]string, error) {
 	var notes []string
 	all, err := st.Settings(ctx)
@@ -926,6 +927,13 @@ func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, gro
 			notes = append(notes, fmt.Sprintf("%v. Change it: %s crew set %s <key>=<value>, or --unset <key>", err, yardr, r.Name))
 		}
 	}
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// In match order, as route list prints them.
+	dispatch.SortRoutes(routes)
+	notes = append(notes, narrowedRouteNotes(routes, groups, operator, yardr)...)
 	for _, k := range sortedKeys(all) {
 		if _, ok := store.SettingOf(k); !ok {
 			notes = append(notes, fmt.Sprintf("setting %s is stored and nothing reads it (there is: %s). Remove it: %s settings set %s \"\"",
@@ -933,6 +941,47 @@ func configNotes(ctx context.Context, st store.API, crew []store.CrewMember, gro
 		}
 	}
 	return notes, nil
+}
+
+// narrowedRouteNotes are the routes to a group that starts no agents (a
+// script, people, another yard) that take fewer than every originator's
+// beads: one user's, or the operator's where the route names none. Such a
+// group burns no subscription, so there is nothing for an originator to
+// protect, and a bead of anyone else waits at the stage unless another
+// route takes it. AddRoute makes a route to one any when it names no
+// originator; a route that names a user, and a route to agents that was set
+// to such a group later (route set keeps the originator), stand as they were.
+// A route's originator is part of its identity, which route set does not
+// change, so each note gives the restatement: the same route added for every
+// originator, then the narrow one removed. Added first, no stage is ever
+// without its route in between.
+func narrowedRouteNotes(routes []store.Route, groups []store.Group, operator, yardr string) []string {
+	runners := make(map[string]string, len(groups))
+	for _, g := range groups {
+		runners[g.Name] = g.Runner
+	}
+	var notes []string
+	for _, r := range routes {
+		// A group that is gone has no runner to read. The line is
+		// AddRoute's: agents burn a subscription, the rest do not.
+		runner, ok := runners[r.Worker()]
+		if !ok || runner == "herdr" || (r.Originator != nil && *r.Originator == store.OriginatorAny) {
+			continue
+		}
+		whose := "the operator's"
+		if r.Originator != nil {
+			whose = *r.Originator + "'s"
+		}
+		where := "stage " + r.Stage
+		if match := routeMatch(r); match != "" {
+			where += ", " + match
+		}
+		restated := shellLine(append(routeAddArgs(r), "--originator", store.OriginatorAny))
+		notes = append(notes, fmt.Sprintf("route %s (%s) takes only %s beads to %s group %s, which starts no agents and bills no subscription, so narrowing it saves nothing and strands everyone else's beads at %s unless another route takes them. "+
+			"Change it: %s route add %s, then %s route rm %s",
+			r.ID, where, whose, runner, r.Worker(), r.Stage, yardr, restated, yardr, r.ID))
+	}
+	return notes
 }
 
 // stalePackNotes are the imports of embedded packs whose copied files

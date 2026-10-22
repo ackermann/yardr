@@ -18,7 +18,7 @@ returned terminal
 install contrib/peer/return-branch ~/.yardr/scripts/    # from main
 yardr group add web/return --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/return-branch'
-yardr route add --stage push --depot web --group web/return
+yardr route add --stage push --depot web --group web/return --originator any
 ```
 
 It is also built into yardr: `yardr peer intake <peer> --depot <depot> --flow

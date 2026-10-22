@@ -397,6 +397,168 @@ func TestDoctorSetUpYard(t *testing.T) {
 	wantText(t, out, "note   held        1 held, waiting for someone: "+held.ID, "note   yardmaster  yardmaster is stopped (disabled)")
 }
 
+// A script, people or another yard burns no subscription, so a user named
+// on a route to one protects nothing and leaves everyone else's beads waiting
+// at its stage (yardr-xg8j). Doctor notes such a route, and one that names
+// nobody, which takes the operator's alone (route set leaves it so when it
+// moves a route from agents to a script), with the commands that restate it:
+// a route's originator is not changed in place. A route already for every
+// originator, and a route to agents, named or not, are not noted.
+func TestDoctorNotesARouteNarrowedOnAGroupWithoutAgents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := userYard(t)
+	y := yardrAt(yardEnv(t, st)["YARDR_HOME"])
+	mustAs(t, st, "jo", "user", "add", "hal")
+	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--set", "kind=claude")
+	mustAs(t, st, "jo", "group", "add", "scripts", "--runner", "exec", "--set", `cmd="true"`)
+	mustAs(t, st, "jo", "group", "add", "desk", "--runner", "manual", "--members", "jo")
+	route := func(args ...string) string {
+		t.Helper()
+		return strings.TrimSpace(mustAs(t, st, "jo", append([]string{"route", "add"}, args...)...))
+	}
+	notes := func() []string {
+		t.Helper()
+		rep, _ := doctorJSON(t, st)
+		return rep.State.Config
+	}
+
+	// Not noted: any, by default and by the flag, and agents, named or not.
+	route("--stage", "verify", "--group", "scripts")
+	route("--stage", "publish", "--group", "scripts", "--originator", "any")
+	route("--stage", "new", "--group", "agents", "--originator", "hal")
+	route("--stage", "review", "--group", "agents")
+	if got := notes(); len(got) != 0 {
+		t.Fatalf("notes on routes that take every originator's beads or start agents: %v", got)
+	}
+
+	// Noted: a user named on a route to a script or to people, with the
+	// route's filters, priority and note to restate; and a route moved from
+	// agents to a script, which still names nobody.
+	build := route("--stage", "build", "--group", "scripts", "--originator", "hal", "--label", "release", "--priority", "3", "--note", "hal's own release")
+	sign := route("--stage", "sign", "--group", "desk", "--originator", "hal")
+	land := route("--stage", "land", "--group", "agents")
+	mustAs(t, st, "jo", "route", "set", land, "--group", "scripts")
+	why := ", which starts no agents and bills no subscription, so narrowing it saves nothing and strands everyone else's beads at "
+	want := []string{
+		"route " + build + " (stage build, label release, originator hal) takes only hal's beads to exec group scripts" + why + "build unless another route takes them. " +
+			"Change it: " + y + " route add --stage build --label release --group scripts --priority 3 --note 'hal'\\''s own release' --originator any, then " + y + " route rm " + build,
+		"route " + sign + " (stage sign, originator hal) takes only hal's beads to manual group desk" + why + "sign unless another route takes them. " +
+			"Change it: " + y + " route add --stage sign --group desk --originator any, then " + y + " route rm " + sign,
+		"route " + land + " (stage land) takes only the operator's beads to exec group scripts" + why + "land unless another route takes them. " +
+			"Change it: " + y + " route add --stage land --group scripts --originator any, then " + y + " route rm " + land,
+	}
+	got := notes()
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("doctor's config notes:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	out, _ := as(t, st, "jo", "doctor")
+	for _, w := range want {
+		if !strings.Contains(out, "note   config") || !strings.Contains(out, w) {
+			t.Fatalf("doctor has no note %q:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "FAULT  config") {
+		t.Fatalf("doctor makes a fault of a narrowed route:\n%s", out)
+	}
+
+	// What the notes say restates each route as it was, for every
+	// originator, and removes the narrow one.
+	was := map[string]store.Route{}
+	routes, err := st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range routes {
+		was[r.ID] = r
+	}
+	for _, n := range got {
+		_, fix, _ := strings.Cut(n, "Change it: ")
+		add, rm, _ := strings.Cut(fix, ", then ")
+		for _, cmd := range []string{add, rm} {
+			mustAs(t, st, "jo", shellWords(strings.TrimPrefix(cmd, y+" "))...)
+		}
+	}
+	if got := notes(); len(got) != 0 {
+		t.Fatalf("notes after the routes were restated as they say: %v", got)
+	}
+	routes, err = st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{build, sign, land} {
+		old := was[id]
+		var restated *store.Route
+		for i, r := range routes {
+			if r.ID == id {
+				t.Errorf("route %s stands after the note removed it", id)
+			}
+			if r.Stage == old.Stage {
+				restated = &routes[i]
+			}
+		}
+		if restated == nil || restated.Originator == nil || *restated.Originator != store.OriginatorAny {
+			t.Errorf("stage %s after the restatement: %+v, want a route for any originator", old.Stage, restated)
+			continue
+		}
+		a, b := old, *restated
+		a.ID, b.ID, a.Originator, b.Originator = "", "", nil, nil
+		wantJSON, _ := json.Marshal(a)
+		gotJSON, _ := json.Marshal(b)
+		if !bytes.Equal(wantJSON, gotJSON) {
+			t.Errorf("stage %s restated as %s, want %s", old.Stage, gotJSON, wantJSON)
+		}
+	}
+
+	// Another yard burns no subscription either. A group of one needs its
+	// link to exist before the store takes it, so this one is handed over
+	// whole; and a group that is gone has no runner to read.
+	hal := "hal"
+	narrow := []store.Route{{ID: "r1", Stage: "build", Group: "at-north", Originator: &hal}}
+	if got := narrowedRouteNotes(narrow, []store.Group{{Name: "at-north", Runner: store.PeerRunner}}, "jo", "yardr"); len(got) != 1 ||
+		!strings.Contains(got[0], "takes only hal's beads to peer group at-north") {
+		t.Errorf("notes on a route narrowed on a peer group: %v", got)
+	}
+	if got := narrowedRouteNotes(narrow, nil, "jo", "yardr"); len(got) != 0 {
+		t.Errorf("notes on a route whose group is gone: %v", got)
+	}
+}
+
+// shellWords splits a line as shellLine wrote it: words apart by spaces, a
+// word in single quotes whole, and a quote inside one as shellQuote writes it.
+func shellWords(line string) []string {
+	var words []string
+	var cur strings.Builder
+	inWord, quoted := false, false
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case quoted && c == '\'':
+			quoted = false
+		case quoted:
+			cur.WriteByte(c)
+		case c == '\'':
+			quoted, inWord = true, true
+		case c == '\\' && i+1 < len(line):
+			i++
+			cur.WriteByte(line[i])
+			inWord = true
+		case c == ' ':
+			if inWord {
+				words = append(words, cur.String())
+				cur.Reset()
+				inWord = false
+			}
+		default:
+			cur.WriteByte(c)
+			inWord = true
+		}
+	}
+	if inWord {
+		words = append(words, cur.String())
+	}
+	return words
+}
+
 // A program the yard needs and the machine lacks is a fault with where to
 // get it: a harness a group names, like git and herdr themselves.
 func TestDoctorMissingDependency(t *testing.T) {

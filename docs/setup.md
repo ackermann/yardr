@@ -103,7 +103,12 @@ and a role the depot has under `.yardr/roles/` is named as shadowed
 route alone, so a group that was added and never routed is not a group that
 builds yet. To finish such a yard by hand instead, add the routes
 (`yardr route add --stage <stage> --depot <depot> --group <group>`) and the
-steps turn done.
+steps turn done. A script or a group of people bills no subscription, so a
+route to one takes every originator's beads, and its command says so with
+`--originator any`, as the release routes
+[below](#letting-the-yard-cut-releases) do. `route add` makes it any when the
+flag is left out. A route to agents takes the operator's beads alone unless
+it names an originator ([groups.md](groups.md#which-beads-a-route-takes)).
 
 The pack's assembly lands on local branches only. When the depot's base is
 not one (a remote's branch such as `origin/main`), the page says so before
@@ -312,14 +317,16 @@ exec group and four routes; from then on a release bead cuts the release
 yardr group add yardr-release --runner exec --limit 1 \
   --set cmd='contrib/release/stage $YARDR_STAGE' \
   --set log="$HOME/.yardr/logs/release.log"
-yardr route add --stage build --group yardr-release --depot yardr
-yardr route add --stage verify --group yardr-release --depot yardr
-yardr route add --stage publish --group yardr-release --depot yardr
-yardr route add --stage sign --group decisions --depot yardr
+yardr route add --stage build --group yardr-release --depot yardr --originator any
+yardr route add --stage verify --group yardr-release --depot yardr --originator any
+yardr route add --stage publish --group yardr-release --depot yardr --originator any
+yardr route add --stage sign --group decisions --depot yardr --originator any
 ```
 
 The group runs the depot's own script, one release at a time; the stage in
-`cmd` says which of `build`, `verify` or `publish` it is. The build tags
+`cmd` says which of `build`, `verify` or `publish` it is. The script and the
+people bill no subscription, so every route takes `--originator any`: a
+release bead of any user is worked, not only the operator's. The build tags
 the base and waits for CI's draft release; it refuses a checkout that is
 not clean at the remote's `main`, so the script it runs is `main`'s.
 `sign` goes to the manual group mckean is in, whose Done says the signature
