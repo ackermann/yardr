@@ -65,7 +65,6 @@ func holdYard(t *testing.T) (s store.API, r *paneRunner, d *dispatch.Dispatcher,
 	at := noon()
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
-	p = newStandIn(t, s)
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3,
 		Config: map[string]any{"kind": "kimi", "stall": "off", "model": "k3"}}, "me"))
@@ -75,16 +74,25 @@ func holdYard(t *testing.T) (s store.API, r *paneRunner, d *dispatch.Dispatcher,
 	must(t, err)
 	must(t, d.Reconcile(ctx)) // start
 	must(t, d.Reconcile(ctx)) // seen working
+	// The provider is declared once the session runs: a start on a route
+	// with no condition asks it (chooseGroup), and what it said would answer
+	// the stop's read from memory. These tests are about the stop.
+	p = newStandIn(t, s)
 	return s, r, d, *bead, p, now
 }
 
 // One stopped session per group and model, not three (yardr-vpzj): while a
 // session waits for the window of its usage limit to reset, the next bead of
 // its group and model waits too, since its session would stop on the same
-// limit, and a bead of the group with another model starts at once. The
-// event says so, with the model. The passes of the wait ask the provider
-// nothing, in this daemon or its next. At the wake the agent is prompted
-// and the bead that waited starts.
+// limit. While the provider shows that window used up the group starts no
+// session whatever its model (the route reads the windows, as a condition
+// does): the bead of the waiting model is held without a question, and the
+// one of another model waits on the quota. When the provider shows it open,
+// a minute before the wake, the bead of another model starts and the one of
+// the waiting model still does not. The event says so, with the model. The
+// passes of the wait ask the provider nothing more, in this daemon or its
+// next, but for the one question a bead that could start puts. At the wake
+// the agent is prompted and the bead that waited starts.
 func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T) {
 	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
@@ -109,36 +117,49 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 		t.Fatalf("the handle's wait = %v %q %q %v, want until %v for the 5h window with k3", until, window, model, ok, wakes)
 	}
 
-	// The second bead of the group and model waits; one with another model
-	// starts at once.
+	// The window is used up: neither bead starts. The one of the waiting
+	// model is held back and asks nothing; the one of another model waits on
+	// the quota, with the stop's answer.
 	b2, err := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
 	must(t, err)
 	b3, err := s.CreateBead(ctx, store.NewBead{Title: "z", Metadata: map[string]any{"model": "k2"}}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
-	if got := r.starts(); !slices.Equal(got, []string{b.ID, b3.ID}) {
-		t.Fatalf("starts = %v, want the bead of another model started and the one of the waiting model not", got)
+	*now = now.Add(time.Minute)
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts = %v, want none while the 5h window is used up", got)
 	}
-	for _, by := range []time.Duration{time.Minute, 20 * time.Minute, 42 * time.Minute} {
-		*now = noon().Add(by)
-		must(t, d.Reconcile(ctx))
+	if n := len(eventKinds(t, s, b2.ID, "quota_wait")); n != 0 {
+		t.Fatalf("quota_wait events of the bead held back = %d, want none: the hold keeps it before the quota is asked", n)
 	}
-	// A daemon that replaced itself holds the group back as well: the wait
-	// is on the session's handle.
+	if waits := eventKinds(t, s, b3.ID, "quota_wait"); len(waits) != 1 || waits[0].Data["resets_at"] != resets.UTC().Format(time.RFC3339) {
+		t.Fatalf("quota_wait events of the bead of another model = %v, want one with the reset", waits)
+	}
+	if asks := p.asks(); len(asks) != 1 {
+		t.Fatalf("the provider was run %d times, want the one ask of the stop: the quota reads it for five minutes", len(asks))
+	}
+
+	// At the reset the provider shows the window open, a minute before the
+	// wake: the bead of another model starts, the one of the waiting model
+	// does not. A daemon that replaced itself holds the group back as well:
+	// the wait is on the session's handle.
+	p.say(kimiOpen)
+	*now = resets.Add(time.Second)
+	must(t, d.Reconcile(ctx))
 	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
 	dispatch.SetClock(d2, func() time.Time { return *now })
 	must(t, d2.Reconcile(ctx))
 	must(t, d2.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b3.ID}) {
-		t.Fatalf("starts in the wait = %v, want none for the waiting model", got)
+		t.Fatalf("starts in the wait = %v, want the bead of another model started and the one of the waiting model not", got)
 	}
-	if asks := p.asks(); len(asks) != 1 {
-		t.Fatalf("the provider was run %d times, want the one ask of the stop: holding a group back asks nothing", len(asks))
+	if asks := p.asks(); len(asks) != 2 {
+		t.Fatalf("the provider was run %d times, want 2: the stop and the start of the other model; holding a group back asks nothing", len(asks))
 	}
 
 	// The wake: the provider is asked the once the wake asks, the agent is
 	// prompted, and the bead that waited starts.
-	p.say(kimiOpen)
 	*now = wakes.Add(time.Second)
 	must(t, d2.Reconcile(ctx))
 	if len(r.nudges) != 1 || r.nudges[0] != resetLine {
@@ -150,13 +171,15 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	if _, _, _, waits := dispatch.ResetWait(handleOfBead(t, s, b)); waits {
 		t.Fatalf("the wait is still on the handle after the prompt: %v", handleOfBead(t, s, b))
 	}
-	if asks := p.asks(); len(asks) != 2 {
-		t.Fatalf("the provider was run %d times, want 2: at the stop and at the wake", len(asks))
+	if asks := p.asks(); len(asks) != 3 {
+		t.Fatalf("the provider was run %d times, want 3: at the stop, at the start of the other model and at the wake", len(asks))
 	}
 }
 
 // An agent that someone got going before the reset no longer waits, so its
-// group starts sessions with its model again.
+// group starts sessions with its model again, once the provider shows no
+// window used up: the hold lifts, and the quota still says what the provider
+// does.
 func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
@@ -170,14 +193,26 @@ func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
 		t.Fatalf("starts = %v, want the second bead waiting", got)
 	}
+	// Going again lifts the hold, and the provider still says the window is
+	// used up: the second bead waits on the quota instead.
 	r.showBead(t, s, b, "working", " ● Going on")
 	*now = now.Add(time.Minute)
 	must(t, d.Reconcile(ctx))
-	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
-		t.Fatalf("starts = %v, want the second bead started once the first works again", got)
+	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts = %v, want the second bead waiting on the quota", got)
 	}
-	if asks := p.asks(); len(asks) != 1 {
-		t.Fatalf("the provider was run %d times, want the one ask of the stop", len(asks))
+	if n := len(eventKinds(t, s, b2.ID, "quota_wait")); n != 1 {
+		t.Fatalf("quota_wait events = %d, want 1: the hold is lifted and the window is used up", n)
+	}
+	// It starts once the provider shows the window open.
+	p.say(kimiOpen)
+	*now = now.Add(5 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
+		t.Fatalf("starts = %v, want the second bead started once the first works again and the window is open", got)
+	}
+	if asks := p.asks(); len(asks) != 2 {
+		t.Fatalf("the provider was run %d times, want 2: the stop and the quota's second look", len(asks))
 	}
 }
 
@@ -205,16 +240,24 @@ func TestResetWaitFromBeforeUpgradeHoldsTheGroupModel(t *testing.T) {
 	if len(eventKinds(t, s, b2.ID, "session_harness_error")) != 0 {
 		t.Fatal("the waiting bead should not have started and stopped on the same limit")
 	}
+	// The hold keeps it, not the quota, which the used-up window would also
+	// do: a bead held back asks nothing, so it has no quota_wait.
+	if n := len(eventKinds(t, s, b2.ID, "quota_wait")); n != 0 {
+		t.Fatalf("quota_wait events = %d, want none: the hold keeps the bead before the quota is asked", n)
+	}
 }
 
-// A window yardr does not wait for (a weekly one) holds nothing back: there
-// is no time at which the group would go on by itself, so what starts is the
-// yardmaster's to decide, as before.
-func TestUsageLimitYardrDoesNotWaitForHoldsNoGroupBack(t *testing.T) {
+// A window yardr does not wait for (a weekly one) sets no hold: there is no
+// time at which the group would go on by itself, so no model is held back and
+// the event has no wake. The quota still keeps the group from starting a
+// session into a window that is used up: the second bead waits, with the
+// reset days away, and starts once the provider shows the window open.
+func TestUsageLimitYardrDoesNotWaitForSetsNoHoldAndTheQuotaWaits(t *testing.T) {
 	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
-	p.say(kimiUsed(now.Add(80 * time.Hour)))
+	resets := now.Add(80 * time.Hour)
+	p.say(kimiUsed(resets))
 	r.showBead(t, s, b, "idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	evs := eventKinds(t, s, b.ID, "session_harness_error")
@@ -225,15 +268,25 @@ func TestUsageLimitYardrDoesNotWaitForHoldsNoGroupBack(t *testing.T) {
 	b2, err := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
 	must(t, err)
 	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts = %v, want the second bead waiting: the 5h window is used up", got)
+	}
+	if waits := eventKinds(t, s, b2.ID, "quota_wait"); len(waits) != 1 || waits[0].Data["resets_at"] != resets.UTC().Format(time.RFC3339) {
+		t.Fatalf("quota_wait events = %v, want one with the reset days away", waits)
+	}
+	p.say(kimiOpen)
+	*now = now.Add(6 * time.Minute)
+	must(t, d.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
-		t.Fatalf("starts = %v, want the second bead started", got)
+		t.Fatalf("starts = %v, want the second bead started once the window is open", got)
 	}
 }
 
-// The provider is not leaned on: passes that start sessions, find a group
-// full and find agents working and idle, with nothing stopped on a usage
-// limit, do not run its command.
-func TestPassesThatStartSessionsWithNothingStoppedAskNoLimits(t *testing.T) {
+// The provider is not leaned on: passes that start sessions ask it for the
+// quota once in five minutes, however many start, and passes that find a
+// group full and find agents working and idle, with nothing stopped on a
+// usage limit, do not run its command.
+func TestPassesThatStartSessionsWithNothingStoppedAskLimitsOnceInFiveMinutes(t *testing.T) {
 	t.Parallel()
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
@@ -256,7 +309,7 @@ func TestPassesThatStartSessionsWithNothingStoppedAskNoLimits(t *testing.T) {
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, beads[0], beads[1]}) {
 		t.Fatalf("starts = %v, want the group filled to its limit of 3", got)
 	}
-	if asks := p.asks(); asks != nil {
-		t.Fatalf("the limits command was run for %v by passes with nothing stopped on a usage limit", asks)
+	if asks := p.asks(); !slices.Equal(asks, []string{"moonshot"}) {
+		t.Fatalf("the limits command was run for %v, want once, for the two starts: the full group and the working and idle agents ask nothing", asks)
 	}
 }

@@ -89,7 +89,7 @@ func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 		"  " + r6.ID + "  default  new, label ghost, priority 9: the bead does not have label ghost",
 		"  " + r7.ID + "  default  review, priority 0: the bead is in stage new",
 		"defaults set aside in web for this stage: none",
-		"quota: the winning route names one group with no condition; nothing to ask a provider for",
+		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", b.ID, out, strings.Join(want, "\n")+"\n")
@@ -143,7 +143,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 		"  2. " + def.ID + "  default  review, priority 0  -> a  (1 wins on specificity: 2 over 0)",
 		"considered and not matching: none",
 		"defaults set aside in web for this stage: none",
-		"quota: the winning route names one group with no condition; nothing to ask a provider for",
+		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", pull.ID, out, strings.Join(want, "\n")+"\n")
@@ -160,7 +160,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 		"considered and not matching:",
 		"  " + own.ID + "  own  review, type pr, depot web, priority 0: the bead is of type task",
 		"defaults set aside in web for this stage: none",
-		"quota: the winning route names one group with no condition; nothing to ask a provider for",
+		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", plain.ID, out, strings.Join(want, "\n")+"\n")
@@ -173,6 +173,22 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 	if !strings.Contains(out, "  1. "+def.ID+"  default  review, priority 0  -> a  WINNER\n") ||
 		strings.Contains(out, own.ID) {
 		t.Errorf("route explain %s names %s where the depot has no own route:\n%s", away.ID, own.ID, out)
+	}
+
+	// A group that starts no agents has nothing to ask a provider for.
+	bug := "bug"
+	people, err := st.AddRoute(ctx, store.Route{Stage: "review", Type: &bug, Group: "people"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manual := bead("web", "bug")
+	out, err = run(t, a.routeCmd(), "explain", manual.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "  1. "+people.ID+"  default  review, type bug, priority 0  -> people  WINNER\n") ||
+		!strings.HasSuffix(out, "quota: the winning route names one group with no condition; nothing to ask a provider for\n") {
+		t.Errorf("route explain %s =\n%s\nwant the route to people, with nothing to ask a provider for", manual.ID, out)
 	}
 }
 
@@ -209,7 +225,7 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 		"  1. " + own.ID + "  own  new, depot web, priority 2  -> b  WINNER",
 		"considered and not matching: none",
 		"1 default set aside in web for this stage: new (no label, the operator's beads) is stated by " + own.ID + " to b at priority 2",
-		"quota: the winning route names one group with no condition; nothing to ask a provider for",
+		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", here.ID, out, strings.Join(want, "\n")+"\n")
@@ -494,7 +510,7 @@ func TestRouteExplainBeadWithNoDepot(t *testing.T) {
 		"  1. " + def.ID + "  default  new, priority 0  -> a  WINNER",
 		"considered and not matching: none",
 		"defaults set aside: none (the bead names no depot)",
-		"quota: the winning route names one group with no condition; nothing to ask a provider for",
+		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", b.ID, out, strings.Join(want, "\n")+"\n")
@@ -564,8 +580,8 @@ func TestRouteExplainJSON(t *testing.T) {
 			t.Errorf("route explain --json set_aside setter = %s, want %s", s.Own.ID, own.ID)
 		}
 	}
-	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || exp.Quota.Groups[0].Name != "b" || exp.Quota.ClaimTime {
-		t.Errorf("route explain --json quota = %+v, want the one group decided", exp.Quota)
+	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || exp.Quota.Groups[0].Name != "b" || !exp.Quota.ClaimTime {
+		t.Errorf("route explain --json quota = %+v, want the one group, which starts agents, decided at the claim", exp.Quota)
 	}
 
 	out, err = run(t, a.routeCmd(), "explain", there.ID)
@@ -585,8 +601,28 @@ func TestRouteExplainJSON(t *testing.T) {
 		len(leg.Over) != 2 || leg.Over[0] != 5 || leg.Over[1] != 0 {
 		t.Errorf("route explain --json leg = %+v, want priority 5 over 0 above %s", leg, r1.ID)
 	}
-	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || exp.Quota.ClaimTime {
-		t.Errorf("route explain --json quota = %+v, want the winner's one group", exp.Quota)
+	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || !exp.Quota.ClaimTime {
+		t.Errorf("route explain --json quota = %+v, want the winner's one group, decided at the claim", exp.Quota)
+	}
+
+	// A winner whose group starts no agents asks nothing at the claim.
+	if _, err := st.AddRoute(ctx, store.Route{Stage: "review", Group: "people"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	reviewed, err := st.CreateBead(ctx, store.NewBead{Title: "reviewed", Depot: "web", Stage: "review", Priority: store.DefaultPriority}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.routeCmd(), "explain", reviewed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp = routeExplanation{}
+	if err := json.Unmarshal([]byte(out), &exp); err != nil {
+		t.Fatalf("route explain --json %s = %q: %v", reviewed.ID, out, err)
+	}
+	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || exp.Quota.Groups[0].Name != "people" || exp.Quota.ClaimTime {
+		t.Errorf("route explain --json quota = %+v, want people, which starts no agents, decided with nothing to ask", exp.Quota)
 	}
 
 	routes, err := st.Routes(ctx)

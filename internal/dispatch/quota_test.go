@@ -262,6 +262,42 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 	if group, _ := claimedBy(t, s, b.ID); group != "a" {
 		t.Fatalf("claimed by %q once the windows opened, want a", group)
 	}
+	t.Run("a plain route waits while a provider window is used up", func(t *testing.T) {
+		ctx := context.Background()
+		s, f, d, p, r, now := quotaYard(t, "a")
+		first := newBead(t, s, "no limit")
+		must(t, d.Reconcile(ctx))
+		if group, data := claimedBy(t, s, first.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
+			t.Fatalf("claimed by %q with %v, want a by the route, with nothing said of limits: the provider reports no window", group, data)
+		}
+		*now = now.Add(6 * time.Minute)
+		p.say(weekly(100, 10))
+		b := newBead(t, s, "x")
+		for range 3 {
+			must(t, d.Reconcile(ctx))
+		}
+		if group, _ := claimedBy(t, s, b.ID); group != "" || !reflect.DeepEqual(f.starts(), []string{first.ID}) {
+			t.Fatalf("claimed by %q, starts %v, want nobody new: a's Weekly window is used up", group, f.starts())
+		}
+		evs := eventKinds(t, s, b.ID, "quota_wait")
+		if len(evs) != 1 {
+			t.Fatalf("quota_wait events = %v, want one", evs)
+		}
+		reason, _ := evs[0].Data["reason"].(string)
+		if evs[0].Data["route"] != r.ID || reason != "a passed over (Kimi's Weekly window is 100% used, the route asks under 100)" ||
+			evs[0].Data["resets_at"] != noon().Add(72*time.Hour).UTC().Format(time.RFC3339) {
+			t.Fatalf("quota_wait = %v, want the window and the Weekly window's reset", evs[0].Data)
+		}
+
+		// Just under 100% is not used up.
+		*now = now.Add(6 * time.Minute)
+		p.say(weekly(99.9, 10))
+		must(t, d.Reconcile(ctx))
+		group, data := claimedBy(t, s, b.ID)
+		if group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
+			t.Fatalf("claimed by %q with %v, want a by the route, nobody passed over", group, data)
+		}
+	})
 }
 
 // A group at its limit of sessions is waited for, not passed over: only a
@@ -400,9 +436,9 @@ func TestConditionWithoutALabelReadsEveryWindow(t *testing.T) {
 	}
 }
 
-// A condition that cannot be evaluated holds, as a group with none does,
-// and the claimed event says the limits were not known: a limits command
-// that fails takes the gate away and stops nothing.
+// A condition that cannot be evaluated holds, and so does the one a group
+// with none is judged by, and the claimed event says the limits were not
+// known: a limits command that fails takes the gate away and stops nothing.
 func TestConditionThatCannotBeEvaluatedHolds(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -415,6 +451,11 @@ func TestConditionThatCannotBeEvaluatedHolds(t *testing.T) {
 		"no such window":     {"a@Monthly<80", func(_ *testing.T, _ store.API, p *standIn) { p.say(weekly(99, 99)) }, "Kimi's report has no window labelled Monthly"},
 		"no windows":         {"a@<80", func(*testing.T, store.API, *standIn) {}, "Kimi's report has no windows"},
 		"no source": {"a@Weekly<80", func(t *testing.T, s store.API, _ *standIn) {
+			must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "claude"}}, "me"))
+		}, "no source of this yard says the limits of claude"},
+		// A group with no condition is judged by every window.
+		"no condition and the command failed": {"a", func(_ *testing.T, _ store.API, p *standIn) { p.fail() }, "not logged in"},
+		"no condition and no source": {"a", func(t *testing.T, s store.API, _ *standIn) {
 			must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "claude"}}, "me"))
 		}, "no source of this yard says the limits of claude"},
 	} {
@@ -434,8 +475,9 @@ func TestConditionThatCannotBeEvaluatedHolds(t *testing.T) {
 
 // The limits command runs at most once in five minutes for a provider,
 // however many beads are ready and however many passes there are, an
-// answer that failed included; and never for a route with no condition.
-func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForACondition(t *testing.T) {
+// answer that failed included; and for a route with no condition only where
+// its group starts agents.
+func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForAGatedRoute(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s, f, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
@@ -471,16 +513,19 @@ func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForACondition(t *testing.T) {
 		t.Fatalf("the limits command ran %d times, want 2: a failure is remembered as an answer is", len(asks))
 	}
 
+	// A route with no condition is read as well, for the provider of the
+	// group that takes the bead: b is not reached, so it is not asked.
 	s, f, d, p, _, _ = quotaYard(t, "a", "b")
 	newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
-	if got, asks := f.starts(), p.asks(); len(got) != 1 || len(asks) != 0 {
-		t.Fatalf("a route with no condition: starts %v, limits command ran for %v, want one start and no run", got, asks)
+	if got, asks := f.starts(), p.asks(); len(got) != 1 || len(asks) != 1 || asks[0] != "moonshot" {
+		t.Fatalf("a route with no condition: starts %v, limits command ran for %v, want one start and one run, for a's provider", got, asks)
 	}
 }
 
 // A route with one group and no condition claims as it always did; its
-// claimed event names the route beside what it carried before.
+// claimed event names the route beside what it carried before, and a group
+// that starts no agents does not ask for limits.
 func TestRouteWithoutAConditionDispatchesAsBefore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -496,6 +541,29 @@ func TestRouteWithoutAConditionDispatchesAsBefore(t *testing.T) {
 	}
 	if len(data) != 4 || data["group"] != "builders" || data["stage"] != "new" || data["session"] == nil || data["route"] != r.ID {
 		t.Fatalf("claimed = %v, want group, stage, session and the route", data)
+	}
+
+	// A plain route to an exec group never runs the limits command, whatever
+	// the yard's source says about the default agent kind's used-up window.
+	s2 := storetest.New(t)
+	f2 := &fakeRunner{dead: map[string]bool{}}
+	d2 := &dispatch.Dispatcher{Store: s2, Runners: map[string]dispatch.Runner{"exec": f2}, Backoff: time.Nanosecond}
+	dir := t.TempDir()
+	asked, script := filepath.Join(dir, "asked"), filepath.Join(dir, "provider")
+	scripttest.Write(t, script, "#!/bin/sh\necho \"$1\" >>"+asked+
+		"\necho '{\"provider\":\"Claude\",\"windows\":[{\"label\":\"5h\",\"used_percent\":100}]}'}\n")
+	_, err = s2.PutSource(ctx, "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+", \"{provider}\", --json]\n  kinds: { claude: claude }\n", "me")
+	must(t, err)
+	must(t, s2.PutGroup(ctx, store.Group{Name: "refinery", Runner: "exec", Limit: 5, Config: map[string]any{"cmd": "true"}}, "me"))
+	_, err = s2.AddRoute(ctx, store.Route{Stage: "new", Group: "refinery"}, "me")
+	must(t, err)
+	b2 := newBead(t, s2, "exec")
+	must(t, d2.Reconcile(ctx))
+	if group, _ := claimedBy(t, s2, b2.ID); group != "refinery" || len(f2.starts()) != 1 {
+		t.Fatalf("claimed by %q, starts %v, want refinery to start it", group, f2.starts())
+	}
+	if _, err := os.Stat(asked); !os.IsNotExist(err) {
+		t.Fatalf("the limits command ran or could not be checked (%v), want no run for a group that starts no agents", err)
 	}
 }
 

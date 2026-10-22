@@ -17,8 +17,9 @@ import (
 // explanation, the list and the claim cannot drift apart. The words for
 // what matched are routeMatch's; the set-aside lines are route list
 // --depot's. Nothing is written, nothing is logged and no provider is
-// asked: the choice among a winning route's groups is made at the claim,
-// from the windows then.
+// asked: the choice among a winning route's groups, or whether its group
+// that starts agents may start a bead, is made at the claim, from the
+// windows then.
 
 func (a *app) routeExplainCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -41,9 +42,11 @@ stage, type, depot, labels, bead priority and originator, never the
 flow, and the pin is named beside the answer it does not change.
 
 The choice among a winning route's groups is made at the claim, from
-the windows then; what a claim chose stays where it is, in bead show
-and the quota_wait event. The command writes nothing, logs nothing and
-asks no provider.`,
+the windows then, as is whether a group that starts agents and has no
+condition may start the bead: it does not while a window of its provider
+is used up. What a claim chose stays where it is, in bead show and the
+quota_wait event. The command writes nothing, logs nothing and asks no
+provider.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -63,7 +66,15 @@ asks no provider.`,
 			if err != nil {
 				return err
 			}
-			exp := explainBeadRouting(*b, rs, operator)
+			gs, err := st.Groups(c.Context())
+			if err != nil {
+				return err
+			}
+			groups := make(map[string]store.Group, len(gs))
+			for _, g := range gs {
+				groups[g.Name] = g
+			}
+			exp := explainBeadRouting(*b, rs, groups, settings[store.DefaultKindSetting], operator)
 			return a.out(c.OutOrStdout(), exp, func(w io.Writer) { printRouteExplanation(w, exp, operator) })
 		},
 	}
@@ -124,8 +135,9 @@ type routeExplainMiss struct {
 }
 
 // routeExplainQuota is the winning route's groups in order; ClaimTime
-// says the choice among them is made at the claim, from the windows
-// then. Nil where no route matched.
+// says the choice among them, or whether a group that starts agents may
+// start the bead, is made at the claim, from the windows then. Nil where no
+// route matched.
 type routeExplainQuota struct {
 	Groups    []store.RouteGroup `json:"groups"`
 	ClaimTime bool               `json:"claim_time"`
@@ -134,8 +146,9 @@ type routeExplainQuota struct {
 // explainBeadRouting explains b against the yard's routes: its depot's
 // effective routes in match order, each kept as a match or a miss, the
 // first match the winner, and the defaults its depot sets aside for its
-// stage.
-func explainBeadRouting(b store.Bead, routes []store.Route, operator string) routeExplanation {
+// stage. groups and def, the default_kind setting, say which of the winner's
+// groups start agents (store.Route.Gated).
+func explainBeadRouting(b store.Bead, routes []store.Route, groups map[string]store.Group, def, operator string) routeExplanation {
 	eff := store.EffectiveRoutes(routes, b.Depot, operator)
 	store.SortRoutes(eff)
 	exp := routeExplanation{
@@ -175,7 +188,7 @@ func explainBeadRouting(b store.Bead, routes []store.Route, operator string) rou
 	if len(exp.Matches) > 0 {
 		winner := exp.Matches[0].Route
 		exp.Winner = &winner.ID
-		exp.Quota = &routeExplainQuota{Groups: winner.Groups(), ClaimTime: winner.Quotaed()}
+		exp.Quota = &routeExplainQuota{Groups: winner.Groups(), ClaimTime: winner.Gated(groups, def)}
 	}
 	if b.Depot != nil {
 		for _, s := range store.SetAsideRoutes(routes, *b.Depot, operator) {
@@ -231,6 +244,11 @@ func printRouteExplanation(w io.Writer, exp routeExplanation, operator string) {
 	}
 	if !exp.Quota.ClaimTime {
 		fmt.Fprintln(w, "quota: the winning route names one group with no condition; nothing to ask a provider for")
+		return
+	}
+	if gs := exp.Quota.Groups; len(gs) == 1 && gs[0].When == "" {
+		fmt.Fprintf(w, "quota: the winning route names %s with no condition; it starts the bead at the claim unless a window of its provider is used up then\n",
+			gs[0].Name)
 		return
 	}
 	fmt.Fprintf(w, "quota: the winning route names %s; the choice among these is made at the claim, from the windows then\n",

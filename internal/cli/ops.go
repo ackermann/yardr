@@ -900,9 +900,10 @@ it that has passed as the source reports it, with an optional margin:
 Weekly<target holds while Weekly is under its target, Weekly<target+10
 while under ten points above it, Weekly<target-5 while under five below,
 and the two forms mix (Weekly<target+10,5h<90). A bead
-goes to the first group whose condition holds; a group with none always
-holds, and --else wait ends the route, so the bead waits. While no group's
-does, the bead waits (a quota_wait event says for what). A condition that
+goes to the first group whose condition holds; a group that starts agents
+with none holds while no window of its provider is used up (as <100 would),
+and --else wait ends the route, so the bead waits. While no group's does,
+the bead waits (a quota_wait event says for what). A condition that
 cannot be evaluated (no limits source answers for the group's provider, its
 command failed, it reports no such window, it gives the window no
 percentage or, for a condition on the target, no target, and for a
@@ -911,8 +912,9 @@ holds, and the claimed event says the limits were not known.
 
 Two groups of a route that burn one provider on one login read the same
 windows, so a further group with no condition that burns the provider of a
-group before it takes the beads that group was passed over for: route add
-warns of it and adds the route. Two groups on different logins read each
+group before it takes the beads that group was passed over for, until those
+windows are used up: route add warns of it and adds the route. Two groups
+on different logins read each
 their own, and a personal group failing over to the operator's warns of
 nothing. A route with --else or a condition otherwise names only
 groups that start agents, or gates one exec group alone on the windows of

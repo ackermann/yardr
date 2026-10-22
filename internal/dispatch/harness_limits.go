@@ -30,8 +30,9 @@ import (
 // is about to be prompted. Neither is reached by a pass that finds nothing
 // stopped on a usage limit, or by a timer. And what it said is remembered
 // for limitsMemory, so agents that stop or wake together are one run.
-// routeQuota (quota.go) is reached only for a ready bead whose route puts a
-// quota condition on a group, and reads the same memory with the longer
+// routeQuota (quota.go) is reached only for a ready bead whose route is
+// gated (store.Route.Gated: it puts a quota condition on a group, or names
+// a group that starts agents), and reads the same memory with the longer
 // age routeLimitsMemory: a start is no emergency, and beads become ready
 // far more often than a harness stops.
 //

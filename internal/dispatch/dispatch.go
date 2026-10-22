@@ -1259,7 +1259,8 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 		// Which of the route's groups: the first whose quota condition
-		// holds. A route with no condition asks nobody (chooseGroup).
+		// holds. A route whose groups start no agents and name no condition
+		// asks nobody (chooseGroup).
 		choice, ok := d.chooseGroup(ctx, b, r, groups, active, settings[store.DefaultKindSetting])
 		if !ok {
 			continue

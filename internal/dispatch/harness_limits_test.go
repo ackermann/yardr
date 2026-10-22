@@ -421,7 +421,6 @@ func limitsYard(t *testing.T, n int, cfg map[string]any) (s store.API, r *agentR
 	at := noon()
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
-	p = newStandIn(t, s)
 	conf := map[string]any{"kind": "kimi"}
 	for k, v := range cfg {
 		conf[k] = v
@@ -438,6 +437,10 @@ func limitsYard(t *testing.T, n int, cfg map[string]any) (s store.API, r *agentR
 	if got := len(r.starts()); got != n {
 		t.Fatalf("starts = %d, want %d", got, n)
 	}
+	// The provider is declared once the sessions run: a start on a route
+	// with no condition asks it (chooseGroup), and what it said would answer
+	// the stop's read from memory. These tests are about the stop.
+	p = newStandIn(t, s)
 	return s, r, d, p, now
 }
 

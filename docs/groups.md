@@ -164,8 +164,9 @@ above (priority, specificity, own before default, id), the routes
 considered that do not match and why, the defaults the depot sets
 aside for the bead's stage with the own route that states each, and
 the winning route's groups in order. For a route with further groups
-or a condition the choice among them is made at the claim, from the
-windows then; what a claim chose is in `bead show` and the
+or a condition, and for one whose group starts agents, the choice among
+them, or whether the group may start the bead, is made at the claim, from
+the windows then; what a claim chose is in `bead show` and the
 `quota_wait` event. The command writes nothing, logs nothing and asks
 no provider. A bead that pins a flow takes the same winner as its
 unpinned twin, and the pin is named beside the answer.
@@ -230,8 +231,8 @@ A bead of this route goes to `builders` while the window its provider
 labels `Weekly` is under 80% used and the one labelled `5h` under 90%;
 otherwise to `spare-builders`. The dispatcher goes through the groups in
 order and takes the first whose condition holds; a group with no condition
-always holds. `yardr route list` prints them as
-`builders@Weekly<80,5h<90 else spare-builders`.
+holds while no window of its provider is used up (below). `yardr route list`
+prints them as `builders@Weekly<80,5h<90 else spare-builders`.
 
 - **The condition.** Comparisons separated by commas, each a window's
   label, `<` and a percentage above 0 and at most 100. The label is the
@@ -272,6 +273,21 @@ always holds. `yardr route list` prints them as
   bead, one runner works the stage and nobody is a member: `yardr review`,
   the beads that wait for a person and who may move a bead on do not
   change with the quota.
+- **A group with no condition still waits while a window of its provider is
+  used up.** A group that starts agents is judged as if its condition were
+  `<100`: it takes no bead while any window its provider reports is 100%
+  used, since a session started into one stops on the limit at once. So a
+  route to `builders` alone waits as `builders@<100` would, and in
+  `builders@Weekly<80 else spare-builders` the further group is passed over
+  too when its provider's windows are used up. Only a window at 100% is
+  used up: a group with no condition still takes a bead at 99.9%. A
+  group that starts no agents burns no provider and is not read. To gate a
+  group on fewer windows, give it a condition that names them
+  (`builders@Weekly<100` leaves the others out). A provider that reports
+  no window knows of no limit: none is used up, and the claim says nothing
+  of it. Where no source answers for the group's provider, or its command
+  fails, nothing is known and the group takes the bead, as for any
+  condition that cannot be evaluated (below).
 - **When no condition holds, the bead waits.** A route with one
   conditioned group and no `--else` says "this group or nobody", as
   `--else wait` says out loud: `wait` is not a group, takes no condition,
@@ -289,9 +305,12 @@ always holds. `yardr route list` prints them as
   the group's provider, its command failed, the report has no window of
   that label, gives it no percentage or, for a condition on the target,
   no target, and for a comparison on a source no source of the name that
-  answers for itself: the group takes the bead as it would with no
-  condition, and the `claimed` event says so in `limits_unknown`. A limits
-  command that breaks takes the gate away; it does not stop the yard.
+  answers for itself: the group takes the bead, and the `claimed` event says
+  so in `limits_unknown`. That holds for the condition a group with none is
+  judged by too, so in a yard with no source for a group's provider each of
+  its claims says the limits were not known; a report with no window is no
+  such case there. A limits command that breaks takes the gate away; it
+  does not stop the yard.
 - **The `claimed` event** of a bead the dispatcher started names the
   `route` by its id and, when groups were passed over, `passed`: each with
   its `reason`, such as `Claude's Weekly window is 83% used, the route asks
@@ -314,8 +333,9 @@ always holds. `yardr route list` prints them as
 - **Conditions that cannot work are said, and none is refused.**
   Groups that burn one provider on one login read the same windows, so a
   further group with no condition that burns the provider of a conditioned
-  group before it takes every bead that group was passed over for, as used
-  up as it is: `yardr route add` warns of it on stderr and adds the route.
+  group before it takes every bead that group was passed over for until
+  those windows are used up: `yardr route add` warns of it on stderr and adds
+  the route.
   Two groups on different logins read each their own, so a personal group
   failing over to the operator's warns of nothing. A condition
   on a group no limits source answers for holds whatever is used, as a
@@ -330,19 +350,21 @@ always holds. `yardr route list` prints them as
   `yardr flow show` and the flow columns of the web view; none of them
   asks for the limits.
 - **How often the limits command runs for this.** Only for a ready bead
-  whose route has a condition, when one of the route's groups could start
-  it, and at most once in five minutes for a provider read under one
-  group's env, or for a source, a failed run included. A group can so
-  start a session or two after its
+  whose route has a condition or names a group that starts agents, when one
+  of the route's groups could start it (not one at its limit, with its
+  runtime down or held back for a model), and at most once in five minutes
+  for a provider read under one group's env, or for a source, a failed run
+  included. A route to a group that starts no agents asks nothing. A group
+  can so start a session or two after its
   window crossed the threshold, which a threshold below 100 leaves room
   for. The condition is a margin, not a forecast: sessions started under
   it can still fill the window, and then the harness stops and
   [the existing path](#a-usage-limit-says-its-window-and-when-it-resets)
   takes over.
 - **To overrule it**, give a route of higher priority no condition: a
-  label's route sends its beads where the label says whatever the quota
-  is. Removing a group removes every route that names it, further groups
-  included.
+  label's route sends its beads where the label says whatever the threshold
+  is, for as long as no window of that group's provider is used up. Removing
+  a group removes every route that names it, further groups included.
 
 ## Routing by estimate and quota
 
@@ -370,9 +392,9 @@ With the filters and conditions above, a depot's table for its build
 stage reads like this:
 
 ```sh
-# asked for by hand: no condition, whatever the quota says
+# asked for by hand: no condition, so no threshold; only a used-up window waits
 yardr route add --stage new --depot web --label heavy --group heavy-builders --priority 6
-# the reserve: P0 and P1 go to the strong group whatever the week says
+# the reserve: P0 and P1 go to the strong group at any threshold, until the week is used up
 yardr route add --stage new --depot web --bead-priority 1 --group heavy-builders --priority 5
 # a large, hard bead needs more room in the window
 yardr route add --stage new --depot web --label difficulty:3 --label size:large \

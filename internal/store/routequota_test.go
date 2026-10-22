@@ -249,8 +249,9 @@ func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
 }
 
 // Choose takes the first group whose condition holds from the windows it
-// is handed, asks only for groups with a condition and only as far as it
-// has to, and says of each group it passed over why.
+// is handed, asks only as far as it has to, and says of each group it
+// passed over why. A group with no condition holds while none of its
+// provider's windows is used up.
 func TestRouteChoose(t *testing.T) {
 	t.Parallel()
 	pct := func(p float64) *float64 { return &p }
@@ -261,6 +262,13 @@ func TestRouteChoose(t *testing.T) {
 			{Label: "Weekly", UsedPercent: pct(week), ResetsAt: &late},
 			{Label: "Weekly Fable", UsedPercent: pct(100)},
 		}}
+	}
+	// twoWindows is claude without the used-up window no condition names: a
+	// group with no condition is judged by every window, that one too.
+	twoWindows := func(week, five float64) store.Quota {
+		q := claude(week, five)
+		q.Windows = q.Windows[:2]
+		return q
 	}
 	// paced is claude with the share of each window that has passed, as a
 	// source that knows the pace reports it.
@@ -288,14 +296,54 @@ func TestRouteChoose(t *testing.T) {
 		return r
 	}
 	// quota holds the provider's windows by group, and a source's own under
-	// the source's name.
+	// the source's name. A group it lists nothing for, a bare fallback after
+	// the group a row is about, answers with every window clear and is not
+	// recorded in asked.
+	allClear := twoWindows(0, 0)
 	for name, tc := range map[string]struct {
 		route store.Route
 		quota map[string]store.Quota
 		want  store.RouteChoice
 		asked string
 	}{
-		"no condition asks nobody": {route("a", "b"), nil, store.RouteChoice{Group: "a"}, ""},
+		// A group with no condition is judged by "<100": every window of its
+		// provider under 100% used.
+		"no condition, no window used up": {route("a"), map[string]store.Quota{"a": twoWindows(40, 10)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"no condition, a window used up": {route("a"), map[string]store.Quota{"a": twoWindows(100, 10)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 100% used, the route asks under 100", ResetsAt: &late}}}, "a"},
+		"no condition, a window just under": {route("a"), map[string]store.Quota{"a": twoWindows(99.9, 10)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"no condition, a window used up without a reset": {route("a"), map[string]store.Quota{"a": claude(10, 10)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100"}}}, "a"},
+		"no condition, limits not known": {route("a"), map[string]store.Quota{"a": {Unknown: "no source of this yard answers for provider muse"}},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no source of this yard answers for provider muse"}, "a"},
+		// A provider that reports no window knows of no limit: none is used up,
+		// and the claim says nothing, as it does when a condition names windows.
+		"no condition, a report with no windows": {route("a"), map[string]store.Quota{"a": {Provider: "Muse"}},
+			store.RouteChoice{Group: "a"}, "a"},
+		"a condition on every window, a report with no windows": {route("a@<80"), map[string]store.Quota{"a": {Provider: "Muse"}},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: Muse's report has no windows"}, "a"},
+		"no conditions, the first used up": {route("a", "b"), map[string]store.Quota{"a": twoWindows(10, 100), "b": twoWindows(10, 10)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's 5h window is 100% used, the route asks under 100", ResetsAt: &early}}}, "a b"},
+		"no conditions, none to take it": {route("a", "b"), map[string]store.Quota{"a": twoWindows(100, 10), "b": twoWindows(10, 100)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 100% used, the route asks under 100", ResetsAt: &late},
+				{Group: "b", Reason: "Claude's 5h window is 100% used, the route asks under 100", ResetsAt: &early}}}, "a b"},
+		"no conditions, the first holds": {route("a", "b"), map[string]store.Quota{"a": twoWindows(10, 10)},
+			store.RouteChoice{Group: "a"}, "a"},
+		// A condition names the windows that gate: the 5h window is used up and
+		// this one does not name it.
+		"a condition replaces it": {route("a@Weekly<100"), map[string]store.Quota{"a": twoWindows(10, 100)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"a further group with no condition is judged too": {route("a@Weekly<80", "b"),
+			map[string]store.Quota{"a": twoWindows(85, 10), "b": twoWindows(10, 100)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 85% used, the route asks under 80", ResetsAt: &late},
+				{Group: "b", Reason: "Claude's 5h window is 100% used, the route asks under 100", ResetsAt: &early}}}, "a b"},
 		"under the threshold": {route("a@Weekly<80,5h<90", "b"), map[string]store.Quota{"a": claude(79.9, 10)},
 			store.RouteChoice{Group: "a"}, "a"},
 		// A window the condition does not name does not gate: Weekly Fable is used up.
@@ -358,16 +406,28 @@ func TestRouteChoose(t *testing.T) {
 		"wait ends the route": {route("a@Weekly<80", "wait"), map[string]store.Quota{"a": claude(90, 10)},
 			store.RouteChoice{Passed: []store.PassedGroup{
 				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: &late}}}, "a"},
-		"wait after a group with no condition": {route("a", "wait"), nil, store.RouteChoice{Group: "a"}, ""},
+		"wait after a group with no condition": {route("a", "wait"), map[string]store.Quota{"a": twoWindows(10, 10)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"wait after a group with no condition, used up": {route("a", "wait"), map[string]store.Quota{"a": twoWindows(10, 100)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's 5h window is 100% used, the route asks under 100", ResetsAt: &early}}}, "a"},
 	} {
 		var asked []string
 		got := tc.route.Choose(func(group, source string) store.Quota {
+			name := group
+			if source != "" {
+				name = source
+			}
+			q, listed := tc.quota[name]
+			if !listed {
+				return allClear
+			}
 			if source == "" {
 				asked = append(asked, group)
-				return tc.quota[group]
+			} else {
+				asked = append(asked, group+"@"+source)
 			}
-			asked = append(asked, group+"@"+source)
-			return tc.quota[source]
+			return q
 		})
 		if !reflect.DeepEqual(got, tc.want) || strings.Join(asked, " ") != tc.asked {
 			t.Errorf("%s:\n got %+v (asked %v)\nwant %+v (asked %s)", name, got, asked, tc.want, tc.asked)
@@ -380,6 +440,68 @@ func TestRouteChoose(t *testing.T) {
 	if want := "a passed over (Claude's Weekly window is 90% used, the route asks under 80); " +
 		"b passed over (Claude's 5h window is 90% used, the route asks under 50)"; c.Why() != want {
 		t.Errorf("why = %q", c.Why())
+	}
+	// The wait of a route with no condition says what the window's reset is,
+	// as a condition's does.
+	c = route("a").Choose(func(_, _ string) store.Quota { return twoWindows(100, 100) })
+	if at := c.Resets(); c.Group != "" || at == nil || !at.Equal(early) ||
+		c.Why() != "a passed over (Claude's 5h window is 100% used, the route asks under 100; Claude's Weekly window is 100% used, the route asks under 100)" {
+		t.Errorf("a plain route with every window used up chose %+v, resets %v, why %q", c, at, c.Why())
+	}
+	// A route whose groups start no agents is handed no quota: nothing is
+	// asked, and the first group is taken.
+	if got := route("a", "b").Choose(nil); !reflect.DeepEqual(got, store.RouteChoice{Group: "a"}) {
+		t.Errorf("a nil quota chose %+v, want a", got)
+	}
+}
+
+// A route is gated when choosing among its groups reads windows: a group
+// carries a condition, or starts agents and so is judged by "<100" without
+// one. A route of groups that start none reads nothing, whatever it names
+// after them; Quotaed is not that question and keeps its answers.
+func TestRouteGatedWhenChoosingReadsWindows(t *testing.T) {
+	t.Parallel()
+	groups := map[string]store.Group{
+		"a":        {Name: "a", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		"nokind":   {Name: "nokind", Runner: "herdr"},
+		"people":   {Name: "people", Runner: "manual"},
+		"refinery": {Name: "refinery", Runner: "exec", Config: map[string]any{"cmd": "true"}},
+		"yard":     {Name: "yard", Runner: "peer"},
+	}
+	route := func(first string, further ...string) store.Route {
+		g := store.ParseRouteGroup(first)
+		r := store.Route{Group: g.Name, When: g.When}
+		for _, e := range further {
+			r.Else = append(r.Else, store.ParseRouteGroup(e))
+		}
+		return r
+	}
+	for name, tc := range map[string]struct {
+		route   store.Route
+		def     string
+		gated   bool
+		quotaed bool
+	}{
+		"a group that starts agents":         {route("a"), "", true, false},
+		"a herdr group with no kind":         {route("nokind"), "", true, false},
+		"a herdr group with no kind, kimi":   {route("nokind"), "kimi", true, false},
+		"a manual group":                     {route("people"), "", false, false},
+		"an exec group":                      {route("refinery"), "", false, false},
+		"a peer group":                       {route("yard"), "", false, false},
+		"a group the yard does not have":     {route("ghost"), "", false, false},
+		"a condition on an exec group":       {route("refinery@machine.load<80", "wait"), "", true, true},
+		"an exec group and wait":             {route("refinery", "wait"), "", false, true},
+		"agents with a condition":            {route("a@Weekly<80"), "", true, true},
+		"agents with a further group":        {route("a", "nokind"), "", true, true},
+		"a further group after a condition":  {route("a@Weekly<80", "wait"), "", true, true},
+		"a condition on a group not in hand": {route("ghost@machine.load<80"), "", true, true},
+	} {
+		if got := tc.route.Gated(groups, tc.def); got != tc.gated {
+			t.Errorf("%s: Gated = %v, want %v", name, got, tc.gated)
+		}
+		if got := tc.route.Quotaed(); got != tc.quotaed {
+			t.Errorf("%s: Quotaed = %v, want %v", name, got, tc.quotaed)
+		}
 	}
 }
 

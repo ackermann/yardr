@@ -268,10 +268,12 @@ func (y *waitView) waitFor(b *store.Bead, routed *beadRouting) *groupWait {
 }
 
 // readOnlyChoice is the group of r that would take a bead, without asking
-// any provider: the first group where no condition gates it (Choose takes
-// it unasked), else the route's only group where it names one. "" where
-// the choice needs the windows, a condition on the first of several
-// groups: only the daemon runs the limits command.
+// any provider: the first group where no condition gates it, else the
+// route's only group where it names one. Whether a window of that group's
+// provider keeps it from starting the bead is the daemon's to read, and the
+// quota_wait event says it. "" where the choice needs the windows, a
+// condition on the first of several groups: only the daemon runs the limits
+// command.
 func readOnlyChoice(r store.Route) string {
 	if r.When == "" {
 		return r.Group
@@ -316,10 +318,11 @@ func groupEnvFile(g store.Group) string {
 
 // sameProvider are the warnings for a route that falls through to a group
 // as used up as the one it passed over: a group with no condition that
-// burns the provider of a conditioned group before it, on the same login.
-// Two groups on one login's windows read one answer; two on different
-// logins read each their own, so a personal group failing over to the
-// operator's warns of nothing.
+// burns the provider of a conditioned group before it, on the same login. It
+// is judged by none of the windows being used up, so it takes the beads the
+// conditioned group was passed over for until they are. Two groups on one
+// login's windows read one answer; two on different logins read each their
+// own, so a personal group failing over to the operator's warns of nothing.
 func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.Route, def string) []string {
 	var out []string
 	type providerLogin struct{ provider, envFile string }
@@ -350,10 +353,12 @@ func sameProvider(as []limits.Answerer, groups map[string]store.Group, r store.R
 		key := providerLogin{name, groupEnvFile(groups[rg.Name])}
 		if first, same := gated[key]; same {
 			out = append(out, fmt.Sprintf("%s burns provider %s, as %s does, and has no condition: a bead that passes over %s goes on to %s "+
-				"however far the same windows are used. Give it a condition of its own (%s@<window><<percent>) or name a group of another provider",
+				"until the same windows are used up. Give it a condition of its own (%s@<window><<percent>) or name a group of another provider",
 				rg.Name, name, first, first, rg.Name, rg.Name))
 		}
-		// A group with no condition always holds: none after it is reached.
+		// A group with no condition holds until a window is used up, and then
+		// a group after it on the same login fails the same way: none after it
+		// is warned of.
 		break
 	}
 	return out

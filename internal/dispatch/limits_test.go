@@ -15,11 +15,13 @@ import (
 )
 
 // A provider of limits is slow, and may be bounded in how often it answers:
-// it is asked where something stopped on a limit, or a person asks, and
-// never by a pass that finds nothing stopped. With a source that says the
-// limits of the agents' kind, passes that start a session, find it working
-// and find it idle with nothing wrong do not run its command once.
-func TestPassWithNothingStoppedAsksNoLimits(t *testing.T) {
+// it is asked where something stopped on a limit, where a bead starts on a
+// group that starts agents (once in five minutes), or when a person asks,
+// and never by a pass that finds nothing stopped and nothing to start. With a
+// source that says the limits of the agents' kind, the passes that start two
+// sessions run its command once, and the passes that find them working and
+// idle with nothing wrong do not run it again.
+func TestPassWithNothingStoppedAsksLimitsOnlyForTheStarts(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
 	ctx := context.Background()
@@ -43,14 +45,19 @@ func TestPassWithNothingStoppedAsksNoLimits(t *testing.T) {
 	if n := len(r.starts()); n != 2 {
 		t.Fatalf("starts = %d, want 2", n)
 	}
+	// The two starts are one run: what the provider said is kept for the
+	// five minutes the quota reads it.
+	if b, err := os.ReadFile(asked); err != nil || string(b) != "kimi\n" {
+		t.Fatalf("after the starts the limits command was run for %q (%v), want once", b, err)
+	}
 	r.show("idle", "› Ask Kimi to do anything")
 	must(t, d.Reconcile(ctx)) // idle, and stopped on nothing
 	must(t, d.Reconcile(ctx))
 	// A daemon that has just started, too.
 	d2 := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
 	must(t, d2.Reconcile(ctx))
-	if b, err := os.ReadFile(asked); err == nil {
-		t.Fatalf("the limits command was run by a pass with nothing stopped, for: %q", b)
+	if b, err := os.ReadFile(asked); err != nil || string(b) != "kimi\n" {
+		t.Fatalf("the limits command was run for %q (%v) by a pass with nothing stopped, want only the starts' one", b, err)
 	}
 }
 

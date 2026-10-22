@@ -300,8 +300,9 @@ operator's. What runs the command: yardr limits, yardr source check and
 yardr doctor --try, each when a person asks, and the daemon when a harness
 stopped on a usage limit, for the window and its reset in the
 session_harness_error, once more at that reset before it prompts the agent,
-and for a ready bead whose route puts a quota condition on a group
-(docs/groups.md). yardr limits --help says more.
+and for a ready bead whose route puts a quota condition on a group or
+names a group that starts agents (docs/groups.md). yardr limits --help says
+more.
 
 A file can also name the commands by which the yard speaks in the source's
 threads, and how the source's issues are a bead's link:

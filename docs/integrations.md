@@ -627,7 +627,8 @@ they have no answer, and `source check` fails for them.
   same memory
   ([groups.md](groups.md#a-window-that-resets-within-six-hours-is-waited-for)).
   The sixth is the dispatcher, **for a ready bead whose route puts a quota
-  condition on a group**
+  condition on a group or names a group that starts agents**, which starts
+  no session while a window of its provider is used up, condition or none
   ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)):
   at the moment one of the route's groups could start the bead it asks for
   the group's provider under the group's env, and for each source the
@@ -635,7 +636,7 @@ they have no answer, and `source check` fails for them.
   said for five minutes, a failed run included. So that is at most twelve
   runs an hour for a provider read under one group's env, or for a source,
   however many beads are ready, none while no ready
-  bead meets a condition, and a pass that asks holds for at most the
+  bead meets such a route, and a pass that asks holds for at most the
   command's 30 seconds.
   The seventh is the server, **for the web view at /limits**
   ([web.md](web.md#the-lists)): a GET asks for each provider in use
@@ -643,9 +644,9 @@ they have no answer, and `source check` fails for them.
   last answer, concurrent reads the one run on its way. So that is at
   most one run a minute per provider however often the route is read.
   Nothing else asks: not a dispatcher pass that finds nothing stopped on a
-  limit and no ready bead at a condition, not the start of a session whose
-  route has none, not a timer, not a view that names a route's groups, and
-  not the hold that keeps a
+  limit and no ready bead at such a route, not the start of a session on a
+  route with no condition to a group that starts no agents, not a timer, not
+  a view that names a route's groups, and not the hold that keeps a
   group from starting a further session with a model while one of its
   sessions waits for a reset: that is read from the waiting session, as
   `yardr session list` reads until when. `yardr doctor` without `--try`
@@ -835,8 +836,8 @@ yardr source rm pushover
   by `yardr limits`, `yardr source check` and `yardr doctor --try`, by the
   daemon for a harness that stopped on a usage limit, at the stop and at
   the window's reset, by the dispatcher for a ready bead whose route puts
-  a quota condition on a group, and by the server for the web view at
-  /limits. Nothing of a request is written to an event or a log.
+  a quota condition on a group or names a group that starts agents, and by
+  the server for the web view at /limits. Nothing of a request is written to an event or a log.
 - **Adding, setting and removing one is the operator's**, and refused from
   an agent's pane: a source is where a credential of the yard is sent, and
   its file may name a command the yard runs.
@@ -1559,10 +1560,10 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
   operator, a setting for the 30 seconds a call may take, calls served as
   tools (MCP). An update of a service that takes no idempotency key is
   written twice when it is run again after a timeout.
-- Limits, beyond showing them and saying them in the event of a harness
-  that stopped on one: a stopped agent is not prompted again when the
-  window opens, and a group starts a session whatever a window says. Also
-  not there: a second way to an answer (a
+- Limits, beyond showing them, saying them in the event of a harness that
+  stopped on one, prompting it again when a window that resets within six
+  hours opens, and keeping a group from starting a session while a window of
+  its provider is used up: a second way to an answer (a
   declared HTTPS call, an adapter in Go), limits by model, the limits of an
   account that is not the operator's.
 

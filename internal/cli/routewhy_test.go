@@ -217,7 +217,7 @@ func TestRouteAddWarnsOfAFurtherGroupOnTheSameProvider(t *testing.T) {
 			continue
 		}
 		want := "warning: route " + id + ": " + tc.warn + " burns provider anthropic, as a does, and has no condition: " +
-			"a bead that passes over a goes on to " + tc.warn + " however far the same windows are used."
+			"a bead that passes over a goes on to " + tc.warn + " until the same windows are used up."
 		if !strings.HasPrefix(got, want) || strings.Count(got, "\n") != 1 {
 			t.Errorf("route add %v warned %q, want one line beginning %q", tc.args, got, want)
 		}
@@ -274,7 +274,7 @@ func TestRouteAddWarnsOnlyWhenTheTwoGroupsShareOneLogin(t *testing.T) {
 			continue
 		}
 		want := "warning: route " + id + ": " + tc.warn + " burns provider anthropic, as " + tc.first + " does, and has no condition: " +
-			"a bead that passes over " + tc.first + " goes on to " + tc.warn + " however far the same windows are used."
+			"a bead that passes over " + tc.first + " goes on to " + tc.warn + " until the same windows are used up."
 		if !strings.HasPrefix(got, want) || strings.Count(got, "\n") != 1 {
 			t.Errorf("route add %v warned %q, want one line beginning %q", tc.args, got, want)
 		}

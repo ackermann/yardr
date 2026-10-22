@@ -12,8 +12,10 @@ import (
 
 // A route may name several groups and put a condition on the windows of a
 // group's provider (store.Route.Choose): "yardr-builders while Claude's
-// Weekly window is under 80% used, else muse-builders". The store holds
-// the route and makes the comparison; what the windows are is learned
+// Weekly window is under 80% used, else muse-builders". A group that starts
+// agents and names no condition is read the same way, as "none of its
+// provider's windows is used up", so a plain route is gated too. The store
+// holds the route and makes the comparison; what the windows are is learned
 // here, from the yard's limits source, because only the daemon may run its
 // command (harness_limits.go says why it is not leaned on).
 
@@ -28,22 +30,26 @@ const routeLimitsMemory = 5 * time.Minute
 // condition holds, with the groups passed over. ok is false when the bead
 // does not start in this pass.
 //
-// The limits command is run only for a route with a condition, and only
+// The limits command is run only for a gated route (store.Route.Gated): one
+// with a condition, or with a group that starts agents. A route of groups
+// that start none, a script's or a person's, asks nothing. It is run only
 // when one of the route's groups could start a bead now: a bead that would
-// wait anyway (every group at its limit, its runtime down) asks nothing.
-// When no group's condition holds the bead waits, and says so in one
-// quota_wait event until it starts.
+// wait anyway (every group at its limit, its runtime down, held back for its
+// model) asks nothing. When no group's condition holds, or a window of each
+// group's provider is used up, the bead waits, and says so in one quota_wait
+// event until it starts.
 //
 // def is the yard's default_kind setting, for a group that names no kind.
 func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Route, groups map[string]store.Group, active map[string]int, def string) (c store.RouteChoice, ok bool) {
-	if !r.Quotaed() {
+	if !r.Gated(groups, def) {
 		return r.Choose(nil), true
 	}
 	free := false
 	for _, rg := range r.Groups() {
 		g, known := groups[rg.Name]
 		o := d.down[rg.Name]
-		if known && active[g.Name] < g.Limit && !(o != nil && time.Now().Before(o.until)) {
+		_, held := d.paused[rg.Name][modelFor(g, b)]
+		if known && active[g.Name] < g.Limit && !(o != nil && time.Now().Before(o.until)) && !held {
 			free = true
 		}
 	}

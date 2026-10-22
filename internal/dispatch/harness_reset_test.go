@@ -67,7 +67,6 @@ func resetYardOf(t *testing.T, r dispatch.Runner, cfg map[string]any) (s store.A
 	at := noon()
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
-	p = newStandIn(t, s)
 	conf := map[string]any{"kind": "kimi", "stall": "off"}
 	for k, v := range cfg {
 		conf[k] = v
@@ -80,6 +79,10 @@ func resetYardOf(t *testing.T, r dispatch.Runner, cfg map[string]any) (s store.A
 	must(t, err)
 	must(t, d.Reconcile(ctx)) // start
 	must(t, d.Reconcile(ctx)) // seen working
+	// The provider is declared once the session runs: a start on a route
+	// with no condition asks it (chooseGroup), and what it said would answer
+	// the stop's read from memory. These tests are about the stop.
+	p = newStandIn(t, s)
 	return s, d, *bead, p, now
 }
 

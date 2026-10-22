@@ -557,6 +557,23 @@ func (r Route) Quotaed() bool {
 	return len(gs) > 1 || gs[0].When != ""
 }
 
+// Gated reports whether choosing among the route's groups reads windows:
+// some group carries a condition, or starts agents and so is judged by
+// "<100" without one (Choose). A route that is not gated, a manual, exec or
+// peer group alone, asks nobody and takes its first group. It is wider than
+// Quotaed for a plain route to a group that starts agents, and narrower for
+// an exec group followed by wait, which names a further group but reads
+// nothing. groups are the yard's, by name, and def its default_kind
+// setting, for a group that names no kind (Group.Kind).
+func (r Route) Gated(groups map[string]Group, def string) bool {
+	for _, g := range r.Groups() {
+		if g.When != "" || groups[g.Name].Kind(def) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // GroupList is the route's groups in order with their conditions, on one
 // line: "a@Weekly<80 else b".
 func (r Route) GroupList() string {
@@ -579,6 +596,11 @@ type QuotaLimit struct {
 	Under  float64
 	Target bool
 	Margin float64
+	// Implicit is a comparison no route wrote (noWindowUsedUp). A provider
+	// that reports no window knows of no limit, so none is used up, and
+	// there is nothing to say of it as there is when a comparison asked for
+	// windows that are not there.
+	Implicit bool
 }
 
 // ParseQuota reads a condition, comparisons separated by commas:
@@ -689,8 +711,10 @@ type RouteChoice struct {
 	// Passed are the groups before it whose condition failed, in order.
 	Passed []PassedGroup `json:"passed,omitempty"`
 	// Unknown says, of Group, what of its condition could not be evaluated
-	// and why: such a condition holds, as it would with no condition, so a
-	// limits command that fails takes the gate away and stops nothing.
+	// and why: such a condition holds, so a limits command that fails takes
+	// the gate away and stops nothing. A group with no condition has the
+	// one Choose gives it, and is said of in the same words, but for a
+	// provider that reports no window: it knows of no limit.
 	Unknown string `json:"limits_unknown,omitempty"`
 }
 
@@ -724,29 +748,40 @@ func (c RouteChoice) Why() string {
 	return strings.Join(parts, "; ")
 }
 
+// noWindowUsedUp is the condition a group is judged by when its route names
+// none, "<100": every window its provider reports is under 100% used.
+var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
+
 // Choose goes through the route's groups in order and takes the first
 // whose condition holds. quota is asked for the windows of a group's
-// provider, and of each source its condition names, only for a group that
-// has a condition and only once the groups before it failed theirs: whoever
-// calls decides whether and how they are learned, and a route with no
-// condition asks for nothing. Whether the group chosen can start a bead now
-// (its limit, its runtime) is not asked here: a group at its limit is
-// waited for, not passed over.
+// provider, and of each source its condition names, only once the groups
+// before it failed theirs: whoever calls decides whether and how they are
+// learned. A group with no condition is judged as if its condition were
+// "<100" (noWindowUsedUp): it takes no bead while a window of its provider
+// is used up, since a session started into one stops on the limit at once.
+// That is for a group that starts agents, which a route with several groups
+// names alone; a caller whose route names a group that starts none passes a
+// nil quota, and nothing is asked: the first group is taken. Whether the
+// group chosen can start a bead now (its limit, its runtime) is not asked
+// here: a group at its limit is waited for, not passed over.
 func (r Route) Choose(quota func(group, source string) Quota) RouteChoice {
 	var c RouteChoice
 	for _, g := range r.Groups() {
 		if g.Name == RouteWait {
 			return c
 		}
-		if g.When == "" {
+		limits := noWindowUsedUp
+		if g.When != "" {
+			// AddRoute stored only what parses; a record that does not is
+			// treated as what cannot be evaluated.
+			parsed, err := ParseQuota(g.When)
+			if err != nil {
+				c.Group, c.Unknown = g.Name, err.Error()
+				return c
+			}
+			limits = parsed
+		} else if quota == nil {
 			c.Group = g.Name
-			return c
-		}
-		// AddRoute stored only what parses; a record that does not is
-		// treated as what cannot be evaluated.
-		limits, err := ParseQuota(g.When)
-		if err != nil {
-			c.Group, c.Unknown = g.Name, err.Error()
 			return c
 		}
 		// Each source a condition names is asked once, "" being the
@@ -824,7 +859,7 @@ func judge(limits []QuotaLimit, quota func(source string) Quota) (failed, unknow
 			}
 		}
 		switch {
-		case seen:
+		case seen, l.Implicit:
 		case l.Label == "":
 			unknown = append(unknown, whose+" report has no windows")
 		default:
