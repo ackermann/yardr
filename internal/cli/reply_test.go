@@ -286,6 +286,20 @@ func testReplyWithFiles(t *testing.T) {
 	}
 
 	names, runs := blobs(), stdinRuns(t, dir, "reply")
+	badName := filepath.Join(t.TempDir(), "bad\nname.png")
+	if err := os.WriteFile(badName, shotBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.replyCmd(), seqs["acme"], "See the shed.", "--file", badName); err == nil || !strings.Contains(err.Error(), "control character") {
+		t.Fatalf("a filename with a control character: %v", err)
+	}
+	if got := blobs(); len(got) != len(names) {
+		t.Fatalf("a refused filename put %d blobs", len(got)-len(names))
+	}
+	if n := stdinRuns(t, dir, "reply"); n != runs {
+		t.Fatalf("a refused filename posted %d times", n-runs)
+	}
+
 	if _, err := run(t, a.replyCmd(), seqs["gp"], "x", "--file", shot); err == nil ||
 		!strings.Contains(err.Error(), "which takes no files") {
 		t.Fatalf("a source without files: %v", err)

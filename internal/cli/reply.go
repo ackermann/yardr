@@ -240,6 +240,12 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 					return err
 				}
 			}
+			for _, path := range replyFiles {
+				name := filepath.Base(path)
+				if err := store.CheckBlobName(name); err != nil {
+					return fmt.Errorf("reply file %q: %w", name, err)
+				}
+			}
 			refs, err := putFiles(ctx, st, replyFiles)
 			if err != nil {
 				return err

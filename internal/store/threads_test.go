@@ -203,6 +203,12 @@ func TestReplying(t *testing.T) {
 		}
 		seen[o.Key] = true
 	}
+	renamed := store.BlobFile{Hash: fa.Hash, Name: "renamed.png"}
+	o, err := s.Replying(ctx, "inv", 7, "", "hello", "inv", renamed)
+	if err != nil || seen[o.Key] || o.Attempts != 1 {
+		t.Fatalf("with the same file under another name: %+v, %v", o, err)
+	}
+	seen[o.Key] = true
 	many := make([]store.BlobFile, store.MaxMailFiles+1)
 	if _, err := s.Replying(ctx, "inv", 7, "", "hello", "inv", many...); err == nil ||
 		!strings.Contains(err.Error(), "a reply carries at most") {

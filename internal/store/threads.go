@@ -147,13 +147,14 @@ type Reply struct {
 func replyKey(member, key string) string { return member + "\x00" + key }
 
 // replyHash identifies one answer to a delivery: the conversation it goes
-// under, its body, and the files it carries, in order, by the hash of
-// their bytes. The same words with other files are another answer.
+// under, its body, and the files it carries, in order, by their content
+// hashes and the names the service shows. The same words with other files
+// or names are another answer.
 func replyHash(to, body string, files []BlobFile) string {
 	h := sha256.New()
 	h.Write([]byte(to + "\x00" + body))
 	for _, f := range files {
-		h.Write([]byte("\x00" + f.Hash))
+		h.Write([]byte("\x00" + f.Hash + "\x00" + f.Name))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
