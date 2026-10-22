@@ -477,6 +477,89 @@ func TestStageAnswerReentry(t *testing.T) {
 	}
 }
 
+// An answer that fires an outcome moves the bead through the same pick as a
+// done, so the outcome's limit redirects it in the answer's write too: the
+// first pick of changes goes back to new, a round; the second, with the one
+// round the limit allows used, goes to decide, the advanced event says why,
+// and new's count starts again with its key. Decide has an ask of its own, and
+// the redirect's event is logged after the advanced event that entered it, so
+// the ask put there names that event as its entry and is not taken for one of
+// an earlier stay.
+func TestStageAnswerAtTheLimit(t *testing.T) {
+	t.Parallel()
+	s, home, ctx := stageAnswerStoreYard(t, stageAskChoice)
+	if err := os.WriteFile(filepath.Join(home, "flows", "work", "decide.md"), []byte(stageAnswerInputNone), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "decide", Group: "reviewers"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := store.ParseFlow("new -> review\nreview -> review | approved on done | new on changes max 1 then decide\napproved -> merged\ndecide -> new | review\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "work"
+	if _, err := s.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pick := func(entry int, stage string, rounds map[string]int) {
+		t.Helper()
+		if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		asks := stageAsks(t, s, b.ID)
+		if len(asks) != 2*entry+2 {
+			t.Fatalf("asks = %d, want %d", len(asks), 2*entry+2)
+		}
+		ask := asks[2*entry]
+		if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: ask.Note.Seq, Option: 2}, ask.Ask.To); err != nil {
+			t.Fatal(err)
+		}
+		if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != stage || !maps.Equal(cur.Rounds, rounds) {
+			t.Fatalf("after pick %d the bead is %+v, %v; want it in %s with rounds %v", entry+1, cur, err, stage, rounds)
+		}
+	}
+	pick(0, "new", map[string]int{"new": 1, "review": 0})
+	pick(1, "decide", map[string]int{"new": 0, "review": 0, "decide": 0})
+
+	evs, err := s.Events(ctx, b.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var moved, reached *store.Event
+	for i, e := range evs {
+		switch {
+		case e.Kind == "advanced" && e.Data["to"] == "decide":
+			moved = &evs[i]
+		case e.Kind == store.RoundsReached:
+			reached = &evs[i]
+		}
+	}
+	if moved == nil || moved.Data["outcome"] != "changes" || moved.Data["from"] != "review" || moved.Data["rounds"] != float64(1) ||
+		moved.Data["max"] != float64(1) || moved.Data["instead_of"] != "new" {
+		t.Fatalf("advanced into decide = %+v, want review -> decide on changes, rounds 1, max 1, instead_of new", moved)
+	}
+	if reached == nil || reached.Seq != moved.Seq+1 || reached.Data["stage"] != "review" || reached.Data["to"] != "new" || reached.Data["then"] != "decide" {
+		t.Fatalf("%s = %+v, want the event after the advanced event (seq %d), for review -> new, then decide", store.RoundsReached, reached, moved.Seq)
+	}
+	var open []store.ResolvedAsk
+	for _, a := range stageAsks(t, s, b.ID) {
+		if a.State == store.AskOpen {
+			open = append(open, a)
+		}
+	}
+	if len(open) != 2 || open[0].Ask.Stage != "decide" || open[0].Ask.Entry != moved.Seq {
+		t.Fatalf("open asks = %+v, want one per member for decide, entered at the advanced event %d", open, moved.Seq)
+	}
+	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: open[0].Note.Seq, Words: "back to new, with a fresh allowance"}, open[0].Ask.To); err != nil {
+		t.Fatalf("the answer to the ask decide put: %v", err)
+	}
+}
+
 // stageAnswerStoreYard is stageAskYard on a store flow, with the yard's home
 // returned so the test can rewrite the template between moves.
 func stageAnswerStoreYard(t *testing.T, reviewFile string) (store.API, string, context.Context) {

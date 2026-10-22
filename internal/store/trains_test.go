@@ -389,6 +389,47 @@ func TestWagonNeedsATrain(t *testing.T) {
 		t.Fatalf("back to backlog: %+v, %v", b, err)
 	}
 
+	// A limit is held to the same, at the stage it redirects to. Retry sends
+	// a wagon back to where it started, which a wagon with no train may
+	// make; once its one round is used it sends the wagon to decide instead,
+	// which that wagon may not, so the outcome is refused and the count, the
+	// stage and the log stay as they were.
+	limited, err := store.ParseFlow("backlog -> new\nnew -> approved on done | backlog on retry max 1 then decide\napproved -> merged\ndecide -> backlog | new\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited.Name = "web.wagon"
+	if _, err := s.PutFlow(ctx, *limited, "me"); err != nil {
+		t.Fatal(err)
+	}
+	inNewWithoutATrain := func() {
+		t.Helper()
+		if err := s.AddDep(ctx, "web-e", "web-p", store.DepParent, "", "", "me"); err != nil {
+			t.Fatal(err)
+		}
+		if b, err := s.Advance(ctx, "web-p", "new", store.Expect{}, "me"); err != nil || b.Stage != "new" {
+			t.Fatalf("a wagon of a train: %+v, %v", b, err)
+		}
+		if err := s.RemoveDep(ctx, "web-e", "web-p", store.DepParent, "", "", "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inNewWithoutATrain()
+	if b, err := s.Done(ctx, "web-p", "retry", "", store.Expect{}, "me"); err != nil || b.Stage != "backlog" || b.Rounds["backlog"] != 1 {
+		t.Fatalf("retry under its limit: %+v, %v; want the wagon back in backlog, a round counted", b, err)
+	}
+	inNewWithoutATrain()
+	before, err := s.Events(ctx, "web-p", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Done(ctx, "web-p", "retry", "", store.Expect{}, "me")
+	refused(err)
+	after, err := s.Events(ctx, "web-p", 50)
+	if b, _ := s.GetBead(ctx, "web-p"); err != nil || b.Stage != "new" || b.Rounds["backlog"] != 1 || len(after) != len(before) {
+		t.Fatalf("the refused redirect left %+v and %d events (was %d), %v", b, len(after), len(before), err)
+	}
+
 	// Other types are not held to it, and a wagon no flow governs has no
 	// first stage to stay in: the dispatcher keeps that one from being worked.
 	if _, err := s.Advance(ctx, "web-1", "review", store.Expect{}, "me"); err != nil {

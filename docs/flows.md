@@ -319,11 +319,39 @@ as a repo flow that does not parse, when a limit:
   would make it name a stage the bead does not reach; a limit belongs on an
   outcome that sends work back.
 
-yardr reads, checks, stores and shows these words. It counts a bead's rounds
-(`rounds` in `yardr bead show --json`: for each stage the bead has reached, how
-many times an outcome brought it back to that stage; a move by hand adds
-none), but does not yet send a bead to `then`, so a limit changes no bead's
-route until it does.
+yardr counts a bead's rounds (`rounds` in `yardr bead show --json`: for each
+stage the bead has reached, how many times an outcome brought it back to that
+stage, a same-stage outcome included; a move by hand adds none) and sends it to
+`then` once they are used. The count is the stage's, whichever outcomes made
+it: `changes` from review and `failed` from the assembly, both back to `new`,
+add to one count for `new`, and each one's limit reads it. An outcome whose
+stage has a count of its `max` or more sends the bead to `then` instead. It is
+"or more" because two outcomes back to one stage may carry different limits
+(`changes max 2` and `failed max 3`, both to `draft`): the higher one can raise
+the count past the lower, and the lower still sends the bead on. In the same
+write:
+
+- the `advanced` event has `"to"` as `then`, and beside `"outcome"` three
+  fields: `"rounds"`, the count; `"max"`; and `"instead_of"`, the stage the
+  bead did not go back to;
+- the count for that stage starts again at zero, and keeps its key. A person
+  who sends the bead back (`yardr bead advance --to`) has granted it a fresh
+  allowance by doing so. Nothing else resets a count: a bead that asks a
+  question in the middle of a loop (`question`, to `decide`) keeps it, so
+  asking once a round does not keep the bead going;
+- a `rounds_reached` event is logged on the bead, of the class `attention`
+  ([subscriptions.md](subscriptions.md#the-class-attention)), by `yard`, with
+  `"stage"` (where the outcome was reported), `"outcome"`, `"rounds"`, `"to"`
+  (the stage the bead did not go back to) and `"then"`.
+
+The bead is not held: it is moved, and a `then` that people work stops the
+sessions on its own (`decide`, in the starter flow). The note given with the
+outcome is attached as usual, so whoever the bead goes to reads why the last
+round was asked for. The move is made as any other is: only members of the
+stage's group may move a bead out of it, and a wagon with no train may not be
+put in any stage but its flow's first. A refusal leaves the count and the
+stage as they were, and a stage ask answered with a pick that fires a limited
+outcome redirects the bead the same way.
 
 ### done-safe and the security paths
 

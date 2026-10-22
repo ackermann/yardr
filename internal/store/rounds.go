@@ -42,3 +42,13 @@ func (b *beadRow) enter(stage string, byOutcome bool) {
 	}
 	b.Rounds[stage] = rounds
 }
+
+// restart sets the count for stage back to zero and keeps its key, as a limit
+// does that has sent the bead on instead: the rounds are used, and whoever
+// sends the bead back to stage then has granted it a fresh allowance by doing
+// so. Nothing else resets a count, a question to a person mid-loop included,
+// so a bead cannot go round for ever by asking once a round. The key stays
+// because it is what makes a later outcome into the stage a return.
+func (b *beadRow) restart(stage string) {
+	b.Rounds[stage] = 0
+}

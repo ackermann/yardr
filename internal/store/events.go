@@ -158,6 +158,14 @@ const (
 	RolledBack    = "rolled_back"
 )
 
+// RoundsReached is the event a move logs on its bead when the limit of the
+// outcome reported (Outcome.Max) has been used and the bead went to the
+// outcome's Then instead: stage it was reported from, outcome, rounds counted
+// for the stage it would have gone back to (to), and then, where it went. It
+// is the store's own, written in the move's write, and is not a DispatchKind:
+// a client of the socket could otherwise log a redirect that never happened.
+const RoundsReached = "rounds_reached"
+
 // DispatchKinds are the events LogDispatch accepts: what the daemon and its
 // runners report about the work they supervise, none of which changes state.
 // move_refused is the store's own (see Store.refused) and is here as what

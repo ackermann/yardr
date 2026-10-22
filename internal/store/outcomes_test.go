@@ -407,6 +407,192 @@ func TestDone(t *testing.T) {
 	if got, err := s.Done(ctx, l.ID, "changes", "", store.Expect{}, "me"); err != nil || got.Stage != past || !maps.Equal(got.Rounds, want) {
 		t.Fatalf("changes back to %s = %+v, %v; want the round counted: %v", past, got, err, want)
 	}
+
+	// A limit on an outcome: once the rounds back to its stage are used, the
+	// outcome sends the bead to its then instead. The flow has the design
+	// pack's shape, two outcomes back to draft with different limits that
+	// both add to draft's one count.
+	putFlow(t, s, "yard", "design", `
+draft    -> critique on done
+critique -> approved on done | draft on changes max 2 then decide | decide on question
+approved -> merged on done | draft on failed max 3 then decide
+decide   -> draft | critique
+merged terminal
+`)
+	d, err := s.CreateBead(ctx, store.NewBead{Title: "design", Depot: "yard", Type: "design"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := func(id, outcome, stage string) *store.Bead {
+		t.Helper()
+		got, err := s.Done(ctx, id, outcome, "", store.Expect{}, "me")
+		if err != nil || got.Stage != stage {
+			t.Fatalf("%s on %s = %+v, %v; want the bead in %s", outcome, id, got, err, stage)
+		}
+		return got
+	}
+	hand := func(id, stage string) {
+		t.Helper()
+		if _, err := s.Advance(ctx, id, stage, store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// draftRounds is draft's count, read back, and that it has its key.
+	draftRounds := func(want int) {
+		t.Helper()
+		got, err := s.GetBead(ctx, d.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n, ok := got.Rounds["draft"]; !ok || n != want {
+			t.Fatalf("draft's count = %d (key %v); want %d", n, ok, want)
+		}
+	}
+	// lastMove is the data of the bead's advanced event into stage, the
+	// latest, and the kinds of the events after it.
+	lastMove := func(id, stage string) (map[string]any, []string) {
+		t.Helper()
+		evs, err := s.Events(ctx, id, 50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := len(evs) - 1; i >= 0; i-- {
+			if evs[i].Kind == "advanced" && evs[i].Data["to"] == stage {
+				var after []string
+				for _, e := range evs[i+1:] {
+					after = append(after, e.Kind)
+				}
+				return evs[i].Data, after
+			}
+		}
+		t.Fatalf("no advanced event into %s: %+v", stage, evs)
+		return nil, nil
+	}
+
+	// Three failed landings, each back to draft, are allowed by approved's
+	// max 3 (the count is 0, 1, 2 before them) and leave draft's count at 3.
+	// A move below the limit says nothing of it.
+	report(d.ID, "done", "critique")
+	report(d.ID, "done", "approved")
+	for i := 1; i <= 3; i++ {
+		report(d.ID, "failed", "draft")
+		draftRounds(i)
+		report(d.ID, "done", "critique")
+		if i < 3 {
+			report(d.ID, "done", "approved")
+		}
+	}
+	if move, after := lastMove(d.ID, "draft"); move["outcome"] != "failed" || move["instead_of"] != nil || move["rounds"] != nil || move["max"] != nil || slices.Contains(after, store.RoundsReached) {
+		t.Fatalf("a failed landing under its limit left %v and then %v", move, after)
+	}
+
+	// Critique's changes allows 2, and the count is 3: raised past it by
+	// the other edge. An equality test would compare 3 with 2, miss, and send
+	// the bead round again; "at least" redirects. The advanced event says why,
+	// draft's count is zero with its key, and the yard tells whoever hears
+	// attention, in the same write.
+	got = report(d.ID, "changes", "decide")
+	if n, ok := got.Rounds["draft"]; !ok || n != 0 || got.Rounds["decide"] != 0 {
+		t.Fatalf("rounds after the redirect = %v, want draft at zero with its key", got.Rounds)
+	}
+	draftRounds(0)
+	move, after := lastMove(d.ID, "decide")
+	if move["from"] != "critique" || move["outcome"] != "changes" || move["rounds"] != float64(3) || move["max"] != float64(2) || move["instead_of"] != "draft" {
+		t.Fatalf("the redirect's advanced event = %v, want critique -> decide on changes, rounds 3, max 2, instead_of draft", move)
+	}
+	if !slices.Equal(after, []string{store.RoundsReached}) {
+		t.Fatalf("events after the redirect's advanced = %v, want %s alone", after, store.RoundsReached)
+	}
+	evs, err = s.Events(ctx, d.ID, 1)
+	if err != nil || len(evs) != 1 || evs[0].Kind != store.RoundsReached || evs[0].Actor != "yard" {
+		t.Fatalf("last event = %+v, %v", evs, err)
+	}
+	for k, v := range map[string]any{"stage": "critique", "outcome": "changes", "rounds": float64(3), "to": "draft", "then": "decide"} {
+		if evs[0].Data[k] != v {
+			t.Fatalf("%s carries %v, want %s %v", store.RoundsReached, evs[0].Data, k, v)
+		}
+	}
+	if !slices.Contains(store.AttentionKinds, store.RoundsReached) {
+		t.Fatalf("%s is not of the class attention: %v", store.RoundsReached, store.AttentionKinds)
+	}
+
+	// A person sends it back to draft, which adds nothing: a fresh
+	// allowance. The limit is reached exactly at its max, 2; and a question
+	// to decide between the two rounds leaves the count where it was, so
+	// asking once a round does not keep a bead going.
+	hand(d.ID, "draft")
+	draftRounds(0)
+	report(d.ID, "done", "critique")
+	report(d.ID, "changes", "draft")
+	draftRounds(1)
+	report(d.ID, "done", "critique")
+	report(d.ID, "question", "decide")
+	draftRounds(1)
+	hand(d.ID, "critique")
+	report(d.ID, "changes", "draft")
+	draftRounds(2)
+	report(d.ID, "done", "critique")
+	report(d.ID, "changes", "decide")
+	draftRounds(0)
+	if move, _ := lastMove(d.ID, "decide"); move["rounds"] != float64(2) || move["max"] != float64(2) || move["instead_of"] != "draft" {
+		t.Fatalf("the redirect at exactly max: advanced event = %v, want rounds 2, max 2, instead_of draft", move)
+	}
+
+	// A redirect is a move like any other: what refuses it leaves the count,
+	// the stage and the log as they were. Stage check is worked by a group
+	// whose member may move a bead out of it, and no one else.
+	putFlow(t, s, "yard", "gate", "work -> check on done\ncheck -> work on again max 1 then decide | merged on done\ndecide -> work | check\nmerged terminal\n")
+	if err := s.PutGroup(ctx, store.Group{Name: "checkers", Runner: "manual", Members: []string{"rev"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "check", Group: "checkers"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	g, err := s.CreateBead(ctx, store.NewBead{Title: "gate", Depot: "yard", Type: "gate"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ outcome, by, stage string }{{"done", "me", "check"}, {"again", "rev", "work"}, {"done", "me", "check"}} {
+		if got, err := s.Done(ctx, g.ID, step.outcome, "", store.Expect{}, step.by); err != nil || got.Stage != step.stage {
+			t.Fatalf("%s by %s = %+v, %v; want the bead in %s", step.outcome, step.by, got, err, step.stage)
+		}
+	}
+	before, err := s.Events(ctx, g.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Done(ctx, g.ID, "again", "back it goes", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "only members of group checkers may move it out of stage check") {
+		t.Fatalf("again at its limit by a non-member: %v", err)
+	}
+	cur, err := s.GetBead(ctx, g.ID)
+	after2, err2 := s.Events(ctx, g.ID, 50)
+	if err != nil || err2 != nil || cur.Stage != "check" || cur.Rounds["work"] != 1 || len(after2) != len(before) {
+		t.Fatalf("the refused redirect left stage %s, rounds %v, %d events (was %d): %v %v", cur.Stage, cur.Rounds, len(after2), len(before), err, err2)
+	}
+	if notes, _ := s.Notes(ctx, g.ID); len(notes) != 0 {
+		t.Fatalf("the refused redirect left a note: %+v", notes)
+	}
+	if got, err := s.Done(ctx, g.ID, "again", "", store.Expect{}, "rev"); err != nil || got.Stage != "decide" || got.Rounds["work"] != 0 {
+		t.Fatalf("again at its limit by a member = %+v, %v; want the bead in decide, work's count at zero", got, err)
+	}
+
+	// A then that closes the bead closes it in the same write, with the
+	// stage as its reason, after the two events of the redirect.
+	putFlow(t, s, "yard", "loop", "make -> test on done\ntest -> make on again max 1 then abandoned\nabandoned terminal\n")
+	c, err := s.CreateBead(ctx, store.NewBead{Title: "loop", Depot: "yard", Type: "loop"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ outcome, stage string }{{"done", "test"}, {"again", "make"}, {"done", "test"}} {
+		report(c.ID, step.outcome, step.stage)
+	}
+	got = report(c.ID, "again", "abandoned")
+	if got.Status != "closed" || got.CloseReason == nil || *got.CloseReason != "abandoned" {
+		t.Fatalf("again at its limit, then abandoned = %+v; want the bead closed with that reason", got)
+	}
+	if evs, err = s.Events(ctx, c.ID, 3); err != nil || len(evs) != 3 || evs[0].Kind != "advanced" || evs[1].Kind != store.RoundsReached || evs[2].Kind != "closed" {
+		t.Fatalf("last events = %+v, %v; want advanced, %s, closed", evs, err, store.RoundsReached)
+	}
 }
 
 // A bead no flow governs has no outcomes; the error says to advance.

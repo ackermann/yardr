@@ -1579,15 +1579,18 @@ func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, 
 
 // donePick reports outcome through the flow governing the bead, as Done
 // does: the stage it sends a bead in its stage to, with the outcome on the
-// event. A report of DoneSafe that safe holds (checkDoneSafe) is refused
-// once the flow has the outcome. An answer on a stage ask moves the bead
-// through the same pick, with no safe: a person answers it.
+// event. An outcome whose limit the bead's rounds have used sends it to the
+// limit's Then instead, and the event says so (rounds, max, instead_of); move
+// starts the count again and logs rounds_reached. A report of DoneSafe that
+// safe holds (checkDoneSafe) is refused once the flow has the outcome. An
+// answer on a stage ask moves the bead through the same pick, with no safe: a
+// person answers it.
 func donePick(outcome string, safe *safeCheck) func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 	return func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		if f == nil {
 			return "", fmt.Errorf("bead %s: no flow governs it, so it has no outcomes; move it with yardr bead advance %s --to <stage>", b.ID, b.ID)
 		}
-		to, err := f.Resolve(b.Stage, outcome)
+		o, err := f.Outcome(b.Stage, outcome)
 		if err != nil {
 			return "", fmt.Errorf("bead %s: %w", b.ID, err)
 		}
@@ -1595,7 +1598,17 @@ func donePick(outcome string, safe *safeCheck) func(f *Flow, b *beadRow, data ma
 			return "", err
 		}
 		data["outcome"] = outcome
-		return to, nil
+		// At least Max, not exactly: two outcomes into one stage may carry
+		// different limits and both add to the stage's one count, so the
+		// higher limit's edge can raise it past a lower one's, and an
+		// equality would let the bead go round past that limit for as long
+		// as the count stays above it. Max is 1 or more, so a count that
+		// reaches it is one the stage has a key for: the bead has been there.
+		if rounds := b.Rounds[o.To]; o.Max > 0 && rounds >= o.Max {
+			data["rounds"], data["max"], data["instead_of"] = rounds, o.Max, o.To
+			return o.Then, nil
+		}
+		return o.To, nil
 	}
 }
 
@@ -1740,7 +1753,7 @@ func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *
 // group: nil for a move that is the yard's own and nobody's to refuse, the
 // one a note from another yard sends its bead back with (noteBack).
 func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(*Group, *beadRow) error, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
-	var from, stage, outcome string
+	var from, stage, outcome, insteadOf string
 	var terminal bool
 	var f *Flow
 	var src *FlowSource
@@ -1759,6 +1772,7 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 		}
 		data["to"] = stage
 		outcome, _ = data["outcome"].(string)
+		insteadOf, _ = data["instead_of"].(string)
 		savedData = data
 		if err := checkWagon(w.Tx, f, b, stage); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
@@ -1778,6 +1792,12 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 		// person's or the yard's, adds none (see rounds.go). Before
 		// exitStay, which lists the stage as visited.
 		b.enter(stage, outcome != "")
+		// A limit that sent the bead on has used its rounds: the stage it
+		// kept the bead from starts its count again, with its key (see
+		// rounds.go).
+		if insteadOf != "" {
+			b.restart(insteadOf)
+		}
 		// A same-stage move that ends no session is a fresh stay and clears
 		// the failures. With nothing else changed it is written further
 		// down, which clears them; a round changes the bead, so the move is
@@ -1832,6 +1852,18 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 		}
 	}
 	entry := w.Bucket(bEvents).Sequence()
+	// The limit that sent the bead on is told to whoever hears attention, in
+	// the write of the move it explains: after entry, which must stay the
+	// advanced event's seq for the stage asks put below, and by the yard,
+	// which held the bead to the flow's limit (the advanced event has who
+	// reported the outcome).
+	if insteadOf != "" {
+		if err := w.event(b.UUID, RoundsReached, "yard", map[string]any{
+			"stage": from, "outcome": outcome, "rounds": savedData["rounds"], "to": insteadOf, "then": stage,
+		}); err != nil {
+			return b, err
+		}
+	}
 	// Leaving the stage takes the stage's open and put-aside asks back,
 	// with the move named; a same-stage transition takes its own back
 	// before asking fresh.

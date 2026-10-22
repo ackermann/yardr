@@ -503,10 +503,13 @@ note neither delivery took: see "Done waits for unread notes" in
 the previous build back) and `hook_quiet` (a hook that used to deliver
 delivered nothing for longer than its usual gap: [below](#a-quiet-hook)),
 `quiet_failed` (a whole-suite run on a quiet machine found its
-depot's base red: [testing.md](testing.md)), and `base_diverged` (a
+depot's base red: [testing.md](testing.md)), `base_diverged` (a
 depot's local base moved both here and on its upstream, so the bead
 branched from the base as it is:
-[configuration.md](configuration.md#session-limits-and-outages)).
+[configuration.md](configuration.md#session-limits-and-outages)) and
+`rounds_reached` (a bead went round a loop of its flow as often as an
+outcome's limit allows and was sent to the stage the limit names:
+[flows.md](flows.md#a-limit-on-rounds)).
 The list is yardr's, one for the yard and
 every release's own: no command changes it.
 

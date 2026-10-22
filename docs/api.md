@@ -223,7 +223,8 @@ when it is about one), and `data`, an object whose fields
 depend on the kind and which is absent when there are none. The events a
 chat client acts on are these; it passes over every other kind. A decisions
 client acts on `noted`, and reads a bead it shows again on every event
-whose `bead` is that bead.
+whose `bead` is that bead; it can say why a bead came to a person from
+`rounds_reached` and the `advanced` event with `instead_of` before it.
 
 <!-- events: made by the test of internal/rpc from the stream of a yard, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/rpc -run TestAPIDoc writes it again -->
 
@@ -276,7 +277,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 143,
+  "seq": 151,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -304,7 +305,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 145,
+  "seq": 153,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -380,7 +381,7 @@ A crew member's session sat down at its harness's login screen or left it, or th
 
 ```json
 {
-  "seq": 132,
+  "seq": 140,
   "kind": "crew_login",
   "data": {
     "crew": "signalman",
@@ -424,11 +425,11 @@ The yard fetched the files of a kept hook delivery and recorded them: [`Delivery
 
 ```json
 {
-  "seq": 140,
+  "seq": 148,
   "kind": "hook_files",
   "actor": "hook:telegram",
   "data": {
-    "seq": 139
+    "seq": 147
   },
   "at": "2026-10-08T09:30:00Z"
 }
@@ -448,7 +449,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 146,
+  "seq": 154,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -520,6 +521,76 @@ A bead closed, by an explicit close or by entering a terminal stage of its flow.
 | `data.reason` | string | why: the reason the close named, or the terminal stage it entered |
 | `data.group` | string, may be absent | the group whose work ended; absent when no group held the bead |
 | `data.originator` | string, may be absent | whose bead it was, the user the bead was for; absent when the bead names none |
+
+### A bead was sent on by a round limit: `advanced` with `instead_of`
+
+An outcome of the bead's flow that limits how often it sends the bead back (`max n then <stage>`) was reported with its rounds used, and the bead went to the stage `then` names instead of the one the outcome leads to. It is the bead's `advanced` event, with `data.rounds`, `data.max` and `data.instead_of` beside the `data.from`, `data.to` and `data.outcome` of a move by an outcome; a `rounds_reached` event follows it. Read `Bead` again when `bead` is one shown: its `rounds` for `data.instead_of` is zero again.
+
+```json
+{
+  "seq": 102,
+  "bead": "yd-hedge",
+  "kind": "advanced",
+  "actor": "yardmaster",
+  "data": {
+    "from": "critique",
+    "instead_of": "draft",
+    "max": 1,
+    "outcome": "changes",
+    "rounds": 1,
+    "to": "abandoned"
+  },
+  "at": "2026-10-08T09:30:00Z"
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `advanced` |
+| `bead` | string | the bead that moved: a handle |
+| `actor` | string | who reported the outcome |
+| `at` | time | when |
+| `data.from` | string | the stage the outcome was reported from |
+| `data.to` | string | the stage the bead went to: the outcome's `then` |
+| `data.outcome` | string | the outcome reported |
+| `data.rounds` | number | the rounds counted for `data.instead_of`: the outcome's `data.max` or more, which is more when another outcome into that stage, with a higher limit, raised the count |
+| `data.max` | number | the outcome's limit |
+| `data.instead_of` | string | the stage the outcome leads to, which the bead did not go back to |
+
+### A bead reached its round limit: `rounds_reached`
+
+The limit of an outcome reported on the bead was used, and the bead went to the stage the limit names instead: the `advanced` event just before it says where. It is of the class `attention`, so a crew member that hears the class, and a subscription to it, has it. A person who sends the bead back to `data.to` has granted it a fresh allowance by doing so.
+
+```json
+{
+  "seq": 103,
+  "bead": "yd-hedge",
+  "kind": "rounds_reached",
+  "actor": "yard",
+  "data": {
+    "outcome": "changes",
+    "rounds": 1,
+    "stage": "critique",
+    "then": "abandoned",
+    "to": "draft"
+  },
+  "at": "2026-10-08T09:30:00Z"
+}
+```
+
+| field | type | |
+|---|---|---|
+| `seq` | number | the event's seq |
+| `kind` | string | `rounds_reached` |
+| `bead` | string | the bead: a handle |
+| `actor` | string | `yard` |
+| `at` | time | when |
+| `data.stage` | string | the stage the outcome was reported from |
+| `data.outcome` | string | the outcome reported |
+| `data.rounds` | number | the rounds counted for `data.to`: the outcome's limit or more |
+| `data.to` | string | the stage the outcome leads to, which the bead did not go back to |
+| `data.then` | string | the stage the bead went to instead |
 
 <!-- /events -->
 
@@ -884,7 +955,7 @@ POST /call/Head
 {}
 
 {
-  "result": 140
+  "result": 148
 }
 ```
 
@@ -1378,7 +1449,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 141,
+      "seq": 149,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1386,7 +1457,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 142,
+      "seq": 150,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1412,7 +1483,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 141,
+      "seq": 149,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1420,7 +1491,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 142,
+      "seq": 150,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1447,7 +1518,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 143,
+      "seq": 151,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -4523,7 +4594,7 @@ The files a kept hook delivery carried, as the yard fetched them: a photo, a doc
 
 ```
 POST /call/DeliveryFiles
-{"seq":139}
+{"seq":147}
 
 {
   "result": [

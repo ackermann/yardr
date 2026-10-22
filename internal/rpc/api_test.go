@@ -962,6 +962,44 @@ var apiEvents = []apiEvent{
 			{"data.originator", "string?", "whose bead it was, the user the bead was for; absent when the bead names none"},
 		},
 	},
+	{
+		title: "A bead was sent on by a round limit: `advanced` with `instead_of`",
+		says:  "An outcome of the bead's flow that limits how often it sends the bead back (`max n then <stage>`) was reported with its rounds used, and the bead went to the stage `then` names instead of the one the outcome leads to. It is the bead's `advanced` event, with `data.rounds`, `data.max` and `data.instead_of` beside the `data.from`, `data.to` and `data.outcome` of a move by an outcome; a `rounds_reached` event follows it. Read `Bead` again when `bead` is one shown: its `rounds` for `data.instead_of` is zero again.",
+		is: func(e store.Event) bool {
+			_, instead := e.Data["instead_of"]
+			return e.Kind == "advanced" && instead
+		},
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`advanced`"},
+			{"bead", "string", "the bead that moved: a handle"},
+			{"actor", "string", "who reported the outcome"},
+			{"at", "time", "when"},
+			{"data.from", "string", "the stage the outcome was reported from"},
+			{"data.to", "string", "the stage the bead went to: the outcome's `then`"},
+			{"data.outcome", "string", "the outcome reported"},
+			{"data.rounds", "number", "the rounds counted for `data.instead_of`: the outcome's `data.max` or more, which is more when another outcome into that stage, with a higher limit, raised the count"},
+			{"data.max", "number", "the outcome's limit"},
+			{"data.instead_of", "string", "the stage the outcome leads to, which the bead did not go back to"},
+		},
+	},
+	{
+		title: "A bead reached its round limit: `rounds_reached`",
+		says:  "The limit of an outcome reported on the bead was used, and the bead went to the stage the limit names instead: the `advanced` event just before it says where. It is of the class `attention`, so a crew member that hears the class, and a subscription to it, has it. A person who sends the bead back to `data.to` has granted it a fresh allowance by doing so.",
+		is:    kindOf("rounds_reached"),
+		fields: []field{
+			{"seq", "number", "the event's seq"},
+			{"kind", "string", "`rounds_reached`"},
+			{"bead", "string", "the bead: a handle"},
+			{"actor", "string", "`yard`"},
+			{"at", "time", "when"},
+			{"data.stage", "string", "the stage the outcome was reported from"},
+			{"data.outcome", "string", "the outcome reported"},
+			{"data.rounds", "number", "the rounds counted for `data.to`: the outcome's limit or more"},
+			{"data.to", "string", "the stage the outcome leads to, which the bead did not go back to"},
+			{"data.then", "string", "the stage the bead went to instead"},
+		},
+	},
 }
 
 // apiErrors are the requests the doc shows refused, each with why.
@@ -1324,6 +1362,21 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.CloseBead(ctx, swept.ID, "done", store.Expect{}, "jo")
 	must(err)
+	// A bead that went round a loop of its flow as often as the flow allows,
+	// so the stream has the events that say so. Its flow ends in a stage that
+	// closes, so it travels on no board of the doc. Last again, for the seqs
+	// above.
+	loop, err := store.ParseFlow("draft -> critique on done\ncritique -> draft on changes max 1 then abandoned\nabandoned terminal\n")
+	must(err)
+	loop.Name = "loop"
+	_, err = st.PutFlow(ctx, *loop, "jo")
+	must(err)
+	hedge, err := st.CreateBead(ctx, store.NewBead{Title: "Trim the hedge", ID: "yd-hedge", Metadata: map[string]any{"flow": "loop"}}, "yardmaster")
+	must(err)
+	for _, outcome := range []string{"done", "changes", "done", "changes"} {
+		_, err = st.Done(ctx, hedge.ID, outcome, "", store.Expect{}, "yardmaster")
+		must(err)
+	}
 	// The pack a setup ask of the doc sets up: one minted source the yard
 	// does not hold, with two presets over its calls. An existing matching
 	// source gives the card a candidate for the API contract to show.

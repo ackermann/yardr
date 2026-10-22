@@ -1031,16 +1031,19 @@ const KindAttention = "attention"
 // that stops arriving is otherwise found only by asking why nothing came,
 // quiet_failed because a red base has no bead to send back,
 // make_refused because a makes line the store refuses makes no bead and is
-// otherwise found only when someone asks why nothing was made, and
+// otherwise found only when someone asks why nothing was made,
 // base_diverged because a base that moved both here and on its remote
-// needs someone to join the two by hand.
+// needs someone to join the two by hand, and rounds_reached because a bead
+// that went round a loop of its flow as often as the flow allows is sent to
+// the stage the flow names, usually a person's, and is otherwise found only
+// by whoever looks there.
 // A kind added here reaches every crew member and subscription that names
 // the class, whenever it was made: the name is what is stored, and it is
 // resolved when an event is matched.
 var AttentionKinds = []string{"gave_up", "session_blocked", "unrouted", "stranded", "no_runner", "workspace_kept",
 	"crew_gave_up", "runtime_down", "session_idle", "session_aged", "session_stalled",
 	"session_harness_error", "session_harness_dialog", "session_model_mismatch", "session_prompt_gave_up", "move_refused", "make_refused", "held", "waited", "nudge_held", "backup_failed",
-	"note_untold", "install_failed", "rolled_back", HookQuiet, QuietFailed, "base_diverged"}
+	"note_untold", "install_failed", "rolled_back", HookQuiet, QuietFailed, "base_diverged", RoundsReached}
 
 // KindsOf are the kinds word names where a kind is given: those of the
 // class when it is the class's name, else the one kind.
