@@ -1027,17 +1027,18 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 
 // deviceEvent is the event e as the device c is sent it, and whether it is
 // sent at all: as it is, but for a setting_changed, which carries its
-// value only for a setting the device is told (deviceTold), a source_set,
-// which carries the file it points the source at only for a device of the
-// operator, and but for mail, which goes out only to its sender or its
-// receiver. The key of a setting is always told: a device matches on it
-// alone for what it reads again, and the values it is not told stay on the
-// yard's own machine with the settings themselves; the source of a
-// source_set is told as the key is. A hook delivery goes out to every device,
-// as a bead's events do: it is the yard's news, told to no one user, and
-// whose subscriptions it reached is on the event. So does the hook_files
-// that says its files are recorded: DeliveryFiles and the blob route serve
-// them to every device, so the event that tells of them is sent to every one.
+// value only for a setting the device is told (deviceTold), but for a
+// source_set, which carries the file it points the source at only for a
+// device of the operator, and but for mail, which goes out only to its
+// sender or its receiver. The key of a setting is always told: a device
+// matches on it alone for what it reads again, and the values it is not
+// told stay on the yard's own machine with the settings themselves; the
+// source of a source_set is told as the key is. A hook delivery goes out
+// to every device, as a bead's events do: it is the yard's news, told to no
+// one user, and whose subscriptions it reached is on the event. So does the
+// hook_files that says its files are recorded: DeliveryFiles and the blob
+// route serve them to every device, so the event that tells of them is sent
+// to every one.
 func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) (store.Event, bool) {
 	switch e.Kind {
 	case "mail":
@@ -1076,10 +1077,10 @@ func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) 
 		return e, true
 	case "source_set":
 		// The file a source was pointed at is the operator's configuration, and
-		// where a setup took a candidate it is the file of another account.
-		// Who the operator is is read now, as for their words, so that a replay
-		// and a change of operator move with it; the source stays, as a
-		// setting's key does.
+		// where a setup took a candidate it is the file of another account. The
+		// operator is read now, as for their words, so that a replay and a
+		// change of operator move with it; the source stays, as a setting's key
+		// does.
 		operator := ""
 		if all, err := u.st.Settings(ctx); err == nil {
 			operator = all[store.OperatorSetting]
