@@ -830,7 +830,9 @@ groups:
 }
 
 // A flow the yard holds under the pack's name with other rules is shown
-// stage by stage.
+// stage by stage. A limit on rounds is part of its stage's line, so one
+// added, one changed once the yard has it and one dropped each show, and the
+// same limit again shows nothing.
 func TestChangedFlowIsShownByStage(t *testing.T) {
 	st, o := yard(t)
 	apply(t, st, build(t, st, load(t, starter), o), answers)
@@ -844,6 +846,36 @@ func TestChangedFlowIsShownByStage(t *testing.T) {
 	f := find(t, plan, "flow", "starter.default")
 	if want := []pack.Diff{{Field: "stage decide", Old: "-> backlog | new", New: "-> backlog"}}; f.Action != pack.Change || !reflect.DeepEqual(f.Changes, want) {
 		t.Fatalf("flow = %s %v", f.Action, f.Changes)
+	}
+
+	// The train's review, where the starter sets no limit: its changes go
+	// back to open, and with a limit go to decide after max rounds.
+	review := func(changes string) pack.Object {
+		d := copyStarter(t)
+		edit(t, d, "outcomes: { done: review-security, changes: open, question: decide }", "outcomes: { done: review-security, changes: "+changes+", question: decide }")
+		plan := build(t, st, load(t, d), o)
+		return find(t, plan, "flow", "starter.train")
+	}
+	line := func(limit string) string {
+		return "-> review-security on done | open on changes" + limit + " | decide on question"
+	}
+	limited := func(rounds int) string { return fmt.Sprintf("{ to: open, max: %d, then: decide }", rounds) }
+	added := review(limited(3))
+	if want := []pack.Diff{{Field: "stage review", Old: line(""), New: line(" max 3 then decide")}}; added.Action != pack.Change || !reflect.DeepEqual(added.Changes, want) {
+		t.Fatalf("a limit added: train = %s %v, want %v", added.Action, added.Changes, want)
+	}
+	if _, err := st.PutFlow(ctx, *added.Flow, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if same := review(limited(3)); same.Action != pack.Unchanged || len(same.Changes) != 0 {
+		t.Fatalf("the same limit again: train = %s %v", same.Action, same.Changes)
+	}
+	lowered, dropped := review(limited(2)), review("open")
+	if want := []pack.Diff{{Field: "stage review", Old: line(" max 3 then decide"), New: line(" max 2 then decide")}}; !reflect.DeepEqual(lowered.Changes, want) {
+		t.Fatalf("a limit changed: train = %v, want %v", lowered.Changes, want)
+	}
+	if want := []pack.Diff{{Field: "stage review", Old: line(" max 3 then decide"), New: line("")}}; !reflect.DeepEqual(dropped.Changes, want) {
+		t.Fatalf("a limit dropped: train = %v, want %v", dropped.Changes, want)
 	}
 }
 

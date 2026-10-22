@@ -110,6 +110,21 @@ func TestExportRoundTrip(t *testing.T) {
 	if _, err := st.AddRoute(ctx, store.Route{Stage: "review", Depot: &depot, Group: "web-testers", Priority: 9}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// A limit on rounds, set by hand: review's changes go to decide after
+	// three rounds back to new (decide is also where its question goes), and
+	// review-security's to backlog after two, a stage nothing else of
+	// review-security leads to.
+	flow, err := st.GetFlow(ctx, "starter.default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for stage, lim := range map[string]store.Outcome{"review": {Max: 3, Then: "decide"}, "review-security": {Max: 2, Then: "backlog"}} {
+		i := slices.IndexFunc(flow.Outcomes[stage], func(o store.Outcome) bool { return o.Name == "changes" })
+		flow.Outcomes[stage][i].Max, flow.Outcomes[stage][i].Then = lim.Max, lim.Then
+	}
+	if _, err := st.PutFlow(ctx, *flow, "me"); err != nil {
+		t.Fatal(err)
+	}
 
 	ex, d1 := export(t, st, "web", o.Home, "mine")
 	p := load(t, d1)
@@ -137,6 +152,25 @@ func TestExportRoundTrip(t *testing.T) {
 	review := p.Flows[0].Stages[slices.IndexFunc(p.Flows[0].Stages, func(s pack.Stage) bool { return s.Name == "review" })]
 	if review.Group != "testers" || review.File != "flows/default/review.md" || len(review.Outcomes) != 4 {
 		t.Errorf("stage review = %+v, want the route that wins it today (testers)", review)
+	}
+	// A limit is written as the mapping and an outcome without one as its
+	// stage alone; the stage only a limit sends beads to is no manual move.
+	security := p.Flows[0].Stages[slices.IndexFunc(p.Flows[0].Stages, func(s pack.Stage) bool { return s.Name == "review-security" })]
+	if want := (store.Outcome{Name: "changes", To: "new", Max: 3, Then: "decide"}); review.Outcomes[2] != want {
+		t.Errorf("review changes = %+v, want %+v", review.Outcomes[2], want)
+	}
+	if want := (store.Outcome{Name: "changes", To: "new", Max: 2, Then: "backlog"}); security.Outcomes[1] != want || len(security.Manual) != 0 {
+		t.Errorf("review-security changes = %+v, manual %v, want %+v and no manual move", security.Outcomes[1], security.Manual, want)
+	}
+	packYAML := tree(t, d1)["pack.yaml"]
+	for _, want := range []string{
+		"changes: {to: new, max: 3, then: decide}, question: decide}",
+		"outcomes: {done: approved, changes: {to: new, max: 2, then: backlog}, question: decide}",
+		"outcomes: {done: merged, failed: new, question: decide}",
+	} {
+		if !strings.Contains(packYAML, want) {
+			t.Errorf("pack.yaml lacks %q:\n%s", want, packYAML)
+		}
 	}
 	// The added route has the higher priority, so it beats the reviewers'
 	// plain route, which serves both flows: it and its group are said,

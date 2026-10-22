@@ -173,7 +173,7 @@ sources:
 | `flows.<flow>.type` | optional: the flow is for beads of this type, beside the depot's flow (a train flow beside the task flow). A type follows one flow |
 | `…stages.<stage>.group` | who works the stage: a key of `groups`. A stage without one is routed to nobody |
 | `…stages.<stage>.file` | optional: the stage's stage file in the pack, markdown saying what the stage is for, what must be true to leave it and when each outcome applies ([flows.md](flows.md)). Whoever works a bead in the stage is shown it. A stage without the key has none |
-| `…stages.<stage>.outcomes` | outcome reported (`yardr bead done --outcome`) -> next stage, in file order |
+| `…stages.<stage>.outcomes` | outcome reported (`yardr bead done --outcome`) -> next stage, in file order. An outcome that sends a bead back may be a mapping, `{ to: <stage>, max: <rounds>, then: <stage> }`, that limits the rounds back to `to` (see "A limit on rounds" below) |
 | `…stages.<stage>.manual` | stages the bead may be moved to by hand (`yardr bead advance --to`); no outcome leads there |
 | `…stages.<stage>.end` | `true`: entering the stage closes the bead. Such a stage has no group, stage file, outcomes or manual moves, and a flow has at least one |
 | `groups.<group>` | exactly one of `agent: <role file>`, `run: <script>`, `people: true` |
@@ -202,6 +202,33 @@ first ([flows.md](flows.md#outcomes-agents-say-how-the-work-ended)): `new`
 above is `new -> review on done | decide on question | backlog`. The store's
 rule for a stage without outcomes holds here too: with exactly one way out
 (`manual: [new]`), `yardr bead done` takes it.
+
+**A limit on rounds.** An outcome that sends a bead back to a stage it has
+been in can limit how many times it does that, and name the stage the bead goes
+to after that. Write it as a mapping in place of the stage:
+
+```yaml
+review: { group: reviewers, outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
+```
+
+`to` is the stage the outcome leads to. `max` is how many rounds back to it the
+outcome allows, a whole number of 1 or more. `then` is the stage the bead goes
+to once those rounds are used. A flow file says the same as
+`new on changes max 3 then decide`, and
+[flows.md](flows.md#a-limit-on-rounds) explains how rounds are counted and what
+happens at the limit. A limit needs both `max` and `then`, and the mapping takes
+no key besides these and `to`.
+
+`then` must be a stage of the flow, as `to` must, and it must not be `to`,
+which would send the bead where it was going anyway. Any other stage will do,
+whether people work it (`decide`) or it closes the bead. Which suits the flow
+is the author's call. `done` takes no limit, because the arrival estimate
+follows `done` and counts no rounds. The stage a `then` names counts as one of
+the stage's moves, as `to` does, so `manual` does not need to list it. An
+outcome with no limit stays a plain stage name.
+
+`yardr pack check` shows a limit that was added, changed or dropped as a change
+to that stage in the flow, and `yardr pack export` writes the mapping back.
 
 **Paths.** A role, script or stage file is always relative to the pack's
 directory, so a pack works wherever it is cloned. An absolute path, a path
@@ -247,8 +274,12 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
   "on" and the next for `true`, so a pack may not depend on it (it is why
   the keys are `outcomes` and `hears`). Quoted, such a word is a name;
 - a boolean that is not `true` or `false` (`end: yes`);
-- a stage naming a group that is not declared, or an outcome or manual move
-  to a stage the flow lacks;
+- a stage naming a group that is not declared, or an outcome, a limit's `then`
+  or a manual move to a stage the flow lacks;
+- a limit that cannot be kept: `max` without `then`, `then` without `max`, a
+  `max` that is not a whole number of rounds of 1 or more, a `then` equal to
+  `to`, or a limit on `done`; an outcome written as a mapping with no `to`; any
+  key in that mapping besides `to`, `max` and `then`;
 - a flow without an `end` stage; an `end` stage with a group, a stage file or
   a way out;
 - a group that is not exactly one of agent, script, people;
@@ -1296,12 +1327,14 @@ It writes `pack.yaml` with the depot's kind, the flows that govern the depot
 (its own and each bead type's, however the depot came by them), the stage
 file of each stage under `flows/`, the groups that work the stages, each
 agent group's role under `roles/` and each script group's script under
-`scripts/`. A group gets the yard's name less the depot's prefix
-(`web-builders` is `builders`), which an import puts back. A group the
-depot's import bound as another is written with `binds_as` again while the
-yard still runs both with the same agent kind, model and arguments; one the
-depot changed since, or bound as a group the pack does not carry, is
-written as its own agent group and said under `left out`.
+`scripts/`. An outcome with a limit on rounds is written as the mapping
+`{ to, max, then }` and any other as its stage alone. A group gets the yard's
+name less the depot's prefix (`web-builders` is `builders`), which an import
+puts back. A group the depot's import bound as another is written with
+`binds_as` again while the yard still runs both with the same agent kind,
+model and arguments; one the depot changed since, or bound as a group the
+pack does not carry, is written as its own agent group and said under
+`left out`.
 
 In the role and stage files the operator's name becomes `{{operator}}`
 again wherever it stands as a whole word. The command prints each such line:

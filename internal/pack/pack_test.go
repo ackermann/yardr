@@ -172,13 +172,15 @@ merged terminal
 // Stage order is the file's, and so is the order of a stage's outcomes:
 // neither a map's order nor the alphabet's. The first stage is where a
 // bead starts, so sorting would move it (yardr-8tn3 was that trap in JSON
-// flows).
+// flows). An outcome with a limit on rounds (aa, written as a mapping) keeps
+// its place and carries the limit, and the stage the limit sends beads to is
+// the stage's last transition, as the store's flow has it.
 func TestStageOrderIsFileOrder(t *testing.T) {
 	dir := writePack(t, map[string]string{"pack.yaml": `name: order
 flows:
   default:
     stages:
-      zulu:  { outcomes: { zz: mike, aa: alpha, mm: zulu } }
+      zulu:  { outcomes: { zz: mike, aa: { to: alpha, max: 2, then: bravo }, mm: zulu } }
       mike:  { manual: [alpha] }
       alpha: { manual: [zulu] }
       bravo: { end: true }
@@ -191,11 +193,16 @@ flows:
 	if want := []string{"zulu", "mike", "alpha", "bravo"}; !reflect.DeepEqual(f.Stages, want) {
 		t.Fatalf("stages = %v, want %v", f.Stages, want)
 	}
-	if want := []store.Outcome{{Name: "zz", To: "mike"}, {Name: "aa", To: "alpha"}, {Name: "mm", To: "zulu"}}; !reflect.DeepEqual(f.Outcomes["zulu"], want) {
+	if want := []store.Outcome{{Name: "zz", To: "mike"}, {Name: "aa", To: "alpha", Max: 2, Then: "bravo"}, {Name: "mm", To: "zulu"}}; !reflect.DeepEqual(f.Outcomes["zulu"], want) {
 		t.Fatalf("outcomes = %v, want %v", f.Outcomes["zulu"], want)
 	}
-	if want := []string{"mike", "alpha", "zulu"}; !reflect.DeepEqual(f.Transitions["zulu"], want) {
+	if want := []string{"mike", "alpha", "zulu", "bravo"}; !reflect.DeepEqual(f.Transitions["zulu"], want) {
 		t.Fatalf("transitions = %v, want %v", f.Transitions["zulu"], want)
+	}
+	// A flow file writes the stage a limit sends beads to with the limit, not
+	// as an edge of its own.
+	if got := f.String(); !strings.HasPrefix(got, "zulu -> mike on zz | alpha on aa max 2 then bravo | zulu on mm\n") {
+		t.Fatalf("flow =\n%s", got)
 	}
 }
 
@@ -221,6 +228,18 @@ func TestStrictness(t *testing.T) {
 		{name: "undeclared group", old: "group: assembly", new: "group: refiners", key: "flows.default.stages.review.group", msg: "no group refiners is declared", line: 6},
 		{name: "unknown outcome stage", old: "question: decide }", new: "question: triage }", key: "flows.default.stages.new.outcomes.question", msg: "no stage triage in this flow", line: 5},
 		{name: "unknown manual stage", old: "manual: [new]", new: "manual: [backlog]", key: "flows.default.stages.decide.manual", msg: "no stage backlog in this flow", line: 7},
+		// An outcome with a limit on rounds is a mapping: to, max, then.
+		{name: "outcome is a list", old: "question: decide }", new: "question: [decide] }", key: "flows.default.stages.new.outcomes.question", msg: "want a string, got a list", line: 5},
+		{name: "unknown key of an outcome", old: "question: decide }", new: "question: { to: decide, after: 3 } }", key: "flows.default.stages.new.outcomes.question.after", msg: "unknown key (known here: to, max, then)", line: 5},
+		{name: "limited outcome without a to", old: "question: decide }", new: "question: { max: 2, then: merged } }", key: "flows.default.stages.new.outcomes.question.to", msg: "missing: an outcome written as a mapping says the stage it leads to", line: 5},
+		{name: "limited outcome to a stage the flow lacks", old: "question: decide }", new: "question: { to: triage, max: 2, then: merged } }", key: "flows.default.stages.new.outcomes.question.to", msg: "no stage triage in this flow (stages: new, review, decide, merged)", line: 5},
+		{name: "then names no stage of the flow", old: "question: decide }", new: "question: { to: decide, max: 2, then: triage } }", key: "flows.default.stages.new.outcomes.question.then", msg: "no stage triage in this flow (stages: new, review, decide, merged)", line: 5},
+		{name: "max of none", old: "question: decide }", new: "question: { to: decide, max: 0, then: merged } }", key: "flows.default.stages.new.outcomes.question.max", msg: "want a number of rounds, 1 or more, got int 0", line: 5},
+		{name: "max is no number", old: "question: decide }", new: "question: { to: decide, max: three, then: merged } }", key: "flows.default.stages.new.outcomes.question.max", msg: `want a number of rounds, 1 or more, got "three"`, line: 5},
+		{name: "max without then", old: "question: decide }", new: "question: { to: decide, max: 2 } }", key: "flows.default.stages.new.outcomes.question.max", msg: "max needs a then", line: 5},
+		{name: "then without max", old: "question: decide }", new: "question: { to: decide, then: merged } }", key: "flows.default.stages.new.outcomes.question.then", msg: "then needs a max", line: 5},
+		{name: "then is where the outcome leads", old: "question: decide }", new: "question: { to: decide, max: 2, then: decide } }", key: "flows.default.stages.new.outcomes.question.then", msg: "then is the stage the outcome already leads to", line: 5},
+		{name: "limit on done", old: "done: review,", new: "done: { to: review, max: 2, then: decide },", key: "flows.default.stages.new.outcomes.done.max", msg: "done takes no limit", line: 5},
 		{name: "flow without an end", old: "merged: { end: true }", new: "merged: { group: people }", key: "flows.default.stages", msg: "has no end", line: 4},
 		{name: "end stage with a way out", old: "merged: { end: true }", new: "merged: { end: true, manual: [new] }", key: "flows.default.stages.merged", msg: "closes the bead on entry", line: 8},
 		{name: "group of two kinds", old: "people:   { people: true }", new: "people:   { people: true, run: scripts/land }", key: "groups.people", msg: "exactly one of", line: 12},

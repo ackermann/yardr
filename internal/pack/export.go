@@ -243,9 +243,11 @@ func (e *exporter) flows() error {
 				continue
 			}
 			ps := Stage{Name: s, Outcomes: slices.Clone(f.Outcomes[s])}
-			// The moves no outcome names are a person's or a crew member's.
+			// The moves no outcome names are a person's or a crew member's. A
+			// stage only a limit sends beads to (its then) is named by that
+			// outcome, which the pack writes with it.
 			for _, to := range f.Transitions[s] {
-				if !slices.ContainsFunc(ps.Outcomes, func(o store.Outcome) bool { return o.To == to }) {
+				if !slices.ContainsFunc(ps.Outcomes, func(o store.Outcome) bool { return o.To == to || o.Then == to }) {
 					ps.Manual = append(ps.Manual, to)
 				}
 			}
@@ -964,7 +966,15 @@ func (e *exporter) yaml() ([]byte, error) {
 			if len(s.Outcomes) > 0 {
 				on := mapping(true)
 				for _, o := range s.Outcomes {
-					add(on, o.Name, str(o.To))
+					if o.Max == 0 {
+						add(on, o.Name, str(o.To))
+						continue
+					}
+					limited := mapping(true)
+					add(limited, "to", str(o.To))
+					add(limited, "max", scalar("!!int", fmt.Sprint(o.Max)))
+					add(limited, "then", str(o.Then))
+					add(on, o.Name, limited)
 				}
 				add(sn, "outcomes", on)
 			}

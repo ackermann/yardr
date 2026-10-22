@@ -588,6 +588,18 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 	return n.Value == "true", true
 }
 
+// count reads a whole number of what, 1 or more: a group's limit of beads,
+// an outcome's max of rounds. Zero is no count, so it is refused rather
+// than read as "no limit": a pack says that by leaving the key out.
+func (r *reader) count(n *yaml.Node, key, what string) (int, bool) {
+	v, err := strconv.Atoi(n.Value)
+	if n.Kind != yaml.ScalarNode || n.Tag != "!!int" || err != nil || v < 1 {
+		r.errf(n, key, "want a number of %s, 1 or more, got %s", what, describe(n))
+		return 0, false
+	}
+	return v, true
+}
+
 func (r *reader) pack(p *Pack, root *yaml.Node) {
 	var flows, groups, crew, sources, presets *entry
 	named := false
@@ -1395,12 +1407,9 @@ func (r *reader) group(e entry) Group {
 				kinds = append(kinds, f.key)
 			}
 		case "limit":
-			n, err := strconv.Atoi(f.v.Value)
-			if f.v.Kind != yaml.ScalarNode || f.v.Tag != "!!int" || err != nil || n < 1 {
-				r.errf(f.v, f.path, "want a number of beads, 1 or more, got %s", describe(f.v))
-				continue
+			if n, ok := r.count(f.v, f.path, "beads"); ok {
+				g.Limit = n
 			}
-			g.Limit = n
 		}
 	}
 	if e.v.Kind == yaml.MappingNode && len(kinds) != 1 {
@@ -1623,8 +1632,8 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 		case "outcomes":
 			exits = append(exits, k.key)
 			for _, o := range r.entries(k.v, k.path) {
-				if to, ok := r.str(o.v, o.path); ok && target(o.v, o.path, to) {
-					s.Outcomes = append(s.Outcomes, store.Outcome{Name: o.key, To: to})
+				if out, ok := r.outcome(o, target); ok {
+					s.Outcomes = append(s.Outcomes, out)
 				}
 			}
 		case "manual":
@@ -1647,6 +1656,64 @@ func (r *reader) stage(e entry, stages []string, groups []Group) Stage {
 		r.errf(e.k, e.path, "a stage with end: true closes the bead on entry, so it has no %s", strings.Join(exits, ", "))
 	}
 	return s
+}
+
+// outcome reads one outcome of a stage: the stage it leads to, or a mapping
+// that also limits the rounds back to it (`changes: { to: new, max: 3, then:
+// decide }`), after which the outcome sends the bead to then instead. The
+// limit's rules are the store's (Outcome.checkLimit), said in the pack's keys
+// and with their lines: the plan is made from the flow as the pack states it
+// and the store sees it only when the plan is applied, which would refuse a
+// half-given limit without a file or a line. then is a stage of the flow as
+// to is and nothing more asked of it; it may be one that closes the bead. An
+// outcome with a mistake is left out, as one that leads nowhere is.
+func (r *reader) outcome(e entry, target func(n *yaml.Node, key, to string) bool) (store.Outcome, bool) {
+	o := store.Outcome{Name: e.key}
+	if e.v.Kind != yaml.MappingNode {
+		to, ok := r.str(e.v, e.path)
+		o.To = to
+		return o, ok && target(e.v, e.path, to)
+	}
+	keys := map[string]entry{}
+	for _, k := range r.entries(e.v, e.path, "to", "max", "then") {
+		keys[k.key] = k
+	}
+	to, hasTo := keys["to"]
+	toOK := hasTo
+	if !hasTo {
+		r.errf(e.k, join(e.path, "to"), "missing: an outcome written as a mapping says the stage it leads to")
+	} else if o.To, toOK = r.str(to.v, to.path); toOK {
+		toOK = target(to.v, to.path, o.To)
+	}
+	rounds, hasMax := keys["max"]
+	maxOK := true
+	if hasMax {
+		if o.Max, maxOK = r.count(rounds.v, rounds.path, "rounds"); maxOK && e.key == store.DefaultOutcome {
+			r.errf(rounds.v, rounds.path, "%[1]s takes no limit: the estimate of when a bead arrives follows %[1]s on and counts no rounds, so limit an outcome that sends a bead back, as changes does", e.key)
+			maxOK = false
+		}
+	}
+	then, hasThen := keys["then"]
+	thenOK := true
+	if hasThen {
+		if o.Then, thenOK = r.str(then.v, then.path); thenOK {
+			thenOK = target(then.v, then.path, o.Then)
+		}
+		if thenOK && toOK && o.Then == o.To {
+			r.errf(then.v, then.path, "then is the stage the outcome already leads to: a limit sends the bead somewhere else")
+			thenOK = false
+		}
+	}
+	pairOK := true
+	switch {
+	case hasMax && !hasThen:
+		r.errf(rounds.v, rounds.path, "max needs a then: the stage the bead goes to once the rounds are used")
+		pairOK = false
+	case hasThen && !hasMax:
+		r.errf(then.v, then.path, "then needs a max: how many rounds the outcome allows before it sends the bead there")
+		pairOK = false
+	}
+	return o, toOK && maxOK && thenOK && pairOK
 }
 
 func (r *reader) member(e entry, flows []Flow) CrewMember {
@@ -1732,9 +1799,10 @@ func (p *Pack) Files() []string {
 }
 
 // StoreFlow is the flow as the store keeps it, under name: the stages in
-// file order, each stage's outcomes first and its manual moves after, and
-// the end stages terminal. It is in the form the store normalizes a flow
-// to, so it compares equal to the same flow read back.
+// file order, each stage's outcomes first and its manual moves after, then
+// the stages its limits send beads to, and the end stages terminal. It is in
+// the form the store normalizes a flow to, so it compares equal to the same
+// flow read back.
 func (f Flow) StoreFlow(name string) store.Flow {
 	out := store.Flow{Name: name, Transitions: map[string][]string{}}
 	for _, s := range f.Stages {
@@ -1748,6 +1816,13 @@ func (f Flow) StoreFlow(name string) store.Flow {
 			next = append(next, o.To)
 		}
 		next = append(next, s.Manual...)
+		// The stage a limit sends the bead to is a transition too, last: where
+		// the store's normalizeOutcomes puts one nothing else names.
+		for _, o := range s.Outcomes {
+			if o.Then != "" {
+				next = append(next, o.Then)
+			}
+		}
 		seen := map[string]bool{}
 		for _, to := range next {
 			if !seen[to] {
