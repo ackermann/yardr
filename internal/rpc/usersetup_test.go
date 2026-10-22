@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -408,4 +409,148 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 			told("sam's device, in a yard with no operator", y.sam, false)
 		})
 	}
+}
+
+// replayed is what the device with the token is sent of the log from its
+// start to its head: the data of each source_set, in order, and the lines of
+// the whole stream. The stream stays open, so it is read to the newest event
+// and no further.
+func (y *secretYard) replayed(t *testing.T, base, token string) (sets []map[string]any, raw string) {
+	t.Helper()
+	head, err := y.st.Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, resp := follow(t, base, token, 0)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the stream is answered %s", resp.Status)
+	}
+	var all []string
+	for {
+		line := next(t, lines)
+		if line == "" {
+			t.Fatalf("the stream ended before the head of the log, seq %d", head)
+		}
+		var e store.Event
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatalf("the stream sent %q: %v", line, err)
+		}
+		all = append(all, line)
+		if e.Kind == "source_set" {
+			sets = append(sets, e.Data)
+		}
+		if e.Seq >= head {
+			return sets, strings.Join(all, "\n")
+		}
+	}
+}
+
+// The stream tells the file a source was pointed at, in its source_set, to a
+// device of the operator and to no other, as Bead tells the file of an
+// account (TestUserBeadTellsTheAccountFileToTheOperatorAlone): to any other
+// device the event is the source without the path, replayed from the start or
+// sent as it happens, and so it is to every device of a yard with no
+// operator. It is so for each write of a file: a source pointed at one, as a
+// setup that took a candidate points the source its pack added at the
+// candidate's file, and a source with none, for which the server chooses one
+// when a value is given. A source_set that names no file is told as it is,
+// and the store, which the socket serves, keeps every event whole.
+func TestUserStreamTellsASourceFileToTheOperatorAlone(t *testing.T) {
+	ctx := context.Background()
+	y, file := setupYard(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// What the server's carrier does for the candidate taken
+	// (carrySetupAccountPicked), after the pack added the source.
+	_, err := y.st.PutSource(ctx, "courier.yaml", apiSetupSource("courier"), "jo")
+	must(err)
+	_, err = y.st.SetSource(ctx, "courier", store.SourceEnvFile, file, "jo")
+	must(err)
+	_, err = y.st.GiveSecret(ctx, "yd-crm", y.ask, map[string]string{"CRM_TOKEN": "s3cret-0f-the-yard"}, "jo", true)
+	must(err)
+	_, err = y.st.SetSource(ctx, "crm", store.SourceCallsPerHour, "120", "jo")
+	must(err)
+
+	// A device sent the log as it happens is sent the same: its streams are
+	// open before the next write, which moves a source to a file of its own.
+	base := listen(t, y.u, 0)
+	head, err := y.st.Head(ctx)
+	must(err)
+	jos, _ := follow(t, base, y.jo, head)
+	sams, _ := follow(t, base, y.sam, head)
+	moved := filepath.Join(filepath.Dir(file), "crm-moved.env")
+	_, err = y.st.SetSource(ctx, "crm", store.SourceEnvFile, moved, "jo")
+	must(err)
+
+	whole := []map[string]any{
+		{"source": "courier-existing", "env_file": file},
+		{"source": "courier", "env_file": file},
+		{"source": "crm", "env_file": y.file},
+		{"source": "crm", "calls_per_hour": "120"},
+		{"source": "crm", "env_file": moved},
+	}
+	without := []map[string]any{
+		{"source": "courier-existing"},
+		{"source": "courier"},
+		{"source": "crm"},
+		{"source": "crm", "calls_per_hour": "120"},
+		{"source": "crm"},
+	}
+	var stored []map[string]any
+	for _, e := range eventsOfKind(t, y.st, "source_set") {
+		stored = append(stored, e.Data)
+	}
+	if !reflect.DeepEqual(stored, whole) {
+		t.Fatalf("the store keeps the source_set events %v, want %v", stored, whole)
+	}
+	// liveSet is the data of the next event of a stream that was open for it.
+	liveSet := func(who string, lines <-chan string) map[string]any {
+		t.Helper()
+		var e store.Event
+		if line := next(t, lines); json.Unmarshal([]byte(line), &e) != nil || e.Kind != "source_set" {
+			t.Fatalf("%s is sent %q, want the source_set that moved crm", who, line)
+		}
+		return e.Data
+	}
+	if got := liveSet("jo's device", jos); !reflect.DeepEqual(got, whole[4]) {
+		t.Errorf("jo's device is sent %v as it happens, want %v", got, whole[4])
+	}
+	if got := liveSet("sam's device", sams); !reflect.DeepEqual(got, without[4]) {
+		t.Errorf("sam's device is sent %v as it happens, want %v", got, without[4])
+	}
+
+	// told replays the log to the device with the token, and fails unless it
+	// is sent the files of the source_set events when listed, and not a file
+	// of the yard's anywhere in the stream when not.
+	told := func(who, token string, listed bool) {
+		t.Helper()
+		sets, raw := y.replayed(t, base, token)
+		want := without
+		if listed {
+			want = whole
+		}
+		if !reflect.DeepEqual(sets, want) {
+			t.Errorf("%s is sent the source_set events %v, want %v", who, sets, want)
+		}
+		for _, path := range []string{file, y.file, moved} {
+			if strings.Contains(raw, path) != listed {
+				t.Errorf("%s is sent %q: %v, want %v", who, path, !listed, listed)
+			}
+		}
+	}
+	told("jo's device", y.jo, true)
+	told("sam's device", y.sam, false)
+
+	// The operator now is told: the device of the one named moves with it,
+	// the past events with it, and in a yard with no operator no device is.
+	must(y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"))
+	told("jo's device, no longer the operator's", y.jo, false)
+	told("sam's device, the operator's now", y.sam, true)
+	must(y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"))
+	told("jo's device, in a yard with no operator", y.jo, false)
+	told("sam's device, in a yard with no operator", y.sam, false)
 }
