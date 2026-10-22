@@ -93,6 +93,60 @@ model:
   type: run.model.configured
   field: payload.record.model_id
 
+# What a session used, in tokens, read from the same file once the session has
+# ended (docs/design/2026-10-21-yardr-qbqq-session-tokens.md, section 3.3).
+# Read on 22 Oct 2026 from the review-security session of yardr-58xw, a file of
+# Muse Code 1.4.11 (sessions/2026/10/21/01a15ff7-2751-7242-aac0-8b7ab996e852),
+# and run over every parent file on this machine that day: 1,410 files written
+# by Muse Code 1.4.4 to 1.4.11 from 10 to 22 Oct, with 195,230 such records.
+#
+# No line holds a running total, so a session's count is the sum of its lines.
+# Each model call writes one whose payload.event.kind is
+# goal_usage_attribution, with its tokens at payload.event.record.quantity. A
+# call of a side session (requester_kind reminder) is recorded in the parent's
+# file as well as in the child's, so the parent's file alone is the whole count
+# and the files under subagent/ are not added to it. That file's 41 records
+# with tokens (24 of the main agent, 17 of side sessions) add up to 1,957,248
+# input, 1,752,134 of it cached, and 26,241 output. The builder session of the
+# same bead (01a15fc9-187f-7353-af8d-915f5bc14271) adds up to 29,069,759,
+# 28,600,326 and 122,644. The records of usage_family tool and reminder hold
+# zeros. A compaction record holds the tokens of the call that wrote the
+# summary (229,076 input and 1,783 output in one of the 7), which the session
+# paid for, so the sum counts it.
+#
+# input_tokens includes cached_tokens, as Codex's input_tokens does, so
+# cache_in_input derives the fresh input and the input itself stays as Muse
+# reports it. Cached is never above input in those records, and the
+# model_completed line of each call carries estimated_prompt_tokens, which is
+# 1.007 times input_tokens on average over the 17,366 calls that read the cache
+# and never less than 1.0: the input is the whole prompt. With the cache apart
+# from it, input and cache would add up to about twice that estimate. No Muse
+# documentation says so; the numbers do.
+#
+# reasoning_tokens is part of output_tokens, as Codex's reasoning_output_tokens
+# is, and no field below names it. One call (usage-b5cf9c11-ffcd-40e6-ba85-a0b16af7483c
+# of 01a15ffe-04a4-7ae1-bc89-6a8e20c19124) has output 435 and reasoning 337.
+# Where reasoning is above 0 (69,243 records) it is never at or above output,
+# and at most 98.6 per cent of it. Added on top it would count a call's thinking
+# twice. No Muse documentation says this either.
+#
+# recorded_at is Unix time in microseconds (1792616839253217 is 21:07:19.253217
+# UTC on 21 Oct 2026). The records carry no cache writes, and cache_write_tokens
+# is 0 in all 82,227 model_completed lines, so cache_write names no field.
+# herdr 0.9.0 reports no session id for Muse panes, so nothing finds this file
+# yet, as with the model above.
+usage:
+  - type_field: payload.event.kind
+    type: goal_usage_attribution
+    usage: payload.event.record.quantity
+    read: sum
+    at: recorded_at
+    at_unit: us
+    input: input_tokens
+    cache_in_input: true
+    cache_read: cached_tokens
+    output: output_tokens
+
 # Muse's login screen, drawn in place of its input when it has no login
 # (read live, Muse Code 1.4.9, 16 Oct 2026, with no credentials: empty
 # HOME, TBH_CREDENTIAL_BACKEND=file, past the trust dialog with Enter):

@@ -888,10 +888,12 @@ func TestContextSourceChecked(t *testing.T) {
 }
 
 // What a session used is read from lines of the agent's own file. These are
-// trimmed from two real transcripts, read on 22 Oct 2026: the builder session
-// of yardr-mnc8 (Claude Code 2.1.288) and the review of the same bead
-// (codex-cli 0.160.1). What is left out is what no reading names: message
-// content, bookkeeping keys, the rate limits and the text of the user line.
+// trimmed from real transcripts, read on 22 Oct 2026: the builder session of
+// yardr-mnc8 (Claude Code 2.1.288), the review of the same bead (codex-cli
+// 0.160.1), and the review-security session of yardr-58xw (Muse Code 1.4.11)
+// with four single records of other Muse sessions. What is left out is what no
+// reading names: message content, bookkeeping keys, the rate limits, the text
+// of the user line, and a Muse record's ids and owner keys.
 var (
 	// The first lines of the builder session: the user's, then 8 assistant
 	// lines that are 5 messages, since the lines of one message repeat its
@@ -926,6 +928,76 @@ var (
 	// A token_count that carries no info. Constructed: none of the files read
 	// has one, but the key is there for a call that has not been counted yet.
 	codexNoInfo = `{"timestamp":"2026-10-21T20:34:18.000Z","ordinal":682,"type":"event_msg","payload":{"type":"token_count","info":null}}`
+	// The review-security session of yardr-58xw (Muse Code 1.4.11, session
+	// 01a15ff7-2751-7242-aac0-8b7ab996e852), in the order of its file: the 41
+	// goal_usage_attribution records with tokens (24 of the main agent, 17 of
+	// side sessions), the first tool record and the first reminder record, which
+	// hold zeros, and its first three model_completed lines, which carry the
+	// tokens of the main agent's records a second time and are no reading. The
+	// keys no reading names are left out, but for sequence, which finds the line
+	// in the file. Section 2 has the session as 205,114 fresh input, 1,752,134
+	// cache read and 26,241 output; Muse reports its input as 1,957,248.
+	museLines = strings.Split(strings.TrimSpace(`
+{"sequence":62,"recorded_at":1792611402569623,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":27979,"output_tokens":111,"cached_tokens":0,"reasoning_tokens":6,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":63,"recorded_at":1792611402574676,"payload":{"event":{"kind":"model_completed","usage":{"input_tokens":27979,"output_tokens":111,"cached_tokens":0,"cache_write_tokens":0,"cache_read_tokens":0,"reasoning_tokens":6},"finish_reason":"tool_calls","model":"muse-spark-1.3-contributor","estimated_prompt_tokens":28257}}}
+{"sequence":76,"recorded_at":1792611402731623,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"tool","quantity":{"unit":"tokens","reported":false,"input_tokens":0,"output_tokens":0,"cached_tokens":0,"reasoning_tokens":0,"main_llm_steps":0},"owner":{"requester_kind":"main"}}}}}
+{"sequence":94,"recorded_at":1792611406610256,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":36689,"output_tokens":182,"cached_tokens":27633,"reasoning_tokens":54,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":95,"recorded_at":1792611406623611,"payload":{"event":{"kind":"model_completed","usage":{"input_tokens":36689,"output_tokens":182,"cached_tokens":27633,"cache_write_tokens":0,"cache_read_tokens":27633,"reasoning_tokens":54},"finish_reason":"tool_calls","model":"muse-spark-1.3-contributor","estimated_prompt_tokens":36945}}}
+{"sequence":131,"recorded_at":1792611409361356,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":44285,"output_tokens":120,"cached_tokens":36593,"reasoning_tokens":10,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":132,"recorded_at":1792611409379240,"payload":{"event":{"kind":"model_completed","usage":{"input_tokens":44285,"output_tokens":120,"cached_tokens":36593,"cache_write_tokens":0,"cache_read_tokens":36593,"reasoning_tokens":10},"finish_reason":"tool_calls","model":"muse-spark-1.3-contributor","estimated_prompt_tokens":44541}}}
+{"sequence":151,"recorded_at":1792611410214922,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":15467,"output_tokens":461,"cached_tokens":0,"reasoning_tokens":285,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":174,"recorded_at":1792611414888354,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":44852,"output_tokens":89,"cached_tokens":44273,"reasoning_tokens":0,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":212,"recorded_at":1792611420014088,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":58244,"output_tokens":115,"cached_tokens":44785,"reasoning_tokens":7,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":230,"recorded_at":1792611420427190,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":18596,"output_tokens":552,"cached_tokens":15345,"reasoning_tokens":363,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":261,"recorded_at":1792611453966577,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":59078,"output_tokens":3404,"cached_tokens":58225,"reasoning_tokens":3056,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":288,"recorded_at":1792611454689412,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":16135,"output_tokens":451,"cached_tokens":15217,"reasoning_tokens":287,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":312,"recorded_at":1792611458774096,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":62424,"output_tokens":251,"cached_tokens":58993,"reasoning_tokens":20,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":364,"recorded_at":1792611517802153,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":63666,"output_tokens":6252,"cached_tokens":62321,"reasoning_tokens":5831,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":392,"recorded_at":1792611518439601,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":16366,"output_tokens":543,"cached_tokens":15985,"reasoning_tokens":353,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":419,"recorded_at":1792611532949848,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":70800,"output_tokens":1454,"cached_tokens":63601,"reasoning_tokens":1205,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":446,"recorded_at":1792611533230280,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":18732,"output_tokens":825,"cached_tokens":16241,"reasoning_tokens":600,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":470,"recorded_at":1792611536022789,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":73824,"output_tokens":155,"cached_tokens":70769,"reasoning_tokens":51,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":502,"recorded_at":1792611543033576,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":74362,"output_tokens":837,"cached_tokens":73713,"reasoning_tokens":190,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":531,"recorded_at":1792611543450491,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":17180,"output_tokens":265,"cached_tokens":15217,"reasoning_tokens":96,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":554,"recorded_at":1792611546801911,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":75737,"output_tokens":159,"cached_tokens":74353,"reasoning_tokens":0,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":572,"recorded_at":1792611569378628,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":18844,"output_tokens":554,"cached_tokens":17009,"reasoning_tokens":336,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":577,"recorded_at":1792611569417929,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"reminder","quantity":{"unit":"tokens","reported":false,"input_tokens":0,"output_tokens":0,"cached_tokens":0,"reasoning_tokens":0,"main_llm_steps":0},"owner":{"requester_kind":"main"}}}}}
+{"sequence":599,"recorded_at":1792611583474904,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":76368,"output_tokens":728,"cached_tokens":75633,"reasoning_tokens":45,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":617,"recorded_at":1792611583692464,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":19419,"output_tokens":378,"cached_tokens":18673,"reasoning_tokens":205,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":640,"recorded_at":1792611588886002,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":77743,"output_tokens":156,"cached_tokens":76273,"reasoning_tokens":0,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":658,"recorded_at":1792611604150773,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":16815,"output_tokens":257,"cached_tokens":15217,"reasoning_tokens":86,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":683,"recorded_at":1792611607407799,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":78001,"output_tokens":243,"cached_tokens":77681,"reasoning_tokens":59,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":703,"recorded_at":1792611652038385,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":17057,"output_tokens":242,"cached_tokens":16625,"reasoning_tokens":65,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":728,"recorded_at":1792611659056492,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":78380,"output_tokens":469,"cached_tokens":77937,"reasoning_tokens":117,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":746,"recorded_at":1792611659278356,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":17386,"output_tokens":277,"cached_tokens":16881,"reasoning_tokens":108,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":769,"recorded_at":1792611663173012,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":78940,"output_tokens":137,"cached_tokens":78321,"reasoning_tokens":0,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":805,"recorded_at":1792611666750006,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":79247,"output_tokens":187,"cached_tokens":78833,"reasoning_tokens":44,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":822,"recorded_at":1792611967037447,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":17848,"output_tokens":865,"cached_tokens":17265,"reasoning_tokens":641,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":848,"recorded_at":1792611973978802,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":79893,"output_tokens":352,"cached_tokens":79217,"reasoning_tokens":280,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":867,"recorded_at":1792612115141839,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":18714,"output_tokens":292,"cached_tokens":17649,"reasoning_tokens":122,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":899,"recorded_at":1792612130508088,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":80837,"output_tokens":1363,"cached_tokens":79857,"reasoning_tokens":609,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":917,"recorded_at":1792612130695913,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":19373,"output_tokens":518,"cached_tokens":18545,"reasoning_tokens":355,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":941,"recorded_at":1792612136685117,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":82260,"output_tokens":288,"cached_tokens":80753,"reasoning_tokens":196,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":959,"recorded_at":1792612136855729,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":17512,"output_tokens":348,"cached_tokens":15217,"reasoning_tokens":178,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":986,"recorded_at":1792612147828208,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":82950,"output_tokens":1176,"cached_tokens":82161,"reasoning_tokens":491,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":1003,"recorded_at":1792612148035677,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":18022,"output_tokens":375,"cached_tokens":17265,"reasoning_tokens":200,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+{"sequence":1026,"recorded_at":1792612152967445,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":84144,"output_tokens":92,"cached_tokens":0,"reasoning_tokens":0,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":1058,"recorded_at":1792612156345898,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":84332,"output_tokens":89,"cached_tokens":84081,"reasoning_tokens":0,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}
+{"sequence":1076,"recorded_at":1792612156566996,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":18747,"output_tokens":629,"cached_tokens":17777,"reasoning_tokens":433,"main_llm_steps":0},"owner":{"requester_kind":"reminder"}}}}}
+`), "\n")
+	// A main call whose output holds its reasoning: output 435, of which 337 is
+	// reasoning (session 01a15ffe-04a4-7ae1-bc89-6a8e20c19124, sequence 103).
+	museReasoning = `{"sequence":103,"recorded_at":1792611858226113,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":29089,"output_tokens":435,"cached_tokens":25457,"reasoning_tokens":337,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}`
+	// Of the 69,243 records that have reasoning on 22 Oct, the one with the most
+	// of it in its output: 25,292 of 25,649, 98.6 per cent (session
+	// 01a14165-7534-7ec2-a648-1eb7f034afe9, sequence 216).
+	museMostReasoning = `{"sequence":216,"recorded_at":1792098848491005,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":41572,"output_tokens":25649,"cached_tokens":38001,"reasoning_tokens":25292,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}`
+	// A record stamped 1792616839253217, which is 21:07:19.253217 UTC on 21 Oct
+	// 2026 (session 01a16049-dfbc-72a3-93be-66c25007dd7e, sequence 62).
+	museInstant = `{"sequence":62,"recorded_at":1792616839253217,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"unit":"tokens","reported":true,"input_tokens":28072,"output_tokens":111,"cached_tokens":0,"reasoning_tokens":5,"main_llm_steps":1},"owner":{"requester_kind":"main"}}}}}`
+	// The call that wrote the summary of a compaction, which the session paid
+	// for (session 01a12c6d-3a28-7761-95fc-cad9c797e536, sequence 15808).
+	museCompaction = `{"sequence":15808,"recorded_at":1791751513262918,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"compaction","quantity":{"unit":"tokens","reported":true,"input_tokens":229076,"output_tokens":1783,"cached_tokens":0,"reasoning_tokens":0,"main_llm_steps":0},"owner":{"requester_kind":"main"}}}}}`
 )
 
 // tally is what src reads from lines as the runner reads a file: each line
@@ -940,16 +1012,19 @@ func tally(src UsageSource, lines ...string) (Usage, bool) {
 	return t.Usage()
 }
 
-// Claude's file and Codex's say where a session's count is read, and their
-// own entries, run over lines of real transcripts, give the figures the design
-// reads off the whole files (docs/design/2026-10-21-yardr-qbqq-session-tokens.md,
+// Claude's file, Codex's and Muse's say where a session's count is read, and
+// their own entries, run over lines of real transcripts, give the figures the
+// design reads off the whole files (docs/design/2026-10-21-yardr-qbqq-session-tokens.md,
 // section 2): Claude Code's own totals with its side calls added to the main
 // model's, the message lines of the fallback counted once for each message.id
-// and not once for each line, and Codex's last token_count with the cache taken
-// off its input. No other kind names a source yet.
+// and not once for each line, Codex's last token_count, and the sum of Muse's
+// records over a whole session, its side calls included. The input stays as
+// the harness reports it and the fresh input is beside it: the same number for
+// Claude, whose input is apart from its cache, and the input less the cache for
+// Codex and Muse, whose input holds it. No other kind names a source yet.
 func TestUsageSources(t *testing.T) {
 	for _, h := range Harnesses {
-		if want := map[string]int{"claude": 2, "codex": 1}[h.Kind]; len(h.Usage) != want {
+		if want := map[string]int{"claude": 2, "codex": 1, "muse": 1}[h.Kind]; len(h.Usage) != want {
 			t.Errorf("%s names %d usage sources, want %d", h.Kind, len(h.Usage), want)
 		}
 	}
@@ -962,8 +1037,9 @@ func TestUsageSources(t *testing.T) {
 	session := append(slices.Clone(claudeLines), claudeCostState)
 
 	// Opus 752 / 74,978 / 23,562,912 / 247,751, and Haiku's 960 and 23 for the
-	// calls that have no line of their own.
-	if got, ok := tally(totals, session...); !ok || got != (Usage{Input: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}) {
+	// calls that have no line of their own. Claude reports its input apart from
+	// its cache, so the fresh input is that input.
+	if got, ok := tally(totals, session...); !ok || got != (Usage{Input: 752 + 960, FreshInput: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}) {
 		t.Errorf("cost-state reads %+v, %v", got, ok)
 	}
 	// A session still running has written no cost-state line: that is no count,
@@ -977,17 +1053,17 @@ func TestUsageSources(t *testing.T) {
 	}
 
 	// 5 messages in 8 lines: counted once for each message.id, not once for each line.
-	if got, ok := tally(lines, session...); !ok || got != (Usage{Input: 10, Output: 931, CacheRead: 261272, CacheWrite: 40915}) {
+	if got, ok := tally(lines, session...); !ok || got != (Usage{Input: 10, FreshInput: 10, Output: 931, CacheRead: 261272, CacheWrite: 40915}) {
 		t.Errorf("message lines read %+v, %v; want each of the 5 messages once", got, ok)
 	}
 	every := lines
 	every.Key = ""
-	if got, _ := tally(every, session...); got != (Usage{Input: 16, Output: 1777, CacheRead: 426870, CacheWrite: 58102}) {
+	if got, _ := tally(every, session...); got != (Usage{Input: 16, FreshInput: 16, Output: 1777, CacheRead: 426870, CacheWrite: 58102}) {
 		t.Errorf("every line read %+v; this is what the key keeps out", got)
 	}
 	l, ok = lines.UsageIn([]byte(claudeLines[1]))
 	if want := time.Date(2026, 10, 21, 19, 34, 48, 246_000_000, time.UTC); !ok || !l.At.Equal(want) || l.Key != "msg_011CgFweBRXKGoR2hEx6yoiJ" ||
-		l.Usage != (Usage{Input: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}) {
+		l.Usage != (Usage{Input: 2, FreshInput: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}) {
 		t.Errorf("first assistant line: %+v, %v", l, ok)
 	}
 	for _, line := range []string{claudeLines[0], claudeCostState} {
@@ -1014,7 +1090,8 @@ func TestUsageSources(t *testing.T) {
 		t.Error("codex's last token_count falls short of the session")
 	}
 	// No token_count yet is no count; each one after is the running total, so
-	// the last read is the session's, its input without the cache.
+	// the last read is the session's. Its input is Codex's own, the cache in it,
+	// and the fresh input beside it is that input less the cache.
 	if got, ok := tally(last, codexLines[:3]...); ok {
 		t.Errorf("lines before the first token_count read %+v", got)
 	}
@@ -1022,9 +1099,9 @@ func TestUsageSources(t *testing.T) {
 		upto int
 		want Usage
 	}{
-		{4, Usage{Input: 18104, Output: 368}},
-		{5, Usage{Input: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}},
-		{6, Usage{Input: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}},
+		{4, Usage{Input: 18104, FreshInput: 18104, Output: 368}},
+		{5, Usage{Input: 2879571, FreshInput: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}},
+		{6, Usage{Input: 11714314, FreshInput: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}},
 	} {
 		if got, ok := tally(last, codexLines[:c.upto]...); !ok || got != c.want {
 			t.Errorf("first %d lines read %+v, %v; want %+v", c.upto, got, ok, c.want)
@@ -1046,6 +1123,56 @@ func TestUsageSources(t *testing.T) {
 		t.Errorf("last token_count's time: %v, %v; want %v", l.At, ok, want)
 	}
 
+	muse, _ := Lookup("muse")
+	records := muse.Usage[0]
+	if records.Partial {
+		t.Error("muse's sum of the records falls short of the session")
+	}
+	// Muse writes no total, so the session's count is the sum of its records:
+	// the review-security session of yardr-58xw adds up to section 2's row for
+	// it, 205,114 fresh input, 1,752,134 cache read and 26,241 output, with the
+	// input as Muse reports it, 1,957,248, beside the fresh input. The same
+	// records hold 16,984 reasoning tokens, which are inside the output and are
+	// not added to it.
+	if got, ok := tally(records, museLines...); !ok || got != (Usage{Input: 1957248, FreshInput: 205114, Output: 26241, CacheRead: 1752134}) {
+		t.Errorf("muse's records read %+v, %v; want 205,114 fresh input, 1,752,134 cache read, 26,241 output", got, ok)
+	}
+	// The 41 records with tokens and the tool and reminder records are read,
+	// each with a time to place it by; the model_completed lines carry the
+	// same tokens a second time and are not.
+	reads := 0
+	for _, line := range museLines {
+		if l, ok := records.UsageIn([]byte(line)); ok {
+			reads++
+			if l.At.IsZero() {
+				t.Errorf("muse record has no time: %.80s", line)
+			}
+		}
+	}
+	if reads != 43 {
+		t.Errorf("muse's source reads %d of the %d lines, want the 43 usage records", reads, len(museLines))
+	}
+	for _, c := range []struct {
+		name, line string
+		want       Usage
+	}{
+		// 435 is the output; 337 of it is thinking. Added on top the call would
+		// have 772 output tokens.
+		{"reasoning inside the output", museReasoning, Usage{Input: 29089, FreshInput: 29089 - 25457, Output: 435, CacheRead: 25457}},
+		{"the most reasoning in an output", museMostReasoning, Usage{Input: 41572, FreshInput: 41572 - 38001, Output: 25649, CacheRead: 38001}},
+		// The call that wrote a compaction's summary is a call of the session.
+		{"a compaction call", museCompaction, Usage{Input: 229076, FreshInput: 229076, Output: 1783}},
+	} {
+		if l, ok := records.UsageIn([]byte(c.line)); !ok || l.Usage != c.want {
+			t.Errorf("muse, %s: %+v, %v; want %+v", c.name, l.Usage, ok, c.want)
+		}
+	}
+	// recorded_at is Unix time in microseconds.
+	l, ok = records.UsageIn([]byte(museInstant))
+	if want := time.Date(2026, 10, 21, 21, 7, 19, 253_217_000, time.UTC); !ok || !l.At.Equal(want) {
+		t.Errorf("muse record's time: %v, %v; want %v", l.At, ok, want)
+	}
+
 	// Every unit a file may name is one it loads with.
 	for _, unit := range []string{"s", "ms", "us"} {
 		body := "version: 1\nlabel: Q\nmodel: {home: .x, glob: '{session}.jsonl', field: m}\nusage: [{usage: u, input: i, at: t, at_unit: " + unit + "}]\n"
@@ -1058,8 +1185,9 @@ func TestUsageSources(t *testing.T) {
 // One line of the session file reads as the counts at the source's Usage path
 // in a line of its Type, in the five ways a UsageSource goes beyond a
 // ContextSource: a type in a path of keys, a * that adds up a map, the four
-// counts by name (the cache taken off the input when the harness counts it
-// there), a key that tells a line from a repeat, and a time.
+// counts by name (the input as the line has it, and beside it the fresh input,
+// which is the input less the cache when the harness counts the cache in it),
+// a key that tells a line from a repeat, and a time.
 func TestUsageIn(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -1068,29 +1196,31 @@ func TestUsageIn(t *testing.T) {
 		want UsageLine
 		ok   bool
 	}{
-		{"a type in one key", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"kind":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"a type in one key", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"kind":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
 		{"the type is read from type_field", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{}, false},
-		{"the key is type by default", UsageSource{Type: "turn", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3}}, true},
-		{"a type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"x"},"u":{"i":3}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"the key is type by default", UsageSource{Type: "turn", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
+		{"a type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"x"},"u":{"i":3}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
 		{"another type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"y"},"u":{"i":3}}`, UsageLine{}, false},
 		{"a path through what is no object", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":"x","u":{"i":3}}`, UsageLine{}, false},
-		{"a path with no type named reads any line", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1}}, true},
+		{"a path with no type named reads any line", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1, FreshInput: 1}}, true},
 
-		{"every value of a map", UsageSource{Usage: "m.*", Input: "i", Output: "o"}, `{"m":{"a":{"i":1,"o":10},"b":{"i":2},"c":7}}`, UsageLine{Usage: Usage{Input: 3, Output: 10}}, true},
-		{"a * in the middle of the path", UsageSource{Usage: "m.*.n", Input: "i"}, `{"m":{"a":{"n":{"i":1}},"b":{"n":{"i":2}},"c":{"x":{"i":9}}}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"every value of a map", UsageSource{Usage: "m.*", Input: "i", Output: "o"}, `{"m":{"a":{"i":1,"o":10},"b":{"i":2},"c":7}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3, Output: 10}}, true},
+		{"a * in the middle of the path", UsageSource{Usage: "m.*.n", Input: "i"}, `{"m":{"a":{"n":{"i":1}},"b":{"n":{"i":2}},"c":{"x":{"i":9}}}}`, UsageLine{Usage: Usage{Input: 3, FreshInput: 3}}, true},
 		{"a * where there is no map", UsageSource{Usage: "m.*", Input: "i"}, `{"m":5}`, UsageLine{}, false},
 		{"a * over an empty map", UsageSource{Usage: "m.*", Input: "i"}, `{"m":{}}`, UsageLine{}, false},
 
 		{"a count the object lacks reads 0", UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"o":5}}`, UsageLine{Usage: Usage{Output: 5}}, true},
-		{"a count no field is named for reads 0", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":4,"o":9}}`, UsageLine{Usage: Usage{Input: 4}}, true},
+		{"a count no field is named for reads 0", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":4,"o":9}}`, UsageLine{Usage: Usage{Input: 4, FreshInput: 4}}, true},
 		{"none of the fields", UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"x":5}}`, UsageLine{}, false},
 		{"a field that is no number", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":"5"}}`, UsageLine{}, false},
-		{"all four", UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w"}, `{"u":{"i":1,"o":2,"r":3,"w":4}}`, UsageLine{Usage: Usage{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4}}, true},
-		{"the cache is in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 60, CacheRead: 40}}, true},
-		{"the cache is beside the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c"}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 100, CacheRead: 40}}, true},
+		{"all four", UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w"}, `{"u":{"i":1,"o":2,"r":3,"w":4}}`, UsageLine{Usage: Usage{Input: 1, FreshInput: 1, Output: 2, CacheRead: 3, CacheWrite: 4}}, true},
+		{"the cache is in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 60, CacheRead: 40}}, true},
+		{"the cache is in the input, and a write and an output beside it", UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w", CacheInInput: true}, `{"u":{"i":100,"o":2,"r":40,"w":4}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 60, Output: 2, CacheRead: 40, CacheWrite: 4}}, true},
+		{"the cache is in the input, and none of it was read", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":0}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 100}}, true},
+		{"the cache is beside the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c"}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 100, FreshInput: 100, CacheRead: 40}}, true},
 		{"the path is not an object", UsageSource{Usage: "u", Input: "i"}, `{"u":[{"i":1}]}`, UsageLine{}, false},
 
-		{"a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":"a"},"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1}, Key: "a"}, true},
+		{"a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":"a"},"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1, FreshInput: 1}, Key: "a"}, true},
 		{"no key in the line", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{},"u":{"i":1}}`, UsageLine{}, false},
 		{"a key that is no string", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":7},"u":{"i":1}}`, UsageLine{}, false},
 		{"an empty key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":""},"u":{"i":1}}`, UsageLine{}, false},
@@ -1160,6 +1290,13 @@ func TestUsageTally(t *testing.T) {
 		`{"u":{"i":100},"id":"a"}`,
 		`{"u":{"i":1000}}`, // no id
 	}
+	// The same shape with a cache in each input: the fresh input is added up
+	// beside the input as it is, never the one from the other.
+	cached := []string{
+		`{"u":{"i":100,"c":40},"id":"a"}`,
+		`{"u":{"i":10,"c":4},"id":"b"}`,
+		`{"u":{"i":1000,"c":400},"id":"a"}`,
+	}
 	for _, c := range []struct {
 		name  string
 		src   UsageSource
@@ -1167,15 +1304,18 @@ func TestUsageTally(t *testing.T) {
 		want  Usage
 		ok    bool
 	}{
-		{"last, the default", UsageSource{Usage: "u", Input: "i"}, lines, Usage{Input: 1000}, true},
-		{"last, by name", UsageSource{Usage: "u", Input: "i", Read: "last"}, lines[:4], Usage{Input: 100}, true},
-		{"sum", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines, Usage{Input: 1111}, true},
-		{"sum, once for each key, the last line of each", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines, Usage{Input: 110}, true},
-		{"sum, once for each key, the first line of one key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[:2], Usage{Input: 11}, true},
+		{"last, the default", UsageSource{Usage: "u", Input: "i"}, lines, Usage{Input: 1000, FreshInput: 1000}, true},
+		{"last, by name", UsageSource{Usage: "u", Input: "i", Read: "last"}, lines[:4], Usage{Input: 100, FreshInput: 100}, true},
+		{"sum", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines, Usage{Input: 1111, FreshInput: 1111}, true},
+		{"sum, once for each key, the last line of each", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines, Usage{Input: 110, FreshInput: 110}, true},
+		{"sum, once for each key, the first line of one key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[:2], Usage{Input: 11, FreshInput: 11}, true},
 		{"no line", UsageSource{Usage: "u", Input: "i"}, nil, Usage{}, false},
 		{"no line that reads", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines[2:3], Usage{}, false},
 		{"no line that has a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[2:3], Usage{}, false},
 		{"a line of 0 is a count", UsageSource{Usage: "u", Input: "i", Read: "sum"}, []string{`{"u":{"i":0}}`}, Usage{}, true},
+		{"last, with the cache in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, cached, Usage{Input: 1000, FreshInput: 600, CacheRead: 400}, true},
+		{"sum, with the cache in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true, Read: "sum"}, cached, Usage{Input: 1110, FreshInput: 666, CacheRead: 444}, true},
+		{"sum, once for each key, with the cache in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true, Read: "sum", Key: "id"}, cached, Usage{Input: 1010, FreshInput: 606, CacheRead: 404}, true},
 	} {
 		if got, ok := tally(c.src, c.lines...); got != c.want || ok != c.ok {
 			t.Errorf("%s: %+v, %v; want %+v, %v", c.name, got, ok, c.want, c.ok)

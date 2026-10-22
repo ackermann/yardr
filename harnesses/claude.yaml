@@ -121,8 +121,10 @@ context:
 # What a session used, in tokens, read from the same file once the session has
 # ended (docs/design/2026-10-21-yardr-qbqq-session-tokens.md, section 3.3).
 # The entries are tried in order, and the first that finds a line is the
-# reading. Both were read on 22 Oct 2026 from the builder session of yardr-mnc8,
-# a transcript of Claude Code 2.1.288.
+# reading. Both were read on 22 Oct 2026 from the builder session of yardr-mnc8
+# (session 4b176be6-9160-4463-9056-17f3f0c8a34f), a transcript of Claude Code
+# 2.1.288. Claude Code counts its input apart from its cache in both entries,
+# so neither names cache_in_input and the input read is also the fresh input.
 usage:
   # The cost-state line Claude Code writes as the process exits: its own totals
   # for each model it called. That session's were Opus 752 input, 74,978

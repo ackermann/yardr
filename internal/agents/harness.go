@@ -423,9 +423,12 @@ func (s ContextSource) UsageIn(line []byte) (used int, ok bool) {
 //     by message.id each message counts once.
 //   - The four counts are named by what they mean: Input, Output, CacheRead
 //     and CacheWrite each name the field that holds it, and one that names
-//     none reads as 0. CacheInInput says the harness's input includes what it
-//     read from its cache (Codex's does), which is then taken off it, so that
-//     one harness's count adds up with another's.
+//     none reads as 0. Input stays as the harness reports it. CacheInInput
+//     says that figure includes what the harness read from its cache (Codex's
+//     and Muse's do), and UsageIn then derives FreshInput, the input less the
+//     cache, so that one harness's fresh input adds up with another's. A
+//     harness that reports its input apart from its cache (Claude's does) has
+//     a FreshInput equal to its Input.
 //   - At is a path to the line's own time: a string is read as RFC 3339, a
 //     number as Unix time in AtUnit ("s", "ms" or "us"; "s" when none is
 //     named). UsageIn gives it to a caller that counts only up to a time.
@@ -448,12 +451,18 @@ type UsageSource struct {
 	CacheInInput bool   `yaml:"cache_in_input" json:"cache_in_input,omitempty"`
 }
 
-// Usage is what a session used, in four counts that add up across
-// harnesses: Input is what it sent that its provider did not serve from the
-// cache, CacheRead what the provider served from the cache, CacheWrite what
-// it stored there, and Output what the agent said, its thinking included.
+// Usage is what a session used. Input is what it sent, as its harness reports
+// it: with the cache read in it for a harness whose input includes the cache
+// (Codex, Muse) and without it for one whose does not (Claude), so Input does
+// not add up across harnesses. FreshInput is what it sent that its provider
+// did not serve from the cache, which does: UsageIn derives it from Input.
+// CacheRead is what the provider served from the cache, CacheWrite what it
+// stored there, and Output what the agent said, its thinking included. The
+// tokens a session newly spent are FreshInput, CacheWrite and Output together
+// (design section 3.4); CacheRead is left out of them.
 type Usage struct {
 	Input      int `json:"input"`
+	FreshInput int `json:"fresh_input"`
 	Output     int `json:"output"`
 	CacheRead  int `json:"cache_read"`
 	CacheWrite int `json:"cache_write"`
@@ -461,7 +470,7 @@ type Usage struct {
 
 // Add is u and o added up, count by count.
 func (u Usage) Add(o Usage) Usage {
-	return Usage{Input: u.Input + o.Input, Output: u.Output + o.Output, CacheRead: u.CacheRead + o.CacheRead, CacheWrite: u.CacheWrite + o.CacheWrite}
+	return Usage{Input: u.Input + o.Input, FreshInput: u.FreshInput + o.FreshInput, Output: u.Output + o.Output, CacheRead: u.CacheRead + o.CacheRead, CacheWrite: u.CacheWrite + o.CacheWrite}
 }
 
 // UsageLine is what one line of the session file reads as under a
@@ -510,8 +519,9 @@ func (s UsageSource) UsageIn(line []byte) (UsageLine, bool) {
 	if !found {
 		return UsageLine{}, false
 	}
+	u.FreshInput = u.Input
 	if s.CacheInInput {
-		u.Input -= u.CacheRead
+		u.FreshInput -= u.CacheRead
 	}
 	l := UsageLine{Usage: u}
 	if s.Key != "" {
