@@ -500,8 +500,11 @@ grant to each group by its runner and config and to each crew member by
 its runner, config and directory: `ask 2714 was written from another
 declaration of the source crm: it was replaced since (source_added, 12 Oct
 23:10, by mckean). Nothing ran.` A preset grant is held to the preset's
-bytes with the build too: a preset whose calls differ, or another build,
-is asked again. A user asked removed is held to when
+calls, so a preset whose calls differ is asked again. A pack's card, for
+an apply or a setup, is held to the pack's bytes and not to the build
+that embeds it. A build installed since the asking leaves a pack that is
+the same file for file approved as carded, and the build named on the
+card says only where the pack came from. A user asked removed is held to when
 they were added and by whom, a crew member's grants to its definition, a
 setting to the value that stood, a renamed link to its key whole, and a
 bead's originator to whose the bead was for. What is gone since is refused
@@ -580,11 +583,11 @@ gave GOOGLE_ACCOUNT`.
 
 Approving is the operator's as a run approval is: in a terminal on the
 yard's machine, or from a device of yours, never from an agent's pane
-and never over a link. A setup runs once for one ask. When the yard
-changed between the asking and the approval — the build, the pack's
+and never over a link. A setup runs once for one ask. When the pack's
 bytes or presets, a source, the account's owed-ness, a candidate or a
-grantee — nothing runs and the yard says what changed; the ask is
-declined and asked again. A pack past 40 lines, one carrying sources
+grantee changed between the asking and the approval, nothing runs and
+the yard says what changed; the ask is declined and asked again. A new
+build alone is no such change. A pack past 40 lines, one carrying sources
 under different credentials, and one with no presets stay on the
 existing per-step flow: a pack apply card, an account card per source,
 and a grant card per source and kind. A pick with `--secret` or
