@@ -45,12 +45,46 @@ them: yardr user identity.
 
 A device is a program of a user that calls the yard from outside it, let in
 by a token: yardr user device.`}
+	var login, like string
 	add := &cobra.Command{
-		Use: "add <name>", Short: "Add a user", Args: cobra.ExactArgs(1),
+		Use: "add <name> [--login claude]", Short: "Add a user", Args: cobra.ExactArgs(1),
+		Long: `Adds the user name: an inbox, and a party to mail, ask and route for.
+
+With --login claude the person is made whole on a login of their own, which
+by hand takes eight commands and where a slip bills one person's work to
+another's login. In this order, after checking that all of it can be made
+(nothing is written otherwise):
+
+  the user, and their login folder <home>/logins/<name> (0700) with the env
+  file <home>/groups/<name>.env (0600) that names it (CLAUDE_CONFIG_DIR);
+  the group <name>-builders, a copy of the yard's builders with kind claude,
+  login_for <name>, that env file and limit 1; a route --originator <name>
+  for each stage the builders take, to that group; the yardmaster's
+  env_for_<name> (and the user in its for=, where that names some), which
+  gives them a conversation on their login; and the sign-in: the page to
+  sign in on is mailed to them, and the code it shows is asked of them as a
+  secret that goes to the waiting login and is kept nowhere. The command
+  waits for it, within the login's own timeouts, proves the login with one
+  short call on their seat, and says what it made.
+
+--like <group> names the group to copy where the yard's builders are not the
+group named builders, or the one group named <depot>-builders. Only claude is
+wired. The person reads the page and gives the code in a device (yardr user
+device pair); a sign-in that did not finish is opened again with yardr user
+login. yardr user rm takes what this made, and leaves the login folder.`,
+		Example: `  yardr user add ada                       # an inbox, no login of their own
+  yardr user add ada --login claude        # and the group, routes and sign-in on their own seat
+  yardr user add ada --login claude --like docs-builders`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
+			}
+			if login != "" {
+				return a.addUserLogin(c, st, args[0], login, like)
+			}
+			if like != "" {
+				return fmt.Errorf("--like names the group a person's own is a copy of: it goes with --login")
 			}
 			u, err := st.AddUser(c.Context(), args[0], a.who())
 			if err != nil {
@@ -173,15 +207,40 @@ everything either way.`,
 	}
 	rm := &cobra.Command{
 		Use: "rm <name>", Short: "Remove a user (the mail stays in the log)", Args: cobra.ExactArgs(1),
+		Long: `Removes the user: their subscriptions, devices and telling outside the yard,
+and what waited to be told them. The mail stays in the log.
+
+What carries their own login (yardr user add --login) goes in the same
+write: every group whose login_for is the user, with its routes, every
+route for their beads wherever it leads, and the user from each crew
+member's for= and env_for_<name>. A route left behind would send beads for
+the name to a group whose login belongs to no one. The login folder and the
+env file that names it stay on disk, with the transcripts in them: no
+command erases them yet, and the command says where they are.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
+			if err != nil {
+				return err
+			}
+			// What goes with them is read before, to be told after: the
+			// store takes it in the one write that removes the user.
+			login, err := userLoginOf(c.Context(), st, args[0])
 			if err != nil {
 				return err
 			}
 			if err := st.DeleteUser(c.Context(), args[0], a.who()); err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), map[string]string{"removed": args[0]}, func(w io.Writer) { fmt.Fprintf(w, "user %s removed\n", args[0]) })
+			out := map[string]any{"removed": args[0]}
+			if !login.Empty() {
+				out["login"] = login
+			}
+			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
+				fmt.Fprintf(w, "user %s removed\n", args[0])
+				for _, line := range login.Said(args[0]) {
+					fmt.Fprintf(w, "  %s\n", line)
+				}
+			})
 		},
 	}
 	set := &cobra.Command{
@@ -363,7 +422,9 @@ again, and it ends as one giving that worked.`,
 			})
 		},
 	}
-	cmd.AddCommand(add, list, show, rm, set, key, a.userIdentityCmd(), a.deviceCmd())
+	add.Flags().StringVar(&login, "login", "", "make the person whole on a login of their own, signed in to this harness (claude)")
+	add.Flags().StringVar(&like, "like", "", "with --login: the group their own is a copy of; default the yard's builders")
+	cmd.AddCommand(add, list, show, rm, set, key, a.userIdentityCmd(), a.deviceCmd(), a.userLoginCmd())
 	return cmd
 }
 

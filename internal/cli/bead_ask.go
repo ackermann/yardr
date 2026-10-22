@@ -145,13 +145,17 @@ have. It is not --for-user: that asks for the user's own address in a
 source that tells people, and this for the credential a call made as them
 reads; a source may have both to ask for.
 
---secret-login <login> asks the operator for the input of the harness login
-that waits under that reference: the login its leader's input need names.
-The value typed goes to the waiting login and is kept nowhere, not even in
-the answer, which holds the names as any giving does. It is asked of the
-operator, takes no --env, no --for-user, no --for-crew and no --as, and is
-refused when no login waits under the reference at the giving. The
-yardmaster asks one per input need of a login it relays.
+--secret-login <login> asks for the input of the harness login that waits
+under that reference: the login its leader's input need names. The value
+typed goes to the waiting login and is kept nowhere, not even in the
+answer, which holds the names as any giving does. It is asked of the
+operator. With --as <user> the login is that user's own, led for the group
+that carries it (yardr user add --login, yardr user login): the code its
+sign-in page shows is the person's to read, so it is asked of them, where
+--to then defaults, or of the operator for them, and they give it. It takes
+no --env, no --for-user and no --for-crew, and is refused when no login
+waits under the reference at the giving. The yardmaster asks one per input
+need of a login it relays.
 
 --secret-hook <hook> --source <source> asks the operator for the signing
 secret of the hook <hook> of the declared source <source>: the value the
@@ -465,7 +469,7 @@ what the person asked does, and this is the asker's own.`,
 			case askForCrew != "" && askSecret == "" && !c.Flags().Changed("secret-login"):
 				return fmt.Errorf("--for-crew says whose own credential in a source is asked for: it goes with --secret <source>")
 			case askAs != "" && askSecret == "" && !c.Flags().Changed("secret-login"):
-				return fmt.Errorf("--as says whose own credential in a source is asked for: it goes with --secret <source>")
+				return fmt.Errorf("--as says whose own credential in a source is asked for: it goes with --secret <source>, or whose login a waiting login is: --secret-login <login>")
 			case askForUser != "" && askForCrew != "":
 				return fmt.Errorf("--for-user asks for a user's own address and --for-crew for a crew member's credential: one of the two")
 			case askForUser != "" && askAs != "":
@@ -481,11 +485,9 @@ what the person asked does, and this is the asker's own.`,
 			case c.Flags().Changed("secret-login") && len(askEnv) > 0:
 				return fmt.Errorf("--secret-login takes no --env: a login input is the one name it is asked for")
 			case c.Flags().Changed("secret-login") && askForUser != "":
-				return fmt.Errorf("--secret-login takes no --for-user: a login input is the operator's login's to take")
+				return fmt.Errorf("--secret-login takes no --for-user: a login input is the login's to take, not a user's address")
 			case c.Flags().Changed("secret-login") && askForCrew != "":
-				return fmt.Errorf("--secret-login takes no --for-crew: a login input is the operator's login's to take")
-			case c.Flags().Changed("secret-login") && askAs != "":
-				return fmt.Errorf("--secret-login takes no --as: a login input is the operator's login's to take")
+				return fmt.Errorf("--secret-login takes no --for-crew: a login input is the login's to take, not a crew member's credential")
 			case c.Flags().Changed("secret-hook") && len(askEnv) > 0:
 				return fmt.Errorf("--secret-hook takes no --env: the signing secret is one value")
 			case c.Flags().Changed("secret-hook") && askForUser != "":
@@ -572,7 +574,7 @@ what the person asked does, and this is the asker's own.`,
 				q.Secret = &store.AskSecret{Source: askSecret, Env: askEnv, User: askForUser, Crew: askForCrew, As: askAs}
 			}
 			if c.Flags().Changed("secret-login") {
-				q.Secret = &store.AskSecret{Login: askSecretLogin}
+				q.Secret = &store.AskSecret{Login: askSecretLogin, As: askAs}
 			}
 			if c.Flags().Changed("secret-hook") {
 				q.Secret = &store.AskSecret{Source: askHookSource, Hook: askSecretHook}
@@ -686,7 +688,11 @@ what the person asked does, and this is the asker's own.`,
 						return
 					}
 					if secret.Login != "" {
-						fmt.Fprintf(w, "%s for %s: a secret, %s for the waiting login %s\n", on, who, secret.Names(), secret.Login)
+						whose := "the"
+						if secret.As != "" {
+							whose = secret.As + "'s"
+						}
+						fmt.Fprintf(w, "%s for %s: a secret, %s for %s waiting login %s\n", on, who, secret.Names(), whose, secret.Login)
 						return
 					}
 					if secret.User != "" {
@@ -744,10 +750,10 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askSecret, "secret", "", "ask for the credential of this declared source: answered with a value typed unseen, never with words")
 	ask.Flags().StringVar(&askSecretHook, "secret-hook", "", "with --source: ask for the signing secret of this hook of a declared source: answered with a value typed unseen, kept in the hook's secret file")
 	ask.Flags().StringVar(&askHookSource, "source", "", "with --secret-hook: the declared source the hook serves")
-	ask.Flags().StringVar(&askSecretLogin, "secret-login", "", "ask for the input of the harness login waiting under this reference (its leader's input need names it): handed to the login, kept nowhere")
+	ask.Flags().StringVar(&askSecretLogin, "secret-login", "", "ask for the input of the harness login waiting under this reference (its leader's input need names it): handed to the login, kept nowhere; with --as, the login is that user's own")
 	ask.Flags().StringVar(&askForUser, "for-user", "", "with --secret: ask for this user's own address in the source (the variable its notify key names), kept in the user's env_file")
 	ask.Flags().StringVar(&askForCrew, "for-crew", "", "with --secret: ask for this crew member's own credential in the source (the variables its credential names), kept in the crew member's env_file")
-	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file")
+	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file; with --secret-login: the login is this user's own, and theirs to give")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
 	ask.Flags().StringVar(&askSetup, "setup", "", "set up this embedded pack of kind source as one decision: the apply, the account and the grants, with --crew/--group naming who the grants are for")
 	ask.Flags().StringArrayVar(&askCrew, "crew", nil, "with --setup: the grants are for this crew member (repeatable; at least one of --crew and --group)")
@@ -818,8 +824,9 @@ An ask for a user's own credential in a source (yardr bead ask --secret
 <source> --as <user>) is that user's to give, or the operator's, into the
 user's env_file, and names the check that tries it as them.
 An ask for a waiting login's input (yardr bead ask --secret-login
-<login>) is handed to the login and kept nowhere. Giving again replaces
-what was given.
+<login>) is handed to the login and kept nowhere; with --as <user> it is
+that user's to give, or the operator's. Giving again replaces what was
+given.
 When the yard wrote the file and could not record it, it says so with the
 names and the file: give it again. A secret ask takes no pick and no
 words, which are refused and kept nowhere; --later puts it aside as any

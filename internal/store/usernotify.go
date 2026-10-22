@@ -130,15 +130,38 @@ func notifySources(tx *bolt.Tx) ([]string, error) {
 // or of a crew member is that session's or that crew member's, whatever
 // actor it names.
 func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
+	return w.mayStandFor(ctx, name, actor, func(ops operators) string {
+		why := "where " + name + " is told outside the yard is set by " + name
+		if !ops.none() && !ops.is(name) {
+			why += ", or by " + ops.words()
+		}
+		return why + ": what lands in their inbox goes there"
+	})
+}
+
+// mayAnswerLogin is mayTell for the input of a login that is the user
+// name's own (AskSecret.As beside a Login): the code their sign-in page shows
+// is theirs to read, or the operator's for them, and never the pane of an
+// agent's or a crew member's.
+func (w *wtx) mayAnswerLogin(ctx context.Context, name, actor string) error {
+	return w.mayStandFor(ctx, name, actor, func(ops operators) string {
+		why := "the code that signs " + name + " in is " + name + "'s to give"
+		if !ops.none() && !ops.is(name) {
+			why += ", or " + ops.whose() + " for them"
+		}
+		return why + ": it goes to their login and to nothing else"
+	})
+}
+
+// mayStandFor is the rule behind mayTell and mayAnswerLogin: the user name
+// and the operators, by the store's own records of who calls, and refuses the
+// pane of a session or a crew member with says's words, given the operators.
+func (w *wtx) mayStandFor(ctx context.Context, name, actor string, says func(ops operators) string) error {
 	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	why := "where " + name + " is told outside the yard is set by " + name
-	if !ops.none() && !ops.is(name) {
-		why += ", or by " + ops.words()
-	}
-	why += ": what lands in their inbox goes there"
+	why := says(ops)
 	if who, err := agentPane(ctx, w.Tx); err != nil {
 		return err
 	} else if who != "" {

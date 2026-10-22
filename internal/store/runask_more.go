@@ -120,6 +120,11 @@ func (w *wtx) userRmCard(argv []string, asking bool) (AskRun, error) {
 		does = fmt.Sprintf("removes the user %s: their %s, %s and their telling outside the yard go, and what waited to be told them; the mail stays in the log.", name, countNoun(len(u.Subscriptions), "subscription"), countNoun(len(devices), "device"))
 	}
 	sentences := []string{does}
+	login, err := w.userLogin(name)
+	if err != nil {
+		return AskRun{}, err
+	}
+	sentences = append(sentences, login.Said(name)...)
 	if len(exposed) > 0 {
 		sentences = append(sentences, fmt.Sprintf("%s see them no more.", strings.Join(exposed, ", ")))
 	}
@@ -159,10 +164,14 @@ func (w *wtx) userRmStale(seq uint64, was, now AskRun) error {
 // runUserRm removes the user as actor through deleteUser, and answers
 // what the command prints at a terminal.
 func runUserRm(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+	login, err := w.userLogin(argv[2])
+	if err != nil {
+		return "", err
+	}
 	if err := w.deleteUser(ctx, argv[2], actor, by); err != nil {
 		return "", err
 	}
-	return "user " + argv[2] + " removed", nil
+	return strings.Join(append([]string{"user " + argv[2] + " removed"}, login.Said(argv[2])...), "\n"), nil
 }
 
 // crewGrantKeys are the crew settings a run ask takes: the grants. The

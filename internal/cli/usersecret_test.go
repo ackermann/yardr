@@ -71,7 +71,7 @@ func TestBeadAskAndAnswerAUsersCredential(t *testing.T) {
 		"another yard":     {[]string{"--secret", "crm", "--as", "ada", "--to", "ada@north"}, "nothing of a secret crosses a link"},
 		"with an option":   {[]string{"--secret", "crm", "--as", "ada", "--option", "Yes: it is given"}, "takes no --option"},
 		"about other work": {[]string{"--secret", "crm", "--as", "ada", "--about", id}, "takes no --about"},
-		"a login beside":   {[]string{"--secret-login", "claude-x", "--as", "ada"}, "takes no --as"},
+		"a login beside":   {[]string{"--secret-login", "claude-x", "--for-user", "ada"}, "takes no --for-user"},
 		"a hook beside":    {[]string{"--secret-hook", "h", "--source", "crm", "--as", "ada"}, "it goes with --secret <source>"},
 	} {
 		if _, err := run(t, yard.beadCmd(), append(append([]string{}, ask...), c.args...)...); err == nil || !strings.Contains(err.Error(), c.want) {
@@ -166,6 +166,15 @@ func TestBeadAskAndAnswerAUsersCredential(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(file); string(b) != "GOOGLE_ACCOUNT=typed-again\n" {
 		t.Fatalf("the file holds %q after the second giving", b)
+	}
+	// A login that is theirs own is asked of them as well, for the code its
+	// sign-in page shows.
+	out, err = run(t, yard.beadCmd(), append(append([]string{}, ask...), "--secret-login", "claude-x", "--as", "ada")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := " on " + id + " for ada: a secret, INPUT for ada's waiting login claude-x\n"; !strings.HasPrefix(out, "ask ") || !strings.HasSuffix(out, want) {
+		t.Fatalf("ask printed %q\nwant it to end %q", out, want)
 	}
 }
 

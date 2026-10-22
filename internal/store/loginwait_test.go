@@ -127,6 +127,21 @@ func TestLoginAskIsStoredWithTheWait(t *testing.T) {
 	if strings.Contains(lines, "for the source") {
 		t.Errorf("the card names a source:\n%s", lines)
 	}
+	// A login that is a user's own is asked of them, and its card says whose.
+	own := loginAsk("claude-ada")
+	own.To, own.Secret.As = "ada", "ada"
+	y.ask(t, own, "yardmaster")
+	rs = y.resolved(t)
+	ownJSON, _ := json.Marshal(rs[1].Ask.Secret)
+	if want := `{"source":"","env":["INPUT"],"login":"claude-ada","as":"ada"}`; string(ownJSON) != want {
+		t.Fatalf("the own login's secret = %s\nwant %s", ownJSON, want)
+	}
+	if got := rs[1].Ask.Secret.Line(); got != "a secret: INPUT, for ada's waiting login claude-ada" {
+		t.Fatalf("the own login's line = %q", got)
+	}
+	// Asked of the operator for them it stands as well.
+	own.To = "mckean"
+	y.ask(t, own, "yardmaster")
 }
 
 // A login-input ask is refused, and nothing is stored, beside a source or a
@@ -155,6 +170,9 @@ func TestLoginAskRefusals(t *testing.T) {
 		{"a user beside it", with(func(a *Ask) { a.Secret.User = "ada" }), "takes no --for-user"},
 		{"a name beside the one", with(func(a *Ask) { a.Secret.Env = []string{"CODE"} }), "CODE is no name of it"},
 		{"not the operator", with(func(a *Ask) { a.To = "ada" }), "answering the login is theirs alone"},
+		{"an own login of nobody", with(func(a *Ask) { a.To, a.Secret.As = "mckean", "eve" }), "a login input is asked for the login of a user of the yard (yardr user list): user eve: not found"},
+		{"an own login asked of another user", with(func(a *Ask) { a.To, a.Secret.As = "bob", "ada" }),
+			"the code that signs ada in is theirs to give, or the operator's (mckean) for them, so bob cannot be asked for it"},
 		{"another yard", with(func(a *Ask) { a.To = "mckean@north" }), "nothing of a secret crosses a link"},
 		{"options", with(func(a *Ask) { a.Options = []AskOption{{Label: "Yes", Consequence: "it is given"}} }), "takes no --option"},
 		{"about", with(func(a *Ask) { a.About = []string{other.ID} }), "takes no --about"},
@@ -372,6 +390,23 @@ func TestGiveLoginRefusals(t *testing.T) {
 	waited := waitFor(t, y, "claude-picky")
 	giveLogin(t, y, seq, "good-code", "mckean")
 	if got := <-waited; got != "good-code" {
+		t.Fatalf("the waiter was handed %q", got)
+	}
+	// A login that is a user's own is theirs to give, or the operator's for
+	// them: another user's word is refused, and the wait is left for theirs.
+	own := loginAsk("claude-ada")
+	own.To, own.Secret.As = "ada", "ada"
+	seq = y.ask(t, own, "yardmaster")
+	_, err := y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "s3cret-for-bob"}, "bob", true)
+	if err == nil || !strings.Contains(err.Error(), "the code that signs ada in is ada's to give, or the operator's (mckean) for them") ||
+		!strings.Contains(err.Error(), "this is bob") || strings.Contains(err.Error(), "s3cret-for-bob") {
+		t.Fatalf("another user giving ada's code: %v", err)
+	}
+	waited = waitFor(t, y, "claude-ada")
+	if keyed := giveLogin(t, y, seq, "ada-code", "ada"); keyed.Login != "claude-ada" {
+		t.Fatalf("keyed = %+v", keyed)
+	}
+	if got := <-waited; got != "ada-code" {
 		t.Fatalf("the waiter was handed %q", got)
 	}
 }

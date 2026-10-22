@@ -365,7 +365,10 @@ input of the harness login
 that waits under that reference, the one its leader's input need names. Its
 line reads `a secret: INPUT, for the waiting login <login>`, the value is
 handed to the login and kept nowhere, to no note and no file, and a giving
-with no login waiting under it is refused naming that. One more kind is a
+with no login waiting under it is refused naming that. With `--as <user>`
+the login is that user's own (`yardr user add --login` leads it for them),
+the line reads `for <user>'s waiting login <login>`, and the code its
+sign-in page shows is theirs to give, or the operator's for them. One more kind is a
 hook's signing secret: `--secret-hook <hook> --source <source>` asks for the
 value the service signs its webhooks with. Its line reads `a secret: the
 signing secret for the hook <hook> (POST /hooks/<hook>), for the source
@@ -404,7 +407,7 @@ or decline it. The command is one of a fixed list:
 | `subscribe <user> yardr [--done] [--where <key>=<value>]` | a user is told of the yard's own events in their inbox | that user or the operator, with `yardr unsubscribe` |
 | `user set <user> tell=<parts>` | which parts a source tells a user of outside the yard, on their phone: a list of `notifications`, `mail` and `asks`, or nothing after `tell=` for all three | that user or the operator, with the `tell=` that stood, which the card names |
 | `user add <name>` | a user added: they read mail from now on, and are told nothing from before | only the operator, with `user rm` |
-| `user rm <name>` | a user removed: their subscriptions, devices and telling outside the yard go, and the mail stays in the log | only the operator, with `user add`, which starts them fresh |
+| `user rm <name>` | a user removed: their subscriptions, devices and telling outside the yard go, and the group that carries their own login with its routes, every route for their beads and the yardmaster's conversation with them; the mail stays in the log, and so does their login folder | only the operator, with `user add`, which starts them fresh |
 | `crew set <name> open_threads=<sources> \| set_state=<sources> \| peers=<peers>` | what a crew member may newly do outside the yard | anyone where grants were given, only the operator where they were taken, with the grants that stood, which the card names |
 | `crew identity <name> --source <source> [--id <id>] [--key <key>]` | who the crew member is in the source: mentions and assignments of the id or key there are then addressed to it | only the operator, with the identity that stood, which the card names, or `--rm` where none did |
 | `user identity <user> --source <source> [--id <id>] [--key <key>]` | who the user is in the source: threads opened there for them are then assigned to the id or key, and where the source hears by identity a delivery from it is heard as theirs | that user or the operator, with the identity that stood, which the card names, or `--rm` where none did |

@@ -1597,6 +1597,14 @@ func TestRunAskNewRowsAreHeldToTheirCards(t *testing.T) {
 					t.Fatal(err)
 				}
 			}, "was written when the user ada was another: they were removed and added again since"},
+		{"a login group made since", nil,
+			func(y *askYard) string { return "user rm ada" },
+			func(t *testing.T, y *askYard) {
+				g := Group{Name: "ada-builders", Runner: "herdr", Config: map[string]any{"kind": "claude", "login_for": "ada"}}
+				if err := y.PutGroup(y.ctx, g, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			}, "the yard would say \"Groups that carry their login go with them: ada-builders.\" now"},
 		{"a crew definition set since", nil,
 			func(y *askYard) string { return "crew set yardmaster peers=airy" },
 			func(t *testing.T, y *askYard) {

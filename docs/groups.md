@@ -131,6 +131,69 @@ login made for a group sits in a folder on this machine, which whoever
 runs the machine can read: bringing a subscription trusts the operator the
 way the machine's own login does.
 
+### A person with a login of their own
+
+One command adds a person whole, on a seat of their own:
+
+```sh
+yardr user add ada --login claude
+```
+
+Without it a slip in any of the steps below bills one person's work to
+another's login, so the command makes them in this order, after checking
+that all of it can be made (it writes nothing if not), and says what it
+made. Each is a command that stands on its own:
+
+1. **The user**: `yardr user add ada`.
+2. **The folder**: `mkdir -p ~/.yardr/logins/ada`, mode 0700. The login lands
+   here, beside Claude Code's own transcripts of every session of theirs.
+3. **The env file** that names it: `printf 'CLAUDE_CONFIG_DIR=%s\n'
+   ~/.yardr/logins/ada > ~/.yardr/groups/ada.env`, mode 0600 (the variable is
+   the kind's `home_env`).
+4. **The group**, a copy of the yard's builders: `yardr group add ada-builders
+   --runner herdr --set kind=claude --set login_for=ada --set
+   env_file=~/.yardr/groups/ada.env`, with the builders' prompt, arguments and
+   model besides, and a limit of 1, as a new group has: twelve people at the
+   limit of a shared builders would overrun the machine, and `yardr group set
+   ada-builders --limit 2` raises one. The builders are the group named
+   `builders`, or the one group named `<depot>-builders` as a pack names a
+   depot's; `--like <group>` names another. It must be a herdr group that runs
+   Claude and is the operator's (it has no `login_for` of another's). Its
+   `env_file` is not copied: it may hold the operator's key.
+5. **The routes**: for each route of the operator's that sends work to the
+   builders first, `yardr route add --stage new --originator ada --group
+   ada-builders`, with the route's depot, type, labels, bead priority and
+   priority, and no condition and no `--else`, since a fallback would spend
+   someone else's login. The reviewers and the rest are not copied: a bead of
+   theirs that reaches a stage with no route of theirs waits as an unrouted
+   bead does, with the one `unrouted` event naming whose beads have no route.
+6. **The conversation**: `yardr crew set yardmaster
+   env_for_ada=~/.yardr/groups/ada.env`, and `ada` added to `for=` where the
+   yardmaster's names some (unset serves everyone already). The yardmaster
+   then keeps a session for them on their login
+   ([crew.md](crew.md#conversation-sessions)).
+7. **A device** for them to read and answer from: `yardr user device pair ada
+   laptop --url …` ([users.md](users.md#devices)). The command does not make
+   one; it says so while the sign-in waits.
+8. **The sign-in**: `yardr harness login claude --group ada-builders --json`,
+   led by the command itself, which relays it: the harness's first way
+   (Claude's subscription, which a Team or Enterprise seat is signed in
+   with) is chosen, the page to sign in on is mailed to ada, the code it
+   shows is asked of them (`yardr bead ask … --secret-login <login> --as
+   ada`, a secret ask that goes to the waiting login and is kept nowhere),
+   and the one real call that proves the login is made: one short call on
+   their seat, so that a login that ended well and answers nothing (a plan
+   without Claude Code) is told at once and not at their first bead. It
+   waits within the login's own timeouts (15 minutes for the login, 10 for
+   the code). One that did not finish, or did not answer, is opened again
+   with `yardr user login ada`.
+
+Only claude is wired; another harness name is refused. A folder or env file
+that exists is refused too, with its path: a removed user's login stays on
+disk, and a name is reusable. `yardr user rm ada` takes the group, every route
+for ada's beads and `ada` from `for=` and `env_for_ada`, in the same write; the
+folder and the env file stay, and it says where they are.
+
 A route with no `--depot` is a yard default: it serves every depot that
 does not state its own route for the same beads. Which beads a route
 takes, beside its depot, is its match key: its stage, its type, its set

@@ -35,8 +35,8 @@ import (
 //	GET  /user/events?after=N    the stream, as on the socket but for the
 //	                             value of a setting_changed the device is
 //	                             not told, the files and the command of a
-//	                             source_set, a user_set and a hook_blocked
-//	                             that are the operator's, and but for mail,
+//	                             source_set, a user_set, a user_removed and
+//	                             a hook_blocked that are the operator's, and but for mail,
 //	                             read receipts and reactions it is no party
 //	                             to (deviceEvent)
 //	GET  /user/blobs/<hash>      a blob the caller may read, as the web
@@ -65,7 +65,8 @@ import (
 //     an approved setup is set in, to a device of an operator alone (bead,
 //     userAsks), and the stream tells the file a source_set points a source
 //     at and the command that mints its token, the file a user_set points a
-//     user at and the secret file a hook_blocked names, to one alone
+//     user at, the files a user_removed says a removed user's login named,
+//     and the secret file a hook_blocked names, to one alone
 //     (deviceEvent), so a lost token of another user, or of one who was the
 //     operator, gives away no address or file of an account the yard keeps;
 //   - Users, GetUser, Crew and GetCrew tell the file a user's address is read
@@ -916,10 +917,12 @@ func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) b
 
 // ownSecret reports whether body, the arguments of GiveSecret from the
 // device c of a user who is not the operator, names a secret ask for that
-// user's own address in a source (store.AskSecret.User) or for their own
-// credential in one (store.AskSecret.As). Those givings are the user's own
-// to make, on the socket (the store's mayTell) and so here: each writes a
-// file of theirs and no credential of the yard. For every other ask, and
+// user's own address in a source (store.AskSecret.User), for their own
+// credential in one (store.AskSecret.As) or for the input of their own
+// login (As beside a Login: the code their sign-in page shows). Those
+// givings are the user's own to make, on the socket (the store's mayTell)
+// and so here: each writes a file of theirs or hands their code to their
+// own waiting login, and sets no credential of the yard. For every other ask, and
 // for arguments that name none, the call stays what it is to anyone but
 // the operator: not there. Who may give is still the store's to decide,
 // with the user of the device's token as the actor (asUser).
@@ -1238,12 +1241,14 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 // value only for a setting the device is told (deviceTold), but for a
 // source_set, a user_set and a hook_blocked, which carry the files and the
 // command they set or name only for a device of the operator
-// (operatorFields), and but for mail, which goes out only to its sender or
-// its receiver. The key of a setting is always told: a device matches on it
-// alone for what it reads again, and the values it is not told stay on the
-// yard's own machine with the settings themselves; the source of a
-// source_set, the user of a user_set and the hook of a hook_blocked are told
-// as the key is. A hook delivery goes out to every device, as a bead's
+// (operatorFields), but for a user_removed, whose login names no env file
+// but for one (operatorLoginFiles), and but for mail, which goes out only
+// to its sender or its receiver. The key of a setting is always told: a
+// device matches on it alone for what it reads again, and the values it is
+// not told stay on the yard's own machine with the settings themselves; the
+// source of a source_set, the user of a user_set and the hook of a
+// hook_blocked are told as the key is, as the names are that a user_removed
+// carries. A hook delivery goes out to every device, as a bead's
 // events do: it is the yard's news, told to no one user, and whose
 // subscriptions it reached is on the event. So does the hook_files that says
 // its files are recorded: DeliveryFiles and the blob route serve them to
@@ -1300,6 +1305,11 @@ func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) 
 		// error of reading that file (hooks.Receiver.serve) and so names it: the
 		// path with words around it is still the path. The hook stays.
 		return u.operatorFields(ctx, c, e, "path", "reason"), true
+	case "user_removed":
+		// The files a removed user's login named are paths on the yard's
+		// machine, told to the operator's device alone, as the file of a
+		// user_set is. The names of what went stay, as the yard's news.
+		return u.operatorLoginFiles(ctx, c, e), true
 	default:
 		return e, true
 	}
@@ -1319,6 +1329,32 @@ func (u *UserServer) operatorFields(ctx context.Context, c *Caller, e store.Even
 	e.Data = maps.Clone(e.Data)
 	for _, field := range fields {
 		delete(e.Data, field)
+	}
+	return e
+}
+
+// operatorLoginFiles is the user_removed event e as the device c is sent
+// it: whole for a device of the operator, and for any other a copy whose
+// login names no env file. The files stay on disk when the user goes, and
+// their paths are the operator's configuration, as the file of a user_set
+// is; the names of the groups, routes and crew members that went stay. A
+// login of no shape the store writes is held whole: nothing of it is the
+// device's to read. The copy is the device's own, as operatorFields'.
+func (u *UserServer) operatorLoginFiles(ctx context.Context, c *Caller, e store.Event) store.Event {
+	if u.isOperator(ctx, c.User) {
+		return e
+	}
+	e.Data = maps.Clone(e.Data)
+	switch login := e.Data["login"].(type) {
+	case map[string]any:
+		kept := maps.Clone(login)
+		delete(kept, "env_files")
+		e.Data["login"] = kept
+	case store.UserLogin:
+		login.EnvFiles = nil
+		e.Data["login"] = login
+	default:
+		delete(e.Data, "login")
 	}
 	return e
 }

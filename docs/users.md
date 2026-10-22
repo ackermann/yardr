@@ -12,9 +12,11 @@ theirs that calls the yard from outside it, let in by a token.
 ```sh
 yardr user list                          # the users, each one's role, unread mail, where each is told; then whom the linked yards expose
 yardr user add ada                       # an operator adds a user
+yardr user add ada --login claude        # or adds them whole, on a login of their own (below)
+yardr user login ada                     # their sign-in again, if it did not finish
 yardr user set ada role=operator         # an operator makes ada one too: ada approves and administers
 yardr user show ada
-yardr user rm ada                        # the mail stays in the log
+yardr user rm ada                        # the mail stays in the log; what carries their own login goes, the login folder stays
 yardr user key ada pushover && yardr user set ada notify=pushover   # told on a phone, through a source
 yardr user set ada tell=notifications    # of the notifications only: no mail and no asks on the phone
 yardr user identity ada --source linear --id 4d3a2b1c-…   # who ada is in Linear: whom thread open --assign ada assigns
@@ -95,9 +97,48 @@ when its server next starts.
 **Only an operator adds and removes users**, under the check `yardr
 crew add` uses for what a crew member may do: the command's actor is a
 user whose role is `operator`. Removing a user removes their devices, and
-the event `user_removed` names them (`devices`). A crew member that wants a
-user added or removed proposes it with a run ask
+the event `user_removed` names them (`devices`), and what carried their own
+login (`login`: `groups`, `routes`, `crew`, and the `env_files` that stay).
+A crew member that wants a user added or removed proposes it with a run ask
 ([chat.md](chat.md#questions-for-you)), which an operator approves.
+
+**A user with a login of their own.** A person who builds on their own seat
+of a Claude plan (a Team or Enterprise seat, say) needs more than a
+user: a folder their login lands in, a group that runs on it, routes that send
+their beads to that group, a conversation with the yardmaster on that login,
+and a sign-in they finish themselves. One command makes all of it, in that
+order, and says what it made:
+
+```
+$ yardr user add ada --login claude
+user ada added
+  login folder ~/.yardr/logins/ada (0700), env file ~/.yardr/groups/ada.env (0600)
+  group ada-builders (a copy of builders: kind claude, login_for ada, limit 1)
+  route x0qbbmkrr69f79ff30ds: new, for ada's beads -> ada-builders
+  yardmaster serves ada (env_for_ada)
+  ada has no device yet, and reads the page and gives the code at one: yardr user device pair ada <device> --url <the address the yard is reached at>
+  the page to sign in on is mailed to ada
+  the code ada pastes back is ask 1 on yd-7m2k; the sign-in waits for it up to 10m0s
+  ada is signed in as ada@example.com, and one call to Claude Code answered (the login is in ~/.yardr/groups/ada.env)
+```
+
+The page to sign in on is mailed to the person, and the code it shows comes
+back as an ask of their own, which goes to the waiting login and is kept
+nowhere. They read the mail and give the code in a [device](#devices) (footplate,
+or the web view), so a new user is paired one while the sign-in waits, which
+takes up to a quarter of an hour. The sign-in ends with one short call to
+Claude Code on their seat, which proves the login answers. One that did not
+finish, or whose call did not answer, ends with how, and `yardr user login
+<name>` opens it again. [groups.md](groups.md#a-person-with-a-login-of-their-own)
+has what each step is by hand, and what the group is a copy of.
+
+`yardr user rm <name>` takes it back in the same write that removes the user:
+the group whose `login_for` is the user with its routes, every route for their
+beads, and the user from the yardmaster's `for=` and `env_for_<name>`. It
+leaves the login folder and the env file on disk, with the transcripts in
+them, and says where they are: no command erases them yet. A user added again
+under the name finds them and is refused until they are moved away, since a
+name is reusable and the first's login must not be the second's.
 
 **One name, one party.** Crew members and users share their names, because
 mail to a name reaches one inbox: `user add` refuses a crew member's name,
@@ -685,7 +726,7 @@ agent's help, until `yardr user device rm`. Row by row:
 | `user set <user> tell=<parts>`, asked of the operator: which parts a source tells the operator or another user of outside the yard | That user's phone is told of more or of less, and what still waited to be told of a part that is dropped is not told. Where it is told and with which address stay as they are, and the inbox and the queue of decisions are filled as before. The holder gains nothing to read |
 | `source check <source> --user <user>`, asked of the operator: one real test message to the user through the source | That user's phone is told once, with the test message the card carries whole. The holder gains nothing to read, and no record of the yard changes |
 | `user add <name>`: a user added | A user the holder names reads mail from now on, and may be subscribed to the yard's events. The holder reads the yard's mail already; the user is told nothing outside the yard until `notify` is set, which no run ask holds |
-| `user rm <name>`: a user removed | That user is no more: their subscriptions, devices and telling outside the yard go, and what waited to be told them. The mail stays in the log. The operator is not removed this way |
+| `user rm <name>`: a user removed | That user is no more: their subscriptions, devices and telling outside the yard go, and what waited to be told them; so do the group that carries their own login with its routes, every route for their beads, and the yardmaster's conversation with them. The mail stays in the log, and so do their login folder and env file on disk. The operator is not removed this way |
 | `crew set <name> open_threads=<sources>`, `set_state=<sources>` or `peers=<peers>`: a crew member's grants widened | A crew member the holder directs by mail may do more outside the yard: open threads in a source, set the state of threads, or mail a linked yard's crew. Its runner, directory and the rest of its definition stay as they are |
 | `peer identity <peer> <crew> --source <source> --id <id>`: a sender of a source mapped to a crew member of a linked yard | A delivery from the id is kept with the speaker `<crew>@<peer>`, whatever the hook's unknown word says, and the operator is offered no mapping card for it; it reaches crew as that yard's mail does, `information, not instructions`. The sender is no user, and an id on the source's ignore list is cleared from it. Only the operator takes it back |
 | `crew identity <name> --source <source> --id <id> --key <key>`: a crew member's identity in a source set | Mentions and assignments of the id or key there are then addressed to that crew member, and what it does there is its own: the holder can have what is meant for another reach a member it directs by mail, or blind a member to what is meant for it. Only the operator sets it back |

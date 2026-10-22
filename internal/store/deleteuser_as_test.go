@@ -2,9 +2,13 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,6 +49,10 @@ func userRemovedAsGrants(t *testing.T, s store.API, ctx context.Context) string 
 // with them, and the default env file with them: a user added again
 // under the name has neither, giving an address does not bring the
 // credential back, and a call as them is refused for want of the grant.
+// The same goes for their own login (yardr user add --login): the group
+// that carries it, the routes for their beads wherever they lead, and the
+// yardmaster's conversation with them go in the same write, and the env
+// file that names their login folder stays.
 func TestDeleteUserRemovesAsGrantAndCredential(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -72,11 +80,75 @@ func TestDeleteUserRemovesAsGrantAndCredential(t *testing.T) {
 	if _, err := s.GrantSource(ctx, "crm", "read", to, "ada", "ada"); err != nil {
 		t.Fatal(err)
 	}
+	// Ada's own login: her group, a route for her beads to it and one to the
+	// operator's reviewers (a subsidy), the yardmaster serving her and
+	// another user, and a route of the operator's that is nobody's of hers.
+	login := filepath.Join(t.TempDir(), "ada-login.env")
+	if err := os.WriteFile(login, []byte("CLAUDE_CONFIG_DIR="+t.TempDir()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "ada-builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "login_for": "ada", "env_file": login}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	ada := "ada"
+	var gone []string
+	for _, r := range []store.Route{{Stage: "new", Group: "ada-builders", Originator: &ada}, {Stage: "review", Group: "reviewers", Originator: &ada}} {
+		saved, err := s.AddRoute(ctx, r, "jo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		gone = append(gone, saved.ID)
+	}
+	kept, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"for": "ada,jo", "env_for_ada": login}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.DeleteUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if got := userRemovedAsGrants(t, s, ctx); got != "1" {
 		t.Fatalf("the user_removed event says %s as grants went, want 1", got)
+	}
+	if _, err := s.GetGroup(ctx, "ada-builders"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ada's group after her removal: %v", err)
+	}
+	if rs, err := s.Routes(ctx); err != nil || len(rs) != 1 || rs[0].ID != kept.ID {
+		t.Fatalf("routes after ada went = %+v, %v: want the operator's alone", rs, err)
+	}
+	if gs, _ := s.Groups(ctx); len(gs) != 2 {
+		t.Fatalf("groups after ada went = %+v: want builders and reviewers", gs)
+	}
+	if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || r.Config["for"] != "jo" || r.Config["env_for_ada"] != nil || r.HasConversation("ada") {
+		t.Fatalf("the yardmaster after ada went = %+v, %v: want for=jo and no conversation", r, err)
+	}
+	// The env file stays, as the folder it names does: both hold her
+	// transcripts, and no command erases them yet.
+	if _, err := os.Stat(login); err != nil {
+		t.Fatalf("ada's login env file after her removal: %v", err)
+	}
+	evs, err := s.EventsSince(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var removed store.Event
+	for _, e := range evs {
+		if e.Kind == "user_removed" {
+			removed = e
+		}
+	}
+	var said store.UserLogin
+	raw, _ := json.Marshal(removed.Data["login"])
+	if err := json.Unmarshal(raw, &said); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(gone)
+	if want := (store.UserLogin{Groups: []string{"ada-builders"}, EnvFiles: []string{login}, Routes: gone, Crew: []string{"yardmaster"}}); !reflect.DeepEqual(said, want) {
+		t.Fatalf("the user_removed event says her login was %+v, want %+v", said, want)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Fatalf("ada's default env file stands after her removal: %v", err)

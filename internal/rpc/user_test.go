@@ -601,6 +601,70 @@ func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 	}
 }
 
+// A user_removed that says what carried the removed user's login names its
+// env files to the operator's device alone: a path on the yard's machine
+// is the operator's configuration, as the file of a user_set is. Any other
+// device is sent the names with no file, and the event every other stream
+// is handed keeps them.
+func TestUserDeviceEventHoldsARemovedUsersLoginFiles(t *testing.T) {
+	st, u, _ := userYard(t)
+	ctx := context.Background()
+	if _, err := st.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "ada.env")
+	if err := st.PutGroup(ctx, store.Group{Name: "ada-builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "login_for": "ada", "env_file": file}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	evs, err := st.EventsSince(ctx, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var removed *store.Event
+	for i := range evs {
+		if evs[i].Kind == "user_removed" && evs[i].Data["user"] == "ada" {
+			removed = &evs[i]
+		}
+	}
+	if removed == nil {
+		t.Fatal("no user_removed for ada")
+	}
+	login, ok := removed.Data["login"].(map[string]any)
+	if !ok || login["env_files"] == nil {
+		t.Fatalf("the store's user_removed names no env file: %+v", removed.Data)
+	}
+	sam := &Caller{User: "sam", SaidBy: "tablet", device: true}
+	sent, keep := u.deviceEvent(ctx, sam, *removed)
+	if !keep {
+		t.Fatal("sam is not sent the user_removed at all, want it without the files")
+	}
+	got, ok := sent.Data["login"].(map[string]any)
+	if !ok {
+		t.Fatalf("sam is sent no login at all: %+v", sent.Data)
+	}
+	if _, has := got["env_files"]; has {
+		t.Errorf("sam is sent %v as the env files they are not told", got["env_files"])
+	}
+	if fmt.Sprint(got["groups"]) != "[ada-builders]" {
+		t.Errorf("sam is sent %v, want ada-builders kept", sent.Data)
+	}
+	if login["env_files"] == nil {
+		t.Error("the event every other stream is handed names no env file now")
+	}
+	jo := &Caller{User: "jo", SaidBy: "phone", device: true}
+	whole, keep := u.deviceEvent(ctx, jo, *removed)
+	if !keep {
+		t.Fatal("the operator is not sent the user_removed at all")
+	}
+	if files := whole.Data["login"].(map[string]any)["env_files"]; fmt.Sprint(files) != "["+file+"]" {
+		t.Errorf("the operator is sent %v, want the env file kept", whole.Data)
+	}
+}
+
 // userPaths are requests of every kind the handler serves, and of none.
 var userPaths = [][2]string{
 	{http.MethodGet, "/user/me"},

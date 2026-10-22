@@ -61,7 +61,8 @@ type AskSecret struct {
 	// the hook's secret file (HookSecretFile), never to an env file.
 	Hook string `json:"hook,omitempty"`
 	// Login is the waiting login the value goes to, the reference its
-	// leader printed in its input need. Set instead of a source.
+	// leader printed in its input need. Set instead of a source; with As,
+	// the login is that user's own.
 	Login string `json:"login,omitempty"`
 	// Harness is the kind whose API key is asked for, as its harness
 	// file names it. Set instead of a source, with Crew: the crew member
@@ -88,7 +89,8 @@ type AskSecret struct {
 	// mints or uses, every name under mint where the credential is
 	// minted and the static ones otherwise unless the asker narrowed to
 	// others, and the answer goes to the user's env file. "" asks for
-	// the source's credential. Never set with User or Crew.
+	// the source's credential. Never set with User or Crew. With a Login
+	// it is the user whose own login that is, and they give its input.
 	As string `json:"as,omitempty"`
 	// Concealed says whether the value is drawn hidden: false where the
 	// source marks every asked name as no secret, absent (concealed) on
@@ -108,7 +110,8 @@ func (s AskSecret) Names() string { return strings.Join(s.Env, " and ") }
 // member's running session does not see the new value, so its line says
 // the env_file line is the one written and when it takes effect. A user's
 // own credential is read by a call made as them, so its line says as
-// much. A login input goes to the login that waits, and names it. A
+// much. A login input goes to the login that waits, and names it, and
+// whose it is where it is a user's own. A
 // harness key goes to the operator's key file of the kind, and its line
 // says the reach the person consents to: every session of the kind that
 // burns the operator's login reads it.
@@ -117,7 +120,11 @@ func (s AskSecret) Line() string {
 		return fmt.Sprintf("a secret: the signing secret for the hook %s (POST /hooks/%s), for the source %s (%s)", s.Hook, s.Hook, s.Source, s.Host)
 	}
 	if s.Login != "" {
-		return fmt.Sprintf("a secret: %s, for the waiting login %s", s.Names(), s.Login)
+		whose := "the"
+		if s.As != "" {
+			whose = s.As + "'s"
+		}
+		return fmt.Sprintf("a secret: %s, for %s waiting login %s", s.Names(), whose, s.Login)
 	}
 	if s.Harness != "" {
 		label := s.Harness
@@ -354,25 +361,29 @@ func (w *wtx) askedHookSecret(d *source.Declaration, hook string, sec AskSecret,
 
 // askedLogin checks an ask for the input of the waiting login sec names,
 // asked of to, and answers it as the ask stores it: the login's reference
-// and the one name the input is asked for. It refuses a source or a user
-// beside the login, a name beside the one, and anyone but the operator as
-// the one asked: giving is handing the operator's login its answer, which
-// is the operator's alone (maySource). Whether the login waits is GiveSecret's
-// to say when the value comes, not the ask's: the wait may end between the
-// two.
+// and the one name the input is asked for. It refuses a source or a user's
+// address beside the login, a name beside the one, and anyone but the
+// operator as the one asked: giving is handing the operator's login its
+// answer, which is the operator's alone (maySource).
+//
+// With an As the login is that user's own, led for the group that carries it
+// (yardr user add --login): the code the sign-in page shows is the person's
+// to read, so the ask is theirs, or the operator's for them, as their own
+// credential in a source is (askedUserSecret), and they give it (mayTell).
+// Whether the login waits is GiveSecret's to say when the value comes, not
+// the ask's: the wait may end between the two.
 func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
 	login := strings.TrimSpace(sec.Login)
+	as := strings.TrimSpace(sec.As)
 	switch {
 	case strings.TrimSpace(sec.Source) != "":
 		return nil, fmt.Errorf("a secret ask names a waiting login or a source, not both: --secret-login %s or --secret <source>", login)
 	case strings.TrimSpace(sec.Harness) != "":
 		return nil, fmt.Errorf("a secret ask names a waiting login or a harness, not both: --secret-login %s or an API key", login)
 	case strings.TrimSpace(sec.User) != "":
-		return nil, fmt.Errorf("a login input is the operator's login's to take, not %s's address: it takes no --for-user", strings.TrimSpace(sec.User))
+		return nil, fmt.Errorf("a login input is the login's to take, not %s's address: it takes no --for-user", strings.TrimSpace(sec.User))
 	case strings.TrimSpace(sec.Crew) != "":
-		return nil, fmt.Errorf("a login input is the operator's login's to take, not crew member %s's credential: it takes no --for-crew", strings.TrimSpace(sec.Crew))
-	case strings.TrimSpace(sec.As) != "":
-		return nil, fmt.Errorf("a login input is the operator's login's to take, not %s's credential: it takes no --as", strings.TrimSpace(sec.As))
+		return nil, fmt.Errorf("a login input is the login's to take, not crew member %s's credential: it takes no --for-crew", strings.TrimSpace(sec.Crew))
 	}
 	for _, n := range sec.Env {
 		if n != loginInputName {
@@ -386,10 +397,23 @@ func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
 	switch {
 	case ops.none():
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
-	case !ops.is(to):
-		return nil, fmt.Errorf("a secret is %s to give (%s): answering the login is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
+	case as == "":
+		if !ops.is(to) {
+			return nil, fmt.Errorf("a secret is %s to give (%s): answering the login is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
+		}
+		return &AskSecret{Env: []string{loginInputName}, Login: login}, nil
 	}
-	return &AskSecret{Env: []string{loginInputName}, Login: login}, nil
+	if _, err := getUser(w.Tx, as); err != nil {
+		return nil, fmt.Errorf("a login input is asked for the login of a user of the yard (yardr user list): %w", err)
+	}
+	if to != as && !ops.is(to) {
+		whose := fmt.Sprintf("the code that signs %s in is theirs to give", as)
+		if !ops.is(as) {
+			whose += ", or " + ops.whose() + " for them"
+		}
+		return nil, fmt.Errorf("%s, so %s cannot be asked for it", whose, to)
+	}
+	return &AskSecret{Env: []string{loginInputName}, Login: login, As: as}, nil
 }
 
 // askedHarnessKey checks an ask for the API key of the harness kind sec
@@ -610,7 +634,8 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 // login that waits under its reference (LoginWait) and goes to no file: the
 // answer note holds the names and never the value, as any giving does, and
 // is refused when no login waits under it. Giving is the operator's, as a
-// source's is (maySource).
+// source's is (maySource); for a user's own login (AskSecret.As) it is that
+// user's or the operator's for them (mayTell), as for their own credential.
 //
 // Giving again is allowed while the ask is neither declined nor taken
 // back, as a newer pick replaces an older one: each giving is a note with
@@ -679,6 +704,8 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 		err = w.operatorOnly(ctx, actor, "give a harness API key", Alone)
 	} else if sec.User != "" {
 		err = w.mayTell(ctx, sec.User, actor)
+	} else if sec.Login != "" && sec.As != "" {
+		err = w.mayAnswerLogin(ctx, sec.As, actor)
 	} else if sec.As != "" {
 		err = w.mayTell(ctx, sec.As, actor)
 	} else if sec.Crew != "" {

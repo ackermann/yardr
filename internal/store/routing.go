@@ -351,58 +351,67 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 		}
 		// Batch reruns this closure when another call in the batch fails, so
 		// the count starts over with each attempt.
-		released = 0
-		if w.Bucket(bGroups).Get([]byte(name)) == nil {
-			return nil
-		}
-		drop := []string{}
-		if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
-			if r.Names(name) {
-				drop = append(drop, string(k))
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		for _, k := range drop {
-			if err := w.Bucket(bRoutes).Delete([]byte(k)); err != nil {
-				return err
-			}
-		}
-		live, err := s.liveSessions(w.Tx, name)
-		if err != nil {
-			return err
-		}
-		reason := "group " + name + " deleted"
-		for _, sess := range live {
-			owned := false
-			if _, err := w.changeBead(sess.Bead, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
-				if b.Session == nil || *b.Session != sess.ID {
-					return "", nil, nil
-				}
-				owned = true
-				return "released", map[string]any{"reason": reason}, w.endSession(b, "released")
-			}); err != nil {
-				return err
-			}
-			if owned {
-				released++
-				continue
-			}
-			// The bead moved on without this session; end it so it is not live.
-			t := now()
-			sess.State, sess.Error, sess.EndedAt = "released", &reason, &t
-			if err := putSession(w.Tx, &sess); err != nil {
-				return err
-			}
-		}
-		if err := w.Bucket(bGroups).Delete([]byte(name)); err != nil {
-			return err
-		}
-		return w.event("", "group_removed", actor, map[string]any{
-			"name": name, "routes": drop, "released": released})
+		_, released, err = w.deleteGroup(name, actor)
+		return err
 	})
 	return released, err
+}
+
+// deleteGroup is DeleteGroup inside the transaction, so that removing a user
+// takes the groups that carry their login in the write that removes them
+// (deleteUser). The caller has checked who may. It answers the ids of the
+// routes removed with the group and how many beads it released; a group that
+// is not there is nothing removed and logs nothing.
+func (w *wtx) deleteGroup(name, actor string) (routes []string, released int, err error) {
+	if w.Bucket(bGroups).Get([]byte(name)) == nil {
+		return nil, 0, nil
+	}
+	drop := []string{}
+	if err := each(w.Tx, bRoutes, "", func(k []byte, r *Route) error {
+		if r.Names(name) {
+			drop = append(drop, string(k))
+		}
+		return nil
+	}); err != nil {
+		return nil, 0, err
+	}
+	for _, k := range drop {
+		if err := w.Bucket(bRoutes).Delete([]byte(k)); err != nil {
+			return nil, 0, err
+		}
+	}
+	live, err := w.store.liveSessions(w.Tx, name)
+	if err != nil {
+		return nil, 0, err
+	}
+	reason := "group " + name + " deleted"
+	for _, sess := range live {
+		owned := false
+		if _, err := w.changeBead(sess.Bead, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
+			if b.Session == nil || *b.Session != sess.ID {
+				return "", nil, nil
+			}
+			owned = true
+			return "released", map[string]any{"reason": reason}, w.endSession(b, "released")
+		}); err != nil {
+			return nil, 0, err
+		}
+		if owned {
+			released++
+			continue
+		}
+		// The bead moved on without this session; end it so it is not live.
+		t := now()
+		sess.State, sess.Error, sess.EndedAt = "released", &reason, &t
+		if err := putSession(w.Tx, &sess); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := w.Bucket(bGroups).Delete([]byte(name)); err != nil {
+		return nil, 0, err
+	}
+	return drop, released, w.event("", "group_removed", actor, map[string]any{
+		"name": name, "routes": drop, "released": released})
 }
 
 // Route sends open, unblocked beads in Stage to Group. Nil fields match any,

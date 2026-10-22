@@ -104,7 +104,8 @@ func TestUserAskIsStoredWithTheMintOrStaticNames(t *testing.T) {
 // It is refused, and nothing is stored: for a source with no credential,
 // a user the yard does not have, a name the declaration does not have,
 // anyone asked but that user and the operator, another yard, and beside
-// a user, a crew member, a hook or a waiting login.
+// a user, a crew member or a hook (a waiting login takes --as itself:
+// loginwait_test.go).
 func TestUserAskRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := userSecretYard(t)
@@ -129,7 +130,6 @@ func TestUserAskRefusals(t *testing.T) {
 		{"a user beside it", with(func(a *Ask) { a.Secret.User = "ada" }), "a secret ask names a user's address or a user's credential, not both"},
 		{"a crew member beside it", with(func(a *Ask) { a.Secret.Crew = "yardmaster" }), "a secret ask names a crew member's credential or a user's, not both"},
 		{"a hook beside it", with(func(a *Ask) { a.Secret.Hook = "bot" }), "it takes no --as"},
-		{"a login beside it", with(func(a *Ask) { a.Secret.Source = ""; a.Secret.Login = "claude-x" }), "it takes no --as"},
 	} {
 		_, err := y.AddAsk(y.ctx, y.bead, c.ask, "yardmaster")
 		if err == nil || !strings.Contains(err.Error(), c.want) {

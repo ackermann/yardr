@@ -192,7 +192,8 @@ func storedWeight(notes []Note, seq uint64) []AskWeight {
 // as them.
 func secretWeight(sec AskSecret) []AskWeight {
 	out := []AskWeight{weighs(WeightCredential, strings.TrimPrefix(sec.Line(), "a secret: "))}
-	if sec.As != "" {
+	// A login's input goes to the login that waits, and no call reads it.
+	if sec.As != "" && sec.Login == "" {
 		out = append(out, weighs(WeightAsUser, fmt.Sprintf("a call of the source %s made --as %s reads it as %s's own", sec.Source, sec.As, sec.As)))
 	}
 	return out

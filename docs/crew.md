@@ -412,7 +412,11 @@ decisions in footplate, the web view and `yardr asks`:
    login <kind> --json` ([doctor.md](doctor.md)), and the page to sign in
    on is the link in this ask. It is a secret ask naming the login's wait
    (`--secret-login`): what is typed there goes to the waiting login in
-   the server's memory, and no note, event, file or mail holds it.
+   the server's memory, and no note, event, file or mail holds it. (A
+   login that is a person's own, led for the group that carries it by
+   `yardr user add --login` or `yardr user login`, asks the person for the
+   code instead, `--secret-login <login> --as <user>`:
+   [groups.md](groups.md#a-person-with-a-login-of-their-own).)
 3. **Check that it answers?**: the one real call that proves the login,
    which costs a model call on the person's account; or skip it.
 

@@ -671,7 +671,11 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 // mail to and from them stays in the log. It also removes every grant of
 // a call made as them and clears their credential from their env file, so
 // a user added again under the name finds neither waiting: a name is
-// reusable, and the first's access must not be the second's.
+// reusable, and the first's access must not be the second's. For the same
+// reason it takes what carries their own login (UserLogin): the groups whose
+// login_for is the user, every route for their beads or to those groups, and
+// the user from each crew member's for= and env_for_<user>. The login folder
+// and the env file that names it stay on disk, which no command erases yet.
 // The user the operator setting names is not removed: the setting names
 // someone else first. Nor is the last operator: the yard would then take
 // an admin change from anyone (notOperator). Like adding one, it is an
@@ -844,6 +848,15 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 			return fmt.Errorf("user %s is not removed: %s's env_file is the same file (%s); move one of them first (yardr user set %s env_file=<file>) and remove %s again", name, shared, resolved, shared, name)
 		}
 	}
+	// The groups that carry their login, the routes for their beads and what
+	// serves them a conversation go in the same write as the record: a route
+	// left behind would send beads for the name to a group whose login
+	// belongs to no one. Before the file below is touched, so that a refusal
+	// here leaves it as it was.
+	login, err := w.dropLogin(name, actor)
+	if err != nil {
+		return err
+	}
 	// The grants of calls made as them, in the same write as the record.
 	var asKeys []string
 	if err := each(w.Tx, bSourceGrants, "", func(k []byte, g *SourceGrant) error {
@@ -874,6 +887,9 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 	data := map[string]any{"user": name}
 	if len(asKeys) > 0 {
 		data["as_grants"] = len(asKeys)
+	}
+	if !login.Empty() {
+		data["login"] = login
 	}
 	if err := dropDevices(w.Tx, name, data); err != nil {
 		return err
