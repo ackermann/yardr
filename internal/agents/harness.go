@@ -496,20 +496,24 @@ func (s UsageSource) UsageIn(line []byte) (UsageLine, bool) {
 	objects := objectsAt(v, strings.Split(s.Usage, "."))
 	found := false
 	count := func(field string) (n int) {
+		if field == "" {
+			return 0 // a count the file names no field for
+		}
 		for _, o := range objects {
-			if x, is := o[field].(float64); is && field != "" {
+			if x, is := o[field].(float64); is {
 				n, found = n+int(x), true
 			}
 		}
 		return n
 	}
-	l := UsageLine{Usage: Usage{Input: count(s.Input), Output: count(s.Output), CacheRead: count(s.CacheRead), CacheWrite: count(s.CacheWrite)}}
+	u := Usage{Input: count(s.Input), Output: count(s.Output), CacheRead: count(s.CacheRead), CacheWrite: count(s.CacheWrite)}
 	if !found {
 		return UsageLine{}, false
 	}
 	if s.CacheInInput {
-		l.Usage.Input -= l.Usage.CacheRead
+		u.Input -= u.CacheRead
 	}
+	l := UsageLine{Usage: u}
 	if s.Key != "" {
 		if l.Key, _ = valueAt(v, s.Key).(string); l.Key == "" {
 			return UsageLine{}, false
@@ -596,7 +600,7 @@ func objectsAt(v map[string]any, steps []string) []map[string]any {
 }
 
 // check finds what an entry of a file's usage says that yardr cannot go by:
-// each of these would read the wrong number without saying so.
+// it would read no line, or a wrong number without saying so.
 func (s UsageSource) check() error {
 	if _, ok := atUnit(s.AtUnit); !ok {
 		return fmt.Errorf("at_unit %q is none of s, ms, us", s.AtUnit)
