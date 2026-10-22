@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/source"
@@ -130,8 +131,18 @@ func (rc *Receiver) fetchFile(ctx context.Context, dec Declared, ref FileRef, ma
 	if store.CheckBlobName(name) != nil {
 		name = ""
 	}
+	// The reason is kept beside the delivery and read by every device
+	// (DeliveryFiles), so the credential the command was handed is taken
+	// out of it first: a command that fails may have printed it, as a
+	// build command's stderr is redacted (source.BuildBody).
+	redact := func(text string) string {
+		if cred != "" {
+			text = strings.ReplaceAll(text, cred, "[credential redacted]")
+		}
+		return text
+	}
 	notTaken := func(why string) store.BlobRef {
-		return store.BlobRef{Name: name, Bytes: ref.Size, NotTaken: why}
+		return store.BlobRef{Name: name, Bytes: ref.Size, NotTaken: redact(why)}
 	}
 	what := ref.Type
 	if what == "" {
