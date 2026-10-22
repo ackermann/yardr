@@ -128,8 +128,9 @@ the chat answers no ask: asks keep their card, told on the phone as
 device. Approving a run and giving a secret stay the operator's at the
 terminal too: the yard refuses both from a chat. Pictures and files
 arrive as a bracketed note (`[photo]`, `[document: <name>]`, `[voice
-message]`), and nothing is fetched. There is no `thread open telegram`,
-no status and no bead link to a chat.
+message]`), and the yard fetches them into its blob store with the
+source's token (docs/integrations.md, "Telegram, where it differs").
+There is no `thread open telegram`, no status and no bead link to a chat.
 
 8. **Two-step verification on the Telegram account.** Turn it on, in
    Telegram under Settings → Privacy and Security. Whoever holds the
@@ -272,6 +273,20 @@ no status and no bead link to a chat.
     delivery's own text is in the inbox line and the raw body in `yardr
     hook show <seq>`; and `yardr reply --to` is refused for telegram,
     since it finds the conversation by listing the thread.
+
+    A picture or a file goes with the answer, `--file` once for each:
+    ```sh
+    yardr reply 4211 "The shed, as built." --file shed.png
+    ```
+    A picture arrives as a picture and anything else as a document. The
+    words are its caption where they fit in 1024 characters, else they
+    go first as a message of their own and the files follow, one after
+    another. A user told through telegram is told with a picture too:
+    the first image of a mail, or of the newest note on a done bead
+    that has one, goes as a photo with the words for its caption. The
+    service takes a photo of 10 MB at most and 10000 pixels in width
+    and height together; a reply with one it refuses fails with the
+    service's words, and a tell with one is told as words alone.
 14. **Ending hearing.** `deleteWebhook` ends hearing while leaving
     telling as it was:
     ```sh
