@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	bolt "go.etcd.io/bbolt"
@@ -27,7 +28,8 @@ type Flow struct {
 	Terminal []string `json:"terminal,omitempty"`
 	// Outcomes name, per stage, how work there can end and where each
 	// ending sends the bead (`new -> review on done`), so agents report an
-	// outcome and the flow picks the stage. Every outcome's stage is also a
+	// outcome and the flow picks the stage. Every outcome's stage, and the
+	// stage it sends the bead to once its limit is used, is also a
 	// transition; a transition no outcome names is left to explicit moves.
 	Outcomes map[string][]Outcome `json:"outcomes,omitempty"`
 }
@@ -36,6 +38,11 @@ type Flow struct {
 type Outcome struct {
 	Name string `json:"name"`
 	To   string `json:"to"`
+	// Max is how many rounds back to To this outcome allows; 0 is no limit.
+	Max int `json:"max,omitempty"`
+	// Then is where the outcome sends the bead instead once Max rounds are
+	// used. It is set exactly when Max is.
+	Then string `json:"then,omitempty"`
 }
 
 // DefaultOutcome is what `yardr bead done` reports without --outcome, and
@@ -138,8 +145,9 @@ func (f *Flow) normalize() error {
 	return nil
 }
 
-// normalizeOutcomes checks each stage's outcomes are named and unique, and
-// makes their stages transitions (a JSON flow may give only the outcome).
+// normalizeOutcomes checks each stage's outcomes are named and unique and
+// their limits well formed, and makes their stages transitions, those a
+// limit sends the bead to included (a JSON flow may give only the outcome).
 // It runs before the terminal check, so a terminal stage with outcomes is
 // refused like one with transitions.
 func (f *Flow) normalizeOutcomes() error {
@@ -165,10 +173,42 @@ func (f *Flow) normalizeOutcomes() error {
 			if !validStage.MatchString(o.To) {
 				return fmt.Errorf("flow: outcome %s of stage %s leads to stage %q: use letters, digits, '.', '_', '/' or '-'", o.Name, s, o.To)
 			}
-			if !slices.Contains(f.Transitions[s], o.To) {
-				f.Transitions[s] = append(f.Transitions[s], o.To)
+			if err := o.checkLimit(s); err != nil {
+				return err
+			}
+			// Then is a stage the outcome may send the bead to, so the flow
+			// has to allow the move, as it does for To.
+			for _, to := range []string{o.To, o.Then} {
+				if to != "" && !slices.Contains(f.Transitions[s], to) {
+					f.Transitions[s] = append(f.Transitions[s], to)
+				}
 			}
 		}
+	}
+	return nil
+}
+
+// checkLimit refuses a limit that is half given or that cannot be kept: Max
+// and Then come together, Max is a number of rounds, Then is a stage other
+// than To, and done carries none. The estimate walks the done way on and
+// holds no counts, so a done that went elsewhere would make it name a stage
+// the bead does not reach; every loop worth limiting is a send-back outcome
+// (changes, failed). Max 0 reads as no limit, which is why Then alone is
+// refused rather than taken for a limit of nothing.
+func (o Outcome) checkLimit(stage string) error {
+	switch {
+	case o.Max != 0 && o.Name == DefaultOutcome:
+		return fmt.Errorf("flow: outcome %s of stage %s cannot have a limit: the estimate follows %s and would name a stage the bead may not reach; limit an outcome that sends a bead back, as changes does", o.Name, stage, DefaultOutcome)
+	case o.Max < 0:
+		return fmt.Errorf("flow: outcome %s of stage %s has max %d: a limit is 1 round or more", o.Name, stage, o.Max)
+	case o.Max > 0 && o.Then == "":
+		return fmt.Errorf("flow: outcome %s of stage %s has max %d but no then: say where the bead goes once the rounds are used", o.Name, stage, o.Max)
+	case o.Max == 0 && o.Then != "":
+		return fmt.Errorf("flow: outcome %s of stage %s has then %s but no max: say how many rounds it allows", o.Name, stage, o.Then)
+	case o.Then != "" && !validStage.MatchString(o.Then):
+		return fmt.Errorf("flow: outcome %s of stage %s has then %q: use letters, digits, '.', '_', '/' or '-'", o.Name, stage, o.Then)
+	case o.Then != "" && o.Then == o.To:
+		return fmt.Errorf("flow: outcome %s of stage %s has then %s, the stage it leads to: a limit sends the bead somewhere else", o.Name, stage, o.Then)
 	}
 	return nil
 }
@@ -214,25 +254,34 @@ func (f *Flow) doneReaches(from, stage string) bool {
 	}
 }
 
-// Resolve is the stage outcome sends a bead in stage to; "" means done.
-// The error names the outcomes the stage has, or says it has none.
-func (f *Flow) Resolve(stage, outcome string) (string, error) {
-	outcome = or(strings.TrimSpace(outcome), DefaultOutcome)
+// Outcome is the outcome called name that work in stage can end with, as
+// OutcomesFrom offers it; "" means done. Resolve is its To; this one keeps
+// the limit it carries. The error names the outcomes the stage has, or says
+// it has none.
+func (f *Flow) Outcome(stage, name string) (Outcome, error) {
+	name = or(strings.TrimSpace(name), DefaultOutcome)
 	outs := f.OutcomesFrom(stage)
 	for _, o := range outs {
-		if o.Name == outcome {
-			return o.To, nil
+		if o.Name == name {
+			return o, nil
 		}
 	}
 	if len(outs) == 0 {
-		return "", fmt.Errorf("flow %s names no outcomes for stage %s; move the bead with advance --to (allowed next: %s)",
+		return Outcome{}, fmt.Errorf("flow %s names no outcomes for stage %s; move the bead with advance --to (allowed next: %s)",
 			f.Name, stage, strings.Join(f.Next(stage), ", "))
 	}
 	names := make([]string, len(outs))
 	for i, o := range outs {
 		names[i] = o.Name
 	}
-	return "", fmt.Errorf("flow %s has no outcome %s for stage %s; outcomes: %s", f.Name, outcome, stage, strings.Join(names, ", "))
+	return Outcome{}, fmt.Errorf("flow %s has no outcome %s for stage %s; outcomes: %s", f.Name, name, stage, strings.Join(names, ", "))
+}
+
+// Resolve is the stage outcome sends a bead in stage to; "" means done.
+// The error names the outcomes the stage has, or says it has none.
+func (f *Flow) Resolve(stage, outcome string) (string, error) {
+	o, err := f.Outcome(stage, outcome)
+	return o.To, err
 }
 
 // Next lists the stages a bead in stage may move to. A stage with no way
@@ -260,10 +309,13 @@ func (f *Flow) IsTerminal(stage string) bool { return slices.Contains(f.Terminal
 //
 //	backlog -> new
 //	new -> review on done | decide on question | backlog
+//	review -> approved on done | new on changes max 3 then decide
 //	merged terminal
 //
-// "on <outcome>" names the outcome that takes the edge. Blank lines and
-// lines starting with # are ignored.
+// "on <outcome>" names the outcome that takes the edge. "max <n> then
+// <stage>" after it limits the outcome to n rounds back to the edge's stage
+// and sends the bead to <stage> instead after that. Blank lines and lines
+// starting with # are ignored.
 func ParseFlow(text string) (*Flow, error) {
 	f := &Flow{Transitions: map[string][]string{}}
 	if t := strings.TrimSpace(text); strings.HasPrefix(t, "{") {
@@ -286,19 +338,36 @@ func ParseFlow(text string) (*Flow, error) {
 			f.Stages = append(f.Stages, from)
 			for _, edge := range strings.Split(to, "|") {
 				fields := strings.Fields(edge)
+				then := ""
 				switch {
 				case len(fields) == 0:
 					return nil, fmt.Errorf("flow line %d: empty stage after ->", n)
-				case len(fields) == 3 && fields[1] == "on":
+				case len(fields) == 3 && fields[1] == "on",
+					len(fields) == 7 && fields[1] == "on" && fields[3] == "max" && fields[5] == "then":
+					o := Outcome{Name: fields[2], To: fields[0]}
+					if len(fields) == 7 {
+						// A max of 0 is refused here: in the struct it reads as no
+						// limit, and normalizeOutcomes would call it a then without a max.
+						rounds, err := strconv.Atoi(fields[4])
+						if err != nil || rounds < 1 {
+							return nil, fmt.Errorf("flow line %d: max wants a whole number of rounds, 1 or more, got %q", n, fields[4])
+						}
+						o.Max, o.Then = rounds, fields[6]
+						then = o.Then
+					}
 					if f.Outcomes == nil {
 						f.Outcomes = map[string][]Outcome{}
 					}
-					f.Outcomes[from] = append(f.Outcomes[from], Outcome{Name: fields[2], To: fields[0]})
+					f.Outcomes[from] = append(f.Outcomes[from], o)
 				case len(fields) != 1:
-					return nil, fmt.Errorf("flow line %d: want 'stage' or 'stage on outcome', got %q", n, strings.TrimSpace(edge))
+					return nil, fmt.Errorf("flow line %d: want 'stage', 'stage on outcome' or 'stage on outcome max N then stage', got %q", n, strings.TrimSpace(edge))
 				}
 				f.Transitions[from] = append(f.Transitions[from], fields[0])
 				f.Stages = append(f.Stages, fields[0])
+				if then != "" {
+					f.Transitions[from] = append(f.Transitions[from], then)
+					f.Stages = append(f.Stages, then)
+				}
 			}
 			continue
 		}
@@ -328,14 +397,20 @@ func (f *Flow) String() string {
 }
 
 // Edges renders stage's transitions as a flow file writes them: "<to> on
-// <outcome>" once per outcome that leads there, a bare "<to>" when none does.
+// <outcome>" once per outcome that leads there, with "max <n> then <stage>"
+// after a limited one, a bare "<to>" when none does. The stage a limit sends
+// the bead to is no bare edge besides, since the limited outcome's words
+// write the move: a line reads back as it was written.
 func (f *Flow) Edges(stage string) []string {
 	out := make([]string, 0, len(f.Transitions[stage]))
 	for _, to := range f.Transitions[stage] {
 		named := false
 		for _, o := range f.Outcomes[stage] {
 			if o.To == to {
-				out, named = append(out, to+" on "+o.Name), true
+				out, named = append(out, o.edge()), true
+			}
+			if o.Then == to {
+				named = true
 			}
 		}
 		if !named {
@@ -343,6 +418,15 @@ func (f *Flow) Edges(stage string) []string {
 		}
 	}
 	return out
+}
+
+// edge writes the outcome as the line format has it, the words ParseFlow reads.
+func (o Outcome) edge() string {
+	s := o.To + " on " + o.Name
+	if o.Max > 0 {
+		s += " max " + strconv.Itoa(o.Max) + " then " + o.Then
+	}
+	return s
 }
 
 // PutFlow saves (replacing) the named flow f.Name. Every depot and type that

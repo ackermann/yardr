@@ -288,6 +288,41 @@ A gate is a stage whose group runs a check: route it to a script group
 ([groups.md](groups.md#runners)), and the flow says where its `done` and its
 `failed` lead.
 
+### A limit on rounds
+
+An outcome that sends a bead back to a stage it has been in (`changes` from
+review, `failed` from the assembly) may limit how many times it may, and say
+where the bead goes instead. The words follow `on <outcome>`:
+
+```
+review -> approved on done | new on changes max 3 then decide | decide on question
+```
+
+`changes` may send the bead back to `new` three times (`max 3`); after that it
+sends it to `decide` (`then decide`). In JSON the outcome carries the words as
+`"max": 3, "then": "decide"`; `yardr flow show` writes them as the flow file
+does.
+
+`then` names a stage as any edge does, so it may be a stage that closes the
+bead, or one no other edge names, which the edge then adds to the flow. It
+becomes a transition of the stage, like the outcome's own stage, so `yardr
+bead advance --to` allows the move too. A flow is refused, by `flow set` or
+as a repo flow that does not parse, when a limit:
+
+- gives `max` without `then`, or `then` without `max`;
+- has a `max` that is not a whole number of rounds, 1 or more (leave the
+  words out for no limit; `max 0` is refused, not read as one);
+- has a `then` equal to the stage the outcome already leads to, which would
+  send the bead where it was going;
+- is on `done`, or on a bare edge, which is no outcome. The arrival estimate
+  follows `done` on and does not count rounds, so a `done` that went elsewhere
+  would make it name a stage the bead does not reach; a limit belongs on an
+  outcome that sends work back.
+
+yardr reads, checks, stores and shows these words. It does not yet count
+rounds or send a bead to `then`, so a limit changes no bead's route until it
+does.
+
 ### done-safe and the security paths
 
 A flow may offer a way past a stage that only some beads need. Depot yardr's

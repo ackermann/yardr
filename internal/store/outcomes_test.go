@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -61,8 +62,68 @@ func TestParseFlowOutcomes(t *testing.T) {
 	if err != nil || !slices.Equal(sj.Transitions["a"], []string{"b"}) || !slices.Equal(sj.Stages, []string{"a", "b"}) {
 		t.Fatalf("json outcome flow = %+v, %v", sj, err)
 	}
+	// A flow with no limits keeps its JSON as it was: no max, no then.
+	raw, err := json.Marshal(sj)
+	if err != nil || strings.Contains(string(raw), `"max"`) || strings.Contains(string(raw), `"then"`) {
+		t.Fatalf("unlimited flow as json = %s, %v", raw, err)
+	}
 
-	for _, bad := range []string{"a -> b on", "a -> b when done", "a -> b on done now", "a -> on done"} {
+	// An outcome may carry a limit, "max <n> then <stage>": that many rounds
+	// back to its stage, and then the bead goes to another. String writes it
+	// back unchanged, and then is a transition of the stage.
+	const limited = "review -> approved on done | new on changes max 3 then decide | decide on question\n"
+	l := putNamed(t, s, "limited", limited)
+	wantLimited := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}
+	if got := l.Outcomes["review"]; !slices.Equal(got, wantLimited) {
+		t.Fatalf("limited outcomes = %+v, want %+v", got, wantLimited)
+	}
+	if !slices.Equal(l.Transitions["review"], []string{"approved", "new", "decide"}) || l.String() != limited {
+		t.Fatalf("limited flow: transitions %v, String() =\n%s", l.Transitions["review"], l)
+	}
+	// Then may be a stage no other edge names: it is a transition and a stage
+	// where it was written, and written once, by the limited outcome. A bare
+	// edge to it besides says nothing more, so it is not written back.
+	const thenOnly = "review -> new on changes max 2 then decide | approved on done\n"
+	only := putNamed(t, s, "thenonly", thenOnly)
+	if !slices.Equal(only.Transitions["review"], []string{"new", "decide", "approved"}) || !slices.Equal(only.Stages, []string{"review", "new", "decide", "approved"}) || only.String() != thenOnly {
+		t.Fatalf("then-only flow: transitions %v, stages %v, String() =\n%s", only.Transitions["review"], only.Stages, only)
+	}
+	if got := putNamed(t, s, "thenbare", "review -> new on changes max 2 then decide | approved on done | decide\n").String(); got != thenOnly {
+		t.Fatalf("then named by a bare edge too is written %q, want %q", got, thenOnly)
+	}
+	// Then may be a stage that closes the bead; two outcomes may lead to one
+	// stage and one of them carry the limit.
+	toEnd := putNamed(t, s, "toend", "a -> b on done | b on skipped max 2 then dropped\ndropped terminal\n")
+	if !toEnd.Allows("a", "dropped") || !toEnd.IsTerminal("dropped") || toEnd.String() != "a -> b on done | b on skipped max 2 then dropped\ndropped terminal\n" {
+		t.Fatalf("then a terminal stage: String() =\n%s", toEnd)
+	}
+	// JSON carries them as max and then, and the store keeps both.
+	jl, err := store.ParseFlow(`{"outcomes": {"a": [{"name": "changes", "to": "b", "max": 3, "then": "c"}]}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jl.Name = "jsonlimit"
+	if _, err := s.PutFlow(ctx, *jl, "me"); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := s.GetFlow(ctx, "jsonlimit")
+	if err != nil || !slices.Equal(kept.Outcomes["a"], []store.Outcome{{Name: "changes", To: "b", Max: 3, Then: "c"}}) || !slices.Equal(kept.Transitions["a"], []string{"b", "c"}) {
+		t.Fatalf("json limit kept as %+v, %v", kept, err)
+	}
+	if raw, err = json.Marshal(kept); err != nil || !strings.Contains(string(raw), `"max":3,"then":"c"`) {
+		t.Fatalf("limited flow as json = %s, %v", raw, err)
+	}
+
+	for _, bad := range []string{
+		"a -> b on", "a -> b when done", "a -> b on done now", "a -> on done",
+		// A limit is "max <n> then <stage>", in that order, after an outcome.
+		"a -> b on done max 3", "a -> b on done max 3 then", "a -> b on done then c",
+		"a -> b on done then c max 3", "a -> b on done max 3 when c", "a -> b on done max 3 then c d",
+		"a -> b max 3 then c",
+		// The rounds are a whole number, 1 or more: a 0 would read as no limit.
+		"a -> b on done max 0 then c", "a -> b on done max -1 then c",
+		"a -> b on done max many then c", "a -> b on done max 1.5 then c",
+	} {
 		if _, err := store.ParseFlow(bad); err == nil {
 			t.Errorf("ParseFlow(%q) accepted", bad)
 		}
@@ -94,6 +155,29 @@ func TestPutFlowValidatesOutcomes(t *testing.T) {
 	if _, err := s.PutFlow(ctx, badName, "me"); err == nil {
 		t.Error("outcome named -x accepted")
 	}
+	// A limit is a max of 1 round or more with a then that is a stage other
+	// than the outcome's own, and no outcome named done has one. The line
+	// format cannot say a max below 1 (ParseFlow refuses it), so JSON does.
+	for name, c := range map[string]struct{ text, want string }{
+		"max on done":                {"a -> b on done max 3 then c\n", "outcome done of stage a cannot have a limit"},
+		"max on done, in JSON":       {`{"outcomes": {"a": [{"name": "done", "to": "b", "max": 3, "then": "c"}]}}`, "outcome done of stage a cannot have a limit"},
+		"max below one":              {`{"outcomes": {"a": [{"name": "changes", "to": "b", "max": -1, "then": "c"}]}}`, "has max -1: a limit is 1 round or more"},
+		"max without then":           {`{"outcomes": {"a": [{"name": "changes", "to": "b", "max": 3}]}}`, "has max 3 but no then"},
+		"then without max":           {`{"outcomes": {"a": [{"name": "changes", "to": "b", "then": "c"}]}}`, "has then c but no max"},
+		"then with a max of 0":       {`{"outcomes": {"a": [{"name": "changes", "to": "b", "max": 0, "then": "c"}]}}`, "has then c but no max"},
+		"then equal to to":           {"a -> b on changes max 3 then b\n", "has then b, the stage it leads to"},
+		"then is no stage name":      {"a -> b on changes max 3 then -c\n", `has then "-c": use letters`},
+		"bad limit in a later stage": {"a -> b on changes max 3 then c\nb -> a on done | a on changes max 2 then a\n", "outcome changes of stage b has then a"},
+	} {
+		f, err := store.ParseFlow(c.text)
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		f.Name = "bad"
+		if _, err := s.PutFlow(ctx, *f, "me"); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want one saying %q", name, err, c.want)
+		}
+	}
 	// The same outcome name in different stages is fine.
 	putNamed(t, s, "ok", "a -> b on done\nb -> c on done\n")
 }
@@ -119,6 +203,35 @@ func TestOutcomesFrom(t *testing.T) {
 	g, _ := store.ParseFlow("approved -> new on failed\n")
 	if got := g.OutcomesFrom("approved"); !slices.Equal(got, []store.Outcome{{Name: "failed", To: "new"}}) {
 		t.Errorf("single named edge offers %+v", got)
+	}
+
+	// Outcome finds one by stage and name, with the limit it carries; ""
+	// is done, which a single way out offers without a limit. Resolve is its To,
+	// and an outcome the stage lacks is refused with the ones it has.
+	l, err := store.ParseFlow("backlog -> new\nreview -> approved on done | new on changes max 3 then decide | decide on question\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		stage, name string
+		want        store.Outcome
+	}{
+		{"review", "changes", store.Outcome{Name: "changes", To: "new", Max: 3, Then: "decide"}},
+		{"review", "", store.Outcome{Name: "done", To: "approved"}},
+		{"review", " question ", store.Outcome{Name: "question", To: "decide"}},
+		{"backlog", "done", store.Outcome{Name: "done", To: "new"}},
+	} {
+		if got, err := l.Outcome(c.stage, c.name); err != nil || got != c.want {
+			t.Errorf("Outcome(%s, %q) = %+v, %v; want %+v", c.stage, c.name, got, err, c.want)
+		}
+		if to, err := l.Resolve(c.stage, c.name); err != nil || to != c.want.To {
+			t.Errorf("Resolve(%s, %q) = %q, %v; want %s", c.stage, c.name, to, err, c.want.To)
+		}
+	}
+	for stage, want := range map[string]string{"review": "outcomes: done, changes, question", "decide": "names no outcomes for stage decide"} {
+		if _, err := l.Outcome(stage, "failed"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Outcome(%s, failed) err = %v, want one saying %q", stage, err, want)
+		}
 	}
 }
 
