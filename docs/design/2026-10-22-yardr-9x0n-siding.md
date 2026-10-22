@@ -37,8 +37,9 @@ the size weight the ceiling counts (3.4).
 **The hand fold.** It happens all the time: in the 30 days of this yard's
 log (`yardr events --kind closed --since 30d`) 117 beads had been closed
 "folded into <id>", into 50 carriers, when it was read at 01:40 on 22 Oct;
-the same command read at 02:00 counts 106, as the window slides past early
-October's sweeps. 26 carriers took one other
+the same command counts 106 at 02:00 and 100 at 02:09, as the window slides
+past early October's sweeps, so the numbers here are of the 01:40 reading
+and the shape, not the count, is the evidence. 26 carriers took one other
 bead, 17 two, 5 three, 1 four and one (a yardr-hosted sweep) seventeen.
 The shaper's prompt (`~/.yardr/roles/shaper-crew.md`, "A batch", step 3)
 writes the shape: keep the member that carries the most, retitle it
@@ -237,13 +238,18 @@ shape as `FireTimers` and `timers`:
    fold would then refuse. A bead whose depot's repository could not be
    read is left out of this pass (its flow is unknown) and counted on the
    next one, as `untilLooks` leaves a blocker it cannot resolve.
-2. A siding is **ready** when its eligible members (3.5) number at least
-   `fold`, or when `at - latest StayStart >= fold_after`. Otherwise its due
-   time is `latest StayStart + fold_after`.
-3. For each ready siding, one `s.write` that reads the members again (a
-   member that left, or a new one that arrived, changes the set: the write
-   folds what is there when it runs, so 8 waiting and 3 arriving fold 11)
-   and folds them through `w.fold` (3.3), or refuses (3.4).
+2. A siding is **ready** as the bead decided: when the open beads in it
+   number at least `fold`, or when `at - latest StayStart >= fold_after`,
+   the latest being the last bead of any kind to enter. Every open bead in
+   the stage counts for both, eligible (3.5) or not; the count and the
+   clock are the decided rule, unchanged. Otherwise its due time is
+   `latest StayStart + fold_after`.
+3. For each ready siding, one `s.write` that reads the beads again (a bead
+   that left, or a new one that arrived, changes the set: the write folds
+   what is there when it runs, so 8 waiting and 3 arriving fold 11) and
+   folds its **eligible** members through `w.fold` (3.3), or refuses
+   (3.4). Which beads are eligible, and what happens to the others when
+   the siding fires, is 3.5.
 4. Return `SidingPass{Folded, Refused, Next}`; `Next` is the earliest due
    time, and the dispatcher keeps it as `sidingDue` and adds it to the
    `next` it arms in `Run` (dispatch.go:694-706).
@@ -271,9 +277,12 @@ another bead's write); a yard timer per siding (`yardr timer` tells a crew
 member something, it does not act, and it would have to be re-armed on
 every arrival).
 
-A siding of one member that is ready by time is not folded: the bead is
+A ready siding with one eligible member does not fold it: the bead is
 moved on by itself (`advanced`, with `by: siding` in its data), since a
-carrier of one part is the same bead with a worse title.
+carrier of one part is the same bead with a worse title. A ready siding
+with no eligible member does nothing and logs nothing; its beads wait
+until one becomes eligible, and then, the siding being ready already, it
+moves on the next pass.
 
 ### 3.3 The fold (questions 2 and 4)
 
@@ -375,30 +384,54 @@ yardr-k9p2 folded from yardr-ab12, yardr-cd34, yardr-ef56 (3 points, size:medium
 Points per member by its `size:` label: small 1, medium 2, large 4, none 2.
 A fold of more than `fold_max` points (default 6: six smalls, or three
 mediums) is refused: nothing moves, and `fold_refused` is logged on the
-siding's latest member, with reason `ceiling`, the members, their points
-and `fold_max`. It
-is logged once for a set of members: a pass that finds the same latest
-member already told says nothing (the event is its own memory, as
-`waited`'s is), and a new arrival, which changes the latest member, tells
-again. A person then folds part by hand (`bead fold` with the ids, which
-the event lists), moves some back to `backlog`, or raises `fold_max`.
+siding's latest member, with reason `ceiling`, the siding (`depot`,
+`flow`, `stage`), the members, their points and `fold_max`.
+
+It is logged **once per member set**, and the set is the key, not the
+latest member. Before logging, the pass reads the last `fold_refused`
+event of this siding (`Store.EventsOfKind`, `internal/store/events.go:73`,
+filtered by the siding's `depot`, `flow` and `stage` in the data); when
+that event's `members` (sorted ids) and `reason` equal the set it would
+refuse now, it says nothing, and otherwise it logs. The event is its own
+memory, as `waited`'s is. So any change of membership tells again: a bead
+that arrives, a bead that leaves (moved out, closed), and a bead that
+becomes eligible or stops being eligible (3.5), even when the latest
+member stays the same. A set that changes and changes back tells again
+too, since only the last event is compared; that is a second line, not a
+missed one. A person then folds part by hand (`bead fold` with the ids,
+which the event lists), moves some back to `backlog`, or raises
+`fold_max`.
 `difficulty:` adds nothing: one hard part does not add up with easy ones,
 it sets the carrier's difficulty.
 
 ### 3.5 Who is folded
 
-A member of a siding fold is a bead in the siding that is open, unheld,
+An **eligible** bead in the siding is one that is open, unheld,
 unclaimed, not blocked by an open bead, and has no open person ask: what
-`Dispatchable` would call ready, plus the ask. The others wait in the
-siding and count for neither N nor x.
+`Dispatchable` would call ready, plus the ask. Eligibility decides only
+who leaves, never when the siding is ready (3.2): every bead in the siding
+counts toward N and restarts the clock when it enters.
+
+When a ready siding folds, its ineligible beads are not folded: they stay
+in the siding, the `folded` event names them in `left`, and `flow show`
+counts them apart on its second line (`now 3 waiting, 4 points, 1 stuck`). This is answer (a) to 5.5,
+which is the operator's to take; it keeps the decided count and clock and
+departs from "fold everything waiting" only for a bead that cannot move
+anyway (a held bead is a person's word that it waits, a claimed one is
+someone's, an asked one has a question open, a blocked one would build
+before its blocker). What it costs: a bead left behind still counts, so
+a siding with `fold=4` and three held beads is ready again at the next
+arrival and advances that one alone. A person who holds a bead in a
+siding is expected to move it back to `backlog`; the `left` list is how
+the yardmaster sees that one was not.
 
 ### 3.6 Events, and who is told (question 5)
 
 | event | on | data | class | told by default |
 |---|---|---|---|---|
-| `folded` | the carrier | `members`, `from` (stage or `-` by hand), `to`, `trigger` (`count`, `wait` or `hand`), `points` | none | the members' watchers (copied, 3.3), any subscription that matches the carrier; the `ready` group as any manual stage tells |
+| `folded` | the carrier | `members`, `left` (ineligible beads left in the siding, 3.5), `from` (stage or `-` by hand), `to`, `trigger` (`count`, `wait` or `hand`), `points` | none | the members' watchers (copied, 3.3), any subscription that matches the carrier; the `ready` group as any manual stage tells |
 | `closed` | each member | `reason: folded into <carrier>` | none | as any close |
-| `fold_refused` | the latest member | `members`, `points`, `fold_max`, `reason` (`ceiling`, or `next` for a siding with no next stage) | `attention` | the yardmaster |
+| `fold_refused` | the latest member | `depot`, `flow`, `stage`, `members`, `points`, `fold_max`, `reason` (`ceiling`, or `next` for a siding with no next stage) | `attention` | the yardmaster |
 | `unfolded` | the carrier | `member`, `to`, `reason` | none | the carrier's watchers |
 
 `fold_refused` goes into `AttentionKinds`, `knownKinds` in
@@ -437,16 +470,28 @@ with a `ready` stage so a person still sends each carrier, for quota:
 
 ```
 backlog -> shape | siding | new | decide
+shape -> siding on small | new on done | decide on question | backlog
 siding -> ready | backlog
 ready -> new | backlog
 ```
 
-with `default/siding.md` and `default/ready.md`, and in the store a
-manual `siding` group with `fold=4 fold_after=8h fold_max=6` and a manual
-`ready` group (mckean, yardmaster) routed for depot yardr. footplate's
-`siding -> new | backlog` becomes `siding -> ready | backlog` the same way
-(a footplate bead). The shaper's prompt (in this yard's home, not the
-repository) changes from "fold by hand" to "a shaped small bead goes to
+A shaped small bead reaches the siding by either of yardr's two shapers.
+The per-bead shaper, who works the `shape` stage, ends with a new outcome
+`small` (`yardr bead done <id> --outcome small`): the body holds as for
+`done` and the bead is `difficulty:1` and `size:small`. `done` keeps its
+meaning for any other `difficulty:1` bead and still goes to `new`. Today
+`shape -> new on done | decide on question | backlog` allows no move to
+`siding`, so without the edge the stage could not send one there. The
+crew shaper, who shapes a batch in `backlog`, uses the bare edge `backlog
+-> siding` (`yardr bead advance <id> --to siding`).
+
+The repository side is `default/siding.md` and `default/ready.md`, and
+`default/shape.md` gaining the `small` outcome. In the store: a manual
+`siding` group with `fold=4 fold_after=8h fold_max=6` and a manual `ready`
+group (mckean, yardmaster) routed for depot yardr. footplate's `siding ->
+new | backlog` becomes `siding -> ready | backlog` the same way (a
+footplate bead). The crew shaper's prompt (in this yard's home, not the
+repository) changes from "fold by hand" to "advance a shaped small bead to
 siding"; that is the yardmaster's to edit.
 
 ## 4. Left out
@@ -537,15 +582,30 @@ siding may have different originators.
 I would take (a): on this yard every originator is mckean today, and (b)
 is one condition away if that changes.
 
-### 5.5 Members that are not ready
+### 5.5 Beads in the siding that cannot move
 
-- **(a) Left in the siding** (3.5): held, blocked, claimed or asked members
-  wait; the fold needs no edge re-pointing for blockers and strands no
-  question.
-- **(b) Folded too**: blockers re-pointed to the carrier, open asks moved
-  or taken back. Every fold then carries the slowest member's wait.
+The decided rule counts every bead in the siding, starts the clock at the
+latest to enter, and folds everything waiting. A bead that is held,
+claimed, blocked by an open bead or has an open person ask cannot be
+folded without undoing that state. The rule needs an answer for it:
 
-I would take (a).
+- **(a) Counted, not folded** (3.5): such a bead counts toward N and the
+  clock as the rule says, and stays in the siding when the rest fold,
+  named in `folded`'s `left`. The count and clock are as decided; "fold
+  everything" gains one exception. Cost: a bead left behind keeps
+  counting, so a siding with stuck beads fires early on the next arrival
+  (and advances it alone when it is the only eligible one).
+- **(b) Neither counted nor folded**: the readiness check sees only
+  eligible beads. No early firing, but it changes the decided count and
+  clock: three held beads and one new one are a siding of one.
+- **(c) Folded too**: blockers re-pointed to the carrier, holds and claims
+  dropped, open asks moved or taken back. Keeps the rule word for word,
+  but a fold then undoes a person's hold and carries the slowest member's
+  wait into the carrier.
+
+I would take (a): it is the only one that keeps the decided count and
+clock without overriding a hold or a claim, and the early firing it costs
+is visible in `left` and in `flow show`.
 
 ## 6. The beads it would become
 
@@ -570,12 +630,12 @@ verbatim, and `## The bundle`.
 **2. The members.** Depends on 1. Goal: a fold closes its members and
 refuses what it cannot fold, all or nothing. Where: `w.fold` from bead 1,
 `graph.go` (a `DepFolded` kind beside `DepBlocks`, `w.addDep`),
-`beads.go` (`w.closeBead`, `checkCloseOwn`), `events.go`. Done when (8):
+`beads.go` (`w.closeBead`, `checkCloseOwn`), `events.go`. Done when (9):
 each member has a `folded` edge from the carrier; each member is closed
 "folded into <carrier>"; one `folded` event is logged on the carrier with
 the data in 3.6; members of two depots are refused; members governed by
-two flows are refused with each member's flow named; a closed member and a
-claimed member are refused; an agent in another bead's pane is refused; a
+two flows are refused with each member's flow named; a closed member is
+refused; a claimed member is refused; an agent in another bead's pane is refused; a
 refusal leaves the store unchanged (no carrier, no closed member).
 
 **3. What moves with a fold.** Depends on 2. Goal: a fold keeps a member's
@@ -605,10 +665,11 @@ manual group can be a siding, and `flow show` says so. Where:
 `internal/store/configkeys.go` (`fold`, `fold_after`, `fold_max`, runner
 `manual`, with a count type if none fits), `internal/cli/flows.go`
 (`flowViews`, the lines under the table, `siding` in `--json`),
-docs/groups.md (beside `wait`), docs/flows.md. Done when (7): the three
+docs/groups.md (beside `wait`), docs/flows.md. Done when (8): the three
 keys are accepted on a manual group and refused on others; `fold` below 2
 is refused; the two lines print as in 3.1 for a siding with members and
-without; a group with `fold` on two stages of one flow gets a line under
+without; the second line adds `, n stuck` (ineligible beads, 3.5) when
+there is one; a group with `fold` on two stages of one flow gets a line under
 each, with each stage's count; a siding stage with no next stage prints
 the `warning:` line instead of the second; `--json` carries the same;
 docs describe the keys.
@@ -619,10 +680,11 @@ a ready siding on time. Where: a new `internal/store/sidings.go`
 repository flows read before the write as `gateRepos` does, and
 `flowMemo.resolve` inside it); `internal/dispatch` (a `sidings` step after
 `timers`, `sidingDue` in `Run`'s next-due, sharing `waits`' bead list and
-routes). Done when (9): a siding folds when its eligible members reach
-`fold`; one member past `fold_after` with others folds them all; one alone
-past `fold_after` is advanced, not folded; held, blocked, claimed and asked
-members are neither counted nor folded; two depots on one yard default
+routes). Done when (9): a siding folds when the open beads in it reach
+`fold`, ineligible ones counted; the latest bead to enter, eligible or
+not, starts the `fold_after` clock, and past it the eligible ones fold;
+a ready siding with one eligible bead advances it, not folded; held, blocked, claimed and asked beads stay in the
+siding and are named in `folded`'s `left`; two depots on one yard default
 route fold apart; two flows of one depot that both name the siding stage
 (a type pointed at its own flow) fold apart, each into its own flow's next
 stage; members arriving between decision and write are folded too; a bead
@@ -634,10 +696,14 @@ dispatch test, no sleep).
 the yardmaster once. Where: `internal/store/sidings.go`,
 `store.AttentionKinds` (`crew.go:1040`), `knownKinds`
 (`internal/cli/crew.go:77`), `internal/cli/attention_test.go`,
-docs/subscriptions.md "The class attention". Done when (6): a fold over
+docs/subscriptions.md "The class attention". Done when (8): a fold over
 `fold_max` changes nothing and logs one `fold_refused` (reason `ceiling`)
-on the latest member; the next pass logs none; a new arrival logs one
-again; a siding whose stage has no next stage folds nothing and logs one
+on the latest member, with the siding and the sorted members; the next
+pass over the same set logs none; a new arrival logs one again; an older
+member leaving or becoming ineligible, the latest staying, logs one again
+(the set, not the latest member, is compared, through `EventsOfKind`);
+a ready siding with no eligible bead does nothing and logs nothing;
+a siding whose stage has no next stage folds nothing and logs one
 `fold_refused` (reason `next`) by the same once-per-set rule; a hand fold
 over `fold_max` is not refused; `fold_refused` is in `AttentionKinds`,
 `knownKinds`, the attention test and docs/subscriptions.md.
@@ -656,10 +722,13 @@ commit.
 **9. This yard's sidings.** Depends on 7. Goal: yardr's own flow has the
 siding and `ready`. Where: `.yardr/flows/default.flow`, new
 `.yardr/flows/default/siding.md` and `ready.md`, `default/backlog.md` (a
-line naming siding), docs/flows.md's copy of this depot's flow, docs/
-glossary.md (`siding`, `carrier`, `fold` as yard words). Done when (4): the
-flow parses and `flow show yardr` lists siding and ready with the new
-moves; the stage files say who moves what; the docs' copy matches; the
-glossary has the three words. The store groups and routes (3.8) and the
+line naming siding), `default/shape.md` (the `small` outcome),
+docs/flows.md's copy of this depot's flow, docs/glossary.md (`siding`,
+`carrier`, `fold` as yard words). Done when (6): the flow parses and
+`flow show yardr` lists siding and ready with the new moves; `shape ->
+siding on small` is in the flow and `yardr prime --bead` on a bead in
+`shape` lists `small -> siding` among its outcomes; `default/shape.md`
+says when `small` applies and when `done` does; the stage files say who
+moves what; the docs' copy matches; the glossary has the three words. The store groups and routes (3.8) and the
 shaper's prompt are the yardmaster's after landing; footplate's
 `siding -> ready` is a footplate bead filed beside this one.
