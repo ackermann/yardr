@@ -135,7 +135,8 @@ func TestNamesAreValidated(t *testing.T) {
 	if _, err := s.UpdateBead(ctx, b.ID, store.BeadPatch{Type: &bug}, store.Expect{}, "me"); err == nil {
 		t.Error("bead update to type Bug accepted")
 	}
-	for _, bad := range []string{"", "depends on", "Blocks", "x/y"} {
+	// folded is a valid name that only a fold may use (store.DepFolded).
+	for _, bad := range []string{"", "depends on", "Blocks", "x/y", store.DepFolded} {
 		if err := s.AddDep(ctx, a.ID, b.ID, bad, "", "", "me"); err == nil {
 			t.Errorf("dep kind %q accepted", bad)
 		}

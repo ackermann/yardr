@@ -2,12 +2,18 @@ package store
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
+
+	"yardr.dev/yardr/internal/peer"
 )
 
 // The flows the fold rows follow. foldF has the way a siding takes; foldG,
@@ -34,9 +40,11 @@ merged terminal
 )
 
 // foldYard is a store with the depots the rows fold in: plain, which no flow
-// governs; web, whose beads follow fold.g unless they pin fold.f; and repo, a
+// governs; web, whose beads follow fold.g unless they pin fold.f; repo, a
 // directory depot whose repository holds a default flow and one for the type
-// release. mckean and sam are its users.
+// release; and mixed, the same repository with its beads pointed at fold.g,
+// so that only a bead pinned to the repository's default needs it. mckean and
+// sam are its users, and builders a group that can hold ten sessions.
 func foldYard(t *testing.T) *Store {
 	t.Helper()
 	ctx := context.Background()
@@ -60,10 +68,13 @@ func foldYard(t *testing.T) *Store {
 			t.Fatal(err)
 		}
 	}
-	for _, d := range []Depot{{Name: "plain", Base: "main"}, {Name: "web", Base: "main"}, {Name: "repo", Kind: DepotDir, Path: dir}} {
+	for _, d := range []Depot{{Name: "plain", Base: "main"}, {Name: "web", Base: "main"}, {Name: "repo", Kind: DepotDir, Path: dir}, {Name: "mixed", Kind: DepotDir, Path: dir}} {
 		if err := s.PutDepot(ctx, d, "me"); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := s.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
 	}
 	for name, text := range map[string]string{"fold.f": foldF, "fold.g": foldG} {
 		f, err := ParseFlow(text)
@@ -75,8 +86,10 @@ func foldYard(t *testing.T) *Store {
 			t.Fatal(err)
 		}
 	}
-	if err := s.SetFlowPointer(ctx, "web", "", "fold.g", "me"); err != nil {
-		t.Fatal(err)
+	for _, depot := range []string{"web", "mixed"} {
+		if err := s.SetFlowPointer(ctx, depot, "", "fold.g", "me"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return s
 }
@@ -88,18 +101,45 @@ func foldWant[T comparable](t *testing.T, what string, got, want T) {
 	}
 }
 
+// foldClaim has a session of the builders group claim b, as the daemon does.
+func foldClaim(t *testing.T, s *Store, b Bead) *Session {
+	t.Helper()
+	sess, err := s.Claim(context.Background(), b.ID, "builders", b.Stage, "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sess
+}
+
+// foldPane makes this test process the pane of a session of b, as MarkRunning
+// takes a herdr tab's shell: a call made with WithCaller(ctx, os.Getpid()) is
+// then that of b's agent.
+func foldPane(t *testing.T, s *Store, b Bead) {
+	t.Helper()
+	sess := foldClaim(t, s, b)
+	me := os.Getpid()
+	handle := map[string]any{"agent": b.ID + "-new", "shell_pid": me}
+	if st, err := peer.Describe(me); err == nil {
+		handle["shell_start"] = st.Start
+	}
+	if err := s.MarkRunning(context.Background(), sess.ID, handle); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // foldRow is one fold: its members are made in order, so the first is the
 // oldest, and folded as fold says (every one, in the order made, when nil).
 type foldRow struct {
 	name    string
-	depot   string
+	depot   string // the depot of every member that names none
 	members []NewBead
 	fold    []int
 	extra   []string // ids that name no bead, folded after the members
 	opts    FoldOptions
 	actor   string // mckean unless set
+	pane    bool   // the fold is asked from the pane prepare made of this process
 	prepare func(t *testing.T, s *Store, made []Bead)
-	wantErr string // the fold is refused, and makes no bead
+	wantErr string // the fold is refused, and changes nothing
 	check   func(t *testing.T, s *Store, got *Bead, made []Bead)
 }
 
@@ -198,15 +238,53 @@ func TestFoldBeads(t *testing.T) {
 			},
 		},
 		{
-			name: "it pins a flow of the repository by its name", depot: "repo", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "ready"},
+			name: "it follows its repository default by depot and type", depot: "repo", members: []NewBead{bead("a"), bead("b")}, opts: FoldOptions{To: "ready"},
 			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
-				foldWant(t, "pin", PinnedFlow(got), "default")
+				foldWant(t, "pin", PinnedFlow(got), "")
 				next, err := s.NextStages(ctx, got.ID)
 				if err != nil || next.Flow == nil {
 					t.Fatalf("next stages = %+v, %v", next, err)
 				}
 				foldWant(t, "flow", next.Flow.Name, "default")
-				foldWant(t, "source", next.Source.Kind+" "+next.Source.Path, "pin "+RepoFlowDir+"/default.flow")
+				foldWant(t, "source", next.Source.Kind+" "+next.Source.Path, "repo "+RepoFlowDir+"/default.flow")
+			},
+		},
+		{
+			name: "same-named store and repository flows are distinct", depot: "repo", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "repo-f10", Title: "store", Type: "task"}, {ID: "repo-f11", Title: "repository", Type: "bug"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				f, err := ParseFlow("backlog -> siding | new | decide\nsiding -> ready | backlog\nready -> merged\nnew -> merged\ndecide -> backlog\nmerged terminal\n")
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.Name = "default"
+				if _, err := s.PutFlow(ctx, *f, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.SetFlowPointer(ctx, "repo", "task", "default", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := s.SetFlowPointer(ctx, "repo", "task", "", "mckean"); err != nil {
+						t.Errorf("clear task flow pointer: %v", err)
+					}
+				})
+			},
+			wantErr: "repo-f10 under flow default (store), repo-f11 under flow default (" + RepoFlowDir + "/default.flow)",
+		},
+		{
+			name: "a repository default stays the carrier flow beside a same-named store flow", depot: "repo", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{Title: "a", Type: "task"}, {Title: "b", Type: "task"}},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "pin", PinnedFlow(got), "")
+				next, err := s.NextStages(ctx, got.ID)
+				if err != nil || next.Flow == nil {
+					t.Fatalf("next stages = %+v, %v", next, err)
+				}
+				foldWant(t, "source", next.Source.Kind+" "+next.Source.Path, "repo "+RepoFlowDir+"/default.flow")
+				if !slices.Equal(next.Stages, []string{"new", "backlog"}) {
+					t.Errorf("next stages = %v, want repository default's new, backlog", next.Stages)
+				}
 			},
 		},
 		{
@@ -347,6 +425,207 @@ func TestFoldBeads(t *testing.T) {
 				foldWant(t, "body", got.Body, want)
 			},
 		},
+		{
+			name: "each member has a folded edge from the carrier, with the stage it stood in", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{Title: "a", Stage: "siding"}, {Title: "b", Stage: "backlog"}, {Title: "c", Stage: "siding"}},
+			fold:    []int{2, 0, 1},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				deps, err := s.Deps(ctx, got.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				moved := map[string]string{}
+				for _, d := range deps {
+					switch {
+					case d.Kind != DepFolded:
+						t.Errorf("the carrier has an edge of kind %s: %+v", d.Kind, d)
+					case d.From != got.ID:
+						t.Errorf("a folded edge runs %s -> %s, want it from the carrier %s", d.From, d.To, got.ID)
+					case d.Moved == nil:
+						t.Errorf("the folded edge to %s says nothing was moved", d.To)
+					default:
+						moved[d.To] = d.Moved.Stage
+					}
+				}
+				want := map[string]string{made[0].ID: "siding", made[1].ID: "backlog", made[2].ID: "siding"}
+				if !maps.Equal(moved, want) {
+					t.Errorf("folded edges moved %v, want %v", moved, want)
+				}
+				// The member reads the same edge from its end.
+				for _, m := range made {
+					deps, err := s.Deps(ctx, m.ID)
+					if err != nil || len(deps) != 1 || deps[0].Kind != DepFolded || deps[0].From != got.ID || deps[0].To != m.ID {
+						t.Errorf("%s has edges %+v, %v; want the one folded edge from %s", m.ID, deps, err, got.ID)
+					}
+				}
+				if err := s.RemoveDep(ctx, got.ID, made[0].ID, DepFolded, "", "", "mckean"); err == nil || !strings.Contains(err.Error(), "only a fold or an unfold") {
+					t.Errorf("RemoveDep of folded membership = %v, want a refusal", err)
+				}
+				deps, err = s.Deps(ctx, made[0].ID)
+				if err != nil || len(deps) != 1 || deps[0].Kind != DepFolded {
+					t.Errorf("folded membership after refused removal = %+v, %v; want it to remain", deps, err)
+				}
+			},
+		},
+		{
+			name: "each member is closed as folded into the carrier", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b"), bead("c")},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				for _, m := range made {
+					b, err := s.GetBead(ctx, m.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					reason := ""
+					if b.CloseReason != nil {
+						reason = *b.CloseReason
+					}
+					foldWant(t, m.ID+" status", b.Status, "closed")
+					foldWant(t, m.ID+" close reason", reason, "folded into "+got.ID)
+				}
+			},
+		},
+		{
+			name: "one folded event is logged on the carrier, with the members it took and its points", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{Title: "a", Labels: []string{"size:small"}}, {Title: "b", Labels: []string{"size:large"}}},
+			fold:    []int{1, 0},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				evs, err := s.Events(ctx, got.ID, 50)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var folded []Event
+				for _, e := range evs {
+					if e.Kind == "folded" {
+						folded = append(folded, e)
+					}
+				}
+				if len(folded) != 1 {
+					t.Fatalf("%d folded events on the carrier, want one: %+v", len(folded), evs)
+				}
+				foldWant(t, "actor", folded[0].Actor, "mckean")
+				want := map[string]any{"members": []any{made[1].ID, made[0].ID}, "left": []any{}, "from": "-", "to": "ready", "trigger": "hand", "points": float64(5)}
+				if !reflect.DeepEqual(folded[0].Data, want) {
+					t.Errorf("folded event data = %v, want %v", folded[0].Data, want)
+				}
+			},
+		},
+		{
+			name: "a pin to the flow the type resolves to is the same flow", depot: "web", opts: FoldOptions{To: "new"},
+			members: []NewBead{bead("a"), pinned("b", "fold.g")},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "pin", PinnedFlow(got), "fold.g")
+			},
+		},
+		{
+			name: "a bead that went back to the yard it came from is folded", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				at := time.Now()
+				err := s.write(func(w *wtx) error {
+					return put(w.Tx, bPeerBeads, made[1].UUID, &peerBead{Bead: made[1].UUID, Key: "north", Direction: "in", ReturnedAt: &at})
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "folded", got.Stage, "ready")
+			},
+		},
+		{
+			name: "members of two depots are refused, each named with its depot", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-d1", Title: "a", Depot: "plain"}, {ID: "web-d2", Title: "b", Depot: "web"}},
+			wantErr: "plain-d1 in depot plain, web-d2 in depot web",
+		},
+		{
+			name: "one bead of another depot among others is named with them", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-d7", Title: "a", Depot: "plain"}, {ID: "web-d8", Title: "b", Depot: "web"}, {ID: "plain-d9", Title: "c", Depot: "plain"}},
+			wantErr: "plain-d7 in depot plain, web-d8 in depot web, plain-d9 in depot plain",
+		},
+		{
+			name: "a bead of a depot and one of none are refused", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-d3", Title: "a", Depot: "plain"}, {ID: "none-d4", Title: "b"}},
+			wantErr: "plain-d3 in depot plain, none-d4 in no depot",
+		},
+		{
+			name: "members under two flows are refused, each named with its flow", depot: "web", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "web-f1", Title: "a"}, {ID: "web-f2", Title: "b", Metadata: map[string]any{"flow": "fold.f"}}},
+			wantErr: "web-f1 under flow fold.g, web-f2 under flow fold.f",
+		},
+		{
+			name: "one bead under another flow among others is named with them", depot: "web", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "web-f9", Title: "a"}, {ID: "web-f10", Title: "b", Metadata: map[string]any{"flow": "fold.f"}}, {ID: "web-f11", Title: "c"}},
+			wantErr: "web-f9 under flow fold.g, web-f10 under flow fold.f, web-f11 under flow fold.g",
+		},
+		{
+			// The oldest's flow is in the store, so reading its repository was
+			// not needed; the other's is, and the refusal still names it.
+			name: "a store flow and a repository flow are two, though the oldest's needs no repository", depot: "mixed", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "mixed-f3", Title: "a"}, {ID: "mixed-f4", Title: "b", Metadata: map[string]any{"flow": "default"}}},
+			wantErr: "mixed-f3 under flow fold.g, mixed-f4 under flow default",
+		},
+		{
+			name: "a type's repository flow and the default are two", depot: "repo", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "repo-f5", Title: "a"}, {ID: "repo-f6", Title: "b", Type: "release"}},
+			wantErr: "repo-f5 under flow default, repo-f6 under flow type/release",
+		},
+		{
+			name: "a bead no flow governs and one a flow does are two", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-f7", Title: "a"}, {ID: "plain-f8", Title: "b", Metadata: map[string]any{"flow": "fold.f"}}},
+			wantErr: "plain-f7 under no flow, plain-f8 under flow fold.f",
+		},
+		{
+			name: "a closed member is refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				if _, err := s.CloseBead(ctx, made[1].ID, "done", Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "is closed",
+		},
+		{
+			name: "a claimed member is refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) { foldClaim(t, s, made[1]) },
+			wantErr: "is claimed",
+		},
+		{
+			name: "a bead from another yard is refused, for closing it would return it as refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				err := s.write(func(w *wtx) error {
+					return put(w.Tx, bPeerBeads, made[1].UUID, &peerBead{Bead: made[1].UUID, Key: "north", Direction: "in"})
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "came from another yard",
+		},
+		{
+			name: "a bead away at another yard is refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				err := s.write(func(w *wtx) error {
+					return put(w.Tx, bPeerSent, made[0].UUID, &peerSent{Bead: made[0].UUID, Key: "north", Stage: "new", Message: "m1", At: time.Now()})
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "is away at another yard",
+		},
+		{
+			// plain-pane is claimed and open in the pane this process is the
+			// shell of; the two it folds are not its own, and are not claimed.
+			name: "an agent in another bead's pane is refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-pane", Title: "mine"}, bead("b"), bead("c")},
+			fold:    []int{1, 2}, pane: true,
+			prepare: func(t *testing.T, s *Store, made []Bead) { foldPane(t, s, made[0]) },
+			wantErr: "may close only its own bead plain-pane",
+		},
 		{name: "a fold with no stage is refused", depot: "plain", members: []NewBead{bead("a"), bead("b")}, wantErr: "the stage its carrier starts in"},
 		{
 			name: "a stage the carrier's flow lacks is refused", depot: "web", opts: FoldOptions{To: "ship"},
@@ -367,7 +646,9 @@ func TestFoldBeads(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			made := make([]Bead, len(row.members))
 			for i, nb := range row.members {
-				nb.Depot = row.depot
+				if nb.Depot == "" {
+					nb.Depot = row.depot
+				}
 				b, err := s.CreateBead(ctx, nb, "mckean")
 				if err != nil {
 					t.Fatal(err)
@@ -389,19 +670,50 @@ func TestFoldBeads(t *testing.T) {
 				}
 				return len(all)
 			}
-			before := count()
-			got, err := s.foldBeads(ctx, ids, row.opts, or(row.actor, "mckean"))
+			// A member's revision changes with anything done to it: a close,
+			// an edge.
+			revisions := func() []string {
+				var out []string
+				for _, m := range made {
+					b, err := s.GetBead(ctx, m.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					out = append(out, b.Revision)
+				}
+				return out
+			}
+			folded := func() int {
+				evs, err := s.EventsOfKind(ctx, "folded", 1000)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return len(evs)
+			}
+			before, was, foldedBefore := count(), revisions(), folded()
+			askedAs := ctx
+			if row.pane {
+				askedAs = WithCaller(ctx, os.Getpid())
+			}
+			got, err := s.FoldBeads(askedAs, ids, row.opts, or(row.actor, "mckean"))
 			if row.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), row.wantErr) {
 					t.Fatalf("folded %v: %+v, %v; want an error with %q", ids, got, err, row.wantErr)
 				}
+				// All or nothing: no carrier, no member closed or given an
+				// edge, no fold on record.
 				foldWant(t, "beads after a refused fold", count(), before)
+				if now := revisions(); !slices.Equal(now, was) {
+					t.Errorf("a refused fold changed its members: revisions %v, were %v", now, was)
+				}
+				foldWant(t, "folded events after a refused fold", folded(), foldedBefore)
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			foldWant(t, "beads made", count()-before, 1)
+			foldWant(t, "folded events made", folded()-foldedBefore, 1)
 			// What the fold answers is what the store holds.
 			stored, err := s.GetBead(ctx, got.ID)
 			if err != nil || stored.Revision != got.Revision {
@@ -410,6 +722,65 @@ func TestFoldBeads(t *testing.T) {
 			row.check(t, s, stored, made)
 		})
 	}
+}
+
+// A fold is one write: the carrier, the edges, the closes and the event are
+// all in the transaction, so a write that fails after the fold takes every one
+// of them with it. No row of TestFoldBeads can show it, since a fold refuses
+// everything it can before it makes anything.
+func TestFoldInOneWrite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := foldYard(t)
+	var ids []string
+	for _, title := range []string{"a", "b", "c"} {
+		b, err := s.CreateBead(ctx, NewBead{Title: title, Depot: "plain"}, "mckean")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, b.ID)
+	}
+	depot := "plain"
+	reads, err := s.readsFor(ctx, &depot, "task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	late := errors.New("a failure after the fold")
+	err = s.write(func(w *wtx) error {
+		var members []*beadRow
+		for _, id := range ids {
+			row, err := w.loadBead(id)
+			if err != nil {
+				return err
+			}
+			members = append(members, row)
+		}
+		if _, err := w.fold(ctx, reads, nil, members, FoldOptions{To: "ready"}, "hand", "mckean"); err != nil {
+			return err
+		}
+		return late
+	})
+	if !errors.Is(err, late) {
+		t.Fatalf("the write = %v, want the failure after the fold", err)
+	}
+	all, err := s.ListBeads(ctx, BeadFilter{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foldWant(t, "beads after the failed write", len(all), len(ids))
+	for _, b := range all {
+		foldWant(t, b.ID+" status", b.Status, "open")
+	}
+	edges, err := s.AllDeps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foldWant(t, "edges after the failed write", len(edges), 0)
+	folded, err := s.EventsOfKind(ctx, "folded", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foldWant(t, "folded events after the failed write", len(folded), 0)
 }
 
 // foldOrder is the indexes of a row's fold: the ones it names, else 0 to n-1.

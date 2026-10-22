@@ -24,6 +24,13 @@ const DepBlocks = "blocks"
 // blocks, and nothing routes, groups or lands by it.
 const DepDiscoveredFrom = "discovered-from"
 
+// DepFolded is the edge kind from a carrier to each bead a fold made it of
+// (FoldBeads): the member is closed "folded into" the carrier, and the edge
+// says what the fold took from it (FoldMoved). Only a fold makes one: it is
+// what says a bead is a carrier's member, so AddDep refuses the kind. Like
+// discovered-from it is a record; it never blocks.
+const DepFolded = "folded"
+
 type Dep struct {
 	From      string    `json:"from"` // must close first (for kind 'blocks')
 	To        string    `json:"to"`
@@ -37,20 +44,24 @@ type Dep struct {
 	// before. While the blocker is in that stage, or past it along done,
 	// the edge holds nothing.
 	Until string `json:"until,omitempty"`
+	// Moved is what the fold took from the member the edge ends in (kind
+	// folded only).
+	Moved *FoldMoved `json:"moved,omitempty"`
 }
 
 // depRow is a stored edge: from -kind-> to, both bead UUIDs.
 type depRow struct {
-	ID        string    `json:"id"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	Kind      string    `json:"kind"`
-	CreatedAt time.Time `json:"created_at"`
-	CreatedBy string    `json:"created_by"`
-	Revision  string    `json:"revision"`
-	LastActor string    `json:"last_actor"`
-	At        string    `json:"at,omitempty"`
-	Until     string    `json:"until,omitempty"`
+	ID        string     `json:"id"`
+	From      string     `json:"from"`
+	To        string     `json:"to"`
+	Kind      string     `json:"kind"`
+	CreatedAt time.Time  `json:"created_at"`
+	CreatedBy string     `json:"created_by"`
+	Revision  string     `json:"revision"`
+	LastActor string     `json:"last_actor"`
+	At        string     `json:"at,omitempty"`
+	Until     string     `json:"until,omitempty"`
+	Moved     *FoldMoved `json:"moved,omitempty"`
 }
 
 // AddDep relates from -> to. For kind 'blocks', `to` is not ready until
@@ -83,6 +94,9 @@ type depRow struct {
 func (s *Store) AddDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
 	if err := checkName("dep kind", kind); err != nil {
 		return err
+	}
+	if kind == DepFolded {
+		return fmt.Errorf("kind %s: only a fold makes that edge (it says which beads a carrier was made of, and what was taken from each)", kind)
 	}
 	if at != "" && kind != DepBlocks {
 		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
@@ -457,9 +471,16 @@ func hasEdge(tx *bolt.Tx, from, to, kind, at, until string) bool {
 
 // addDep stores the edge from -kind-> to at until and logs dep_added on to.
 func (w *wtx) addDep(fromRow, toRow *beadRow, kind, at, until, actor string) error {
+	return w.putDep(fromRow, toRow, &depRow{Kind: kind, At: at, Until: until}, actor)
+}
+
+// putDep stores the edge d says (its kind, at, until and, for a fold's, what
+// was moved) from fromRow to toRow, and logs dep_added on toRow.
+func (w *wtx) putDep(fromRow, toRow *beadRow, d *depRow, actor string) error {
 	from, to := fromRow.UUID, toRow.UUID
 	// Ids are never reused: a removed edge's id stays retired.
-	d := &depRow{ID: newEdgeID(), From: from, To: to, Kind: kind, At: at, Until: until, CreatedAt: now(), CreatedBy: actor}
+	d.ID, d.From, d.To, d.CreatedAt, d.CreatedBy = newEdgeID(), from, to, now(), actor
+	kind := d.Kind
 	if err := w.mintDep(d, actor); err != nil {
 		return err
 	}
@@ -509,12 +530,16 @@ func newEdgeID() string {
 // agent that could remove it would land the bead with the weakness open.
 // Taking a child off its train removes the child's blocks edge too, so that
 // is refused the same way. Edges of any other kind decide no readiness and
-// stay the agent's to remove. The refusal covers any two beads, any stage and
-// an edge that is not there. The socket's classes cannot state it, because
-// RemoveDep is an agent's call for those other kinds, so the store does
-// (beadAgent). An agent that filed a wrong edge says so in a note and the
-// yardmaster removes it.
+// stay the agent's to remove, except a folded edge: only a fold or an unfold
+// can change which members belong to a carrier. The refusal covers any two
+// beads, any stage and an edge that is not there. The socket's classes cannot
+// state it, because RemoveDep is an agent's call for those other kinds, so the
+// store does (beadAgent). An agent that filed a wrong edge says so in a note
+// and the yardmaster removes it.
 func (s *Store) RemoveDep(ctx context.Context, fromRef, toRef, kind, at, until, actor string) error {
+	if kind == DepFolded {
+		return fmt.Errorf("kind %s: only a fold or an unfold may remove that edge", kind)
+	}
 	if at != "" && kind != DepBlocks {
 		return fmt.Errorf("--at %q: only kind blocks holds at a stage, not %q", at, kind)
 	}
@@ -632,7 +657,7 @@ func (s *Store) Deps(ctx context.Context, ref string) ([]Dep, error) {
 				if _, err := get(tx, bDeps, k[len(id)+1:], &d); err != nil {
 					return err
 				}
-				out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until})
+				out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until, Moved: d.Moved})
 			}
 		}
 		return nil
@@ -649,7 +674,7 @@ func (s *Store) AllDeps(ctx context.Context) ([]Dep, error) {
 	err := s.read(func(tx *bolt.Tx) error {
 		h := handlesIn(tx)
 		return each(tx, bDeps, "", func(_ []byte, d *depRow) error {
-			out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until})
+			out = append(out, Dep{From: h.of(d.From), To: h.of(d.To), Kind: d.Kind, CreatedAt: d.CreatedAt, At: d.At, Until: d.Until, Moved: d.Moved})
 			return nil
 		})
 	})

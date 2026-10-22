@@ -112,6 +112,16 @@ func TestSocketServesAPersonAndACrewPaneClosingAnyBead(t *testing.T) {
 			if got := openBlockers(t, st, y.mine); got != 0 {
 				t.Errorf("the bead has %d open blockers after %s closed its blocker, want none", got, who)
 			}
+			// A fold closes beads too, and is theirs alike.
+			carrier, err := api.FoldBeads(ctx, []string{y.other.ID, y.target.ID}, store.FoldOptions{To: "new"}, "jo")
+			if err != nil {
+				t.Fatalf("FoldBeads by %s: %v", who, err)
+			}
+			for _, m := range []*store.Bead{y.other, y.target} {
+				if got, err := st.GetBead(ctx, m.ID); err != nil || got.Status != "closed" || got.CloseReason == nil || *got.CloseReason != "folded into "+carrier.ID {
+					t.Errorf("%s after %s folded it: %+v, %v; want it closed as folded into %s", m.ID, who, got, err, carrier.ID)
+				}
+			}
 		})
 	}
 }

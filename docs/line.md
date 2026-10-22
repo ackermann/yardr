@@ -878,6 +878,12 @@ and the new bead inherits nothing from it. `yardr bead show` says
 discovered-from` removes it. It never affects `yardr ready`, routing, a
 train's children or what lands.
 
+One word is not free: `yardr dep add` refuses the kind `folded`. A fold makes
+that edge, from the bead it makes to each bead it folds, and it records what
+the fold took from that bead; an edge made by hand would say a bead was folded
+that never was. `yardr dep rm` refuses it too: only folding and unfolding
+change which beads belong to a carrier.
+
 A bead's agent can add edges and cannot take a `blocks` edge away. From an
 agent's session pane `yardr dep add` works, and the security stage uses it to
 make a bead wait for the weakness it filed. `yardr dep rm` is refused for any

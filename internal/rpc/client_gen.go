@@ -53,6 +53,9 @@ func (c *Client) SetHold(ctx context.Context, id string, hold bool, exp store.Ex
 func (c *Client) Release(ctx context.Context, id, reason string, exp store.Expect, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "Release", id, reason, exp, actor)
 }
+func (c *Client) FoldBeads(ctx context.Context, ids []string, opts store.FoldOptions, actor string) (*store.Bead, error) {
+	return callV[*store.Bead](c, ctx, "FoldBeads", ids, opts, actor)
+}
 
 func (c *Client) AddDep(ctx context.Context, from, to, kind, at, until, actor string) error {
 	return c.call(ctx, "AddDep", nil, from, to, kind, at, until, actor)

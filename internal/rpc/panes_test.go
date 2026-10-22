@@ -108,6 +108,10 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 		}},
 		{"EndSession", func() error { return c.EndSession(ctx, sess.ID, "aborted", "an agent ends itself") }},
 		{"MarkStopped", func() error { return c.MarkStopped(ctx, sess.ID) }},
+		{"FoldBeads", func() error {
+			_, err := c.FoldBeads(ctx, []string{b.ID}, store.FoldOptions{To: "backlog"}, "jo")
+			return err
+		}},
 	}
 	for _, r := range refused {
 		if err := r.call(); err == nil || !strings.HasPrefix(err.Error(), r.method+" is ") {
@@ -130,8 +134,8 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 	if got, err := st.GetSession(ctx, sess.ID); err != nil || got.State != "running" || got.Stopped {
 		t.Errorf("session after refused writes = %+v, %v: want it running", got, err)
 	}
-	if got, err := st.GetBead(ctx, b.ID); err != nil || store.PinnedFlow(got) != "" {
-		t.Errorf("bead after the refused pin = %+v, %v: want no pin", got, err)
+	if got, err := st.GetBead(ctx, b.ID); err != nil || store.PinnedFlow(got) != "" || got.Status != "open" {
+		t.Errorf("bead after the refused pin and fold = %+v, %v: want no pin, and open", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(backups, "yard.db")); !os.IsNotExist(err) {
 		t.Errorf("the refused backup wrote a file: %v", err)
