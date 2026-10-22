@@ -684,6 +684,15 @@ nothing else. What is not the same:
   more. So it is to every device of a yard with no operator. The socket
   tells the whole card and result, as it tells the operator's words in
   `Settings`.
+- **The stream tells the file a source was pointed at to a device of the
+  operator alone**: a `source_set` event has `data.env_file` for such a
+  device, and for any other it has the `source` and no `env_file`, whether
+  the stream replays it or sends it as it happens; a yard with no operator
+  tells it to no device. A setup that took a candidate points the source
+  its pack added at the candidate's file, and `yardr source set <source>
+  env_file=<path>` points any source at one: the event is the same, and so
+  is the hold. A `source_set` of another setting is sent as it is. The
+  socket tells the whole event.
 - **The stream carries the device's own mail alone**: a `mail`, `mail_read`
   or `reaction` event is sent only to a device of its sender or its
   receiver (a read receipt to its reader alone), however far back the
@@ -773,8 +782,9 @@ device. On any of those the client asks the operator for another code.
 ### The stream of a device
 
 `GET <url>/user/events?after=<seq>` is [the stream](#the-stream), every
-event of the yard but the mail of others ([above](#over-the-network)),
-one line each. Two things end it that do not end the socket's:
+event of the yard but the mail of others and without what a device is not
+told ([above](#over-the-network)), one line each. Two things end it that
+do not end the socket's:
 
 - **The device was removed**, or its user. The stream is closed at once,
   before the event that says so is sent, and the token is 401 from then on.
@@ -4571,7 +4581,9 @@ answer, and the event of the change the command made (`peer_allowed`,
 `source_set`, `source_granted`, `subscribed`, `user_set`, `user_added`,
 `user_removed`, `crew_defined`, `setting_changed`, `peer_renamed`,
 `originator_changed`, `timer_removed`), which also carries `approved` with
-the bead and the ask.
+the bead and the ask. A `source_set` that points a source at a file names
+it, and the stream tells that file to a device of the operator alone ([over
+the network](#over-the-network)).
 
 An approval never crosses a link to another yard either: a run ask is
 approved in the yard that asked, and `ApproveAsk` refuses a `bead@peer`.
