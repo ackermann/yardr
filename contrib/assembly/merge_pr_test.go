@@ -482,6 +482,8 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 			[]string{"GitHub did not merge " + prURL, "base branch policy prohibits the merge", "unhold r-p"}},
 		{"a head that moved as the merge started", map[string]string{"race": headB},
 			[]string{"moved while it was being merged (looked at 4f2c9e1, head now 9b8a7c6)"}},
+		{"a head that is no commit sha", map[string]string{"head": "../../etc"},
+			[]string{"gave a head for " + prURL + " that is no commit sha"}},
 		{"a pull request it cannot read", map[string]string{"view-fail": "HTTP 404: Not Found"},
 			[]string{"reading pull request " + prURL + " failed: HTTP 404: Not Found"}},
 		{"check runs it cannot read", map[string]string{"api-fail": "HTTP 403: Resource not accessible by integration"},

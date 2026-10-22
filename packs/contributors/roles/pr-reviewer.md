@@ -68,7 +68,8 @@ wait for a maintainer; if it is not, you did not need it.
    one kind of pull request only: the bump of Go modules that a dependency
    bot makes. Both of these hold, each read from what you have already read
    and never guessed from the look of a version:
-   - the pull request's title opens `build(deps)`;
+   - the pull request's title (the bead's, less a leading `PR #<number>: `
+     where it has one) opens `build(deps)`;
    - `git diff --stat <base>...HEAD` shows `go.mod` or `go.sum` changed and
      nothing else: no `package.json`, lockfile, `Dockerfile`, workflow,
      requirements file or manifest of another ecosystem, and no source file.

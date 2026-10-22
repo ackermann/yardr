@@ -130,6 +130,11 @@ OPEN) ;;
 *) hold "pull request $url is in state ${state:-unknown}, not OPEN; not merging." ;;
 esac
 [ -n "$head" ] || hold "GitHub gave no head commit for $url; not merging."
+# The head goes into a path of the API and an argument of gh: a commit's sha
+# and nothing else.
+case $head in *[!0-9a-fA-F]*) head= ;; esac
+case ${#head} in 40 | 64) ;; *) head= ;; esac
+[ -n "$head" ] || hold "GitHub gave a head for $url that is no commit sha; not merging."
 
 # Whose head is merged. A branch of the repository's own is told by the
 # names, whatever their case.
