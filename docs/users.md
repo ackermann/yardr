@@ -557,9 +557,11 @@ and grants the preset picked, as the operator. It reads every grant of the
 yard's sources, the whole of who may call what. Approving is the only way
 a command of the operator's is run through the listener, and the commands
 a run ask may hold are a fixed list, which the table below has whole. The
-giving is there too for a device of any user for one kind of ask: the one
-for that user's [own address in a source](#told-outside-the-yard), which
-goes to a file of theirs and to no credential of the yard. No approval is
+giving is there too for a device of any user, for an ask with
+[`secret.user` or `secret.as`](api.md#givesecret) that names them: their
+[own address in a source](#told-outside-the-yard) or their [own credential
+in one](integrations.md#a-call-by-a-session-or-a-crew-member), which goes
+to a file of theirs and to no credential of the yard. No approval is
 there for a device of another user, also not of a subscription of their
 own, which they approve at the yard. No call reads a credential or an
 address back, for any device.
@@ -572,7 +574,8 @@ writer, or another user's inbox, is refused. The yardmaster does what the
 operator asks by mail, so a device of the operator can have work shaped,
 built and landed. Of what is [refused from an agent's
 pane](#who-is-acting) it can have run what a run ask may hold, by
-approving one, and nothing else: no other such command is among the calls.
+approving one, and what a setup approval carries, and nothing else: no
+other such command is among the calls.
 
 It reads every bead with its notes, the crew, the users, and through the
 stream the mail of its user alone: its own mail, the reactions on it and
@@ -598,10 +601,12 @@ no open ask names, and read no credential by any call. Each such giving is
 an event with `via <device>` and the names, never the value. A device of
 any other user, and a credential that anything but the yard's own record
 of a device vouches for, cannot do it at all. What a stolen device of
-another user can replace is that user's own address in a source, while an
-ask for it is open: what the yard tells that user then goes to an address
-of the thief's, at the host the operator declared. The value crosses the
-network under the TLS in front of the listener and nothing more
+another user can replace is that user's own address in a source or their
+own credential in one, while an ask for it is open: what the yard tells
+that user then goes to an address of the thief's, and a call made as that
+user is made with a credential of the thief's, each at the host the
+operator declared. The value crosses the network under the TLS in front of
+the listener and nothing more
 ([api.md](api.md#tls-is-yours-and-the-clients-rule)); nothing secret
 crosses a link to another yard.
 
@@ -637,6 +642,13 @@ agent's help, until `yardr user device rm`. Row by row:
 | `bead update <bead> --originator <user>`: a bead's originator changed | A bead is for another user. Whose work it counts as changes; the work stands |
 | `timer rm <id>`: a timer removed | What the timer would have told is not told |
 
+A setup approval is no run ask, and gives a holder nothing past what one
+decision carries: an embedded pack of sources applied (the `pack apply`
+row), its account typed (the giving above) or taken from a source the yard
+has one for, whose file the pack's sources then read, and the picked
+preset's calls granted (the `source grant` row). It is asked as a run ask
+is, by mail to the yardmaster.
+
 What it still cannot have run, because no run ask may hold it: adding a
 device or pairing one, adding a link or trusting a name of another yard,
 moving or removing one, giving one reach or exposing one, taking a peer's
@@ -664,6 +676,15 @@ and each approval through a device is marked `via
 ask. `yardr user device list` says when and from which address a device
 was last used. A device of any other user, and a credential that anything
 but the yard's own record of a device vouches for, approves nothing.
+
+**A stolen device of the operator can read every grant, and no credential
+with it.** Until `yardr user device rm`, whoever holds its token can read
+the whole grant graph ([api.md](api.md#sourcegrants)): for each source,
+which crew members and groups may make which of its calls, as whom, and who
+gave each call and on which card. A grant is a record of names and times,
+so the holder learns who may reach which source and as whom, and never a
+credential or an address, which no record holds. A device of any other
+user cannot read it.
 
 **A write says how it came.** What a device writes carries the device's
 name: the event has `via` in its data, and wherever the writer is shown the
