@@ -86,3 +86,46 @@ func TestCommandTimeoutSignalsOnlyItsOwnGroup(t *testing.T) {
 		})
 	}
 }
+
+// A command that a deadline ended says whose it was. Its Timeout runs on a
+// child of the caller's context, so either deadline ends it the same way and
+// only the text tells them apart (yardr-qpqy: the daemon's push log named a
+// command's 30 s Timeout for a caller's 10 s wait). In the two rows that
+// run the command the deadline that ends it is 20 ms away and the other an
+// hour, so how fast the machine is cannot make it the other one.
+func TestCommandSaysWhoseDeadlineEndedIt(t *testing.T) {
+	const soon, hour = 20 * time.Millisecond, time.Hour
+	within := func(d time.Duration) func() (context.Context, context.CancelFunc) {
+		return func() (context.Context, context.CancelFunc) {
+			return context.WithTimeout(context.Background(), d)
+		}
+	}
+	gaveUp := func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	for _, tc := range []struct {
+		name    string
+		caller  func() (context.Context, context.CancelFunc)
+		timeout time.Duration
+		want    string
+	}{
+		{"the caller's deadline is the nearer", within(soon), hour, "test command: no answer before the caller's deadline"},
+		{"its own timeout is the nearer", within(hour), soon, "test command: no answer within 20ms"},
+		// Nothing runs in the last two: the caller's context is over when the
+		// command is asked for. With both deadlines past the caller's is said,
+		// and a caller that gave up is told so, as before.
+		{"both are past before it runs", within(-time.Second), time.Nanosecond, "test command: no answer before the caller's deadline"},
+		{"the caller gave up", gaveUp, hour, "test command: context canceled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := tc.caller()
+			defer cancel()
+			c := Command{What: "test command", Argv: []string{"sleep", "300"}, Dir: t.TempDir(), Timeout: tc.timeout, Max: 1024}
+			if _, err := c.Output(ctx); err == nil || err.Error() != tc.want {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}

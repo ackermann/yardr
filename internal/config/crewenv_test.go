@@ -165,7 +165,7 @@ func TestCrewEnvCommandFailures(t *testing.T) {
 		// It is there before the time is up: a kill that lands while the
 		// shell forks misses the child on macOS, and the sleep is left.
 		"hangs": {providerT(t, secret+`echo "waiting for a password" >&2; (: >`+hanging+`; exec sleep 300) & wait`),
-			[]string{"no answer within 1h0m0s", "waiting for a password"}},
+			[]string{"no answer before the caller's deadline", "waiting for a password"}},
 		"bad line": {providerT(t, secret+`echo "export TOKEN=`+provided+`"`), []string{" line 2: want KEY=VALUE"}},
 		"bad key":  {providerT(t, `echo "1TOKEN=`+provided+`"`), []string{" line 1: want KEY=VALUE"}},
 	} {
@@ -274,7 +274,7 @@ func TestCrewEnvCommandKillsChildForkedAtTheLimit(t *testing.T) {
 			timeUp()
 		}()
 		_, err := ReadCrewEnv(ctx, "yardmaster", "", "", map[string]any{"env_command": p})
-		if err == nil || !strings.Contains(err.Error(), "no answer within 1h0m0s") {
+		if err == nil || !strings.Contains(err.Error(), "no answer before the caller's deadline") {
 			t.Fatalf("round %d: err = %v", round, err)
 		}
 		b, err := os.ReadFile(pidfile)

@@ -48,8 +48,9 @@ type Command struct {
 }
 
 // Output runs the command and returns what it printed on stdout. An error
-// names the command, an exit status or the timeout, and the last lines of
-// its stderr: never its stdout.
+// names the command, an exit status or the timeout (its own, or the
+// caller's deadline when that came first), and the last lines of its
+// stderr: never its stdout.
 func (c Command) Output(ctx context.Context) ([]byte, error) {
 	out, _, err := c.OutputWithStderr(ctx)
 	return out, err
@@ -63,9 +64,12 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("%s: %w", c.What, err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
+	// cctx ends at Timeout or when the caller's ctx does, whichever is first,
+	// and reads the same either way. ctx keeps its name for that: asking it
+	// afterwards is how the two are told apart.
+	cctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, prog, c.Argv[1:]...)
+	cmd := exec.CommandContext(cctx, prog, c.Argv[1:]...)
 	cmd.Dir, cmd.Env = c.Dir, c.Env
 	if c.Stdin != nil {
 		cmd.Stdin = bytes.NewReader(c.Stdin)
@@ -125,15 +129,23 @@ func (c Command) OutputWithStderr(ctx context.Context) ([]byte, string, error) {
 		close(ready)
 		err = cmd.Wait()
 	}
-	if ctx.Err() != nil && cmd.Process != nil {
+	if cctx.Err() != nil && cmd.Process != nil {
 		kill()
 	}
 	lines := stderr.lines()
 	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+	case errors.Is(cctx.Err(), context.DeadlineExceeded):
+		// A deadline ended the run, and cctx cannot say whose: a caller whose
+		// 10 s wait ended a command with 30 s of its own must not be told it
+		// had 30. So the caller's ctx is asked before Timeout is named. With
+		// both passed by now there is no telling which was first, and the
+		// caller's is said, by this order.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, lines, fmt.Errorf("%s: no answer before the caller's deadline%s", c.What, lines)
+		}
 		return nil, lines, fmt.Errorf("%s: no answer within %s%s", c.What, c.Timeout, lines)
-	case ctx.Err() != nil:
-		return nil, lines, fmt.Errorf("%s: %w", c.What, ctx.Err())
+	case cctx.Err() != nil:
+		return nil, lines, fmt.Errorf("%s: %w", c.What, cctx.Err())
 	case err != nil:
 		// An exit status, or why it could not be run: neither holds
 		// anything the command printed.

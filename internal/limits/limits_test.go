@@ -487,7 +487,7 @@ func TestAskGivesUpAtTheTimeoutAndLeavesNoProcess(t *testing.T) {
 	}()
 	start := time.Now()
 	_, err := Ask(ctx, yard(p), t.TempDir(), "kimi")
-	if err == nil || !strings.Contains(err.Error(), "no answer within 1h0m0s; its stderr ended: refreshing the login") {
+	if err == nil || !strings.Contains(err.Error(), "no answer before the caller's deadline; its stderr ended: refreshing the login") {
 		t.Fatalf("err = %v", err)
 	}
 	if took := time.Since(start); took > 2*time.Minute {
