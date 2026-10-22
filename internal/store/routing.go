@@ -706,7 +706,11 @@ type Quota struct {
 
 // QuotaWindow is one window of a usage limit as a condition reads it.
 type QuotaWindow struct {
-	Label         string
+	Label string
+	// Model is the model the window counts for alone, as the source says it;
+	// "" for a window every model of the provider draws from. judge reads it
+	// for the condition no route wrote.
+	Model         string
 	UsedPercent   *float64
 	TargetPercent *float64
 	ResetsAt      *time.Time
@@ -758,7 +762,8 @@ func (c RouteChoice) Why() string {
 }
 
 // noWindowUsedUp is the condition a group is judged by when its route names
-// none, "<100": every window its provider reports is under 100% used.
+// none, "<100": every window its provider reports is under 100% used, but
+// for those the source says count for one model alone (judge).
 var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 
 // Choose goes through the route's groups in order and takes the first
@@ -767,7 +772,8 @@ var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 // before it failed theirs: whoever calls decides whether and how they are
 // learned. A group with no condition is judged as if its condition were
 // "<100" (noWindowUsedUp): it takes no bead while a window of its provider
-// is used up, since a session started into one stops on the limit at once.
+// is used up, since a session started into one stops on the limit at once;
+// a window the source says is for one model alone does not count (judge).
 // That is for a group that starts agents, which a route with several groups
 // names alone; a caller whose route names a group that starts none passes a
 // nil quota, and nothing is asked: the first group is taken. Whether the
@@ -840,6 +846,16 @@ func judge(limits []QuotaLimit, quota func(source string) Quota) (failed, unknow
 		seen := false
 		for _, w := range q.Windows {
 			if l.Label != "" && w.Label != l.Label {
+				continue
+			}
+			// The comparison no route wrote reads the windows every model of
+			// the provider draws from. One the source says counts for a single
+			// model would hold each group of the provider for a limit most of
+			// them never reach, and which group runs that model is not known
+			// here: the one that does starts and stops on the limit, as it did
+			// before groups were judged by their windows. A condition that
+			// names the window, or every window, asked for it.
+			if l.Implicit && w.Model != "" {
 				continue
 			}
 			seen = true

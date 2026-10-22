@@ -44,7 +44,8 @@ flow, and the pin is named beside the answer it does not change.
 The choice among a winning route's groups is made at the claim, from
 the windows then, as is whether a group that starts agents and has no
 condition may start the bead: it does not while a window of its provider
-is used up. What a claim chose stays where it is, in bead show and the
+is used up, one that counts for a single model aside (yardr limits marks
+it). What a claim chose stays where it is, in bead show and the
 quota_wait event. The command writes nothing, logs nothing and asks no
 provider.`,
 		Args: cobra.ExactArgs(1),
@@ -247,7 +248,7 @@ func printRouteExplanation(w io.Writer, exp routeExplanation, operator string) {
 		return
 	}
 	if gs := exp.Quota.Groups; len(gs) == 1 && gs[0].When == "" {
-		fmt.Fprintf(w, "quota: the winning route names %s with no condition; it starts the bead at the claim unless a window of its provider is used up then\n",
+		fmt.Fprintf(w, "quota: the winning route names %s with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside\n",
 			gs[0].Name)
 		return
 	}

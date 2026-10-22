@@ -62,6 +62,15 @@ type Report struct {
 type Window struct {
 	// Label is the provider's name for the window, for a person: "5h".
 	Label string `json:"label"`
+	// Model is the model the window counts for alone, in the provider's own
+	// words, where the provider caps one model beside the allowance its models
+	// share: "Fable" for a weekly window only Fable draws from. "" is a window
+	// every model draws from, as every window was before a source could say
+	// otherwise, so a report kept without the key reads as it did. Only the
+	// source knows, since the yard holds no provider's windows, and its word
+	// is what keeps the window from holding a group that names no condition
+	// (store.Route.Choose).
+	Model string `json:"model,omitempty"`
 	// TargetPercent is the share of the window that has passed, for a
 	// route that compares the pace instead of a number. The source is
 	// the one that knows the window, so the yard never works it out.
@@ -369,6 +378,7 @@ func read(out []byte) (*Report, error) {
 		Plan     string  `json:"plan"`
 		Windows  *[]struct {
 			Label         *string  `json:"label"`
+			Model         *string  `json:"model"`
 			TargetPercent *float64 `json:"target_percent"`
 			UsedPercent   *float64 `json:"used_percent"`
 			ResetsAt      *string  `json:"resets_at"`
@@ -401,6 +411,12 @@ func read(out []byte) (*Report, error) {
 			return nil, fmt.Errorf("window %s of its answer has target_percent %v, which is no share of the window from 0 to 100", *w.Label, *w.TargetPercent)
 		}
 		win := Window{Label: *w.Label, TargetPercent: w.TargetPercent, UsedPercent: w.UsedPercent, Used: w.Used, Limit: w.Limit}
+		if w.Model != nil {
+			// A blank model is none, as a source that has no model to say
+			// may print it: the window then gates as every window does,
+			// where a model of spaces would have taken it out of the gate.
+			win.Model = strings.TrimSpace(*w.Model)
+		}
 		if w.ResetsAt != nil {
 			t, err := time.Parse(time.RFC3339, *w.ResetsAt)
 			if err != nil {

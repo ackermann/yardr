@@ -2,6 +2,7 @@ package limits
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -358,6 +359,7 @@ func TestAskThatIsNotAnswered(t *testing.T) {
 		"a window unnamed":  {`echo '{"provider":"K","windows":[{"used_percent":3}]}'`, []string{"window 1 of its answer has no label"}},
 		"percent as text":   {`echo '{"provider":"K","windows":[{"label":"5h","used_percent":"100%"}]}'`, []string{"used_percent is string, not float64"}},
 		"target as text":    {`echo '{"provider":"K","windows":[{"label":"5h","target_percent":"half"}]}'`, []string{"target_percent is string, not float64"}},
+		"model as a number": {`echo '{"provider":"K","windows":[{"label":"Weekly","model":5}]}'`, []string{"model is number, not string"}},
 		"target past all":   {`echo '{"provider":"K","windows":[{"label":"5h","target_percent":101}]}'`, []string{`window 5h of its answer has target_percent 101, which is no share of the window from 0 to 100`}},
 		"target below none": {`echo '{"provider":"K","windows":[{"label":"5h","target_percent":-1}]}'`, []string{`window 5h of its answer has target_percent -1, which is no share of the window from 0 to 100`}},
 		"used as a part":    {`echo '{"provider":"K","windows":[{"label":"5h","used":1.5,"limit":3}]}'`, []string{"used is number 1.5, not int64"}},
@@ -391,14 +393,32 @@ func TestAskThatIsNotAnswered(t *testing.T) {
 
 // What a provider leaves out is not known, and so is a reset in year 1,
 // which is how a time that was never set is printed. No window is a report
-// too.
+// too. A window that names no model counts for every model, whether the key
+// is left out or blank, and one that names it keeps it, trimmed.
 func TestAskReadsWhatIsLeftOut(t *testing.T) {
-	p := standIn(t, `echo '{"provider":"Claude","windows":[{"label":"5h","used_percent":99.5},{"label":"Weekly","resets_at":"0001-01-01T00:00:00Z","used":7,"limit":7},{"label":"Open","used":0,"limit":0}]}'`)
+	p := standIn(t, `echo '{"provider":"Claude","windows":[{"label":"5h","used_percent":99.5},{"label":"Weekly","resets_at":"0001-01-01T00:00:00Z","used":7,"limit":7},{"label":"Open","used":0,"limit":0},`+
+		`{"label":"Blank","model":" ","used_percent":1},{"label":"Weekly Fable","model":" Fable ","used_percent":100}]}'`)
 	r, err := Ask(context.Background(), yard(p), t.TempDir(), "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
-	five, week, open := r.Windows[0], r.Windows[1], r.Windows[2]
+	five, week, open, blank, fable := r.Windows[0], r.Windows[1], r.Windows[2], r.Windows[3], r.Windows[4]
+	if fable.Model != "Fable" || !fable.UsedUp() {
+		t.Fatalf("Weekly Fable = %+v, want the model, trimmed", fable)
+	}
+	for _, w := range []Window{five, week, open, blank} {
+		if w.Model != "" {
+			t.Fatalf("%s = %+v, want no model: the answer left it out or blank", w.Label, w)
+		}
+	}
+	// A report is kept as JSON: a window that counts for every model prints no
+	// model, so a report kept before the key existed reads as it printed.
+	for _, w := range []Window{five, fable} {
+		b, err := json.Marshal(w)
+		if err != nil || strings.Contains(string(b), `"model"`) != (w.Model != "") {
+			t.Fatalf("%s as JSON = %s, %v: the model key is there only for a window that has one", w.Label, b, err)
+		}
+	}
 	if five.ResetsAt != nil || five.Used != nil || five.Limit != nil || five.UsedUp() {
 		t.Fatalf("5h = %+v", five)
 	}
@@ -434,6 +454,16 @@ func TestUsedUpIsTheWindowThatResetsLast(t *testing.T) {
 	r.Windows = r.Windows[:1]
 	if w := r.UsedUp(); w == nil || w.Label != "unknown" {
 		t.Fatalf("UsedUp = %+v", w)
+	}
+	// A window for one model alone is waited for as any other: the agent that
+	// stopped on it is the one that runs that model, and the window that
+	// resets last is the one it waits for.
+	r.Windows = []Window{
+		{Label: "Weekly", UsedPercent: &full, ResetsAt: at(9)},
+		{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(20)},
+	}
+	if w := r.UsedUp(); w == nil || w.Label != "Weekly Fable" {
+		t.Fatalf("UsedUp = %+v, want the per-model window that resets last", w)
 	}
 }
 

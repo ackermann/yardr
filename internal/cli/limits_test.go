@@ -274,7 +274,9 @@ esac`)
 
 // A window whose provider says what share of it has passed shows the
 // target beside the used figure, and one burned past it is marked over
-// target; --json carries the share.
+// target; --json carries the share. A window it says counts for one model
+// alone is marked with the model, and --json carries it for that window
+// alone.
 func TestLimitsShowsTheTarget(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
@@ -283,8 +285,9 @@ func TestLimitsShowsTheTarget(t *testing.T) {
 	file, _ := limitsStandIn(t, fmt.Sprintf(`echo '{"provider":"Kimi","windows":[`+
 		`{"label":"5h","used_percent":100,"target_percent":60,"resets_at":%q,"used":100,"limit":100},`+
 		`{"label":"Weekly","used_percent":38,"target_percent":17,"resets_at":%q},`+
-		`{"label":"Session","used_percent":10,"target_percent":17}]}'`,
-		in(42*time.Minute), in(81*time.Hour)))
+		`{"label":"Session","used_percent":10,"target_percent":17},`+
+		`{"label":"Weekly k3","model":"k3","used_percent":100,"resets_at":%q}]}'`,
+		in(42*time.Minute), in(81*time.Hour), in(81*time.Hour)))
 	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
 		t.Fatal(err)
 	}
@@ -314,12 +317,23 @@ func TestLimitsShowsTheTarget(t *testing.T) {
 		strings.Contains(session, "over target") {
 		t.Errorf("the Session window shows %q, want the target and no mark", session)
 	}
+	if k3 := line("Weekly k3"); !strings.HasSuffix(k3, "  used up  model k3") {
+		t.Errorf("the Weekly k3 window shows %q, want used up and its model", k3)
+	}
+	for _, label := range []string{"5h", "Weekly", "Session"} {
+		if l := line(label); strings.Contains(l, "model") {
+			t.Errorf("the %s window shows %q, want no model: it counts for every model", label, l)
+		}
+	}
 
 	a.json = true
 	out, err = run(t, a.limitsCmd(), "kimi")
 	a.json = false
 	if err != nil || !strings.Contains(out, `"target_percent": 60`) || !strings.Contains(out, `"target_percent": 17`) {
 		t.Fatalf("limits kimi --json carries no target: %q %v", out, err)
+	}
+	if n := strings.Count(out, `"model"`); n != 1 || !strings.Contains(out, `"model": "k3"`) {
+		t.Fatalf("limits kimi --json carries the model %d times, want once, k3's: %q", n, out)
 	}
 }
 

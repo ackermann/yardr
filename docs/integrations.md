@@ -565,9 +565,11 @@ they have no answer, and `source check` fails for them.
 - **The question** is a provider: a group's or a crew member's `provider`
   setting where one is set
   ([groups.md](groups.md#changing-a-group)), else the kinds table's mapping
-  of its `kind`. Not a model: no provider answers by model. A provider no
-  source names has no limits known, and a kind that resolves to nothing is
-  not asked. `yardr limits <kind>` still asks by kind, for the one named.
+  of its `kind`. Not a model: the command is asked for a provider, though a
+  window of its answer may say that it counts for one model alone (below).
+  A provider no source names has no limits known, and a kind that resolves
+  to nothing is not asked. `yardr limits <kind>` still asks by kind, for the
+  one named.
   For a source with no kinds the question is the source itself, asked by
   its name: `yardr limits machine`.
 - **The command** is run by yardr itself, as the user yardr runs as:
@@ -586,14 +588,23 @@ they have no answer, and `source check` fails for them.
   `label` (a string) and, where the provider knows them, `used_percent` (a
   number), `target_percent` (a number from 0 to 100: the share of the
   window that has passed), `resets_at` (a time as RFC 3339 writes one),
-  `used` and `limit` (whole numbers); `plan` (a string) beside them.
-  Other keys are passed over. A `resets_at` before 2020 is read as not
-  known: it is how a time that was never set gets printed.
+  `used` and `limit` (whole numbers), `model` (a string: the model the
+  window counts for alone, in the provider's words, for a provider that caps
+  one model beside what its models share; left out of a window they all draw
+  from); `plan` (a string) beside them. Other keys are passed over. A
+  `resets_at` before 2020 is read as not known: it is how a time that was
+  never set gets printed.
 - **What the yard reads from it itself** is when a window is used up
   (`used_percent` 100 or more, or `used` at a `limit` above 0) and when it
   is burned past its target, which `yardr limits` marks over target. Of
   several that are used up, the one that resets last is the window an
-  agent waits for (`window` and `resets_at` in `--json`).
+  agent waits for (`window` and `resets_at` in `--json`). It reads `model`
+  for one thing: a window that has one is a per-model window, which
+  `yardr limits` marks (`model Fable`) and which holds no group that names
+  no condition
+  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)).
+  It does not match a window's model to a group's: a condition that names
+  the window reads it for whichever group it is on.
 - **Anything else is no answer**: another exit status, nothing within the
   30 seconds, output that is not that object. The limits are then *not
   known*, with a reason in one line that ends with the last lines the
@@ -629,7 +640,8 @@ they have no answer, and `source check` fails for them.
   The sixth is the dispatcher, **for a ready bead whose route puts a quota
   condition on a group or names a group that starts agents**, which starts
   no session while a window of its provider is used up, condition or none
-  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)):
+  (a group with none reads no per-model window;
+  [groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)):
   at the moment one of the route's groups could start the bead it asks for
   the group's provider under the group's env, and for each source the
   condition names for the source itself, and for this it keeps what each
@@ -1566,7 +1578,9 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
   stopped on one, prompting it again when a window that resets within six
   hours opens, and keeping a group from starting a session while a window of
   its provider is used up: a second way to an answer (a
-  declared HTTPS call, an adapter in Go), limits by model, the limits of an
+  declared HTTPS call, an adapter in Go), limits by model (a window may say
+  its model, which only keeps it from holding a group that names no
+  condition; no group is matched to the model of a window), the limits of an
   account that is not the operator's.
 
 ## How one becomes part of a yard

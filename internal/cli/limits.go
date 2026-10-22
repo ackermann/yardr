@@ -162,6 +162,18 @@ Where the provider says what share of a window has passed, it is printed
 beside the used figure, and a window burned past it is marked over target;
 a route's quota condition may compare with it (yardr route add --help).
 
+A window the provider counts for one model alone says so, and is marked with
+that model. A group with no condition waits while a window of its provider is
+used up (yardr route add --help), but not for one of these; a condition that
+names the window still reads it.
+
+  yardr limits claude
+  claude  aiquokka says (provider Claude):
+    5h            24% used  resets 19:00 (in 33m)
+    Weekly        45% used  resets Thu 15 Oct 14:27 (in 2d 20h)
+    Weekly Fable  67% used  resets Thu 15 Oct 14:27 (in 2d 20h)  model Fable
+    no window is used up
+
 Every run asks: the source's command is run once per provider and once per
 source that answers for itself, once for the kind or source with one named,
 now, by this command and as whoever runs it, for at most ` + limits.Timeout.String() + ` each.
@@ -546,7 +558,8 @@ func (p providerLimits) lines(now time.Time) []string {
 }
 
 // windowLines are a report's windows, each how far it is used and when it
-// resets, the columns aligned, used up and over target marked.
+// resets, the columns aligned, used up and over target marked, and the model
+// of a window that counts for one alone.
 func windowLines(r *limits.Report, now time.Time) []string {
 	if len(r.Windows) == 0 {
 		return []string{"  no window: the provider knows of no limit"}
@@ -563,6 +576,9 @@ func windowLines(r *limits.Report, now time.Time) []string {
 		}
 		if w.OverTarget() {
 			line += "  over target"
+		}
+		if w.Model != "" {
+			line += "  model " + w.Model
 		}
 		out = append(out, line)
 	}

@@ -297,6 +297,35 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		if group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
 			t.Fatalf("claimed by %q with %v, want a by the route, nobody passed over", group, data)
 		}
+
+		// A window the source says counts for one model alone holds no group
+		// with no condition, however far it is used: a bead goes to a. A shared
+		// window used up beside it still holds, and the wait names that one.
+		perModel := func(week float64) string {
+			return fmt.Sprintf(`{"provider":"Kimi","windows":[{"label":"Weekly","used_percent":%v},`+
+				`{"label":"Weekly Fable","model":"Fable","used_percent":100}]}`, week)
+		}
+		*now = now.Add(6 * time.Minute)
+		p.say(perModel(10))
+		c := newBead(t, s, "y")
+		must(t, d.Reconcile(ctx))
+		if group, data := claimedBy(t, s, c.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
+			t.Fatalf("claimed by %q with %v, want a by the route: only a per-model window is used up", group, data)
+		}
+		*now = now.Add(6 * time.Minute)
+		p.say(perModel(100))
+		e := newBead(t, s, "z")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, e.ID); group != "" {
+			t.Fatalf("claimed by %q, want nobody: a's Weekly window is used up beside the per-model one", group)
+		}
+		evs = eventKinds(t, s, e.ID, "quota_wait")
+		if len(evs) != 1 {
+			t.Fatalf("quota_wait events = %v, want one", evs)
+		}
+		if reason, _ := evs[0].Data["reason"].(string); reason != "a passed over (Kimi's Weekly window is 100% used, the route asks under 100)" {
+			t.Fatalf("quota_wait reason = %q, want the Weekly window alone", reason)
+		}
 	})
 }
 

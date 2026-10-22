@@ -283,13 +283,17 @@ answers with exit status 0 and one JSON object on stdout, at most 64 KB:
 provider and windows are required, and each window's label; used_percent is
 a number, target_percent a number from 0 to 100 (the share of the window
 that has passed), used and limit whole numbers, resets_at a time as RFC
-3339 writes one, plan a string, each left out when the provider does not
-know it. Other keys are passed over. A window is used up at used_percent
-100 or more, or when used has reached limit; against target_percent a
-route's quota condition compares the pace instead of a number (yardr route
-add --help). Anything else (another exit status, no answer in time, other
-output) is no answer: the limits are then not known, and the reason is the
-last lines the command printed on stderr.
+3339 writes one, model and plan strings, each left out when the provider
+does not know it. Other keys are passed over. A window is used up at
+used_percent 100 or more, or when used has reached limit; against
+target_percent a route's quota condition compares the pace instead of a
+number (yardr route add --help). model is the model a window counts for
+alone, where the provider caps one model beside what its models share
+("Fable"), and is left out of a window they all draw from: a group with no
+condition does not wait for a window that has one. Anything else (another
+exit status, no answer in time, other output) is no answer: the limits are
+then not known, and the reason is the last lines the command printed on
+stderr.
 
 Refused when the file is added: a command that is no list of strings, one
 with no {provider} among its arguments where the file names kinds, or with

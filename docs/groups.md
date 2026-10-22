@@ -342,7 +342,8 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
 - **A group with no condition still waits while a window of its provider is
   used up.** A group that starts agents is judged as if its condition were
   `<100`: it takes no bead while any window its provider reports is 100%
-  used, since a session started into one stops on the limit at once. So a
+  used, since a session started into one stops on the limit at once, a
+  per-model window aside (next). So a
   route to `builders` alone waits as `builders@<100` would, and in
   `builders@Weekly<80 else spare-builders` the further group is passed over
   too when its provider's windows are used up. Only a window at 100% is
@@ -354,6 +355,19 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   of it. Where no source answers for the group's provider, or its command
   fails, nothing is known and the group takes the bead, as for any
   condition that cannot be evaluated (below).
+- **A per-model window holds no group with no condition.** The limits source
+  may say that a window counts for a single model (`model` in its answer,
+  which `yardr limits` prints beside the window: Claude's `Weekly Fable` is
+  Fable's). A group of another model would wait for a limit it never
+  reaches, and the yard does not know which group runs that model, so such
+  a window is left out of the `<100` a group with no condition is judged
+  by. The group that does run that model starts and stops on the limit, as
+  it did before groups were judged by their windows, and the harness error
+  says the window and when it resets
+  ([below](#a-usage-limit-says-its-window-and-when-it-resets)). A condition
+  that names the window (`builders@Weekly Fable<100`) or every window
+  (`builders@<100`) reads it as it reads any other. A provider that reports
+  only per-model windows holds a group with no condition for nothing.
 - **When no condition holds, the bead waits.** A route with one
   conditioned group and no `--else` says "this group or nobody", as
   `--else wait` says out loud: `wait` is not a group, takes no condition,

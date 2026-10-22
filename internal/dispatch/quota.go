@@ -14,7 +14,8 @@ import (
 // group's provider (store.Route.Choose): "yardr-builders while Claude's
 // Weekly window is under 80% used, else muse-builders". A group that starts
 // agents and names no condition is read the same way, as "none of its
-// provider's windows is used up", so a plain route is gated too. The store
+// provider's windows is used up" (a window the source says is for one model
+// alone aside, store.QuotaWindow), so a plain route is gated too. The store
 // holds the route and makes the comparison; what the windows are is learned
 // here, from the yard's limits source, because only the daemon may run its
 // command (harness_limits.go says why it is not leaned on).
@@ -127,7 +128,7 @@ func (d *Dispatcher) sourceQuota(ctx context.Context, source string) store.Quota
 func quotaOf(r *limits.Report) store.Quota {
 	q := store.Quota{Provider: r.Provider}
 	for _, w := range r.Windows {
-		qw := store.QuotaWindow{Label: w.Label, UsedPercent: w.UsedPercent, TargetPercent: w.TargetPercent, ResetsAt: w.ResetsAt}
+		qw := store.QuotaWindow{Label: w.Label, Model: w.Model, UsedPercent: w.UsedPercent, TargetPercent: w.TargetPercent, ResetsAt: w.ResetsAt}
 		// A provider that counts instead says the same in two numbers.
 		if qw.UsedPercent == nil && w.Used != nil && w.Limit != nil && *w.Limit > 0 {
 			p := float64(*w.Used) * 100 / float64(*w.Limit)

@@ -89,7 +89,7 @@ func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 		"  " + r6.ID + "  default  new, label ghost, priority 9: the bead does not have label ghost",
 		"  " + r7.ID + "  default  review, priority 0: the bead is in stage new",
 		"defaults set aside in web for this stage: none",
-		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then",
+		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", b.ID, out, strings.Join(want, "\n")+"\n")
@@ -143,7 +143,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 		"  2. " + def.ID + "  default  review, priority 0  -> a  (1 wins on specificity: 2 over 0)",
 		"considered and not matching: none",
 		"defaults set aside in web for this stage: none",
-		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then",
+		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", pull.ID, out, strings.Join(want, "\n")+"\n")
@@ -160,7 +160,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 		"considered and not matching:",
 		"  " + own.ID + "  own  review, type pr, depot web, priority 0: the bead is of type task",
 		"defaults set aside in web for this stage: none",
-		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then",
+		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", plain.ID, out, strings.Join(want, "\n")+"\n")
@@ -225,7 +225,7 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 		"  1. " + own.ID + "  own  new, depot web, priority 2  -> b  WINNER",
 		"considered and not matching: none",
 		"1 default set aside in web for this stage: new (no label, the operator's beads) is stated by " + own.ID + " to b at priority 2",
-		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then",
+		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", here.ID, out, strings.Join(want, "\n")+"\n")
@@ -510,7 +510,7 @@ func TestRouteExplainBeadWithNoDepot(t *testing.T) {
 		"  1. " + def.ID + "  default  new, priority 0  -> a  WINNER",
 		"considered and not matching: none",
 		"defaults set aside: none (the bead names no depot)",
-		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then",
+		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
 		t.Errorf("route explain %s =\n%s\nwant\n%s", b.ID, out, strings.Join(want, "\n")+"\n")
