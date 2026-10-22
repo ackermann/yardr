@@ -1,6 +1,6 @@
 # contrib/assembly
 
-Four shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
+Five shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how depot yard lands work; the flow they sit in
 is described in [docs/line.md](../../docs/line.md), sections 4 and
 Trains. Install them from `main`, not a checkout, so a branch cannot change
@@ -154,7 +154,27 @@ when its number, head repository or head branch on GitHub differ from the
 binding.
 Both need `gh`, logged in as the operator, and `jq` on PATH.
 
-**Environment.** All four read what the exec runner sets: `YARDR_BEAD`,
+**merge-pr** is routed for `approved` (type `pr`, label `merge-ok`), for the
+pull requests of the contributors pack. It merges the pull request the bead
+tracks on GitHub, as the yard's App: a token minted by `github-mint` for that
+repository from `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY_FILE`, which the
+group's `env_file` gives (the mint is the github source's `mint_command`, or
+`YARDR_GITHUB_MINT` in the cmd). The bead must carry `merge-ok` and track a
+`https://github.com/<owner>/<repo>/pull/<n>` link, and nothing else is
+looked up. A bot's pull request from a branch of the repository itself is
+merged at its live head; every other is merged at the bead's `merge_head`,
+the full sha a maintainer's yes recorded (`yardr bead update <id>
+--add-label merge-ok --meta merge_head=<sha>`), and a head that is another
+commit holds the bead ("moved since your yes"). The commit's check runs must
+all be completed and success, neutral or skipped. `gh pr merge` runs with
+`--match-head-commit`: `--rebase --delete-branch` for a branch of the
+repository's own, `--merge` and no deletion for a fork. A pull request merged
+already reports `merged`, one closed unmerged `dropped`, and nothing else is
+ever reported: whatever stops the merge holds the bead with a note. It
+touches no checkout and needs `gh` and `jq`, and never uses the operator's
+own `gh` login. docs/line.md, "Merging pull requests", has the setup.
+
+**Environment.** The four above read what the exec runner sets: `YARDR_BEAD`,
 `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (default
 `yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
 default worktree path); merge-local also `YARDR_TYPE` and `YARDR_TRAIN`.

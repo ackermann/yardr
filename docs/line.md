@@ -1413,3 +1413,77 @@ refuses `--approve` and `--request-changes` from the login that opened the
 PR, which is the operator's, the same login the reviewer's `gh` uses: on
 its own PR the reviewer posts a `--comment` with the verdict in the note's
 first line, and the yard learns the verdict from `yardr bead done`.
+
+## Merging pull requests
+
+A pull request from outside is a `pr` bead of the contributors pack
+([packs.md](packs.md#the-contributors-pack)). Reviewed and green on CI, it
+waits in `approved`, and from there either a maintainer merges it on GitHub
+or the yard does. The yard does for the beads that carry the label
+`merge-ok`, with [`contrib/assembly/merge-pr`](../contrib/assembly/merge-pr),
+the `cmd` of an `exec` group of its own (`pr-merges`, limit 1, so one merge
+at a time) that a yard-default route sends them to. The label is the whole
+of the permission: the reviewer gives it to a bot's bump of Go modules and
+to nothing else, and a maintainer's yes for any other pull request is one
+command that gives it with the head commit they looked at:
+
+```sh
+yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>
+```
+
+merge-pr reads the pull request from the bead's tracks link, which must be
+`https://github.com/<owner>/<repo>/pull/<n>` and nothing else, and asks
+GitHub as the yard's App with an installation token minted for that one
+repository (the github source's `mint_command`, from the App's id and key
+file in the group's `env_file`: no secret of its own, and the operator's `gh`
+login is never used). What it merges is the commit of the yes:
+
+- a bot's pull request from a branch of the repository's own is merged at the
+  head it has now: such a bot rebases all the time, and a recorded sha would
+  hold every one of its pull requests;
+- everything else (a fork, a person's branch, a bot's fork) is merged at the
+  bead's `merge_head`, a full sha, and at no other. A head that is another
+  commit holds the bead with "moved since your yes", and a bead with no
+  `merge_head` holds with the command that says yes.
+
+Either way the commit must have check runs, all of them completed and
+success, neutral or skipped, and `--match-head-commit` has GitHub refuse the
+merge if the head moves while it is made. A branch of the repository's own is
+rebased on and deleted; a fork is merged with a merge commit and its branch
+is left alone, being its author's.
+
+A pull request already merged reports `merged`, and one closed unmerged
+`dropped`; those are the only outcomes merge-pr reports. Everything else
+that stops it (no label, no yes, a head that moved, CI not green, the App
+without the permissions it needs, any refusal of GitHub) holds the bead with
+a note saying why, and nothing was merged: a maintainer acts on GitHub, then
+unholds the bead and it is looked at again. Nothing retries. A bot's pull
+request can be pushed to between the review and the merge, and is merged if
+CI is green on the new head, as a maintainer merging on GitHub would.
+
+### Setup
+
+```sh
+install contrib/assembly/merge-pr ~/.yardr/scripts/              # from main
+install contrib/github-mint/github-mint ~/bin/                   # once, if the github source has no mint
+yardr source set github mint_command=$HOME/bin/github-mint
+# The App's id and the path of its key file, which are no secret, for the owner alone:
+( umask 077; printf 'GITHUB_APP_ID=%s\nGITHUB_APP_PRIVATE_KEY_FILE=%s\n' <id> <key file> > ~/.yardr/env/pr-merges.env )
+yardr group add pr-merges --runner exec --limit 1 \
+  --set cmd="$HOME/.yardr/scripts/merge-pr" \
+  --set env_file="$HOME/.yardr/env/pr-merges.env" \
+  --set log="$HOME/.yardr/logs/pr-merges.log"
+yardr route add --stage approved --type pr --label merge-ok --originator any --priority 12 \
+  --group pr-merges --note "the yard merges a pr bead marked merge-ok; outranks a depot's approved/pr to decisions at 11"
+```
+
+The App needs Contents and Workflows read and write on the repositories (the
+second is what lets it merge a pull request that changes a workflow file),
+beside the Pull requests and Checks permissions the yard's other calls of
+GitHub use. Each depot with `pr` beads routes the others
+to a person, so the label alone moves a bead to merge-pr and nothing else
+does: `yardr route add --stage approved --type pr --depot <depot> --originator
+any --priority 11 --group decisions`. Without that route a depot's own
+assembly (the route for `approved`, no type, at 10) would run merge-local on a
+pull request's bead. The script is refreshed by `yardr upgrade` from the
+checkout it builds, once installed ([upgrade.md](upgrade.md#the-scripts)).

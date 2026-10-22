@@ -3,8 +3,9 @@
 The pack yardr ships for what comes to a public repository from outside: an
 issue or a pull request someone opens there is a bead in the yard, a
 maintainer looks at it first, and a pull request is reviewed by an agent
-that reads it and runs nothing. A maintainer merges on GitHub; nothing of
-the yard pushes to a pull request or merges one.
+that reads it and runs nothing. A maintainer merges on GitHub, or the yard
+does for a pull request marked `merge-ok` (a bot's bump of Go modules, or
+what a maintainer said yes to); nothing of the yard pushes to a pull request.
 
 It is for a git depot, beside the pack the depot follows for its own work
 (the [starter](../starter), say): its two flows are for beads of the types
@@ -73,6 +74,18 @@ else) and a success reported while it still read would approve a pull
 request unread. A cancelled or neutral run says nothing. Where no verdict
 can come (a fork's runs name no pull request, a repository has no CI) a
 maintainer moves the bead by hand: `yardr bead advance <id> --to approved`.
+
+**The yard merges what is marked `merge-ok`, and only that.** The
+pack brings no script for it: the merge is `contrib/assembly/merge-pr`
+of the yardr checkout, run by an `exec` group routed for `approved`, type
+`pr`, label `merge-ok` (docs/line.md, "Merging pull requests"). It merges
+as the yard's GitHub App, at the head a maintainer's yes recorded
+(`yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>`)
+or, for a bot's pull request from the repository's own branch, at the head
+it has, and only with CI green on that commit. A pull request without the
+label waits in `approved` for a maintainer, as before. What stops a merge
+holds the bead with a note, and the bead reports `merged` or `dropped`
+and nothing else.
 
 **The stage `contributor` is held by `outside`, a people group with no
 members.** Nobody of the yard works a bead there: it waits for the pull

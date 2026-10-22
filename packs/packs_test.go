@@ -2080,7 +2080,14 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"the reviewer\ncannot see CI",
 			"`yardr bead advance <id> --to approved`",
 		},
-		"contributors/flows/pr/approved.md": {"Nothing of the yard\nmerges a pull request or pushes to one", "Running it is here, and a person's"},
+		"contributors/flows/pr/approved.md": {
+			"Running it is here, and a person's",
+			"is merged by the yard, as its GitHub App and in no person's\nname",
+			"yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>",
+			"That is how a yes reaches the bead, whoever types it.",
+			"a head that\nmoved since is held, not merged",
+			"Nothing of the yard pushes to a pull\nrequest",
+		},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(files[name], want) {

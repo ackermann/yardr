@@ -32,8 +32,11 @@ flows:
 
   # A pull request from outside: a maintainer looks, a reviewer that only
   # reads reviews it, the repository's CI runs on it, the contributor answers
-  # on GitHub, a maintainer merges on GitHub. Nothing of the yard pushes to
-  # the pull request, and nothing of it runs on the yard's machine.
+  # on GitHub, a maintainer merges on GitHub, or the yard does for one marked
+  # merge-ok (the exec group of the importing yard's own, which the pack
+  # does not carry: docs/line.md, "Merging pull requests"). Nothing of the
+  # yard pushes to the pull request, and nothing of it runs on the yard's
+  # machine.
   pr:
     type: pr
     stages:

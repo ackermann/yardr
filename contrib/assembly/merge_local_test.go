@@ -113,6 +113,7 @@ type yard struct {
 	env            []string
 	push           string // YARDR_PUSH for the run
 	opts           string // more assignments for the script's cmd, e.g. YARDR_PR=1
+	envFile        string // the group's env_file, when a test's script reads its credentials from one
 	bin            string // the script's YARDR_BIN, when not yardrBin itself
 	log            string // what the last run wrote to its group's log
 }
@@ -396,7 +397,7 @@ func (y *yard) exec(script, group, id string) {
 	}
 	h, err := e.Start(ctx, dispatch.Job{
 		Bead:     store.Bead{ID: id, Stage: b.Stage, Type: b.Type},
-		Group:    store.Group{Name: group, Config: map[string]any{"cmd": cmd, "log": logPath}},
+		Group:    store.Group{Name: group, Config: y.groupConfig(cmd, logPath)},
 		Depot:    depot,
 		Session:  y.claimFor(ctx, group, id),
 		Train:    fam.Train,
@@ -419,6 +420,16 @@ func (y *yard) exec(script, group, id string) {
 	y.log = string(out)
 	y.t.Logf("%s log:\n%s", group, out)
 	_ = os.Remove(logPath)
+}
+
+// groupConfig is the exec group's config: its command and log, and the
+// env_file a test gave it.
+func (y *yard) groupConfig(cmd, logPath string) map[string]any {
+	cfg := map[string]any{"cmd": cmd, "log": logPath}
+	if y.envFile != "" {
+		cfg["env_file"] = y.envFile
+	}
+	return cfg
 }
 
 func shellQuote(s string) string {
@@ -502,13 +513,16 @@ func (y *yard) notesOf(id string) string {
 // refused is the move_refused events on r-1: moves the yard refused to the
 // assembly's session, each a fault to the crew. A script that tries only
 // moves the flow allows leaves none.
-func (y *yard) refused() []string {
+func (y *yard) refused() []string { return y.refusedOf("r-1") }
+
+// refusedOf is refused for bead id.
+func (y *yard) refusedOf(id string) []string {
 	y.t.Helper()
 	var hist []struct {
 		Kind string `json:"kind"`
 		Text string `json:"text"`
 	}
-	if err := json.Unmarshal([]byte(y.yardr("bead", "history", "r-1", "--json")), &hist); err != nil {
+	if err := json.Unmarshal([]byte(y.yardr("bead", "history", id, "--json")), &hist); err != nil {
 		y.t.Fatal(err)
 	}
 	var out []string

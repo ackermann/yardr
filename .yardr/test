@@ -1373,6 +1373,7 @@ contrib/assembly/merge-local   internal/cli internal/pack
 contrib/assembly/integrate-train internal/cli
 contrib/assembly/pr-train      internal/cli
 contrib/assembly/pr-merge      internal/cli
+contrib/assembly/merge-pr      internal/cli
 contrib/assembly/              contrib/assembly .
 contrib/shot/shot              internal/pack
 contrib/shot/                  contrib/shot .

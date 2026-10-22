@@ -1421,8 +1421,14 @@ yardr knows the verbs alone:
   sandbox denies the network too: the pack's
   [README](../packs/contributors/README.md#the-pr-reviewers-group-binds-read-only)
   says what a maintainer then answers in the reviewer's pane.
-- **Nothing of the yard merges or pushes.** The review is a note on the
-  bead; a maintainer posts of it what they choose and merges on GitHub.
+- **Nothing of the yard pushes, and it merges only what is `merge-ok`.**
+  The review is a note on the bead; a maintainer posts of it what they
+  choose. A pull request marked `merge-ok` (by the reviewer, a bot's bump
+  of Go modules, or by a maintainer's yes, `yardr bead update <id>
+  --add-label merge-ok --meta merge_head=<sha>`) is merged from `approved`
+  by `contrib/assembly/merge-pr`, an `exec` group of the yard's own routed
+  for the label ([line.md](line.md#merging-pull-requests)); any other waits
+  there for a maintainer to merge it on GitHub.
 
 ## The design pack
 

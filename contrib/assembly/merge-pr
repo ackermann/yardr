@@ -1,0 +1,203 @@
+#!/bin/sh
+# merge-pr: merges the pull request a pr bead tracks, on GitHub, as the yard's
+# GitHub App, when the bead is in approved and carries the label merge-ok. Run
+# it as the cmd of an exec group (pr-merges, limit 1: one merge at a time),
+# routed for the pr flow's approved stage (type pr, label merge-ok). The
+# contributors pack's flows/pr/approved.md says who gives the label: the
+# reviewer, for a bot's bump of Go modules, or a maintainer, whose yes is
+#
+#   yardr bead update <bead> --add-label merge-ok --meta merge_head=<sha>
+#
+# with the sha of the head commit they looked at on the pull request's page.
+#
+# The pull request is the one the bead tracks (its tracks link, whose URL must
+# be https://github.com/<owner>/<repo>/pull/<n> and nothing else), never one
+# found by a name in metadata or by a branch. GitHub is asked as an installation
+# token of the App scoped to that repository, minted by contrib/github-mint
+# (the github source's mint_command, or YARDR_GITHUB_MINT in the group's cmd) from
+# GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the group's env_file
+# supplies: no secret of its own, and the operator's own gh login is never
+# used. Needs gh and jq on PATH.
+#
+# Whose head is merged: the live head when the author is a bot and the head
+# branch is in the pull request's own repository (Dependabot's, which rebases
+# all the time, so that a recorded sha would hold every one of them); for
+# anything else, a human's fork or a human's branch in the repository, or a
+# bot's pull request from a fork, only the commit the maintainer's yes
+# recorded (the bead's metadata merge_head, a full sha), and a head that is
+# another commit now is held: "moved since your yes". The commit's CI must be
+# green: it has check runs, every one completed and success, neutral or
+# skipped. A fork is merged with a merge commit and its branch is left alone,
+# being its author's; a branch of the repository's own is rebased on and
+# deleted. --match-head-commit closes the gap between the look and the merge.
+#
+# The outcomes at approved are merged and dropped, and nothing here reports
+# anything else. A pull request already merged reports merged, one closed
+# unmerged reports dropped; every other thing that stops the merge (no label,
+# no yes, a head that moved, CI not green, the App without the permissions it
+# needs, GitHub's refusal) holds the bead with a note, for a maintainer to act
+# on GitHub, then unhold. Nothing here retries.
+#
+# It reads the environment the exec runner gives it: YARDR_BEAD and YARDR_BIN.
+# The depot's checkout is never touched: GitHub is the whole of it.
+#
+# Every outcome ends in a report or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+: "${YARDR_BEAD:?not run by an exec group}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') merge-pr $BEAD"
+
+# Reporting ends this session (the daemon stops the script), so it is
+# always the last thing done.
+hold() { echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "merge-pr: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+report() {
+  echo "== $BEAD $1"
+  printf '%s\n' "merge-pr: $2" | "$Y" bead "done" "$BEAD" --outcome "$1" --note - && exit 0
+  # The pull request's own event may have moved the bead first (GitHub tells
+  # the hook of a merge before this script has reported it): a bead that
+  # is closed is where the report would have taken it.
+  [ "$("$Y" bead show "$BEAD" --json 2>/dev/null | jq -r '.status // empty')" = closed ] &&
+    { echo "== $BEAD is closed already"; exit 0; }
+  hold "could not report $1 (does the bead's flow name it for its stage?): $2"
+}
+work=$(mktemp -d) && errf=$work/err && trap 'rm -rf "$work"' EXIT
+# gh is run from a directory that is no checkout, so nothing it does to a
+# local branch can reach anyone's work.
+cd "$work" || exit 1
+
+command -v gh >/dev/null 2>&1 || hold "gh is not on PATH; not merging."
+command -v jq >/dev/null 2>&1 || hold "jq is not on PATH; not merging."
+
+bead=$("$Y" bead show "$BEAD" --json) || hold "reading $BEAD failed"
+
+# merge-ok is the whole permission: a route sent the bead here, but a bead
+# without the label (moved here by hand, a route gone wrong) is not merged.
+printf '%s' "$bead" | jq -e '(.labels // []) | index("merge-ok")' >/dev/null ||
+  hold "$BEAD does not carry merge-ok, which says the yard may merge its pull request. Not merging. A maintainer says yes with: yardr bead update $BEAD --add-label merge-ok --meta merge_head=<sha of the head commit they looked at>, then yardr bead unhold $BEAD."
+
+# The pull request is the one the bead tracks, by the URL of the link and
+# nothing else: owner, repository and number are read from it, and a URL of
+# another shape (another host, an issue, a path past the number) is refused.
+url=$(printf '%s' "$bead" | jq -r '[.links[]? | select(.kind == "tracks" and .source == "github") | .url] | first // empty')
+[ -n "$url" ] ||
+  hold "$BEAD tracks no GitHub pull request (no tracks link of source github); not merging. Link it with yardr link, or take the bead out of approved."
+printf '%s' "$url" | grep -Eq '^https://github\.com/[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$' ||
+  hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); not merging."
+path=${url#https://github.com/}
+owner=${path%%/*}
+rest=${path#*/}
+repo=${rest%%/*}
+case $repo in . | ..) hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); not merging." ;; esac
+slug=$owner/$repo
+
+# The token: minted for this repository alone, from the App's id and key file
+# the group's env_file gives, and held in this process's memory for the calls
+# below. It is passed to gh in its environment, never in an argument, and is
+# printed nowhere. The mint command is the github source's own unless the
+# group's cmd names another.
+[ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ] ||
+  hold "this group's environment has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the yard's GitHub App is minted from (the group's env_file); not merging."
+mint=${YARDR_GITHUB_MINT:-}
+[ -n "$mint" ] || mint=$("$Y" source show github --json 2>/dev/null | jq -r '.source.mint_command // empty')
+[ -n "$mint" ] ||
+  hold "the github source has no mint_command and the group's cmd sets no YARDR_GITHUB_MINT; not merging. Install contrib/github-mint, then yardr source set github mint_command=<its path>."
+tokjson=$(jq -nc --arg id "$GITHUB_APP_ID" --arg key "$GITHUB_APP_PRIVATE_KEY_FILE" --arg scope "$slug" \
+  '{inputs: {GITHUB_APP_ID: $id, GITHUB_APP_PRIVATE_KEY_FILE: $key}, scope: $scope}' |
+  YARDR_SOURCE_BASE=https://api.github.com "$mint" 2>"$errf") ||
+  hold "minting a token for $slug failed: $(head -c 500 "$errf"); not merging."
+token=$(printf '%s' "$tokjson" | jq -r '.token // empty')
+unset tokjson
+[ -n "$token" ] || hold "minting a token for $slug answered no token; not merging."
+gh_() { GH_TOKEN=$token gh "$@"; }
+
+pr=$(gh_ pr view "$url" --json number,state,headRefOid,headRepository,headRepositoryOwner,author 2>"$errf") ||
+  hold "reading pull request $url failed: $(head -c 500 "$errf")"
+state=$(printf '%s' "$pr" | jq -r '.state // empty')
+head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
+headrepo=$(printf '%s' "$pr" | jq -r 'if .headRepositoryOwner.login and .headRepository.name then .headRepositoryOwner.login + "/" + .headRepository.name else empty end')
+bot=$(printf '%s' "$pr" | jq -r '.author.is_bot // false')
+author=$(printf '%s' "$pr" | jq -r '.author.login // "unknown"')
+
+# A pull request that is not open is nothing to merge: the merge is done
+# already (by a maintainer, or by an earlier run that could not report it), or
+# it was closed.
+case $state in
+MERGED) report merged "$url is merged already." ;;
+CLOSED) report dropped "$url is closed, unmerged." ;;
+OPEN) ;;
+*) hold "pull request $url is in state ${state:-unknown}, not OPEN; not merging." ;;
+esac
+[ -n "$head" ] || hold "GitHub gave no head commit for $url; not merging."
+
+# Whose head is merged. A branch of the repository's own is told by the
+# names, whatever their case.
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+samerepo=0
+[ -n "$headrepo" ] && [ "$(lower "$headrepo")" = "$(lower "$slug")" ] && samerepo=1
+short() { printf '%s' "$1" | cut -c1-7; }
+yes="yardr bead update $BEAD --add-label merge-ok --meta merge_head=<sha of the head commit you looked at>, then yardr bead unhold $BEAD"
+if [ "$bot" = true ] && [ "$samerepo" = 1 ]; then
+  sha=$head
+else
+  # Everything else waits for a person's yes, and merges what they looked at.
+  # An abbreviated sha is not accepted: a few hex digits are easy to collide.
+  yesat=$(printf '%s' "$bead" | jq -r '.metadata.merge_head // empty')
+  [ -n "$yesat" ] ||
+    hold "$url is not a bot's pull request from a branch of $slug itself (author $author, head in ${headrepo:-no repository}), so the yard merges only the head commit a maintainer said yes to, and $BEAD has none (merge_head). The head is now $head. Not merging. To say yes: $yes."
+  case $yesat in
+  *[!0-9a-fA-F]*) yesat= ;;
+  esac
+  case ${#yesat} in 40 | 64) ;; *) yesat= ;; esac
+  [ -n "$yesat" ] ||
+    hold "merge_head on $BEAD is not a full commit sha (40 hex digits; 64 for a repository on sha256): an abbreviated one is not taken. Not merging. To say yes: $yes."
+  [ "$(lower "$yesat")" = "$(lower "$head")" ] ||
+    hold "$url moved since your yes (yes at $(short "$yesat"), head now $(short "$head")). Not merged. The head is now $head; look at what was pushed, then say yes again: $yes."
+  sha=$head
+fi
+
+# CI: the checks GitHub has run on that commit. The check runs name their job,
+# not their workflow, so it is the whole of them that counts: at least one,
+# and every one of them completed and success, neutral or skipped.
+raw=$(gh_ api "repos/$slug/commits/$sha/check-runs?per_page=100" --paginate 2>"$errf") ||
+  hold "reading the check runs of $(short "$sha") in $slug failed: $(head -c 500 "$errf"). The App needs Checks read on the repository. Not merging."
+runs=$(printf '%s' "$raw" | jq -s '[.[].check_runs[]?]') ||
+  hold "the check runs of $(short "$sha") in $slug are not JSON: $(printf '%s' "$raw" | head -c 200). Not merging."
+[ "$(printf '%s' "$runs" | jq length)" -gt 0 ] ||
+  hold "no check run on $(short "$sha") in $slug: nothing says CI passed there. Not merging."
+notgreen=$(printf '%s' "$runs" | jq -r '[.[] | select(.status != "completed" or ((.conclusion // "") | IN("success", "neutral", "skipped") | not))
+  | .name + " (" + (if .status != "completed" then .status else .conclusion end) + ")"] | join(", ")')
+[ -z "$notgreen" ] ||
+  hold "CI is not green on $(short "$sha") in $slug: $notgreen. Not merging."
+
+# The merge. --match-head-commit makes GitHub refuse when the head is no
+# longer the commit looked at; gh can merge and still exit non-zero (a local
+# branch it could not delete, say), so what GitHub says the pull request is
+# decides.
+if [ "$samerepo" = 1 ]; then
+  how=rebase
+  out=$(gh_ pr merge "$url" --rebase --delete-branch --match-head-commit "$sha" 2>&1) && rc=0 || rc=$?
+else
+  how="merge commit"
+  out=$(gh_ pr merge "$url" --merge --match-head-commit "$sha" 2>&1) && rc=0 || rc=$?
+fi
+printf '%s\n' "$out"
+if [ "$rc" != 0 ]; then
+  now=$(gh_ pr view "$url" --json state,headRefOid 2>/dev/null)
+  if [ "$(printf '%s' "$now" | jq -r '.state // empty')" != MERGED ]; then
+    # Why GitHub refused is read from the head itself, not from gh's wording.
+    live=$(printf '%s' "$now" | jq -r '.headRefOid // empty')
+    if [ -n "$live" ] && [ "$live" != "$sha" ]; then
+      hold "$url moved while it was being merged (looked at $(short "$sha"), head now $(short "$live")). Not merged. The head is now $live; if it is for the yard to merge, unhold $BEAD: it is looked at again."
+    fi
+    case $out in
+    *"not accessible by integration"* | *"HTTP 403"*)
+      hold "GitHub refused the yard's App on $slug: $out. The App needs Contents and Workflows read and write on the repository (the permissions raise); not merged." ;;
+    esac
+    hold "GitHub did not merge $url: $out. Not merged. Act on GitHub (conflicts, a review or a check it wants), then unhold $BEAD."
+  fi
+  echo "== gh exited $rc but $url is merged"
+fi
+
+report merged "merged $url at $sha ($how)."

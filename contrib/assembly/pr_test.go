@@ -220,7 +220,7 @@ func TestTrainThroughPullRequest(t *testing.T) {
 
 // No script looks the pull request up by the train's branch.
 func TestScriptsNeverListPullRequestsByBranch(t *testing.T) {
-	for _, name := range []string{"integrate-train", "pr-train", "pr-merge"} {
+	for _, name := range []string{"integrate-train", "pr-train", "pr-merge", "merge-pr"} {
 		if s := readFile(t, name); strings.Contains(s, "pr list") {
 			t.Errorf("%s runs gh pr list: the PR is the one bound to the train, by number", name)
 		}

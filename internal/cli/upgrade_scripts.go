@@ -24,6 +24,7 @@ var upgradeScriptSources = []string{
 	"contrib/assembly/integrate-train",
 	"contrib/assembly/pr-train",
 	"contrib/assembly/pr-merge",
+	"contrib/assembly/merge-pr",
 	"contrib/deploy/deploy-dokku",
 	"contrib/deploy/deploy-void",
 	"contrib/peer/return-branch",
