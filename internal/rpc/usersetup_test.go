@@ -58,11 +58,11 @@ func setupYard(t *testing.T) (*secretYard, string) {
 	return y, file
 }
 
-// askSetup puts a setup ask for the pack courier to jo on yd-crm and answers
-// its seq.
-func (y *secretYard) askSetup(t *testing.T) uint64 {
+// askSetup puts a setup ask for the pack courier to the user, who is the
+// operator, on yd-crm and answers its seq.
+func (y *secretYard) askSetup(t *testing.T, user string) uint64 {
 	t.Helper()
-	seq, err := y.st.AddAsk(context.Background(), "yd-crm", store.Ask{Question: "Set up the courier source?", To: "jo",
+	seq, err := y.st.AddAsk(context.Background(), "yd-crm", store.Ask{Question: "Set up the courier source?", To: user,
 		Context: []string{"The nightly run pages through it."},
 		Setup:   &store.AskSetup{Pack: "courier", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
 	if err != nil {
@@ -79,6 +79,18 @@ func (y *secretYard) bead(t *testing.T, token string) (store.BeadView, string) {
 	var reply struct{ Result store.BeadView }
 	if err := json.Unmarshal([]byte(raw), &reply); err != nil {
 		t.Fatalf("Bead answered %s: %v", raw, err)
+	}
+	return reply.Result, raw
+}
+
+// queue asks the listener for the queue of the user of the device with the
+// token, and answers it with the reply it came in.
+func (y *secretYard) queue(t *testing.T, token string) (store.AskQueue, string) {
+	t.Helper()
+	raw := call(t, y.h, token, "UserAsks", `{}`)
+	var reply struct{ Result store.AskQueue }
+	if err := json.Unmarshal([]byte(raw), &reply); err != nil {
+		t.Fatalf("UserAsks answered %s: %v", raw, err)
 	}
 	return reply.Result, raw
 }
@@ -105,7 +117,7 @@ func setups(v store.BeadView) map[uint64]*store.SetupAsked {
 func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
 	y, file := setupYard(t)
-	first := y.askSetup(t)
+	first := y.askSetup(t, "jo")
 	want := store.AskCandidate{Source: "courier-existing", File: file, Values: map[string]string{"COURIER_ACCOUNT": candidateAddress}}
 	// told reads the view as the device with the token has it, and fails
 	// unless the setup asks it holds are asks, and the candidate is on each
@@ -149,9 +161,9 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 	jos := told("jo's device", y.jo, []uint64{first}, true)
 	sams := told("sam's device", y.sam, []uint64{first}, false)
 
-	// UserAsks holds nothing back, and needs not: a setup ask is put to the
-	// operator, so no queue but theirs has it. If it is ever put to another
-	// user, this is where that is found out.
+	// UserAsks tells the card whole to the operator's device, as Bead does.
+	// The ask is put to jo, so sam's queue has none of it; the queue of a user
+	// who is not the operator now is TestUserAsksTellsTheSetupToTheOperatorAlone's.
 	if queue := call(t, y.h, y.jo, "UserAsks", `{}`); !strings.Contains(queue, candidateAddress) {
 		t.Errorf("the operator's queue lacks the card's candidate: %s", queue)
 	}
@@ -189,7 +201,7 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 	if err := y.st.AddAnswer(ctx, "yd-crm", store.Answer{Ask: first, Decline: true, Words: "not this week"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	second := y.askSetup(t)
+	second := y.askSetup(t, "jo")
 	told("jo's device", y.jo, []uint64{first, second}, true)
 	told("sam's device", y.sam, []uint64{first, second}, false)
 
@@ -207,20 +219,20 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 	told("sam's device, in a yard with no operator", y.sam, []uint64{first, second}, false)
 }
 
-// carriedOut approves the setup ask seq of yd-crm as jo, taking the candidate
-// courier-existing when account names it and typing the account when it is
-// empty, and records its carrying out as the server's carrier does but for
-// the work: the lines it prints for the apply, for the account in file and
-// for the grants, or the failure in its words when there is one. It answers
-// what was recorded.
-func (y *secretYard) carriedOut(t *testing.T, seq uint64, account, file, failure string) string {
+// carriedOut approves the setup ask seq of yd-crm as the user, who is the
+// operator, taking the candidate courier-existing when account names it and
+// typing the account when it is empty, and records its carrying out as the
+// server's carrier does but for the work: the lines it prints for the apply,
+// for the account in file and for the grants, or the failure in its words when
+// there is one. It answers what was recorded.
+func (y *secretYard) carriedOut(t *testing.T, user string, seq uint64, account, file, failure string) string {
 	t.Helper()
 	ctx := context.Background()
 	var typed map[string]string
 	if account == "" {
 		typed = map[string]string{"COURIER_ACCOUNT": "typed@courier.example.test"}
 	}
-	if _, err := y.st.ApproveSetup(ctx, "yd-crm", seq, 1, typed, account, "jo", true); err != nil {
+	if _, err := y.st.ApproveSetup(ctx, "yd-crm", seq, 1, typed, account, user, true); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := y.st.ClaimCarry(ctx, "boot")
@@ -242,6 +254,53 @@ func (y *secretYard) carriedOut(t *testing.T, seq uint64, account, file, failure
 		t.Fatal(err)
 	}
 	return result
+}
+
+// accountCase is a way the account of a setup comes to be set, or fails to
+// be: by the candidate taken, by an account typed on a card that lists none,
+// or in a carrying out that failed.
+type accountCase struct {
+	name   string
+	typed  bool
+	failed bool
+}
+
+var accountCases = []accountCase{
+	{"a candidate taken", false, false}, {"an account typed", true, false}, {"a carrying out that failed", false, true}}
+
+// carriedCase asks a setup of the user, who is the operator, and carries it
+// out as the case says (carriedOut). candidate is the file of the source the
+// yard holds already. Where the case types the account, that file is emptied
+// first, so the card offers no candidate and sets the account in its own file.
+// It answers the ask, what the carrying out recorded and the file the account
+// is set in.
+func (y *secretYard) carriedCase(t *testing.T, c accountCase, user, candidate string) (seq uint64, whole, setIn string) {
+	t.Helper()
+	account, setIn := "courier-existing", candidate
+	if c.typed {
+		if err := os.WriteFile(candidate, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		account = ""
+	}
+	seq = y.askSetup(t, user)
+	if c.typed {
+		asked, err := y.st.Bead(context.Background(), "yd-crm")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if card := setups(*asked)[seq]; len(card.Candidates) != 0 || card.AccountFile == "" {
+			t.Fatalf("the card lists %+v, and writes to %q: want no candidate and a file", card.Candidates, card.AccountFile)
+		} else {
+			setIn = card.AccountFile
+		}
+	}
+	failure := ""
+	if c.failed {
+		failure = "pack courier is applied, but the candidate courier-existing no longer holds COURIER_ACCOUNT as carded: its file is " + setIn +
+			" now, not " + setIn + ". Ask for the account again, or point the source with yardr source set courier env_file=" + setIn + " in a terminal."
+	}
+	return seq, y.carriedOut(t, user, seq, account, setIn, failure), setIn
 }
 
 // ranOf is what the view v tells of the approval of the ask seq.
@@ -272,40 +331,10 @@ func ranOf(t *testing.T, v store.BeadView, seq uint64) *store.AskRan {
 // whole result.
 func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
-	for _, c := range []struct {
-		name   string
-		typed  bool
-		failed bool
-	}{{"a candidate taken", false, false}, {"an account typed", true, false}, {"a carrying out that failed", false, true}} {
+	for _, c := range accountCases {
 		t.Run(c.name, func(t *testing.T) {
 			y, file := setupYard(t)
-			account := "courier-existing"
-			if c.typed {
-				// The candidate's file holds no account now, so the card
-				// offers none, and the account is set in the card's own file.
-				if err := os.WriteFile(file, nil, 0o600); err != nil {
-					t.Fatal(err)
-				}
-				account = ""
-			}
-			seq := y.askSetup(t)
-			if c.typed {
-				asked, err := y.st.Bead(ctx, "yd-crm")
-				if err != nil {
-					t.Fatal(err)
-				}
-				if card := setups(*asked)[seq]; len(card.Candidates) != 0 || card.AccountFile == "" {
-					t.Fatalf("the card lists %+v, and writes to %q: want no candidate and a file", card.Candidates, card.AccountFile)
-				} else {
-					file = card.AccountFile
-				}
-			}
-			failure := ""
-			if c.failed {
-				failure = "pack courier is applied, but the candidate courier-existing no longer holds COURIER_ACCOUNT as carded: its file is " + file +
-					" now, not " + file + ". Ask for the account again, or point the source with yardr source set courier env_file=" + file + " in a terminal."
-			}
-			whole := y.carriedOut(t, seq, account, file, failure)
+			seq, whole, file := y.carriedCase(t, c, "jo", file)
 			// told reads the view as the device with the token has it, and fails
 			// unless the result of the setup is the whole of what it printed
 			// when listed, and the same without the file when not, or, of a
@@ -350,8 +379,10 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 			jos := told("jo's device", y.jo, true)
 			sams := told("sam's device", y.sam, false)
 
-			// UserAsks holds nothing back, and needs not: a setup ask is put to the
-			// operator, so no queue but theirs has its result.
+			// UserAsks tells the result whole to the operator's device, as Bead
+			// does. The ask is put to jo, so sam's queue has none of it; the queue
+			// of a user who is not the operator now is
+			// TestUserAsksTellsTheSetupToTheOperatorAlone's.
 			if queue := call(t, y.h, y.jo, "UserAsks", `{}`); !strings.Contains(queue, file) {
 				t.Errorf("the operator's queue lacks the file of the account: %s", queue)
 			}
@@ -408,6 +439,191 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 			}
 			told("jo's device, in a yard with no operator", y.jo, false)
 			told("sam's device, in a yard with no operator", y.sam, false)
+		})
+	}
+}
+
+// toldAsks are the asks of one user's queue that the test of UserAsks checks: a
+// setup ask carried out, with what the carrying out recorded and the file the
+// account is set in, another setup ask that stands open, and the run ask that
+// was approved (0 where the queue has none).
+type toldAsks struct {
+	open, done, run uint64
+	whole, file     string
+}
+
+// blankHeld blanks what UserAsks holds back from a device that is not the
+// operator's: the candidates and the sentence of a setup card, and the result of
+// its approval. Two queues are equal after it when they differ in nothing else.
+func blankHeld(q *store.AskQueue) {
+	for i := range q.Open {
+		if card := q.Open[i].Setup; card != nil {
+			card.Candidates, card.Does = nil, nil
+		}
+	}
+	for i := range q.Decided {
+		d := &q.Decided[i]
+		if d.Setup == nil {
+			continue
+		}
+		d.Setup.Candidates, d.Setup.Does = nil, nil
+		if d.Ran != nil {
+			d.Ran.Result = ""
+		}
+	}
+}
+
+// UserAsks tells the candidates of a setup card, and the file the account of an
+// approved setup is set in, to a device of the current operator and to no other,
+// as Bead tells them (TestUserBeadTellsCandidatesToTheOperatorAlone and
+// TestUserBeadTellsTheAccountFileToTheOperatorAlone). A setup ask is put to the
+// operator, but the operator setting moves, and the user it was put to keeps the
+// ask in their queue. So the current operator is told, whoever the ask was put
+// to, and in a yard with no operator no device is. Every setup ask of the queue
+// is held, the open and the decided. The rest of the queue is as the store has
+// it, an approved run ask's result among it, and the store, which the socket
+// serves, keeps the queue whole.
+func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range accountCases {
+		t.Run(c.name, func(t *testing.T) {
+			y, candidate := setupYard(t)
+			// queued reads the queue of user as the device with the token has it,
+			// listed saying whether that device is the current operator's, and
+			// fails unless:
+			//   - the setup asks of ct, the open one and the carried out one, read
+			//     as Bead tells the same device them;
+			//   - the result of the carried out one is the whole of what was
+			//     recorded when listed, and the same without the file when not, or,
+			//     of a failure, failed and not the words of it;
+			//   - the candidate is in the reply when listed and nowhere in it when
+			//     not (a typed account's file is the card's, which every device is
+			//     told);
+			//   - the rest of the queue is the store's, which still has the whole.
+			queued := func(who, token, user string, ct toldAsks, listed bool) {
+				t.Helper()
+				got, raw := y.queue(t, token)
+				var standing *store.OpenAsk
+				for i := range got.Open {
+					if got.Open[i].Ask == ct.open {
+						standing = &got.Open[i]
+					}
+				}
+				var settled, approved *store.DecidedAsk
+				for i := range got.Decided {
+					switch got.Decided[i].Ask {
+					case ct.done:
+						settled = &got.Decided[i]
+					case ct.run:
+						approved = &got.Decided[i]
+					}
+				}
+				if standing == nil || standing.Setup == nil || settled == nil || settled.Setup == nil || settled.Ran == nil || ct.run != 0 && (approved == nil || approved.Ran == nil) {
+					t.Fatalf("%s is told the queue %s, want the setup ask %d open, %d carried out and the run ask %d", who, raw, ct.open, ct.done, ct.run)
+				}
+				want := ct.whole
+				if !listed {
+					want = strings.Replace(ct.whole, " in "+ct.file, "", 1)
+				}
+				switch {
+				case settled.Ran.Failed != c.failed || !slices.Equal(settled.Ran.Argv, []string{"setup", "courier"}):
+					t.Errorf("%s is told the carrying out %+v, want one that failed: %v", who, settled.Ran, c.failed)
+				case c.failed && !listed:
+					if settled.Ran.Result == "" || settled.Ran.Result == ct.whole {
+						t.Errorf("%s is told the failure %q", who, settled.Ran.Result)
+					}
+				case settled.Ran.Result != want:
+					t.Errorf("%s is told the result %q, want %q", who, settled.Ran.Result, want)
+				}
+				if !c.typed {
+					for _, card := range []*store.SetupAsked{standing.Setup, settled.Setup} {
+						if (len(card.Candidates) > 0) != listed {
+							t.Errorf("%s is told the candidates %+v of a card, want them: %v", who, card.Candidates, listed)
+						}
+					}
+					for _, secret := range []string{ct.file, candidateAddress, "courier-existing"} {
+						if strings.Contains(raw, secret) != listed {
+							t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
+						}
+					}
+				}
+				// One device is not told by one call what it is not by the other.
+				view, _ := y.bead(t, token)
+				for _, a := range view.Asks {
+					switch a.Ask {
+					case ct.open:
+						if !reflect.DeepEqual(a.Setup, standing.Setup) {
+							t.Errorf("%s is told the open card %+v by UserAsks and %+v by Bead", who, standing.Setup, a.Setup)
+						}
+					case ct.done:
+						if !reflect.DeepEqual(a.Setup, settled.Setup) || !reflect.DeepEqual(a.Ran, settled.Ran) {
+							t.Errorf("%s is told the carried out ask %+v %+v by UserAsks and %+v %+v by Bead", who, settled.Setup, settled.Ran, a.Setup, a.Ran)
+						}
+					}
+				}
+				stored, err := y.st.UserAsks(ctx, user)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The store's queue as the reply carries it, to compare like with like.
+				b, err := json.Marshal(stored)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var whole store.AskQueue
+				if err := json.Unmarshal(b, &whole); err != nil {
+					t.Fatal(err)
+				}
+				for _, d := range whole.Decided {
+					if d.Ask == ct.done && (d.Ran == nil || d.Ran.Result != ct.whole) {
+						t.Errorf("the store tells the result %+v after %s was told, want %q", d.Ran, who, ct.whole)
+					}
+				}
+				if approved != nil && approved.Ran.Result == "" {
+					t.Errorf("%s is told no result of the run ask: %+v", who, approved)
+				}
+				if !listed {
+					blankHeld(&got)
+					blankHeld(&whole)
+				}
+				if !reflect.DeepEqual(got, whole) {
+					t.Errorf("%s is told the queue\n%+v\nwant the store's\n%+v", who, got, whole)
+				}
+			}
+
+			// jo, the operator, has a setup carried out, another asked, and a run
+			// ask approved.
+			done, whole, file := y.carriedCase(t, c, "jo", candidate)
+			jos := toldAsks{open: y.askSetup(t, "jo"), done: done, whole: whole, file: file}
+			run, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the CRM be called more often?", To: "jo",
+				Context: []string{"The import was refused its 61st call of the hour."},
+				Run:     &store.AskRun{Argv: []string{"source", "set", "crm", "calls_per_hour=120"}}}, "yardmaster")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := y.st.ApproveAsk(ctx, "yd-crm", run, "jo", true); err != nil {
+				t.Fatal(err)
+			}
+			jos.run = run
+			queued("jo's device", y.jo, "jo", jos, true)
+
+			// The operator moves to sam. The asks put to jo stay in her queue, and
+			// her device is no longer told them. A setup ask can be put to sam now,
+			// and his device is told it whole.
+			if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+				t.Fatal(err)
+			}
+			queued("jo's device, no longer the operator's", y.jo, "jo", jos, false)
+			done, whole, file = y.carriedCase(t, c, "sam", candidate)
+			sams := toldAsks{open: y.askSetup(t, "sam"), done: done, whole: whole, file: file}
+			queued("sam's device, the operator's now", y.sam, "sam", sams, true)
+
+			// In a yard with no operator no device is told.
+			if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"); err != nil {
+				t.Fatal(err)
+			}
+			queued("jo's device, in a yard with no operator", y.jo, "jo", jos, false)
+			queued("sam's device, in a yard with no operator", y.sam, "sam", sams, false)
 		})
 	}
 }

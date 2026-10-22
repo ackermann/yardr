@@ -60,14 +60,14 @@ import (
 //     stream carries the value of a setting_changed for those alone
 //     (deviceTold), so a lost token gives away no address or secret that
 //     the yard keeps in another setting;
-//   - Bead tells the candidates of a setup card, the yard's other accounts
-//     by file and the values they hold, and the file the account of an
-//     approved setup is set in, to a device of the operator alone (bead),
-//     and the stream tells the file a source_set points a source at and the
-//     command that mints its token, the file a user_set points a user at
-//     and the secret file a hook_blocked names, to one alone (deviceEvent),
-//     so a lost token of another user gives away no address or file of an
-//     account the yard keeps;
+//   - Bead and UserAsks tell the candidates of a setup card, the yard's other
+//     accounts by file and the values they hold, and the file the account of
+//     an approved setup is set in, to a device of the operator alone (bead,
+//     userAsks), and the stream tells the file a source_set points a source
+//     at and the command that mints its token, the file a user_set points a
+//     user at and the secret file a hook_blocked names, to one alone
+//     (deviceEvent), so a lost token of another user, or of one who was the
+//     operator, gives away no address or file of an account the yard keeps;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
 //     to one that may read it (userBlob), so a lost token gives away no
@@ -185,6 +185,7 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	u.resolve = u.device
 	u.api.methods["Settings"] = method{"Settings", reflect.ValueOf(u.settings)}
 	u.api.methods["Bead"] = method{"Bead", reflect.ValueOf(u.bead)}
+	u.api.methods["UserAsks"] = method{"UserAsks", reflect.ValueOf(u.userAsks)}
 	return u
 }
 
@@ -267,8 +268,9 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 // and in a yard without an operator it does to every device. The result of a
 // run ask is left as it is: it names commands, and no file of an account. The
 // socket, the terminal and the agents read the whole card and result from
-// the store, as they do the operator's words: UserAsks needs no such hold,
-// since a setup ask is put to the operator and no queue but theirs holds it.
+// the store, as they do the operator's words. UserAsks holds the same back
+// from the same devices (userAsks), since the user a setup ask was put to need
+// not be the operator now.
 func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, error) {
 	v, err := u.st.Bead(ctx, id)
 	if err != nil {
@@ -288,17 +290,70 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 	}
 	for i := range v.Asks {
 		a := &v.Asks[i]
-		if a.Setup == nil {
-			continue
-		}
-		if a.Ran != nil {
-			ran := a.Setup.WithoutAccountFile(*a.Ran)
-			a.Ran = &ran
-		}
-		card := a.Setup.WithoutCandidates()
-		a.Setup = &card
+		a.Setup, a.Ran = withoutAccount(a.Setup, a.Ran)
 	}
 	return v, nil
+}
+
+// userAsks is UserAsks as a device is told it. The setup asks of the queue,
+// open and decided, read as Bead tells them (withoutAccount): a device of the
+// current operator is told the candidates of the card and the file the account
+// of an approved setup is set in, and no other device is.
+//
+// The store puts a setup ask to the operator alone, and that holds only when
+// the ask is made. The operator setting can move afterwards, and the user the
+// ask was put to keeps it in their queue. Without this hold their device would
+// be told by UserAsks what its Bead holds back, and a token of theirs taken
+// after the move would give away what the operator set. What they read while
+// they were the operator is not taken back.
+//
+// Nothing else of the queue is held. An open run ask, a declined ask and the
+// rest of each entry read as the store has them, and the socket, the terminal,
+// the agents and the web view read the whole queue from the store.
+//
+// It reads the setting whatever the queue holds, as bead does not: the queue
+// is built from the notes of every bead, and one setting read is nothing
+// beside that.
+func (u *UserServer) userAsks(ctx context.Context, name string) (*store.AskQueue, error) {
+	q, err := u.st.UserAsks(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	all, err := u.st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if isOperator(userOf(ctx), all[store.OperatorSetting]) {
+		return q, nil
+	}
+	for i := range q.Open {
+		q.Open[i].Setup, _ = withoutAccount(q.Open[i].Setup, nil)
+	}
+	for i := range q.Decided {
+		d := &q.Decided[i]
+		d.Setup, d.Ran = withoutAccount(d.Setup, d.Ran)
+	}
+	return q, nil
+}
+
+// withoutAccount cuts a setup ask's card and what its approval printed to what
+// a device that is not the operator's is told: the card with no candidates
+// (store.SetupAsked.WithoutCandidates) and the result without the file the
+// account is set in (store.SetupAsked.WithoutAccountFile). bead and userAsks
+// both cut here, so the two calls cannot tell one device different things. The
+// card and the result are copied, not changed. An ask with no card, a run ask
+// among them, comes back as it is: its result names commands and no file of an
+// account.
+func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAsked, *store.AskRan) {
+	if card == nil {
+		return card, ran
+	}
+	if ran != nil {
+		told := card.WithoutAccountFile(*ran)
+		ran = &told
+	}
+	bare := card.WithoutCandidates()
+	return &bare, ran
 }
 
 // device resolves a device token: the one kind of credential there is.

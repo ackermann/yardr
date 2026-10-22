@@ -2607,11 +2607,11 @@ POST /call/UserAsks
 | `open[].setup.account_file` | string | the file the value goes to, on the yard's machine |
 | `open[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
 | `open[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name |
-| `open[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse, as `Bead` tells them: a setup ask is put to the operator alone, so they reach a device of the operator and no other |
+| `open[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse, as `Bead` tells them. A device of the current operator is told them, whoever the ask was put to. Any other device is told the card as one with none, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole card |
 | `open[].setup.candidates[].source` | string | the source whose account the card offers |
-| `open[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the operator alone |
-| `open[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the operator alone |
-| `open[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
+| `open[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the current operator alone |
+| `open[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the current operator alone |
+| `open[].setup.does` | array of string | what approving changes and what is there now, in the yard's words. The sentence that names the candidates, by source, values and file, is told to a device of the current operator alone. Any other device is told the account sentence of a card with none |
 | `open[].setup.back` | string | the commands that take the setup back |
 | `open[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
 | `open[].setup.presets` | array | the pack's presets with their grants, in the order the ask's options count them |
@@ -2655,11 +2655,11 @@ POST /call/UserAsks
 | `decided[].setup.account_file` | string | the file the value goes to, on the yard's machine |
 | `decided[].setup.given` | bool, may be absent | on an update, where the yard already holds the source the pack brings: `true` when its account file already holds every name of `setup.account`, so that a bare preset pick keeps it; absent on a first setup, where nothing stands yet, and where the file lacks a name (`setup.missing`) |
 | `decided[].setup.missing` | array of string, may be absent | on an update, the names of `setup.account` the account file that stands does not set, where the pack newly needs them (every name where the file is not there): the answer types exactly these, or takes a candidate; absent on a first setup and where the file holds every name |
-| `decided[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse, as `Bead` tells them: a setup ask is put to the operator alone, so they reach a device of the operator and no other |
+| `decided[].setup.candidates` | array, may be absent | yard sources whose account the card offers to reuse, as `Bead` tells them. A device of the current operator is told them, whoever the ask was put to. Any other device is told the card as one with none, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole card |
 | `decided[].setup.candidates[].source` | string | the source whose account the card offers |
-| `decided[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the operator alone |
-| `decided[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the operator alone |
-| `decided[].setup.does` | array of string | what approving changes and what is there now, in the yard's words |
+| `decided[].setup.candidates[].file` | string | the file holding the shared account inputs; told to a device of the current operator alone |
+| `decided[].setup.candidates[].values` | object | the shared account input names and values the file holds; told to a device of the current operator alone |
+| `decided[].setup.does` | array of string | what approving changes and what is there now, in the yard's words. The sentence that names the candidates, by source, values and file, is told to a device of the current operator alone. Any other device is told the account sentence of a card with none |
 | `decided[].setup.back` | string | the commands that take the setup back |
 | `decided[].setup.back_by` | string, may be absent | who may run them, as `Bead` says it; absent where that is anyone |
 | `decided[].setup.presets` | array | the pack's presets with their grants, in the order the ask's options count them |
@@ -2673,7 +2673,7 @@ POST /call/UserAsks
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask |
 | `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside |
 | `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
-| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards the full result of carrying it out, which may name the account file. `Bead` tells that file only to a device of the current operator; `UserAsks` retains the full result on the user the ask was addressed to, even if the operator later changes |
+| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
