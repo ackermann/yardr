@@ -612,8 +612,9 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 // is refused when no login waits under it. Giving is the operator's, as a
 // source's is (maySource).
 //
-// Giving again is allowed while the ask is not declined, as a newer pick
-// replaces an older one: each giving is a note with the names.
+// Giving again is allowed while the ask is neither declined nor taken
+// back, as a newer pick replaces an older one: each giving is a note with
+// the names.
 //
 // The answer note is put in the transaction that the file's rename ends
 // (keySource), so the store never says "gave" of a value the file does not
