@@ -433,9 +433,11 @@ command; a source whose file names none tells words alone, as ever. So
 does one that does not take the picture (Telegram takes a photo of 10 MB
 at most, and 10000 pixels in width and height together; Pushover an
 attachment of 5,242,880 bytes at most, and leaves it to the sender to
-make a larger one fit, so the pack's command refuses it): the words are
-told at once, not lost with it, and the daemon's log says why (`user told
-without the picture`).
+make a larger one fit, so the pack's command refuses it) and one that is
+too slow over it. The words are told next, not lost with the picture,
+and the daemon's log says why (`user told without the picture`). A
+picture has the 10 seconds a tell gets, and the words, if the picture
+fails, have 10 seconds of their own.
 
 **When.** The daemon sends, so it must be running. A thing is told once it
 has been in the inbox for 20 seconds and is still unread: what was

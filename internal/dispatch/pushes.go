@@ -36,7 +36,9 @@ import (
 
 const (
 	// pushTimeout bounds one send from a pass, which holds up routing
-	// while it waits.
+	// while it waits. A picture the source does not take leaves the words
+	// as much again (notify's fallbackTimeout), so a pass can wait twice
+	// this.
 	pushTimeout = 10 * time.Second
 	// PushTries is how often a push is sent before it is given up, and
 	// PushMaxAge how old one may be and still be sent. Both are new for
