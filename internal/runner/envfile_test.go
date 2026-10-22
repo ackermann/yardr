@@ -464,13 +464,18 @@ func TestHerdrSessionsGetNoServerSettings(t *testing.T) {
 // settings of the yard's server: the assembly's tests ran with the daemon's
 // YARDR_HOOK_ADDR, and a server its tests started listened there
 // (yardr-t9n1). A dir depot's bead, whose inherited environment is cut
-// further, is no exception.
+// further, is no exception. What a test binary names itself with
+// (YARDR_TEST_OWNER, and the tick the server watches on) is kept: a script
+// the exec runner starts for a test gets that environment, and the server its
+// yardr starts must stop with the test (yardr-g600).
 func TestExecSessionsGetNoServerSettings(t *testing.T) {
 	// Serial: sets the daemon's environment.
 	for _, n := range serverSettingNames {
 		t.Setenv(n, "the-daemons")
 	}
 	t.Setenv("YARDR_T9N1_KEPT", "kept")
+	t.Setenv("YARDR_TEST_OWNER", "4242 987654")
+	t.Setenv("YARDR_TEST_HOME_CHECK", "1s")
 	dir := t.TempDir()
 	for name, depot := range map[string]*store.Depot{
 		"git": {Name: "web", Path: dir, Base: "main"},
@@ -492,8 +497,10 @@ func TestExecSessionsGetNoServerSettings(t *testing.T) {
 			b, _ := os.ReadFile(out)
 			got = string(b)
 		}
-		if !strings.Contains(got, "YARDR_T9N1_KEPT=kept\n") || !strings.Contains(got, "YARDR_BEAD=yd-7\n") {
-			t.Fatalf("%s depot: the command's environment lacks what it should have:\n%s", name, got)
+		for _, want := range []string{"YARDR_T9N1_KEPT=kept\n", "YARDR_BEAD=yd-7\n", "YARDR_TEST_OWNER=4242 987654\n", "YARDR_TEST_HOME_CHECK=1s\n"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s depot: the command's environment lacks %q:\n%s", name, strings.TrimSuffix(want, "\n"), got)
+			}
 		}
 		for _, n := range serverSettingNames {
 			if strings.Contains(got, n+"=") {

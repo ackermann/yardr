@@ -37,8 +37,8 @@ var gitEnv = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "G
 	"GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t"}
 
 // As contrib/assembly's: nothing of a yardr or a git running these tests
-// reaches what they start, the home is one with no yard in it, and one
-// yardr is built for all of them.
+// reaches what they start, the home is one with no yard in it, every server
+// they start stops with this binary, and one yardr is built for all of them.
 func TestMain(m *testing.M) {
 	noSync := config.Getenv(store.NoSyncEnv)
 	for _, kv := range os.Environ() {
@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	storetest.NameTestBinary()
 	nowhere, err := os.MkdirTemp("", "ynone")
 	if err != nil {
 		panic(err)
@@ -179,9 +180,9 @@ func newYard(t *testing.T) *yard {
 	})
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"), state: t.TempDir(), depot: "r",
 		script: "deploy-dokku"}
-	// The test names itself to the servers it starts, so a run killed by its
-	// timeout leaves none behind (storetest.TestOwnerEnv).
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	// os.Environ names this binary to the servers a command starts
+	// (TestMain), so a run killed by its timeout leaves none behind.
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")
 	y.git(".", "init", "-q", "-b", "main", y.repo)

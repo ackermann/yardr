@@ -59,8 +59,9 @@ type Pack struct {
 	Setup     string `json:"setup,omitempty"`
 	SetupText string `json:"setup_text,omitempty"`
 	// fsys is the pack's directory: every path in the pack is a slash path
-	// in it.
-	fsys fs.FS
+	// in it. Its files are read through reads, once each.
+	fsys  fs.FS
+	reads *reads
 }
 
 // StageMap says which status an issue of an outside source goes to when the
@@ -284,19 +285,20 @@ func LoadDir(dir string) (*Pack, error) {
 // error is an Errors naming each mistake.
 func Load(fsys fs.FS, dir string) (*Pack, error) {
 	file := joinName(dir, File)
-	text, err := fs.ReadFile(fsys, File)
+	rd := newReads(fsys)
+	text, err := rd.file(File)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, Errors{{File: file, Msg: "not found: a pack is a directory with a " + File}}
 		}
 		return nil, Errors{{File: file, Msg: err.Error()}}
 	}
-	r := &reader{file: file, dir: dir, fsys: fsys}
+	r := &reader{file: file, dir: dir, fsys: fsys, reads: rd}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(text, &doc); err != nil {
 		return nil, Errors{{File: file, Msg: err.Error()}}
 	}
-	p := &Pack{Dir: dir, fsys: fsys}
+	p := &Pack{Dir: dir, fsys: fsys, reads: rd}
 	if len(doc.Content) == 0 {
 		r.errs = append(r.errs, Error{File: file, Msg: "empty: a pack has at least a name"})
 	} else {
@@ -378,7 +380,7 @@ func (p *Pack) placeholderErrors() Errors {
 			continue
 		}
 		file := joinName(p.Dir, rel)
-		text, err := fs.ReadFile(p.fsys, rel)
+		text, err := p.read(rel)
 		if err != nil {
 			errs = append(errs, Error{File: file, Msg: err.Error()})
 			continue
@@ -398,7 +400,10 @@ type reader struct {
 	file string
 	dir  string // as given: how an error names a file of the pack
 	fsys fs.FS
-	errs Errors
+	// reads is how the files are read; fsys is for what is looked at
+	// (Lstat), not read.
+	reads *reads
+	errs  Errors
 	// late are the errors of the declaration files the pack names: they
 	// follow those of pack.yaml, whose lines theirs are not.
 	late Errors
@@ -861,7 +866,7 @@ func (r *reader) declared(e entry, kind string) (d Declared, ok bool) {
 		return d, false
 	}
 	full := joinName(r.dir, d.File)
-	text, err := fs.ReadFile(r.fsys, d.File)
+	text, err := r.reads.file(d.File)
 	if err != nil {
 		r.errf(file.v, file.path, "declaration %s: %v", d.File, err)
 		return d, false
@@ -1471,7 +1476,7 @@ func (r *reader) setupFile(n *yaml.Node, key string) (file, text string) {
 	if clean == "" {
 		return "", ""
 	}
-	body, err := fs.ReadFile(r.fsys, clean)
+	body, err := r.reads.file(clean)
 	switch {
 	case err != nil:
 		r.errf(n, key, "setup notes %s: %v", clean, err)
@@ -1493,7 +1498,7 @@ func (r *reader) stageFile(n *yaml.Node, key string) string {
 	if clean == "" {
 		return ""
 	}
-	text, err := fs.ReadFile(r.fsys, clean)
+	text, err := r.reads.file(clean)
 	switch {
 	case err != nil:
 		r.errf(n, key, "stage file %s: %v", clean, err)

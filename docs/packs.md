@@ -307,6 +307,25 @@ or from https down to http; a file of more than 1 MiB is refused. The files
 second download of them: a server that answers differently once the import
 is under way changes nothing that is installed.
 
+**Pinning a pack.** A pack applied with `--yes` is read by no one, and a
+server may have changed what it serves since someone did. `yardr pack check`
+ends its plan with the pack's digest, `digest sha256:<hex>`: one sha256 over
+`pack.yaml` and every file it names (the roles and scripts, the stage files
+of all its flows, the setup notes, the declarations and the programs of their
+commands), each as its path in the pack, a NUL, its length, a NUL and its
+bytes, in path order. One byte changed in any of them, or a file renamed, is
+another digest; a file the pack does not name is not part of it. It is the
+pack's and not the plan's, so it is the same for any depot and any answers,
+and for the pack read from a directory or from a URL. `yardr pack apply
+<pack> --sha256 <digest>`, and `yardr depot init --pack <pack> --sha256
+<digest>`, refuse a pack whose digest is another, naming both, before they
+ask anything or write anything. The digest may be in upper case and may keep
+the `sha256:` that `pack check` prints; anything else is a flag error. It is
+the digest of the bytes the plan was made from, which a pack keeps from the
+first read of each file, and so of the bytes the import installs. The pin
+holds for the one command: the record of an import does not keep it, and a
+later `pack apply <name>` takes none unless it is given one.
+
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it
 is still the name, and `./starter` is the directory. An imported pack comes
@@ -348,7 +367,9 @@ then what an import would ask, which flow would govern the depot afterwards,
 what each subscribed source has and lacks, which sources the yard has
 nothing of, once each as optional, what each crew member would be let
 open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), which peers each crew member the pack asks
-it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. After the plan
+it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. The plan ends
+with the pack's digest (`digest sha256:<hex>`), which `pack apply --sha256` takes
+([Pinning a pack](#naming-a-pack)). After the plan
 come the pack's setup notes (`setup`), when it has any: its author's words
 about what a setup takes, marked as the pack's, not checked by yardr. `--json` prints the
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
@@ -832,7 +853,7 @@ sources, which no hook receives and nobody answers in:
 ## yardr pack apply
 
 ```sh
-yardr pack apply <pack> [--depot <depot>] [--yes] [--prune]
+yardr pack apply <pack> [--depot <depot>] [--yes] [--sha256 <digest>] [--prune]
     [--bind <group>=<kind>[:<model>][,<preset>]]… [--members <group>=a,b]…
     [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
     [--open-threads <pack's>=<source>,…|none]…
@@ -849,7 +870,10 @@ It makes the plan `pack check` shows, prints it with what the flags answer
 filled in, asks for what the pack cannot say, and sets the yard to the
 pack's state. An object the yard has
 under the same name is overwritten in what the pack carries and keeps the
-rest; nothing is added a second time.
+rest; nothing is added a second time. With `--sha256 <digest>` it first
+refuses, writing nothing, any pack but the one with that digest
+([Pinning a pack](#naming-a-pack)); a script that applies a pack from a URL with
+`--yes` gives the digest it read in `pack check`.
 
 **What it asks.** In a terminal it asks; each question has a flag that
 answers it instead:
@@ -1633,7 +1657,7 @@ said):
 
 ```json
 {
-  "pack": "starter", "dir": "/…/packs/starter", "kind": "git", "depot": "yardr",
+  "pack": "starter", "dir": "/…/packs/starter", "digest": "9f2c…", "kind": "git", "depot": "yardr",
   "flow": "default", "depot_roles": false, "groups": {"builders": "yardr-builders"}, "crew": {"yardmaster": "boss"},
   "fill": {"operator": "Jo", "yardmaster": "boss"},
   "home": "/Users/me/.yardr",
@@ -1656,7 +1680,8 @@ said):
 ```
 
 `kind` is the kind of depot the pack declares, left out for a pack that
-declares none. `install` is where roles and scripts are copied, `stage_files` the
+declares none. `digest` is the pack's digest in hex, without the `sha256:`
+that `pack check` prints before it. `install` is where roles and scripts are copied, `stage_files` the
 directory under which each flow's stage files are
 (`<stage_files>/<pack>.<flow>/<stage>.md`). `fill` is what the import puts
 for each placeholder, by its name. `setup` and `setup_file` are the pack's

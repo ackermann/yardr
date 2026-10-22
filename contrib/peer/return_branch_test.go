@@ -38,6 +38,9 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	// As contrib/assembly's: every server and daemon these tests start,
+	// return-branch's among them, stops when this binary is gone.
+	storetest.NameTestBinary()
 	// With the home gone from the environment, a yardr started without a
 	// test's own would take the default one, which on a machine that works
 	// with yardr is the operator's yard, its server answering (yardr-j4vm).
@@ -102,9 +105,9 @@ func newYard(t *testing.T) *yard {
 	})
 	dir := t.TempDir()
 	y := &yard{t: t, home: home, repo: filepath.Join(dir, "repo"), remote: filepath.Join(dir, "remote.git")}
-	// The test names itself to the servers it starts, so a run killed by its
-	// timeout leaves none behind (storetest.TestOwnerEnv).
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	// os.Environ names this binary to the servers a command starts
+	// (TestMain), so a run killed by its timeout leaves none behind.
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	y.yardr("init", "--harness", "claude", "--dir", home)
 	y.git(dir, "init", "-q", "--bare", "-b", "main", y.remote)
 	y.git(dir, "clone", "-q", y.remote, y.repo)

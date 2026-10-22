@@ -78,6 +78,11 @@ type Options struct {
 type Plan struct {
 	Pack string `json:"pack"`
 	Dir  string `json:"dir"`
+	// Digest is the sha256 of the files the pack is made of (Pack.digest),
+	// in hex: the one thing an operator who has read a pack can name it by,
+	// and the pin of pack apply --sha256 (CheckDigest). It is the pack's,
+	// not the plan's: another depot or other answers do not change it.
+	Digest string `json:"digest"`
 	// Kind is the kind of depot the pack says it is for, "" when it says
 	// none.
 	Kind  string `json:"kind,omitempty"`
@@ -712,6 +717,9 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 			return nil, err
 		}
 	}
+	if b.plan.Digest, err = p.digest(); err != nil {
+		return nil, err
+	}
 	return b.plan, nil
 }
 
@@ -747,6 +755,9 @@ func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, 
 		return nil, err
 	}
 	if err := b.dropped(); err != nil {
+		return nil, err
+	}
+	if b.plan.Digest, err = p.digest(); err != nil {
 		return nil, err
 	}
 	return b.plan, nil
@@ -912,7 +923,7 @@ func stageFileName(flow, rel string) string {
 // differs from what an import wrote.
 func (b *planner) file(rel string, op *FileOp) error {
 	op.From = joinName(b.p.Dir, rel)
-	text, err := fs.ReadFile(b.p.fsys, rel)
+	text, err := b.p.read(rel)
 	if err != nil {
 		return err
 	}

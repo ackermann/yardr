@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"path"
 	"reflect"
@@ -215,7 +214,7 @@ func (b *planner) sourceCommands(d Declared) ([]CommandPlan, error) {
 		if !c.Relative() {
 			return nil, fmt.Errorf("declaration %s: %s: the program %q is absolute: a command a declaration in a pack brings is a file beside the declaration's file that the yard copies and hashes", d.File, c.Key, c.Argv[0])
 		}
-		data, err := fs.ReadFile(b.p.fsys, path.Join(declDir(d.File), c.Argv[0]))
+		data, err := b.p.read(path.Join(declDir(d.File), c.Argv[0]))
 		if err != nil {
 			return nil, fmt.Errorf("declaration %s names the command file %s: %v", d.File, c.Argv[0], err)
 		}

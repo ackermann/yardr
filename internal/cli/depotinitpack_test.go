@@ -295,8 +295,9 @@ func TestDepotInitPackTestAlone(t *testing.T) {
 }
 
 // What depot init refuses writes nothing: a pack that is not there, and an
-// import nobody said yes to, whatever flags it was given, and a flag it had
-// for the role files it once wrote into a depot. (A pack for the other kind
+// import nobody said yes to, whatever flags it was given, a flag it had
+// for the role files it once wrote into a depot, and a pack that is not the
+// one its --sha256 names. (A pack for the other kind
 // of depot: TestDepotInitPackIsForTheDepotsKind.)
 func TestDepotInitPackRefusals(t *testing.T) {
 	t.Parallel()
@@ -317,6 +318,9 @@ func TestDepotInitPackRefusals(t *testing.T) {
 		{[]string{"init", "web", "--yes", "--operator", "Jo"}, "unknown flag: --operator"},
 		{[]string{"init", "notes"}, "check failed"},
 		{[]string{"init", "web", "--pack", "nosuch", "--yes"}, `no pack named "nosuch"`},
+		// --sha256, as pack apply takes it: before anything is asked.
+		{[]string{"init", "web", "--pack", "starter", "--yes", "--sha256", strings.Repeat("0", 64)}, "pack starter is not the one pinned"},
+		{[]string{"init", "web", "--pack", "starter", "--yes", "--sha256", "sha256:abc"}, `for "--sha256" flag: not a digest`},
 	} {
 		out, err := run(t, a.depotCmd(), tc.args...)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

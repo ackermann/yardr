@@ -86,9 +86,29 @@ type importFlags struct {
 	calls     []string
 	sourceEnv []string
 	notify    []string
+	sha256    digestFlag
 	yes       bool
 	prune     bool // pack apply's alone
 }
+
+// digestFlag is --sha256, a pack's digest. It is held to a digest when the
+// flag is read, so a pin that is empty or malformed is a flag error and never
+// taken for no pin: a script whose $DIGEST is unset applies nothing. Unset, it
+// is "" and pins nothing.
+type digestFlag string
+
+func (d *digestFlag) Set(s string) error {
+	v, err := pack.ParseDigest(s)
+	if err != nil {
+		return err
+	}
+	*d = digestFlag(v)
+	return nil
+}
+
+func (d *digestFlag) String() string { return string(*d) }
+
+func (d *digestFlag) Type() string { return "digest" }
 
 // registerAnswers registers the flags that answer what an import asks.
 func (f *importFlags) registerAnswers(c *cobra.Command) {
@@ -99,6 +119,7 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.sourceEnv, "source-env", nil, "<source>=<file>: set the file the source's credential is read from, as yardr source set <source> env_file=<file> does, for a source the pack declares (repeatable)")
 	c.Flags().StringArrayVar(&f.notify, "notify", nil, "<user>=<source>[,<envfile>]: tell the user through the source, as yardr user set <user> notify=<source> env_file=<envfile> does, for a source the pack declares that can tell a user (repeatable)")
 	c.Flags().BoolVar(&f.yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
+	c.Flags().Var(&f.sha256, "sha256", "apply only the pack whose digest this is, the last line of pack check's plan (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is asked or written")
 }
 
 // loadPack reads the pack arg names (resolvePack). With --json an invalid
@@ -299,7 +320,10 @@ func (a *app) packCmd() *cobra.Command {
 <pack> is the pack's directory when it has a path separator in it
 (packs/starter, ./mine, ~/packs/team), or a URL: the pack's directory on a
 web server (https://yardr.dev/packs/starter/), fetched when the command
-runs; plain http is for a server on this machine only. A bare word is a name:
+runs; plain http is for a server on this machine only. A pack applied with
+--yes is read by no one: pack check ends its plan with the pack's digest
+(digest sha256:<hex>, over pack.yaml and every file it names), and pack apply
+--sha256 <hex> refuses a pack whose digest is another. A bare word is a name:
 of a pack this yard has imported (yardr pack list), read again from where it
 was imported from, else of a pack yardr carries in the binary (` + strings.Join(embeddedPacks(), ", ") + `). A name is never
 tried as a directory: write ./starter for a directory of that name.
@@ -692,6 +716,14 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 	plan, err := pack.Build(ctx, st, p, f.opts)
 	if err != nil {
 		return nil, err
+	}
+	// With --yes nobody reads the plan, so the pin is what ties the pack
+	// that is imported to the one that was read. It is held before the plan
+	// is shown or anything is asked, and nothing has been written.
+	if f.sha256 != "" {
+		if err := plan.CheckDigest(string(f.sha256)); err != nil {
+			return nil, err
+		}
 	}
 	// Which flow, which crew members and which groups of the yard shape the
 	// plan itself, so they are settled first and the plan made again.
@@ -1941,6 +1973,10 @@ func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[
 		for _, r := range p.Refused {
 			fmt.Fprintln(w, "  "+r)
 		}
+	}
+	// Last in the plan, to be copied: pack apply --sha256 takes it as it is.
+	if p.Digest != "" {
+		fmt.Fprintf(w, "\ndigest sha256:%s\n", p.Digest)
 	}
 	if setup && p.SetupFile != "" {
 		fmt.Fprintln(w)

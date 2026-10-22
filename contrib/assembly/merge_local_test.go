@@ -53,6 +53,11 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	// Every server and daemon these tests start stops by itself when this
+	// binary is gone, however it ended: a kill runs no cleanup. That holds for
+	// the ones a script starts too, since the exec runner hands this
+	// environment on, which a variable of each test's y.env would not.
+	storetest.NameTestBinary()
 	// With the home gone from the environment, a yardr started without a
 	// test's own would take the default one, which on a machine that works
 	// with yardr is the operator's yard, its server answering (yardr-j4vm).
@@ -172,9 +177,9 @@ func newYardInner(t *testing.T, realServer bool) *yard {
 	}
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
 		wt: filepath.Join(home, "worktrees", "r", "r-1")}
-	// The test names itself to the servers it starts, so a run killed by its
-	// timeout leaves none behind (storetest.TestOwnerEnv).
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	// os.Environ names this binary to the servers a command starts
+	// (TestMain), so a run killed by its timeout leaves none behind.
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
@@ -209,7 +214,7 @@ func newYardCLI(t *testing.T) *yard {
 	t.Cleanup(func() { os.RemoveAll(home) })
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"),
 		wt: filepath.Join(home, "worktrees", "r", "r-1")}
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	serveYard(t, home)
 
 	// A fresh home has no yard; without a terminal yardr refuses to work

@@ -46,9 +46,9 @@ func newTrainYard(t *testing.T, check string) *yard {
 	}
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
 	t.Cleanup(func() { os.RemoveAll(home) })
-	// The test names itself to the servers it starts, so a run killed by its
-	// timeout leaves none behind (storetest.TestOwnerEnv).
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	// os.Environ names this binary to the servers a command starts
+	// (TestMain), so a run killed by its timeout leaves none behind.
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	y.git(".", "init", "-q", "-b", "main", y.repo)
 	y.commit(y.repo, "a.txt", "one\n")
 	remote := filepath.Join(t.TempDir(), "origin.git")
@@ -91,7 +91,7 @@ func newTrainYardCLI(t *testing.T, check string) *yard {
 	}
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
 	t.Cleanup(func() { os.RemoveAll(home) })
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test", storetest.TestOwnerEnv(t))
+	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 	serveYard(t, home)
 	// A fresh home has no yard; without a terminal yardr refuses to work
 	// in it until it is initialized.

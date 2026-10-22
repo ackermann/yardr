@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -54,6 +56,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	text := out
 	install := config.At(a.cfg.Home).Pack("starter")
 	for _, want := range []string{
 		"), kind git, into depot web\n",
@@ -90,6 +93,12 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	var plan pack.Plan
 	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.Pack != "starter" || len(plan.Objects) != 35 || len(plan.Questions) != 13 {
 		t.Fatalf("json plan: %v\n%s", err, out)
+	}
+	// The pack's digest ends the plan, to be copied, and is the same with
+	// other flags: it is the pack's and not the plan's. The setup notes, when
+	// the pack has them, come after.
+	if len(plan.Digest) != 64 || !strings.HasSuffix(strings.TrimSpace(text), "\ndigest sha256:"+plan.Digest) {
+		t.Errorf("the plan does not end with the digest %q:\n%s", plan.Digest, text)
 	}
 }
 
@@ -307,7 +316,45 @@ func TestPackApplyWithFlags(t *testing.T) {
 	requireNonInteractive(t)
 	ctx := context.Background()
 	args := append([]string{"apply", "../../packs/starter", "--depot", "web", "--yes"}, starterFlags...)
-	out, err := run(t, a.packCmd(), args...)
+
+	// --sha256 holds the import to the pack that was read, which --yes does
+	// not read again: the digest pack check ends its plan with. Another
+	// digest, and a pin that is no digest, are refused with nothing written.
+	checked, err := run(t, a.packCmd(), "check", "../../packs/starter", "--depot", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^digest sha256:([0-9a-f]{64})$`).FindStringSubmatch(checked)
+	if m == nil {
+		t.Fatalf("pack check prints no digest:\n%s", checked)
+	}
+	digest := m[1]
+	wrong := strings.Repeat("0", 64)
+	for _, c := range []struct{ pin, want string }{
+		{wrong, "pack starter is not the one pinned: the pin is sha256:" + wrong + ", the pack read has sha256:" + digest + "; nothing was changed"},
+		{"SHA256:" + wrong, "the pin is sha256:" + wrong},
+		// A pin that is no digest is a flag error, the empty one too: a
+		// script whose $DIGEST is unset applies nothing.
+		{digest[:63], `for "--sha256" flag: not a digest`},
+		{"zzzz", `for "--sha256" flag: not a digest`},
+		{"", `for "--sha256" flag: not a digest`},
+	} {
+		if out, err := run(t, a.packCmd(), slices.Concat(args, []string{"--sha256", c.pin})...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("--sha256 %s: %v\n%s", c.pin, err, out)
+		}
+	}
+	if groups, _ := a.st.Groups(ctx); len(groups) != 0 {
+		t.Fatalf("a refused pin made groups: %v", groups)
+	}
+	if recs, _ := a.st.Packs(ctx); len(recs) != 0 {
+		t.Fatalf("a refused pin recorded %v", recs)
+	}
+	if _, err := os.Stat(config.At(a.cfg.Home).Pack("starter")); err == nil {
+		t.Fatal("a refused pin installed the pack's files")
+	}
+
+	// The right one, in upper case, applies as it does without.
+	out, err := run(t, a.packCmd(), slices.Concat(args, []string{"--sha256", strings.ToUpper(digest)})...)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
@@ -352,7 +399,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 	}
 
 	head, _ := a.st.Head(ctx)
-	out, err = run(t, a.packCmd(), args...)
+	out, err = run(t, a.packCmd(), slices.Concat(args, []string{"--sha256", "sha256:" + digest})...)
 	if err != nil || !strings.Contains(out, "pack starter is already applied to depot web: nothing changed\n") {
 		t.Fatalf("second apply: %v\n%s", err, out)
 	}
@@ -382,7 +429,7 @@ func TestPackApplyWithFlags(t *testing.T) {
 		Plan   pack.Plan   `json:"plan"`
 		Result pack.Result `json:"result"`
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 || got.Result.Recorded || got.Plan.Depot != "web" {
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 || got.Result.Recorded || got.Plan.Depot != "web" || got.Plan.Digest != digest {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 	out, err = run(t, a.packCmd(), "list")

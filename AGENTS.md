@@ -131,7 +131,9 @@ it lists every exported name with its comment, faster than grepping.
 - Files are lowercase, one area per file; tests live beside the code as
   `*_test.go`.
 - Fixtures: throwaway stores from `internal/storetest`, stand-in scripts
-  from `internal/scripttest`; wait on the effect, not on wall time.
+  from `internal/scripttest`; wait on the effect, not on wall time. A
+  package whose tests start a real yardr names its test binary to the
+  servers it starts: its `TestMain` calls `storetest.NameTestBinary()`.
 - The test rules are `docs/testing.md` (per-package time budget, sleep
   budget, parallelism); the gate is `sh .yardr/test` in the worktree, and
   its printed `test:` line is the record of a run.

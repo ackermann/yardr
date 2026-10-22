@@ -3,7 +3,10 @@ package pack_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -108,6 +111,10 @@ func TestURLPackLoadsLikeItsDirectory(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sums(urlPlan), sums(dirPlan)) {
 		t.Errorf("URL plan files differ from the directory plan's")
+	}
+	// One pack, one digest, wherever it is read from.
+	if urlPlan.Digest == "" || urlPlan.Digest != dirPlan.Digest {
+		t.Errorf("URL plan digest %q, directory plan digest %q", urlPlan.Digest, dirPlan.Digest)
 	}
 }
 
@@ -243,6 +250,51 @@ func TestURLFSErrors(t *testing.T) {
 		!strings.Contains(err.Error(), "more than 1048576 bytes") {
 		t.Errorf("a body with no end: %v", err)
 	}
+}
+
+// A server that answers every GET differently cannot make a loaded pack's
+// plans, or the digest, tell different stories: a file's bytes are those of
+// its first read, and the digest names the bytes the plan hashed.
+func TestURLPackPlansFromTheBytesItReadFirst(t *testing.T) {
+	t.Parallel()
+	site := http.StripPrefix("/starter/", http.FileServer(http.FS(os.DirFS(writePack(t, smallFiles(small))))))
+	var gets atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/roles/yardmaster.md") {
+			fmt.Fprintf(w, "yardmaster, answer %d\n", gets.Add(1))
+			return
+		}
+		site.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	base := srv.URL + "/starter/"
+	p, err := pack.Load(pack.URLFS(base), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, o := yard(t)
+	first := build(t, st, p, o)
+	asked := gets.Load()
+	second := build(t, st, p, o)
+	if first.Digest != second.Digest {
+		t.Errorf("the second plan has digest %s after %d answers of the server, the first %s after %d", second.Digest, gets.Load(), first.Digest, asked)
+	}
+	role := func(plan *pack.Plan) string { return find(t, plan, "file", "roles/yardmaster.md").File.SHA256 }
+	if role(first) != role(second) {
+		t.Errorf("the role's hash is %s in the first plan and %s in the second", role(first), role(second))
+	}
+	// The digest is of the answer the plan hashed.
+	files := smallFiles(small)
+	for n := int32(1); n <= gets.Load(); n++ {
+		files["roles/yardmaster.md"] = fmt.Sprintf("yardmaster, answer %d\n", n)
+		if sum := sha256.Sum256([]byte(files["roles/yardmaster.md"])); hex.EncodeToString(sum[:]) == role(first) {
+			if first.Digest != recordsDigest(files) {
+				t.Errorf("digest %s is not that of the pack with the answer the plan hashed (answer %d): %s", first.Digest, n, recordsDigest(files))
+			}
+			return
+		}
+	}
+	t.Errorf("the plan hashed none of the %d answers the server gave", gets.Load())
 }
 
 // onPut is a store that does something just before it saves a source: the
