@@ -785,11 +785,11 @@ peer mail keeps its separate 16 KB per-mail limit.
 
 With `--file <path>`, given more than once for several, a reply in a
 source carries files into the thread: pictures arrive as pictures,
-anything else as a document. The text stays the caption where it fits,
-else it is sent first and the files follow without one. A source whose
-file does not say its replies take files is refused (`--file` there would
-send the words and drop the files); mail and a note on another yard's bead
-take no `--file`.
+anything else as a document, each under its own name. The text stays
+the caption where it fits, else it is sent first and the files follow
+without one. A source whose file does not say its replies take files is
+refused (`--file` there would send the words and drop the files); mail
+and a note on another yard's bead take no `--file`.
 
 yardr only types. The call is made by the CLI in the crew member's pane with
 the credential its `env_file` put there (`LINEAR_API_KEY`; for GitHub

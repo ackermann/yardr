@@ -45,14 +45,35 @@ describe() { # what the service said of a refusal, for an error the daemon logs:
   printf '%s' "${d//"$TELEGRAM_BOT_TOKEN"/}"
 }
 
+qform() { # a value for curl's -F, quoted, so that a ; or , or " in a file's name is no part of the option's syntax
+  local s=${1//\\/\\\\}
+  printf '"%s"' "${s//\"/\\\"}"
+}
+
 send_media() { # one picture or document to the chat, by sendPhoto or sendDocument; prints the message's id
   method=$1; field=$2; file=$3; caption=$4
   [ -f "$file" ] || { echo "$method found no file at $file" >&2; return 1; }
+  # The part goes with a type and a name, as a client's upload does. A
+  # file the yard keeps is called by its hash, which names nothing a
+  # person could open: it goes as photo.png or document.
+  mime=$(file -b --mime-type "$file" 2>/dev/null) || mime=""
+  [[ $mime =~ ^[a-z0-9.+_-]+/[a-z0-9.+_-]+$ ]] || mime=application/octet-stream
+  name=${file##*/}
+  if [[ $name =~ ^[0-9a-f]{64}$ ]]; then
+    case "$mime" in
+    image/png) name=$field.png ;;
+    image/jpeg) name=$field.jpg ;;
+    image/gif) name=$field.gif ;;
+    image/webp) name=$field.webp ;;
+    image/bmp) name=$field.bmp ;;
+    *) name=$field ;;
+    esac
+  fi
   # The address goes to curl on its stdin, as send_message's does; the
-  # caption goes as data, never parsed for @ or <>. An error names the
-  # method and what the service said, not the chat: a tell's error is
-  # logged and recorded, and the chat is the person's address.
-  args=(-F "chat_id=$thread" -F "$field=@$file")
+  # chat and the caption go as data, never parsed for @ or <. An error
+  # names the method and what the service said, not the chat: a tell's
+  # error is logged and recorded, and the chat is the person's address.
+  args=(--form-string "chat_id=$thread" -F "$field=@$(qform "$file");type=$mime;filename=$(qform "$name")")
   if [ -n "$caption" ]; then args+=(--form-string "caption=$caption"); fi
   out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/$method" \
     | curl -sS --fail-with-body -K - "${args[@]}") || {
@@ -106,8 +127,11 @@ reply) # sendMessage to the chat the delivery came from; with files, the
     [ -n "$file" ] || { echo "thread.reply was handed no file" >&2; exit 1; }
     [ -f "$file" ] || { echo "thread.reply found no file at $file" >&2; exit 1; }
     mime=$(file -b --mime-type "$file" 2>/dev/null) || { echo "thread.reply cannot read $file" >&2; exit 1; }
+    # A photo is a kind the service shows as one (a vector drawing or a
+    # camera's raw file it cannot): the rest goes as a document, which
+    # takes any file.
     case "$mime" in
-    image/*) method=sendPhoto; field=photo ;;
+    image/png | image/jpeg | image/gif | image/webp | image/bmp) method=sendPhoto; field=photo ;;
     *) method=sendDocument; field=document ;;
     esac
     cap=""

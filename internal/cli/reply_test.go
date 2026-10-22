@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,7 +28,10 @@ import (
 func replyScripts(dir string) map[string]string {
 	scripts := map[string]string{
 		"normalize": "#!/bin/sh\nprintf '%s' '{\"type\":\"ping\"}'\n",
-		"reply": "#!/bin/sh\n{ cat; echo; } >> " + dir + "/reply.stdin\n" +
+		"reply": "#!/bin/sh\nin=$(cat)\nprintf '%s\\n' \"$in\" >> " + dir + "/reply.stdin\n" +
+			// What each file of the reply holds while it is being posted: its name, then its bytes.
+			"for p in $(printf '%s' \"$in\" | sed -n 's/.*\"files\":\\[\\([^]]*\\)\\].*/\\1/p' | tr -d '\"' | tr ',' ' '); do " +
+			"{ echo \"${p##*/}\"; cat \"$p\"; echo; } >> " + dir + "/files.seen; done\n" +
 			"touch " + dir + "/done.reply\n" +
 			"if [ -f " + dir + "/lose ]; then echo 'upstream timed out' >&2; exit 1; fi\n" +
 			"[ \"$ACME_TOKEN\" = tok-yardmaster ] || { echo 'Authentication required' >&2; exit 1; }\n" +
@@ -228,14 +230,35 @@ func testReplyWithFiles(t *testing.T) {
 	if len(files) != 2 || in["body"] != "See the shed." {
 		t.Fatalf("reply stdin %v", in)
 	}
-	for i, want := range [][]byte{shotBytes, pageBytes} {
+	// Each file is read at a path called what the file was called, in a
+	// directory of its own under the yard's tmp, and the directories are
+	// gone once the post is over.
+	seen, err := os.ReadFile(filepath.Join(dir, "files.seen"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range []struct {
+		name  string
+		bytes []byte
+	}{{"shot.png", shotBytes}, {"page.html", pageBytes}} {
 		p, _ := files[i].(string)
-		if filepath.Dir(p) != filepath.Join(home, "blobs") {
-			t.Fatalf("file %d path %q is no blob of the yard", i, p)
+		if want := filepath.Join(home, "tmp") + string(filepath.Separator) + "reply-"; !strings.HasPrefix(p, want) || filepath.Base(p) != c.name {
+			t.Fatalf("file %d path %q is no link called %s under %s", i, p, c.name, want)
 		}
-		if got, err := os.ReadFile(p); err != nil || !bytes.Equal(got, want) {
-			t.Fatalf("file %d holds %q, %v", i, got, err)
+		if !strings.Contains(string(seen), c.name+"\n"+string(c.bytes)+"\n") {
+			t.Fatalf("file %d (%s) was posted holding %q", i, c.name, seen)
 		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(home, "tmp", "*")); len(left) != 0 {
+		t.Fatalf("a post left %v", left)
+	}
+	blobs := func() []string {
+		t.Helper()
+		names, _ := filepath.Glob(filepath.Join(home, "blobs", "*"))
+		return names
+	}
+	if got := blobs(); len(got) != 2 {
+		t.Fatalf("the files are held as %d blobs: %v", len(got), got)
 	}
 
 	again, err := run(t, a.replyCmd(), seqs["acme"], "See the shed.", "--file", shot, "--file", page)
@@ -262,11 +285,6 @@ func testReplyWithFiles(t *testing.T) {
 		t.Fatalf("keys: %v", keys)
 	}
 
-	blobs := func() []string {
-		t.Helper()
-		names, _ := filepath.Glob(filepath.Join(home, "blobs", "*"))
-		return names
-	}
 	names, runs := blobs(), stdinRuns(t, dir, "reply")
 	if _, err := run(t, a.replyCmd(), seqs["gp"], "x", "--file", shot); err == nil ||
 		!strings.Contains(err.Error(), "which takes no files") {

@@ -481,6 +481,8 @@ type telegramSend struct {
 	hasCaption bool
 	field      string
 	file       []byte
+	name       string // the part's filename
+	ctype      string // the part's content type
 }
 
 // telegramMedia is a stand-in Bot API that records every send and answers
@@ -516,10 +518,11 @@ func (s *telegramMedia) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if send.method == "sendDocument" {
 			send.field = "document"
 		}
-		if f, _, err := r.FormFile(send.field); err != nil {
+		if f, hdr, err := r.FormFile(send.field); err != nil {
 			s.t.Errorf("%s carries no %s: %v", send.method, send.field, err)
 		} else {
 			send.file, _ = io.ReadAll(f)
+			send.name, send.ctype = hdr.Filename, hdr.Header.Get("Content-Type")
 			f.Close()
 		}
 	}
@@ -634,6 +637,35 @@ func testTelegramPackThreadFiles(t *testing.T) {
 		t.Fatalf("two files' id = %q, want the first's", m.ID)
 	}
 
+	// Each part goes with the type and the name a client's upload has. A
+	// file the yard keeps is called by its hash, which names nothing a
+	// person could open: a picture goes as photo.png, and a name with a
+	// ; or a , in it is no part of curl's own syntax.
+	blob := filepath.Join(t.TempDir(), strings.Repeat("ab", 32))
+	if err := os.WriteFile(blob, pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	odd := filepath.Join(t.TempDir(), "a;type=x,b c.txt")
+	if err := os.WriteFile(odd, []byte("odd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	draw := filepath.Join(t.TempDir(), "draw.svg")
+	if err := os.WriteFile(draw, []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1"/></svg>`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first := len(stub.sends)
+	if _, err := ad.ReplyFiles(ctx, env, "", "kinds", "key-k", []string{blob, txt, odd, draw}, cred); err != nil {
+		t.Fatal(err)
+	}
+	got = stub.sends[first:]
+	if len(got) != 4 ||
+		got[0].method != "sendPhoto" || got[0].name != "photo.png" || got[0].ctype != "image/png" ||
+		got[1].method != "sendDocument" || got[1].name != "notes.txt" || got[1].ctype != "text/plain" ||
+		got[2].method != "sendDocument" || got[2].name != "a;type=x,b c.txt" || got[2].ctype != "text/plain" || string(got[2].file) != "odd\n" ||
+		got[3].method != "sendDocument" || got[3].name != "draw.svg" || got[3].ctype != "image/svg+xml" {
+		t.Fatalf("kinds: %+v", got)
+	}
+
 	// A file that is not there is refused before anything is sent, and
 	// posted still finds nothing: files change no idempotency.
 	before := len(stub.sends)
@@ -689,6 +721,19 @@ func TestTelegramPackTell(t *testing.T) {
 		!sends[0].hasCaption || sends[0].caption != "mail from x\nhello words" || !bytes.Equal(sends[0].file, pngBytes) {
 		t.Fatalf("sends = %+v", sends)
 	}
+
+	// A picture the yard keeps is called by its hash: it goes as photo.png.
+	blob := filepath.Join(t.TempDir(), strings.Repeat("cd", 32))
+	if err := os.WriteFile(blob, pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tell(cred, map[string]any{"address": "123456789", "title": "t", "text": "x", "image": blob}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stub.sends[1]; got.method != "sendPhoto" || got.name != "photo.png" || got.ctype != "image/png" || !bytes.Equal(got.file, pngBytes) {
+		t.Fatalf("a picture called by its hash: %+v", got)
+	}
+	stub.sends = stub.sends[:1]
 
 	// One half alone stands without a stray newline, and a long caption
 	// is cut to 1024 characters, not bytes.

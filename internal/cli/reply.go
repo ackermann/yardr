@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -112,8 +114,8 @@ on GitHub). --to is for hook deliveries only.
 
 With --file <path>, given more than once for several, the reply carries
 files into the thread: pictures arrive as pictures, anything else as a
-document. The text stays the caption where it fits, else it is sent first
-and the files follow without one. A source whose file does not say its
+document, each under its own name. The text stays the caption where it
+fits, else it is sent first and the files follow without one. A source whose file does not say its
 replies take files is refused: --file there would send the words and drop
 the files. Mail and a note on another yard's bead take no --file.
 
@@ -266,7 +268,7 @@ event with the comment's id is logged. Prints the URL of the reply.`,
 				}
 				if !already {
 					if filer != nil {
-						m, err = filer.ReplyFiles(ctx, env, to, body, rp.Key, blobPaths(a.home(), refs), cred)
+						m, err = postWithFiles(ctx, filer, a.home(), env, to, body, rp.Key, refs, cred)
 					} else {
 						m, err = r.Reply(ctx, env, to, body, rp.Key, cred)
 					}
@@ -311,14 +313,33 @@ func hookFiler(ctx context.Context, st store.API, home string, seq uint64, sourc
 	return f, nil
 }
 
-// blobPaths are the refs as local files a thread command reads: each
-// blob's path in home.
-func blobPaths(home string, refs []store.BlobRef) []string {
-	out := make([]string, len(refs))
+// postWithFiles posts the reply with refs as the files it carries. Each is at
+// a path a thread command reads, and called what the file was called: a
+// link to the blob in a directory of its own under home's tmp, removed
+// when the post is over, so that what the service shows a person is the
+// name, not the blob's hash. Where a link cannot be made the blob's own
+// path stands.
+func postWithFiles(ctx context.Context, filer hooks.Filer, home string, env hooks.Envelope, to, body, key string, refs []store.BlobRef, cred string) (hooks.Message, error) {
+	paths := make([]string, len(refs))
 	for i, r := range refs {
-		out[i] = store.BlobPath(home, r.Hash)
+		paths[i] = store.BlobPath(home, r.Hash)
 	}
-	return out
+	root := filepath.Join(home, "tmp")
+	if err := os.MkdirAll(root, 0o700); err == nil {
+		if dir, err := os.MkdirTemp(root, "reply-"); err == nil {
+			defer os.RemoveAll(dir)
+			for i, r := range refs {
+				sub := filepath.Join(dir, strconv.Itoa(i))
+				if r.Name == "" || os.Mkdir(sub, 0o700) != nil {
+					continue
+				}
+				if link := filepath.Join(sub, r.Name); os.Link(paths[i], link) == nil {
+					paths[i] = link
+				}
+			}
+		}
+	}
+	return filer.ReplyFiles(ctx, env, to, body, key, paths, cred)
 }
 
 // awayBead is the bead of this yard that arg names for an answer on the

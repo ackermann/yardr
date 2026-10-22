@@ -915,7 +915,10 @@ link:                                 # the source's issues as a bead's link
 - **`thread.reply` takes files where the file says so.** `thread.files:
   true` says a reply carries files: `yardr reply <seq> --file <path>`
   (repeatable) puts each file as a blob and the reply's in gains
-  `files`, the local paths for the command to read. A source without
+  `files`, the local paths for the command to read, each called what
+  the file was called (a link to the blob in a directory of its own,
+  removed after the reply), so what the service shows a person is a
+  name and not the blob's hash. A source without
   the flag is refused `--file`: a command that ignores unknown keys
   would send the words and drop the files. Files are part of the
   answer, so the same words with other files are another reply, with a
@@ -2061,7 +2064,8 @@ them whole):
   it. No total volume or per-sender bound is set; the chat is one
   person's, at a person's pace.
 - **Pictures out.** `yardr reply <seq> "See the shed." --file shot.png`
-  sends pictures by `sendPhoto` and anything else by `sendDocument`:
+  sends a PNG, JPEG, GIF, WebP or BMP by `sendPhoto` and anything else
+  (an SVG, a PDF, a log) by `sendDocument`:
   the text is the caption of the first where it fits in 1024
   characters, else it goes first as its own message and the files
   follow without one, several one after another. A tell with a picture
