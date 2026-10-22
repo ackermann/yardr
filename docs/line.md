@@ -178,9 +178,9 @@ person and is reported as `crew_blocked` (yardr-v3mp, yardr-9a82, yardr-q7rd).
 The builder implements the change, commits on its branch (never pushes or
 merges), runs the depot's test command on the last commit (`sh .yardr/test`
 in its worktree, which its brief prints as `test:`: `gofmt`, `go vet`,
-`go build`, then `go test -race` on the packages the branch changed and
-their importers, or `go test` without `-race` when nothing it changed is
-compiled: see below), leaves a note with what it changed and verified, ending
+`go build`, then `go test` on the packages the branch changed and their
+importers, without `-race`: the race detector runs at landing only, see
+below), leaves a note with what it changed and verified, ending
 in a test line (the command, the commit, the result with counts), and
 reports `yardr bead done`, which the flow sends to `review`.
 
@@ -206,11 +206,10 @@ review and the reviewer committed nothing, and otherwise with
 stage files of `review` and `review-security` say so, yardr-0cw8). The
 script tests what changed since its base and whatever imports or reads
 that, so the selection is the reviewer's commits alone, not the
-builder's whole change again: a fix in a leaf package takes seconds, and
-the script's rules for any run decide whether it needs `-race` and so a
-place in the race lock's queue. A review base left behind by a rebase is
-compared from the commit it and `HEAD` share, which lies before the tested
-commit: the run tests more, never less. If the named base is ahead of
+builder's whole change again: a fix in a leaf package takes seconds. A
+review base left behind by a rebase is compared from the commit it and
+`HEAD` share, which lies before the tested commit: the run tests more,
+never less. If the named base is ahead of
 `HEAD`, the merge base is `HEAD` and would select nothing, so the script
 says "cannot compare"; the reviewer then runs plainly from the session's
 base. A base that is not in the repository at all also says "cannot
@@ -218,6 +217,14 @@ compare". On 22 Oct 2026 the reviewer's two runs
 of one bead waited 1530 s and 1447 s of about 2000 s each on the lock, and
 the security reviewer's run 1372 s, all to test the builder's whole change
 again after a review fix (yardr-a7sd).
+
+The landing run is also the only one with the race detector, besides the
+quiet run's (since yardr-ghjv, 22 Oct 2026; [testing.md](testing.md), R4).
+The builder's and the reviewer's plain run tests the same selection without
+`-race`, and so takes no place in the race lock's queue: of 170 passing test
+lines measured that day, 66% of the gate's wall time was spent queued there.
+A data race therefore shows at the landing, which sends the bead back, and
+not in a builder's or a reviewer's run.
 
 With `YARDR_LANDING=1` the script first asks what changed since
 `YARDR_BASE`, as a plain run does; the assembly has just rebased the
@@ -232,8 +239,8 @@ runs the plain selection alone (since yardr-bxh2, 13 Oct 2026:
 gofmt, vet, build, and the tests of the packages the table names for
 the changed files), and since yardr-57x5 (22 Oct 2026) without
 `-race`: the race detector looks at compiled code and none changed, so
-the run takes no place in the race lock's queue either. A plain run of
-such a branch does the same. It is the whole suite when what
+the run takes no place in the race lock's queue either. A plain run does
+the same, whatever it changed. A landing is the whole suite when what
 changed cannot be selected, or there is nothing to select from:
 
 - `go.mod` or `go.sum`, which move every package;
@@ -251,10 +258,10 @@ test: docs/design/2026-10-12-yardr-nx54-outside-pr-review.md changed: read by th
 test: testing, without -race, what changed, what imports it and what reads it: yardr.dev/yardr
 ```
 
-A plain run says the same of a branch that changed nothing compiled,
-without the landing's mark (`test: nothing compiled changed since main
-(YARDR_BASE), from 51c8a9e: testing without -race, no race lock`), and
-`test: what changed since main (YARDR_BASE), from 51c8a9e` otherwise.
+A plain run says why it is not raced, whatever it changed, without the
+landing's mark (`test: what changed since main (YARDR_BASE), from 51c8a9e:
+testing without -race (race runs at landing only, docs/testing.md R4)`), and
+makes no claim about it when it has nothing to test.
 
 ```text
 test: YARDR_LANDING is set, and internal/store/beads.go changed since main (YARDR_BASE), from 51c8a9e: the selection plus the six black-box suites (contrib/assembly, contrib/peer, contrib/deploy, contrib/server-yard, contrib/isolated-yard, contrib/release)
@@ -268,7 +275,8 @@ changed file by path can differ in a nothing-compiled landing, and
 those run. What counts as compiled is a `.go` file (a test file too),
 a file a package embeds, and a deleted file, which may have been
 embedded and cannot be asked: those, `go.mod` and `go.sum`, and a file
-no row knows keep `-race`. A run without it judges no package's time
+no row knows keep `-race` at a landing. A run without it -- a plain run, or
+a landing of nothing compiled -- judges no package's time
 against the 60 s budget ([testing.md](testing.md), R1, which is defined
 under `-race`); the sleep budget reads the tree and is judged as ever.
 Before yardr-57x5 a design document waited 20 to 35 minutes on the race
@@ -321,9 +329,11 @@ then the time it arrived and its pid. The first live ticket may take the
 lock, so landings are served before every other run, and each class in
 the order it came. A landing is what frees the next bead of a chain: on
 22 Oct 2026 an approved bead waited behind builders and reviewers on a
-queue of six. The run that holds the lock is never pre-empted, so a
-landing waits for it to end, and the plain runs cannot starve, since
-there are only as many landings as there are approved beads. `sh
+queue of six. Since yardr-ghjv only a run with `YARDR_LANDING` set has a
+race leg, so this script makes class 0 tickets alone and the queue is
+first come, first served; class 1 is left for the tickets of a copy of the
+script from before it (a branch not yet rebased). The run that holds the
+lock is never pre-empted, so a landing waits for it to end. `sh
 .yardr/test --race-queue` shows the holder and the waiters in the order
 they take the lock, each with its class (`landing` or `plain`).
 
@@ -1102,9 +1112,8 @@ yardr dep add <train> <wagon> -k parent
   `YARDR_LANDING`. What a command makes of that is the depot's own. Depot
   yardr formats, vets and builds everything, then tests the packages the
   branch changed, their importers, and the packages its reads table names.
-  A selected change with no compiled input runs without `-race`; the gate
-  keeps the race detector for Go or embedded files, deletions, module files,
-  and changes its reads table cannot select. The builder runs it
+  It runs without `-race`, whatever the wagon changed: the race detector runs
+  at landing only, on the whole train. The builder runs it
   before `done`, as the builder of any bead does; merge-local runs it again
   on exactly what lands, where any other bead gets the run with
   `YARDR_LANDING=1`.
@@ -1112,12 +1121,11 @@ yardr dep add <train> <wagon> -k parent
   depot's base: "what the branch changed" is what this wagon changed, not the
   train's earlier wagons again. `YARDR_BASE` is `yard/<train>` for the
   builder's session and for merge-local, which has just rebased the wagon
-  onto it, and depot yardr's script compares with `YARDR_BASE`. For a change
-  with compiled files, the first line says so (`test: what changed since
-  yard/<train> (YARDR_BASE), from <sha>`); for a selected change with no
-  compiled input, it says `test: nothing compiled changed since yard/<train>
-  (YARDR_BASE), from <sha>: testing without -race, no race lock`. The train's
-  own run tests everything before main moves.
+  onto it, and depot yardr's script compares with `YARDR_BASE`. The first
+  line says so, and that the run is not raced (`test: what changed since
+  yard/<train> (YARDR_BASE), from <sha>: testing without -race (race runs at
+  landing only, docs/testing.md R4)`). The train's own run tests everything,
+  with the race detector, before main moves.
 - **When merge-local leaves `YARDR_LANDING` out.** The exec runner tells a
   script the bead's type and its train (`YARDR_TYPE`, `YARDR_TRAIN`, the
   latter empty for a bead with no train). merge-local runs the test command
@@ -1584,9 +1592,10 @@ merge-pr does (below), and:
   so that a pull request cannot change the script that judges it; any other
   command runs as the pull request's own files make it. It runs without
   `YARDR_LANDING`, which this is not (depot yardr's `.yardr/test` then runs
-  the selection the change calls for, and not the black-box suites a landing
-  adds), and without the App's id and key file. The exit codes mean what they
-  do in merge-local: 1 and the like are red, 2 is "could not run", above 128 is
+  the selection the change calls for, without `-race`, and not the black-box
+  suites a landing adds), and without the App's id and key file. The exit
+  codes mean what they do in merge-local: 1 and the like are red, 2 is "could
+  not run", above 128 is
   a signal and is run once more, and a run past `YARDR_TEST_TIMEOUT` (1800
   seconds besides what it waited for the race lock) is killed and is red;
 - on green, asks GitHub for the head once more. The same commit is recorded
@@ -1640,7 +1649,8 @@ both, and the github source's `mint_command` is the mint, as there. The App
 needs Pull requests read on the repositories, for the head. The group is the
 yard's, made once, and `--group pr-ci=pr-ci` maps the pack's group to it for
 every depot, so their runs queue one behind another; the test gate's race lock
-queues the machine's runs as well. The apply writes the route for each depot:
+does not queue them, since a run without `YARDR_LANDING` is not raced. The
+apply writes the route for each depot:
 `ciwait`, type `pr`, to `pr-ci`. A yard whose `pr` flow is its own routes the
 stage by hand instead (`yardr route add --stage ciwait --type pr --originator
 any --group pr-ci`), a default that a later apply with the mapping leaves to

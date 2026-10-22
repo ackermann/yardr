@@ -3,9 +3,10 @@
 Seven rules keep the suite fast, each with the number that justifies it
 (docs/design/2026-10-16-yardr-635g-test-time.md measured them). The gate is
 the depot's test command, `sh .yardr/test`: builders and reviewers run it in
-their worktree, the assembly runs it with `YARDR_LANDING=1` on what lands.
-R1 and R2 are script behavior, enforced on every run; the rest are rules the
-gate, the roles and the assembly keep between them.
+their worktree, without `-race`; the assembly runs it with `YARDR_LANDING=1`
+on what lands, with it (R4). R1 and R2 are script behavior: R2 is enforced
+on every run, R1 on every race leg; the rest are rules the gate, the roles
+and the assembly keep between them.
 
 An allow-list in `.yardr/test` names what is over budget today, each entry
 with why and which bead brings it under. A fix deletes its entries; a row
@@ -14,8 +15,10 @@ no fix: `contrib/isolated-yard`'s, since the yard-shape matrix is long by
 design and runs only in the quiet run (R6).
 
 R1. A package's tests finish in 60 s under `-race`, or the gate fails.
-A run that changed nothing compiled has no race leg (R5), and so no R1
-verdict: it tests its selection without `-race`.
+Only a race leg is judged, and only the landing and the quiet run (R6) have
+one (R4): a builder's or reviewer's run, and a landing that changed nothing
+compiled (R5), test their selection without `-race` and so reach no R1
+verdict. A package that slips over 60 s shows at its landing, not before.
 The wall is the slowest package. When a non-allow-listed package takes over
 60 s in the race leg, the gate runs it again alone under the leg's lock.
 Over 60 s alone fails the run and names both times; 60 s or less passes
@@ -76,36 +79,49 @@ whose fix beads parallelize them following the assembly train-yard shape
 threaded its output and environment through its commands. Packages under
 budget comply until they breach it, and the budget is their backstop then.
 
-R4. One plain race leg per sha, in builder and review stages only. A stage
-whose branch is unchanged since a green test line on that sha does not
-rerun the plain suite; a stage that committed -- a review fix, a security
-fix -- still runs it on its new sha. That covers a repeat builder pass
-too: a pass with no new commit since a green line does not rerun
-(yardr-dx5f ran one sha three times across a hold and unhold). Every
-note says `reran` or `names this tip`, so the re-measure can tell a
-fresh leg from a quoted line. A stage that committed runs over its own
-commits alone, `YARDR_BASE=<the commit the last test line names> sh
-.yardr/test`, so its selection is what those commits changed and whatever
-imports or reads it (yardr-0cw8): a fix in a leaf package takes seconds,
-and the script's rules for any run decide whether it needs `-race`, and so
-a place in the race lock's queue. A review base left behind by a rebase is
-compared from the commit it and `HEAD` share, which lies before the tested
-commit, so the run selects more, never less. If the named base is ahead of
-`HEAD`, the merge base is `HEAD` and would select nothing, so the script
-says "cannot compare" and the reviewer runs plainly from the session's
-base. The assembly's runs are outside this rule:
-the landing always runs, on exactly what lands, every time, including
-after a merger's rebase that changed nothing
+R4. Race at landing only. `go test -race` runs in the landing run
+(`YARDR_LANDING=1`, the assembly's, on exactly what lands) and in the quiet
+whole-suite run (R6), and nowhere else. A builder's or reviewer's run of
+`.yardr/test` tests the same selection without `-race`, says so in its first
+line (`testing without -race (race runs at landing only, docs/testing.md
+R4)`), and so never takes the machine-wide race lock, nor judges R1, which
+is defined under `-race`. Measured on 22 Oct 2026 over the last 200 beads'
+notes: of 170 passing test lines, 66% of the gate's wall time (129k of
+193k s) was queued on that lock, and 107 runs waited over half their run;
+no bead or note among 1370 reports `WARNING: DATA RACE`. The detector still
+stands in front of `main`: a race fails the landing without a rerun, and the
+bead comes back to its builder. A builder who changes concurrent code and
+wants the detector sooner runs `YARDR_LANDING=1 sh .yardr/test`, which
+queues on the lock as a landing does.
+A builder or review stage runs the plain suite once per sha. A stage whose
+branch is unchanged since a green test line on that sha does not rerun it;
+a stage that committed -- a review fix, a security fix -- still runs it on
+its new sha. That covers a repeat builder pass too: a pass with no new
+commit since a green line does not rerun (yardr-dx5f ran one sha three times
+across a hold and unhold). Every note says `reran` or `names this tip`, so
+the re-measure can tell a fresh run from a quoted line. A stage that
+committed runs over its own commits alone, `YARDR_BASE=<the commit the last
+test line names> sh .yardr/test`, so its selection is what those commits
+changed and whatever imports or reads it (yardr-0cw8): a fix in a leaf
+package takes seconds. A review base left behind by a rebase is compared
+from the commit it and `HEAD` share, which lies before the tested commit,
+so the run selects more, never less. If the named base is ahead of `HEAD`,
+the merge base is `HEAD` and would select nothing, so the script says
+"cannot compare" and the reviewer runs plainly from the session's base. The
+assembly's runs are outside this rule: the landing always runs, on exactly
+what lands, every time, including after a merger's rebase that changed
+nothing
 (`contrib/assembly/merge-local`: the test command "runs on exactly what
 will land, every time"), and its landing gate differs from any plain
 run (`whole()` in `.yardr/test`: the selection plus the six black-box
 suites with `-race`, vet for linux too, the socket leg beside), so no
-plain test line ever satisfies it. The test line carries the leg's wall time and race-lock wait,
-written by `.yardr/test` itself so every note holds them: `test: sh
-.yardr/test @ <sha>: pass, <n> packages ok, 0 failed, 112 s, waited 40
-s`. The fields are the result, the packages passed and failed, the
-run's wall seconds, and the seconds it queued on the machine-wide race
-lock.
+plain test line ever satisfies it. The test line carries the run's wall time
+and race-lock wait, written by `.yardr/test` itself so every note holds
+them: `test: sh .yardr/test @ <sha>: pass, <n> packages ok, 0 failed, 112 s,
+waited 40 s`. The fields are the result, the packages passed and failed, the
+run's wall seconds, and the seconds it queued on the machine-wide race lock:
+`waited 0 s` on every builder and review line, since a plain run takes no
+lock, and a wait only on a landing's.
 
 R5. The landing runs the incremental selection -- today's package pick --
 plus always the six black-box suites (contrib/assembly, contrib/peer,
@@ -116,18 +132,20 @@ so the pick alone misses them. A landing that changed nothing compiled
 runs the plain selection alone, as before, without `-race` and so without
 the race lock (yardr-57x5): no `.go` file, embedded file or deletion is
 in it, so the binaries are the base's and only a test that opens a
-changed file by path can differ, which the selection holds. A plain run
-of such a branch does the same. One whose change cannot be
+changed file by path can differ, which the selection holds. Every plain
+run does the same, whatever it changed (R4). A landing whose change cannot be
 selected (go.mod or go.sum, a deletion, a file no row knows) and one
 with nothing to compare with still run the whole suite. The whole
 suite otherwise runs only when the yard is quiet (R6 below).
-A landing's race leg takes the machine-wide race lock ahead of every other
+A landing's race leg takes the machine-wide race lock ahead of any other
 run's (yardr-0cw8): a ticket in the lock's queue is named by class, `0-`
 for a run with `YARDR_LANDING` set and `1-` for any other, and the first
 live ticket may take the lock, so landings go first and each class keeps
-its arrival order. The run that holds the lock is never pre-empted, and
-the plain runs cannot starve, since there are only as many landings as
-there are approved beads. `sh .yardr/test --race-queue` shows each
+its arrival order. Since R4 only a run with `YARDR_LANDING` set has a race
+leg, so this script makes class 0 tickets alone and the queue is first
+come, first served; class 1 is left for the tickets of a copy of the
+script from before R4 (a branch not yet rebased). The run that holds the
+lock is never pre-empted. `sh .yardr/test --race-queue` shows each
 waiter's class.
 
 R6. The whole suite still runs, but when the yard is quiet, not on a timer

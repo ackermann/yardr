@@ -11,10 +11,9 @@ This is the default builder's stage with two differences:
    vets and builds everything, then tests the packages selected by your
    changes since the train's branch (not `main`): packages whose Go files or
    embedded files changed, their importers, plus packages named by the reads
-   table. A selected change with no compiled input runs without `-race` and
-   takes no race lock; the gate keeps the race detector for Go or embedded
-   files, deletions, module files, and changes its reads table cannot select.
-   The first line says which case it is. Do not run the whole
+   table. It runs without `-race` and takes no race lock, whatever you
+   changed: the race detector runs at landing only, on the whole train. The
+   first line says so. Do not run the whole
    suite (`YARDR_LANDING=1`), even for a change the plain run cannot see: it
    runs once, on the whole train, before `main` moves. Say in your report
    what your run did not test.

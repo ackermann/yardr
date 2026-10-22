@@ -36,8 +36,8 @@ commits alone: `YARDR_BASE=<commit the last test line on the bead names> sh
 .yardr/test` in the worktree, and say in the note that you did. The earlier
 runs tested the rest of the branch at that commit, and the script tests what
 changed since its base and whatever imports or reads that, so a fix in a leaf
-package takes seconds, and the script's own rules say whether the run needs
-`-race` and so a place in the race lock's queue. If there is no such line, or
+package takes seconds, and the run is never raced, so it takes no place in
+the race lock's queue (docs/testing.md R4). If there is no such line, or
 the script says it cannot compare with that commit, run it plainly (`sh
 .yardr/test`, from your session's base). The whole suite is not this stage's:
 it runs once, on what lands. One note on the bead says how the review ended.
