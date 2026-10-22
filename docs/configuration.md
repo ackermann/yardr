@@ -1092,8 +1092,14 @@ The file holds:
   command or a `git fetch` took from there has to come from somewhere else
   for the service (a group's `env_file`, a credential helper). The
   export's file alone holds more: the `OTEL_EXPORTER_OTLP_*` variables of
-  that shell, the collector's headers among them, so it is written mode
-  0600;
+  that shell, the collector's headers among them. Every service file is
+  written mode 0600, so that no other user reads that password or those
+  headers, and a file an older yardr wrote 0644 is 0600 once the install
+  writes it again. What the install prints of the file, as text and as
+  `--json`, hides them: the password of an address in the environment and
+  in the flags shows as `xxxxx` (`http://user:xxxxx@proxy:3128`), and the
+  export's headers, from `OTEL_EXPORTER_OTLP_HEADERS` or `--header`, as
+  `(a value, not shown)`. The file keeps them as they were given;
 - the home as working directory and `<home>/daemon.log` (`web.log`) for
   what it prints;
 - that it starts when loaded and at every login, and is started again when
@@ -1553,8 +1559,11 @@ so none of these variables reaches them.
 
 A proxy address can hold a password, as in `http://user:secret@proxy:3128`.
 yardr treats the address like any other value. It writes it into the service
-files, which are mode 0644, and `yardr daemon install` prints it. Prefer a
-proxy that lets the box through by its address.
+files, which are mode 0600, and `yardr daemon install` prints the address
+with the password as `xxxxx`, in the text and in `--json`. The password is
+still in the files and in the environment of what they start, which for
+herdr's server is every agent's pane. Prefer a proxy that lets the box
+through by its address.
 
 ### Retention: keeping `yard.db` bounded
 

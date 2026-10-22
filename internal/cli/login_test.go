@@ -221,6 +221,9 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 		k, v, _ := strings.Cut(kv, "=")
 		env[k] = v
 	}
+	// A password in a proxy's address goes into the services as it is, and
+	// they are their owner's alone; up --login prints none of it.
+	env["HTTPS_PROXY"] = "http://ada:secret@proxy.corp:3128"
 	herdrFile := filepath.Join(dir, "dev.yardr.herdr.plist")
 	daemonFile := filepath.Join(dir, "dev.yardr.daemon."+homeID(home)+".plist")
 
@@ -245,14 +248,19 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 	wantText(t, string(b), herdrWritten, "<string>/bin/herdr</string>\n\t\t<string>server</string>",
 		"<key>PATH</key>\n\t\t<string>/opt/yardr/bin:/usr/bin:/bin</string>", "<key>SuccessfulExit</key>\n\t\t<false/>")
 	for _, kv := range egressEnviron {
-		k, v, _ := strings.Cut(kv, "=")
-		wantText(t, string(b), "<key>"+k+"</key>\n\t\t<string>"+v+"</string>")
+		k, _, _ := strings.Cut(kv, "=")
+		wantText(t, string(b), "<key>"+k+"</key>\n\t\t<string>"+env[k]+"</string>")
 	}
 	if strings.Contains(string(b), home) || strings.Contains(string(b), "GITHUB_TOKEN") || strings.Contains(string(b), "ALL_PROXY") {
 		t.Errorf("herdr's service names the yard, or holds what is not the server's to have:\n%s", b)
 	}
-	if _, err := os.Stat(daemonFile); err != nil {
-		t.Fatal(err)
+	for _, file := range []string{herdrFile, daemonFile} {
+		if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s is %v, %v; want 0600", file, modeOf(fi), err)
+		}
+	}
+	if strings.Contains(out, "ada:secret") {
+		t.Errorf("up --login prints the proxy's password:\n%s", out)
 	}
 	calls := len(m.calls)
 
@@ -274,6 +282,24 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 	wantText(t, out, "login service for its server: installed and loaded: launchd starts herdr's server at login ("+herdrFile+")")
 	out, _ = run(t, a(false).rootCmd(), "doctor")
 	wantText(t, out, "configured      login service for herdr's server: herdr's server starts at login ("+herdrFile+")")
+
+	// herdr's file written over a 0644 one is 0600 too. No run of up writes
+	// it over a file that is there (it is found, or not yardr's and left),
+	// so the write is asked for, and starts nothing.
+	if err := os.Chmod(herdrFile, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := herdrUnit(a(false).environ(), "/bin/herdr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l loginUnit
+	if installHerdrLogin(context.Background(), u, &l, false) || l.Error != "" {
+		t.Fatalf("herdr's service written again: %+v", l)
+	}
+	if fi, err := os.Stat(herdrFile); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("herdr's service written again is %v, %v; want 0600", modeOf(fi), err)
+	}
 }
 
 // A server that runs is not restarted for its service, and no second copy

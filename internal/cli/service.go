@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,9 +57,6 @@ type unit struct {
 	Args    []string
 	Env     []string
 	Log     string
-	// Mode is the file's: 0600 for a kind whose environment may hold a
-	// credential (the telemetry export's headers).
-	Mode os.FileMode
 }
 
 // serviceDir is where the manager of this system reads a user's services
@@ -217,12 +215,8 @@ func newUnit(environ []string, cfg *config.Config, k *longRunning, args []string
 	if err != nil {
 		return nil, err
 	}
-	u := &unit{Kind: k.Name, Manager: manager, Name: name, Path: path, Home: cfg.Home, Program: self,
-		Args: append(k.command(), args...), Env: serviceEnv(environ, cfg.Home, k), Log: k.Log(cfg), Mode: 0o644}
-	if k.Vars != nil {
-		u.Mode = 0o600
-	}
-	return u, nil
+	return &unit{Kind: k.Name, Manager: manager, Name: name, Path: path, Home: cfg.Home, Program: self,
+		Args: append(k.command(), args...), Env: serviceEnv(environ, cfg.Home, k), Log: k.Log(cfg)}, nil
 }
 
 // render is the unit's file.
@@ -231,6 +225,29 @@ func (u *unit) render() string {
 		return u.plist()
 	}
 	return u.unitFile()
+}
+
+// write puts the unit's file in place for its owner alone, whatever the
+// file held before: its environment can carry a credential (the password of
+// a proxy's address, the telemetry export's headers), and no other user has
+// a use for a login service. A file that is there keeps its mode through a
+// write (an older yardr wrote 0644) and a new one's is filtered by the
+// umask, so the mode is set on the open file, before the environment goes
+// in: the credential never stands in a file that others can read.
+func (u *unit) write() error {
+	f, err := os.OpenFile(u.Path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.WriteString(u.render()); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func xmlText(s string) string {
@@ -416,7 +433,9 @@ func (u *unit) unload(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// serviceResult is what an install did.
+// serviceResult is what an install did. Its Args and Env are the file's as
+// an install prints them, text and JSON alike: what could be a credential
+// in them is hidden (shownArgs, shownEnv), and the file has it.
 type serviceResult struct {
 	Home    string   `json:"home"`
 	Kind    string   `json:"kind"`
@@ -437,6 +456,70 @@ type serviceResult struct {
 	// service's own.
 	StoppedPID int      `json:"stopped_pid,omitempty"`
 	Warnings   []string `json:"warnings"`
+}
+
+// shown is value, of the variable or the flag named key, as an install
+// prints it, for the credential it may hold. Two rules, in one function so
+// that the text and --json pass the same: a list of the telemetry export's
+// request headers (Authorization is among them) is hidden whole, as a
+// setting named like a secret is, and the password of a URL's userinfo, a
+// proxy's address or a collector's, is hidden as url.URL.Redacted hides it.
+// The unit's file has the value as it is.
+func shown(key, value string) string {
+	if value != "" && otelHeaders(key) {
+		return hidden(true)
+	}
+	return redactURL(value)
+}
+
+// redactURL is v with the password of its userinfo hidden (user:xxxxx@host),
+// and v as it is when it is no URL with one. A proxy's address may leave the
+// scheme out: Go and curl read user:secret@host:3128 as http://, which
+// url.Parse does not.
+func redactURL(v string) string {
+	if u, err := url.Parse(v); err == nil && hasPassword(u) {
+		return u.Redacted()
+	}
+	if u, err := url.Parse("http://" + v); err == nil && hasPassword(u) {
+		return strings.TrimPrefix(u.Redacted(), "http://")
+	}
+	return v
+}
+
+// hasPassword reports whether the userinfo of u has a password, an empty
+// one too.
+func hasPassword(u *url.URL) bool {
+	if u.User == nil {
+		return false
+	}
+	_, ok := u.User.Password()
+	return ok
+}
+
+// shownEnv is env, KEY=value each, as an install prints it (shown).
+func shownEnv(env []string) []string {
+	out := make([]string, len(env))
+	for i, kv := range env {
+		out[i] = kv
+		if key, value, ok := strings.Cut(kv, "="); ok {
+			out[i] = key + "=" + shown(key, value)
+		}
+	}
+	return out
+}
+
+// shownArgs is args as an install prints them (shown): each word, with the
+// flag before it for its key.
+func shownArgs(args []string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		key := ""
+		if i > 0 {
+			key = args[i-1]
+		}
+		out[i] = shown(key, a)
+	}
+	return out
 }
 
 // privateLogFile makes the service's log file with 0600 when none is
@@ -462,8 +545,8 @@ func privateLogFile(path string) error {
 // that runs already is stopped first: the service's would end on the lock
 // the other holds.
 func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (*serviceResult, error) {
-	res := &serviceResult{Home: u.Home, Kind: u.Kind, Manager: u.Manager, Name: u.Name, File: u.Path, Program: u.Program, Args: u.Args,
-		Env: u.Env, Log: u.Log, Load: shellLines(u.loadCommands()), Warnings: []string{}}
+	res := &serviceResult{Home: u.Home, Kind: u.Kind, Manager: u.Manager, Name: u.Name, File: u.Path, Program: u.Program, Args: shownArgs(u.Args),
+		Env: shownEnv(u.Env), Log: u.Log, Load: shellLines(u.loadCommands()), Warnings: []string{}}
 	if !fileOnly && u.Manager == systemd {
 		if _, err := lookPath("systemctl"); err != nil {
 			return nil, fmt.Errorf("systemctl is not on PATH: this system has no systemd for yardr to load the unit into. "+
@@ -478,7 +561,7 @@ func (u *unit) install(ctx context.Context, cfg *config.Config, fileOnly bool) (
 			return nil, err
 		}
 	}
-	if err := os.WriteFile(u.Path, []byte(u.render()), u.Mode); err != nil {
+	if err := u.write(); err != nil {
 		return nil, err
 	}
 	// The manager writes the service's log to the file as it is, but

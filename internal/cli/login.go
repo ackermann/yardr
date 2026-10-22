@@ -137,7 +137,7 @@ func herdrUnit(environ []string, bin string) (*unit, error) {
 		}
 	}
 	sort.Strings(env)
-	u := &unit{Kind: svcHerdr, Manager: manager, Name: name, Path: path, Home: home, Program: bin, Args: []string{"server"}, Env: env, Mode: 0o644}
+	u := &unit{Kind: svcHerdr, Manager: manager, Name: name, Path: path, Home: home, Program: bin, Args: []string{"server"}, Env: env}
 	if manager == launchd {
 		// launchd keeps no output; systemd's journal does.
 		u.Log = filepath.Join(home, "Library", "Logs", name+".log")
@@ -373,7 +373,7 @@ func installHerdrLogin(ctx context.Context, u *unit, l *loginUnit, start bool) b
 		_ = os.MkdirAll(filepath.Dir(u.Log), 0o755)
 	}
 	if err == nil {
-		err = os.WriteFile(u.Path, []byte(u.render()), u.Mode)
+		err = u.write()
 	}
 	if err != nil {
 		l.Error = err.Error()

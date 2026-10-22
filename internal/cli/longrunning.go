@@ -162,6 +162,14 @@ func webLoopback(flags *pflag.FlagSet) error {
 // export reads its collector and its headers from.
 func otelVar(key string) bool { return strings.HasPrefix(key, "OTEL_EXPORTER_OTLP_") }
 
+// otelHeaders reports whether key names the export's request headers, a list
+// of key=value with a credential in it (Authorization): the --header flag,
+// or the standard variable, OTEL_EXPORTER_OTLP_HEADERS, and the one each
+// signal has (OTEL_EXPORTER_OTLP_LOGS_HEADERS).
+func otelHeaders(key string) bool {
+	return key == "--header" || (otelVar(key) && strings.HasSuffix(key, "_HEADERS"))
+}
+
 // otelCollector refuses an export with nowhere to send to: in a terminal it
 // says so and ends, which in the background nobody would read.
 func otelCollector(flags *pflag.FlagSet) error {

@@ -114,7 +114,9 @@ func plutilLint(t *testing.T, plist string) {
 // An install makes the service's log with 0600 before the manager sees
 // it, and chmods an existing one to it, on either manager: the manager
 // writes to the file as it is, but makes a missing one with its own
-// mode (yardr-6pvg).
+// mode (yardr-6pvg). The service's file is 0600 too, of every kind: its
+// environment can hold a proxy's password. One an older yardr wrote 0644
+// is 0600 when it is written again, its words replaced.
 func TestInstallMakesTheLogPrivate(t *testing.T) {
 	for _, system := range []string{"darwin", "linux"} {
 		home := newHomeDir(t)
@@ -153,6 +155,21 @@ func TestInstallMakesTheLogPrivate(t *testing.T) {
 			if fi, err := os.Stat(log); err != nil || fi.Mode().Perm() != 0o600 {
 				t.Errorf("%s %s: a made log is %v, %v; want 0600", system, c.kind, modeOf(fi), err)
 			}
+			// The service's file is 0600, and one that was 0644 is 0600
+			// again once it is written, with the new words in it.
+			_, _, file, err := unitFile(config.At(home), c.kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+				t.Errorf("%s %s: a made service file is %v, %v; want 0600", system, c.kind, modeOf(fi), err)
+			}
+			if err := os.WriteFile(file, []byte("the words of an older install\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(file, 0o644); err != nil { // past the umask
+				t.Fatal(err)
+			}
 			// An existing one is chmodded to it, its words kept.
 			if err := os.WriteFile(log, []byte("what the service printed\n"), 0o644); err != nil {
 				t.Fatal(err)
@@ -168,6 +185,12 @@ func TestInstallMakesTheLogPrivate(t *testing.T) {
 			}
 			if body, err := os.ReadFile(log); err != nil || string(body) != "what the service printed\n" {
 				t.Errorf("%s %s: the install rewrote its log: %q, %v", system, c.kind, body, err)
+			}
+			if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+				t.Errorf("%s %s: a written again service file is %v, %v; want 0600", system, c.kind, modeOf(fi), err)
+			}
+			if body, err := os.ReadFile(file); err != nil || !strings.Contains(string(body), c.kind) || strings.Contains(string(body), "the words of an older install") {
+				t.Errorf("%s %s: the install did not replace the service file: %q, %v", system, c.kind, body, err)
 			}
 		}
 		// Where the log cannot be made the install fails, and says the
@@ -275,7 +298,7 @@ func TestServiceNameWithoutHome(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(u.Path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(u.Path, []byte(u.render()), u.Mode); err != nil {
+	if err := u.write(); err != nil {
 		t.Fatal(err)
 	}
 	// The home appears, and uninstall removes the service, not "nothing".
@@ -338,6 +361,58 @@ func TestServiceEnv(t *testing.T) {
 		if has := slices.Contains(got, environ[1]); has != (k.Name == svcOTel) || slices.Contains(got, environ[2]) || slices.Contains(got, environ[3]) {
 			t.Errorf("%s: env = %q", k.Name, got)
 		}
+	}
+}
+
+// What an install prints of a unit's environment and flags: the password of
+// a URL's userinfo as url.URL.Redacted hides it (also in an address with no
+// scheme, which Go and curl read as http://), the export's request headers
+// whole, and every other word as it is. The unit's own words are not
+// changed: its file has them.
+func TestShown(t *testing.T) {
+	t.Parallel()
+	same := ""
+	for _, c := range []struct{ name, in, want string }{
+		{"a proxy with a password", "HTTPS_PROXY=http://ada:secret@proxy.example:3128", "HTTPS_PROXY=http://ada:xxxxx@proxy.example:3128"},
+		{"the lower-case name", "https_proxy=http://ada:secret@proxy.example:3128", "https_proxy=http://ada:xxxxx@proxy.example:3128"},
+		{"an @ in the password", "HTTP_PROXY=socks5://ada:p@ss@proxy.example:1080", "HTTP_PROXY=socks5://ada:xxxxx@proxy.example:1080"},
+		{"an escaped password", "HTTPS_PROXY=http://ada:p%40ss@proxy.example:3128/", "HTTPS_PROXY=http://ada:xxxxx@proxy.example:3128/"},
+		{"no scheme", "HTTPS_PROXY=ada:secret@proxy.example:3128", "HTTPS_PROXY=ada:xxxxx@proxy.example:3128"},
+		{"a user and no password", "HTTPS_PROXY=http://ada@proxy.example:3128", same},
+		{"no userinfo", "HTTPS_PROXY=http://proxy.example:3128", same},
+		{"no userinfo, no scheme", "HTTPS_PROXY=proxy.example:3128", same},
+		{"hosts", "NO_PROXY=localhost,.corp", same},
+		{"a PATH with an @ in a directory", "PATH=/opt/homebrew/opt/python@3.11/bin:/usr/bin", same},
+		{"an address", "YARDR_HOOK_ADDR=127.0.0.1:8790", same},
+		{"a value that has an =", "SSL_CERT_FILE=/etc/corp/ca=1.pem", same},
+		{"a word that is no KEY=value", "STRAY", same},
+		{"a collector with a password", "OTEL_EXPORTER_OTLP_ENDPOINT=https://ada:secret@collector.example:4318", "OTEL_EXPORTER_OTLP_ENDPOINT=https://ada:xxxxx@collector.example:4318"},
+		{"the export's headers", "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer example-secret", "OTEL_EXPORTER_OTLP_HEADERS=(a value, not shown)"},
+		{"a signal's headers", "OTEL_EXPORTER_OTLP_LOGS_HEADERS=k=v", "OTEL_EXPORTER_OTLP_LOGS_HEADERS=(a value, not shown)"},
+		{"headers that are none", "OTEL_EXPORTER_OTLP_HEADERS=", same},
+		{"another variable of the export", "OTEL_EXPORTER_OTLP_TIMEOUT=10", same},
+		{"headers of another program", "HEADERS=Authorization=Bearer example-secret", same},
+	} {
+		in := []string{c.in}
+		got := shownEnv(in)
+		if want := or(c.want, c.in); !slices.Equal(got, []string{want}) {
+			t.Errorf("%s: %q is shown as %q, want %q", c.name, c.in, got, want)
+		}
+		if in[0] != c.in {
+			t.Errorf("%s: the unit's own word is now %q", c.name, in[0])
+		}
+	}
+
+	args := []string{"otel", "export", "--endpoint", "https://ada:secret@collector.example:4318", "--header", "Authorization=Bearer example-secret",
+		"--header", "x-tenant=ada", "--after", "5m", "--include-text=true"}
+	own := slices.Clone(args)
+	want := []string{"otel", "export", "--endpoint", "https://ada:xxxxx@collector.example:4318", "--header", "(a value, not shown)",
+		"--header", "(a value, not shown)", "--after", "5m", "--include-text=true"}
+	if got := shownArgs(args); !slices.Equal(got, want) {
+		t.Errorf("flags are shown as %q, want %q", got, want)
+	}
+	if !slices.Equal(args, own) {
+		t.Errorf("the unit's own flags are now %q", args)
 	}
 }
 
@@ -494,13 +569,22 @@ func TestDaemonInstallNamesHerdrLogin(t *testing.T) {
 	}
 }
 
-// --file-only writes and removes the file and leaves the manager alone.
+// --file-only writes and removes the file and leaves the manager alone. The
+// file is its owner's alone, a 0644 one included once it is written again,
+// and holds the proxy's address as the starter has it, password and all;
+// what the install prints, as text and as JSON, has the password hidden.
 func TestDaemonInstallFileOnly(t *testing.T) {
 	home := newHomeDir(t)
 	dir, m := stubServices(t, "linux")
-	a := testApp(t, storetest.New(t), home)
-	a.actor = "me"
-	out, err := run(t, a.rootCmd(), "daemon", "install", "--file-only")
+	const proxy, redacted = "http://ada:secret@proxy.example:3128", "http://ada:xxxxx@proxy.example:3128"
+	st := storetest.New(t)
+	testYard(t, st, home, "HTTPS_PROXY="+proxy)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
+	out, err := run(t, a().rootCmd(), "daemon", "install", "--file-only")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,13 +594,40 @@ func TestDaemonInstallFileOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, string(body), `ExecStart="/opt/yardr/bin/yardr" "daemon"`, `Environment="YARDR_HOME=`+home+`"`, "WantedBy=default.target")
+	wantText(t, string(body), `ExecStart="/opt/yardr/bin/yardr" "daemon"`, `Environment="YARDR_HOME=`+home+`"`, "WantedBy=default.target",
+		`Environment="HTTPS_PROXY=`+proxy+`"`)
+	if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the service file is %v, %v; want 0600", modeOf(fi), err)
+	}
 	wantText(t, out, "systemd user unit "+name+" written", "Not loaded (--file-only)",
-		"systemctl --user daemon-reload && systemctl --user enable "+name+" && systemctl --user restart "+name)
+		"systemctl --user daemon-reload && systemctl --user enable "+name+" && systemctl --user restart "+name, "HTTPS_PROXY="+redacted+"\n")
+	if strings.Contains(out, "secret") {
+		t.Errorf("the install prints the proxy's password:\n%s", out)
+	}
 	if len(m.calls) != 0 {
 		t.Fatalf("calls = %q", m.calls)
 	}
-	out, err = run(t, a.rootCmd(), "daemon", "uninstall", "--file-only")
+
+	// An install over a file an older yardr wrote 0644 makes it 0600.
+	if err := os.Chmod(file, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a().rootCmd(), "daemon", "install", "--file-only", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res serviceResult
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil || !slices.Contains(res.Env, "HTTPS_PROXY="+redacted) || strings.Contains(out, "secret") {
+		t.Errorf("the install's JSON (%v) shows the proxy's password, or not its address:\n%s", jerr, out)
+	}
+	if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("the service file written again is %v, %v; want 0600", modeOf(fi), err)
+	}
+	if body, err := os.ReadFile(file); err != nil || !strings.Contains(string(body), `Environment="HTTPS_PROXY=`+proxy+`"`) {
+		t.Errorf("the file written again lost the proxy's address: %q, %v", body, err)
+	}
+
+	out, err = run(t, a().rootCmd(), "daemon", "uninstall", "--file-only")
 	if err != nil || !strings.Contains(out, "Not unloaded (--file-only)") || len(m.calls) != 0 {
 		t.Fatalf("%v, calls %q\n%s", err, m.calls, out)
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -438,14 +439,16 @@ func TestBDPAndOTelStartStop(t *testing.T) {
 }
 
 // yardr otel install writes a service that others cannot read: its
-// environment may hold the collector's credentials.
+// environment may hold the collector's credentials. What it prints, as text
+// and as JSON, has them hidden: the headers of the variable and of the flag
+// (yardr-a1qr), and the password of a collector's address.
 func TestOTelInstall(t *testing.T) {
 	home := newHomeDir(t)
 	dir, _ := stubServices(t, "darwin")
 	st := storetest.New(t)
 	env := testYard(t, st, home)
 	// The install writes the run's headers into the service's file.
-	env["OTEL_EXPORTER_OTLP_HEADERS"] = "Authorization=Bearer t0ken"
+	env["OTEL_EXPORTER_OTLP_HEADERS"] = "Authorization=Bearer example-secret"
 	a := func() *app {
 		a := appOn(st)
 		a.actor = "me"
@@ -454,7 +457,8 @@ func TestOTelInstall(t *testing.T) {
 	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run(t, a().rootCmd(), "otel", "install", "--endpoint", "http://127.0.0.1:4318"); err != nil {
+	out, err := run(t, a().rootCmd(), "otel", "install", "--endpoint", "http://127.0.0.1:4318")
+	if err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(dir, "dev.yardr.otel."+homeID(home)+".plist")
@@ -464,10 +468,41 @@ func TestOTelInstall(t *testing.T) {
 	}
 	plutilLint(t, string(body))
 	wantText(t, string(body), "<string>otel</string>\n\t\t<string>export</string>\n\t\t<string>--endpoint</string>\n\t\t<string>http://127.0.0.1:4318</string>",
-		"<key>OTEL_EXPORTER_OTLP_HEADERS</key>\n\t\t<string>Authorization=Bearer t0ken</string>", "<string>"+home+"/otel.log</string>")
+		"<key>OTEL_EXPORTER_OTLP_HEADERS</key>\n\t\t<string>Authorization=Bearer example-secret</string>", "<string>"+home+"/otel.log</string>")
 	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %v", info.Mode().Perm())
 	}
+	wantText(t, out, "\n           OTEL_EXPORTER_OTLP_HEADERS=(a value, not shown)\n", "--endpoint http://127.0.0.1:4318")
+	if strings.Contains(out, "example-secret") {
+		t.Errorf("the install prints the headers:\n%s", out)
+	}
+
+	// As JSON, and with the headers and a password in the flags too: the file
+	// has them all, the answer none.
+	out, err = run(t, a().rootCmd(), "otel", "install", "--endpoint", "https://ada:pw-secret@collector.example:4318", "--header", "x-tenant=flag-secret", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res serviceResult
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil {
+		t.Fatalf("json install: %v\n%s", jerr, out)
+	}
+	for _, secret := range []string{"example-secret", "flag-secret", "pw-secret"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("the install's JSON has %s:\n%s", secret, out)
+		}
+	}
+	if !slices.Contains(res.Env, "OTEL_EXPORTER_OTLP_HEADERS=(a value, not shown)") ||
+		!slices.Contains(res.Args, "https://ada:xxxxx@collector.example:4318") || !slices.Contains(res.Args, "(a value, not shown)") {
+		t.Errorf("the install's JSON shows env %q, flags %q", res.Env, res.Args)
+	}
+	body, err = os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText(t, string(body), "<string>https://ada:pw-secret@collector.example:4318</string>", "<string>x-tenant=flag-secret</string>",
+		"<string>Authorization=Bearer example-secret</string>")
+
 	if _, err := run(t, a().rootCmd(), "otel", "uninstall"); err != nil {
 		t.Fatal(err)
 	}
