@@ -24,12 +24,23 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
      bead it blocked.
    - style matches the surrounding code; comments explain why
    - nothing outside the bead's scope crept in
+   - the bead's title says what the change does, in the imperative
+     ("Withhold setup candidates from non-operator devices", not "Bead
+     carries ... to every device"), since the landing makes it the subject
+     of the bead's commit: retitle it when it does not
+     (`yardr bead update <id> --title "..."`)
+   - a change that removes or renames a command, flag, config key, store
+     field or file format, or changes what one means, carries a line
+     `BREAKING CHANGE: <what breaks>` in the body of a commit: add one in a
+     review commit when the builder's commits lack it
    - a new concept, flag, setting or special case that an existing
      mechanism would have carried is a finding
 3. Fix forward. For problems you can fix with confidence, fix them on the
-   branch, in small commits subject "<bead id> review: <what>"; add no
-   trailers of your own: the yard adds them. Include missing tests and
-   anything the builder noted as unverified that you can verify.
+   branch, in small commits subject "review: <what>"; add no trailers of
+   your own: the yard adds them. A fix that breaks a user's setup or a
+   command's behaviour carries a line `BREAKING CHANGE: <what breaks>` in
+   the body of its commit. Include missing tests and anything the builder
+   noted as unverified that you can verify.
 4. Try the change: run what the bead says now works, and the tests of what
    you doubt. Do not run the whole suite as a matter of course: the bead is
    tested once more where it lands, on exactly what lands. The builder's
@@ -159,7 +170,7 @@ redo the feature review:
    that the note names every conflicting file, and that the depot's test
    command passes (it runs again on what lands).
 3. Not sound: fix it forward if you can with confidence (commits subject
-   "<bead id> review: <what>"). Then note and report as the stage says for
+   "review: <what>"). Then note and report as the stage says for
    a merge re-review.
 
 ## Train review
@@ -176,7 +187,7 @@ what follows applies where it is silent.
 2. Check the whole against the train's goal and "done when": do the seams
    between children hold, do the docs describe the end state, is anything a
    child left "for later" actually done.
-3. Fix forward as for any bead, in commits subject "<bead id> review: <what>",
+3. Fix forward as for any bead, in commits subject "review: <what>",
    and run the depot's test command after your changes.
 4. Note and advance as usual. `--outcome changes` sends the train back to
    open; the fix is then a new child the yardmaster files, so make the finding

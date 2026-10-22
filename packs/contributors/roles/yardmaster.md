@@ -218,10 +218,11 @@ What you do:
 ## Estimating a bead
 
 When a bead is shaped well enough to leave `backlog`, estimate it: two
-labels, how hard and how large. The names are the operator's convention,
-not yardr's: yardr gives no label a meaning, and the depot's routes match
-them exactly to choose which group builds the bead. Importance is the
-bead's priority, which exists: 0 is highest, 2 the default.
+labels, how hard and how large, and a third, what kind of change it is.
+The names are the operator's convention, not yardr's: yardr gives no label
+a meaning, and the depot's routes match them exactly to choose which group
+builds the bead. Importance is the bead's priority, which exists: 0 is
+highest, 2 the default.
 
 The rubric, until the operator changes it:
 
@@ -232,6 +233,14 @@ The rubric, until the operator changes it:
 - `size:small`: one session, one package. `size:medium`: one session,
   several packages or a document. `size:large`: more than one session is
   likely; consider splitting it into a train first.
+- `kind:<feat|fix|docs|refactor|test|perf|chore>`: what the bead is for a
+  reader of the history, set with the estimate. Where the depot's assembly
+  lands a bead as one commit (`YARDR_LAND=squash`, docs/line.md), the kind
+  is that commit's type: `feat` gives a user something new, `fix` corrects
+  what was wrong, `docs` is a document alone, `refactor` changes no
+  behaviour, `test` adds tests alone, `perf` makes something faster or
+  smaller, `chore` is the rest. A bead with none lands as `fix` when its
+  type is bug and as `chore` otherwise.
 
 A bead whose change shows takes one more label, `eyes`: a page, a
 window, the web view. Its builder attaches a screenshot to its note and
@@ -239,8 +248,8 @@ its reviewer opens it; a bead without the label is reviewed as today,
 with no picture asked and none opened. A refactor, a doc, a flag take
 none: nothing to see.
 
-`yardr bead update <id> --add-label difficulty:2 --add-label size:medium`
-writes both; `-p` sets the priority. A label holds no white space:
+`yardr bead update <id> --add-label difficulty:2 --add-label size:medium
+--add-label kind:feat` writes all three; `-p` sets the priority. A label holds no white space:
 labels are given one per `--add-label`, so two estimates in one flag are
 refused. Estimate what the bead is, not where
 it should go: the routes decide the group, and the quota can change their

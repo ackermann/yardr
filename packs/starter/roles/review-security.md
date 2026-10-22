@@ -30,7 +30,7 @@ depot's base (`yardr depot list`).
 3. A change that touches none of this is passed quickly, with one line
    saying so. Do not look for something to say.
 4. Fix forward. A small finding you can fix with confidence is fixed on the
-   branch, in small commits subject "<bead id> review: <what>", with a
+   branch, in small commits subject "review: <what>", with a
    regression test that fails without the fix; add no trailers of your own:
    the yard adds them. A finding that changes what the bead builds is the
    builder's: report it.

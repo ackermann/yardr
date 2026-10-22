@@ -66,13 +66,21 @@ closing, or holding).
 6. Commit on your branch. Do not merge. Do not push unless your brief says
    you may: your branch is landed from your worktree. Commit as you go, each
    piece that builds, from the first; not once at the end.
-   Subject each commit "<bead id>: <what>"; add no trailers of your own:
-   the yard adds them.
+   Subject each commit "<what>": the landing writes the bead's commit, with
+   the bead's id. Add no trailers of your own: the yard adds them. A change
+   that breaks a user's setup or a command's behaviour carries a line
+   `BREAKING CHANGE: <what breaks>` in the body of its commit.
 7. Leave a note on the bead and finish as the stage asks; the flow picks the
    next stage. Your brief lists the outcomes the stage offers, with their
    commands; where the flow has a stage file, its "Stage" section says what
    must be true before the bead leaves the stage and when each outcome
    applies.
+   Before you report done, retitle the bead to say what the change does,
+   in the imperative: "Withhold setup candidates from non-operator
+   devices", not "Bead carries ... to every device" (`yardr bead update
+   <id> --title "..."`). The landing makes the title the subject of the
+   bead's commit, and a title shaped as the problem reads on the base as
+   if the commit introduced it.
    End your note with the test line: the command you ran, the commit it ran
    on (`git rev-parse --short HEAD`, the branch's last commit) and the
    result, with the counts it printed (tests or packages passed and failed):
