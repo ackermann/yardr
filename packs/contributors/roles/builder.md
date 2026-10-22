@@ -34,6 +34,10 @@ closing, or holding).
    runs the copy on the depot's base, not yours: an edit to that script is
    tested by your run alone.
    Every bug you find or fix gets a regression test.
+   Before you write a new test function, find the test that already
+   drives that path and add your case to it (a row in its table, a step in
+   its sequence); write a new function only where none does, and say in
+   your note which you extended.
    A new test earns its seconds and its stability: drive the behaviour
    through the cheapest setup that pins it (a function call, then a
    throwaway store, then a stand-in; a process, a sleep, or a build only
@@ -76,6 +80,11 @@ closing, or holding).
    The reviewer goes by that line instead of running the tests again, so it
    must be true of the commit you hand on: commit after it, and you run them
    again.
+   After the test line, one last line: `Friction: <what>`, the one thing
+   that cost you most on this bead and where (a gap in the bead, a slow or
+   flaky test, a tool that misbehaved), or `Friction: none`. One thing,
+   concrete enough to fix; the yard reads these lines each week to change
+   specs, roles and tools.
 
 Never leave evidence or anything a later stage must read in /tmp, where the
 next cleanup takes it: put a picture on the note with --file, and anything
@@ -157,3 +166,19 @@ after your last commit and your test run, and attach it to the note:
 3. It is a question about the bead itself (an unclear goal, a design
    choice): that is for the stage's outcomes, not for a new bead. Your brief
    says which outcome takes a question, or hold as above.
+
+## The Go build cache is shared
+
+Never run `go clean -cache`, and never delete under the shared `$GOCACHE`:
+every builder, reviewer and the landing on the yard's machine reads that
+cache, and a file taken from under a running build fails it with "could not
+import ... go-build/...: no such file". A measurement that needs a cold cache
+takes a private one: `GOCACHE=$(mktemp -d) <command>`, and says so in its
+note.
+
+## Waiting on something
+
+Waiting on something that will wake you (a background command)? Run
+`yardr session snooze 10m "<what>"` before you end your turn, so the yard
+does not take you for stuck and prod you. A snooze lasts 15m at most, three
+in a row.
