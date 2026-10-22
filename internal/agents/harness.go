@@ -614,6 +614,8 @@ func (s UsageSource) check() error {
 		return fmt.Errorf("read %q is neither last nor sum", s.Read)
 	case s.Key != "" && s.Read != "sum":
 		return fmt.Errorf("key counts one line for each of its values under read: sum, and this entry does not sum")
+	case s.CacheInInput && s.Input == "":
+		return fmt.Errorf("cache_in_input names no input to take the cache off")
 	case s.CacheInInput && s.CacheRead == "":
 		return fmt.Errorf("cache_in_input names no cache_read to take off input")
 	}
