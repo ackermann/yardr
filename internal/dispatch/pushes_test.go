@@ -70,6 +70,10 @@ type pushYard struct {
 	log    bytes.Buffer
 	env    string // ada's env_file
 	home   string // the yard's home, the store's and the daemon's
+	// secrets are what, beside the source's token and ada's address, no
+	// event or line of the log may hold: a test that sets up another
+	// source adds its own.
+	secrets []string
 }
 
 func newPushYard(t *testing.T) *pushYard {
@@ -180,7 +184,7 @@ func (y *pushYard) noSecrets(t *testing.T) {
 	must(t, err)
 	raw, _ := json.Marshal(evs)
 	for what, text := range map[string]string{"the events": string(raw), "the daemon's log": y.log.String()} {
-		for _, secret := range []string{pushToken, pushAddress} {
+		for _, secret := range append([]string{pushToken, pushAddress}, y.secrets...) {
 			if strings.Contains(text, secret) {
 				t.Errorf("%s hold %q:\n%s", what, secret, text)
 			}
@@ -345,6 +349,7 @@ func TestPushBurstIsOneMessage(t *testing.T) {
 	t.Run("mail image", testPushTellsMailImage)
 	t.Run("done bead image", testPushTellsDoneBeadScreenshot)
 	t.Run("first image across batch", testPushFirstImageAcrossBatch)
+	t.Run("pushover pack pictures", testPushoverPackPictures)
 }
 
 // A message waits for the grace of its newest item, and no longer than

@@ -6,7 +6,9 @@
 #   yardr pack apply pushover --source-env pushover=<file> --notify <user>=pushover,<file>
 #
 # The source is named pushover: yardr knows Pushover as this pack alone.
-# The declaration is the file docs/pushover.md has, to the byte.
+# The declaration is the file docs/pushover.md has, to the byte, with one
+# line more: notify's image, which names the command beside it that sends
+# a picture (the page's file has none, for there is no command by hand).
 name: pushover
 kind: source
 setup: SETUP.md

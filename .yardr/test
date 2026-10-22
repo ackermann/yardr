@@ -1358,6 +1358,7 @@ packs/linear/                  internal/hooks internal/dispatch
 packs/github/                  internal/hooks
 packs/slack/                   internal/hooks internal/store
 packs/telegram/                internal/hooks internal/store
+packs/pushover/                internal/notify internal/dispatch
 packs/posthog/                 internal/hooks
 packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs

@@ -46,7 +46,8 @@ func TestReadEmbeddedSourcePack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Sources) != 1 || len(r.Sources[0].Files) != 0 {
+	if len(r.Sources) != 1 || len(r.Sources[0].Files) != 1 || r.Sources[0].Files[0].Program != "pushover/notify" ||
+		r.Sources[0].Files[0].SHA256 == "" || r.Sources[0].Files[0].Text == "" {
 		t.Fatalf("the pushover reading = %+v", r.Sources)
 	}
 	if _, err := readEmbeddedPack(context.Background(), "nosuchpack", st, t.TempDir()); err == nil ||

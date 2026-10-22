@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -61,7 +62,8 @@ func pushoverPack(t *testing.T) string {
 
 // The by-hand file docs/pushover.md keeps is the one the tests of yardr
 // source and of the push send through, to the byte, and the one the
-// pushover pack brings.
+// pushover pack brings, with the one line more that names the pack's own
+// command for a picture: by hand there is no command to name.
 func TestThePushoverPageHasTheTestedDeclaration(t *testing.T) {
 	t.Parallel()
 	want, err := os.ReadFile("testdata/pushover.yaml")
@@ -75,8 +77,9 @@ func TestThePushoverPageHasTheTestedDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(packDecl) != string(want) {
-		t.Fatalf("packs/pushover/pushover.yaml and testdata/pushover.yaml differ:\n%s", packDecl)
+	image := regexp.MustCompile(`(?m)^  image: \[pushover/notify, tell\].*\n`)
+	if got := image.ReplaceAllString(string(packDecl), ""); got == string(packDecl) || got != string(want) {
+		t.Fatalf("packs/pushover/pushover.yaml is not testdata/pushover.yaml with the image line (%v):\n%s", got == string(packDecl), packDecl)
 	}
 }
 

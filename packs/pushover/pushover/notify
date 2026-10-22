@@ -1,0 +1,104 @@
+#!/bin/bash
+# notify: what the yard tells a person through Pushover when the message
+# carries a picture, for the notify key's image command. The verb is tell:
+# one JSON object on stdin, {address, title, text, image}, and one on
+# stdout, {status}. PUSHOVER_TOKEN and YARDR_SOURCE_BASE, the declaration's
+# base, are in the environment. Needs curl, jq, file and the standard shell
+# utilities it calls (tr, wc).
+#
+# The declaration's message call sends JSON, which carries no picture, so a
+# message with one is sent here as the multipart form the API takes for an
+# attachment. A message takes one picture of 5,242,880 bytes at most, and
+# fitting it under that is the sender's work (pushover.net/api, read 22
+# October 2026): a larger one is refused here, with its size, before
+# anything is sent, and the daemon tells the words alone.
+set -euo pipefail
+in=$(cat)
+arg() { jq -r --arg k "$1" '.[$k] // ""' <<<"$in"; }
+
+cfgq() { # a value for a line of curl's config, quoted: a " or \ or a line break in it is data, never the config's syntax or another option
+  local s=${1//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  printf '"%s"' "$s"
+}
+
+qform() { # a value for curl's -F, quoted, so that a ; or , or " in a file's name is no part of the option's syntax
+  local s=${1//\\/\\\\}
+  printf '"%s"' "${s//\"/\\\"}"
+}
+
+cut() { # a text cut to n characters, not bytes, with the ellipsis the declared call's cut leaves
+  jq -nr --arg s "$1" --argjson n "$2" '$s | if length > $n then .[0:$n-1] + "…" else . end'
+}
+
+describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token and the user key taken out should the service echo them
+  local d
+  d=$(jq -r '(.errors // []) | map(tostring) | join(", ")' <<<"$1" 2>/dev/null | tr -cd '[:print:]') || d=""
+  d=${d//"$PUSHOVER_TOKEN"/}
+  d=${d//"$address"/}
+  printf '%s' "${d:0:200}"
+}
+
+case "$1" in
+tell) # one message with its picture to the person, in the multipart form
+  address=$(arg address)
+  title=$(arg title)
+  text=$(arg text)
+  image=$(arg image)
+  [ -n "$address" ] || { echo "notify.image was handed no address" >&2; exit 1; }
+  [ -n "$image" ] || { echo "notify.image was handed no image" >&2; exit 1; }
+  : "${PUSHOVER_TOKEN:?PUSHOVER_TOKEN is not set}"
+  : "${YARDR_SOURCE_BASE:?YARDR_SOURCE_BASE is not set}"
+  [ -f "$image" ] || { echo "notify.image found no file at $image" >&2; exit 1; }
+  size=$(wc -c <"$image" | tr -d ' ')
+  if [ "$size" -gt 5242880 ]; then
+    echo "the picture is $size bytes, and Pushover takes 5242880 at most" >&2
+    exit 1
+  fi
+  # The words as the declared call has them: a title of 250 characters at
+  # most and a text of 1024. The API requires a message, so a picture sent
+  # with a title alone has the title for its message.
+  title=$(cut "$title" 250)
+  text=$(cut "$text" 1024)
+  if [ -z "$text" ]; then
+    text=$title
+    title=""
+  fi
+  [ -n "$text" ] || { echo "notify.image was handed neither a title nor a text" >&2; exit 1; }
+  # The part goes with a type and a name, which the API requires of an
+  # attachment. A picture the yard keeps is called by its hash, which names
+  # nothing a person could open: it goes as photo.png or photo.jpg.
+  mime=$(file -b --mime-type "$image" 2>/dev/null) || mime=""
+  [[ $mime =~ ^[a-z0-9.+_-]+/[a-z0-9.+_-]+$ ]] || mime=application/octet-stream
+  case "$mime" in
+  image/png) name=photo.png ;;
+  image/jpeg) name=photo.jpg ;;
+  image/gif) name=photo.gif ;;
+  image/webp) name=photo.webp ;;
+  image/bmp) name=photo.bmp ;;
+  *) name=photo ;;
+  esac
+  # The token and the user key go to curl as lines of a config on its
+  # stdin, written by the shell itself: an argument can be read by every
+  # process on the machine while curl runs. The words and the picture are
+  # data in arguments, never parsed for @ or <.
+  args=(--form-string "message=$text" -F "attachment=@$(qform "$image");type=$mime;filename=$name")
+  if [ -n "$title" ]; then args+=(--form-string "title=$title"); fi
+  out=$(printf 'url = %s\nform-string = %s\nform-string = %s\n' \
+    "$(cfgq "$YARDR_SOURCE_BASE/messages.json")" "$(cfgq "token=$PUSHOVER_TOKEN")" "$(cfgq "user=$address")" \
+    | curl -sS --fail-with-body -K - "${args[@]}") || {
+    code=$?
+    desc=$(describe "$out")
+    echo "the message with its picture failed${desc:+: $desc} (curl exit $code)" >&2
+    exit 1
+  }
+  jq -e '.status == 1' >/dev/null <<<"$out" 2>/dev/null || {
+    desc=$(describe "$out")
+    echo "the message with its picture was not taken${desc:+: $desc}" >&2
+    exit 1
+  }
+  printf '%s' '{"status":200}' ;;
+*) echo "unknown: $1" >&2; exit 2 ;;
+esac

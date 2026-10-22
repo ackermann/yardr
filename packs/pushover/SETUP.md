@@ -47,3 +47,11 @@ phone. Docs has the longer telling: `yardr docs pushover`.
 Mail to the user and their own timers are told from now on. `yardr user
 list` shows who is told through what; `yardr user set mckean notify=`
 ends it, and drops what was still waiting.
+
+A tell carries a picture too: the first image of a mail, or of the newest
+note on a bead that is done, goes with the words as the message's
+attachment (the command `pushover/notify` sends it, with curl, jq and
+file, which the yard's machine needs). Pushover takes a picture of
+5,242,880 bytes at most and leaves it to the sender to make one fit, so
+a larger one is told as words alone, and the daemon's log says why:
+`user told without the picture`.

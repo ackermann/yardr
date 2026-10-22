@@ -22,3 +22,4 @@ notify:
   title: title                                   # yardr's value -> the call's parameter
   text: text
   link: link
+  image: [pushover/notify, tell]                 # with a picture, the command sends it with the words instead

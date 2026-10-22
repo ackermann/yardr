@@ -1,6 +1,7 @@
 package packs_test
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"reflect"
@@ -1110,9 +1111,10 @@ func TestTemplateAndDocsTypeNoSecret(t *testing.T) {
 }
 
 // The pushover pack is Pushover as an integration: of kind source, one
-// declared source with the notify key that tells a user, and no commands.
-// The source is named pushover. Its declaration is the file the yardr
-// source and push tests send through, to the byte.
+// declared source with the notify key that tells a user, and one command,
+// the notify key's image, which sends a picture. The source is named
+// pushover. Its declaration is the file the yardr source and push tests
+// send through, to the byte, with the line that names that command.
 func TestPushoverPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, "pushover")
 	if err != nil {
@@ -1129,11 +1131,18 @@ func TestPushoverPack(t *testing.T) {
 		t.Fatalf("declared = %+v", p.Declared)
 	}
 	d := p.Declared[0].Declaration
-	if len(d.Commands()) != 0 {
-		t.Fatalf("commands = %+v, want none", d.Commands())
+	if cs := d.Commands(); len(cs) != 1 || cs[0].Key != "notify.image" || strings.Join(cs[0].Argv, " ") != "pushover/notify tell" {
+		t.Fatalf("commands = %+v, want notify.image pushover/notify tell", cs)
 	}
-	if n := d.Notify; n == nil || n.Call != "message" || n.Address != "user" || n.AddressEnv != "PUSHOVER_USER" {
+	if n := d.Notify; n == nil || n.Call != "message" || n.Address != "user" || n.AddressEnv != "PUSHOVER_USER" ||
+		strings.Join(n.Image, " ") != "pushover/notify tell" {
 		t.Fatalf("notify = %+v", n)
+	}
+	// The command is a file of the pack, and one the yard can run once it
+	// is copied (pack apply gives each copy the mode that makes it so).
+	script, err := fs.ReadFile(sub, "pushover/notify")
+	if err != nil || !bytes.HasPrefix(script, []byte("#!/bin/bash\n")) {
+		t.Fatalf("the command's file: %v", err)
 	}
 	if d.Credential == nil || d.Credential.Env != "PUSHOVER_TOKEN" {
 		t.Fatalf("credential = %+v", d.Credential)
@@ -1155,6 +1164,8 @@ func TestPushoverPack(t *testing.T) {
 		"yardr user key mckean pushover ",
 		"--secret pushover --for-user mckean",
 		"yardr source check pushover --user mckean",
+		"5,242,880 bytes",
+		"user told without the picture",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)
