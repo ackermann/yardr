@@ -251,7 +251,8 @@ func testSendImage(t *testing.T) {
 	// A picture that is slow rather than refused costs the words nothing
 	// either. The command is still running when the send's own time is
 	// over, and the call tells them under a time of their own, once, with
-	// the Sent saying why the picture did not go.
+	// the Sent saying why the picture did not go: the send's time ended it,
+	// not the command's own.
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +260,7 @@ func testSendImage(t *testing.T) {
 	slow, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	sent, err = Send(slow, st, home, "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"})
 	cancel()
-	if err != nil || !sent.OK() || !strings.Contains(sent.Unpictured, "no answer within") {
+	if err != nil || !sent.OK() || !strings.Contains(sent.Unpictured, "no answer before the caller's deadline") {
 		t.Fatalf("a picture that outlives the send: %+v, %v", sent, err)
 	}
 	if len(srv.got) != told+1 || srv.got[told]["title"] != "t" || srv.got[told]["message"] != "x" {
