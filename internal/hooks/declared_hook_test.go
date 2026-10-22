@@ -2,6 +2,10 @@ package hooks_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -626,8 +630,17 @@ func hookSecret(t *testing.T) string {
 	return f
 }
 
+// signBase64 is the HMAC-SHA256 of data under key, written in base64 as a
+// service that signs so writes it.
+func signBase64(key []byte, data string) string {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(data))
+	return base64.StdEncoding.EncodeToString(m.Sum(nil))
+}
+
 // Verify from hook.verify: a header timestamp in seconds, a nested body
-// path, a body that is no JSON, and none at all.
+// path, a body that is no JSON, and none at all; a signature in base64, or
+// one of several; a delivery id that the signature covers.
 func TestDeclaredVerify(t *testing.T) {
 	decl := func(verify string) hooks.Declared {
 		t.Helper()
@@ -646,6 +659,23 @@ func TestDeclaredVerify(t *testing.T) {
 	sigAt := func(ts string, body []byte) string { return sign(secret, []byte("v0:"+ts+":"+string(body))) }
 	now := time.Now()
 	sent, stale, beyond := fmt.Sprint(now.Unix()), fmt.Sprint(now.Add(-6*time.Minute).Unix()), "9223372036854775807"
+	// A delivery id is signed with the timestamp and the body, as it arrived.
+	const idTimed = "    scheme: hmac-sha256\n    signed: \"{delivery}.{timestamp}.{body}\"\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n    timestamp: { header: Q-Sent, unit: s, window: 5m }\n"
+	sigID := func(id string) string { return sign(secret, []byte(id+"."+sent+"."+`{}`)) }
+	// A signature in base64, and the same one spelled another way: the last
+	// character holds two bits that belong to no byte, and flipping one
+	// leaves the same bytes for a decoder that lets them be.
+	const base64Sig = "    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: base64 }\n    delivery: { header: Q-Delivery }\n"
+	good := signBase64([]byte(secret), `{}`)
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	spare := good[:len(good)-2] + string(alphabet[strings.IndexByte(alphabet, good[len(good)-2])^1]) + "="
+	if same, err := base64.StdEncoding.DecodeString(spare); err != nil || spare == good || base64.StdEncoding.EncodeToString(same) != good {
+		t.Fatalf("the signature %q is not spelled another way by %q: %v", good, spare, err)
+	}
+	// Several signatures side by side, the ones this scheme checks behind
+	// sha256=.
+	const listed = "    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex, prefix: \"sha256=\", list: \",\" }\n    delivery: { header: Q-Delivery }\n"
+	old, older := "sha256="+sign("old-secret", []byte(`{}`)), "sha256="+sign("older-secret", []byte(`{}`))
 	for _, tc := range []struct {
 		name     string
 		verify   string
@@ -708,6 +738,39 @@ func TestDeclaredVerify(t *testing.T) {
 		{"a delivery id that is no scalar",
 			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { body: update_id }\n",
 			map[string]string{"Q-Sig": sig("", []byte(`{"update_id":{"n":1}}`))}, `{"update_id":{"n":1}}`, "", ""},
+		{"a signed delivery id",
+			idTimed, map[string]string{"Q-Sig": sigID("d-1"), "Q-Sent": sent, "Q-Delivery": "d-1"}, `{}`, "", "d-1"},
+		{"a delivery id signed as it arrived",
+			idTimed, map[string]string{"Q-Sig": sigID("0042"), "Q-Sent": sent, "Q-Delivery": "0042"}, `{}`, "", "0042"},
+		{"a changed delivery id",
+			idTimed, map[string]string{"Q-Sig": sigID("d-1"), "Q-Sent": sent, "Q-Delivery": "d-2"}, `{}`, "unauthorized", ""},
+		{"a missing delivery id",
+			idTimed, map[string]string{"Q-Sig": sigID("d-1"), "Q-Sent": sent}, `{}`, "unauthorized", ""},
+		{"a delivery id that spells a placeholder",
+			idTimed, map[string]string{"Q-Sig": sigID("{body}"), "Q-Sent": sent, "Q-Delivery": "{body}"}, `{}`, "", "{body}"},
+		{"a body that spells the placeholders",
+			idTimed, map[string]string{"Q-Sig": sign(secret, []byte("d-1."+sent+"."+`{"n":"{timestamp}{delivery}{body}"}`)), "Q-Sent": sent, "Q-Delivery": "d-1"},
+			`{"n":"{timestamp}{delivery}{body}"}`, "", "d-1"},
+		{"a base64 signature",
+			base64Sig, map[string]string{"Q-Sig": good}, `{}`, "", ""},
+		{"a hex signature where base64 is declared",
+			base64Sig, map[string]string{"Q-Sig": sign(secret, []byte(`{}`))}, `{}`, "unauthorized", ""},
+		{"a base64 signature spelled another way",
+			base64Sig, map[string]string{"Q-Sig": spare}, `{}`, "unauthorized", ""},
+		{"a list that holds one signature",
+			listed, map[string]string{"Q-Sig": "sha256=" + sig("", []byte(`{}`))}, `{}`, "", ""},
+		{"a list with the signature last",
+			listed, map[string]string{"Q-Sig": old + ", " + older + ", sha256=" + sig("", []byte(`{}`))}, `{}`, "", ""},
+		{"a list with the signature first",
+			listed, map[string]string{"Q-Sig": "sha256=" + sig("", []byte(`{}`)) + "," + old}, `{}`, "", ""},
+		{"a list with no signature that matches",
+			listed, map[string]string{"Q-Sig": old + "," + older}, `{}`, "unauthorized", ""},
+		{"a list of another kind's signatures only",
+			listed, map[string]string{"Q-Sig": "v2=" + sig("", []byte(`{}`)) + ",v1a=" + sig("", []byte(`{}`))}, `{}`, "unauthorized", ""},
+		{"a list with nothing in it",
+			listed, map[string]string{"Q-Sig": " , ,"}, `{}`, "unauthorized", ""},
+		{"a list declared, a header with none",
+			listed, nil, `{}`, "unauthorized", ""},
 	} {
 		ad := decl(tc.verify)
 		req, _ := http.NewRequest(http.MethodPost, "/hooks/q", strings.NewReader(tc.body))
@@ -827,6 +890,243 @@ func TestDeclaredVerifySignedTemplate(t *testing.T) {
 	stale := fmt.Sprint(now.Add(-6 * time.Minute).Unix())
 	if err := verify(stale, sign(secret, basestring(stale, body))); !errors.Is(err, hooks.ErrUnauthorized) {
 		t.Fatalf("stale timestamp: err = %v, want unauthorized", err)
+	}
+}
+
+// A hook whose secret is not the key's own bytes: the service hands the
+// secret out behind a prefix and writes the key in base64 or hex, and the
+// key is what the secret decodes to. A secret not so written verifies
+// nothing, and neither does one that decodes to nothing: a signature made
+// with an empty key is one anyone can make, and must not pass.
+func TestDeclaredVerifyKey(t *testing.T) {
+	raw := []byte("0123456789abcdef01234567")
+	b64 := base64.StdEncoding.EncodeToString(raw)
+	// One byte more than a multiple of three leaves four bits in base64's
+	// last character that belong to no byte. A key is read as the sender's
+	// libraries read it, which let them be.
+	raw25 := append(append([]byte{}, raw...), 'x')
+	b64of25 := base64.StdEncoding.EncodeToString(raw25)
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	last := len(b64of25) - 3 // before the two "=" of padding
+	respelled := b64of25[:last] + string(alphabet[strings.IndexByte(alphabet, b64of25[last])^1]) + "=="
+	if same, err := base64.StdEncoding.DecodeString(respelled); err != nil || respelled == b64of25 || string(same) != string(raw25) {
+		t.Fatalf("%q is not %q spelled another way: %v", respelled, b64of25, err)
+	}
+	if _, err := base64.StdEncoding.Strict().DecodeString(respelled); err == nil {
+		t.Fatalf("%q is read strictly", respelled)
+	}
+	const whsec, sk = `{ prefix: "whsec_", encoding: base64 }`, `{ prefix: "sk_", encoding: hex }`
+	const notKey, mismatch = "the hook's secret is not a key", "does not match"
+	body := []byte(`{}`)
+	for _, tc := range []struct {
+		name   string
+		key    string // verify.key
+		secret string // what the hook's secret file holds
+		signer []byte // the key the sender signs with
+		fails  string // "": verified; else what the refusal says
+	}{
+		{"base64 behind a prefix", whsec, "whsec_" + b64, raw, ""},
+		{"base64 behind no prefix", `{ encoding: base64 }`, b64, raw, ""},
+		{"hex behind a prefix", sk, "sk_" + hex.EncodeToString(raw), raw, ""},
+		{"base64 key without padding", whsec, "whsec_" + strings.TrimRight(b64of25, "="), raw25, ""},
+		{"base64 spelled with spare bits", whsec, "whsec_" + respelled, raw25, ""},
+		{"a secret without the prefix", whsec, b64, raw, notKey},
+		{"a secret that is no base64", whsec, "whsec_not base64!", raw, notKey},
+		{"a secret that is no hex", sk, "sk_xyz", raw, notKey},
+		{"a secret that decodes to nothing, signed with an empty key", whsec, "whsec_", []byte{}, notKey},
+		{"a secret that decodes to nothing, signed with its own bytes", whsec, "whsec_", []byte("whsec_"), notKey},
+		{"the secret's own bytes as the key, though it writes one", whsec, "whsec_" + b64, []byte("whsec_" + b64), mismatch},
+	} {
+		d, err := source.Parse("q.yaml", []byte("name: q\nhook:\n  verify:\n"+
+			"    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n"+
+			"    key: "+tc.key+"\n    delivery: { header: Q-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		req, _ := http.NewRequest(http.MethodPost, "/hooks/q", strings.NewReader(string(body)))
+		req.Header.Set("Q-Sig", sign(string(tc.signer), body))
+		_, err = hooks.Declared{D: d}.Verify(req, body, []byte(tc.secret), time.Now())
+		switch {
+		case tc.fails == "" && err != nil:
+			t.Errorf("%s: %v", tc.name, err)
+		case tc.fails != "" && (!errors.Is(err, hooks.ErrUnauthorized) || !strings.Contains(err.Error(), tc.fails)):
+			t.Errorf("%s: err = %v, want unauthorized, %q", tc.name, err, tc.fails)
+		case err != nil && strings.Contains(err.Error(), tc.secret):
+			t.Errorf("%s: the refusal names the secret: %v", tc.name, err)
+		}
+	}
+}
+
+// Standard Webhooks (standardwebhooks.com) is data under hmac-sha256: the
+// delivery id, the timestamp and the body signed together, the signatures
+// in base64 behind v1, side by side, and a secret that is whsec_ and a key
+// in base64. The vector is the one the specification's reference libraries
+// publish in their tests, at the commit
+// 7537d2a2d3d52d8f2e0ecd12527af4a9307fd81b of standard-webhooks/
+// standard-webhooks: libraries/go/webhook_test.go (TestWebhookSign) and
+// libraries/csharp/StandardWebhooks.Tests/WebhookTest.cs give this key,
+// id, timestamp and payload that signature, and the Go test's "valid
+// multi sig is valid" the other entries. The specification's own example
+// delivery shows a signature but no secret, so it is no vector.
+func TestDeclaredVerifyStandardWebhooks(t *testing.T) {
+	const (
+		whsec     = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+		id        = "msg_p5jXN8AQM9LWM0D4loKWxJek"
+		stamp     = "1614265330"
+		payload   = `{"test": 2432232314}`
+		signature = "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE="
+		another   = "v1,Ceo5qEr07ixe2NLpvHk3FH9bwy/WavXrAFQ/9tdO6mc="
+	)
+	d, err := source.Parse("sw.yaml", []byte(`name: sw
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: "{delivery}.{timestamp}.{body}"
+    signature: { header: webhook-signature, encoding: base64, list: " ", prefix: "v1," }
+    key: { prefix: "whsec_", encoding: base64 }
+    delivery: { header: webhook-id }
+    timestamp: { header: webhook-timestamp, unit: s, window: 5m }
+  bodies: repeat
+  normalize: [normalize]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ad := hooks.Declared{D: d}
+	sent := time.Unix(1614265330, 0)
+	// A key of the right form that is not the hook's, and the vector's
+	// signature under the version label of a kind this scheme does not check.
+	otherKey := "whsec_" + base64.StdEncoding.EncodeToString([]byte("another-key-of-24-bytes"))
+	rightButV1a := "v1a," + strings.TrimPrefix(signature, "v1,")
+	const mismatch, malformed, late, notKey = "does not match", "missing or malformed", "its timestamp is", "the hook's secret is not a key"
+	for _, tc := range []struct {
+		name   string
+		secret string            // "": the vector's
+		now    time.Time         // zero: when it was sent
+		set    map[string]string // headers, over the vector's; "-" drops one
+		body   string            // "": the vector's
+		fails  string            // "": verified; else what the refusal says
+	}{
+		{name: "the published vector"},
+		{name: "a signature among others", set: map[string]string{"webhook-signature": another + " v2," + strings.TrimPrefix(another, "v1,") + " " + signature + " " + another}},
+		{name: "the last moment of the window", now: sent.Add(5 * time.Minute)},
+		{name: "a wrong key", secret: otherKey, fails: mismatch},
+		{name: "a stale timestamp, rightly signed", now: sent.Add(5*time.Minute + time.Second), fails: late},
+		{name: "a timestamp from the future, rightly signed", now: sent.Add(-6 * time.Minute), fails: late},
+		{name: "a changed id", set: map[string]string{"webhook-id": id + "x"}, fails: mismatch},
+		{name: "no id", set: map[string]string{"webhook-id": "-"}, fails: mismatch},
+		{name: "a changed timestamp", now: sent.Add(time.Second), set: map[string]string{"webhook-timestamp": "1614265331"}, fails: mismatch},
+		{name: "a changed body", body: `{"test": 2432232315}`, fails: mismatch},
+		{name: "a list with no v1 match", set: map[string]string{"webhook-signature": another + " " + rightButV1a + " v2," + strings.TrimPrefix(signature, "v1,")}, fails: mismatch},
+		{name: "a list of other versions only", set: map[string]string{"webhook-signature": rightButV1a}, fails: malformed},
+		{name: "a partial signature", set: map[string]string{"webhook-signature": "v1,"}, fails: malformed},
+		{name: "no signature", set: map[string]string{"webhook-signature": "-"}, fails: malformed},
+		{name: "a secret without whsec_", secret: strings.TrimPrefix(whsec, "whsec_"), fails: notKey},
+		{name: "a secret that is no base64", secret: "whsec_not base64!", fails: notKey},
+		{name: "a secret that decodes to nothing", secret: "whsec_", set: map[string]string{"webhook-signature": "v1," + signBase64(nil, id+"."+stamp+"."+payload)}, fails: notKey},
+	} {
+		headers := map[string]string{"webhook-id": id, "webhook-timestamp": stamp, "webhook-signature": signature}
+		for k, v := range tc.set {
+			if v == "-" {
+				delete(headers, k)
+			} else {
+				headers[k] = v
+			}
+		}
+		body, secret, now := tc.body, tc.secret, tc.now
+		if body == "" {
+			body = payload
+		}
+		if secret == "" {
+			secret = whsec
+		}
+		if now.IsZero() {
+			now = sent
+		}
+		req, _ := http.NewRequest(http.MethodPost, "/hooks/sw", strings.NewReader(body))
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		delivery, err := ad.Verify(req, []byte(body), []byte(secret), now)
+		switch {
+		case tc.fails == "" && (err != nil || delivery != id):
+			t.Errorf("%s: delivery %q, err %v", tc.name, delivery, err)
+		case tc.fails != "" && (!errors.Is(err, hooks.ErrUnauthorized) || !strings.Contains(err.Error(), tc.fails)):
+			t.Errorf("%s: err = %v, want unauthorized, %q", tc.name, err, tc.fails)
+		}
+	}
+}
+
+// Standard Webhooks through the receiver, as a service sends it: the
+// published vector is recorded with the delivery id its signature covers,
+// from a secret file that holds the sender's whsec_ secret as it was
+// pasted, newline and all. The same delivery again is dropped; so is
+// another body under the same id, validly signed, since the id is what
+// tells a retry; a copy refused for another id, because the id is signed;
+// and a copy sent after the window is refused though its signature still
+// holds. That last is the replay a header timestamp that nothing signs
+// would let through.
+func TestDeclaredStandardWebhooksDelivery(t *testing.T) {
+	r := secretDepot(t, "    scheme: hmac-sha256\n"+
+		"    signed: \"{delivery}.{timestamp}.{body}\"\n"+
+		"    signature: { header: webhook-signature, encoding: base64, list: \" \", prefix: \"v1,\" }\n"+
+		"    key: { prefix: \"whsec_\", encoding: base64 }\n"+
+		"    delivery: { header: webhook-id }\n"+
+		"    timestamp: { header: webhook-timestamp, unit: s, window: 5m }\n")
+	hook, err := r.st.GetHook(context.Background(), "sentry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const whsec = "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+	if err := os.WriteFile(hook.SecretFile, []byte("whsec_"+whsec+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := base64.StdEncoding.DecodeString(whsec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id, stamp = "msg_p5jXN8AQM9LWM0D4loKWxJek", "1614265330"
+	sent := time.Unix(1614265330, 0)
+	r.now = sent
+	headers := func(id, body string) map[string]string {
+		return map[string]string{"webhook-id": id, "webhook-timestamp": stamp,
+			"webhook-signature": "v1," + signBase64(key, id+"."+stamp+"."+body)}
+	}
+	vector := `{"test": 2432232314}`
+	// The vector's own signature, as the reference libraries publish it: the
+	// headers helper makes the same one.
+	if got := headers(id, vector)["webhook-signature"]; got != "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=" {
+		t.Fatalf("the vector is signed %q", got)
+	}
+	if code := r.post(t, "/hooks/sentry", []byte(vector), headers(id, vector)); code != http.StatusOK {
+		t.Fatalf("the vector: %d", code)
+	}
+	evs := r.hookEvents(t)
+	if len(evs) != 1 || evs[0].Data["delivery"] != id {
+		t.Fatalf("events after the vector: %+v", evs)
+	}
+	other := `{"test": 1}`
+	for _, tc := range []struct {
+		name string
+		body string
+		hdr  map[string]string
+		want int
+	}{
+		{"the same delivery again", vector, headers(id, vector), http.StatusOK},
+		{"another body under the same id", other, headers(id, other), http.StatusOK},
+		{"the vector's signature under another id", vector, map[string]string{"webhook-id": id + "x", "webhook-timestamp": stamp,
+			"webhook-signature": headers(id, vector)["webhook-signature"]}, http.StatusUnauthorized},
+	} {
+		if code := r.post(t, "/hooks/sentry", []byte(tc.body), tc.hdr); code != tc.want {
+			t.Errorf("%s: %d, want %d", tc.name, code, tc.want)
+		}
+		if n := len(r.hookEvents(t)); n != 1 {
+			t.Errorf("%s: %d hook events, want 1", tc.name, n)
+		}
+	}
+	r.now = sent.Add(5*time.Minute + time.Second)
+	if code := r.post(t, "/hooks/sentry", []byte(vector), headers(id, vector)); code != http.StatusUnauthorized {
+		t.Errorf("a copy after the window: %d, want %d", code, http.StatusUnauthorized)
 	}
 }
 

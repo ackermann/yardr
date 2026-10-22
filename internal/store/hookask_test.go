@@ -112,6 +112,49 @@ calls:
 	if got := hookSays(d); !strings.Contains(got, "HMAC-SHA256 over the body (scheme hmac-sha256, signed: body)") {
 		t.Errorf("unset signed: the card says:\n%s", got)
 	}
+	// What an operator approves with a signature made by the delivery id
+	// too, several at once, and a key the secret writes is said, and said
+	// only when the declaration says it: the cards above carry none of it.
+	swish, err := source.Parse("chat.yaml", []byte(`name: chat
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: "{delivery}.{timestamp}.{body}"
+    signature: { header: Chat-Signature, encoding: base64, list: " ", prefix: "v1," }
+    key: { prefix: "whsec_", encoding: base64 }
+    delivery: { header: Chat-Id }
+    timestamp: { header: Chat-Timestamp, unit: s, window: 5m }
+  bodies: repeat
+  normalize: [chat/normalize]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := hookSays(swish)
+	for _, want := range []string{
+		"HMAC-SHA256 over {delivery}.{timestamp}.{body} (scheme hmac-sha256, signed: {delivery}.{timestamp}.{body})",
+		`the signature in the header Chat-Signature as base64, one or more separated by " ", each past the prefix "v1,", any one of them passing`,
+		`; the HMAC key is what follows the prefix "whsec_" in the secret, read as base64 (not the secret's own bytes); a delivery is named by the header Chat-Id`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the card says:\n%s\nwant %q", got, want)
+		}
+	}
+	swish.Hook.Verify.Signature.Prefix = ""
+	swish.Hook.Verify.Key.Prefix = ""
+	got = hookSays(swish)
+	for _, want := range []string{"each with no prefix, any one of them passing", "the HMAC key is the whole secret, read as base64"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("with no prefix the card says:\n%s\nwant %q", got, want)
+		}
+	}
+	d, err = source.Parse("chat.yaml", []byte(decl("body", inBody)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hookSays(d); strings.Contains(got, "separated by") || strings.Contains(got, "HMAC key") {
+		t.Errorf("a declaration with no list and no key: the card says:\n%s", got)
+	}
 }
 
 // A hook is set up by two asks on one bead, the secret first: the

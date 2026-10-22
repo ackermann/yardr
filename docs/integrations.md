@@ -91,7 +91,7 @@ type Adapter interface {
   headers, the raw body and the hook's secret, and returns the service's id
   of the delivery (`""` when it has none). A declared source is verified
   from what its file says under `hook.verify`: HMAC-SHA256 of the body,
-  or of a template over its timestamp and body, in
+  or of a template over its timestamp, its delivery id and its body, in
   the header it names (`Linear-Signature`, `X-Hub-Signature-256`), and
   after it the timestamp where it says one is; Linear's signed
   `webhookTimestamp` must also be within a minute of the yard's clock.
@@ -1038,33 +1038,77 @@ hook:
 ```
 
 - **Verify** stays data, checked by the core. With `hmac-sha256` it is the
-  hex HMAC-SHA256 of what `signed` names with the hook's secret, in the
+  HMAC-SHA256 of what `signed` names with the hook's secret, in the
   header `signature` names, past its `prefix` (`prefix: "sha256="`, as
-  GitHub sends, or none). `signed: body` is the raw body alone, as
-  Linear and GitHub say it. A service that signs its timestamp in says
-  so as a template over the two things the core has before it trusts
-  either, the raw timestamp string and the raw body, with the service's
-  literal text around them: `signed: "v0:{timestamp}:{body}"` is the
-  basestring `v0:<timestamp>:<raw body>`, the timestamp read from the
-  header `timestamp` names as it arrived, never a re-rendered integer
-  and never re-serialised JSON. With `secret` the header holds the
+  GitHub sends, or none). The signature is hex or base64 as `encoding`
+  says, in the standard alphabet with its padding. `signed: body` is the
+  raw body alone, as Linear and GitHub say it. A service that signs its
+  timestamp in says so as a template over the things the core has before
+  it trusts any of them, the raw timestamp string, the raw delivery id and
+  the raw body, with the service's literal text around them: `signed:
+  "v0:{timestamp}:{body}"` is the basestring `v0:<timestamp>:<raw body>`,
+  the timestamp read from the header `timestamp` names as it arrived,
+  never a re-rendered integer and never re-serialised JSON. `{delivery}`
+  is the delivery id the same way, the value of the header `delivery`
+  names as it arrived, so the signature covers the id the receiver then
+  dedupes on (`signed: "{delivery}.{timestamp}.{body}"`). A template
+  names `{timestamp}` and `{body}` once each and `{delivery}` at most
+  once. It reads `{delivery}` from a header only, so an id in the body
+  refuses it when the file is added. With `secret` the header holds the
   secret itself, compared as it arrives, in constant time; `signed`,
-  `encoding` and `prefix` do not apply to it. The timestamp is checked
-  once the delivery is verified: in the body at the dot path or in a
-  header, in `ms` or `s`, within `window` of the yard's clock, so a
-  replayed body whose signature covers its timestamp still fails on
-  age. With `hmac-sha256` the signature must cover the timestamp: one in
-  the body is covered by `signed: body`, and one in a header only by a
-  template naming `{timestamp}`, so `signed: body` beside a header
-  timestamp is refused when the file is added (nothing signs a header,
-  and a captured delivery could be sent again with a fresh one). With
-  `secret` nothing signs a timestamp, so its window does not stop a
+  `encoding`, `prefix`, `list` and `key` do not apply to it.
+
+  A service that signs with more than one secret at a time, so it can
+  replace one without a gap in which deliveries fail, sends the signatures
+  side by side in one header. `list` is the separator between them
+  (`list: " "`). Each entry is cut past `prefix` and decoded, and the
+  delivery verifies when any one of them matches. An entry without the
+  prefix is skipped, because a service that signs two ways sends both and
+  only one is this scheme's. An entry that does not decode is skipped too,
+  and a header with no entry left is refused. Each signature is compared
+  as bytes in constant time, never as text.
+
+  Some services hand out a secret that is not the key. `key: { prefix:
+  "whsec_", encoding: base64 }` says the secret is `whsec_` followed by
+  the key in base64, so the HMAC key is the bytes the rest decodes to;
+  trailing padding may be present or omitted.
+  Leave `prefix` out for a secret that is the encoded key alone. Without
+  `key`, the key is the secret's own bytes. A secret without the prefix,
+  one that does not decode, and one that decodes to nothing verify no
+  delivery. Each is refused as unauthorized, with the reason in the log
+  and never the secret. `whsec_` alone would make an empty key that anyone
+  can sign with, so it is never used.
+
+  Standard Webhooks (standardwebhooks.com) comes to this, with its
+  timestamp in seconds in a header and a window of five minutes. The
+  secret goes in the hook's secret file as the sender shows it, `whsec_…`
+  and all:
+
+  ```yaml
+  hook:
+    verify:
+      scheme: hmac-sha256
+      signed: "{delivery}.{timestamp}.{body}"
+      signature: { header: webhook-signature, encoding: base64, list: " ", prefix: "v1," }
+      key: { prefix: "whsec_", encoding: base64 }
+      delivery: { header: webhook-id }
+      timestamp: { header: webhook-timestamp, unit: s, window: 5m }
+  ```
+
+  The timestamp is checked once the delivery is verified: in the body at
+  the dot path or in a header, in `ms` or `s`, within `window` of the
+  yard's clock, so a replayed body whose signature covers its timestamp
+  still fails on age. With `hmac-sha256` the signature must cover the
+  timestamp: one in the body is covered by `signed: body`, and one in a
+  header only by a template naming `{timestamp}`, so `signed: body` beside
+  a header timestamp is refused when the file is added (nothing signs a
+  header, and a captured delivery could be sent again with a fresh one).
+  With `secret` nothing signs a timestamp, so its window does not stop a
   captured delivery from being sent again. A delivery with a bad signature
-  or secret, or a timestamp
-  outside the window, is refused, as Linear's is. The signing secret is
-  handed to no command, and an unverified body reaches none: with
-  `secret`, normalize is handed the request's headers without the one
-  that holds it.
+  or secret, or a timestamp outside the window, is refused, as Linear's
+  is. The signing secret is handed to no command, and an unverified body
+  reaches none: with `secret`, normalize is handed the request's headers
+  without the one that holds it.
 - **Delivery** is the service's id of the delivery: in the header
   `delivery` names, or in the body at the dot path (`delivery: { body:
   update_id }`). A retry shares the id and is answered 200 with no event,
@@ -1127,12 +1171,15 @@ hook:
   with a scheme other than `secret`, and a required parameter nothing
   fills.
 - **Refused when the file is added**: a scheme that is neither
-  `hmac-sha256` nor `secret`, `signed`, `encoding` or `prefix` with scheme
-  `secret`, a signed template with a missing or repeated `{body}` or
-  `{timestamp}`, an unknown placeholder, or one naming `{timestamp}`
-  with no `timestamp` key, a challenge with a missing `body`, `value` or
-  `answer` or one that is no dot path into the body, an encoding
-  that is not `hex`, a delivery id in a header and in the body, bodies
+  `hmac-sha256` nor `secret`, `signed`, `encoding`, `prefix`, `list` or
+  `key` with scheme `secret`, a signed template with a missing or repeated
+  `{body}` or `{timestamp}`, a repeated `{delivery}`, an unknown
+  placeholder, one naming `{timestamp}` with no `timestamp` key, or one
+  naming `{delivery}` where the delivery id is in the body, a challenge
+  with a missing `body`, `value` or `answer` or one that is no dot path
+  into the body, an encoding of a signature or of a key that is neither
+  `hex` nor `base64`, a `key` with no `encoding`, a `list` or a `prefix`
+  that is no string, a delivery id in a header and in the body, bodies
   that repeat with no delivery, a timestamp in the body and in a header,
   or in neither, `signed: body` with the timestamp in a header, a unit
   that is not `ms` or `s`, a window that is no

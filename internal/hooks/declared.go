@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -156,21 +157,21 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 			return "", unauthorized("bad or missing %s", v.Signature.Header)
 		}
 	} else {
-		text := strings.TrimSpace(r.Header.Get(v.Signature.Header))
-		if v.Signature.Prefix != "" {
-			var ok bool
-			text, ok = strings.CutPrefix(text, v.Signature.Prefix)
-			if !ok {
-				return "", unauthorized("missing or malformed %s", v.Signature.Header)
-			}
+		key, ok := hmacKey(v.Key, secret)
+		if !ok {
+			return "", unauthorized("the hook's secret is not a key as verify.key writes it")
 		}
-		sig, err := hex.DecodeString(text)
-		if err != nil || len(sig) == 0 {
+		sigs := signatures(v.Signature, r.Header.Get(v.Signature.Header))
+		if len(sigs) == 0 {
 			return "", unauthorized("missing or malformed %s", v.Signature.Header)
 		}
-		mac := hmac.New(sha256.New, secret)
+		mac := hmac.New(sha256.New, key)
 		mac.Write(signedData(v, r, body))
-		if !hmac.Equal(sig, mac.Sum(nil)) {
+		want := mac.Sum(nil)
+		// Each entry's decoded bytes are compared with hmac.Equal, in
+		// constant time, never as text. The first match ends the search,
+		// which tells the sender nothing: it already held that signature.
+		if !slices.ContainsFunc(sigs, func(sig []byte) bool { return hmac.Equal(sig, want) }) {
 			return "", unauthorized("%s does not match", v.Signature.Header)
 		}
 	}
@@ -199,40 +200,105 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 
 // signedData is what a signature covers, built from the declaration's
 // signed template: the word body is the raw body alone, and a template
-// is its literal text with {timestamp} and {body} filled in. The
-// timestamp is the raw string the sender sent — the header's value as it
-// arrived, or the body's value as written — never a re-rendered integer
-// or re-serialised JSON, so basestring and signature agree byte for
-// byte. The age of that timestamp is checked after this, in Verify, as
-// it was when signed covered the body alone.
+// is its literal text with {timestamp}, {body} and {delivery} filled in.
+// The timestamp and the delivery id are the raw strings the sender sent,
+// the header's value as it arrived or, for the timestamp, the body's value
+// as written. Neither is a re-rendered integer or re-serialised JSON, so
+// basestring and signature agree byte for byte. Both are read here, before
+// anything is trusted, and the signature covers them. The age of the
+// timestamp is checked after, in Verify, as it was when signed covered the
+// body alone. One pass fills the template, so a value that was filled in
+// is not read for placeholders in its turn: a body that spells
+// {timestamp} is signed as written.
 func signedData(v source.HookVerify, r *http.Request, body []byte) []byte {
 	if v.Signed == "" || v.Signed == source.HookSigned {
 		return body
 	}
-	timestamp := ""
-	if strings.Contains(v.Signed, "{timestamp}") {
-		timestamp = signedTimestamp(v, r, body)
+	return []byte(strings.NewReplacer(
+		"{body}", string(body),
+		"{timestamp}", signedTimestamp(v, r, body),
+		"{delivery}", signedDelivery(v, r),
+	).Replace(v.Signed))
+}
+
+// signedDelivery is the delivery id's raw string, for a signed template
+// that names it: the header's value as it arrived. "" where the header is
+// missing: the signature then does not match, as a missing timestamp's
+// does not. verify.delivery names a header whenever a template names
+// {delivery} (the reader refuses it otherwise); a delivery id in the body
+// is never signed from here.
+func signedDelivery(v source.HookVerify, r *http.Request) string {
+	if v.Delivery.Header == "" {
+		return ""
 	}
-	var out bytes.Buffer
-	rest := v.Signed
-	for rest != "" {
-		bodyAt := strings.Index(rest, "{body}")
-		tsAt := strings.Index(rest, "{timestamp}")
-		switch {
-		case bodyAt == -1 && tsAt == -1:
-			out.WriteString(rest)
-			rest = ""
-		case tsAt == -1 || (bodyAt != -1 && bodyAt < tsAt):
-			out.WriteString(rest[:bodyAt])
-			out.Write(body)
-			rest = rest[bodyAt+len("{body}"):]
-		default:
-			out.WriteString(rest[:tsAt])
-			out.WriteString(timestamp)
-			rest = rest[tsAt+len("{timestamp}"):]
+	return r.Header.Get(v.Delivery.Header)
+}
+
+// hmacKey is the key the hook's secret makes: its own bytes, or, where
+// verify.key says the service writes it, what follows the prefix in the
+// secret, decoded. ok is false for a secret that is not so written and for
+// one that decodes to nothing: an empty key would verify anyone's
+// signature, and the receiver's refusal of an empty secret cannot see it.
+func hmacKey(k *source.HookKey, secret []byte) (key []byte, ok bool) {
+	if k == nil {
+		return secret, true
+	}
+	text, ok := strings.CutPrefix(string(secret), k.Prefix)
+	if !ok {
+		return nil, false
+	}
+	key, err := decode(k.Encoding, text, false)
+	if err != nil || len(key) == 0 {
+		return nil, false
+	}
+	return key, true
+}
+
+// signatures are the signatures the header carries, decoded: the one it
+// holds or, with verify.signature.list, one for each entry between the
+// separators. An entry without the prefix is no signature of this scheme
+// (a service that signs more than one way sends them side by side, and
+// the other ways are not ours to check), and one that does not decode, or
+// decodes to nothing, is none at all: both are left out, so a header with
+// no signature left is malformed.
+func signatures(s source.HookSignature, header string) [][]byte {
+	entries := []string{header}
+	if s.List != "" {
+		entries = strings.Split(header, s.List)
+	}
+	var sigs [][]byte
+	for _, entry := range entries {
+		text, ok := strings.CutPrefix(strings.TrimSpace(entry), s.Prefix)
+		if !ok {
+			continue
+		}
+		if sig, err := decode(s.Encoding, text, true); err == nil && len(sig) > 0 {
+			sigs = append(sigs, sig)
 		}
 	}
-	return out.Bytes()
+	return sigs
+}
+
+// decode reads text written in encoding, hex or base64. A signature is read
+// strictly: base64's last character can hold bits that belong to no byte,
+// and text whose spare bits are not zero is a second spelling of a
+// signature the sender wrote one way. A key is read as the senders' own
+// libraries read it, which ignore those bits.
+func decode(encoding, text string, strict bool) ([]byte, error) {
+	if encoding != source.HookBase64 {
+		return hex.DecodeString(text)
+	}
+	if strict {
+		return base64.StdEncoding.Strict().DecodeString(text)
+	}
+	// Some Standard Webhooks implementations accept the secret without
+	// base64's trailing padding, so keys try both spellings. Signatures stay
+	// strict: their header spelling is what the sender signed and emitted.
+	decoded, err := base64.StdEncoding.DecodeString(text)
+	if err == nil {
+		return decoded, nil
+	}
+	return base64.RawStdEncoding.DecodeString(text)
 }
 
 // signedTimestamp is the timestamp's raw string, for a signed template

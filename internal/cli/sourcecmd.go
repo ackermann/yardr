@@ -372,33 +372,43 @@ hook's --secret-file verified as the file says.
     bodies: unique
     normalize: [service/normalize]
 
-verify is data, checked by the core: with scheme hmac-sha256 the hex
-HMAC-SHA256 of the raw body with the hook's secret, past the prefix
-(prefix: "sha256=", or none); with scheme secret the header holds the
-secret itself, compared as it arrives. delivery is where the service's id
-of the delivery arrives: in a header, or in the body at the dot path
-(delivery: { body: update_id }); with scheme secret it is left out for a
-service that sends none. After the check comes the timestamp, in the body
-at the dot path or in a header, in ms or s, within window of the yard's
-clock. The signing secret reaches no command, and an unverified body
-reaches none. bodies is unique (no two deliveries share a body),
-unique-per-hook (no two deliveries to one hook share a body) or repeat (a
-body may come again). normalize turns a verified body into the envelope:
-stdin {"headers": {...}, "body": ...}, stdout the envelope, which the core
-refuses without a type and sets the source and the delivery of itself. It
-runs as the limits command does and is handed no credential. keys are what
-the events' fields may carry, which a subscription's --where may then name
+verify is data, checked by the core: with scheme hmac-sha256 the
+HMAC-SHA256 of what signed names (the word body for the raw body, or a
+template over {timestamp}, {body} and {delivery}:
+"v0:{timestamp}:{body}") with the hook's secret, in hex or base64, past
+the prefix (prefix: "sha256=", or none). signature.list is the separator
+of the several signatures a service may send in one header (list: " "),
+any one of which may match; key says the secret writes the key, not the
+key's own bytes (key: { prefix: "whsec_", encoding: base64 }). With
+scheme secret the header holds the secret itself, compared as it
+arrives. delivery is where the service's id of the delivery arrives: in
+a header, or in the body at the dot path (delivery: { body: update_id });
+with scheme secret it is left out for a service that sends none. After
+the check comes the timestamp, in the body at the dot path or in a
+header, in ms or s, within window of the yard's clock. The signing
+secret reaches no command, and an unverified body reaches none. bodies
+is unique (no two deliveries share a body), unique-per-hook (no two
+deliveries to one hook share a body) or repeat (a body may come again).
+normalize turns a verified body into the envelope: stdin {"headers":
+{...}, "body": ...}, stdout the envelope, which the core refuses without
+a type and sets the source and the delivery of itself. It runs as the
+limits command does and is handed no credential. keys are what the
+events' fields may carry, which a subscription's --where may then name
 beside type, action, team, project, repo and label. Such a file needs no
 base and no calls, and with neither has no credential, check or notify
-either. Refused: a scheme that is neither hmac-sha256 nor secret, signed,
-encoding or prefix with scheme secret, a signature that covers anything
-but the body, an encoding that is not hex, a delivery id in a header and
-in the body, bodies that repeat with no delivery, a timestamp in the body
-and in a header, or in neither, a unit that is not ms or s, a window that
-is no positive duration, bodies that are none of unique, unique-per-hook
-and repeat, a command that is no list of strings or has no program, a key
-that is not lowercase letters, digits and _. A pack for a depot brings no
-hook key; a pack of kind source may, with the normalize file.
+either. Refused: a scheme that is neither hmac-sha256 nor secret,
+signed, encoding, prefix, list or key with scheme secret, a signed
+template with a missing or repeated {body} or {timestamp}, a repeated
+{delivery}, an unknown placeholder, or {delivery} with no delivery in a
+header, signed: body with the timestamp in a header, an encoding that is
+neither hex nor base64, a verify key with no encoding, a delivery id in
+a header and in the body, bodies that repeat with no delivery, a
+timestamp in the body and in a header, or in neither, a unit that is not
+ms or s, a window that is no positive duration, bodies that are none of
+unique, unique-per-hook and repeat, a command that is no list of strings
+or has no program, a key that is not lowercase letters, digits and _. A
+pack for a depot brings no hook key; a pack of kind source may, with the
+normalize file.
 
 A source that tells people and receives can hear only its addresses
 back: a hear key drops a delivery from anything but an address a user's

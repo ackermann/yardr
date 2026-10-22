@@ -47,11 +47,18 @@ hook:
   # Adapter.Verify stays data, checked by the core: the signing secret is
   # handed to no command, and an unverified body reaches none. With scheme
   # secret the header holds the secret itself, compared as it arrives,
-  # and signed, encoding, prefix and the timestamp do not apply; delivery
-  # is then left out where the service sends none.
+  # and signed, encoding, prefix, list, key and the timestamp do not
+  # apply; delivery is then left out where the service sends none.
   verify:
     scheme: hmac-sha256
     signed: body
+    # Where the service signs more than the body, signed is a template
+    # over {timestamp}, {body} and {delivery} ("{delivery}.{timestamp}.{body}",
+    # the id from the delivery header below). encoding is hex or base64.
+    # list: " " says the header holds several signatures at that separator,
+    # each past prefix, any one of them passing. key: { prefix: "whsec_",
+    # encoding: base64 } says the secret writes the key, not its bytes.
+    # docs/integrations.md has them whole, as Standard Webhooks signs.
     signature: { header: X-Service-Signature, encoding: hex }
     delivery:  { header: X-Service-Delivery }
     # Drop the timestamp where the service signs none: without it a replay

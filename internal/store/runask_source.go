@@ -607,7 +607,26 @@ func hookSays(d *source.Declaration) string {
 		if signed == "" || signed == source.HookSigned {
 			signed, over = source.HookSigned, "the body"
 		}
-		verified = fmt.Sprintf("deliveries are verified by HMAC-SHA256 over %s (scheme hmac-sha256, signed: %s), the signature in the header %s as %s past the prefix %s", over, signed, v.Signature.Header, v.Signature.Encoding, prefix)
+		arrives := fmt.Sprintf("as %s past the prefix %s", v.Signature.Encoding, prefix)
+		if sep := v.Signature.List; sep != "" {
+			// Several signatures may stand side by side, and one that
+			// matches is enough: the operator approves that too.
+			each := "with no prefix"
+			if v.Signature.Prefix != "" {
+				each = fmt.Sprintf("past the prefix %q", v.Signature.Prefix)
+			}
+			arrives = fmt.Sprintf("as %s, one or more separated by %q, each %s, any one of them passing", v.Signature.Encoding, sep, each)
+		}
+		verified = fmt.Sprintf("deliveries are verified by HMAC-SHA256 over %s (scheme hmac-sha256, signed: %s), the signature in the header %s %s", over, signed, v.Signature.Header, arrives)
+		// A key the secret writes is not the secret's own bytes, which
+		// the operator approves as well.
+		if k := v.Key; k != nil {
+			from := "the whole secret"
+			if k.Prefix != "" {
+				from = fmt.Sprintf("what follows the prefix %q in the secret", k.Prefix)
+			}
+			verified += fmt.Sprintf("; the HMAC key is %s, read as %s (not the secret's own bytes)", from, k.Encoding)
+		}
 	}
 	named := "it sends no delivery id"
 	switch {

@@ -1268,6 +1268,62 @@ hook:
 	}
 }
 
+// A signature that covers the delivery id with the timestamp and the body,
+// is written in base64 behind a prefix, may stand beside others of the same
+// header, and is made with a key the secret writes is all data: the
+// shape Standard Webhooks (standardwebhooks.com) signs by. A declaration
+// that says none of it has no list and no key.
+func TestParseHookStandardWebhooks(t *testing.T) {
+	d, err := Parse("sw.yaml", []byte(`name: sw
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: "{delivery}.{timestamp}.{body}"
+    signature: { header: webhook-signature, encoding: base64, list: " ", prefix: "v1," }
+    key: { prefix: "whsec_", encoding: base64 }
+    delivery: { header: webhook-id }
+    timestamp: { header: webhook-timestamp, unit: s, window: 5m }
+  bodies: repeat
+  normalize: [normalize]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := d.Hook.Verify
+	if v.Scheme != HookScheme || v.Signed != "{delivery}.{timestamp}.{body}" ||
+		v.Signature != (HookSignature{Header: "webhook-signature", Encoding: HookBase64, Prefix: "v1,", List: " "}) ||
+		v.Key == nil || *v.Key != (HookKey{Prefix: "whsec_", Encoding: HookBase64}) ||
+		v.Delivery != (HookDelivery{Header: "webhook-id"}) ||
+		v.Timestamp == nil || *v.Timestamp != (HookTimestamp{Header: "webhook-timestamp", Unit: HookS, Window: "5m"}) {
+		t.Fatalf("verify = %+v", v)
+	}
+	// An explicit "" is no prefix and one signature, as leaving them out is.
+	d, err = Parse("sw.yaml", []byte(`name: sw
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Sig, encoding: hex, prefix: "", list: "" }
+    key: { prefix: "", encoding: hex }
+    delivery: { header: Id }
+  bodies: unique
+  normalize: [normalize]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := d.Hook.Verify; v.Signature.Prefix != "" || v.Signature.List != "" || v.Key == nil || v.Key.Prefix != "" || v.Key.Encoding != HookHex {
+		t.Fatalf("verify = %+v", v)
+	}
+	d, err = Parse("lin.yaml", []byte(hookish))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := d.Hook.Verify; v.Signature.List != "" || v.Key != nil {
+		t.Fatalf("verify = %+v, want no list and no key", v)
+	}
+}
+
 // A hook verified by the secret itself in a header: signed, encoding and
 // prefix do not apply, delivery is optional, and where the service sends
 // its id of the delivery in the body, the declaration names the dot path.
@@ -1427,7 +1483,16 @@ func TestParseHookRefusals(t *testing.T) {
 		"no delivery":                         {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.delivery: missing"},
 		"a signature with no header":          {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.header: missing"},
 		"a header that is none":               {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: \"S Sig\", encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"S Sig" is no name of a header`},
-		"an encoding that is none":            {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: base64 }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"base64": a signature arrives hex`},
+		"an encoding that is none":            {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: base32 }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), `"base32": a signature arrives hex or base64`},
+		"no encoding":                         {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.encoding: missing: how the signature arrives (hex, base64)"},
+		"a list that is no string":            {hooked("  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex, list: [\" \"] }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.list: want a string, got a list"},
+		"a secret with a list":                {hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret, list: \" \" }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.signature.list: is for scheme hmac-sha256"},
+		"a key with no encoding":              {hooked(verify + "    key: { prefix: \"whsec_\" }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key.encoding: missing: how the secret writes the key (hex, base64)"},
+		"a key encoding that is none":         {hooked(verify + "    key: { prefix: \"whsec_\", encoding: base32 }\n  bodies: unique\n  normalize: [normalize]\n"), `"base32": a key is written hex or base64`},
+		"a key prefix that is no string":      {hooked(verify + "    key: { prefix: 5, encoding: base64 }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key.prefix: want a string, got int 5"},
+		"a verify key it does not have":       {hooked(verify + "    key: { prefix: \"whsec_\", encoding: base64, algorithm: sha1 }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key.algorithm: unknown key (known here: prefix, encoding)"},
+		"a key that is no mapping":            {hooked(verify + "    key: base64\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key: want a mapping"},
+		"a secret with a key":                 {hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret }\n    key: { prefix: \"whsec_\", encoding: base64 }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key: is for scheme hmac-sha256"},
 		"a timestamp in both":                 {hooked(verify + "    timestamp: { body: ts, header: S-Ts, unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "a timestamp is in the body or in a header, not both"},
 		"a timestamp in neither":              {hooked(verify + "    timestamp: { unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.body: missing: where the timestamp arrives"},
 		"a timestamp with no unit":            {hooked(verify + "    timestamp: { body: ts, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.unit: missing: ms or s"},
@@ -1450,8 +1515,11 @@ func TestParseHookRefusals(t *testing.T) {
 		"a signed template with no time":      {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"v0:{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n"), "missing {timestamp}"},
 		"a signed template with body twice":   {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"{body}:{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "repeated {body}"},
 		"a signed template with time twice":   {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"{timestamp}:{timestamp}:{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n"), "repeated {timestamp}"},
-		"a signed template with an unknown":   {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"v0:{sig}:{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "unknown placeholder {sig}"},
+		"a signed template with an unknown":   {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"v0:{sig}:{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "unknown placeholder {sig}: a signed template names {body}, {timestamp} and {delivery} alone"},
 		"a signed template with no timestamp": {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"v0:{timestamp}:{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: unique\n  normalize: [normalize]\n"), "{timestamp} with no timestamp"},
+		"a template with delivery twice":      {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"{delivery}.{delivery}.{timestamp}.{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n"), "repeated {delivery}: a signed template names {delivery} at most once"},
+		"a template reading a body delivery":  {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"{delivery}.{timestamp}.{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { body: id }\n    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n"), "{delivery} with the delivery id in the body: a signed template reads the id from a header"},
+		"a signed template with no delivery":  {hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"{delivery}.{timestamp}.{body}\"\n    signature: { header: S-Sig, encoding: hex }\n    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.delivery: missing"},
 		"a challenge with no body":            {hooked(verify + "  bodies: unique\n  challenge: { value: url_verification, answer: challenge }\n  normalize: [normalize]\n"), "hook.challenge.body: missing"},
 		"a challenge with no value":           {hooked(verify + "  bodies: unique\n  challenge: { body: type, answer: challenge }\n  normalize: [normalize]\n"), "hook.challenge.value: missing"},
 		"a challenge with no answer":          {hooked(verify + "  bodies: unique\n  challenge: { body: type, value: url_verification }\n  normalize: [normalize]\n"), "hook.challenge.answer: missing"},
@@ -1476,6 +1544,15 @@ func TestParseHookRefusals(t *testing.T) {
 	_, err = Parse("f", []byte(hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret }\n  bodies: repeat\n  normalize: [normalize]\n")))
 	if !errors.As(err, &errs) || len(errs) != 1 {
 		t.Fatalf("errors = %v, want one", err)
+	}
+	// A {delivery} with no delivery named at all is the missing delivery's
+	// one error, and one with the id in a header and in the body is the
+	// both-places error: neither is also a template with no header to read.
+	for name, delivery := range map[string]string{"none": "", "both": "    delivery: { header: S-Delivery, body: id }\n"} {
+		_, err = Parse("f", []byte(hooked("  verify:\n    scheme: hmac-sha256\n    signed: \"{delivery}.{timestamp}.{body}\"\n    signature: { header: S-Sig, encoding: hex }\n"+delivery+"    timestamp: { header: S-Ts, unit: s, window: 5m }\n  bodies: unique\n  normalize: [normalize]\n")))
+		if !errors.As(err, &errs) || len(errs) != 1 {
+			t.Fatalf("delivery %s: errors = %v, want one", name, err)
+		}
 	}
 	// A timestamp in both places is its own error, and not also the header
 	// that signed: body leaves unsigned.
