@@ -305,15 +305,24 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 			return nil, err
 		}
 		// A source the pack still carries is not dropped, though nothing can
-		// be set for it now; and a map or table set by hand since are the
-		// yard's. Only the parts the import set are held against the hook.
-		byHand := (po.CrewMember != "" && (h.As != po.CrewMember || !maps.Equal(h.Map, po.Map))) ||
-			(len(po.Says) > 0 && !store.SameSays(h.Says, po.Says)) ||
-			(len(po.Makes) > 0 && !store.SameMakes(h.Makes, po.Makes))
-		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || byHand {
+		// be set for it now; and a map set by hand since is the yard's. The
+		// tables hold other lines too, so only the pack's own are the
+		// import's to remove: those the hook still has, and no other pack's
+		// last import lists (a line taken off by hand since is gone). The
+		// crew member and the map are the hook's whole, so another pack
+		// acting as one on it keeps them.
+		other := b.others(h.Name)
+		says, makes := leftOf(h.Says, po.Says, nil, other.says), leftOf(h.Makes, po.Makes, nil, other.makes)
+		as, mp := po.CrewMember, po.Map
+		if other.as {
+			as, mp = "", nil
+		}
+		byHand := as != "" && (h.As != as || !maps.Equal(h.Map, mp))
+		if slices.ContainsFunc(b.p.Sources, func(m StageMap) bool { return m.Source == h.Source }) || byHand ||
+			(as == "" && len(says)+len(makes) == 0) {
 			return nil, nil
 		}
-		return &Object{Kind: po.Kind, Name: mapName(h.Name, po.CrewMember), Map: &MapOp{Hook: h.Name, Source: h.Source, As: po.CrewMember, Map: po.Map, Says: po.Says, Makes: po.Makes}}, nil
+		return &Object{Kind: po.Kind, Name: mapName(h.Name, po.CrewMember), Map: &MapOp{Hook: h.Name, Source: h.Source, As: as, Map: mp, Says: says, Makes: makes}}, nil
 	case "source":
 		src, err := b.st.GetSource(b.ctx, po.Name)
 		if errors.Is(err, store.ErrNotFound) {

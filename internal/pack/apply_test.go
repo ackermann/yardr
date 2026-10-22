@@ -376,7 +376,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 		"  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }\n", "",
 		// The stage map names the stage too, and a pack is refused for that.
 		"review: review, review-security: review, merged: done", "review: review, merged: done",
-		"stage=review stage=review-security\"", "stage=review\"")
+		"stage=review stage=review-security type=train\"", "stage=review type=train\"")
 
 	plan := build(t, st, load(t, dir), o)
 	// The stage's file goes with it: named by where it is in the home, since

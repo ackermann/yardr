@@ -19,6 +19,10 @@ import (
 // starter is the pack the repository ships, and these tests' fixture.
 const starter = "../../packs/starter"
 
+// contributors is the pack for a public repository's issues and pull
+// requests, whose github lines share the starter's hook.
+const contributors = "../../packs/contributors"
+
 // website is the starter's line with a deploy stage, for a website on the
 // user's own Void platform; these tests hold its deploy script to the
 // reference one.

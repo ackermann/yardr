@@ -132,6 +132,13 @@ It needs a GitHub hook to do anything (`yardr hook add github --source
 github --secret-file <file>`): `makes`, `says` and `hears` go on the yard's
 hook of the source, and `pack check` says what is missing.
 
+The hook's tables are shared with the starter pack, whose lines are for a
+train's pull request, and the import sets only the pack's own lines among
+them, taking off none but those it set at its last import and no longer
+gives. Each of the pack's `says` lines names the type of its bead (`issue` or
+`pr`), so an event meets the lines of the bead's own pack: a pull request
+closed unmerged is `dropped` for a `pr` bead, and asks a person about a train.
+
 Groups are matched by name, so imported into a depot the starter set up,
 the pack finds `builders`, `reviewers` and `assembly` there, points them at
 its copies of the roles and the script, which are the same text, and sets

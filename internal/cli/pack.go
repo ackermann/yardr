@@ -856,11 +856,6 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 	if edited := plan.EditedFiles(); len(edited) > 0 && !f.yes {
 		return nil, fmt.Errorf("nothing was changed: %s; --yes proceeds", strings.Join(edited, "; "))
 	}
-	// A hook's lines another pack or the operator set are not dropped on
-	// a confirmation alone either: they are lost for good.
-	if drops := plan.DroppedHookLines(); len(drops) > 0 && !f.yes {
-		return nil, fmt.Errorf("nothing was changed: %s; --yes drops them", strings.Join(drops, "; "))
-	}
 	// Without a terminal nothing is missing here: that failed above,
 	// before the plan. In a terminal what is still open is asked.
 	if missing := plan.Missing(answers); len(missing) > 0 {
@@ -1508,21 +1503,6 @@ func printResult(w io.Writer, plan *pack.Plan, res *pack.Result, pruning bool, a
 			}
 		}
 	}
-	for _, m := range plan.Maps {
-		if len(m.Drops) == 0 {
-			continue
-		}
-		if !slices.ContainsFunc(res.Mapped, func(mapped pack.MapOp) bool { return mapped.Hook == m.Hook }) {
-			continue
-		}
-		for _, d := range m.Drops {
-			owner := d.Owner
-			if owner == "the operator's" {
-				owner += " (set by hand with yardr hook add)"
-			}
-			fmt.Fprintf(w, "note: --yes dropped hook %s's %s line %q (%s): the pack does not give it\n", m.Hook, d.Table, d.Line, owner)
-		}
-	}
 	// What the import did not do for a stage map, each with who does it and
 	// how: it makes no hook, gives no identity and grants no set_state. A
 	// source the yard has nothing of is not said again: the plan said it
@@ -1922,28 +1902,35 @@ func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[
 		case m.Action == pack.Create:
 			fmt.Fprintf(w, "  would be set on hook %s, which has none\n", m.Hook)
 		case m.Action == pack.Change:
-			var was []string
-			if m.Pack != "" {
-				was = append(was, "as "+or(m.Was.As, "(none)"), or(strings.Join(pack.MapLines(m.Was.Map), " "), "(no map)"))
+			// The crew member and the map are replaced whole; the tables are
+			// not: the pack's lines go among the hook's, whose others stay.
+			told := false
+			if m.Pack != "" && (m.Was.As != m.As || (len(m.Map) > 0 && !maps.Equal(m.Was.Map, m.Map))) {
+				told = true
+				fmt.Fprintf(w, "  would replace what hook %s has: as %s, %s\n", m.Hook, or(m.Was.As, "(none)"), or(strings.Join(pack.MapLines(m.Was.Map), " "), "(no map)"))
 			}
-			if len(m.Says) > 0 {
-				was = append(was, or(strings.Join(store.SayLines(m.Was.Says), "; "), "(no table)"))
+			for _, l := range store.SayLines(m.Says) {
+				if !slices.Contains(store.SayLines(m.Was.Says), l) {
+					told = true
+					fmt.Fprintf(w, "  would add the says line %q to hook %s\n", l, m.Hook)
+				}
 			}
-			if len(m.Makes) > 0 {
-				was = append(was, or(strings.Join(store.MakeLines(m.Was.Makes), "; "), "(makes nothing)"))
+			for _, l := range store.MakeLines(m.Makes) {
+				if !slices.Contains(store.MakeLines(m.Was.Makes), l) {
+					told = true
+					fmt.Fprintf(w, "  would add the makes line %q to hook %s\n", l, m.Hook)
+				}
 			}
-			fmt.Fprintf(w, "  would replace what hook %s has: %s\n", m.Hook, strings.Join(was, ", "))
+			if !told && len(m.Drops) == 0 {
+				fmt.Fprintf(w, "  would put the pack's lines of hook %s in the pack's order\n", m.Hook)
+			}
 		case m.Action == pack.Unchanged:
 			fmt.Fprintf(w, "  hook %s has it\n", m.Hook)
 		default:
 			fmt.Fprintln(w, "  nothing would be set: the import goes through without it, and the next one sets it once the yard has what is missing")
 		}
 		for _, d := range m.Drops {
-			owner := d.Owner
-			if owner == "the operator's" {
-				owner += " (set by hand with yardr hook add)"
-			}
-			fmt.Fprintf(w, "  would drop the hook's %s line %q (%s): the pack does not give it; --yes drops it\n", d.Table, d.Line, owner)
+			fmt.Fprintf(w, "  would drop the %s line %q from hook %s: the pack set it at its last import and no longer gives it\n", d.Table, d.Line, m.Hook)
 		}
 		for _, n := range m.Needs {
 			fmt.Fprintf(w, "  %-8s %-12s %s\n", n.Status, strings.ReplaceAll(n.What, "_", " "), n.Detail)

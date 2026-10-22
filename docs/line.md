@@ -1309,13 +1309,19 @@ add` (it replaces the hook's definition, so the lines go with the rest of it;
 ```sh
 yardr hook add gh --source github --secret-file ~/.yardr/github.secret \
   --as yardmaster \
-  --says "event=pull_request action=closed merged=true -> merged: PR merged" \
-  --says "event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?" \
-  --says "event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR" \
-  --says "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security -> changes: CI failed on the head of the PR" \
-  --says "event=ci conclusion=success stage=in-pr -> done" \
-  --says "event=ci conclusion=failure stage=in-pr -> changes"
+  --says "event=pull_request action=closed merged=true type=train -> merged: PR merged" \
+  --says "event=pull_request action=closed merged=false type=train -> question: PR closed unmerged: reopen, or drop the train?" \
+  --says "event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR" \
+  --says "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train -> changes: CI failed on the head of the PR" \
+  --says "event=ci conclusion=success stage=in-pr type=train -> done" \
+  --says "event=ci conclusion=failure stage=in-pr type=train -> changes"
 ```
+
+These are the lines the starter pack sets on the hook, each for trains alone
+(`type=train`): the hook's table is shared with the packs that carry the same
+source, whose lines are for the beads of other types, and an import of the
+starter pack sets only these among them ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+A yard whose hook serves trains alone may leave `type=train` out.
 
 The hook acts as a crew member because the table's `event=ci` lines are
 read with that member's credential, as a move is; a hook with an

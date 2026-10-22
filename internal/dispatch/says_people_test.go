@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,7 +41,14 @@ func TestSaysOutcomeMovesBeadOutOfPeopleStage(t *testing.T) {
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
 	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Group: "maintainers"}, "me")
 	must(t, err)
-	r.tracker(t, "yard-p", "approved", "https://github.com/acme/yardr/pull/17")
+	// The pack scopes its lines by the bead's type: the contributors' for a
+	// merged pull request stands beside the starter's for a train's.
+	_, err = r.api.PutHook(ctx, store.Hook{Name: "gh", Source: "github", SecretFile: "/nonexistent/github.secret", As: "yardmaster",
+		Says: says(t, slices.Concat(yardSays, []string{"event=pull_request action=closed merged=true type=pr -> merged"})...)}, "me")
+	must(t, err)
+	_, err = r.api.CreateBead(ctx, store.NewBead{ID: "yard-p", Title: "yard-p", Type: "pr", Depot: "yard", Stage: "approved",
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "github", URL: "https://github.com/acme/yardr/pull/17"}}}, "me")
+	must(t, err)
 	r.deliverAs(t, "gh", "pull_request", "pull_request_closed_merged", nil)
 	r.pass(t)
 	if st := r.stageOf(t, "yard-p"); st != "merged" {

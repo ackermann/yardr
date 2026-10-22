@@ -169,10 +169,13 @@ func answered(t *testing.T, p *pack.Plan, answers map[string]string) pack.Answer
 }
 
 // copyStarter is the starter pack in a directory the test may change.
-func copyStarter(t *testing.T) string {
+func copyStarter(t *testing.T) string { return copyPack(t, starter) }
+
+// copyPack is the pack in src in a directory the test may change.
+func copyPack(t *testing.T, src string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.CopyFS(dir, os.DirFS(starter)); err != nil {
+	if err := os.CopyFS(dir, os.DirFS(src)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(filepath.Join(dir, "scripts", "merge-local"), 0o755); err != nil {

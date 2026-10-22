@@ -24,15 +24,15 @@ import (
 const fixtureSHA = "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
 
 // yardSays is the table of yardr's own github hook, for the train flow with
-// a pull request (docs/line.md): the starter pack's lines, and CI's
-// result for a train in in-pr.
+// a pull request (docs/line.md): the starter pack's lines, for trains alone
+// as the pack scopes them, and CI's result for a train in in-pr.
 var yardSays = []string{
-	"event=pull_request action=closed merged=true -> merged: PR merged",
-	"event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?",
-	"event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR",
-	"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review -> changes: CI failed on the head of the PR",
-	"event=ci conclusion=success stage=in-pr -> done",
-	"event=ci conclusion=failure stage=in-pr -> changes",
+	"event=pull_request action=closed merged=true type=train -> merged: PR merged",
+	"event=pull_request action=closed merged=false type=train -> question: PR closed unmerged: reopen, or drop the train?",
+	"event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR",
+	"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review type=train -> changes: CI failed on the head of the PR",
+	"event=ci conclusion=success stage=in-pr type=train -> done",
+	"event=ci conclusion=failure stage=in-pr type=train -> changes",
 }
 
 // says reads lines as yardr hook add --says takes them.

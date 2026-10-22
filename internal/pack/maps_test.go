@@ -3,6 +3,7 @@ package pack_test
 import (
 	"errors"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -614,12 +615,12 @@ func TestStageMapPlanWritesNothing(t *testing.T) {
 const githubSays = `  github:
     as: yardmaster
     says:
-      - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
-      - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
-      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
-      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security", outcome: changes, note: "CI failed on the head of the PR" }
-      - { where: "event=ci conclusion=success stage=in-pr", outcome: done }
-      - { where: "event=ci conclusion=failure stage=in-pr", outcome: changes }
+      - { where: "event=pull_request action=closed merged=true type=train", outcome: merged, note: "PR merged" }
+      - { where: "event=pull_request action=closed merged=false type=train", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
+      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user type=train", outcome: changes, note: "Changes requested on the PR" }
+      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train", outcome: changes, note: "CI failed on the head of the PR" }
+      - { where: "event=ci conclusion=success stage=in-pr type=train", outcome: done }
+      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }
 `
 
 // starterSays is the table the starter pack carries for github, as yardr
@@ -628,12 +629,12 @@ func starterSays(t *testing.T) []store.Say {
 	t.Helper()
 	var out []store.Say
 	for _, l := range []string{
-		"event=pull_request action=closed merged=true -> merged: PR merged",
-		"event=pull_request action=closed merged=false -> question: PR closed unmerged: reopen, or drop the train?",
-		"event=pull_request_review action=submitted state=changes_requested sender=user -> changes: Changes requested on the PR",
-		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security -> changes: CI failed on the head of the PR",
-		"event=ci conclusion=success stage=in-pr -> done",
-		"event=ci conclusion=failure stage=in-pr -> changes",
+		"event=pull_request action=closed merged=true type=train -> merged: PR merged",
+		"event=pull_request action=closed merged=false type=train -> question: PR closed unmerged: reopen, or drop the train?",
+		"event=pull_request_review action=submitted state=changes_requested sender=user type=train -> changes: Changes requested on the PR",
+		"event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train -> changes: CI failed on the head of the PR",
+		"event=ci conclusion=success stage=in-pr type=train -> done",
+		"event=ci conclusion=failure stage=in-pr type=train -> changes",
 	} {
 		s, err := store.ParseSay(l)
 		if err != nil {
@@ -864,11 +865,10 @@ func TestPackSetsWhatTheSourceMakesOnTheYardsHook(t *testing.T) {
 	}
 }
 
-// An import meets a hook's table that holds a line the pack does not give:
-// the plan names the line and whose it is, and the import refuses without
-// --yes, dropping it loudly with it. The pack's own lines from its last
-// import drop freely as the pack evolves.
-func TestPackImportRefusesAHookTableWithAnOperatorsLine(t *testing.T) {
+// githubYard is a yard with a github hook gh that boss acts as, which the
+// packs' tables are set on, and a second depot web2.
+func githubYard(t *testing.T) (store.API, pack.Options) {
+	t.Helper()
 	st, o := yard(t)
 	withGitHub(t, st)
 	o.Crew = map[string]string{"yardmaster": "boss"}
@@ -876,62 +876,405 @@ func TestPackImportRefusesAHookTableWithAnOperatorsLine(t *testing.T) {
 	if err := st.SetIdentity(ctx, "boss", "github", store.Identity{ID: "boss-bot"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	dir := copyStarter(t)
-	want := starterSays(t)
-	// The hook as the last import left it, plus the operator's line.
-	ours, err := store.ParseSay("event=pull_request action=closed merged=false type=pr -> dropped")
+	if err := st.PutDepot(ctx, store.Depot{Name: "web2", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	hook(t, st, store.Hook{Name: "gh", Source: "github"})
+	return st, o
+}
+
+// say reads a line as yardr hook add --says takes it.
+func say(t *testing.T, line string) store.Say {
+	t.Helper()
+	s, err := store.ParseSay(line)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss", Says: append(slices.Clone(want), ours)})
-	// The record of the pack's last import: its lines alone.
-	if _, err := st.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "web",
-		Objects: []store.PackObject{{Kind: "map", Name: "gh", CrewMember: "boss", Says: want}}}, true, "me"); err != nil {
-		t.Fatal(err)
-	}
-	plan := build(t, st, load(t, dir), o)
-	mp := mapPlan(t, plan, "github")
-	if mp.Action != pack.Change || len(mp.Drops) != 1 || mp.Drops[0].Table != "says" ||
-		mp.Drops[0].Line != ours.String() || mp.Drops[0].Owner != "the operator's" {
-		t.Fatalf("drops = %+v, want the operator's line", mp.Drops)
-	}
-	dropped := plan.DroppedHookLines()
-	if len(dropped) != 1 || !strings.Contains(dropped[0], "hook gh's says table") ||
-		!strings.Contains(dropped[0], ours.String()) || !strings.Contains(dropped[0], "the operator's") {
-		t.Fatalf("dropped = %v", dropped)
-	}
-	answers := pack.Answers{}
-	for _, q := range plan.Questions {
-		switch q.Field {
-		case "kind":
-			answers[q.ID] = "claude"
-		case "dir":
-			answers[q.ID] = t.TempDir()
-		default:
-			answers[q.ID] = ""
+	return s
+}
+
+// githubOf is the pack's block for github.
+func githubOf(t *testing.T, dir string) pack.StageMap {
+	t.Helper()
+	for _, sm := range load(t, dir).Sources {
+		if sm.Source == "github" {
+			return sm
 		}
 	}
-	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Actor: "me"}); err == nil ||
-		!strings.Contains(err.Error(), "would drop") {
-		t.Fatalf("without --yes: %v, want it refused", err)
+	t.Fatalf("%s has no block for github", dir)
+	return pack.StageMap{}
+}
+
+// An import sets the pack's lines among the hook's and takes off none but
+// those the pack set at its last import and no longer gives: the operator's
+// lines stay where they stand, the plan never offers them as drops, and
+// nothing is asked for them. A line the pack gains goes where the pack wrote
+// it (first match counts), the last after the rest.
+func TestPackImportKeepsTheHooksOtherLines(t *testing.T) {
+	st, o := githubYard(t)
+	dir := copyStarter(t)
+	apply(t, st, build(t, st, load(t, dir), o), nil)
+
+	// The operator's lines: one in front of the pack's, one among them.
+	first := say(t, "event=pull_request action=closed merged=false type=pr -> dropped")
+	among := say(t, "event=pull_request action=labeled label=hold -> question")
+	was := starterSays(t)
+	have := slices.Concat([]store.Say{first}, was[:3], []store.Say{among}, was[3:])
+	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss", Says: have})
+
+	// The pack lets go of its second line for another in its place, and gains
+	// one after its last.
+	edit(t, dir, `      - { where: "event=pull_request action=closed merged=false type=train", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
+`, `      - { where: "event=pull_request action=labeled label=drop type=train", outcome: question }
+`, `      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }
+`, `      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }
+      - { where: "event=pull_request action=labeled label=last type=train", outcome: question }
+`)
+	replaced := say(t, "event=pull_request action=labeled label=drop type=train -> question")
+	last := say(t, "event=pull_request action=labeled label=last type=train -> question")
+	next := slices.Concat([]store.Say{first}, was[:1], []store.Say{replaced}, was[2:3], []store.Say{among}, was[3:], []store.Say{last})
+
+	plan := build(t, st, load(t, dir), o)
+	mp := mapPlan(t, plan, "github")
+	if mp.Action != pack.Change || !slices.Equal(mp.Drops, []pack.HookDrop{{Table: "says", Line: was[1].String()}}) {
+		t.Fatalf("plan = %+v, want the pack's second line the one drop", mp)
 	}
-	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, append(slices.Clone(want), ours)) {
-		t.Fatalf("refused but wrote: %+v", h.Says)
+	want := []pack.Diff{{Field: "says", Old: strings.Join(store.SayLines(have), "; "), New: strings.Join(store.SayLines(next), "; ")}}
+	if got := find(t, plan, "map", "hook gh as boss").Changes; !slices.Equal(got, want) {
+		t.Fatalf("changes = %+v, want %+v", got, want)
 	}
-	res, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answers, Actor: "me", Overwrite: true})
+	// Nothing is refused for the operator's lines, and none is told as one to
+	// drop.
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, nil), Actor: "me"}); err != nil {
+		t.Fatalf("applying: %v", err)
+	}
+	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, next) {
+		t.Fatalf("hook = %v\nwant %v", store.SayLines(h.Says), store.SayLines(next))
+	}
+	// The record keeps the pack's lines alone, and a second import is once.
+	if rec := record(t, st); !slices.ContainsFunc(rec.Objects, func(po store.PackObject) bool {
+		return po.Kind == "map" && po.Name == "gh" && store.SameSays(po.Says, githubOf(t, dir).Says)
+	}) {
+		t.Fatalf("record = %+v", rec.Objects)
+	}
+	if got := mapPlan(t, build(t, st, load(t, dir), o), "github"); got.Action != pack.Unchanged || len(got.Drops) != 0 {
+		t.Fatalf("the next plan: %+v", got)
+	}
+
+	// The source block can stay after the pack lets go of its last table.
+	// Its own lines still have to come off before the new empty table is
+	// recorded, while the operator's lines stay.
+	owned := slices.Clone(githubOf(t, dir).Says)
+	path := filepath.Join(dir, "pack.yaml")
+	text, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("with --yes: %v", err)
+		t.Fatal(err)
 	}
-	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, want) {
-		t.Fatalf("with --yes: hook %+v, want the pack's table", h.Says)
+	contents := string(text)
+	start := strings.LastIndex(contents, "    says:\n")
+	if start < 0 {
+		t.Fatal("the copied starter pack has no github says table")
 	}
-	if len(res.Mapped) != 1 {
-		t.Fatalf("mapped = %+v", res.Mapped)
+	emptySays := contents[:start] + "    hears:\n      train: { in-pr: started }\n"
+	if err := os.WriteFile(path, []byte(emptySays), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	// The pack evolving drops its own old line freely: no refusal.
-	hook(t, st, store.Hook{Name: "gh", Source: "github", As: "boss", Says: want[:1]})
 	plan = build(t, st, load(t, dir), o)
+	mp = mapPlan(t, plan, "github")
+	if mp.Action != pack.Change || len(mp.Drops) != len(owned) || slices.ContainsFunc(mp.Drops, func(d pack.HookDrop) bool {
+		return d.Table != "says" || !slices.Contains(store.SayLines(owned), d.Line)
+	}) {
+		t.Fatalf("plan for the empty table = %+v, want the pack's %d old lines dropped", mp, len(owned))
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, nil), Actor: "me"}); err != nil {
+		t.Fatalf("applying the empty table: %v", err)
+	}
+	if h := getHook(t, st, "gh"); !store.SameSays(h.Says, []store.Say{first, among}) {
+		t.Fatalf("hook after the pack drops its last lines = %v, want the operator's lines", store.SayLines(h.Says))
+	}
+}
+
+// Two packs set their lines on the one hook of a source, in either order and
+// into either depot: each import keeps every line of the other where it
+// stands and adds its own after the rest, a plan of the second shows lines
+// to add and none to drop, and a pack that lets go of a line takes off that
+// one alone, the other pack's lines with it staying.
+func TestTwoPacksShareOneHooksTables(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		first, second string // pack directories
+	}{
+		{"contributors then the starter", contributors, starter},
+		{"the starter then contributors", starter, contributors},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			st, o := githubYard(t)
+			o2 := o
+			o2.Depot = "web2"
+			dirs := map[string]string{c.first: copyPack(t, c.first), c.second: copyPack(t, c.second)}
+			first, second := dirs[c.first], dirs[c.second]
+			all := slices.Concat(githubOf(t, first).Says, githubOf(t, second).Says)
+			// Only contributors makes beads.
+			makes := githubOf(t, dirs[contributors]).Makes
+
+			apply(t, st, build(t, st, load(t, first), o), nil)
+			plan := build(t, st, load(t, second), o)
+			mp := mapPlan(t, plan, "github")
+			if mp.Action != pack.Change || len(mp.Drops) != 0 {
+				t.Fatalf("the second pack's plan: %+v, want lines to add and none to drop", mp)
+			}
+			apply(t, st, plan, nil)
+			if h := getHook(t, st, "gh"); !store.SameSays(h.Says, all) || !store.SameMakes(h.Makes, makes) {
+				t.Fatalf("hook = %v\nmakes %v\nwant %v\nand %v", store.SayLines(h.Says), store.MakeLines(h.Makes), store.SayLines(all), store.MakeLines(makes))
+			}
+			// Both are once, and into the second depot too.
+			for _, dir := range []string{first, second} {
+				for _, o := range []pack.Options{o, o2} {
+					plan := build(t, st, load(t, dir), o)
+					if mp := mapPlan(t, plan, "github"); mp.Action != pack.Unchanged || len(mp.Drops) != 0 {
+						t.Fatalf("%s again into %s: %+v", dir, o.Depot, mp)
+					}
+					if o.Depot == "web2" {
+						apply(t, st, plan, nil)
+					}
+				}
+			}
+			if h := getHook(t, st, "gh"); !store.SameSays(h.Says, all) || !store.SameMakes(h.Makes, makes) {
+				t.Fatalf("hook after both into the second depot = %v", store.SayLines(h.Says))
+			}
+
+			// Each pack lets go of a line: that one goes, the rest stays.
+			cdir, sdir := dirs[contributors], dirs[starter]
+			edit(t, cdir, `      - { where: "event=issues action=closed type=issue", outcome: dropped }
+`, "")
+			gone := say(t, "event=issues action=closed type=issue -> dropped")
+			plan = build(t, st, load(t, cdir), o)
+			if mp := mapPlan(t, plan, "github"); !slices.Equal(mp.Drops, []pack.HookDrop{{Table: "says", Line: gone.String()}}) {
+				t.Fatalf("contributors' drops = %+v, want %s alone", mp.Drops, gone)
+			}
+			apply(t, st, plan, nil)
+			all = slices.DeleteFunc(all, func(s store.Say) bool { return s.String() == gone.String() })
+			if h := getHook(t, st, "gh"); !store.SameSays(h.Says, all) {
+				t.Fatalf("hook = %v", store.SayLines(h.Says))
+			}
+			edit(t, sdir, `      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }
+`, "")
+			gone = say(t, "event=ci conclusion=failure stage=in-pr type=train -> changes")
+			plan = build(t, st, load(t, sdir), o)
+			if mp := mapPlan(t, plan, "github"); !slices.Equal(mp.Drops, []pack.HookDrop{{Table: "says", Line: gone.String()}}) {
+				t.Fatalf("the starter's drops = %+v, want %s alone", mp.Drops, gone)
+			}
+			apply(t, st, plan, nil)
+			all = slices.DeleteFunc(all, func(s store.Say) bool { return s.String() == gone.String() })
+			if h := getHook(t, st, "gh"); !store.SameSays(h.Says, all) || !store.SameMakes(h.Makes, makes) {
+				t.Fatalf("hook = %v", store.SayLines(h.Says))
+			}
+
+			// The contributors still carries the source, but no makes table:
+			// its last import's makes are taken off while both packs' says stay.
+			oldMakes := slices.Clone(githubOf(t, cdir).Makes)
+			path := filepath.Join(cdir, "pack.yaml")
+			text, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contents := string(text)
+			start := strings.Index(contents, "    makes:\n")
+			if start < 0 {
+				t.Fatal("the copied contributors pack has no makes table")
+			}
+			relEnd := strings.Index(contents[start:], "\n    # SAYS")
+			if relEnd < 0 {
+				t.Fatal("the copied contributors pack has no makes table")
+			}
+			end := start + relEnd
+			if err := os.WriteFile(path, []byte(contents[:start]+contents[end:]), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			plan = build(t, st, load(t, cdir), o)
+			if mp := mapPlan(t, plan, "github"); mp.Action != pack.Change || len(mp.Drops) != len(oldMakes) || slices.ContainsFunc(mp.Drops, func(d pack.HookDrop) bool {
+				return d.Table != "makes" || !slices.Contains(store.MakeLines(oldMakes), d.Line)
+			}) {
+				t.Fatalf("contributors' plan for the empty makes table = %+v, want its %d old lines dropped", mp, len(oldMakes))
+			}
+			apply(t, st, plan, nil)
+			if h := getHook(t, st, "gh"); len(h.Makes) != 0 || !store.SameSays(h.Says, all) {
+				t.Fatalf("hook after contributors drops makes = %v / %v", store.SayLines(h.Says), store.MakeLines(h.Makes))
+			}
+		})
+	}
+}
+
+// A pack that drops its block from the sources has its own lines, those it
+// set and the hook still has, removed by a prune, and only those: another
+// pack's lines stay, and so do the crew member and the map, which the other
+// pack acts as too.
+func TestPrunedBlockTakesOnlyItsOwnLines(t *testing.T) {
+	st, o := githubYard(t)
+	cdir := copyPack(t, contributors)
+	apply(t, st, build(t, st, load(t, cdir), o), nil)
+	apply(t, st, build(t, st, load(t, starter), o), nil)
+	mine := githubOf(t, cdir)
+	h := getHook(t, st, "gh")
+	if want := slices.Concat(mine.Says, starterSays(t)); !store.SameSays(h.Says, want) || h.As != "boss" || !maps.Equal(h.Map, mine.Map) {
+		t.Fatalf("hook = %+v", h)
+	}
+
+	// The pack's source block is the last thing in its pack.yaml.
+	text, err := os.ReadFile(filepath.Join(cdir, "pack.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cdir, "pack.yaml"), text[:strings.Index(string(text), "\nsources:\n")+1], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := build(t, st, load(t, cdir), o)
+	// The starter's plain routes stand for the typed ones of the pack's, which
+	// are dropped too: the block is the one under test.
+	if got := actions(plan, pack.Dropped); !slices.Contains(got, "map hook gh as boss") {
+		t.Fatalf("dropped = %v", got)
+	}
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, nil), Actor: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := getHook(t, st, "gh"); !store.SameSays(got.Says, h.Says) || !store.SameMakes(got.Makes, h.Makes) {
+		t.Fatalf("without --prune: hook = %+v", got)
+	}
+
+	plan = build(t, st, load(t, cdir), o)
+	if _, err := pack.Apply(ctx, st, plan, pack.ApplyOptions{Answers: answered(t, plan, nil), Prune: true, Actor: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	got := getHook(t, st, "gh")
+	if !store.SameSays(got.Says, starterSays(t)) || got.Makes != nil || got.As != "boss" || !maps.Equal(got.Map, mine.Map) {
+		t.Fatalf("with --prune: hook = %+v, want the starter's lines alone, and the crew member and the map kept", got)
+	}
+	if mp := mapPlan(t, build(t, st, load(t, starter), o), "github"); mp.Action != pack.Unchanged {
+		t.Fatalf("the starter's plan after: %+v", mp)
+	}
+}
+
+// The table two packs share routes an event by the type of the bead it is
+// about, whichever pack came first: a pull request closed unmerged asks a
+// person about a train and drops a contributor's pull request, a run of CI
+// that failed in review is noted with the words of the bead's own pack, and
+// the lines of one pack say nothing to the beads of the other.
+func TestSharedTableRoutesByTheBeadsType(t *testing.T) {
+	ev := func(kv ...string) map[string][]string {
+		fields := map[string][]string{}
+		for i := 0; i < len(kv); i += 2 {
+			fields[kv[i]] = []string{kv[i+1]}
+		}
+		return fields
+	}
+	pull := func(action, merged string) map[string][]string {
+		return ev("event", "pull_request", "action", action, "merged", merged)
+	}
+	ci := func(event, conclusion string) map[string][]string {
+		return ev("event", event, "action", "completed", "conclusion", conclusion)
+	}
+	changes := ev("event", "pull_request_review", "action", "submitted", "state", "changes_requested", "sender", "user")
+	bot := ev("event", "pull_request", "action", "synchronize", "sender", "bot")
+	// The hook once each pack has been imported, whichever came first.
+	var hooks []store.Hook
+	for _, order := range [][]string{{contributors, starter}, {starter, contributors}} {
+		st, o := githubYard(t)
+		for _, dir := range order {
+			apply(t, st, build(t, st, load(t, dir), o), nil)
+		}
+		hooks = append(hooks, getHook(t, st, "gh"))
+	}
+	for _, c := range []struct {
+		what          string
+		fields        map[string][]string
+		stage, typ    string
+		outcome, note string
+	}{
+		{"closed unmerged, a train", pull("closed", "false"), "in-pr", "train", "question", "PR closed unmerged: reopen, or drop the train?"},
+		{"closed unmerged, a pull request", pull("closed", "false"), "triage", "pr", "dropped", ""},
+		{"closed unmerged, a task that tracks it", pull("closed", "false"), "new", "task", "", ""},
+		{"merged, a train", pull("closed", "true"), "approved", "train", "merged", "PR merged"},
+		{"merged, a pull request", pull("closed", "true"), "approved", "pr", "merged", ""},
+		{"a run failed in review, a train", ci("workflow_run", "failure"), "review", "train", "changes", "CI failed on the head of the PR"},
+		{"a run failed in review, a pull request", ci("workflow_run", "failure"), "review", "pr", "changes", "CI failed on the PR"},
+		{"a suite failed in review, a train", ci("check_suite", "failure"), "review", "train", "changes", "CI failed on the head of the PR"},
+		{"a suite failed in review, a pull request", ci("check_suite", "failure"), "review", "pr", "changes", "CI failed on the PR"},
+		{"a run failed in the wait for CI, a pull request", ci("workflow_run", "failure"), "ciwait", "pr", "changes", "CI failed on the PR"},
+		{"a run failed in the wait for CI, a train", ci("workflow_run", "failure"), "ciwait", "train", "", ""},
+		{"a run succeeded in the wait for CI, a pull request", ci("workflow_run", "success"), "ciwait", "pr", "done", "CI green on the head"},
+		{"a run succeeded in the wait for CI, a train", ci("workflow_run", "success"), "ciwait", "train", "", ""},
+		{"CI read green, a train", ev("event", "ci", "action", "completed", "conclusion", "success"), "in-pr", "train", "done", ""},
+		{"CI read green, a pull request", ev("event", "ci", "action", "completed", "conclusion", "success"), "in-pr", "pr", "", ""},
+		{"changes requested, a train", changes, "review", "train", "changes", "Changes requested on the PR"},
+		{"changes requested, a pull request", changes, "review", "pr", "", ""},
+		{"pushed under review, a pull request", ev("event", "pull_request", "action", "synchronize"), "review", "pr", "changes", "the PR changed under review"},
+		{"pushed under review, a train", ev("event", "pull_request", "action", "synchronize"), "review", "train", "", ""},
+		{"a bot pushed under review, a pull request", bot, "review", "pr", "pushed", "a bot pushed to the PR"},
+		{"a bot pushed in the wait for CI, a pull request", bot, "ciwait", "pr", "pushed", "a bot pushed to the PR"},
+		{"a bot pushed under review, a train", bot, "review", "train", "", ""},
+		{"an issue closed, an issue", ev("event", "issues", "action", "closed"), "triage", "issue", "dropped", ""},
+		{"an issue closed, a task that tracks it", ev("event", "issues", "action", "closed"), "new", "task", "", ""},
+	} {
+		for i, h := range hooks {
+			var outcome, note string
+			data := map[string]any{"type": c.fields["event"][0], "action": c.fields["action"][0], "fields": c.fields}
+			if say := h.Said(data, c.stage, c.typ); say != nil {
+				outcome, note = say.Outcome, say.Note
+			}
+			if outcome != c.outcome || note != c.note {
+				t.Errorf("%s (order %d): says %q %q, want %q %q", c.what, i, outcome, note, c.outcome, c.note)
+			}
+		}
+	}
+}
+
+// A line both packs give is on the hook once, and stays when one of them lets
+// go of it: the other still sets it. The pack that is the last to let go of it
+// takes it off.
+func TestALineTwoPacksGiveStaysWhileOneDoes(t *testing.T) {
+	st, o := githubYard(t)
+	both := say(t, "event=issues action=labeled label=shared -> question")
+	const line = `      - { where: "event=issues action=labeled label=shared", outcome: question }` + "\n"
+	const after = `      - { where: "event=pull_request action=closed merged=false type=pr", outcome: dropped }` + "\n"
+	cdir, sdir := copyPack(t, contributors), copyStarter(t)
+	edit(t, cdir, after, after+line)
+	edit(t, sdir, `      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }`+"\n",
+		`      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }`+"\n"+line)
+	for _, dir := range []string{cdir, sdir} {
+		apply(t, st, build(t, st, load(t, dir), o), nil)
+	}
+	count := func() int {
+		n := 0
+		for _, s := range getHook(t, st, "gh").Says {
+			if s.String() == both.String() {
+				n++
+			}
+		}
+		return n
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("the line both packs give is on the hook %d times, want once", n)
+	}
+
+	// The contributors let go of it: the starter still gives it.
+	edit(t, cdir, line, "")
+	plan := build(t, st, load(t, cdir), o)
 	if mp := mapPlan(t, plan, "github"); len(mp.Drops) != 0 {
-		t.Fatalf("the pack's own subset drops %+v, want none", mp.Drops)
+		t.Fatalf("contributors' drops = %+v, want none: the starter gives the line", mp.Drops)
+	}
+	apply(t, st, plan, nil)
+	if n := count(); n != 1 {
+		t.Fatalf("the line is on the hook %d times after the contributors let go of it, want once", n)
+	}
+
+	// The starter lets go of it too: nobody gives it, and it is taken off.
+	edit(t, sdir, line, "")
+	plan = build(t, st, load(t, sdir), o)
+	if mp := mapPlan(t, plan, "github"); !slices.Equal(mp.Drops, []pack.HookDrop{{Table: "says", Line: both.String()}}) {
+		t.Fatalf("the starter's drops = %+v, want the line", mp.Drops)
+	}
+	apply(t, st, plan, nil)
+	if n := count(); n != 0 {
+		t.Fatalf("the line is on the hook %d times after both let go of it, want none", n)
 	}
 }

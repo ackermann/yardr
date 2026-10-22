@@ -439,7 +439,6 @@ func check(p *Plan, o ApplyOptions) (*checked, error) {
 	}
 	if !o.Overwrite {
 		problems = append(problems, p.EditedFiles()...)
-		problems = append(problems, p.DroppedHookLines()...)
 	}
 	// An answer is to a question of the plan: a source the yard lacks, or
 	// one the pack does not name, is granted to nobody.
@@ -678,18 +677,20 @@ func write(ctx context.Context, st store.API, p *Plan, obj *Object, o ApplyOptio
 		if err != nil {
 			return err
 		}
-		// The parts the pack carries; the other is the yard's.
+		// The parts the pack carries; the other is the yard's. Its lines go
+		// among the hook's tables, as the hook has them now: the lines of
+		// another pack and the operator's stay.
 		if obj.Map.As != "" {
 			h.As = obj.Map.As
 			if obj.Map.Map != nil {
 				h.Map = obj.Map.Map
 			}
 		}
-		if len(obj.Map.Says) > 0 {
-			h.Says = obj.Map.Says
+		if len(obj.Map.Says) > 0 || len(obj.Map.DropSays) > 0 {
+			h.Says = merged(h.Says, obj.Map.DropSays, obj.Map.Says)
 		}
-		if len(obj.Map.Makes) > 0 {
-			h.Makes = obj.Map.Makes
+		if len(obj.Map.Makes) > 0 || len(obj.Map.DropMakes) > 0 {
+			h.Makes = merged(h.Makes, obj.Map.DropMakes, obj.Map.Makes)
 		}
 		_, err = st.PutHook(ctx, *h, o.Actor)
 		return err
@@ -872,12 +873,10 @@ func remove(ctx context.Context, st store.API, p *Plan, obj Object, actor string
 			if obj.Map.As != "" {
 				h.As, h.Map = "", nil
 			}
-			if len(obj.Map.Says) > 0 {
-				h.Says = nil
-			}
-			if len(obj.Map.Makes) > 0 {
-				h.Makes = nil
-			}
+			// The pack's own lines alone: the plan left out those another
+			// pack's import lists too, and the hook's other lines stay.
+			h.Says = merged(h.Says, obj.Map.Says, nil)
+			h.Makes = merged(h.Makes, obj.Map.Makes, nil)
 			_, err = st.PutHook(ctx, *h, actor)
 		}
 	case "source":

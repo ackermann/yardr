@@ -269,10 +269,16 @@ type SubscriptionOp struct {
 }
 
 // MapOp sets on the yard's hook Hook the crew member it moves tracked issues
-// as and its map (store.Hook's As and Map), and the table of what the
-// source's events say of a bead (Says), and leaves the rest of the hook. It
-// sets the parts it has: no As, and the hook's crew member and map stay; no
-// Says, and its table does. A dropped one clears the parts it has.
+// as and its map (store.Hook's As and Map), and the pack's lines of the
+// tables of what the source's events say of a bead (Says) and make (Makes),
+// and leaves the rest of the hook. It sets the parts it has: without As, the
+// crew member and map stay; without Says and DropSays, the says table stays;
+// without Makes and DropMakes, the makes table stays. As and Map replace the
+// hook's whole. Says and Makes are set among the lines the hook
+// has, whose others stay (see merged): DropSays and DropMakes are the pack's
+// own lines from its last import that it no longer gives, which are taken
+// off. A dropped one clears As and Map when no other pack acts as one on the
+// hook, and removes its own lines from the tables.
 type MapOp struct {
 	Hook   string            `json:"hook"`
 	Source string            `json:"source"`
@@ -280,6 +286,9 @@ type MapOp struct {
 	Map    map[string]string `json:"map"`
 	Says   []store.Say       `json:"says,omitempty"`
 	Makes  []store.Make      `json:"makes,omitempty"`
+
+	DropSays  []store.Say  `json:"drop_says,omitempty"`
+	DropMakes []store.Make `json:"drop_makes,omitempty"`
 }
 
 // SourceOp adds a declared source to the yard, or replaces the one of its
@@ -423,11 +432,10 @@ type MapPlan struct {
 	// another (Was), unchanged, NotSet, or Skipped.
 	Action string `json:"action"`
 	Was    *MapOp `json:"was,omitempty"`
-	// Drops are the hook's says and makes lines the pack does not give,
-	// which setting the pack's tables would drop: each with whose it is,
-	// another pack's or the operator's. Empty when the hook holds none
-	// beyond the pack's own lines from its last import. An import drops
-	// them only with --yes.
+	// Drops are the hook's says and makes lines the import takes off: the
+	// pack's own from its last import into the depot that it no longer
+	// gives. The hook's other lines, another pack's and the operator's,
+	// stay where they are, and are never among them.
 	Drops []HookDrop `json:"drops,omitempty"`
 	// Skipped is why the lines are not set: the yard has no source of the
 	// name, or they do not fit the one it has. Empty when they are not
@@ -437,13 +445,11 @@ type MapPlan struct {
 	Needs []Need `json:"needs"`
 }
 
-// HookDrop is one says or makes line on the yard's hook that the pack does
-// not give and setting the pack's table would drop: the line as the hook
-// has it, and whose, another pack's import or the operator's hand.
+// HookDrop is one says or makes line on the yard's hook that the pack set at
+// its last import and no longer gives: the line as the hook has it.
 type HookDrop struct {
 	Table string `json:"table"` // says or makes
 	Line  string `json:"line"`
-	Owner string `json:"owner"` // pack <pack> in <depot>, or the operator's
 }
 
 // Missing is the detail of the need what when the yard lacks it, else "".
@@ -1042,49 +1048,6 @@ func (p *Plan) EditedFiles() []string {
 		}
 	}
 	return out
-}
-
-// DroppedHookLines are the hook tables the plan would replace though they
-// hold says or makes lines the pack does not give, each with which lines
-// and whose: another pack's, or the operator's. An import drops them only
-// with --yes.
-func (p *Plan) DroppedHookLines() []string {
-	var out []string
-	for _, m := range p.Maps {
-		if len(m.Drops) == 0 || m.Hook == "" {
-			continue
-		}
-		var lines []string
-		for _, d := range m.Drops {
-			owner := d.Owner
-			if owner == "the operator's" {
-				owner += " (set by hand with yardr hook add)"
-			}
-			lines = append(lines, fmt.Sprintf("%q (%s)", d.Line, owner))
-		}
-		out = append(out, fmt.Sprintf("hook %s's %s table has lines the pack %s does not give, which the import would drop: %s", m.Hook, tables(m.Drops), p.Pack, strings.Join(lines, ", ")))
-	}
-	return out
-}
-
-// tables is the tables drops take lines from: says, makes, or both.
-func tables(drops []HookDrop) string {
-	var says, makes bool
-	for _, d := range drops {
-		if d.Table == "says" {
-			says = true
-		} else {
-			makes = true
-		}
-	}
-	switch {
-	case says && makes:
-		return "says and makes"
-	case says:
-		return "says"
-	default:
-		return "makes"
-	}
 }
 
 func sum(b []byte) string {

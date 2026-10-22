@@ -110,19 +110,24 @@ sources:
 
     # SAYS: an event reports an outcome to the bead that tracks its thread,
     # and the flow above routes it. A label is an outcome like any other.
+    # Every line is for one type of bead (type=issue, type=pr). The yard has
+    # one hook of the source, and the lines of another pack (the starter's,
+    # for a train's pull request) stand in its table beside these: the import
+    # sets only its own lines among them, and the type is what tells an event
+    # about a pull request from one about a train, whichever pack came first.
     says:
-      - { where: "event=issues action=labeled label=accepted", outcome: accepted }
-      - { where: "event=issues action=closed", outcome: dropped }
-      - { where: "event=pull_request action=labeled label=accepted", outcome: accepted }
-      - { where: "event=pull_request action=synchronize stage=contributor", outcome: pushed, note: "new commits on the PR" }
+      - { where: "event=issues action=labeled label=accepted type=issue", outcome: accepted }
+      - { where: "event=issues action=closed type=issue", outcome: dropped }
+      - { where: "event=pull_request action=labeled label=accepted type=pr", outcome: accepted }
+      - { where: "event=pull_request action=synchronize stage=contributor type=pr", outcome: pushed, note: "new commits on the PR" }
       # A bot's push while the pull request is read or waits on CI starts the
       # read again at its new head. A bot's rebase is the only push it makes,
       # so a bead sent to contributor would wait there for one that never
       # comes. sender is a kind, as in makes, so this is every bot; a
       # person's push is the general lines below, and the first line an event
       # matches counts, so this one comes before them.
-      - { where: "event=pull_request action=synchronize sender=bot stage=review stage=ciwait", outcome: pushed, note: "a bot pushed to the PR" }
-      - { where: "event=pull_request action=synchronize stage=review", outcome: changes, note: "the PR changed under review" }
+      - { where: "event=pull_request action=synchronize sender=bot stage=review stage=ciwait type=pr", outcome: pushed, note: "a bot pushed to the PR" }
+      - { where: "event=pull_request action=synchronize stage=review type=pr", outcome: changes, note: "the PR changed under review" }
       # CI. A run that failed sends the pull request back to its contributor
       # from review or from the wait for CI; only a run that succeeded in the
       # wait lets it on, so a pull request is never approved by a CI result
@@ -130,13 +135,13 @@ sources:
       # dispatcher counts a run only on the pull request's head, and a push
       # while waiting moves the bead first: a success for an old head never
       # approves.
-      - { where: "event=workflow_run conclusion=failure stage=review stage=ciwait", outcome: changes, note: "CI failed on the PR" }
-      - { where: "event=check_suite conclusion=failure stage=review stage=ciwait", outcome: changes, note: "CI failed on the PR" }
-      - { where: "event=workflow_run conclusion=success stage=ciwait", outcome: done, note: "CI green on the head" }
-      - { where: "event=check_suite conclusion=success stage=ciwait", outcome: done, note: "CI green on the head" }
-      - { where: "event=pull_request action=synchronize stage=ciwait", outcome: changes, note: "the PR changed while waiting on CI" }
-      - { where: "event=pull_request action=closed merged=true", outcome: merged }
-      - { where: "event=pull_request action=closed merged=false", outcome: dropped }
+      - { where: "event=workflow_run conclusion=failure stage=review stage=ciwait type=pr", outcome: changes, note: "CI failed on the PR" }
+      - { where: "event=check_suite conclusion=failure stage=review stage=ciwait type=pr", outcome: changes, note: "CI failed on the PR" }
+      - { where: "event=workflow_run conclusion=success stage=ciwait type=pr", outcome: done, note: "CI green on the head" }
+      - { where: "event=check_suite conclusion=success stage=ciwait type=pr", outcome: done, note: "CI green on the head" }
+      - { where: "event=pull_request action=synchronize stage=ciwait type=pr", outcome: changes, note: "the PR changed while waiting on CI" }
+      - { where: "event=pull_request action=closed merged=true type=pr", outcome: merged }
+      - { where: "event=pull_request action=closed merged=false type=pr", outcome: dropped }
 
     # HEARS: a stage of the bead sets a status on the thread. GitHub has
     # open and closed, and labels (label:<name>). The thread only ever moves

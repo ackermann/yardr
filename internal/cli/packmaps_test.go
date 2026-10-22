@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -239,5 +240,91 @@ func TestPackApplyShowsTheMapItReplaces(t *testing.T) {
 	}
 	if h := linearHook(t, a); len(h.Map) != 4 || h.SecretFile != "/yard/secret" {
 		t.Fatalf("hook = %+v", h)
+	}
+}
+
+// A hook's tables are shared by the packs that carry the source: pack check
+// shows the lines the pack would add and the ones it would drop, which are
+// its own from its last import and no others, so the lines of another pack
+// on the hook are never offered as drops and nothing needs --yes.
+func TestPackCheckShowsTheLinesItAddsAndDrops(t *testing.T) {
+	t.Parallel()
+	a := openApp(t, "github")
+	requireNonInteractive(t)
+	ctx := context.Background()
+	if out := applyStarter(t, a); !strings.Contains(out, "hook github's events now say of a bead:") {
+		t.Fatalf("the starter's apply:\n%s", out)
+	}
+	hook := func() store.Hook {
+		h, err := a.st.GetHook(ctx, "github")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *h
+	}
+	trains := hook().Says
+	if len(trains) != 6 {
+		t.Fatalf("the starter's lines on the hook: %v", store.SayLines(trains))
+	}
+
+	// The contributors pack onto the starter's hook: lines to add, none to drop.
+	check := []string{"--depot", "web", "--crew", "yardmaster=boss"}
+	out, err := run(t, a.packCmd(), append([]string{"check", "../../packs/contributors"}, check...)...)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"  would add the says line \"action=closed event=pull_request merged=true type=pr -> merged\" to hook github\n",
+		"  would add the says line \"action=closed event=issues type=issue -> dropped\" to hook github\n",
+		"  would add the makes line \"action=opened event=issues -> issue:triage\" to hook github\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack check lacks %q:\n%s", want, out)
+		}
+	}
+	// The hook's six lines of the starter's are none of its to drop.
+	for _, not := range []string{"would drop", "--yes drops"} {
+		if strings.Contains(out, not) {
+			t.Errorf("pack check of the contributors pack says %q:\n%s", not, out)
+		}
+	}
+	// Applied, the hook has the lines of both, the starter's in their places
+	// and the pack's after them as it gives them. They are read from the pack,
+	// not counted, so that a line the pack gains does not break this.
+	applied := append([]string{"apply", "../../packs/contributors", "--yes", "--members", "maintainers=jo", "--members", "outside=", "--bind", "pr-reviewers=claude,read-only"}, check...)
+	if out, err := run(t, a.packCmd(), applied...); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	contributors, err := pack.LoadDir("../../packs/contributors")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gh := contributors.Sources[0]
+	if h := hook(); !store.SameSays(h.Says, append(slices.Clone(trains), gh.Says...)) || !store.SameMakes(h.Makes, gh.Makes) {
+		t.Fatalf("hook after the contributors pack: %v, makes %v", store.SayLines(h.Says), store.MakeLines(h.Makes))
+	}
+
+	// A pack that lets go of a line would drop that one alone.
+	dir := filepath.Join(t.TempDir(), "contributors")
+	if err := os.CopyFS(dir, os.DirFS("../../packs/contributors")); err != nil {
+		t.Fatal(err)
+	}
+	text, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const gone = `      - { where: "event=issues action=closed type=issue", outcome: dropped }` + "\n"
+	if !strings.Contains(string(text), gone) {
+		t.Fatalf("pack.yaml lacks %q", gone)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(strings.Replace(string(text), gone, "", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.packCmd(), append([]string{"check", dir}, check...)...); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if want := "  would drop the says line \"action=closed event=issues type=issue -> dropped\" from hook github: the pack set it at its last import and no longer gives it\n"; !strings.Contains(out, want) ||
+		strings.Count(out, "would drop") != 1 || strings.Contains(out, "would add") {
+		t.Fatalf("pack check of the pack without the line:\n%s", out)
 	}
 }

@@ -137,6 +137,13 @@ crew:
 # a failed run on its head send a train under review back to open. CI green
 # or red in in-pr is read as state and put to the same table.
 #
+# Every line is for trains alone (type=train). The yard has one hook of the
+# source, and another pack's lines for its pull requests (the contributors
+# pack's) stand in its table beside these: the import sets only its own lines
+# among them, and the lines of two packs are told apart by the type of the
+# bead, so that a pull request closed unmerged asks a person about a train
+# and drops a contributor's.
+#
 # The import sets this on the yard's hook of the source too. The event=ci
 # lines read CI back through the source's ci command, which runs with a
 # crew member's credential: the hook acts as yardmaster for them.
@@ -148,9 +155,9 @@ sources:
   github:
     as: yardmaster
     says:
-      - { where: "event=pull_request action=closed merged=true", outcome: merged, note: "PR merged" }
-      - { where: "event=pull_request action=closed merged=false", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
-      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user", outcome: changes, note: "Changes requested on the PR" }
-      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security", outcome: changes, note: "CI failed on the head of the PR" }
-      - { where: "event=ci conclusion=success stage=in-pr", outcome: done }
-      - { where: "event=ci conclusion=failure stage=in-pr", outcome: changes }
+      - { where: "event=pull_request action=closed merged=true type=train", outcome: merged, note: "PR merged" }
+      - { where: "event=pull_request action=closed merged=false type=train", outcome: question, note: "PR closed unmerged: reopen, or drop the train?" }
+      - { where: "event=pull_request_review action=submitted state=changes_requested sender=user type=train", outcome: changes, note: "Changes requested on the PR" }
+      - { where: "event=workflow_run event=check_suite action=completed conclusion=failure conclusion=timed_out stage=review stage=review-security type=train", outcome: changes, note: "CI failed on the head of the PR" }
+      - { where: "event=ci conclusion=success stage=in-pr type=train", outcome: done }
+      - { where: "event=ci conclusion=failure stage=in-pr type=train", outcome: changes }

@@ -998,19 +998,19 @@ func TestContributorsPack(t *testing.T) {
 		says[s.String()] = true
 	}
 	for _, want := range []string{
-		"action=labeled event=issues label=accepted -> accepted",
-		"action=labeled event=pull_request label=accepted -> accepted",
-		"action=synchronize event=pull_request stage=contributor -> pushed: new commits on the PR",
-		"action=synchronize event=pull_request sender=bot stage=ciwait stage=review -> pushed: a bot pushed to the PR",
-		"action=synchronize event=pull_request stage=review -> changes: the PR changed under review",
-		"action=synchronize event=pull_request stage=ciwait -> changes: the PR changed while waiting on CI",
-		"conclusion=failure event=workflow_run stage=ciwait stage=review -> changes: CI failed on the PR",
-		"conclusion=failure event=check_suite stage=ciwait stage=review -> changes: CI failed on the PR",
-		"conclusion=success event=workflow_run stage=ciwait -> done: CI green on the head",
-		"conclusion=success event=check_suite stage=ciwait -> done: CI green on the head",
-		"action=closed event=pull_request merged=true -> merged",
-		"action=closed event=pull_request merged=false -> dropped",
-		"action=closed event=issues -> dropped",
+		"action=labeled event=issues label=accepted type=issue -> accepted",
+		"action=labeled event=pull_request label=accepted type=pr -> accepted",
+		"action=synchronize event=pull_request stage=contributor type=pr -> pushed: new commits on the PR",
+		"action=synchronize event=pull_request sender=bot stage=ciwait stage=review type=pr -> pushed: a bot pushed to the PR",
+		"action=synchronize event=pull_request stage=review type=pr -> changes: the PR changed under review",
+		"action=synchronize event=pull_request stage=ciwait type=pr -> changes: the PR changed while waiting on CI",
+		"conclusion=failure event=workflow_run stage=ciwait stage=review type=pr -> changes: CI failed on the PR",
+		"conclusion=failure event=check_suite stage=ciwait stage=review type=pr -> changes: CI failed on the PR",
+		"conclusion=success event=workflow_run stage=ciwait type=pr -> done: CI green on the head",
+		"conclusion=success event=check_suite stage=ciwait type=pr -> done: CI green on the head",
+		"action=closed event=pull_request merged=true type=pr -> merged",
+		"action=closed event=pull_request merged=false type=pr -> dropped",
+		"action=closed event=issues type=issue -> dropped",
 	} {
 		if !says[want] {
 			t.Errorf("says lacks %q: %v", want, says)

@@ -17,10 +17,12 @@ import (
 // shows both. Nothing is planned for a source the yard has no hook of, or
 // whose crew member has no identity in it (the store refuses such a hook, and
 // says why): the import sets nothing for it then, and the next one does.
-// The tables of what a source's events say and make go on the same hook.
-// A says outcome is reported as the hook's as when it has one, so a table
-// whose outcomes cross a stage of people wants the pack's as; a make needs
-// the hook alone, as no crew member acts when an event makes a bead.
+// The tables of what a source's events say and make go on the same hook,
+// among the lines it has: the pack sets its own and leaves the rest, another
+// pack's and the operator's (merged). A says outcome is reported as the
+// hook's as when it has one, so a table whose outcomes cross a stage of
+// people wants the pack's as; a make needs the hook alone, as no crew member
+// acts when an event makes a bead.
 func (b *planner) maps() error {
 	const ok, missing = "ok", "missing"
 	if len(b.p.Sources) == 0 {
@@ -123,24 +125,30 @@ func (b *planner) maps() error {
 				}
 				had = had || len(h.Map) > 0
 			}
-			if len(sm.Says) > 0 {
-				if !store.SameSays(h.Says, sm.Says) {
-					changes = append(changes, Diff{"says", strings.Join(store.SayLines(h.Says), "; "), strings.Join(store.SayLines(sm.Says), "; ")})
+			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says), Makes: slices.Clone(sm.Makes)}
+			op.DropSays, op.DropMakes = b.ownDrops(h, sm)
+			if len(sm.Says) > 0 || len(op.DropSays) > 0 {
+				if next := merged(h.Says, op.DropSays, sm.Says); !store.SameSays(h.Says, next) {
+					changes = append(changes, Diff{"says", strings.Join(store.SayLines(h.Says), "; "), strings.Join(store.SayLines(next), "; ")})
 				}
 				had = had || len(h.Says) > 0
 			}
-			if len(sm.Makes) > 0 {
-				if !store.SameMakes(h.Makes, sm.Makes) {
-					changes = append(changes, Diff{"makes", strings.Join(store.MakeLines(h.Makes), "; "), strings.Join(store.MakeLines(sm.Makes), "; ")})
+			if len(sm.Makes) > 0 || len(op.DropMakes) > 0 {
+				if next := merged(h.Makes, op.DropMakes, sm.Makes); !store.SameMakes(h.Makes, next) {
+					changes = append(changes, Diff{"makes", strings.Join(store.MakeLines(h.Makes), "; "), strings.Join(store.MakeLines(next), "; ")})
 				}
 				had = had || len(h.Makes) > 0
 			}
 			mp.Action = action(had, changes)
 			if mp.Action == Change {
 				mp.Was = &MapOp{Hook: h.Name, Source: h.Source, As: h.As, Map: h.Map, Says: h.Says, Makes: h.Makes}
-				mp.Drops = b.hookDrops(h, sm)
+				for _, l := range store.SayLines(op.DropSays) {
+					mp.Drops = append(mp.Drops, HookDrop{Table: "says", Line: l})
+				}
+				for _, l := range store.MakeLines(op.DropMakes) {
+					mp.Drops = append(mp.Drops, HookDrop{Table: "makes", Line: l})
+				}
 			}
-			op := &MapOp{Hook: h.Name, Source: sm.Source, Says: slices.Clone(sm.Says), Makes: slices.Clone(sm.Makes)}
 			if sm.As != "" {
 				op.As = as
 				if len(sm.Map) > 0 {
@@ -154,13 +162,14 @@ func (b *planner) maps() error {
 	return nil
 }
 
-// hookDrops are the hook's says and makes lines setting the pack's tables
-// would drop: those the pack does not give, beyond the pack's own lines
-// from its last import into this depot, which the pack evolving drops
-// freely. Each carries whose it is: another pack's import that left it, or
-// the operator's hand. Only the tables the pack carries are asked: a table
-// it does not carry stays as the yard has it.
-func (b *planner) hookDrops(h store.Hook, sm StageMap) []HookDrop {
+// ownDrops are the hook's says and makes lines the import takes off: the
+// pack's own, those it set at its last import into this depot and no longer
+// gives. The pack evolving drops its lines freely; a line it never set, or
+// that another pack's last import lists too, is not its to drop and stays,
+// the operator's hand lines with it. A table the pack has stopped giving is
+// still asked when its last import recorded lines there, so those lines can
+// be taken off before the record is replaced.
+func (b *planner) ownDrops(h store.Hook, sm StageMap) (says []store.Say, makes []store.Make) {
 	var prevSays []store.Say
 	var prevMakes []store.Make
 	if b.rec != nil {
@@ -171,72 +180,123 @@ func (b *planner) hookDrops(h store.Hook, sm StageMap) []HookDrop {
 			}
 		}
 	}
-	var out []HookDrop
-	if len(sm.Says) > 0 {
-		want := map[string]bool{}
-		for _, l := range store.SayLines(sm.Says) {
-			want[l] = true
+	other := b.others(h.Name)
+	says = leftOf(h.Says, prevSays, sm.Says, other.says)
+	makes = leftOf(h.Makes, prevMakes, sm.Makes, other.makes)
+	return says, makes
+}
+
+// otherPacks is what the last imports of other packs set on a hook: their
+// says and makes lines, as yardr hook add takes them, and whether one acts on
+// the hook as a crew member. It is theirs, and an import of this pack takes
+// none of it off.
+type otherPacks struct {
+	says, makes []string
+	as          bool
+}
+
+// others reads them from the records. The same pack imported into another
+// depot is not another pack: it is this one.
+func (b *planner) others(hook string) (out otherPacks) {
+	for _, r := range b.all {
+		if r.Pack == b.p.Name {
+			continue
 		}
-		had := map[string]bool{}
-		for _, l := range store.SayLines(prevSays) {
-			had[l] = true
-		}
-		for _, l := range store.SayLines(h.Says) {
-			if want[l] || had[l] {
-				continue
+		for _, po := range r.Objects {
+			if po.Kind == "map" && po.Name == hook {
+				out.says = append(out.says, store.SayLines(po.Says)...)
+				out.makes = append(out.makes, store.MakeLines(po.Makes)...)
+				out.as = out.as || po.CrewMember != ""
 			}
-			out = append(out, HookDrop{Table: "says", Line: l, Owner: b.lineOwner(h.Name, l, true)})
-		}
-	}
-	if len(sm.Makes) > 0 {
-		want := map[string]bool{}
-		for _, l := range store.MakeLines(sm.Makes) {
-			want[l] = true
-		}
-		had := map[string]bool{}
-		for _, l := range store.MakeLines(prevMakes) {
-			had[l] = true
-		}
-		for _, l := range store.MakeLines(h.Makes) {
-			if want[l] || had[l] {
-				continue
-			}
-			out = append(out, HookDrop{Table: "makes", Line: l, Owner: b.lineOwner(h.Name, l, false)})
 		}
 	}
 	return out
 }
 
-// lineOwner is whose the hook's line is: another pack's import that left it
-// there, or the operator's hand. says says which table to read the records'
-// lines from.
-func (b *planner) lineOwner(hook, line string, says bool) string {
-	var owners []string
-	for _, r := range b.all {
-		if r.Pack == b.p.Name && r.Depot == b.o.Depot {
-			continue // the pack's own last import is not another's
+// leftOf are the lines of prev that the table have has and neither the pack
+// still gives (want) nor another pack's last import lists (elsewhere): the
+// pack's own, which it let go of. In the order of have.
+func leftOf[L fmt.Stringer](have, prev, want []L, elsewhere []string) []L {
+	was := lineSet(prev)
+	for _, l := range elsewhere {
+		delete(was, l)
+	}
+	for l := range lineSet(want) {
+		delete(was, l)
+	}
+	var out []L
+	for _, l := range have {
+		if was[l.String()] {
+			out = append(out, l)
 		}
-		for _, po := range r.Objects {
-			if po.Kind != "map" || po.Name != hook {
+	}
+	return out
+}
+
+// merged is a hook's table once the pack's lines are set on it, lines being
+// the hook's says or makes: the table as it is (have), less the pack's own
+// lines it no longer gives (drop), with the pack's lines (want) set in it.
+// The first line an event matches counts, so the pack's lines keep the order
+// the pack wrote them in, and the rest of the table keeps its own:
+//
+//   - the pack's lines the table has stand in the places the pack's lines
+//     stood in, so an import of the same lines changes nothing, and one that
+//     only reorders them reorders them alone;
+//   - a line the pack gains goes before the pack line that follows it, where
+//     the pack wrote it, and one that follows its last line the table has
+//     goes last, after the rest; with none of its lines there, all go last;
+//   - a line of another pack or of the operator keeps its place.
+func merged[L fmt.Stringer](have, drop, want []L) []L {
+	dropped, wanted, on := lineSet(drop), lineSet(want), lineSet(have)
+	// fill are the pack's lines the table has, in the pack's order, and
+	// add[n] the lines it lacks that come before fill[n] in the pack, the
+	// last of them after the last of fill. A line the pack gives twice
+	// stands once.
+	var fill []L
+	add := [][]L{nil}
+	seen := map[string]bool{}
+	for _, l := range want {
+		k := l.String()
+		switch {
+		case seen[k]:
+		case on[k]:
+			fill = append(fill, l)
+			add = append(add, nil)
+		default:
+			add[len(add)-1] = append(add[len(add)-1], l)
+		}
+		seen[k] = true
+	}
+	out := make([]L, 0, len(have)+len(want))
+	n := 0
+	placed := map[string]bool{}
+	for _, l := range have {
+		switch k := l.String(); {
+		case wanted[k]:
+			// A line the table has twice leaves its second place empty.
+			if placed[k] {
 				continue
 			}
-			var lines []string
-			if says {
-				lines = store.SayLines(po.Says)
-			} else {
-				lines = store.MakeLines(po.Makes)
+			placed[k] = true
+			if n < len(fill) {
+				out = append(append(out, add[n]...), fill[n])
+				n++
 			}
-			if slices.Contains(lines, line) {
-				owners = append(owners, "pack "+r.Pack+" in "+inDepot(r.Depot))
-				break
-			}
+		case dropped[k]:
+		default:
+			out = append(out, l)
 		}
 	}
-	if len(owners) > 0 {
-		slices.Sort(owners)
-		return strings.Join(slices.Compact(owners), ", ")
+	return append(out, add[len(fill)]...)
+}
+
+// lineSet are the lines as they are written, for membership.
+func lineSet[L fmt.Stringer](lines []L) map[string]bool {
+	out := make(map[string]bool, len(lines))
+	for _, l := range lines {
+		out[l.String()] = true
 	}
-	return "the operator's"
+	return out
 }
 
 // optional names the sources the pack could use that the yard has nothing
