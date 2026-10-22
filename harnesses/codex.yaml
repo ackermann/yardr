@@ -128,6 +128,30 @@ model:
   type: turn_context
   field: payload.model
 
+# What a session used, in tokens, read from the same file once the session has
+# ended (docs/design/2026-10-21-yardr-qbqq-session-tokens.md, section 3.3).
+# Read on 22 Oct 2026 from the review session of yardr-mnc8, a file of
+# codex-cli 0.160.1. Each token_count line carries total_token_usage, the
+# running total of the session, and last_token_usage for the call just made, so
+# the last line is the total at any moment and none at the end is waited for:
+# that finished file's 76 last_token_usage values add up to its last total,
+# 11,714,314 input (11,487,872 of it cached) and 45,824 output. input_tokens
+# includes cached_input_tokens (total_tokens is input plus output, 11,760,138
+# on the last line), so cache_in_input takes the cache off the input;
+# reasoning_output_tokens is part of output_tokens and is not added. A
+# token_count with no info and the token_usage_record lines, which have no
+# payload.type, hold no total and are passed over.
+usage:
+  - type_field: payload.type
+    type: token_count
+    usage: payload.info.total_token_usage
+    at: timestamp
+    input: input_tokens
+    cache_in_input: true
+    cache_read: cached_input_tokens
+    cache_write: cache_write_input_tokens
+    output: output_tokens
+
 errors:
   - reason: at_capacity
     pattern: '^(Selected model is at capacity|Flex capacity unavailable)'

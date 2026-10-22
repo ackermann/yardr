@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -64,7 +65,14 @@ type Harness struct {
 	// nil when the file names none, and the kind has no context-based
 	// rotation.
 	Context *ContextSource `yaml:"context" json:"context,omitempty"`
-	Errors  []ErrorLine    `yaml:"errors" json:"errors,omitempty"`
+	// Usage is where the tokens a whole session used are read: the same
+	// session file the model source names, once the session has ended. The
+	// entries are tried in order and the first that finds a line is the
+	// reading, so a harness's own total can come first and a sum of its
+	// lines after it as a fallback. nil when the file names none, and the
+	// kind's sessions are not counted.
+	Usage  []UsageSource `yaml:"usage" json:"usage,omitempty"`
+	Errors []ErrorLine   `yaml:"errors" json:"errors,omitempty"`
 	// Dialogs are the questions the harness is known to draw in place of
 	// its input, which yardr tells of and never answers.
 	Dialogs []Dialog `yaml:"dialogs" json:"dialogs,omitempty"`
@@ -398,6 +406,266 @@ func (s ContextSource) UsageIn(line []byte) (used int, ok bool) {
 	return used, ok
 }
 
+// UsageSource is where the tokens a whole session used are read: the agent's
+// own session file, the one the model source names. It is ContextSource made
+// to tell what a session used and not what it holds, in five ways:
+//
+//   - TypeField may be a path of keys joined by dots, as Usage is: Codex
+//     keeps the type of its token lines in payload.type.
+//   - A step of the Usage path that is "*" takes every value of the map at
+//     that step, so Claude's modelUsage.* adds up every model it called, the
+//     side calls it makes with a small model included.
+//   - Read says which lines count: the last one that has numbers ("last", the
+//     default, and what ContextSource does) or all of them ("sum"). Key is a
+//     path to a string in the line and narrows "sum" to the last line for each
+//     value found there: Claude Code writes one line for each content block
+//     of a message and every one repeats the whole message's usage, so keyed
+//     by message.id each message counts once.
+//   - The four counts are named by what they mean: Input, Output, CacheRead
+//     and CacheWrite each name the field that holds it, and one that names
+//     none reads as 0. CacheInInput says the harness's input includes what it
+//     read from its cache (Codex's does), which is then taken off it, so that
+//     one harness's count adds up with another's.
+//   - At is a path to the line's own time: a string is read as RFC 3339, a
+//     number as Unix time in AtUnit ("s", "ms" or "us"; "s" when none is
+//     named). UsageIn gives it to a caller that counts only up to a time.
+//
+// Partial says that what the source reads falls short of what the session
+// used, as a fallback does; the caller keeps it with the count.
+type UsageSource struct {
+	Type         string `yaml:"type" json:"type,omitempty"`
+	TypeField    string `yaml:"type_field" json:"type_field,omitempty"`
+	Usage        string `yaml:"usage" json:"usage"`
+	Read         string `yaml:"read" json:"read,omitempty"`
+	Key          string `yaml:"key" json:"key,omitempty"`
+	Partial      bool   `yaml:"partial" json:"partial,omitempty"`
+	At           string `yaml:"at" json:"at,omitempty"`
+	AtUnit       string `yaml:"at_unit" json:"at_unit,omitempty"`
+	Input        string `yaml:"input" json:"input,omitempty"`
+	Output       string `yaml:"output" json:"output,omitempty"`
+	CacheRead    string `yaml:"cache_read" json:"cache_read,omitempty"`
+	CacheWrite   string `yaml:"cache_write" json:"cache_write,omitempty"`
+	CacheInInput bool   `yaml:"cache_in_input" json:"cache_in_input,omitempty"`
+}
+
+// Usage is what a session used, in four counts that add up across
+// harnesses: Input is what it sent that its provider did not serve from the
+// cache, CacheRead what the provider served from the cache, CacheWrite what
+// it stored there, and Output what the agent said, its thinking included.
+type Usage struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cache_read"`
+	CacheWrite int `json:"cache_write"`
+}
+
+// Add is u and o added up, count by count.
+func (u Usage) Add(o Usage) Usage {
+	return Usage{Input: u.Input + o.Input, Output: u.Output + o.Output, CacheRead: u.CacheRead + o.CacheRead, CacheWrite: u.CacheWrite + o.CacheWrite}
+}
+
+// UsageLine is what one line of the session file reads as under a
+// UsageSource. At is the line's own time, the zero time when the source names
+// none or the line has none that reads: its counts still stand, but a caller
+// that counts only up to a time cannot place such a line and leaves it out.
+// Key is the string at the source's Key, "" when it names none.
+type UsageLine struct {
+	Usage Usage
+	At    time.Time
+	Key   string
+}
+
+// UsageIn is what one line of the session file holds, ok when the line is of
+// Type and has at least one of the source's fields as a number at Usage. A
+// source with a Key reads no line that has no string there: such a line
+// cannot be told from the repeat of another, and a count that may be too
+// high is worse than one that is known to be short. ok is false for any
+// other line, so the lines that are ok are the ones the source reads.
+func (s UsageSource) UsageIn(line []byte) (UsageLine, bool) {
+	var v map[string]any
+	if json.Unmarshal(line, &v) != nil {
+		return UsageLine{}, false
+	}
+	key := s.TypeField
+	if key == "" {
+		key = "type"
+	}
+	if t, _ := valueAt(v, key).(string); s.Type != "" && t != s.Type {
+		return UsageLine{}, false
+	}
+	objects := objectsAt(v, strings.Split(s.Usage, "."))
+	found := false
+	count := func(field string) (n int) {
+		for _, o := range objects {
+			if x, is := o[field].(float64); is && field != "" {
+				n, found = n+int(x), true
+			}
+		}
+		return n
+	}
+	l := UsageLine{Usage: Usage{Input: count(s.Input), Output: count(s.Output), CacheRead: count(s.CacheRead), CacheWrite: count(s.CacheWrite)}}
+	if !found {
+		return UsageLine{}, false
+	}
+	if s.CacheInInput {
+		l.Usage.Input -= l.Usage.CacheRead
+	}
+	if s.Key != "" {
+		if l.Key, _ = valueAt(v, s.Key).(string); l.Key == "" {
+			return UsageLine{}, false
+		}
+	}
+	l.At = s.timeIn(v)
+	return l, true
+}
+
+// timeIn is the time of the line v by the source's At: the zero time when it
+// names none or the line's does not read.
+func (s UsageSource) timeIn(v map[string]any) time.Time {
+	if s.At == "" {
+		return time.Time{}
+	}
+	switch at := valueAt(v, s.At).(type) {
+	case string:
+		t, _ := time.Parse(time.RFC3339, at)
+		return t.UTC()
+	case float64:
+		unit, ok := atUnit(s.AtUnit)
+		if !ok {
+			return time.Time{}
+		}
+		// Whole units into seconds and a remainder by integer arithmetic: a
+		// float64 holds a microsecond Unix time exactly, but not that many
+		// nanoseconds.
+		whole, frac := math.Modf(at)
+		perSec := int64(time.Second / unit)
+		return time.Unix(int64(whole)/perSec, int64(whole)%perSec*int64(unit)+int64(frac*float64(unit))).UTC()
+	}
+	return time.Time{}
+}
+
+// atUnit is the unit a file's at_unit names, "s" for none; ok is false for a
+// name that is no unit.
+func atUnit(name string) (unit time.Duration, ok bool) {
+	switch name {
+	case "", "s":
+		return time.Second, true
+	case "ms":
+		return time.Millisecond, true
+	case "us":
+		return time.Microsecond, true
+	}
+	return 0, false
+}
+
+// valueAt is the value at path, a path of keys joined by dots, in v; nil
+// when a step is missing or is not an object.
+func valueAt(v map[string]any, path string) any {
+	var at any = v
+	for _, k := range strings.Split(path, ".") {
+		m, ok := at.(map[string]any)
+		if !ok {
+			return nil
+		}
+		at = m[k]
+	}
+	return at
+}
+
+// objectsAt are the objects at steps in v: a step that is "*" goes through
+// every value of the map there that is an object, any other through the key
+// it names.
+func objectsAt(v map[string]any, steps []string) []map[string]any {
+	if len(steps) == 0 {
+		return []map[string]any{v}
+	}
+	var out []map[string]any
+	into := func(x any) {
+		if m, ok := x.(map[string]any); ok {
+			out = append(out, objectsAt(m, steps[1:])...)
+		}
+	}
+	if steps[0] != "*" {
+		into(v[steps[0]])
+		return out
+	}
+	for _, x := range v {
+		into(x)
+	}
+	return out
+}
+
+// check finds what an entry of a file's usage says that yardr cannot go by:
+// each of these would read the wrong number without saying so.
+func (s UsageSource) check() error {
+	if _, ok := atUnit(s.AtUnit); !ok {
+		return fmt.Errorf("at_unit %q is none of s, ms, us", s.AtUnit)
+	}
+	switch {
+	case s.Usage == "":
+		return fmt.Errorf("usage is needed, the path to the counts its lines hold")
+	case s.Input == "" && s.Output == "" && s.CacheRead == "" && s.CacheWrite == "":
+		return fmt.Errorf("none of input, output, cache_read and cache_write names a field, so there is nothing to count")
+	case s.Read != "" && s.Read != "last" && s.Read != "sum":
+		return fmt.Errorf("read %q is neither last nor sum", s.Read)
+	case s.Key != "" && s.Read != "sum":
+		return fmt.Errorf("key counts one line for each of its values under read: sum, and this entry does not sum")
+	case s.CacheInInput && s.CacheRead == "":
+		return fmt.Errorf("cache_in_input names no cache_read to take off input")
+	}
+	return nil
+}
+
+// A UsageTally adds up the lines of one session file as their UsageSource
+// says to read them: UsageIn each line, Add those that read in the order of
+// the file, and ask for the Usage. Read "last" keeps the last line, "sum"
+// adds every line up, and a Key keeps the last line for each value of it and
+// adds those up.
+type UsageTally struct {
+	src   UsageSource
+	added bool
+	last  Usage
+	sum   Usage
+	byKey map[string]Usage
+}
+
+// Tally starts a tally of lines read by s, with none added yet.
+func (s UsageSource) Tally() *UsageTally { return &UsageTally{src: s} }
+
+// Add counts l, a line that UsageIn read.
+func (t *UsageTally) Add(l UsageLine) {
+	t.added = true
+	switch {
+	case t.src.Read != "sum":
+		t.last = l.Usage
+	case t.src.Key != "":
+		if t.byKey == nil {
+			t.byKey = map[string]Usage{}
+		}
+		t.byKey[l.Key] = l.Usage
+	default:
+		t.sum = t.sum.Add(l.Usage)
+	}
+}
+
+// Usage is what the lines added so far say the session used. ok is false
+// while none was added, which is not a count of 0: the file may only not
+// have said yet.
+func (t *UsageTally) Usage() (u Usage, ok bool) {
+	switch {
+	case !t.added:
+		return Usage{}, false
+	case t.src.Read != "sum":
+		return t.last, true
+	case t.src.Key != "":
+		for _, k := range t.byKey {
+			u = u.Add(k)
+		}
+		return u, true
+	}
+	return t.sum, true
+}
+
 // Pattern is the glob of the session file of the session id, under the
 // harness's own directory dir.
 func (s ModelSource) Pattern(dir, id string) string {
@@ -679,6 +947,14 @@ func (h *Harness) check() error {
 			return fmt.Errorf("context: usage is needed, the path to the use its lines hold")
 		case slices.Contains(c.Tokens, ""):
 			return fmt.Errorf("context: tokens names an empty field")
+		}
+	}
+	if len(h.Usage) > 0 && h.Model == nil {
+		return fmt.Errorf("usage: without a model source there is no session file to read it from")
+	}
+	for i, u := range h.Usage {
+		if err := u.check(); err != nil {
+			return fmt.Errorf("usage: entry %d: %w", i+1, err)
 		}
 	}
 	if len(h.Offers) > 0 {

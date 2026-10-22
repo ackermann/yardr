@@ -542,6 +542,8 @@ func TestOnboarding(t *testing.T) {
 
 // A file yardr cannot go by is refused whole, with what is wrong with it.
 func TestLoadRefuses(t *testing.T) {
+	// A usage entry reads the session file the model source names.
+	model := "model: {home: .x, glob: '{session}.jsonl', field: m}\n"
 	for name, c := range map[string]struct{ file, body, want string }{
 		"another shape":                    {"claude.yaml", "version: 2\nlabel: x\n", "version 2: this yardr reads version 1"},
 		"no version":                       {"claude.yaml", "label: x\n", "version 0"},
@@ -595,6 +597,16 @@ func TestLoadRefuses(t *testing.T) {
 		"onboarding, no answers":           {"claude.yaml", "version: 1\nlabel: x\nonboarding: [{dialog: 'Pick one'}]\n", "onboarding: entry 1: a screen yardr answers names its text and its accepting answers"},
 		"onboarding, no dialog":            {"claude.yaml", "version: 1\nlabel: x\nonboarding: [{answers: ['Yes']}]\n", "onboarding: entry 1: a screen yardr answers names its text and its accepting answers"},
 		"onboarding, env":                  {"claude.yaml", "version: 1\nlabel: x\nonboarding: [{dialog: 'Pick one', answers: ['Yes'], env: ['A=1']}]\n", "onboarding: entry 1 takes no env"},
+		"usage, no model":                  {"claude.yaml", "version: 1\nlabel: x\nusage: [{usage: u, input: i}]\n", "usage: without a model source"},
+		"usage, no path":                   {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{input: i}]\n", "usage: entry 1: usage is needed"},
+		"usage, no fields":                 {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u}]\n", "usage: entry 1: none of input, output, cache_read and cache_write names a field"},
+		"usage, a field not known":         {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, total: t}]\n", "field total not found"},
+		"usage, an unknown read":           {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, read: all}]\n", `usage: entry 1: read "all" is neither last nor sum`},
+		"usage, a key and no sum":          {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, key: id}]\n", "usage: entry 1: key counts one line for each of its values under read: sum"},
+		"usage, a key and read last":       {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, key: id, read: last}]\n", "usage: entry 1: key counts one line for each of its values under read: sum"},
+		"usage, an unknown at_unit":        {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, at: t, at_unit: ns}]\n", `usage: entry 1: at_unit "ns" is none of s, ms, us`},
+		"usage, cache in input of none":    {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, cache_in_input: true}]\n", "usage: entry 1: cache_in_input names no cache_read"},
+		"usage, the second entry is wrong": {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i}, {usage: u}]\n", "usage: entry 2:"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)
@@ -871,5 +883,301 @@ func TestContextSourceChecked(t *testing.T) {
 	if _, err := load(t, map[string]string{"qwen.yaml": "version: 1\nlabel: Q\n" + model +
 		"context:\n  type: assistant\n  usage: message.usage\n"}); err != nil {
 		t.Fatalf("a whole source is refused: %v", err)
+	}
+}
+
+// What a session used is read from lines of the agent's own file. These are
+// trimmed from two real transcripts, read on 22 Oct 2026: the builder session
+// of yardr-mnc8 (Claude Code 2.1.288) and the review of the same bead
+// (codex-cli 0.160.1). What is left out is what no reading names: message
+// content, bookkeeping keys, the rate limits and the text of the user line.
+var (
+	// The first lines of the builder session: the user's, then 8 assistant
+	// lines that are 5 messages, since the lines of one message repeat its
+	// usage (the first message has one line, the second two, the third three).
+	claudeLines = []string{
+		`{"type":"user","timestamp":"2026-10-21T19:34:43.883Z","message":{"role":"user","content":"(the brief)"}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:34:48.246Z","message":{"id":"msg_011CgFweBRXKGoR2hEx6yoiJ","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":19126,"cache_read_input_tokens":27018,"output_tokens":107,"output_tokens_details":{"thinking_tokens":0}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:34:52.398Z","message":{"id":"msg_011CgFweY4kkJxVFnA6eEYRm","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":13583,"cache_read_input_tokens":46144,"output_tokens":168,"output_tokens_details":{"thinking_tokens":19}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:34:53.257Z","message":{"id":"msg_011CgFweY4kkJxVFnA6eEYRm","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":13583,"cache_read_input_tokens":46144,"output_tokens":168,"output_tokens_details":{"thinking_tokens":19}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:34:55.873Z","message":{"id":"msg_011CgFwerz3BxAP2kKW4BjFm","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":1802,"cache_read_input_tokens":59727,"output_tokens":339,"output_tokens_details":{"thinking_tokens":52}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:34:56.499Z","message":{"id":"msg_011CgFwerz3BxAP2kKW4BjFm","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":1802,"cache_read_input_tokens":59727,"output_tokens":339,"output_tokens_details":{"thinking_tokens":52}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:34:57.579Z","message":{"id":"msg_011CgFwerz3BxAP2kKW4BjFm","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":1802,"cache_read_input_tokens":59727,"output_tokens":339,"output_tokens_details":{"thinking_tokens":52}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:35:00.199Z","message":{"id":"msg_011CgFwfBJctjAPdtfzqaDWx","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":5325,"cache_read_input_tokens":61529,"output_tokens":137,"output_tokens_details":{"thinking_tokens":0}}}}`,
+		`{"type":"assistant","timestamp":"2026-10-21T19:35:02.968Z","message":{"id":"msg_011CgFwfN32WcU1xs6fcMw4q","model":"claude-opus-5-5","usage":{"input_tokens":2,"cache_creation_input_tokens":1079,"cache_read_input_tokens":66854,"output_tokens":180,"output_tokens_details":{"thinking_tokens":0}}}}`,
+	}
+	// The last line of that file, whole: Claude Code's own totals as it exited,
+	// one entry for each model it called.
+	claudeCostState = `{"type":"cost-state","sessionId":"4b176be6-9160-4463-9056-17f3f0c8a34f","totalCostUSD":8.198233400000003,"totalAPIDuration":901193,"totalAPIDurationWithoutRetries":898403,"totalToolDuration":332809,"totalLinesAdded":474,"totalLinesRemoved":0,"totalDuration":2155171,"startTime":1792611279681,"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":960,"outputTokens":23,"thinkingTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.001075},"claude-opus-5-5":{"inputTokens":752,"outputTokens":74978,"thinkingTokens":17031,"cacheReadInputTokens":23562912,"cacheCreationInputTokens":247751,"webSearchRequests":0,"costUSD":8.197158400000003}},"hasUnknownModelCost":false}`
+	// The review session: lines that are no count (the turn's start, its
+	// context, and a per-call record that carries a usage object but no
+	// payload.type), then the session's first, 27th and last token_count. The
+	// last is the session's total: 11,714,314 input, 11,487,872 of them
+	// cached, and 45,824 output.
+	codexLines = []string{
+		`{"timestamp":"2026-10-21T20:10:45.638Z","ordinal":1,"type":"event_msg","payload":{"type":"task_started"}}`,
+		`{"timestamp":"2026-10-21T20:10:48.457Z","ordinal":7,"type":"turn_context","payload":{"model":"gpt-6-luna"}}`,
+		`{"timestamp":"2026-10-21T20:10:53.936Z","ordinal":15,"type":"token_usage_record","payload":{"response_id":"resp_0a65e4e92bef6c0a016ad91c4ad7188191af4581bc55501c19","usage":{"input_tokens":18104,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":368,"reasoning_output_tokens":62,"total_tokens":18472}}}`,
+		`{"timestamp":"2026-10-21T20:10:55.310Z","ordinal":21,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":18104,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":368,"reasoning_output_tokens":62,"total_tokens":18472},"last_token_usage":{"input_tokens":18104,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":368,"reasoning_output_tokens":62,"total_tokens":18472},"model_context_window":258400}}}`,
+		`{"timestamp":"2026-10-21T20:14:55.079Z","ordinal":291,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":2879571,"cached_input_tokens":2709248,"cache_write_input_tokens":0,"output_tokens":25036,"reasoning_output_tokens":17421,"total_tokens":2904607},"last_token_usage":{"input_tokens":147789,"cached_input_tokens":146688,"cache_write_input_tokens":0,"output_tokens":450,"reasoning_output_tokens":211,"total_tokens":148239},"model_context_window":258400}}}`,
+		`{"timestamp":"2026-10-21T20:34:17.164Z","ordinal":681,"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":11714314,"cached_input_tokens":11487872,"cache_write_input_tokens":0,"output_tokens":45824,"reasoning_output_tokens":33352,"total_tokens":11760138},"last_token_usage":{"input_tokens":194899,"cached_input_tokens":193408,"cache_write_input_tokens":0,"output_tokens":114,"reasoning_output_tokens":33,"total_tokens":195013},"model_context_window":258400}}}`,
+	}
+	// A token_count that carries no info. Constructed: none of the files read
+	// has one, but the key is there for a call that has not been counted yet.
+	codexNoInfo = `{"timestamp":"2026-10-21T20:34:18.000Z","ordinal":682,"type":"event_msg","payload":{"type":"token_count","info":null}}`
+)
+
+// tally is what src reads from lines as the runner reads a file: each line
+// through UsageIn, and those that read added in the order of the file.
+func tally(src UsageSource, lines ...string) (Usage, bool) {
+	t := src.Tally()
+	for _, line := range lines {
+		if l, ok := src.UsageIn([]byte(line)); ok {
+			t.Add(l)
+		}
+	}
+	return t.Usage()
+}
+
+// Claude's file and Codex's say where a session's count is read, and their
+// own entries, run over lines of real transcripts, give the figures the design
+// reads off the whole files (docs/design/2026-10-21-yardr-qbqq-session-tokens.md,
+// section 2): Claude Code's own totals with its side calls added to the main
+// model's, the message lines of the fallback counted once for each message.id
+// and not once for each line, and Codex's last token_count with the cache taken
+// off its input. No other kind names a source yet.
+func TestUsageSources(t *testing.T) {
+	for _, h := range Harnesses {
+		if want := map[string]int{"claude": 2, "codex": 1}[h.Kind]; len(h.Usage) != want {
+			t.Errorf("%s names %d usage sources, want %d", h.Kind, len(h.Usage), want)
+		}
+	}
+
+	claude, _ := Lookup("claude")
+	totals, lines := claude.Usage[0], claude.Usage[1]
+	if totals.Partial || !lines.Partial {
+		t.Errorf("partial: cost-state %v, message lines %v; only the lines fall short of the session", totals.Partial, lines.Partial)
+	}
+	session := append(slices.Clone(claudeLines), claudeCostState)
+
+	// Opus 752 / 74,978 / 23,562,912 / 247,751, and Haiku's 960 and 23 for the
+	// calls that have no line of their own.
+	if got, ok := tally(totals, session...); !ok || got != (Usage{Input: 752 + 960, Output: 74978 + 23, CacheRead: 23562912, CacheWrite: 247751}) {
+		t.Errorf("cost-state reads %+v, %v", got, ok)
+	}
+	// A session still running has written no cost-state line: that is no count,
+	// not a count of 0, so the caller can wait for it.
+	if got, ok := tally(totals, claudeLines...); ok {
+		t.Errorf("a file with no cost-state line reads %+v", got)
+	}
+	l, ok := totals.UsageIn([]byte(claudeCostState))
+	if !ok || !l.At.IsZero() || l.Key != "" {
+		t.Errorf("cost-state line: %+v, %v; it has no time of its own and no key", l, ok)
+	}
+
+	// 5 messages in 8 lines: counted once for each message.id, not once for each line.
+	if got, ok := tally(lines, session...); !ok || got != (Usage{Input: 10, Output: 931, CacheRead: 261272, CacheWrite: 40915}) {
+		t.Errorf("message lines read %+v, %v; want each of the 5 messages once", got, ok)
+	}
+	every := lines
+	every.Key = ""
+	if got, _ := tally(every, session...); got != (Usage{Input: 16, Output: 1777, CacheRead: 426870, CacheWrite: 58102}) {
+		t.Errorf("every line read %+v; this is what the key keeps out", got)
+	}
+	l, ok = lines.UsageIn([]byte(claudeLines[1]))
+	if want := time.Date(2026, 10, 21, 19, 34, 48, 246_000_000, time.UTC); !ok || !l.At.Equal(want) || l.Key != "msg_011CgFweBRXKGoR2hEx6yoiJ" ||
+		l.Usage != (Usage{Input: 2, Output: 107, CacheRead: 27018, CacheWrite: 19126}) {
+		t.Errorf("first assistant line: %+v, %v", l, ok)
+	}
+	for _, line := range []string{claudeLines[0], claudeCostState} {
+		if l, ok := lines.UsageIn([]byte(line)); ok {
+			t.Errorf("the message lines read %s: %+v", line[:20], l)
+		}
+	}
+
+	// The context source reads the lines it always did: the last assistant
+	// line's input and cache tokens, 2 + 1,079 + 66,854.
+	var used int
+	for _, line := range session {
+		if n, has := claude.Context.UsageIn([]byte(line)); has {
+			used = n
+		}
+	}
+	if used != 2+1079+66854 {
+		t.Errorf("claude's context use over the same lines = %d, want 67935", used)
+	}
+
+	codex, _ := Lookup("codex")
+	last := codex.Usage[0]
+	if last.Partial {
+		t.Error("codex's last token_count falls short of the session")
+	}
+	// No token_count yet is no count; each one after is the running total, so
+	// the last read is the session's, its input without the cache.
+	if got, ok := tally(last, codexLines[:3]...); ok {
+		t.Errorf("lines before the first token_count read %+v", got)
+	}
+	for _, c := range []struct {
+		upto int
+		want Usage
+	}{
+		{4, Usage{Input: 18104, Output: 368}},
+		{5, Usage{Input: 2879571 - 2709248, Output: 25036, CacheRead: 2709248}},
+		{6, Usage{Input: 11714314 - 11487872, Output: 45824, CacheRead: 11487872}},
+	} {
+		if got, ok := tally(last, codexLines[:c.upto]...); !ok || got != c.want {
+			t.Errorf("first %d lines read %+v, %v; want %+v", c.upto, got, ok, c.want)
+		}
+	}
+	// A token_count with no info is passed over, and so is the per-call record
+	// whose usage object sits beside no payload.type: neither takes the place
+	// of the total before it.
+	for _, line := range []string{codexNoInfo, codexLines[2]} {
+		if l, ok := last.UsageIn([]byte(line)); ok {
+			t.Errorf("%s read: %+v", line[:60], l)
+		}
+	}
+	if got, _ := tally(last, append(slices.Clone(codexLines), codexNoInfo)...); got.Output != 45824 {
+		t.Errorf("a token_count with no info after the total changed it to %+v", got)
+	}
+	l, ok = last.UsageIn([]byte(codexLines[5]))
+	if want := time.Date(2026, 10, 21, 20, 34, 17, 164_000_000, time.UTC); !ok || !l.At.Equal(want) {
+		t.Errorf("last token_count's time: %v, %v; want %v", l.At, ok, want)
+	}
+
+	// Every unit a file may name is one it loads with.
+	for _, unit := range []string{"s", "ms", "us"} {
+		body := "version: 1\nlabel: Q\nmodel: {home: .x, glob: '{session}.jsonl', field: m}\nusage: [{usage: u, input: i, at: t, at_unit: " + unit + "}]\n"
+		if hs, err := load(t, map[string]string{"qwen.yaml": body}); err != nil || len(hs[0].Usage) != 1 || hs[0].Usage[0].AtUnit != unit {
+			t.Errorf("at_unit %s: %+v, %v", unit, hs, err)
+		}
+	}
+}
+
+// One line of the session file reads as the counts at the source's Usage path
+// in a line of its Type, in the five ways a UsageSource goes beyond a
+// ContextSource: a type in a path of keys, a * that adds up a map, the four
+// counts by name (the cache taken off the input when the harness counts it
+// there), a key that tells a line from a repeat, and a time.
+func TestUsageIn(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		src  UsageSource
+		line string
+		want UsageLine
+		ok   bool
+	}{
+		{"a type in one key", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"kind":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"the type is read from type_field", UsageSource{Type: "turn", TypeField: "kind", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{}, false},
+		{"the key is type by default", UsageSource{Type: "turn", Usage: "use", Input: "in"}, `{"type":"turn","use":{"in":3}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"a type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"x"},"u":{"i":3}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"another type in a path", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":{"b":"y"},"u":{"i":3}}`, UsageLine{}, false},
+		{"a path through what is no object", UsageSource{Type: "x", TypeField: "a.b", Usage: "u", Input: "i"}, `{"a":"x","u":{"i":3}}`, UsageLine{}, false},
+		{"a path with no type named reads any line", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1}}, true},
+
+		{"every value of a map", UsageSource{Usage: "m.*", Input: "i", Output: "o"}, `{"m":{"a":{"i":1,"o":10},"b":{"i":2},"c":7}}`, UsageLine{Usage: Usage{Input: 3, Output: 10}}, true},
+		{"a * in the middle of the path", UsageSource{Usage: "m.*.n", Input: "i"}, `{"m":{"a":{"n":{"i":1}},"b":{"n":{"i":2}},"c":{"x":{"i":9}}}}`, UsageLine{Usage: Usage{Input: 3}}, true},
+		{"a * where there is no map", UsageSource{Usage: "m.*", Input: "i"}, `{"m":5}`, UsageLine{}, false},
+		{"a * over an empty map", UsageSource{Usage: "m.*", Input: "i"}, `{"m":{}}`, UsageLine{}, false},
+
+		{"a count the object lacks reads 0", UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"o":5}}`, UsageLine{Usage: Usage{Output: 5}}, true},
+		{"a count no field is named for reads 0", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":4,"o":9}}`, UsageLine{Usage: Usage{Input: 4}}, true},
+		{"none of the fields", UsageSource{Usage: "u", Input: "i", Output: "o"}, `{"u":{"x":5}}`, UsageLine{}, false},
+		{"a field that is no number", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":"5"}}`, UsageLine{}, false},
+		{"all four", UsageSource{Usage: "u", Input: "i", Output: "o", CacheRead: "r", CacheWrite: "w"}, `{"u":{"i":1,"o":2,"r":3,"w":4}}`, UsageLine{Usage: Usage{Input: 1, Output: 2, CacheRead: 3, CacheWrite: 4}}, true},
+		{"the cache is in the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c", CacheInInput: true}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 60, CacheRead: 40}}, true},
+		{"the cache is beside the input", UsageSource{Usage: "u", Input: "i", CacheRead: "c"}, `{"u":{"i":100,"c":40}}`, UsageLine{Usage: Usage{Input: 100, CacheRead: 40}}, true},
+		{"the path is not an object", UsageSource{Usage: "u", Input: "i"}, `{"u":[{"i":1}]}`, UsageLine{}, false},
+
+		{"a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":"a"},"u":{"i":1}}`, UsageLine{Usage: Usage{Input: 1}, Key: "a"}, true},
+		{"no key in the line", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{},"u":{"i":1}}`, UsageLine{}, false},
+		{"a key that is no string", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":7},"u":{"i":1}}`, UsageLine{}, false},
+		{"an empty key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "m.id"}, `{"m":{"id":""},"u":{"i":1}}`, UsageLine{}, false},
+
+		{"not JSON", UsageSource{Usage: "u", Input: "i"}, `nope`, UsageLine{}, false},
+		{"cut short", UsageSource{Usage: "u", Input: "i"}, `{"u":{"i":`, UsageLine{}, false},
+		{"no line", UsageSource{Usage: "u", Input: "i"}, ``, UsageLine{}, false},
+		{"null", UsageSource{Usage: "u", Input: "i"}, `null`, UsageLine{}, false},
+		{"an array", UsageSource{Usage: "u", Input: "i"}, `[{"u":{"i":1}}]`, UsageLine{}, false},
+	} {
+		got, ok := c.src.UsageIn([]byte(c.line))
+		if ok != c.ok || got != c.want {
+			t.Errorf("%s: %+v, %v; want %+v, %v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+
+	// The line's time, whatever way the file gives it: the same instant as an
+	// RFC 3339 string (Claude's and Codex's timestamp, with an offset too) and
+	// as Unix time in microseconds, milliseconds or seconds (1792616839253217
+	// is 21:07:19.253217 UTC on 21 Oct 2026, as Muse stamps its lines).
+	instant := time.Date(2026, 10, 21, 21, 7, 19, 253_217_000, time.UTC)
+	for _, c := range []struct {
+		name, at, unit, line string
+		want                 time.Time
+	}{
+		{"RFC 3339", "timestamp", "", `{"timestamp":"2026-10-21T21:07:19.253217Z","u":{"i":1}}`, instant},
+		{"RFC 3339 with an offset", "timestamp", "", `{"timestamp":"2026-10-21T22:07:19.253217+01:00","u":{"i":1}}`, instant},
+		{"RFC 3339, milliseconds", "timestamp", "", `{"timestamp":"2026-10-21T21:07:19.253Z","u":{"i":1}}`, instant.Add(-217 * time.Microsecond)},
+		{"microseconds", "t", "us", `{"t":1792616839253217,"u":{"i":1}}`, instant},
+		{"milliseconds", "t", "ms", `{"t":1792616839253,"u":{"i":1}}`, instant.Add(-217 * time.Microsecond)},
+		{"seconds", "t", "s", `{"t":1792616839,"u":{"i":1}}`, instant.Add(-253_217 * time.Microsecond)},
+		{"seconds by default", "t", "", `{"t":1792616839,"u":{"i":1}}`, instant.Add(-253_217 * time.Microsecond)},
+		{"seconds with a fraction", "t", "s", `{"t":1792616839.5,"u":{"i":1}}`, instant.Add(246_783 * time.Microsecond)},
+		{"in a path", "meta.at", "us", `{"meta":{"at":1792616839253217},"u":{"i":1}}`, instant},
+	} {
+		src := UsageSource{Usage: "u", Input: "i", At: c.at, AtUnit: c.unit}
+		if got, ok := src.UsageIn([]byte(c.line)); !ok || !got.At.Equal(c.want) || got.Usage.Input != 1 {
+			t.Errorf("%s: %v, %v; want %v", c.name, got.At, ok, c.want)
+		}
+	}
+	// A time that is not there, or does not read, leaves the counts and no time.
+	for name, c := range map[string]struct {
+		src  UsageSource
+		line string
+	}{
+		"no at named":             {UsageSource{Usage: "u", Input: "i"}, `{"timestamp":"2026-10-21T21:07:19Z","u":{"i":1}}`},
+		"none in the line":        {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"u":{"i":1}}`},
+		"no time":                 {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":"yesterday","u":{"i":1}}`},
+		"not a string":            {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":true,"u":{"i":1}}`},
+		"a number as RFC 3339":    {UsageSource{Usage: "u", Input: "i", At: "timestamp"}, `{"timestamp":"1792616839","u":{"i":1}}`},
+		"a unit no file may name": {UsageSource{Usage: "u", Input: "i", At: "t", AtUnit: "ns"}, `{"t":1792616839253217000,"u":{"i":1}}`},
+	} {
+		if got, ok := c.src.UsageIn([]byte(c.line)); !ok || !got.At.IsZero() || got.Usage.Input != 1 {
+			t.Errorf("%s: %+v, %v; want the count and no time", name, got, ok)
+		}
+	}
+}
+
+// A tally keeps what the source's read says: the last line that read, the sum
+// of every line, or the sum of the last line for each key; none at all while
+// no line has read.
+func TestUsageTally(t *testing.T) {
+	lines := []string{
+		`{"u":{"i":1},"id":"a"}`,
+		`{"u":{"i":10},"id":"b"}`,
+		`{"nothing":"here"}`,
+		`{"u":{"i":100},"id":"a"}`,
+		`{"u":{"i":1000}}`, // no id
+	}
+	for _, c := range []struct {
+		name  string
+		src   UsageSource
+		lines []string
+		want  Usage
+		ok    bool
+	}{
+		{"last, the default", UsageSource{Usage: "u", Input: "i"}, lines, Usage{Input: 1000}, true},
+		{"last, by name", UsageSource{Usage: "u", Input: "i", Read: "last"}, lines[:4], Usage{Input: 100}, true},
+		{"sum", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines, Usage{Input: 1111}, true},
+		{"sum, once for each key, the last line of each", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines, Usage{Input: 110}, true},
+		{"sum, once for each key, the first line of one key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[:2], Usage{Input: 11}, true},
+		{"no line", UsageSource{Usage: "u", Input: "i"}, nil, Usage{}, false},
+		{"no line that reads", UsageSource{Usage: "u", Input: "i", Read: "sum"}, lines[2:3], Usage{}, false},
+		{"no line that has a key", UsageSource{Usage: "u", Input: "i", Read: "sum", Key: "id"}, lines[2:3], Usage{}, false},
+		{"a line of 0 is a count", UsageSource{Usage: "u", Input: "i", Read: "sum"}, []string{`{"u":{"i":0}}`}, Usage{}, true},
+	} {
+		if got, ok := tally(c.src, c.lines...); got != c.want || ok != c.ok {
+			t.Errorf("%s: %+v, %v; want %+v, %v", c.name, got, ok, c.want, c.ok)
+		}
 	}
 }

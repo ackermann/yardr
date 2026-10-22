@@ -118,6 +118,43 @@ context:
   type: assistant
   usage: message.usage
 
+# What a session used, in tokens, read from the same file once the session has
+# ended (docs/design/2026-10-21-yardr-qbqq-session-tokens.md, section 3.3).
+# The entries are tried in order, and the first that finds a line is the
+# reading. Both were read on 22 Oct 2026 from the builder session of yardr-mnc8,
+# a transcript of Claude Code 2.1.288.
+usage:
+  # The cost-state line Claude Code writes as the process exits: its own totals
+  # for each model it called. That session's were Opus 752 input, 74,978
+  # output, 23,562,912 cache read and 247,751 cache write, and Haiku 960 input
+  # and 23 output for side calls that have no line of their own; the `*` adds
+  # every model up. A session still running has none yet. It has no time of its
+  # own, only the session's startTime, so a count that stops at a time cannot
+  # use it.
+  - type: cost-state
+    usage: modelUsage.*
+    input: inputTokens
+    output: outputTokens
+    cache_read: cacheReadInputTokens
+    cache_write: cacheCreationInputTokens
+  # The fallback for a session that never wrote one. Each assistant line
+  # carries the usage of its whole message, and Claude Code writes one line for
+  # each content block: that file's 223 lines are 121 messages, 159,912 output
+  # tokens added up line by line and 74,962 once for each message.id. The
+  # count stays short of cost-state's (246 input and 23,297,149 cache read
+  # there) because the side calls have no line, so it is partial. The main file
+  # alone is read; the subagents' files beside it are left out.
+  - type: assistant
+    usage: message.usage
+    read: sum
+    key: message.id
+    partial: true
+    at: timestamp
+    input: input_tokens
+    output: output_tokens
+    cache_read: cache_read_input_tokens
+    cache_write: cache_creation_input_tokens
+
 # A line that says two things (an API error that ends in "Please run
 # /login") is listed under the one that matters before the general one.
 errors:
