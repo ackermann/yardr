@@ -1290,8 +1290,8 @@ func TestUsageTally(t *testing.T) {
 		`{"u":{"i":100},"id":"a"}`,
 		`{"u":{"i":1000}}`, // no id
 	}
-	// The same shape with a cache in each input: the fresh input is added up
-	// beside the input as it is, never the one from the other.
+	// The same shape with a cache in each input, so that the fresh input and the
+	// input differ and the tally has to carry both.
 	cached := []string{
 		`{"u":{"i":100,"c":40},"id":"a"}`,
 		`{"u":{"i":10,"c":4},"id":"b"}`,
