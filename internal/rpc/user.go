@@ -59,8 +59,9 @@ import (
 //     (deviceTold), so a lost token gives away no address or secret that
 //     the yard keeps in another setting;
 //   - Bead tells the candidates of a setup card, the yard's other accounts
-//     by file and the values they hold, to a device of the operator alone
-//     (bead), so a lost token of another user gives away no address of an
+//     by file and the values they hold, and the file the account of an
+//     approved setup is set in, to a device of the operator alone (bead), so
+//     a lost token of another user gives away no address or file of an
 //     account the yard keeps;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
@@ -251,19 +252,25 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 
 // bead is Bead as a device is told it: the view the store gives, but for
 // the candidates of a setup card, each a file of the yard's with the values
-// it holds, which only a device of the operator is told (isOperator, as
-// deviceTold tells the operator's words). To any other device the card
-// reads as one with none (store.SetupAsked.WithoutCandidates), and in a yard
-// without an operator it does to every device. The socket, the terminal
-// and the agents read the whole card from the store, as they do the
-// operator's words: UserAsks needs no such hold, since a setup ask is put to
-// the operator and no queue but theirs holds it.
+// it holds, and for the file the account of an approved setup is set in,
+// which is the candidate's when the approval took one: only a device of the
+// operator is told them (isOperator, as deviceTold tells the operator's
+// words). To any other device the card reads as one with none
+// (store.SetupAsked.WithoutCandidates) and what the setup printed says the
+// account is set and not where (store.SetupAsked.WithoutAccountFile), and in
+// a yard without an operator it does to every device. The result of a run
+// ask is left as it is: it names commands, and no file of an account. The
+// socket, the terminal and the agents read the whole card and result from
+// the store, as they do the operator's words: UserAsks needs no such hold,
+// since a setup ask is put to the operator and no queue but theirs holds it.
 func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, error) {
 	v, err := u.st.Bead(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool { return a.Setup != nil && len(a.Setup.Candidates) > 0 }) {
+	if !slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool {
+		return a.Setup != nil && (len(a.Setup.Candidates) > 0 || a.Ran != nil)
+	}) {
 		return v, nil
 	}
 	all, err := u.st.Settings(ctx)
@@ -274,10 +281,16 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 		return v, nil
 	}
 	for i := range v.Asks {
-		if s := v.Asks[i].Setup; s != nil {
-			card := s.WithoutCandidates()
-			v.Asks[i].Setup = &card
+		a := &v.Asks[i]
+		if a.Setup == nil {
+			continue
 		}
+		if a.Ran != nil {
+			ran := a.Setup.WithoutAccountFile(*a.Ran)
+			a.Ran = &ran
+		}
+		card := a.Setup.WithoutCandidates()
+		a.Setup = &card
 	}
 	return v, nil
 }

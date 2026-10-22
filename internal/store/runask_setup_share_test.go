@@ -172,6 +172,57 @@ func TestSetupCardWithoutCandidatesAnyWords(t *testing.T) {
 	}
 }
 
+// What an approved setup printed is told without the file its account is set
+// in: the account line says the account is set and no more, for one name or
+// several and whatever the file is called, while the lines of the apply and
+// of the grants, the words of an approval not yet carried out and a result
+// with no such line are as they were.
+func TestSetupRanWithoutAccountFile(t *testing.T) {
+	apply := "applied pack setupmail to the yard: 1 created, 0 changed, 0 unchanged"
+	grant := "crew yardmaster may call setupmail: read"
+	account := []string{"SETUP_ACCOUNT", "SETUP_REGION"}
+	for _, c := range []struct {
+		name    string
+		account []string
+		result  string
+		want    string // "" where the result is told as it is
+	}{
+		{name: "an account of one name", account: account[:1],
+			result: apply + "\nthe account SETUP_ACCOUNT is set in /yard/sources/setupcal.env\n" + grant,
+			want:   apply + "\nthe account SETUP_ACCOUNT is set\n" + grant},
+		{name: "an account of two names", account: account,
+			result: apply + "\nthe account SETUP_ACCOUNT and SETUP_REGION is set in /yard/sources/setupcal.env\n" + grant,
+			want:   apply + "\nthe account SETUP_ACCOUNT and SETUP_REGION is set\n" + grant},
+		{name: "a file whose path says it", account: account[:1],
+			result: "the account SETUP_ACCOUNT is set in /yard/my sources/is set in here/setupcal.env\n" + grant,
+			want:   "the account SETUP_ACCOUNT is set\n" + grant},
+		{name: "an approval not yet carried out", account: account, result: CarryPending},
+		{name: "a result with no account line", account: account, result: apply + "\n" + grant},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			card := SetupAsked{Pack: "setupmail", Account: c.account}
+			ran := AskRan{Argv: []string{"setup", "setupmail"}, Result: c.result}
+			want := c.want
+			if want == "" {
+				want = c.result
+			}
+			got := card.WithoutAccountFile(ran)
+			if got.Result != want {
+				t.Errorf("the result is told as\n%s\nwant\n%s", got.Result, want)
+			}
+			if strings.Contains(got.Result, "/yard/") {
+				t.Errorf("the result still names a file: %s", got.Result)
+			}
+			if !slices.Equal(got.Argv, ran.Argv) || got.Failed != ran.Failed {
+				t.Errorf("the rest of what ran moved: %+v, was %+v", got, ran)
+			}
+			if ran.Result != c.result {
+				t.Errorf("the result it was made from moved: %s", ran.Result)
+			}
+		})
+	}
+}
+
 // With a single match the card still lists it and still needs the pick:
 // neither a silent reuse nor an empty approval settles the account.
 func TestSetupCardSingleMatchStillNeedsPick(t *testing.T) {

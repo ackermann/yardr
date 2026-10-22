@@ -60,7 +60,7 @@ func (c *carrier) carrySetup(ctx context.Context, rec *store.Carry, setup *store
 	if failure != "" {
 		return "", failure
 	}
-	lines = append(lines, "the account "+strings.Join(setup.Account, " and ")+" is set in "+file)
+	lines = append(lines, store.AccountSetWords(setup.Account)+" in "+file)
 	grants, failure := c.carrySetupGrants(ctx, rec, setup, picked, file)
 	if failure != "" {
 		return "", failure

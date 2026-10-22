@@ -79,6 +79,25 @@ func TestCarrySetupPickPointsEnvFile(t *testing.T) {
 	if !strings.Contains(lines, "the account GOOGLE_ACCOUNT is set in "+drive.EnvFile) {
 		t.Errorf("the carried card reads:\n%s", lines)
 	}
+	// A device that is not told the file reads the carrier's own result cut
+	// at it: the account is set, and the grants' line after it is as it was.
+	view, err := st.Bead(ctx, bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range view.Asks {
+		if a.Ask != seq {
+			continue
+		}
+		if a.Ran == nil || a.Setup == nil {
+			t.Fatalf("the carried ask reads %+v", a)
+		}
+		told := a.Setup.WithoutAccountFile(*a.Ran).Result
+		if strings.Contains(told, drive.EnvFile) || !strings.Contains(told, "\nthe account GOOGLE_ACCOUNT is set\n") ||
+			strings.Count(told, "\n") != strings.Count(a.Ran.Result, "\n") {
+			t.Errorf("the result is told as\n%s\nfrom\n%s", told, a.Ran.Result)
+		}
+	}
 }
 
 // The first setup of google-docs writes one typed value to its first

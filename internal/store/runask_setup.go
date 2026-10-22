@@ -223,6 +223,35 @@ func (s SetupAsked) WithoutCandidates() SetupAsked {
 	return s
 }
 
+// AccountSetWords is the start of the line a carried-out setup prints for its
+// account: "the account <names> is set". The carrying out adds " in <file>"
+// (carrySetup), and a view that does not tell the file cuts that tail off
+// (WithoutAccountFile), so both take the words from here and cannot part.
+func AccountSetWords(names []string) string {
+	return "the account " + strings.Join(names, " and ") + " is set"
+}
+
+// WithoutAccountFile is what an approved setup printed (ran) as it reads where
+// the file its account is set in is not told. That file is the candidate's
+// when the approval took one of the yard's other accounts, so it is held back
+// where the candidates are (WithoutCandidates): the line that says the
+// account is set in a file says only that it is set. The line is found by the
+// card's own names (AccountSetWords), the words the carrying out wrote it
+// with. The other lines of the result name no file of an account and are as
+// they were, and so are the words an approval records until the server has
+// carried it out. s and ran are left as they are.
+func (s SetupAsked) WithoutAccountFile(ran AskRan) AskRan {
+	set := AccountSetWords(s.Account)
+	lines := strings.Split(ran.Result, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, set+" in ") {
+			lines[i] = set
+		}
+	}
+	ran.Result = strings.Join(lines, "\n")
+	return ran
+}
+
 // namesCandidate reports whether the card line says the file of one of the
 // candidates or one of the shared values its file holds, as the line reads
 // (safeSourceCardLine).

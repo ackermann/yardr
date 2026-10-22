@@ -587,10 +587,12 @@ who is not the operator says that it reads every bead. It is also what a
 lost token gives away until its device is removed. Three things at the
 terminal a device does not read whole: the mail of others; the candidates
 of a setup card, the yard's other accounts the card offers to reuse, each
-a file of the yard's with the values it holds, which `Bead` tells to a
-device of the operator alone (to any other the card reads as one with
-none, so a lost token of another user gives away no address of an account
-the yard keeps); and `Settings`, which answers a device the promised keys
+a file of the yard's with the values it holds, and the file the account of
+an approved setup is set in, which `Bead` tells to a device of the operator
+alone (to any other the card reads as one with none and the setup's result
+says the account is set and not where, so a lost token of another user
+gives away no address or file of an account the yard keeps); and
+`Settings`, which answers a device the promised keys
 alone: `operator`, `blob_max_bytes` and `files_max`, and to a device of
 the operator alone the operator's own words to their agents,
 `operator_style` and `operator_note`. No other setting is told to a device
