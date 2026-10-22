@@ -58,6 +58,10 @@ import (
 //     stream carries the value of a setting_changed for those alone
 //     (deviceTold), so a lost token gives away no address or secret that
 //     the yard keeps in another setting;
+//   - Bead tells the candidates of a setup card, the yard's other accounts
+//     by file and the values they hold, to a device of the operator alone
+//     (bead), so a lost token of another user gives away no address of an
+//     account the yard keeps;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
 //     to one that may read it (userBlob), so a lost token gives away no
@@ -174,6 +178,7 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 		rejected: map[string]int{}, refused: map[string]*refusals{}, streams: map[string]int{}}
 	u.resolve = u.device
 	u.api.methods["Settings"] = method{"Settings", reflect.ValueOf(u.settings)}
+	u.api.methods["Bead"] = method{"Bead", reflect.ValueOf(u.bead)}
 	return u
 }
 
@@ -203,9 +208,25 @@ func deviceTold(key, user, operator string) bool {
 		return false
 	}
 	if key == store.StyleSetting || key == store.NoteSetting {
-		return operator != "" && operator == user
+		return isOperator(user, operator)
 	}
 	return true
+}
+
+// isOperator reports whether user is the yard's operator, operator being the
+// operator setting: "" when it names none, and a yard without an operator
+// has nobody to be.
+func isOperator(user, operator string) bool {
+	return operator != "" && operator == user
+}
+
+// userOf is the user the request of ctx is made as, "" for one that is made
+// as nobody.
+func userOf(ctx context.Context) string {
+	if c, _ := ctx.Value(callerKey{}).(*Caller); c != nil {
+		return c.User
+	}
+	return ""
 }
 
 // settings is Settings as a device is told it: the allow-listed settings
@@ -218,10 +239,7 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var user string
-	if c, _ := ctx.Value(callerKey{}).(*Caller); c != nil {
-		user = c.User
-	}
+	user := userOf(ctx)
 	out := map[string]string{}
 	for key, value := range all {
 		if deviceTold(key, user, all[store.OperatorSetting]) {
@@ -229,6 +247,39 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// bead is Bead as a device is told it: the view the store gives, but for
+// the candidates of a setup card, each a file of the yard's with the values
+// it holds, which only a device of the operator is told (isOperator, as
+// deviceTold tells the operator's words). To any other device the card
+// reads as one with none (store.SetupAsked.WithoutCandidates), and in a yard
+// without an operator it does to every device. The socket, the terminal
+// and the agents read the whole card from the store, as they do the
+// operator's words: UserAsks needs no such hold, since a setup ask is put to
+// the operator and no queue but theirs holds it.
+func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, error) {
+	v, err := u.st.Bead(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool { return a.Setup != nil && len(a.Setup.Candidates) > 0 }) {
+		return v, nil
+	}
+	all, err := u.st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if isOperator(userOf(ctx), all[store.OperatorSetting]) {
+		return v, nil
+	}
+	for i := range v.Asks {
+		if s := v.Asks[i].Setup; s != nil {
+			card := s.WithoutCandidates()
+			v.Asks[i].Setup = &card
+		}
+	}
+	return v, nil
 }
 
 // device resolves a device token: the one kind of credential there is.

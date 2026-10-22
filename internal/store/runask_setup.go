@@ -196,6 +196,54 @@ func (a Ask) setup() *SetupAsked {
 		BackBy: a.Setup.BackBy, Carried: a.Setup.Carried, Presets: a.Setup.Presets, To: a.Setup.To}
 }
 
+// WithoutCandidates is the card as it reads where the yard's other accounts
+// are not told: no candidates, and the sentence that names them replaced by
+// the account sentence the card writes with none. A candidate is told twice,
+// in Candidates and in that sentence, by source, shared values and file
+// (setupAccountLine), so the sentence is found by what it says of a
+// candidate and not by its words: a card kept in the store may have been
+// written by a build with other words than this one's. Every other sentence,
+// the options and the rest of the card are as they were, and s is left as it
+// is.
+func (s SetupAsked) WithoutCandidates() SetupAsked {
+	if len(s.Candidates) == 0 {
+		return s
+	}
+	does := make([]string, 0, len(s.Does))
+	placed := false
+	for _, line := range s.Does {
+		switch {
+		case !namesCandidate(line, s.Candidates):
+			does = append(does, line)
+		case !placed:
+			does, placed = append(does, safeSourceCardLine(setupAccountLine(s.Account, s.AccountFile, s.Given, s.Missing, nil))), true
+		}
+	}
+	s.Candidates, s.Does = nil, does
+	return s
+}
+
+// namesCandidate reports whether the card line says the file of one of the
+// candidates or one of the shared values its file holds, as the line reads
+// (safeSourceCardLine).
+func namesCandidate(line string, candidates []AskCandidate) bool {
+	says := func(what string) bool {
+		what = safeSourceCardLine(what)
+		return what != "" && strings.Contains(line, what)
+	}
+	for _, c := range candidates {
+		if says(c.File) {
+			return true
+		}
+		for _, v := range c.Values {
+			if says(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // askedSetup checks the setup an ask of the user to proposes, asked by
 // actor, and answers it as the ask stores it with its options: one per
 // preset as the yard renders them, with YouDecide last. Who may ask, who
