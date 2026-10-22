@@ -1,9 +1,15 @@
 package standin
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"net/url"
 	"strings"
 	"testing"
@@ -48,6 +54,114 @@ func TestMessages(t *testing.T) {
 	ms := s.Messages()
 	if len(ms) != 2 || ms[0] != (Message{User: "u1", Title: "mail from jo", Text: "hello"}) || ms[1].Text != "again" || s.Asked() != 5 {
 		t.Fatalf("messages = %+v, asked %d", ms, s.Asked())
+	}
+
+	// A multipart form takes the same names and a picture as the part
+	// attachment, sent as a client's upload is: with a file name and a
+	// content type. Its bytes are kept as they came.
+	type part struct {
+		filename, ctype string
+		data            []byte
+	}
+	upload := func(fields map[string]string, p *part) int {
+		t.Helper()
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		for k, v := range fields {
+			if err := w.WriteField(k, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if p != nil {
+			h := textproto.MIMEHeader{}
+			disposition := `form-data; name="attachment"`
+			if p.filename != "" {
+				disposition += `; filename="` + p.filename + `"`
+			}
+			h.Set("Content-Disposition", disposition)
+			if p.ctype != "" {
+				h.Set("Content-Type", p.ctype)
+			}
+			pw, err := w.CreatePart(h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pw.Write(p.data)
+		}
+		w.Close()
+		resp, err := http.Post(srv.URL+"/1/messages.json", w.FormDataContentType(), &buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	fields := map[string]string{"token": "tok", "user": "u1", "title": "mail from jo", "message": "the shed"}
+	picture := []byte("\x89PNG\r\n\x1a\nthe shed from the lane")
+	if got := upload(fields, &part{"shed.png", "image/png", picture}); got != 200 {
+		t.Fatalf("a message with a picture: %d", got)
+	}
+	if got := upload(fields, nil); got != 200 {
+		t.Fatalf("a form without a picture: %d", got)
+	}
+	ms = s.Messages()
+	a := ms[2].Attachment
+	if len(ms) != 4 || ms[2].User != "u1" || ms[2].Title != "mail from jo" || ms[2].Text != "the shed" || ms[3].Attachment != nil ||
+		a == nil || a.Name != "shed.png" || a.Type != "image/png" || !bytes.Equal(a.Data, picture) || a.Bytes != len(picture) ||
+		a.SHA256 != fmt.Sprintf("%x", sha256.Sum256(picture)) {
+		t.Fatalf("messages = %+v, picture %+v", ms, a)
+	}
+	// The picture the service takes is at most 5,242,880 bytes, to the
+	// byte, and one over is refused and kept nowhere.
+	if got := upload(fields, &part{"big.png", "image/png", make([]byte, 5242880)}); got != 200 {
+		t.Fatalf("a picture of 5242880 bytes: %d", got)
+	}
+	if got := upload(fields, &part{"big.png", "image/png", make([]byte, 5242881)}); got != 400 {
+		t.Fatalf("a picture of 5242881 bytes: %d", got)
+	}
+	// It comes with its file name and its content type, or it is refused.
+	if got := upload(fields, &part{"", "image/png", picture}); got != 400 {
+		t.Fatalf("a picture without a file name: %d", got)
+	}
+	if got := upload(fields, &part{"shed.png", "", picture}); got != 400 {
+		t.Fatalf("a picture without a content type: %d", got)
+	}
+	wrong := map[string]string{"token": "other", "user": "u1", "message": "the shed"}
+	if got := upload(wrong, &part{"shed.png", "image/png", picture}); got != 400 {
+		t.Fatalf("another token in a form: %d", got)
+	}
+	if got := upload(map[string]string{"token": "tok", "user": "u1"}, &part{"shed.png", "image/png", picture}); got != 400 {
+		t.Fatalf("a form with no text: %d", got)
+	}
+	// JSON carries no picture here: a field of the part's name is dropped.
+	if got := post(`{"token":"tok","user":"u1","message":"json","attachment":{"name":"x","data":"eA=="}}`); got != 200 {
+		t.Fatalf("JSON with an attachment field: %d", got)
+	}
+	ms = s.Messages()
+	if len(ms) != 6 || ms[4].Attachment == nil || ms[4].Attachment.Bytes != 5242880 || ms[5].Text != "json" || ms[5].Attachment != nil || s.Asked() != 14 {
+		t.Fatalf("messages after the forms = %d, asked %d", len(ms), s.Asked())
+	}
+
+	// A trial that lists them is told of a picture by its name, type, size
+	// and hash, not by 5 MB of its bytes.
+	resp, err := http.Get(srv.URL + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var listed struct {
+		Messages []struct {
+			Attachment map[string]any `json:"attachment"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &listed); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf(`{"bytes":%d,"name":"shed.png","sha256":"%x","type":"image/png"}`, len(picture), sha256.Sum256(picture))
+	got, _ := json.Marshal(listed.Messages[2].Attachment)
+	if string(got) != want || listed.Messages[3].Attachment != nil || len(raw) > 4096 {
+		t.Fatalf("GET /messages listed the picture as %s (%d bytes), want %s", got, len(raw), want)
 	}
 }
 

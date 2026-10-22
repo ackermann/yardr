@@ -21,7 +21,8 @@
 // with its key), and an installation token on every other call.
 //
 // It is also a service that takes a message for a person at POST
-// /1/messages.json, for a declared source with a notify key: see Message.
+// /1/messages.json, for a declared source with a notify key, as a JSON
+// body or as a multipart form that carries a picture: see Message.
 //
 // And it is a customer system under /crm/, for a declared source whose
 // calls a session makes with yardr call: see Server.crm.
@@ -39,8 +40,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"slices"
@@ -343,13 +346,90 @@ func (s *Server) HoldNote() <-chan struct{} {
 }
 
 // Message is a message the stand-in took at POST /1/messages.json, whose
-// JSON body has token, user, title, message, url. The token is checked
-// and not kept.
+// JSON body has token, user, title, message, url. The same names in a
+// multipart form do as well, and with them a part called attachment: a
+// picture, which the service takes from a client as a file with a name and
+// a content type. The token is checked and not kept.
 type Message struct {
 	User  string `json:"user"`
 	Title string `json:"title,omitempty"`
 	Text  string `json:"message"`
 	URL   string `json:"url,omitempty"`
+	// Attachment is the picture the message came with, nil for one without.
+	// A pointer, so that a Message can still be compared.
+	Attachment *Attachment `json:"attachment,omitempty"`
+}
+
+// Attachment is the picture of a message: the name and the content type
+// its part was sent with, and its bytes, kept for a test to compare with
+// the file that was sent. A trial that asks GET /messages is told its size
+// and its SHA-256 instead.
+type Attachment struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Bytes  int    `json:"bytes"`
+	SHA256 string `json:"sha256"`
+	Data   []byte `json:"-"`
+}
+
+// attachmentMax is the most a message's picture may hold, 5,242,880 bytes:
+// the service's API page (read 22 October 2026) says one over it is
+// rejected, and that making a picture fit is the sender's work.
+const attachmentMax = 5 << 20
+
+// pushBody is what a request for a message carries. refused is why the
+// service would refuse its picture, "" for one it takes and for none.
+type pushBody struct {
+	Token string `json:"token"`
+	Message
+	refused string
+}
+
+// readMessage reads the message a request carries: a JSON object, or a
+// multipart form with the same names whose attachment part must come with a
+// file name and a content type, as the service's API page says. The error
+// is for a body that cannot be read at all.
+func readMessage(r *http.Request) (pushBody, error) {
+	var body pushBody
+	if media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); media != "multipart/form-data" {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return pushBody{}, errors.New("the body is no JSON")
+		}
+		// A picture in JSON is the service's attachment_base64, which this
+		// stand-in does not read; a field of the same name as the form's
+		// part is no picture.
+		body.Attachment = nil
+		return body, nil
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return pushBody{}, errors.New("the body is no multipart form")
+	}
+	body.Token = r.PostFormValue("token")
+	body.Message = Message{User: r.PostFormValue("user"), Title: r.PostFormValue("title"), Text: r.PostFormValue("message"), URL: r.PostFormValue("url")}
+	files := r.MultipartForm.File["attachment"]
+	switch {
+	case len(files) == 0 && r.PostForm.Has("attachment"):
+		// A part with no file name is a field, not a file.
+		body.refused = "attachment needs a file name and a content type"
+	case len(files) == 0:
+	case files[0].Size > attachmentMax:
+		body.refused = fmt.Sprintf("attachment is over the %d bytes a message takes", attachmentMax)
+	case files[0].Header.Get("Content-Type") == "":
+		body.refused = "attachment needs a file name and a content type"
+	default:
+		f, err := files[0].Open()
+		if err != nil {
+			return pushBody{}, errors.New("the attachment cannot be read")
+		}
+		defer f.Close()
+		data, err := io.ReadAll(f)
+		if err != nil {
+			return pushBody{}, errors.New("the attachment cannot be read")
+		}
+		body.Attachment = &Attachment{Name: files[0].Filename, Type: files[0].Header.Get("Content-Type"),
+			Bytes: len(data), SHA256: fmt.Sprintf("%x", sha256.Sum256(data)), Data: data}
+	}
+	return body, nil
 }
 
 // Messages are the messages taken, in order, and Asked how many requests
@@ -376,13 +456,10 @@ func (s *Server) Answer(status int) {
 }
 
 // message takes one message. It answers 400 for a token that is not the
-// application's and for a message without a user or a text.
+// application's, for a message without a user or a text, and for a picture
+// the service would refuse (see readMessage).
 func (s *Server) message(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Token string `json:"token"`
-		Message
-	}
-	err := json.NewDecoder(r.Body).Decode(&body)
+	body, err := readMessage(r)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.asked++
@@ -397,11 +474,13 @@ func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 	case s.answer != 0 && s.answer != http.StatusOK:
 		answer(s.answer, map[string]any{"status": 0, "errors": []string{"the stand-in was told to answer this"}})
 	case err != nil:
-		answer(http.StatusBadRequest, map[string]any{"status": 0, "errors": []string{"the body is no JSON"}})
+		answer(http.StatusBadRequest, map[string]any{"status": 0, "errors": []string{err.Error()}})
 	case s.PushToken != "" && body.Token != s.PushToken:
 		answer(http.StatusBadRequest, map[string]any{"status": 0, "token": "invalid", "errors": []string{"application token is invalid"}})
 	case body.User == "" || body.Text == "":
 		answer(http.StatusBadRequest, map[string]any{"status": 0, "errors": []string{"user and message are required"}})
+	case body.refused != "":
+		answer(http.StatusBadRequest, map[string]any{"status": 0, "errors": []string{body.refused}})
 	default:
 		s.messages = append(s.messages, body.Message)
 		answer(http.StatusOK, map[string]any{"status": 1, "request": fmt.Sprintf("standin-%d", len(s.messages))})
@@ -644,7 +723,8 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, customer string) {
 // the calls made), POST /issues (add or replace one) and POST /status
 // (source, key, status: a person moving an issue by hand). It takes a
 // message for a person at POST /1/messages.json, and for a trial GET
-// /messages (the messages taken, and how many were asked for) and POST
+// /messages (the messages taken, each picture by its name, type, size and
+// hash, and how many were asked for) and POST
 // /messages/answer (status: what the next ones are answered with). Under
 // /crm/ it is a customer system (see crm), and for a trial GET /notes (the
 // notes written on customers, and how many were asked for) and POST
