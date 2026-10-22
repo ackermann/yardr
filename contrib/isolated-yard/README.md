@@ -82,6 +82,26 @@ most 5,242,880 bytes, with a file name and a content type, as the service
 requires): `GET /messages` lists what it took, a picture by its name, type,
 size and SHA-256, and `POST /messages/answer` with `status=500` makes it
 fail.
+With `-bot-dir D/bot` it is the Bot API of Telegram too, for a declared
+source whose file has `base: http://A` and takes its credential in the
+path (`packs/telegram`, with that one line changed). It takes `sendMessage`
+as JSON and `sendPhoto` and `sendDocument` as a multipart form, under the
+token of `-bot-token`, and answers `getWebhookInfo`, `setWebhook` and
+`deleteWebhook` without keeping a webhook. It keeps every request, taken or
+refused, and the bytes of every file in `D/bot`, a refused picture's too.
+`curl http://A/requests` lists the requests as JSON (method, chat, text or
+caption; for a file its name, type, size and SHA-256; for a picture its
+width and height; and the status each was answered with and, for a
+refusal, the service's words), and `curl http://A/requests/<n>/file`
+returns the bytes of the nth as they came, to compare with the file that
+was sent. A photo is held to the rule that
+[sendPhoto](https://core.telegram.org/bots/api#sendphoto) states (read 22
+October 2026): at most 10 MB, width and height at most 10000 in total, a
+ratio of at most 20. A photo over one of them is a 400 with the service's
+words, `file is too big` or `PHOTO_INVALID_DIMENSIONS`, and a file that is
+no picture is `IMAGE_PROCESS_FAILED`. Nothing else is checked: not the 4096
+characters of a text, the 1024 of a caption or the 50 MB of a document, and
+`getFile` is not served, so an inbound file is not rehearsed.
 And it is a customer system under `/crm/`, for a declared source whose calls
 a session makes with `yardr call`: `sources/crm.yaml` is its declaration
 (replace `BASE` by the stand-in's address), and `-crm-token` the bearer
@@ -92,6 +112,88 @@ update call (`POST /crm/customers/<id>/notes`), with the token of
 many requests it got for one; `curl -X POST http://A/notes/hold` has it
 write the next note and hold the answer until the caller gives up, which is
 how a trial gets a timeout after a write.
+
+## Rehearsing the Telegram pack
+
+A builder whose change reaches Telegram, in a tell, in `yardr reply --file`
+or in the pack's scripts, cannot make a live receipt. A bead's session may
+not run `yardr reply`, the installed yardr is the last landing's, and the
+operator's own tells may not go through Telegram at all. `rehearse-telegram`
+is the rehearsal in its place: the real binary, daemon and pack scripts in a
+bare yard, against the stand-in above. From any directory of the checkout:
+
+```
+contrib/isolated-yard/rehearse-telegram
+```
+
+It builds yardr from the checkout, so the `yardr version` it prints names
+the commit rehearsed (`-modified` when the tree has changes not committed).
+It starts the stand-in and the yard's hook listener on free loopback ports,
+applies `packs/telegram` with its `base:` line pointed at the stand-in (the
+one line that differs, which the script checks), and sets the operator `ada`
+up to be told through it. Then it runs these, with the five pictures that
+`pictures/` makes (PNGs, each its own, one of them 1280x9000):
+
+- A delivery from the operator's chat reaches the yardmaster's inbox.
+- C1, `yardr reply <seq> "..." --file reply.png`, goes by `sendPhoto` with
+  the words as its caption.
+- C2, a reply of 1025 characters with two pictures and a document, goes as
+  the text first, whole, by `sendMessage`, then each file without a caption,
+  in order, the document under its own name (`shed;log, v2.txt`) and type.
+- C3, a reply file whose name holds a line feed, is refused before anything
+  is stored or sent.
+- T1, `yardr mail ada "..." --file mail.png`, is told by the daemon with the
+  picture.
+- T2, a bead closed by a builder with a screenshot on the second of its
+  three notes, is told with that screenshot.
+- T3, a mail with a 1280x9000 picture, which the stand-in refuses as the
+  service does, is told as the same words alone, and the daemon logs `user
+  told without the picture`.
+
+It prints each request the stand-in took and, for a file, the file of the run
+it equals, with the same SHA-256 and the same byte count. At the end it
+fetches each upload back from the stand-in and compares its bytes with the
+file using `cmp`. A check that fails prints `FAIL` and the request, the run
+goes on, and the script exits 1 at the end. A command that fails stops the
+run, with the daemon's last lines and what the stand-in held by then. A run
+takes about 90 seconds, since each of the three tells waits out its 20
+second grace. `--keep` leaves the yard and the stand-in up and says how to
+end them.
+
+It needs `go`, `curl`, `jq`, `file`, `perl` (for a free port) and `shasum` or
+`sha256sum`. It is no live receipt. The stand-in is not Telegram, and the
+real-API smoke test stays the operator's
+([the design](../../docs/design/2026-10-13-yardr-c55e-telegram-hears.md)).
+
+### Traps
+
+Each of these cost a run when the rehearsal was first made by hand.
+
+- Under `D/e` there is no `USER`, so a command acts as the login name, and
+  the operator's own acts are refused (`only the operator (ada) may change a
+  setting; this is mckean`). Give every operator act `--actor <operator>`.
+- `yardr reply` calls the source with the credential in its own environment
+  and is refused with none (`TELEGRAM_BOT_TOKEN is not set in this
+  environment`). A crew member's pane has it from its env file. The
+  rehearsal runs `D/e env TELEGRAM_BOT_TOKEN=<token> yardr --actor ada reply
+  <seq> "..." --crew yardmaster`.
+- The hook listener needs an address, and the server reads `hook_addr` only
+  when it starts. The script takes a free port first (perl asks the kernel
+  for one), sets it, stops the server, lets `daemon start` start it again,
+  and waits for a delivery with no secret to be answered 401. Never 8790 or
+  8791, which are the real yard's.
+- A user's own acts are never told to them. The mail comes from the
+  yardmaster, and T2's bead is closed by `yd-builder`, because a bead closed
+  by `ada` would tell her nothing.
+- A tell comes about 20 seconds after what caused it (`store.PushGrace`, a
+  constant). The script polls the stand-in's list and the daemon's log for
+  the effect, each poll with a fuse against a hang, and does not sleep for a
+  set time and hope.
+- A bare yard has no herdr, so the daemon logs that the yardmaster failed to
+  start, every 30 seconds. That is not a failure of the rehearsal.
+- curl sends a double quote in a file name as `%22`, and the stand-in lists a
+  name as it arrived. The document's name holds `;` and `,`, which curl's
+  `-F` read as syntax until the pack quoted them, and no quote.
 
 ## The yard-shape matrix
 
