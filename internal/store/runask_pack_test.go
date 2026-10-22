@@ -224,6 +224,54 @@ func TestPackApplyStaleBuild(t *testing.T) {
 	}
 }
 
+// The last comparison of a pack apply's and a setup's approval holds the
+// card's sentences and how it is taken back, with the build struck from the
+// label the first sentence names: a build that moved alone reads as the card
+// it was, and a sentence that moved with it is named as itself, not as the
+// build. Neither stale function reads the yard when no source is carried.
+func TestStaleCardsReadAlikeWithoutBuild(t *testing.T) {
+	w := &wtx{}
+	cardOf := func(build string) (AskRun, AskSetup) {
+		seen := map[string]string{"pack wired": "embedded in yardr " + build, "pack wired build": build,
+			"pack wired bytes": "b", "pack wired presets": "p"}
+		does := []string{"pack wired (embedded in yardr " + build + "), of kind source, into the yard: it adds 1 source.",
+			"source wired: its calls go to https://wired.example.com/v1."}
+		run := AskRun{Argv: []string{"pack", "apply", "wired"}, Does: does, Back: "yardr source rm wired", BackBy: "the operator", Seen: seen}
+		return run, AskSetup{Pack: "wired", Does: does, Back: run.Back, BackBy: run.BackBy, Seen: seen}
+	}
+	for _, c := range []struct {
+		name   string
+		change func(does []string, back *string)
+		want   string // what the refusal says, "" where there is none
+	}{
+		{"nothing else", func([]string, *string) {}, ""},
+		{"a sentence", func(does []string, _ *string) {
+			does[1] = "source wired: its calls go to https://other.example.com/v1."
+		},
+			`ask 1 says "source wired: its calls go to https://wired.example.com/v1.", and the yard would say "source wired: its calls go to https://other.example.com/v1." now: the card is from before that changed.`},
+		{"how it is taken back", func(_ []string, back *string) { *back = "yardr source rm other" },
+			"the card is from before that changed."},
+	} {
+		for _, nowBuild := range []string{"one", "two"} {
+			wasRun, wasSetup := cardOf("one")
+			nowRun, nowSetup := cardOf(nowBuild)
+			c.change(nowRun.Does, &nowRun.Back)
+			nowSetup.Back = nowRun.Back
+			for which, err := range map[string]error{
+				"pack apply": w.packApplyStale(1, wasRun, nowRun),
+				"setup":      w.setupStale(1, wasSetup, nowSetup),
+			} {
+				switch {
+				case c.want == "" && err != nil:
+					t.Errorf("%s, %s, build %s: refused: %v", which, c.name, nowBuild, err)
+				case c.want != "" && (err == nil || !strings.Contains(err.Error(), c.want)):
+					t.Errorf("%s, %s, build %s: = %v, want it to say %q", which, c.name, nowBuild, err, c.want)
+				}
+			}
+		}
+	}
+}
+
 // plantWired puts the wired source in the yard with its copies on disk
 // and one entry neither declaration names.
 func plantWired(t *testing.T, y *askYard) string {
