@@ -1477,15 +1477,15 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
   # a directory it matches embeds everything under it, less the names that
   # begin with . or _ unless the pattern starts with all:. So: the glob, then
   # any such names below it. A plain name is a glob with no *, and needs no
-  # case of its own. ?, [ and \ are not translated (no pattern here has one):
-  # such a pattern is taken to embed every path, so that a deleted file
-  # selects its package and never misses it.
+  # case of its own. Other path.Match syntax is not translated: a deleted file
+  # under such a pattern stays unaccounted for, so the whole-suite fallback
+  # keeps it from being mistaken for an embedded file.
   function embedre(pat,    all, re, i, c) {
     all = sub(/^all:/, "", pat)
     re = "^"
     for (i = 1; i <= length(pat); i++) {
       c = substr(pat, i, 1)
-      if (index("?[\\", c)) return "^"
+      if (index("?[\\", c)) return ""
       if (c == "*") re = re "[^/]*"
       else if (index(".+()$^{}|", c)) re = re "\\" c
       else re = re c
@@ -1511,7 +1511,7 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
     m = split($5, e, ",")
     for (i = 1; i <= m; i++) if (e[i] != "") {
       rx = embedre(e[i])
-      for (del in gone) if (substr(del, 1, length(pre)) == pre && substr(del, length(pre) + 1) ~ rx) { hit[path[n]] = 1; known[del] = 1 }
+      if (rx != "") for (del in gone) if (substr(del, 1, length(pre)) == pre && substr(del, length(pre) + 1) ~ rx) { hit[path[n]] = 1; known[del] = 1 }
     }
   }
   END {

@@ -381,10 +381,10 @@ func TestYardTestSelects(t *testing.T) {
 		// it alone is read by no known package.
 		{"deleted hidden files under all: and under a plain name", []string{"-mdemb/kept/.hidden", "-mdemb/dropped/.hidden"}, []string{
 			pre + "mdemb/dropped/.hidden is read by no known package: testing everything"}},
-		// A pattern the rule cannot read takes every path under its package:
-		// other.txt is over-selected, and not left to read as a file nobody knows.
+		// A pattern the rule cannot read leaves a deleted path unaccounted for,
+		// so the whole-suite fallback covers it instead of assuming it was embedded.
 		{"a deleted file under a pattern the rule cannot read", []string{"-qemb/other.txt"}, []string{
-			tested + " m.test/m/qemb"}},
+			pre + "qemb/other.txt is read by no known package: testing everything"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
 			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
