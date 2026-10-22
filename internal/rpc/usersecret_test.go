@@ -135,6 +135,24 @@ func (y *secretYard) untouched(t *testing.T, after string) {
 	}
 }
 
+// answers is the notes of the bead that answer an ask, each as who wrote
+// it and the device it came through: a giving is one, and giving again is
+// one more.
+func (y *secretYard) answers(t *testing.T) []string {
+	t.Helper()
+	notes, err := y.st.Notes(context.Background(), "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, n := range notes {
+		if n.Kind == store.NoteAnswer {
+			got = append(got, n.Author+" via "+n.Via)
+		}
+	}
+	return got
+}
+
 // A device of the yard's operator gives a secret over the listener: the env
 // file holds it, the ask is answered with the names, and the note and the
 // events of the giving say how it came, as the device's other writes do.
@@ -287,8 +305,9 @@ notify: { call: message, address: { param: user, env: PUSH_USER }, text: text }
 // A secret ask for a user's own address in a source is that user's to
 // answer from a device of their own, as it is on the socket: the value goes
 // to a file of theirs, the ask is answered with the name, and the events
-// say how it came. The operator's device gives it for them. A device of a
-// third user is answered as for a method the yard does not have, and
+// say how it came. Their device may give again, which replaces the value
+// and is a note more, and the operator's device gives it for them. A device
+// of a third user is answered as for a method the yard does not have, and
 // nothing that was sent is in a refusal or the listener's log.
 func TestUserGivesTheirOwnAddress(t *testing.T) {
 	const value = "u-0f-sam-s3cret"
@@ -370,6 +389,19 @@ func TestUserGivesTheirOwnAddress(t *testing.T) {
 	if u, err := y.st.GetUser(ctx, "sam"); err != nil || u.EnvFile != file || u.Notify != "" {
 		t.Errorf("sam = %+v, %v: want the env_file set and no notify", u, err)
 	}
+	// Their device again: what was given is replaced, and the giving is a
+	// note more.
+	const again = "u-0f-sam-again"
+	w = y.give(onTheMachine, y.sam, strings.NewReader(strings.Replace(args, value, again, 1)))
+	if !strings.Contains(w.Body.String(), `"given":["PUSH_USER"]`) {
+		t.Errorf("sam's device giving again is answered %s", w.Body)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "PUSH_USER="+again+"\n" {
+		t.Errorf("sam's file holds %q after the second giving", b)
+	}
+	if got, want := strings.Join(y.answers(t), ", "), "sam via tablet, sam via tablet"; got != want {
+		t.Errorf("the answers on the bead are %q, want %q", got, want)
+	}
 	// The operator's device, for them.
 	w = y.give(onTheMachine, y.jo, strings.NewReader(strings.Replace(args, value, "typed-again", 1)))
 	if !strings.Contains(w.Body.String(), `"given":["PUSH_USER"]`) {
@@ -398,7 +430,8 @@ func TestUserGivesTheirOwnAddress(t *testing.T) {
 
 // A secret ask for a user's own credential in a source is that user's to
 // answer from a device of theirs (ownSecret): the listener serves the
-// giving to them and to the operator's device, and to nobody else. The
+// giving to them and to the operator's device, and to nobody else. Their
+// device may give again, which replaces the value and is a note more. The
 // source needs no notify key.
 func TestUserGivesTheirOwnCredential(t *testing.T) {
 	const value = "tok-0f-sam-s3cret"
@@ -477,6 +510,19 @@ func TestUserGivesTheirOwnCredential(t *testing.T) {
 	}
 	if u, err := y.st.GetUser(ctx, "sam"); err != nil || u.EnvFile != file {
 		t.Errorf("sam = %+v, %v: want the env_file set", u, err)
+	}
+	// Their device again: what was given is replaced, and the giving is a
+	// note more.
+	const again = "tok-0f-sam-again"
+	w = y.give(onTheMachine, y.sam, strings.NewReader(strings.Replace(args, value, again, 1)))
+	if !strings.Contains(w.Body.String(), `"given":["CRM_TOKEN"]`) {
+		t.Errorf("sam's device giving again is answered %s", w.Body)
+	}
+	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN="+again+"\n" {
+		t.Errorf("sam's file holds %q after the second giving", b)
+	}
+	if got, want := strings.Join(y.answers(t), ", "), "sam via tablet, sam via tablet"; got != want {
+		t.Errorf("the answers on the bead are %q, want %q", got, want)
 	}
 	// The operator's device, for them.
 	w = y.give(onTheMachine, y.jo, strings.NewReader(strings.Replace(args, value, "typed-again", 1)))
