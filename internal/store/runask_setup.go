@@ -231,6 +231,10 @@ func AccountSetWords(names []string) string {
 	return "the account " + strings.Join(names, " and ") + " is set"
 }
 
+// setupFailureUntold is what a setup's carrying out that failed reads as where
+// the file its account is set in is not told.
+const setupFailureUntold = "the carrying out failed. How it failed is told to a device of the operator alone."
+
 // WithoutAccountFile is what an approved setup printed (ran) as it reads where
 // the file its account is set in is not told. That file is the candidate's
 // when the approval took one of the yard's other accounts, so it is held back
@@ -239,8 +243,16 @@ func AccountSetWords(names []string) string {
 // card's own names (AccountSetWords), the words the carrying out wrote it
 // with. The other lines of the result name no file of an account and are as
 // they were, and so are the words an approval records until the server has
-// carried it out. s and ran are left as they are.
+// carried it out. A carrying out that failed is worded as one sentence for
+// the operator, which names the file and the candidate on its way to the
+// commands that finish the setup, so no cut at a line leaves them out: it is
+// replaced (setupFailureUntold), and still reads as failed. s and ran are
+// left as they are.
 func (s SetupAsked) WithoutAccountFile(ran AskRan) AskRan {
+	if ran.Failed {
+		ran.Result = setupFailureUntold
+		return ran
+	}
 	set := AccountSetWords(s.Account)
 	lines := strings.Split(ran.Result, "\n")
 	for i, line := range lines {

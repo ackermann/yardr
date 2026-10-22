@@ -209,8 +209,9 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 // courier-existing when account names it and typing the account when it is
 // empty, and records its carrying out as the server's carrier does but for
 // the work: the lines it prints for the apply, for the account in file and
-// for the grants. It answers the lines.
-func (y *secretYard) carriedOut(t *testing.T, seq uint64, account, file string) []string {
+// for the grants, or the failure in its words when there is one. It answers
+// what was recorded.
+func (y *secretYard) carriedOut(t *testing.T, seq uint64, account, file, failure string) string {
 	t.Helper()
 	ctx := context.Background()
 	var typed map[string]string
@@ -224,15 +225,21 @@ func (y *secretYard) carriedOut(t *testing.T, seq uint64, account, file string) 
 	if err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
 		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
 	}
-	lines := []string{
+	if failure != "" {
+		if err := y.st.FailCarry(ctx, rec.Bead, rec.Ask, "boot", failure); err != nil {
+			t.Fatal(err)
+		}
+		return failure
+	}
+	result := strings.Join([]string{
 		"applied pack courier to the yard: 1 created, 0 changed, 0 unchanged",
 		store.AccountSetWords([]string{"COURIER_ACCOUNT"}) + " in " + file,
 		"crew yardmaster may call courier: read",
-	}
-	if err := y.st.CompleteCarry(ctx, rec.Bead, rec.Ask, "boot", strings.Join(lines, "\n")); err != nil {
+	}, "\n")
+	if err := y.st.CompleteCarry(ctx, rec.Bead, rec.Ask, "boot", result); err != nil {
 		t.Fatal(err)
 	}
-	return lines
+	return result
 }
 
 // ranOf is what the view v tells of the approval of the ask seq.
@@ -255,16 +262,19 @@ func ranOf(t *testing.T, v store.BeadView, seq uint64) *store.AskRan {
 // (TestUserBeadTellsCandidatesToTheOperatorAlone): what the setup printed
 // reads to any other device that the account is set, and not where. It does
 // when the approval took the candidate, whose file it is, and when it typed
-// the account, a card that lists no candidate to hold back. The rest of what
-// the setup printed and the rest of the view are the same, the result of a
-// run ask is told as it is, and the store, which the socket serves, keeps
-// the whole result.
+// the account, a card that lists no candidate to hold back. A carrying out
+// that failed names the file and the candidate in the words that say how, and
+// reads to any other device as failed and no more. The rest of what the
+// setup printed and the rest of the view are the same, the result of a run
+// ask is told as it is, and the store, which the socket serves, keeps the
+// whole result.
 func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
-		name  string
-		typed bool
-	}{{"a candidate taken", false}, {"an account typed", true}} {
+		name   string
+		typed  bool
+		failed bool
+	}{{"a candidate taken", false, false}, {"an account typed", true, false}, {"a carrying out that failed", false, true}} {
 		t.Run(c.name, func(t *testing.T) {
 			y, file := setupYard(t)
 			account := "courier-existing"
@@ -288,13 +298,18 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 					file = card.AccountFile
 				}
 			}
-			lines := y.carriedOut(t, seq, account, file)
-			whole := strings.Join(lines, "\n")
+			failure := ""
+			if c.failed {
+				failure = "pack courier is applied, but the candidate courier-existing no longer holds COURIER_ACCOUNT as carded: its file is " + file +
+					" now, not " + file + ". Ask for the account again, or point the source with yardr source set courier env_file=" + file + " in a terminal."
+			}
+			whole := y.carriedOut(t, seq, account, file, failure)
 			// told reads the view as the device with the token has it, and fails
 			// unless the result of the setup is the whole of what it printed
-			// when listed, and the same without the file when not. The candidate
-			// is in the reply when listed and nowhere in it when not; a typed
-			// account's file is the card's, which every device is told.
+			// when listed, and the same without the file when not, or, of a
+			// failure, failed and not the words of it. The candidate is in the
+			// reply when listed and nowhere in it when not; a typed account's
+			// file is the card's, which every device is told.
 			told := func(who, token string, listed bool) store.BeadView {
 				t.Helper()
 				v, raw := y.bead(t, token)
@@ -302,8 +317,16 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 				if !listed {
 					want = strings.Replace(whole, " in "+file, "", 1)
 				}
-				if got := ranOf(t, v, seq); got.Result != want || got.Failed || !slices.Equal(got.Argv, []string{"setup", "courier"}) {
-					t.Errorf("%s is told the result %+v, want %q", who, got, want)
+				got := ranOf(t, v, seq)
+				switch {
+				case got.Failed != c.failed || !slices.Equal(got.Argv, []string{"setup", "courier"}):
+					t.Errorf("%s is told the carrying out %+v, want one that failed: %v", who, got, c.failed)
+				case c.failed && !listed:
+					if got.Result == "" || got.Result == whole {
+						t.Errorf("%s is told the failure %q", who, got.Result)
+					}
+				case got.Result != want:
+					t.Errorf("%s is told the result %q, want %q", who, got.Result, want)
 				}
 				if !c.typed {
 					for _, secret := range []string{file, candidateAddress, "courier-existing"} {

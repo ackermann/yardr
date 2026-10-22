@@ -219,6 +219,23 @@ func TestCarrySetupCandidateRecheckFails(t *testing.T) {
 	if !strings.Contains(rec.Result, "the candidate google-drive no longer holds GOOGLE_ACCOUNT as carded: its file no longer holds it") {
 		t.Errorf("the failure records %q", rec.Result)
 	}
+	// A device that is not told the account's file is not told how it failed:
+	// the words name the candidate the approval took, so they are replaced.
+	view, err := st.Bead(ctx, bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range view.Asks {
+		if a.Ask != seq {
+			continue
+		}
+		if a.Ran == nil || a.Setup == nil || !a.Ran.Failed || !strings.Contains(a.Ran.Result, "google-drive") {
+			t.Fatalf("the failed ask reads %+v", a)
+		}
+		if told := a.Setup.WithoutAccountFile(*a.Ran); !told.Failed || strings.Contains(told.Result, "google-drive") {
+			t.Errorf("the failure is told as %+v", told)
+		}
+	}
 	mail, err := st.GetSource(ctx, "google-mail")
 	if err != nil {
 		t.Fatal(err)

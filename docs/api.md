@@ -674,14 +674,16 @@ nothing else. What is not the same:
   setup's account is set in, to a device of the operator alone**: the yard
   sources whose account the card offers to reuse
   (`asks[].setup.candidates`), each a file of the yard's with the values it
-  holds, and the sentence of `asks[].setup.does` that names them; and the
-  file named in `asks[].ran.result` of the approved setup, which is the
-  candidate's when the approval took one. To any other device the card is
+  holds, and the sentence of `asks[].setup.does` that names them; and in
+  `asks[].ran.result` of the approved setup the file the account is set in,
+  which is the candidate's when the approval took one, in its line and in
+  the words of a carrying out that failed. To any other device the card is
   that of a setup with none: the field is absent, and the sentence says the
-  account as such a card does; and the line of the result reads `the
-  account <names> is set`, with no file. So it is to every device of a yard
-  with no operator. The socket tells the whole card and result, as it tells
-  the operator's words in `Settings`.
+  account as such a card does; the line of the result reads `the account
+  <names> is set`, with no file, and a failure reads that it failed and no
+  more. So it is to every device of a yard with no operator. The socket
+  tells the whole card and result, as it tells the operator's words in
+  `Settings`.
 - **The stream carries the device's own mail alone**: a `mail`, `mail_read`
   or `reaction` event is sent only to a device of its sender or its
   receiver (a read receipt to its reader alone), however far back the
@@ -2652,7 +2654,7 @@ POST /call/UserAsks
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask |
 | `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside |
 | `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
-| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed, whose line `the account <names> is set in <file>` names the file the account is set in, which `Bead` tells to a device of the operator alone: a setup ask is put to the operator alone, so it reaches a device of the operator and no other |
+| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed, whose line `the account <names> is set in <file>`, and the words of a carrying out that failed, name the file the account is set in, which `Bead` tells to a device of the operator alone: a setup ask is put to the operator alone, so they reach a device of the operator and no other |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
@@ -4022,7 +4024,7 @@ POST /call/Bead
 | `asks[].run.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads "anyone can take it back" |
 | `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
 | `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
-| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and is told to a device of the operator alone ([over the network](#over-the-network)): any other device is told `the account <names> is set`, and so is every device of a yard with no operator. The socket tells the whole result |
+| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |
 | `asks[].setup.label` | string, may be absent | the build the pack is embedded in, as the card shows it |

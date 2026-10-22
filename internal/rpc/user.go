@@ -257,9 +257,10 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 // operator is told them (isOperator, as deviceTold tells the operator's
 // words). To any other device the card reads as one with none
 // (store.SetupAsked.WithoutCandidates) and what the setup printed says the
-// account is set and not where (store.SetupAsked.WithoutAccountFile), and in
-// a yard without an operator it does to every device. The result of a run
-// ask is left as it is: it names commands, and no file of an account. The
+// account is set and not where, or that it failed and no more, since the
+// words of a failure name the file too (store.SetupAsked.WithoutAccountFile),
+// and in a yard without an operator it does to every device. The result of a
+// run ask is left as it is: it names commands, and no file of an account. The
 // socket, the terminal and the agents read the whole card and result from
 // the store, as they do the operator's words: UserAsks needs no such hold,
 // since a setup ask is put to the operator and no queue but theirs holds it.

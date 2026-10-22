@@ -176,7 +176,9 @@ func TestSetupCardWithoutCandidatesAnyWords(t *testing.T) {
 // in: the account line says the account is set and no more, for one name or
 // several and whatever the file is called, while the lines of the apply and
 // of the grants, the words of an approval not yet carried out and a result
-// with no such line are as they were.
+// with no such line are as they were. A carrying out that failed is told as
+// failed and with none of the words that say how, whether they name the file
+// and the candidate or not.
 func TestSetupRanWithoutAccountFile(t *testing.T) {
 	apply := "applied pack setupmail to the yard: 1 created, 0 changed, 0 unchanged"
 	grant := "crew yardmaster may call setupmail: read"
@@ -185,6 +187,7 @@ func TestSetupRanWithoutAccountFile(t *testing.T) {
 		name    string
 		account []string
 		result  string
+		failed  bool
 		want    string // "" where the result is told as it is
 	}{
 		{name: "an account of one name", account: account[:1],
@@ -198,10 +201,15 @@ func TestSetupRanWithoutAccountFile(t *testing.T) {
 			want:   "the account SETUP_ACCOUNT is set\n" + grant},
 		{name: "an approval not yet carried out", account: account, result: CarryPending},
 		{name: "a result with no account line", account: account, result: apply + "\n" + grant},
+		{name: "a failure that names the file and the candidate", account: account[:1], failed: true, want: setupFailureUntold,
+			result: "pack setupmail is applied, but the candidate setupcal no longer holds SETUP_ACCOUNT as carded: its file is /yard/sources/moved.env now, not /yard/sources/setupcal.env. " +
+				"Ask for the account again, or point the source with yardr source set setupmail env_file=/yard/sources/setupcal.env in a terminal."},
+		{name: "a failure that names neither", account: account, failed: true, want: setupFailureUntold,
+			result: "the plan now asks, refuses, or needs a hand-edited or non-text file: nothing further was applied. Ask again if it is still wanted."},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			card := SetupAsked{Pack: "setupmail", Account: c.account}
-			ran := AskRan{Argv: []string{"setup", "setupmail"}, Result: c.result}
+			ran := AskRan{Argv: []string{"setup", "setupmail"}, Result: c.result, Failed: c.failed}
 			want := c.want
 			if want == "" {
 				want = c.result
@@ -210,8 +218,8 @@ func TestSetupRanWithoutAccountFile(t *testing.T) {
 			if got.Result != want {
 				t.Errorf("the result is told as\n%s\nwant\n%s", got.Result, want)
 			}
-			if strings.Contains(got.Result, "/yard/") {
-				t.Errorf("the result still names a file: %s", got.Result)
+			if strings.Contains(got.Result, "/yard/") || strings.Contains(got.Result, "setupcal") {
+				t.Errorf("the result still names a file or a candidate: %s", got.Result)
 			}
 			if !slices.Equal(got.Argv, ran.Argv) || got.Failed != ran.Failed {
 				t.Errorf("the rest of what ran moved: %+v, was %+v", got, ran)
