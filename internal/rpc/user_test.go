@@ -531,10 +531,11 @@ func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 	check("the operator's stream", jos, store.StyleSetting, "work", true)
 }
 
-// The event a device is sent without its value, or without the file of a
-// source, is a copy. The store hands one event, and one map of its data, to
-// every stream and every subscriber, so dropping the value from it would
-// take it from the operator's stream and the daemon's as well.
+// The event a device is sent without its value, or without a file or a
+// command of the operator's, is a copy. The store hands one event, and one
+// map of its data, to every stream and every subscriber, so dropping the
+// value from it would take it from the operator's stream and the daemon's as
+// well.
 func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 	_, u, _ := userYard(t)
 	sam := &Caller{User: "sam", SaidBy: "tablet", device: true}
@@ -546,6 +547,10 @@ func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 	}{
 		{"a setting's value", store.Event{Kind: "setting_changed", Data: map[string]any{"key": store.HookPublicURLSetting, "value": "https://hooks.example.com/south"}}, "value", "key"},
 		{"a source's file", store.Event{Kind: "source_set", Data: map[string]any{"source": "crm", store.SourceEnvFile: "/home/jo/.yardr/sources/crm.env"}}, store.SourceEnvFile, "source"},
+		{"a source's mint command", store.Event{Kind: "source_set", Data: map[string]any{"source": "crm", store.SourceMintCommand: "/home/jo/bin/crm-mint --org acme"}}, store.SourceMintCommand, "source"},
+		{"a user's file", store.Event{Kind: "user_set", Data: map[string]any{"user": "sam", store.UserEnvFile: "/home/jo/.yardr/users/sam.env"}}, store.UserEnvFile, "user"},
+		{"a hook's secret file", store.Event{Kind: "hook_blocked", Data: map[string]any{"hook": "linear", "path": "/home/jo/.yardr/linear.secret", "reason": "secret file /home/jo/.yardr/linear.secret is gone"}}, "path", "hook"},
+		{"a hook's reason", store.Event{Kind: "hook_blocked", Data: map[string]any{"hook": "linear", "path": "/home/jo/.yardr/linear.secret", "reason": "secret file /home/jo/.yardr/linear.secret is gone"}}, "reason", "hook"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			held, stays := c.e.Data[c.held], c.e.Data[c.stays]

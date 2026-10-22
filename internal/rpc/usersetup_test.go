@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -412,10 +413,11 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 }
 
 // replayed is what the device with the token is sent of the log from its
-// start to its head: the data of each source_set, in order, and the lines of
-// the whole stream. The stream stays open, so it is read to the newest event
-// and no further.
-func (y *secretYard) replayed(t *testing.T, base, token string) (sets []map[string]any, raw string) {
+// start to its head: the data of each event that carries the operator's
+// configuration (isConfiguration), in order, and the lines of the whole
+// stream. The stream stays open, so it is read to the newest event and no
+// further.
+func (y *secretYard) replayed(t *testing.T, base, token string) (configs []map[string]any, raw string) {
 	t.Helper()
 	head, err := y.st.Head(context.Background())
 	if err != nil {
@@ -436,26 +438,37 @@ func (y *secretYard) replayed(t *testing.T, base, token string) (sets []map[stri
 			t.Fatalf("the stream sent %q: %v", line, err)
 		}
 		all = append(all, line)
-		if e.Kind == "source_set" {
-			sets = append(sets, e.Data)
+		if isConfiguration(e.Kind) {
+			configs = append(configs, e.Data)
 		}
 		if e.Seq >= head {
-			return sets, strings.Join(all, "\n")
+			return configs, strings.Join(all, "\n")
 		}
 	}
 }
 
-// The stream tells the file a source was pointed at, in its source_set, to a
-// device of the operator and to no other, as Bead tells the file of an
-// account (TestUserBeadTellsTheAccountFileToTheOperatorAlone): to any other
-// device the event is the source without the path, replayed from the start or
-// sent as it happens, and so it is to every device of a yard with no
-// operator. It is so for each write of a file: a source pointed at one, as a
-// setup that took a candidate points the source its pack added at the
-// candidate's file, and a source with none, for which the server chooses one
-// when a value is given. A source_set that names no file is told as it is,
-// and the store, which the socket serves, keeps every event whole.
-func TestUserStreamTellsASourceFileToTheOperatorAlone(t *testing.T) {
+// isConfiguration reports whether kind is an event whose files and command
+// the stream tells to a device of the operator alone (deviceEvent).
+func isConfiguration(kind string) bool {
+	return kind == "source_set" || kind == "user_set" || kind == "hook_blocked"
+}
+
+// The stream tells the files and the command of the operator's configuration,
+// in the events that set or name them, to a device of the operator and to no
+// other, as Bead tells the file of an account
+// (TestUserBeadTellsTheAccountFileToTheOperatorAlone): to any other device the
+// event is the source, the user or the hook without them, replayed from the
+// start or sent as it happens, and so it is to every device of a yard with no
+// operator. A source_set is so for each write of a file: a source pointed at
+// one, as a setup that took a candidate points the source its pack added at
+// the candidate's file, and a source with none, for which the server chooses
+// one when a value is given; and for the command the source mints its token
+// with. A user_set is so for the file of a user, to the device of that user
+// as to any other. A hook_blocked is so for the secret file it names and for
+// its reason, which is the error of reading that file and names it too. What
+// else they carry is told as it is (the limit of a source, the parts a user is
+// told of), and the store, which the socket serves, keeps every event whole.
+func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
 	y, file := setupYard(t)
 	must := func(err error) {
@@ -474,24 +487,49 @@ func TestUserStreamTellsASourceFileToTheOperatorAlone(t *testing.T) {
 	must(err)
 	_, err = y.st.SetSource(ctx, "crm", store.SourceCallsPerHour, "120", "jo")
 	must(err)
+	// A hook whose secret file the receiver finds open to others, and says so
+	// in the words it logs the block with: the error of reading the file.
+	dir := filepath.Dir(file)
+	secret := filepath.Join(dir, "linear.secret")
+	must(os.WriteFile(secret, []byte("whsec-0f-the-yard\n"), 0o600))
+	must(os.Chmod(secret, 0o644))
+	_, _, open := config.ReadSecretFile(secret)
+	if open == nil || !strings.Contains(open.Error(), secret) {
+		t.Fatalf("reading a secret file that is open to others gave %v, want an error that names it", open)
+	}
+	_, err = y.st.PutHook(ctx, store.Hook{Name: "linear", Source: "linear", SecretFile: secret}, "jo")
+	must(err)
 
 	// A device sent the log as it happens is sent the same: its streams are
-	// open before the next write, which moves a source to a file of its own.
+	// open before the next writes, which move a source to a file of its own
+	// and to a command, point a user at a file and block the hook.
 	base := listen(t, y.u, 0)
 	head, err := y.st.Head(ctx)
 	must(err)
 	jos, _ := follow(t, base, y.jo, head)
 	sams, _ := follow(t, base, y.sam, head)
-	moved := filepath.Join(filepath.Dir(file), "crm-moved.env")
+	moved := filepath.Join(dir, "crm-moved.env")
 	_, err = y.st.SetSource(ctx, "crm", store.SourceEnvFile, moved, "jo")
 	must(err)
+	const mint = "/home/jo/bin/crm-mint --org acme"
+	_, err = y.st.SetSource(ctx, "crm", store.SourceMintCommand, mint, "jo")
+	must(err)
+	// sam's own device is told no more of their file than jo's of anyone's.
+	address := filepath.Join(dir, "sam.env")
+	_, err = y.st.SetUser(ctx, "sam", map[string]string{store.UserEnvFile: address, store.UserTell: "mail"}, "jo")
+	must(err)
+	must(y.st.BlockHook(ctx, "linear", open.Error()))
 
+	const before = 4 // the writes above that came before the streams were open
 	whole := []map[string]any{
 		{"source": "courier-existing", "env_file": file},
 		{"source": "courier", "env_file": file},
 		{"source": "crm", "env_file": y.file},
 		{"source": "crm", "calls_per_hour": "120"},
 		{"source": "crm", "env_file": moved},
+		{"source": "crm", "mint_command": mint},
+		{"user": "sam", "env_file": address, "tell": "mail"},
+		{"hook": "linear", "path": secret, "reason": open.Error()},
 	}
 	without := []map[string]any{
 		{"source": "courier-existing"},
@@ -499,46 +537,55 @@ func TestUserStreamTellsASourceFileToTheOperatorAlone(t *testing.T) {
 		{"source": "crm"},
 		{"source": "crm", "calls_per_hour": "120"},
 		{"source": "crm"},
+		{"source": "crm"},
+		{"user": "sam", "tell": "mail"},
+		{"hook": "linear"},
 	}
 	var stored []map[string]any
-	for _, e := range eventsOfKind(t, y.st, "source_set") {
-		stored = append(stored, e.Data)
+	log, err := y.st.EventsSince(ctx, 0, 1000)
+	must(err)
+	for _, e := range log {
+		if isConfiguration(e.Kind) {
+			stored = append(stored, e.Data)
+		}
 	}
 	if !reflect.DeepEqual(stored, whole) {
-		t.Fatalf("the store keeps the source_set events %v, want %v", stored, whole)
+		t.Fatalf("the store keeps the configuration events %v, want %v", stored, whole)
 	}
-	// liveSet is the data of the next event of a stream that was open for it.
-	liveSet := func(who string, lines <-chan string) map[string]any {
+	// live is the data of the next event of a stream that was open for it.
+	live := func(who string, lines <-chan string) map[string]any {
 		t.Helper()
 		var e store.Event
-		if line := next(t, lines); json.Unmarshal([]byte(line), &e) != nil || e.Kind != "source_set" {
-			t.Fatalf("%s is sent %q, want the source_set that moved crm", who, line)
+		if line := next(t, lines); json.Unmarshal([]byte(line), &e) != nil || !isConfiguration(e.Kind) {
+			t.Fatalf("%s is sent %q, want the next write of the operator's configuration", who, line)
 		}
 		return e.Data
 	}
-	if got := liveSet("jo's device", jos); !reflect.DeepEqual(got, whole[4]) {
-		t.Errorf("jo's device is sent %v as it happens, want %v", got, whole[4])
-	}
-	if got := liveSet("sam's device", sams); !reflect.DeepEqual(got, without[4]) {
-		t.Errorf("sam's device is sent %v as it happens, want %v", got, without[4])
+	for i := before; i < len(whole); i++ {
+		if got := live("jo's device", jos); !reflect.DeepEqual(got, whole[i]) {
+			t.Errorf("jo's device is sent %v as it happens, want %v", got, whole[i])
+		}
+		if got := live("sam's device", sams); !reflect.DeepEqual(got, without[i]) {
+			t.Errorf("sam's device is sent %v as it happens, want %v", got, without[i])
+		}
 	}
 
 	// told replays the log to the device with the token, and fails unless it
-	// is sent the files of the source_set events when listed, and not a file
-	// of the yard's anywhere in the stream when not.
+	// is sent the configuration events whole when listed, and not a file, the
+	// command or the reason of the yard's anywhere in the stream when not.
 	told := func(who, token string, listed bool) {
 		t.Helper()
-		sets, raw := y.replayed(t, base, token)
+		configs, raw := y.replayed(t, base, token)
 		want := without
 		if listed {
 			want = whole
 		}
-		if !reflect.DeepEqual(sets, want) {
-			t.Errorf("%s is sent the source_set events %v, want %v", who, sets, want)
+		if !reflect.DeepEqual(configs, want) {
+			t.Errorf("%s is sent the configuration events %v, want %v", who, configs, want)
 		}
-		for _, path := range []string{file, y.file, moved} {
-			if strings.Contains(raw, path) != listed {
-				t.Errorf("%s is sent %q: %v, want %v", who, path, !listed, listed)
+		for _, held := range []string{file, y.file, moved, mint, address, secret, open.Error()} {
+			if strings.Contains(raw, held) != listed {
+				t.Errorf("%s is sent %q: %v, want %v", who, held, !listed, listed)
 			}
 		}
 	}

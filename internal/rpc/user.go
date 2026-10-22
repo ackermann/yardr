@@ -33,10 +33,12 @@ import (
 //	                             a device of a user the one that gives
 //	                             their own address or credential (ownSecret)
 //	GET  /user/events?after=N    the stream, as on the socket but for the
-//	                             value of a setting_changed and the file of
-//	                             a source_set the device is not told, and
-//	                             but for mail, read receipts and reactions
-//	                             it is no party to (deviceEvent)
+//	                             value of a setting_changed the device is
+//	                             not told, the files and the command of a
+//	                             source_set, a user_set and a hook_blocked
+//	                             that are the operator's, and but for mail,
+//	                             read receipts and reactions it is no party
+//	                             to (deviceEvent)
 //	GET  /user/blobs/<hash>      a blob the caller may read, as the web
 //	                             view serves it (userBlob)
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
@@ -61,9 +63,11 @@ import (
 //   - Bead tells the candidates of a setup card, the yard's other accounts
 //     by file and the values they hold, and the file the account of an
 //     approved setup is set in, to a device of the operator alone (bead),
-//     and the stream tells the file a source_set points a source at to one
-//     alone (deviceEvent), so a lost token of another user gives away no
-//     address or file of an account the yard keeps;
+//     and the stream tells the file a source_set points a source at and the
+//     command that mints its token, the file a user_set points a user at
+//     and the secret file a hook_blocked names, to one alone (deviceEvent),
+//     so a lost token of another user gives away no address, file or
+//     command the yard keeps;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
 //     to one that may read it (userBlob), so a lost token gives away no
@@ -1028,17 +1032,18 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 // deviceEvent is the event e as the device c is sent it, and whether it is
 // sent at all: as it is, but for a setting_changed, which carries its
 // value only for a setting the device is told (deviceTold), but for a
-// source_set, which carries the file it points the source at only for a
-// device of the operator, and but for mail, which goes out only to its
-// sender or its receiver. The key of a setting is always told: a device
-// matches on it alone for what it reads again, and the values it is not
-// told stay on the yard's own machine with the settings themselves; the
-// source of a source_set is told as the key is. A hook delivery goes out
-// to every device, as a bead's events do: it is the yard's news, told to no
-// one user, and whose subscriptions it reached is on the event. So does the
-// hook_files that says its files are recorded: DeliveryFiles and the blob
-// route serve them to every device, so the event that tells of them is sent
-// to every one.
+// source_set, a user_set and a hook_blocked, which carry the files and the
+// command they set or name only for a device of the operator
+// (operatorFields), and but for mail, which goes out only to its sender or
+// its receiver. The key of a setting is always told: a device matches on it
+// alone for what it reads again, and the values it is not told stay on the
+// yard's own machine with the settings themselves; the source of a
+// source_set, the user of a user_set and the hook of a hook_blocked are told
+// as the key is. A hook delivery goes out to every device, as a bead's
+// events do: it is the yard's news, told to no one user, and whose
+// subscriptions it reached is on the event. So does the hook_files that says
+// its files are recorded: DeliveryFiles and the blob route serve them to
+// every device, so the event that tells of them is sent to every one.
 func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) (store.Event, bool) {
 	switch e.Kind {
 	case "mail":
@@ -1077,21 +1082,48 @@ func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) 
 		return e, true
 	case "source_set":
 		// The file a source was pointed at is the operator's configuration, and
-		// where a setup took a candidate it is the file of another account. The
-		// operator is read now, as for their words, so that a replay and a
-		// change of operator move with it; the source stays, as a setting's key
-		// does.
-		operator := ""
-		if all, err := u.st.Settings(ctx); err == nil {
-			operator = all[store.OperatorSetting]
-		}
-		if isOperator(c.User, operator) {
-			return e, true
-		}
-		e.Data = maps.Clone(e.Data)
-		delete(e.Data, store.SourceEnvFile)
-		return e, true
+		// where a setup took a candidate it is the file of another account; the
+		// command it mints its token with is the operator's too. The source
+		// stays, as a setting's key does, and so do the limits, which are
+		// numbers.
+		return u.operatorFields(ctx, c, e, store.SourceEnvFile, store.SourceMintCommand), true
+	case "user_set":
+		// The file a user's address is read from is a path on the yard's machine,
+		// set through the user management the operator runs: the operator's
+		// configuration, though the user is the one told through it. The user's
+		// own device is told no more of it than any other, since a path on the
+		// yard's machine is of no use to it and comparing the user with the
+		// device's would be a second rule. The user, the source they are told
+		// through and the parts they are told of stay.
+		return u.operatorFields(ctx, c, e, store.UserEnvFile), true
+	case "hook_blocked":
+		// The file a hook's secret is read from, and the reason, which is the
+		// error of reading that file (hooks.Receiver.serve) and so names it: the
+		// path with words around it is still the path. The hook stays.
+		return u.operatorFields(ctx, c, e, "path", "reason"), true
 	default:
 		return e, true
 	}
+}
+
+// operatorFields is the event e as the device c is sent it when fields of its
+// data are the operator's configuration: whole for a device of the operator,
+// and for any other a copy without them. The operator is read now, as for
+// their words, so that a replay and a change of operator move with it, and a
+// yard whose settings cannot be read, or that has no operator, tells them to
+// no device. The copy is the device's own: the store hands one event, and one
+// map of its data, to every stream.
+func (u *UserServer) operatorFields(ctx context.Context, c *Caller, e store.Event, fields ...string) store.Event {
+	operator := ""
+	if all, err := u.st.Settings(ctx); err == nil {
+		operator = all[store.OperatorSetting]
+	}
+	if isOperator(c.User, operator) {
+		return e
+	}
+	e.Data = maps.Clone(e.Data)
+	for _, field := range fields {
+		delete(e.Data, field)
+	}
+	return e
 }
