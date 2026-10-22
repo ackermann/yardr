@@ -645,14 +645,14 @@ nothing else. What is not the same:
 - **Only the calls of this page.** Any other method is answered as one the
   yard does not have (`no such method`), whoever calls: nothing that adds a
   user or a device, moves a bead or changes a setting is on the listener.
-  `/ping`, `/wake` and every other path are not there. Three calls more are
-  there for a device of the yard's operator and for nobody else,
-  [`GiveSecret`, `ApproveAsk` and `ApproveSetup`](#for-the-operator-alone);
-  the first is there too for a device of a user who is asked for their
-  own address in a source. `ApproveAsk` and `ApproveSetup` are the calls
-  on the listener that have the operator's commands run: the command of
-  a run ask, which is one of a fixed list ([users.md](users.md#devices)
-  has them, row by row), and the apply, account and grants of a setup.
+  `/ping`, `/wake` and every other path are not there. The [calls for the
+  operator alone](#for-the-operator-alone) are there besides, for a device
+  of the yard's operator and for nobody else; `GiveSecret` is there too for
+  a device of a user who is asked for their own address in a source.
+  `ApproveAsk` and `ApproveSetup` are the calls on the listener that have
+  the operator's commands run: the command of a run ask, which is one of a
+  fixed list ([users.md](users.md#devices) has them, row by row), and the
+  apply, account and grants of a setup.
 - **Arguments by name only.** The array yardr's own builds send is refused.
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
@@ -789,30 +789,33 @@ address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 `localhost`), and says why. It keeps the token in a file only its user
 reads (mode 0600) or in the system's key store, never in a settings file.
 
-A secret and an approval are the two things the yard holds to this itself,
-as far as it can see. [`GiveSecret`, `ApproveAsk` and
-`ApproveSetup`](#for-the-operator-alone) are taken only from a request
+A secret, an approval and the grant list are what the yard holds to this
+itself, as far as it can see. [`GiveSecret`, `ApproveAsk`, `ApproveSetup`
+and `SourceGrants`](#for-the-operator-alone) are taken only from a request
 that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine), and never from
 one whose proxy says it came in plain (`X-Forwarded-Proto: http`; the
 header is read for a no and never for a yes). Any other is refused with
 the code `error`, in words that name the reason and say what may have
-crossed a network in the clear: the value, or for an approval the token
-that was sent with it. A proxy on another machine that passes requests on
-to the yard in plain HTTP is refused so: from there to the yard the value
-and the token would be readable. An approval holds no secret of its own;
-it is held to the rule so that a token read off a network cannot have a
-command of the operator's run from wherever it was read. Every other call
-is served wherever it comes from, as before.
+crossed a network in the clear: the value, or for an approval or the grant
+list the token that was sent with it. A proxy on another machine that
+passes requests on to the yard in plain HTTP is refused so: from there to
+the yard the value and the token would be readable. An approval holds no
+secret of its own; it is held to the rule so that a token read off a
+network cannot have a command of the operator's run from wherever it was
+read. The grant list holds none either and approves nothing; it is held to
+the rule because the operator's device token goes with the request. Every
+other call is served wherever it comes from, as before.
 
-A hosted yard takes `GiveSecret` from one peer besides its own machine:
-its router, the address the `router_addr` setting names, when the request
-says it came to the router over https (`X-Forwarded-Proto: https`). On
-that network the router is the only such peer. The header is read for a
-yes here, as it is read for a no from the yard's own machine: without it,
-or saying anything but https, the giving is refused with the same
-sentence. `ApproveAsk` and `ApproveSetup` stay loopback-only: from the
-router's peer they are refused as from anywhere else.
+A hosted yard takes `GiveSecret` and `SourceGrants` from one peer besides
+its own machine: its router, the address the `router_addr` setting names,
+when the request says it came to the router over https
+(`X-Forwarded-Proto: https`). On that network the router is the only such
+peer. The header is read for a yes here, as it is read for a no from the
+yard's own machine: without it, or saying anything but https, the call is
+refused as from any other machine. `ApproveAsk` and `ApproveSetup` stay
+loopback-only: from the router's peer they are refused as from anywhere
+else.
 
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
@@ -4537,8 +4540,9 @@ cards](#weighty-cards)). Where they are served, and to whom:
 Over the listener the value travels under the TLS in front of it and under
 no other protection, and the yard takes it only where it can see that the
 request did not come in plain ([TLS is yours](#tls-is-yours-and-the-clients-rule)).
-`SourceGrants` carries no secret and approves nothing, so it is taken
-over any request the listener takes, as a call of the list above is.
+`SourceGrants` carries no secret and approves nothing, but the operator's
+device token goes with the request, so the listener takes it only over
+https or from the yard's own machine, like the other calls of this list.
 It never crosses a link to another yard: a secret ask is not sent to a
 peer, and is answered at the yard that asked.
 
