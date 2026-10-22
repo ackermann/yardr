@@ -351,42 +351,52 @@ func (s *Store) MoveLink(ctx context.Context, issue, toRef, actor string) (*Link
 		if err != nil {
 			return err
 		}
-		ls, err := issueLinks(w.Tx, issue)
-		if err != nil {
-			return err
-		}
-		var tracker *linkRow
-		for i := range ls {
-			if ls[i].Kind == LinkTracks {
-				tracker = &ls[i]
-			}
-		}
-		if tracker == nil {
-			return fmt.Errorf("no bead tracks %s, so there is no link to move (yardr link add %s %s makes one): %w", issue, to.ID, issue, ErrNotFound)
-		}
-		if tracker.Bead == to.UUID {
-			return fmt.Errorf("%s already tracks %s", to.ID, issue)
-		}
-		from, err := w.loadBead(tracker.Bead)
-		if err != nil {
-			return err
-		}
-		nl := NewLink{Kind: LinkRelates, Source: tracker.Source, URL: tracker.URL, Thread: tracker.Thread}
-		if _, _, err := w.addLink(from, nl, actor, map[string]any{"moved_to": to.ID}); err != nil {
-			return err
-		}
-		nl.Kind = LinkTracks
-		l, replaced, err := w.addLink(to, nl, actor, map[string]any{"moved_from": from.ID})
-		if err != nil {
-			return err
-		}
-		out = &LinkChange{Link: l.link(to.ID), Replaced: replaced, From: from.ID}
-		return nil
+		out, err = w.moveLink(issue, to, LinkTracks, actor)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// moveLink is MoveLink for a write that does more with it (a fold), on a
+// loaded bead and an issue in its fixed form. The bead, which it re-mints,
+// gets a link of kind: tracks hands the issue over, relates is for a bead
+// that cannot track it (a carrier that tracks an issue of the source
+// already) and leaves the issue with no tracker. The earlier tracker keeps a
+// relates link either way.
+func (w *wtx) moveLink(issue string, to *beadRow, kind, actor string) (*LinkChange, error) {
+	ls, err := issueLinks(w.Tx, issue)
+	if err != nil {
+		return nil, err
+	}
+	var tracker *linkRow
+	for i := range ls {
+		if ls[i].Kind == LinkTracks {
+			tracker = &ls[i]
+		}
+	}
+	if tracker == nil {
+		return nil, fmt.Errorf("no bead tracks %s, so there is no link to move (yardr link add %s %s makes one): %w", issue, to.ID, issue, ErrNotFound)
+	}
+	if tracker.Bead == to.UUID {
+		return nil, fmt.Errorf("%s already tracks %s", to.ID, issue)
+	}
+	from, err := w.loadBead(tracker.Bead)
+	if err != nil {
+		return nil, err
+	}
+	nl := NewLink{Kind: LinkRelates, Source: tracker.Source, URL: tracker.URL, Thread: tracker.Thread}
+	if _, _, err := w.addLink(from, nl, actor, map[string]any{"moved_to": to.ID}); err != nil {
+		return nil, err
+	}
+	nl.Kind = kind
+	l, replaced, err := w.addLink(to, nl, actor, map[string]any{"moved_from": from.ID})
+	if err != nil {
+		return nil, err
+	}
+	return &LinkChange{Link: l.link(to.ID), Replaced: replaced, From: from.ID}, nil
 }
 
 // MoveLinkSource moves the yard's links of source from to source to in one

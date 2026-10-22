@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -22,16 +23,53 @@ type FoldOptions struct {
 
 // FoldMoved is what a fold took from one member, kept on the member's folded
 // edge so that an unfold can put back exactly that, even when several parts
-// shared a target. A fold fills it in as each thing is taken from the member;
-// so far that is the close.
+// shared a target. A fold fills it in as it takes each thing from the member.
 type FoldMoved struct {
 	// Stage is the stage the member stood in when the fold closed it.
 	Stage string `json:"stage"`
+	// Links are the member's tracks links, which moved to the carrier.
+	Links []FoldLink `json:"links,omitempty"`
+	// Blocks are the member's outgoing blocks edges, which were re-pointed
+	// to the carrier. Two parts that blocked one bead the same way both
+	// name it, though the carrier blocks it once.
+	Blocks []FoldBlock `json:"blocks,omitempty"`
+	// Watchers are the watches of the member that were copied to the
+	// carrier; the close ended the member's own.
+	Watchers []FoldWatcher `json:"watchers,omitempty"`
+}
+
+// FoldLink is a tracks link of a member that a fold moved: the issue, and
+// the kind of link the carrier got to it. That is tracks, or relates for a
+// second issue of a source, since a bead tracks one issue per source; the
+// member keeps a relates link either way.
+type FoldLink struct {
+	Source string `json:"source"`
+	URL    string `json:"url"`
+	Kind   string `json:"kind"`
+}
+
+// FoldBlock is a blocks edge a fold re-pointed from a member to the carrier:
+// the bead it blocks, and the stages the edge names, as on the member.
+type FoldBlock struct {
+	To    string `json:"to"`
+	At    string `json:"at,omitempty"`
+	Until string `json:"until,omitempty"`
+}
+
+// FoldWatcher is a watch of a member that a fold copied to the carrier: who
+// held it (kind is crew, user or group, since a crew member and a manual
+// group may share a name) and the subscription as it stood on the member.
+type FoldWatcher struct {
+	Kind  string       `json:"kind"`
+	Name  string       `json:"name"`
+	Watch Subscription `json:"watch"`
 }
 
 // FoldBeads folds the beads ids into one carrier, in one write: a bead in
-// opts.To that holds each of them as a part, a folded edge from it to each,
-// and each of them closed "folded into <carrier>". It is all or nothing. A
+// opts.To that holds each of them as a part, whatever each tracked, blocked
+// and was watched for moved to it, a folded edge from it to each that records
+// that, and each of them closed "folded into <carrier>". It is all or
+// nothing. A
 // member that is closed, claimed or another yard's, members of two depots or
 // of two flows, and a caller in the pane of a bead's agent (which may close
 // only its own bead) are refused before anything is made, and a fold that
@@ -106,11 +144,14 @@ func (s *Store) FoldBeads(ctx context.Context, ids []string, opts FoldOptions, a
 
 // fold makes the carrier of members inside the write w, as actor: one bead,
 // in opts.To, governed by the flow of the oldest member, whose body holds
-// each member as a part, in the order given. Then, for each member, a folded
-// edge from the carrier and the member's close, and one folded event on the
-// carrier. reads are what readsFor read for the oldest member, look how the
-// gates the closes flip are read. trigger says what folded them ("hand", or
-// what made a siding ready) and is written into the body.
+// each member as a part, in the order given. Then, for each member, what it
+// tracked, blocked and was watched for moves to the carrier (foldLinks,
+// foldBlocks, copyWatches), a folded edge from the carrier records that, and
+// the member closes. The carrier gets a note on where the members' notes and
+// files are, and one folded event. reads are what readsFor read for the
+// oldest member, look how the gates the closes flip are read. trigger says
+// what folded them ("hand", or what made a siding ready) and is written into
+// the body.
 //
 // Everything that can be refused is refused before the first thing is made,
 // and a failure after it rolls the whole write back.
@@ -183,16 +224,31 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 		look = &untilLooks{memo: flowMemo{}}
 	}
 	ids := make([]string, len(members))
+	// What the carrier's note says: where each member's notes and files
+	// are after its close, and the issues no bead tracks now.
+	var listed, untracked []string
 	for i, m := range members {
 		ids[i] = m.ID
-		// The edge is made before the close, so that it records the member
-		// as it stood, and the member is read again after it, which
-		// minted it.
 		cur, err := w.loadBead(m.UUID)
 		if err != nil {
 			return nil, err
 		}
-		if err := w.putDep(carrier, cur, &depRow{Kind: DepFolded, Moved: &FoldMoved{Stage: cur.Stage}}, author); err != nil {
+		moved := FoldMoved{Stage: cur.Stage}
+		second, err := w.foldLinks(carrier, cur, &moved, author)
+		if err != nil {
+			return nil, err
+		}
+		untracked = append(untracked, second...)
+		if err := w.foldBlocks(carrier, cur, &moved, look, author); err != nil {
+			return nil, err
+		}
+		if moved.Watchers, err = copyWatches(w.Tx, cur.ID, carrier.ID); err != nil {
+			return nil, err
+		}
+		// The edge is made before the close, so that it records the member
+		// as it stood, and the member is read again after it, which
+		// minted it.
+		if err := w.putDep(carrier, cur, &depRow{Kind: DepFolded, Moved: &moved}, author); err != nil {
 			return nil, err
 		}
 		if cur, err = w.loadBead(m.UUID); err != nil {
@@ -201,6 +257,20 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 		if _, err := w.closeBead(cur, "folded into "+carrier.ID, author, look); err != nil {
 			return nil, err
 		}
+		// Closing may add a stage ask's take-back answer, so list the notes
+		// after the close that bead show will now show.
+		notes, err := beadNotes(w.Tx, m.UUID)
+		if err != nil {
+			return nil, err
+		}
+		listed = append(listed, foldListing(m.ID, notes)...)
+	}
+	row, err := w.loadBead(carrier.UUID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.addNoted(row, NoteNote, foldNote(listed, untracked), author); err != nil {
+		return nil, err
 	}
 	// A siding's fold comes from the stage its members wait in; a hand fold
 	// from none.
@@ -219,6 +289,73 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 		return nil, err
 	}
 	return carrier, nil
+}
+
+// foldLinks moves the tracks links of member to the carrier, as MoveLink
+// does, and notes each in moved. A bead tracks one issue per source, so a
+// second issue of a source the carrier tracks already becomes a relates link
+// there, and member keeps a relates link to it as well: no bead tracks the
+// issue now, which the carrier's note says, since it will not move with the
+// carrier's stage. foldLinks answers the lines that name those issues.
+func (w *wtx) foldLinks(carrier, member *beadRow, moved *FoldMoved, actor string) ([]string, error) {
+	own, err := beadLinks(w.Tx, member.UUID)
+	if err != nil {
+		return nil, err
+	}
+	// A bead tracks one issue per source, so the source is the order.
+	slices.SortFunc(own, func(a, b linkRow) int { return strings.Compare(a.Source, b.Source) })
+	var untracked []string
+	for _, l := range own {
+		if l.Kind != LinkTracks {
+			continue
+		}
+		there, err := beadLinks(w.Tx, carrier.UUID)
+		if err != nil {
+			return nil, err
+		}
+		kind := LinkTracks
+		if slices.ContainsFunc(there, func(c linkRow) bool { return c.Kind == LinkTracks && c.Source == l.Source }) {
+			kind = LinkRelates
+			untracked = append(untracked, fmt.Sprintf("%s tracked %s (%s)", member.ID, l.URL, l.Source))
+		}
+		// A link re-mints the bead it is made on: the carrier is read
+		// again for each.
+		to, err := w.loadBead(carrier.UUID)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.moveLink(l.URL, to, kind, actor); err != nil {
+			return nil, err
+		}
+		moved.Links = append(moved.Links, FoldLink{Source: l.Source, URL: l.URL, Kind: kind})
+	}
+	return untracked, nil
+}
+
+// foldBlocks re-points the blocks edges from member to the carrier, each
+// with the stages it names, and notes each in moved: whatever the member held
+// back, the carrier holds back now. A bead the carrier blocks in the same way
+// already keeps that edge, which the member's other part shares. The gates
+// this opens or closes are logged as any edge's are, so the member's close,
+// with no edge left, flips none.
+func (w *wtx) foldBlocks(carrier, member *beadRow, moved *FoldMoved, look *untilLooks, actor string) error {
+	targets, before := openTargets(w.Tx, member, look)
+	for _, d := range edges(w.Tx, bDepFrom, member.UUID, DepBlocks) {
+		to, err := w.loadBead(d.To)
+		if err != nil {
+			return err
+		}
+		if !hasEdge(w.Tx, carrier.UUID, to.UUID, DepBlocks, d.At, d.Until) {
+			if err := w.addDep(carrier, to, DepBlocks, d.At, d.Until, actor); err != nil {
+				return err
+			}
+		}
+		if _, err := w.removeDep(member, to, DepBlocks, d.At, d.Until, actor); err != nil {
+			return err
+		}
+		moved.Blocks = append(moved.Blocks, FoldBlock{To: to.ID, At: d.At, Until: d.Until})
+	}
+	return w.logTargetsFlips(targets, before, look, actor)
 }
 
 // checkFoldable refuses a member a fold cannot take, saying why: a bead the
@@ -406,6 +543,59 @@ func foldBody(members []*beadRow, trigger, actor string) string {
 		"bead id, so one part can be taken out alone (`yardr bead unfold`).\n"+
 		"Folded from %s by %s (%s).", strings.Join(ids, ", "), actor, trigger))
 	return strings.Join(sections, "\n\n")
+}
+
+// foldListing says, for the carrier's note, how many notes the member id
+// holds, of every kind, as bead show prints them, and, for each that carries
+// files, which, by name and note. The files are not copied: a note's file is
+// the record, and stays with the note, on the member.
+func foldListing(id string, notes []Note) []string {
+	count := "no notes"
+	switch len(notes) {
+	case 0:
+	case 1:
+		count = "1 note"
+	default:
+		count = fmt.Sprintf("%d notes", len(notes))
+	}
+	lines := []string{id + ": " + count}
+	for _, n := range notes {
+		names := make([]string, len(n.Files))
+		for i, f := range n.Files {
+			names[i] = foldFileName(f)
+		}
+		if len(names) > 0 {
+			lines = append(lines, fmt.Sprintf("%s note %d: %s", id, n.Seq, strings.Join(names, ", ")))
+		}
+	}
+	return lines
+}
+
+// foldFileName is a file's name where the carrier's note lists it: as the
+// files line shows it, and quoted when it holds a quote, a parenthesis or the
+// comma that lists names, so that what a sender names a file never reads as
+// another's. A file with no name is its kind and the start of its hash.
+func foldFileName(f BlobRef) string {
+	name := Letters(f.Name)
+	switch {
+	case name == "":
+		return f.Kind() + " " + f.Hash[:min(len(f.Hash), 12)]
+	case strings.ContainsAny(name, `()",`):
+		return strconv.Quote(name)
+	}
+	return name
+}
+
+// foldNote is the note the carrier gets, for its builder to know where to
+// look: listed is foldListing of each member, untracked the lines that name
+// the issues foldLinks left with no tracker.
+func foldNote(listed, untracked []string) string {
+	text := "Each part's notes and files stay on the part: read them with yardr bead show <part>.\n\n" + strings.Join(listed, "\n")
+	if len(untracked) > 0 {
+		text += "\n\nA bead tracks one issue of a source, so these are linked to this bead and tracked by none, " +
+			"and will not move with its stage:\n" + strings.Join(untracked, "\n")
+	}
+	return text
 }
 
 // sizePoints is the points a bead with these labels adds to a fold, by its

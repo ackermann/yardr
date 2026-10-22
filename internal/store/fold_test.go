@@ -8,17 +8,21 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	bolt "go.etcd.io/bbolt"
 
 	"yardr.dev/yardr/internal/peer"
 )
 
 // The flows the fold rows follow. foldF has the way a siding takes; foldG,
 // which the web depot's beads resolve to, has neither stage, so a carrier in
-// ready is governed by foldF or refused. foldRelease is a type's flow.
+// ready is governed by foldF or refused. foldRelease and foldChain are a
+// type's flow.
 const (
 	foldF = `
 backlog -> siding | new
@@ -37,14 +41,26 @@ backlog -> ship
 ship -> merged
 merged terminal
 `
+	// foldChain has one way out of each stage, so that done leads from
+	// each stage to the next: an edge that releases at ready has let go
+	// of a blocker in new.
+	foldChain = `
+backlog -> siding
+siding -> ready
+ready -> new
+new -> merged
+merged terminal
+`
 )
 
 // foldYard is a store with the depots the rows fold in: plain, which no flow
 // governs; web, whose beads follow fold.g unless they pin fold.f; repo, a
-// directory depot whose repository holds a default flow and one for the type
-// release; and mixed, the same repository with its beads pointed at fold.g,
+// directory depot whose repository holds a default flow and one for each of
+// the types release and chain; and mixed, the same repository with its beads pointed at fold.g,
 // so that only a bead pinned to the repository's default needs it. mckean and
-// sam are its users, and builders a group that can hold ten sessions.
+// sam are its users, ada a crew member, builders a group that can hold ten
+// sessions and desk a manual group of sam's, so that a bead can have watchers
+// of each kind.
 func foldYard(t *testing.T) *Store {
 	t.Helper()
 	ctx := context.Background()
@@ -59,7 +75,7 @@ func foldYard(t *testing.T) *Store {
 		}
 	}
 	dir := t.TempDir()
-	for name, text := range map[string]string{"default.flow": foldF, "type/release.flow": foldRelease} {
+	for name, text := range map[string]string{"default.flow": foldF, "type/release.flow": foldRelease, "type/chain.flow": foldChain} {
 		p := filepath.Join(dir, RepoFlowDir, name)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
@@ -74,6 +90,12 @@ func foldYard(t *testing.T) *Store {
 		}
 	}
 	if err := s.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, CrewMember{Name: "ada", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, Group{Name: "desk", Runner: "manual", Members: []string{"sam"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	for name, text := range map[string]string{"fold.f": foldF, "fold.g": foldG} {
@@ -99,6 +121,188 @@ func foldWant[T comparable](t *testing.T, what string, got, want T) {
 	if got != want {
 		t.Errorf("%s = %v, want %v", what, got, want)
 	}
+}
+
+// foldGitHub and foldLinear are the issues the rows link. Each row names
+// its own: the yard the rows share has one tracking bead for an issue.
+func foldGitHub(n int) string { return "https://github.com/yardr-dev/yardr/issues/" + strconv.Itoa(n) }
+func foldLinear(n int) string { return "https://linear.app/yardr/issue/YRD-" + strconv.Itoa(n) }
+
+// foldLink links bead id to url as kind, of the source its host names.
+func foldLink(t *testing.T, s *Store, id, kind, url string) {
+	t.Helper()
+	source := "linear"
+	if strings.Contains(url, "github.com") {
+		source = "github"
+	}
+	if _, err := s.AddLink(context.Background(), id, NewLink{Kind: kind, Source: source, URL: url}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// foldLinksOf lists the links of bead id as "kind url", sorted.
+func foldLinksOf(t *testing.T, s *Store, id string) []string {
+	t.Helper()
+	ls, err := s.Links(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := []string{}
+	for _, l := range ls {
+		out = append(out, l.Kind+" "+l.URL)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// foldWantLinks wants the links of bead id to be exactly want, as foldLinksOf
+// says them.
+func foldWantLinks(t *testing.T, s *Store, id string, want ...string) {
+	t.Helper()
+	slices.Sort(want)
+	if got := foldLinksOf(t, s, id); !slices.Equal(got, want) {
+		t.Errorf("links of %s = %v, want %v", id, got, want)
+	}
+}
+
+// foldEdges lists the edges of kind that touch bead id as "from -> to", with
+// the stages they name as " at <stage>" and " until <stage>", sorted.
+func foldEdges(t *testing.T, s *Store, id, kind string) []string {
+	t.Helper()
+	ds, err := s.Deps(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := []string{}
+	for _, d := range ds {
+		if d.Kind != kind {
+			continue
+		}
+		edge := d.From + " -> " + d.To
+		if d.At != "" {
+			edge += " at " + d.At
+		}
+		if d.Until != "" {
+			edge += " until " + d.Until
+		}
+		out = append(out, edge)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// foldWantEdges wants the edges of kind that touch bead id to be exactly want,
+// as foldEdges says them.
+func foldWantEdges(t *testing.T, s *Store, id, kind string, want ...string) {
+	t.Helper()
+	slices.Sort(want)
+	if got := foldEdges(t, s, id, kind); !slices.Equal(got, want) {
+		t.Errorf("%s edges of %s = %v, want %v", kind, id, got, want)
+	}
+}
+
+// foldWantMoved wants the folded edge from the carrier to member to record
+// exactly what.
+func foldWantMoved(t *testing.T, s *Store, carrier, member string, want FoldMoved) {
+	t.Helper()
+	ds, err := s.Deps(context.Background(), carrier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range ds {
+		if d.Kind == DepFolded && d.To == member {
+			if d.Moved == nil || !reflect.DeepEqual(*d.Moved, want) {
+				t.Errorf("the fold took from %s: %+v, want %+v", member, d.Moved, want)
+			}
+			return
+		}
+	}
+	t.Errorf("no folded edge from %s to %s", carrier, member)
+}
+
+// foldWatch watches bead id as the subscriber name of kind (a crew member, a
+// user or a group), with scope and the filters beside bead=id that are given
+// as key=value.
+func foldWatch(t *testing.T, s *Store, kind, name, scope, id string, also ...string) Subscription {
+	t.Helper()
+	sub := Subscription{Source: SourceYardr, Scope: scope, Where: map[string]string{"bead": id}}
+	for _, kv := range also {
+		k, v, _ := strings.Cut(kv, "=")
+		sub.Where[k] = v
+	}
+	actor := name
+	if kind == "group" {
+		actor = "sam" // a member of the desk group
+	}
+	if err := s.AddSubscriptionKind(context.Background(), name, kind, sub, actor); err != nil {
+		t.Fatal(err)
+	}
+	return sub
+}
+
+// foldWatches lists the watches of the subscriber name of kind that name one
+// of ids, as "scope bead=<id> <other filters>", sorted: a yard the rows share
+// holds the watches of the rows before.
+func foldWatches(t *testing.T, s *Store, kind, name string, ids ...string) []string {
+	t.Helper()
+	var subs []Subscription
+	err := s.read(func(tx *bolt.Tx) error {
+		switch kind {
+		case "crew":
+			var r CrewMember
+			_, err := get(tx, bCrew, name, &r)
+			subs = r.Subscriptions
+			return err
+		case "user":
+			var u User
+			_, err := get(tx, bUsers, name, &u)
+			subs = u.Subscriptions
+			return err
+		}
+		var g Group
+		_, err := get(tx, bGroups, name, &g)
+		subs = g.Subscriptions
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := []string{}
+	for _, sub := range subs {
+		if slices.Contains(ids, sub.Where["bead"]) {
+			out = append(out, sub.Scope+" "+whereString(sub.Where))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// foldGateFlips lists the gate events of bead id as "<kind> <blockers>",
+// oldest first.
+func foldGateFlips(t *testing.T, s *Store, id string) []string {
+	t.Helper()
+	evs, err := s.Events(context.Background(), id, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flips []string
+	for _, e := range evs {
+		if e.Kind == "unblocked" || e.Kind == "reblocked" {
+			flips = append(flips, e.Kind+" "+strings.Join(foldStrings(e.Data["blockers"]), ","))
+		}
+	}
+	return flips
+}
+
+// foldStrings reads the list of strings an event's data holds under a key, as
+// the store hands it back.
+func foldStrings(v any) []string {
+	var out []string
+	l, _ := v.([]any)
+	for _, x := range l {
+		out = append(out, x.(string))
+	}
+	return out
 }
 
 // foldClaim has a session of the builders group claim b, as the daemon does.
@@ -160,6 +364,18 @@ func TestFoldBeads(t *testing.T) {
 	s := foldYard(t)
 
 	bead := func(title string) NewBead { return NewBead{Title: title} }
+	// outside makes a bead the fold does not take, which its members' edges
+	// aim at; y is the one a row's edges aim at, made by the row that has
+	// one (the rows run in turn).
+	outside := func(t *testing.T, s *Store, nb NewBead) Bead {
+		t.Helper()
+		b, err := s.CreateBead(ctx, nb, "mckean")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *b
+	}
+	var y Bead
 	pinned := func(title, flow string) NewBead {
 		return NewBead{Title: title, Metadata: map[string]any{"flow": flow}}
 	}
@@ -534,6 +750,401 @@ func TestFoldBeads(t *testing.T) {
 			},
 		},
 		{
+			name: "a member's tracks link moves to the carrier and leaves a relates link on the member", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				foldLink(t, s, made[0].ID, LinkTracks, foldGitHub(1))
+				// A link that only relates stays on its bead.
+				foldLink(t, s, made[1].ID, LinkRelates, foldGitHub(2))
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWantLinks(t, s, got.ID, "tracks "+foldGitHub(1))
+				foldWantLinks(t, s, made[0].ID, "relates "+foldGitHub(1))
+				foldWantLinks(t, s, made[1].ID, "relates "+foldGitHub(2))
+				foldWantMoved(t, s, got.ID, made[0].ID, FoldMoved{Stage: "new", Links: []FoldLink{{Source: "github", URL: foldGitHub(1), Kind: LinkTracks}}})
+				foldWantMoved(t, s, got.ID, made[1].ID, FoldMoved{Stage: "new"})
+				// The move is told on both beads, as MoveLink tells it.
+				told := func(id, key, other string) {
+					evs, err := s.Events(ctx, id, 50)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var named []any
+					for _, e := range evs {
+						if e.Kind == "linked" && e.Data[key] != nil {
+							named = append(named, e.Data[key])
+						}
+					}
+					if !reflect.DeepEqual(named, []any{other}) {
+						t.Errorf("%s of the linked events of %s = %v, want %s", key, id, named, other)
+					}
+				}
+				told(got.ID, "moved_from", made[0].ID)
+				told(made[0].ID, "moved_to", got.ID)
+			},
+		},
+		{
+			name: "a second tracked issue of a source is a relates link on the carrier, and its note names it", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b"), bead("c")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				foldLink(t, s, made[0].ID, LinkTracks, foldGitHub(3))
+				foldLink(t, s, made[1].ID, LinkTracks, foldGitHub(4))
+				foldLink(t, s, made[2].ID, LinkTracks, foldLinear(3))
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				// The carrier tracks one issue per source, so the second of
+				// github only relates; the member relates it too, so that no
+				// bead that is closed tracks it.
+				foldWantLinks(t, s, got.ID, "tracks "+foldGitHub(3), "relates "+foldGitHub(4), "tracks "+foldLinear(3))
+				foldWantLinks(t, s, made[1].ID, "relates "+foldGitHub(4))
+				ls, err := s.IssueLinks(ctx, foldGitHub(4))
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, l := range ls {
+					foldWant(t, "kind of a link to the second issue", l.Kind, LinkRelates)
+				}
+				foldWantMoved(t, s, got.ID, made[1].ID, FoldMoved{Stage: "new", Links: []FoldLink{{Source: "github", URL: foldGitHub(4), Kind: LinkRelates}}})
+				foldWantMoved(t, s, got.ID, made[2].ID, FoldMoved{Stage: "new", Links: []FoldLink{{Source: "linear", URL: foldLinear(3), Kind: LinkTracks}}})
+				notes, err := s.Notes(ctx, got.ID)
+				if err != nil || len(notes) != 1 {
+					t.Fatalf("notes of the carrier = %+v, %v; want the fold's one", notes, err)
+				}
+				if want := made[1].ID + " tracked " + foldGitHub(4) + " (github)"; !strings.Contains(notes[0].Text, want) {
+					t.Errorf("the note does not say %q:\n%s", want, notes[0].Text)
+				}
+				for _, not := range []string{foldGitHub(3), foldLinear(3)} {
+					if strings.Contains(notes[0].Text, not) {
+						t.Errorf("the note names %s, an issue the carrier tracks:\n%s", not, notes[0].Text)
+					}
+				}
+			},
+		},
+		{
+			name: "a member's outgoing blocks edge, with the stages it names, is re-pointed to the carrier", depot: "web", opts: FoldOptions{To: "backlog"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				y = outside(t, s, NewBead{Title: "y", Depot: "web", Stage: "new"})
+				if err := s.AddDep(ctx, made[0].ID, y.ID, DepBlocks, "new", "new", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				edge := got.ID + " -> " + y.ID + " at new until new"
+				foldWantEdges(t, s, got.ID, DepBlocks, edge)
+				foldWantEdges(t, s, made[0].ID, DepBlocks)
+				foldWantEdges(t, s, y.ID, DepBlocks, edge)
+				foldWantMoved(t, s, got.ID, made[0].ID, FoldMoved{Stage: "backlog", Blocks: []FoldBlock{{To: y.ID, At: "new", Until: "new"}}})
+				// The carrier has not reached the stage the edge releases at,
+				// so it holds the bead as its part did.
+				holders, err := s.OpenBlockers(ctx, y.ID)
+				if err != nil || !slices.Equal(holders, []string{got.ID}) {
+					t.Errorf("%s is held by %v, %v; want the carrier %s", y.ID, holders, err, got.ID)
+				}
+			},
+		},
+		{
+			name: "two parts that block one bead the same way leave the carrier one edge, and both record it", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b"), bead("c")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
+				for _, m := range made[:2] {
+					if err := s.AddDep(ctx, m.ID, y.ID, DepBlocks, "", "", "mckean"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := s.AddDep(ctx, made[2].ID, y.ID, DepBlocks, "", "review", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID, got.ID+" -> "+y.ID+" until review")
+				for i, until := range []string{"", "", "review"} {
+					foldWantMoved(t, s, got.ID, made[i].ID, FoldMoved{Stage: "new", Blocks: []FoldBlock{{To: y.ID, Until: until}}})
+				}
+			},
+		},
+		{
+			name: "a stage the carrier starts in releases what its part held until it, and the gate says so", depot: "web", opts: FoldOptions{To: "new"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				y = outside(t, s, NewBead{Title: "y", Depot: "web", Stage: "new"})
+				if err := s.AddDep(ctx, made[0].ID, y.ID, DepBlocks, "", "new", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				// The part is in backlog, short of new: it holds y.
+				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || !slices.Equal(holders, []string{made[0].ID}) {
+					t.Fatalf("%s is held by %v, %v before the fold; want %s", y.ID, holders, err, made[0].ID)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID+" until new")
+				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || len(holders) != 0 {
+					t.Errorf("%s is held by %v, %v; want none, the carrier standing in new", y.ID, holders, err)
+				}
+				// The edge held y when it was made, and the fold let go of it.
+				if flips, want := foldGateFlips(t, s, y.ID), []string{"reblocked " + made[0].ID, "unblocked " + made[0].ID}; !slices.Equal(flips, want) {
+					t.Errorf("gate events of %s = %v, want %v", y.ID, flips, want)
+				}
+			},
+		},
+		{
+			name: "a repository flow reads the stage a re-pointed edge releases at, for the carrier", depot: "repo", opts: FoldOptions{To: "new"},
+			members: []NewBead{{Title: "a", Type: "chain"}, {Title: "b", Type: "chain"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
+				if err := s.AddDep(ctx, made[0].ID, y.ID, DepBlocks, "", "ready", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				// The part is in backlog, short of ready: it holds y.
+				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || !slices.Equal(holders, []string{made[0].ID}) {
+					t.Fatalf("%s is held by %v, %v before the fold; want %s", y.ID, holders, err, made[0].ID)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				// The carrier stands in new, past ready along done, which only
+				// the flow in the repository says. A read of the gate finds
+				// the repository on its own; the fold's write has to be given
+				// it, or its log says y is held still.
+				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID+" until ready")
+				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || len(holders) != 0 {
+					t.Errorf("%s is held by %v, %v; want none, the carrier standing past ready", y.ID, holders, err)
+				}
+				if flips, want := foldGateFlips(t, s, y.ID), []string{"reblocked " + made[0].ID, "unblocked " + made[0].ID}; !slices.Equal(flips, want) {
+					t.Errorf("gate events of %s = %v, want %v", y.ID, flips, want)
+				}
+			},
+		},
+		func() foldRow {
+			var origin, found, other Bead
+			return foldRow{
+				name: "discovered-from and related edges stay on the member", depot: "plain", opts: FoldOptions{To: "ready"},
+				members: []NewBead{bead("a"), bead("b")},
+				prepare: func(t *testing.T, s *Store, made []Bead) {
+					origin = outside(t, s, NewBead{Title: "origin", Depot: "plain"})
+					found = outside(t, s, NewBead{Title: "found", Depot: "plain"})
+					other = outside(t, s, NewBead{Title: "other", Depot: "plain"})
+					for _, e := range [][3]string{{origin.ID, made[0].ID, DepDiscoveredFrom}, {made[0].ID, found.ID, DepDiscoveredFrom}, {made[0].ID, other.ID, "related"}} {
+						if err := s.AddDep(ctx, e[0], e[1], e[2], "", "", "mckean"); err != nil {
+							t.Fatal(err)
+						}
+					}
+				},
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+					a := made[0].ID
+					foldWantEdges(t, s, a, DepDiscoveredFrom, origin.ID+" -> "+a, a+" -> "+found.ID)
+					foldWantEdges(t, s, a, "related", a+" -> "+other.ID)
+					foldWantEdges(t, s, got.ID, DepDiscoveredFrom)
+					foldWantEdges(t, s, got.ID, "related")
+					foldWantMoved(t, s, got.ID, a, FoldMoved{Stage: "new"})
+				},
+			}
+		}(),
+		func() foldRow {
+			var elsewhere Bead
+			return foldRow{
+				name: "bead=<member> watches are copied to the carrier, whoever holds them", depot: "plain", opts: FoldOptions{To: "ready"},
+				members: []NewBead{bead("a"), bead("b"), bead("c")},
+				prepare: func(t *testing.T, s *Store, made []Bead) {
+					a, b := made[0].ID, made[1].ID
+					elsewhere = outside(t, s, NewBead{Title: "elsewhere", Depot: "plain"})
+					foldWatch(t, s, "crew", "ada", ScopeAll, a)
+					foldWatch(t, s, "crew", "ada", ScopeAll, b) // the same watch of another part: one copy
+					foldWatch(t, s, "crew", "ada", ScopeMentions, b)
+					foldWatch(t, s, "user", "sam", ScopeAll, a, "kind=noted") // what else it filters on is kept
+					foldWatch(t, s, "user", "sam", ScopeAll, made[2].ID)
+					foldWatch(t, s, "group", "desk", ScopeAll, b)
+					foldWatch(t, s, "user", "sam", ScopeAll, elsewhere.ID)
+				},
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+					a, b, c := made[0].ID, made[1].ID, got.ID
+					parts := []string{a, b, made[2].ID}
+					for _, w := range []struct {
+						kind, name string
+						want       []string // sorted below, as the handles are random
+					}{
+						{"crew", "ada", []string{"all bead=" + c, "mentions bead=" + c}},
+						{"user", "sam", []string{"all bead=" + c + " kind=noted", "all bead=" + c, "all bead=" + elsewhere.ID}},
+						{"group", "desk", []string{"all bead=" + c}},
+					} {
+						slices.Sort(w.want)
+						if got := foldWatches(t, s, w.kind, w.name, append(parts, c, elsewhere.ID)...); !slices.Equal(got, w.want) {
+							t.Errorf("watches of %s %s = %v, want %v (the parts' own ended with their closes)", w.kind, w.name, got, w.want)
+						}
+					}
+					watch := func(scope string, where ...string) Subscription {
+						sub := Subscription{Source: SourceYardr, Scope: scope, Where: map[string]string{}}
+						for _, kv := range where {
+							k, v, _ := strings.Cut(kv, "=")
+							sub.Where[k] = v
+						}
+						return sub
+					}
+					foldWantMoved(t, s, c, a, FoldMoved{Stage: "new", Watchers: []FoldWatcher{
+						{Kind: "crew", Name: "ada", Watch: watch(ScopeAll, "bead="+a)},
+						{Kind: "user", Name: "sam", Watch: watch(ScopeAll, "bead="+a, "kind=noted")},
+					}})
+					foldWantMoved(t, s, c, b, FoldMoved{Stage: "new", Watchers: []FoldWatcher{
+						{Kind: "crew", Name: "ada", Watch: watch(ScopeAll, "bead="+b)},
+						{Kind: "crew", Name: "ada", Watch: watch(ScopeMentions, "bead="+b)},
+						{Kind: "group", Name: "desk", Watch: watch(ScopeAll, "bead="+b)},
+					}})
+					foldWantMoved(t, s, c, made[2].ID, FoldMoved{Stage: "new", Watchers: []FoldWatcher{
+						{Kind: "user", Name: "sam", Watch: watch(ScopeAll, "bead="+made[2].ID)},
+					}})
+					// They watch the carrier before the fold is told, so the
+					// ones who watched a part hear of the bundle.
+					evs, err := s.Events(ctx, c, 50)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, e := range evs {
+						if e.Kind != "folded" {
+							continue
+						}
+						if Reason(e, "ada") == "" {
+							t.Errorf("ada, who watched parts, did not hear of the fold: %v", e.Data)
+						}
+						if notified, _ := e.Data["notified"].(map[string]any); notified["sam"] == nil {
+							t.Errorf("sam, who watched a part, was not told of the fold: %v", e.Data)
+						}
+					}
+				},
+			}
+		}(),
+		{
+			name: "a member's stage asks are taken back", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				err := s.write(func(w *wtx) error {
+					row, err := w.loadBead(made[0].ID)
+					if err != nil {
+						return err
+					}
+					_, err = w.storeStageAsk(row, Ask{Question: "Move it on?", To: "mckean", Stage: "new"})
+					return err
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				notes, err := s.Notes(ctx, made[0].ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				asks := ResolveAsks(notes, time.Now())
+				if len(asks) != 1 || asks[0].AskErr != nil {
+					t.Fatalf("asks of the member = %+v", asks)
+				}
+				foldWant(t, "state of its stage ask", asks[0].State, AskTakenBack)
+				foldWant(t, "who took it back", asks[0].Current.Note.Author, "yard")
+			},
+		},
+		func() foldRow {
+			var files [3]BlobRef
+			return foldRow{
+				name: "the carrier's note lists each member's note count and files", depot: "plain", opts: FoldOptions{To: "ready"},
+				members: []NewBead{bead("a"), bead("b"), bead("c")},
+				prepare: func(t *testing.T, s *Store, made []Bead) {
+					put := func(text string) BlobRef {
+						ref, err := s.PutBlob(ctx, []byte(text))
+						if err != nil {
+							t.Fatal(err)
+						}
+						return *ref
+					}
+					for i, text := range []string{"shot", "paste", "trace"} {
+						files[i] = put(text)
+					}
+					note := func(id, text string, fs ...BlobFile) {
+						if err := s.AddNote(ctx, id, text, "mckean", fs...); err != nil {
+							t.Fatal(err)
+						}
+					}
+					note(made[0].ID, "found it")
+					note(made[0].ID, "what it shows", BlobFile{Hash: files[0].Hash, Name: "shot-mac.sh"}, BlobFile{Hash: files[1].Hash})
+					note(made[0].ID, "more")
+					note(made[2].ID, "the trace", BlobFile{Hash: files[2].Hash, Name: "trace, 1.txt"})
+					if err := s.write(func(w *wtx) error {
+						row, err := w.loadBead(made[0].ID)
+						if err != nil {
+							return err
+						}
+						_, err = w.storeStageAsk(row, Ask{Question: "Move it on?", To: "mckean", Stage: "new"})
+						return err
+					}); err != nil {
+						t.Fatal(err)
+					}
+				},
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+					seq := func(id string, n int) string {
+						notes, err := s.Notes(ctx, id)
+						if err != nil || len(notes) <= n {
+							t.Fatalf("notes of %s = %+v, %v", id, notes, err)
+						}
+						return strconv.FormatUint(notes[n].Seq, 10)
+					}
+					a, b, c := made[0].ID, made[1].ID, made[2].ID
+					want := "Each part's notes and files stay on the part: read them with yardr bead show <part>.\n\n" +
+						a + ": 5 notes\n" +
+						a + " note " + seq(a, 1) + ": shot-mac.sh, file " + files[1].Hash[:12] + "\n" +
+						b + ": no notes\n" +
+						c + ": 1 note\n" +
+						c + " note " + seq(c, 0) + ": \"trace, 1.txt\""
+					notes, err := s.Notes(ctx, got.ID)
+					if err != nil || len(notes) != 1 {
+						t.Fatalf("notes of the carrier = %+v, %v; want the fold's one", notes, err)
+					}
+					foldWant(t, "kind of the note", notes[0].Kind, NoteNote)
+					foldWant(t, "author of the note", notes[0].Author, "mckean")
+					foldWant(t, "text of the note", notes[0].Text, want)
+					// What the note lists is not copied: the files stay with
+					// the member's note.
+					foldWant(t, "files on the carrier's note", len(notes[0].Files), 0)
+				},
+			}
+		}(),
+		func() foldRow {
+			var y Bead
+			return foldRow{
+				name: "the folded edge records what was taken from each member", depot: "plain", opts: FoldOptions{To: "ready"},
+				members: []NewBead{bead("a"), bead("b"), bead("c")},
+				prepare: func(t *testing.T, s *Store, made []Bead) {
+					y = outside(t, s, NewBead{Title: "y", Depot: "plain"})
+					foldLink(t, s, made[0].ID, LinkTracks, foldGitHub(5))
+					foldLink(t, s, made[1].ID, LinkTracks, foldGitHub(6))
+					for _, m := range made[:2] {
+						if err := s.AddDep(ctx, m.ID, y.ID, DepBlocks, "", "review", "mckean"); err != nil {
+							t.Fatal(err)
+						}
+					}
+					foldWatch(t, s, "crew", "ada", ScopeAll, made[0].ID)
+					foldWatch(t, s, "user", "sam", ScopeAll, made[1].ID)
+				},
+				check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+					watch := func(id string) Subscription {
+						return Subscription{Source: SourceYardr, Scope: ScopeAll, Where: map[string]string{"bead": id}}
+					}
+					foldWantMoved(t, s, got.ID, made[0].ID, FoldMoved{
+						Stage:    "new",
+						Links:    []FoldLink{{Source: "github", URL: foldGitHub(5), Kind: LinkTracks}},
+						Blocks:   []FoldBlock{{To: y.ID, Until: "review"}},
+						Watchers: []FoldWatcher{{Kind: "crew", Name: "ada", Watch: watch(made[0].ID)}},
+					})
+					// The second of a source, and a target the first shares.
+					foldWantMoved(t, s, got.ID, made[1].ID, FoldMoved{
+						Stage:    "new",
+						Links:    []FoldLink{{Source: "github", URL: foldGitHub(6), Kind: LinkRelates}},
+						Blocks:   []FoldBlock{{To: y.ID, Until: "review"}},
+						Watchers: []FoldWatcher{{Kind: "user", Name: "sam", Watch: watch(made[1].ID)}},
+					})
+					// A member nothing was taken from records only where it was.
+					foldWantMoved(t, s, got.ID, made[2].ID, FoldMoved{Stage: "new"})
+				},
+			}
+		}(),
+		{
 			name: "members of two depots are refused, each named with its depot", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-d1", Title: "a", Depot: "plain"}, {ID: "web-d2", Title: "b", Depot: "web"}},
 			wantErr: "plain-d1 in depot plain, web-d2 in depot web",
@@ -724,10 +1335,10 @@ func TestFoldBeads(t *testing.T) {
 	}
 }
 
-// A fold is one write: the carrier, the edges, the closes and the event are
-// all in the transaction, so a write that fails after the fold takes every one
-// of them with it. No row of TestFoldBeads can show it, since a fold refuses
-// everything it can before it makes anything.
+// A fold is one write: the carrier, the moves, the edges, the closes and the
+// event are all in the transaction, so a write that fails after the fold takes
+// every one of them with it. No row of TestFoldBeads can show it, since a fold
+// refuses everything it can before it makes anything.
 func TestFoldInOneWrite(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -740,6 +1351,17 @@ func TestFoldInOneWrite(t *testing.T) {
 		}
 		ids = append(ids, b.ID)
 	}
+	// What the fold moves from a, one of each: its issue, the bead it blocks
+	// and its watcher.
+	y, err := s.CreateBead(ctx, NewBead{Title: "y", Depot: "plain"}, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foldLink(t, s, ids[0], LinkTracks, foldGitHub(7))
+	if err := s.AddDep(ctx, ids[0], y.ID, DepBlocks, "", "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	foldWatch(t, s, "crew", "ada", ScopeAll, ids[0])
 	depot := "plain"
 	reads, err := s.readsFor(ctx, &depot, "task", nil)
 	if err != nil {
@@ -767,15 +1389,21 @@ func TestFoldInOneWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	foldWant(t, "beads after the failed write", len(all), len(ids))
+	foldWant(t, "beads after the failed write", len(all), len(ids)+1)
 	for _, b := range all {
 		foldWant(t, b.ID+" status", b.Status, "open")
 	}
+	// The one edge there is is a's, and nothing was moved from a.
 	edges, err := s.AllDeps(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	foldWant(t, "edges after the failed write", len(edges), 0)
+	foldWant(t, "edges after the failed write", len(edges), 1)
+	foldWantEdges(t, s, y.ID, DepBlocks, ids[0]+" -> "+y.ID)
+	foldWantLinks(t, s, ids[0], "tracks "+foldGitHub(7))
+	if got, want := foldWatches(t, s, "crew", "ada", ids...), []string{"all bead=" + ids[0]}; !slices.Equal(got, want) {
+		t.Errorf("watches of ada after the failed write = %v, want %v", got, want)
+	}
 	folded, err := s.EventsOfKind(ctx, "folded", 10)
 	if err != nil {
 		t.Fatal(err)

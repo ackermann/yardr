@@ -616,7 +616,56 @@ func (c *mentionCache) pattern(name string) *regexp.Regexp {
 // (where bead=h), from crew members, users and groups, and names whose it
 // dropped.
 func endWatches(tx *bolt.Tx, h string) ([]string, error) {
-	watching := func(sub Subscription) bool { return sub.Source == SourceYardr && sub.Where["bead"] == h }
+	var ended []string
+	err := editWatches(tx, h, func(_, name string, subs []Subscription) []Subscription {
+		ended = append(ended, name)
+		return slices.DeleteFunc(subs, watchOf(h))
+	})
+	return ended, err
+}
+
+// copyWatches gives everyone who watches the bead with handle from the same
+// watch of the bead with handle to, whatever else the watch filters on kept:
+// what a fold does for the watchers of a part before the part closes, which
+// ends its own watch (endWatches). One who has that watch of to already keeps
+// it. It answers the watches it copied, as they stood on from, so that they
+// can be given back.
+func copyWatches(tx *bolt.Tx, from, to string) ([]FoldWatcher, error) {
+	var copied []FoldWatcher
+	watching := watchOf(from)
+	err := editWatches(tx, from, func(kind, name string, subs []Subscription) []Subscription {
+		// Ranged over a copy: the list grows as the watches are copied.
+		for _, sub := range slices.Clone(subs) {
+			if !watching(sub) {
+				continue
+			}
+			was := sub
+			was.Where = maps.Clone(sub.Where)
+			copied = append(copied, FoldWatcher{Kind: kind, Name: name, Watch: was})
+			also := sub
+			also.Where = maps.Clone(sub.Where)
+			also.Where["bead"] = to
+			if !slices.ContainsFunc(subs, also.same) {
+				subs = append(subs, also)
+			}
+		}
+		return subs
+	})
+	return copied, err
+}
+
+// watchOf is what tells a subscription that watches the bead with handle h.
+func watchOf(h string) func(Subscription) bool {
+	return func(sub Subscription) bool { return sub.Source == SourceYardr && sub.Where["bead"] == h }
+}
+
+// editWatches stores, for every crew member, user and group with a
+// subscription watching the bead with handle h, what edit answers for its
+// subscriptions: the crew members first, then the users, then the groups,
+// each in the order of their names. kind is crew, user or group, since a
+// crew member and a manual group may share a name.
+func editWatches(tx *bolt.Tx, h string, edit func(kind, name string, subs []Subscription) []Subscription) error {
+	watching := watchOf(h)
 	// Collected first: a bucket must not change under its own cursor.
 	var rs []*CrewMember
 	var us []*User
@@ -644,29 +693,25 @@ func endWatches(tx *bolt.Tx, h string) ([]string, error) {
 		})
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var ended []string
 	for _, r := range rs {
-		r.Subscriptions = slices.DeleteFunc(r.Subscriptions, watching)
+		r.Subscriptions = edit("crew", r.Name, r.Subscriptions)
 		if err := put(tx, bCrew, r.Name, r); err != nil {
-			return nil, err
+			return err
 		}
-		ended = append(ended, r.Name)
 	}
 	for _, u := range us {
-		u.Subscriptions = slices.DeleteFunc(u.Subscriptions, watching)
+		u.Subscriptions = edit("user", u.Name, u.Subscriptions)
 		if err := put(tx, bUsers, u.Name, u); err != nil {
-			return nil, err
+			return err
 		}
-		ended = append(ended, u.Name)
 	}
 	for _, g := range gs {
-		g.Subscriptions = slices.DeleteFunc(g.Subscriptions, watching)
+		g.Subscriptions = edit("group", g.Name, g.Subscriptions)
 		if err := put(tx, bGroups, g.Name, g); err != nil {
-			return nil, err
+			return err
 		}
-		ended = append(ended, g.Name)
 	}
-	return ended, nil
+	return nil
 }
