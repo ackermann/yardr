@@ -2,7 +2,10 @@ The depot's test command is `sh .yardr/test`, run in the worktree after the
 last commit. It runs gofmt, go vet, go build, then go test -race on the
 packages changed since the base (`YARDR_BASE`, which your session has; its
 first line says what it compared with), every package that imports one, and
-the packages its table says read a changed file by path. The landing run
+the packages its table says read a changed file by path. When nothing
+compiled changed (no .go file, no embedded file, no deletion: a design
+document, say) the same packages run without -race, so without a place in
+the race lock's queue, and its first line says so. The landing run
 (`YARDR_LANDING=1 sh .yardr/test` on a code change: the selection plus
 the six black-box suites, vet for linux too, and the store, dispatch and
 bdp suites again through the unix-socket client when the selection

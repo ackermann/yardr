@@ -491,7 +491,9 @@ what the test command does when it is run plainly cheap, and leave the whole
 suite to `YARDR_LANDING`. Two yards on one machine are not bounded together.
 Depot yardr's own gate serialises its race leg per machine: one `go test
 -race` run at a time, under a lock file in the yard's home, and a gate that
-has to wait says so (`test: waited 312 s for the race lock`). The deadline of
+has to wait says so (`test: waited 312 s for the race lock`). A branch that
+changed nothing compiled (a design document, say) has no race leg: its first
+line says it tests without `-race`, and it never queues. The deadline of
 a landing, and of a train's integration, does not count that wait:
 `merge-local` and `integrate-train` credit the waited seconds, so one late in
 the queue is killed only when its own run outlasts `YARDR_TEST_TIMEOUT`. Race suites

@@ -14,6 +14,8 @@ no fix: `contrib/isolated-yard`'s, since the yard-shape matrix is long by
 design and runs only in the quiet run (R6).
 
 R1. A package's tests finish in 60 s under `-race`, or the gate fails.
+A run that changed nothing compiled has no race leg (R5), and so no R1
+verdict: it tests its selection without `-race`.
 The wall is the slowest package. When a non-allow-listed package takes over
 60 s in the race leg, the gate runs it again alone under the leg's lock.
 Over 60 s alone fails the run and names both times; 60 s or less passes
@@ -101,7 +103,11 @@ contrib/deploy, contrib/server-yard, contrib/isolated-yard,
 contrib/release), plus the socket leg as today. Each of the six builds
 the tree's binary and drives it without importing the changed packages,
 so the pick alone misses them. A landing that changed nothing compiled
-runs the plain selection alone, as before; one whose change cannot be
+runs the plain selection alone, as before, without `-race` and so without
+the race lock (yardr-57x5): no `.go` file, embedded file or deletion is
+in it, so the binaries are the base's and only a test that opens a
+changed file by path can differ, which the selection holds. A plain run
+of such a branch does the same. One whose change cannot be
 selected (go.mod or go.sum, a deletion, a file no row knows) and one
 with nothing to compare with still run the whole suite. The whole
 suite otherwise runs only when the yard is quiet (R6 below).

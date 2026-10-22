@@ -179,7 +179,8 @@ The builder implements the change, commits on its branch (never pushes or
 merges), runs the depot's test command on the last commit (`sh .yardr/test`
 in its worktree, which its brief prints as `test:`: `gofmt`, `go vet`,
 `go build`, then `go test -race` on the packages the branch changed and
-their importers), leaves a note with what it changed and verified, ending
+their importers, or `go test` without `-race` when nothing it changed is
+compiled: see below), leaves a note with what it changed and verified, ending
 in a test line (the command, the commit, the result with counts), and
 reports `yardr bead done`, which the flow sends to `review`.
 
@@ -213,8 +214,11 @@ binary and drive it without importing the changed packages
 [testing.md](testing.md), R5). A landing that changes nothing compiled
 runs the plain selection alone (since yardr-bxh2, 13 Oct 2026:
 gofmt, vet, build, and the tests of the packages the table names for
-the changed files). It is the whole suite when what changed cannot be
-selected, or there is nothing to select from:
+the changed files), and since yardr-57x5 (22 Oct 2026) without
+`-race`: the race detector looks at compiled code and none changed, so
+the run takes no place in the race lock's queue either. A plain run of
+such a branch does the same. It is the whole suite when what
+changed cannot be selected, or there is nothing to select from:
 
 - `go.mod` or `go.sum`, which move every package;
 - a file in no row of the table, which any test may read;
@@ -226,10 +230,15 @@ The first line of the output says which run it is and names the file
 that decided it:
 
 ```text
-test: YARDR_LANDING is set, and nothing compiled changed since main (YARDR_BASE), from 51c8a9e
+test: YARDR_LANDING is set, and nothing compiled changed since main (YARDR_BASE), from 51c8a9e: testing without -race, no race lock
 test: docs/design/2026-10-12-yardr-nx54-outside-pr-review.md changed: read by the tests of .
-test: testing, with -race, what changed, what imports it and what reads it: yardr.dev/yardr
+test: testing, without -race, what changed, what imports it and what reads it: yardr.dev/yardr
 ```
+
+A plain run says the same of a branch that changed nothing compiled,
+without the landing's mark (`test: nothing compiled changed since main
+(YARDR_BASE), from 51c8a9e: testing without -race, no race lock`), and
+`test: what changed since main (YARDR_BASE), from 51c8a9e` otherwise.
 
 ```text
 test: YARDR_LANDING is set, and internal/store/beads.go changed since main (YARDR_BASE), from 51c8a9e: the selection plus the six black-box suites (contrib/assembly, contrib/peer, contrib/deploy, contrib/server-yard, contrib/isolated-yard, contrib/release)
@@ -240,7 +249,15 @@ Such a landing is still tested as it lands: every program and every
 test binary is built from the source the base has, and the base is
 kept green by the quiet whole-suite run. Only a test that opens a
 changed file by path can differ in a nothing-compiled landing, and
-those run. On 12 Oct 2026 eleven of 66 landings were the whole suite
+those run. What counts as compiled is a `.go` file (a test file too),
+a file a package embeds, and a deleted file, which may have been
+embedded and cannot be asked: those, `go.mod` and `go.sum`, and a file
+no row knows keep `-race`. A run without it judges no package's time
+against the 60 s budget ([testing.md](testing.md), R1, which is defined
+under `-race`); the sleep budget reads the tree and is judged as ever.
+Before yardr-57x5 a design document waited 20 to 35 minutes on the race
+lock to run one root-package test, in each of three rounds (yardr-5dzn).
+On 12 Oct 2026 eleven of 66 landings were the whole suite
 for one file under `docs/design/`, 66 minutes of the day's 298
 ([the design](design/2026-10-12-yardr-1vt3-landing-several-at-once.md),
 section 3.1). When it goes wrong, a row of the table names too few
