@@ -244,12 +244,25 @@ func TestYardTestSelects(t *testing.T) {
 	// One that embeds a glob below its directory, as internal/web does its
 	// templates, and one that imports it. A page that leaves the glob is no
 	// error for go list, as emb's file would be: the package embeds one page
-	// fewer, and only the deleted-file rule can tell. It stops at the
-	// package's own directory (yardr-56xw), so the glob is below it.
+	// fewer, and only the deleted-file rule can tell.
 	write("globemb/p.go", "package globemb\n\nimport \"embed\"\n\n//go:embed pages/*.md\nvar Pages embed.FS\n")
 	write("globemb/pages/a.md", "a\n")
 	write("globemb/pages/b.md", "b\n")
 	write("globtop/p.go", "package globtop\n\nimport _ \"m.test/m/globemb\"\n")
+	// One that embeds a glob beside its Go file, as docs does its pages, and
+	// one that imports it. The rule has to tell a page that leaves from a
+	// neighbour the glob never embedded (notes.txt, yardr-56xw). A name under
+	// all: embeds its hidden files too, and one without does not: kept/ and
+	// dropped/ each hold one.
+	write("mdemb/p.go", "package mdemb\n\nimport \"embed\"\n\n//go:embed *.md all:kept dropped\nvar Pages embed.FS\n")
+	write("mdemb/a.md", "a\n")
+	write("mdemb/b.md", "b\n")
+	write("mdemb/notes.txt", "notes\n")
+	write("mdemb/kept/x.txt", "x\n")
+	write("mdemb/kept/.hidden", "hidden\n")
+	write("mdemb/dropped/y.txt", "y\n")
+	write("mdemb/dropped/.hidden", "hidden\n")
+	write("mdtop/p.go", "package mdtop\n\nimport _ \"m.test/m/mdemb\"\n")
 	write("alone/p.go", "package p\n")
 	// A package one case's change deletes, while the script still rows
 	// it, as base's copy does at a landing.
@@ -348,6 +361,22 @@ func TestYardTestSelects(t *testing.T) {
 		{"a file moved out of an embedded glob", []string{"globemb/pages/b.md -> docs/design/b.md"}, []string{
 			pre + "docs/design/b.md changed: read by the tests of .",
 			tested + " m.test/m m.test/m/globemb m.test/m/globtop"}},
+		// The glob is beside the package's Go file, as docs' is: there is no
+		// directory below the package's in which to look for the page that went.
+		{"a deleted page of a glob beside the package's Go file", []string{"-mdemb/a.md"}, []string{
+			tested + " m.test/m/mdemb m.test/m/mdtop"}},
+		{"a page moved out of a glob beside the package's Go file", []string{"mdemb/b.md -> docs/design/b.md"}, []string{
+			pre + "docs/design/b.md changed: read by the tests of .",
+			tested + " m.test/m m.test/m/mdemb m.test/m/mdtop"}},
+		// A deleted neighbour is no page, so it is no more the package's than
+		// a file the package never embedded: nobody is known to read it.
+		{"a deleted neighbour the glob does not match", []string{"-mdemb/notes.txt"}, []string{
+			pre + "mdemb/notes.txt is read by no known package: testing everything"}},
+		// kept/ is embedded with all:, so its hidden file counts as the
+		// package's change; dropped/ is not, so its hidden file does not, and
+		// it alone is read by no known package.
+		{"deleted hidden files under all: and under a plain name", []string{"-mdemb/kept/.hidden", "-mdemb/dropped/.hidden"}, []string{
+			pre + "mdemb/dropped/.hidden is read by no known package: testing everything"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
 			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
@@ -479,6 +508,14 @@ func TestYardTestSelects(t *testing.T) {
 		// asked any more. It used to read as one new file: nothing compiled.
 		{"a landing that moves a file out of an embedded glob", []string{"globemb/pages/b.md -> docs/design/b.md"},
 			landing + "globemb/pages/b.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+		// The whole suite either way. What tells a page that is known from a file
+		// nobody reads is the socket line, which goes by the plain selection: the
+		// package and its importer hold none of the four suites, where a file the
+		// plain run cannot place selects everything.
+		{"a landing that deletes a page of a glob beside the package's Go file", []string{"-mdemb/a.md"},
+			landing + "mdemb/a.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+		{"a landing that moves a page out of a glob beside the package's Go file", []string{"mdemb/b.md -> docs/design/b.md"},
+			landing + "mdemb/b.md was deleted" + since + wholeSuffix, []string{skipSocket}},
 		{"a landing of nothing", nil,
 			landing + "nothing changed" + since + wholeSuffix, []string{skipSocket}},
 		// A Go change runs the selection plus the six while its plain
