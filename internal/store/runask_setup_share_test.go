@@ -84,19 +84,8 @@ func TestSetupCardListsCandidateWithAddress(t *testing.T) {
 	if !strings.Contains(lines, "answer with: yardr bead answer "+y.bead+" "+itoa(seq)+" <n> --secret, or <n> --account <source>") {
 		t.Errorf("the terminal card lacks the --account answer:\n%s", lines)
 	}
-}
-
-// The card told without its candidates (SetupAsked.WithoutCandidates) says
-// neither their files nor the values they hold anywhere: not in Candidates,
-// and not in the account sentence either, which reads as a card with none
-// writes it. The rest of the card is as it was, and the card it was made
-// from is left as it is.
-func TestSetupCardWithoutCandidates(t *testing.T) {
-	y, _ := runYard(t)
-	file := yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
-		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
-	y.setSetupPack(setupMailPack())
-	seq := y.ask(t, setupAsk(), "yardmaster")
+	// The device view of this same card withholds its candidate in both the
+	// field and the sentence that names it. The store's card remains whole.
 	card := y.asked(t, seq).Ask.setup()
 	if len(card.Candidates) != 1 {
 		t.Fatalf("the card lists %+v, want setupcal", card.Candidates)
