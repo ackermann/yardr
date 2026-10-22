@@ -593,20 +593,22 @@ its value.
 
 **A stolen device of the operator can replace a source's credential, and
 cannot read one.** Until `yardr user device rm`, whoever holds its token
-can answer an open secret ask with a value of their own, and the source's
-next call is made with it: to the host the operator declared, with a key
-that is not the operator's. They cannot ask for a secret (an ask is an
-agent's or the terminal's to write), cannot name a file or a source that
-no open ask names, and read no credential by any call. Each such giving is
-an event with `via <device>` and the names, never the value. A device of
-any other user, and a credential that anything but the yard's own record
-of a device vouches for, cannot do it at all. What a stolen device of
-another user can replace is that user's own address in a source or their
-own credential in one, while an ask for it is open: what the yard tells
-that user then goes to an address of the thief's, and a call made as that
-user is made with a credential of the thief's, each at the host the
-operator declared. The value crosses the network under the TLS in front of
-the listener and nothing more
+can answer a secret ask that is not declined or taken back with a value of
+their own, and the source's next call is made with it: to the host the
+operator declared, with a key that is not the operator's. That includes an
+ask that was answered already. Giving again replaces what was given. They
+cannot ask for a secret (an ask is an agent's or the terminal's to write),
+cannot name a file or a source unless an ask that is not declined or taken
+back names it, and read no credential by any call. Each such giving is an
+event with `via <device>` and the names, never the value. A device of any
+other user, and a credential that anything but the yard's own record of a
+device vouches for, cannot do it at all. What a stolen device of another
+user can replace is that user's own address in a source or their own
+credential in one, while an ask for it is not declined or taken back: what
+the yard tells that user then goes to an address of the thief's, and a call
+made as that user is made with a credential of the thief's, each at the
+host the operator declared. The value crosses the network under the TLS in
+front of the listener and nothing more
 ([api.md](api.md#tls-is-yours-and-the-clients-rule)); nothing secret
 crosses a link to another yard.
 
