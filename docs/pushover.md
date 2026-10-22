@@ -132,8 +132,9 @@ About 20 seconds later the phone shows `mail from <you>` and the text.
   ([users.md](users.md#told-outside-the-yard)).
 - **What leaves the machine**: a fixed line that says who and what kind
   (`mail from yardmaster`, `timer from mckean`, `web-hk7z advanced`), and
-  the first words: of mail the first 200 characters, of a notification its
-  line as `yardr inbox` shows it, with the bead's title, of an ask
+  the first words: of mail the first 200 characters (`(with files)` for
+  mail of files alone), of a notification its line as `yardr inbox` shows
+  it, with the bead's title, of an ask
   (`yardmaster asks`) the first 200 characters of the question. Several at
   once are `3 new in your yardr inbox`, or `3 new in yardr` with an ask
   among them, and each kind with its count. No link is

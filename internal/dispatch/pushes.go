@@ -298,7 +298,8 @@ func pushReady(oldest, newest time.Time) time.Time {
 // is sent, and so not the URL a hook delivery's line ends with. Several are
 // counted in the title and named in the text, each by its who and what
 // alone; the title says the inbox unless an ask is among them, which is in
-// none. The source cuts both to what its call takes.
+// none. A mail of files alone has no text to start, and says "(with files)"
+// in its place. The source cuts both to what its call takes.
 func pushMessage(ps []store.Push) notify.Message {
 	if len(ps) == 1 {
 		title, text := pushLine(ps[0])
@@ -389,7 +390,16 @@ func pushLine(p store.Push) (title, text string) {
 		if p.Mail.Timer != "" {
 			title = "timer from " + p.Mail.From
 		}
-		return title, clipRunes(p.Mail.Text, pushMailStart)
+		text = clipRunes(p.Mail.Text, pushMailStart)
+		if text == "" {
+			// The store takes no mail without words or files, so one with
+			// no text is files. A call may need a text (Pushover's message
+			// is required, and its refusal is final): the title says who,
+			// and this that there are files, so the person is told all the
+			// same.
+			text = "(with files)"
+		}
+		return title, text
 	case p.Ask != nil:
 		return p.Ask.Asker + " asks", clipRunes(p.Ask.Question, pushMailStart)
 	case p.Note != nil && p.Note.Bead != "":

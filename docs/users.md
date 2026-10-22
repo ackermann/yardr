@@ -414,7 +414,7 @@ the user's `tell` leaves out, nothing does.
 
 | what | part (`tell`) | title | text |
 |---|---|---|---|
-| mail | `mail` | `mail from yardmaster` | the first 200 characters |
+| mail | `mail` | `mail from yardmaster` | the first 200 characters; `(with files)` for mail of files alone, which has no text |
 | a fired timer | `mail` | `timer from mckean` | the first 200 characters (`timer: …`) |
 | a notification of a bead | `notifications` | `web-hk7z advanced` | its line as the inbox has it: `web-hk7z advanced (all) by yardmaster from=new to=decide on "Which port for the hook listener"` |
 | a notification of a hook delivery | `notifications` | `github hook` | its line, without the link it ends with |

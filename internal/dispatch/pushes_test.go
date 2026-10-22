@@ -93,7 +93,12 @@ func newPushYard(t *testing.T) *pushYard {
 		y.mu.Lock()
 		y.got = append(y.got, body)
 		y.mu.Unlock()
-		w.WriteHeader(int(y.status.Load()))
+		status := int(y.status.Load())
+		if body["message"] == "" {
+			// Pushover refuses a push without a message, and for good.
+			status = http.StatusBadRequest
+		}
+		w.WriteHeader(status)
 		io.WriteString(w, `{"status":1}`)
 	}))
 	t.Cleanup(y.srv.Close)
@@ -195,7 +200,9 @@ func (y *pushYard) noSecrets(t *testing.T) {
 // Mail to a user, a timer the user set for themselves and a notification
 // of a bead entering decide each reach the source once, after the grace,
 // with who, what and the start of the text, and with the token and the
-// address the files hold.
+// address the files hold. A mail of files alone has no text, and the
+// service refuses a push without one for good: it is told as
+// "(with files)", and the push ends told.
 func TestPushTellsOfMailATimerAndABeadInDecide(t *testing.T) {
 	t.Parallel()
 	y := newPushYard(t)
@@ -250,6 +257,18 @@ func TestPushTellsOfMailATimerAndABeadInDecide(t *testing.T) {
 		!strings.Contains(got[2], "to=decide") || !strings.HasSuffix(got[2], `on "Which way round"`) {
 		t.Fatalf("after the bead entered decide: %q", got)
 	}
+
+	// A mail of one file and no words, through the plain call (this source
+	// has no picture command). The clock is hours ahead of the store's,
+	// which stamps the mail now: it starts again from there.
+	must(t, y.api.Mail(ctx, "ada", "", "yardmaster", y.putBlob(t, pushPNG, "shot.png")))
+	y.now = time.Now()
+	y.pass(t, store.PushGrace+time.Second)
+	want(t, "the mail of a file alone", y.sent()[3:], []string{"mail from yardmaster | (with files)"})
+	if l := y.last(t); !l.OK() || l.Status != 200 {
+		t.Fatalf("last push = %+v", l)
+	}
+	want(t, "left in the queue", len(y.queued(t)), 0)
 	want(t, "push_failed events", y.failed(t), []string{})
 }
 
