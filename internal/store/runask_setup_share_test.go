@@ -3,6 +3,8 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -81,6 +83,103 @@ func TestSetupCardListsCandidateWithAddress(t *testing.T) {
 	lines := strings.Join(y.asked(t, seq).Lines(), "\n")
 	if !strings.Contains(lines, "answer with: yardr bead answer "+y.bead+" "+itoa(seq)+" <n> --secret, or <n> --account <source>") {
 		t.Errorf("the terminal card lacks the --account answer:\n%s", lines)
+	}
+}
+
+// The card told without its candidates (SetupAsked.WithoutCandidates) says
+// neither their files nor the values they hold anywhere: not in Candidates,
+// and not in the account sentence either, which reads as a card with none
+// writes it. The rest of the card is as it was, and the card it was made
+// from is left as it is.
+func TestSetupCardWithoutCandidates(t *testing.T) {
+	y, _ := runYard(t)
+	file := yardSourceWithAccount(t, y, setupCalDecl, "setup-mint", setupMint,
+		map[string]string{"SETUP_ACCOUNT": "ops@example.com"})
+	y.setSetupPack(setupMailPack())
+	seq := y.ask(t, setupAsk(), "yardmaster")
+	card := y.asked(t, seq).Ask.setup()
+	if len(card.Candidates) != 1 {
+		t.Fatalf("the card lists %+v, want setupcal", card.Candidates)
+	}
+	bare := card.WithoutCandidates()
+	if len(bare.Candidates) != 0 {
+		t.Errorf("the card without candidates lists %+v", bare.Candidates)
+	}
+	told := strings.Join(bare.Does, "\n")
+	for _, secret := range []string{file, "ops@example.com", "setupcal"} {
+		if strings.Contains(told, secret) {
+			t.Errorf("the card without candidates still says %q:\n%s", secret, told)
+		}
+	}
+	if want := "the account SETUP_ACCOUNT: type it unseen. It is written to " + card.AccountFile + ", named in the answer, never the value."; !slices.Contains(bare.Does, want) {
+		t.Errorf("the card without candidates lacks %q:\n%s", want, told)
+	}
+	if len(bare.Does) != len(card.Does) {
+		t.Errorf("the sentences are %d, want the card's %d with the account sentence replaced:\n%s", len(bare.Does), len(card.Does), told)
+	}
+	for i := range card.Does {
+		if i < len(bare.Does) && !strings.Contains(card.Does[i], "already given") && card.Does[i] != bare.Does[i] {
+			t.Errorf("sentence %d moved:\n%s\nwant\n%s", i, bare.Does[i], card.Does[i])
+		}
+	}
+	rest, was := bare, *card
+	rest.Does, rest.Candidates, was.Does, was.Candidates = nil, nil, nil, nil
+	if !reflect.DeepEqual(rest, was) {
+		t.Errorf("the rest of the card moved:\n%+v\nwant\n%+v", rest, was)
+	}
+	if len(card.Candidates) != 1 || !strings.Contains(strings.Join(card.Does, "\n"), file) {
+		t.Errorf("the card it was made from lost its candidates: %+v", card)
+	}
+}
+
+// Every shape of the account sentence that names a candidate is replaced by
+// the one the same card writes with none, and so is a sentence in other
+// words: a card kept in the store was written by the build of its day, and
+// the sentence is found by what it says of a candidate.
+func TestSetupCardWithoutCandidatesAnyWords(t *testing.T) {
+	account, own := []string{"SETUP_ACCOUNT", "SETUP_REGION"}, "/yard/sources/setupmail.env"
+	candidates := []AskCandidate{{Source: "setupcal", File: "/yard/sources/setupcal.env",
+		Values: map[string]string{"SETUP_ACCOUNT": "ops@example.com", "SETUP_REGION": "eu-west"}}}
+	secrets := []string{"/yard/sources/setupcal.env", "ops@example.com", "eu-west", "setupcal"}
+	grants := "grants to crew yardmaster — pick one:"
+	for _, c := range []struct {
+		name    string
+		given   bool
+		missing []string
+		line    string // the sentence as a build with other words wrote it, else the sentence as this build writes it
+	}{
+		{name: "a first setup"},
+		{name: "an update that holds the account", given: true},
+		{name: "an update that lacks some of it", missing: []string{"SETUP_REGION"}},
+		{name: "an update that lacks all of it", missing: account},
+		{name: "another build's words", line: "setupcal already has ops@example.com and eu-west in /yard/sources/setupcal.env: take it with --account setupcal"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			line := c.line
+			if line == "" {
+				line = safeSourceCardLine(setupAccountLine(account, own, c.given, c.missing, candidates))
+			}
+			card := SetupAsked{Pack: "setupmail", Account: account, AccountFile: own, Given: c.given, Missing: c.missing,
+				Candidates: candidates, Does: []string{"pack setupmail: it adds 1 source.", line, grants}}
+			bare := card.WithoutCandidates()
+			want := []string{"pack setupmail: it adds 1 source.", safeSourceCardLine(setupAccountLine(account, own, c.given, c.missing, nil)), grants}
+			if !slices.Equal(bare.Does, want) || len(bare.Candidates) != 0 {
+				t.Errorf("the card without candidates says %q and lists %+v, want %q and none", bare.Does, bare.Candidates, want)
+			}
+			for _, secret := range secrets {
+				if strings.Contains(strings.Join(bare.Does, "\n"), secret) {
+					t.Errorf("the card without candidates still says %q: %q", secret, bare.Does)
+				}
+			}
+			if len(card.Candidates) != 1 || card.Does[1] != line {
+				t.Errorf("the card it was made from moved: %+v", card)
+			}
+		})
+	}
+	// A card that lists none is told as it is.
+	plain := SetupAsked{Account: account, AccountFile: own, Does: []string{"pack setupmail: it adds 1 source.", safeSourceCardLine(setupAccountLine(account, own, false, nil, nil)), grants}}
+	if got := plain.WithoutCandidates(); !reflect.DeepEqual(got, plain) {
+		t.Errorf("a card with no candidates was changed: %+v", got)
 	}
 }
 
