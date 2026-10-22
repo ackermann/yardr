@@ -62,8 +62,9 @@ Two more, [`packs/telegram`](../packs/telegram) and
 [`packs/pushover`](../packs/pushover), named `telegram` and `pushover`,
 are for no depot either: each is one service as an integration, a
 declaration with the `notify` key that tells a user outside the yard.
-Pushover has no commands; telegram also hears the operator's chat back,
-with a `hook` key, `thread` commands and a `hear` key. One apply and
+Pushover has one command, which sends the picture a tell carries;
+telegram also hears the operator's chat back, with a `hook` key, `thread`
+commands and a `hear` key. One apply and
 two commands that each take one secret, typed unseen, set telling up
 whole: `yardr pack apply telegram --notify <user>=telegram`, then `yardr
 source key telegram` and `yardr user key <user> telegram`. (An apply
@@ -1480,9 +1481,9 @@ webhook is made and which events it needs, what the crew member's identity
 wants, and how to test the wiring. Telegram's and Pushover's say what to
 create at the service, how each secret is given to the yard (`yardr source
 key`, `yardr user key`, or a card a crew member asks with) and how to
-test: each is one service with the `notify` key that tells a user, and no
-commands, so one apply with `--notify` and the two keys set it up whole,
-and `yardr user list` shows the user told through it. The webhook pack's
+test: each is one service with the `notify` key that tells a user, so one
+apply with `--notify` and the two keys set it up whole, and `yardr user
+list` shows the user told through it. The webhook pack's
 setup notes say how to make one hook for each sender, how Zapier, Make and
 n8n each post to it with the secret in a header, and where each service
 shows the URL the yard sends to.

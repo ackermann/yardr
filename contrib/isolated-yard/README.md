@@ -76,9 +76,12 @@ for the repositories of `-github-app-repos`, so a crew member whose env_file
 has `GITHUB_APP_ID=12345` and `GITHUB_APP_PRIVATE_KEY_FILE=D/app.pem`
 answers as `yardr[bot]`. It also takes messages for a person at
 `/1/messages.json`, as Pushover does, for a declared source that tells a
-user outside the yard (`yardr user set <name> notify=<source>`): `GET
-/messages` lists what it took, and `POST /messages/answer` with `status=500`
-makes it fail.
+user outside the yard (`yardr user set <name> notify=<source>`), as a JSON
+body or as a multipart form with a picture for its `attachment` part (at
+most 5,242,880 bytes, with a file name and a content type, as the service
+requires): `GET /messages` lists what it took, a picture by its name, type,
+size and SHA-256, and `POST /messages/answer` with `status=500` makes it
+fail.
 And it is a customer system under `/crm/`, for a declared source whose calls
 a session makes with `yardr call`: `sources/crm.yaml` is its declaration
 (replace `BASE` by the stand-in's address), and `-crm-token` the bearer

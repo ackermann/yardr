@@ -139,6 +139,15 @@ About 20 seconds later the phone shows `mail from <you>` and the text.
   among them, and each kind with its count. No link is
   sent. This goes to Pushover's servers and onto a lock screen: do not name
   a source for a user whose mail must not.
+- **A picture**: the first image of a mail, or of the newest note on a bead
+  that is done, goes along as the message's attachment, one at most
+  ([users.md](users.md#told-outside-the-yard) says which tells carry one).
+  The pack's command `pushover/notify` sends it, with curl, jq and file.
+  Pushover takes a picture of 5,242,880 bytes at most and leaves it to the
+  sender to make a larger one fit, so one over that goes as the words
+  alone, and the daemon's log says why (`user told without the picture`).
+  A mail that is a picture and no words goes with its title for the
+  message, which Pushover requires.
 - **When**: once it has been in the inbox for 20 seconds and is still
   unread. What was read by then (`yardr chat` showing it, `yardr inbox
   --ack <seq>`) is not sent, nor is an ask that was answered by then. Everything due for one user goes as one message, and
@@ -207,6 +216,13 @@ the link yardr has. The `max` values are Pushover's own limits; yardr cuts
 a title or text that is longer and leaves out a link that is. `yardr source
 --help` has the whole format.
 
+The pack's file has one line more under `notify`, `image: [pushover/notify,
+tell]`, which names the command beside it that sends a picture: the call
+above sends JSON, which carries none, so a tell with a picture needs a
+command that sends the multipart form Pushover takes for an attachment
+([integrations.md](integrations.md#tell-a-user-outside-the-yard)). By hand
+there is no such command, and every tell goes as words alone.
+
 As the operator:
 
 ```sh
@@ -259,6 +275,14 @@ will not work"), and on anything else it may be repeated, no sooner than 5
 seconds later. yardr's rule fits that: 200 is taken, 4xx is final, the
 rest is tried again after 30 seconds or more.
 
+The pack's picture was checked on 22 October 2026 against the same page's
+Attachments section: a message may include one image attachment of at most
+5,242,880 bytes, a larger one is rejected with an API error, and resizing
+it is the sender's work; it is sent as `multipart/form-data` with the
+part's file name and content type (or as `attachment_base64` with
+`attachment_type`, which the pack does not use), and `message` is still
+required.
+
 ## Trying it without Pushover
 
 For someone working on yardr itself: `contrib/isolated-yard` has a stand-in
@@ -266,5 +290,10 @@ that takes messages as Pushover does. In an isolated yard D, with the
 stand-in on the address A it printed, the by-hand file above runs as
 written with two changes: `base: http://A/1` in the file (plain http is
 allowed to this machine only), and `PUSHOVER_TOKEN=push-standin` in the
-source's env file. `curl http://A/messages` lists what it took. See
+source's env file. `curl http://A/messages` lists what it took, a picture
+by its name, type, size and SHA-256. The stand-in takes the multipart form
+of a message with an attachment as the service does, and refuses a picture
+over 5,242,880 bytes or one sent without a file name and a content type.
+To try the pack's picture command, copy `packs/pushover`, change `base:` in
+its `pushover.yaml` the same way, and `yardr pack apply` the copy. See
 [contrib/isolated-yard/README.md](../contrib/isolated-yard/README.md).

@@ -457,6 +457,16 @@ are not lost with the picture, and the daemon's log says why. Which messages
 carry a picture is in [users.md](users.md#told-outside-the-yard) with the
 rest of what leaves the machine.
 
+Two packs name one. Telegram's sends the picture as a photo with the words
+for its caption. Pushover's sends it as the message's one `attachment`, a
+part of the multipart form the service takes beside the title and the
+message, with a file name and a content type; a message takes a picture of
+5,242,880 bytes at most and the service leaves making one fit to the
+sender, so the command refuses a larger one itself, with its size, before
+it sends anything, and the message is told as words alone. Neither
+command is given the token or the person's key in an argument: curl
+reads them from its stdin.
+
 ### Say what a subscription still carries
 
 An agent runs on a subscription with a usage limit: so much in five hours,
@@ -2229,7 +2239,7 @@ will be given in; `thread.id` the same for every delivery of one issue;
 | `yardr thread state` | the `thread.state` command and `thread.states`: what `started`, `review` and `done` mean there | nothing |
 | a stage map | the status keys and the `link` key | nothing: `hook add --map`, the pack's `sources` and the daemon ask `ForwarderFor` |
 | `yardr source check` making its check call | the `check` key, naming a read call that takes no required parameter | nothing: `source check` reads the declaration (below) |
-| telling a user through the service | the `notify` key: the update call that tells, and which of its parameters take the address, title, text and link | an update call with a string parameter for each |
+| telling a user through the service | the `notify` key: the update call that tells, and which of its parameters take the address, title, text and link; `image`, the command that tells with a picture | an update call with a string parameter for each |
 | hearing only set addresses back | the `hear` key | the `notify` and `hook` keys, and the field under `hook.keys` |
 | reading a pull request and its CI back | the `events` key: the run and head types, and the `pr` and `ci` commands | nothing: the daemon reads a train's pull request and CI through them, and the brief carries the snapshot |
 

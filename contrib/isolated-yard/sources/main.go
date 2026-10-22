@@ -25,7 +25,9 @@
 // It also takes messages for a person, for a declared source whose file
 // has `base: http://A/1`, a call that POSTs
 // /messages.json with a JSON body (token, user, title, message), and a
-// notify key naming it. -push-token is the application token it takes.
+// notify key naming it. -push-token is the application token it takes. A
+// command can send the same names as a multipart form with a picture for
+// its attachment part, which the stand-in keeps (see standin.Message).
 //
 //	curl http://A/messages                          # the messages taken, and how many were asked for
 //	curl -d status=500 http://A/messages/answer     # fail from now on; status=200 takes them again
