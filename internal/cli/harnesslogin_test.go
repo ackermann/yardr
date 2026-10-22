@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -72,14 +73,24 @@ type ledLogin struct {
 
 type loginWaitReadyGate struct {
 	store.API
-	entered chan struct{}
-	release chan struct{}
+	entered     chan struct{}
+	released    chan struct{}
+	releaseOnce sync.Once // release closes released once, however many ask
+}
+
+// release lets the held LoginWaitReady go. The test does, once it has seen
+// what it holds the leader for, and so does the cleanup leadStandInGated
+// registers: a test that fails before it gets there would otherwise leave the
+// leader held for ever, and the run's drain waits for the leader to return.
+// Whichever comes second finds it done.
+func (s *loginWaitReadyGate) release() {
+	s.releaseOnce.Do(func() { close(s.released) })
 }
 
 func (s *loginWaitReadyGate) LoginWaitReady(ctx context.Context, id string) error {
 	close(s.entered)
 	select {
-	case <-s.release:
+	case <-s.released:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -129,6 +140,21 @@ func leadStandInAs(t *testing.T, a *app, script string, args ...string) *ledLogi
 		r.Close()
 	})
 	return l
+}
+
+// leadStandInGated starts the run of harness login claude --json on st, with
+// the leader held at the returned gate when it registers an input wait, until
+// the test releases the gate or ends. The release is registered after
+// leadStandInAs's cleanup, so it runs before it: that cleanup drains the run,
+// which ends only when the leader does, and the leader waits on the gate, so
+// a test that failed with the gate held would otherwise hang the package
+// until go test's timeout instead of reporting what failed.
+func leadStandInGated(t *testing.T, st store.API) (*ledLogin, *loginWaitReadyGate) {
+	t.Helper()
+	gate := &loginWaitReadyGate{API: heldStore{st}, entered: make(chan struct{}), released: make(chan struct{})}
+	l := leadStandInAs(t, &app{st: gate, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
+	t.Cleanup(gate.release)
+	return l, gate
 }
 
 // next is the next line the run prints, as the object it is.
@@ -619,14 +645,7 @@ func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate := &loginWaitReadyGate{API: heldStore{st}, entered: make(chan struct{}), release: make(chan struct{})}
-	released := false
-	t.Cleanup(func() {
-		if !released {
-			close(gate.release)
-		}
-	})
-	l := leadStandInAs(t, &app{st: gate, actor: "me"}, loginStandIn, "harness", "login", "claude", "--json")
+	l, gate := leadStandInGated(t, st)
 	l.need("choose")
 	l.answer(`{"choose":"Claude subscription"}`)
 	l.need("open_url")
@@ -640,8 +659,7 @@ func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
 		t.Fatalf("the input need printed before the wait was ready: %s", line)
 	default:
 	}
-	close(gate.release)
-	released = true
+	gate.release()
 	input := l.need("input")
 	login, _ := input["login"].(string)
 	if login == "" {
@@ -669,6 +687,38 @@ func TestHarnessLoginInputGivenThroughSecretAsk(t *testing.T) {
 	if strings.Contains(l.printed.String(), "good#s1") {
 		t.Errorf("what was given is printed:\n%s", l.printed.String())
 	}
+}
+
+// A test that fails with the gate held fails with its message, and does not
+// hang the package until go test's timeout: its end drains the run, which
+// ends only when the leader does, and the leader waits on the gate. The
+// subtest ends as such a test does, with the gate held, and the cleanup
+// leadStandInGated registered must have freed it by then. When it has not,
+// the drain it is stuck in is freed late by the fuse below, which fails the
+// subtest first, so the test fails after the fuse instead of hanging.
+func TestLeadStandInGatedFreesAHeldGateWhenItsTestEnds(t *testing.T) {
+	t.Run("ends with the gate held", func(t *testing.T) {
+		l, gate := leadStandInGated(t, storetest.New(t))
+		l.need("choose")
+		l.answer(`{"choose":"Claude subscription"}`)
+		l.need("open_url")
+		select {
+		case <-gate.entered:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the leader did not wait for the login registration")
+		}
+		// The fuse starts as the body ends, where the cleanups begin, and the
+		// first of them is the release. The subtest cannot finish before the
+		// fuse has released the gate, so its Error is never too late.
+		go func() {
+			select {
+			case <-gate.released:
+			case <-time.After(10 * time.Second):
+				t.Error("the test's cleanup did not free the gate the leader is held at: the drain of the run waited on it")
+				gate.release()
+			}
+		}()
+	})
 }
 
 // An input neither stdin nor the yard answers ends the login with a JSON
