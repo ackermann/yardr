@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -320,7 +321,9 @@ func TestStageAnswerFallback(t *testing.T) {
 	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 2}, "jo"); err != nil {
 		t.Fatalf("the operator's pick on the fallback ask: %v", err)
 	}
-	if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != "new" {
+	// The pick moves the bead by an outcome, back into the stage it began
+	// in: a round, as a done reported by the stage's agent would make.
+	if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != "new" || !maps.Equal(cur.Rounds, map[string]int{"new": 1, "review": 0}) {
 		t.Fatalf("bead = %+v, %v", cur, err)
 	}
 	if outcome, ok := stageAnswerAdvanced(t, s, b.ID, "new"); !ok || outcome != "changes" {

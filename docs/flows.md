@@ -319,9 +319,11 @@ as a repo flow that does not parse, when a limit:
   would make it name a stage the bead does not reach; a limit belongs on an
   outcome that sends work back.
 
-yardr reads, checks, stores and shows these words. It does not yet count
-rounds or send a bead to `then`, so a limit changes no bead's route until it
-does.
+yardr reads, checks, stores and shows these words. It counts a bead's rounds
+(`rounds` in `yardr bead show --json`: for each stage the bead has reached, how
+many times an outcome brought it back to that stage; a move by hand adds
+none), but does not yet send a bead to `then`, so a limit changes no bead's
+route until it does.
 
 ### done-safe and the security paths
 
