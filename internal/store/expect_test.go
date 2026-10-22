@@ -3,6 +3,7 @@ package store_test
 import (
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -358,5 +359,80 @@ func TestReusedPidIsNobodysPane(t *testing.T) {
 	// alone.
 	if _, err := s.Release(pane, b.ID, "not that pane", store.Expect{}, "mckean"); err != nil {
 		t.Fatalf("release from a process with a dead pane's pid: %v", err)
+	}
+}
+
+// merge-ok is the yard's permission to merge a pull request (merge-pr
+// merges only what carries it), and merge_head the commit a maintainer's
+// yes recorded: a bead's agent says them on its own bead only, whatever
+// actor the command names. Anyone else (no pane at all) is checked as
+// before, and any other label or metadata still goes anywhere.
+func TestMergeOKIsTheOwningSessionToSay(t *testing.T) {
+	t.Parallel()
+	s, ctx := flowDepot(t)
+	putFlow(t, s, "yard", "", outcomeFlow)
+	if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "b", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateBead(ctx, store.NewBead{Title: "c", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := s.Claim(ctx, a.ID, "builders", "new", "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// c carries the label before the pane is on record: over the socket
+	// the server reads the caller from its peer, so past MarkRunning
+	// every call of this process is the pane's.
+	if _, err := s.UpdateBead(ctx, c.ID, store.BeadPatch{AddLabels: []string{"merge-ok"}}, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// This test process is the shell of a's tab.
+	if err := s.MarkRunning(ctx, owner.ID, paneShell(t, "yard-a-new")); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, os.Getpid())
+	unset := store.Expect{}
+	sha := "9f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+	want := "may say merge-ok only on its own bead"
+
+	// Granting the permission or recording the yes on another bead is
+	// refused, and nothing changes.
+	for name, patch := range map[string]store.BeadPatch{
+		"grant": {AddLabels: []string{"merge-ok"}},
+		"yes":   {Metadata: map[string]any{"merge_head": sha}},
+	} {
+		if _, err := s.UpdateBead(pane, b.ID, patch, unset, "yard-a-new"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s of merge-ok on another bead from its pane: %v, want %q", name, err, want)
+		}
+	}
+	if got, _ := s.GetBead(ctx, b.ID); len(got.Labels) != 0 || len(got.Metadata) != 0 {
+		t.Fatalf("a refused merge-ok changed the bead: %+v", got)
+	}
+	// Taking it is refused the same way, and it stays on.
+	if _, err := s.UpdateBead(pane, c.ID, store.BeadPatch{RemoveLabel: []string{"merge-ok"}}, unset, "yard-a-new"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("ungrant of merge-ok on another bead from its pane: %v, want %q", err, want)
+	}
+	if got, _ := s.GetBead(ctx, c.ID); !slices.Contains(got.Labels, "merge-ok") {
+		t.Fatalf("a refused ungrant took merge-ok off: %+v", got)
+	}
+	// Its own bead the pane says it on, and anyone's pane still writes
+	// any other label or metadata anywhere.
+	if got, err := s.UpdateBead(pane, a.ID, store.BeadPatch{AddLabels: []string{"merge-ok"}, Metadata: map[string]any{"merge_head": sha}}, unset, "yard-a-new"); err != nil {
+		t.Fatalf("the pane's own merge-ok: %v", err)
+	} else if !strings.Contains(strings.Join(got.Labels, ","), "merge-ok") || got.Metadata["merge_head"] != sha {
+		t.Fatalf("the pane's own merge-ok is not on the bead: %+v", got)
+	}
+	if _, err := s.UpdateBead(pane, b.ID, store.BeadPatch{AddLabels: []string{"topic:x"}, Metadata: map[string]any{"seen": true}}, unset, "yard-a-new"); err != nil {
+		t.Fatalf("another label from the pane: %v", err)
 	}
 }

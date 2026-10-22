@@ -1219,7 +1219,8 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // with no live session. From a session's or a crew member's pane the
 // update is recorded as that session's actor or that crew member, whatever
 // actor says; from anywhere else, as given (paneAuthor). A bead's agent
-// may not change a bead's type or depot (checkFlowChange).
+// may not change a bead's type or depot (checkFlowChange), and may say
+// merge-ok, or record merge_head, only on its own bead (checkMergeOK).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -1295,6 +1296,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 		}
 		result, err = w.changeBead(id, actor, func(w *wtx, b *beadRow) (string, map[string]any, error) {
 			if err := w.checkFlowChange(ctx, b, p); err != nil {
+				return "", nil, err
+			}
+			if err := w.checkMergeOK(ctx, b, p); err != nil {
 				return "", nil, err
 			}
 			if err := w.check(ctx, exp, b); err != nil {
@@ -1921,6 +1925,36 @@ func (w *wtx) checkFlowChange(ctx context.Context, b *beadRow, p BeadPatch) erro
 	}
 	return fmt.Errorf("bead %s: the session %s of a bead's agent may not change a bead's %s, which chooses the flow it goes by, whatever actor the command names; ask the yardmaster: yardr bead note %s \"which %s, and why\"",
 		b.ID, sess.ID, what, b.ID, what)
+}
+
+// labelMergeOK says the yard may merge the pull request a pr bead tracks
+// (the contributors pack's approved stage, merge-pr); metaMergeHead is the
+// head commit a maintainer's yes recorded for it.
+const (
+	labelMergeOK  = "merge-ok"
+	metaMergeHead = "merge_head"
+)
+
+// checkMergeOK refuses a bead's agent (beadAgent) a patch that grants or
+// takes the merge-ok label, or records merge_head, on a bead its session
+// does not own. The label is the whole of the permission to merge the pull
+// request, so an agent that could say it on another bead could have the
+// yard merge a pull request nobody cleared: the reviewer says it on the
+// pull request it read, and a maintainer's yes is theirs. check alone lets
+// a pane write any bead no session owns, which a pull request waiting at
+// approved is.
+func (w *wtx) checkMergeOK(ctx context.Context, b *beadRow, p BeadPatch) error {
+	if !slices.Contains(p.AddLabels, labelMergeOK) && !slices.Contains(p.RemoveLabel, labelMergeOK) {
+		if _, ok := p.Metadata[metaMergeHead]; !ok {
+			return nil
+		}
+	}
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil || sess.Bead == b.UUID {
+		return err
+	}
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s, whatever actor the command names; the reviewer says it on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
+		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
 }
 
 // closeBead is CloseBead's write inside the caller's transaction, for the
