@@ -134,7 +134,9 @@ yard: `yardr user device rm <user> <device>`.
 
 Never over the link: model credentials and hook signing secrets, and the
 calls that carry them, `GiveSecret`, `ApproveAsk` and `ApproveSetup`. Those
-are answered at the yard's own machine, as on a LAN without TLS.
+are answered at the yard's own machine, as on a LAN without TLS. So is the
+grant list, `SourceGrants`: it carries no credential, but it is never read
+through the edge.
 
 ## Hosted and connected
 
