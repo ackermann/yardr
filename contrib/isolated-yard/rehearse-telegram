@@ -1,0 +1,380 @@
+#!/bin/sh
+# rehearse-telegram: rehearses the telegram pack end to end in an isolated
+# yard, against a stand-in for the Bot API that this repository ships
+# (contrib/isolated-yard/sources, internal/standin). One command, from any
+# directory of a yardr checkout:
+#
+#   contrib/isolated-yard/rehearse-telegram [--keep]
+#
+# The yard is `isolated-yard bare`, built from the checkout, so what it
+# rehearses is the checkout's commit; the pack is packs/telegram with its
+# `base:` line changed to the stand-in, which is the one line that differs
+# (the script checks it). The daemon, the CLI and the pack's own scripts are
+# the real ones. It is no live receipt: the stand-in is not Telegram, and the
+# real-API smoke test stays the operator's
+# (docs/design/2026-10-13-yardr-c55e-telegram-hears.md).
+#
+# What it runs, each with its checks on what the stand-in took:
+#
+#   delivery  an Update from the operator's chat reaches the yardmaster's inbox
+#   C1        yardr reply <seq> "..." --file reply.png: a photo, the words its caption
+#   C2        a reply of 1025 characters with two pictures and a document whose
+#             name holds ; and , : the text first as a message of its own, then
+#             each file, captionless, in order, the document under its name and type
+#   C3        a reply file whose name holds a line feed: refused before anything
+#             is stored or sent
+#   T1        yardr mail ada "..." --file mail.png: the daemon tells with the picture
+#   T2        a bead closed by a builder, a screenshot on its second of three
+#             notes: the newest picture goes with the bead's line
+#   T3        a mail with a 1280x9000 picture, which the stand-in refuses as the
+#             service does (width and height over 10000 together): the same words
+#             go alone, and the daemon says "user told without the picture"
+#
+# It prints every request the stand-in took, and for each upload the file it
+# was sent from: the SHA-256 and the byte count are the same, and the bytes the
+# stand-in serves back (GET /requests/<n>/file) are compared with the file.
+# It exits 1 if a check fails. A tell takes about 20 s (PushGrace), so a run
+# takes two minutes or so besides the builds. With --keep it leaves the yard
+# and the stand-in up for a look, and says how to end them.
+#
+# Needs go, curl, jq, perl (for a free port), file, and shasum or sha256sum:
+# the pack's scripts need curl, jq and file, and the gate perl. A port the
+# script takes is a free one on the loopback (the stand-in's, the hook
+# listener's): never 8791, yardr web's, or 8790, the hooks' suggestion.
+# The jq programs below, and the one sh -c body, are single-quoted on
+# purpose: their $ are for jq and for the shell inside the yard.
+# shellcheck disable=SC2016
+set -eu
+
+keep=
+case "${1:-}" in
+"") ;;
+--keep) keep=1 ;;
+*) echo "usage: rehearse-telegram [--keep]" >&2; exit 2 ;;
+esac
+
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/../.."
+
+for tool in go curl jq perl file; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "rehearse-telegram: $tool is not on PATH" >&2; exit 2; }
+done
+if command -v sha256sum >/dev/null 2>&1; then
+  sum256() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sum256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  echo "rehearse-telegram: neither sha256sum nor shasum is on PATH" >&2
+  exit 2
+fi
+
+token=123456:STANDIN-token-for-the-rehearsal
+chat=424242
+secret=rehearsal-webhook-secret
+doc='shed;log, v2.txt'
+
+D=
+addr=
+# cleanup ends what the script started: the stand-in by the pid it wrote,
+# then the yard, whose `down` stops the rest by its home and removes it. A
+# failed run says what the daemon and the stand-in had by then.
+cleanup() {
+  status=$?
+  trap - EXIT
+  if [ -n "$D" ] && [ -d "$D" ]; then
+    if [ "$status" -ne 0 ]; then
+      echo "--- the daemon's last lines, and what the stand-in holds:" >&2
+      tail -n 12 "$D/y/daemon.log" 2>/dev/null | cut -c1-240 >&2 || true
+      if [ -n "$addr" ]; then curl -sS --max-time 5 "http://$addr/requests" 2>/dev/null | jq -c '.requests[]' >&2 || true; fi
+    fi
+    if [ -n "$keep" ]; then
+      echo "the yard is kept: $D (the stand-in is pid $(cat "$D/sources.pid" 2>/dev/null || echo '?') at http://$addr). Look in it with $D/e yardr ...; end all of it with: $here/isolated-yard down $D"
+    else
+      if [ -f "$D/sources.pid" ]; then kill "$(cat "$D/sources.pid")" 2>/dev/null || true; fi
+      "$here/isolated-yard" down "$D" >&2 || echo "rehearse-telegram: the yard $D is still up; end it with: $here/isolated-yard down $D" >&2
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+die() { echo "rehearse-telegram: $*" >&2; exit 1; }
+# entries is how many files and directories a directory holds, 0 for none.
+entries() { find "$1" -mindepth 1 2>/dev/null | wc -l | tr -d ' '; }
+say() { printf '\n== %s\n' "$*"; }
+
+say "the yard: isolated-yard bare, built from this checkout"
+D=$("$here/isolated-yard" bare)
+E="$D/e"
+commit=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+dirty=$(git status --short 2>/dev/null | head -n 1 || true)
+echo "commit $commit$([ -n "$dirty" ] && echo ', with changes not committed (the yard is built from them)'), yard $D"
+echo "\$ D/e yardr version"; "$E" yardr version
+# A bare yard has no herdr on its PATH, so nothing in it can open a pane; the
+# only yard variable D/e passes is the home it works in.
+echo "\$ D/e sh -c 'command -v claude; command -v herdr; env | grep YARDR'"
+"$E" sh -c 'echo "claude: $(command -v claude)"; echo "herdr: $(command -v herdr || echo none)"; env | grep -E "^(YARDR|HERDR)" | sort'
+
+say "the stand-in: a bot API on a free loopback port, keeping its files under D/bot"
+go build -o "$D/bin/sources" ./contrib/isolated-yard/sources
+go build -o "$D/bin/pictures" ./contrib/isolated-yard/pictures
+# Built into D/bin, so that `down` would stop it with the rest were this
+# script killed; the pid is stopped first, by number, never by pattern.
+"$E" sources -bot-dir "$D/bot" -bot-token "$token" >"$D/sources.out" 2>&1 &
+echo $! >"$D/sources.pid"
+i=0
+until addr=$(sed -n 's/.* on \(127\.0\.0\.1:[0-9][0-9]*\)$/\1/p' "$D/sources.out") && [ -n "$addr" ]; do
+  i=$((i + 1))
+  [ "$i" -le 100 ] || die "the stand-in said no address in 10 s: $(cat "$D/sources.out")"
+  sleep 0.1
+done
+echo "bot API at http://$addr, token in the path, files under $D/bot"
+
+say "the pictures, and the document"
+"$E" pictures "$D/pics"
+printf 'shed log: three rows\n' >"$D/pics/$doc"
+mkdir "$D/refused"
+printf 'a file named with a control character\n' >"$D/refused/$(printf 'bad\nname.txt')"
+# What the scenarios send, by name: its size and SHA-256, to say which file an upload was.
+: >"$D/sent.lines"
+for f in "$D"/pics/*; do
+  jq -n -c --arg name "${f##*/}" --arg sha "$(sum256 "$f")" --argjson bytes "$(wc -c <"$f" | tr -d ' ')" \
+    '{($name): {bytes: $bytes, sha256: $sha}}' >>"$D/sent.lines"
+done
+jq -s 'add' "$D/sent.lines" >"$D/sent.json"
+
+say "the pack: packs/telegram, its base: pointed at the stand-in"
+mkdir "$D/pack"
+cp -R packs/telegram/. "$D/pack/"
+sed "s#^base: https://api.telegram.org\$#base: http://$addr#" packs/telegram/telegram.yaml >"$D/pack/telegram.yaml"
+diff -r packs/telegram "$D/pack" | sed 's/^/    /' || true
+[ "$(diff -r packs/telegram "$D/pack" | grep -c '^>')" -eq 1 ] || die "the pack copy should differ from packs/telegram in its base: line alone"
+
+say "the yard's setup: the operator ada, her chat, the bot's token, the hook"
+# Under D/e there is no USER, so every operator act names its actor, and the
+# yard has no operator until init is told one.
+ada() { "$E" yardr --actor ada "$@"; }
+"$E" yardr init --harness claude --operator ada >"$D/init.out" 2>&1 || { cat "$D/init.out" >&2; die "init failed"; }
+hookport=$(perl -MIO::Socket::INET -e '$s = IO::Socket::INET->new(Listen => 1, LocalAddr => "127.0.0.1", LocalPort => 0) or die; print $s->sockport')
+mkdir "$D/env"
+(
+  umask 077
+  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$token" >"$D/env/telegram.env"
+  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$token" >"$D/env/yardmaster.env"
+  printf 'TELEGRAM_CHAT_ID=%s\n' "$chat" >"$D/env/ada.env"
+  printf '%s\n' "$secret" >"$D/env/telegram.secret"
+)
+ada settings set hook_addr "127.0.0.1:$hookport" | head -n 1
+ada pack apply "$D/pack" --source-env "telegram=$D/env/telegram.env" --notify "ada=telegram,$D/env/ada.env" --yes >"$D/apply.out" 2>&1 || { tail -n 20 "$D/apply.out" >&2; die "pack apply failed"; }
+ada source list
+ada crew set yardmaster "env_file=$D/env/yardmaster.env" | head -n 1
+ada hook add telegram --source telegram --secret-file "$D/env/telegram.secret" | head -n 1
+ada subscribe yardmaster telegram --scope all --where type=message --where "chat=$chat"
+ada subscribe ada yardr --scope all --where state=done
+# The server reads hook_addr when it starts: it is stopped, and `daemon start`
+# starts it again with the daemon.
+ada server stop >/dev/null 2>&1 || true
+ada daemon start | head -n 1
+i=0
+until [ "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -X POST "http://127.0.0.1:$hookport/hooks/telegram" -d '{}' 2>/dev/null || true)" = 401 ]; do
+  i=$((i + 1))
+  [ "$i" -le 100 ] || die "the hook listener on 127.0.0.1:$hookport did not come up (see $D/y/server.log)"
+  sleep 0.2
+done
+echo "hook listener on 127.0.0.1:$hookport answers 401 without the secret"
+
+# ---- what the scenarios check ---------------------------------------------
+
+list() { curl -sS --max-time 10 "http://$addr/requests"; }
+# wait_for N waits until the stand-in holds N requests: a fuse of 120 s against
+# a hang, never the measure of anything.
+wait_for() {
+  i=0
+  while :; do
+    held=$(list | jq '.requests | length') || die "the stand-in does not answer at http://$addr/requests"
+    [ "$held" -ge "$1" ] && return 0
+    i=$((i + 1))
+    [ "$i" -le 120 ] || die "the stand-in holds $held requests after 120 s, wanted $1"
+    sleep 1
+  done
+}
+told() { grep -c 'msg="user told' "$D/y/daemon.log" 2>/dev/null || true; }
+wait_told() {
+  i=0
+  while [ "$(told)" -lt "$1" ]; do
+    i=$((i + 1))
+    [ "$i" -le 60 ] || die "the daemon has logged $(told) tells, wanted $1"
+    sleep 1
+  done
+}
+cat >"$D/receipt.jq" <<'JQ'
+def clip($n): if length > $n then .[0:$n] + "..." else . end;
+.requests[] | select(.n > $from) | . as $r
+| ($sent[0] | to_entries | map(select(.value.sha256 == $r.sha256)) | first | .key) as $file
+| "  #\($r.n)  \($r.method)  chat \($r.chat)  answered \($r.answer)"
+  + (if $r.text then "  text, \($r.text | length) characters: \($r.text | clip(40) | @json)" else "" end)
+  + (if $r.sha256 != null then
+       (if $r.caption then "  caption \($r.caption | clip(60) | @json)" else "  no caption" end)
+       + "\n        part \($r.filename | @json)  \($r.type)  \($r.bytes) bytes"
+       + (if $r.width then "  \($r.width)x\($r.height)" else "" end)
+       + "  sha256 \($r.sha256 | .[0:12])"
+       + (if $file then "  = \($file) as sent, \($sent[0][$file].bytes) bytes" else "  NOT A FILE THAT WAS SENT" end)
+     else "" end)
+  + (if $r.refusal then "\n        refused: \($r.refusal | @json)" else "" end)
+JQ
+# show FROM prints the requests after the FROMth.
+show() { list | jq -r --argjson from "$1" --slurpfile sent "$D/sent.json" -f "$D/receipt.jq"; }
+defs='def file($n): .sha256 == $sent[0][$n].sha256 and .bytes == $sent[0][$n].bytes;
+def photo($n): .method == "sendPhoto" and .answer == 200 and .chat == $chat and file($n);'
+checks=0
+failed=0
+pass() { checks=$((checks + 1)); printf '   ok    %s\n' "$1"; }
+flunk() { checks=$((checks + 1)); failed=$((failed + 1)); printf '   FAIL  %s\n' "$1"; [ -z "${2:-}" ] || printf '         %s\n' "$2"; }
+# expect N WHAT TEST: the Nth request the stand-in took satisfies the jq test.
+expect() {
+  req=$(list | jq -c --argjson n "$1" '.requests[] | select(.n == $n)')
+  if [ -n "$req" ] && printf '%s\n' "$req" | jq -e --slurpfile sent "$D/sent.json" --arg chat "$chat" --arg words "$words" --arg long "$long" --arg doc "$doc" --arg bead "$bead" "$defs $3" >/dev/null; then
+    pass "$2"
+  else
+    flunk "$2" "request $1: ${req:-none}"
+  fi
+}
+words=; long=; bead=
+
+say "delivery: an Update from the operator's chat (id $chat) reaches the yardmaster"
+update='{"update_id":1001,"message":{"message_id":5,"from":{"id":424242,"is_bot":false,"first_name":"Ada"},"chat":{"id":424242,"type":"private","first_name":"Ada"},"date":1761100000,"text":"Can the shed land on Monday? Send me a picture."}}'
+code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://127.0.0.1:$hookport/hooks/telegram" \
+  -H 'Content-Type: application/json' -H "X-Telegram-Bot-Api-Secret-Token: $secret" -d "$update")
+[ "$code" = 200 ] || die "the delivery was answered HTTP $code, not 200"
+seq=
+i=0
+while [ -z "$seq" ]; do
+  seq=$(ada --json inbox --crew yardmaster | jq -r '.events[0].seq // empty')
+  i=$((i + 1))
+  [ -n "$seq" ] || [ "$i" -le 30 ] || die "the yardmaster's inbox holds nothing after 30 s"
+  [ -n "$seq" ] || sleep 1
+done
+echo "delivered, HTTP 200; the yardmaster's inbox holds it as $seq"
+# The reply speaks as the crew member and takes the bot's token from the
+# environment, where a crew session has it.
+reply() { run_text=$1; shift; "$E" env TELEGRAM_BOT_TOKEN="$token" yardr --actor ada reply "$seq" "$run_text" --crew yardmaster "$@"; }
+
+say "C1: yardr reply $seq \"Yes, the shed lands Monday. Here it is, as built.\" --file reply.png"
+b=$(list | jq '.requests | length')
+words='Yes, the shed lands Monday. Here it is, as built.'
+out=$(reply "$words" --file "$D/pics/reply.png" 2>&1) || die "reply failed: $out"
+show "$b"
+expect $((b + 1)) 'a reply with a picture goes by sendPhoto, the words its caption, the file the one sent' \
+  'photo("reply.png") and .caption == $words'
+
+say "C2: yardr reply $seq <1025 characters> --file reply.png --file second.png --file '$doc'"
+b=$(list | jq '.requests | length')
+long=$(awk 'BEGIN { s = ""; while (length(s) < 1025) s = s "The shed, in words. "; print substr(s, 1, 1025) }')
+out=$(reply "$long" --file "$D/pics/reply.png" --file "$D/pics/second.png" --file "$D/pics/$doc" 2>&1) || die "reply failed: $out"
+show "$b"
+expect $((b + 1)) 'the text goes whole, first, as a message of its own (a caption holds 1024)' \
+  '.method == "sendMessage" and .answer == 200 and .chat == $chat and .text == $long'
+expect $((b + 2)) 'then the first picture, captionless' 'photo("reply.png") and .caption == null'
+expect $((b + 3)) 'then the second, captionless' 'photo("second.png") and .caption == null'
+expect $((b + 4)) 'then the document, captionless, under its own name and type' \
+  '.method == "sendDocument" and .answer == 200 and .chat == $chat and file($doc) and .filename == $doc and .type == "text/plain" and .caption == null'
+
+say "C3: yardr reply $seq \"x\" --file 'bad<LF>name.txt' (a name with a line feed)"
+b=$(list | jq '.requests | length')
+blobs=$(entries "$D/y/blobs")
+if out=$(reply x --file "$D/refused/$(printf 'bad\nname.txt')" 2>&1); then
+  flunk 'a file named with a control character is refused' "it was taken: $out"
+else
+  printf '%s\n' "$out" | cat -v | sed 's/^/  /'
+  if [ "$(entries "$D/y/blobs")" = "$blobs" ] && [ "$(list | jq '.requests | length')" = "$b" ]; then
+    pass "refused before anything was stored or sent (blobs held $blobs, stand-in requests $b, before and after)"
+  else
+    flunk 'refused before anything was stored or sent' "the yard now holds $(entries "$D/y/blobs") blobs, the stand-in $(list | jq '.requests | length') requests"
+  fi
+fi
+
+say "T1: yardr --actor yardmaster mail ada \"the shed lands Monday; plans attached\" --file mail.png"
+b=$(list | jq '.requests | length')
+words='the shed lands Monday; plans attached'
+"$E" yardr --actor yardmaster mail ada "$words" --file "$D/pics/mail.png" | head -n 1
+wait_for $((b + 1))
+wait_told 1
+show "$b"
+expect $((b + 1)) 'the daemon told ada with the picture: sendPhoto, the title and the words its caption' \
+  'photo("mail.png") and (.caption | startswith("mail from yardmaster\n")) and (.caption | endswith($words))'
+
+say "T2: a bead closed by a builder, a screenshot on its second of three notes"
+b=$(list | jq '.requests | length')
+bead=$(ada --json bead create "The shed, built" | jq -r .id)
+# Her own acts are never told to her, so the builder closes it.
+"$E" yardr --actor yd-builder bead note "$bead" "plans, no picture" | head -n 1
+"$E" yardr --actor yd-builder bead note "$bead" "The shed, as built (screenshot)" --file "$D/pics/done.png" | head -n 1
+"$E" yardr --actor yd-builder bead note "$bead" "landed; nothing more to show" | head -n 1
+"$E" yardr --actor yd-builder bead close "$bead" --reason landed
+wait_for $((b + 1))
+wait_told 2
+show "$b"
+expect $((b + 1)) 'the daemon told ada with the newest picture on the bead: sendPhoto of done.png, the bead and its title in the caption' \
+  'photo("done.png") and (.caption | contains($bead)) and (.caption | contains("The shed, built"))'
+
+say "T3: yardr --actor yardmaster mail ada \"a very long page, full length\" --file tall.png (1280x9000)"
+b=$(list | jq '.requests | length')
+words='a very long page, full length'
+"$E" yardr --actor yardmaster mail ada "$words" --file "$D/pics/tall.png" | head -n 1
+wait_for $((b + 2))
+wait_told 4
+show "$b"
+expect $((b + 1)) 'the stand-in refused the picture as the service does: 400, 1280x9000 is over 10000 in width and height together' \
+  '.method == "sendPhoto" and .answer == 400 and .refusal == "Bad Request: PHOTO_INVALID_DIMENSIONS" and file("tall.png") and .width == 1280 and .height == 9000'
+expect $((b + 2)) 'and the same words went on alone, by sendMessage' \
+  '.method == "sendMessage" and .answer == 200 and .chat == $chat and (.text | endswith($words))'
+
+# ---- what the daemon logged, and what was left behind -----------------------
+
+say "the daemon's lines about telling (D/y/daemon.log)"
+grep 'msg="user told' "$D/y/daemon.log" | sed 's/^time=[^ ]* //' >"$D/told.lines"
+cut -c1-210 "$D/told.lines"
+if [ "$(wc -l <"$D/told.lines" | tr -d ' ')" = 4 ] \
+  && sed -n 1p "$D/told.lines" | grep -q '^level=INFO msg="user told"' \
+  && sed -n 2p "$D/told.lines" | grep -q '^level=INFO msg="user told"' \
+  && sed -n 3p "$D/told.lines" | grep -q '^level=WARN msg="user told without the picture"' \
+  && sed -n 4p "$D/told.lines" | grep -q '^level=INFO msg="user told"'; then
+  pass 'T1 and T2 were told with their pictures; T3 was told without the picture, and then told'
+else
+  flunk 'the daemon logs two tells, then "user told without the picture" and a tell' 'see the lines above'
+fi
+if grep -q "$chat" "$D/told.lines" || grep -q 'STANDIN-token' "$D/told.lines"; then
+  flunk 'no line names the chat or the bot token' 'see the lines above'
+else
+  pass 'no line names the chat or the bot token'
+fi
+pushfails=$("$E" yardr --actor ada events 2>&1 | grep -c push_failed || true)
+if [ "$pushfails" = 0 ]; then
+  pass 'no push_failed event: the refused picture cost no tell'
+else
+  flunk 'no push_failed event' "$pushfails found"
+fi
+left=$(entries "$D/y/tmp")
+if [ "$left" = 0 ]; then
+  pass "nothing is left under the yard's tmp (the replies' links to their files are gone)"
+else
+  flunk "nothing is left under the yard's tmp" "$left entries"
+fi
+
+say "byte for byte: each upload the stand-in kept, compared with the file it was sent from"
+list | jq -r --slurpfile sent "$D/sent.json" '.requests[] | select(.sha256 != null) | . as $r
+  | ($sent[0] | to_entries | map(select(.value.sha256 == $r.sha256)) | first | .key // "") as $f | "\($r.n)\t\($f)"' >"$D/uploads.tsv"
+tab=$(printf '\t')
+while IFS=$tab read -r n f; do
+  if [ -n "$f" ] && curl -sS --max-time 20 -o "$D/got" "http://$addr/requests/$n/file" && cmp -s "$D/got" "$D/pics/$f"; then
+    pass "request #$n, served back by the stand-in, is $f: $(wc -c <"$D/got" | tr -d ' ') bytes, the same as the file"
+  else
+    flunk "request #$n is a file that was sent" "no file of the scenarios has its bytes"
+  fi
+done <"$D/uploads.tsv"
+[ "$(grep -c . "$D/uploads.tsv")" = "$(list | jq '[.requests[] | select(.sha256 != null)] | length')" ] || flunk 'every upload was compared'
+
+say "rehearsal: $checks checks, $failed failed (commit $commit; the stand-in is not Telegram, this is no live receipt)"
+[ "$failed" -eq 0 ] || exit 1
