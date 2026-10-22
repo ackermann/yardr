@@ -530,24 +530,29 @@ device decides who may speak as a person. The user themselves does not add
 one. The operator and the user whose it is remove one. Like every such
 check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 
-**What a device reads and writes.** The 22 calls of
-[api.md](api.md#the-calls), the event stream and the files of mail, and
-nothing else the yard's socket serves: no move of a bead and no setting is
-on the listener, whoever calls. A device of the operator has two calls
-more, and no other device has them
-([api.md](api.md#for-the-operator-alone)). One gives the credential a
+**What a device reads and writes.** The calls of
+[api.md](api.md#the-calls), the event stream and the files of its user's
+own mail, of notes and of kept hook deliveries
+([api.md](api.md#over-the-network)), and nothing else the yard's socket
+serves: no move of a bead and no setting is on the listener, whoever
+calls. A device of the operator has more calls, and no other device has
+them ([api.md](api.md#for-the-operator-alone)). It gives the credential a
 [secret ask](chat.md#questions-for-you) asks for, typed where the operator
-sits and written by the yard into the source's file. The other approves a
+sits and written by the yard into the source's file. It approves a
 [run ask](chat.md#questions-for-you), and the yard then runs the one
-command that ask holds, as the operator. That is the only way a command of
-the operator's is run through the listener, and the commands it can be are
-a fixed list, which the table below has whole. The giving is there too for a
-device of any user for one kind of ask: the one for that user's [own
-address in a source](#told-outside-the-yard), which goes to a file of
-theirs and to no credential of the yard. No approval is there for a device
-of another user, also not of a subscription of their own, which they
-approve at the yard. No call reads a credential or an address back, for
-any device.
+command that ask holds, as the operator. It approves a [setup
+ask](chat.md#setting-up-a-packs-sources) with the preset pick and the
+account together, and the yard then applies the pack, takes the account
+and grants the preset picked, as the operator. It reads every grant of the
+yard's sources, the whole of who may call what. Approving is the only way
+a command of the operator's is run through the listener, and the commands
+a run ask may hold are a fixed list, which the table below has whole. The
+giving is there too for a device of any user for one kind of ask: the one
+for that user's [own address in a source](#told-outside-the-yard), which
+goes to a file of theirs and to no credential of the yard. No approval is
+there for a device of another user, also not of a subscription of their
+own, which they approve at the yard. No call reads a credential or an
+address back, for any device.
 
 It writes as its user and as nobody else: mail to a crew member, a user or
 a name a linked yard exposes, an answer to an ask (a pick, words, put aside,
