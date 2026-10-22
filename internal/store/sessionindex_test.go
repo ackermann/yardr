@@ -19,8 +19,8 @@ import (
 // sameSessionAnswers fails unless the store answers through its pane and
 // pending indexes as a walk of every session does: the two indexes hold
 // the keys a walk would put there, the pane of each of pids and the session
-// a call from it is checked as are the walk's, and so are Unstopped and
-// ClosedWithWorkspace.
+// a call from it is checked as are the walk's, and so are Unstopped,
+// ClosedWithWorkspace and Uncounted.
 func sameSessionAnswers(t *testing.T, s *store.Store, pids []int, after string) {
 	t.Helper()
 	ctx := context.Background()
@@ -70,6 +70,7 @@ func sameSessionAnswers(t *testing.T, s *store.Store, pids []int, after string) 
 	for name, lists := range map[string][2]func() ([]store.Session, error){
 		"Unstopped":           {func() ([]store.Session, error) { return s.Unstopped(ctx) }, s.UnstoppedWalk},
 		"ClosedWithWorkspace": {func() ([]store.Session, error) { return s.ClosedWithWorkspace(ctx) }, s.ClosedWithWorkspaceWalk},
+		"Uncounted":           {func() ([]store.Session, error) { return s.Uncounted(ctx) }, s.UncountedWalk},
 	} {
 		got, err := lists[0]()
 		want, werr := lists[1]()
@@ -95,7 +96,8 @@ func sessionIDs(ss []store.Session) []string {
 // or without, with a worktree, a dir or nothing on disk, pids used again by
 // later sessions and by a session's next handle, ends of every kind
 // (died, failed, released, the bead closed under it), stops (of live
-// sessions too), cleans, start times moved, prunes, and opens of the file
+// sessions too), counts recorded for the stopped sessions whose handle says
+// one is due, cleans, start times moved, prunes, and opens of the file
 // as a build from before the indexes left it. Two of the pids are this
 // process and its parent, so a pane is found alive as well.
 //
@@ -159,6 +161,9 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 			h["worktree"] = "/tmp/w"
 		case 1:
 			h["dir"] = "/tmp/d"
+		}
+		if rng.Intn(4) == 0 {
+			h["count_due"] = map[string]any{"stopped_at": "2026-10-22T08:00:00Z"}
 		}
 		return h
 	}
@@ -249,6 +254,13 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 			}
 			return s.MarkStopped(ctx, id)
 		}},
+		{"record the usage", func() error {
+			id := session()
+			if err := is(id, func(sess *store.Session) bool { return sess.Stopped && sess.Handle["count_due"] != nil }); err != nil {
+				return err
+			}
+			return s.RecordUsage(ctx, id, map[string]any{"input": 10, "fresh_input": 4, "output": 2, "cache_read": 6, "cache_write": 0})
+		}},
 		{"clean", func() error {
 			id := session()
 			if err := is(id, func(sess *store.Session) bool { return sess.Stopped && !sess.Cleaned }); err != nil {
@@ -274,7 +286,7 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 	same("setup")
 	ok := map[string]int{}
 	writes := 0
-	var seen struct{ pane, shared, unstopped, workspace, pruned int }
+	var seen struct{ pane, shared, unstopped, workspace, uncounted, pruned int }
 	for step := 0; step < 600; step++ {
 		if step == 200 || step == 400 {
 			must(s.DropPaneAndPendingIndexes())
@@ -315,6 +327,9 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 		if ws, _ := s.ClosedWithWorkspace(ctx); len(ws) > 0 {
 			seen.workspace++
 		}
+		if due, _ := s.Uncounted(ctx); len(due) > 0 {
+			seen.uncounted++
+		}
 	}
 	same("the last write")
 	for _, op := range ops {
@@ -325,8 +340,8 @@ func TestSessionIndexesMatchAWalkAfterEveryWrite(t *testing.T) {
 	all, err := s.Sessions(ctx, true)
 	must(err)
 	seen.pruned = len(sessions) - len(all)
-	if seen.pane == 0 && peer.HaveStat() || seen.shared == 0 || seen.unstopped == 0 || seen.workspace == 0 || seen.pruned == 0 || len(all) == 0 {
-		t.Fatalf("seed %d: the steps that found a running pane, a pid two sessions name, an unstopped session, a closed bead's workspace: %+v, and %d sessions are left; the test wants each", seed, seen, len(all))
+	if seen.pane == 0 && peer.HaveStat() || seen.shared == 0 || seen.unstopped == 0 || seen.workspace == 0 || seen.uncounted == 0 || seen.pruned == 0 || len(all) == 0 {
+		t.Fatalf("seed %d: the steps that found a running pane, a pid two sessions name, an unstopped session, a closed bead's workspace, a count due: %+v, and %d sessions are left; the test wants each", seed, seen, len(all))
 	}
 }
 
@@ -447,7 +462,7 @@ func TestPaneIndexFollowsTheHandle(t *testing.T) {
 	sameSessionAnswers(t, s, []int{4000001, 4000002, 4000003}, "the handles changed")
 }
 
-// The dispatcher's two listings read the sessions it is not done with,
+// The dispatcher's three listings read the sessions it is not done with,
 // however many the store keeps.
 func TestPendingListingsDoNotReadDoneSessions(t *testing.T) {
 	t.Parallel()
@@ -477,7 +492,10 @@ func TestPendingListingsDoNotReadDoneSessions(t *testing.T) {
 	if ws, err := s.ClosedWithWorkspace(ctx); err != nil || len(ws) != 0 {
 		t.Fatalf("closed with workspace = %v %v, want none", sessionIDs(ws), err)
 	}
-	if read := own.PendingReads() - before; read != 2 {
-		t.Fatalf("the two listings read %d sessions, want the pending one, twice", read)
+	if due, err := s.Uncounted(ctx); err != nil || len(due) != 0 {
+		t.Fatalf("uncounted = %v %v, want none: the pending session is not stopped", sessionIDs(due), err)
+	}
+	if read := own.PendingReads() - before; read != 3 {
+		t.Fatalf("the three listings read %d sessions, want the pending one, three times", read)
 	}
 }

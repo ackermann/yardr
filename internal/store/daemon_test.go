@@ -49,6 +49,9 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		"SetHandle": func() error {
 			return s.SetHandle(other, "no-such-session", map[string]any{"agent": "jo"})
 		},
+		"RecordUsage": func() error {
+			return s.RecordUsage(other, "no-such-session", map[string]any{"input": 1})
+		},
 		"MarkCleaned": func() error {
 			return s.MarkCleaned(other, "no-such-session")
 		},
@@ -95,7 +98,7 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 			return s.MarkStopped(other, "no-such-session")
 		},
 	}
-	for _, method := range []string{"Claim", "MarkRunning", "SetHandle", "MarkCleaned", "CrewStartingFor",
+	for _, method := range []string{"Claim", "MarkRunning", "SetHandle", "RecordUsage", "MarkCleaned", "CrewStartingFor",
 		"CrewStartedFor", "CrewSettledFor", "CrewStatusFor", "SetCrewHandleFor",
 		"CrewGoneFor", "CrewLeftFor", "CrewStartFailedFor",
 		"MarkRotationAskedFor", "MarkContextAskedFor", "SetContextFor", "MarkNotifiedFor",

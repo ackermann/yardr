@@ -166,13 +166,14 @@ const (
 // a client of the socket could otherwise log a redirect that never happened.
 const RoundsReached = "rounds_reached"
 
-// DispatchKinds are the events LogDispatch accepts: what the daemon and its
-// runners report about the work they supervise, none of which changes state.
-// move_refused is the store's own (see Store.refused) and is here as what
-// it is: a report on a session that changes nothing.
+// DispatchKinds are events the daemon and its runners report about the work
+// they supervise. Most are accepted by LogDispatch; session_usage is written
+// only by RecordUsage with the handle change it records. move_refused is the
+// store's own (see Store.refused) and is here as what it is: a report on a
+// session that changes nothing.
 var DispatchKinds = []string{
 	"daemon_replaced", "daemon_started", "replace_skipped",
-	"session_prompted", "session_harness_starting", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_idle_nudge", "session_aged", "session_stalled", "session_harness_error", "session_harness_dialog", "session_harness_retry", "session_model_mismatch", "session_snoozed",
+	"session_prompted", "session_harness_starting", "session_prompt_lost", "session_prompt_typed", "session_prompt_gave_up", "session_blocked", "session_unblocked", "session_idle", "session_idle_nudge", "session_aged", "session_stalled", "session_harness_error", "session_harness_dialog", "session_harness_retry", "session_model_mismatch", "session_snoozed", "session_usage",
 	"move_refused",
 	"runtime_down", "runtime_up",
 	"backup_failed", "install_failed", "rolled_back", "base_diverged",
@@ -191,6 +192,9 @@ var DispatchKinds = []string{
 // the report is recorded as that session's actor or that crew member,
 // whatever actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) LogDispatch(ctx context.Context, bead, kind, actor string, data map[string]any) error {
+	if kind == "session_usage" {
+		return fmt.Errorf("session_usage is recorded by RecordUsage")
+	}
 	if !slices.Contains(DispatchKinds, kind) {
 		return fmt.Errorf("event kind %q is not a dispatch event", kind)
 	}

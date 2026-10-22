@@ -111,6 +111,7 @@ type API interface {
 	EndSession(ctx context.Context, sessionID, state, reason string) error
 	MarkStopped(ctx context.Context, sessionID string) error
 	SetHandle(ctx context.Context, sessionID string, handle map[string]any) error
+	RecordUsage(ctx context.Context, sessionID string, usage map[string]any) error
 	MarkCleaned(ctx context.Context, sessionID string) error
 	SnoozeSession(ctx context.Context, sessionID string, dur time.Duration, why, actor string) (time.Time, error)
 	GetSession(ctx context.Context, id string) (*Session, error)
@@ -118,6 +119,7 @@ type API interface {
 	ListSessions(ctx context.Context, f SessionFilter) ([]Session, error)
 	Unstopped(ctx context.Context) ([]Session, error)
 	ClosedWithWorkspace(ctx context.Context) ([]Session, error)
+	Uncounted(ctx context.Context) ([]Session, error)
 	FailureCount(ctx context.Context, bead, stage string) (int, error)
 
 	Events(ctx context.Context, bead string, limit int) ([]Event, error)

@@ -108,6 +108,7 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 		}},
 		{"EndSession", func() error { return c.EndSession(ctx, sess.ID, "aborted", "an agent ends itself") }},
 		{"MarkStopped", func() error { return c.MarkStopped(ctx, sess.ID) }},
+		{"RecordUsage", func() error { return c.RecordUsage(ctx, sess.ID, map[string]any{"input": 1}) }},
 		{"FoldBeads", func() error {
 			_, err := c.FoldBeads(ctx, []string{b.ID}, store.FoldOptions{To: "backlog"}, "jo")
 			return err
@@ -131,8 +132,8 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 	if _, err := st.GetFlow(ctx, "skip"); err == nil {
 		t.Error("the refused PutFlow stored a flow")
 	}
-	if got, err := st.GetSession(ctx, sess.ID); err != nil || got.State != "running" || got.Stopped {
-		t.Errorf("session after refused writes = %+v, %v: want it running", got, err)
+	if got, err := st.GetSession(ctx, sess.ID); err != nil || got.State != "running" || got.Stopped || got.Handle["usage"] != nil {
+		t.Errorf("session after refused writes = %+v, %v: want it running, with no usage", got, err)
 	}
 	if got, err := st.GetBead(ctx, b.ID); err != nil || store.PinnedFlow(got) != "" || got.Status != "open" {
 		t.Errorf("bead after the refused pin and fold = %+v, %v: want no pin, and open", got, err)

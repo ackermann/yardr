@@ -8,16 +8,19 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/store"
 )
 
 // Handle keys the dispatcher writes and Usage reads, as harnessKind is one the
 // runner writes: the session id of the agent, kept on the handle because herdr
 // no longer knows the agent once its tab is closed; the entry that marks a
-// stopped session as due for its count; and in that entry the time up to which
-// the count reads, for a session whose agent was left running.
+// stopped session as due for its count, which the store names because it
+// takes the entry off when it records the count (store.CountDue); and in that
+// entry the time up to which the count reads, for a session whose agent was
+// left running.
 const (
 	agentSession = "agent_session"
-	countDue     = "count_due"
+	countDue     = store.CountDue
 	countUntil   = "until"
 )
 

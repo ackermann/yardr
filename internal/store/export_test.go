@@ -42,6 +42,13 @@ func (s *Store) BulkSessions(n int, bead, group, state string, ended time.Time) 
 	})
 }
 
+// PutSession writes sess as it is, through the indexes and with no check
+// that its bead is there, so a test can have a session the store never made
+// itself, one whose bead is gone.
+func (s *Store) PutSession(sess Session) error {
+	return s.db.Update(func(tx *bolt.Tx) error { return putSession(tx, &sess) })
+}
+
 // DropSessionIndex removes the live session index, as a store from before
 // it lacks it.
 func (s *Store) DropSessionIndex() error {
@@ -145,7 +152,8 @@ func (s *Store) PendingIndexWalk() (ks []string) {
 	_ = s.db.View(func(tx *bolt.Tx) error {
 		return each(tx, bSessions, "", func(k []byte, sess *Session) error {
 			if !sess.live() && !sess.Stopped ||
-				sess.Stopped && !sess.Cleaned && (sess.Handle["worktree"] != nil || sess.Handle["dir"] != nil) {
+				sess.Stopped && !sess.Cleaned && (sess.Handle["worktree"] != nil || sess.Handle["dir"] != nil) ||
+				sess.Stopped && sess.Handle["count_due"] != nil {
 				ks = append(ks, string(k))
 			}
 			return nil
@@ -238,11 +246,15 @@ func (s *Store) PaneSessionWalk(pid int) (sess *Session, err error) {
 	return sess, err
 }
 
-// UnstoppedWalk and ClosedWithWorkspaceWalk list what Unstopped and
-// ClosedWithWorkspace do, as they did before the pending index: by a walk of
-// every session the store keeps.
+// UnstoppedWalk, ClosedWithWorkspaceWalk and UncountedWalk list what
+// Unstopped, ClosedWithWorkspace and Uncounted do, as they did before the
+// pending index: by a walk of every session the store keeps.
 func (s *Store) UnstoppedWalk() ([]Session, error) {
 	return s.sessionsWhere(false, func(_ *bolt.Tx, sess *Session) bool { return !sess.live() && !sess.Stopped })
+}
+
+func (s *Store) UncountedWalk() ([]Session, error) {
+	return s.sessionsWhere(false, func(_ *bolt.Tx, sess *Session) bool { return sess.Stopped && sess.Handle["count_due"] != nil })
 }
 
 func (s *Store) ClosedWithWorkspaceWalk() ([]Session, error) {

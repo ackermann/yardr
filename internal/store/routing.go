@@ -1728,6 +1728,19 @@ const (
 	SnoozeCount = "snooze_count"
 )
 
+// CountDue is a key of a session's handle: the entry that says its agent's
+// count of tokens is due, written when the dispatcher stops the session and
+// taken off by RecordUsage once the count is recorded. A stopped session
+// that has it is pending (Uncounted lists it), so a pass reads these and not
+// every session the store keeps. It is named here, with the record that
+// carries the handle, because the dispatcher writes it, the runner reads it
+// and the store takes it off.
+const CountDue = "count_due"
+
+// usageKey is the key of a session's handle that holds what its agent used,
+// as RecordUsage was given it.
+const usageKey = "usage"
+
 // The bounds of a snooze, so a stuck agent cannot hide behind one: how
 // long one waits, and how many in a row without the pane changing.
 const (
@@ -1821,20 +1834,24 @@ func (s Session) paneKeys() []string {
 }
 
 // unstopped reports an ended session whose runner resources are still up,
-// and workspaceLeft a stopped one whose runner left something on disk that
+// workspaceLeft a stopped one whose runner left something on disk that
 // has not been cleaned up: a worktree (handle.worktree), or a brief in a
-// dir depot's directory (handle.dir).
+// dir depot's directory (handle.dir), and uncounted a stopped one whose
+// agent's count is due and not yet recorded (handle.count_due, which
+// RecordUsage takes off).
 func (s Session) unstopped() bool { return !s.live() && !s.Stopped }
 
 func (s Session) workspaceLeft() bool {
 	return s.Stopped && !s.Cleaned && (s.Handle["worktree"] != nil || s.Handle["dir"] != nil)
 }
 
-// pending reports a session the daemon is not done with: one Unstopped or
-// ClosedWithWorkspace may list. It is the two listings' own conditions and
-// nothing more, so the index answers as a walk of every session would in
-// any state a session row can be in.
-func (s Session) pending() bool { return s.unstopped() || s.workspaceLeft() }
+func (s Session) uncounted() bool { return s.Stopped && s.Handle[CountDue] != nil }
+
+// pending reports a session the daemon is not done with: one Unstopped,
+// ClosedWithWorkspace or Uncounted may list. It is the three listings' own
+// conditions and nothing more, so the index answers as a walk of every
+// session would in any state a session row can be in.
+func (s Session) pending() bool { return s.unstopped() || s.workspaceLeft() || s.uncounted() }
 
 // putSession writes sess and keeps it in, or out of, the live, pane and
 // pending indexes, and in those by bead and by start. Every write of a session by a running store goes
@@ -2252,6 +2269,42 @@ func (s *Store) SetHandle(ctx context.Context, sessionID string, handle map[stri
 	})
 }
 
+// RecordUsage records what a stopped session's agent used, in the one write
+// that finishes its count: usage goes on the session's handle, the count_due
+// that kept the session pending comes off it, and a session_usage event on
+// the session's bead says the same to the route report. Done in separate
+// writes, a daemon that died between two would leave a count on a handle no
+// report heard of, or an event for a session that is read again and counted
+// twice. A session whose handle has a usage already is left as it is and
+// logs nothing, so a pass that read Uncounted before another recorded the
+// session counts it once.
+//
+// usage is what the daemon read, or the reason it has none to give: the
+// store keeps it as it is given and reads none of it. The daemon's alone
+// (daemonOnly), as SetHandle is: a count a pane could write would be a
+// bead's agent choosing what its bead cost.
+func (s *Store) RecordUsage(ctx context.Context, sessionID string, usage map[string]any) error {
+	if err := s.daemonOnly(ctx, "RecordUsage"); err != nil {
+		return err
+	}
+	return s.changeSession(sessionID, func(w *wtx, sess *Session) error {
+		if _, counted := sess.Handle[usageKey]; counted {
+			return nil
+		}
+		if len(usage) == 0 {
+			return fmt.Errorf("usage is empty: give what the session used, or why there is no count")
+		}
+		if sess.Handle == nil {
+			sess.Handle = map[string]any{}
+		}
+		sess.Handle[usageKey] = usage
+		delete(sess.Handle, CountDue)
+		return w.event(sess.Bead, "session_usage", "yard", map[string]any{
+			"session": sessionID, "group": sess.Group, "stage": sess.Stage, "kind": sess.Kind, "usage": usage,
+		})
+	})
+}
+
 // MarkCleaned records that a closed bead's workspace was handled, so it is
 // attempted once. The daemon's alone (daemonOnly): only it cleans up.
 func (s *Store) MarkCleaned(ctx context.Context, sessionID string) error {
@@ -2545,6 +2598,13 @@ func (s *Store) ClosedWithWorkspace(ctx context.Context) ([]Session, error) {
 		ok, _ := get(tx, bBeads, sess.Bead, &b)
 		return ok && b.Status == "closed"
 	})
+}
+
+// Uncounted lists stopped sessions whose agent's count of tokens is due and
+// not yet recorded (handle.count_due, which RecordUsage takes off), read
+// through the pending index as Unstopped is.
+func (s *Store) Uncounted(ctx context.Context) ([]Session, error) {
+	return s.sessionsWhere(true, func(_ *bolt.Tx, sess *Session) bool { return sess.uncounted() })
 }
 
 // FailureCount is how many sessions have died or failed for the bead in

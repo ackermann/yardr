@@ -293,6 +293,9 @@ func (c *Client) MarkStopped(ctx context.Context, sessionID string) error {
 func (c *Client) SetHandle(ctx context.Context, sessionID string, handle map[string]any) error {
 	return c.call(ctx, "SetHandle", nil, sessionID, handle)
 }
+func (c *Client) RecordUsage(ctx context.Context, sessionID string, usage map[string]any) error {
+	return c.call(ctx, "RecordUsage", nil, sessionID, usage)
+}
 func (c *Client) MarkCleaned(ctx context.Context, sessionID string) error {
 	return c.call(ctx, "MarkCleaned", nil, sessionID)
 }
@@ -313,6 +316,9 @@ func (c *Client) Unstopped(ctx context.Context) ([]store.Session, error) {
 }
 func (c *Client) ClosedWithWorkspace(ctx context.Context) ([]store.Session, error) {
 	return callV[[]store.Session](c, ctx, "ClosedWithWorkspace")
+}
+func (c *Client) Uncounted(ctx context.Context) ([]store.Session, error) {
+	return callV[[]store.Session](c, ctx, "Uncounted")
 }
 func (c *Client) FailureCount(ctx context.Context, bead, stage string) (int, error) {
 	return callV[int](c, ctx, "FailureCount", bead, stage)
