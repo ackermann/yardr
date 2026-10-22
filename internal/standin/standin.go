@@ -24,6 +24,10 @@
 // /1/messages.json, for a declared source with a notify key, as a JSON
 // body or as a multipart form that carries a picture: see Message.
 //
+// It is a chat service's bot API at /bot<token>/, for a declared source
+// whose credential rides in the path: a text, a photo or a document sent to
+// a chat, kept with its bytes in a directory of its own: see BotRequest.
+//
 // And it is a customer system under /crm/, for a declared source whose
 // calls a session makes with yardr call: see Server.crm.
 //
@@ -283,6 +287,10 @@ type Server struct {
 	// PushToken is the application token a message is taken with; "" takes
 	// any.
 	PushToken string
+	// BotToken is the token the bot API takes in a request's path; "" takes
+	// any. BotDir is where it keeps the bytes of every file it is sent, one
+	// file for each request; without a BotDir it serves nothing.
+	BotToken, BotDir string
 	// CRMToken is the bearer token the customer system under /crm/ takes;
 	// "" takes any.
 	CRMToken string
@@ -302,6 +310,7 @@ type Server struct {
 	messages []Message
 	asked    int // requests to /1/messages.json, taken or not
 	answer   int // what one is answered with, 0 for 200
+	bot      []BotRequest
 	notes    []CustomerNote
 	notesFor int           // requests for a note, written or not
 	hold     bool          // the next note is written and its answer held
@@ -726,12 +735,20 @@ func (s *Server) note(w http.ResponseWriter, r *http.Request, customer string) {
 // /messages (the messages taken, each picture by its name, type, size and
 // hash, and how many were asked for) and POST
 // /messages/answer (status: what the next ones are answered with). Under
-// /crm/ it is a customer system (see crm), and for a trial GET /notes (the
-// notes written on customers, and how many were asked for) and POST
-// /notes/hold (the next note is written and its answer held).
+// /bot<token>/ it is a bot API (see botAPI), and for a trial GET /requests
+// (what it was sent, each upload by its name, type, size and hash) and GET
+// /requests/<n>/file (the bytes of the nth, as they came). Under /crm/ it is
+// a customer system (see crm), and for a trial GET /notes (the notes written
+// on customers, and how many were asked for) and POST /notes/hold (the next
+// note is written and its answer held).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/1/messages.json", s.message)
+	mux.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.BotRequests()})
+	})
+	mux.HandleFunc("/requests/", s.botFile)
+	mux.HandleFunc("/", s.botAPI)
 	mux.HandleFunc("/messages", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"messages": s.Messages(), "asked": s.Asked()})
 	})
