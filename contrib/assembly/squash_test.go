@@ -275,7 +275,8 @@ func TestSquashMessage(t *testing.T) {
 // YARDR_LAND chooses how a bead lands. A value that is neither mode holds the
 // bead with nothing moved. Rebase, named, lands the branch's commits as they
 // are. Squash lands one commit written from the bead on top of whatever the
-// base gained meanwhile, and it is the commit the tests ran on.
+// base gained meanwhile, and it is the commit the tests ran on; one that
+// cannot be made holds the bead.
 func TestMergeLocalLandMode(t *testing.T) {
 	y := newYard(t)
 	orig := y.git(y.repo, "rev-parse", "main")
@@ -293,6 +294,22 @@ func TestMergeLocalLandMode(t *testing.T) {
 	}
 	if y.git(y.repo, "rev-parse", "main") != orig || y.git(y.wt, "rev-parse", "HEAD") != two {
 		t.Fatal("main or the branch moved under a mode that is none")
+	}
+
+	// A squash that git cannot commit (no name to commit as) holds it too,
+	// with the branch where it was, not landed by rebase instead.
+	y.setHold("r-1", false)
+	y.opts = "YARDR_LAND=squash GIT_COMMITTER_NAME= GIT_AUTHOR_NAME="
+	y.assembly()
+
+	if b := y.bead(); !b.Hold || b.Stage != "approved" {
+		t.Fatalf("bead %s hold=%v after a squash git could not commit, want held in approved", b.Stage, b.Hold)
+	}
+	if notes := y.notes(); !strings.Contains(notes, "cannot write the squash commit of r-1: ") {
+		t.Fatalf("no note on the squash that failed:\n%s", notes)
+	}
+	if y.git(y.repo, "rev-parse", "main") != orig || y.git(y.wt, "rev-parse", "HEAD") != two {
+		t.Fatal("main or the branch moved under a squash that failed")
 	}
 
 	y.setHold("r-1", false)
