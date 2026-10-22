@@ -1405,7 +1405,7 @@ yardr knows the verbs alone:
 | verb | direction | in this pack |
 |---|---|---|
 | `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
-| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor` and `changes` in `review` and `ciwait`; a run of CI that failed says `changes` in `review` and `ciwait`, one that succeeded `done` in `ciwait`; a merge says `merged`, a close `dropped` |
+| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a run of CI that failed says `changes` in `review` and `ciwait`, one that succeeded `done` in `ciwait`; a merge says `merged`, a close `dropped` |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
 - **Triage is the pack's advice, and no rule of yardr.** Its stage file
@@ -1422,8 +1422,17 @@ yardr knows the verbs alone:
   repository's CI to pass on its head; nobody of the yard works it and no
   route is written for it, and only the source's events move it (`done`
   to `approved` on a run that succeeded, `changes` to `contributor` on one
-  that failed or on new commits). The reviewer cannot see CI, which is why
-  the wait is a stage of its own and not the end of `review`.
+  that failed or on a person's new commits, `pushed` back to `review` on a
+  bot's). The reviewer cannot see CI, which is why the wait is a stage of
+  its own and not the end of `review`.
+- **A bot's push starts the read again.** A bot's rebase is the only push
+  it makes, so a bead sent to `contributor` by it would wait there for one
+  that does not come. A push by a bot (`sender=bot`) while the pull request
+  is read or waits on CI says `pushed`, which leads from `review` and from
+  `ciwait` back to `review`: from `review` the bead stays, as a new stay,
+  and a new session reads the new head; from `ciwait` it goes back to be
+  read, and waits for CI on the new head after. A person's push says
+  `changes`, as before, and waits in `contributor` for the next commits.
 - **`contributor` is held by `outside`, a people group with no members.**
   A bead there waits for the pull request to change; nobody of the yard
   works it, and `yardr review` shows where it waits.

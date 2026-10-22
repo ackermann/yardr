@@ -30,6 +30,9 @@ and that nothing was run. Outcomes:
 - `question`: it needs a decision only {{operator}} or a maintainer can
   make (does the project want this at all). The note has the question and
   the options, and the bead goes to `decide`.
+- `pushed`: not the reviewer's to report. A bot pushed to the pull request
+  while it was read, and the source says so: the session ends, and the bead
+  stays here for a new one at the new head.
 
 A bump of Go modules from a dependency bot is the one pull request the
 reviewer may mark `merge-ok` (`yardr bead update <id> --add-label merge-ok`),
@@ -40,4 +43,7 @@ pull request it is a maintainer's to add, and the reviewer never does.
 
 New commits on the pull request while it is here say `changes` too: the
 bead leaves for `contributor` with the note "the PR changed under review",
-and the next commits bring it back, to be read as it then is.
+and the next commits bring it back, to be read as it then is. A bot's
+commits are the exception: a bot's rebase is the only push it makes, so a
+bead sent to `contributor` would wait there for one that does not come.
+They say `pushed`, and a new session reads the pull request as it now is.

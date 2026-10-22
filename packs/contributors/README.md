@@ -40,7 +40,7 @@ who is trusted. yardr knows three verbs and none of the choices:
 | verb | direction | here |
 |---|---|---|
 | `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
-| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`, `changes` from `review` and from `ciwait`. A run of CI that failed (`workflow_run` or `check_suite`): `changes` from `review` and from `ciwait`; one that succeeded: `done` from `ciwait` alone. Merged: `merged`. Closed: `dropped` |
+| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. A run of CI that failed (`workflow_run` or `check_suite`): `changes` from `review` and from `ciwait`; one that succeeded: `done` from `ciwait` alone. Merged: `merged`. Closed: `dropped` |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
 **Triage is the pack's advice, not a rule of yardr.** The stage a bead
@@ -67,8 +67,9 @@ maintainer's to add.
 **The stage `ciwait` has no group, so no route.** A reviewed pull request
 waits there for the repository's CI to pass on its head, and nobody of the
 yard works it: the source's events move it, `done` to `approved` on a run
-that succeeded and `changes` to `contributor` on one that failed or on new
-commits. It is a stage of its own, not the end of `review`, because the
+that succeeded, `changes` to `contributor` on one that failed or on a
+person's new commits, and `pushed` back to `review` on a bot's. It is a
+stage of its own, not the end of `review`, because the
 reviewer cannot see CI (its sandbox reaches the yard's socket and nothing
 else) and a success reported while it still read would approve a pull
 request unread. A cancelled or neutral run says nothing. Where no verdict
@@ -86,6 +87,17 @@ it has, and only with CI green on that commit. A pull request without the
 label waits in `approved` for a maintainer, as before. What stops a merge
 holds the bead with a note, and the bead reports `merged` or `dropped`
 and nothing else.
+
+**A bot's push starts the read again.** A bot's rebase is the only push it
+makes, so a bead sent to `contributor` by it would wait there for one that
+does not come. A push by a bot (`sender=bot`, a kind as in the line of
+`makes`, so every bot) while the pull request is read or waits on CI says
+`pushed`, which leads from `review` and from `ciwait` back to `review`. From
+`review` the bead stays, as a new stay: the session reading the old head
+ends and a new one reads the new head. From `ciwait` it goes back to be
+read, and waits for CI on the new head after. A person's push is as it was:
+`changes`, to `contributor`, until the next commits. The line comes before
+the person's in the table, since the first line an event matches counts.
 
 **The stage `contributor` is held by `outside`, a people group with no
 members.** Nobody of the yard works a bead there: it waits for the pull

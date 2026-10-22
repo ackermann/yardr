@@ -41,13 +41,17 @@ flows:
     type: pr
     stages:
       triage:      { group: maintainers,  file: flows/pr/triage.md,   outcomes: { accepted: review, dropped: closed }, manual: [review, closed] }
-      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide } }
+      # pushed is the source's word, never the reviewer's: a bot pushed while
+      # the pull request was read, so the bead stays and is read again, as a
+      # new stay, at the new head (the says table has the line).
+      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide, pushed: review } }
       # Waits for the repository's CI on the pull request's head: no group,
       # so no route and nobody of the yard works it, and only the source's
       # events move it. Not a stage of review because the reviewer cannot see
       # CI, and a success line there would approve a pull request before
-      # anyone had read it.
-      ciwait:      { file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor } }
+      # anyone had read it. A bot's push sends it back to review, to be read
+      # at the new head.
+      ciwait:      { file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review } }
       # Waits for the pull request to change: nobody of the yard works it.
       contributor: { group: outside,      outcomes: { pushed: review, dropped: closed } }
       approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed] }
@@ -90,8 +94,10 @@ sources:
     # event matches counts, so the trusted authors come first.
     makes:
       # Trust is a where: the pull request of someone the repository knows
-      # skips the maintainer. association is GitHub's author_association.
-      - { where: "event=pull_request action=opened action=ready_for_review association=OWNER association=MEMBER", bead: { type: pr, stage: review } }
+      # skips the maintainer. association is GitHub's author_association as
+      # the github source's normalize writes it, in lowercase, and a where
+      # compares exactly: OWNER and MEMBER here would match no pull request.
+      - { where: "event=pull_request action=opened action=ready_for_review association=owner association=member", bead: { type: pr, stage: review } }
       # A bot's pull request skips the maintainer too: the dependency bumps of
       # the repository's tooling are the bulk of them, and the reviewer after
       # this stage reads what a maintainer would. sender is GitHub's kind of
@@ -109,13 +115,21 @@ sources:
       - { where: "event=issues action=closed", outcome: dropped }
       - { where: "event=pull_request action=labeled label=accepted", outcome: accepted }
       - { where: "event=pull_request action=synchronize stage=contributor", outcome: pushed, note: "new commits on the PR" }
+      # A bot's push while the pull request is read or waits on CI starts the
+      # read again at its new head. A bot's rebase is the only push it makes,
+      # so a bead sent to contributor would wait there for one that never
+      # comes. sender is a kind, as in makes, so this is every bot; a
+      # person's push is the general lines below, and the first line an event
+      # matches counts, so this one comes before them.
+      - { where: "event=pull_request action=synchronize sender=bot stage=review stage=ciwait", outcome: pushed, note: "a bot pushed to the PR" }
       - { where: "event=pull_request action=synchronize stage=review", outcome: changes, note: "the PR changed under review" }
       # CI. A run that failed sends the pull request back to its contributor
       # from review or from the wait for CI; only a run that succeeded in the
       # wait lets it on, so a pull request is never approved by a CI result
       # before it has been read. A cancelled or neutral run says nothing. The
       # dispatcher counts a run only on the pull request's head, and a push
-      # while waiting bounces first: a success for an old head never approves.
+      # while waiting moves the bead first: a success for an old head never
+      # approves.
       - { where: "event=workflow_run conclusion=failure stage=review stage=ciwait", outcome: changes, note: "CI failed on the PR" }
       - { where: "event=check_suite conclusion=failure stage=review stage=ciwait", outcome: changes, note: "CI failed on the PR" }
       - { where: "event=workflow_run conclusion=success stage=ciwait", outcome: done, note: "CI green on the head" }

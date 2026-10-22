@@ -891,23 +891,27 @@ func TestContributorsPack(t *testing.T) {
 		}
 	}
 	// A reviewed pull request waits for CI before it is approved, and a
-	// verdict or a push sends it on or back: the edges of the pr flow.
+	// verdict or a push sends it on or back: the edges of the pr flow. A
+	// bot's push leads from the read and from the wait back to review.
+	var prFlow store.Flow
 	for _, f := range p.Flows {
 		if f.Name != "pr" {
 			continue
 		}
 		sf := f.StoreFlow("pr")
+		prFlow = sf
 		for _, e := range []struct{ stage, outcome, to string }{
 			{"review", "done", "ciwait"}, {"review", "changes", "contributor"}, {"review", "question", "decide"},
-			{"ciwait", "done", "approved"}, {"ciwait", "changes", "contributor"},
+			{"review", "pushed", "review"},
+			{"ciwait", "done", "approved"}, {"ciwait", "changes", "contributor"}, {"ciwait", "pushed", "review"},
 			{"contributor", "pushed", "review"}, {"approved", "merged", "merged"},
 		} {
 			if to, err := sf.Resolve(e.stage, e.outcome); err != nil || to != e.to {
 				t.Errorf("pr flow: %s on %s goes to %q (%v), want %s", e.stage, e.outcome, to, err, e.to)
 			}
 		}
-		if outs := sf.OutcomesFrom("ciwait"); len(outs) != 2 {
-			t.Errorf("pr flow: ciwait has the outcomes %v, want done and changes alone", outs)
+		if outs := sf.OutcomesFrom("ciwait"); len(outs) != 3 {
+			t.Errorf("pr flow: ciwait has the outcomes %v, want done, changes and pushed alone", outs)
 		}
 	}
 	// No agent and no script of the yard works a stage a pull request's
@@ -940,18 +944,19 @@ func TestContributorsPack(t *testing.T) {
 		makes = append(makes, m.String())
 	}
 	if want := []string{
-		"action=opened action=ready_for_review association=MEMBER association=OWNER event=pull_request -> pr:review",
+		"action=opened action=ready_for_review association=member association=owner event=pull_request -> pr:review",
 		"action=opened action=ready_for_review event=pull_request sender=bot -> pr:review",
 		"action=opened action=ready_for_review event=pull_request -> pr:triage",
 		"action=opened event=issues -> issue:triage",
 	}; !slices.Equal(makes, want) {
 		t.Errorf("makes:\n%s\nwant:\n%s", strings.Join(makes, "\n"), strings.Join(want, "\n"))
 	}
-	// Who skips the maintainer on the strength of a bot alone, by the fields
-	// of the event that opens a pull request: every bot, whatever its login
-	// (sender is a kind, never a name), and not a human from outside, an
-	// organization or a bot's issue. association is as the envelope has it,
-	// in lowercase.
+	// Who skips the maintainer, by the fields of the event that opens a pull
+	// request: an owner or a member of the repository, and every bot whatever
+	// its login (sender is a kind, never a name); not a human from outside,
+	// an organization, or an issue by whoever opens it. association is as the
+	// envelope has it, in lowercase: the github source's normalize lowercases
+	// GitHub's OWNER and MEMBER, and a where compares exactly.
 	made := store.Hook{Name: "gh", Source: "github", Makes: gh.Makes}
 	for _, c := range []struct {
 		event, action, sender, association, want string
@@ -959,12 +964,17 @@ func TestContributorsPack(t *testing.T) {
 		{"pull_request", "opened", "user", "contributor", "pr:triage"},
 		{"pull_request", "opened", "user", "none", "pr:triage"},
 		{"pull_request", "ready_for_review", "user", "first_time_contributor", "pr:triage"},
+		{"pull_request", "opened", "user", "member", "pr:review"},
+		{"pull_request", "opened", "user", "owner", "pr:review"},
+		{"pull_request", "ready_for_review", "user", "member", "pr:review"},
+		{"pull_request", "ready_for_review", "user", "owner", "pr:review"},
 		{"pull_request", "opened", "bot", "none", "pr:review"},
 		{"pull_request", "ready_for_review", "bot", "contributor", "pr:review"},
 		{"pull_request", "opened", "organization", "none", "pr:triage"},
 		{"pull_request", "synchronize", "bot", "none", ""},
 		{"issues", "opened", "bot", "none", "issue:triage"},
 		{"issues", "opened", "user", "none", "issue:triage"},
+		{"issues", "opened", "user", "owner", "issue:triage"},
 	} {
 		fields := map[string][]string{"event": {c.event}, "action": {c.action}, "sender": {c.sender}, "association": {c.association}}
 		var got string
@@ -983,6 +993,7 @@ func TestContributorsPack(t *testing.T) {
 		"action=labeled event=issues label=accepted -> accepted",
 		"action=labeled event=pull_request label=accepted -> accepted",
 		"action=synchronize event=pull_request stage=contributor -> pushed: new commits on the PR",
+		"action=synchronize event=pull_request sender=bot stage=ciwait stage=review -> pushed: a bot pushed to the PR",
 		"action=synchronize event=pull_request stage=review -> changes: the PR changed under review",
 		"action=synchronize event=pull_request stage=ciwait -> changes: the PR changed while waiting on CI",
 		"conclusion=failure event=workflow_run stage=ciwait stage=review -> changes: CI failed on the PR",
@@ -1042,6 +1053,33 @@ func TestContributorsPack(t *testing.T) {
 		}
 		if got != c.want {
 			t.Errorf("%s %s %s in stage %s says %q, want %q", c.event, c.action, c.conclusion, c.stage, got, c.want)
+		}
+	}
+	// A push to the pull request, by who pushed and the stage a bead is in,
+	// and the stage its outcome leads to: a bot's rebase is the only push it
+	// makes, so a bead sent to contributor by it would wait for one that does
+	// not come, and its push starts the read again from review and from
+	// ciwait; a person's sends the bead to its contributor, and in
+	// contributor either brings it back. The bot's line has to meet its
+	// events before the general ones, which a person's push falls to.
+	for _, c := range []struct{ sender, stage, outcome, to string }{
+		{"bot", "review", "pushed", "review"},
+		{"bot", "ciwait", "pushed", "review"},
+		{"bot", "contributor", "pushed", "review"},
+		{"user", "review", "changes", "contributor"},
+		{"user", "ciwait", "changes", "contributor"},
+		{"user", "contributor", "pushed", "review"},
+		{"bot", "approved", "", ""},
+		{"user", "approved", "", ""},
+	} {
+		fields := map[string][]string{"event": {"pull_request"}, "action": {"synchronize"}, "sender": {c.sender}}
+		var outcome, to string
+		if say := hook.Said(map[string]any{"type": "pull_request", "action": "synchronize", "fields": fields}, c.stage, "pr"); say != nil {
+			outcome = say.Outcome
+			to, _ = prFlow.Resolve(c.stage, say.Outcome)
+		}
+		if outcome != c.outcome || to != c.to {
+			t.Errorf("a push by a %s in stage %s says %q and leads to %q, want %q and %q", c.sender, c.stage, outcome, to, c.outcome, c.to)
 		}
 	}
 	if want := map[string]string{"issue:new": "started", "issue:merged": "done", "issue:closed": "done", "pr:closed": "done"}; !reflect.DeepEqual(gh.Map, want) {

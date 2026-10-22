@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/pack"
@@ -70,15 +71,21 @@ func newContributorsYard(t *testing.T) *ghDepot {
 	return r
 }
 
+// movedSHA is the head a push moves the fixtures' pull request to, from
+// fixtureSHA.
+const movedSHA = "c0ffee5a1e0f4b2d8a97163e5d4c3b2a1f0e9d8c"
+
 // deliverJSON records fixture name as GitHub delivered it, its JSON changed
-// by edit first.
-func (r *ghDepot) deliverJSON(t *testing.T, event, name string, edit func(map[string]any)) {
+// by each of edits first.
+func (r *ghDepot) deliverJSON(t *testing.T, event, name string, edits ...func(map[string]any)) {
 	t.Helper()
 	body, err := os.ReadFile("../hooks/testdata/github/" + name + ".json")
 	must(t, err)
 	var m map[string]any
 	must(t, json.Unmarshal(body, &m))
-	edit(m)
+	for _, edit := range edits {
+		edit(m)
+	}
 	out, err := json.Marshal(m)
 	must(t, err)
 	r.record(t, "gh", event, string(out))
@@ -95,6 +102,37 @@ func prEvent(number int, login, kind string) func(map[string]any) {
 		pr["html_url"] = fmt.Sprintf("https://github.com/acme/yardr/pull/%d", number)
 		pr["title"] = "build(deps): bump golang.org/x/net"
 		pr["head"].(map[string]any)["ref"] = "dependabot/go_modules/x-net"
+	}
+}
+
+// pushedBy edits the pull_request fixtures to a push by login, a user or a
+// bot, which is not the author of the pull request when it follows prEvent.
+func pushedBy(login, kind string) func(map[string]any) {
+	return func(m map[string]any) {
+		m["sender"] = map[string]any{"login": login, "type": kind}
+	}
+}
+
+// atHead edits the pull_request, workflow_run and check_suite fixtures to the
+// head commit sha: a push to the pull request, and the run of CI on it.
+func atHead(sha string) func(map[string]any) {
+	return func(m map[string]any) {
+		if pr, ok := m["pull_request"].(map[string]any); ok {
+			pr["head"].(map[string]any)["sha"] = sha
+		}
+		for _, key := range []string{"workflow_run", "check_suite"} {
+			if run, ok := m[key].(map[string]any); ok {
+				run["head_sha"] = sha
+			}
+		}
+	}
+}
+
+// authorIs edits the pull_request fixtures to a pull request whose author is
+// association to the repository, as GitHub spells it: OWNER, MEMBER, NONE.
+func authorIs(association string) func(map[string]any) {
+	return func(m map[string]any) {
+		m["pull_request"].(map[string]any)["author_association"] = association
 	}
 }
 
@@ -147,6 +185,38 @@ func (r *ghDepot) routedTo(t *testing.T, id string) string {
 		return route.Group
 	}
 	return ""
+}
+
+// reviewedBy gives the yard the group of pr-reviewers of a fake runner, and a
+// route to it for pull requests in review, which the yard of these tests
+// leaves unrouted: they report the reviewer's verdict themselves.
+func (r *ghDepot) reviewedBy(t *testing.T, group string) {
+	t.Helper()
+	ctx := context.Background()
+	must(t, r.api.PutGroup(ctx, store.Group{Name: group, Runner: "fake", Limit: 5}, "me"))
+	pr, everyone := "pr", store.OriginatorAny
+	_, err := r.api.AddRoute(ctx, store.Route{Stage: "review", Type: &pr, Originator: &everyone, Group: group}, "me")
+	must(t, err)
+}
+
+// sessionsFor are the sessions the daemon started for bead id, oldest first.
+func (r *ghDepot) sessionsFor(id string) []string {
+	r.f.mu.Lock()
+	defer r.f.mu.Unlock()
+	var sessions []string
+	for _, j := range r.f.jobs {
+		if j.Bead.ID == id {
+			sessions = append(sessions, j.Session.ID)
+		}
+	}
+	return sessions
+}
+
+// stoppedSessions are the sessions the daemon stopped.
+func (r *ghDepot) stoppedSessions() []string {
+	r.f.mu.Lock()
+	defer r.f.mu.Unlock()
+	return slices.Clone(r.f.stopped)
 }
 
 // startedFor are the groups the daemon started sessions for bead id with.
@@ -236,10 +306,11 @@ func TestContributorsUnlabeledPullRequestWaitsForTheYes(t *testing.T) {
 }
 
 // CI that failed sends a pull request back to its contributor, from the
-// review and from the wait; a push while it waits does too, before any success
-// for the head it had can approve it; and a success anywhere but in the wait
-// says nothing. The runs of a fork's branch name no pull request, and no bead
-// hears them.
+// review and from the wait; a person's push while it is read or waits does
+// too, before any success for the head it had can approve it; and a success
+// anywhere but in the wait says nothing. The runs of a fork's branch name no
+// pull request, and no bead hears them. A bot's push starts the read again
+// instead (TestContributorsBotPushStartsTheReadAgain).
 func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
@@ -267,11 +338,11 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 		t.Fatalf("note of the move: %q", note)
 	}
 
-	// A push while it waits bounces it, and a success that comes after for
-	// the head it had approves nothing.
+	// A person's push while it waits bounces it, and a success that comes
+	// after for the head it had approves nothing.
 	pushed := open(23)
 	r.reviewerSays(t, pushed.ID, false)
-	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(23, "dependabot[bot]", "Bot"))
+	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(23, "dependabot[bot]", "Bot"), pushedBy("a-maintainer", "User"))
 	r.pass(t)
 	if st := r.stageOf(t, pushed.ID); st != "contributor" {
 		t.Fatalf("%s in %s after the pull request changed while it waited on CI, want contributor", pushed.ID, st)
@@ -283,6 +354,17 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 	r.pass(t)
 	if st := r.stageOf(t, pushed.ID); st != "contributor" {
 		t.Fatalf("%s in %s after a success for the head it had, want contributor", pushed.ID, st)
+	}
+
+	// And a person's push while the reviewer still reads.
+	changed := open(26)
+	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(26, "dependabot[bot]", "Bot"), pushedBy("a-maintainer", "User"))
+	r.pass(t)
+	if st := r.stageOf(t, changed.ID); st != "contributor" {
+		t.Fatalf("%s in %s after a person pushed under review, want contributor", changed.ID, st)
+	}
+	if note := r.lastNote(t, changed.ID); !strings.Contains(note, "the PR changed under review") {
+		t.Fatalf("note of the move: %q", note)
 	}
 
 	// A success while the reviewer still reads approves nothing.
@@ -303,13 +385,94 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 	}
 }
 
-// Who skips the maintainer, through the normalizing a yard does: a bot's pull
-// request goes to review, a human's from outside waits in triage.
-func TestContributorsOnlyBotsSkipTriage(t *testing.T) {
+// A bot's push to a pull request while it is read, or while it waits on CI,
+// starts the read again at the new head, where it would otherwise park the
+// bead in contributor for a push that a bot, whose rebase is the only one it
+// makes, does not send. From the review the session on the old head is
+// stopped and a new one starts, as a new stay in the same stage; from the wait
+// the bead goes back to review, and once it is read again a success for the
+// head it left says nothing, where one for the new head approves it.
+func TestContributorsBotPushStartsTheReadAgain(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
-	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(31, "someone", "User"))
+	r.reviewedBy(t, "pr-reviewers")
+	now := time.Now()
+	dispatch.SetClock(r.d, func() time.Time { return now })
+	open := func(n int) *store.Bead {
+		r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(n, "dependabot[bot]", "Bot"))
+		return r.madeIn(t, n, "review")
+	}
+
+	// While the reviewer reads.
+	reading := open(41)
+	first := r.sessionsFor(reading.ID)
+	if len(first) != 1 {
+		t.Fatalf("%s read by %v before the push, want one session", reading.ID, first)
+	}
+	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(41, "dependabot[bot]", "Bot"), atHead(movedSHA))
+	r.pass(t)
+	if st := r.stageOf(t, reading.ID); st != "review" {
+		t.Fatalf("%s in %s after a bot pushed under review, want review", reading.ID, st)
+	}
+	if note := r.lastNote(t, reading.ID); !strings.Contains(note, "a bot pushed to the PR") {
+		t.Fatalf("note of the move: %q", note)
+	}
+	// The dispatcher waits before it reads again a bead its flow sent back to
+	// the stage it is in, and doubles the wait for each return in a row; the
+	// clock passes it.
+	now = now.Add(time.Hour)
+	r.pass(t)
+	if got := r.sessionsFor(reading.ID); len(got) != 2 || got[0] != first[0] {
+		t.Fatalf("%s read by %v after a bot pushed under review, want a second session after %v", reading.ID, got, first)
+	}
+	if !slices.Contains(r.stoppedSessions(), first[0]) {
+		t.Fatalf("session %s of the old head still runs: stopped %v", first[0], r.stoppedSessions())
+	}
+
+	// While it waits on CI: back to review, read at the new head, then CI on
+	// the new head and not on the old one approves it.
+	waiting := open(42)
+	r.reviewerSays(t, waiting.ID, false)
+	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(42, "dependabot[bot]", "Bot"), atHead(movedSHA))
+	r.pass(t)
+	if st := r.stageOf(t, waiting.ID); st != "review" {
+		t.Fatalf("%s in %s after a bot pushed while it waited on CI, want review", waiting.ID, st)
+	}
+	if note := r.lastNote(t, waiting.ID); !strings.Contains(note, "a bot pushed to the PR") {
+		t.Fatalf("note of the move: %q", note)
+	}
+	r.pass(t)
+	if got := r.sessionsFor(waiting.ID); len(got) != 2 {
+		t.Fatalf("%s read by %v after a bot pushed while it waited, want a second session", waiting.ID, got)
+	}
+	r.reviewerSays(t, waiting.ID, false)
+	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 42, "success"))
+	r.pass(t)
+	if st := r.stageOf(t, waiting.ID); st != "ciwait" {
+		t.Fatalf("%s in %s after a success for the head it left, want ciwait", waiting.ID, st)
+	}
+	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 42, "success"), atHead(movedSHA))
+	r.pass(t)
+	if st := r.stageOf(t, waiting.ID); st != "approved" {
+		t.Fatalf("%s in %s after a success for the new head, want approved", waiting.ID, st)
+	}
+}
+
+// Who skips the maintainer, through the normalizing a yard does: the pull
+// request of an owner or a member of the repository, as GitHub spells their
+// association (OWNER, MEMBER) and the source's normalize lowercases it, and a
+// bot's go to review; a human's from outside waits in triage. The pack's
+// table is matched with fields typed by hand in packs_test.go, which cannot
+// see whether the line is spelled as normalize writes it.
+func TestContributorsWhoSkipTriage(t *testing.T) {
+	t.Parallel()
+	r := newContributorsYard(t)
+	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(31, "someone", "User"), authorIs("NONE"))
 	r.madeIn(t, 31, "triage")
 	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(32, "renovate[bot]", "Bot"))
 	r.madeIn(t, 32, "review")
+	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(33, "a-member", "User"), authorIs("MEMBER"))
+	r.madeIn(t, 33, "review")
+	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(34, "the-owner", "User"), authorIs("OWNER"))
+	r.madeIn(t, 34, "review")
 }
