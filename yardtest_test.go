@@ -485,8 +485,9 @@ func TestYardTestSelects(t *testing.T) {
 	}
 	// Run, not planned, a branch that changed nothing compiled tests its
 	// selection with a go test that has no -race, plain or as a landing:
-	// without vet for linux or socket suites, the tests of the root package
-	// only, and without the race lock. Such a run has no YARDR_RACE_HELD and a
+	// without vet for linux or socket suites, and without the race lock. The
+	// selection is the packages the table's rows name for the changed files,
+	// the root package's among them. Such a run has no YARDR_RACE_HELD and a
 	// home of its own, which stays empty: a run that raced would make the lock
 	// there and queue for it (and its worker, started from the script's path,
 	// cannot start from this test's sh -c). A plain run of a .go file still
@@ -496,21 +497,21 @@ func TestYardTestSelects(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		env     []string // beyond the plain run's: a landing's mark, a raced run's hold
-		changed string
+		changed []string
 		first   string
 		calls   []string
 		steps   []string
 		raced   bool
 	}{
-		{"a plain run of one design document runs without -race", nil, "docs/design/2026-10-12-a.md",
+		{"a plain run of the docs runs without -race", nil, []string{"docs/api.md", "docs/design/2026-10-12-a.md"},
 			pre + "nothing compiled changed" + since + unraced,
-			[]string{"vet ./...", "build ./...", "test m.test/m"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m"}, false},
-		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, "docs/design/2026-10-12-a.md",
+			[]string{"vet ./...", "build ./...", "test m.test/m m.test/m/internal/rpc"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m m.test/m/internal/rpc"}, false},
+		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, []string{"docs/design/2026-10-12-a.md"},
 			landing + "nothing compiled changed" + since + unraced,
 			[]string{"vet ./...", "build ./...", "test m.test/m"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m"}, false},
-		{"a plain run of a go file runs with -race", []string{"YARDR_RACE_HELD=1"}, "alone/p.go",
+		{"a plain run of a go file runs with -race", []string{"YARDR_RACE_HELD=1"}, []string{"alone/p.go"},
 			pre + "what changed" + since,
 			[]string{"vet ./...", "build ./...", "test -race m.test/m/alone"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race m.test/m/alone"}, true},
@@ -531,7 +532,7 @@ func TestYardTestSelects(t *testing.T) {
 			}
 			env := append([]string{"YARDR_TEST_PLAN=", "HOME=" + home, "REAL_HOME=" + os.Getenv("HOME"), "FAKE=" + fake, "REAL_GO=" + realGo,
 				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.env...)
-			first, rest, err := planned(t, script, env, c.changed)
+			first, rest, err := planned(t, script, env, c.changed...)
 			if err != nil || first != c.first {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
