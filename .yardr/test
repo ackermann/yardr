@@ -10,7 +10,8 @@
 # the packages that import those, are tested. A change in a package nearly
 # everything imports (store, config) makes it nearly the whole suite, which
 # is right; a leaf package takes seconds. It is also what a wagon of a train
-# passes to land on its train's branch.
+# passes to land on its train's branch. A branch that changed nothing compiled
+# is tested without -race, and so without the race lock (see unraced below).
 #
 # With YARDR_LANDING=1, as the assembly sets it for what lands on main, a
 # landing that changes code runs the plain selection plus always the six
@@ -23,10 +24,12 @@
 # everything. When the branch changed nothing that is compiled, every
 # program and every test binary is built from the source the base
 # passed with, only a test that opens a changed file by path can
-# differ, and the run is the plain selection alone. The whole suite
-# otherwise runs only when the yard is quiet (docs/testing.md R6) and
-# where someone runs YARDR_LANDING=1 on the base itself. The first
-# line says which run it is, and why.
+# differ, and the run is the plain selection alone, without -race: it
+# has no race to look for, and so waits for no race lock (a plain run of
+# such a branch is the same). The whole suite otherwise runs only when
+# the yard is quiet (docs/testing.md R6) and where someone runs
+# YARDR_LANDING=1 on the base itself. The first line says which run it
+# is, and why.
 #
 # What the branch touched is what changed since the base: YARDR_BASE (an
 # agent's session and the assembly have it: main, or the train's branch for
@@ -43,6 +46,8 @@
 # alone fails however loaded the machine, and on a loaded machine the
 # failure line names the load beside both times;
 # the run fails when a test file sleeps over budget at a site that is not.
+# A run without -race judges no package's time, R1 being defined under -race;
+# R2 reads the tree, not the run, and is judged as before.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
 # took 14 s), so a landing's log shows where a run's time went. The run ends
@@ -1510,6 +1515,30 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
     for (p in run) print p
   }' "$tmp/reads" "$tmp/deleted" "$tmp/changed" "$tmp/deldirs" "$tmp/pkgs" >"$tmp/run"
 }
+# The race detector looks at compiled code, so a branch that changed none has
+# nothing for it: no .go file (a test file too), no file a package embeds, and
+# no file deleted (which may have been embedded, and the tree it left cannot
+# tell). Every program and every test binary is then built from the source the
+# base passed with, and only a test that opens a changed file by path can
+# differ, which is what the selection holds. Such a run tests without -race,
+# and a go test without it takes no race lock (again): a design document once
+# queued for 20 to 35 minutes behind other branches' race legs to run one
+# root-package test (yardr-57x5). unraced says, once pick has run, whether this
+# run is one: it has a package to test, and nothing it changed is compiled.
+# go.mod, go.sum and a file no row knows keep -race: a plain run tests every
+# package for them, and a landing runs the whole suite. The first two never
+# reach pick in a plain run, and neither run gets as far as the testing line
+# with a stray; but a plain run learns of a stray only after its first line,
+# which is why this looks for one.
+norace=
+unracedwhy="testing without -race, no race lock"
+unraced() {
+  [ -s "$tmp/run" ] || return 1
+  if grep -q -x -e '.*\.go' "$tmp/changed"; then
+    return 1
+  fi
+  [ ! -s "$tmp/deleted" ] && [ ! -s "$tmp/embedded" ] && [ ! -s "$tmp/stray" ]
+}
 if [ -n "$YARDR_LANDING" ]; then
   # A landing that changes code runs the selection plus the six
   # black-box suites (docs/testing.md R5). What cannot be selected
@@ -1545,21 +1574,42 @@ if [ -n "$YARDR_LANDING" ]; then
   if [ -s "$tmp/embedded" ]; then
     whole "$(cat "$tmp/embedded"), which a package embeds, changed $since" selection
   fi
-  echo "test: YARDR_LANDING is set, and nothing compiled changed $since"
+  # Every compiled case above ended in whole: this landing changed nothing
+  # compiled, and tests without -race when it tests anything.
+  if unraced; then
+    norace=1
+    echo "test: YARDR_LANDING is set, and nothing compiled changed $since: $unracedwhy"
+  else
+    echo "test: YARDR_LANDING is set, and nothing compiled changed $since"
+  fi
   listed
   built
 else
-  echo "test: what changed $since"
-  built
-  # go.mod or go.sum moves every package.
+  # go.mod or go.sum moves every package, which asks go for no list of them.
+  # Any other change asks first: the first line says whether the run is
+  # raced, which takes what a package embeds (pick), as a landing's does.
+  modchanged=
   if printf '%s\n' "$changed" | grep -qx -e go.mod -e go.sum; then
+    modchanged=1
+  else
+    pick
+    if unraced; then
+      norace=1
+    fi
+  fi
+  if [ -n "$norace" ]; then
+    echo "test: nothing compiled changed $since: $unracedwhy"
+  else
+    echo "test: what changed $since"
+  fi
+  listed
+  built
+  if [ -n "$modchanged" ]; then
     echo "test: go.mod or go.sum changed; testing every package"
     [ -z "$YARDR_TEST_PLAN" ] || exit 0
     again go test -race ./...
     exit 0
   fi
-  pick
-  listed
   if [ -s "$tmp/stray" ]; then
     { read -r file; read -r more || more=; } <"$tmp/stray"
     echo "test: $file${more:+ (and $more more)} is read by no known package: testing everything"
@@ -1574,8 +1624,14 @@ if [ -z "$pkgs" ]; then
   echo "test: no package changed since $(git rev-parse --short "$from"); no tests to run"
   exit 0
 fi
+# What the testing line and the go test below say of the race detector.
+if [ -n "$norace" ]; then
+  racing='' how="without -race"
+else
+  racing=-race how="with -race"
+fi
 # shellcheck disable=SC2086
-echo "test: testing, with -race, what changed, what imports it and what reads it:" $pkgs
+echo "test: testing, $how, what changed, what imports it and what reads it:" $pkgs
 [ -z "$YARDR_TEST_PLAN" ] || exit 0
 # shellcheck disable=SC2086
-again go test -race $pkgs
+again go test $racing $pkgs

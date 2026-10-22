@@ -115,13 +115,24 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go in PATH")
 	}
-	script, err := os.ReadFile(yardTest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	script, rows := yardTestRows(t)
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
-		t.Fatal(err)
+	// A plain run reads the table's packages before it prints its first line,
+	// as a landing does, and a row whose package is gone stops it there: the
+	// module has the table's packages, and go has some to list.
+	files := map[string]string{"go.mod": "module m.test/m\n\ngo 1.21\n"}
+	for _, row := range rows {
+		for _, pkg := range row.pkgs {
+			files[pkg+"/p.go"] = "package p\n"
+		}
+	}
+	for name, text := range files {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
@@ -130,7 +141,7 @@ func TestYardTestSaysItsBase(t *testing.T) {
 	gitT(t, dir, "branch", "other")
 	run := func(env ...string) (string, int) {
 		t.Helper()
-		cmd := exec.Command("sh", "-c", string(script))
+		cmd := exec.Command("sh", "-c", script)
 		cmd.Dir = dir
 		cmd.Env = append(scriptEnv(), "YARDR_TEST_PLAN=1")
 		cmd.Env = append(cmd.Env, env...)
@@ -190,7 +201,9 @@ func TestYardTestSaysItsBase(t *testing.T) {
 // YARDR_TEST_PLAN makes the script say so and stop. A landing selects the
 // same when nothing compiled changed, the selection plus the six
 // black-box suites when code changed, and the whole suite when what
-// changed cannot be selected.
+// changed cannot be selected. The selection is tested without -race when
+// nothing compiled changed (no .go file, no embedded file, no deletion), which
+// the first line and the testing line both say, and with it otherwise.
 func TestYardTestSelects(t *testing.T) {
 	t.Parallel()
 	script, rows := yardTestRows(t)
@@ -279,15 +292,25 @@ func TestYardTestSelects(t *testing.T) {
 		first, rest, _ = strings.Cut(strings.TrimSpace(string(b)), "\n")
 		return first, rest, err
 	}
-	plan := func(t *testing.T, script string, changed ...string) (string, error) {
+	// What the first line of a run that tests without -race ends with.
+	const unraced = ": testing without -race, no race lock"
+	// A plain run's plan: its first line says what it was compared with, or,
+	// when it tests without -race, that nothing compiled changed and that it
+	// tests without it.
+	plan := func(t *testing.T, script string, norace bool, changed ...string) (string, error) {
 		t.Helper()
 		first, out, err := planned(t, script, nil, changed...)
-		if want := "test: what changed" + since; first != want {
+		want := "test: what changed" + since
+		if norace {
+			want = "test: nothing compiled changed" + since + unraced
+		}
+		if first != want {
 			t.Errorf("first line %q, want %q", first, want)
 		}
 		return out, err
 	}
 	tested := pre + "testing, with -race, what changed, what imports it and what reads it:"
+	testedNoRace := pre + "testing, without -race, what changed, what imports it and what reads it:"
 	for _, c := range []struct {
 		name    string
 		changed []string
@@ -307,15 +330,24 @@ func TestYardTestSelects(t *testing.T) {
 			tested + " m.test/m"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
-			tested + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
+			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
 		{"a file no row knows", []string{"contrib/x.txt", "docs/web.md"}, []string{
 			pre + "contrib/x.txt is read by no known package: testing everything"}},
 		{"three files no row knows", []string{"contrib/x.txt", "alone/y.txt", "z"}, []string{
 			pre + "alone/y.txt (and 2 more) is read by no known package: testing everything"}},
-		// The root package's test follows the README's links into docs/.
+		// The root package's test follows the README's links into docs/. Docs
+		// are not compiled (the fixture's docs/ embeds nothing, as the
+		// repository's docs/design/ does not), so the root package is tested
+		// without -race.
 		{"docs only", []string{"docs/web.md", "docs/new.md"}, []string{
 			pre + "docs/new.md and 1 more under docs/ changed: read by the tests of .",
-			tested + " m.test/m"}},
+			testedNoRace + " m.test/m"}},
+		// What no test reads (the map for agents, which a design that adds a
+		// package updates beside it) adds no package and no race.
+		{"docs and the map for agents", []string{"docs/design/2026-10-12-a.md", "AGENTS.md"}, []string{
+			pre + "docs/design/2026-10-12-a.md changed: read by the tests of .",
+			pre + "AGENTS.md changed: no test reads it",
+			testedNoRace + " m.test/m"}},
 		{"what no test reads", []string{".github/a.yml", ".github/b.yml"}, []string{
 			pre + ".github/a.yml and 1 more under .github/ changed: no test reads it",
 			pre + "no package changed since " + short + "; no tests to run"}},
@@ -335,7 +367,7 @@ func TestYardTestSelects(t *testing.T) {
 		// .yardr/tests.md, which no row knows.
 		{"the script itself", []string{".yardr/test"}, []string{
 			pre + ".yardr/test changed: read by the tests of .",
-			tested + " m.test/m"}},
+			testedNoRace + " m.test/m"}},
 		{"a file its name begins", []string{".yardr/tests.md"}, []string{
 			pre + ".yardr/tests.md is read by no known package: testing everything"}},
 		{"an embedded file", []string{"emb/a.txt"}, []string{
@@ -343,11 +375,21 @@ func TestYardTestSelects(t *testing.T) {
 		{"a go file", []string{"alone/p.go", "docs/web.md"}, []string{
 			pre + "docs/web.md changed: read by the tests of .",
 			tested + " m.test/m m.test/m/alone"}},
+		// A test file is compiled into its package's test binary.
+		{"a test file", []string{"alone/p_test.go", "docs/web.md"}, []string{
+			pre + "docs/web.md changed: read by the tests of .",
+			tested + " m.test/m m.test/m/alone"}},
+		// go.mod moves every package: no selection, and no go list for one.
+		{"go.mod", []string{"go.mod", "docs/web.md"}, []string{
+			pre + "go.mod or go.sum changed; testing every package"}},
 		{"nothing", nil, []string{
 			pre + "no package changed since " + short + "; no tests to run"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			out, err := plan(t, script, c.changed...)
+			// The first line and the testing line agree about the race: a run
+			// that tests without -race says so in both.
+			norace := slices.ContainsFunc(c.want, func(line string) bool { return strings.HasPrefix(line, testedNoRace) })
+			out, err := plan(t, script, norace, c.changed...)
 			if want := strings.Join(c.want, "\n"); err != nil || out != want {
 				t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
 			}
@@ -375,15 +417,17 @@ func TestYardTestSelects(t *testing.T) {
 		rest    []string
 	}{
 		{"a landing of one design document", []string{"docs/design/2026-10-12-a.md"},
-			landing + "nothing compiled changed" + since, []string{
+			landing + "nothing compiled changed" + since + unraced, []string{
 				pre + "docs/design/2026-10-12-a.md changed: read by the tests of .",
-				tested + " m.test/m"}},
+				testedNoRace + " m.test/m"}},
 		{"a landing of the starter pack and what no test reads", []string{"packs/starter/roles/builder.md", ".github/a.yml"},
 			landing + "packs/starter/roles/builder.md, which a package embeds, changed" + since + selectionSuffix, []string{
 				skipSocket,
 				pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
 				pre + ".github/a.yml changed: no test reads it",
 				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli m.test/m/internal/pack m.test/m/packs m.test/m/packtop"}},
+		// Nothing to test, so no claim about how: the first line says only what
+		// compiled.
 		{"a landing of what no test reads", []string{".github/a.yml"},
 			landing + "nothing compiled changed" + since, []string{
 				pre + ".github/a.yml changed: no test reads it",
@@ -439,43 +483,84 @@ func TestYardTestSelects(t *testing.T) {
 			}
 		})
 	}
-	// Run, not planned, such a landing is a plain run's steps: no vet for
-	// linux, no socket suites, and the tests of the root package only. The go
-	// it runs is the real one for the list of packages and writes down every
-	// other call.
-	t.Run("a landing of one design document runs the plain steps", func(t *testing.T) {
-		realGo, err := exec.LookPath("go")
-		if err != nil {
-			t.Fatal(err)
-		}
-		fake := t.TempDir()
-		for name, text := range map[string]string{
-			"go":    "#!/bin/sh\nif [ \"$1\" = list ]; then exec \"$REAL_GO\" \"$@\"; fi\necho \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
-			"gofmt": "#!/bin/sh\n",
-		} {
-			if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+	// Run, not planned, a branch that changed nothing compiled tests its
+	// selection with a go test that has no -race, plain or as a landing:
+	// without vet for linux or socket suites, the tests of the root package
+	// only, and without the race lock. Such a run has no YARDR_RACE_HELD and a
+	// home of its own, which stays empty: a run that raced would make the lock
+	// there and queue for it (and its worker, started from the script's path,
+	// cannot start from this test's sh -c). A plain run of a .go file still
+	// tests with -race, sharing the hold this test gives it as the landing rows
+	// below do. The go it runs is the real one for the list of packages, with
+	// this test's home, and writes down every other call.
+	for _, c := range []struct {
+		name    string
+		env     []string // beyond the plain run's: a landing's mark, a raced run's hold
+		changed string
+		first   string
+		calls   []string
+		steps   []string
+		raced   bool
+	}{
+		{"a plain run of one design document runs without -race", nil, "docs/design/2026-10-12-a.md",
+			pre + "nothing compiled changed" + since + unraced,
+			[]string{"vet ./...", "build ./...", "test m.test/m"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m"}, false},
+		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, "docs/design/2026-10-12-a.md",
+			landing + "nothing compiled changed" + since + unraced,
+			[]string{"vet ./...", "build ./...", "test m.test/m"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m"}, false},
+		{"a plain run of a go file runs with -race", []string{"YARDR_RACE_HELD=1"}, "alone/p.go",
+			pre + "what changed" + since,
+			[]string{"vet ./...", "build ./...", "test -race m.test/m/alone"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race m.test/m/alone"}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			realGo, err := exec.LookPath("go")
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-		first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
-			"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, "docs/design/2026-10-12-a.md")
-		if err != nil || first != landing+"nothing compiled changed"+since {
-			t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
-		}
-		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-		if got, want := strings.TrimSpace(string(calls)), "vet ./...\nbuild ./...\ntest -race m.test/m"; got != want {
-			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
-		}
-		// Each step is timed, choosing the packages too, after the first
-		// line: that one says which run it is.
-		var took []string
-		for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(rest, -1) {
-			took = append(took, m[1])
-		}
-		if want := []string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test -race m.test/m"}; !slices.Equal(took, want) {
-			t.Errorf("the steps the output times: %q, want %q", took, want)
-		}
-	})
+			fake, home := t.TempDir(), t.TempDir()
+			for name, text := range map[string]string{
+				"go":    "#!/bin/sh\nif [ \"$1\" = list ]; then HOME=$REAL_HOME exec \"$REAL_GO\" \"$@\"; fi\necho \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n",
+				"gofmt": "#!/bin/sh\n",
+			} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			env := append([]string{"YARDR_TEST_PLAN=", "HOME=" + home, "REAL_HOME=" + os.Getenv("HOME"), "FAKE=" + fake, "REAL_GO=" + realGo,
+				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.env...)
+			first, rest, err := planned(t, script, env, c.changed)
+			if err != nil || first != c.first {
+				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
+			}
+			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+			if got, want := strings.TrimSpace(string(calls)), strings.Join(c.calls, "\n"); got != want {
+				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+			}
+			// Each step is timed, choosing the packages too, after the first
+			// line: that one says which run it is.
+			var took []string
+			for _, m := range regexp.MustCompile(`(?m)^test: (.*) took \d+ s$`).FindAllStringSubmatch(rest, -1) {
+				took = append(took, m[1])
+			}
+			if !slices.Equal(took, c.steps) {
+				t.Errorf("the steps the output times: %q, want %q", took, c.steps)
+			}
+			if c.raced {
+				return
+			}
+			// No lock: the home never saw the yard's directory, and the test
+			// line says the run waited for nothing.
+			if _, err := os.Stat(filepath.Join(home, ".yardr")); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("the run made the yard's directory in its home, so it took the race lock: %v", err)
+			}
+			if !regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited 0 s$`).MatchString(rest) {
+				t.Errorf("the output has no test line that waited 0 s:\n%s", rest)
+			}
+		})
+	}
 	// Run, not planned, a landing over a code change runs the selection
 	// plus all six black-box suites (the first line and the go test call
 	// both name them), beside the socket leg when the plain selection
@@ -558,12 +643,14 @@ func TestYardTestSelects(t *testing.T) {
 			}
 		})
 	}
-	// A row whose package is gone fails the run, whatever changed.
+	// A row whose package is gone fails the run, whatever changed. A plain run
+	// reads the table in its selection, ahead of its first line as a landing's
+	// does, so the complaint is all it says.
 	t.Run("a stale row", func(t *testing.T) {
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
-		out, err := plan(t, stale, "docs/web.md")
-		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || out != want {
-			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+		first, rest, err := planned(t, stale, nil, "docs/web.md")
+		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || first != want || rest != "" {
+			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
 	})
 	// A row for a directory the change deletes is skipped, not stale: the
@@ -572,7 +659,7 @@ func TestYardTestSelects(t *testing.T) {
 	// directory in neither stays a failure.
 	t.Run("a row for a directory the change deletes", func(t *testing.T) {
 		deleted := strings.Replace(script, "\nreads='\n", "\nreads='\nfakepkg/ fakepkg .\n", 1)
-		out, err := plan(t, deleted, "-fakepkg/p.go")
+		out, err := plan(t, deleted, false, "-fakepkg/p.go")
 		if want := strings.Join([]string{
 			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
 			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
@@ -599,9 +686,9 @@ func TestYardTestSelects(t *testing.T) {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s\n%s", err, first, rest, wantFirst, skipSocket, want)
 		}
 		stale := strings.Replace(deleted, "\nreads='\n", "\nreads='\nnowhere/ nowhere\n", 1)
-		out, err = plan(t, stale, "-fakepkg/p.go")
-		if want := pre + "the row for nowhere/ in " + yardTest + " names nowhere, which is no package here"; err == nil || out != want {
-			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+		first, rest, err = planned(t, stale, nil, "-fakepkg/p.go")
+		if want := pre + "the row for nowhere/ in " + yardTest + " names nowhere, which is no package here"; err == nil || first != want || rest != "" {
+			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
 	})
 }
