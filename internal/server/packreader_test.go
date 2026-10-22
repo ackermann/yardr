@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -136,6 +137,12 @@ func TestReadEmbeddedDepotPack(t *testing.T) {
 	}
 	if r.Depot != "yardr" || r.Plan == nil || len(r.Plan.Objects) == 0 {
 		t.Fatalf("the starter reading = depot %q, plan %+v", r.Depot, r.Plan)
+	}
+	// The group the import would create for the assembly starts its cmd with
+	// the pack's env, which the card carries.
+	if i := slices.IndexFunc(r.Plan.Objects, func(o store.AskPlanObject) bool { return o.Kind == "group" && o.Name == "yardr-assembly" }); i < 0 ||
+		r.Plan.Objects[i].Action != "create" || !slices.Equal(r.Plan.Objects[i].Env, []string{"YARDR_LAND=squash"}) {
+		t.Fatalf("the starter reading's assembly = %+v, want a create with YARDR_LAND=squash", r.Plan.Objects)
 	}
 
 	// The plan an approval compares whole holds nothing of the label the

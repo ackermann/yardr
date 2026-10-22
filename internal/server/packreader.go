@@ -157,7 +157,7 @@ func askPlanOf(sub fs.FS, plan *pack.Plan) *store.AskPlan {
 	out.Refused = plan.Refused
 	out.Edited = plan.EditedFiles()
 	for _, o := range plan.Objects {
-		ao := store.AskPlanObject{Kind: o.Kind, Name: o.Name, Action: o.Action, Keeps: o.Keeps, Shadows: o.Shadows}
+		ao := store.AskPlanObject{Kind: o.Kind, Name: o.Name, Action: o.Action, Keeps: o.Keeps, Shadows: o.Shadows, Env: o.Env}
 		for _, ch := range o.Changes {
 			ao.Changes = append(ao.Changes, store.AskChange{Field: ch.Field, Old: planValue(ch.Old), New: planValue(ch.New)})
 		}

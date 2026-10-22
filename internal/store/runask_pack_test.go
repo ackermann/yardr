@@ -614,7 +614,7 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 	plan := &AskPlan{
 		Objects: []AskPlanObject{
 			{Kind: "file", Name: "roles/a.md", Action: "change", FileOldSHA: strings.Repeat("a", 64), FileNewSHA: strings.Repeat("b", 64), Text: "new role\n", Diff: diff},
-			{Kind: "group", Name: "builders", Action: "create", Changes: []AskChange{{Field: "runner", Old: "", New: "exec"}}},
+			{Kind: "group", Name: "builders", Action: "create", Changes: []AskChange{{Field: "runner", Old: "", New: "exec"}}, Env: []string{"YARDR_LAND=squash"}},
 			{Kind: "file", Name: "roles/old.md", Action: "dropped"},
 		},
 		Governs: []AskGovern{{Flow: "default", Now: "other"}},
@@ -633,6 +633,9 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 		"pack starter (embedded in yardr test1), of kind git, into depot yardr: 1 to create, 1 to change, 0 unchanged, and 1 dropped",
 		"file roles/a.md: change, sha256 " + strings.Repeat("a", 64) + " -> sha256 " + strings.Repeat("b", 64),
 		"group builders: create (runner: none -> exec)",
+		// What the pack sets in the cmd of a group it creates is on the
+		// card: the approval has the yard write it.
+		"group builders: cmd sets YARDR_LAND=squash before the script.",
 		"file roles/old.md: dropped by the pack, left where it stands.",
 		"depot yardr would follow flow default; it follows other now.",
 	} {
@@ -655,6 +658,13 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 	plan.Objects[1].Changes[0].New = "herdr"
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false); err == nil || !strings.Contains(err.Error(), "the plan") {
 		t.Fatalf("a moved plan: ApproveAsk = %v", err)
+	}
+	// So does an env that moves: the card showed the other.
+	plan.Objects[1].Changes[0].New = "exec"
+	seq3 := y.ask(t, ask, "yardmaster")
+	plan.Objects[1].Env = []string{"YARDR_LAND=rebase"}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false); err == nil || !strings.Contains(err.Error(), "the object group builders") {
+		t.Fatalf("a moved env: ApproveAsk = %v", err)
 	}
 }
 

@@ -370,6 +370,12 @@ of the pack, instead of a <depot>-<group> of the depot's own: the plan says
 "takes", the pack's routes lead to it, and nothing of it is changed. Where
 its role or limit is not the pack's, the plan says so in a line.
 
+A script group's env (groups.<group>.env) is the options of its script, set
+before the script in the cmd of a group the import creates; the plan says
+which ("cmd sets YARDR_LAND=squash before the script"). A group the yard has
+keeps its own cmd, also when the pack's env has changed since the group was
+made, and the plan says in a line what of the pack's env that cmd lacks.
+
 A role or stage file is installed with {{operator}} filled with the yard's
 operator and {{<crew member>}} with the yard's crew member that takes that
 crew member of the pack; any other {{...}} in one makes the pack invalid.
@@ -588,14 +594,16 @@ after pack check. The import is recorded (yardr pack list). See docs/packs.md.
 
 	var sf packFlags
 	show := &cobra.Command{
-		Use: "show <pack>", Short: "Print a pack's setup notes and presets",
+		Use: "show <pack>", Short: "Print a pack's setup notes, presets and script options",
 		Long: `Prints the pack's setup notes (pack.yaml's setup): its author's words
 about what a setup takes — where in the service a webhook is made and which
 events it needs, what an identity wants, how to test. They are the pack's,
 not checked by yardr, and are marked so, as an answer from a source is
 marked as data. A pack without any says so. Then the pack's presets
 (pack.yaml's presets), if it has any: its suggested grants, numbered in
-file order, each with the calls it grants of each source.
+file order, each with the calls it grants of each source. Then the env of
+its script groups (groups.<group>.env), if it has any: the options an
+import sets in the cmd of a group it creates.
 ` + naming,
 		Example: `  yardr pack show linear`,
 		Args:    cobra.ExactArgs(1),
@@ -606,7 +614,13 @@ file order, each with the calls it grants of each source.
 			if err != nil {
 				return err
 			}
-			if p.Setup == "" && len(p.Presets) == 0 {
+			env := map[string]map[string]string{}
+			for _, g := range p.Groups {
+				if len(g.Env) > 0 {
+					env[g.Name] = g.Env
+				}
+			}
+			if p.Setup == "" && len(p.Presets) == 0 && len(env) == 0 {
 				return a.out(c.OutOrStdout(), map[string]any{"pack": p.Name}, func(w io.Writer) {
 					fmt.Fprintf(w, "pack %s carries no setup notes\n", p.Name)
 				})
@@ -618,6 +632,9 @@ file order, each with the calls it grants of each source.
 			if len(p.Presets) > 0 {
 				v["presets"] = p.Presets
 			}
+			if len(env) > 0 {
+				v["env"] = env
+			}
 			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
 				if p.Setup == "" {
 					fmt.Fprintf(w, "pack %s carries no setup notes\n", p.Name)
@@ -627,6 +644,10 @@ file order, each with the calls it grants of each source.
 				if len(p.Presets) > 0 {
 					fmt.Fprintln(w)
 					printPresets(w, p)
+				}
+				if len(env) > 0 {
+					fmt.Fprintln(w)
+					printEnv(w, p)
 				}
 			})
 		},
@@ -1698,6 +1719,18 @@ func printPresets(w io.Writer, p *pack.Pack) {
 	}
 }
 
+// printEnv prints the options a pack sets in its script groups' cmds, in
+// file order, as the words the cmd of a group the import creates starts
+// with. A group the yard has keeps its own cmd, which the heading says.
+func printEnv(w io.Writer, p *pack.Pack) {
+	fmt.Fprintf(w, "env of the script groups of pack %s (set before the script in the cmd of a group an import creates; a group the yard has keeps its own cmd):\n", p.Name)
+	for _, g := range p.Groups {
+		if len(g.Env) > 0 {
+			fmt.Fprintf(w, "  %s: %s\n", g.Name, strings.Join(g.EnvWords(), " "))
+		}
+	}
+}
+
 // printPlan prints the plan. answers are those already given: an answered
 // question is printed as what its object gets, and only the open ones are
 // listed as what an import would ask. open are the answers to whether a
@@ -1764,6 +1797,9 @@ func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[
 			}
 			if o.Binds != "" {
 				fmt.Fprintf(w, "  %-15s    agent, model and arguments as group %s\n", "", o.Binds)
+			}
+			if len(o.Env) > 0 {
+				fmt.Fprintf(w, "  %-15s    cmd sets %s before the script\n", "", strings.Join(o.Env, " "))
 			}
 			for _, id := range o.Asks {
 				if v, ok := answers[id]; ok {

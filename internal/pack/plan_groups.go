@@ -2,6 +2,7 @@ package pack
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -90,9 +91,11 @@ func (b *planner) taken(g Group, old store.Group) Object {
 			o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s"+why, or(prompt, "(none)"), "role "+g.Agent))
 		}
 	case g.Run != "":
-		if cmd, _ := old.Config["cmd"].(string); cmd != setScript(cmd, b.installed(g.Run)) {
+		cmd, _ := old.Config["cmd"].(string)
+		if cmd != setScript(cmd, b.installed(g.Run)) {
 			o.Keeps = append(o.Keeps, fmt.Sprintf("cmd %s"+why, or(cmd, "(none)"), "script "+g.Run))
 		}
+		o.Keeps = append(o.Keeps, keptEnv(g, cmd)...)
 	}
 	if g.Limit > 0 && g.Limit != old.Limit {
 		o.Keeps = append(o.Keeps, fmt.Sprintf("limit %d"+why, old.Limit, fmt.Sprintf("limit %d", g.Limit)))
@@ -215,6 +218,14 @@ func (b *planner) groups() error {
 		case g.Run != "":
 			want.Runner, field = "exec", "cmd"
 			cmd, _ := old.Config["cmd"].(string)
+			if exists {
+				o.Keeps = append(o.Keeps, keptEnv(g, cmd)...)
+			} else {
+				// The assignments go before the script, where setScript keeps
+				// what a cmd has: from here on they are the yard's.
+				o.Env = g.EnvWords()
+				cmd = strings.Join(o.Env, " ")
+			}
 			want.Config[field] = setScript(cmd, b.installed(g.Run))
 		default:
 			want.Runner = "manual"
@@ -263,32 +274,155 @@ func (b *planner) groups() error {
 	return nil
 }
 
-var assignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+// envNamePattern is what the shell takes for a variable's name. A cmd's
+// assignments are told from its command by it, and a pack's env is held to
+// it, so every variable a pack names is one that stays where the import
+// puts it.
+const envNamePattern = `[A-Za-z_][A-Za-z0-9_]*`
 
-// setScript puts script in place of the command a group's cmd runs and
-// keeps the rest: the variable assignments before it, which is how a
-// script's options are set (YARDR_PUSH=origin /path/to/merge-local), and
-// any arguments after it. An empty cmd becomes the script alone.
-func setScript(cmd, script string) string {
-	script = shellQuote(script)
-	i := 0
+var (
+	envName    = regexp.MustCompile(`^` + envNamePattern + `$`)
+	assignment = regexp.MustCompile(`^` + envNamePattern + `=`)
+)
+
+// splitCmd finds the command in a group's cmd: the words before it are
+// variable assignments, which is how a script's options are set
+// (YARDR_PUSH=origin /path/to/merge-local). It returns those words as
+// written and the command's place, cmd[i:end], which is empty (i == end)
+// for a cmd that holds assignments alone, or nothing.
+func splitCmd(cmd string) (assigns []string, i, end int) {
 	for i < len(cmd) {
 		for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
 			i++
 		}
-		end := wordEnd(cmd, i)
+		end = wordEnd(cmd, i)
 		if i == end {
 			break
 		}
 		if !assignment.MatchString(cmd[i:end]) {
-			return cmd[:i] + script + cmd[end:]
+			return assigns, i, end
 		}
+		assigns = append(assigns, cmd[i:end])
 		i = end
+	}
+	return assigns, i, i
+}
+
+// setScript puts script in place of the command a group's cmd runs and
+// keeps the rest: the variable assignments before it and any arguments
+// after it. An empty cmd becomes the script alone.
+func setScript(cmd, script string) string {
+	script = shellQuote(script)
+	if _, i, end := splitCmd(cmd); i < end {
+		return cmd[:i] + script + cmd[end:]
 	}
 	if strings.TrimSpace(cmd) == "" {
 		return script
 	}
 	return strings.TrimRight(cmd, " \t") + " " + script
+}
+
+// EnvWords are the group's env as the assignment words of a cmd, names
+// sorted: a map has no order, and a plan is the same every time it is
+// made. A value is quoted as a script's path is, which wordEnd reads back.
+func (g Group) EnvWords() []string {
+	var words []string
+	for _, name := range slices.Sorted(maps.Keys(g.Env)) {
+		words = append(words, name+"="+shellQuote(g.Env[name]))
+	}
+	return words
+}
+
+// keptEnv says what of the pack's env a group the yard has does not carry,
+// in a line for Keeps, or nothing when its cmd sets every variable to the
+// pack's value. The pack's env is set on a group the import creates and on
+// no other: once the group is made its assignments are the operator's, and
+// an import of the same pack with another env must flip no yard. So the
+// import never writes one, and the plan says what it leaves.
+func keptEnv(g Group, cmd string) []string {
+	assigns, _, _ := splitCmd(cmd)
+	have := map[string]string{}
+	for _, w := range assigns {
+		name, value, _ := strings.Cut(w, "=")
+		if literal, ok := shellLiteral(value); ok {
+			have[name] = literal
+		}
+	}
+	var missing []string
+	for _, name := range slices.Sorted(maps.Keys(g.Env)) {
+		if v, ok := have[name]; !ok || v != g.Env[name] {
+			missing = append(missing, name+"="+shellQuote(g.Env[name]))
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("cmd %s: the pack's env %s is set on a new group only", or(cmd, "(none)"), strings.Join(missing, " "))}
+}
+
+// shellLiteral reads a shell word only when it has a fixed literal value.
+// A yard's command may use expansions, but those do not prove that it sets
+// the pack's value, so keptEnv reports them as missing instead of guessing.
+func shellLiteral(word string) (string, bool) {
+	var out strings.Builder
+	var quote byte
+	for i := 0; i < len(word); i++ {
+		c := word[i]
+		switch quote {
+		case '\'':
+			if c == '\'' {
+				quote = 0
+			} else {
+				out.WriteByte(c)
+			}
+		case '"':
+			switch c {
+			case '"':
+				quote = 0
+			case '\\':
+				if i+1 == len(word) {
+					return "", false
+				}
+				next := word[i+1]
+				if next == '\n' {
+					return "", false
+				}
+				if strings.ContainsRune("$`\\\"", rune(next)) {
+					i++
+					out.WriteByte(next)
+				} else {
+					out.WriteByte(c)
+				}
+			case '$', '`':
+				return "", false
+			default:
+				out.WriteByte(c)
+			}
+		default:
+			switch c {
+			case '\'':
+				quote = '\''
+			case '"':
+				quote = '"'
+			case '\\':
+				if i+1 == len(word) || word[i+1] == '\n' {
+					return "", false
+				}
+				i++
+				out.WriteByte(word[i])
+			case '$', '`':
+				return "", false
+			case '~':
+				if i == 0 || word[i-1] == ':' {
+					return "", false
+				}
+				out.WriteByte(c)
+			default:
+				out.WriteByte(c)
+			}
+		}
+	}
+	return out.String(), quote == 0
 }
 
 // wordEnd is where the shell word starting at i ends: at the first blank

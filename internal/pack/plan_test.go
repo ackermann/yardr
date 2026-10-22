@@ -240,9 +240,14 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if b.Runner != "herdr" || b.Limit != 5 || b.Config["prompt"] != filepath.Join(install, "roles", "builder.md") {
 		t.Fatalf("web-builders = %+v", b)
 	}
-	r := find(t, plan, "group", "web-assembly").Group
-	if r.Runner != "exec" || r.Limit != 1 || r.Config["cmd"] != filepath.Join(install, "scripts", "merge-local") {
-		t.Fatalf("web-assembly = %+v", r)
+	// The starter's assembly lands a bead by squash: the pack's env is set
+	// before the script of the group the import creates, and check says so.
+	ra := find(t, plan, "group", "web-assembly")
+	if r := ra.Group; r.Runner != "exec" || r.Limit != 1 || r.Config["cmd"] != "YARDR_LAND=squash "+filepath.Join(install, "scripts", "merge-local") || !slices.Equal(ra.Env, []string{"YARDR_LAND=squash"}) {
+		t.Fatalf("web-assembly = %+v, env %v", r, ra.Env)
+	}
+	if o := find(t, plan, "group", "web-builders"); len(o.Env) != 0 || len(o.Keeps) != 0 {
+		t.Fatalf("web-builders = %+v: an agent group has no env", o)
 	}
 	if g := find(t, plan, "group", "backlog").Group; g.Runner != "manual" {
 		t.Fatalf("backlog = %+v", g)
@@ -374,6 +379,29 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The pack's env is set on a group the import creates and on no other:
+	// with another env the group made from the pack stays as it is, the
+	// plan says what it keeps, and applying writes nothing.
+	envChanged := strings.Replace(string(text), "env: { YARDR_LAND: squash }", "env: { YARDR_LAND: rebase, YARDR_PUSH: origin }", 1)
+	if envChanged == string(text) {
+		t.Fatal("the starter's assembly env is not what this test replaces")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pack.yaml"), []byte(envChanged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := "YARDR_LAND=squash " + filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local")
+	plan = build(t, st, load(t, dir), o)
+	asm := find(t, plan, "group", "web-assembly")
+	if want := []string{"cmd " + cmd + ": the pack's env YARDR_LAND=rebase YARDR_PUSH=origin is set on a new group only"}; asm.Action != pack.Unchanged || !slices.Equal(asm.Keeps, want) || len(asm.Env) != 0 || asm.Group.Config["cmd"] != cmd {
+		t.Fatalf("web-assembly = %s, keeps %q, env %v, cmd %q, want it unchanged and keeping %q", asm.Action, asm.Keeps, asm.Env, asm.Group.Config["cmd"], want)
+	}
+	if res := apply(t, st, plan, nil); res.Wrote() {
+		t.Fatalf("an import that only keeps wrote: %+v", res)
+	}
+	if got := groupOf(t, st, "web-assembly").Config["cmd"]; got != cmd {
+		t.Fatalf("web-assembly cmd = %q after the import, want %q", got, cmd)
+	}
+
 	changed := strings.Replace(string(text), "roles/builder.md,  limit: 5", "roles/builder.md,  limit: 2", 1)
 	if changed == string(text) {
 		t.Fatal("the starter's builders line is not what this test replaces")
@@ -475,6 +503,11 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 	if r.Group.Config["log"] != "/logs/landing.log" {
 		t.Fatalf("web-assembly = %+v", r.Group)
+	}
+	// The pack's env is for a group the import creates: this one keeps the
+	// assignments it has, and the plan says the pack's is not among them.
+	if want := []string{"cmd YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local: the pack's env YARDR_LAND=squash is set on a new group only"}; !slices.Equal(r.Keeps, want) || len(r.Env) != 0 {
+		t.Fatalf("web-assembly keeps %q, env %v, want %q", r.Keeps, r.Env, want)
 	}
 	// People groups: the pack names no limit and no members, so both stay.
 	if g := find(t, plan, "group", "backlog"); g.Action != pack.Unchanged || g.Group.Limit != 50 || !reflect.DeepEqual(g.Group.Members, []string{"ann", "boss"}) {
@@ -901,8 +934,10 @@ func TestGroupOfTheYardTakesThePacks(t *testing.T) {
 	if r := find(t, plan, "group", "yardr-reviewers"); len(r.Keeps)+len(r.Changes) != 0 {
 		t.Fatalf("yardr-reviewers keeps %v, changes %v", r.Keeps, r.Changes)
 	}
-	if a := find(t, plan, "group", "yardr-refinery"); len(a.Keeps) != 1 || !strings.Contains(a.Keeps[0], "cmd /scripts/land: the group is the yard's, and the pack's script scripts/merge-local") {
-		t.Fatalf("yardr-refinery keeps %v", a.Keeps)
+	// And the pack's env, which only a group the import creates gets.
+	if a := find(t, plan, "group", "yardr-refinery"); len(a.Keeps) != 2 || !strings.Contains(a.Keeps[0], "cmd /scripts/land: the group is the yard's, and the pack's script scripts/merge-local") ||
+		a.Keeps[1] != "cmd /scripts/land: the pack's env YARDR_LAND=squash is set on a new group only" || len(a.Env) != 0 {
+		t.Fatalf("yardr-refinery keeps %v, env %v", a.Keeps, a.Env)
 	}
 	// Nothing is asked of a group that is taken: its agent is the yard's.
 	for _, q := range plan.Questions {

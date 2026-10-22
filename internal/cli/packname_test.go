@@ -132,6 +132,11 @@ func TestPackApplyTheEmbeddedPack(t *testing.T) {
 	if got, _ := os.ReadFile(script); string(got) != string(want) {
 		t.Error("the installed script is not the pack's")
 	}
+	// The binary's own copy of the pack says how the assembly lands: its
+	// cmd starts with the pack's env, so a bead lands by squash.
+	if g, err := a.st.GetGroup(context.Background(), "web-assembly"); err != nil || g.Config["cmd"] != "YARDR_LAND=squash "+script {
+		t.Errorf("web-assembly = %+v, %v, want its cmd to be YARDR_LAND=squash %s", g, err, script)
+	}
 	if info, err := os.Stat(filepath.Join(config.At(a.cfg.Home).PackRoles("starter"), "builder.md")); err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("roles/builder.md: %v, mode %v", err, info)
 	}
@@ -142,10 +147,27 @@ func TestPackApplyTheEmbeddedPack(t *testing.T) {
 	if r := recs[0]; !strings.HasPrefix(r.Source, "embedded in yardr ") || r.Commit != "" || r.Dirty {
 		t.Errorf("record: source %q, commit %q, dirty %v", r.Source, r.Commit, r.Dirty)
 	}
-	// Named again it is the same pack: nothing to change.
+	// Named again it is the same pack: nothing to change, and nothing kept
+	// of the env, which the group the import made carries.
 	out, err := run(t, a.packCmd(), "check", "starter", "--depot", "web")
-	if err != nil || !strings.Contains(out, "0 to create, 0 to change, ") {
+	if err != nil || !strings.Contains(out, "0 to create, 0 to change, ") || strings.Contains(out, "kept:") {
 		t.Fatalf("check after the import: %v\n%s", err, out)
+	}
+	// A group the yard set to the script alone (it predates the env, or
+	// opted out) is not set to the env by the import: check says what it
+	// keeps and changes nothing.
+	ctx := context.Background()
+	g, err := a.st.GetGroup(ctx, "web-assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Config["cmd"] = script
+	if err := a.st.PutGroup(ctx, *g, "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.packCmd(), "check", "starter", "--depot", "web")
+	if want := "  unchanged        web-assembly\n                     kept: cmd " + script + ": the pack's env YARDR_LAND=squash is set on a new group only\n"; err != nil || !strings.Contains(out, want) || !strings.Contains(out, "0 to create, 0 to change, ") {
+		t.Fatalf("check over a group set to the script alone: %v\n%s\nwant %q", err, out, want)
 	}
 }
 

@@ -511,7 +511,12 @@ held: merge-local lands only on local branches.
 A depot chooses how its beads land with one option in the assembly group's
 `cmd`: `YARDR_LAND=rebase` (the default, so no depot changes until it opts
 in) or `YARDR_LAND=squash`; any other value holds the bead before anything
-moves. In squash mode merge-local replaces the branch's commits with one,
+moves. The starter pack makes its assembly group with the option set
+(`env: { YARDR_LAND: squash }`,
+[packs.md](packs.md#how-a-pack-maps-to-the-yard)), so a depot set up from it
+lands by squash; a group that exists is never changed by the pack, and opts in
+with `yardr group set <group> 'cmd=YARDR_LAND=squash <the rest of the cmd>'`.
+In squash mode merge-local replaces the branch's commits with one,
 between the rebase (step 1) and the tests (step 2), so that the commit the
 tests run on is the commit that is fast-forwarded onto the base (steps 2 and
 3 as above). The commit is made with `git commit-tree`, so the yard's

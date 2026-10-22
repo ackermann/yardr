@@ -763,6 +763,9 @@ func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSour
 		case "dropped":
 			does = append(does, fmt.Sprintf("%s %s: dropped by the pack, left where it stands.", o.Kind, o.Name))
 		}
+		if len(o.Env) > 0 {
+			does = append(does, fmt.Sprintf("%s %s: cmd sets %s before the script.", o.Kind, o.Name, strings.Join(o.Env, " ")))
+		}
 		for _, k := range o.Keeps {
 			does = append(does, fmt.Sprintf("%s %s: keeps %s.", o.Kind, o.Name, k))
 		}

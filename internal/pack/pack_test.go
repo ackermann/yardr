@@ -102,6 +102,17 @@ func TestStarterPackLoads(t *testing.T) {
 	if g := p.Groups[2]; g.Name != "security-reviewers" || g.Agent != "roles/review-security.md" || g.BindsAs != "reviewers" {
 		t.Fatalf("group %+v, want security-reviewers with the review-security role, bound as reviewers", g)
 	}
+	// The assembly lands a bead by squash, which is its script's option and
+	// the pack's to set on the group the import creates; no other group has one.
+	for _, g := range p.Groups {
+		var want map[string]string
+		if g.Name == "assembly" {
+			want = map[string]string{"YARDR_LAND": "squash"}
+		}
+		if !reflect.DeepEqual(g.Env, want) {
+			t.Errorf("group %s env = %v, want %v", g.Name, g.Env, want)
+		}
+	}
 	if want := []string{"roles/builder.md", "roles/review-security.md", "roles/reviewer.md", "roles/yardmaster.md", "scripts/merge-local"}; !reflect.DeepEqual(p.Files(), want) {
 		t.Fatalf("files = %v, want %v", p.Files(), want)
 	}
@@ -212,6 +223,23 @@ func TestStrictness(t *testing.T) {
 		{name: "group of no kind", old: "people:   { people: true }", new: "people:   { limit: 3 }", key: "groups.people", msg: "this one has none", line: 12},
 		{name: "people false is no kind", old: "people:   { people: true }", new: "people:   { people: false }", key: "groups.people", msg: "this one has none", line: 12},
 		{name: "limit below one", old: "limit: 2", new: "limit: 0", key: "groups.builders.limit", msg: "1 or more", line: 10},
+		// env sets variables in the cmd of a script: an agent group has no
+		// cmd and a people group runs nothing, and a group of the wrong
+		// kind has its own error alone.
+		{name: "env beside agent", old: "limit: 2", new: "limit: 2, env: { A: b }", key: "groups.builders.env", msg: "env is for a group with run:", line: 10},
+		{name: "env beside people", old: "people:   { people: true }", new: "people:   { people: true, env: { A: b } }", key: "groups.people.env", msg: "env is for a group with run:", line: 12},
+		{name: "env on a group of no kind", old: "people:   { people: true }", new: "people:   { limit: 3, env: { A: b } }", key: "groups.people", msg: "this one has none", line: 12},
+		{name: "env on a group of two kinds", old: "people:   { people: true }", new: "people:   { people: true, run: scripts/land, env: { A: b } }", key: "groups.people", msg: "agent: <role file>, run: <script>, people: true; this one has people and run", line: 12},
+		{name: "env is a mapping", old: "run: scripts/land", new: "run: scripts/land, env: [A]", key: "groups.assembly.env", msg: "want a mapping", line: 11},
+		{name: "env name with a dash", old: "run: scripts/land", new: "run: scripts/land, env: { YARDR-LAND: squash }", key: "groups.assembly.env.YARDR-LAND", msg: `name "YARDR-LAND": use letters, digits and '_', and no digit first`, line: 11},
+		{name: "env name with a digit first", old: "run: scripts/land", new: "run: scripts/land, env: { 1A: x }", key: "groups.assembly.env.1A", msg: `name "1A"`, line: 11},
+		{name: "env name given twice", old: "run: scripts/land", new: "run: scripts/land, env: { A: x, A: y }", key: "groups.assembly.env.A", msg: "given twice", line: 11},
+		{name: "env value is a number", old: "run: scripts/land", new: "run: scripts/land, env: { A: 1 }", key: "groups.assembly.env.A", msg: "want a string, got int 1", line: 11},
+		{name: "env value is a boolean", old: "run: scripts/land", new: "run: scripts/land, env: { A: true }", key: "groups.assembly.env.A", msg: "as a boolean, not a string", line: 11},
+		{name: "env value is a list", old: "run: scripts/land", new: "run: scripts/land, env: { A: [x] }", key: "groups.assembly.env.A", msg: "want a string, got a list", line: 11},
+		{name: "env value is nothing", old: "run: scripts/land", new: "run: scripts/land, env: { A: }", key: "groups.assembly.env.A", msg: "want a string, got nothing", line: 11},
+		{name: "env value holds a line break", old: "run: scripts/land", new: `run: scripts/land, env: { A: "x\ny" }`, key: "groups.assembly.env.A", msg: "U+000A, which is not printable", line: 11},
+		{name: "env value holds an escape", old: "run: scripts/land", new: `run: scripts/land, env: { A: "x\e[2Ky" }`, key: "groups.assembly.env.A", msg: "U+001B, which is not printable", line: 11},
 		{name: "missing role", files: map[string]string{"roles/builder.md": ""}, key: "groups.builders.agent", msg: "role roles/builder.md is missing", line: 10},
 		{name: "missing crew member role", files: map[string]string{"roles/yardmaster.md": ""}, key: "crew.yardmaster.role", msg: "role roles/yardmaster.md is missing", line: 15},
 		{name: "missing script", files: map[string]string{"scripts/land": ""}, key: "groups.assembly.run", msg: "script scripts/land is missing", line: 11},
@@ -263,6 +291,40 @@ func TestStrictness(t *testing.T) {
 			// The printed error carries all three.
 			if want := filepath.Join(dir, "pack.yaml") + ":"; !strings.HasPrefix(err.Error(), want) || !strings.Contains(err.Error(), c.key+": ") {
 				t.Fatalf("printed %q", err.Error())
+			}
+		})
+	}
+}
+
+// A script group's env is the options of its script as the pack names them:
+// strings as they are, wherever in the group the key stands, and nothing for
+// an empty mapping, which is no mistake beside any kind of group.
+func TestGroupEnvIsRead(t *testing.T) {
+	for _, c := range []struct {
+		name, old, new string
+		group          string // the group read
+		want           map[string]string
+	}{
+		{name: "beside run", old: "run: scripts/land", new: "run: scripts/land, env: { YARDR_LAND: squash }", group: "assembly", want: map[string]string{"YARDR_LAND": "squash"}},
+		{name: "before run", old: "{ run: scripts/land }", new: "{ env: { YARDR_LAND: squash }, run: scripts/land }", group: "assembly", want: map[string]string{"YARDR_LAND": "squash"}},
+		{name: "strings as they are", old: "run: scripts/land", new: `run: scripts/land, env: { a_1: "hello 'big' world", _B: "0", C: "$HOME; rm -rf /" }`, group: "assembly",
+			want: map[string]string{"a_1": "hello 'big' world", "_B": "0", "C": "$HOME; rm -rf /"}},
+		{name: "an empty mapping beside run", old: "run: scripts/land", new: "run: scripts/land, env: {}", group: "assembly"},
+		{name: "an empty mapping beside agent", old: "limit: 2", new: "limit: 2, env: {}", group: "builders"},
+		{name: "an empty mapping beside people", old: "people:   { people: true }", new: "people:   { people: true, env: {} }", group: "people"},
+		{name: "none", old: "name: small", new: "name: small", group: "assembly"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, err := pack.LoadDir(writePack(t, smallFiles(strings.Replace(small, c.old, c.new, 1))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			i := slices.IndexFunc(p.Groups, func(g pack.Group) bool { return g.Name == c.group })
+			if i < 0 {
+				t.Fatalf("the pack has no group %s", c.group)
+			}
+			if got := p.Groups[i].Env; !reflect.DeepEqual(got, c.want) {
+				t.Errorf("env = %#v, want %#v", got, c.want)
 			}
 		})
 	}

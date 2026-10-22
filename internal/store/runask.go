@@ -140,6 +140,11 @@ type AskPlanObject struct {
 	Changes []AskChange `json:"changes,omitempty"`
 	Keeps   []string    `json:"keeps,omitempty"`
 	Shadows []string    `json:"shadows,omitempty"`
+	// Env are the assignments a script group the import creates has
+	// before its script in its cmd, from the pack's env: part of what the
+	// approval has the yard write, so the card shows them and the carrying
+	// out is held to them.
+	Env []string `json:"env,omitempty"`
 	// Of a file: its hashes whole, old and new, and for a create or
 	// change its new text and the unified diff old against new, whole,
 	// for the tap and a terminal.

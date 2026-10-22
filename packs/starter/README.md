@@ -42,18 +42,27 @@ A command that is
 the path of a file on the base (`--test .yardr/test`) is run from the base's
 copy, so a bead cannot change the script that judges it.
 
-`scripts/merge-local` lands the branch's commits as they are, by rebase.
-With `YARDR_LAND=squash` before the script in the assembly group's cmd
-(`yardr group show <depot>-assembly` shows it; `yardr group set
-<depot>-assembly 'cmd=YARDR_LAND=squash <the rest of the cmd>'` sets it) it
-lands the bead as one Conventional Commit written from it instead, with the
-bead's title as the subject, the type from its `kind:` label and the trailers
-the branch's commits carried (docs/line.md, "Landing by squash"). The roles
-ask for what that wants: the yardmaster labels a bead's kind, a builder or a
-reviewer titles it for what the change does, and a change that breaks a user
-carries a `BREAKING CHANGE:` line. The pack does not set the option: it sets
-a group's script and its limit, and leaves the assignments before the script
-to the yard (docs/packs.md).
+`scripts/merge-local` lands the branch's commits as they are, by rebase,
+unless `YARDR_LAND=squash` stands before the script in the assembly group's
+cmd: it then lands the bead as one Conventional Commit written from it, with
+the bead's title as the subject, the type from its `kind:` label and the
+trailers the branch's commits carried (docs/line.md, "Landing by squash"). The
+roles ask for what that wants: the yardmaster labels a bead's kind, a builder
+or a reviewer titles it for what the change does, and a change that breaks a
+user carries a `BREAKING CHANGE:` line.
+
+This pack lands by squash: `assembly` has `env: { YARDR_LAND: squash }` in
+`pack.yaml`, and the import writes it before the script in the cmd of the
+group it creates, so a depot set up from the pack gets `YARDR_LAND=squash
+<script>`. A group the yard has is never changed by it: once a group is made
+the assignments before its script are the operator's, so an import of this
+pack again, or of a version with another `env`, leaves the cmd as it is and
+says in a line what it lacks (`yardr pack check`). A depot whose group
+predates this opts in by hand (`yardr group show <depot>-assembly` shows the
+cmd; `yardr group set <depot>-assembly 'cmd=YARDR_LAND=squash <the rest of the
+cmd>'` sets it), and a depot that wants rebase sets the cmd to the script
+alone (`YARDR_LAND=rebase` says it in words). The design, contributors and
+website packs set nothing, so they land by rebase (docs/packs.md).
 
 Importing sets the yard to this state: what exists under the same name is
 overwritten, nothing is added twice, and what the yard chose locally (agent,

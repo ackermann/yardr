@@ -734,21 +734,11 @@ func (e *exporter) role(prompt string) (text []byte, from string, err error) {
 // Only that word is looked at: what follows it may name any file of the
 // machine, and none of those is the pack's to copy.
 func scriptOf(cmd string) (script string, alone bool) {
-	i := 0
-	for i < len(cmd) {
-		for i < len(cmd) && (cmd[i] == ' ' || cmd[i] == '\t') {
-			i++
-		}
-		end := wordEnd(cmd, i)
-		if i == end {
-			break
-		}
-		if !assignment.MatchString(cmd[i:end]) {
-			return shellUnquote(cmd[i:end]), strings.TrimSpace(cmd[:i]) == "" && strings.TrimSpace(cmd[end:]) == ""
-		}
-		i = end
+	_, i, end := splitCmd(cmd)
+	if i == end {
+		return "", false
 	}
-	return "", false
+	return shellUnquote(cmd[i:end]), strings.TrimSpace(cmd[:i]) == "" && strings.TrimSpace(cmd[end:]) == ""
 }
 
 // shellUnquote is a shell word without its quotes, the inverse of

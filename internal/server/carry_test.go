@@ -904,4 +904,22 @@ func TestDepotPlanHolding(t *testing.T) {
 	if err := holdDepotObjects(carded, shadowed); err == nil || !strings.Contains(err.Error(), "builders") {
 		t.Fatalf("a changed shadowing held: %v", err)
 	}
+
+	// A group the import creates has the pack's env before its script,
+	// which the card showed: a plan that rebuilds with another is not the
+	// card's, and one that reads unchanged (the group made meanwhile) is
+	// finishing.
+	cardedEnv := &store.AskPlan{Objects: []store.AskPlanObject{{Kind: "group", Name: "assembly", Action: "create", Env: []string{"YARDR_LAND=squash"}}}}
+	sameEnv := &store.AskPlan{Objects: []store.AskPlanObject{{Kind: "group", Name: "assembly", Action: "create", Env: []string{"YARDR_LAND=squash"}}}}
+	if err := holdDepotObjects(cardedEnv, sameEnv); err != nil {
+		t.Fatalf("a plan with the card's env held: %v", err)
+	}
+	movedEnv := &store.AskPlan{Objects: []store.AskPlanObject{{Kind: "group", Name: "assembly", Action: "create", Env: []string{"YARDR_LAND=rebase"}}}}
+	if err := holdDepotObjects(cardedEnv, movedEnv); err == nil || !strings.Contains(err.Error(), "assembly") {
+		t.Fatalf("a moved env held: %v", err)
+	}
+	madeMeanwhile := &store.AskPlan{Objects: []store.AskPlanObject{{Kind: "group", Name: "assembly", Action: "unchanged"}}}
+	if err := holdDepotObjects(cardedEnv, madeMeanwhile); err != nil {
+		t.Fatalf("a group made meanwhile held: %v", err)
+	}
 }

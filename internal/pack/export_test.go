@@ -764,6 +764,9 @@ func TestExportNeedsAFlowAndAnEmptyDirectory(t *testing.T) {
 
 // A script group's script is copied as it is, braces and all, and what its
 // command sets before it and passes after it stays in the yard, and is said.
+// The pack has an env for the variables, but an export writes none: they are
+// this yard's choices (where it pushes, how it lands), and a pack that
+// carried them would make them the default of every yard that imports it.
 func TestExportCopiesTheScriptAlone(t *testing.T) {
 	st, home := handYard(t)
 	dir := filepath.Join(home, "my scripts")
@@ -775,7 +778,7 @@ func TestExportCopiesTheScriptAlone(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(ctx, store.Group{Name: "web-land", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin '" + script + "' --fast"}}, "me"); err != nil {
+	if err := st.PutGroup(ctx, store.Group{Name: "web-land", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_LAND=squash YARDR_PUSH=origin '" + script + "' --fast"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	depot := "web"
@@ -785,8 +788,8 @@ func TestExportCopiesTheScriptAlone(t *testing.T) {
 	if files["scripts/land (runs)"] != body {
 		t.Fatalf("scripts/land = %q; files %v", files["scripts/land (runs)"], files)
 	}
-	if strings.Contains(files["pack.yaml"], "YARDR_PUSH") || strings.Contains(files["pack.yaml"], "--fast") {
-		t.Errorf("pack.yaml carries the command's variables or arguments:\n%s", files["pack.yaml"])
+	if text := files["pack.yaml"]; strings.Contains(text, "YARDR_") || strings.Contains(text, "env:") || strings.Contains(text, "--fast") {
+		t.Errorf("pack.yaml carries the command's variables or arguments:\n%s", text)
 	}
 	if !leftHas(ex, "group web-land", "script alone") {
 		t.Errorf("left out = %v", ex.Left)

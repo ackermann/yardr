@@ -43,6 +43,14 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 		if p.Name != e.Name() {
 			t.Errorf("the pack embedded as %s calls itself %s", e.Name(), p.Name)
 		}
+		// The starter's assembly lands a bead by squash from its env; the
+		// other packs' land by rebase, the script's default, and set no
+		// option of any script.
+		for _, g := range p.Groups {
+			if len(g.Env) > 0 && e.Name() != packs.Starter {
+				t.Errorf("pack %s: group %s sets env %v: only the starter's assembly does", e.Name(), g.Name, g.Env)
+			}
+		}
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.

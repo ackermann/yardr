@@ -142,7 +142,7 @@ groups:
   builders:  { agent: roles/builder.md,  limit: 5 }
   reviewers: { agent: roles/reviewer.md, limit: 3 }
   security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }
-  assembly:  { run: scripts/merge-local, limit: 1 }
+  assembly:  { run: scripts/merge-local, limit: 1, env: { YARDR_LAND: squash } }
   backlog:   { people: true }
   decisions: { people: true }
 
@@ -178,6 +178,7 @@ sources:
 | `…stages.<stage>.end` | `true`: entering the stage closes the bead. Such a stage has no group, stage file, outcomes or manual moves, and a flow has at least one |
 | `groups.<group>` | exactly one of `agent: <role file>`, `run: <script>`, `people: true` |
 | `groups.<group>.limit` | optional: how many beads the group works at once |
+| `groups.<group>.env` | optional, for a group with `run:` alone: the options of its script, a map of variable names to strings (`env: { YARDR_LAND: squash }`: the starter's assembly lands a bead by squash from it). The import writes them before the script in the `cmd` of a group it **creates**, names sorted and values quoted as the script's path is (`YARDR_LAND=squash /…/merge-local`); a group the yard has keeps its own `cmd` whatever `env` says, since after the group is made its assignments are the operator's ([Groups](#how-a-pack-maps-to-the-yard)). A name is what the shell takes for a variable's (letters, digits and `_`, no digit first), a value a string of printable characters on one line, not empty (quote a number, `"1"`, and the words YAML reads as booleans). An empty map says nothing; beside `agent:` or `people:` the key is an error. `pack check` shows the assignments a new group's `cmd` starts with, `pack show` prints a pack's `env`, and `pack export` writes none ([below](#yardr-pack-export)) |
 | `groups.<group>.binds_as` | optional, for a group with `agent:`: another agent group of the pack, declared before this one, whose agent, model and permission arguments this group gets, so that the import asks nothing for it. The starter's `security-reviewers` bind as `reviewers`: the second review is run by the agent the first is, unless the import is given `--bind security-reviewers=<kind>[:<model>]`. A group the yard has already keeps what it has, as any does ([below](#yardr-pack-apply)) |
 | `groups.<group>.calls.<source>` | optional, for a group with `agent:` or `run:`: the calls of a declared source the group's sessions should be able to make with `yardr call`: `read` for every read call, and calls by name, which is the one way an update is asked for (`calls: { crm: [read, note] }`). The pack only asks: the import puts it to the yard's operator ([Calls of a declared source](#how-a-pack-maps-to-the-yard)) |
 | `crew.<name>.role` | the crew member's role file |
@@ -465,11 +466,42 @@ by every depot that imports a pack naming it.
 | pack | group in the yard | the pack sets | the yard keeps |
 |---|---|---|---|
 | `agent: <role>` | runner `herdr` | `prompt` (the copied role), `limit` | `kind`, `model`, `args`, `env_file`, `idle` and every other setting |
-| `run: <script>` | runner `exec` | the command in `cmd` (the copied script), `limit` | the assignments before the command and the arguments after it (`YARDR_PUSH=origin … merge-local`), `log`, `dir` and the rest |
+| `run: <script>` | runner `exec` | the command in `cmd` (the copied script), `limit`; in the `cmd` of a group it creates, the assignments of `env` before the script | the assignments before the command and the arguments after it (`YARDR_PUSH=origin … merge-local`), always: `env` is never set on a group the yard has. `log`, `dir` and the rest |
 | `people: true` | runner `manual` | `limit`, when the pack gives one | `members`, subscriptions |
 
 A group the yard lacks needs what a pack cannot say: the agent kind, model
 and permission arguments, or the members. These are the import's questions.
+
+**A script's options.** A script group's `env` is the pack's say in how its
+script runs, for a group the import makes. The starter's assembly has
+`env: { YARDR_LAND: squash }`, so a depot set up from it lands each bead as
+one commit ([line.md](line.md#landing-by-squash)), where a script run with
+nothing before it lands the branch's commits as they are. The plan shows what
+a new group's `cmd` starts with:
+
+```
+groups
+  create           web-assembly
+                     cmd sets YARDR_LAND=squash before the script
+```
+
+The group the import made is the operator's from then on, so a yard that
+has it is never changed by `env`: not when the pack's `env` changes, and not
+for a yard that set the group up before the pack had one. Its plan says
+what its `cmd` lacks, once, as it does for a role or a limit it keeps, and
+says nothing when the `cmd` has the pack's value already:
+
+```
+groups
+  unchanged        web-assembly
+                     kept: cmd /Users/me/.yardr/packs/starter/scripts/merge-local: the pack's env YARDR_LAND=squash is set on a new group only
+```
+
+A yard opts in with `yardr group set <group> 'cmd=YARDR_LAND=squash <the rest
+of the cmd>'` (`yardr group show <group>` has the cmd as it stands), and the
+line goes. The same holds for a group that takes the pack's (below). The
+import keeps no record of which assignments the pack wrote, so it never
+removes one either.
 
 **A group the yard has may take the pack's.** `--group <pack's
 group>=<yard's group>` (repeatable) says that the pack's group is that group
@@ -487,7 +519,7 @@ The plan says `takes` where it would say `create`, the routes of the pack's
 stages lead to the yard's group, and what the pack asks for its group (the
 calls of a declared source) is asked for that group. Nothing of the group
 is changed: its kind, model, args, limit, members, command and role stay.
-Where the pack's role, script or limit is not the group's, the plan says so
+Where the pack's role, script, limit or env is not the group's, the plan says so
 in a line, and it stays a line:
 
 ```
@@ -1283,7 +1315,11 @@ with why:
 - A crew member's name in a role or stage file, by file and line. The name
   stays as plain text, and the pack brings no crew member of that name.
 - The variables before and the arguments after a script in a script group's
-  command, and the depot's rules file (`.yardr/depot.md`).
+  command, and the depot's rules file (`.yardr/depot.md`). The pack has an
+  `env` for a script's options, but an export writes none: they are this
+  yard's choices (where it pushes, how it lands), and a pack that carried
+  them would make them the default of every yard that imports it, which an
+  import of a group the yard has would not restore anyway.
 
 It refuses, and writes nothing, for a group on one of the depot's routes
 that another yard works (runner `peer`), two groups or two flows that would
@@ -1722,8 +1758,10 @@ prune removes), under its kind:
 An object's `asks` are the ids of the questions whose answers it still
 needs, its `binds` the yard's group a new group that binds as another
 (`binds_as`) takes its agent, model and arguments from, with no question of
-its own, its `keeps` what the import leaves as the yard has it, and its
-`shadows` the depot's files the pack's role stands in front of. A file has
+its own, its `keeps` what the import leaves as the yard has it, its `env` the
+assignments a new script group's `cmd` starts with (from the pack's `env`; a
+group the yard has gets none, and `keeps` says what of it its `cmd` lacks),
+and its `shadows` the depot's files the pack's role stands in front of. A file has
 `edited: true` when its installed copy was edited by hand. `depot_roles` says
 whose roles the plan sets. A dropped
 object has `owned`, the record's entry for it, and `held` when not even a

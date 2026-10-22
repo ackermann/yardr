@@ -179,11 +179,17 @@ type Object struct {
 	// Keeps says what the import leaves as the yard has it though the pack
 	// carries it, and why: a prompt, where the depot has its own role and the
 	// import was told to keep those; the role and the limit of a group of
-	// the yard that takes the pack's, where they differ from the pack's.
+	// the yard that takes the pack's, where they differ from the pack's; the
+	// pack's env, where the cmd of a script group of the yard lacks it.
 	Keeps []string `json:"keeps,omitempty"`
 	// Shadows are the depot's files that are not used while the object is as
 	// the pack sets it: the depot's own role, under a prompt from the pack.
 	Shadows []string `json:"shadows,omitempty"`
+	// Env are the assignments a script group the import creates has before
+	// its script in its cmd, from the pack's env, as words of that command
+	// (YARDR_LAND=squash). A group the yard has gets none: Keeps says what
+	// of the pack's env it does not carry.
+	Env []string `json:"env,omitempty"`
 	// Edited says an installed file was changed by hand since the last
 	// import and this one would overwrite it.
 	Edited bool `json:"edited,omitempty"`

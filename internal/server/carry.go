@@ -469,7 +469,7 @@ func holdDepotObjects(carded, rebuilt *store.AskPlan) error {
 		if !sameStrings(rb.Keeps, obj.Keeps) || !sameStrings(rb.Shadows, obj.Shadows) {
 			return fmt.Errorf("the object %s %s keeps or shadows differently than the card", obj.Kind, obj.Name)
 		}
-		sameChange := rb.Action == obj.Action && rb.FileNewSHA == obj.FileNewSHA && rb.Text == obj.Text && sameChanges(rb.Changes, obj.Changes)
+		sameChange := rb.Action == obj.Action && rb.FileNewSHA == obj.FileNewSHA && rb.Text == obj.Text && sameChanges(rb.Changes, obj.Changes) && sameStrings(rb.Env, obj.Env)
 		// A changed file not yet installed stands at the card's old
 		// hash; at a third one a hand moved it outside the import.
 		if obj.Kind == "file" && rb.Action == obj.Action && (obj.Action == "create" || obj.Action == "change") && rb.FileOldSHA != obj.FileOldSHA {

@@ -64,6 +64,7 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		"in its roles and stage files {{operator}} would read " + defaultOperator() + ", {{yardmaster}} would read boss\n",
 		"  create           roles/builder.md -> " + filepath.Join(install, "roles", "builder.md") + "\n",
 		"  create           web-builders\n                     asks: group.web-builders.kind\n",
+		"  create           web-assembly\n                     cmd sets YARDR_LAND=squash before the script\n",
 		"  create           depot web stage approved -> web-assembly\n",
 		"  create           boss linear involved\n",
 		"an import would ask\n  group.web-builders.kind: which agent runs group web-builders",

@@ -103,6 +103,12 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local")); err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("merge-local: %v %v", info, err)
 	}
+	// The assembly lands by squash from the start: its cmd begins with the
+	// pack's env, and the second import below finds it as the pack would
+	// make it.
+	if g, err := st.GetGroup(ctx, "web-assembly"); err != nil || g.Config["cmd"] != "YARDR_LAND=squash "+filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local") {
+		t.Fatalf("web-assembly = %+v, %v", g, err)
+	}
 	boss, err := st.GetCrew(ctx, "boss")
 	if err != nil || !slices.Equal(boss.On, []string{store.KindAttention}) || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
 		t.Fatalf("boss = %+v, %v", boss, err)

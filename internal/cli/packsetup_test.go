@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -150,6 +152,25 @@ func TestPackShowPrintsSetupNotes(t *testing.T) {
 	}
 	if out, err := run(t, a.packCmd(), "show", kindPack(t)); err != nil || out != "pack acme-pack carries no setup notes\n" {
 		t.Fatalf("show of a pack without notes: %v\n%s", err, out)
+	}
+	// A pack of script options, with no notes, prints them under the
+	// notes' absence, in words and as data.
+	out, err = run(t, a.packCmd(), "show", "starter")
+	if want := "pack starter carries no setup notes\n\nenv of the script groups of pack starter (set before the script in the cmd of a group an import creates; a group the yard has keeps its own cmd):\n  assembly: YARDR_LAND=squash\n"; err != nil || out != want {
+		t.Fatalf("show starter: %v\n%s\nwant\n%s", err, out, want)
+	}
+	a.json = true
+	out, err = run(t, a.packCmd(), "show", "starter")
+	a.json = false
+	if err != nil {
+		t.Fatalf("show starter --json: %v\n%s", err, out)
+	}
+	var shown struct {
+		Pack string                       `json:"pack"`
+		Env  map[string]map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal([]byte(out), &shown); err != nil || shown.Pack != "starter" || !reflect.DeepEqual(shown.Env, map[string]map[string]string{"assembly": {"YARDR_LAND": "squash"}}) {
+		t.Fatalf("show starter --json: %v\n%s", err, out)
 	}
 	out, err = run(t, a.packCmd(), "show", "linear")
 	if err != nil {
