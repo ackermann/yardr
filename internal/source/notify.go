@@ -29,7 +29,8 @@ type Notify struct {
 	// local path of the picture for the command to read, out {status}.
 	// Telling sends JSON, which carries no picture, so a message with
 	// one goes through this command instead of the call above; one
-	// without, and a file without the key, go through the call.
+	// without, a file without the key, and one the command did not
+	// send (it failed, or answered no success) go through the call.
 	Image []string `json:"image,omitempty"`
 }
 

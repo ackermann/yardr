@@ -450,8 +450,10 @@ what leaves the machine is in
 A message with a picture goes through the file's `image` command instead:
 in `{address, title, text, image}` with the picture's local path, out
 `{status}`. A call sends JSON, which carries no picture, so the command
-reads the file and sends it with the words. One without a picture, and a
-file without the key, go through the call, unadorned. Which messages
+reads the file and sends it with the words. One without a picture, a
+file without the key, and a command that fails, answers no status or
+answers one that is no success, go through the call, unadorned: the words
+are not lost with the picture, and the daemon's log says why. Which messages
 carry a picture is in [users.md](users.md#told-outside-the-yard) with the
 rest of what leaves the machine.
 
@@ -2065,7 +2067,10 @@ them whole):
   follow without one, several one after another. A tell with a picture
   goes through `notify.image` the same way, one picture per tell
   ([users.md](users.md#told-outside-the-yard) says which tells carry
-  one); one without goes through the `message` call.
+  one); one without goes through the `message` call, and so does one
+  whose photo Telegram refuses (over 10 MB, or 10000 pixels in width and
+  height together): a reply to a photo it refuses fails with Telegram's
+  words.
 
 A line from the phone, sent to the isolated yard, was recorded as
 

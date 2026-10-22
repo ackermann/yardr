@@ -565,7 +565,9 @@ var pushPNG = []byte("\x89PNG\r\n\x1a\nthe shed from the lane")
 // A mail with a picture is told with it: the image command is handed the
 // address, the words and the picture's path, whose bytes are the mail's.
 // A mail whose picture the yard no longer holds is told without: the call
-// tells, and the command runs no more.
+// tells, and the command runs no more. So is one whose picture the source
+// refuses: the words are told at once, not tried again with the picture
+// until they are given up, and the daemon's log says why.
 func testPushTellsMailImage(t *testing.T) {
 	t.Parallel()
 	y := newPushYard(t)
@@ -600,6 +602,23 @@ func testPushTellsMailImage(t *testing.T) {
 		t.Fatalf("the command ran %d times", len(sends))
 	}
 	want(t, "push_failed events", y.failed(t), []string{})
+
+	// The source refuses the picture: the call tells all the same, in the
+	// same pass, with nothing left to try again.
+	must(t, os.WriteFile(filepath.Join(dir, "ishow"), []byte("#!/bin/sh\necho 'PHOTO_INVALID_DIMENSIONS' >&2\nexit 1\n"), 0o755))
+	tall := y.putBlob(t, append(bytes.Clone(pushPNG), "-tall"...), "tall.png")
+	must(t, y.api.Mail(ctx, "ada", "a long page", "yardmaster", tall))
+	y.pass(t, store.PushGrace+time.Second)
+	want(t, "told without the refused picture", y.sent(),
+		[]string{"mail from yardmaster | another shed", "mail from yardmaster | a long page"})
+	want(t, "left in the queue", len(y.queued(t)), 0)
+	want(t, "push_failed events", y.failed(t), []string{})
+	if l := y.last(t); !l.OK() || l.Tries != 1 {
+		t.Fatalf("last push = %+v", l)
+	}
+	if logged := y.log.String(); !strings.Contains(logged, "user told without the picture") || !strings.Contains(logged, "PHOTO_INVALID_DIMENSIONS") {
+		t.Fatalf("the daemon's log: %s", logged)
+	}
 }
 
 // A notification of a done bead is told with the newest note on that bead

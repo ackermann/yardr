@@ -163,8 +163,8 @@ func TestSendThroughADeclaredSource(t *testing.T) {
 // A message with a picture goes through the file's image command, handed
 // the address, the words and the picture's path with the source's
 // credential, and the command's status is the send's. One without goes
-// through the call, and a command that fails fails the send: nothing
-// falls back to the call after the picture was tried.
+// through the call, and so does one whose picture the command did not
+// send: the words are not lost with it.
 func testSendImage(t *testing.T) {
 	srv := newStandIn(t)
 	st := storetest.New(t)
@@ -227,24 +227,40 @@ func testSendImage(t *testing.T) {
 		t.Fatalf("the command ran %d times", n)
 	}
 
-	// A command that fails fails the send, with its own words; one that
-	// answers no status is no answer.
-	if err := os.WriteFile(script, []byte("#!/bin/sh\necho 'the service is down' >&2\nexit 1\n"), 0o755); err != nil {
+	// A command that fails costs the words nothing: the call tells without
+	// the picture, and the Sent says why. So does one that answers no
+	// status, and one that answers a failure.
+	for _, c := range []struct{ name, script, why string }{
+		{"a failing command", "#!/bin/sh\necho 'the service is down' >&2\nexit 1\n", "the service is down"},
+		{"an answer with no status", "#!/bin/sh\nprintf '%s' '{}'\n", "no {status}"},
+		{"a refusal", "#!/bin/sh\nprintf '%s' '{\"status\":400}'\n", "answered 400"},
+	} {
+		if err := os.WriteFile(script, []byte(c.script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		told := len(srv.got)
+		sent, err := Send(ctx, st, home, "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"})
+		if err != nil || !sent.OK() || sent.Source != "push" || !strings.Contains(sent.Unpictured, c.why) {
+			t.Fatalf("%s: %+v, %v", c.name, sent, err)
+		}
+		if len(srv.got) != told+1 || srv.got[told]["title"] != "t" || srv.got[told]["message"] != "x" {
+			t.Fatalf("%s: the call got %v", c.name, srv.got[told:])
+		}
+	}
+	// A picture that went says nothing of the kind, and a send that fails
+	// without it fails with the call's words.
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '{\"status\":200}'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err == nil ||
-		!strings.Contains(err.Error(), "the service is down") {
-		t.Fatalf("a failing command: %v", err)
+	if sent, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err != nil || sent.Unpictured != "" {
+		t.Fatalf("a picture that went: %+v, %v", sent, err)
 	}
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '{}'\n"), 0o755); err != nil {
+	srv.status = 500
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err == nil ||
-		!strings.Contains(err.Error(), "no {status}") {
-		t.Fatalf("an answer with no status: %v", err)
-	}
-	if len(srv.got) != 1 {
-		t.Fatalf("the call was made after the picture was tried: %v", srv.got)
+	if sent, err := Send(ctx, st, home, "ada", Message{Text: "x", Image: "/y/blobs/h"}); err != nil || sent.OK() || sent.Status != 500 {
+		t.Fatalf("a picture refused and a call that fails: %+v, %v", sent, err)
 	}
 }
 
@@ -367,14 +383,19 @@ func (a *teller) Notify(_ context.Context, env map[string]string, title, text, l
 	return 202, nil
 }
 
-// imager is a teller whose source takes a picture with the message.
+// imager is a teller whose source takes a picture with the message, or
+// fails to, as fail says.
 type imager struct {
 	teller
 	image string
+	fail  error
 }
 
 func (a *imager) NotifyImage(ctx context.Context, env map[string]string, title, text, link, image string) (int, error) {
 	a.image = image
+	if a.fail != nil {
+		return 0, a.fail
+	}
 	return a.teller.Notify(ctx, env, title, text, link)
 }
 
@@ -456,6 +477,17 @@ func testSendImageThroughAnAdapter(t *testing.T) {
 	}
 	if b.image != "" || b.title != "t" {
 		t.Fatalf("a message without a picture: %+v, image %q", b.teller, b.image)
+	}
+
+	// A picture the source fails to take costs the words nothing: the
+	// plain call tells, and the Sent says why.
+	b.teller, b.fail = teller{}, errors.New("the photo is too tall")
+	sent, err := Send(ctx, st, "", "ada", Message{Title: "t", Text: "x", Link: "l", Image: "/y/blobs/h"})
+	if err != nil || sent.Status != 202 || !strings.Contains(sent.Unpictured, "the photo is too tall") {
+		t.Fatalf("Send = %+v, %v", sent, err)
+	}
+	if b.image != "/y/blobs/h" || b.title != "t" || b.text != "x" || b.link != "l" {
+		t.Fatalf("the adapter whose picture failed got %+v, image %q", b.teller, b.image)
 	}
 }
 

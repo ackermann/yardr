@@ -36,7 +36,8 @@ type Imager interface {
 	// one there is none of, with the picture at the local path image,
 	// read by the call. It returns the status the source answered with;
 	// an error is a call that was not answered, and names no value of
-	// env.
+	// env. A picture that fails, by an error or by a status that is no
+	// success, is told again without it: the words are not lost with it.
 	NotifyImage(ctx context.Context, env map[string]string, title, text, link, image string) (status int, err error)
 }
 

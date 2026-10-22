@@ -161,6 +161,11 @@ func (d *Dispatcher) tell(ctx context.Context, user string, ps []store.Push) {
 	cctx, cancel := context.WithTimeout(ctx, pushTimeout)
 	res, err := notify.Send(cctx, d.Store, d.Home, user, msg)
 	cancel()
+	if err == nil && res.Unpictured != "" {
+		// Told, but not as it was meant to be: the picture stays in the
+		// yard, and the log is where the operator reads why.
+		d.Log.Warn("user told without the picture", "user", u.Name, "source", u.Notify, "err", res.Unpictured)
+	}
 	var notSetUp *notify.NotSetUp
 	var call *source.CallError
 	switch {

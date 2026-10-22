@@ -41,8 +41,12 @@ type Sent struct {
 	Source string `json:"source"`
 	// Status is the source's answer. One that is no success is a Sent too:
 	// the caller decides whether it is worth another try.
-	Status int           `json:"status"`
-	Took   time.Duration `json:"-"`
+	Status int `json:"status"`
+	// Unpictured is why the message went without the picture it carried,
+	// when the source did not take the picture and the words were told on
+	// their own; "" when the picture went, and when there was none.
+	Unpictured string        `json:"unpictured,omitempty"`
+	Took       time.Duration `json:"-"`
 }
 
 // OK reports whether the source took the message.
@@ -75,6 +79,9 @@ type provider interface {
 	// and without where it takes none. An error is a send that was not
 	// answered.
 	send(ctx context.Context, home string, env map[string]string, m Message) (status int, err error)
+	// pictured reports whether send carries a message's picture, which
+	// only a source that takes one does.
+	pictured() bool
 }
 
 // Send tells the user m through the source their record names. home is
@@ -105,10 +112,24 @@ func Through(ctx context.Context, st Store, home, name string, u *store.User, m 
 	}
 	start := time.Now()
 	status, err := p.send(ctx, home, env, m)
+	var unpictured string
+	if m.Image != "" && p.pictured() && (err != nil || status < 200 || status >= 300) {
+		// The picture is an addition to the words, and one the source will
+		// not take (too large, too tall, a kind it cannot show) must not
+		// cost them, nor have them tried again with it until they are
+		// given up: they go on their own, as they went before pictures
+		// were told, and the Sent says why.
+		unpictured = fmt.Sprintf("the source answered %d", status)
+		if err != nil {
+			unpictured = err.Error()
+		}
+		m.Image = ""
+		status, err = p.send(ctx, home, env, m)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return &Sent{User: u.Name, Source: name, Status: status, Took: time.Since(start)}, nil
+	return &Sent{User: u.Name, Source: name, Status: status, Unpictured: unpictured, Took: time.Since(start)}, nil
 }
 
 // Names are the names a user's env file sets to be told through the source
@@ -192,12 +213,14 @@ type declared struct {
 
 func (p declared) names() []string { return []string{p.d.Notify.AddressEnv} }
 
+func (p declared) pictured() bool { return len(p.d.Notify.Image) > 0 }
+
 func (p declared) send(ctx context.Context, home string, env map[string]string, m Message) (int, error) {
 	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.Mint, source.Update)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)
 	}
-	if m.Image != "" && len(p.d.Notify.Image) > 0 {
+	if m.Image != "" && p.pictured() {
 		return p.sendImage(ctx, home, env, m, cred)
 	}
 	n := p.d.Notify
@@ -242,6 +265,11 @@ func (p declared) sendImage(ctx context.Context, home string, env map[string]str
 type compiled struct{ n hooks.Notifier }
 
 func (p compiled) names() []string { return p.n.NotifyEnv() }
+
+func (p compiled) pictured() bool {
+	_, ok := p.n.(hooks.Imager)
+	return ok
+}
 
 func (p compiled) send(ctx context.Context, _ string, env map[string]string, m Message) (int, error) {
 	if m.Image != "" {

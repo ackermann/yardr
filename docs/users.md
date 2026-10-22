@@ -429,7 +429,10 @@ one: a mail's first image file, and the newest picture on the notes of
 a bead the message says is done. Of several due at once the first
 picture in order goes; the rest stay in the yard, read where the mail
 or the bead is read. A source whose file names no picture command
-tells words alone, as ever.
+tells words alone, as ever. So does one that does not take the picture
+(Telegram takes a photo of 10 MB at most, and 10000 pixels in width and
+height together): the words are told at once, not lost with it, and the
+daemon's log says why (`user told without the picture`).
 
 **When.** The daemon sends, so it must be running. A thing is told once it
 has been in the inbox for 20 seconds and is still unread: what was
