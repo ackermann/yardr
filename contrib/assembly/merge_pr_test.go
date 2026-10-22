@@ -253,6 +253,24 @@ func TestMergePRMergesABotsBumpAtItsLiveHead(t *testing.T) {
 	}
 }
 
+// A bot's bump of its own repository is merged at the head it has, also when
+// a maintainer's yes recorded another (an Actions bump they said yes to, which
+// the bot rebased since): the rule that holds a moved head is for the pull
+// requests whose head is no bot's to move.
+func TestMergePRBotBumpIgnoresARecordedHead(t *testing.T) {
+	y, gh := mergeYard(t, mergeOpts{head: headB, yes: headA})
+
+	y.exec("merge-pr", "pr-merges", "r-p")
+
+	if e := y.beadOf("r-p"); e.Stage != "merged" || e.Status != "closed" {
+		t.Fatalf("r-p %s/%s, want merged and closed:\n%s", e.Stage, e.Status, y.notesOf("r-p"))
+	}
+	want := "pr merge " + prURL + " --rebase --delete-branch --match-head-commit " + headB
+	if n := countCalls(t, gh, want); n != 1 {
+		t.Fatalf("%q called %d times, want once:\n%v", want, n, ghCalls(t, gh))
+	}
+}
+
 // Everything but a bot's pull request from its own repository is merged at
 // the head a maintainer said yes to, and at no other: the yes is one command,
 // the label and the sha together. A fork is merged with a merge commit and
