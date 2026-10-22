@@ -29,7 +29,7 @@ qform() { # a value for curl's -F, quoted, so that a ; or , or " in a file's nam
   printf '"%s"' "${s//\"/\\\"}"
 }
 
-cut() { # a text cut to n characters, not bytes, with the ellipsis the declared call's cut leaves
+clip() { # a text cut to n characters, not bytes, with the ellipsis the declared call's cut leaves
   jq -nr --arg s "$1" --argjson n "$2" '$s | if length > $n then .[0:$n-1] + "…" else . end'
 }
 
@@ -60,8 +60,8 @@ tell) # one message with its picture to the person, in the multipart form
   # The words as the declared call has them: a title of 250 characters at
   # most and a text of 1024. The API requires a message, so a picture sent
   # with a title alone has the title for its message.
-  title=$(cut "$title" 250)
-  text=$(cut "$text" 1024)
+  title=$(clip "$title" 250)
+  text=$(clip "$text" 1024)
   if [ -z "$text" ]; then
     text=$title
     title=""
