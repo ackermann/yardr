@@ -127,9 +127,9 @@ reply) # sendMessage to the chat the delivery came from; with files, the
     [ -n "$file" ] || { echo "thread.reply was handed no file" >&2; exit 1; }
     [ -f "$file" ] || { echo "thread.reply found no file at $file" >&2; exit 1; }
     mime=$(file -b --mime-type "$file" 2>/dev/null) || { echo "thread.reply cannot read $file" >&2; exit 1; }
-    # A photo is a kind the service shows as one (a vector drawing or a
-    # camera's raw file it cannot): the rest goes as a document, which
-    # takes any file.
+    # Only the kinds the service shows as a photo go by sendPhoto; a vector
+    # drawing or a camera's raw file, which it cannot, goes as a document,
+    # which takes any file.
     case "$mime" in
     image/png | image/jpeg | image/gif | image/webp | image/bmp) method=sendPhoto; field=photo ;;
     *) method=sendDocument; field=document ;;

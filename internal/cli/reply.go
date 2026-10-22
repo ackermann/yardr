@@ -115,9 +115,10 @@ on GitHub). --to is for hook deliveries only.
 With --file <path>, given more than once for several, the reply carries
 files into the thread: pictures arrive as pictures, anything else as a
 document, each under its own name. The text stays the caption where it
-fits, else it is sent first and the files follow without one. A source whose file does not say its
-replies take files is refused: --file there would send the words and drop
-the files. Mail and a note on another yard's bead take no --file.
+fits, else it is sent first and the files follow without one. A source
+whose file does not say its replies take files is refused: --file there
+would send the words and drop the files. Mail and a note on another
+yard's bead take no --file.
 
 Mail to the crew member is answered by mail to its sender: mail from this
 yard (a user or a crew member) as yardr mail <sender> would send it; mail

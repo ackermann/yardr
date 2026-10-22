@@ -119,9 +119,10 @@ func Through(ctx context.Context, st Store, home, name string, u *store.User, m 
 		// cost them, nor have them tried again with it until they are
 		// given up: they go on their own, as they went before pictures
 		// were told, and the Sent says why.
-		unpictured = fmt.Sprintf("the source answered %d", status)
 		if err != nil {
 			unpictured = err.Error()
+		} else {
+			unpictured = fmt.Sprintf("the source answered %d", status)
 		}
 		m.Image = ""
 		status, err = p.send(ctx, home, env, m)
