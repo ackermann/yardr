@@ -54,23 +54,32 @@ case "$3" in
   gone)     echo '{"error":{"code":"agent_not_found","message":"agent target gone not found"},"id":"x"}' >&2; exit 1 ;;
   *)        echo '{"error":{"code":"server_not_running","message":"no herdr server"},"id":"x"}' >&2; exit 1 ;;
 esac`)}
-	for agent, want := range map[string]string{
-		"answered": "claude-fable-5-1", // the first model that answered
-		"silent":   "",                 // prompted, no reply yet
-		"nofile":   "",                 // no session file yet
-		"glob":     "",                 // an id that is no id finds nothing
-		"codex":    "gpt-6-luna",
-		"muse":     "muse-spark-1.3-contributor",
-		"kimi":     "", // a kind with no source
-		"starting": "", // herdr has no session id for it yet
-		"gone":     "",
+	// SessionID is the id alone: the agent that has not answered yet, and the
+	// kind that names no model, have theirs, and an id that is no id is none.
+	for agent, want := range map[string]struct{ model, id string }{
+		"answered": {"claude-fable-5-1", "c1"}, // the first model that answered
+		"silent":   {"", "c2"},                 // prompted, no reply yet
+		"nofile":   {"", "c3"},                 // no session file yet
+		"glob":     {"", ""},                   // an id that is no id finds nothing
+		"codex":    {"gpt-6-luna", "x1"},
+		"muse":     {"muse-spark-1.3-contributor", "m1"},
+		"kimi":     {"", "session_1"}, // a kind with no source
+		"starting": {"", ""},          // herdr has no session id for it yet
+		"gone":     {"", ""},
 	} {
 		got, err := h.Model(ctx, map[string]any{"agent": agent})
-		if err != nil || got != want {
-			t.Errorf("%s: model = %q, %v; want %q", agent, got, err, want)
+		if err != nil || got != want.model {
+			t.Errorf("%s: model = %q, %v; want %q", agent, got, err, want.model)
+		}
+		id, err := h.SessionID(ctx, map[string]any{"agent": agent})
+		if err != nil || id != want.id {
+			t.Errorf("%s: session id = %q, %v; want %q", agent, id, err, want.id)
 		}
 	}
 	if _, err := h.Model(ctx, map[string]any{"agent": "down"}); err == nil {
 		t.Error("herdr down must be an error, not a model")
+	}
+	if id, err := h.SessionID(ctx, map[string]any{"agent": "down"}); err == nil {
+		t.Errorf("herdr down must be an error, not the session id %q", id)
 	}
 }

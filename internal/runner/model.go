@@ -46,6 +46,17 @@ func (h *Herdr) Model(ctx context.Context, handle map[string]any) (string, error
 	return firstModel(kind.Model.Pattern(h.agentHome(kind), id), kind.Model.ModelIn)
 }
 
+// SessionID is the session id herdr reports for the agent handle names, by
+// which its own session file is found: "" while herdr names none, because
+// the agent has not started its session, is gone, or is of a kind herdr
+// reads no id for (muse, until herdr learns its sessions). It is where Model
+// and Context start, without their reading of the file, so an agent that has
+// not answered yet, or whose kind names no model, has its id all the same.
+func (h *Herdr) SessionID(ctx context.Context, handle map[string]any) (string, error) {
+	_, id, err := h.sessionKind(ctx, handle)
+	return id, err
+}
+
 // sessionKind is the harness kind of the agent handle names and its
 // session id, by which the agent's own session file is found. id is ""
 // when herdr names no agent or no session id for it, or one that is no
@@ -75,11 +86,18 @@ func (h *Herdr) sessionKind(ctx context.Context, handle map[string]any) (agents.
 		return agents.Harness{}, "", err
 	}
 	id := info.Agent.Session.Value
-	if id == "" || strings.ContainsAny(id, `/\*?[`) {
+	if !plainSessionID(id) {
 		return agents.Harness{}, "", nil
 	}
 	kind, _ := agents.Lookup(info.Agent.Kind)
 	return kind, id, nil
+}
+
+// plainSessionID reports whether id can stand for a session in the glob of
+// its file: one with a separator or a pattern character in it would find
+// another session's file, or none.
+func plainSessionID(id string) bool {
+	return id != "" && !strings.ContainsAny(id, `/\*?[`)
 }
 
 // agentHome is the own directory of an agent of kind, whose file names a
@@ -96,31 +114,48 @@ func (h *Herdr) agentHome(kind agents.Harness) string {
 	return filepath.Join(home, kind.Model.Home)
 }
 
-// firstModel reads the session file matching pattern line by line and
-// returns the first model pick finds; "" when there is no file yet or no
-// line names one.
-func firstModel(pattern string, pick func(line []byte) string) (string, error) {
+// sessionFile is the session file matching pattern; "" when there is none
+// yet, which is no error.
+func sessionFile(pattern string) (string, error) {
 	files, err := filepath.Glob(pattern)
 	if err != nil || len(files) == 0 {
 		return "", err
 	}
-	f, err := os.Open(files[0])
+	return files[0], nil
+}
+
+// eachLine calls each with the lines of the file at path in turn, the last
+// one too when it has no newline yet, until each answers true.
+func eachLine(path string, each func(line []byte) (stop bool)) error {
+	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer f.Close()
 	// A line holds a whole message, tool output included: no fixed buffer.
 	r := bufio.NewReader(f)
 	for {
 		line, err := r.ReadBytes('\n')
-		if m := pick(line); m != "" {
-			return m, nil
-		}
-		if err == io.EOF {
-			return "", nil
+		if each(line) || err == io.EOF {
+			return nil
 		}
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
+}
+
+// firstModel reads the session file matching pattern line by line and
+// returns the first model pick finds; "" when there is no file yet or no
+// line names one.
+func firstModel(pattern string, pick func(line []byte) string) (model string, err error) {
+	path, err := sessionFile(pattern)
+	if path == "" || err != nil {
+		return "", err
+	}
+	err = eachLine(path, func(line []byte) bool {
+		model = pick(line)
+		return model != ""
+	})
+	return model, err
 }
