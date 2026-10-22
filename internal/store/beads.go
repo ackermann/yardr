@@ -142,6 +142,13 @@ type NewBead struct {
 	// creates no bead, so the bead is never there unblocked for a route to
 	// hand out.
 	BlockedBy []string
+	// originator is the originator the bead is born with, as another bead
+	// stores it: a write that copies one (a fold takes its oldest member's)
+	// sets it, since For cannot say it. For is refused from a bead agent's
+	// pane and for a user who no longer exists, and an originator that is
+	// empty would fall to the actor's rule, which names the one who folds.
+	// Nil leaves it to originatorFor's rules.
+	originator *string
 }
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -342,8 +349,9 @@ func (s *Store) CheckFor(ctx context.Context, user string) error {
 }
 
 // originatorFor is the originator of the bead nb makes for actor: the
-// user the bead is for, whose subscription builds it. An explicit For
-// wins over every default, outside a bead agent's pane; a follow-up
+// user the bead is for, whose subscription builds it. A bead made from
+// others (a fold) has its oldest member's as stored, whoever makes it. An
+// explicit For wins over every default, outside a bead agent's pane; a follow-up
 // inherits the origin's originator, as stored; what is filed from a bead
 // agent's pane takes the pane bead's; a person creating a bead is its
 // originator; and a crew member's actor, a hook's, and any other actor
@@ -352,6 +360,9 @@ func (s *Store) CheckFor(ctx context.Context, user string) error {
 // For, or arriving through a bead already theirs, puts another person's
 // name on a bead.
 func (w *wtx) originatorFor(ctx context.Context, nb NewBead, actor string) (string, error) {
+	if nb.originator != nil {
+		return *nb.originator, nil
+	}
 	if nb.For != "" {
 		if err := checkFor(w.Tx, callerOf(ctx), nb.For); err != nil {
 			return "", err
@@ -387,6 +398,29 @@ func (w *wtx) originatorFor(ctx context.Context, nb NewBead, actor string) (stri
 	return operator, nil
 }
 
+// beadReads is what a write that makes a bead needs read before it, since
+// git and the disk never run inside one: the repository flows of the bead's
+// depot, when its flow depends on them, and the stage files of a store flow.
+type beadReads struct {
+	repo *RepoFlows
+	home *stageHome
+}
+
+// readsFor reads what a write making a bead of typ in depot, with metadata
+// meta, needs. The write goes wrong with changedMeanwhile when the bead it
+// makes is not the one these were read for.
+func (s *Store) readsFor(ctx context.Context, depot *string, typ string, meta map[string]any) (*beadReads, error) {
+	repo, err := s.repoFor(ctx, depot, typ, PinnedFlow(&Bead{Metadata: meta}))
+	if err != nil {
+		return nil, err
+	}
+	home, err := s.stageHomeBefore(&Bead{Depot: depot, Type: typ, Metadata: meta}, repo)
+	if err != nil {
+		return nil, err
+	}
+	return &beadReads{repo: repo, home: home}, nil
+}
+
 // newBead checks nb as far as it can be checked outside a write and answers
 // what creates the bead inside one, so that a write may make more than the
 // bead (AskNew) and make nothing when any of it is refused.
@@ -399,13 +433,6 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 	}
 	if isUUID(nb.ID) {
 		return nil, fmt.Errorf("bead id %q: a handle cannot look like a UUID", nb.ID)
-	}
-	prefix := nb.Prefix
-	if prefix == "" {
-		prefix = nb.Depot
-	}
-	if prefix == "" {
-		prefix = "yd"
 	}
 	typ := or(nb.Type, "task")
 	if err := checkName("bead type", typ); err != nil {
@@ -425,12 +452,7 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 			return nil, err
 		}
 	}
-	pin := PinnedFlow(&Bead{Metadata: nb.Metadata})
-	repo, err := s.repoFor(ctx, depot, typ, pin)
-	if err != nil {
-		return nil, err
-	}
-	home, err := s.stageHomeBefore(&Bead{Depot: depot, Type: typ, Metadata: nb.Metadata}, repo)
+	reads, err := s.readsFor(ctx, depot, typ, nb.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -439,103 +461,122 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		if err != nil {
 			return nil, err
 		}
-		actor = resolved
-		if nb.Depot != "" && w.Bucket(bDepots).Get([]byte(nb.Depot)) == nil {
-			return nil, fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
-		}
-		f, src, err := resolveFlow(w.Tx, depot, typ, pin, repo)
-		if err != nil {
-			return nil, changedMeanwhile(err)
-		}
-		// Without a stage the bead starts where its flow starts (backlog
-		// in the starter flow, where the yardmaster shapes it), so create works
-		// for any flow, a train's too; "new" is only for beads no flow
-		// governs.
-		stage := or(nb.Stage, firstStage(f))
-		if err := checkCreateStage(f, stage); err != nil {
-			return nil, err
-		}
-		// A wagon is created before it can be a train's child.
-		if err := checkWagon(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
-			return nil, err
-		}
-		originator, err := w.originatorFor(ctx, nb, actor)
-		if err != nil {
-			return nil, err
-		}
-		if err := w.checkAgentCreate(ctx, f, Bead{Type: typ, Depot: depot, Priority: nb.Priority, Labels: nb.Labels, Metadata: nb.Metadata, Originator: originator}, stage); err != nil {
-			return nil, err
-		}
-		row := &beadRow{Bead: Bead{
-			Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
-			Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
-			Metadata: nb.Metadata, Originator: originator,
-		}}
-		row.Depot = depot
-		row.StayStart, row.Visited = row.CreatedAt, []string{stage}
-		if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
-			return nil, err
-		}
-		if err := w.event(row.UUID, "created", actor, createdData(&row.Bead)); err != nil {
-			return nil, err
-		}
-		seq := w.Bucket(bEvents).Sequence()
-		if nb.DiscoveredFrom != "" {
-			origin, err := w.loadBead(nb.DiscoveredFrom)
-			if err != nil {
-				return nil, fmt.Errorf("discovered from: %w", err)
-			}
-			if err := w.addDep(origin, row, DepDiscoveredFrom, "", "", actor); err != nil {
-				return nil, err
-			}
-			// The edge re-minted the bead: go on with it as stored.
-			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
-				return nil, err
-			}
-		}
-		if len(nb.BlockedBy) > 0 {
-			blockers, err := newBlockers(w.Tx, nb.BlockedBy)
-			if err != nil {
-				return nil, err
-			}
-			for _, blocker := range blockers {
-				// A bead that blocks nothing yet closes no cycle; the
-				// check is AddDep's, should that ever change.
-				if err := checkCycle(w.Tx, blocker, row, ""); err != nil {
-					return nil, err
-				}
-				if err := w.addDep(blocker, row, DepBlocks, "", "", actor); err != nil {
-					return nil, err
-				}
-			}
-			if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
-				return nil, err
-			}
-		}
-		for _, nl := range nb.Links {
-			if nb.Untracked && nl.Kind == LinkTracks {
-				if err := w.handOn(nl.URL, row, actor); err != nil {
-					return nil, err
-				}
-			}
-			if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
-				return nil, err
-			}
-		}
-		// A bead enters its first stage as it is created, and tracks what
-		// it was created with.
-		if err := w.queueIssueMoves(row, seq, row.Stage); err != nil {
-			return nil, err
-		}
-		tmpl, broken, fatal := stageTemplate(f, src, repo, home, row.Stage)
-		if fatal != nil {
-			return nil, fatal
-		}
-		if err := w.putStageAsks(row, row.Stage, seq, tmpl, broken); err != nil {
-			return nil, err
-		}
-		return row, nil
+		return w.createBead(ctx, nb, resolved, reads)
 	}, nil
+}
+
+// createBead makes the bead nb says, inside the write w, as actor (already
+// resolved through paneAuthor), with the reads taken before the write for a
+// bead of its depot, type and flow pin. newBead hands it the nb it checked;
+// a fold hands it one made from the members the write itself read.
+func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *beadReads) (*beadRow, error) {
+	prefix := nb.Prefix
+	if prefix == "" {
+		prefix = nb.Depot
+	}
+	if prefix == "" {
+		prefix = "yd"
+	}
+	typ := or(nb.Type, "task")
+	var depot *string
+	if nb.Depot != "" {
+		depot = &nb.Depot
+	}
+	if nb.Depot != "" && w.Bucket(bDepots).Get([]byte(nb.Depot)) == nil {
+		return nil, fmt.Errorf("depot %s: %w", nb.Depot, ErrNotFound)
+	}
+	f, src, err := resolveFlow(w.Tx, depot, typ, PinnedFlow(&Bead{Metadata: nb.Metadata}), reads.repo)
+	if err != nil {
+		return nil, changedMeanwhile(err)
+	}
+	// Without a stage the bead starts where its flow starts (backlog
+	// in the starter flow, where the yardmaster shapes it), so create works
+	// for any flow, a train's too; "new" is only for beads no flow
+	// governs.
+	stage := or(nb.Stage, firstStage(f))
+	if err := checkCreateStage(f, stage); err != nil {
+		return nil, err
+	}
+	// A wagon is created before it can be a train's child.
+	if err := checkWagon(w.Tx, f, &beadRow{Bead: Bead{Type: typ}}, stage); err != nil {
+		return nil, err
+	}
+	originator, err := w.originatorFor(ctx, nb, actor)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.checkAgentCreate(ctx, f, Bead{Type: typ, Depot: depot, Priority: nb.Priority, Labels: nb.Labels, Metadata: nb.Metadata, Originator: originator}, stage); err != nil {
+		return nil, err
+	}
+	row := &beadRow{Bead: Bead{
+		Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
+		Status: "open", Priority: nb.Priority, Labels: dedupe(nb.Labels), CreatedAt: now(), CreatedBy: &actor,
+		Metadata: nb.Metadata, Originator: originator,
+	}}
+	row.Depot = depot
+	row.StayStart, row.Visited = row.CreatedAt, []string{stage}
+	if err := w.insertBead(row, prefix, nb.ID, actor); err != nil {
+		return nil, err
+	}
+	if err := w.event(row.UUID, "created", actor, createdData(&row.Bead)); err != nil {
+		return nil, err
+	}
+	seq := w.Bucket(bEvents).Sequence()
+	if nb.DiscoveredFrom != "" {
+		origin, err := w.loadBead(nb.DiscoveredFrom)
+		if err != nil {
+			return nil, fmt.Errorf("discovered from: %w", err)
+		}
+		if err := w.addDep(origin, row, DepDiscoveredFrom, "", "", actor); err != nil {
+			return nil, err
+		}
+		// The edge re-minted the bead: go on with it as stored.
+		if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
+			return nil, err
+		}
+	}
+	if len(nb.BlockedBy) > 0 {
+		blockers, err := newBlockers(w.Tx, nb.BlockedBy)
+		if err != nil {
+			return nil, err
+		}
+		for _, blocker := range blockers {
+			// A bead that blocks nothing yet closes no cycle; the
+			// check is AddDep's, should that ever change.
+			if err := checkCycle(w.Tx, blocker, row, ""); err != nil {
+				return nil, err
+			}
+			if err := w.addDep(blocker, row, DepBlocks, "", "", actor); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := get(w.Tx, bBeads, row.UUID, row); err != nil {
+			return nil, err
+		}
+	}
+	for _, nl := range nb.Links {
+		if nb.Untracked && nl.Kind == LinkTracks {
+			if err := w.handOn(nl.URL, row, actor); err != nil {
+				return nil, err
+			}
+		}
+		if _, _, err := w.addLink(row, nl, actor, nil); err != nil {
+			return nil, err
+		}
+	}
+	// A bead enters its first stage as it is created, and tracks what
+	// it was created with.
+	if err := w.queueIssueMoves(row, seq, row.Stage); err != nil {
+		return nil, err
+	}
+	tmpl, broken, fatal := stageTemplate(f, src, reads.repo, reads.home, row.Stage)
+	if fatal != nil {
+		return nil, fatal
+	}
+	if err := w.putStageAsks(row, row.Stage, seq, tmpl, broken); err != nil {
+		return nil, err
+	}
+	return row, nil
 }
 
 // checkAgentCreate refuses a bead's agent (beadAgent) a new bead b, of flow
