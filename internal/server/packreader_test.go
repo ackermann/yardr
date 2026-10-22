@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 func packReaderYard(t *testing.T) *store.Store {
@@ -125,12 +129,41 @@ func TestReadEmbeddedDepotPack(t *testing.T) {
 	if _, err := st.RecordPack(ctx, store.PackImport{Pack: "starter", Depot: "yardr", Source: "embedded in yardr test"}, false, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	r, err := readEmbeddedPack(ctx, "starter", st, t.TempDir())
+	home := t.TempDir()
+	r, err := readEmbeddedPack(ctx, "starter", st, home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Depot != "yardr" || r.Plan == nil || len(r.Plan.Objects) == 0 {
 		t.Fatalf("the starter reading = depot %q, plan %+v", r.Depot, r.Plan)
+	}
+
+	// The plan an approval compares whole holds nothing of the label the
+	// pack was loaded under: the same pack embedded by another build plans
+	// the same objects, so a build that moved alone moves none of them.
+	sub, err := fs.Sub(packs.FS, "starter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded+" in yardr another-build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := pack.Build(ctx, st, p, pack.Options{Depot: "yardr", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := askPlanOf(sub, plan)
+	if len(other.Objects) != len(r.Plan.Objects) {
+		t.Fatalf("under another build's label the plan has %d objects, not %d", len(other.Objects), len(r.Plan.Objects))
+	}
+	for i, o := range r.Plan.Objects {
+		if !reflect.DeepEqual(o, other.Objects[i]) {
+			t.Fatalf("under another build's label the plan's object %s %s reads otherwise:\n%+v\nnot\n%+v", o.Kind, o.Name, other.Objects[i], o)
+		}
+	}
+	if !reflect.DeepEqual(other, r.Plan) {
+		t.Fatalf("under another build's label the plan reads otherwise beyond its objects:\n%+v\nnot\n%+v", other, r.Plan)
 	}
 }
 

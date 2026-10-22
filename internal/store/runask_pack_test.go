@@ -160,8 +160,8 @@ func TestPackApplyRefusals(t *testing.T) {
 // An approval of a pack carded under another build runs when only the build
 // moved: the pack is the same file for file, and the build is provenance
 // the card keeps. It is refused when the bytes moved, when the label without
-// the build did (a pack the new build no longer embeds), and for a card
-// written before cards kept the build.
+// the build did (here, a reading with no label), and for a card written
+// before cards kept the build.
 func TestPackApplyStaleBuild(t *testing.T) {
 	y, _ := runYard(t)
 	f := &fakePack{label: "embedded in yardr one", build: "one"}
@@ -191,14 +191,16 @@ func TestPackApplyStaleBuild(t *testing.T) {
 		t.Fatalf("changed bytes: ApproveAsk = %v", err)
 	}
 
-	// A pack the new build no longer embeds reads with no label: the label
-	// without the build moved, whatever bytes the reading still holds.
+	// A reading that comes back with no label has moved the label without
+	// the build, whatever bytes it still holds. The server's reader fails
+	// before this for a pack the new build no longer embeds; the comparison
+	// refuses either way.
 	f.files = nil
 	seq3 := y.ask(t, packAsk(), "yardmaster")
 	f.label, f.build = "", ""
 	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false); err == nil ||
 		!strings.Contains(err.Error(), "whose pack differs") {
-		t.Fatalf("a removed pack: ApproveAsk = %v", err)
+		t.Fatalf("a reading with no label: ApproveAsk = %v", err)
 	}
 	for _, open := range []uint64{seq2, seq3} {
 		if r := y.asked(t, open); r.State != AskOpen {

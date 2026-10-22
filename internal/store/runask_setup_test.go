@@ -656,8 +656,7 @@ func TestSetupYouDecideGrantsRecommended(t *testing.T) {
 
 // An approval is recorded past a build that moved, the pack unchanged file
 // for file: the build is provenance, which the card keeps. It is refused
-// when the label without the build moved (a pack the new build no longer
-// embeds).
+// when the label without the build moved (here, a reading with no label).
 func TestSetupStaleBuild(t *testing.T) {
 	y, _ := runYard(t)
 	f := setupMailPack()
@@ -678,7 +677,7 @@ func TestSetupStaleBuild(t *testing.T) {
 	f.label, f.build = "", ""
 	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
 	if err == nil || !strings.Contains(err.Error(), "was carded under yardr test2") || !strings.Contains(err.Error(), "whose pack differs") {
-		t.Errorf("an approval past a removed pack was recorded or refused otherwise: %v", err)
+		t.Errorf("an approval past a reading with no label was recorded or refused otherwise: %v", err)
 	}
 }
 
