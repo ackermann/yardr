@@ -42,6 +42,19 @@ A command that is
 the path of a file on the base (`--test .yardr/test`) is run from the base's
 copy, so a bead cannot change the script that judges it.
 
+`scripts/merge-local` lands the branch's commits as they are, by rebase.
+With `YARDR_LAND=squash` before the script in the assembly group's cmd
+(`yardr group show <depot>-assembly` shows it; `yardr group set
+<depot>-assembly 'cmd=YARDR_LAND=squash <the rest of the cmd>'` sets it) it
+lands the bead as one Conventional Commit written from it instead, with the
+bead's title as the subject, the type from its `kind:` label and the trailers
+the branch's commits carried (docs/line.md, "Landing by squash"). The roles
+ask for what that wants: the yardmaster labels a bead's kind, a builder or a
+reviewer titles it for what the change does, and a change that breaks a user
+carries a `BREAKING CHANGE:` line. The pack does not set the option: it sets
+a group's script and its limit, and leaves the assignments before the script
+to the yard (docs/packs.md).
+
 Importing sets the yard to this state: what exists under the same name is
 overwritten, nothing is added twice, and what the yard chose locally (agent,
 model, arguments, members, env file) is left alone.

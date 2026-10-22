@@ -18,7 +18,18 @@ rebases `yard/<bead>` onto the base if the base moved; a conflict goes to
 the mergers with the conflicting files: it reports `conflict` where the flow
 offers that outcome, else advances to `merge` where the flow allows it, else
 reports `failed` (back to `new`). It asks the flow first (`prime --bead
---json`), so a flow with no `merge` raises no refused move. It then runs the
+--json`), so a flow with no `merge` raises no refused move. With
+`YARDR_LAND=squash` (`rebase` is the default, and lands the branch's commits
+as they are) it then makes the branch one commit, so that the commit the tests
+run on is the commit that lands: a Conventional Commit written from the bead,
+`<type>[(<scope>)][!]: <bead title> (<bead id>)`, then the branch's messages
+without their trailers, then the `BREAKING CHANGE:` lines the branch carried,
+a `Refs:` line for each issue the bead is linked to, `Yardr-Bead:` and the
+distinct `Yardr-Agent:` values (docs/line.md, "Landing by squash", has the
+type, the scope and the rest). Every type of bead is squashed but a train,
+which lands by rebase in either mode so that the base gets the commit of each
+child. Any other value of `YARDR_LAND` holds the bead before anything moves.
+It then runs the
 depot's test command (`YARDR_TEST`,
 from `yardr depot add --test`) in the worktree, on exactly what will land,
 with `YARDR_LANDING=1` set: for depot yardr that run is the selection
@@ -141,7 +152,9 @@ has one, stores the commit it pushed in the train's metadata as
 or a PR GitHub reports as conflicting reports `failed`, to `open`.
 
 **pr-merge** is routed for `land` (type `train`). It runs `gh pr merge
-<pr_url> --rebase --delete-branch --match-head-commit <pr_reviewed_sha>`,
+<pr_url> --rebase --delete-branch --match-head-commit <pr_reviewed_sha>`
+(`--squash` with the subject and body merge-local would write for the train,
+over the pull request's commits, where its group sets `YARDR_LAND=squash`),
 fetches the remote, fast-forwards the base in the depot's checkout and
 reports `done`, to `merged`. Only the reviewed commit is merged: a PR whose
 head moved after the review holds the train, unmerged, and a train with no
@@ -181,8 +194,10 @@ default worktree path); merge-local also `YARDR_TYPE` and `YARDR_TRAIN`.
 Options go in the group's `cmd`: `YARDR_PUSH`, a remote to push to (off when
 empty; pr-train and pr-merge default to `origin`), `YARDR_NOTIFY`, the crew member
 mailed when that push fails (default the yard's `yardmaster` setting, else
-`yardmaster`), and `YARDR_PR=1`, the switch for the pull-request path, read by
-integrate-train, pr-train and pr-merge.
+`yardmaster`), `YARDR_LAND`, `rebase` (the default) or `squash`, how a bead
+lands, read by merge-local and pr-merge (a copy of merge-local's message
+writer is in pr-merge, held equal by a test), and `YARDR_PR=1`, the switch for
+the pull-request path, read by integrate-train, pr-train and pr-merge.
 
 **Setup** (from docs/line.md):
 

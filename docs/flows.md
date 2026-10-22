@@ -853,7 +853,8 @@ always means the PR path. Through a pull request, experimental and off
 unless `YARDR_PR=1` is in the cmd of integrate-train, pr-train and pr-merge:
 pr-train pushes the reviewed branch and updates the PR, reporting `done` to
 `in-pr`; a human there reports `done` to `land`, and pr-merge merges the PR
-with a rebase and reports `done` to `merged`. Without the switch pr-train
+with a rebase (a squash where its group sets `YARDR_LAND=squash`) and reports
+`done` to `merged`. Without the switch pr-train
 and pr-merge hold the train with a note instead, so nothing reports `done`
 in `approved` and `in-pr` is not reached. The details are
 in [line.md](line.md#trains).

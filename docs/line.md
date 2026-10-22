@@ -293,7 +293,7 @@ binary. For the rest the builder previews the landing itself,
 which is the selection plus the six for a branch that changes
 something compiled, as these do. An edit to `.yardr/test` on a branch
 is tested by the builder's own run alone: the assembly runs the copy
-`main` has. A reviewer's commits subject "<bead id> review: <what>" get a
+`main` has. A reviewer's commits subject "review: <what>" get a
 plain run too, so a fault in one of them is the assembly's to find.
 
 How many landing runs go at once is the assembly group's `limit`:
@@ -321,7 +321,7 @@ home (`~/.yardr/roles/reviewer.md`, since the depot keeps no role of its
 own), and the stage file `.yardr/flows/default/review.md` (when each
 outcome applies). It is the last review of whether the bead does what it
 says, so it fixes what it can on the branch (commits subject
-"<bead id> review: <what>") rather than only reporting, tries the change,
+"review: <what>") rather than only reporting, tries the change,
 runs the depot's test command if it committed or the builder's test line is
 not for the commit under review (the landing run is the assembly's), and then:
 
@@ -367,7 +367,7 @@ reviewer asked for everything reads for the feature first and for what it
 opens last, with what attention is left.
 
 The second review works as the first: it fixes a small finding on the
-branch (commits subject "<bead id> review: <what>") and then runs the depot's
+branch (commits subject "review: <what>") and then runs the depot's
 test command, sends anything larger back to `new` with `changes` (the bead
 then passes `review` again), and takes a question to `decide`. It is kept
 from becoming a second
@@ -441,7 +441,10 @@ the session and the daemon stops the script, so it is the script's last step.
    where the flow offers one (to `merge`, section 5), else the `merge`
    stage where the flow allows it, else `failed` back to `new`, as in
    depot yardr, whose flow has no `merge`. Only what the flow allows is
-   tried, so no refused move is raised;
+   tried, so no refused move is raised. Where the group's `cmd` sets
+   `YARDR_LAND=squash`, the branch is then made one commit, written from the
+   bead ([below](#landing-by-squash)); `rebase` is the default, and lands the
+   branch's commits as they are;
 2. keeps the machine's disk (`yardr disk keep`), then runs the depot's
    test command on exactly what will land, every time,
    including after a merger's rebase, with `YARDR_LANDING=1`, and records
@@ -502,6 +505,74 @@ the session and the daemon stops the script, so it is the script's last step.
 
 It never forces, and a base that is not a local branch (`origin/main`) is
 held: merge-local lands only on local branches.
+
+### Landing by squash
+
+A depot chooses how its beads land with one option in the assembly group's
+`cmd`: `YARDR_LAND=rebase` (the default, so no depot changes until it opts
+in) or `YARDR_LAND=squash`; any other value holds the bead before anything
+moves. In squash mode merge-local replaces the branch's commits with one,
+between the rebase (step 1) and the tests (step 2), so that the commit the
+tests run on is the commit that is fast-forwarded onto the base (steps 2 and
+3 as above). The commit is made with `git commit-tree`, so the yard's
+commit-msg hook, which would put its own trailers on it, never runs; the
+script writes them. It is a
+[Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) written
+from the bead, with the bead's id as a trailing reference, as GitHub's
+`(#123)`, and not as the scope:
+
+```
+<type>[(<scope>)][!]: <bead title> (<bead id>)
+
+<the message of each commit on the branch since the base, oldest first,
+each with its own trailers removed, separated by a blank line>
+
+BREAKING CHANGE: <as a commit carried it>
+Refs: <issue url>
+Yardr-Bead: <bead id>
+Yardr-Agent: <agent>
+```
+
+- **type**: the bead's label `kind:<type>` (`feat`, `fix`, `docs`,
+  `refactor`, `test`, `perf` or `chore`; the yardmaster sets it with the
+  estimate). With none, `fix` for a bead of type `bug` and `chore` for any
+  other.
+- **title**: the bead's, whole and never cut: a builder retitles the bead to
+  say what the change does, in the imperative, and a reviewer checks that.
+- **scope**: read from the diff, never chosen by a person or an agent: the
+  last element of the deepest directory that holds every path the squash
+  changes (a rename counts both its paths). None when that directory is the
+  root, one of the top-level containers that say nothing (`internal`,
+  `contrib`, `packs`, `cmd`, `pkg`, `src`, `lib`: a list at the top of the
+  script, for a depot's copy to change), or the type itself (all of `docs/`
+  gives `docs: ...`, not `docs(docs): ...`).
+- **`!`** follows the type and scope when any commit on the branch carried a
+  `BREAKING CHANGE:` (or `BREAKING-CHANGE:`) line. Each is moved from where
+  it was written to the footer, with the lines that go on from it up to a
+  blank line or the next footer, as the commit carried it. A builder or a
+  reviewer writes one for a change that breaks a user's setup or a
+  command's behaviour.
+- **`Refs:`**: one line for each issue outside the yard the bead is linked
+  to (`yardr link list`), the tracked one first, then each one it relates
+  to, as stored. Never a closing word (`Fixes`, `Closes`): the hooks move a
+  linked issue by the stage of the bead that tracks it ([links.md](links.md)),
+  and GitHub or Linear closing it on a push would act beside them. A bead of
+  another yard that this one is at, or came from, is no issue and has no
+  line.
+- **`Yardr-Agent:`**: one line for each distinct value on the branch's
+  commits, in the order they were first seen.
+
+A merge commit on the branch adds nothing to the body. A bead that comes back
+after a red run keeps the squash on its branch, and the next landing squashes
+again: the earlier subject line is left out and its footers are gathered anew.
+Every type of bead is squashed in this mode but a train, which lands by
+rebase in either mode, so that the base gets the commit of each child; a
+wagon, landing on its train's branch, is squashed like any other, and a
+design bead follows the mode too. The format is fixed in the script
+(`squash_message`), not configurable: a depot that wants another copies it.
+`pr-merge` merges a train's pull request with `--squash` and this same subject
+and body, over the pull request's commits, where its group says
+`YARDR_LAND=squash` (see [Through a pull request](#through-a-pull-request)).
 
 ### Setup
 
@@ -1186,7 +1257,10 @@ commit, pushed after the review, is not merged, and the train is held in
   ([`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge), with
   `YARDR_PR=1`; held without it): runs `gh
   pr merge <pr_url> --rebase --delete-branch --match-head-commit
-  <pr_reviewed_sha>`, then `git fetch` and `git
+  <pr_reviewed_sha>` (with `YARDR_LAND=squash` in the group's cmd, `--squash`
+  with the subject and body of [Landing by squash](#landing-by-squash)
+  written for the train over the PR's commits, and the train is one commit on
+  the base), then `git fetch` and `git
   merge --ff-only <remote>/<base>` in the depot's checkout, and reports
   `done`, to `merged`, which closes the train. A PR whose head is not the
   reviewed commit, when pr-merge looks or when GitHub refuses the merge for
