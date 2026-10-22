@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -224,8 +225,9 @@ func readInventoryFile(path string, want fs.FileInfo) ([]byte, error) {
 
 // packBytesSeen fingerprints a pack reading: its sources' texts, each
 // command file's SHA-256, and a depot plan whole. The build label is
-// held apart (Seen["pack <name>"]), so a stale approval can say whether
-// the label alone moved or the bytes did.
+// held apart (Seen["pack <name>"], with the build beside it), so an
+// approval can tell a build that moved alone, which it runs past, from
+// bytes that moved, which it refuses.
 func packBytesSeen(r *PackReading) string {
 	var parts []any
 	for _, s := range r.Sources {
@@ -794,10 +796,10 @@ func runPackApply(ctx context.Context, w *wtx, run AskRun, actor string, by *app
 	return CarryPending, nil
 }
 
-// packApplyStale says why a pack approval is refused: the build or the
-// pack's bytes moved, a source it would add or replace moved (naming
-// the command copy that did), what is owed changed, or a depot plan is
-// not the stored one.
+// packApplyStale says why a pack approval is refused: the pack's bytes
+// moved or another embeds it (a build alone is no reason), a source it
+// would add or replace moved (naming the command copy that did), what is
+// owed changed, or a depot plan is not the stored one.
 func (w *wtx) packApplyStale(seq uint64, was, now AskRun) error {
 	name := was.Argv[2]
 	if was.Pack != nil && was.Pack.Plan != nil {
@@ -825,12 +827,11 @@ func (w *wtx) packApplyStale(seq uint64, was, now AskRun) error {
 		}
 	}
 	labelKey, bytesKey, buildKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" build"
-	if was.Seen[labelKey] != now.Seen[labelKey] || was.Seen[bytesKey] != now.Seen[bytesKey] {
-		head := CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey])
-		if was.Seen[bytesKey] == now.Seen[bytesKey] {
-			return fmt.Errorf("%s. The pack is unchanged file for file, but an approval only runs what its card showed. %s", head, nothingRan)
-		}
-		return fmt.Errorf("%s, whose pack differs. %s", head, nothingRan)
+	// The build is provenance: the same bytes under the same label without
+	// it are what the card showed, whichever build embeds them.
+	if LabelWithoutBuild(was.Seen[labelKey], was.Seen[buildKey]) != LabelWithoutBuild(now.Seen[labelKey], now.Seen[buildKey]) ||
+		was.Seen[bytesKey] != now.Seen[bytesKey] {
+		return fmt.Errorf("%s, whose pack differs. %s", CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey]), nothingRan)
 	}
 	for i := range was.Carried {
 		srcName := was.Carried[i].Name
@@ -852,6 +853,13 @@ func (w *wtx) packApplyStale(seq uint64, was, now AskRun) error {
 			return err
 		}
 		return fmt.Errorf("ask %d was written when the source %s was another: its declaration, its %s or its %s was changed since. %s", seq, srcName, SourceEnvFile, SourceMintCommand, nothingRan)
+	}
+	// The first sentence names the label, build and all: when the cards
+	// read alike without it, the build moved alone and the approval runs.
+	was.Does = doesWithoutBuild(was.Does, was.Seen[labelKey], was.Seen[buildKey])
+	now.Does = doesWithoutBuild(now.Does, now.Seen[labelKey], now.Seen[buildKey])
+	if slices.Equal(was.Does, now.Does) && was.Back == now.Back && was.BackBy == now.BackBy {
+		return nil
 	}
 	return staleCard(seq, was, now)
 }

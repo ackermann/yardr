@@ -654,17 +654,31 @@ func TestSetupYouDecideGrantsRecommended(t *testing.T) {
 	}
 }
 
-// An approval is refused stale when the build moved: the pack unchanged
-// file for file, carded from another build.
+// An approval is recorded past a build that moved, the pack unchanged file
+// for file: the build is provenance, which the card keeps. It is refused
+// when the label without the build moved (a pack the new build no longer
+// embeds).
 func TestSetupStaleBuild(t *testing.T) {
 	y, _ := runYard(t)
 	f := setupMailPack()
 	y.setSetupPack(f)
 	seq := y.ask(t, setupAsk(), "yardmaster")
 	f.label, f.build = "embedded in yardr test2", "test2"
+	done := y.approveSetup(t, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "mckean")
+	if done.Result != CarryPending {
+		t.Errorf("an approval past a rebuild recorded %q, want it carried out", done.Result)
+	}
+	// The approved card still names the build it was carded under: the
+	// carrying out holds the reading to it.
+	if setup := y.asked(t, seq).Ask.Setup; setup.Label != "embedded in yardr test1" || setup.Seen["pack setupmail build"] != "test1" {
+		t.Errorf("the approved card names the label %q and the build %q, want the ones it was carded under", setup.Label, setup.Seen["pack setupmail build"])
+	}
+
+	seq = y.ask(t, setupAsk(), "yardmaster")
+	f.label, f.build = "", ""
 	_, err := y.ApproveSetup(y.ctx, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true)
-	if err == nil || !strings.Contains(err.Error(), "unchanged file for file") || !strings.Contains(err.Error(), "was carded under yardr test1 and this yard now runs yardr test2") {
-		t.Errorf("an approval past a rebuild was recorded or refused otherwise: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "was carded under yardr test2") || !strings.Contains(err.Error(), "whose pack differs") {
+		t.Errorf("an approval past a removed pack was recorded or refused otherwise: %v", err)
 	}
 }
 

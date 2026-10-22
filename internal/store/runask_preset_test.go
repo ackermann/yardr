@@ -192,11 +192,30 @@ func TestRunAskPresetGrantStale(t *testing.T) {
 	f.label, f.build = "embedded in yardr test2", "test2"
 	y.refusedStale(t, seq, "was carded under yardr test1 and this yard now runs yardr test2, whose preset differs.")
 
+	// The build moved under the same calls: the build is provenance, and the
+	// approval grants the calls the card showed.
 	f = presetStandard()
 	y = presetYard(t, f)
 	seq = y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
 	f.label, f.build = "embedded in yardr test2", "test2"
-	y.refusedStale(t, seq, "was carded under yardr test1 and this yard now runs yardr test2. The preset is unchanged call for call, but an approval only runs what its card showed.")
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
+		t.Fatalf("approving past a rebuild = %+v, %v", done, err)
+	}
+	if got, want := y.grants(t), []string{"crew member yardmaster: note,read"}; !slices.Equal(got, want) {
+		t.Fatalf("the grants after the approval = %v, want %v", got, want)
+	}
+
+	// The label without the build moved with the calls the same: another
+	// embedding of the preset, not another build of it.
+	f = presetStandard()
+	y = presetYard(t, f)
+	seq = y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
+	f.label, f.build = "read from a directory test2", "test2"
+	y.refusedStale(t, seq, "was carded under yardr test1 and this yard now runs yardr test2, whose preset differs.")
+	if got := y.grants(t); len(got) != 0 {
+		t.Fatalf("the refused approval granted %v", got)
+	}
 
 	f = presetStandard()
 	y = presetYard(t, f)

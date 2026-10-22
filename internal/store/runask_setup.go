@@ -1467,20 +1467,18 @@ func sameNames(values map[string]string, names []string) bool {
 	return true
 }
 
-// setupStale says why a setup approval is refused: the build or the pack's
-// bytes moved, its presets moved, a source it would add or replace moved,
-// the account was given or ungiven meanwhile, a candidate was added,
-// removed or changed, a grantee moved, or the sentences read otherwise
-// now.
+// setupStale says why a setup approval is refused: the pack's bytes moved
+// or another embeds it (a build alone is no reason), its presets moved, a
+// source it would add or replace moved, the account was given or ungiven
+// meanwhile, a candidate was added, removed or changed, a grantee moved, or
+// the sentences read otherwise now.
 func (w *wtx) setupStale(seq uint64, was, now AskSetup) error {
 	name := was.Pack
 	labelKey, bytesKey, presetsKey, buildKey := "pack "+name, "pack "+name+" bytes", "pack "+name+" presets", "pack "+name+" build"
-	if was.Seen[labelKey] != now.Seen[labelKey] || was.Seen[bytesKey] != now.Seen[bytesKey] {
-		head := CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey])
-		if was.Seen[bytesKey] == now.Seen[bytesKey] {
-			return fmt.Errorf("%s. The pack is unchanged file for file, but an approval only runs what its card showed. %s", head, nothingRan)
-		}
-		return fmt.Errorf("%s, whose pack differs. %s", head, nothingRan)
+	// The build is provenance, as for a pack apply (packApplyStale).
+	if LabelWithoutBuild(was.Seen[labelKey], was.Seen[buildKey]) != LabelWithoutBuild(now.Seen[labelKey], now.Seen[buildKey]) ||
+		was.Seen[bytesKey] != now.Seen[bytesKey] {
+		return fmt.Errorf("%s, whose pack differs. %s", CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey]), nothingRan)
 	}
 	if was.Seen[presetsKey] != now.Seen[presetsKey] {
 		return fmt.Errorf("%s, whose presets differ. %s", CardedUnder(seq, was.Seen[buildKey], now.Seen[buildKey]), nothingRan)
@@ -1535,7 +1533,14 @@ func (w *wtx) setupStale(seq uint64, was, now AskSetup) error {
 		e := lastEvent(w.Tx, "group_set", naming("name", t.Group))
 		return fmt.Errorf("ask %d was written when the group %s was another: its config was changed since%s. %s", seq, t.Group, since(e), nothingRan)
 	}
-	return staleCard(seq, AskRun{Does: was.Does}, AskRun{Does: now.Does})
+	// The first sentence names the label, build and all: when the cards
+	// read alike without it, the build moved alone and the approval runs.
+	wasDoes := doesWithoutBuild(was.Does, was.Seen[labelKey], was.Seen[buildKey])
+	nowDoes := doesWithoutBuild(now.Does, now.Seen[labelKey], now.Seen[buildKey])
+	if slices.Equal(wasDoes, nowDoes) && was.Back == now.Back && was.BackBy == now.BackBy {
+		return nil
+	}
+	return staleCard(seq, AskRun{Does: wasDoes}, AskRun{Does: nowDoes})
 }
 
 // setupCandidatesStale says why a setup approval is refused for its

@@ -157,19 +157,28 @@ func TestPackApplyRefusals(t *testing.T) {
 	}
 }
 
-// An approval is refused when the build the pack is embedded in moved:
-// the label alone says the pack is unchanged but carded from another
-// build, and changed bytes say the pack differs.
+// An approval of a pack carded under another build runs when only the build
+// moved: the pack is the same file for file, and the build is provenance
+// the card keeps. It is refused when the bytes moved, when the label without
+// the build did (a pack the new build no longer embeds), and for a card
+// written before cards kept the build.
 func TestPackApplyStaleBuild(t *testing.T) {
 	y, _ := runYard(t)
 	f := &fakePack{label: "embedded in yardr one", build: "one"}
 	y.setPack(f)
 	seq := y.ask(t, packAsk(), "yardmaster")
 	f.label, f.build = "embedded in yardr two", "two"
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
-		!strings.Contains(err.Error(), "was carded under yardr one and this yard now runs yardr two. The pack is unchanged file for file, but an approval only runs what its card showed.") {
-		t.Fatalf("a moved label: ApproveAsk = %v", err)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	if err != nil || done.Result != "approved, to be carried out" {
+		t.Fatalf("a moved build: ApproveAsk = %+v, %v", done, err)
 	}
+	// The approved card still names the build it was carded under: the
+	// carrying out holds the reading to it.
+	if run := y.asked(t, seq).Ask.Run; run.Seen["pack wired build"] != "one" || run.Pack.Label != "embedded in yardr one" {
+		t.Fatalf("the approved card names the build %q and the label %q, want the ones it was carded under", run.Seen["pack wired build"], run.Pack.Label)
+	}
+	answers := len(answerNotes(t, y))
+
 	seq2 := y.ask(t, packAsk(), "yardmaster")
 	changed := map[string]string{}
 	for k, v := range wiredFiles {
@@ -181,22 +190,35 @@ func TestPackApplyStaleBuild(t *testing.T) {
 		!strings.Contains(err.Error(), "whose pack differs") {
 		t.Fatalf("changed bytes: ApproveAsk = %v", err)
 	}
-	if r := y.asked(t, seq); r.State != AskOpen {
-		t.Fatalf("the ask is %s after refused approvals", r.State)
+
+	// A pack the new build no longer embeds reads with no label: the label
+	// without the build moved, whatever bytes the reading still holds.
+	f.files = nil
+	seq3 := y.ask(t, packAsk(), "yardmaster")
+	f.label, f.build = "", ""
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false); err == nil ||
+		!strings.Contains(err.Error(), "whose pack differs") {
+		t.Fatalf("a removed pack: ApproveAsk = %v", err)
 	}
-	if answers := answerNotes(t, y); len(answers) != 0 {
-		t.Fatalf("refused approvals recorded %d answers", len(answers))
+	for _, open := range []uint64{seq2, seq3} {
+		if r := y.asked(t, open); r.State != AskOpen {
+			t.Fatalf("ask %d is %s after a refused approval", open, r.State)
+		}
+	}
+	if got := len(answerNotes(t, y)); got != answers {
+		t.Fatalf("refused approvals recorded %d answers", got-answers)
 	}
 
-	// A card written before it kept the build has no build key, so its
-	// refusal names an older yardr and still tells the operator to ask again.
+	// A card written before it kept the build has no build key to leave out
+	// of its label, so a moved label refuses it, naming an older yardr, and
+	// still tells the operator to ask again.
 	oldYard, _ := runYard(t)
 	oldPack := &fakePack{label: "embedded in yardr one"}
 	oldYard.setPack(oldPack)
 	oldSeq := oldYard.ask(t, packAsk(), "yardmaster")
 	oldPack.label, oldPack.build = "embedded in yardr two", "two"
 	if _, err := oldYard.ApproveAsk(oldYard.ctx, oldYard.bead, oldSeq, "mckean", false); err == nil ||
-		!strings.Contains(err.Error(), "was carded under an older yardr and this yard now runs yardr two") ||
+		!strings.Contains(err.Error(), "was carded under an older yardr and this yard now runs yardr two, whose pack differs") ||
 		!strings.Contains(err.Error(), "Nothing ran. Decline it; it is asked again if it is still wanted.") {
 		t.Fatalf("an older card: ApproveAsk = %v", err)
 	}

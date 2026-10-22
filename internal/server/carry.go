@@ -291,9 +291,14 @@ func (c *carrier) carryPackApply(ctx context.Context, rec *store.Carry, run *sto
 	if err != nil {
 		return nil, nil, failWords(err.Error(), terminal)
 	}
-	// The pack's side, held whole: the build and the bytes as carded.
-	if reading.Name != run.Pack.Name || reading.Kind != run.Pack.Kind || reading.Label != run.Pack.Label || !sameSources(reading.Sources, run.Carried) {
-		return nil, nil, staleWords(store.CardedUnder(rec.Ask, run.Seen["pack "+name+" build"], reading.Build)+", whose pack differs", terminal)
+	// The pack's side, held whole: who embeds it and the bytes as carded.
+	// The build is no part of it, as at the approval (LabelWithoutBuild):
+	// the bytes are held to the card, and the refusal names the builds.
+	cardedBuild := run.Seen["pack "+name+" build"]
+	if reading.Name != run.Pack.Name || reading.Kind != run.Pack.Kind ||
+		store.LabelWithoutBuild(reading.Label, reading.Build) != store.LabelWithoutBuild(run.Pack.Label, cardedBuild) ||
+		!sameSources(reading.Sources, run.Carried) {
+		return nil, nil, staleWords(store.CardedUnder(rec.Ask, cardedBuild, reading.Build)+", whose pack differs", terminal)
 	}
 	if reading.Depot != run.Pack.Depot {
 		return nil, nil, staleWords(fmt.Sprintf("pack %s would now be re-applied to depot %s, not %s", name, reading.Depot, run.Pack.Depot), terminal)

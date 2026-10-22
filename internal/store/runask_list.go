@@ -45,6 +45,21 @@ func buildWords(build string) string {
 	return "yardr " + build
 }
 
+// LabelWithoutBuild is a pack's label with its build left out: "embedded in
+// yardr", whichever build embeds it. An approval is held to the pack's bytes
+// and to who embeds them; the build is provenance, which the card keeps in
+// Seen and the head of a refusal names (CardedUnder), and a build that moved
+// under the same bytes changes nothing the approval runs. A card that kept
+// no build has none to leave out, so its label stands whole and differs from
+// every label that is stripped: it was carded by an older yardr, and it
+// drains.
+func LabelWithoutBuild(label, build string) string {
+	if build == "" {
+		return label
+	}
+	return strings.TrimSpace(strings.TrimSuffix(label, build))
+}
+
 // seen is what a run ask keeps of a thing its command names: a SHA-256 over
 // the parts of it the command's effect rests on, whole. The yard does not
 // judge which change of them matters: any makes the ask stale.
@@ -145,6 +160,23 @@ func staleCard(seq uint64, was, now AskRun) error {
 		}
 	}
 	return fmt.Errorf("ask %d says %q, and the yard would say %q now: the card is from before that changed. %s", seq, said, says, nothingRan)
+}
+
+// doesWithoutBuild is a card's sentences with the build left out of the
+// label they name the pack by. The sentence that opens a pack or a setup
+// card names the label ("pack x (embedded in yardr <build>), of kind ..."),
+// and the card is compared sentence for sentence, so without this a build
+// that moved under the same bytes would still read as another card.
+func doesWithoutBuild(does []string, label, build string) []string {
+	base := LabelWithoutBuild(label, build)
+	if label == "" || base == label {
+		return does
+	}
+	out := make([]string, len(does))
+	for i, line := range does {
+		out[i] = strings.ReplaceAll(line, label, base)
+	}
+	return out
 }
 
 // runWords reads the words after a command's own into those that are no
@@ -720,10 +752,11 @@ func grantedPresetMatch(name string, t Grantee, as string, calls []string) func(
 }
 
 // presetBytesStale says why a preset grant approval is refused for the
-// preset: the source's preset is declared by another pack now, its calls
-// differ from the card's, or the build moved under unchanged calls. Only
-// the preset's calls of this source are held: what it grants of another
-// source reads nowhere on this card.
+// preset: the source's preset is declared by another pack now, or its calls
+// differ from the card's. A build that moved under unchanged calls is no
+// reason: the approval grants those calls (LabelWithoutBuild). Only the
+// preset's calls of this source are held: what it grants of another source
+// reads nowhere on this card.
 func (w *wtx) presetBytesStale(seq uint64, name, preset string, was, now AskRun) error {
 	wasPack, nowPack := presetPackOf(was.Seen), presetPackOf(now.Seen)
 	if wasPack == "" || nowPack == "" {
@@ -732,14 +765,12 @@ func (w *wtx) presetBytesStale(seq uint64, name, preset string, was, now AskRun)
 	if wasPack != nowPack {
 		return fmt.Errorf("ask %d was written from the preset %s of pack %s: the source %s is declared by pack %s now. %s", seq, preset, wasPack, name, nowPack, nothingRan)
 	}
-	wasLabel, nowLabel := was.Seen["pack "+wasPack], now.Seen["pack "+nowPack]
-	head := CardedUnder(seq, was.Seen["pack "+wasPack+" build"], now.Seen["pack "+nowPack+" build"])
+	wasBuild, nowBuild := was.Seen["pack "+wasPack+" build"], now.Seen["pack "+nowPack+" build"]
+	wasLabel := LabelWithoutBuild(was.Seen["pack "+wasPack], wasBuild)
+	nowLabel := LabelWithoutBuild(now.Seen["pack "+nowPack], nowBuild)
 	key := "preset " + wasPack + " " + preset
-	if was.Seen[key] != now.Seen[key] {
-		return fmt.Errorf("%s, whose preset differs. %s", head, nothingRan)
-	}
-	if wasLabel != nowLabel {
-		return fmt.Errorf("%s. The preset is unchanged call for call, but an approval only runs what its card showed. %s", head, nothingRan)
+	if was.Seen[key] != now.Seen[key] || wasLabel != nowLabel {
+		return fmt.Errorf("%s, whose preset differs. %s", CardedUnder(seq, wasBuild, nowBuild), nothingRan)
 	}
 	return nil
 }
@@ -760,8 +791,8 @@ func presetPackOf(seen map[string]string) string {
 
 // grantStale says why the ask seq for source grant is approved no more:
 // the source, a group or a crew member is another under its name, the
-// user called as is another, the preset's bytes or build moved where one
-// is named, what the approval would do reads otherwise than the card
+// user called as is another, the preset's bytes moved where one is
+// named, what the approval would do reads otherwise than the card
 // says, or a grantee holds the grant already. What a grantee holds
 // beside the grant is no part of it: a grant landed since is no reason
 // to ask again, and nil carries the approval on.

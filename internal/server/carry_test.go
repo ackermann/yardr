@@ -297,9 +297,13 @@ func TestCarryPackStaleCopiesFail(t *testing.T) {
 	}
 }
 
+// A reading of another pack, another kind, another label (the label without
+// its build) or other bytes than the card's is refused at the carrying out,
+// and nothing is applied. The build alone moving is not: the card held the
+// bytes, and the build is provenance (LabelWithoutBuild).
 func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
 	ctx := context.Background()
-	for _, change := range []string{"name", "kind", "label"} {
+	for _, change := range []string{"name", "kind", "build", "label base", "bytes"} {
 		t.Run(change, func(t *testing.T) {
 			st, home, bead := carryYard(t)
 			seq := askApprove(t, st, bead, packAskOf("telegram"))
@@ -308,24 +312,40 @@ func TestCarryPackRejectsChangedReadingIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			wasBuild := reading.Build
-			if change == "name" {
+			var words string // what the refusal says, where the test holds it to words
+			switch change {
+			case "name":
 				reading.Name = "different"
-			} else if change == "kind" {
+			case "kind":
 				reading.Kind = "depot"
-			} else {
+			case "build":
 				reading.Label, reading.Build = "embedded in yardr test2", "test2"
+			case "label base":
+				reading.Label, reading.Build = "read from a directory test2", "test2"
+				words = "was carded under yardr " + wasBuild + " and this yard now runs yardr test2, whose pack differs"
+			case "bytes":
+				reading.Sources[0].Text += "# changed in the new build\n"
+				words = "whose pack differs"
 			}
 			st.SetPackReader(func(context.Context, string, store.API) (*store.PackReading, error) {
 				return reading, nil
 			})
 			drain(t, st, home, "boot-one")
 			rec := carryState(t, st, bead, seq)
+			if change == "build" {
+				if rec.State != store.CarryDone {
+					t.Fatalf("a pack carded under another build was not carried out: %+v", rec)
+				}
+				if src, err := st.GetSource(ctx, "telegram"); err != nil || src.Text != reading.Sources[0].Text {
+					t.Fatalf("the source after a carrying out under another build = %+v, %v", src, err)
+				}
+				return
+			}
 			if rec.State != store.CarryFailed {
 				t.Fatalf("a changed pack %s was carried out: %+v", change, rec)
 			}
-			if change == "label" && !strings.Contains(rec.Result,
-				"was carded under yardr "+wasBuild+" and this yard now runs yardr test2, whose pack differs") {
-				t.Fatalf("a changed build's refusal = %q", rec.Result)
+			if !strings.Contains(rec.Result, words) {
+				t.Fatalf("the refusal of a changed %s = %q, want %q", change, rec.Result, words)
 			}
 			if _, err := st.GetSource(ctx, "telegram"); err == nil {
 				t.Fatal("the changed pack was applied")

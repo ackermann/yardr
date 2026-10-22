@@ -126,6 +126,29 @@ func TestCarrySetupGoogleMail(t *testing.T) {
 	}
 }
 
+// A setup approved under one build is carried out by a server that runs
+// another, the pack the same file for file: the apply step holds the reading
+// to the card's bytes and to its label without the build, and the build the
+// card kept is provenance (carryPackApply).
+func TestCarrySetupRunsPastAMovedBuild(t *testing.T) {
+	st, home, bead := carryYard(t)
+	to := store.Grantee{Crew: "yardmaster"}
+	seq := askSetupApprove(t, st, bead, "google-mail", 1, setupMailValues(), to)
+	read := packReaderFor(home)
+	st.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+		reading, err := read(ctx, name, yard)
+		if err == nil {
+			reading.Label, reading.Build = "embedded in yardr test2", "test2"
+		}
+		return reading, err
+	})
+	drain(t, st, home, "boot-one")
+	if rec := carryState(t, st, bead, seq); rec.State != store.CarryDone {
+		t.Fatalf("the record = %+v", rec)
+	}
+	grantHeld(t, st, "google-mail", to, "read")
+}
+
 // A setup whose pack no longer holds what the card showed fails its apply
 // step with the pack's finishing command: nothing further is written, no
 // account and no grants.
