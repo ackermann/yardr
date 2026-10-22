@@ -10,17 +10,18 @@ of what lands in that inbox. A user's [device](#devices) is a program of
 theirs that calls the yard from outside it, let in by a token.
 
 ```sh
-yardr user list                          # the users, who is the operator, unread mail, where each is told; then whom the linked yards expose
-yardr user add ada                       # the operator adds a user
+yardr user list                          # the users, each one's role, unread mail, where each is told; then whom the linked yards expose
+yardr user add ada                       # an operator adds a user
+yardr user set ada role=operator         # an operator makes ada one too: ada approves and administers
 yardr user show ada
 yardr user rm ada                        # the mail stays in the log
 yardr user key ada pushover && yardr user set ada notify=pushover   # told on a phone, through a source
 yardr user set ada tell=notifications    # of the notifications only: no mail and no asks on the phone
 yardr user identity ada --source linear --id 4d3a2b1c-…   # who ada is in Linear: whom thread open --assign ada assigns
-yardr user device add ada phone          # the operator: a device of ada's, and its token, shown once
+yardr user device add ada phone          # an operator: a device of ada's, and its token, shown once
 yardr user device pair ada phone --qr    # or a code the device calls with, and is given its token for
 yardr user device list                   # every device, when added, when and from where last used
-yardr user device rm ada phone           # the operator or ada: the token is refused from now on
+yardr user device rm ada phone           # an operator or ada: the token is refused from now on
 
 yardr mail mckean "The assembly is red on main: yardr-1a2b"   # a crew member's session, or a user
 yardr inbox                              # as a user: Mail and Notifications, each with its unread
@@ -63,18 +64,40 @@ more than one user stays the operator's because the yard cannot tell whose
 login to bill. A user is still reached by a subscription of scope `all`
 alone. Anyone who may write to the yard sets it, as a crew member's.
 
-**The operator is a user.** `yardr init` and the onboarding add the user
-named by the `operator` setting, and `yardr settings set operator <name>`
-adds the user of a new name. A yard from before users gets its operator's
-user when its server next starts (event `user_added` by `yardr`).
+**Who is an operator.** Each user has a role, `operator` or `member`. An
+operator approves through a door (footplate, the web view, a
+[device](#devices)): run asks, setup asks, secrets, and reading the grants.
+An operator administers the yard at the shell: users, depots, sources and
+their grants, settings, peers, hooks. A member is a party of the yard and
+no more. There may be several operators, and every check of who may do
+what reads the role, so an approval waits on none of them in particular.
+`yardr user list` shows each user's role, and `yardr user show` says which
+user the setting names.
 
-**Only the operator adds and removes users**, under the check `yardr
-crew add` uses for what a crew member may do: the command's actor is the
-`operator` setting. The operator's own user is not removed: name another
-operator first. Removing a user removes their devices, and the event
-`user_removed` names them (`devices`). A crew member that wants a user
-added or removed proposes it with a run ask
-([chat.md](chat.md#questions-for-you)).
+`yardr user set <user> role=operator` or `role=member` is an operator's to
+type, at the shell. Nobody sets their own role, and no run ask proposes
+one. The yard refuses to make a member of, or to remove, its last operator:
+with none, it would take every change from anyone who is no agent of its
+own.
+
+**The `operator` setting names one operator**, the one an ask with no
+`--to` goes to, and whose login and inbox the yard uses where it needs one
+person's (a failed install is told to them, a crew member's login is theirs
+unless `login_for` says otherwise). `yardr init` and the onboarding add
+the user it names, and `yardr settings set operator <name>` adds the user
+of a new name. Naming a user there makes them an operator, and that user
+is neither made a member nor removed until the setting names another. A
+yard from before users gets its operator's user when its server next
+starts (event `user_added` by `yardr`). A yard from before roles makes the
+user its setting names its first operator, and every other user a member,
+when its server next starts.
+
+**Only an operator adds and removes users**, under the check `yardr
+crew add` uses for what a crew member may do: the command's actor is a
+user whose role is `operator`. Removing a user removes their devices, and
+the event `user_removed` names them (`devices`). A crew member that wants a
+user added or removed proposes it with a run ask
+([chat.md](chat.md#questions-for-you)), which an operator approves.
 
 **One name, one party.** Crew members and users share their names, because
 mail to a name reaches one inbox: `user add` refuses a crew member's name,
@@ -225,14 +248,17 @@ Whom a user can write to is the roster each linked yard last said
 `yardr user list` prints it under this yard's users:
 
 ```text
-NAME  ROLE      UNREAD
-ada   -         0
-jo    operator  1
+NAME  ROLE              UNREAD
+ada   member            0
+jo    operator (asked)  1
 
 OF A LINKED YARD  IS      MAIL  ROLE
 mckean@north      person  yes   operator
 yardmaster@north  crew    yes   Yardmaster: shapes the beads
 ```
+
+`ROLE` is `operator` or `member`; `(asked)` marks the operator the
+`operator` setting names, whom an ask with no `--to` goes to.
 
 `MAIL` is whether mail from this yard reaches them: `no (yardr peer allow
 north --send mail)` when this yard's link sends none, `no (north takes none
@@ -346,7 +372,7 @@ notify=<source>`, which stays the person's to run. The value is in that
 file and nowhere else: no note, event, mail or log has it. A file you keep
 yourself is named with `env_file=<file>` as before.
 
-**Who may.** The user themselves and the operator, for the two settings
+**Who may.** The user themselves and an operator, for the two settings
 and for giving the address, by command or on a card. It is refused from the
 pane of an agent, whoever the command says it is, and from a crew member:
 whoever sets these decides where a person's inbox is sent. Like
@@ -537,12 +563,12 @@ address. `yardr doctor` notes a device that has not been used for 30 days,
 or was never used 30 days after it was added, with the command that removes
 it ([doctor.md](doctor.md)); nothing is removed for you.
 
-**Who may.** Only the operator adds a device, with `device add` or by
+**Who may.** Only an operator adds a device, with `device add` or by
 opening a pairing for it, under the check `yardr user
 add` uses, and never from the pane of an agent, whoever the command says it
 is, as for [`user set notify=`](#told-outside-the-yard): whoever adds a
 device decides who may speak as a person. The user themselves does not add
-one. The operator and the user whose it is remove one. Like every such
+one. An operator and the user whose it is remove one. Like every such
 check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 
 **What a device reads and writes.** The calls of
@@ -550,12 +576,14 @@ check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 own mail, of notes and of kept hook deliveries
 ([api.md](api.md#over-the-network)), and nothing else the yard's socket
 serves: no move of a bead and no setting is on the listener, whoever
-calls. A device of the operator has more calls, and no other device has
-them ([api.md](api.md#for-the-operator-alone)). It gives the credential a
+calls. A device of an operator (a user whose role is `operator`, any of
+them) has more calls, and no other device has them
+([api.md](api.md#for-the-operator-alone)). It gives the credential a
 [secret ask](chat.md#questions-for-you) asks for, typed where the operator
 sits and written by the yard into the source's file. It approves a
-[run ask](chat.md#questions-for-you), and the yard then runs the one
-command that ask holds, as the operator. It approves a [setup
+[run ask](chat.md#questions-for-you), whichever operator it was put to,
+and the yard then runs the one command that ask holds, as that device's
+operator. It approves a [setup
 ask](chat.md#setting-up-a-packs-sources) with the preset pick and the
 account together, and the yard then applies the pack, takes the account
 and grants the preset picked, as the operator. It reads every grant of the
@@ -585,13 +613,13 @@ other such command is among the calls.
 It reads every bead with its notes, the crew, the users, and through the
 stream the mail of its user alone: its own mail, the reactions on it and
 its own read receipts, nothing of anyone else's. `device add` for a user
-who is not the operator says that it reads every bead. It is also what a
+who is not an operator says that it reads every bead. It is also what a
 lost token gives away until its device is removed. Four things at the
 terminal a device does not read whole: the mail of others; the candidates
 of a setup card, the yard's other accounts the card offers to reuse, each
 a file of the yard's with the values it holds, and the file the account of
 an approved setup is set in, which `Bead` and `UserAsks` tell to a device of
-the current operator alone, as the stream does the file a `source_set`
+a current operator alone, as the stream does the file a `source_set`
 points a source at and the command it mints its token with, the file a
 `user_set` points a user at and the secret file a `hook_blocked` names (to
 any other the card reads as one with none, the setup's result says the
@@ -600,14 +628,14 @@ name the source and not its file or command, the user and not their file,
 the hook and not its secret file, so a lost token of another user, or of
 one who was the operator, gives away no address or file of an account the
 yard keeps); the users and the crew, whose `Users`, `GetUser`, `Crew` and
-`GetCrew` tell a device of the operator alone the file a user's address is
+`GetCrew` tell a device of an operator alone the file a user's address is
 read from, the directory a crew member runs in, the files and commands its
 config names and the handles of its sessions (any other device reads the
 records without them, so these calls give a lost token of another user no
 file or command of a user or a crew member); and
 `Settings`, which answers a device the promised keys
 alone: `operator`, `blob_max_bytes` and `files_max`, and to a device of
-the operator alone the operator's own words to their agents,
+an operator alone the operator's own words to their agents,
 `operator_style` and `operator_note`. No other setting is told to a device
 (a lost token gives away no `edge`, `hook_public_url` or `backup_dir`),
 and the `setting_changed` event of such a setting comes with its key and

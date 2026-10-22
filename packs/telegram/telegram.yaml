@@ -2,7 +2,7 @@
 # API's sendMessage, a POST of a JSON body with the bot's token in the
 # path and the chat's id in the body. The notify key makes it a source a
 # user can be told through (yardr user set <name> notify=telegram); the
-# hook key hears the operator's chat back, answered with yardr reply.
+# hook key hears operator-role users' chats back, answered with yardr reply.
 # The check call reads what Telegram holds of the webhook
 # (getWebhookInfo): its url, its pending_update_count, and the last
 # failed delivery's date and message, which say a broken webhook from a
@@ -121,7 +121,7 @@ thread:
 hear:
   field: chat
   address: { env: TELEGRAM_CHAT_ID }
-  from: operator                        # his chat alone; another user's is dropped like a stranger's
+  from: operator                        # operator-role users' chats; a member's is dropped like a stranger's
   # A claim approved subscribes the yard's hearer to this chat with
   # type=message beside it: the chat's other Updates (edits, member
   # changes) are noise nobody asked to hear.

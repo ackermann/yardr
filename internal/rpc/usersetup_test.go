@@ -207,18 +207,21 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 	told("jo's device", y.jo, []uint64{first, second}, true)
 	told("sam's device", y.sam, []uint64{first, second}, false)
 
-	// The operator now is told: the device of the one named moves with it,
-	// and in a yard with no operator no device is.
+	// Each operator is told: the device of the one made an operator moves
+	// with the role, and so does the device of one made a member.
+	if _, err := y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	told("jo's device, one operator's of two", y.jo, []uint64{first, second}, true)
+	told("sam's device, an operator's now", y.sam, []uint64{first, second}, true)
 	if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	told("jo's device, no longer the operator's", y.jo, []uint64{first, second}, false)
-	told("sam's device, the operator's now", y.sam, []uint64{first, second}, true)
-	if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"); err != nil {
+	if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
 		t.Fatal(err)
 	}
-	told("jo's device, in a yard with no operator", y.jo, []uint64{first, second}, false)
-	told("sam's device, in a yard with no operator", y.sam, []uint64{first, second}, false)
+	told("jo's device, a member's now", y.jo, []uint64{first, second}, false)
+	told("sam's device, the one operator's", y.sam, []uint64{first, second}, true)
 }
 
 // carriedOut approves the setup ask seq of yd-crm as the user, who is the
@@ -429,18 +432,21 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 				}
 			}
 
-			// The operator now is told: the device of the one named moves with it,
-			// and in a yard with no operator no device is.
+			// Each operator is told: the device of the one made an operator moves
+			// with the role, and so does the device of one made a member.
+			if _, err := y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+				t.Fatal(err)
+			}
+			told("jo's device, one operator's of two", y.jo, true)
+			told("sam's device, an operator's now", y.sam, true)
 			if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
 				t.Fatal(err)
 			}
-			told("jo's device, no longer the operator's", y.jo, false)
-			told("sam's device, the operator's now", y.sam, true)
-			if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"); err != nil {
+			if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
 				t.Fatal(err)
 			}
-			told("jo's device, in a yard with no operator", y.jo, false)
-			told("sam's device, in a yard with no operator", y.sam, false)
+			told("jo's device, a member's now", y.jo, false)
+			told("sam's device, the one operator's", y.sam, true)
 		})
 	}
 }
@@ -609,10 +615,13 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 			jos.run = run
 			queued("jo's device", y.jo, "jo", jos, true)
 
-			// The operator moves to sam. The asks put to jo stay in her queue, and
-			// her device is no longer told them. A setup ask can be put to sam now,
-			// and his device is told it whole.
+			// The setting moves to sam and jo is made a member. The asks put to
+			// jo stay in jo's queue, and jo's device is no longer told them. A
+			// setup ask can be put to sam now, and sam's device is told it whole.
 			if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
 				t.Fatal(err)
 			}
 			queued("jo's device, no longer the operator's", y.jo, "jo", jos, false)
@@ -620,12 +629,11 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 			sams := toldAsks{open: y.askSetup(t, "sam"), done: done, whole: whole, file: file}
 			queued("sam's device, the operator's now", y.sam, "sam", sams, true)
 
-			// In a yard with no operator no device is told.
-			if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"); err != nil {
+			// Made an operator again, jo's device is told jo's queue whole.
+			if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleOperator}, "sam"); err != nil {
 				t.Fatal(err)
 			}
-			queued("jo's device, in a yard with no operator", y.jo, "jo", jos, false)
-			queued("sam's device, in a yard with no operator", y.sam, "sam", sams, false)
+			queued("jo's device, an operator's again", y.jo, "jo", jos, true)
 		})
 	}
 }
@@ -798,6 +806,9 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 		if listed {
 			want = whole
 		}
+		// The role changes below come after, as user_set events of their
+		// own, and name no file.
+		configs = configs[:min(len(configs), len(want))]
 		if !reflect.DeepEqual(configs, want) {
 			t.Errorf("%s is sent the configuration events %v, want %v", who, configs, want)
 		}
@@ -810,14 +821,17 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 	told("jo's device", y.jo, true)
 	told("sam's device", y.sam, false)
 
-	// The operator now is told: the device of the one named moves with it,
-	// the past events with it, and in a yard with no operator no device is.
+	// Each operator is told: the device of one made an operator moves with
+	// the role, the past events with it, and so does one made a member.
+	_, err = y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo")
+	must(err)
+	told("jo's device, one operator's of two", y.jo, true)
+	told("sam's device, an operator's now", y.sam, true)
 	must(y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"))
-	told("jo's device, no longer the operator's", y.jo, false)
-	told("sam's device, the operator's now", y.sam, true)
-	must(y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"))
-	told("jo's device, in a yard with no operator", y.jo, false)
-	told("sam's device, in a yard with no operator", y.sam, false)
+	_, err = y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam")
+	must(err)
+	told("jo's device, a member's now", y.jo, false)
+	told("sam's device, the one operator's", y.sam, true)
 }
 
 // Users, GetUser, Crew and GetCrew tell the files and the commands of the
@@ -828,8 +842,8 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 // without the words of a send that found it unfit, which name it; a crew member
 // without the directory it runs in, without the files and commands its config
 // names, and without the handles of its sessions, which name the directory and
-// the yardr it was started with. So it does to every device of a yard with no
-// operator, and to the user's own device, which is told no more of its file
+// the yardr it was started with. So it does to the device of a user made a
+// member, and to the user's own device, which is told no more of its file
 // than another's. The rest of each record is told as it is, and the socket,
 // which the terminal and the agents use, keeps the whole record.
 func TestUserCallsTellTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) {
@@ -896,8 +910,6 @@ func TestUserCallsTellTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) 
 
 	// The store keeps the whole records, and the socket serves them: the
 	// fixture really holds every word, and the socket tells every one of them.
-	users, err := y.st.Users(ctx)
-	must(err)
 	crew, err := y.st.Crew(ctx)
 	must(err)
 	socket := Handler(y.st, nil)
@@ -953,6 +965,9 @@ func TestUserCallsTellTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) 
 		must(err)
 		member, err := y.st.GetCrew(ctx, "signalman")
 		must(err)
+		// The users are read again, since a user's role is in their record.
+		users, err := y.st.Users(ctx)
+		must(err)
 		wantUsers, wantOwn, wantCrew, wantMember := users, *own, crew, *member
 		if !whole {
 			wantUsers, wantCrew = nil, nil
@@ -1002,12 +1017,15 @@ func TestUserCallsTellTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) 
 		t.Errorf("GetCrew of a crew member the yard does not have is answered %s to sam's device, want not-found", raw)
 	}
 
-	// The operator now is told: the device of the one named moves with it, and in
-	// a yard with no operator no device is.
+	// Each operator is told: the device of one made an operator moves with the
+	// role, and so does one made a member.
+	_, err = y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo")
+	must(err)
+	told("jo's device, one operator's of two", y.jo, "jo", true)
+	told("sam's device, an operator's now", y.sam, "sam", true)
 	must(y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"))
-	told("jo's device, no longer the operator's", y.jo, "jo", false)
-	told("sam's device, the operator's now", y.sam, "sam", true)
-	must(y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"))
-	told("jo's device, in a yard with no operator", y.jo, "jo", false)
-	told("sam's device, in a yard with no operator", y.sam, "sam", false)
+	_, err = y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam")
+	must(err)
+	told("jo's device, a member's now", y.jo, "jo", false)
+	told("sam's device, the one operator's", y.sam, "sam", true)
 }

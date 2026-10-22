@@ -323,15 +323,15 @@ func (w *wtx) askedSetup(ctx context.Context, ask Ask, to, actor string) (*AskSe
 	} else {
 		return nil, nil, fmt.Errorf("setting up pack %s needs no approval: the operator applies, keys and grants it in a terminal", pack)
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, nil, err
 	}
 	switch {
-	case operator == "":
+	case ops.none():
 		return nil, nil, fmt.Errorf("a setup is the operator's to approve, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, nil, fmt.Errorf("a setup is the operator's to approve (%s): the yard carries it out as them, so %s cannot be asked to", operator, to)
+	case !ops.is(to):
+		return nil, nil, fmt.Errorf("a setup is %s to approve (%s): the yard carries it out as them, so %s cannot be asked to", ops.article(), ops, to)
 	}
 	card, err := w.setupCard(pack, ask.Setup.To)
 	if err != nil {

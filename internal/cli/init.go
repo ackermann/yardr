@@ -1301,7 +1301,7 @@ func settingRows(home string, stored map[string]string) []settingRow {
 func (a *app) settingsCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "settings", Short: "The yard's own defaults (" + strings.Join(store.SettingKeys(), ", ") + ")",
 		Long: `The yard's own defaults. yardr settings get lists them with what each means.
-Anyone reads them; only the operator changes one (yardr settings set), so
+Anyone reads them; only an operator changes one (yardr settings set), so
 an agent is refused. A yard that names no operator yet takes a setting from
 anyone who is no agent of its own.
 

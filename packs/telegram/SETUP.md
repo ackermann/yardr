@@ -1,10 +1,11 @@
 # Setting up Telegram
 
 The pack wires Telegram into the yard as the declared source `telegram`:
-one message to one chat through the Bot API's sendMessage, and the
-operator's chat heard back, answered with `yardr reply`. What lands in
-a user's inbox then reaches their phone, through the bot below; what
-the operator writes to the bot reaches the yardmaster's inbox.
+one message to one chat through the Bot API's sendMessage; chats from
+users with the operator role are heard back and answered with `yardr
+reply`. What lands in a user's inbox then reaches their phone, through
+the bot below; what an operator writes to the bot reaches the yardmaster's
+inbox.
 
 1. **The bot.** In Telegram, message @BotFather with a name and a
    username, then send:
@@ -14,21 +15,22 @@ the operator writes to the bot reaches the yardmaster's inbox.
    It answers with the bot's token, digits, a colon and letters:
    `110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw`. It is the *yard's*:
    anyone with it sends as the bot.
-2. **One message to the bot.** From the operator's Telegram account,
-   open the bot and press Start, or send it anything. Until the operator
+2. **One message to the bot.** From the Telegram account for the user
+   named by the `operator` setting, open the bot and press Start, or
+   send it anything. Until that user
    has written to it there is no chat, and the yard's messages have
    nowhere to go.
-3. **Apply the pack.** As the operator. The steps use
-   `mckean` as the operator's user name; replace it with the
-   operator's user name in this yard if it differs.
+3. **Apply the pack.** As an operator. The steps use `mckean` as the
+   user named by the `operator` setting; replace it with that user's
+   name in this yard.
    ```sh
    yardr pack apply telegram --notify mckean=telegram
    # source telegram is declared: 2 calls under https://api.telegram.org (yardr source show telegram)
    # user mckean: told outside the yard: through telegram, which is not set up: user mckean has no env_file: yardr user key mckean telegram gives TELEGRAM_CHAT_ID
    ```
    `--notify` is telling, and telling through telegram is optional:
-   hearing the chat back (steps 8 on) wants only the chat id in the
-   operator's env file (step 6), whatever tells them. To keep being
+   hearing the chat back (steps 8 on) wants only the chat id in that
+   user's env file (step 6), whatever tells them. To keep being
    told through pushover and chat through telegram, apply without it:
    ```sh
    yardr pack apply telegram
@@ -40,7 +42,7 @@ the operator writes to the bot reaches the yardmaster's inbox.
    (`~/.yardr/sources/telegram.env`). The command below is one thing
    to type, in a block of its own.
    ```sh
-   yardr source key telegram           # TELEGRAM_BOT_TOKEN, the bot's token: the operator's to give
+   yardr source key telegram           # TELEGRAM_BOT_TOKEN, the bot's token: an operator's to give
    ```
    Or have a crew member ask for it, and answer on its card, in
    footplate or in `yardr chat` (`ctrl+o`), where the field shows dots:
@@ -51,10 +53,10 @@ the operator writes to the bot reaches the yardmaster's inbox.
 5. **The chat id: write to the bot, and confirm it is you.** No
    number is looked up and none is pasted. Once hearing is set up
    (steps 9 to 12 below: the webhook secret, the hook and Telegram
-   told where to send), write anything to the bot from the operator's
-   Telegram account, as in step 2. The delivery reaches the yard from
-   a chat it has no address for, so it is dropped -- and, while the
-   operator has no chat id in telegram, the yard asks the operator on
+   told where to send), write anything to the bot from the setting-named
+   user's Telegram account, as in step 2. The delivery reaches the yard
+   from a chat it has no address for, so it is dropped -- and, while
+   that user has no chat id in telegram, the yard asks them on
    a card, in footplate or in `yardr chat`:
 
    > A message reached telegram from chat 123456789 (first words:
@@ -65,14 +67,14 @@ the operator writes to the bot reaches the yardmaster's inbox.
    card per source waits at a time.
 6. **Confirm the card, and the yard has the chat id.** Approving the
    card (`yardr bead answer <bead> <ask> --approve`, or the card's
-   button in footplate) writes `TELEGRAM_CHAT_ID` into the operator's
+   button in footplate) writes `TELEGRAM_CHAT_ID` into that user's
    env file (`~/.yardr/users/mckean.env`, mode 0600), exactly where
    this command writes it. If the `hearer` setting names a crew member,
    the same approval subscribes that member to messages from this chat;
    the card names who will hear it. `yardr init` sets `hearer` to
    `yardmaster` unless it was already set:
    ```sh
-   yardr user key mckean telegram      # TELEGRAM_CHAT_ID, the operator's chat id
+   yardr user key mckean telegram      # TELEGRAM_CHAT_ID, that user's chat id
    # user mckean: TELEGRAM_CHAT_ID is set in …/mckean.env
    ```
    That command, typed unseen, is still the way to give or replace
@@ -90,7 +92,7 @@ the operator writes to the bot reaches the yardmaster's inbox.
    ```sh
    yardr bead ask <bead> "May the yard send the test message?" --run "source check telegram --user mckean"
    ```
-   Its card says it will send one real test message to the operator's
+   Its card says it will send one real test message to that user's
    chat, with the message whole, and on approval the yard sends it. The
    phone shows "yardr: a test", and the approval records `telegram:
    told mckean: 200 in …ms`. This is one real message through Telegram.
@@ -103,23 +105,24 @@ the operator writes to the bot reaches the yardmaster's inbox.
    yardr source check telegram --user mckean
    ```
 
-Where the operator is told through telegram, mail to the user and
+Where a user is told through telegram, mail to them and
 their own timers are told from now on. To see who is told through what:
 ```sh
 yardr user list
 ```
 
-## Hearing the operator's chat
+## Hearing operator chats
 
-The pack hears one chat: the operator's. A message from any other chat
-is dropped — answered 200, recorded nowhere, never answered — even
-where another user's env file sets the address too: hearing is the
-operator's address alone, and telling another through telegram
-tells them, but hears nothing back. While the operator has no chat
-id set, a dropped message offers them the claim card of steps 5
-and 6 instead of being dropped in silence. Write to the bot in a private
-chat, one to one; if the operator's chat id is a group's, every
-member of the group is heard.
+The pack hears chats belonging to users whose role is `operator`. A
+message from a member's chat is dropped — answered 200, recorded nowhere,
+never answered — even where that member's env file sets the address.
+Telling a member through telegram tells them, but hears nothing back.
+While the user named by the `operator` setting has no chat id set, a
+dropped message offers that user the claim card of steps 5 and 6. The
+claim only sets that user's address; another operator sets their own
+address with `yardr user key <user> telegram`. Write to the bot in a
+private chat, one to one; if an operator's chat id is a group's, every
+member of that group is heard.
 
 The yardmaster treats a line from your chat as your word, as your mail:
 it discusses, shapes, builds and lands what you ask there. A number in
@@ -134,7 +137,7 @@ There is no `thread open telegram`, no status and no bead link to a chat.
 
 8. **Two-step verification on the Telegram account.** Turn it on, in
    Telegram under Settings → Privacy and Security. Whoever holds the
-   account writes as the operator: a taken-over account can have the
+   account writes as that user: a taken-over account can have the
    yardmaster shape, build and land. Two-step verification adds another
    barrier to taking over the account.
 9. **The webhook and its secret, on one card.** Set the yard's public
@@ -292,9 +295,9 @@ There is no `thread open telegram`, no status and no bead link to a chat.
     ```sh
     printf 'url = "https://api.telegram.org/bot%s/deleteWebhook"\n' "$(grep TELEGRAM_BOT_TOKEN ~/.yardr/sources/telegram.env | cut -d= -f2-)" | curl -K -
     ```
-    So does taking the address out of the operator's env file: delete
+    So does taking the address out of that user's env file: delete
     the `TELEGRAM_CHAT_ID` line from `~/.yardr/users/mckean.env` (the
-    operator's user name from step 3), and the chat is heard no more.
-    Setting the operator's `notify` to empty ends telling alone now:
-    hearing follows the address, not `notify`, so the chat is heard
-    while the address is set, whatever the operator is told through.
+    `mckean` from step 3), and that user's chat is heard no more.
+    Setting that user's `notify` to empty ends telling alone now: hearing
+    follows the address, not `notify`, so the chat is heard while the
+    address is set, whatever the user is told through.

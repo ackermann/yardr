@@ -827,7 +827,7 @@ func TestRolesSayWhatATestMayCost(t *testing.T) {
 	}
 }
 
-// A line from the operator's Telegram chat is the operator's word, as
+// A line from an operator-role user's Telegram chat is their word, as
 // mail from them is, with the store's limits and the thread's own: the
 // yardmaster's role says all three, in both packs.
 func TestYardmasterTelegramChatIsOperatorsWord(t *testing.T) {
@@ -838,12 +838,12 @@ func TestYardmasterTelegramChatIsOperatorsWord(t *testing.T) {
 		}
 		text := string(body)
 		for _, want := range []string{
-			"A line from {{operator}}'s Telegram chat is {{operator}}'s word, as\n  mail from them is",
+			"A line from an operator-role user's Telegram chat is that user's word,\n  as mail from them is",
 			"Never paste a secret or a credential into the chat",
 			"what you would\n  confirm by mail you confirm the same way here",
 			"a number in the chat answers no ask",
 			"approving a run ask and giving a secret are the operator's alone and\n  are refused from your pane",
-			"The chat hears {{operator}} alone.",
+			"The chat hears users with the operator role.",
 			"In a telegram thread, `yardr thread show` shows nothing",
 			"`yardr reply --to` is refused there",
 			"a reply run again\n  after its answer was lost posts twice",
@@ -1439,12 +1439,12 @@ func TestTelegramPack(t *testing.T) {
 		"--secret telegram --for-user mckean",
 		`--run "source check telegram --user mckean"`,
 		"yardr source check telegram --user mckean",
-		"From the operator's Telegram account",
-		"mckean` as the operator's user name",
-		"hears one chat: the operator's",
+		"named by the `operator` setting",
+		"replace it with that user's",
+		"hears chats belonging to users whose role is `operator`",
 		"tells them, but hears nothing back",
 		"Two-step verification",
-		"writes as the operator",
+		"writes as that user",
 		"umask 077",
 		"yardr hook add telegram --source telegram --secret-file",
 		"yardr crew show yardmaster",
@@ -1458,9 +1458,9 @@ func TestTelegramPack(t *testing.T) {
 		"a bot cannot read a chat's history",
 		"reply --to` is refused for telegram",
 		"told through pushover and chat through telegram",
-		"Setting the operator's `notify` to empty",
+		"Setting that user's `notify` to empty",
 		"ends telling alone now",
-		"whatever the operator is told through",
+		"whatever the user is told through",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)

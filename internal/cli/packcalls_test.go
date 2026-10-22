@@ -467,7 +467,7 @@ func TestDoctorSources(t *testing.T) {
 	p := part(false)
 	if !p.Configured || p.Detail != "crm (5 calls)" || len(p.Notes) != 2 ||
 		!has(p, "source crm: no call of it can be made: CRM_TOKEN is not set up: "+yardr+" source key crm gives CRM_TOKEN and CRM_UPDATE_TOKEN, or "+yardr+" source set crm env_file=<file> names a file the operator keeps themselves; an agent asks from its pane: "+yardr+" bead ask <bead> \"<question>\" --secret crm --context \"<where to get it>\"") ||
-		!has(p, "source crm: nobody is granted a call of it, so only the operator makes one ("+yardr+" source grant crm read --group <group>)") {
+		!has(p, "source crm: nobody is granted a call of it, so only an operator makes one ("+yardr+" source grant crm read --group <group>)") {
 		t.Fatalf("a source without its credential: %+v", p)
 	}
 	if p = part(true); !has(p, "not tried: source crm has no credential to make its check call with") {

@@ -122,16 +122,16 @@ func (w *wtx) maySubscribe(ctx context.Context, name, actor string) error {
 		return err
 	}
 	actor = resolved
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	if actor == name || (operator != "" && actor == operator) {
+	if actor == name || ops.is(actor) {
 		return nil
 	}
 	who := "the operator"
-	if operator != "" && operator != name {
-		who = "the operator (" + operator + ")"
+	if !ops.none() && !ops.is(name) {
+		who = ops.words()
 	}
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return fmt.Errorf("%s is a crew member, and a crew member does not decide what a person is told: %s subscribes themselves, or %s does it for them",

@@ -147,13 +147,32 @@ func TestUserApprovesARunAsk(t *testing.T) {
 	if _, err := y.st.GetUser(ctx, "kim"); err != nil {
 		t.Fatalf("the approval with the word did not add kim: %v", err)
 	}
+
+	// A second operator's device approves a run ask put to the first: any
+	// operator may, so an approval waits on no one person.
+	t.Run("a second operator approves an ask to the first", func(t *testing.T) {
+		y := newRunYard(t)
+		if _, err := y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		w := y.approve(onTheMachine, y.sam, strings.NewReader(y.args()))
+		if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
+			t.Fatalf("sam's approval is answered %d %s", w.Code, w.Body)
+		}
+		if src, err := y.st.GetSource(ctx, "crm"); err != nil || src.CallsPerHour != 120 {
+			t.Fatalf("the source is %+v, %v: want 120 calls an hour", src, err)
+		}
+		if set := eventsOfKind(t, y.st, "source_set"); len(set) != 1 || set[0].Actor != "sam" || store.Via(set[0]) != "tablet" {
+			t.Fatalf("source_set events: %+v, want one by sam via tablet", set)
+		}
+	})
 }
 
 // ApproveAsk is on the listener for a device of the yard's operator and for
 // nobody else. A device of another user, also for a command that is that
 // user's own to approve on the socket, a credential that resolves to the
-// operator and is no device token of the yard, and every device in a yard
-// with no operator are answered as for a method the yard does not have; a
+// operator and is no device token of the yard, and the device of an
+// operator made a member are answered as for a method the yard does not have; a
 // removed device, a peer's key and no credential at all are not let in.
 // Each is answered before the request's body is read, and nothing runs.
 func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
@@ -224,14 +243,16 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		notThere(t, y.approve(onTheMachine, "a-session-of-the-service", unread{t}))
 		y.nothingRan(t, "a credential of an identity source")
 	})
-	t.Run("a yard with no operator", func(t *testing.T) {
+	t.Run("an operator made a member", func(t *testing.T) {
 		y := newRunYard(t)
-		if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "jo"); err != nil {
+		if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
 			t.Fatal(err)
 		}
 		notThere(t, y.approve(onTheMachine, y.jo, unread{t}))
-		notThere(t, y.approve(onTheMachine, y.sam, unread{t}))
-		y.nothingRan(t, "a yard with no operator")
+		y.nothingRan(t, "an operator made a member")
 	})
 	// The operator's device calls as the operator and in the one form.
 	t.Run("as anyone else, and the array of yardr's own builds", func(t *testing.T) {

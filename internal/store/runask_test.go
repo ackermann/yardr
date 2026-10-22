@@ -30,6 +30,34 @@ func runYard(t *testing.T) (*askYard, string) {
 	return y, key
 }
 
+// noOperator makes the yard one without an operator: the setting unset and
+// nobody's role an operator's, which no call of the store makes, since the
+// last operator is never made a member.
+func (y *askYard) noOperator(t *testing.T, actor string) {
+	t.Helper()
+	if err := y.SetSetting(y.ctx, OperatorSetting, "", actor); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.write(func(w *wtx) error {
+		var users []User
+		if err := each(w.Tx, bUsers, "", func(_ []byte, u *User) error {
+			users = append(users, *u)
+			return nil
+		}); err != nil {
+			return err
+		}
+		for _, u := range users {
+			u.Role = ""
+			if err := put(w.Tx, bUsers, u.Name, &u); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func runAsk(command ...string) Ask {
 	return Ask{Question: "Take more mail from airy?", To: "mckean",
 		Context: []string{"airy's yard was refused 4 mails in the last hour: the link takes 30.",
@@ -174,9 +202,7 @@ func TestRunAskRefusals(t *testing.T) {
 		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
 	}
 	// A yard with no operator has nobody whose command it would be.
-	if err := y.SetSetting(y.ctx, OperatorSetting, "", "mckean"); err != nil {
-		t.Fatal(err)
-	}
+	y.noOperator(t, "mckean")
 	if _, err := y.AddAsk(y.ctx, y.bead, runAsk("peer allow airy --mail-limit 300"), "yardmaster"); err == nil || !strings.Contains(err.Error(), "this yard has none") {
 		t.Fatalf("a run ask in a yard with no operator = %v", err)
 	}
@@ -397,9 +423,7 @@ func TestApproveAskRefusals(t *testing.T) {
 		t.Fatalf("the bead has %d answers, want the decline and the taking back alone", len(answers))
 	}
 	// In a yard that names no operator nobody approves.
-	if err := y.SetSetting(y.ctx, OperatorSetting, "", "mckean"); err != nil {
-		t.Fatal(err)
-	}
+	y.noOperator(t, "mckean")
 	if _, err := y.ApproveAsk(y.ctx, y.bead, run, "mckean", false); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's, and this yard has none") {
 		t.Fatalf("an approval in a yard with no operator = %v", err)
 	}

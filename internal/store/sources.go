@@ -128,14 +128,11 @@ func (s Source) UpdateLimit() int {
 // the change from anyone who is no agent of its own. ask marks whether a
 // run ask may propose it, beside the refusal it marks.
 func (w *wtx) maySource(ctx context.Context, actor, does string, ask AskClass) error {
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	why := does + " is the operator's"
-	if operator != "" {
-		why += " (" + operator + ")"
-	}
+	why := does + " is " + ops.whose()
 	why += ": a source is where a credential of the yard is sent, and its file may name a command the yard runs"
 	refuse := func(format, a string) error {
 		return &OperatorOnlyError{msg: fmt.Sprintf(format, why, a), ask: ask}
@@ -160,7 +157,7 @@ func (w *wtx) maySource(ctx context.Context, actor, does string, ask AskClass) e
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return &OperatorOnlyError{msg: fmt.Sprintf("%s; %s is a crew member", why, actor), ask: ask}
 	}
-	if operator != "" && actor != operator {
+	if !ops.none() && !ops.is(actor) {
 		return refuse("%s; this is %s", or(actor, "nobody"))
 	}
 	return nil

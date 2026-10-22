@@ -84,9 +84,15 @@ func TestSettingsAreTheOperatorsToChange(t *testing.T) {
 		if len(evs) != 1 || evs[0].Kind != "setting_changed" || evs[0].Actor != "jo" || evs[0].Data["key"] != "hook_addr" {
 			t.Errorf("event = %+v", evs)
 		}
-		// Naming another operator is theirs too, and from then on the
-		// settings are the new one's.
+		// Naming another operator is theirs too, and makes kim one: the
+		// settings are then either's, until jo is made a member.
 		if err := s.SetSetting(ctx, store.OperatorSetting, "kim", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetSetting(ctx, "hook_addr", "127.0.0.1:8791", "jo"); err != nil {
+			t.Fatalf("an operator who is not the setting's: %v", err)
+		}
+		if _, err := s.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "kim"); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.SetSetting(ctx, "hook_addr", "", "jo"); err == nil ||

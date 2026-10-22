@@ -466,9 +466,11 @@ func (rc *Receiver) ignored(ctx context.Context, d *source.Declaration, env *Env
 // hears reports whether the delivery's envelope carries an address a
 // user's env file sets: one of fields[field] equals what the file sets
 // under hear.address.env, read as the daemon reads it when telling,
-// whatever the user is told through. With from: operator only the
-// operator's address hears. A user whose file is missing or unreadable
-// hears nothing, as does a yard whose operator or users are unreadable: a
+// whatever the user is told through. With from: operator only an
+// operator's address hears: a user whose role is store.RoleOperator, or,
+// where nobody holds it, the user the operator setting names. A user whose
+// file is missing or unreadable hears nothing, as does a yard whose
+// operator or users are unreadable: a
 // stranger is dropped, never answered with an error the service would
 // retry.
 func (rc *Receiver) hears(ctx context.Context, d *source.Declaration, env *Envelope) bool {
@@ -480,17 +482,19 @@ func (rc *Receiver) hears(ctx context.Context, d *source.Declaration, env *Envel
 	if err != nil {
 		return false
 	}
-	operator := ""
+	var operators []string
 	onlyOperator := d.Hear.From == source.HearFromOperator
 	if onlyOperator {
-		settings, err := rc.st.Settings(ctx)
-		if err != nil {
-			return false
+		if operators = store.Operators(users); len(operators) == 0 {
+			settings, err := rc.st.Settings(ctx)
+			if err != nil {
+				return false
+			}
+			operators = []string{settings[store.OperatorSetting]}
 		}
-		operator = settings[store.OperatorSetting]
 	}
 	for _, u := range users {
-		if onlyOperator && u.Name != operator {
+		if onlyOperator && !slices.Contains(operators, u.Name) {
 			continue
 		}
 		if u.EnvFile == "" {

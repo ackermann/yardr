@@ -102,10 +102,6 @@ func rosterOf(tx *bolt.Tx, p *Peer) error {
 	if len(p.Expose) == 0 {
 		return nil
 	}
-	operator, err := operatorIn(tx)
-	if err != nil {
-		return err
-	}
 	mail := p.carries(PeerMail, true)
 	for _, name := range p.Expose {
 		var r CrewMember
@@ -119,10 +115,13 @@ func rosterOf(tx *bolt.Tx, p *Peer) error {
 			p.Roster = append(p.Roster, e)
 			continue
 		}
-		if tx.Bucket(bUsers).Get([]byte(name)) != nil {
+		var u User
+		if ok, err := get(tx, bUsers, name, &u); err != nil {
+			return err
+		} else if ok {
 			e := PeerRosterEntry{Name: name, Kind: RosterUser, Role: "user", Mail: mail}
-			if name == operator {
-				e.Role = "operator"
+			if u.IsOperator() {
+				e.Role = RoleOperator
 			}
 			p.Roster = append(p.Roster, e)
 		}

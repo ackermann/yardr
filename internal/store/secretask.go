@@ -288,15 +288,15 @@ func (w *wtx) askedSecret(sec AskSecret, to string) (*AskSecret, error) {
 	if len(sec.Env) > 0 {
 		env = slices.DeleteFunc(slices.Clone(has), func(n string) bool { return !slices.Contains(sec.Env, n) })
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case operator == "":
+	case ops.none():
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, fmt.Errorf("a secret is the operator's to give (%s): setting a source's credential is theirs alone, so %s cannot be asked for one", operator, to)
+	case !ops.is(to):
+		return nil, fmt.Errorf("a secret is %s to give (%s): setting a source's credential is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
 	}
 	return &AskSecret{Source: d.Name, Env: env, Host: sourceHost(d), Concealed: concealedAsk(d, env)}, nil
 }
@@ -339,15 +339,15 @@ func (w *wtx) askedHookSecret(d *source.Declaration, hook string, sec AskSecret,
 	if w.Bucket(bHooks).Get([]byte(hook)) != nil {
 		return nil, fmt.Errorf("hook %s is in the yard already: replacing it, secret included, is the operator's to type in a terminal (yardr hook add %s --source %s --secret-file <file>)", hook, hook, d.Name)
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case operator == "":
+	case ops.none():
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a hook's signing secret is theirs alone, so %s cannot be asked for one", operator, to)
+	case !ops.is(to):
+		return nil, fmt.Errorf("a secret is %s to give (%s): giving a hook's signing secret is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
 	}
 	return &AskSecret{Source: d.Name, Env: []string{hookSecretEnv(hook)}, Host: sourceHost(d), Hook: hook}, nil
 }
@@ -379,15 +379,15 @@ func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
 			return nil, fmt.Errorf("a login input is asked for as %s, and %s is no name of it", loginInputName, n)
 		}
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case operator == "":
+	case ops.none():
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, fmt.Errorf("a secret is the operator's to give (%s): answering the login is theirs alone, so %s cannot be asked for one", operator, to)
+	case !ops.is(to):
+		return nil, fmt.Errorf("a secret is %s to give (%s): answering the login is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
 	}
 	return &AskSecret{Env: []string{loginInputName}, Login: login}, nil
 }
@@ -437,15 +437,15 @@ func (w *wtx) askedHarnessKey(sec AskSecret, to string) (*AskSecret, error) {
 	if len(sec.Env) > 0 {
 		names = slices.DeleteFunc(slices.Clone(h.LoginEnv), func(n string) bool { return !slices.Contains(sec.Env, n) })
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case operator == "":
+	case ops.none():
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a harness API key is theirs alone, so %s cannot be asked for one", operator, to)
+	case !ops.is(to):
+		return nil, fmt.Errorf("a secret is %s to give (%s): giving a harness API key is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
 	}
 	return &AskSecret{Harness: h.Kind, Crew: crew, Env: names}, nil
 }
@@ -468,14 +468,14 @@ func (w *wtx) askedAddress(d *source.Declaration, user string, env []string, to 
 			return nil, fmt.Errorf("source %s: %s is not what it reads of a user's file (its notify key names %s)", d.Name, n, d.Notify.AddressEnv)
 		}
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
-	if to != user && (operator == "" || to != operator) {
+	if to != user && !ops.is(to) {
 		whose := fmt.Sprintf("%s's own address in the source %s is theirs to give", user, d.Name)
-		if operator != "" && operator != user {
-			whose += ", or the operator's (" + operator + ") for them"
+		if !ops.none() && !ops.is(user) {
+			whose += ", or " + ops.whose() + " for them"
 		}
 		return nil, fmt.Errorf("%s: what lands in their inbox goes there, so %s cannot be asked for it", whose, to)
 	}
@@ -511,15 +511,15 @@ func (w *wtx) askedCrewSecret(d *source.Declaration, crew string, env []string, 
 	if len(env) > 0 {
 		names = slices.DeleteFunc(slices.Clone(has), func(n string) bool { return !slices.Contains(env, n) })
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case operator == "":
+	case ops.none():
 		return nil, fmt.Errorf("a secret is the operator's to give, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, fmt.Errorf("a secret is the operator's to give (%s): giving a crew member's credential is theirs alone, so %s cannot be asked for one", operator, to)
+	case !ops.is(to):
+		return nil, fmt.Errorf("a secret is %s to give (%s): giving a crew member's credential is theirs alone, so %s cannot be asked for one", ops.article(), ops, to)
 	}
 	return &AskSecret{Source: d.Name, Env: names, Host: sourceHost(d), Crew: crew, Concealed: concealedAsk(d, names)}, nil
 }
@@ -550,14 +550,14 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 	if len(env) > 0 {
 		names = slices.DeleteFunc(slices.Clone(has), func(n string) bool { return !slices.Contains(env, n) })
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
-	if to != user && (operator == "" || to != operator) {
+	if to != user && !ops.is(to) {
 		whose := fmt.Sprintf("%s's own credential in the source %s is theirs to give", user, d.Name)
-		if operator != "" && operator != user {
-			whose += ", or the operator's (" + operator + ") for them"
+		if !ops.none() && !ops.is(user) {
+			whose += ", or " + ops.whose() + " for them"
 		}
 		return nil, fmt.Errorf("%s: a call made as them reads it, so %s cannot be asked for it", whose, to)
 	}

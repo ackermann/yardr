@@ -270,7 +270,7 @@ func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[strin
 	if d.Hear != nil {
 		who := "every told user's"
 		if d.Hear.From == source.HearFromOperator {
-			who = "only the operator's"
+			who = "only an operator's"
 		}
 		does = append(does, fmt.Sprintf("it hears deliveries: only one whose %s is the address of a user told through it, read as %s, and %s: another's, and a stranger's, is dropped after verification.", d.Hear.Field, d.Hear.Address.Env, who))
 	} else {

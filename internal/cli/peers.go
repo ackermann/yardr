@@ -1339,7 +1339,7 @@ func (a *app) operatorOnly(ctx context.Context, st store.API, what string) error
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("only the operator (%s) may %s; this is %s", operator, what, a.who())
+	return fmt.Errorf("only %s may %s; this is %s", store.OperatorWords(strings.Split(operator, ", ")), what, a.who())
 }
 
 // peerIncoming says how the peer's messages reach this yard, and that they

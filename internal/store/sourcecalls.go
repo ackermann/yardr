@@ -291,10 +291,10 @@ func (w *wtx) checkGrantSource(ctx context.Context, src, what string, to Grantee
 		return nil
 	}
 	who := or(resolved, "nobody")
-	if operator, err := operatorIn(w.Tx); err != nil {
+	if ops, err := operatorsIn(w.Tx); err != nil {
 		return err
-	} else if operator != "" && resolved == operator {
-		who = "the operator (" + operator + ")"
+	} else if ops.is(resolved) {
+		who = OperatorWords([]string{resolved})
 	}
 	return refuse(who)
 }
@@ -736,18 +736,18 @@ func sourceCallerIn(ctx context.Context, tx *bolt.Tx, session, actor string) (*s
 		c.crew = crew
 		return c, nil
 	}
-	operator, err := operatorIn(tx)
+	ops, err := operatorsIn(tx)
 	if err != nil {
 		return nil, err
 	}
 	// A yard without an operator has nobody to hold a call to, as it has
 	// nobody to hold a change to its sources to (maySource).
-	if operator == "" || actor == operator {
+	if ops.none() || ops.is(actor) {
 		c.operator = true
 		return c, nil
 	}
 	c.status = CallNotGranted
-	c.refused = fmt.Sprintf("this is %s, who is no session, crew member or operator (%s) of the yard: a call is granted to a group or a crew member (yardr source grant)", or(actor, "nobody"), operator)
+	c.refused = fmt.Sprintf("this is %s, who is no session, crew member or operator (%s) of the yard: a call is granted to a group or a crew member (yardr source grant)", or(actor, "nobody"), ops)
 	return c, nil
 }
 

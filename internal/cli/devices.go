@@ -51,7 +51,9 @@ printed with the token, to hand both over together.`,
 			if err != nil {
 				return err
 			}
-			all, err := st.Settings(c.Context())
+			// Read before the device is made: the output needs it, and a
+			// token that cannot be shown is a device nobody can use.
+			owner, err := st.GetUser(c.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -71,8 +73,8 @@ printed with the token, to hand both over together.`,
 					fmt.Fprintln(w, "Give it to the device with this yard's address, the one the device will reach it at.")
 				}
 				fmt.Fprintf(w, "It calls as %s until: yardr user device rm %s %s\n", d.User, d.User, d.Name)
-				if d.User != all[store.OperatorSetting] {
-					fmt.Fprintf(w, "%s is not the operator, and the device reads every bead in the yard, with its notes, and the mail of %s alone.\n", d.User, d.User)
+				if !owner.IsOperator() {
+					fmt.Fprintf(w, "%s is not an operator, and the device reads every bead in the yard, with its notes, and the mail of %s alone.\n", d.User, d.User)
 				}
 			})
 		},

@@ -1554,7 +1554,7 @@ func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, u
 	if operator, is, err := a.operator(ctx, st); err != nil {
 		return err
 	} else if !is && a.who() != u.Name {
-		return fmt.Errorf("a test message to %s is theirs to ask for, or the operator's (%s); this is %s", u.Name, operator, a.who())
+		return fmt.Errorf("a test message to %s is theirs to ask for, or %s; this is %s", u.Name, store.OperatorsWhose(strings.Split(operator, ", ")), a.who())
 	}
 	title, text := store.SourceCheckMessage(name, u.Name)
 	sent, err := notify.Through(ctx, st, a.home(), name, u, notify.Message{Title: title, Text: text})
@@ -1589,7 +1589,7 @@ func hearLine(d *source.Declaration) string {
 	}
 	who := "a user's env_file"
 	if h.From == source.HearFromOperator {
-		who = "the operator's env_file"
+		who = "an operator's env_file"
 	}
 	return fmt.Sprintf("hear: keeps a delivery whose %s is the %s of %s; anything else is dropped after verification", h.Field, h.Address.Env, who)
 }

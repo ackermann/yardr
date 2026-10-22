@@ -228,29 +228,30 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Settings",
-		says:     "The yard's operator, when set, and its caps on a file; to the operator's own devices, also the operator's words to their agents. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.",
+		says:     "The yard's operator setting, when set, and its caps on a file; to the devices of an operator, also the operator's words to their agents. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.",
 		requests: []string{`{}`},
 		fields: []field{
-			{"operator", "string?", "the operator's user name; absent when the yard has not set one"},
-			{"operator_style", "string?", "how the operator asked agents to work with them: `guide`, `show`, `work` or `report`; absent when the operator has not set one, and to a device of any user but the operator"},
+			{"operator", "string?", "the user name of the operator an ask with no `--to` goes to (one of the users whose role is `operator`); absent when the yard has not set one"},
+			{"operator_style", "string?", "how the operator asked agents to work with them: `guide`, `show`, `work` or `report`; absent when the operator has not set one, and to a device of any user who is not an operator"},
 			{"operator_note", "string?", "the one line the operator asked agents to know about them; absent as `operator_style` is"},
 			{"blob_max_bytes", "string?", "the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB)"},
 			{"files_max", "string", "how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number"},
 		},
-		after: "The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of the operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream has its `value` only for a key the device is told; for any other it has the `key` and no `value`.",
+		after: "The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of an operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream has its `value` only for a key the device is told; for any other it has the `key` and no `value`.",
 	},
 	{
 		method:   "Users",
-		says:     "The users of the yard, by name.",
+		says:     "The users of the yard, by name and role.",
 		requests: []string{`{}`},
 		fields: []field{
 			{"[].name", "string", "the name mail to the user is addressed to"},
+			{"[].role", "string?", "the user's role: `operator` or `member`; absent reads as `member`"},
 			{"[].cursor", "number", "the user's mail is read through this seq"},
 			{"[].notification_cursor", "number", "the same for the user's notifications"},
 		},
 		after: "The reply carries each user whole, as `curl` shows it, but only the table above is promised. The rest is yardr's own, and a client ignores what it does not know. " +
 			"Over the network a device is sent the records without two fields of the operator's configuration: `env_file`, the file the user's address is read from, and `last_push.error`, the words of a send that found that file unfit, which name it. " +
-			"That holds for the user's own device too. A device of the operator is sent both ([over the network](#over-the-network)).",
+			"That holds for the user's own device too. A device of an operator is sent both ([over the network](#over-the-network)).",
 	},
 	{
 		method:   "GetUser",
@@ -259,10 +260,11 @@ var apiCalls = []apiCall{
 		requests: []string{`{"name":"jo"}`},
 		fields: []field{
 			{"name", "string", "the name"},
+			{"role", "string?", "the user's role: `operator` or `member`; absent reads as `member`"},
 			{"cursor", "number", "the user's mail is read through this seq"},
 			{"notification_cursor", "number", "the same for the user's notifications"},
 		},
-		after: "The record is the one [`Users`](#users) lists, and it is sent as `Users` sends it: over the network without `env_file` and `last_push.error`, unless the device is the operator's. A device that is not the operator's gets its own record without them too.",
+		after: "The record is the one [`Users`](#users) lists, and it is sent as `Users` sends it: over the network without `env_file` and `last_push.error`, unless the device is an operator's. A device that is no operator's gets its own record without them too.",
 	},
 	{
 		method:   "Crew",
@@ -274,7 +276,7 @@ var apiCalls = []apiCall{
 			"The reply carries each crew member whole, as `curl` shows it, but only the table above is promised. `model` and `kind` are what a client reads of the config. The rest is yardr's own, and a client ignores what it does not know. " +
 			"Over the network a device is sent the records without the operator's configuration: `dir`, the directory the crew member runs in; every key of `config` but `kind`, `model`, `provider`, `trust`, `greet`, `for`, `open_threads`, `set_state` and `mail_peers`, which leaves out the files and commands it names; " +
 			"and the handles of its sessions (`handle`, `starting` and `left`, in the member and in each of its `conversations`), which name that directory too. " +
-			"A device of the operator is sent all of it ([over the network](#over-the-network)).",
+			"A device of an operator is sent all of it ([over the network](#over-the-network)).",
 	},
 	{
 		method:   "GetCrew",
@@ -282,7 +284,7 @@ var apiCalls = []apiCall{
 		args:     []field{{"name", "string", "the crew member"}},
 		requests: []string{`{"name":"yardmaster"}`, `{"name":"signalman"}`},
 		fields:   crewMember(""),
-		after:    "The record is the one [`Crew`](#crew) lists, and it is sent as `Crew` sends it: over the network without `dir`, the files and commands of `config` and the handles of its sessions, unless the device is the operator's.",
+		after:    "The record is the one [`Crew`](#crew) lists, and it is sent as `Crew` sends it: over the network without `dir`, the files and commands of `config` and the handles of its sessions, unless the device is an operator's.",
 	},
 	{
 		method:   "Peers",

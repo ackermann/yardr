@@ -432,8 +432,11 @@ func TestReplyOnlyByTheCrewOrOperator(t *testing.T) {
 	if err := st.SetSetting(ctx, "operator", "jo", "yard-10-new"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.SetUser(ctx, "yard-10-new", map[string]string{store.UserRole: store.RoleMember}, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := run(t, a.replyCmd(), seqs["acme"], "y", "--crew", "yardmaster"); err == nil {
-		t.Fatal("no longer the operator, still allowed")
+		t.Fatal("no longer an operator, still allowed")
 	}
 	// The crew member's own session: the pane names it in YARDR_CREW and
 	// YARDR_ACTOR, and acts as it. That its pane is its own session

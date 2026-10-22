@@ -28,7 +28,7 @@ import (
 // (the one the webhooks and the linked yards use), under UserPath:
 //
 //	POST /user/call/<Method>     one of Calls, arguments as a JSON object;
-//	                             for a device of the operator, one of
+//	                             for a device of an operator, one of
 //	                             OperatorCalls too (operatorCall), and for
 //	                             a device of a user the one that gives
 //	                             their own address or credential (ownSecret)
@@ -51,7 +51,7 @@ import (
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
 //     calls more are the four of OperatorCalls, GiveSecret, ApproveAsk,
-//     ApproveSetup and SourceGrants, for a device of the operator, and not
+//     ApproveSetup and SourceGrants, for a device of an operator, and not
 //     there for anyone else (operatorCall), but GiveSecret for a device of
 //     a user whose own address or credential in a source is asked for
 //     (ownSecret);
@@ -62,7 +62,7 @@ import (
 //     the yard keeps in another setting;
 //   - Bead and UserAsks tell the candidates of a setup card, the yard's other
 //     accounts by file and the values they hold, and the file the account of
-//     an approved setup is set in, to a device of the operator alone (bead,
+//     an approved setup is set in, to a device of an operator alone (bead,
 //     userAsks), and the stream tells the file a source_set points a source
 //     at and the command that mints its token, the file a user_set points a
 //     user at and the secret file a hook_blocked names, to one alone
@@ -71,8 +71,11 @@ import (
 //   - Users, GetUser, Crew and GetCrew tell the file a user's address is read
 //     from, and of a crew member the directory it runs in, the files and
 //     commands its config names and the handles of its sessions, to a device
-//     of the operator alone (users, crew), so that these calls give a lost
+//     of an operator alone (users, crew), so that these calls give a lost
 //     token of another user no file or command of a user or a crew member;
+//   - who is an operator is the user's role (store.RoleOperator), read at
+//     each call (isOperator), not the operator setting, which names only
+//     whom an ask with no --to goes to;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
 //     to one that may read it (userBlob), so a lost token gives away no
@@ -215,25 +218,29 @@ var deviceSettings = []string{
 
 // deviceTold reports whether a device of user is told the setting key: one
 // of deviceSettings, but the operator's own words to the agents
-// (operator_style, operator_note) only when user is the yard's operator.
-// operator is the yard's operator setting, "" when it names none: a yard
-// without an operator tells the words to no device, since there is nobody
-// they are the words of.
-func deviceTold(key, user, operator string) bool {
+// (operator_style, operator_note) only when operator: the device's user is
+// an operator of the yard (isOperator). A yard without an operator tells the
+// words to no device, since there is nobody they are the words of.
+func deviceTold(key string, operator bool) bool {
 	if !slices.Contains(deviceSettings, key) {
 		return false
 	}
 	if key == store.StyleSetting || key == store.NoteSetting {
-		return isOperator(user, operator)
+		return operator
 	}
 	return true
 }
 
-// isOperator reports whether user is the yard's operator, operator being the
-// operator setting: "" when it names none, and a yard without an operator
-// has nobody to be.
-func isOperator(user, operator string) bool {
-	return operator != "" && operator == user
+// isOperator reports whether user is an operator of the yard: a user whose
+// role is store.RoleOperator, read now, so that a change of role moves the
+// next call with it. Nobody (""), a name that is no user, and a store that
+// cannot be read are no operator.
+func (u *UserServer) isOperator(ctx context.Context, user string) bool {
+	if user == "" {
+		return false
+	}
+	got, err := u.st.GetUser(ctx, user)
+	return err == nil && got.IsOperator()
 }
 
 // userOf is the user the request of ctx is made as, "" for one that is made
@@ -255,10 +262,10 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	user := userOf(ctx)
+	operator := u.isOperator(ctx, userOf(ctx))
 	out := map[string]string{}
 	for key, value := range all {
-		if deviceTold(key, user, all[store.OperatorSetting]) {
+		if deviceTold(key, operator) {
 			out[key] = value
 		}
 	}
@@ -290,11 +297,7 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 	}) {
 		return v, nil
 	}
-	all, err := u.st.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if isOperator(userOf(ctx), all[store.OperatorSetting]) {
+	if u.isOperator(ctx, userOf(ctx)) {
 		return v, nil
 	}
 	for i := range v.Asks {
@@ -305,12 +308,12 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 }
 
 // userAsks is UserAsks as a device is told it. The setup asks of the queue,
-// open and decided, read as Bead tells them (withoutAccount): a device of the
+// open and decided, read as Bead tells them (withoutAccount): a device of a
 // current operator is told the candidates of the card and the file the account
 // of an approved setup is set in, and no other device is.
 //
-// The store puts a setup ask to the operator alone, and that holds only when
-// the ask is made. The operator setting can move afterwards, and the user the
+// The store puts a setup ask to an operator alone, and that holds only when
+// the ask is made. The user's role can change afterwards, and the user the
 // ask was put to keeps it in their queue. Without this hold their device would
 // be told by UserAsks what its Bead holds back, and a token of theirs taken
 // after the move would give away what the operator set. What they read while
@@ -320,19 +323,15 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 // rest of each entry read as the store has them, and the socket, the terminal,
 // the agents and the web view read the whole queue from the store.
 //
-// It reads the setting whatever the queue holds, as bead does not: the queue
-// is built from the notes of every bead, and one setting read is nothing
+// It reads the role whatever the queue holds, as bead does not: the queue
+// is built from the notes of every bead, and one user read is nothing
 // beside that.
 func (u *UserServer) userAsks(ctx context.Context, name string) (*store.AskQueue, error) {
 	q, err := u.st.UserAsks(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	all, err := u.st.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if isOperator(userOf(ctx), all[store.OperatorSetting]) {
+	if u.isOperator(ctx, userOf(ctx)) {
 		return q, nil
 	}
 	for i := range q.Open {
@@ -366,22 +365,17 @@ func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAske
 }
 
 // withholds reports whether the device that makes the call of ctx is told no
-// file and no command of the operator's configuration: any device that is not
-// the operator's now, and every device of a yard without an operator
-// (isOperator). The setting is read at the call, as bead reads it, so a change
-// of operator moves the next reply with it. Settings that cannot be read fail
-// the call, and tell nothing.
-func (u *UserServer) withholds(ctx context.Context) (bool, error) {
-	all, err := u.st.Settings(ctx)
-	if err != nil {
-		return false, err
-	}
-	return !isOperator(userOf(ctx), all[store.OperatorSetting]), nil
+// file and no command of the operators' configuration: any device whose user
+// is no operator now (isOperator). The role is read at the call, as bead reads
+// it, so a change of role moves the next reply with it, and a role that cannot
+// be read tells nothing.
+func (u *UserServer) withholds(ctx context.Context) bool {
+	return !u.isOperator(ctx, userOf(ctx))
 }
 
 // users is Users as a device is told it: the users of the store, but for the
 // file each one's address is read from, and the words of the last send that
-// found it unfit, which name it (withoutUserFile). Only a device of the
+// found it unfit, which name it (withoutUserFile). Only a device of an
 // operator is told them. The rest of each record is told as it is: the source
 // that tells the user and the parts they are told of are names, as the source
 // of a source_set is. The socket, the terminal and the agents read the whole
@@ -391,11 +385,7 @@ func (u *UserServer) users(ctx context.Context) ([]store.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	held, err := u.withholds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if held {
+	if u.withholds(ctx) {
 		for i := range all {
 			all[i] = withoutUserFile(all[i])
 		}
@@ -412,11 +402,7 @@ func (u *UserServer) getUser(ctx context.Context, name string) (*store.User, err
 	if err != nil {
 		return nil, err
 	}
-	held, err := u.withholds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if held {
+	if u.withholds(ctx) {
 		told := withoutUserFile(*user)
 		user = &told
 	}
@@ -424,18 +410,14 @@ func (u *UserServer) getUser(ctx context.Context, name string) (*store.User, err
 }
 
 // crew is Crew as a device is told it: the crew of the store, but for the
-// operator's configuration of each member, which only a device of the operator
+// operators' configuration of each member, which only a device of an operator
 // is told (withoutCrewConfig).
 func (u *UserServer) crew(ctx context.Context) ([]store.CrewMember, error) {
 	all, err := u.st.Crew(ctx)
 	if err != nil {
 		return nil, err
 	}
-	held, err := u.withholds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if held {
+	if u.withholds(ctx) {
 		for i := range all {
 			all[i] = withoutCrewConfig(all[i])
 		}
@@ -449,18 +431,14 @@ func (u *UserServer) getCrew(ctx context.Context, name string) (*store.CrewMembe
 	if err != nil {
 		return nil, err
 	}
-	held, err := u.withholds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if held {
+	if u.withholds(ctx) {
 		told := withoutCrewConfig(*member)
 		member = &told
 	}
 	return member, nil
 }
 
-// withoutUserFile is the user as a device that is not the operator's is told
+// withoutUserFile is the user as a device that is no operator's is told
 // them: without the file their address is read from, and without the words of
 // the last send's failure, which are those of reading that file and so name it
 // (notify.userEnv), the path with words around it being still the path. How the
@@ -487,7 +465,7 @@ func withoutUserFile(user store.User) store.User {
 var deviceCrewConfig = []string{"kind", "model", "provider", "trust", "greet",
 	store.CrewForKey, store.OpenThreads, store.SetState, store.MailPeers}
 
-// withoutCrewConfig is the crew member as a device that is not the operator's
+// withoutCrewConfig is the crew member as a device that is no operator's
 // is told them: without the directory they run in, with the keys of
 // deviceCrewConfig alone in their config, and without the handles of their
 // sessions, the line session's and each conversation's. A handle is what the
@@ -903,12 +881,13 @@ func isOperatorCall(method string) bool {
 }
 
 // operatorCall reports whether the call name is one of OperatorCalls and c
-// may make it here: c is a device of the yard's operator. Anyone else is
+// may make it here: c is a device of an operator of the yard, whose user's
+// role is store.RoleOperator (isOperator). Anyone else is
 // answered as for a method the yard does not have, so the listener is for
 // them what it was before it served the call.
 //
 // On the socket the store holds such a call to two things (maySource): the
-// actor is the operator, and the call does not come from the pane of an
+// actor is an operator, and the call does not come from the pane of an
 // agent. Of the two the listener can know the first, and knows it better
 // than the socket does: there the actor is the caller's word, here it is
 // the user of the token the request carries (asUser), which the yard gave
@@ -932,8 +911,7 @@ func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) b
 	if !isOperatorCall(name) || !c.device {
 		return false
 	}
-	all, err := u.st.Settings(ctx)
-	return err == nil && all[store.OperatorSetting] != "" && all[store.OperatorSetting] == c.User
+	return u.isOperator(ctx, c.User)
 }
 
 // ownSecret reports whether body, the arguments of GiveSecret from the
@@ -1292,15 +1270,10 @@ func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) 
 		return e, e.Actor == c.User || to == c.User
 	case "setting_changed":
 		key, _ := e.Data["key"].(string)
-		operator := ""
-		if key == store.StyleSetting || key == store.NoteSetting {
-			// The operator alone is told the words: read who that is now, so
-			// a change of operator moves the next such event with it.
-			if all, err := u.st.Settings(ctx); err == nil {
-				operator = all[store.OperatorSetting]
-			}
-		}
-		if deviceTold(key, c.User, operator) {
+		// An operator alone is told the words: read who is one now, so a
+		// change of role moves the next such event with it.
+		operator := (key == store.StyleSetting || key == store.NoteSetting) && u.isOperator(ctx, c.User)
+		if deviceTold(key, operator) {
 			return e, true
 		}
 		e.Data = maps.Clone(e.Data)
@@ -1334,17 +1307,13 @@ func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) 
 
 // operatorFields is the event e as the device c is sent it when fields of its
 // data are the operator's configuration: whole for a device of the operator,
-// and for any other a copy without them. The operator is read now, as for
-// their words, so that a replay and a change of operator move with it, and a
-// yard whose settings cannot be read, or that has no operator, tells them to
+// and for any other a copy without them. The role is read now, as for
+// their words, so that a replay and a change of role move with it, and a
+// yard whose users cannot be read, or that has no operator, tells them to
 // no device. The copy is the device's own: the store hands one event, and one
 // map of its data, to every stream.
 func (u *UserServer) operatorFields(ctx context.Context, c *Caller, e store.Event, fields ...string) store.Event {
-	operator := ""
-	if all, err := u.st.Settings(ctx); err == nil {
-		operator = all[store.OperatorSetting]
-	}
-	if isOperator(c.User, operator) {
+	if u.isOperator(ctx, c.User) {
 		return e
 	}
 	e.Data = maps.Clone(e.Data)

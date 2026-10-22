@@ -108,9 +108,9 @@ type HearAddress struct {
 	Env string `json:"env"`
 }
 
-// HearFromOperator is the one from a hear key takes: the yard's operator
-// (the operator setting, a user of the yard), so the file names a role,
-// never a person.
+// HearFromOperator is the one from a hear key takes: the yard's operators
+// (the users whose role is operator), so the file names a role, never a
+// person.
 const HearFromOperator = "operator"
 
 // HearByIdentity is the one by a hear key takes: the envelope field

@@ -126,7 +126,7 @@ func sourcesPart(ctx context.Context, cfg *config.Config, st store.API, try bool
 			}
 		}
 		if !granted && !told {
-			part.Notes = append(part.Notes, fmt.Sprintf("source %s: nobody is granted a call of it, so only the operator makes one (%s source grant %s %s --group <group>)",
+			part.Notes = append(part.Notes, fmt.Sprintf("source %s: nobody is granted a call of it, so only an operator makes one (%s source grant %s %s --group <group>)",
 				d.Name, yardr, d.Name, store.GrantRead))
 		}
 	}

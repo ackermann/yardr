@@ -57,9 +57,10 @@ var Calls = map[string][]string{
 	"DeliveryFiles":        {"seq"},
 }
 
-// OperatorCalls are documented as Calls are, and are the operator's alone
+// OperatorCalls are documented as Calls are, and are an operator's alone
 // to make. The socket serves them to whoever the store lets make them; the
-// listener serves them to a device of the yard's operator and answers every
+// listener serves them to a device of an operator (a user whose role is
+// store.RoleOperator) and answers every
 // other caller as it answers a method the yard does not have
 // (UserServer.operatorCall). GiveSecret carries a secret a person typed, on
 // its way to the file a source's credential is read from: it crosses a

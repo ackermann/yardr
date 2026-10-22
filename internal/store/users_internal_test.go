@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/binary"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -116,6 +117,64 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 
 // Mail to a user goes with the log as a crew member's does, and its index
 // entry with it.
+// A yard from before roles (schema 29) has the operator setting as its one
+// operator: opened by this build, the user it names is the first operator
+// and every other user a member (migrateOperatorRole).
+func TestOperatorRoleOfAnOlderYard(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "y.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// As a build before roles left it: no user holds one.
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		for _, name := range []string{"jo", "ada"} {
+			u, err := getUser(tx, name)
+			if err != nil {
+				return err
+			}
+			u.Role = ""
+			if err := put(tx, bUsers, name, u); err != nil {
+				return err
+			}
+		}
+		return tx.Bucket(bMeta).Put(kSchema, binary.BigEndian.AppendUint64(nil, 29))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close(ctx)
+	us, err := s.Users(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Operators(us); len(got) != 1 || got[0] != "jo" {
+		t.Fatalf("operators after the migration = %v, want jo", got)
+	}
+	ada, err := s.GetUser(ctx, "ada")
+	if err != nil || ada.IsOperator() || ada.RoleOf() != RoleMember {
+		t.Fatalf("ada = %+v, %v; want a member", ada, err)
+	}
+	if _, err := s.AddUser(ctx, "kim", "ada"); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may add a user; this is ada") {
+		t.Fatalf("a user add by the member ada = %v", err)
+	}
+}
+
 func TestUserMailIsIndexedAsMail(t *testing.T) {
 	t.Parallel()
 	e := Event{Seq: 7, Kind: "mail", Data: map[string]any{"to": "jo", "to_user": true, "text": "x"}}

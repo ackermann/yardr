@@ -15,11 +15,13 @@ import (
 
 // The settings of a user: the source that tells them outside the yard of
 // what lands in their inbox, the file their own address in it is read
-// from, and which parts they are told of.
+// from, which parts they are told of, and their role (RoleOperator or
+// RoleMember).
 const (
 	UserNotify  = "notify"
 	UserEnvFile = "env_file"
 	UserTell    = "tell"
+	UserRole    = "role"
 )
 
 // TellParts are the parts a user can be told of outside the yard, as
@@ -128,13 +130,13 @@ func notifySources(tx *bolt.Tx) ([]string, error) {
 // or of a crew member is that session's or that crew member's, whatever
 // actor it names.
 func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
 	why := "where " + name + " is told outside the yard is set by " + name
-	if operator != "" && operator != name {
-		why += ", or by the operator (" + operator + ")"
+	if !ops.none() && !ops.is(name) {
+		why += ", or by " + ops.words()
 	}
 	why += ": what lands in their inbox goes there"
 	if who, err := agentPane(ctx, w.Tx); err != nil {
@@ -145,7 +147,7 @@ func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return fmt.Errorf("%s; %s is a crew member", why, actor)
 	}
-	if actor != name && (operator == "" || actor != operator) {
+	if actor != name && !ops.is(actor) {
 		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
 	}
 	return nil
@@ -154,7 +156,8 @@ func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
 // SetUser sets settings of the user name: UserNotify to the source that
 // tells them ("" for none), UserEnvFile to the path of the file their
 // address in it is read from ("" for none), UserTell to the parts they are
-// told of, a list of TellParts with commas between ("" for all of them). A
+// told of, a list of TellParts with commas between ("" for all of them),
+// UserRole to RoleOperator or RoleMember, which an operator alone sets. A
 // source that cannot tell a user is refused with the ones that can, and a
 // part that is none with the three. The path is kept as given: whoever
 // calls resolves it, since the server may run in another directory, and
@@ -162,13 +165,13 @@ func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
 func (s *Store) SetUser(ctx context.Context, name string, set map[string]string, actor string) (*User, error) {
 	keys := make([]string, 0, len(set))
 	for k := range set {
-		if k != UserNotify && k != UserEnvFile && k != UserTell {
-			return nil, fmt.Errorf("user %s: %s is no setting of a user (it has: %s, %s, %s)", name, k, UserNotify, UserEnvFile, UserTell)
+		if k != UserNotify && k != UserEnvFile && k != UserTell && k != UserRole {
+			return nil, fmt.Errorf("user %s: %s is no setting of a user (it has: %s, %s, %s, %s)", name, k, UserNotify, UserEnvFile, UserTell, UserRole)
 		}
 		keys = append(keys, k)
 	}
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("user %s: nothing to set (%s=<source>, %s=<file>, %s=<parts>)", name, UserNotify, UserEnvFile, UserTell)
+		return nil, fmt.Errorf("user %s: nothing to set (%s=<source>, %s=<file>, %s=<parts>, %s=%s|%s)", name, UserNotify, UserEnvFile, UserTell, UserRole, RoleOperator, RoleMember)
 	}
 	sort.Strings(keys)
 	var u *User
@@ -190,8 +193,19 @@ func (w *wtx) setUser(ctx context.Context, name string, keys []string, set map[s
 	if err != nil {
 		return nil, err
 	}
-	if err := w.mayTell(ctx, name, actor); err != nil {
-		return nil, err
+	// The role says who may change the yard and approve what it runs, so
+	// it is an operator's to give, never the user's own, and is typed in a
+	// terminal (Alone). The other settings are where the user is told,
+	// theirs or an operator's (mayTell).
+	if _, ok := set[UserRole]; ok {
+		if err := w.operatorOnly(ctx, actor, "change a user's role", Alone); err != nil {
+			return nil, err
+		}
+	}
+	if len(keys) > 1 || keys[0] != UserRole {
+		if err := w.mayTell(ctx, name, actor); err != nil {
+			return nil, err
+		}
 	}
 	data := map[string]any{"user": name}
 	for _, k := range keys {
@@ -221,6 +235,19 @@ func (w *wtx) setUser(ctx context.Context, name string, keys []string, set map[s
 				return nil, err
 			}
 			v = strings.Join(u.Tell, ",")
+		case UserRole:
+			switch v {
+			case RoleOperator:
+			case RoleMember:
+				if u.IsOperator() {
+					if err := keepsOperator(w.Tx, u, "made a member"); err != nil {
+						return nil, err
+					}
+				}
+			default:
+				return nil, fmt.Errorf("user %s: %s=%q: a user's role is %s or %s", name, UserRole, v, RoleOperator, RoleMember)
+			}
+			u.Role = v
 		}
 		data[k] = v
 	}

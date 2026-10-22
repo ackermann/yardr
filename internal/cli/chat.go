@@ -86,10 +86,7 @@ Without one, yardr mail <crew member> <text> sends and yardr mail --with
 				if uerr := a.unknownLogin(ctx, st); uerr != nil {
 					return uerr
 				}
-				operator, _, err := a.operator(ctx, st)
-				if err != nil {
-					return err
-				}
+				operator := yardOperator(ctx, st)
 				return fmt.Errorf("yardr chat is for a user of the yard, and %s is none: the operator (%s) adds one with yardr user add %s",
 					a.who(), operator, a.who())
 			}
@@ -156,10 +153,7 @@ func (a *app) toChat(w io.Writer, ctx context.Context, cfg *config.Config, st st
 		return false, err
 	}
 	if me == nil {
-		operator, _, err := a.operator(ctx, st)
-		if err != nil {
-			return false, err
-		}
+		operator := yardOperator(ctx, st)
 		fmt.Fprintf(w, "\n%s chat is for a user of the yard, and this terminal acts as %s, who is none: the operator is %s,\n"+
 			"and %s writes to them. As the operator: %s --actor %s chat (or YARDR_ACTOR=%s). As yourself, once\n"+
 			"added: %s --actor %s user add %s\n",

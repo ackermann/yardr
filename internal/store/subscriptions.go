@@ -529,13 +529,13 @@ func foldIdentityKey(tx *bolt.Tx, name, key string) string {
 // meant for a person to another. Who asks is told as for mayTell: by the
 // store's own records of the pane before the caller's word.
 func (w *wtx) mayIdentify(ctx context.Context, name, actor string) error {
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
 	why := "who " + name + " is in a source is said by " + name
-	if operator != "" && operator != name {
-		why += ", or by the operator (" + operator + ")"
+	if !ops.none() && !ops.is(name) {
+		why += ", or by " + ops.words()
 	}
 	why += ": a thread assigned to them goes there"
 	if who, err := agentPane(ctx, w.Tx); err != nil {
@@ -546,7 +546,7 @@ func (w *wtx) mayIdentify(ctx context.Context, name, actor string) error {
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return fmt.Errorf("%s; %s is a crew member", why, actor)
 	}
-	if actor != name && (operator == "" || actor != operator) {
+	if actor != name && !ops.is(actor) {
 		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
 	}
 	return nil
@@ -913,16 +913,16 @@ func (w *wtx) maySubscribeCrew(ctx context.Context, name, actor string) error {
 		return err
 	}
 	actor = resolved
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	if actor == name || (operator != "" && actor == operator) {
+	if actor == name || ops.is(actor) {
 		return nil
 	}
 	who := "the operator"
-	if operator != "" && operator != name {
-		who = "the operator (" + operator + ")"
+	if !ops.none() && !ops.is(name) {
+		who = ops.words()
 	}
 	return fmt.Errorf("only %s or %s changes what %s is told; this is %s", name, who, name, or(actor, "nobody"))
 }
@@ -940,16 +940,16 @@ func (w *wtx) maySubscribeGroup(ctx context.Context, g Group, actor string) erro
 		return err
 	}
 	actor = resolved
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	if slices.Contains(g.Members, actor) || (operator != "" && actor == operator) {
+	if slices.Contains(g.Members, actor) || ops.is(actor) {
 		return nil
 	}
 	who := "the operator"
-	if operator != "" && operator != g.Name {
-		who = "the operator (" + operator + ")"
+	if !ops.none() && !ops.is(g.Name) {
+		who = ops.words()
 	}
 	return fmt.Errorf("only a member of %s or %s changes what %s is told; this is %s", g.Name, who, g.Name, or(actor, "nobody"))
 }

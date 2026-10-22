@@ -369,9 +369,7 @@ func TestSecretAskRefusals(t *testing.T) {
 		t.Fatalf("refused asks left %d beads, want the 2 there were", len(beads))
 	}
 	// A yard without an operator has nobody a secret can be asked of.
-	if err := y.SetSetting(y.ctx, OperatorSetting, "", "mckean"); err != nil {
-		t.Fatal(err)
-	}
+	y.noOperator(t, "mckean")
 	if _, err := y.AddAsk(y.ctx, y.bead, secretAsk("crm"), "yardmaster"); err == nil || !strings.Contains(err.Error(), "this yard has none") {
 		t.Fatalf("without an operator: %v", err)
 	}

@@ -116,8 +116,8 @@ func (a *app) packCalls(ctx context.Context, st store.API, p *pack.Plan, flags [
 		}
 		switch {
 		case !is:
-			out.Notes = append(out.Notes, fmt.Sprintf("%s was not let call %s of the source %s: only the operator (%s) may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
-				who, c.Words(about), c.Source, operator, a.who(), operator))
+			out.Notes = append(out.Notes, fmt.Sprintf("%s was not let call %s of the source %s: only %s may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
+				who, c.Words(about), c.Source, store.OperatorWords(strings.Split(operator, ", ")), a.who(), operator))
 		case flagged:
 			for k, v := range answers {
 				if out.Answers[who] == nil {

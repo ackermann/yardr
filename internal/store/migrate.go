@@ -32,6 +32,12 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 30 has a role on each user: operator or member, and every
+// operator gate reads it instead of comparing the actor with the operator
+// setting (migrateOperatorRole makes the setting's user the first
+// operator). A build before it drops the role when it rewrites a user, so
+// an operator other than the setting's is a member again there, and the
+// setting's is still its one operator.
 // schemaVersion 29 has each call of a source grant carry its own grant,
 // Given: when, by whom and on which card (migrateGrantGiven, from the
 // source_granted events still kept). A build before it drops Given when it
@@ -187,7 +193,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 29
+const schemaVersion = 30
 
 var kSchema = []byte("schema")
 
@@ -340,6 +346,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 27, run: atVersion(migrateHearer)},
 		{version: 28, run: atVersion(migrateCrewRotation)},
 		{version: 29, run: atVersion(migrateGrantGiven)},
+		{version: 30, run: atVersion(migrateOperatorRole)},
 	}
 }
 

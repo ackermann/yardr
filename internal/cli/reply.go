@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -140,9 +141,8 @@ credential. yardr only types: what is said, and whether to say it, is the
 crew member's.
 
 Only the crew member's own session (its pane, where yardr set YARDR_CREW
-and YARDR_ACTOR) or the operator (the yard's operator setting, else the
-user running the command) may speak as the crew member (--crew, default
-$YARDR_CREW).
+and YARDR_ACTOR) or an operator of the yard (a user whose role is operator)
+may speak as the crew member (--crew, default $YARDR_CREW).
 
 A reply in a source is recorded, with an id chosen for it, before it is
 posted, and the id goes with the post (as the comment's id in Linear, as
@@ -515,13 +515,47 @@ func (a *app) maySpeakAs(ctx context.Context, st store.API, what, name string) e
 	if err != nil || is {
 		return err
 	}
-	return fmt.Errorf("%s --crew %s: only %s's own session or the operator (%s) may speak as %s; this is %s",
-		what, name, name, operator, name, who)
+	return fmt.Errorf("%s --crew %s: only %s's own session or %s may speak as %s; this is %s",
+		what, name, name, store.OperatorWords(strings.Split(operator, ", ")), name, who)
 }
 
-// operator is the yard's operator (its operator setting, else the user
-// running the command) and whether this command acts as them.
+// isOperator reports whether the user name holds the operator role; a
+// name that is no user, or a store that cannot be read, does not.
+func isOperator(ctx context.Context, st store.API, name string) bool {
+	u, err := st.GetUser(ctx, name)
+	return err == nil && u.IsOperator()
+}
+
+// yardOperators are the yard's operators as the store reads them: the users
+// whose role is store.RoleOperator, else, where nobody holds it, the name
+// the operator setting holds, else none.
+func yardOperators(ctx context.Context, st store.API) ([]string, error) {
+	users, err := st.Users(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if ops := store.Operators(users); len(ops) > 0 {
+		return ops, nil
+	}
+	all, err := st.Settings(ctx)
+	if err != nil || all["operator"] == "" {
+		return nil, err
+	}
+	return []string{all["operator"]}, nil
+}
+
+// operator names the yard's operators, the users whose role is
+// store.RoleOperator ("ada" or "ada, jo"), and says whether this command
+// acts as one of them. A yard where nobody holds the role has, as before
+// roles, its operator setting, else the user running the command.
 func (a *app) operator(ctx context.Context, st store.API) (string, bool, error) {
+	users, err := st.Users(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if ops := store.Operators(users); len(ops) > 0 {
+		return strings.Join(ops, ", "), slices.Contains(ops, a.who()), nil
+	}
 	all, err := st.Settings(ctx)
 	if err != nil {
 		return "", false, err

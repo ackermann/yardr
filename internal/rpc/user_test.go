@@ -180,6 +180,28 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"result":[]`) {
 		t.Errorf("SourceGrants from the yard's machine is answered %s, want an empty list", w.Body)
 	}
+	// Made an operator too, sam's device is served every call of
+	// OperatorCalls and reads the list as jo's does: the role, not the
+	// operator setting, is what the calls are served on.
+	if _, err := st.SetUser(context.Background(), "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for name := range OperatorCalls {
+		if none, _ := json.Marshal(noSuchMethod(name)); call(t, h, tablet.Token, name, `{}`) == string(none) {
+			t.Errorf("%s is not there for the device of sam, an operator now", name)
+		}
+	}
+	local = httptest.NewRequest(http.MethodPost, "/user/call/SourceGrants", strings.NewReader(`{"source":""}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+tablet.Token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), `"result":[]`) {
+		t.Errorf("SourceGrants from the device of sam, an operator now, is answered %s, want an empty list", w.Body)
+	}
+	if _, err := st.SetUser(context.Background(), "sam", map[string]string{store.UserRole: store.RoleMember}, "jo"); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SetSetting(context.Background(), store.RouterAddrSetting, "192.0.2.15", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -453,12 +475,20 @@ func TestUserSettingsTellsADeviceThePromisedSettingsAlone(t *testing.T) {
 		}
 	}
 
-	// A yard with no operator tells the words to no device: there is
-	// nobody they are the words of. The operator's own key goes with it.
-	set(store.OperatorSetting, "")
-	noname := map[string]string{store.FilesMaxSetting: files, store.BlobMaxSetting: "16777216"}
-	check("with no operator", "the old operator's device", settings(jo), noname)
-	check("with no operator", "sam's device", settings(tablet.Token), noname)
+	words[store.NoteSetting] = "I read diffs, not prose"
+	// The words are told to every operator's device, and to no member's:
+	// the role is read at each call, so it moves with a change of role.
+	if _, err := st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	check("with sam an operator too", "sam's device", settings(tablet.Token), words)
+	set(store.OperatorSetting, "sam")
+	if _, err := st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	told[store.OperatorSetting], words[store.OperatorSetting] = "sam", "sam"
+	check("with jo a member", "the old operator's device", settings(jo), told)
+	check("with jo a member", "sam's device", settings(tablet.Token), words)
 }
 
 // A device's stream carries a setting_changed for every key, but its value

@@ -210,6 +210,18 @@ func TestHearFromOperatorKeepsOperatorDropsStranger(t *testing.T) {
 			t.Fatalf("payload of %d carries the stranger's text: %s", e.Seq, raw)
 		}
 	}
+	// Made an operator, zed is heard as op is: from: operator is the role,
+	// not the operator setting.
+	if _, err := r.st.SetUser(ctx, "zed", map[string]string{store.UserRole: store.RoleOperator}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	r.now = r.now.Add(time.Second)
+	if code := r.chime(t, "222", "zed's words"); code != http.StatusOK {
+		t.Fatalf("zed's chat answered %d", code)
+	}
+	if n := len(r.hookEvents(t)); n != 2 {
+		t.Fatalf("want 2 hook events once zed is an operator, got %d", n)
+	}
 }
 
 // Without from every user whose env file sets the address is heard, told

@@ -428,9 +428,9 @@ a card a crew member asks with), and how to test.
 declaration written out for another service to follow.
 
 Telegram hears back too: the pack declares a `hook` and a `hear` key
-with `from: operator`, so the operator's chat is heard as a thread,
-answered with `yardr reply`, while telling another through telegram
-tells them but hears nothing back. Pushover stays one-way. The pack's
+with `from: operator`, so the chats of users whose role is `operator` are
+heard as threads, answered with `yardr reply`; a member told through
+telegram is not heard back. Pushover stays one-way. The pack's
 setup notes walk the two-way setup; [below](#what-the-service-sends-in)
 says what `hear` means for any source.
 
@@ -1230,8 +1230,8 @@ removes one, in a terminal. No run ask can propose it.
 `fields[field]` must hold the address a user's env file sets under
 `address.env`, read as telling reads it; setting the address is the
 consent to be heard, and telling is a separate choice. `from` narrows
-whom the source hears to the operator, and is left out for every user
-whose env file sets the address. `subscribe` is the filter a claim
+whom the source hears to users whose role is `operator`, and is left out
+for every user whose env file sets the address. `subscribe` is the filter a claim
 approval subscribes the yard's hearer with beside the claimed address,
 as a subscription's `--where`
 ([subscriptions.md](subscriptions.md)); the claim sets `field` to the
@@ -1242,26 +1242,28 @@ one bounded entry; a delivery that matches is recorded and routed as
 today.
 
 A drop is also how the yard learns an address it has none of. While
-the operator has no address in the source, the first dropped delivery
-offers them a claim on a card -- "A message reached telegram from
-chat 123456789 (first words: 'hi'). Is this you?" -- a run ask of
+the user named by the `operator` setting has no address in the source,
+the first dropped delivery offers that user a claim on a card --
+"A message reached telegram from chat 123456789 (first words: 'hi').
+Is this you?" -- a run ask of
 `yardr user key <operator> <source>` with the address carried from
 the envelope's `field` and shown on the card, and at most the first
 80 characters of the message beside it; the message is kept nowhere
-else. Approving writes the address under `address.env` into the
-operator's env file (mode 0600) exactly where `yardr user key`
+else. Approving writes the address under `address.env` into that user's
+env file (mode 0600) exactly where `yardr user key`
 writes it, and subscribes the yard's `hearer` -- the crew member that
 setting names -- to that address beside the write, scope `all`, so the
 next delivery from that address is heard without a terminal step;
 declining drops it and writes nothing. The card says by name who will
-hear the chat. One claim per source and the operator waits at a time,
-and none is offered once the operator has an address in the source. In
-this first form the claim is the operator's alone, for their own
-address. With no `hearer` set, or one naming no crew member, an
-approval writes the address alone, as before.
-The telegram pack says `from: operator`: only the operator's chat is
-heard, and telling another through telegram tells them but hears
-nothing back, as does setting another user's address; its `subscribe`
+hear the chat. One claim per source and the user named by the `operator`
+setting waits at a time, and none is offered once that user has an address
+in the source. In this first form the claim sets the address of the user
+named by that setting; another operator-role user sets their address with
+`yardr user key <user> <source>`. With no `hearer` set, or one naming
+no crew member, an approval writes the address alone, as before.
+The telegram pack says `from: operator`: chats of users whose role is
+`operator` are heard, and telling a member through telegram tells them
+but hears nothing back, as does setting another member's address; its `subscribe`
 says `type: message`, so the hearer hears messages and not the chat's
 other Updates. Refused: a `hear`
 without a `hook` key; hearing by address without a `notify` key; a
@@ -2005,8 +2007,8 @@ them whole):
 - **The pack tells and hears.** Applying it declares the `telegram`
   source with a `notify` key, a `hook` key (verify `secret`, `bodies:
   unique`, `normalize`, `keys: [chat]`), `thread.reply`, `thread.posted`
-  and `thread.read`, and a `hear` key with `from: operator`. Telling
-  another through telegram tells them, but hears nothing back.
+  and `thread.read`, and a `hear` key with `from: operator`. Telling a
+  member through telegram tells them, but hears nothing back.
 - **The hook.** `yardr hook add telegram --source telegram --secret-file
   ~/.yardr/telegram.secret`. Telegram authenticates with the secret
   itself in `X-Telegram-Bot-Api-Secret-Token`, compared as it arrives,

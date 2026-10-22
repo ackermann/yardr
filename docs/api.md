@@ -54,9 +54,9 @@ identify the peer, only read calls are allowed:
 | read | anyone: it changes nothing |
 | agent | anyone, a bead's agent too: the work itself (a note, an ask, mail, a bead created or updated, a move its flow allows, a hold, an edge, a source call its grants allow) |
 | admin | anyone but a bead's agent: what defines how the yard works, such as groups, routes, flows, crew, depots, settings and packs; the crew, the yardmaster among them, keeps it |
-| operator | the operator alone, from no agent's pane, a crew member's included |
+| operator | an operator alone (a user whose role is `operator`, any of them), from no agent's pane, a crew member's included |
 | daemon | the daemon alone, as the yard checks it by the daemon's lock: the session records the pane checks read |
-| daemon or operator | the daemon, or the operator from no agent's pane: a copy of the store, a prune |
+| daemon or operator | the daemon, or an operator from no agent's pane: a copy of the store, a prune |
 
 A method a bead's agent has no class for is refused to it: what is not
 marked read or agent is not an agent's. The class is a first line, and the
@@ -718,7 +718,7 @@ nothing else. What is not the same:
   user or a device, moves a bead or changes a setting is on the listener.
   `/ping`, `/wake` and every other path are not there. The [calls for the
   operator alone](#for-the-operator-alone) are there besides, for a device
-  of the yard's operator and for nobody else; `GiveSecret` is there too for
+  of an operator of the yard and for nobody else; `GiveSecret` is there too for
   a device of a user, for an ask with `secret.user` or `secret.as` that
   names them: their own address or credential in a source.
   `ApproveAsk` and `ApproveSetup` are the calls on the listener that have
@@ -736,13 +736,13 @@ nothing else. What is not the same:
   answers the device's user and no other; `Users` lists them all.
 - **`Settings` answers the promised keys alone**: `operator`,
   `blob_max_bytes` and `files_max`, and the operator's own words to the
-  agents, `operator_style` and `operator_note`, for a device of the
+  agents, `operator_style` and `operator_note`, for a device of an
   operator alone, and for none in a yard with no operator. No other
   setting is answered on the listener. A `setting_changed` in the stream
   follows the same rule: it has its `value` only for a key the device is
   told, and for any other it has the `key` and no `value`.
 - **`Bead` tells a setup card's candidates, and the file an approved
-  setup's account is set in, to a device of the operator alone**: the yard
+  setup's account is set in, to a device of an operator alone**: the yard
   sources whose account the card offers to reuse
   (`asks[].setup.candidates`), each a file of the yard's with the values it
   holds, and the sentence of `asks[].setup.does` that names them; and in
@@ -756,7 +756,7 @@ nothing else. What is not the same:
   tells the whole card and result, as it tells the operator's words in
   `Settings`.
 - **The stream tells the files and the command of the operator's
-  configuration to a device of the operator alone**: a `source_set` event
+  configuration to a device of an operator alone**: a `source_set` event
   has `data.env_file`, the file a source was pointed at, and
   `data.mint_command`, the command it mints its token with; a `user_set`
   has `data.env_file`, the file a user's address is read from; a
@@ -774,7 +774,7 @@ nothing else. What is not the same:
   `notify`, `tell` and `approved` of a `user_set`. The socket tells the
   whole event.
 - **`Users`, `GetUser`, `Crew` and `GetCrew` tell the files and commands
-  of the operator's configuration to a device of the operator alone**: a
+  of the operator's configuration to a device of an operator alone**: a
   user's record has `env_file`, the file their address is read from, and
   `last_push.error`, the words of a send that found that file unfit, which
   name it. A crew member's record has `dir`, the directory it runs in, and a
@@ -965,7 +965,7 @@ POST /call/Head
 
 ### `Settings`
 
-The yard's operator, when set, and its caps on a file; to the operator's own devices, also the operator's words to their agents. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
+The yard's operator setting, when set, and its caps on a file; to the devices of an operator, also the operator's words to their agents. `yardr chat` reads the operator only to name them when the current name is not a user of the yard; a client can omit this call when it already knows who it is for and sends no file.
 
 ```
 POST /call/Settings
@@ -984,17 +984,17 @@ POST /call/Settings
 
 | field of the result | type | |
 |---|---|---|
-| `operator` | string, may be absent | the operator's user name; absent when the yard has not set one |
-| `operator_style` | string, may be absent | how the operator asked agents to work with them: `guide`, `show`, `work` or `report`; absent when the operator has not set one, and to a device of any user but the operator |
+| `operator` | string, may be absent | the user name of the operator an ask with no `--to` goes to (one of the users whose role is `operator`); absent when the yard has not set one |
+| `operator_style` | string, may be absent | how the operator asked agents to work with them: `guide`, `show`, `work` or `report`; absent when the operator has not set one, and to a device of any user who is not an operator |
 | `operator_note` | string, may be absent | the one line the operator asked agents to know about them; absent as `operator_style` is |
 | `blob_max_bytes` | string, may be absent | the most bytes `PutBlob` takes, a whole number in a string; absent when the yard has not set one, and the cap is then 8388608 (8 MiB) |
 | `files_max` | string | how many files one mail or note may carry, a whole number in a string; the yard's own count, so a client needs no copy of the number |
 
-The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of the operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream has its `value` only for a key the device is told; for any other it has the `key` and no `value`.
+The operator's words are what every session of an agent reads when it starts (`yardr prime`), so the socket tells them to whoever calls, and every other setting with them. Over the network a device is told these keys alone: the words to a device of an operator and to no other, and to none in a yard with no operator. A `setting_changed` in a device's stream has its `value` only for a key the device is told; for any other it has the `key` and no `value`.
 
 ### `Users`
 
-The users of the yard, by name.
+The users of the yard, by name and role.
 
 ```
 POST /call/Users
@@ -1004,6 +1004,7 @@ POST /call/Users
   "result": [
     {
       "name": "jo",
+      "role": "operator",
       "cursor": 0,
       "notification_cursor": 0
     }
@@ -1014,10 +1015,11 @@ POST /call/Users
 | field of the result | type | |
 |---|---|---|
 | `[].name` | string | the name mail to the user is addressed to |
+| `[].role` | string, may be absent | the user's role: `operator` or `member`; absent reads as `member` |
 | `[].cursor` | number | the user's mail is read through this seq |
 | `[].notification_cursor` | number | the same for the user's notifications |
 
-The reply carries each user whole, as `curl` shows it, but only the table above is promised. The rest is yardr's own, and a client ignores what it does not know. Over the network a device is sent the records without two fields of the operator's configuration: `env_file`, the file the user's address is read from, and `last_push.error`, the words of a send that found that file unfit, which name it. That holds for the user's own device too. A device of the operator is sent both ([over the network](#over-the-network)).
+The reply carries each user whole, as `curl` shows it, but only the table above is promised. The rest is yardr's own, and a client ignores what it does not know. Over the network a device is sent the records without two fields of the operator's configuration: `env_file`, the file the user's address is read from, and `last_push.error`, the words of a send that found that file unfit, which name it. That holds for the user's own device too. A device of an operator is sent both ([over the network](#over-the-network)).
 
 ### `GetUser`
 
@@ -1034,6 +1036,7 @@ POST /call/GetUser
 {
   "result": {
     "name": "jo",
+    "role": "operator",
     "cursor": 0,
     "notification_cursor": 0
   }
@@ -1043,10 +1046,11 @@ POST /call/GetUser
 | field of the result | type | |
 |---|---|---|
 | `name` | string | the name |
+| `role` | string, may be absent | the user's role: `operator` or `member`; absent reads as `member` |
 | `cursor` | number | the user's mail is read through this seq |
 | `notification_cursor` | number | the same for the user's notifications |
 
-The record is the one [`Users`](#users) lists, and it is sent as `Users` sends it: over the network without `env_file` and `last_push.error`, unless the device is the operator's. A device that is not the operator's gets its own record without them too.
+The record is the one [`Users`](#users) lists, and it is sent as `Users` sends it: over the network without `env_file` and `last_push.error`, unless the device is an operator's. A device that is no operator's gets its own record without them too.
 
 ### `Crew`
 
@@ -1096,7 +1100,7 @@ POST /call/Crew
 
 Mail to a crew member that is not running is kept, and read when it next starts. A session at its harness's login screen reads none either: `login_screen` says it, and `login_led` that the yard leads the login. Both change with no change to the crew member's definition: read `Crew` again on a `crew_login` event, as on any other whose kind begins `crew_`.
 
-The reply carries each crew member whole, as `curl` shows it, but only the table above is promised. `model` and `kind` are what a client reads of the config. The rest is yardr's own, and a client ignores what it does not know. Over the network a device is sent the records without the operator's configuration: `dir`, the directory the crew member runs in; every key of `config` but `kind`, `model`, `provider`, `trust`, `greet`, `for`, `open_threads`, `set_state` and `mail_peers`, which leaves out the files and commands it names; and the handles of its sessions (`handle`, `starting` and `left`, in the member and in each of its `conversations`), which name that directory too. A device of the operator is sent all of it ([over the network](#over-the-network)).
+The reply carries each crew member whole, as `curl` shows it, but only the table above is promised. `model` and `kind` are what a client reads of the config. The rest is yardr's own, and a client ignores what it does not know. Over the network a device is sent the records without the operator's configuration: `dir`, the directory the crew member runs in; every key of `config` but `kind`, `model`, `provider`, `trust`, `greet`, `for`, `open_threads`, `set_state` and `mail_peers`, which leaves out the files and commands it names; and the handles of its sessions (`handle`, `starting` and `left`, in the member and in each of its `conversations`), which name that directory too. A device of an operator is sent all of it ([over the network](#over-the-network)).
 
 ### `GetCrew`
 
@@ -1154,7 +1158,7 @@ POST /call/GetCrew
 | `login_screen` | bool, may be absent | `true` while the running session sits at its harness's login screen, where it reads no mail until the harness is logged in; `status` may read `idle` or `blocked` there, and a client says "not logged in" instead, as `yardr chat` does. Absent while it does not, and while no session runs |
 | `login_led` | bool, may be absent | `true` while the yard leads a login for the session: it asked the operator how to log in, and the operator answers at their asks ([`UserAsks`](#userasks)) until the login is made and the session starts again. Absent otherwise. Only the session the yard asked for says it: another session of the same harness at its screen is logged in by the same login, and says only `login_screen` |
 
-The record is the one [`Crew`](#crew) lists, and it is sent as `Crew` sends it: over the network without `dir`, the files and commands of `config` and the handles of its sessions, unless the device is the operator's.
+The record is the one [`Crew`](#crew) lists, and it is sent as `Crew` sends it: over the network without `dir`, the files and commands of `config` and the handles of its sessions, unless the device is an operator's.
 
 ### `Peers`
 
@@ -4628,8 +4632,12 @@ The list is in the order the source named the files. A file is recorded once the
 
 ## For the operator alone
 
-The calls of this list are as stable as the calls above, and are the
-operator's alone to make. In yardr's code the list is `OperatorCalls`, and
+The calls of this list are as stable as the calls above, and are an
+operator's alone to make. An operator is a user whose role is `operator`
+(`yardr user set <user> role=operator`, [users.md](users.md#the-record)):
+there may be several, and each of them makes these calls. The `operator`
+setting names one of them, the one an ask with no `--to` goes to; any
+operator approves or answers it. In yardr's code the list is `OperatorCalls`, and
 it has four calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, `ApproveSetup`, which approves a setup ask with
@@ -4640,12 +4648,13 @@ takes `weighed`, the client's word that its person saw the card's weight,
 and the yard refuses a weighty card without it ([weighty
 cards](#weighty-cards)). Where they are served, and to whom:
 
-- **On the socket**, to the operator: `actor` is the operator's name, and
+- **On the socket**, to an operator: `actor` is an operator's name, and
   the call does not come from the pane of an agent.
-- **On the [listener](#over-the-network)**, to a device of the operator:
-  a request whose token is one the yard gave a device that the operator
-  added for themselves (`yardr user device add <operator> <device>`, or a
-  pairing). `actor` is the operator or left out. The yard knows there who
+- **On the [listener](#over-the-network)**, to a device of an operator:
+  a request whose token is one the yard gave a device of that operator
+  (`yardr user device add <operator> <device>`, or a pairing). The role is
+  read at each call, so a device of a user made a member is answered as
+  below from then on. `actor` is the operator or left out. The yard knows there who
   calls by the token and not by a word of the caller's; it cannot know
   whether an agent on some machine sent the request, so whoever holds
   that token gives and approves as the operator.

@@ -49,8 +49,8 @@ func (a *app) packExpose(ctx context.Context, st store.API, p *pack.Plan, mayAsk
 		}
 		switch {
 		case !is:
-			out.Notes = append(out.Notes, fmt.Sprintf("crew member %s was not exposed to %s: only the operator (%s) may expose someone of the yard to a peer, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
-				ex.CrewMember, strings.Join(ex.Asks, ", "), operator, a.who(), operator))
+			out.Notes = append(out.Notes, fmt.Sprintf("crew member %s was not exposed to %s: only %s may expose someone of the yard to a peer, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
+				ex.CrewMember, strings.Join(ex.Asks, ", "), store.OperatorWords(strings.Split(operator, ", ")), a.who(), operator))
 		case mayAsk:
 			out.open = append(out.open, ex)
 		default:

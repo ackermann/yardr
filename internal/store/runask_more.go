@@ -96,10 +96,8 @@ func (w *wtx) userRmCard(argv []string, asking bool) (AskRun, error) {
 	if err != nil {
 		return AskRun{}, err
 	}
-	if operator, err := operatorIn(w.Tx); err != nil {
+	if err := keepsOperator(w.Tx, u, "removed"); err != nil {
 		return AskRun{}, err
-	} else if operator == name {
-		return AskRun{}, fmt.Errorf("user %s is the yard's operator and is not removed; name another operator first (yardr settings set %s <name>)", name, OperatorSetting)
 	}
 	devices := keys(w.Tx, bDevices, name+"\x00")
 	var exposed, trusted []string

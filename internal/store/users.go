@@ -20,8 +20,9 @@ import (
 )
 
 // A user is a person as a party of the yard: a name and an inbox, as a
-// crew member has. The operator (the name in the operator setting) is one of
-// them. Mail to a user is a mail event like any other, marked to_user and
+// crew member has. An operator (a user whose Role is RoleOperator) is one of
+// them, and there may be several; the operator setting names the one an ask
+// with no --to goes to, who is always an operator. Mail to a user is a mail event like any other, marked to_user and
 // indexed in the inbox bucket under the name, so the log's pruning and the
 // rebuilt indexes treat it as they treat a crew member's. What differs is the
 // reading: nothing nudges a person, and nothing of theirs holds the log
@@ -30,8 +31,19 @@ import (
 // Crew members and users share one space of names, since mail to a name must
 // reach one party.
 
-// OperatorSetting is the setting naming the yard's operator.
+// OperatorSetting is the setting naming the yard's operator: the operator
+// an ask with no --to goes to, and whose login and inbox the yard uses
+// where it needs one person's. Who may administer the yard and approve
+// what it runs is each user's Role, not this setting.
 const OperatorSetting = "operator"
+
+// The roles of a user. An operator approves through a door and administers
+// at the shell; a member is a party of the yard and no more. A record with
+// no role, written by a build before roles, is a member's.
+const (
+	RoleOperator = "operator"
+	RoleMember   = "member"
+)
 
 var bUsers = []byte("users")
 
@@ -43,7 +55,10 @@ func init() { allBuckets = append(allBuckets, bUsers) }
 // part of its inbox is read, which source tells them outside the yard,
 // and who they are in a source.
 type User struct {
-	Name      string    `json:"name"`
+	Name string `json:"name"`
+	// Role is RoleOperator or RoleMember ("" reads as a member): see
+	// IsOperator.
+	Role      string    `json:"role,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	CreatedBy string    `json:"created_by"`
 	Cursor    uint64    `json:"cursor"` // mail acknowledged through this event seq
@@ -131,6 +146,49 @@ type Mailbox struct {
 	From []string `json:"from"`
 }
 
+// IsOperator reports whether the user holds the operator role.
+func (u *User) IsOperator() bool { return u.Role == RoleOperator }
+
+// RoleOf is the user's role as it is shown: RoleMember for a record with
+// none.
+func (u *User) RoleOf() string { return or(u.Role, RoleMember) }
+
+// Operators are the names of the users who hold the operator role, sorted.
+func Operators(users []User) []string {
+	var out []string
+	for _, u := range users {
+		if u.IsOperator() {
+			out = append(out, u.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// OperatorWords names the operators in a refusal: "the operator (ada)" for
+// one, "an operator (ada, bob)" for several, and "the operator" for none.
+func OperatorWords(names []string) string {
+	switch len(names) {
+	case 0:
+		return "the operator"
+	case 1:
+		return "the operator (" + names[0] + ")"
+	}
+	return "an operator (" + strings.Join(names, ", ") + ")"
+}
+
+// OperatorsWhose is OperatorWords as a possessive: "the operator's (ada)",
+// "an operator's (ada, bob)", and "the operator's" for none.
+func OperatorsWhose(names []string) string {
+	switch len(names) {
+	case 0:
+		return "the operator's"
+	case 1:
+		return "the operator's (" + names[0] + ")"
+	}
+	return "an operator's (" + strings.Join(names, ", ") + ")"
+}
+
 // operatorIn is the operator setting, "" when unset.
 func operatorIn(tx *bolt.Tx) (string, error) {
 	var v string
@@ -138,8 +196,77 @@ func operatorIn(tx *bolt.Tx) (string, error) {
 	return v, err
 }
 
-// notOperator says whether actor acts as anyone but the operator: this is
-// then how a refusal names them, and operator how it names the operator.
+// operators is who holds the operator role in the transaction's view, as
+// every gate reads it.
+type operators []string
+
+// operatorsIn reads the operators from the users bucket, sorted. A yard
+// where nobody holds the role and the operator setting names someone has
+// that name as its one operator, as before roles: the setting of an older
+// yard that names a crew member (yardr doctor says to rename one of the
+// two), which no user, and so no role, can be.
+func operatorsIn(tx *bolt.Tx) (operators, error) {
+	var out operators
+	err := each(tx, bUsers, "", func(_ []byte, u *User) error {
+		if u.IsOperator() {
+			out = append(out, u.Name)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		name, err := operatorIn(tx)
+		if err != nil || name == "" {
+			return nil, err
+		}
+		return operators{name}, nil
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// is reports whether name is an operator; nobody ("") never is.
+func (o operators) is(name string) bool { return name != "" && slices.Contains(o, name) }
+
+// none reports whether the yard has no operator.
+func (o operators) none() bool { return len(o) == 0 }
+
+// String is the operators in a refusal's parentheses: "ada" or "ada, bob".
+func (o operators) String() string { return strings.Join(o, ", ") }
+
+// words is OperatorWords of o.
+func (o operators) words() string { return OperatorWords(o) }
+
+// article is the operators as the owner of what a sentence names them in
+// parentheses after: "the operator's" for one or none, "an operator's"
+// for several.
+func (o operators) article() string {
+	if len(o) > 1 {
+		return "an operator's"
+	}
+	return "the operator's"
+}
+
+// whose is OperatorsWhose of o.
+func (o operators) whose() string { return OperatorsWhose(o) }
+
+// operatorAs is the operator a check is run as on another's behalf: to when
+// they are one, else the first, "" in a yard with none.
+func (o operators) as(to string) string {
+	switch {
+	case o.is(to):
+		return to
+	case o.none():
+		return ""
+	}
+	return o[0]
+}
+
+// notOperator says whether actor acts as anyone but an operator (a user
+// whose role is RoleOperator): this is then how a refusal names them, and
+// operator how it names the operators.
 // It is the one place the rule is read, inside the write it guards, so
 // every client of the store is held to it. From a session's or a crew
 // member's pane the actor is the pane's (paneAuthor) before the rule is
@@ -147,7 +274,7 @@ func operatorIn(tx *bolt.Tx) (string, error) {
 // --actor alone; from anywhere else it is the caller's word (YARDR_ACTOR,
 // --actor): every agent runs as one OS user, so this is a line against
 // mistakes, not a wall, and moves when yardr hosts more than one person.
-// A yard that names no operator has nobody to hold it to, and takes the
+// A yard that has no operator has nobody to hold it to, and takes the
 // change from anyone who is no agent of its own, as maySource reads it:
 // no crew member, and no call from the pane of a bead's session or of a
 // crew member.
@@ -157,14 +284,14 @@ func notOperator(ctx context.Context, tx *bolt.Tx, actor string) (operator, this
 		return "", "", err
 	}
 	actor = resolved
-	name, err := operatorIn(tx)
+	ops, err := operatorsIn(tx)
 	switch {
 	case err != nil:
 		return "", "", err
-	case name != "" && actor == name:
+	case ops.is(actor):
 		return "", "", nil
-	case name != "":
-		return "the operator (" + name + ")", or(actor, "nobody"), nil
+	case !ops.none():
+		return ops.words(), or(actor, "nobody"), nil
 	case tx.Bucket(bCrew).Get([]byte(actor)) != nil:
 		return "the operator", "the crew member " + actor, nil
 	}
@@ -372,24 +499,61 @@ func (w *wtx) addUser(name, actor string, by *approvedOn) (*User, error) {
 	return u, w.event("", "user_added", actor, data)
 }
 
-// ensureOperator gives the operator a user when there is none of the name.
-// A crew member of the name keeps it and no user is made: yardr doctor says
-// which of the two to rename. A user it makes carries the automatic
-// install's failure subscription; one already there is left as it is.
+// ensureOperator gives the operator setting's name a user when there is
+// none of the name, and the operator role when theirs lacks it: the asks
+// that go to the setting are approved by an operator, so the setting
+// never names a member. A crew member of the name keeps it and no user is
+// made: yardr doctor says which of the two to rename. A user it makes
+// carries the automatic install's failure subscription; one already there
+// keeps what it subscribes to.
 func (w *wtx) ensureOperator(actor string) error {
 	operator, err := operatorIn(w.Tx)
 	if err != nil || operator == "" {
 		return err
 	}
-	if w.Bucket(bUsers).Get([]byte(operator)) != nil || w.Bucket(bCrew).Get([]byte(operator)) != nil {
+	if w.Bucket(bCrew).Get([]byte(operator)) != nil {
 		return nil
+	}
+	if w.Bucket(bUsers).Get([]byte(operator)) != nil {
+		u, err := getUser(w.Tx, operator)
+		if err != nil || u.IsOperator() {
+			return err
+		}
+		// The setting_changed event that names them is the record.
+		u.Role = RoleOperator
+		return put(w.Tx, bUsers, operator, u)
 	}
 	u, err := w.addUser(operator, actor, nil)
 	if err != nil {
 		return err
 	}
+	u.Role = RoleOperator
 	u.Subscriptions = append(u.Subscriptions, upgradeFailureSub())
 	return put(w.Tx, bUsers, operator, u)
+}
+
+// keepsOperator refuses taking the operator role from u, by removing them
+// or making them a member (gone, "removed" or "made a member"), where the
+// yard would be left without what it needs of one: u is the one the
+// operator setting names, whom the asks with no --to go to, or the last
+// operator, without whom anyone who is no agent may change the yard.
+func keepsOperator(tx *bolt.Tx, u *User, gone string) error {
+	if operator, err := operatorIn(tx); err != nil {
+		return err
+	} else if operator == u.Name {
+		return fmt.Errorf("user %s is the yard's operator and is not %s; name another operator first (yardr settings set %s <name>)", u.Name, gone, OperatorSetting)
+	}
+	if !u.IsOperator() {
+		return nil
+	}
+	ops, err := operatorsIn(tx)
+	if err != nil {
+		return err
+	}
+	if len(ops) == 1 {
+		return fmt.Errorf("user %s is the yard's last operator and is not %s; make another user an operator first (yardr user set <user> %s=%s)", u.Name, gone, UserRole, RoleOperator)
+	}
+	return nil
 }
 
 // subscribeUpgradeFailures gives the operator's user the automatic
@@ -415,7 +579,12 @@ func (w *wtx) subscribeUpgradeFailures() error {
 
 // migrateOperator is ensureOperator for a yard from before users, run when
 // the store opens.
+// A user already there is left to migrateOperatorRole, which gives the
+// role once.
 func migrateOperator(tx *bolt.Tx) error {
+	if operator, err := operatorIn(tx); err != nil || tx.Bucket(bUsers).Get([]byte(operator)) != nil {
+		return err
+	}
 	return (&wtx{Tx: tx}).ensureOperator("yardr")
 }
 
@@ -503,8 +672,10 @@ func (s *Store) GetUser(ctx context.Context, name string) (*User, error) {
 // a call made as them and clears their credential from their env file, so
 // a user added again under the name finds neither waiting: a name is
 // reusable, and the first's access must not be the second's.
-// The operator's user is not removed: the setting names someone else
-// first. Like adding one, it is the operator's to do (operatorOnly).
+// The user the operator setting names is not removed: the setting names
+// someone else first. Nor is the last operator: the yard would then take
+// an admin change from anyone (notOperator). Like adding one, it is an
+// operator's to do (operatorOnly).
 func (s *Store) DeleteUser(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		return w.deleteUser(ctx, name, actor, nil)
@@ -636,10 +807,8 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 	if err != nil {
 		return err
 	}
-	if operator, err := operatorIn(w.Tx); err != nil {
+	if err := keepsOperator(w.Tx, u, "removed"); err != nil {
 		return err
-	} else if operator == name {
-		return fmt.Errorf("user %s is the yard's operator and is not removed; name another operator first (yardr settings set %s <name>)", name, OperatorSetting)
 	}
 	// Before any grant is deleted and before the file is touched: where
 	// another user's effective file is the same file, clearing it would

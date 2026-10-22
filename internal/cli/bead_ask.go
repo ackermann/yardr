@@ -552,11 +552,9 @@ what the person asked does, and this is the asker's own.`,
 				who = askAs
 			}
 			if who == "" {
-				operator, _, err := a.operator(c.Context(), st)
-				if err != nil {
-					return err
-				}
-				who = operator
+				// The operator setting names whom an ask with no --to
+				// goes to, whichever users hold the operator role.
+				who = yardOperator(c.Context(), st)
 			}
 			var options []store.AskOption
 			for _, o := range askOptions {

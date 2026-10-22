@@ -851,16 +851,17 @@ func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
 	if err := y.SetSetting(y.ctx, OperatorSetting, "bo", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or the operator's for them, and mckean is neither now") {
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserRole: RoleMember}, "bo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or an operator's for them, and mckean is neither now") {
 		t.Fatalf("an approval by a former operator = %v", err)
 	}
 	if got := y.subs(t, "ada"); len(got) != 2 {
 		t.Fatalf("the refused approval left ada with %v", got)
 	}
 	// A yard that names no operator has the user alone.
-	if err := y.SetSetting(y.ctx, OperatorSetting, "", "bo"); err != nil {
-		t.Fatal(err)
-	}
+	y.noOperator(t, "bo")
 	if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", "subscribe ada yardr --where kind=closed"), "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "this command is ada's to approve: the yard runs it as the one who approves, so mckean cannot be asked to") {
 		t.Fatalf("an ask of another user in a yard with no operator = %v", err)
@@ -1072,7 +1073,10 @@ func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
 	if err := y.SetSetting(y.ctx, OperatorSetting, "bo", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or the operator's for them, and mckean is neither now") {
+	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserRole: RoleMember}, "bo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or an operator's for them, and mckean is neither now") {
 		t.Fatalf("an approval by a former operator = %v", err)
 	}
 	if got := y.tell(t, "ada"); got != "mail,asks" {

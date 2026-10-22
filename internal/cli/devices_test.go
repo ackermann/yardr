@@ -15,30 +15,32 @@ import (
 
 var deviceToken = regexp.MustCompile(`yardr-dev-[A-Za-z0-9_-]{43}`)
 
-type deviceSettingsFailure struct {
+type deviceUserFailure struct {
 	store.API
 	added bool
 }
 
-func (f *deviceSettingsFailure) Settings(context.Context) (map[string]string, error) {
-	return nil, errors.New("settings unavailable")
+// GetUser fails as the read of the user's role does, which the output
+// needs (whether the device is an operator's).
+func (f *deviceUserFailure) GetUser(context.Context, string) (*store.User, error) {
+	return nil, errors.New("user unavailable")
 }
 
-func (f *deviceSettingsFailure) AddDevice(context.Context, string, string, string) (*store.NewDevice, error) {
+func (f *deviceUserFailure) AddDevice(context.Context, string, string, string) (*store.NewDevice, error) {
 	f.added = true
 	return nil, nil
 }
 
 // If a precondition needed for the output fails, device add must fail before
 // creating a device whose one-time token it cannot show.
-func TestDeviceAddReadsSettingsBeforeCreating(t *testing.T) {
+func TestDeviceAddReadsTheUserBeforeCreating(t *testing.T) {
 	t.Parallel()
-	failure := &deviceSettingsFailure{API: userYard(t)}
-	if out, err := as(t, failure, "jo", "user", "device", "add", "jo", "phone"); err == nil || !strings.Contains(err.Error(), "settings unavailable") {
+	failure := &deviceUserFailure{API: userYard(t)}
+	if out, err := as(t, failure, "jo", "user", "device", "add", "jo", "phone"); err == nil || !strings.Contains(err.Error(), "user unavailable") {
 		t.Fatalf("device add = %v\n%s", err, out)
 	}
 	if failure.added {
-		t.Fatal("device add created a device before settings were available")
+		t.Fatal("device add created a device before the user was read")
 	}
 }
 
@@ -72,7 +74,7 @@ func TestDeviceCommands(t *testing.T) {
 	wantText(t, out,
 		"Give it to the device with this yard's address: https://mac.example.net\n",
 		"It calls as ada until: yardr user device rm ada laptop\n",
-		"ada is not the operator, and the device reads every bead in the yard, with its notes, and the mail of ada alone.\n")
+		"ada is not an operator, and the device reads every bead in the yard, with its notes, and the mail of ada alone.\n")
 	adas := deviceToken.FindString(out)
 
 	var added struct {

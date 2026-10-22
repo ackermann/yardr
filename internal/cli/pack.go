@@ -838,14 +838,14 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 		if o.Kind != "source" || o.Source == nil || (o.Action != pack.Create && o.Action != pack.Change) {
 			continue
 		}
-		// As the store reads it (maySource): a yard that names no operator
+		// As the store reads it (maySource): a yard that has no operator
 		// has nobody to hold this to.
-		settings, err := st.Settings(ctx)
+		ops, err := yardOperators(ctx, st)
 		if err != nil {
 			return nil, err
 		}
-		if operator := settings["operator"]; operator != "" && a.who() != operator {
-			sources[o.Source.Name] = fmt.Sprintf("adding a source is the operator's (%s), and this is %s", operator, a.who())
+		if len(ops) > 0 && !slices.Contains(ops, a.who()) {
+			sources[o.Source.Name] = fmt.Sprintf("adding a source is %s, and this is %s", store.OperatorsWhose(ops), a.who())
 		}
 	}
 	if !a.json {
@@ -1246,8 +1246,8 @@ func (a *app) openThreads(ctx context.Context, st store.API, p *pack.Plan, flags
 		}
 		switch {
 		case !is:
-			out.Notes = append(out.Notes, fmt.Sprintf("crew member %s was not let open threads in %s: only the operator (%s) may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
-				ot.CrewMember, strings.Join(about, ", "), operator, a.who(), operator))
+			out.Notes = append(out.Notes, fmt.Sprintf("crew member %s was not let open threads in %s: only %s may grant that, and this is %s. The rest of the import does not depend on it; %s applies the pack again to be asked",
+				ot.CrewMember, strings.Join(about, ", "), store.OperatorWords(strings.Split(operator, ", ")), a.who(), operator))
 		case flagged:
 			out.Answers[ot.CrewMember] = answers
 		case mayAsk:

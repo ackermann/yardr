@@ -191,6 +191,87 @@ func TestOnlyTheOperatorMay(t *testing.T) {
 	}
 }
 
+// Several users may be operators: the role, not the operator setting, is
+// what every operator gate reads. An operator alone gives or takes it, and
+// the yard keeps its operator setting's user and its last operator one.
+func TestSeveralOperators(t *testing.T) {
+	t.Parallel()
+	api, _ := operatorYard(t)
+	ctx := context.Background()
+	role := func(name, r, actor string) error {
+		_, err := api.SetUser(ctx, name, map[string]string{store.UserRole: r}, actor)
+		return err
+	}
+	if _, err := api.AddUser(ctx, "bob", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// Nobody gives themselves the role, and a role is one of two.
+	if err := role("ada", store.RoleOperator, "ada"); err == nil || err.Error() != "only the operator (jo) may change a user's role; this is ada" {
+		t.Fatalf("ada's own role = %v", err)
+	}
+	if err := role("ada", "boss", "jo"); err == nil || !strings.Contains(err.Error(), `role="boss": a user's role is operator or member`) {
+		t.Fatalf("a role that is none = %v", err)
+	}
+	if err := role("ada", store.RoleOperator, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// ada now does what an operator does; bob, a member, is refused in
+	// words naming both operators.
+	if _, err := api.AddUser(ctx, "grace", "ada"); err != nil {
+		t.Fatalf("a user add by the operator ada: %v", err)
+	}
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/yard", Base: "origin/main"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.PutDepot(ctx, store.Depot{Name: "yard", Path: "/srv/other", Base: "origin/main"}, "ada"); err != nil {
+		t.Fatalf("a depot's path changed by the operator ada: %v", err)
+	}
+	if _, err := api.AddUser(ctx, "kim", "bob"); err == nil || err.Error() != "only an operator (ada, jo) may add a user; this is bob" {
+		t.Fatalf("a user add by the member bob = %v", err)
+	}
+	if err := role("bob", store.RoleOperator, "bob"); err == nil || err.Error() != "only an operator (ada, jo) may change a user's role; this is bob" {
+		t.Fatalf("bob's own role = %v", err)
+	}
+	// The user the operator setting names keeps the role and the record:
+	// asks with no --to go to them.
+	if err := role("jo", store.RoleMember, "ada"); err == nil || !strings.Contains(err.Error(), "user jo is the yard's operator and is not made a member; name another operator first") {
+		t.Fatalf("the setting's operator made a member = %v", err)
+	}
+	if err := api.DeleteUser(ctx, "jo", "ada"); err == nil || !strings.Contains(err.Error(), "user jo is the yard's operator and is not removed") {
+		t.Fatalf("the setting's operator removed = %v", err)
+	}
+	// Naming bob in the setting makes him an operator, and jo can go.
+	if err := api.SetSetting(ctx, store.OperatorSetting, "bob", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := role("jo", store.RoleMember, "ada"); err != nil {
+		t.Fatalf("jo made a member once the setting names bob: %v", err)
+	}
+	us, err := api.Users(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Operators(us); !slices.Equal(got, []string{"ada", "bob"}) {
+		t.Fatalf("operators = %v, want ada and bob", got)
+	}
+	// With the setting cleared, the last operator stays one.
+	if err := role("ada", store.RoleMember, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := api.SetSetting(ctx, store.OperatorSetting, "", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := role("bob", store.RoleMember, "bob"); err == nil || !strings.Contains(err.Error(), "user bob is the yard's last operator and is not made a member; make another user an operator first (yardr user set <user> role=operator)") {
+		t.Fatalf("the last operator made a member = %v", err)
+	}
+	if err := api.DeleteUser(ctx, "bob", "bob"); err == nil || !strings.Contains(err.Error(), "user bob is the yard's last operator and is not removed") {
+		t.Fatalf("the last operator removed = %v", err)
+	}
+	if _, err := api.AddUser(ctx, "lee", "jo"); err == nil || err.Error() != "only the operator (bob) may add a user; this is jo" {
+		t.Fatalf("a user add by jo, a member now = %v", err)
+	}
+}
+
 // Removing a route is the operator's or the yardmaster's: the crew
 // member the yardmaster setting names removes one as the operator does,
 // so changing a route (rm plus add) leaves no duplicates behind. Anyone

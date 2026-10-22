@@ -113,6 +113,23 @@ func TestCall(t *testing.T) {
 	if out, err = run(t, jo.sourceCmd(), "grant", "crm", "customer", "--crew", "yardmaster"); err != nil || !strings.Contains(out, "crew member yardmaster may call crm: customer") {
 		t.Fatalf("grant = %q, %v", out, err)
 	}
+	// Any operator grants, not only the one the operator setting names.
+	ada := &app{st: st, actor: "ada"}
+	if _, err := st.AddUser(context.Background(), "ada", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = run(t, ada.sourceCmd(), "grant", "crm", "gone", "--crew", "yardmaster"); err == nil || !strings.Contains(err.Error(), "granting a call of a source is the operator's (jo)") {
+		t.Fatalf("a grant by ada, a member = %v", err)
+	}
+	if _, err = run(t, jo.userCmd(), "set", "ada", "role=operator"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, ada.sourceCmd(), "grant", "crm", "gone", "--crew", "yardmaster"); err != nil || !strings.Contains(out, "crew member yardmaster may call crm: customer, gone") {
+		t.Fatalf("a grant by ada, an operator = %q, %v", out, err)
+	}
+	if _, err = run(t, ada.sourceCmd(), "revoke", "crm", "gone", "--crew", "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
 	if out, err = run(t, clerk.callCmd(), "crm", "customer", "id=1"); err != nil || !strings.Contains(out, `"id": "1"`) {
 		t.Fatalf("a crew member with the grant = %q, %v", out, err)
 	}

@@ -6,7 +6,8 @@
 # docs/design/2026-10-13-yardr-c55e-telegram-hears.md).
 #
 # Every Update gets an envelope, a stranger's and an unknown kind too: the
-# hear key drops what is not the operator's chat after this returns, and a
+# hear key drops chats not belonging to operator-role users after this
+# returns, and a
 # non-zero exit would be answered 400, which the service retries. Nothing
 # of the body is ever printed to stderr.
 exec jq -c '

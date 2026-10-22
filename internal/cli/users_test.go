@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -116,16 +117,37 @@ func TestUserCommands(t *testing.T) {
 		t.Fatalf("show of no user: %v", err)
 	}
 
-	// Another operator gets their user with the setting; the one before
-	// can then be removed, by the new operator.
+	// Another operator gets their user, and the role, with the setting;
+	// the one before stays an operator until made a member, and can then
+	// be removed.
 	mustAs(t, st, "jo", "settings", "set", "operator", "sam")
-	if _, err := st.GetUser(ctx, "sam"); err != nil {
-		t.Fatalf("settings set operator added no user: %v", err)
+	if u, err := st.GetUser(ctx, "sam"); err != nil || !u.IsOperator() {
+		t.Fatalf("settings set operator made no operator of sam: %+v, %v", u, err)
 	}
-	refusedAs(t, st, "jo", "only the operator (sam) may remove a user", "user", "rm", "ada")
+	if out := mustAs(t, st, "jo", "user", "list"); !regexp.MustCompile(`(?m)^ada +member `).MatchString(out) ||
+		!regexp.MustCompile(`(?m)^jo +operator `).MatchString(out) || !regexp.MustCompile(`(?m)^sam +operator \(asked\) `).MatchString(out) {
+		t.Fatalf("list, with two operators:\n%s", out)
+	}
+	// ada, made an operator, administers at the shell as jo does; a role is
+	// an operator's to give, never one's own.
+	refusedAs(t, st, "ada", "only an operator (jo, sam) may change a user's role; this is ada", "user", "set", "ada", "role=operator")
+	if out := mustAs(t, st, "jo", "user", "set", "ada", "role=operator"); out != "user ada: operator\n" {
+		t.Fatalf("set role: %q", out)
+	}
+	mustAs(t, st, "ada", "user", "add", "grace")
+	mustAs(t, st, "ada", "depot", "add", "docs", t.TempDir(), "--kind", "dir")
+	refusedAs(t, st, "grace", "only an operator (ada, jo, sam) may add a user; this is grace", "user", "add", "lee")
+	refusedAs(t, st, "ada", "user sam is the yard's operator and is not made a member", "user", "set", "sam", "role=member")
+	mustAs(t, st, "sam", "user", "set", "jo", "role=member")
+	refusedAs(t, st, "jo", "only an operator (ada, sam) may remove a user", "user", "rm", "ada")
 	if out := mustAs(t, st, "sam", "user", "rm", "jo"); out != "user jo removed\n" {
 		t.Fatalf("rm: %q", out)
 	}
+	// Without the setting, the last operator stays one.
+	mustAs(t, st, "sam", "user", "set", "ada", "role=member")
+	mustAs(t, st, "sam", "settings", "set", "operator", "")
+	refusedAs(t, st, "sam", "user sam is the yard's last operator and is not made a member", "user", "set", "sam", "role=member")
+	refusedAs(t, st, "sam", "user sam is the yard's last operator and is not removed", "user", "rm", "sam")
 }
 
 // A crew member's session and a user mail a user; a bead's agent does not.

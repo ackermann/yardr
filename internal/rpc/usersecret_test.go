@@ -207,6 +207,22 @@ func TestUserGivesASecret(t *testing.T) {
 	if evs, _ = y.st.EventsSince(ctx, evs[len(evs)-1].Seq, 100); len(evs) != 1 || store.Via(evs[0]) != "" {
 		t.Errorf("a giving at the yard's terminal wrote %+v, want one event with no via", evs)
 	}
+
+	// A second operator's device gives the secret asked of the first: a
+	// credential of the yard is any operator's to set.
+	t.Run("a second operator gives the secret", func(t *testing.T) {
+		y := newSecretYard(t)
+		if _, err := y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		w := y.give(onTheMachine, y.sam, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": "s3cret-0f-the-yard"})))
+		if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
+			t.Fatalf("sam's giving is answered %d %s", w.Code, w.Body)
+		}
+		if b, _ := os.ReadFile(y.file); string(b) != "CRM_TOKEN=s3cret-0f-the-yard\n" {
+			t.Errorf("the env file holds %q", b)
+		}
+	})
 }
 
 // A device of the yard's operator gives a waiting login's input over the
@@ -553,7 +569,7 @@ func TestUserGivesTheirOwnCredential(t *testing.T) {
 // GiveSecret for a source's credential is on the listener for a device of
 // the yard's operator and for nobody else. A device of another user, a
 // credential that resolves to the operator and is no device token of the
-// yard, and any device in a yard with no operator are answered as for a
+// yard, and the device of an operator made a member are answered as for a
 // method the yard does not have; a device that was removed, a peer's key
 // and no credential at all are not let in. Nothing that was sent is said
 // back, and nothing is given. Each but a device of a user who is not the
@@ -625,15 +641,18 @@ func TestUserGiveSecretIsForTheOperatorsDeviceAlone(t *testing.T) {
 		notThere(t, y.give(onTheMachine, "a-session-of-the-service", unread{t}))
 		y.untouched(t, "a credential of an identity source")
 	})
-	t.Run("a yard with no operator", func(t *testing.T) {
+	t.Run("an operator made a member", func(t *testing.T) {
 		y := newSecretYard(t)
-		if err := y.st.SetSetting(ctx, store.OperatorSetting, "", "jo"); err != nil {
+		if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
 			t.Fatal(err)
 		}
-		// A device there is a user's and no operator's: read as another
-		// user's is, for an ask of its own.
+		if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
+			t.Fatal(err)
+		}
+		// A member's device: read as another user's is, for an ask of its
+		// own.
 		notThere(t, y.give(onTheMachine, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": "s3cret-0f-the-yard"}))))
-		y.untouched(t, "a yard with no operator")
+		y.untouched(t, "an operator made a member")
 	})
 	t.Run("the array of yardr's own builds", func(t *testing.T) {
 		y := newSecretYard(t)

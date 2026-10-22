@@ -83,9 +83,12 @@ by a token: yardr user device.`}
 			return a.out(c.OutOrStdout(), views, func(w io.Writer) {
 				rows := [][]string{}
 				for _, v := range views {
-					role := "-"
-					if v.Operator {
-						role = "operator"
+					// The operator the setting names is the one an ask
+					// with no --to goes to; the role is the same as any
+					// other operator's.
+					role := v.RoleOf()
+					if v.Asked {
+						role += " (asked)"
 					}
 					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread), or(v.Told, "-")})
 				}
@@ -129,8 +132,11 @@ everything either way.`,
 			}
 			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
 				fmt.Fprint(w, v.Name)
-				if v.Operator {
-					fmt.Fprint(w, "  the yard's operator")
+				switch {
+				case v.Asked:
+					fmt.Fprint(w, "  the yard's operator, whom an ask with no --to goes to")
+				case v.Operator:
+					fmt.Fprint(w, "  an operator")
 				}
 				fmt.Fprintf(w, "\n  added %s by %s\n", v.CreatedAt.Local().Format("2006-01-02 15:04"), v.CreatedBy)
 				if v.Unread == 0 {
@@ -179,7 +185,7 @@ everything either way.`,
 		},
 	}
 	set := &cobra.Command{
-		Use:   "set <name> [notify=<source>] [env_file=<file>] [tell=<parts>]",
+		Use:   "set <name> [notify=<source>] [env_file=<file>] [tell=<parts>] [role=operator|member]",
 		Short: "Set where, how and what a source tells a user",
 		Long: `notify is the source that tells the user outside the yard: a declared source
 whose file has a notify key (yardr source list shows which), or a source
@@ -201,9 +207,17 @@ and asks, with commas between. tell= with nothing after it is all of them,
 as for a user who never set it. Any other name is refused. What still
 waited to be told of a part that is left out is dropped.
 
-The user sets their own, or the operator does it for them. It is refused
+The user sets their own, or an operator does it for them. It is refused
 from the pane of an agent, whoever the command says it is: what lands in a
 person's inbox goes where these point.
+
+role is operator or member. An operator approves run asks, setup asks and
+secrets through a door (footplate, the web view, a device) and administers
+the yard at the shell; a member is a party of the yard and no more. Only an
+operator sets a role, never through a run ask, and the yard refuses to make
+a member of the user the operator setting names (whom an ask with no --to
+goes to) or of its last operator. Naming a user in the operator setting
+makes them an operator.
 
 What is told, of the parts tell names: mail to the user (their own too, and
 a timer they set), the notifications of their subscriptions and the asks
@@ -220,7 +234,8 @@ the source. notify= drops what was still to be told.`,
   yardr user set mckean notify=phone
   yardr source check phone --user mckean
   yardr user set mckean notify=phone env_file=~/.yardr/users/mckean.env   # a file you keep yourself
-  yardr user set mckean tell=notifications   # no mail and no asks on the phone`,
+  yardr user set mckean tell=notifications   # no mail and no asks on the phone
+  yardr user set ada role=operator           # ada approves and administers too`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
@@ -234,8 +249,8 @@ the source. notify= drops what was still to be told.`,
 			set := map[string]string{}
 			for _, arg := range args[1:] {
 				key, value, ok := strings.Cut(arg, "=")
-				if _, twice := set[key]; !ok || twice || (key != store.UserNotify && key != store.UserEnvFile && key != store.UserTell) {
-					return fmt.Errorf("%q: want %s=<source>, %s=<file> or %s=<%s>, each once", arg, store.UserNotify, store.UserEnvFile, store.UserTell, strings.Join(store.TellParts, ","))
+				if _, twice := set[key]; !ok || twice || (key != store.UserNotify && key != store.UserEnvFile && key != store.UserTell && key != store.UserRole) {
+					return fmt.Errorf("%q: want %s=<source>, %s=<file>, %s=<%s> or %s=%s|%s, each once", arg, store.UserNotify, store.UserEnvFile, store.UserTell, strings.Join(store.TellParts, ","), store.UserRole, store.RoleOperator, store.RoleMember)
 				}
 				if key == store.UserEnvFile && value != "" {
 					if value, err = config.ExpandPath(value); err != nil {
@@ -268,6 +283,12 @@ the source. notify= drops what was still to be told.`,
 			}
 			state := told(c.Context(), st, saved)
 			return a.out(c.OutOrStdout(), map[string]any{"user": saved, "told": state}, func(w io.Writer) {
+				if _, ok := set[store.UserRole]; ok {
+					fmt.Fprintf(w, "user %s: %s\n", saved.Name, saved.RoleOf())
+					if len(set) == 1 {
+						return
+					}
+				}
 				fmt.Fprintf(w, "user %s: told outside the yard: %s\n", saved.Name, or(state, "nowhere"))
 				if saved.Notify != "" && saved.EnvFile != "" {
 					fmt.Fprintf(w, "next: yardr source check %s --user %s sends one test message\n", saved.Notify, saved.Name)
@@ -411,7 +432,11 @@ func lastPush(u *store.User) string {
 // userView is a user as yardr user list and show print one.
 type userView struct {
 	store.User
+	// Operator is whether the user holds the operator role, and Asked
+	// whether the operator setting names them: whom an ask with no --to
+	// goes to.
 	Operator bool     `json:"operator"`
+	Asked    bool     `json:"asked"`
 	Unread   int      `json:"unread"`
 	From     []string `json:"unread_from"`
 	// Timers are the live timers that tell the user or that they set; only
@@ -455,7 +480,7 @@ func userViews(ctx context.Context, st store.API, name string) ([]userView, erro
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, userView{User: u, Operator: u.Name == all[store.OperatorSetting], Unread: box.Unread, From: box.From})
+		out = append(out, userView{User: u, Operator: u.IsOperator(), Asked: u.Name == all[store.OperatorSetting], Unread: box.Unread, From: box.From})
 	}
 	return out, nil
 }

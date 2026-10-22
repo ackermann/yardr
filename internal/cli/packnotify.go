@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"yardr.dev/yardr/internal/config"
@@ -140,11 +141,10 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notif
 // again finishes it. A set that is already as it would be writes nothing.
 func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor string, refused map[string]string, envs []sourceEnv, tos []notifyTo) (*notifySets, error) {
 	sets := &notifySets{}
-	settings, err := st.Settings(ctx)
+	ops, err := yardOperators(ctx, st)
 	if err != nil {
 		return sets, err
 	}
-	operator := settings["operator"]
 	for _, e := range envs {
 		if why := refused[e.source]; why != "" {
 			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: the source was not added (%s)", e.source, why))
@@ -152,8 +152,8 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 		}
 		// As adding a source: setting where a credential is read from
 		// is the operator's, and the rest of the import is done.
-		if operator != "" && actor != operator {
-			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: setting a source's credential is the operator's (%s), and this is %s. The rest of the import does not depend on it", e.source, operator, actor))
+		if len(ops) > 0 && !slices.Contains(ops, actor) {
+			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: setting a source's credential is %s, and this is %s. The rest of the import does not depend on it", e.source, store.OperatorsWhose(ops), actor))
 			continue
 		}
 		src, err := st.GetSource(ctx, e.source)
@@ -185,10 +185,10 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 		}
 		// As yardr user set holds it: the user or the operator, never
 		// from an agent's pane, which the store refuses at the set.
-		if actor != n.user && (operator == "" || actor != operator) {
+		if actor != n.user && !slices.Contains(ops, actor) {
 			why := "where " + n.user + " is told outside the yard is set by " + n.user
-			if operator != "" && operator != n.user {
-				why += ", or by the operator (" + operator + ")"
+			if len(ops) > 0 && !slices.Contains(ops, n.user) {
+				why += ", or by " + store.OperatorWords(ops)
 			}
 			why += ": what lands in their inbox goes there"
 			sets.add(false, n.source, fmt.Sprintf("user %s is not told through %s: %s; this is %s. The rest of the import does not depend on it", n.user, n.source, why, or(actor, "nobody")))

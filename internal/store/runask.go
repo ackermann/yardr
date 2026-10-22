@@ -1097,7 +1097,7 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	if slices.Equal(c.words, []string{"user", "key"}) && run.Value != "" {
 		return nil, fmt.Errorf("user key run asks may carry an address only from a dropped delivery")
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return nil, err
 	}
@@ -1129,8 +1129,13 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 			// proposes what they would run. Their leg runs without the
 			// asker's pane, which is the asker's, not theirs. For a
 			// command one user alone gives, that leg is theirs, and
-			// there is no operator's beside it.
-			giver, asWho := operator, "the operator"
+			// there is no operator's beside it. The operator asked gives
+			// it, or, until the switch below refuses the one asked, any.
+			giver := ops.as(to)
+			asWho := "the operator"
+			if giver != "" {
+				asWho = OperatorWords([]string{giver})
+			}
 			if sole != "" {
 				giver, asWho = sole, sole
 			}
@@ -1150,16 +1155,16 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 	case sole != "":
 		return nil, fmt.Errorf("this command is %s's to approve alone, and nobody else's: the yard runs it as them, so %s cannot be asked to", sole, to)
 	case user != "" && to == user:
-	case user != "" && to != operator:
+	case user != "" && !ops.is(to):
 		whose := user + "'s to approve"
-		if operator != "" && operator != user {
-			whose += ", or the operator's (" + operator + ") for them"
+		if !ops.none() && !ops.is(user) {
+			whose += ", or " + ops.whose() + " for them"
 		}
 		return nil, fmt.Errorf("this command is %s: the yard runs it as the one who approves, so %s cannot be asked to", whose, to)
-	case operator == "":
+	case ops.none():
 		return nil, fmt.Errorf("a command is the operator's to approve, and this yard has none: yardr settings set operator <name>")
-	case to != operator:
-		return nil, fmt.Errorf("a command is the operator's to approve (%s): the yard runs it as them, so %s cannot be asked to", operator, to)
+	case !ops.is(to):
+		return nil, fmt.Errorf("a command is %s to approve (%s): the yard runs it as them, so %s cannot be asked to", ops.article(), ops, to)
 	}
 	var card AskRun
 	if c.cardRun != nil {
@@ -1470,21 +1475,22 @@ func sameMap(a, b map[string]string) bool {
 	return true
 }
 
-// mayApprove refuses an approval by anyone but the operator. It is the
-// firmest check the store has, as maySource is: who asks is told by the
-// store's own record of the calling process before the caller's word, so a
-// call from the pane of a bead's session or of a crew member is refused
-// whatever actor it names. A yard without an operator has nobody whose
-// command it would be.
+// mayApprove refuses an approval by anyone but an operator: any of them,
+// whomever of them the ask was put to, so an approval does not wait on one
+// person. It is the firmest check the store has, as maySource is: who asks
+// is told by the store's own record of the calling process before the
+// caller's word, so a call from the pane of a bead's session or of a crew
+// member is refused whatever actor it names. A yard without an operator
+// has nobody whose command it would be.
 func (w *wtx) mayApprove(ctx context.Context, actor string) error {
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	if operator == "" {
+	if ops.none() {
 		return fmt.Errorf("approving a command is the operator's, and this yard has none: yardr settings set operator <name>")
 	}
-	why := "approving a command is the operator's (" + operator + "): the yard runs it as them"
+	why := "approving a command is " + ops.whose() + ": the yard runs it as them"
 	pane, err := agentPane(ctx, w.Tx)
 	if err != nil {
 		return err
@@ -1495,7 +1501,7 @@ func (w *wtx) mayApprove(ctx context.Context, actor string) error {
 	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
 		return fmt.Errorf("%s; %s is a crew member", why, actor)
 	}
-	if actor != operator {
+	if !ops.is(actor) {
 		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
 	}
 	return nil
@@ -1523,12 +1529,12 @@ func (w *wtx) mayApproveOwn(ctx context.Context, actor, to, whose string) error 
 	if actor != to {
 		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
 	}
-	operator, err := operatorIn(w.Tx)
+	ops, err := operatorsIn(w.Tx)
 	if err != nil {
 		return err
 	}
-	if to != whose && to != operator {
-		return fmt.Errorf("this command is %s's own to approve, or the operator's for them, and %s is neither now", whose, to)
+	if to != whose && !ops.is(to) {
+		return fmt.Errorf("this command is %s's own to approve, or an operator's for them, and %s is neither now", whose, to)
 	}
 	return nil
 }
