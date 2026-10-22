@@ -706,10 +706,9 @@ yardr source rm pushover
   The operator answers with `yardr bead answer <id> <ask> --secret`, which,
   at a terminal and once the ask's number is typed back (a secret ask is
   weighty: [the gate](chat.md#the-gate-for-a-weighty-card)), reads the value
-  as `yardr source key` does and has the server write it
-  the same way, under the same check, or from a device of theirs, in a
-  window paired to this yard ([users.md](users.md#devices): the one thing
-  a device of the operator may do that no other device may); the answer on the bead holds the
+  as `yardr source key` does and has the server write it the same way, under
+  the same check, or from a device of theirs, in a window paired to this
+  yard ([users.md](users.md#devices)); the answer on the bead holds the
   names (`mckean gave CRM_TOKEN`) and never the value. A pick, words and a
   decline's words are refused on such an ask and kept nowhere. It is asked
   of the operator alone and of nobody in a linked yard, and no copy of it
