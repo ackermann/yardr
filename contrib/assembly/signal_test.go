@@ -390,14 +390,15 @@ func creditLoop(t *testing.T, script string) string {
 	return loop
 }
 
-// integrate-train's watcher credits the race-lock wait with merge-local's
-// loop, copied: the scripts are installed one file each, so there is none to
-// source. A fix to one is made in both, as the copies of merge-local are one
-// script (TestMergeLocalCopiesIdentical): yardr-bywx fixed merge-local alone,
-// and a train late in the queue was killed with every test green.
-func TestIntegrateTrainCreditLoopIsMergeLocals(t *testing.T) {
-	want, got := creditLoop(t, "merge-local"), creditLoop(t, "integrate-train")
-	if got != want {
-		t.Errorf("integrate-train's credit loop differs from merge-local's: change both\nmerge-local:\n%s\nintegrate-train:\n%s", want, got)
+// integrate-train's and pr-ci's watchers credit the race-lock wait with
+// merge-local's loop, copied: the scripts are installed one file each, so there
+// is none to source. A fix to one is made in all, as the copies of merge-local
+// are one script (TestMergeLocalCopiesIdentical): yardr-bywx fixed merge-local
+// alone, and a train late in the queue was killed with every test green.
+func TestCreditLoopsAreMergeLocals(t *testing.T) {
+	for _, script := range []string{"integrate-train", "pr-ci"} {
+		if want, got := creditLoop(t, "merge-local"), creditLoop(t, script); got != want {
+			t.Errorf("%s's credit loop differs from merge-local's: change all\nmerge-local:\n%s\n%s:\n%s", script, want, script, got)
+		}
 	}
 }

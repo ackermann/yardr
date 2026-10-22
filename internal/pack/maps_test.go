@@ -1157,8 +1157,9 @@ func TestPrunedBlockTakesOnlyItsOwnLines(t *testing.T) {
 // The table two packs share routes an event by the type of the bead it is
 // about, whichever pack came first: a pull request closed unmerged asks a
 // person about a train and drops a contributor's pull request, a run of CI
-// that failed in review is noted with the words of the bead's own pack, and
-// the lines of one pack say nothing to the beads of the other.
+// that failed in review is noted for a train with the words of its pack and
+// says nothing to a pull request, whose CI is the yard's own, and the lines of
+// one pack say nothing to the beads of the other.
 func TestSharedTableRoutesByTheBeadsType(t *testing.T) {
 	ev := func(kv ...string) map[string][]string {
 		fields := map[string][]string{}
@@ -1196,12 +1197,12 @@ func TestSharedTableRoutesByTheBeadsType(t *testing.T) {
 		{"merged, a train", pull("closed", "true"), "approved", "train", "merged", "PR merged"},
 		{"merged, a pull request", pull("closed", "true"), "approved", "pr", "merged", ""},
 		{"a run failed in review, a train", ci("workflow_run", "failure"), "review", "train", "changes", "CI failed on the head of the PR"},
-		{"a run failed in review, a pull request", ci("workflow_run", "failure"), "review", "pr", "changes", "CI failed on the PR"},
+		{"a run failed in review, a pull request", ci("workflow_run", "failure"), "review", "pr", "", ""},
 		{"a suite failed in review, a train", ci("check_suite", "failure"), "review", "train", "changes", "CI failed on the head of the PR"},
-		{"a suite failed in review, a pull request", ci("check_suite", "failure"), "review", "pr", "changes", "CI failed on the PR"},
-		{"a run failed in the wait for CI, a pull request", ci("workflow_run", "failure"), "ciwait", "pr", "changes", "CI failed on the PR"},
+		{"a suite failed in review, a pull request", ci("check_suite", "failure"), "review", "pr", "", ""},
+		{"a run failed in the wait for CI, a pull request", ci("workflow_run", "failure"), "ciwait", "pr", "", ""},
 		{"a run failed in the wait for CI, a train", ci("workflow_run", "failure"), "ciwait", "train", "", ""},
-		{"a run succeeded in the wait for CI, a pull request", ci("workflow_run", "success"), "ciwait", "pr", "done", "CI green on the head"},
+		{"a run succeeded in the wait for CI, a pull request", ci("workflow_run", "success"), "ciwait", "pr", "", ""},
 		{"a run succeeded in the wait for CI, a train", ci("workflow_run", "success"), "ciwait", "train", "", ""},
 		{"CI read green, a train", ev("event", "ci", "action", "completed", "conclusion", "success"), "in-pr", "train", "done", ""},
 		{"CI read green, a pull request", ev("event", "ci", "action", "completed", "conclusion", "success"), "in-pr", "pr", "", ""},

@@ -888,11 +888,10 @@ func TestContributorsPack(t *testing.T) {
 	}; !reflect.DeepEqual(flows, want) {
 		t.Errorf("flows = %v, want %v", flows, want)
 	}
-	// The wait for CI has no group: nobody of the yard works it and no
-	// route is written for it, so only the source's events move a bead there.
+	// The wait for the yard's CI is worked by its script, pr-ci.
 	for stage, want := range map[string]string{
 		"issue:triage": "maintainers", "pr:triage": "maintainers", "pr:review": "pr-reviewers",
-		"pr:ciwait": "", "pr:contributor": "outside", "pr:approved": "maintainers",
+		"pr:ciwait": "pr-ci", "pr:contributor": "outside", "pr:approved": "maintainers",
 	} {
 		if groups[stage] != want {
 			t.Errorf("stage %s is worked by %q, want %q", stage, groups[stage], want)
@@ -921,6 +920,12 @@ func TestContributorsPack(t *testing.T) {
 		if outs := sf.OutcomesFrom("ciwait"); len(outs) != 3 {
 			t.Errorf("pr flow: ciwait has the outcomes %v, want done, changes and pushed alone", outs)
 		}
+		// A pull request pushed to after its run is sent back to be run
+		// again by hand, which no outcome does: merge-pr holds on a head the
+		// yard's CI has not passed on.
+		if !sf.Allows("approved", "ciwait") {
+			t.Errorf("pr flow: a bead in approved may not be moved to ciwait")
+		}
 	}
 	// No agent and no script of the yard works a stage a pull request's
 	// code could be run in, but the reviewer that only reads.
@@ -929,6 +934,12 @@ func TestContributorsPack(t *testing.T) {
 		case "pr-reviewers":
 			if g.Agent != "roles/pr-reviewer.md" || g.Limit != 1 {
 				t.Errorf("pr-reviewers = %+v", g)
+			}
+		case "pr-ci":
+			// One at a time: a script of the pack, whose copy of the one in
+			// contrib/assembly a test holds equal.
+			if g.Run != "scripts/pr-ci" || g.Limit != 1 {
+				t.Errorf("pr-ci = %+v", g)
 			}
 		case "maintainers", "outside":
 			if !g.People {
@@ -1004,10 +1015,6 @@ func TestContributorsPack(t *testing.T) {
 		"action=synchronize event=pull_request sender=bot stage=ciwait stage=review type=pr -> pushed: a bot pushed to the PR",
 		"action=synchronize event=pull_request stage=review type=pr -> changes: the PR changed under review",
 		"action=synchronize event=pull_request stage=ciwait type=pr -> changes: the PR changed while waiting on CI",
-		"conclusion=failure event=workflow_run stage=ciwait stage=review type=pr -> changes: CI failed on the PR",
-		"conclusion=failure event=check_suite stage=ciwait stage=review type=pr -> changes: CI failed on the PR",
-		"conclusion=success event=workflow_run stage=ciwait type=pr -> done: CI green on the head",
-		"conclusion=success event=check_suite stage=ciwait type=pr -> done: CI green on the head",
 		"action=closed event=pull_request merged=true type=pr -> merged",
 		"action=closed event=pull_request merged=false type=pr -> dropped",
 		"action=closed event=issues type=issue -> dropped",
@@ -1018,39 +1025,29 @@ func TestContributorsPack(t *testing.T) {
 	}
 	// What the table does with an event of CI or a push, by the stage a
 	// pull request's bead is in: the outcome of the first line it meets, ""
-	// for none. A verdict only moves a bead that waits for it (a success
-	// anywhere else would approve a pull request nobody has read), a red
-	// run also sends one under review back, a push while waiting bounces
-	// before any success can approve, and a cancelled or neutral run says
-	// nothing.
-	hook := store.Hook{Name: "gh", Source: "github", Says: gh.Says}
-	for _, c := range []struct {
-		event, action, conclusion, stage, want string
-	}{
-		{"workflow_run", "completed", "failure", "review", "changes"},
-		{"workflow_run", "completed", "failure", "ciwait", "changes"},
-		{"check_suite", "completed", "failure", "review", "changes"},
-		{"check_suite", "completed", "failure", "ciwait", "changes"},
-		{"workflow_run", "completed", "failure", "contributor", ""},
-		{"workflow_run", "completed", "failure", "approved", ""},
-		{"workflow_run", "completed", "success", "ciwait", "done"},
-		{"check_suite", "completed", "success", "ciwait", "done"},
-		{"workflow_run", "completed", "success", "review", ""},
-		{"check_suite", "completed", "success", "review", ""},
-		{"workflow_run", "completed", "success", "contributor", ""},
-		{"workflow_run", "completed", "success", "triage", ""},
-		{"workflow_run", "completed", "success", "approved", ""},
-		{"workflow_run", "completed", "cancelled", "ciwait", ""},
-		{"check_suite", "completed", "cancelled", "ciwait", ""},
-		{"workflow_run", "completed", "neutral", "ciwait", ""},
-		{"check_suite", "completed", "neutral", "review", ""},
-		{"workflow_run", "requested", "", "ciwait", ""},
+	// for none. A push while the yard's run is queued or running bounces the
+	// bead, before the run can approve a head the pull request no longer
+	// has. No run of GitHub's CI says anything at any stage, whatever it
+	// concluded: the pull request's CI is the yard's own, which pr-ci
+	// reports through the socket, and a line that let a result of another
+	// CI move a bead from ciwait would approve a pull request on it.
+	type event struct{ event, action, conclusion, stage, want string }
+	events := []event{
 		{"pull_request", "synchronize", "", "ciwait", "changes"},
 		{"pull_request", "synchronize", "", "review", "changes"},
 		{"pull_request", "synchronize", "", "contributor", "pushed"},
 		{"pull_request", "synchronize", "", "approved", ""},
 		{"pull_request", "opened", "", "ciwait", ""},
-	} {
+	}
+	for _, kind := range []string{"workflow_run", "check_suite"} {
+		for _, conclusion := range []string{"failure", "success", "timed_out", "cancelled", "neutral"} {
+			for _, stage := range []string{"triage", "review", "ciwait", "contributor", "approved"} {
+				events = append(events, event{kind, "completed", conclusion, stage, ""})
+			}
+		}
+	}
+	hook := store.Hook{Name: "gh", Source: "github", Says: gh.Says}
+	for _, c := range events {
 		fields := map[string][]string{"event": {c.event}, "action": {c.action}}
 		if c.conclusion != "" {
 			fields["conclusion"] = []string{c.conclusion}
@@ -2113,22 +2110,27 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"yardr mail {{yardmaster}} ",
 		},
 		"contributors/flows/pr/triage.md": {
-			"nothing of the yard\nruns outside code",
+			"nothing of the yard\nruns outside code before a person has judged it",
 			"A maintainer checks here whether the person and the code\nare legit, before anything of the pull request is run anywhere.",
 			"the label `accepted` on the pull request",
 			"None of this is a rule of yardr.",
 			"starts in `review` and\nnever comes here",
 		},
 		"contributors/flows/issue/triage.md": {"the label `accepted` on the issue"},
-		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait`", "The reviewer does not wait for CI and cannot see it.", "is the one pull request the\nreviewer may mark `merge-ok`", "and the reviewer never does"},
+		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait` and waits there for the yard's CI run,", "The reviewer does not wait for CI and cannot see it.", "is the one pull request the\nreviewer may mark `merge-ok`", "and the reviewer never does"},
 		"contributors/flows/pr/ciwait.md": {
-			"Nobody works this stage",
-			"nothing of the pull request is fetched, built or run by the yard",
-			"the reviewer\ncannot see CI",
-			"`yardr bead advance <id> --to approved`",
+			"the yard runs the\ndepot's own test command on its head",
+			"A fork's code runs here too,\non this machine, and only after a reviewer has read the pull request",
+			"because the reviewer runs nothing",
+			"it is the base's copy of that file\nthat runs, never the pull request's",
+			"The bead records that commit as `ci_head` and goes to `approved`",
+			"A run that is no verdict on the pull request holds the bead instead",
+			"`yardr bead unhold <id>`",
 		},
 		"contributors/flows/pr/approved.md": {
-			"Running it is here, and a person's",
+			"Running it beyond that is here, and a person's",
+			"`ci_head`",
+			"`yardr bead advance <id> --to ciwait` has the yard run\nthem again",
 			"is merged by the yard, as its GitHub App and in no person's\nname",
 			"yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>",
 			"That is how a yes reaches the bead, whoever types it.",

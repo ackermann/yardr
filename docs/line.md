@@ -1506,13 +1506,102 @@ PR, which is the operator's, the same login the reviewer's `gh` uses: on
 its own PR the reviewer posts a `--comment` with the verdict in the note's
 first line, and the yard learns the verdict from `yardr bead done`.
 
+## The yard as the CI of a pull request
+
+GitHub Actions is off for the yard's repositories, and the yard is the CI of
+a pull request instead (decided on ask 9736): no minutes, no workflow files,
+the same for every depot. A `pr` bead of the contributors pack
+([packs.md](packs.md#the-contributors-pack)) that the reviewer found ready
+waits in `ciwait`, and [`contrib/assembly/pr-ci`](../contrib/assembly/pr-ci),
+the `cmd` of an `exec` group of its own (`pr-ci`, limit 1, so one run at a
+time) that the pack's flow gives the stage to, runs the depot's own test
+command on the pull request's head and says how it went. It reads the pull
+request from the bead's tracks link and asks GitHub as the yard's App, as
+merge-pr does (below), and:
+
+- refuses a bead that is not in `ciwait`, before it fetches anything: the
+  stage is the one after a reviewer has read the pull request, and the yard
+  runs a pull request's code nowhere before that, a fork's least of all;
+- reads the pull request's head from GitHub, fetches `refs/pull/<n>/head`
+  from the depot's `origin` with the operator's own git credentials, and
+  checks that exact commit out, detached, in a worktree of its own beside
+  the bead's (`<worktrees>/<depot>/<bead>-ci`), which it removes when it
+  ends, however it ends;
+- runs the depot's test command there, the one every landing runs
+  (`yardr depot show`). Where the command is a file the base has
+  (`.yardr/test`), the **base's** copy of it runs, never the pull request's,
+  so that a pull request cannot change the script that judges it; any other
+  command runs as the pull request's own files make it. It runs without
+  `YARDR_LANDING`, which this is not (depot yardr's `.yardr/test` then runs
+  the selection the change calls for, and not the black-box suites a landing
+  adds), and without the App's id and key file. The exit codes mean what they
+  do in merge-local: 1 and the like are red, 2 is "could not run", above 128 is
+  a signal and is run once more, and a run past `YARDR_TEST_TIMEOUT` (1800
+  seconds besides what it waited for the race lock) is killed and is red;
+- on green, asks GitHub for the head once more. The same commit is recorded
+  on the bead as `ci_head` and reported `done`, to `approved`, with a note
+  naming the commit and which test ran; another commit means the pull
+  request was pushed to meanwhile and is reported `changes`;
+- on red reports `changes`, to `contributor`, with the end of the output
+  (200 lines) in the note.
+
+A push to the pull request while the bead waits or the tests run moves the
+bead before any report, by the pack's lines for the source: a person's push is
+`changes`, to `contributor`, and a bot's is `pushed`, back to `review` to be
+read at the new head. The run is stopped with its session, and a report of it
+that still comes is refused. The script's own read of the head, at the end of
+the run, is for a push whose event has not come yet.
+
+Whatever is no verdict on the pull request holds the bead in `ciwait` with a
+note and reports nothing: no token, GitHub or the fetch refusing, a depot with
+no test command (a pull request is not called green untested), tests that
+could not run or that a signal ended twice, a pull request that is no longer
+open. The operator puts it right, then `yardr bead unhold <id>` runs the tests
+again. Nothing is written to GitHub, no commit status and no check run: the
+App has no permission for the first, and nothing would read either. What
+reads the verdict is merge-pr, which merges only a head that is the bead's
+`ci_head`. So `ci_head` is the script's and a person's to write, and a bead's
+agent is refused it, on its own bead as on another (`yardr bead update --meta
+ci_head=…` from its pane): the reviewer reads a stranger's text, and a pull
+request that talked it into saying the tests passed would be merged untested.
+
+The tests of a pull request run on the yard's machine, as whoever runs the
+yard, in no sandbox: a fork's code runs as the operator, after a reviewer has
+read it. That is the accepted cost of a CI that is free, and a wall around the
+run is a design of its own (yardr-design-w87q).
+
+### Setup
+
+```sh
+install contrib/assembly/pr-ci ~/.yardr/scripts/                 # from main
+yardr group add pr-ci --runner exec --limit 1 \
+  --set cmd="$HOME/.yardr/scripts/pr-ci" \
+  --set env_file="$HOME/.yardr/env/pr-merges.env" \
+  --set log="$HOME/.yardr/logs/pr-ci.log"
+yardr pack apply contributors --depot <depot> --group pr-ci=pr-ci …   # the pack's flow, and its route for ciwait
+```
+
+The `env_file` is the App's id and the path of its key file, the two lines
+merge-pr's group has ("Merging pull requests", below): the same file serves
+both, and the github source's `mint_command` is the mint, as there. The App
+needs Pull requests read on the repositories, for the head. The group is the
+yard's, made once, and `--group pr-ci=pr-ci` maps the pack's group to it for
+every depot, so their runs queue one behind another; the test gate's race lock
+queues the machine's runs as well. The apply writes the route for each depot:
+`ciwait`, type `pr`, to `pr-ci`. A yard whose `pr` flow is its own routes the
+stage by hand instead (`yardr route add --stage ciwait --type pr --originator
+any --group pr-ci`), a default that a later apply with the mapping leaves to
+work the stage. The script is refreshed by `yardr upgrade` from the checkout
+it builds, once installed ([upgrade.md](upgrade.md#the-scripts)); the pack
+carries a copy that a test holds equal.
+
 ## Merging pull requests
 
 A pull request from outside is a `pr` bead of the contributors pack
-([packs.md](packs.md#the-contributors-pack)). Reviewed and green on CI, it
-waits in `approved`, and from there either a maintainer merges it on GitHub
-or the yard does. The yard does for the beads that carry the label
-`merge-ok`, with [`contrib/assembly/merge-pr`](../contrib/assembly/merge-pr),
+([packs.md](packs.md#the-contributors-pack)). Reviewed, and green on the
+yard's CI (the section above), it waits in `approved`, and from there either a
+maintainer merges it on GitHub or the yard does. The yard does for the beads
+that carry the label `merge-ok`, with [`contrib/assembly/merge-pr`](../contrib/assembly/merge-pr),
 the `cmd` of an `exec` group of its own (`pr-merges`, limit 1, so one merge
 at a time) that a yard-default route sends them to. The label is the whole
 of the permission: the reviewer gives it to a bot's bump of Go modules and
@@ -1538,20 +1627,23 @@ login is never used). What it merges is the commit of the yes:
   commit holds the bead with "moved since your yes", and a bead with no
   `merge_head` holds with the command that says yes.
 
-Either way the commit must have check runs, all of them completed and
-success, neutral or skipped, and `--match-head-commit` has GitHub refuse the
-merge if the head moves while it is made. A branch of the repository's own is
+Either way the yard's CI must have passed on that commit, which is the
+bead's `ci_head` (the section above), and `--match-head-commit` has GitHub
+refuse the merge if the head moves while it is made. A branch of the repository's own is
 rebased on and deleted; a fork is merged with a merge commit and its branch
 is left alone, being its author's.
 
 A pull request already merged reports `merged`, and one closed unmerged
 `dropped`; those are the only outcomes merge-pr reports. Everything else
-that stops it (no label, no yes, a head that moved, CI not green, the App
-without the permissions it needs, any refusal of GitHub) holds the bead with
-a note saying why, and nothing was merged: a maintainer acts on GitHub, then
-unholds the bead and it is looked at again. Nothing retries. A bot's pull
-request can be pushed to between the review and the merge, and is merged if
-CI is green on the new head, as a maintainer merging on GitHub would.
+that stops it (no label, no yes, a head that moved, no CI of the yard on the
+head, the App without the permissions it needs, any refusal of GitHub) holds
+the bead with a note saying why, and nothing was merged: a maintainer acts on
+GitHub, then unholds the bead and it is looked at again. Nothing retries. A
+pull request pushed to since its tests ran, a bot's included, has no CI on
+its new head and is held with "CI has not passed on <head>": `yardr bead
+advance <id> --to ciwait` has the yard run the tests again (the bead is held,
+so `yardr bead unhold <id>` too), and the bead comes back to `approved` with
+the new head recorded.
 
 ### Setup
 

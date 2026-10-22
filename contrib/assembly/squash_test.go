@@ -77,15 +77,28 @@ const (
 // to the one that closes it: the block merge-local and pr-merge both carry.
 func squashBlock(t *testing.T, script string) string {
 	t.Helper()
-	_, rest, ok := strings.Cut(readFile(t, script), squashOpen)
+	return markedBlock(t, script, squashOpen, squashClose)
+}
+
+const (
+	bindingOpen  = "# --- github_binding: "
+	bindingClose = "# --- end of github_binding ---\n"
+)
+
+// markedBlock is the text of script from the line that starts with open to the
+// one that is close: a block that two scripts carry, as they are installed
+// one file each and have none to source.
+func markedBlock(t *testing.T, script, open, close string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(readFile(t, script), open)
 	if !ok {
-		t.Fatalf("%s has no squash_message (no line starting %q)", script, squashOpen)
+		t.Fatalf("%s has no block (no line starting %q)", script, open)
 	}
-	block, _, ok := strings.Cut(rest, squashClose)
+	block, _, ok := strings.Cut(rest, close)
 	if !ok {
-		t.Fatalf("%s: squash_message does not end in %q", script, strings.TrimSpace(squashClose))
+		t.Fatalf("%s: the block starting %q does not end in %q", script, open, strings.TrimSpace(close))
 	}
-	return squashOpen + block + squashClose
+	return open + block + close
 }
 
 // pr-merge writes the squash commit's message with merge-local's block,

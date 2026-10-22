@@ -114,6 +114,23 @@ func TestMergeLocalCopiesIdentical(t *testing.T) {
 	}
 }
 
+// The contributors pack carries pr-ci for the group that works its wait for
+// the yard's CI, byte for byte the one in contrib/assembly that a yard installs
+// and `yardr upgrade` refreshes: a change to one is made in both.
+func TestPRCICopyInThePackIsIdentical(t *testing.T) {
+	want, err := os.ReadFile("pr-ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile("../../packs/contributors/scripts/pr-ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Error("packs/contributors/scripts/pr-ci differs from contrib/assembly/pr-ci: change both")
+	}
+}
+
 // A landing on the depot upgrade_from names installs the landed build and
 // notes the outcome: the summary joins the landing note, the seconds the
 // log line, and the install's own lines the log. The install also refreshes

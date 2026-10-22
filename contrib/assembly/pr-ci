@@ -1,0 +1,515 @@
+#!/bin/sh
+# pr-ci: the yard as the CI of a pull request. It runs the depot's test
+# command on the head of the pull request a pr bead tracks, when the bead is in
+# ciwait, and says how it went: done, with the head it tested recorded as the
+# bead's metadata ci_head, which merge-pr reads before it merges anything; or
+# changes, with the end of the output. Run it as the cmd of an exec group of its
+# own (pr-ci, limit 1: one run at a time), routed for the pr flow's ciwait stage
+# (type pr). The contributors pack's flows/pr/ciwait.md says what the stage is
+# for, and docs/line.md, "The yard as the CI of a pull request", has the setup.
+#
+# The pull request is the one the bead tracks (its tracks link, whose URL must be
+# https://github.com/<owner>/<repo>/pull/<n> and nothing else), never one found
+# by a name in metadata or by a branch. GitHub is asked as an installation token
+# of the yard's App scoped to that repository, as merge-pr asks it, minted by
+# contrib/github-mint (the github source's mint_command, or YARDR_GITHUB_MINT in
+# the group's cmd) from GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the
+# group's env_file supplies; the operator's own gh login is never used. Needs gh
+# and jq on PATH. Nothing is written to GitHub: no commit status, no check run.
+#
+# The code is the head GitHub says the pull request has now. It is fetched from
+# the depot's remote origin by the ref GitHub keeps for the pull request, a
+# fork's included (git fetch origin refs/pull/<n>/head), with the operator's own
+# git credentials, and checked out detached in a worktree of its own beside the
+# bead's, which is removed when the script ends, however it ends. A bead that is
+# not in ciwait is refused before anything is fetched: ciwait is the stage after
+# a reviewer has read the pull request, and the yard runs a pull request's code
+# nowhere before that.
+#
+# The contributors pack carries a copy of this script (scripts/pr-ci) for the
+# group that works ciwait, which a test holds equal: a change is made to both.
+#
+# It reads the environment the exec runner gives it: YARDR_BEAD, YARDR_DEPOT,
+# YARDR_DEPOT_PATH, YARDR_BASE, YARDR_WORKTREE, YARDR_BIN and YARDR_TEST, the
+# depot's test command (yardr depot add --test), unset for a depot with none.
+# Option, set in the group's cmd:
+#
+#   YARDR_TEST_TIMEOUT  seconds the test command may run, besides what it
+#                       waited for the race lock (default 1800)
+#
+# The test command is the one every landing runs, run as merge-local runs it,
+# in the checkout of the head and without YARDR_LANDING, which this is not.
+# Where the command is the path of a file the base has (test=.yardr/test), the
+# base's copy of that file is what runs, with sh: a pull request cannot change
+# the script that judges it, which matters most for a fork's. Anything else is
+# a command for sh -c, which the pull request's own files may change (a
+# package.json's scripts); the note says which ran. The run does not get the
+# App's id and key file, which are for the token alone.
+#
+# Exit 1, or any other not named here, is a red run, the contributor's to fix.
+# Exit 2 is the command saying it could not run at all (a tool missing, a base
+# it cannot find), which no contributor can fix: held. An exit above 128 means
+# the run was ended by a signal from outside, which says nothing about the pull
+# request: it is run once more, and held if a signal ends it again. The kill at
+# the deadline is not this: it is a red run.
+#
+# The outcomes at ciwait are done and changes. Green on the head, which GitHub
+# still says is the head after the run, is done; a red run, or a head that
+# moved while it ran (the tests said nothing of the head it has now), is changes.
+# Done is never reported without a green run on the exact head. Everything that
+# is no verdict on the pull request (no token, a refused gh, a failed fetch, a
+# depot with no test command, a run that could not run, a pull request that is
+# not open) holds the bead with a note, for a maintainer to put right and unhold.
+# Nothing here retries.
+#
+# Every outcome ends in a report or a hold: exiting without one counts as a
+# failed session, and three of those hold the bead.
+set -u
+# A dir depot (YARDR_DEPOT_KIND=dir) has no repository to fetch a pull request
+# into. A route that hands one over is a mistake in the depot's flow, so refuse
+# to run (exit 2) rather than guess.
+if [ "${YARDR_DEPOT_KIND:-git}" = dir ]; then
+  echo "pr-ci: depot ${YARDR_DEPOT:-?} is a dir depot, with no repository to fetch a pull request into; route its stages to other groups" >&2
+  exit 2
+fi
+: "${YARDR_BEAD:?not run by an exec group}" "${YARDR_DEPOT:?bead has no depot}"
+: "${YARDR_DEPOT_PATH:?}" "${YARDR_BASE:?}"
+Y=${YARDR_BIN:-yardr}
+BEAD=$YARDR_BEAD
+DEPOT=$YARDR_DEPOT
+REPO=$YARDR_DEPOT_PATH
+BASE=$YARDR_BASE
+TEST=${YARDR_TEST:-}
+LIMIT=${YARDR_TEST_TIMEOUT:-1800}
+TAIL=200
+# The head's own checkout, beside the bead's worktree and never in it. The path
+# is the same every run of the bead, so what a killed run left is found and
+# cleared by the next (scratch_gone), and it is no bead's id, so no bead has it.
+WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$BEAD}-ci
+echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr-ci $DEPOT $BEAD"
+
+# tree prints a process and everything below it, in one order every time.
+tree() {
+  ps -A -o pid= -o ppid= | awk -v root="$1" '
+    { parent[$1] = $2 }
+    END {
+      below[root] = 1
+      do { more = 0; for (p in parent) if (!(p in below) && (parent[p] in below)) { below[p] = 1; more = 1 } } while (more)
+      for (p in below) print p
+    }' | sort -n
+}
+# unwatched kills the timeout watcher and its sleep, after a run and on
+# every exit while one is in flight (the traps): a watcher left behind
+# sleeps out its $LIMIT holding the run's inherited files, among them once
+# the machine race lock (yardr-tsms). The sleep goes by the pid the watcher
+# wrote, in case the watcher died without killing it, and both kills are
+# silent: either may already be gone. What the file holds is signalled only
+# if it is a number with a non-zero digit: kill 0 signals this script's whole
+# process group, and kill reads 00 as 0 (yardr-0bd1).
+unwatched() {
+  [ -n "${watch:-}" ] || return 0
+  kill "$watch" 2>/dev/null
+  if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
+    nap=$(cat "$napfile" 2>/dev/null) || nap=
+    case "$nap" in ''|*[!0-9]*) ;; *[1-9]*) kill "$nap" 2>/dev/null ;; esac
+  fi
+  wait "$watch" 2>/dev/null
+  watch=
+}
+# rundone removes the files of a run, whichever of them exist: when the run is
+# over, and by tidy.
+rundone() {
+  unwatched
+  [ -z "${log:-}" ] || rm -f "$log"
+  [ -z "${latefile:-}" ] || rm -f "$latefile"
+  [ -z "${napfile:-}" ] || rm -f "$napfile"
+  [ -z "${copy:-}" ] || rm -f "$copy"
+  return 0
+}
+# scratch_gone removes the head's checkout and its registration in the depot's
+# repository, in whatever state a run left them: a worktree whose directory is
+# gone is only a record, one with files in it is removed with them, and a
+# directory git never registered is removed as it is.
+scratch_gone() {
+  [ -n "${WT:-}" ] || return 0
+  git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1
+  rm -rf "${WT:?}"
+  git -C "$REPO" worktree prune >/dev/null 2>&1
+  return 0
+}
+# stoprun stops the command the script started, and every process below it,
+# before its checkout is removed. A session can be stopped while its tests are
+# still running; removing the worktree alone would leave those tests running
+# against files that no longer exist.
+stoprun() {
+  [ -n "${pid:-}" ] || return 0
+  seen=
+  while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
+    # shellcheck disable=SC2086
+    kill -STOP $t 2>/dev/null
+    seen=$t
+  done
+  # shellcheck disable=SC2086
+  kill -KILL ${seen:-$pid} 2>/dev/null
+  wait "$pid" 2>/dev/null
+  pid=
+}
+# tidy stops a run and removes the checkout of the pull request's code.
+tidy() {
+  unwatched
+  stoprun
+  rundone
+  scratch_gone
+}
+# bye takes away everything the script made, whichever of it exists. It is the
+# first thing hold and report do, so that nothing is left to do once the session
+# ends (the daemon stops the script as soon as it has reported), and the EXIT
+# trap, for every other way out. The directory the script works in goes last,
+# and from outside it. TERM and INT are ignored while it runs, so that a stop of
+# the session that comes meanwhile cannot leave it half done.
+bye() {
+  trap '' TERM INT
+  tidy
+  cd /
+  [ -z "${work:-}" ] || rm -rf "${work:?}"
+  return 0
+}
+# pid is only the test command this script starts, never a handle inherited
+# from the exec group's environment.
+unset pid
+pid=
+trap 'bye' EXIT
+# A signal that kills the script does not run its EXIT trap, so TERM and
+# INT clean up first and then report as a shell would, 128+n.
+trap 'unwatched; exit 143' TERM
+trap 'unwatched; exit 130' INT
+
+# Reporting ends this session (the daemon stops the script), so it is
+# always the last thing done.
+hold() { bye; echo "== hold $BEAD: $1"; "$Y" bead note "$BEAD" "pr-ci: $1"; "$Y" bead hold "$BEAD"; exit 0; }
+report() {
+  bye
+  echo "== $BEAD $1"
+  printf '%s\n' "pr-ci: $2" | "$Y" bead "done" "$BEAD" --outcome "$1" --note - && exit 0
+  # The pull request's own event may have moved the bead first: a push says
+  # changes to a bead in ciwait, or pushed (back to review) when a bot made
+  # it, and a head that moved is what this report would have said. A bead that
+  # left ciwait is where the report would have taken it.
+  left=$("$Y" bead show "$BEAD" --json 2>/dev/null | jq -r '.stage // empty')
+  [ -z "$left" ] || [ "$left" = ciwait ] || { echo "== $BEAD is in $left already"; exit 0; }
+  hold "could not report $1 (does the bead's flow name it for its stage?): $2"
+}
+# gh is run from a directory that is no checkout, so nothing it does to a
+# local branch can reach anyone's work; the run's files are in it too.
+work=$(mktemp -d) && errf=$work/err || exit 1
+cd "$work" || exit 1
+
+command -v gh >/dev/null 2>&1 || hold "gh is not on PATH; not running the tests."
+command -v jq >/dev/null 2>&1 || hold "jq is not on PATH; not running the tests."
+
+bead=$("$Y" bead show "$BEAD" --json) || hold "reading $BEAD failed"
+
+# The code of a pull request is run only after a reviewer has read it, which
+# is what getting to ciwait means. A route that sends another stage's bead here
+# (a typo, a copy of the pack's flow under other names) must not run unread code.
+[ "$(printf '%s' "$bead" | jq -r '.stage // empty')" = ciwait ] ||
+  hold "$BEAD is not in ciwait, the stage after a reviewer has read the pull request, and the yard runs a pull request's code nowhere before it. Not running anything."
+
+# A pull request is not called green untested: with no command there is
+# nothing to run as its CI, and that is the depot's to put right.
+[ -n "$TEST" ] ||
+  hold "depot $DEPOT has no test command, so the yard has nothing to run as the CI of the pull request, and a pull request is not called green untested. Set one (yardr depot add $DEPOT $REPO --test <command>), then unhold. Not running anything."
+
+NOT="not running the tests" STAGE=ciwait
+# --- github_binding: the same text in merge-pr and pr-ci (a test holds them equal) ---
+# NOT and STAGE are each script's own words for what it leaves undone and where
+# the bead waits; everything else is one text.
+#
+# The pull request is the one the bead tracks, by the URL of the link and
+# nothing else: owner, repository and number are read from it, and a URL of
+# another shape (another host, an issue, a path past the number) is refused.
+url=$(printf '%s' "$bead" | jq -r '[.links[]? | select(.kind == "tracks" and .source == "github") | .url] | first // empty')
+[ -n "$url" ] ||
+  hold "$BEAD tracks no GitHub pull request (no tracks link of source github); $NOT. Link it with yardr link, or take the bead out of $STAGE."
+printf '%s' "$url" | grep -Eq '^https://github\.com/[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$' ||
+  hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); $NOT."
+path=${url#https://github.com/}
+owner=${path%%/*}
+rest=${path#*/}
+repo=${rest%%/*}
+case $repo in . | ..) hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); $NOT." ;; esac
+slug=$owner/$repo
+
+# The token: minted for this repository alone, from the App's id and key file
+# the group's env_file gives, and held in this process's memory for the calls
+# below. It is passed to gh in its environment, never in an argument, and is
+# printed nowhere. The mint command is the github source's own unless the
+# group's cmd names another.
+[ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ] ||
+  hold "this group's environment has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the yard's GitHub App is minted from (the group's env_file); $NOT."
+mint=${YARDR_GITHUB_MINT:-}
+[ -n "$mint" ] || mint=$("$Y" source show github --json 2>/dev/null | jq -r '.source.mint_command // empty')
+[ -n "$mint" ] ||
+  hold "the github source has no mint_command and the group's cmd sets no YARDR_GITHUB_MINT; $NOT. Install contrib/github-mint, then yardr source set github mint_command=<its path>."
+# mint_command has the same space-split, no-shell contract as yardr's source
+# mint. Disable pathname expansion while forming argv so a configured `*`
+# stays an argument and never grows into files in the runner's directory.
+mint_token() {
+  set -f
+  # shellcheck disable=SC2086
+  set -- $mint
+  set +f
+  [ "$#" -gt 0 ] || return 1
+  YARDR_SOURCE_BASE=https://api.github.com "$@" 2>/dev/null
+}
+tokjson=$(jq -nc --arg id "$GITHUB_APP_ID" --arg key "$GITHUB_APP_PRIVATE_KEY_FILE" --arg scope "$slug" \
+  '{inputs: {GITHUB_APP_ID: $id, GITHUB_APP_PRIVATE_KEY_FILE: $key}, scope: $scope}' |
+  mint_token) ||
+  hold "minting a token for $slug failed; the mint's output is not copied to the bead. $NOT."
+token=$(printf '%s' "$tokjson" | jq -r '.token // empty')
+unset tokjson
+[ -n "$token" ] || hold "minting a token for $slug answered no token; $NOT."
+gh_() { GH_TOKEN=$token gh "$@"; }
+# --- end of github_binding ---
+
+short() { printf '%s' "$1" | cut -c1-7; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+# live_head prints the head GitHub says the pull request has now, and nothing
+# when it cannot say (the error is left in $errf).
+live_head() { gh_ pr view "$url" --json number,state,headRefOid 2>"$errf" | jq -r '.headRefOid // empty'; }
+
+pr=$(gh_ pr view "$url" --json number,state,headRefOid 2>"$errf") ||
+  hold "reading pull request $url failed: $(head -c 500 "$errf")"
+state=$(printf '%s' "$pr" | jq -r '.state // empty')
+head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
+
+# A pull request that is not open has no head to answer for: it was merged or
+# closed while the bead waited, and no outcome of ciwait says so. A maintainer
+# sees it on GitHub and moves the bead.
+[ "$state" = OPEN ] ||
+  hold "pull request $url is in state ${state:-unknown}, not OPEN, so there is no head to test. Not running anything."
+[ -n "$head" ] || hold "GitHub gave no head commit for $url; not running the tests."
+# The head goes into a path and into the arguments of git: a commit's sha and
+# nothing else.
+case $head in *[!0-9a-fA-F]*) head= ;; esac
+case ${#head} in 40 | 64) ;; *) head= ;; esac
+[ -n "$head" ] || hold "GitHub gave a head for $url that is no commit sha; not running the tests."
+at=$(short "$head")
+number=${url##*/}
+
+# The head, fetched from the remote the pull request is on by the ref GitHub
+# keeps for it (a fork's pull request has one too), with the operator's own git
+# credentials and no prompt for any. What is wanted is the commit GitHub named
+# above, whatever the ref holds by now; the sha is the whole of the claim, and
+# a commit the fetch did not bring is not tested.
+to=; command -v timeout >/dev/null && to="timeout 120"
+GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true SSH_ASKPASS=true $to git -C "$REPO" fetch --quiet --no-tags origin "refs/pull/$number/head" 2>"$errf" ||
+  hold "fetching refs/pull/$number/head from origin in $REPO failed: $(head -c 500 "$errf"). Not running anything."
+if ! git -C "$REPO" cat-file -e "$head^{commit}" 2>/dev/null; then
+  # Pushed to between GitHub's answer and the fetch, or origin is not the
+  # repository the pull request is on. GitHub tells which.
+  now=$(live_head)
+  if [ -n "$now" ] && [ "$(lower "$now")" != "$(lower "$head")" ]; then
+    report changes "the PR changed while CI started: GitHub said its head was $at and says $(short "$now") now. Nothing was run; the next commits bring it back to review."
+  fi
+  hold "origin did not give the commit $head of $url by refs/pull/$number/head: is origin the repository the pull request is on? Not running anything."
+fi
+scratch_gone
+git -C "$REPO" worktree add --detach --quiet "$WT" "$head" >"$errf" 2>&1 ||
+  hold "cannot check out $at of $url in $WT: $(head -c 500 "$errf")"
+
+# The depot's test command runs on exactly the head GitHub named, as merge-local
+# runs it for a bead. Where the command is the path of a file the base has
+# (test=.yardr/test), the base's copy of that file is what runs, with sh, in the
+# checkout of the head; anything else is a command for sh -c. No YARDR_LANDING:
+# this is no landing, and what a depot's command makes of that is its own.
+if [ "$(git -C "$REPO" cat-file -t "$BASE:$TEST" 2>/dev/null)" = blob ]; then
+  WHAT="the base's copy of $TEST"
+else
+  WHAT="the command $TEST"
+fi
+echo "== the tests on $url at $at: $WHAT"
+
+# runtest runs the test command in the checkout and leaves its exit status in
+# $rc, the last $TAIL lines of its output in $out, how many lines there were
+# in $lines, and $late set when it ran past $LIMIT seconds besides what it
+# waited for the race lock. It adds the seconds the run took to $secs, which
+# a second run after a signal adds to. The bound is sh's own, as in merge-local,
+# which says why it is made this way.
+runtest() {
+  # Each file of the run is made by a mktemp of its own, in the directory only
+  # this script can enter.
+  log=$(mktemp "$work/log.XXXXXX") || hold "cannot make a file for the tests' output"
+  napfile=$(mktemp "$work/nap.XXXXXX") || hold "cannot make a file for the timeout watcher"
+  latefile=$(mktemp "$work/late.XXXXXX") || hold "cannot make a file for the timeout watcher"
+  copy=
+  if [ "$WHAT" = "the base's copy of $TEST" ]; then
+    copy=$(mktemp "$work/copy.XXXXXX") || hold "cannot make a file for the copy of $TEST"
+    git -C "$REPO" show "$BASE:$TEST" >"$copy" || hold "cannot read $TEST from $BASE"
+  fi
+  t0=$(date +%s)
+  (
+    cd "$WT" || exit 2
+    # The tests of a pull request have no use for the App's id and key file,
+    # which are for the token alone.
+    unset YARDR_LANDING GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY_FILE
+    # The test command starts with no descriptor above 2 that the run did
+    # not give it: close every inherited one first, as merge-local's does
+    # for a landing (the daemon's leaked resolver sockets once reached the
+    # tests and starved them: yardr-b4ep). As the watcher's loop below:
+    # enumerate /dev/fd so this covers high descriptors too, with no
+    # redirection on the loop.
+    for path in /dev/fd/*; do
+      fd=${path##*/}
+      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
+      eval "exec $fd>&-"
+    done
+    if [ -n "$copy" ]; then exec sh "$copy"; else exec sh -c "$TEST"; fi
+  ) >"$log" 2>&1 </dev/null &
+  pid=$!
+  (
+    nap=
+    trap 'kill "$nap" 2>/dev/null; exit 0' TERM
+    # The sleep holds none of the run's inherited files: close every open
+    # fd above 2 first (an orphaned sleep once held the machine race lock).
+    # Enumerate /dev/fd so this covers high descriptors too. The loop has no
+    # redirection: the shell saves fd 2 above 10 for one, and would close the
+    # save from under itself; each path is one open fd name.
+    for path in /dev/fd/*; do
+      fd=${path##*/}
+      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
+      eval "exec $fd>&-"
+    done
+    # The deadline counts only time not spent waiting for the race lock: a
+    # run late in the queue would otherwise be killed with every test
+    # green. Sleep $LIMIT, then sleep again for the waited seconds not yet
+    # credited, repeating until no new wait is found; only then mark late
+    # and kill. The gate prints a start marker while it waits and a final
+    # `test: waited N s` line when it acquires the lock; account for the
+    # elapsed active wait too, since it may outlast LIMIT. The loop is
+    # merge-local's, copied: the scripts are installed one file each, and
+    # merge-local also ships in the packs, so there is no shared file for
+    # them to source. A fix to one is made in all (a test holds them equal).
+    credited=0
+    wait_for=$LIMIT
+    while :; do
+      sleep "$wait_for" &
+      nap=$!
+      echo "$nap" >"$napfile"
+      wait "$nap"
+      waited=$(awk -v now="$(date +%s)" '
+        /^test: race lock wait started at [0-9]+$/ { active=$NF; next }
+        /^test: waited [0-9]+ s for the race lock$/ { total+=$3; active="" }
+        END { if (active != "") total += now-active; print total+0 }
+      ' "$log" 2>/dev/null)
+      case "$waited" in ''|*[!0-9]*) waited=0 ;; esac
+      extra=$((waited - credited))
+      if [ "$extra" -le 0 ]; then
+        break
+      fi
+      credited=$waited
+      wait_for=$extra
+    done
+    echo late >"$latefile"
+    seen=
+    while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
+      # shellcheck disable=SC2086
+      kill -STOP $t 2>/dev/null
+      seen=$t
+    done
+    # Whatever ps said, the command itself goes.
+    # shellcheck disable=SC2086
+    kill -KILL ${seen:-$pid} 2>/dev/null
+  ) &
+  watch=$!
+  # The watcher records its sleep before it waits on it; hold until it has
+  # (a bounded wait), so the traps never kill a watcher whose sleep is
+  # not yet known.
+  i=0
+  while [ ! -s "$napfile" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+  wait "$pid" && rc=0 || rc=$?
+  pid=
+  secs=$((secs + $(date +%s) - t0))
+  unwatched
+  # A command that passed as its deadline came has passed. The marker is
+  # empty until the watcher writes to it, so the deadline came if it holds
+  # something.
+  late=
+  if [ -s "$latefile" ] && [ "$rc" != 0 ]; then
+    late=1
+    echo "pr-ci: the tests ran past their deadline of ${LIMIT}s and were killed" >>"$log"
+  fi
+  lines=$(wc -l <"$log" | tr -d ' ')
+  out=$(tail -n "$TAIL" "$log")
+  rundone
+  log=
+  latefile=
+  napfile=
+  copy=
+  printf '%s\n' "$out"
+}
+# What a note says of a run's output: all of it, or its end.
+shown() {
+  if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
+}
+
+# The yard keeps its disk before the tests run, as it does for a landing (yardr
+# disk keep): under disk_keep_gb free it rotates GOCACHE and clears stale
+# go-tmp, so the build has room, and a full disk is not read as a red run of the
+# pull request. Best effort: a keep that fails is in the log, and the run goes
+# on to the tests, which fail loudly themselves when the disk is what ails them.
+# Where the installed yardr predates the command the step is skipped. Cobra may
+# return success and print the root help for an unknown subcommand with --help,
+# so require keep's own usage.
+if "$Y" disk keep --help 2>&1 | grep -q '^  yardr disk keep \[flags\]$'; then
+  keepout=$("$Y" disk keep 2>&1) && ok=1 || ok=
+  if [ -n "$keepout" ]; then
+    printf '%s\n' "$keepout"
+  fi
+  if [ -z "$ok" ]; then
+    echo "== $BEAD disk keep failed, running the tests on"
+  fi
+fi
+
+secs=0
+runtest
+if [ "$rc" -gt 128 ] && [ -z "$late" ]; then
+  first="the tests on $url at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"
+  echo "== $first; running them once more"
+  "$Y" bead note "$BEAD" "pr-ci: $first; running them once more on the same commit. Of the first run, $(shown):
+$out" || echo "== could not note the first run on $BEAD"
+  out1=$out
+  runtest
+  [ "$rc" -le 128 ] || [ -n "$late" ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing was decided about the pull request: find what sends the signal, then unhold to test it again.
+First run:
+$out1
+Second run:
+$out"
+fi
+if [ -n "$late" ]; then
+  report changes "the tests on $url at $at ($WHAT) ran past their deadline of ${LIMIT}s and were killed; $(shown):
+$out"
+fi
+case $rc in
+0) ;;
+2) hold "the tests could not run on $url at $at ($WHAT said so: exit 2); $(shown):
+$out" ;;
+*) report changes "the tests failed on $url at $at ($WHAT, exit $rc); $(shown):
+$out" ;;
+esac
+
+# Green. It counts for the head the tests ran on and no other: a pull request
+# pushed to during the run has a head they said nothing of. GitHub is asked once
+# more, and only the same head is recorded.
+now=$(live_head)
+[ -n "$now" ] ||
+  hold "the tests passed on $url at $at ($WHAT), but GitHub would not say what its head is now: $(head -c 500 "$errf"). Nothing was recorded; unhold to run them again."
+[ "$(lower "$now")" = "$(lower "$head")" ] ||
+  report changes "the PR changed while CI ran: the tests passed on $at ($WHAT), but the head is $(short "$now") now. Nothing was recorded; the next commits bring it back to review."
+"$Y" bead update "$BEAD" --meta "ci_head=$head" >"$errf" 2>&1 ||
+  hold "the tests passed on $url at $at ($WHAT), but ci_head could not be recorded on $BEAD: $(head -c 500 "$errf"). Unhold to run them again."
+# The gate's own last line, when that is what the run ended with, is the record
+# of what it ran; nothing else of the output is copied on a green run.
+last=$(printf '%s\n' "$out" | tail -n 1)
+case $last in "test: "*) said=" Its last line: $last" ;; *) said= ;; esac
+report "done" "the tests passed on $url at $head ($WHAT, $secs s). CI is the yard's own run of the depot's test command on that head: ci_head=$head.$said"

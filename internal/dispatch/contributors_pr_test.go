@@ -2,11 +2,11 @@ package dispatch_test
 
 // The pr flow of the contributors pack, whole, as the dispatcher runs it: the
 // pack's flow, its makes and says tables and the routes its yard adds for the
-// yard's merge, with GitHub's deliveries normalized through the github pack as
-// a yard does. A bead is made by a pull request's event, waits for CI in
-// ciwait, and is routed from approved by its label, all by the events and
-// reports a person or a script would make; what merge-pr does with a bead it
-// is given is contrib/assembly's test.
+// yard's CI and merge, with GitHub's deliveries normalized through the github
+// pack as a yard does. A bead is made by a pull request's event, is given to
+// the yard's CI in ciwait, and is routed from approved by its label, all by
+// the events and reports a person or a script would make; what pr-ci and
+// merge-pr do with a bead they are given is contrib/assembly's test.
 
 import (
 	"context"
@@ -27,11 +27,12 @@ import (
 
 // newContributorsYard is a yard whose depot yard, of acme/yardr, follows the
 // contributors pack for beads of the type pr: its flow, and the hook gh with
-// the pack's tables. The yard has the groups and routes docs/line.md, "Merging
-// pull requests", sets up: pr-merges takes a pr bead in approved that carries
+// the pack's tables. The yard has the groups and routes docs/line.md, "The
+// yard as the CI of a pull request" and "Merging pull requests", set up: pr-ci
+// takes a pr bead in ciwait, and pr-merges one in approved that carries
 // merge-ok, as a yard default that outranks the depot's own route of a pr bead
 // in approved to the decisions, at 11. The review stage has no route: the
-// reviewer's report is made by the test.
+// reviewer's report is made by the test, as is what a session of pr-ci reports.
 func newContributorsYard(t *testing.T) *ghDepot {
 	t.Helper()
 	r := newGHDepot(t)
@@ -53,9 +54,12 @@ func newContributorsYard(t *testing.T) *ghDepot {
 	_, err = r.api.PutHook(ctx, *h, "me")
 	must(t, err)
 
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "pr-ci", Runner: "fake", Limit: 1}, "me"))
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "pr-merges", Runner: "fake", Limit: 1}, "me"))
 	pr, merge, everyone := "pr", "merge-ok", store.OriginatorAny
 	depot := "yard"
+	_, err = r.api.AddRoute(ctx, store.Route{Stage: "ciwait", Type: &pr, Originator: &everyone, Group: "pr-ci"}, "me")
+	must(t, err)
 	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Type: &pr, Label: &merge, Originator: &everyone, Priority: 12, Group: "pr-merges"}, "me")
 	must(t, err)
 	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Type: &pr, Depot: &depot, Originator: &everyone, Priority: 11, Group: "decisions"}, "me")
@@ -163,6 +167,22 @@ func (r *ghDepot) reviewerSays(t *testing.T, id string, label bool) {
 	must(t, err)
 }
 
+// ciSays reports bead id as the session of pr-ci would after the depot's tests
+// ran on its head: passed, with the head recorded as ci_head, or not.
+func (r *ghDepot) ciSays(t *testing.T, id string, passed bool) {
+	t.Helper()
+	ctx := context.Background()
+	if !passed {
+		_, err := r.api.Done(ctx, id, "changes", "the tests failed", store.Expect{Stage: "ciwait"}, "me")
+		must(t, err)
+		return
+	}
+	_, err := r.api.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"ci_head": fixtureSHA}}, store.Expect{}, "me")
+	must(t, err)
+	_, err = r.api.Done(ctx, id, "done", "the tests passed", store.Expect{Stage: "ciwait"}, "me")
+	must(t, err)
+}
+
 // madeIn is the bead the pull request number made, in want, after the pass.
 func (r *ghDepot) madeIn(t *testing.T, number int, want string) *store.Bead {
 	t.Helper()
@@ -231,10 +251,10 @@ func (r *ghDepot) startedFor(id string) []string {
 }
 
 // The bead of a bot's bump of Go modules: skips triage into review, is
-// reported done by the reviewer, which has marked it merge-ok, and waits in
-// ciwait, where nothing starts and a cancelled run says nothing. CI that
-// succeeded on its head sends it to approved, where the label has the
-// daemon give it to pr-merges.
+// reported done by the reviewer, which has marked it merge-ok, and is given to
+// the yard's CI in ciwait, where no run of GitHub's CI, cancelled or not,
+// moves it. The pass of the yard's own sends it to approved, where the label
+// has the daemon give it to pr-merges.
 func TestContributorsBotBumpFlowsFromOpenedToTheMerge(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
@@ -246,25 +266,26 @@ func TestContributorsBotBumpFlowsFromOpenedToTheMerge(t *testing.T) {
 		t.Fatalf("%s in %s after the reviewer reported done, want ciwait", b.ID, st)
 	}
 	r.pass(t)
-	if got := r.f.starts(); len(got) != 0 {
-		t.Fatalf("sessions started for a bead in ciwait: %v", got)
+	if got := r.startedFor(b.ID); !slices.Equal(got, []string{"pr-ci"}) {
+		t.Fatalf("%s given to %v in ciwait, want pr-ci", b.ID, got)
 	}
 
-	// A run that was cancelled says nothing; the bead keeps waiting.
+	// Runs of GitHub's CI say nothing, whatever they conclude; the bead stays
+	// for the yard's.
 	r.deliverJSON(t, "check_suite", "check_suite_cancelled", ciRun("check_suite", 17, "cancelled"))
-	r.pass(t)
-	if st := r.stageOf(t, b.ID); st != "ciwait" {
-		t.Fatalf("%s in %s after a cancelled run, want ciwait", b.ID, st)
-	}
-
 	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 17, "success"))
 	r.pass(t)
-	r.pass(t)
-	if got := r.bead(t, b.ID); got.Stage != "approved" {
-		t.Fatalf("%s in %s after CI succeeded on its head, want approved", b.ID, got.Stage)
+	if st := r.stageOf(t, b.ID); st != "ciwait" {
+		t.Fatalf("%s in %s after runs of GitHub's CI, want ciwait", b.ID, st)
 	}
-	if got := r.startedFor(b.ID); !slices.Equal(got, []string{"pr-merges"}) {
-		t.Fatalf("%s given to %v in approved with merge-ok, want pr-merges", b.ID, got)
+
+	r.ciSays(t, b.ID, true)
+	r.pass(t)
+	if got := r.bead(t, b.ID); got.Stage != "approved" || got.Metadata["ci_head"] != fixtureSHA {
+		t.Fatalf("%s in %s with ci_head %v after the yard's CI passed, want approved at %s", b.ID, got.Stage, got.Metadata["ci_head"], fixtureSHA)
+	}
+	if got := r.startedFor(b.ID); !slices.Equal(got, []string{"pr-ci", "pr-merges"}) {
+		t.Fatalf("%s given to %v, want pr-ci in ciwait and pr-merges in approved with merge-ok", b.ID, got)
 	}
 }
 
@@ -278,8 +299,7 @@ func TestContributorsUnlabeledPullRequestWaitsForTheYes(t *testing.T) {
 	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(18, "dependabot[bot]", "Bot"))
 	b := r.madeIn(t, 18, "review")
 	r.reviewerSays(t, b.ID, false)
-	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 18, "success"))
-	r.pass(t)
+	r.ciSays(t, b.ID, true)
 	r.pass(t)
 
 	if got := r.bead(t, b.ID); got.Stage != "approved" {
@@ -305,12 +325,13 @@ func TestContributorsUnlabeledPullRequestWaitsForTheYes(t *testing.T) {
 	}
 }
 
-// CI that failed sends a pull request back to its contributor, from the
-// review and from the wait; a person's push while it is read or waits does
-// too, before any success for the head it had can approve it; and a success
-// anywhere but in the wait says nothing. The runs of a fork's branch name no
-// pull request, and no bead hears them. A bot's push starts the read again
-// instead (TestContributorsBotPushStartsTheReadAgain).
+// The yard's CI sends a pull request back to its contributor when the tests
+// failed; a person's push while they wait or run does too, before a pass for
+// the head it had can approve it, and a report that comes after the push is
+// refused as stale. The runs of GitHub's CI say nothing at any stage, failed or
+// not: a failure under review or in the wait moves no bead, and a success
+// approves nothing. A bot's push starts the read again instead
+// (TestContributorsBotPushStartsTheReadAgain).
 func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
@@ -319,27 +340,19 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 		return r.madeIn(t, n, "review")
 	}
 
-	// Red CI while the reviewer still reads, and while the bead waits: a
-	// workflow run, and a check suite.
-	reading := open(21)
-	r.deliverJSON(t, "workflow_run", "workflow_run_failure", ciRun("workflow_run", 21, "failure"))
-	r.pass(t)
-	if st := r.stageOf(t, reading.ID); st != "contributor" {
-		t.Fatalf("%s in %s after CI failed under review, want contributor", reading.ID, st)
+	// Tests that failed.
+	red := open(21)
+	r.reviewerSays(t, red.ID, false)
+	r.ciSays(t, red.ID, false)
+	if st := r.stageOf(t, red.ID); st != "contributor" {
+		t.Fatalf("%s in %s after the yard's tests failed, want contributor", red.ID, st)
 	}
-	waiting := open(22)
-	r.reviewerSays(t, waiting.ID, false)
-	r.deliverJSON(t, "check_suite", "check_suite_cancelled", ciRun("check_suite", 22, "failure"))
-	r.pass(t)
-	if st := r.stageOf(t, waiting.ID); st != "contributor" {
-		t.Fatalf("%s in %s after CI failed while it waited, want contributor", waiting.ID, st)
-	}
-	if note := r.lastNote(t, waiting.ID); !strings.Contains(note, "CI failed on the PR") {
-		t.Fatalf("note of the move: %q", note)
+	if got := r.bead(t, red.ID); got.Metadata["ci_head"] != nil {
+		t.Fatalf("%s has ci_head %v after tests that failed", red.ID, got.Metadata["ci_head"])
 	}
 
-	// A person's push while it waits bounces it, and a success that comes
-	// after for the head it had approves nothing.
+	// A person's push while it waits bounces it; the report of the run that was
+	// of the head it had is refused, and approves nothing.
 	pushed := open(23)
 	r.reviewerSays(t, pushed.ID, false)
 	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(23, "dependabot[bot]", "Bot"), pushedBy("a-maintainer", "User"))
@@ -350,10 +363,11 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 	if note := r.lastNote(t, pushed.ID); !strings.Contains(note, "the PR changed while waiting on CI") {
 		t.Fatalf("note of the move: %q", note)
 	}
-	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 23, "success"))
-	r.pass(t)
+	if _, err := r.api.Done(context.Background(), pushed.ID, "done", "the tests passed", store.Expect{Stage: "ciwait"}, "me"); err == nil {
+		t.Fatalf("a report from ciwait on %s was taken after it left for the contributor", pushed.ID)
+	}
 	if st := r.stageOf(t, pushed.ID); st != "contributor" {
-		t.Fatalf("%s in %s after a success for the head it had, want contributor", pushed.ID, st)
+		t.Fatalf("%s in %s after a late report, want contributor", pushed.ID, st)
 	}
 
 	// And a person's push while the reviewer still reads.
@@ -367,21 +381,22 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 		t.Fatalf("note of the move: %q", note)
 	}
 
-	// A success while the reviewer still reads approves nothing.
-	unread := open(24)
-	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 24, "success"))
+	// Runs of GitHub's CI move nothing: not a failure under review, not one
+	// in the wait, not a success while the reviewer still reads.
+	unread, waiting := open(24), open(25)
+	r.reviewerSays(t, waiting.ID, false)
+	for _, n := range []int{24, 25} {
+		r.deliverJSON(t, "workflow_run", "workflow_run_failure", ciRun("workflow_run", n, "failure"))
+		r.deliverJSON(t, "check_suite", "check_suite_cancelled", ciRun("check_suite", n, "failure"))
+		r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", n, "success"))
+		r.deliverJSON(t, "check_suite", "check_suite_cancelled", ciRun("check_suite", n, "success"))
+	}
 	r.pass(t)
 	if st := r.stageOf(t, unread.ID); st != "review" {
-		t.Fatalf("%s in %s after CI succeeded while it was read, want review", unread.ID, st)
+		t.Fatalf("%s in %s after runs of GitHub's CI while it was read, want review", unread.ID, st)
 	}
-
-	// A fork's runs name no pull request: the bead keeps waiting for a hand.
-	forks := open(25)
-	r.reviewerSays(t, forks.ID, false)
-	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 0, "success"))
-	r.pass(t)
-	if st := r.stageOf(t, forks.ID); st != "ciwait" {
-		t.Fatalf("%s in %s after a run that named no pull request, want ciwait", forks.ID, st)
+	if st := r.stageOf(t, waiting.ID); st != "ciwait" {
+		t.Fatalf("%s in %s after runs of GitHub's CI while it waited, want ciwait", waiting.ID, st)
 	}
 }
 
@@ -390,8 +405,9 @@ func TestContributorsRedCIAndPushesSendItBack(t *testing.T) {
 // bead in contributor for a push that a bot, whose rebase is the only one it
 // makes, does not send. From the review the session on the old head is
 // stopped and a new one starts, as a new stay in the same stage; from the wait
-// the bead goes back to review, and once it is read again a success for the
-// head it left says nothing, where one for the new head approves it.
+// the session of the yard's CI on the old head is stopped and a report it still
+// makes is refused, the bead goes back to review, and once it is read again the
+// yard's CI runs on it afresh, and its pass approves it.
 func TestContributorsBotPushStartsTheReadAgain(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
@@ -429,32 +445,43 @@ func TestContributorsBotPushStartsTheReadAgain(t *testing.T) {
 		t.Fatalf("session %s of the old head still runs: stopped %v", first[0], r.stoppedSessions())
 	}
 
-	// While it waits on CI: back to review, read at the new head, then CI on
-	// the new head and not on the old one approves it.
+	// While the yard's CI runs: its session on the old head is stopped, the
+	// bead goes back to review and is read at the new head, and the yard's CI
+	// on it, not a report of the old run, approves it.
 	waiting := open(42)
 	r.reviewerSays(t, waiting.ID, false)
+	r.pass(t)
+	run := r.sessionsFor(waiting.ID)
+	if got := r.startedFor(waiting.ID); !slices.Equal(got, []string{"pr-reviewers", "pr-ci"}) {
+		t.Fatalf("%s given to %v before the push, want the reviewer and then pr-ci", waiting.ID, got)
+	}
 	r.deliverJSON(t, "pull_request", "pull_request_synchronize", prEvent(42, "dependabot[bot]", "Bot"), atHead(movedSHA))
 	r.pass(t)
 	if st := r.stageOf(t, waiting.ID); st != "review" {
-		t.Fatalf("%s in %s after a bot pushed while it waited on CI, want review", waiting.ID, st)
+		t.Fatalf("%s in %s after a bot pushed while the yard's CI ran, want review", waiting.ID, st)
 	}
 	if note := r.lastNote(t, waiting.ID); !strings.Contains(note, "a bot pushed to the PR") {
 		t.Fatalf("note of the move: %q", note)
 	}
+	if _, err := r.api.Done(context.Background(), waiting.ID, "done", "the tests passed", store.Expect{Stage: "ciwait"}, "me"); err == nil {
+		t.Fatalf("a report from ciwait on %s was taken after it went back to review", waiting.ID)
+	}
 	r.pass(t)
-	if got := r.sessionsFor(waiting.ID); len(got) != 2 {
-		t.Fatalf("%s read by %v after a bot pushed while it waited, want a second session", waiting.ID, got)
+	if got := r.startedFor(waiting.ID); !slices.Equal(got, []string{"pr-reviewers", "pr-ci", "pr-reviewers"}) {
+		t.Fatalf("%s given to %v after a bot pushed while it waited, want a second reviewer", waiting.ID, got)
+	}
+	if !slices.Contains(r.stoppedSessions(), run[1]) {
+		t.Fatalf("session %s of the yard's CI on the old head still runs: stopped %v", run[1], r.stoppedSessions())
 	}
 	r.reviewerSays(t, waiting.ID, false)
-	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 42, "success"))
 	r.pass(t)
-	if st := r.stageOf(t, waiting.ID); st != "ciwait" {
-		t.Fatalf("%s in %s after a success for the head it left, want ciwait", waiting.ID, st)
+	if got := r.startedFor(waiting.ID); !slices.Equal(got, []string{"pr-reviewers", "pr-ci", "pr-reviewers", "pr-ci"}) {
+		t.Fatalf("%s given to %v once it was read again, want the yard's CI to run on the new head", waiting.ID, got)
 	}
-	r.deliverJSON(t, "workflow_run", "workflow_run_success", ciRun("workflow_run", 42, "success"), atHead(movedSHA))
+	r.ciSays(t, waiting.ID, true)
 	r.pass(t)
 	if st := r.stageOf(t, waiting.ID); st != "approved" {
-		t.Fatalf("%s in %s after a success for the new head, want approved", waiting.ID, st)
+		t.Fatalf("%s in %s after the yard's CI passed on the new head, want approved", waiting.ID, st)
 	}
 }
 

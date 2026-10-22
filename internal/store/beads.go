@@ -305,8 +305,9 @@ func createdData(b *Bead) map[string]any {
 // as the handle, and creates the bead. From a session's or a crew
 // member's pane the bead is created as that session's actor or that crew
 // member, whatever actor says; from anywhere else, as given (paneAuthor).
-// A bead's agent may not pin the new bead's flow or file it past its flow's
-// first stage where no person looks first (checkAgentCreate).
+// A bead's agent may not pin the new bead's flow, file it past its flow's
+// first stage where no person looks first, or create it with merge permission
+// or a CI verdict (checkAgentCreate).
 func (s *Store) CreateBead(ctx context.Context, nb NewBead, actor string) (*Bead, error) {
 	create, err := s.newBead(ctx, nb, actor)
 	if err != nil {
@@ -588,15 +589,24 @@ func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *b
 
 // checkAgentCreate refuses a bead's agent (beadAgent) a new bead b, of flow
 // f, that would skip what the flow puts first: a flow pin, which chooses a
-// flow of the agent's own (UpdateBead refuses it too), or a stage past the
-// flow's first that no person the yard names looks at before work starts
-// (StageWork.Seen). A bead filed into its flow's first stage, or into one
-// people work (decide), is seen first; one filed into review or approved
-// would land without the stages before it.
+// flow of the agent's own (UpdateBead refuses it too), a merge permission or
+// CI verdict, or a stage past the flow's first that no person the yard names
+// looks at before work starts (StageWork.Seen). A bead filed into its flow's
+// first stage, or into one people work (decide), is seen first; one filed into
+// review or approved would land without the stages before it.
 func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage string) error {
 	sess, err := beadAgent(w.Tx, ctx)
 	if err != nil || sess == nil {
 		return err
+	}
+	if slices.Contains(b.Labels, labelMergeOK) {
+		return fmt.Errorf("the session %s of a bead's agent may not create a bead with merge-ok, whatever actor the command names; a reviewer says it on the pull request it read", sess.ID)
+	}
+	if _, ok := b.Metadata[metaMergeHead]; ok {
+		return fmt.Errorf("the session %s of a bead's agent may not create a bead with merge_head, whatever actor the command names; a maintainer's yes is theirs", sess.ID)
+	}
+	if _, ok := b.Metadata[metaCIHead]; ok {
+		return fmt.Errorf("the session %s of a bead's agent may not create a bead with ci_head, whatever actor the command names; the script that ran the tests writes it", sess.ID)
 	}
 	if pin := PinnedFlow(&b); pin != "" {
 		return fmt.Errorf("the session %s of a bead's agent may not pin a new bead's flow (metadata flow %s), whatever actor the command names; file it without, and the yard chooses its flow", sess.ID, pin)
@@ -1230,8 +1240,9 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 // with no live session. From a session's or a crew member's pane the
 // update is recorded as that session's actor or that crew member, whatever
 // actor says; from anywhere else, as given (paneAuthor). A bead's agent
-// may not change a bead's type or depot (checkFlowChange), and may say
-// merge-ok, or record merge_head, only on its own bead (checkMergeOK).
+// may not change a bead's type or depot (checkFlowChange), may say
+// merge-ok, or record merge_head, only on its own bead (checkMergeOK), and
+// may not record ci_head on any (checkCIHead).
 func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expect, actor string) (*Bead, error) {
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return nil, fmt.Errorf("a bead needs a title")
@@ -1310,6 +1321,9 @@ func (s *Store) UpdateBead(ctx context.Context, id string, p BeadPatch, exp Expe
 				return "", nil, err
 			}
 			if err := w.checkMergeOK(ctx, b, p); err != nil {
+				return "", nil, err
+			}
+			if err := w.checkCIHead(ctx, b, p); err != nil {
 				return "", nil, err
 			}
 			if err := w.check(ctx, exp, b); err != nil {
@@ -2010,6 +2024,30 @@ func (w *wtx) checkMergeOK(ctx context.Context, b *beadRow, p BeadPatch) error {
 	}
 	return fmt.Errorf("bead %s: the session %s of a bead's agent may say merge-ok only on its own bead %s, whatever actor the command names; the reviewer says it on the pull request it read, and a maintainer's yes is theirs: yardr bead note %s \"why it is merge-ok\"",
 		b.ID, sess.ID, handlesIn(w.Tx).of(sess.Bead), b.ID)
+}
+
+// metaCIHead is the commit the yard's own CI passed on, as the script that runs
+// the depot's tests on a pull request's head records it (the contributors
+// pack's ciwait stage, pr-ci), and as merge-pr takes it: the whole of the
+// pull request's CI.
+const metaCIHead = "ci_head"
+
+// checkCIHead refuses a bead's agent (beadAgent) a patch that records ci_head,
+// on any bead, its own included. merge-pr merges on ci_head as it finds it, so
+// an agent that could write it could have the yard merge a pull request nothing
+// ran the tests of, and the agent that reads a pull request's text is exactly
+// the one a pull request would try to talk into it. The script that ran the
+// tests writes it, as a person may.
+func (w *wtx) checkCIHead(ctx context.Context, b *beadRow, p BeadPatch) error {
+	if _, ok := p.Metadata[metaCIHead]; !ok {
+		return nil
+	}
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil {
+		return err
+	}
+	return fmt.Errorf("bead %s: the session %s of a bead's agent may not record ci_head, whatever actor the command names; it says which head the yard's CI passed on, and the script that ran the tests writes it: yardr bead note %s \"why CI should run again\"",
+		b.ID, sess.ID, b.ID)
 }
 
 // closeBead is CloseBead's write inside the caller's transaction, for the

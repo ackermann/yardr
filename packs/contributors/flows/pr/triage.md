@@ -6,10 +6,11 @@ built or run. The bead tracks it: its title, its text and its address are
 on it.
 
 This stage is the hold, and it is this pack's advice: nothing of the yard
-runs outside code. A maintainer checks here whether the person and the code
+runs outside code before a person has judged it. A maintainer checks here whether the person and the code
 are legit, before anything of the pull request is run anywhere. The
 reviewer after this stage reads the code in a sandbox and runs none of it.
-Running it belongs to `approved`: a person pulling the code, by their own
+Only then does the yard run the depot's tests on it (`ciwait`), and running
+it further belongs to `approved`: a person pulling the code, by their own
 judgement.
 
 What to look at, on GitHub and not in a checkout:

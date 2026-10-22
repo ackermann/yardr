@@ -2,9 +2,9 @@ summary: A reviewer that only reads reviews the pull request; the review is a no
 
 A pull request from outside is reviewed here by reading it. The reviewer has
 its head in the bead's worktree, detached, and runs nothing of it: no tests,
-no build, no script, no install. Whether it works is for the repository's
-CI and, after approval, for a maintainer. Nothing is committed and nothing
-is pushed: the pull request is its author's.
+no build, no script, no install. Whether it works is for the yard's CI run,
+which is the next stage, and, after approval, for a maintainer. Nothing is
+committed and nothing is pushed: the pull request is its author's.
 
 It is held to what the project holds its own work to, its review stage file,
 and to what a maintainer needs to decide: whether the change fits the
@@ -20,10 +20,10 @@ the pull request what they choose. It names what was read and what was not,
 and that nothing was run. Outcomes:
 
 - `done`: a maintainer can merge it as it is, or with what the note lists
-  as small. The bead goes to `ciwait` and waits there for the repository's
-  CI to pass on the head that was read; it reaches `approved`, to the
-  maintainers, only then, and CI that fails sends it to the contributor.
-  The reviewer does not wait for CI and cannot see it.
+  as small. The bead goes to `ciwait` and waits there for the yard's CI run,
+  the depot's tests on the head that was read; it reaches `approved`, to the
+  maintainers, only when that run passes, and a run that fails sends it to
+  the contributor. The reviewer does not wait for CI and cannot see it.
 - `changes`: the contributor has to change it. The note has findings they
   can act on, by file and line. The bead goes to `contributor` and comes
   back when the pull request has new commits.

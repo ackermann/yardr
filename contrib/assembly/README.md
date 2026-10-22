@@ -178,8 +178,9 @@ looked up. A bot's pull request from a branch of the repository itself is
 merged at its live head; every other is merged at the bead's `merge_head`,
 the full sha a maintainer's yes recorded (`yardr bead update <id>
 --add-label merge-ok --meta merge_head=<sha>`), and a head that is another
-commit holds the bead ("moved since your yes"). The commit's check runs must
-all be completed and success, neutral or skipped. `gh pr merge` runs with
+commit holds the bead ("moved since your yes"). The yard's CI must have passed
+on that commit: the bead's `ci_head`, which pr-ci records, is it, and GitHub's
+check runs are not asked. `gh pr merge` runs with
 `--match-head-commit`: `--rebase --delete-branch` for a branch of the
 repository's own, `--merge` and no deletion for a fork. A pull request merged
 already reports `merged`, one closed unmerged `dropped`, and nothing else is
@@ -187,10 +188,33 @@ ever reported: whatever stops the merge holds the bead with a note. It
 touches no checkout and needs `gh` and `jq`, and never uses the operator's
 own `gh` login. docs/line.md, "Merging pull requests", has the setup.
 
+**pr-ci** is routed for `ciwait` (type `pr`), the stage after a reviewer has
+read a pull request of the contributors pack, which carries a copy of it that
+a test holds equal, and is the yard's CI of it:
+GitHub Actions is off, so it runs the depot's test command on the pull
+request's head. It asks GitHub as the yard's App, as merge-pr does (the same
+`env_file` and mint, and the same text for the tracks link and the token, held
+equal by a test), reads the head, fetches `refs/pull/<n>/head` from the
+depot's `origin` and checks that commit out, detached, in a worktree of its
+own (`<worktrees>/<depot>/<bead>-ci`), removed when the script ends. It runs
+`YARDR_TEST` there as merge-local does, with the base's copy of a test file
+the base has, without `YARDR_LANDING`, red on exit 1, held on exit 2, run once
+more when a signal ended it, and killed and red past `YARDR_TEST_TIMEOUT`.
+Green on the head GitHub still names records it as the bead's `ci_head` and
+reports `done`, to `approved`; red, or a head that moved meanwhile, reports
+`changes`, to `contributor`, with the end of the output. Whatever is no
+verdict (no token, a refused gh or fetch, a depot with no test command, a
+bead not in `ciwait`, a pull request no longer open) holds the bead with a
+note. Nothing is written to GitHub. Needs `gh`, `jq` and `git` on PATH.
+docs/line.md, "The yard as the CI of a pull request", has the setup.
+
 **Environment.** The four above read what the exec runner sets: `YARDR_BEAD`,
 `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_BRANCH` (default
 `yard/<bead>`), `YARDR_WORKTREE`, `YARDR_BIN` and `YARDR_HOME` (used for the
-default worktree path); merge-local also `YARDR_TYPE` and `YARDR_TRAIN`.
+default worktree path); merge-local also `YARDR_TYPE` and `YARDR_TRAIN`. merge-pr
+reads `YARDR_BEAD` and `YARDR_BIN` alone, and pr-ci those and `YARDR_DEPOT`,
+`YARDR_DEPOT_PATH`, `YARDR_BASE`, `YARDR_WORKTREE` and `YARDR_TEST`, the depot's
+test command, with `YARDR_TEST_TIMEOUT` in its cmd as merge-local has it.
 Options go in the group's `cmd`: `YARDR_PUSH`, a remote to push to (off when
 empty; pr-train and pr-merge default to `origin`), `YARDR_NOTIFY`, the crew member
 mailed when that push fails (default the yard's `yardmaster` setting, else

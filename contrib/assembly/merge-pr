@@ -25,18 +25,21 @@
 # anything else, a human's fork or a human's branch in the repository, or a
 # bot's pull request from a fork, only the commit the maintainer's yes
 # recorded (the bead's metadata merge_head, a full sha), and a head that is
-# another commit now is held: "moved since your yes". The commit's CI must be
-# green: it has check runs, every one completed and success, neutral or
-# skipped. A fork is merged with a merge commit and its branch is left alone,
-# being its author's; a branch of the repository's own is rebased on and
-# deleted. --match-head-commit closes the gap between the look and the merge.
+# another commit now is held: "moved since your yes". The yard's CI must have
+# passed on that commit: the bead's metadata ci_head, which pr-ci records in
+# ciwait, is it, and GitHub's check runs are not asked (Actions is off, and one
+# source of truth is enough). A fork is merged with a merge commit and its
+# branch is left alone, being its author's; a branch of the repository's own is
+# rebased on and deleted. --match-head-commit closes the gap between the look
+# and the merge.
 #
 # The outcomes at approved are merged and dropped, and nothing here reports
 # anything else. A pull request already merged reports merged, one closed
 # unmerged reports dropped; every other thing that stops the merge (no label,
-# no yes, a head that moved, CI not green, the App without the permissions it
-# needs, GitHub's refusal) holds the bead with a note, for a maintainer to act
-# on GitHub, then unhold. Nothing here retries.
+# no yes, a head that moved, CI not passed on it, the App without the
+# permissions it needs, GitHub's refusal) holds the bead with a note, for a
+# maintainer to act on, on GitHub or by sending the bead back to ciwait, then
+# unhold. Nothing here retries.
 #
 # It reads the environment the exec runner gives it: YARDR_BEAD and YARDR_BIN.
 # The depot's checkout is never touched: GitHub is the whole of it.
@@ -77,19 +80,24 @@ bead=$("$Y" bead show "$BEAD" --json) || hold "reading $BEAD failed"
 printf '%s' "$bead" | jq -e '(.labels // []) | index("merge-ok")' >/dev/null ||
   hold "$BEAD does not carry merge-ok, which says the yard may merge its pull request. Not merging. A maintainer says yes with: yardr bead update $BEAD --add-label merge-ok --meta merge_head=<sha of the head commit they looked at>, then yardr bead unhold $BEAD."
 
+NOT="not merging" STAGE=approved
+# --- github_binding: the same text in merge-pr and pr-ci (a test holds them equal) ---
+# NOT and STAGE are each script's own words for what it leaves undone and where
+# the bead waits; everything else is one text.
+#
 # The pull request is the one the bead tracks, by the URL of the link and
 # nothing else: owner, repository and number are read from it, and a URL of
 # another shape (another host, an issue, a path past the number) is refused.
 url=$(printf '%s' "$bead" | jq -r '[.links[]? | select(.kind == "tracks" and .source == "github") | .url] | first // empty')
 [ -n "$url" ] ||
-  hold "$BEAD tracks no GitHub pull request (no tracks link of source github); not merging. Link it with yardr link, or take the bead out of approved."
+  hold "$BEAD tracks no GitHub pull request (no tracks link of source github); $NOT. Link it with yardr link, or take the bead out of $STAGE."
 printf '%s' "$url" | grep -Eq '^https://github\.com/[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$' ||
-  hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); not merging."
+  hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); $NOT."
 path=${url#https://github.com/}
 owner=${path%%/*}
 rest=${path#*/}
 repo=${rest%%/*}
-case $repo in . | ..) hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); not merging." ;; esac
+case $repo in . | ..) hold "$BEAD tracks $url, which is not a pull request address (https://github.com/<owner>/<repo>/pull/<n>); $NOT." ;; esac
 slug=$owner/$repo
 
 # The token: minted for this repository alone, from the App's id and key file
@@ -98,11 +106,11 @@ slug=$owner/$repo
 # printed nowhere. The mint command is the github source's own unless the
 # group's cmd names another.
 [ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ] ||
-  hold "this group's environment has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the yard's GitHub App is minted from (the group's env_file); not merging."
+  hold "this group's environment has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE, which the yard's GitHub App is minted from (the group's env_file); $NOT."
 mint=${YARDR_GITHUB_MINT:-}
 [ -n "$mint" ] || mint=$("$Y" source show github --json 2>/dev/null | jq -r '.source.mint_command // empty')
 [ -n "$mint" ] ||
-  hold "the github source has no mint_command and the group's cmd sets no YARDR_GITHUB_MINT; not merging. Install contrib/github-mint, then yardr source set github mint_command=<its path>."
+  hold "the github source has no mint_command and the group's cmd sets no YARDR_GITHUB_MINT; $NOT. Install contrib/github-mint, then yardr source set github mint_command=<its path>."
 # mint_command has the same space-split, no-shell contract as yardr's source
 # mint. Disable pathname expansion while forming argv so a configured `*`
 # stays an argument and never grows into files in the runner's directory.
@@ -117,11 +125,12 @@ mint_token() {
 tokjson=$(jq -nc --arg id "$GITHUB_APP_ID" --arg key "$GITHUB_APP_PRIVATE_KEY_FILE" --arg scope "$slug" \
   '{inputs: {GITHUB_APP_ID: $id, GITHUB_APP_PRIVATE_KEY_FILE: $key}, scope: $scope}' |
   mint_token) ||
-  hold "minting a token for $slug failed; the mint's output is not copied to the bead. Not merging."
+  hold "minting a token for $slug failed; the mint's output is not copied to the bead. $NOT."
 token=$(printf '%s' "$tokjson" | jq -r '.token // empty')
 unset tokjson
-[ -n "$token" ] || hold "minting a token for $slug answered no token; not merging."
+[ -n "$token" ] || hold "minting a token for $slug answered no token; $NOT."
 gh_() { GH_TOKEN=$token gh "$@"; }
+# --- end of github_binding ---
 
 pr=$(gh_ pr view "$url" --json number,state,headRefOid,headRepository,headRepositoryOwner,author 2>"$errf") ||
   hold "reading pull request $url failed: $(head -c 500 "$errf")"
@@ -173,19 +182,19 @@ else
   sha=$head
 fi
 
-# CI: the checks GitHub has run on that commit. The check runs name their job,
-# not their workflow, so it is the whole of them that counts: at least one,
-# and every one of them completed and success, neutral or skipped.
-raw=$(gh_ api "repos/$slug/commits/$sha/check-runs?per_page=100" --paginate 2>"$errf") ||
-  hold "reading the check runs of $(short "$sha") in $slug failed: $(head -c 500 "$errf"). The App needs Checks read on the repository. Not merging."
-runs=$(printf '%s' "$raw" | jq -s '[.[].check_runs[]?]') ||
-  hold "the check runs of $(short "$sha") in $slug are not JSON: $(printf '%s' "$raw" | head -c 200). Not merging."
-[ "$(printf '%s' "$runs" | jq length)" -gt 0 ] ||
-  hold "no check run on $(short "$sha") in $slug: nothing says CI passed there. Not merging."
-notgreen=$(printf '%s' "$runs" | jq -r '[.[] | select(.status != "completed" or ((.conclusion // "") | IN("success", "neutral", "skipped") | not))
-  | .name + " (" + (if .status != "completed" then .status else .conclusion end) + ")"] | join(", ")')
-[ -z "$notgreen" ] ||
-  hold "CI is not green on $(short "$sha") in $slug: $notgreen. Not merging."
+# CI: the yard's own. pr-ci runs the depot's test command on the head in ciwait
+# and records the head it passed on as the bead's metadata ci_head, which counts
+# for that commit and no other: a head that is another commit (the pull request
+# was pushed to since the run, or the bead was moved here by hand) has not
+# passed. Nothing is asked of GitHub for it: Actions is off, and one source of
+# truth is enough.
+ciat=$(printf '%s' "$bead" | jq -r '.metadata.ci_head // empty')
+case $ciat in *[!0-9a-fA-F]*) ciat= ;; esac
+case ${#ciat} in 40 | 64) ;; *) ciat= ;; esac
+passed=nothing
+[ -z "$ciat" ] || passed=$(short "$ciat")
+{ [ -n "$ciat" ] && [ "$(lower "$ciat")" = "$(lower "$sha")" ]; } ||
+  hold "CI has not passed on $(short "$sha") (yard CI passed $passed). Not merging. The yard runs CI on a pull request's head in ciwait (pr-ci); to have it run on the head as it is now: yardr bead advance $BEAD --to ciwait, then yardr bead unhold $BEAD."
 
 # The merge. --match-head-commit makes GitHub refuse when the head is no
 # longer the commit looked at; gh can merge and still exit non-zero (a local

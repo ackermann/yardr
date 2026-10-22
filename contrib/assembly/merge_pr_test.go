@@ -42,12 +42,13 @@ const (
 // head commit), and files a test writes to change the answer: state
 // (OPEN unless it says MERGED or CLOSED), bot (the author is a bot),
 // head-owner and head-name (the repository the head is in, o/r unless
-// written), checks (what the check runs of any commit are, which may be two
-// JSON documents, as two pages are), view-fail, api-fail and refuse (the
-// error of that call), and race (the commit the head moves to as the merge
-// starts). A call whose GH_TOKEN is not the mint's is refused as GitHub
-// refuses a bad credential; merging with --match-head-commit refuses, in
-// GitHub's words, when the head is another commit.
+// written), view-fail and refuse (the error of that call), race (the commit
+// the head moves to as the merge starts) and head-next (the commit the head
+// moves to once the next look at the pull request has been answered). A call whose GH_TOKEN is not
+// the mint's is refused as GitHub refuses a bad credential; merging with
+// --match-head-commit refuses, in GitHub's words, when the head is another
+// commit. It has no api call: CI is the yard's own, and a script that asks
+// GitHub for check runs is told so.
 const fakeMergeGh = `#!/bin/sh
 d=$FAKE_GH
 echo "$*" >>"$d/calls"
@@ -57,10 +58,8 @@ case "$1 $2" in
   if [ -e "$d/view-fail" ]; then cat "$d/view-fail" >&2; exit 1; fi
   printf '{"number":7,"state":"%s","headRefOid":"%s","headRepository":{"name":"%s"},"headRepositoryOwner":{"login":"%s"},"author":{"is_bot":%s,"login":"%s"}}\n' \
     "$(cat "$d/state" 2>/dev/null || echo OPEN)" "$(cat "$d/head")" "$(cat "$d/head-name" 2>/dev/null || echo r)" \
-    "$(cat "$d/head-owner" 2>/dev/null || echo o)" "$([ -e "$d/bot" ] && echo true || echo false)" "$([ -e "$d/bot" ] && echo app/dependabot || echo jo)" ;;
-"api repos/o/r/commits/"*)
-  if [ -e "$d/api-fail" ]; then cat "$d/api-fail" >&2; exit 1; fi
-  if [ -e "$d/checks" ]; then cat "$d/checks"; else echo '{"total_count":1,"check_runs":[{"name":"test","status":"completed","conclusion":"success"}]}'; fi ;;
+    "$(cat "$d/head-owner" 2>/dev/null || echo o)" "$([ -e "$d/bot" ] && echo true || echo false)" "$([ -e "$d/bot" ] && echo app/dependabot || echo jo)"
+  if [ -e "$d/head-next" ]; then mv "$d/head-next" "$d/head"; fi ;;
 "pr merge")
   if [ -e "$d/refuse" ]; then cat "$d/refuse" >&2; exit 1; fi
   if [ -e "$d/race" ]; then cp "$d/race" "$d/head"; fi
@@ -108,12 +107,14 @@ calls:
 
 // mergeOpts is how a case's pull request, and what the bead has recorded of
 // it, differ from a bot's bump of its own repository at headA that nobody
-// has said yes to.
+// has said yes to and that the yard's CI has passed on.
 type mergeOpts struct {
 	human     bool   // the author is not a bot
 	headOwner string // the owner of the head's repository, o (the pull request's own) unless written
 	head      string // the head commit, headA unless written
 	yes       string // metadata merge_head, none unless written
+	ci        string // metadata ci_head, the pull request's head unless written
+	noCI      bool   // the yard's CI has passed on nothing: no ci_head
 }
 
 // prURLn is the address of pull request n of o/r.
@@ -178,9 +179,12 @@ func mergeYard(t *testing.T) (y *yard, gh string) {
 
 // prBead adds pr bead id in approved, tracking the pull request at url (none
 // when it is empty) and carrying merge-ok when label is set.
-func (y *yard) prBead(id, url string, label bool) {
+func (y *yard) prBead(id, url string, label bool) { y.prBeadIn(id, url, "approved", label) }
+
+// prBeadIn is prBead for a bead in stage.
+func (y *yard) prBeadIn(id, url, stage string, label bool) {
 	y.t.Helper()
-	nb := store.NewBead{Title: "bump", ID: id, Depot: "r", Type: "pr", Stage: "approved", Priority: store.DefaultPriority}
+	nb := store.NewBead{Title: "bump", ID: id, Depot: "r", Type: "pr", Stage: stage, Priority: store.DefaultPriority}
 	if label {
 		nb.Labels = []string{"merge-ok"}
 	}
@@ -197,7 +201,7 @@ func (y *yard) prBead(id, url string, label bool) {
 // calls, its answers, its failures.
 func standIn(t *testing.T, gh string, o mergeOpts, files map[string]string) {
 	t.Helper()
-	for _, name := range []string{"calls", "state", "bot", "head-owner", "head-name", "checks", "view-fail", "api-fail", "refuse", "race", "mint-fail", "mint-stdin", "mint-args"} {
+	for _, name := range []string{"calls", "state", "bot", "head-owner", "head-name", "view-fail", "refuse", "race", "head-next", "mint-fail", "mint-stdin", "mint-args"} {
 		if err := os.Remove(filepath.Join(gh, name)); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -220,8 +224,9 @@ func standIn(t *testing.T, gh string, o mergeOpts, files map[string]string) {
 }
 
 // mergePR runs merge-pr on bead id once more: with the stand-in as o and
-// files make it, the bead's merge_head as o.yes (none clears it), and the bead
-// unheld if the last run held it.
+// files make it, the bead's merge_head as o.yes (none clears it) and its
+// ci_head as o says (the head, unless it says otherwise), and the bead unheld
+// if the last run held it.
 func (y *yard) mergePR(gh, id string, o mergeOpts, files map[string]string) {
 	y.t.Helper()
 	standIn(y.t, gh, o, files)
@@ -229,7 +234,11 @@ func (y *yard) mergePR(gh, id string, o mergeOpts, files map[string]string) {
 	// package near its time budget, and the yes as a maintainer types it is
 	// the one command the merging cases give (TestMergePRMerges).
 	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: y.home}).Socket())
-	if _, err := st.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"merge_head": o.yes}}, store.Expect{}, "test"); err != nil {
+	ci := or(o.ci, or(o.head, headA))
+	if o.noCI {
+		ci = ""
+	}
+	if _, err := st.UpdateBead(ctx, id, store.BeadPatch{Metadata: map[string]any{"merge_head": o.yes, "ci_head": ci}}, store.Expect{}, "test"); err != nil {
 		y.t.Fatal(err)
 	}
 	if y.beadOf(id).Hold {
@@ -383,7 +392,8 @@ func TestMergePRMerges(t *testing.T) {
 		}
 		// Every run that asked GitHub asked the mint, for the repository of
 		// the pull request and from the id and key file the group's env_file
-		// gave, and read the check runs of the head it merged.
+		// gave, and asked GitHub nothing of CI, which is the yard's own: no
+		// call of the api, where the check runs are.
 		if c.flags != "" {
 			var asked struct {
 				Inputs map[string]string `json:"inputs"`
@@ -402,8 +412,8 @@ func TestMergePRMerges(t *testing.T) {
 			if got := readFile(t, filepath.Join(gh, "mint-args")); got != wantArgs {
 				t.Errorf("%s: mint arguments = %q, want %q", c.what, got, wantArgs)
 			}
-			if n := countCalls(t, gh, "api repos/o/r/commits/"+or(c.o.head, headA)+"/check-runs"); n != 1 {
-				t.Errorf("%s: the check runs of the head read %d times, want once:\n%v", c.what, n, ghCalls(t, gh))
+			if n := countCalls(t, gh, "api "); n != 0 {
+				t.Errorf("%s: GitHub was asked for CI, which is the yard's own, %d times:\n%v", c.what, n, ghCalls(t, gh))
 			}
 		}
 		if i == 0 {
@@ -450,7 +460,7 @@ func TestMergePRHoldsForTheYes(t *testing.T) {
 
 		y.held(gh, "r-p", c.what, 0, c.wants...)
 		if n := countCalls(t, gh, "api "); n != 0 {
-			t.Errorf("%s: CI was read for a pull request waiting for a yes:\n%v", c.what, ghCalls(t, gh))
+			t.Errorf("%s: GitHub was asked about a pull request waiting for a yes:\n%v", c.what, ghCalls(t, gh))
 		}
 	}
 
@@ -461,37 +471,44 @@ func TestMergePRHoldsForTheYes(t *testing.T) {
 	y.mergedAs(gh, "r-p", "the new yes", "merged", "pr merge "+prURL+" --merge --match-head-commit "+headB)
 }
 
-// CI must be green on the commit that is merged: at least one check run,
-// every one of them completed and success, neutral or skipped, on any of
-// the pages the check runs come in. Anything else holds the bead and names
-// the check.
-func TestMergePRHoldsUnlessCIIsGreen(t *testing.T) {
+// The yard's CI must have passed on the commit that is merged: the bead's
+// ci_head is that commit, whole, and nothing of GitHub is asked for it. No
+// ci_head, one of another commit (the pull request was pushed to since the run,
+// for a bot's too), one that is not a full sha and a head that is another
+// commit than the yes's all hold the bead before anything is merged, and the
+// note says what CI passed on and how to have it run again. The commit is
+// the same in any case of its letters.
+func TestMergePRHoldsUnlessTheYardsCIPassed(t *testing.T) {
 	y, gh := mergeYard(t)
 	y.prBead("r-p", prURL, true)
-	green := `{"name":"test","status":"completed","conclusion":"success"}`
+	again := "yardr bead advance r-p --to ciwait, then yardr bead unhold r-p"
 	for _, c := range []struct {
-		what, checks string
-		wants        []string
+		what  string
+		o     mergeOpts
+		wants []string
 	}{
-		{"a failed check", `{"check_runs":[` + green + `,{"name":"lint","status":"completed","conclusion":"failure"}]}`,
-			[]string{"CI is not green on 4f2c9e1 in o/r: lint (failure)"}},
-		{"a check still running", `{"check_runs":[{"name":"test","status":"in_progress","conclusion":null}]}`,
-			[]string{"CI is not green on 4f2c9e1 in o/r: test (in_progress)"}},
-		{"a cancelled check", `{"check_runs":[{"name":"test","status":"completed","conclusion":"cancelled"}]}`,
-			[]string{"test (cancelled)"}},
-		{"a failure on the second page", `{"check_runs":[` + green + `]}` + "\n" + `{"check_runs":[{"name":"vet","status":"completed","conclusion":"timed_out"}]}`,
-			[]string{"vet (timed_out)"}},
-		{"no check at all", `{"total_count":0,"check_runs":[]}`,
-			[]string{"no check run on 4f2c9e1 in o/r: nothing says CI passed there"}},
+		{"no ci_head", mergeOpts{noCI: true},
+			[]string{"CI has not passed on 4f2c9e1 (yard CI passed nothing)", "pr-ci", again}},
+		{"a ci_head of another commit", mergeOpts{ci: headB},
+			[]string{"CI has not passed on 4f2c9e1 (yard CI passed 9b8a7c6)", again}},
+		{"a ci_head that is no full sha", mergeOpts{ci: headA[:7]},
+			[]string{"CI has not passed on 4f2c9e1 (yard CI passed nothing)"}},
+		{"a bot's pull request pushed to after the run", mergeOpts{head: headB, ci: headA},
+			[]string{"CI has not passed on 9b8a7c6 (yard CI passed 4f2c9e1)", again}},
+		{"a fork pushed to after the run, and the yes said to the new head", mergeOpts{human: true, headOwner: "mallory", head: headB, yes: headB, ci: headA},
+			[]string{"CI has not passed on 9b8a7c6 (yard CI passed 4f2c9e1)", again}},
 	} {
-		y.mergePR(gh, "r-p", mergeOpts{}, map[string]string{"checks": c.checks})
+		y.mergePR(gh, "r-p", c.o, nil)
 
 		y.held(gh, "r-p", c.what, 0, c.wants...)
+		if n := countCalls(t, gh, "api "); n != 0 {
+			t.Errorf("%s: GitHub was asked for CI, which is the yard's own:\n%v", c.what, ghCalls(t, gh))
+		}
 	}
 
-	// Neutral and skipped runs pass beside a success.
-	y.mergePR(gh, "r-p", mergeOpts{}, map[string]string{"checks": `{"check_runs":[{"name":"test","status":"completed","conclusion":"success"},{"name":"docs","status":"completed","conclusion":"skipped"},{"name":"codeql","status":"completed","conclusion":"neutral"}]}`})
-	y.mergedAs(gh, "r-p", "success, skipped and neutral", "merged", "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+headA)
+	// The commit it passed on, in capitals: the same commit.
+	y.mergePR(gh, "r-p", mergeOpts{ci: strings.ToUpper(headA)}, nil)
+	y.mergedAs(gh, "r-p", "a ci_head in capitals", "merged", "pr merge "+prURL+" --rebase --delete-branch --match-head-commit "+headA)
 }
 
 // What GitHub refuses holds the bead with its words, and a refusal of the App
@@ -522,8 +539,6 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 			wants: []string{"gave a head for " + prURL + " that is no commit sha"}},
 		{what: "a pull request it cannot read", files: map[string]string{"view-fail": "HTTP 404: Not Found"},
 			wants: []string{"reading pull request " + prURL + " failed: HTTP 404: Not Found"}},
-		{what: "check runs it cannot read", files: map[string]string{"api-fail": "HTTP 403: Resource not accessible by integration"},
-			wants: []string{"reading the check runs of 4f2c9e1 in o/r failed", "The App needs Checks read"}},
 		{what: "a mint that fails", files: map[string]string{"mint-fail": "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE"}, tokens: true,
 			wants: []string{"minting a token for o/r failed", "the mint's output is not copied to the bead"}},
 		{what: "no env_file", tokens: true,

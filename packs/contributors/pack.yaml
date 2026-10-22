@@ -31,12 +31,13 @@ flows:
       closed:   { end: true }
 
   # A pull request from outside: a maintainer looks, a reviewer that only
-  # reads reviews it, the repository's CI runs on it, the contributor answers
-  # on GitHub, a maintainer merges on GitHub, or the yard does for one marked
-  # merge-ok (the exec group of the importing yard's own, which the pack
-  # does not carry: docs/line.md, "Merging pull requests"). Nothing of the
-  # yard pushes to the pull request, and nothing of it runs on the yard's
-  # machine.
+  # reads reviews it, the yard runs the depot's tests on its head, the
+  # contributor answers on GitHub, a maintainer merges on GitHub, or the yard
+  # does for one marked merge-ok (the exec group of the importing yard's own,
+  # which the pack does not carry: docs/line.md, "Merging pull requests").
+  # Nothing of the yard pushes to the pull request, and nothing of it runs on
+  # the yard's machine until a reviewer has read it, and then only the depot's
+  # tests, in ciwait.
   pr:
     type: pr
     stages:
@@ -45,16 +46,17 @@ flows:
       # the pull request was read, so the bead stays and is read again, as a
       # new stay, at the new head (the says table has the line).
       review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide, pushed: review } }
-      # Waits for the repository's CI on the pull request's head: no group,
-      # so no route and nobody of the yard works it, and only the source's
-      # events move it. Not a stage of review because the reviewer cannot see
-      # CI, and a success line there would approve a pull request before
-      # anyone had read it. A bot's push sends it back to review, to be read
-      # at the new head.
-      ciwait:      { file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review } }
+      # The yard's own CI: the depot's test command, run on the head the
+      # reviewer read, by pr-ci, which says done or changes. Not the end of
+      # review because the reviewer runs nothing, and the code runs only once
+      # it has been read. A bot's push sends it back to review, to be read at
+      # the new head.
+      ciwait:      { group: pr-ci, file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review } }
       # Waits for the pull request to change: nobody of the yard works it.
       contributor: { group: outside,      outcomes: { pushed: review, dropped: closed } }
-      approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed] }
+      # Back to ciwait by hand when the head moved after its run: the yard
+      # merges only a head its CI passed on.
+      approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed, ciwait] }
       decide:      { group: decisions,    manual: [review, closed] }
       merged:      { end: true }
       closed:      { end: true }
@@ -69,6 +71,12 @@ groups:
   # its agent, which the import asks for with the agent (README.md).
   pr-reviewers: { agent: roles/pr-reviewer.md, limit: 1 }
   assembly:     { run: scripts/merge-local,    limit: 1 }
+  # The yard's CI of a pull request (docs/line.md, "The yard as the CI of a
+  # pull request"). It works as the yard's GitHub App, whose id and key file the
+  # group's env_file gives and the import cannot ask for, so a yard sets the
+  # group up first and maps it (--group pr-ci=pr-ci), once for all its depots.
+  # One at a time: the machine's tests queue anyway.
+  pr-ci:        { run: scripts/pr-ci,          limit: 1 }
   # The import asks who.
   maintainers:  { people: true }
   backlog:      { people: true }
@@ -128,17 +136,11 @@ sources:
       # matches counts, so this one comes before them.
       - { where: "event=pull_request action=synchronize sender=bot stage=review stage=ciwait type=pr", outcome: pushed, note: "a bot pushed to the PR" }
       - { where: "event=pull_request action=synchronize stage=review type=pr", outcome: changes, note: "the PR changed under review" }
-      # CI. A run that failed sends the pull request back to its contributor
-      # from review or from the wait for CI; only a run that succeeded in the
-      # wait lets it on, so a pull request is never approved by a CI result
-      # before it has been read. A cancelled or neutral run says nothing. The
-      # dispatcher counts a run only on the pull request's head, and a push
-      # while waiting moves the bead first: a success for an old head never
-      # approves.
-      - { where: "event=workflow_run conclusion=failure stage=review stage=ciwait type=pr", outcome: changes, note: "CI failed on the PR" }
-      - { where: "event=check_suite conclusion=failure stage=review stage=ciwait type=pr", outcome: changes, note: "CI failed on the PR" }
-      - { where: "event=workflow_run conclusion=success stage=ciwait type=pr", outcome: done, note: "CI green on the head" }
-      - { where: "event=check_suite conclusion=success stage=ciwait type=pr", outcome: done, note: "CI green on the head" }
+      # CI is the yard's own, run by pr-ci, which reports through the yard's
+      # socket and not through a line of this table: no event of GitHub's CI
+      # moves a bead. A push while the run is queued or running sends the pull
+      # request back, since the run is of a head it no longer has: a bot's to
+      # review (the line above), a person's to its contributor.
       - { where: "event=pull_request action=synchronize stage=ciwait type=pr", outcome: changes, note: "the PR changed while waiting on CI" }
       - { where: "event=pull_request action=closed merged=true type=pr", outcome: merged }
       - { where: "event=pull_request action=closed merged=false type=pr", outcome: dropped }

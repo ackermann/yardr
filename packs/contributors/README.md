@@ -32,7 +32,7 @@ maps to a yard are in [docs/packs.md](../../docs/packs.md).
 | | stages |
 |---|---|
 | `issue` | `triage` (maintainers) -> `backlog` -> `new` -> `review` -> `approved` -> `merged`, or `closed` |
-| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `ciwait` -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
+| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `ciwait` (pr-ci) -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
 
 Everything a maintainer chooses is in `pack.yaml`: the stages, the label,
 who is trusted. yardr knows three verbs and none of the choices:
@@ -40,16 +40,16 @@ who is trusted. yardr knows three verbs and none of the choices:
 | verb | direction | here |
 |---|---|---|
 | `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
-| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. A run of CI that failed (`workflow_run` or `check_suite`): `changes` from `review` and from `ciwait`; one that succeeded: `done` from `ciwait` alone. Merged: `merged`. Closed: `dropped` |
+| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. Merged: `merged`. Closed: `dropped`. No event of GitHub's CI says anything: the pull request's CI is the yard's own, reported by a script |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
 **Triage is the pack's advice, not a rule of yardr.** The stage a bead
 starts in is a line of `makes`, so a copy of this pack may send more
 authors straight to `review` (another `association=`), or everyone. What
 the stage is for is in its stage file: nothing of the yard runs outside
-code, so a maintainer checks whether the person and the code are legit
-before anything of the pull request is run anywhere, and the label
-`accepted` sends it on.
+code before a person has judged it, so a maintainer checks whether the
+person and the code are legit before anything of the pull request is run
+anywhere, and the label `accepted` sends it on.
 
 **A bot's pull request skips triage, whichever bot.** The line of `makes`
 that sends it to `review` is `sender=bot`: `sender` is the kind GitHub types
@@ -64,17 +64,28 @@ merge-ok`, which goes over the yard's socket). The label says the yard may
 merge the pull request from `approved`. For any other pull request it is a
 maintainer's to add.
 
-**The stage `ciwait` has no group, so no route.** A reviewed pull request
-waits there for the repository's CI to pass on its head, and nobody of the
-yard works it: the source's events move it, `done` to `approved` on a run
-that succeeded, `changes` to `contributor` on one that failed or on a
-person's new commits, and `pushed` back to `review` on a bot's. It is a
-stage of its own, not the end of `review`, because the
-reviewer cannot see CI (its sandbox reaches the yard's socket and nothing
-else) and a success reported while it still read would approve a pull
-request unread. A cancelled or neutral run says nothing. Where no verdict
-can come (a fork's runs name no pull request, a repository has no CI) a
-maintainer moves the bead by hand: `yardr bead advance <id> --to approved`.
+**The stage `ciwait` is the yard's own CI, worked by `pr-ci`.** A reviewed
+pull request waits there while the script runs the depot's test command on
+its head: the one every landing runs, from the base's copy where the command
+is a file the base has, in a checkout of the head of its own. Green is
+`done`, to `approved`, with the commit recorded as `ci_head`; red, or a
+person's new commits meanwhile, is `changes`, to `contributor`; a bot's new
+commits meanwhile are `pushed`, back to `review` (below). It is a stage of
+its own, not the end of `review`, because the reviewer runs nothing (its
+sandbox reaches the yard's socket and nothing else), and because a fork's
+code runs on the yard's machine only after a reviewer has read it, which
+getting to `ciwait` means. A run that is no verdict on the pull request (no
+test command, no token, a failed fetch) holds the bead for the yard's
+operator, and the pull request is not called green untested.
+
+**`pr-ci` works as the yard's GitHub App, so the yard sets its group up
+first.** The script is `scripts/pr-ci`, the copy of `contrib/assembly/pr-ci`
+(a test fails when they differ). The App's id and key file are the group's
+`env_file`, which an import cannot ask for, so a yard makes the group once,
+for all its depots, and maps the pack's to it: `--group pr-ci=pr-ci`
+(docs/line.md, "The yard as the CI of a pull request", has the commands).
+Imported without that, the pack makes the depot's own `<depot>-pr-ci` and
+the route, and the group needs its `env_file` and the mint before it runs.
 
 **The yard merges what is marked `merge-ok`, and only that.** The
 pack brings no script for it: the merge is `contrib/assembly/merge-pr`
@@ -83,10 +94,10 @@ of the yardr checkout, run by an `exec` group routed for `approved`, type
 as the yard's GitHub App, at the head a maintainer's yes recorded
 (`yardr bead update <id> --add-label merge-ok --meta merge_head=<sha>`)
 or, for a bot's pull request from the repository's own branch, at the head
-it has, and only with CI green on that commit. A pull request without the
-label waits in `approved` for a maintainer, as before. What stops a merge
-holds the bead with a note, and the bead reports `merged` or `dropped`
-and nothing else.
+it has, and only where the yard's CI has passed on that commit (the bead's
+`ci_head`). A pull request without the label waits in `approved` for a
+maintainer, as before. What stops a merge holds the bead with a note, and
+the bead reports `merged` or `dropped` and nothing else.
 
 **A bot's push starts the read again.** A bot's rebase is the only push it
 makes, so a bead sent to `contributor` by it would wait there for one that
@@ -177,8 +188,8 @@ is the kind's unattended arguments, which for Codex turn the sandbox off:
 **bind this group explicitly.**
 
 A reviewer that cannot run cannot run the tests. For a pull request from
-outside that is CI's job, under the repository's own rules, and after
-approval a maintainer's.
+outside that is the yard's CI run's job, in the stage after the review, and
+after approval a maintainer's.
 
 **What the sandbox also stops.** It denies the network, so inside it the
 reviewer cannot fetch the pull request's head. It does not have to:

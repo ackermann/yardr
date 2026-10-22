@@ -1352,7 +1352,7 @@ since="since $base ($said), from $(git rev-parse --short "$from")"
 reads='
 packs/starter/                 internal/pack internal/cli
 packs/design/                  contrib/assembly
-packs/contributors/            contrib/assembly
+packs/contributors/            contrib/assembly internal/pack internal/cli
 packs/dir/                     internal/pack
 packs/linear/                  internal/hooks internal/dispatch
 packs/github/                  internal/hooks
@@ -1374,6 +1374,7 @@ contrib/assembly/integrate-train internal/cli
 contrib/assembly/pr-train      internal/cli
 contrib/assembly/pr-merge      internal/cli
 contrib/assembly/merge-pr      internal/cli
+contrib/assembly/pr-ci         internal/cli
 contrib/assembly/              contrib/assembly .
 contrib/shot/shot              internal/pack
 contrib/shot/                  contrib/shot .

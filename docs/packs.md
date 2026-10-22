@@ -1495,7 +1495,7 @@ yardr knows the verbs alone:
 | verb | direction | in this pack |
 |---|---|---|
 | `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
-| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a run of CI that failed says `changes` in `review` and `ciwait`, one that succeeded `done` in `ciwait`; a merge says `merged`, a close `dropped` |
+| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a merge says `merged`, a close `dropped`. No event of GitHub's CI says anything: the pull request's CI is the yard's own |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
 - **Triage is the pack's advice, and no rule of yardr.** Its stage file
@@ -1508,13 +1508,17 @@ yardr knows the verbs alone:
   `go.mod` or `go.sum` and nothing else) gets the label from the reviewer
   when it reports `done`; it says the yard may merge the pull request from
   `approved`. For any other pull request it is a maintainer's to add.
-- **`ciwait` has no group.** A reviewed pull request waits there for the
-  repository's CI to pass on its head; nobody of the yard works it and no
-  route is written for it, and only the source's events move it (`done`
-  to `approved` on a run that succeeded, `changes` to `contributor` on one
-  that failed or on a person's new commits, `pushed` back to `review` on a
-  bot's). The reviewer cannot see CI, which is why the wait is a stage of
-  its own and not the end of `review`.
+- **`ciwait` is the yard's own CI, worked by the script group `pr-ci`.** A
+  reviewed pull request waits there while `pr-ci` runs the depot's test
+  command on its head, the one every landing runs; green is `done` to
+  `approved` with the commit recorded as the bead's `ci_head`, red or a
+  person's new commits meanwhile `changes` to `contributor`, a bot's new
+  commits meanwhile `pushed` back to `review`. The reviewer runs nothing,
+  which is why the wait is a stage of its own and not the end of `review`,
+  and a fork's code runs on the yard's machine only after a reviewer has
+  read it. The script works as the yard's GitHub App, whose id and key file
+  are the group's `env_file`, so a yard makes the group first and maps it
+  (`--group pr-ci=pr-ci`, [line.md](line.md#the-yard-as-the-ci-of-a-pull-request)).
 - **A bot's push starts the read again.** A bot's rebase is the only push
   it makes, so a bead sent to `contributor` by it would wait there for one
   that does not come. A push by a bot (`sender=bot`) while the pull request
@@ -1550,8 +1554,9 @@ yardr knows the verbs alone:
   of Go modules, or by a maintainer's yes, `yardr bead update <id>
   --add-label merge-ok --meta merge_head=<sha>`) is merged from `approved`
   by `contrib/assembly/merge-pr`, an `exec` group of the yard's own routed
-  for the label ([line.md](line.md#merging-pull-requests)); any other waits
-  there for a maintainer to merge it on GitHub.
+  for the label ([line.md](line.md#merging-pull-requests)), and only where
+  the yard's CI has passed on the head; any other waits there for a
+  maintainer to merge it on GitHub.
 
 ## The design pack
 

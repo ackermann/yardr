@@ -20,7 +20,7 @@ plain words kept on purpose, because they name general machinery.
 | **answer** | what one person did with one ask (`yardr bead answer`): the option picked with any words, words alone, put aside, or declined; for a secret ask, the names that were given, never the value; for a run ask the operator approved, the command the yard ran and what it printed; for a setup ask the operator approved, the preset picked and the names given, with the setup read as being carried out, ran or failed |
 | **topic** | what questions that belong together stand under: a bead label with the prefix `topic:`; a bead's topic is its first such label |
 | triage | the contributors pack's first stage: an issue or a pull request from outside waits there for a maintainer, before anything of it is built or run |
-| ciwait | the contributors pack's stage for a reviewed pull request that waits for the repository's CI to pass on its head: worked by nobody, moved by the source's events alone |
+| ciwait | the contributors pack's stage for a reviewed pull request while the yard runs the depot's test command on its head (`pr-ci`, an exec group of the yard's own): done records the commit as `ci_head` and goes to approved, changes (or a person's push) goes back to the contributor, and a bot's push back to review |
 | contributor | someone outside the yard who opened an issue or a pull request; in the contributors pack also the stage a pull request waits in for its author's next commits |
 | maintainer | a person of the yard who decides what of a contributor's work the project takes; the contributors pack's group `maintainers` |
 | flow | the stages a bead of some type goes through, and the moves allowed between them |

@@ -1,13 +1,13 @@
 summary: A reviewed pull request is merged from here: by the yard if it is merge-ok, else by a maintainer.
 
-A pull request the reviewer found ready, and whose CI passed on its head,
-waits here. The review is a note on the bead; it was made by reading, and
-nothing of the pull request has been run by the yard.
+A pull request the reviewer found ready, and whose tests the yard ran green
+on its head, waits here. The review is a note on the bead; it was made by
+reading. The tests were the yard's CI run in `ciwait`, of the depot's own
+test command alone, and the bead has the commit they passed on as `ci_head`.
 
-Running it is here, and a person's: a maintainer who wants to see it work
-pulls the code and runs it where they choose, by their own judgement of
-the author and of what the review says. The repository's CI is the other
-place it runs, under the repository's own rules for outside pull requests.
+Running it beyond that is here, and a person's: a maintainer who wants to see
+it work pulls the code and runs it where they choose, by their own judgement
+of the author and of what the review says.
 
 The label `merge-ok` says the yard may merge the pull request. One that
 carries it is merged by the yard, as its GitHub App and in no person's
@@ -24,17 +24,21 @@ branch, a bot's fork) is merged at that commit and at no other: a head that
 moved since is held, not merged. A bot's pull request from the repository
 itself is merged at the head it has when the yard looks, which nothing
 records, since such a bot rebases its branches all the time and a recorded
-sha would hold every one. Either way the commit must have CI green on it,
-and the merge is refused by GitHub if the head moves while it is made. A
+sha would hold every one. Either way the yard's CI must have passed on that
+commit (`ci_head` is it), and the merge is refused by GitHub if the head
+moves while it is made. A
 fork is merged with a merge commit and its branch is left alone, being its
 author's; a branch of the repository's own is rebased on and deleted.
 
 A pull request without the label waits here for a maintainer, who merges
 it on GitHub or says yes as above. When the yard holds the bead instead of
-merging (CI that is not green, a head that moved, a yes that is missing, a
-refusal of GitHub or of the App), the note says why and nothing was merged:
-a maintainer acts on GitHub, then unholds the bead, which is looked at
-again. The yard reports a bead merged or dropped and nothing else.
+merging (CI that has not passed on the head, a head that moved, a yes that
+is missing, a refusal of GitHub or of the App), the note says why and
+nothing was merged: a maintainer acts on GitHub, then unholds the bead,
+which is looked at again. A pull request pushed to since its tests ran has no
+CI on its new head: `yardr bead advance <id> --to ciwait` has the yard run
+them again (the bead is held, so `yardr bead unhold <id>` too), and the bead
+comes back here. The yard reports a bead merged or dropped and nothing else.
 
 What of the review reaches the contributor is the maintainer's to post, in
 their own words or the note's, approved text only: `yardr reply --crew
