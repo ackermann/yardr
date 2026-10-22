@@ -62,9 +62,9 @@ type BotRequest struct {
 	Refusal string `json:"refusal,omitempty"`
 }
 
-// BotRequests are the requests taken or refused, in order, and the
-// unauthorized and the unknown among them; the webhook calls are not. Their
-// bytes are in BotDir.
+// BotRequests are the requests the bot API was sent, in order: those it took
+// and those it refused, among them the unauthorized and the unknown. The
+// webhook calls are answered and not listed. The bytes are in BotDir.
 func (s *Server) BotRequests() []BotRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
