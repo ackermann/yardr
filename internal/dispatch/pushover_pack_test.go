@@ -69,6 +69,24 @@ func (y *pushYard) withPushoverPack(t *testing.T) *standin.Server {
 	return s
 }
 
+// settle has the daemon's clock go past the grace of the newest push in the
+// queue and has it pass once. The store stamps a push with the time the
+// test's own clock reads, so a pass of a fixed length after the mail waits
+// on how long the test took to set up: this one waits on the push.
+func (y *pushYard) settle(t *testing.T) {
+	t.Helper()
+	var newest time.Time
+	for _, p := range y.queued(t) {
+		if p.At.After(newest) {
+			newest = p.At
+		}
+	}
+	if at := newest.Add(store.PushGrace + time.Second); at.After(y.now) {
+		y.now = at
+	}
+	y.pass(t, 0)
+}
+
 // doneBead closes a bead of the yard whose last note before it carries
 // shot, and has ada subscribed to what is done, so that the message about
 // it carries the picture.
@@ -107,7 +125,7 @@ func testPushoverPackPictures(t *testing.T) {
 	must(t, err)
 
 	must(t, y.api.Mail(ctx, "ada", "the shed lands Monday", "yardmaster", y.putBlob(t, png, "shed.png")))
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	msgs := service.Messages()
 	if len(msgs) != 1 || msgs[0].User != packKey || msgs[0].Title != "mail from yardmaster" || msgs[0].Text != "the shed lands Monday" ||
 		msgs[0].Attachment == nil || !bytes.Equal(msgs[0].Attachment.Data, png) ||
@@ -116,7 +134,7 @@ func testPushoverPackPictures(t *testing.T) {
 	}
 
 	y.doneBead(t, "yard-1", y.putBlob(t, gif, "shot.gif"))
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	msgs = service.Messages()
 	if len(msgs) != 2 || msgs[1].Title != "yard-1 closed" || msgs[1].Attachment == nil || !bytes.Equal(msgs[1].Attachment.Data, gif) ||
 		msgs[1].Attachment.Name != "photo.gif" || msgs[1].Attachment.Type != "image/gif" {
@@ -128,7 +146,7 @@ func testPushoverPackPictures(t *testing.T) {
 	huge := append(bytes.Clone(png), make([]byte, 5242881-len(png))...)
 	must(t, y.api.Mail(ctx, "ada", "the whole plan, as one picture", "yardmaster", y.putBlob(t, huge, "plan.png")))
 	asked := service.Asked()
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	msgs = service.Messages()
 	if len(msgs) != 3 || service.Asked() != asked+1 || msgs[2].Title != "mail from yardmaster" || msgs[2].Text != "the whole plan, as one picture" || msgs[2].Attachment != nil {
 		t.Fatalf("a picture over the limit: %+v, asked %d, was %d", msgs, service.Asked(), asked)
