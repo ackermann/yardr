@@ -19,8 +19,16 @@ fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `YARDR_HOME` under D, and
 `__CF_USER_TEXT_ENCODING` from the caller's environment (without it a fresh
 binary's first run under the codex sandbox stalls in dyld, before main),
-so nothing else of the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`)
-reaches a command run through it. `D/h/.profile` sets `PATH` to the same directories, so the
+so nothing else of the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`
+but the two below) reaches a command run through it. Those two are
+`YARDR_TEST_OWNER` and `YARDR_TEST_HOME_CHECK`, with which a Go test binary
+names itself to the servers it starts (`storetest.NameTestBinary`): `D/e`
+carries each that the environment making the yard has, so the yard's server
+and daemon stop within a few seconds of that binary's end, however it ended (a
+kill or a timeout runs no cleanup). A yard made by hand has neither, and its
+`D/e` carries neither. The herdr server of an `up` yard and the stand-in
+agents in its panes do not look for the owner: only `down` stops them.
+`D/h/.profile` sets `PATH` to the same directories, so the
 yard's login shell, which yardr asks for a program its PATH lacks (`yardr
 doctor`, and `yardr up` for herdr), finds nothing of the machine's own: a
 trial of that lookup writes the file itself, with directories that hold no

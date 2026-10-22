@@ -50,8 +50,17 @@ daemon and the server the same processes, no agent started); and once with
 a harness that refuses every prompt, as one without its login does, where
 the script goes on to the services and doctor all the same.
 
+The test binary names itself to the servers its yards start (`TestMain`,
+`storetest.NameTestBinary`: `YARDR_TEST_OWNER`, and `YARDR_TEST_HOME_CHECK`
+for how often they look), and each yard's environment hands both on to the
+script, and through the stand-in managers to the server and the daemon, which
+stop within a few seconds of the binary's end. A run killed by its timeout
+runs no cleanup, so that is what ends them. The herdr stand-in does not look
+for the name: its process and the yard's directory stay until the test's
+cleanup.
+
 `fake/` holds what the script is run against, with `HOME`,
-`XDG_CONFIG_HOME` and `YARDR_HOME` in a temp dir and nothing of the
+`XDG_CONFIG_HOME` and `YARDR_HOME` in a temp dir and nothing else of the
 caller's environment:
 
 - `herdr` (built from `main.go`): the API socket (`workspace.create`,

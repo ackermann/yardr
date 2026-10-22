@@ -24,16 +24,26 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // script runs isolated-yard from the repository's root, where `bare`
 // builds yardr from.
 func script(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	return scriptEnv(t, nil, args...)
+}
+
+// scriptEnv is script in the environment env, this binary's own when nil.
+func scriptEnv(t *testing.T, env []string, args ...string) (string, error) {
 	t.Helper()
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -41,6 +51,7 @@ func script(t *testing.T, args ...string) (string, error) {
 	}
 	cmd := exec.Command(filepath.Join(root, "contrib/isolated-yard/isolated-yard"), args...)
 	cmd.Dir = root
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
@@ -53,7 +64,15 @@ func bare(t *testing.T) string {
 	// its own under /tmp, matched by that directory), so it runs beside
 	// them from here on.
 	t.Parallel()
-	out, err := script(t, "bare")
+	return bareEnv(t, nil)
+}
+
+// bareEnv is bare for a yard made in the environment env (this binary's own
+// when nil). It does not call t.Parallel: a test that makes a second yard
+// has called it already, with bare, and may not again.
+func bareEnv(t *testing.T, env []string) string {
+	t.Helper()
+	out, err := scriptEnv(t, env, "bare")
 	if err != nil {
 		t.Fatalf("isolated-yard bare: %v\n%s", err, out)
 	}
@@ -267,6 +286,11 @@ func TestDownStopsAServerStartedFromAnotherBinary(t *testing.T) {
 	home := filepath.Join(d, "y")
 	cmd := exec.Command(other, "server", "start")
 	cmd.Env = []string{"HOME=" + filepath.Join(d, "h"), "PATH=/usr/bin:/bin", "YARDR_HOME=" + home}
+	// Not started through D/e, but a server of the yard all the same: named
+	// to this binary like the rest, or a kill during the test leaves it.
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+		cmd.Env = append(cmd.Env, config.Env(name, config.Getenv(name))...)
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("server start: %v\n%s", err, out)
 	}
@@ -468,11 +492,15 @@ func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
 }
 
 // As a sleeper (see there) the test binary only waits to be stopped.
+// Otherwise it names itself to the servers its yards start: D/e hands the
+// name on (isolated-yard's build), so a run killed before its cleanups
+// leaves no server or daemon of a yard behind.
 func TestMain(m *testing.M) {
 	if os.Getenv("ISOLATED_TEST_SLEEPER") != "" {
 		time.Sleep(5 * time.Minute)
 		return
 	}
+	storetest.NameTestBinary()
 	os.Exit(m.Run())
 }
 
@@ -560,11 +588,12 @@ func TestLoginShellFindsNothingOfTheMachine(t *testing.T) {
 	}
 }
 
-// yardr-ts2c: D/e passes __CF_USER_TEXT_ENCODING through from the caller's
-// environment (or the value macOS gives): without it a newly built binary's
+// TestWrapperEnvironment pins what D/e passes through from the environment
+// that made the yard. Without __CF_USER_TEXT_ENCODING a newly built binary's
 // first run under `codex sandbox` stalls in dyld's initializers, before
-// main, in _CFStringGetUserDefaultEncoding -> getpwuid.
-func TestWrapperSetsCFUserTextEncoding(t *testing.T) {
+// main, in _CFStringGetUserDefaultEncoding -> getpwuid; a test binary's name
+// lets the yard's server and daemon stop when that binary is killed.
+func TestWrapperEnvironment(t *testing.T) {
 	d := bare(t)
 	out, err := exec.Command(filepath.Join(d, "e"), "printenv", "__CF_USER_TEXT_ENCODING").CombinedOutput()
 	if runtime.GOOS == "darwin" {
@@ -580,5 +609,24 @@ func TestWrapperSetsCFUserTextEncoding(t *testing.T) {
 		}
 	} else if err == nil {
 		t.Fatalf("D/e sets __CF_USER_TEXT_ENCODING to %q off macOS; want it unset", strings.TrimSpace(string(out)))
+	}
+
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+		want := config.Getenv(name)
+		if want == "" {
+			t.Fatalf("%s is not set in this binary: TestMain names it (storetest.NameTestBinary)", config.Key(name))
+		}
+		got, err := runIn(d, "printenv", config.Key(name))
+		if got = strings.TrimSpace(got); err != nil || got != want {
+			t.Errorf("D/e hands on %s=%q (%v), want this binary's %q", config.Key(name), got, err, want)
+		}
+	}
+
+	hand := bareEnv(t, slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		key, _, _ := strings.Cut(kv, "=")
+		return config.IsVar(key, config.TestOwnerEnv, config.TestHomeCheckEnv)
+	}))
+	if got := in(t, hand, "env"); strings.Contains(got, "YARDR_TEST_") {
+		t.Errorf("D/e of a yard made without a name for a test binary hands one on:\n%s", got)
 	}
 }

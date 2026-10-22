@@ -22,7 +22,17 @@ import (
 	"time"
 
 	"yardr.dev/yardr/contrib/server-yard/managers"
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/storetest"
 )
+
+// TestMain names this test binary to the servers its yards start: a binary
+// killed or timed out runs no Cleanup, y.stop is only that, and the server
+// and the daemon of a yard would outlive it (storetest.NameTestBinary).
+func TestMain(m *testing.M) {
+	storetest.NameTestBinary()
+	os.Exit(m.Run())
+}
 
 // yard holds one test's directories: D is short (/tmp/sy.XXXXXX), since a
 // unix socket path has a length limit.
@@ -91,6 +101,12 @@ func build(t *testing.T) *yard {
 		"SHELL=/bin/sh",
 	}
 	y.env = append(y.env, managerEnv...)
+	// Of the test's environment only the name TestMain gave the binary comes
+	// in: the server and the daemon the script starts, itself or through a
+	// stand-in manager, inherit it and stop when the binary is gone.
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+		y.env = append(y.env, config.Env(name, config.Getenv(name))...)
+	}
 	t.Cleanup(y.stop)
 	return y
 }
@@ -128,6 +144,24 @@ func pidIn(path string) int {
 	}
 	pid, _ := strconv.Atoi(strings.Fields(string(b) + " 0")[0])
 	return pid
+}
+
+// environOf is the environment pid runs with, as ps lists it after the
+// command (isolated-yard finds the processes of a yard by it): NAME=value
+// words on one line.
+func environOf(t *testing.T, pid int) string {
+	t.Helper()
+	out, err := exec.Command("ps", "axeww", "-o", "pid=", "-o", "command=").Output()
+	if err != nil {
+		t.Fatalf("ps: %v", err)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), strconv.Itoa(pid)+" "); ok {
+			return rest
+		}
+	}
+	t.Fatalf("ps lists no process %d", pid)
+	return ""
 }
 
 // gone waits up to 10s for pid to end.
@@ -273,6 +307,25 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 	server := pidIn(filepath.Join(y.yardhome, "server.pid"))
 	if !running(server) {
 		t.Errorf("no server runs after the script")
+	}
+
+	// Both run with the name of this test binary, which is what stops them
+	// when it is killed. The daemon is the stand-in manager's, so the name
+	// came through the script and the stand-in, not only into the script.
+	for _, p := range []struct {
+		who string
+		pid int
+	}{{"server", server}, {"daemon", daemon}} {
+		env := environOf(t, p.pid)
+		for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+			val := config.Getenv(name)
+			if val == "" {
+				t.Fatalf("%s is not set in this binary: TestMain names it (storetest.NameTestBinary)", config.Key(name))
+			}
+			if !strings.Contains(env+" ", config.Key(name)+"="+val+" ") {
+				t.Errorf("the %s (pid %d) does not run with %s=%s:\n%s", p.who, p.pid, config.Key(name), val, env)
+			}
+		}
 	}
 
 	// A second run changes nothing: the files are byte for byte what

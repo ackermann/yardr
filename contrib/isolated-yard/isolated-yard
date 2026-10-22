@@ -22,6 +22,9 @@
 #     PATH to D/bin and the system directories only, and __CF_USER_TEXT_ENCODING
 #     from the caller's environment (without it a fresh binary's first run
 #     under the codex sandbox stalls in dyld, before main: yardr-ts2c).
+#     The one other thing of the caller's it keeps is the name of a test
+#     binary, YARDR_TEST_OWNER and YARDR_TEST_HOME_CHECK, when the environment
+#     that made the yard has them: the yard's servers then stop with the binary.
 #   - D/h/.profile sets PATH back to the same directories: what yardr asks
 #     the yard's login shell for (a program its PATH lacks) is not found in
 #     the machine's own directories, which the system's profile adds. A trial
@@ -260,11 +263,20 @@ build() {
   else
     cfarg=""
   fi
+  # A test binary names itself to the servers it starts (YARDR_TEST_OWNER, and
+  # the tick they look for it on: storetest.NameTestBinary), and D/e hands
+  # that name on to every server and daemon of the yard, so that a binary
+  # killed before its cleanup leaves none behind. Only what the creating
+  # environment has: a yard made by hand has no binary to be named to, and
+  # its D/e stays as clean as before. The owner holds a space, hence the quotes.
+  testarg=""
+  [ -z "${YARDR_TEST_OWNER:-}" ] || testarg=" YARDR_TEST_OWNER='$YARDR_TEST_OWNER'"
+  [ -z "${YARDR_TEST_HOME_CHECK:-}" ] || testarg="$testarg YARDR_TEST_HOME_CHECK='$YARDR_TEST_HOME_CHECK'"
   cat >"$d/e" <<WRAP
 #!/bin/sh
 exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
   XDG_CONFIG_HOME=$d/c XDG_STATE_HOME=$d/s YARDR_HOME=$d/y \\
-  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8$cfarg "\$@"
+  TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8$cfarg$testarg "\$@"
 WRAP
   chmod +x "$d/e"
 }
