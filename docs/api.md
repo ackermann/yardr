@@ -648,7 +648,8 @@ nothing else. What is not the same:
   `/ping`, `/wake` and every other path are not there. The [calls for the
   operator alone](#for-the-operator-alone) are there besides, for a device
   of the yard's operator and for nobody else; `GiveSecret` is there too for
-  a device of a user who is asked for their own address in a source.
+  a device of a user, for an ask with `secret.user` or `secret.as` that
+  names them: their own address or credential in a source.
   `ApproveAsk` and `ApproveSetup` are the calls on the listener that have
   the operator's commands run: the command of a run ask, which is one of a
   fixed list ([users.md](users.md#devices) has them, row by row), and the
@@ -4514,21 +4515,23 @@ cards](#weighty-cards)). Where they are served, and to whom:
   calls by the token and not by a word of the caller's; it cannot know
   whether an agent on some machine sent the request, so whoever holds
   that token gives and approves as the operator.
-- **One giving is a user's own too.** A secret ask with `secret.user`
+- **A giving can be a user's own too.** A secret ask with `secret.user`
   asks for that user's own address in a source that tells people (for
-  Pushover the user key), and the value goes to a file of theirs, not to
-  a credential of the yard. On the socket it is given by that user or the
-  operator, and not from the pane of an agent. On the listener a device
-  of that user is served the call for that ask and for no other, as a
-  device of the operator is; `actor` is the user or left out. No
-  approval is so: a run ask for a user's own subscription or tell is approved by
-  that user on the socket, and `ApproveAsk` is not there for a device of
-  theirs.
+  Pushover the user key), and one with `secret.as` for their own
+  credential in a source, which a call made as them reads; the value goes
+  to a file of theirs, not to a credential of the yard. On the socket it
+  is given by that user or the operator, and not from the pane of an
+  agent. On the listener a device of that user is served the call for such
+  an ask and for no other, as a device of the operator is; `actor` is the
+  user or left out. No approval is so: a run ask for a user's own
+  subscription or tell is approved by that user on the socket, and
+  `ApproveAsk` is not there for a device of theirs.
 - **To nobody else.** A device of any other user, and a caller the yard
   knows by anything but a device token of its own, is answered as for a
   method the yard does not have (`no such method GiveSecret`, `no such
-  method ApproveAsk`, `no such method SourceGrants`). So is every device in a yard with no operator, but
-  for an ask for its user's own address. For `ApproveAsk` and
+  method ApproveAsk`, `no such method SourceGrants`). So is every device
+  in a yard with no operator, but for an ask with `secret.user` or
+  `secret.as` that names its user. For `ApproveAsk` and
   `SourceGrants` each of them is answered before the request's body is
   read. For `GiveSecret` a caller
   without a device token is; a device of a user who is not the operator
@@ -4548,12 +4551,13 @@ peer, and is answered at the yard that asked.
 
 What a give through a device writes says how it came, as its other writes
 do: the `noted` event of the answer, and `source_set` (for a user's own
-address `user_set`) where the file is new, carry `data.via`. So does what
-an approval through a device writes: the `noted` event of the answer, and
-the event of the change the command made (`peer_allowed`, `source_set`,
-`source_granted`, `subscribed`, `user_set`, `user_added`, `user_removed`,
-`crew_defined`, `setting_changed`, `peer_renamed`, `originator_changed`,
-`timer_removed`), which also carries `approved` with the bead and the ask.
+address or credential `user_set`) where the file is new, carry `data.via`.
+So does what an approval through a device writes: the `noted` event of the
+answer, and the event of the change the command made (`peer_allowed`,
+`source_set`, `source_granted`, `subscribed`, `user_set`, `user_added`,
+`user_removed`, `crew_defined`, `setting_changed`, `peer_renamed`,
+`originator_changed`, `timer_removed`), which also carries `approved` with
+the bead and the ask.
 
 An approval never crosses a link to another yard either: a run ask is
 approved in the yard that asked, and `ApproveAsk` refuses a `bead@peer`.
