@@ -393,8 +393,8 @@ func pushLine(p store.Push) (title, text string) {
 		text = clipRunes(p.Mail.Text, pushMailStart)
 		if text == "" {
 			// The store takes no mail without words or files, so one with
-			// no text is files. A call may need a text (Pushover's message
-			// is required, and its refusal is final): the title says who,
+			// no text is files. A source's call may require a text and
+			// refuse the push for good without one: the title says who,
 			// and this that there are files, so the person is told all the
 			// same.
 			text = "(with files)"
