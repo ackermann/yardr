@@ -978,19 +978,24 @@ yardr dep add <train> <wagon> -k parent
   same builders and the same assembly as any bead.
 - **How a wagon is tested.** With the depot's test command, without
   `YARDR_LANDING`. What a command makes of that is the depot's own. Depot
-  yardr's formats, vets and builds everything and tests, with the race
-  detector, only the packages the branch changed and the packages that
-  import them. The builder runs it before `done`, as the builder of any
-  bead does; merge-local runs it again on exactly what lands, where any
-  other bead gets the run with `YARDR_LANDING=1`.
+  yardr formats, vets and builds everything, then tests the packages the
+  branch changed, their importers, and the packages its reads table names.
+  A selected change with no compiled input runs without `-race`; the gate
+  keeps the race detector for Go or embedded files, deletions, module files,
+  and changes its reads table cannot select. The builder runs it
+  before `done`, as the builder of any bead does; merge-local runs it again
+  on exactly what lands, where any other bead gets the run with
+  `YARDR_LANDING=1`.
 - **What a wagon's run is compared with.** Its train's branch, not the
   depot's base: "what the branch changed" is what this wagon changed, not the
   train's earlier wagons again. `YARDR_BASE` is `yard/<train>` for the
   builder's session and for merge-local, which has just rebased the wagon
-  onto it, and depot yardr's script compares with `YARDR_BASE`; the first
-  line of its output says so (`test: what changed since yard/<train>
-  (YARDR_BASE), from <sha>`). The train's own run tests everything before
-  main moves.
+  onto it, and depot yardr's script compares with `YARDR_BASE`. For a change
+  with compiled files, the first line says so (`test: what changed since
+  yard/<train> (YARDR_BASE), from <sha>`); for a selected change with no
+  compiled input, it says `test: nothing compiled changed since yard/<train>
+  (YARDR_BASE), from <sha>: testing without -race, no race lock`. The train's
+  own run tests everything before main moves.
 - **When merge-local leaves `YARDR_LANDING` out.** The exec runner tells a
   script the bead's type and its train (`YARDR_TYPE`, `YARDR_TRAIN`, the
   latter empty for a bead with no train). merge-local runs the test command
