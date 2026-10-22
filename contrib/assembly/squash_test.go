@@ -190,10 +190,11 @@ func TestSquashMessage(t *testing.T) {
 			body:    "Fix the lost write\n\nYardr-Bead: r-2\n" + builderTrailer,
 		}, {
 			// No kind: label, not a bug: chore. Two packages under internal
-			// share only internal, which names nothing.
-			id: "r-3", title: "Share the rows between packages", typ: "task",
+			// share only internal, which names nothing. The title is used as
+			// it is, whatever yardr's JSON made of its < > & and quotes.
+			id: "r-3", title: `Share <rows> between "packages" & more`, typ: "task",
 			commits: []commit{{msg: "Share the rows\n", files: map[string]string{"internal/store/s.go": "s\n", "internal/rpc/s.go": "s\n"}}},
-			subject: "chore: Share the rows between packages (r-3)",
+			subject: `chore: Share <rows> between "packages" & more (r-3)`,
 			body:    "Share the rows\n\nYardr-Bead: r-3",
 		}, {
 			// Everything under docs/ is docs: the scope would say it twice.

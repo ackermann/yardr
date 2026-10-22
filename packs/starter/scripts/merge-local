@@ -267,7 +267,8 @@ fi
 # the deepest directory that holds every changed path (a rename counts both),
 # none when that is the root, one of $CONTAINERS, or the type itself. The bead's
 # fields are read from its JSON with awk, since the scripts run where only sh,
-# git and yardr are promised; Go writes < > & in a string as < > &.
+# git and yardr are promised; Go writes < > & in a JSON string as the escapes
+# u003c, u003e and u0026 after a backslash, which unjson undoes.
 SQ_UNJSON='
   function unjson(s,   out, c, h) {
     out = ""
