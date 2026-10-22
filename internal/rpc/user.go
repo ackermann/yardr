@@ -66,8 +66,8 @@ import (
 //     and the stream tells the file a source_set points a source at and the
 //     command that mints its token, the file a user_set points a user at
 //     and the secret file a hook_blocked names, to one alone (deviceEvent),
-//     so a lost token of another user gives away no address, file or
-//     command the yard keeps;
+//     so a lost token of another user gives away no address or file of an
+//     account the yard keeps;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
 //     to one that may read it (userBlob), so a lost token gives away no

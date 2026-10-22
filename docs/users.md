@@ -597,8 +597,8 @@ the secret file a `hook_blocked` names (to any other the card reads as one
 with none, the setup's result says the account is set and not where, or
 that it failed and no more, and the events name the source and not its file
 or command, the user and not their file, the hook and not its secret file,
-so a lost token of another user gives away no address, file or command the
-yard keeps); and
+so a lost token of another user gives away no address or file of an account
+the yard keeps); and
 `Settings`, which answers a device the promised keys
 alone: `operator`, `blob_max_bytes` and `files_max`, and to a device of
 the operator alone the operator's own words to their agents,
