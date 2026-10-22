@@ -248,6 +248,9 @@ var apiCalls = []apiCall{
 			{"[].cursor", "number", "the user's mail is read through this seq"},
 			{"[].notification_cursor", "number", "the same for the user's notifications"},
 		},
+		after: "The reply carries each user whole, as `curl` shows it, but only the table above is promised. The rest is yardr's own, and a client ignores what it does not know. " +
+			"Over the network a device is sent the records without two fields of the operator's configuration: `env_file`, the file the user's address is read from, and `last_push.error`, the words of a send that found that file unfit, which name it. " +
+			"That holds for the user's own device too. A device of the operator is sent both ([over the network](#over-the-network)).",
 	},
 	{
 		method:   "GetUser",
@@ -259,6 +262,7 @@ var apiCalls = []apiCall{
 			{"cursor", "number", "the user's mail is read through this seq"},
 			{"notification_cursor", "number", "the same for the user's notifications"},
 		},
+		after: "The record is the one [`Users`](#users) lists, and it is sent as `Users` sends it: over the network without `env_file` and `last_push.error`, unless the device is the operator's. A device that is not the operator's gets its own record without them too.",
 	},
 	{
 		method:   "Crew",
@@ -266,7 +270,11 @@ var apiCalls = []apiCall{
 		requests: []string{`{}`},
 		fields:   crewMember("[]."),
 		after: "Mail to a crew member that is not running is kept, and read when it next starts. A session at its harness's login screen reads none either: " +
-			"`login_screen` says it, and `login_led` that the yard leads the login. Both change with no change to the crew member's definition: read `Crew` again on a `crew_login` event, as on any other whose kind begins `crew_`.",
+			"`login_screen` says it, and `login_led` that the yard leads the login. Both change with no change to the crew member's definition: read `Crew` again on a `crew_login` event, as on any other whose kind begins `crew_`.\n\n" +
+			"The reply carries each crew member whole, as `curl` shows it, but only the table above is promised. `model` and `kind` are what a client reads of the config. The rest is yardr's own, and a client ignores what it does not know. " +
+			"Over the network a device is sent the records without the operator's configuration: `dir`, the directory the crew member runs in; every key of `config` but `kind`, `model`, `provider`, `trust`, `greet`, `for`, `open_threads`, `set_state` and `mail_peers`, which leaves out the files and commands it names; " +
+			"and the handles of its sessions (`handle`, `starting` and `left`, in the member and in each of its `conversations`), which name that directory too. " +
+			"A device of the operator is sent all of it ([over the network](#over-the-network)).",
 	},
 	{
 		method:   "GetCrew",
@@ -274,6 +282,7 @@ var apiCalls = []apiCall{
 		args:     []field{{"name", "string", "the crew member"}},
 		requests: []string{`{"name":"yardmaster"}`, `{"name":"signalman"}`},
 		fields:   crewMember(""),
+		after:    "The record is the one [`Crew`](#crew) lists, and it is sent as `Crew` sends it: over the network without `dir`, the files and commands of `config` and the handles of its sessions, unless the device is the operator's.",
 	},
 	{
 		method:   "Peers",

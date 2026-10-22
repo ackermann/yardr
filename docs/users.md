@@ -586,7 +586,7 @@ It reads every bead with its notes, the crew, the users, and through the
 stream the mail of its user alone: its own mail, the reactions on it and
 its own read receipts, nothing of anyone else's. `device add` for a user
 who is not the operator says that it reads every bead. It is also what a
-lost token gives away until its device is removed. Three things at the
+lost token gives away until its device is removed. Four things at the
 terminal a device does not read whole: the mail of others; the candidates
 of a setup card, the yard's other accounts the card offers to reuse, each
 a file of the yard's with the values it holds, and the file the account of
@@ -599,7 +599,12 @@ account is set and not where, or that it failed and no more, and the events
 name the source and not its file or command, the user and not their file,
 the hook and not its secret file, so a lost token of another user, or of
 one who was the operator, gives away no address or file of an account the
-yard keeps); and
+yard keeps); the users and the crew, whose `Users`, `GetUser`, `Crew` and
+`GetCrew` tell a device of the operator alone the file a user's address is
+read from, the directory a crew member runs in, the files and commands its
+config names and the handles of its sessions (any other device reads the
+records without them, so these calls give a lost token of another user no
+file or command of a user or a crew member); and
 `Settings`, which answers a device the promised keys
 alone: `operator`, `blob_max_bytes` and `files_max`, and to a device of
 the operator alone the operator's own words to their agents,

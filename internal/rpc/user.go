@@ -68,6 +68,11 @@ import (
 //     user at and the secret file a hook_blocked names, to one alone
 //     (deviceEvent), so a lost token of another user, or of one who was the
 //     operator, gives away no address or file of an account the yard keeps;
+//   - Users, GetUser, Crew and GetCrew tell the file a user's address is read
+//     from, and of a crew member the directory it runs in, the files and
+//     commands its config names and the handles of its sessions, to a device
+//     of the operator alone (users, crew), so that these calls give a lost
+//     token of another user no file or command of a user or a crew member;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
 //     to one that may read it (userBlob), so a lost token gives away no
@@ -186,6 +191,10 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	u.api.methods["Settings"] = method{"Settings", reflect.ValueOf(u.settings)}
 	u.api.methods["Bead"] = method{"Bead", reflect.ValueOf(u.bead)}
 	u.api.methods["UserAsks"] = method{"UserAsks", reflect.ValueOf(u.userAsks)}
+	u.api.methods["Users"] = method{"Users", reflect.ValueOf(u.users)}
+	u.api.methods["GetUser"] = method{"GetUser", reflect.ValueOf(u.getUser)}
+	u.api.methods["Crew"] = method{"Crew", reflect.ValueOf(u.crew)}
+	u.api.methods["GetCrew"] = method{"GetCrew", reflect.ValueOf(u.getCrew)}
 	return u
 }
 
@@ -354,6 +363,168 @@ func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAske
 	}
 	bare := card.WithoutCandidates()
 	return &bare, ran
+}
+
+// withholds reports whether the device that makes the call of ctx is told no
+// file and no command of the operator's configuration: any device that is not
+// the operator's now, and every device of a yard without an operator
+// (isOperator). The setting is read at the call, as bead reads it, so a change
+// of operator moves the next reply with it. Settings that cannot be read fail
+// the call, and tell nothing.
+func (u *UserServer) withholds(ctx context.Context) (bool, error) {
+	all, err := u.st.Settings(ctx)
+	if err != nil {
+		return false, err
+	}
+	return !isOperator(userOf(ctx), all[store.OperatorSetting]), nil
+}
+
+// users is Users as a device is told it: the users of the store, but for the
+// file each one's address is read from, and the words of the last send that
+// found it unfit, which name it (withoutUserFile). Only a device of the
+// operator is told them. The rest of each record is told as it is: the source
+// that tells the user and the parts they are told of are names, as the source
+// of a source_set is. The socket, the terminal and the agents read the whole
+// record from the store.
+func (u *UserServer) users(ctx context.Context) ([]store.User, error) {
+	all, err := u.st.Users(ctx)
+	if err != nil {
+		return nil, err
+	}
+	held, err := u.withholds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		for i := range all {
+			all[i] = withoutUserFile(all[i])
+		}
+	}
+	return all, nil
+}
+
+// getUser is GetUser as a device is told it, as users tells Users. The user's
+// own device is told no more of its file than another's. A path on the yard's
+// machine is of no use to it, and comparing the user with the device's would
+// be a second rule. deviceEvent holds the file of a user_set back from it too.
+func (u *UserServer) getUser(ctx context.Context, name string) (*store.User, error) {
+	user, err := u.st.GetUser(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	held, err := u.withholds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		told := withoutUserFile(*user)
+		user = &told
+	}
+	return user, nil
+}
+
+// crew is Crew as a device is told it: the crew of the store, but for the
+// operator's configuration of each member, which only a device of the operator
+// is told (withoutCrewConfig).
+func (u *UserServer) crew(ctx context.Context) ([]store.CrewMember, error) {
+	all, err := u.st.Crew(ctx)
+	if err != nil {
+		return nil, err
+	}
+	held, err := u.withholds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		for i := range all {
+			all[i] = withoutCrewConfig(all[i])
+		}
+	}
+	return all, nil
+}
+
+// getCrew is GetCrew as a device is told it, as crew tells Crew.
+func (u *UserServer) getCrew(ctx context.Context, name string) (*store.CrewMember, error) {
+	member, err := u.st.GetCrew(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	held, err := u.withholds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if held {
+		told := withoutCrewConfig(*member)
+		member = &told
+	}
+	return member, nil
+}
+
+// withoutUserFile is the user as a device that is not the operator's is told
+// them: without the file their address is read from, and without the words of
+// the last send's failure, which are those of reading that file and so name it
+// (notify.userEnv), the path with words around it being still the path. How the
+// send ended, in the reason and the status, stays. The record is copied, not
+// changed.
+func withoutUserFile(user store.User) store.User {
+	user.EnvFile = ""
+	if user.LastPush != nil {
+		last := *user.LastPush
+		last.Error = ""
+		user.LastPush = &last
+	}
+	return user
+}
+
+// deviceCrewConfig are the keys of a crew member's config a device is told:
+// names and flags, and nothing that is a file or a command. The others are the
+// operator's configuration: env_file, env_command and each env_for_<user> name
+// a file or a command, prompt a file, and args are what the agent is started
+// with, which can name files. The keys told are the ones listed, as
+// deviceSettings lists the settings, since a config is open: a yard may keep a
+// key from before keys were checked (store.ConfigKeys), and one added later is
+// told to no device until someone lists it here.
+var deviceCrewConfig = []string{"kind", "model", "provider", "trust", "greet",
+	store.CrewForKey, store.OpenThreads, store.SetState, store.MailPeers}
+
+// withoutCrewConfig is the crew member as a device that is not the operator's
+// is told them: without the directory they run in, with the keys of
+// deviceCrewConfig alone in their config, and without the handles of their
+// sessions, the line session's and each conversation's. A handle is what the
+// runner keeps of a pane it started, and names the directory the pane started
+// in and the yardr the agent was told to run; the facts a client has use for
+// are read out of it (store.CrewSession.LoginScreen) and stay, with the rest of
+// the record: the runner, the events it hears, who it is in a source, what it
+// subscribes to, the model and the kind, and where its session is. The record
+// is copied, not changed.
+func withoutCrewConfig(member store.CrewMember) store.CrewMember {
+	member.Dir = ""
+	if member.Config != nil {
+		told := map[string]any{}
+		for _, key := range deviceCrewConfig {
+			if v, ok := member.Config[key]; ok {
+				told[key] = v
+			}
+		}
+		member.Config = told
+	}
+	member.CrewSession = withoutHandles(member.CrewSession)
+	if member.Conversations != nil {
+		conversations := make(map[string]store.CrewSession, len(member.Conversations))
+		for user, session := range member.Conversations {
+			conversations[user] = withoutHandles(session)
+		}
+		member.Conversations = conversations
+	}
+	return member
+}
+
+// withoutHandles is the session without the handles the runner keeps for it:
+// the one of the session running, the one of the session being started and
+// those of the sessions that were left.
+func withoutHandles(s store.CrewSession) store.CrewSession {
+	s.Handle, s.Starting, s.Left = nil, nil, nil
+	return s
 }
 
 // device resolves a device token: the one kind of credential there is.

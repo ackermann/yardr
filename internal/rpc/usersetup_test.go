@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
@@ -816,4 +818,196 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 	must(y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"))
 	told("jo's device, in a yard with no operator", y.jo, false)
 	told("sam's device, in a yard with no operator", y.sam, false)
+}
+
+// Users, GetUser, Crew and GetCrew tell the files and the commands of the
+// operator's configuration to a device of the operator and to no other, as the
+// stream tells the events that set them
+// (TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone). To any
+// other device a user reads without the file their address is read from and
+// without the words of a send that found it unfit, which name it; a crew member
+// without the directory it runs in, without the files and commands its config
+// names, and without the handles of its sessions, which name the directory and
+// the yardr it was started with. So it does to every device of a yard with no
+// operator, and to the user's own device, which is told no more of its file
+// than another's. The rest of each record is told as it is, and the socket,
+// which the terminal and the agents use, keeps the whole record.
+func TestUserCallsTellTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) {
+	ctx := context.Background()
+	y := newSecretYard(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := filepath.Dir(y.db)
+	path := func(elem ...string) string { return filepath.Join(append([]string{dir}, elem...)...) }
+
+	// Both users are told through a source by the file their address is read
+	// from, and a send to each found the file unfit, in the words the daemon
+	// records it in (notify.userEnv): they name the file.
+	_, err := y.st.PutSource(ctx, "push.yaml", addressDecl, "jo")
+	must(err)
+	files := map[string]string{"jo": path("users", "jo.env"), "sam": path("users", "sam.env")}
+	const unfit = "does not set PUSH_USER"
+	for _, user := range []string{"jo", "sam"} {
+		_, err = y.st.SetUser(ctx, user, map[string]string{store.UserNotify: "push", store.UserEnvFile: files[user], store.UserTell: "mail"}, "jo")
+		must(err)
+		must(y.st.Mail(ctx, user, "the nightly run is done", "yardmaster"))
+	}
+	pushes, err := y.st.Pushes(ctx)
+	must(err)
+	if len(pushes) != 2 {
+		t.Fatalf("the yard has %d pushes waiting, want one for each user: %+v", len(pushes), pushes)
+	}
+	sent := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	for _, p := range pushes {
+		must(y.st.PushTried(ctx, p.User, []uint64{p.Seq}, store.PushResult{At: sent, Source: "push", Reason: store.PushNotSetUp,
+			Error: fmt.Sprintf("user %s: env_file %s %s", p.User, files[p.User], unfit)}))
+	}
+
+	// A crew member whose config names a file or a command for each thing it
+	// reads one for, beside the names and flags a device is told; with a
+	// session running, one being started, one left behind and a conversation,
+	// each with a handle that names a pane and the directory.
+	workdir, yardr := path("crew", "signalman"), path("bin", "yardr")
+	_, err = y.st.PutCrew(ctx, store.CrewMember{Name: "signalman", Runner: "herdr", Dir: workdir, Config: map[string]any{
+		"kind": "claude", "model": "sonnet", "provider": "claude", "trust": false, "greet": "jo",
+		store.CrewForKey: "jo,sam", store.OpenThreads: "push", store.SetState: "push", store.MailPeers: "north",
+		"args": []any{"--add-dir", path("extra")}, "prompt": path("roles", "signalman.md"),
+		"env_file": path("crew", "signalman.env"), "env_command": []any{path("bin", "signalman-env"), "--org", "acme"},
+		store.EnvForPrefix + "jo": path("crew", "jo.env"), store.EnvForPrefix + "sam": path("crew", "sam.env"),
+	}}, "jo")
+	must(err)
+	must(y.st.CrewStarted(ctx, "signalman", map[string]any{"agent": "south-signalman", "pane": "pane-line", "dir": workdir,
+		"first_prompt": "Run `" + yardr + " prime --crew signalman` first.", store.HarnessLoginKey: "Select login method:"}))
+	must(y.st.CrewStarting(ctx, "signalman", map[string]any{"pane": "pane-next", "dir": workdir + "-next"}))
+	must(y.st.CrewLeft(ctx, "signalman", []map[string]any{{"pane": "pane-left", "dir": workdir + "-left"}}))
+	must(y.st.CrewStartedFor(ctx, "signalman", "sam", map[string]any{"pane": "pane-sam", "dir": workdir, "for": "sam"}))
+
+	// held are the words of the users and of the crew a device that is not the
+	// operator's is told none of.
+	heldOfUsers := []string{files["jo"], files["sam"], unfit}
+	heldOfCrew := []string{workdir, yardr, "pane-line", "pane-next", "pane-left", "pane-sam",
+		path("roles", "signalman.md"), path("crew", "signalman.env"), path("bin", "signalman-env"), "--org",
+		path("crew", "jo.env"), path("crew", "sam.env"), "--add-dir", path("extra")}
+	held := slices.Concat(heldOfUsers, heldOfCrew)
+
+	// The store keeps the whole records, and the socket serves them: the
+	// fixture really holds every word, and the socket tells every one of them.
+	users, err := y.st.Users(ctx)
+	must(err)
+	crew, err := y.st.Crew(ctx)
+	must(err)
+	socket := Handler(y.st, nil)
+	for _, c := range []struct {
+		call  string
+		words []string
+	}{{"Users", heldOfUsers}, {"Crew", heldOfCrew}} {
+		raw := ask(socket, http.MethodPost, "/call/"+c.call, "", strings.NewReader("{}")).Body.String()
+		for _, word := range c.words {
+			if !strings.Contains(raw, word) {
+				t.Errorf("the socket's %s does not tell %q, want the whole record", c.call, word)
+			}
+		}
+	}
+
+	// What a device that is not the operator's is told of a record: the same
+	// but for what is held. These are the cuts the doc promises, written out
+	// here and not taken from the code that makes them.
+	userToldTo := func(u store.User) store.User {
+		u.EnvFile = ""
+		if u.LastPush != nil {
+			last := *u.LastPush
+			last.Error = ""
+			u.LastPush = &last
+		}
+		return u
+	}
+	crewToldTo := func(m store.CrewMember) store.CrewMember {
+		m.Dir = ""
+		kept := map[string]any{}
+		for _, key := range []string{"kind", "model", "provider", "trust", "greet", store.CrewForKey, store.OpenThreads, store.SetState, store.MailPeers} {
+			if v, ok := m.Config[key]; ok {
+				kept[key] = v
+			}
+		}
+		m.Config = kept
+		m.Handle, m.Starting, m.Left = nil, nil, nil
+		conversations := map[string]store.CrewSession{}
+		for user, session := range m.Conversations {
+			session.Handle, session.Starting, session.Left = nil, nil, nil
+			conversations[user] = session
+		}
+		m.Conversations = conversations
+		return m
+	}
+	// told fails unless the four calls of the device with the token are
+	// answered with the whole records when whole, and when not with them as a
+	// device that is not the operator's is told them, and none of the held
+	// words anywhere in the answers.
+	told := func(who, token, user string, whole bool) {
+		t.Helper()
+		own, err := y.st.GetUser(ctx, user)
+		must(err)
+		member, err := y.st.GetCrew(ctx, "signalman")
+		must(err)
+		wantUsers, wantOwn, wantCrew, wantMember := users, *own, crew, *member
+		if !whole {
+			wantUsers, wantCrew = nil, nil
+			for _, u := range users {
+				wantUsers = append(wantUsers, userToldTo(u))
+			}
+			for _, m := range crew {
+				wantCrew = append(wantCrew, crewToldTo(m))
+			}
+			wantOwn, wantMember = userToldTo(wantOwn), crewToldTo(wantMember)
+		}
+		for _, c := range []struct {
+			method, args string
+			want         any
+		}{
+			{"Users", `{}`, wantUsers},
+			{"GetUser", `{}`, wantOwn},
+			{"Crew", `{}`, wantCrew},
+			{"GetCrew", `{"name":"signalman"}`, wantMember},
+		} {
+			raw := call(t, y.h, token, c.method, c.args)
+			var answer struct {
+				Result json.RawMessage
+				Error  *wireError
+			}
+			if err := json.Unmarshal([]byte(raw), &answer); err != nil || answer.Error != nil {
+				t.Fatalf("%s is answered %s to %s: %v", c.method, raw, who, err)
+			}
+			wantJSON, err := json.Marshal(c.want)
+			must(err)
+			var got, want any
+			if json.Unmarshal(answer.Result, &got) != nil || json.Unmarshal(wantJSON, &want) != nil || !reflect.DeepEqual(got, want) {
+				t.Errorf("%s is answered %s to %s, want %s", c.method, answer.Result, who, wantJSON)
+			}
+			for _, word := range held {
+				if strings.Contains(raw, word) && !whole {
+					t.Errorf("%s is answered to %s with %q in it", c.method, who, word)
+				}
+			}
+		}
+	}
+	told("jo's device", y.jo, "jo", true)
+	told("sam's device", y.sam, "sam", false)
+
+	// What the yard does not have is answered as it is on the socket.
+	if raw := call(t, y.h, y.sam, "GetCrew", `{"name":"nobody"}`); !strings.Contains(raw, `"code":"not-found"`) {
+		t.Errorf("GetCrew of a crew member the yard does not have is answered %s to sam's device, want not-found", raw)
+	}
+
+	// The operator now is told: the device of the one named moves with it, and in
+	// a yard with no operator no device is.
+	must(y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"))
+	told("jo's device, no longer the operator's", y.jo, "jo", false)
+	told("sam's device, the operator's now", y.sam, "sam", true)
+	must(y.st.SetSetting(ctx, store.OperatorSetting, "", "sam"))
+	told("jo's device, in a yard with no operator", y.jo, "jo", false)
+	told("sam's device, in a yard with no operator", y.sam, "sam", false)
 }
