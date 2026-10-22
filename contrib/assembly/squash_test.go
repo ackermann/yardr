@@ -223,7 +223,7 @@ func TestSquashMessage(t *testing.T) {
 		}, {
 			// A bead that came back red is squashed again: the first squash
 			// gives up its subject line and its footer, the merge of main
-			// adds nothing, and the agents stay in the order they were seen.
+			// contributes its message, and the agents stay in first-seen order.
 			id: "r-8", title: "Keep the title", typ: "task", labels: []string{"kind:feat"},
 			commits: []commit{
 				{msg: "feat(store): Keep the title (r-8)\n\nAdd the thing\n\nRefs: https://github.com/acme/widgets/issues/7\nYardr-Bead: r-8\n" + builderTrailer + "\n", files: map[string]string{"internal/store/h.go": "h\n"}},
@@ -231,7 +231,7 @@ func TestSquashMessage(t *testing.T) {
 				{msg: "Fix it after the red run\n\nYardr-Bead: r-8\n" + reviewerTrailer + "\n", files: map[string]string{"internal/store/i.go": "i\n"}},
 			},
 			subject: "feat(store): Keep the title (r-8)",
-			body:    "Add the thing\n\nFix it after the red run\n\nYardr-Bead: r-8\n" + builderTrailer + "\n" + reviewerTrailer,
+			body:    "Add the thing\n\nMerge main\n\nFix it after the red run\n\nYardr-Bead: r-8\n" + builderTrailer + "\n" + reviewerTrailer,
 		}, {
 			// The links of a bead: the tracked issue first, then the related
 			// one, and a bead of another yard it is at is no issue. The one

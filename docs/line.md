@@ -562,9 +562,10 @@ Yardr-Agent: <agent>
 - **`Yardr-Agent:`**: one line for each distinct value on the branch's
   commits, in the order they were first seen.
 
-A merge commit on the branch adds nothing to the body. A bead that comes back
-after a red run keeps the squash on its branch, and the next landing squashes
-again: the earlier subject line is left out and its footers are gathered anew.
+A merge commit on the branch contributes its message like any other commit.
+A bead that comes back after a red run keeps the squash on its branch, and the
+next landing squashes again: the earlier subject line is left out and its
+footers are gathered anew.
 Every type of bead is squashed in this mode but a train, which lands by
 rebase in either mode, so that the base gets the commit of each child; a
 wagon, landing on its train's branch, is squashed like any other, and a

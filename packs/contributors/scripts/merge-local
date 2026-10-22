@@ -350,7 +350,7 @@ squash_message() {
   # body for the footer. A commit that is itself such a squash (an earlier
   # landing of this bead that came back red) gives up its subject line, which
   # the new one replaces.
-  sq_msgs=$(git -C "$REPO" log --reverse --no-merges --no-show-signature --format='%B%x1e' "$sq_base..$sq_head") ||
+  sq_msgs=$(git -C "$REPO" log --reverse --no-show-signature --format='%B%x1e' "$sq_base..$sq_head") ||
     { ERR="reading the commits of $sq_head since $sq_base failed"; return 1; }
   sq_parts=$(printf '%s\n' "$sq_msgs" | awk -v bead="$sq_bead" '
     function bc(l) { return l ~ /^BREAKING[ -]CHANGE:([ \t]|$)/ }
