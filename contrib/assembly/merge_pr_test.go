@@ -83,6 +83,7 @@ esac
 // error in mint-fail when a test wrote one.
 const fakeGithubMint = `#!/bin/sh
 cat >"$FAKE_GH/mint-stdin"
+printf '%s\n' "$*" >"$FAKE_GH/mint-args"
 if [ -e "$FAKE_GH/mint-fail" ]; then cat "$FAKE_GH/mint-fail" >&2; exit 1; fi
 printf '{"token":"` + mintToken + `","expires_at":"2099-01-01T00:00:00Z"}'
 `
@@ -153,7 +154,7 @@ func mergeYard(t *testing.T) (y *yard, gh string) {
 	// requires of an env_file. The stand-in mint reads neither.
 	y.envFile = filepath.Join(t.TempDir(), "pr-merges.env")
 	write(y.envFile, "GITHUB_APP_ID=123456\nGITHUB_APP_PRIVATE_KEY_FILE="+filepath.Join(gh, "app.pem")+"\n", 0o600)
-	y.opts = "YARDR_GITHUB_MINT=" + shellQuote(mint)
+	y.opts = "YARDR_GITHUB_MINT=" + shellQuote(mint+" --from-group")
 
 	sub, err := fs.Sub(packs.FS, packs.Contributors)
 	if err != nil {
@@ -196,7 +197,7 @@ func (y *yard) prBead(id, url string, label bool) {
 // calls, its answers, its failures.
 func standIn(t *testing.T, gh string, o mergeOpts, files map[string]string) {
 	t.Helper()
-	for _, name := range []string{"calls", "state", "bot", "head-owner", "head-name", "checks", "view-fail", "api-fail", "refuse", "race", "mint-fail", "mint-stdin"} {
+	for _, name := range []string{"calls", "state", "bot", "head-owner", "head-name", "checks", "view-fail", "api-fail", "refuse", "race", "mint-fail", "mint-stdin", "mint-args"} {
 		if err := os.Remove(filepath.Join(gh, name)); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -366,7 +367,7 @@ func TestMergePRMerges(t *testing.T) {
 				t.Fatal(err)
 			}
 			y.yardr("source", "add", decl)
-			y.yardr("source", "set", "github", "mint_command="+filepath.Join(gh, "bin", "github-mint"))
+			y.yardr("source", "set", "github", "mint_command="+filepath.Join(gh, "bin", "github-mint")+" --from-source")
 			y.opts = ""
 		}
 
@@ -393,6 +394,13 @@ func TestMergePRMerges(t *testing.T) {
 			}
 			if asked.Scope != "o/r" || asked.Inputs["GITHUB_APP_ID"] != "123456" || asked.Inputs["GITHUB_APP_PRIVATE_KEY_FILE"] != filepath.Join(gh, "app.pem") {
 				t.Errorf("%s: the mint was asked %+v, want scope o/r and the env_file's id and key file", c.what, asked)
+			}
+			wantArgs := "--from-group\n"
+			if c.source {
+				wantArgs = "--from-source\n"
+			}
+			if got := readFile(t, filepath.Join(gh, "mint-args")); got != wantArgs {
+				t.Errorf("%s: mint arguments = %q, want %q", c.what, got, wantArgs)
 			}
 			if n := countCalls(t, gh, "api repos/o/r/commits/"+or(c.o.head, headA)+"/check-runs"); n != 1 {
 				t.Errorf("%s: the check runs of the head read %d times, want once:\n%v", c.what, n, ghCalls(t, gh))
@@ -516,8 +524,8 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 			wants: []string{"reading pull request " + prURL + " failed: HTTP 404: Not Found"}},
 		{what: "check runs it cannot read", files: map[string]string{"api-fail": "HTTP 403: Resource not accessible by integration"},
 			wants: []string{"reading the check runs of 4f2c9e1 in o/r failed", "The App needs Checks read"}},
-		{what: "a mint that fails", files: map[string]string{"mint-fail": "github-mint: GitHub has no installation of the App on o/r: install the App there"}, tokens: true,
-			wants: []string{"minting a token for o/r failed: github-mint: GitHub has no installation of the App on o/r"}},
+		{what: "a mint that fails", files: map[string]string{"mint-fail": "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE"}, tokens: true,
+			wants: []string{"minting a token for o/r failed", "the mint's output is not copied to the bead"}},
 		{what: "no env_file", tokens: true,
 			wants: []string{"has no GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_FILE", "env_file"},
 			// Whatever the machine running the test exports is not the group's.
@@ -534,6 +542,13 @@ func TestMergePRHoldsWhatGitHubRefuses(t *testing.T) {
 		y.envFile, y.opts = envFile, opts
 
 		y.held(gh, "r-p", c.what, c.asked, c.wants...)
+		if c.what == "a mint that fails" {
+			for where, text := range map[string]string{"log": y.log, "notes": y.notesOf("r-p")} {
+				if strings.Contains(text, "PRIVATE_KEY_VALUE_SHOULD_NOT_ESCAPE") {
+					t.Errorf("the mint's stderr reached the %s", where)
+				}
+			}
+		}
 		if _, err := os.Stat(filepath.Join(gh, "calls")); c.tokens && err == nil {
 			t.Errorf("%s: GitHub was asked with no token:\n%v", c.what, ghCalls(t, gh))
 		}

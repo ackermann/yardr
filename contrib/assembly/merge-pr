@@ -103,10 +103,21 @@ mint=${YARDR_GITHUB_MINT:-}
 [ -n "$mint" ] || mint=$("$Y" source show github --json 2>/dev/null | jq -r '.source.mint_command // empty')
 [ -n "$mint" ] ||
   hold "the github source has no mint_command and the group's cmd sets no YARDR_GITHUB_MINT; not merging. Install contrib/github-mint, then yardr source set github mint_command=<its path>."
+# mint_command has the same space-split, no-shell contract as yardr's source
+# mint. Disable pathname expansion while forming argv so a configured `*`
+# stays an argument and never grows into files in the runner's directory.
+mint_token() {
+  set -f
+  # shellcheck disable=SC2086
+  set -- $mint
+  set +f
+  [ "$#" -gt 0 ] || return 1
+  YARDR_SOURCE_BASE=https://api.github.com "$@" 2>/dev/null
+}
 tokjson=$(jq -nc --arg id "$GITHUB_APP_ID" --arg key "$GITHUB_APP_PRIVATE_KEY_FILE" --arg scope "$slug" \
   '{inputs: {GITHUB_APP_ID: $id, GITHUB_APP_PRIVATE_KEY_FILE: $key}, scope: $scope}' |
-  YARDR_SOURCE_BASE=https://api.github.com "$mint" 2>"$errf") ||
-  hold "minting a token for $slug failed: $(head -c 500 "$errf"); not merging."
+  mint_token) ||
+  hold "minting a token for $slug failed; the mint's output is not copied to the bead. Not merging."
 token=$(printf '%s' "$tokjson" | jq -r '.token // empty')
 unset tokjson
 [ -n "$token" ] || hold "minting a token for $slug answered no token; not merging."
