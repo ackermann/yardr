@@ -16,6 +16,7 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -97,6 +98,13 @@ func Send(ctx context.Context, st Store, home, user string, m Message) (*Sent, e
 	return Through(ctx, st, home, u.Notify, u, m)
 }
 
+// fallbackTimeout is the time the words alone get when the picture they
+// carried was not taken. It is a budget of their own, since the picture may
+// have used all of the caller's. The daemon, which sends the pictures, gives
+// a tell pushTimeout (internal/dispatch), 10 seconds too; this package
+// cannot name it, since dispatch imports this one.
+const fallbackTimeout = 10 * time.Second
+
 // Through tells the user m through the source name, whichever their record
 // names: what yardr source check <name> --user does, to try a source
 // before a user is given it. home is the yard's home, which a relative
@@ -119,13 +127,25 @@ func Through(ctx context.Context, st Store, home, name string, u *store.User, m 
 		// cost them, nor have them tried again with it until they are
 		// given up: they go on their own, as they went before pictures
 		// were told, and the Sent says why.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			// The caller gave up on the send (the daemon is stopping). The
+			// words would go, but the daemon could not record that, and
+			// they would go again after the restart.
+			return nil, ctx.Err()
+		}
 		if err != nil {
 			unpictured = err.Error()
 		} else {
 			unpictured = fmt.Sprintf("the source answered %d", status)
 		}
 		m.Image = ""
-		status, err = p.send(ctx, home, env, m)
+		// A picture that is slow rather than refused can use all of ctx.
+		// The words would then start past its deadline and fail at once,
+		// and the push would try again, slow picture first, until it is
+		// given up. They get a budget of their own.
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fallbackTimeout)
+		status, err = p.send(fctx, home, env, m)
+		cancel()
 	}
 	if err != nil {
 		return nil, err

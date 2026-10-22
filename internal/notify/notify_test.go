@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/source"
@@ -247,6 +248,23 @@ func testSendImage(t *testing.T) {
 			t.Fatalf("%s: the call got %v", c.name, srv.got[told:])
 		}
 	}
+	// A picture that is slow rather than refused costs the words nothing
+	// either. The command is still running when the send's own time is
+	// over, and the call tells them under a time of their own, once, with
+	// the Sent saying why the picture did not go.
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	told := len(srv.got)
+	slow, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	sent, err = Send(slow, st, home, "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"})
+	cancel()
+	if err != nil || !sent.OK() || !strings.Contains(sent.Unpictured, "no answer within") {
+		t.Fatalf("a picture that outlives the send: %+v, %v", sent, err)
+	}
+	if len(srv.got) != told+1 || srv.got[told]["title"] != "t" || srv.got[told]["message"] != "x" {
+		t.Fatalf("a picture that outlives the send: the call got %v", srv.got[told:])
+	}
 	// A picture that went says nothing of the kind, and a send that fails
 	// without it fails with the call's words.
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '{\"status\":200}'\n"), 0o755); err != nil {
@@ -384,15 +402,19 @@ func (a *teller) Notify(_ context.Context, env map[string]string, title, text, l
 }
 
 // imager is a teller whose source takes a picture with the message, or
-// fails to, as fail says.
+// fails to, as fail says. A picture it is asked to take runs onImage first.
 type imager struct {
 	teller
-	image string
-	fail  error
+	image   string
+	fail    error
+	onImage func()
 }
 
 func (a *imager) NotifyImage(ctx context.Context, env map[string]string, title, text, link, image string) (int, error) {
 	a.image = image
+	if a.onImage != nil {
+		a.onImage()
+	}
 	if a.fail != nil {
 		return 0, a.fail
 	}
@@ -488,6 +510,16 @@ func testSendImageThroughAnAdapter(t *testing.T) {
 	}
 	if b.image != "/y/blobs/h" || b.title != "t" || b.text != "x" || b.link != "l" {
 		t.Fatalf("the adapter whose picture failed got %+v, image %q", b.teller, b.image)
+	}
+
+	// A caller that cancels has given up on the send: the picture's failure
+	// ends it, and the words are not told on the way out. A daemon that is
+	// stopping could not record them, and would tell them again after the
+	// restart.
+	cctx, cancel := context.WithCancel(ctx)
+	b.teller, b.onImage = teller{}, cancel
+	if _, err := Send(cctx, st, "", "ada", Message{Title: "t", Text: "x", Image: "/y/blobs/h"}); !errors.Is(err, context.Canceled) || b.text != "" {
+		t.Fatalf("a send cancelled at its picture: %v; the adapter got %+v", err, b.teller)
 	}
 }
 
