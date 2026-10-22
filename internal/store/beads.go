@@ -1773,11 +1773,18 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 			}
 		}
 		terminal = f != nil && f.IsTerminal(stage)
-		// A move whose event names an outcome brings the bead back round
-		// to a stage it had been in, and counts; a move by a person does
-		// not (see rounds.go). Before exitStay, which lists the stage as
-		// visited.
+		// A move whose event names an outcome counts a round when it brings
+		// the bead back to a stage it had been in; any other move, a
+		// person's or the yard's, adds none (see rounds.go). Before
+		// exitStay, which lists the stage as visited.
 		b.enter(stage, outcome != "")
+		// A same-stage move that ends no session is a fresh stay and clears
+		// the failures. With nothing else changed it is written further
+		// down, which clears them; a round changes the bead, so the move is
+		// written here, and clears them here.
+		if stage == from && b.Session == nil && b.Group == nil {
+			b.Failures = 0
+		}
 		// Before ending the session frees the bead: the exit records
 		// whose work ended (exitStay), and the event says so too.
 		if err := exitStay(w.Tx, b, stage, now()); err != nil {

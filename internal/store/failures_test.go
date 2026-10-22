@@ -104,6 +104,36 @@ func TestFailureCountOutlivesTheUnheldEvent(t *testing.T) {
 	if n := count("new"); n != 0 {
 		t.Fatalf("failures in the stage left = %d, want 0", n)
 	}
+
+	// A same-stage transition is a fresh stay too: it clears the failures of
+	// a bead no session works, whether an outcome makes it (which also adds
+	// a round) or a move by hand.
+	putNamed(t, s, "loop", "new -> review on done | new on retry\n")
+	loop, err := s.CreateBead(ctx, store.NewBead{Title: "again", Metadata: map[string]any{"flow": "loop"}}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for how, move := range map[string]func() error{
+		"outcome": func() error { _, err := s.Done(ctx, loop.ID, "retry", "", store.Expect{}, "me"); return err },
+		"hand":    func() error { _, err := s.Advance(ctx, loop.ID, "new", store.Expect{}, "me"); return err },
+	} {
+		sess, err := s.Claim(ctx, loop.ID, "g", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.EndSession(ctx, sess.ID, "died", "x"); err != nil {
+			t.Fatal(err)
+		}
+		if n, err := s.FailureCount(ctx, loop.ID, "new"); err != nil || n != 1 {
+			t.Fatalf("%s: failures before the same-stage move = %d, %v; want 1", how, n, err)
+		}
+		if err := move(); err != nil {
+			t.Fatalf("%s: %v", how, err)
+		}
+		if n, err := s.FailureCount(ctx, loop.ID, "new"); err != nil || n != 0 {
+			t.Fatalf("%s: failures after the same-stage move = %d, %v; want 0", how, n, err)
+		}
+	}
 }
 
 func mustSessions(t *testing.T, s store.API) []store.Session {

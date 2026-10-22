@@ -19,7 +19,7 @@ import "slices"
 // stages its visited list holds stand for what it had reached, with the cap
 // that list already had.
 func (b *beadRow) been(stage string) (rounds int, ok bool) {
-	if n, ok := b.Rounds[stage]; ok {
+	if n, keyed := b.Rounds[stage]; keyed {
 		return n, true
 	}
 	return 0, slices.Contains(b.Visited, stage)
@@ -29,8 +29,9 @@ func (b *beadRow) been(stage string) (rounds int, ok bool) {
 // gets its key at zero. One it had been in keeps its count when a person
 // moved the bead, and gets one more round when an outcome brought it back
 // (byOutcome), a same-stage outcome included. It runs before exitStay, which
-// lists the stage as visited and would make every arrival read as a return
-// to a bead from before Rounds.
+// lists the stage as visited: a stage without a key that the list holds
+// counts as one the bead has been in, so after it every first arrival would
+// read as a return.
 func (b *beadRow) enter(stage string, byOutcome bool) {
 	rounds, been := b.been(stage)
 	if byOutcome && been {
