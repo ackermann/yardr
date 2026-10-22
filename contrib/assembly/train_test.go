@@ -209,6 +209,52 @@ func TestTrainEndToEnd(t *testing.T) {
 	}
 }
 
+// With YARDR_LAND=squash a child of a train lands on the train's branch as one
+// commit written from the bead, a wagon as any other type, and the train
+// itself lands by rebase whatever the mode: main gets the commit of each
+// child, not one for the train (docs/line.md, "Wagons"). The train is
+// approved from the start: its own flow is not what is tested here.
+func TestMergeLocalSquashLandsEachChildAsOneCommitAndTheTrainByRebase(t *testing.T) {
+	y := newYard(t)
+	y.opts = "YARDR_LAND=squash"
+	y.retype("r-1", "wagon")
+	y.createBead("the train", "r-e", "r", "train", "approved")
+	y.addParent("r-e", "r-1")
+	y.beadWith("r-2", "child", "task", nil)
+	y.addParent("r-e", "r-2")
+	main := y.git(y.repo, "rev-parse", "main")
+	y.git(y.repo, "branch", "yard/r-e")
+	wt := filepath.Join(y.home, "worktrees", "r", "r-2")
+	y.git(y.repo, "worktree", "add", "-q", "-b", "yard/r-2", wt, "main")
+	y.commit(y.wt, "b.txt", "wagon\n")
+	y.commit(wt, "c.txt", "child\n")
+	subjects := func(rng string) string { return y.git(y.repo, "log", "--reverse", "--format=%s", rng) }
+
+	y.exec("merge-local", "assembly", "r-1")
+	y.exec("merge-local", "assembly", "r-2")
+
+	const children = "chore: work (r-1)\nchore: child (r-2)"
+	if got := subjects(main + "..yard/r-e"); got != children {
+		t.Fatalf("the train's branch gained\n%s\nwant a commit written from each child", got)
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("main moved when children landed on the train's branch")
+	}
+	train := y.git(y.repo, "rev-parse", "yard/r-e")
+
+	y.exec("merge-local", "assembly", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
+		t.Fatalf("train %s/%s, want merged and closed:\n%s", e.Stage, e.Status, y.notesOf("r-e"))
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != train {
+		t.Fatalf("main at %s, want the train's branch %s: the train lands as it is", got, train)
+	}
+	if got := subjects(main + "..main"); got != children {
+		t.Fatalf("main gained\n%s\nwant the commit of each child and none for the train", got)
+	}
+}
+
 // A red run on the integrated train sends it back to open with the end of
 // its output, and adds a child to fix it, which blocks the train: it is not
 // integrated again until the fix lands. main does not move.

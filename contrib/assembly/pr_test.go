@@ -27,8 +27,10 @@ const prURL = "https://github.com/o/r/pull/7"
 // the script last read the head). The PR's head is origin's yard/r-e.
 // It has no pr list: the scripts never look a PR up by its branch.
 // Merging pushes the PR's head onto origin's main and deletes its branch
-// there, as GitHub would (minus the rebase); with --match-head-commit it
-// refuses, in GitHub's words, when the head is another commit.
+// there, as GitHub would (minus the rebase, and minus the squash, whose
+// --subject and --body it keeps in the files subject and merge-body); with
+// --match-head-commit it refuses, in GitHub's words, when the head is
+// another commit.
 const fakeGh = `#!/bin/sh
 d=$FAKE_GH
 echo "$*" >>"$d/calls"
@@ -61,6 +63,8 @@ case "$1 $2" in
   match=
   while [ $# -gt 0 ]; do
     [ "$1" = --match-head-commit ] && match=$2
+    [ "$1" = --subject ] && printf '%s' "$2" >"$d/subject"
+    [ "$1" = --body ] && printf '%s' "$2" >"$d/merge-body"
     shift
   done
   if [ -n "$match" ] && [ "$match" != "$head" ]; then
@@ -594,6 +598,49 @@ func TestPRMergeDirtyCheckoutHolds(t *testing.T) {
 	}
 	if n := countCalls(t, gh, "pr merge"); n != 0 {
 		t.Fatal("merged under a dirty checkout")
+	}
+
+	// The checkout cleaned, the same train is held again by a YARDR_LAND that
+	// is neither mode, before anything is merged, and then merged by squash:
+	// one commit, with the subject and the body merge-local would write for
+	// the train over the pull request's commits.
+	y.git(y.repo, "checkout", "--", "a.txt")
+	y.setHold("r-e", false)
+	y.opts = "YARDR_PR=1 YARDR_LAND=squahs"
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+	if e := y.beadOf("r-e"); !e.Hold || e.Stage != "land" {
+		t.Fatalf("train %s hold=%v after a YARDR_LAND that is none, want held in land", e.Stage, e.Hold)
+	}
+	if notes := y.notesOf("r-e"); !strings.Contains(notes, "YARDR_LAND is squahs") {
+		t.Fatalf("no note naming the value:\n%s", notes)
+	}
+	if n := countCalls(t, gh, "pr merge"); n != 0 {
+		t.Fatal("merged under a mode that is none")
+	}
+	reviewed := y.git(y.repo, "rev-parse", "yard/r-e")
+	y.setHold("r-e", false)
+	y.opts = "YARDR_PR=1 YARDR_LAND=squash"
+
+	y.exec("pr-merge", "yard-pr-merge", "r-e")
+
+	if e := y.beadOf("r-e"); e.Stage != "merged" || e.Status != "closed" {
+		t.Fatalf("train %s/%s after pr-merge by squash, want merged and closed:\n%s", e.Stage, e.Status, y.notesOf("r-e"))
+	}
+	if n := countCalls(t, gh, "pr merge "+prURL+" --squash --subject "); n != 1 {
+		t.Fatalf("gh pr merge --squash called %d times, want once:\n%v", n, ghCalls(t, gh))
+	}
+	if calls := readFile(t, filepath.Join(gh, "calls")); strings.Contains(calls, "--rebase") ||
+		!strings.Contains(calls, " --delete-branch --match-head-commit "+reviewed) {
+		t.Fatalf("gh pr merge was not --squash --delete-branch --match-head-commit %s:\n%s", reviewed, calls)
+	}
+	if got, want := readFile(t, filepath.Join(gh, "subject")), "chore: the train (r-e)"; got != want {
+		t.Fatalf("subject %q, want %q", got, want)
+	}
+	if got, want := readFile(t, filepath.Join(gh, "merge-body")), "child1.txt\n\nchild2.txt\n\nYardr-Bead: r-e"; got != want {
+		t.Fatalf("body %q, want %q", got, want)
+	}
+	if !strings.Contains(y.notesOf("r-e"), "with a squash;") {
+		t.Fatalf("the landing note does not say it was a squash:\n%s", y.notesOf("r-e"))
 	}
 }
 

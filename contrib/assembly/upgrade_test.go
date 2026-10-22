@@ -94,22 +94,22 @@ exit 1
 	return writeScript(t, fake, "go", script)
 }
 
-// The four copies of merge-local are one script: the assembly runs the
+// The five copies of merge-local are one script: the assembly runs the
 // installed contrib copy, a yard without a checkout the starter pack's, and
-// the design and contributors packs carry the starter's byte for byte. A
-// change to one is made in all four.
+// the design, contributors and website packs carry the starter's byte for
+// byte. A change to one is made in all five.
 func TestMergeLocalCopiesIdentical(t *testing.T) {
 	want, err := os.ReadFile("merge-local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"../../packs/starter/scripts/merge-local", "../../packs/design/scripts/merge-local", "../../packs/contributors/scripts/merge-local"} {
+	for _, p := range []string{"../../packs/starter/scripts/merge-local", "../../packs/design/scripts/merge-local", "../../packs/contributors/scripts/merge-local", "../../packs/website/scripts/merge-local"} {
 		got, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if string(got) != string(want) {
-			t.Errorf("%s differs from contrib/assembly/merge-local: change all four", p)
+			t.Errorf("%s differs from contrib/assembly/merge-local: change all five", p)
 		}
 	}
 }

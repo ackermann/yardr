@@ -15,6 +15,11 @@
 #                       push it to after; off when empty
 #   YARDR_NOTIFY        crew member mailed when that push fails (default: the
 #                       yard's yardmaster setting, else yardmaster)
+#   YARDR_LAND          how a bead lands: rebase (default) lands the branch's
+#                       commits as they are, squash lands the bead as one
+#                       commit written from it (below). A train is always
+#                       landed by rebase, so that the base gets the commit of
+#                       each of its children
 #   YARDR_TEST_TIMEOUT  seconds the test command may run, besides what it
 #                       waited for the race lock (default 1800)
 #
@@ -37,6 +42,15 @@
 # tree, is held. A run ended by a signal is run once more, and held if a
 # signal ends it again. A depot with no test command lands untested, and the
 # note says so. It never forces and never pushes anything but a fast-forward.
+#
+# With YARDR_LAND=squash the branch is made one commit after the rebase and
+# before the tests, so that the commit tested is the commit landed. Its
+# message is a Conventional Commit written from the bead, with the bead's id
+# as a trailing reference (GitHub's (#123)) and the trailers the yard's hook
+# writes for an agent's commit (squash_message, below, says how). Every type
+# of bead is squashed but a train, a wagon onto its train's branch included.
+# A depot with another format for it copies the script. See docs/line.md,
+# section 4.
 #
 # The test command runs with YARDR_LANDING=1 for what lands on the depot's
 # base, and without it for a wagon of a train (type wagon, landing on its
@@ -71,7 +85,12 @@ BR=${YARDR_BRANCH:-yard/$BEAD}
 WT=${YARDR_WORKTREE:-${YARDR_HOME:-$HOME/.yardr}/worktrees/$DEPOT/$BEAD}
 PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
+LAND=${YARDR_LAND:-rebase}
 TAIL=200
+# The top-level directories that say nothing as the scope of a squash commit
+# (squash_message): a change under internal/ alone is better named by its
+# package. A depot's copy of this script changes the list.
+CONTAINERS="internal contrib packs cmd pkg src lib"
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') assembly $DEPOT $BEAD ($BR onto $BASE)"
 
 # took prints the seconds of the steps that ran, once, before the outcome's
@@ -140,6 +159,12 @@ conflict() {
   back "$1"
 }
 
+# A value that is neither mode is a typo in the group's cmd: landing by the
+# other mode would go unseen until the history shows it.
+case $LAND in
+rebase | squash) ;;
+*) hold "YARDR_LAND is $LAND in this group's cmd, and a bead lands by rebase or by squash. Not landing: correct the cmd, then unhold." ;;
+esac
 git -C "$REPO" rev-parse --verify -q "refs/heads/$BASE" >/dev/null ||
   hold "base $BASE is not a local branch of $REPO; merge-local lands only on local branches"
 git -C "$REPO" rev-parse --verify -q "refs/heads/$BR" >/dev/null || hold "branch $BR does not exist"
@@ -218,6 +243,234 @@ if [ "${YARDR_TYPE:-}" = design ]; then
     hold "a design lands one document under docs/design/ and no code, but $BR also changes:
 $outside
 Move those paths to another bead, or drop them from the branch, then unhold."
+fi
+
+# --- squash_message: the same text in merge-local and pr-merge (a test holds them equal) ---
+# squash_message <bead> <base> <head> leaves in SQ_SUBJECT and SQ_BODY the
+# Conventional Commits message that lands <bead> as one commit made of what
+# <head> adds to <base>, and returns 1 with ERR set when it cannot be made. It
+# is called in the shell itself, never in a command substitution, so that the
+# caller can hold the bead on a failure. The format is fixed here, not
+# configurable: a depot that wants another copies the script.
+#
+#   <type>[(<scope>)][!]: <bead title> (<bead id>)
+#
+#   <each commit's message since <base>, oldest first, its trailers removed>
+#
+#   BREAKING CHANGE: <as a commit carried it, each>
+#   Refs: <each issue the bead tracks, then each it relates to>
+#   Yardr-Bead: <bead id>
+#   Yardr-Agent: <each distinct one on the branch, first seen first>
+#
+# The type is the bead's kind: label, else fix for a bug and chore for the
+# rest. The scope is derived from the diff, never chosen: the last element of
+# the deepest directory that holds every changed path (a rename counts both),
+# none when that is the root, one of $CONTAINERS, or the type itself. The bead's
+# fields are read from its JSON with awk, since the scripts run where only sh,
+# git and yardr are promised; Go writes < > & in a string as < > &.
+SQ_UNJSON='
+  function unjson(s,   out, c, h) {
+    out = ""
+    while (s != "") {
+      c = substr(s, 1, 1)
+      if (c != "\\") { out = out c; s = substr(s, 2); continue }
+      c = substr(s, 2, 1)
+      if (c == "u") {
+        h = tolower(substr(s, 3, 4)); s = substr(s, 7)
+        out = out (h == "003c" ? "<" : (h == "003e" ? ">" : (h == "0026" ? "&" : " ")))
+      } else if (c == "\"" || c == "\\" || c == "/") {
+        out = out c; s = substr(s, 3)
+      } else {
+        out = out " "; s = substr(s, 3)
+      }
+    }
+    return out
+  }
+'
+squash_message() {
+  sq_bead=$1 sq_base=$2 sq_head=$3
+  ERR=
+  sq_nl='
+'
+  sq_json=$("$Y" bead show "$sq_bead" --json) || { ERR="reading $sq_bead failed"; return 1; }
+  sq_fields=$(printf '%s\n' "$sq_json" | awk "$SQ_UNJSON"'
+    match($0, /^  "[a-z_]+": "/) {
+      key = substr($0, 4, RLENGTH - 7)
+      val = substr($0, RLENGTH + 1); sub(/",?$/, "", val)
+      if (key == "type") type = val
+      if (key == "title") title = unjson(val)
+    }
+    /^  "labels": \[$/ { inlabels = 1; next }
+    inlabels && /^  \]/ { inlabels = 0 }
+    inlabels && kind == "" && /^    "kind:[A-Za-z0-9-]+",?$/ { kind = $0; sub(/^    "kind:/, "", kind); sub(/",?$/, "", kind) }
+    END { print type; print kind; $0 = title; $1 = $1; print $0 }
+  ')
+  sq_btype=$(printf '%s\n' "$sq_fields" | sed -n 1p)
+  sq_kind=$(printf '%s\n' "$sq_fields" | sed -n 2p)
+  sq_title=$(printf '%s\n' "$sq_fields" | sed -n 3p)
+  [ -n "$sq_title" ] || { ERR="found no title in the JSON of $sq_bead"; return 1; }
+  if [ -n "$sq_kind" ]; then
+    sq_type=$sq_kind
+  elif [ "$sq_btype" = bug ]; then
+    sq_type=fix
+  else
+    sq_type=chore
+  fi
+
+  # Links the bead made to outside issues. A bead of another yard that it is
+  # at or came from is listed too (kind at, was at, from), and is no issue.
+  sq_linkjson=$("$Y" link list "$sq_bead" --json) || { ERR="listing the links of $sq_bead failed"; return 1; }
+  sq_refs=$(printf '%s\n' "$sq_linkjson" | awk "$SQ_UNJSON"'
+    /^  [{]/ { kind = ""; url = "" }
+    match($0, /^    "[a-z_]+": "/) {
+      key = substr($0, 6, RLENGTH - 9)
+      val = substr($0, RLENGTH + 1); sub(/",?$/, "", val)
+      if (key == "kind") kind = val
+      if (key == "url") url = unjson(val)
+    }
+    /^  [}]/ {
+      if (url != "" && kind == "tracks") tracked[++nt] = url
+      if (url != "" && kind == "relates") related[++nr] = url
+    }
+    END {
+      for (i = 1; i <= nt; i++) print "Refs: " tracked[i]
+      for (i = 1; i <= nr; i++) print "Refs: " related[i]
+    }
+  ')
+
+  # The commits, one record each, split by awk into the lines that stay in the
+  # body (b), a BREAKING CHANGE footer (x) and a Yardr-Agent value (a). A
+  # commit's trailers are its last paragraph when that holds nothing but
+  # footers (Token: value, or BREAKING CHANGE: value, with indented lines
+  # folded into the one before). A BREAKING CHANGE is taken from wherever it
+  # stands after the subject: the yard's commit hook puts its own trailers in a
+  # paragraph of their own, so a footer written above them is no part of the
+  # last paragraph. It runs to the next blank line or footer, and leaves the
+  # body for the footer. A commit that is itself such a squash (an earlier
+  # landing of this bead that came back red) gives up its subject line, which
+  # the new one replaces.
+  sq_msgs=$(git -C "$REPO" log --reverse --no-merges --no-show-signature --format='%B%x1e' "$sq_base..$sq_head") ||
+    { ERR="reading the commits of $sq_head since $sq_base failed"; return 1; }
+  sq_parts=$(printf '%s\n' "$sq_msgs" | awk -v bead="$sq_bead" '
+    function bc(l) { return l ~ /^BREAKING[ -]CHANGE:([ \t]|$)/ }
+    function footer(l) { return bc(l) || l ~ /^[A-Za-z0-9-]+:([ \t]|$)/ }
+    function blank(l) { return l ~ /^[ \t]*$/ }
+    function ours(l,   tail, n) {
+      tail = " (" bead ")"
+      n = length(l) - length(tail)
+      return n > 0 && substr(l, n + 1) == tail && l ~ /^[a-z]+(\([^)]*\))?!?: /
+    }
+    function flush(   n, t, i, l, first, ok, inbc, v) {
+      n = cnt
+      while (n > 0 && blank(line[n])) n--
+      t = n
+      while (t > 1 && !blank(line[t - 1])) t--
+      first = n + 1
+      if (t > 1 && n >= t && footer(line[t])) {
+        ok = 1
+        for (i = t; i <= n; i++) if (!footer(line[i]) && line[i] !~ /^[ \t]/) ok = 0
+        if (ok) first = t
+      }
+      inbc = 0
+      for (i = 1; i <= n; i++) {
+        l = line[i]
+        if (i >= first) {
+          if (bc(l)) { inbc = 1; print "x" l }
+          else if (inbc && l ~ /^[ \t]/) print "x" l
+          else {
+            inbc = 0
+            if (l ~ /^Yardr-Agent:/) {
+              v = l; sub(/^Yardr-Agent:[ \t]*/, "", v); sub(/[ \t]+$/, "", v)
+              if (v != "" && !(v in agent)) { agent[v] = 1; print "a" v }
+            }
+          }
+          continue
+        }
+        if (i == 1 && ours(l)) continue
+        if (i > 1 && bc(l)) { inbc = 1; print "x" l; continue }
+        if (inbc) {
+          if (!blank(l) && !footer(l)) { print "x" l; continue }
+          inbc = 0
+        }
+        if (blank(l)) pending = seen
+        else { if (pending) print "b"; pending = 0; print "b" l; seen = 1 }
+      }
+      pending = seen
+      cnt = 0
+    }
+    {
+      p = index($0, "\036")
+      if (p == 0) { line[++cnt] = $0; next }
+      if (p > 1) line[++cnt] = substr($0, 1, p - 1)
+      flush()
+    }
+    END { if (cnt > 0) flush() }
+  ')
+  sq_body=$(printf '%s\n' "$sq_parts" | sed -n 's/^b//p')
+  sq_break=$(printf '%s\n' "$sq_parts" | sed -n 's/^x//p')
+  sq_agents=$(printf '%s\n' "$sq_parts" | sed -n 's/^a//p')
+
+  # The scope, from the paths the squash changes.
+  sq_paths=$(git -c core.quotePath=false -C "$REPO" diff --name-only --no-renames "$sq_base...$sq_head") ||
+    { ERR="listing what $sq_head changes since $sq_base failed"; return 1; }
+  sq_dir=
+  if [ -n "$sq_paths" ]; then
+    sq_dir=$(printf '%s\n' "$sq_paths" | awk '
+      {
+        n = split($0, p, "/"); d = n - 1
+        if (NR == 1) { len = d; for (i = 1; i <= d; i++) c[i] = p[i] }
+        else {
+          if (d < len) len = d
+          for (i = 1; i <= len; i++) if (c[i] != p[i]) { len = i - 1; break }
+        }
+      }
+      END { for (i = 1; i <= len; i++) printf "%s%s", (i > 1 ? "/" : ""), c[i]; print "" }
+    ')
+  fi
+  sq_scope=${sq_dir##*/}
+  case " $CONTAINERS " in *" $sq_dir "*) sq_scope= ;; esac
+  [ "$sq_scope" != "$sq_type" ] || sq_scope=
+
+  SQ_SUBJECT=$sq_type
+  [ -z "$sq_scope" ] || SQ_SUBJECT="$SQ_SUBJECT($sq_scope)"
+  [ -z "$sq_break" ] || SQ_SUBJECT="$SQ_SUBJECT!"
+  SQ_SUBJECT="$SQ_SUBJECT: $sq_title ($sq_bead)"
+
+  sq_footer=$({
+    [ -z "$sq_break" ] || printf '%s\n' "$sq_break"
+    [ -z "$sq_refs" ] || printf '%s\n' "$sq_refs"
+    printf 'Yardr-Bead: %s\n' "$sq_bead"
+    [ -z "$sq_agents" ] || printf '%s\n' "$sq_agents" | sed 's/^/Yardr-Agent: /'
+  })
+  SQ_BODY=$sq_footer
+  [ -z "$sq_body" ] || SQ_BODY="$sq_body$sq_nl$sq_nl$sq_footer"
+}
+# --- end of squash_message ---
+
+# With YARDR_LAND=squash the branch becomes one commit before anything tests
+# it, so that the commit the tests run on is the commit that lands. It is made
+# with commit-tree and not commit, which would run the yard's commit-msg hook:
+# squash_message writes the trailers itself. The branch moves only if it is
+# still where it was read, and its files and index, which are the new commit's
+# own tree, stay as they are. A branch with no commit past the base has
+# nothing to squash.
+squash() {
+  sq_old=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
+  sq_tip=$(git -C "$REPO" rev-parse "refs/heads/$BASE") || hold "cannot read $BASE"
+  [ "$(git -C "$REPO" rev-list --count "$sq_tip..$sq_old")" != 0 ] || return 0
+  squash_message "$BEAD" "$sq_tip" "$sq_old" || hold "cannot write the squash commit of $BEAD: $ERR"
+  sq_new=$(printf '%s\n\n%s\n' "$SQ_SUBJECT" "$SQ_BODY" | git -C "$WT" commit-tree "$sq_old^{tree}" -p "$sq_tip" 2>&1)
+  case $sq_new in
+  '' | *[!0-9a-f]*) hold "cannot write the squash commit of $BEAD: $sq_new" ;;
+  esac
+  git -C "$WT" update-ref -m "assembly: squash $BEAD onto $BASE" "refs/heads/$BR" "$sq_new" "$sq_old" ||
+    hold "cannot move $BR to its squash commit $sq_new"
+  echo "== squashed $BEAD onto $BASE: $SQ_SUBJECT"
+}
+# A train lands the commits of its children, which is how the base gets one
+# commit for each of them: it is never squashed.
+if [ "$LAND" = squash ] && [ "${YARDR_TYPE:-}" != train ]; then
+  squash
 fi
 
 # The depot's test command runs on exactly what will land, every time,

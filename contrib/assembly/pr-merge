@@ -1,6 +1,7 @@
 #!/bin/sh
 # pr-merge: lands a train by merging its pull request on GitHub with a
-# rebase, then brings the depot's local base up to it. Run it as the cmd of an
+# rebase, or a squash where the group says so, then brings the depot's local
+# base up to it. Run it as the cmd of an
 # exec group (yard-pr-merge, limit 1) routed for the train flow's land stage
 # (type train). A train reaches land from in-pr, where a human (or, later,
 # the daemon on a green CI) says "merge it". See docs/line.md, section
@@ -16,10 +17,17 @@
 #
 #   YARDR_PR       1: the switch for the pull-request path; held without it
 #   YARDR_PUSH     the remote the pull request is on (default origin)
+#   YARDR_LAND     rebase (default) or squash: how the pull request is merged
 #
 # It runs gh pr merge <pr_url> --rebase --delete-branch --match-head-commit
 # <pr_reviewed_sha>, then fetches the remote and fast-forwards the base in
 # the depot's checkout, and reports done (-> merged, which closes the train).
+# With YARDR_LAND=squash it passes --squash instead, with the subject and the
+# body of the Conventional Commit that merge-local writes for a bead (the same
+# squash_message, here for the train and the commits of its pull request): the
+# train is then one commit on the base, where a rebase leaves one for each of
+# its children. A value that is neither holds the train before anything is
+# merged.
 # The sha is the commit pr-train pushed and stored when the train entered
 # in-pr: only what the reviewer approved is merged. A pull request whose
 # head is another commit, before the merge or when GitHub refuses it for
@@ -51,6 +59,11 @@ REPO=$YARDR_DEPOT_PATH
 BASE=$YARDR_BASE
 BR=${YARDR_BRANCH:-yard/$TRAIN}
 PUSH=${YARDR_PUSH:-origin}
+LAND=${YARDR_LAND:-rebase}
+# The top-level directories that say nothing as the scope of a squash commit
+# (squash_message): a change under internal/ alone is better named by its
+# package. A depot's copy of this script changes the list.
+CONTAINERS="internal contrib packs cmd pkg src lib"
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr-merge $TRAIN ($BR)"
 
 # Reporting ends this session (the daemon stops the script), so it is
@@ -67,6 +80,13 @@ errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
 # route, a move by hand) must not be merged on GitHub.
 [ -n "${YARDR_PR:-}" ] ||
   hold "the pull-request path is experimental and off: YARDR_PR is not set in this group's cmd; not merging. Set YARDR_PR=1 in the cmd of every group on the path, then unhold, or send the train back to open and land it through the assembly (merge-local)."
+
+# A value that is neither mode is a typo in the group's cmd: merging by the
+# other mode would go unseen until the history shows it.
+case $LAND in
+rebase | squash) ;;
+*) hold "YARDR_LAND is $LAND in this group's cmd, and a pull request is merged by rebase or by squash; not merging. Correct the cmd, then unhold." ;;
+esac
 
 # The base branch, without its remote: what the PR merged into and what the
 # depot's checkout must be on.
@@ -110,11 +130,228 @@ moved() {
 head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
 [ "$head" = "$reviewed" ] || moved "${head:-unknown}"
 
+# --- squash_message: the same text in merge-local and pr-merge (a test holds them equal) ---
+# squash_message <bead> <base> <head> leaves in SQ_SUBJECT and SQ_BODY the
+# Conventional Commits message that lands <bead> as one commit made of what
+# <head> adds to <base>, and returns 1 with ERR set when it cannot be made. It
+# is called in the shell itself, never in a command substitution, so that the
+# caller can hold the bead on a failure. The format is fixed here, not
+# configurable: a depot that wants another copies the script.
+#
+#   <type>[(<scope>)][!]: <bead title> (<bead id>)
+#
+#   <each commit's message since <base>, oldest first, its trailers removed>
+#
+#   BREAKING CHANGE: <as a commit carried it, each>
+#   Refs: <each issue the bead tracks, then each it relates to>
+#   Yardr-Bead: <bead id>
+#   Yardr-Agent: <each distinct one on the branch, first seen first>
+#
+# The type is the bead's kind: label, else fix for a bug and chore for the
+# rest. The scope is derived from the diff, never chosen: the last element of
+# the deepest directory that holds every changed path (a rename counts both),
+# none when that is the root, one of $CONTAINERS, or the type itself. The bead's
+# fields are read from its JSON with awk, since the scripts run where only sh,
+# git and yardr are promised; Go writes < > & in a string as < > &.
+SQ_UNJSON='
+  function unjson(s,   out, c, h) {
+    out = ""
+    while (s != "") {
+      c = substr(s, 1, 1)
+      if (c != "\\") { out = out c; s = substr(s, 2); continue }
+      c = substr(s, 2, 1)
+      if (c == "u") {
+        h = tolower(substr(s, 3, 4)); s = substr(s, 7)
+        out = out (h == "003c" ? "<" : (h == "003e" ? ">" : (h == "0026" ? "&" : " ")))
+      } else if (c == "\"" || c == "\\" || c == "/") {
+        out = out c; s = substr(s, 3)
+      } else {
+        out = out " "; s = substr(s, 3)
+      }
+    }
+    return out
+  }
+'
+squash_message() {
+  sq_bead=$1 sq_base=$2 sq_head=$3
+  ERR=
+  sq_nl='
+'
+  sq_json=$("$Y" bead show "$sq_bead" --json) || { ERR="reading $sq_bead failed"; return 1; }
+  sq_fields=$(printf '%s\n' "$sq_json" | awk "$SQ_UNJSON"'
+    match($0, /^  "[a-z_]+": "/) {
+      key = substr($0, 4, RLENGTH - 7)
+      val = substr($0, RLENGTH + 1); sub(/",?$/, "", val)
+      if (key == "type") type = val
+      if (key == "title") title = unjson(val)
+    }
+    /^  "labels": \[$/ { inlabels = 1; next }
+    inlabels && /^  \]/ { inlabels = 0 }
+    inlabels && kind == "" && /^    "kind:[A-Za-z0-9-]+",?$/ { kind = $0; sub(/^    "kind:/, "", kind); sub(/",?$/, "", kind) }
+    END { print type; print kind; $0 = title; $1 = $1; print $0 }
+  ')
+  sq_btype=$(printf '%s\n' "$sq_fields" | sed -n 1p)
+  sq_kind=$(printf '%s\n' "$sq_fields" | sed -n 2p)
+  sq_title=$(printf '%s\n' "$sq_fields" | sed -n 3p)
+  [ -n "$sq_title" ] || { ERR="found no title in the JSON of $sq_bead"; return 1; }
+  if [ -n "$sq_kind" ]; then
+    sq_type=$sq_kind
+  elif [ "$sq_btype" = bug ]; then
+    sq_type=fix
+  else
+    sq_type=chore
+  fi
+
+  # Links the bead made to outside issues. A bead of another yard that it is
+  # at or came from is listed too (kind at, was at, from), and is no issue.
+  sq_linkjson=$("$Y" link list "$sq_bead" --json) || { ERR="listing the links of $sq_bead failed"; return 1; }
+  sq_refs=$(printf '%s\n' "$sq_linkjson" | awk "$SQ_UNJSON"'
+    /^  [{]/ { kind = ""; url = "" }
+    match($0, /^    "[a-z_]+": "/) {
+      key = substr($0, 6, RLENGTH - 9)
+      val = substr($0, RLENGTH + 1); sub(/",?$/, "", val)
+      if (key == "kind") kind = val
+      if (key == "url") url = unjson(val)
+    }
+    /^  [}]/ {
+      if (url != "" && kind == "tracks") tracked[++nt] = url
+      if (url != "" && kind == "relates") related[++nr] = url
+    }
+    END {
+      for (i = 1; i <= nt; i++) print "Refs: " tracked[i]
+      for (i = 1; i <= nr; i++) print "Refs: " related[i]
+    }
+  ')
+
+  # The commits, one record each, split by awk into the lines that stay in the
+  # body (b), a BREAKING CHANGE footer (x) and a Yardr-Agent value (a). A
+  # commit's trailers are its last paragraph when that holds nothing but
+  # footers (Token: value, or BREAKING CHANGE: value, with indented lines
+  # folded into the one before). A BREAKING CHANGE is taken from wherever it
+  # stands after the subject: the yard's commit hook puts its own trailers in a
+  # paragraph of their own, so a footer written above them is no part of the
+  # last paragraph. It runs to the next blank line or footer, and leaves the
+  # body for the footer. A commit that is itself such a squash (an earlier
+  # landing of this bead that came back red) gives up its subject line, which
+  # the new one replaces.
+  sq_msgs=$(git -C "$REPO" log --reverse --no-merges --no-show-signature --format='%B%x1e' "$sq_base..$sq_head") ||
+    { ERR="reading the commits of $sq_head since $sq_base failed"; return 1; }
+  sq_parts=$(printf '%s\n' "$sq_msgs" | awk -v bead="$sq_bead" '
+    function bc(l) { return l ~ /^BREAKING[ -]CHANGE:([ \t]|$)/ }
+    function footer(l) { return bc(l) || l ~ /^[A-Za-z0-9-]+:([ \t]|$)/ }
+    function blank(l) { return l ~ /^[ \t]*$/ }
+    function ours(l,   tail, n) {
+      tail = " (" bead ")"
+      n = length(l) - length(tail)
+      return n > 0 && substr(l, n + 1) == tail && l ~ /^[a-z]+(\([^)]*\))?!?: /
+    }
+    function flush(   n, t, i, l, first, ok, inbc, v) {
+      n = cnt
+      while (n > 0 && blank(line[n])) n--
+      t = n
+      while (t > 1 && !blank(line[t - 1])) t--
+      first = n + 1
+      if (t > 1 && n >= t && footer(line[t])) {
+        ok = 1
+        for (i = t; i <= n; i++) if (!footer(line[i]) && line[i] !~ /^[ \t]/) ok = 0
+        if (ok) first = t
+      }
+      inbc = 0
+      for (i = 1; i <= n; i++) {
+        l = line[i]
+        if (i >= first) {
+          if (bc(l)) { inbc = 1; print "x" l }
+          else if (inbc && l ~ /^[ \t]/) print "x" l
+          else {
+            inbc = 0
+            if (l ~ /^Yardr-Agent:/) {
+              v = l; sub(/^Yardr-Agent:[ \t]*/, "", v); sub(/[ \t]+$/, "", v)
+              if (v != "" && !(v in agent)) { agent[v] = 1; print "a" v }
+            }
+          }
+          continue
+        }
+        if (i == 1 && ours(l)) continue
+        if (i > 1 && bc(l)) { inbc = 1; print "x" l; continue }
+        if (inbc) {
+          if (!blank(l) && !footer(l)) { print "x" l; continue }
+          inbc = 0
+        }
+        if (blank(l)) pending = seen
+        else { if (pending) print "b"; pending = 0; print "b" l; seen = 1 }
+      }
+      pending = seen
+      cnt = 0
+    }
+    {
+      p = index($0, "\036")
+      if (p == 0) { line[++cnt] = $0; next }
+      if (p > 1) line[++cnt] = substr($0, 1, p - 1)
+      flush()
+    }
+    END { if (cnt > 0) flush() }
+  ')
+  sq_body=$(printf '%s\n' "$sq_parts" | sed -n 's/^b//p')
+  sq_break=$(printf '%s\n' "$sq_parts" | sed -n 's/^x//p')
+  sq_agents=$(printf '%s\n' "$sq_parts" | sed -n 's/^a//p')
+
+  # The scope, from the paths the squash changes.
+  sq_paths=$(git -c core.quotePath=false -C "$REPO" diff --name-only --no-renames "$sq_base...$sq_head") ||
+    { ERR="listing what $sq_head changes since $sq_base failed"; return 1; }
+  sq_dir=
+  if [ -n "$sq_paths" ]; then
+    sq_dir=$(printf '%s\n' "$sq_paths" | awk '
+      {
+        n = split($0, p, "/"); d = n - 1
+        if (NR == 1) { len = d; for (i = 1; i <= d; i++) c[i] = p[i] }
+        else {
+          if (d < len) len = d
+          for (i = 1; i <= len; i++) if (c[i] != p[i]) { len = i - 1; break }
+        }
+      }
+      END { for (i = 1; i <= len; i++) printf "%s%s", (i > 1 ? "/" : ""), c[i]; print "" }
+    ')
+  fi
+  sq_scope=${sq_dir##*/}
+  case " $CONTAINERS " in *" $sq_dir "*) sq_scope= ;; esac
+  [ "$sq_scope" != "$sq_type" ] || sq_scope=
+
+  SQ_SUBJECT=$sq_type
+  [ -z "$sq_scope" ] || SQ_SUBJECT="$SQ_SUBJECT($sq_scope)"
+  [ -z "$sq_break" ] || SQ_SUBJECT="$SQ_SUBJECT!"
+  SQ_SUBJECT="$SQ_SUBJECT: $sq_title ($sq_bead)"
+
+  sq_footer=$({
+    [ -z "$sq_break" ] || printf '%s\n' "$sq_break"
+    [ -z "$sq_refs" ] || printf '%s\n' "$sq_refs"
+    printf 'Yardr-Bead: %s\n' "$sq_bead"
+    [ -z "$sq_agents" ] || printf '%s\n' "$sq_agents" | sed 's/^/Yardr-Agent: /'
+  })
+  SQ_BODY=$sq_footer
+  [ -z "$sq_body" ] || SQ_BODY="$sq_body$sq_nl$sq_nl$sq_footer"
+}
+# --- end of squash_message ---
+
+# With YARDR_LAND=squash the pull request is merged with a message written
+# here, before anything is merged, so that a message that cannot be made holds
+# the train with nothing done. The commits and the files that count are those
+# the pull request adds to the base it goes into, which is fetched first.
+set -- --rebase
+how="a rebase"
+if [ "$LAND" = squash ]; then
+  git -C "$REPO" fetch --quiet "$PUSH" 2>"$errf" ||
+    hold "could not fetch $PUSH to write the message of the squash commit: $(cat "$errf") Nothing was merged. Fix it, then unhold."
+  squash_message "$TRAIN" "refs/remotes/$PUSH/$prbase" "$reviewed" ||
+    hold "cannot write the message of the squash commit of $TRAIN: $ERR. Nothing was merged. Fix it, then unhold."
+  set -- --squash --subject "$SQ_SUBJECT" --body "$SQ_BODY"
+  how="a squash"
+fi
+
 # --match-head-commit closes the gap between the check above and the merge:
 # GitHub refuses when the head is no longer the reviewed commit. gh can
 # merge and still exit non-zero (deleting a local branch a worktree has
 # checked out, say): what GitHub says the PR is decides.
-out=$(cd "$REPO" && gh pr merge "$url" --rebase --delete-branch --match-head-commit "$reviewed" 2>&1) && rc=0 || rc=$?
+out=$(cd "$REPO" && gh pr merge "$url" "$@" --delete-branch --match-head-commit "$reviewed" 2>&1) && rc=0 || rc=$?
 printf '%s\n' "$out"
 if [ "$rc" != 0 ]; then
   state=$(cd "$REPO" && gh pr view "$url" --json state --jq .state 2>/dev/null)
@@ -137,4 +374,4 @@ out=$(git -C "$REPO" merge --ff-only "$PUSH/$prbase" 2>&1) ||
 Bring $prbase up to $PUSH/$prbase, then advance the train to merged."
 sha=$(git -C "$REPO" rev-parse --short HEAD)
 
-report "done" "merged $url at the reviewed $reviewed with a rebase; $prbase at $sha"
+report "done" "merged $url at the reviewed $reviewed with $how; $prbase at $sha"
