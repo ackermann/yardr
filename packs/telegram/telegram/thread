@@ -39,10 +39,12 @@ send_message() { # one text to the chat, by sendMessage; prints the message's id
   printf '%s' "$mid"
 }
 
-describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token taken out should the service echo it
+describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token and chat id taken out should the service echo them
   local d
-  d=$(jq -r '.description // empty | .[0:200]' <<<"$1" 2>/dev/null | tr -cd '[:print:]') || d=""
-  printf '%s' "${d//"$TELEGRAM_BOT_TOKEN"/}"
+  d=$(jq -r '.description // empty' <<<"$1" 2>/dev/null | tr -cd '[:print:]') || d=""
+  d=${d//"$TELEGRAM_BOT_TOKEN"/}
+  d=${d//"$thread"/}
+  printf '%s' "${d:0:200}"
 }
 
 qform() { # a value for curl's -F, quoted, so that a ; or , or " in a file's name is no part of the option's syntax
