@@ -1,6 +1,7 @@
 // Package serveryard tests the server-yard script: that one run sets a
-// yard up as the server steps of docs/install.md say, and that a second
-// run changes nothing. Each test builds yardr from the tree and runs the
+// yard up as the server steps of docs/install.md say, that a second
+// run changes nothing, and that where a step cannot be taken the script
+// stops with the way on. Each test builds yardr from the tree and runs the
 // script with stand-ins for herdr (fake/, a socket and a CLI that answer
 // what a setup asks), the harness, systemctl, loginctl and, on macOS,
 // launchctl, with HOME, XDG_CONFIG_HOME and YARDR_HOME in a temp dir. The
@@ -10,11 +11,13 @@
 package serveryard
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -39,6 +42,8 @@ func TestMain(m *testing.M) {
 type yard struct {
 	d        string
 	bin      string
+	path     string // the PATH the script runs with: the shim, then bin
+	initLog  string // what the shim saw of each yardr init's stdin
 	home     string
 	config   string
 	yardhome string
@@ -61,8 +66,11 @@ func build(t *testing.T) *yard {
 	}
 	y := &yard{d: d, bin: filepath.Join(d, "bin"), home: filepath.Join(d, "home"),
 		config: filepath.Join(d, "config"), yardhome: filepath.Join(d, "yard"),
-		sock: filepath.Join(d, "herdr.sock"), state: filepath.Join(d, "state")}
-	for _, dir := range []string{y.bin, y.home, y.config, y.yardhome, filepath.Join(y.state, "herdr")} {
+		sock: filepath.Join(d, "herdr.sock"), state: filepath.Join(d, "state"),
+		initLog: filepath.Join(d, "init-stdin.log")}
+	shim := filepath.Join(d, "shim")
+	y.path = shim + ":" + y.bin + ":/usr/bin:/bin"
+	for _, dir := range []string{y.bin, shim, y.home, y.config, y.yardhome, filepath.Join(y.state, "herdr")} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -84,6 +92,20 @@ func build(t *testing.T) *yard {
 	if err := os.WriteFile(filepath.Join(y.bin, "claude"), b, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A terminal on init's stdin makes it stop to ask whether to make a real
+	// call to the harness, which the script must not wait for. The test has
+	// no terminal, so init could not be seen to ask: the shim in front of
+	// yardr says instead whether the stdin it was given has anything on it
+	// (run gives the script a line, as a person at a keyboard would).
+	const shimBody = `#!/bin/sh
+if [ "$1" = init ]; then
+  if IFS= read -r line; then echo "init: stdin has a line"; else echo "init: stdin is closed"; fi >>"$SY_INIT_LOG"
+fi
+exec "$SY_REAL_YARDR" "$@"
+`
+	if err := os.WriteFile(filepath.Join(shim, "yardr"), []byte(shimBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	managerEnv, err := managers.Install(root, y.bin, y.state)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +116,9 @@ func build(t *testing.T) *yard {
 		"HOME=" + y.home,
 		"XDG_CONFIG_HOME=" + y.config,
 		"YARDR_HOME=" + y.yardhome,
-		"PATH=" + y.bin + ":/usr/bin:/bin",
+		"PATH=" + y.path,
+		"SY_REAL_YARDR=" + filepath.Join(y.bin, "yardr"),
+		"SY_INIT_LOG=" + y.initLog,
 		"HERDR_SOCKET_PATH=" + y.sock,
 		"HERDR_FAKE_STATE=" + filepath.Join(y.state, "herdr"),
 		"USER=sy-test",
@@ -114,12 +138,20 @@ func build(t *testing.T) *yard {
 // run runs the script with args and returns what it printed.
 func (y *yard) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	return y.runWith(t, y.env, args...)
+}
+
+// runWith is run in the environment env. Its stdin has a line on it, which
+// nothing the script starts may read.
+func (y *yard) runWith(t *testing.T, env []string, args ...string) (string, error) {
+	t.Helper()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(filepath.Join(root, "contrib/server-yard/server-yard"), args...)
-	cmd.Env = y.env
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader("y\n")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -261,7 +293,7 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 	}
 	mustContain(t, string(body),
 		`ExecStart="`+filepath.Join(y.bin, "herdr")+`" "server"`,
-		`Environment="PATH=`+y.bin+`:/usr/bin:/bin"`,
+		`Environment="PATH=`+y.path+`"`,
 		"Restart=on-failure", "WantedBy=default.target")
 	syscalls := strings.Join(y.calls(t, "systemctl"), "\n")
 	if i, j := strings.Index(syscalls, "daemon-reload"), strings.Index(syscalls, "enable --now herdr"); i < 0 || j < 0 || i > j {
@@ -271,6 +303,12 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 	mustContain(t, out, "herdr's server runs", "linger is on for sy-test")
 	if strings.Contains(out, "already:") {
 		t.Errorf("a first run finds nothing already done:\n%s", out)
+	}
+
+	// init was given no stdin, though the script had one: at a terminal it
+	// would have stopped to ask about a real call to the harness.
+	if got := strings.Split(strings.TrimSpace(string(mustRead(t, y.initLog))), "\n"); !slices.Equal(got, []string{"init: stdin is closed"}) {
+		t.Errorf("yardr init saw %q; want its stdin closed", got)
 	}
 
 	// The yardmaster the daemon started is up, on the harness named.
@@ -360,7 +398,7 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 		}
 	}
 	probes := map[string][]string{
-		"systemctl": {"systemctl --user is-enabled "},
+		"systemctl": {"systemctl --user is-enabled ", "systemctl --user show-environment"},
 		"loginctl":  {"loginctl show-user "},
 		"launchctl": {"launchctl print "},
 	}
@@ -376,6 +414,9 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 		}
 	}
 	mustContain(t, again, "already:")
+	if got := strings.Count(string(mustRead(t, y.initLog)), "init: stdin is closed\n"); got != 2 {
+		t.Errorf("after two runs the shim saw %d inits with a closed stdin, want 2", got)
+	}
 }
 
 func mustRead(t *testing.T, path string) []byte {
@@ -411,5 +452,96 @@ func TestServerYardWithoutTheHarnessLogin(t *testing.T) {
 	daemon := y.waitDaemon(t)
 	if !running(daemon) {
 		t.Errorf("no daemon runs after the script")
+	}
+}
+
+// withEnv is env with the KEY=value pairs in set in place of what env has
+// for those keys.
+func withEnv(env []string, set ...string) []string {
+	out := slices.Clone(env)
+	for _, kv := range set {
+		k, _, _ := strings.Cut(kv, "=")
+		out = slices.DeleteFunc(out, func(e string) bool { return strings.HasPrefix(e, k+"=") })
+		out = append(out, kv)
+	}
+	return out
+}
+
+// TestServerYardStopsWithTheWayOn runs the script where a step cannot be
+// taken, as three of them could not be on the Debian server of the README's
+// run: the programs are in ~/.local/bin and the shell has no profile (ssh
+// host cmd), the account has no systemd user session (sudo -u), and linger is
+// refused (a server without polkit lets only root turn it on). Each stops
+// the script with exit status 1 and the way on, the first two before it
+// writes anything and the last before it creates the yard.
+func TestServerYardStopsWithTheWayOn(t *testing.T) {
+	y := build(t)
+	unit := filepath.Join(y.config, "systemd", "user", "herdr.service")
+	local := filepath.Join(y.home, ".local", "bin")
+	touch := func(t *testing.T, path string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte("the test sets this\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noSession := filepath.Join(y.state, "systemctl", "no-session")
+	cases := []struct {
+		name  string
+		setup func(t *testing.T) []string // the environment the script runs in
+		say   []string
+		wrote bool // herdr's unit is written before the script stops
+	}{
+		{
+			name: "programs in ~/.local/bin, a shell without a profile",
+			setup: func(t *testing.T) []string {
+				if err := os.MkdirAll(local, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				for _, p := range []string{"yardr", "herdr", "claude"} {
+					if err := os.Symlink(filepath.Join(y.bin, p), filepath.Join(local, p)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return withEnv(y.env, "PATH=/usr/bin:/bin")
+			},
+			say: []string{"these are not on PATH:",
+				"in " + local + ", which this shell's PATH lacks: yardr herdr claude",
+				"run this from a login shell"},
+		},
+		{
+			name: "no systemd user session",
+			setup: func(t *testing.T) []string {
+				touch(t, noSession)
+				return y.env
+			},
+			say: []string{"reaches no systemd user session of sy-test", "sudo -iu sy-test", "loginctl enable-linger sy-test"},
+		},
+		{
+			name: "linger refused",
+			setup: func(t *testing.T) []string {
+				if err := os.Remove(noSession); err != nil {
+					t.Fatal(err)
+				}
+				touch(t, filepath.Join(y.state, "loginctl", "denied"))
+				return y.env
+			},
+			say:   []string{"could not turn linger on for sy-test: as root, loginctl enable-linger sy-test, then run this again"},
+			wrote: true,
+		},
+	}
+	for _, c := range cases {
+		env := c.setup(t)
+		out, err := y.runWith(t, env, "--harness", "claude", "--operator", "jo")
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+			t.Errorf("%s: the script ended %v; want exit status 1\n%s", c.name, err, out)
+		}
+		mustContain(t, out, c.say...)
+		if _, err := os.Stat(unit); (err == nil) != c.wrote {
+			t.Errorf("%s: herdr.service written is %v, want %v\n%s", c.name, err == nil, c.wrote, out)
+		}
+		if _, err := os.Stat(filepath.Join(y.yardhome, "daemon.lock")); err == nil {
+			t.Errorf("%s: a daemon started, so the yard was created\n%s", c.name, out)
+		}
 	}
 }

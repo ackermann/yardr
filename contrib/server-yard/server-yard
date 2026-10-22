@@ -58,18 +58,42 @@ user=${USER:-$(id -un)}
 exe=$harness
 [ "$harness" = cursor ] && exe=cursor-agent
 
-# Every program the steps need, named at once when one is missing.
+# Every program the steps need, named at once when one is missing. The ones
+# a user installed for themselves are in ~/.local/bin, which a login shell has
+# on its PATH through ~/.profile and a shell without one (ssh host cmd) does
+# not: they are named apart, since installing them again is not the way on.
 missing=
+in_local_bin=
 for p in yardr herdr git "$exe" systemctl loginctl; do
-  command -v "$p" >/dev/null 2>&1 || missing="$missing $p"
+  if ! command -v "$p" >/dev/null 2>&1; then
+    missing="$missing $p"
+    if [ -x "$HOME/.local/bin/$p" ]; then
+      in_local_bin="$in_local_bin $p"
+    fi
+  fi
 done
 if [ -n "$missing" ]; then
   echo "server-yard: these are not on PATH:$missing" >&2
-  echo "server-yard: install them first (docs/install.md)" >&2
+  if [ -n "$in_local_bin" ]; then
+    echo "server-yard: in $HOME/.local/bin, which this shell's PATH lacks:$in_local_bin" >&2
+    echo "server-yard: run this from a login shell (an ssh session is one; ssh host cmd is not), or put that directory on PATH" >&2
+  fi
+  echo "server-yard: install what is not there first (docs/install.md)" >&2
   exit 1
 fi
 herdr_bin=$(command -v herdr)
 echo "server-yard: yardr=$(command -v yardr) herdr=$herdr_bin git=$(command -v git) $exe=$(command -v "$exe")"
+
+# A systemd user session to talk to, before anything is written. ssh opens
+# one, and so do sudo -i and su -; sudo -u and su without the dash leave
+# XDG_RUNTIME_DIR unset, and the first systemctl --user would end the script
+# with "Failed to connect to bus" after the unit file was rewritten.
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+  echo "server-yard: systemctl --user reaches no systemd user session of $user" >&2
+  echo "server-yard: log in as the account does for one (ssh, or sudo -iu $user): sudo -u and su without a dash give none" >&2
+  echo "server-yard: with linger on (as root: loginctl enable-linger $user) its manager runs without a session; export XDG_RUNTIME_DIR=/run/user/\$(id -u) lets systemctl --user find it" >&2
+  exit 1
+fi
 
 # unit_escape is s as one word of a systemd unit's line, as yardr's unitWord
 # writes an Environment value: what systemd would expand in it (a %
@@ -141,24 +165,33 @@ done
 echo "server-yard: herdr's server runs ($(herdr status server 2>/dev/null | grep '^socket: ' || echo "socket unknown"))"
 
 # Linger: a user unit runs while its user is logged in, and from boot to
-# shutdown with it.
+# shutdown with it. A server without polkit lets root turn it on and nobody
+# else, the account itself included: "Could not enable linger: Access
+# denied" says nothing of that, so the script does.
 if loginctl show-user "$user" -p Linger 2>/dev/null | grep -q "^Linger=yes"; then
   echo "server-yard: already: linger is on for $user"
-else
-  loginctl enable-linger "$user"
+elif loginctl enable-linger "$user"; then
   echo "server-yard: linger is on for $user"
+else
+  echo "server-yard: could not turn linger on for $user: as root, loginctl enable-linger $user, then run this again" >&2
+  exit 1
 fi
 
 # The yard, started. Without the harness login the yardmaster does not come
 # up, and that is the operator's next step, not the script's failure: what
 # matters here is the yard and its daemon, which starts the yardmaster once
 # the login is there. --no-chat: in a terminal init would otherwise open
-# yardr chat on the yardmaster and wait in it.
+# yardr chat on the yardmaster and wait in it. Its stdin is /dev/null for the
+# same reason: with a terminal on it, init stops to ask whether to make one
+# real call to the harness first (a model call, and a harness without its
+# login fails it), which a script that goes on without the login must not
+# wait for. Without a terminal init asks nothing; yardr doctor --try is
+# that call, made when the login is there.
 set +e
 if [ -n "$wait" ]; then
-  yardr init --harness "$harness" --operator "$operator" --start --no-chat --wait "$wait"
+  yardr init --harness "$harness" --operator "$operator" --start --no-chat --wait "$wait" </dev/null
 else
-  yardr init --harness "$harness" --operator "$operator" --start --no-chat
+  yardr init --harness "$harness" --operator "$operator" --start --no-chat </dev/null
 fi
 rc=$?
 set -e

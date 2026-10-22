@@ -1,10 +1,16 @@
 #!/bin/sh
 # Stand-in for systemctl --user: units are files under SYSTEMCTL_STATE
 # (enabled/<name>, active/<name>), every call is logged to calls.log, and
-# what the script and `yardr install` do not call fails loudly.
+# what the script and `yardr install` do not call fails loudly. With a file
+# no-session in the state dir every call fails as it does for a user with no
+# systemd session (sudo -u, su without a dash): no bus to connect to.
 set -eu
 : "${SYSTEMCTL_STATE:?SYSTEMCTL_STATE is not set}"
 printf 'systemctl %s\n' "$*" >>"$SYSTEMCTL_STATE/calls.log"
+if [ -f "$SYSTEMCTL_STATE/no-session" ]; then
+  echo "Failed to connect to bus: No medium found" >&2
+  exit 1
+fi
 [ "${1:-}" = "--user" ] && shift
 cmd=${1:-}
 [ $# -ge 1 ] && shift
@@ -25,6 +31,10 @@ ensure_runs() {
   esac
 }
 case "$cmd" in
+show-environment)
+  [ $# -eq 0 ] || { echo "fake systemctl: show-environment takes no argument" >&2; exit 2; }
+  echo "PATH=$PATH"
+  ;;
 daemon-reload)
   [ $# -eq 0 ] || { echo "fake systemctl: daemon-reload takes no unit" >&2; exit 2; }
   ;;

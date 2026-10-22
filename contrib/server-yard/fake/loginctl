@@ -1,6 +1,8 @@
 #!/bin/sh
 # Stand-in for loginctl: linger is a file under LOGINCTL_STATE, every call
 # is logged to calls.log, and what the script does not call fails loudly.
+# With a file denied in the state dir enable-linger is refused as it is on a
+# server without polkit, where only root may turn linger on.
 set -eu
 : "${LOGINCTL_STATE:?LOGINCTL_STATE is not set}"
 printf 'loginctl %s\n' "$*" >>"$LOGINCTL_STATE/calls.log"
@@ -10,6 +12,10 @@ show-user)
   ;;
 enable-linger)
   [ $# -eq 2 ] || { echo "fake loginctl: enable-linger takes one user" >&2; exit 2; }
+  if [ -f "$LOGINCTL_STATE/denied" ]; then
+    echo "Could not enable linger: Access denied" >&2
+    exit 1
+  fi
   touch "$LOGINCTL_STATE/linger"
   ;;
 *)

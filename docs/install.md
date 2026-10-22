@@ -9,8 +9,9 @@ those are missing.
 
 Each release has four archives, `yardr_<version>_<os>_<arch>.tar.gz` for
 darwin/arm64, darwin/amd64, linux/amd64 and linux/arm64. An archive holds
-`yardr`, the README, and the licence (FSL-1.1-ALv2) as `LICENSE` and
-`NOTICE`. `checksums.txt`, with the sha256 of each archive, is
+`yardr`, `server-yard` (the script of [On a server](#on-a-server-no-desktop)),
+the README, and the licence (FSL-1.1-ALv2) as `LICENSE` and `NOTICE`.
+`checksums.txt`, with the sha256 of each archive, is
 a file of the release beside the archives, not inside them: download it with
 the archive.
 
@@ -30,9 +31,13 @@ shasum -a 256 --ignore-missing -c checksums.txt      # Linux: sha256sum --ignore
 
 # unpack, and put the binary on PATH
 tar -xzf "yardr_${version}_$target.tar.gz" yardr
-mv yardr ~/.local/bin/     # any directory on your PATH
+mkdir -p ~/.local/bin && mv yardr ~/.local/bin/     # any directory on your PATH
 yardr --version            # the release's tag and revision; yardr version prints the same
 ```
+
+A new account has no `~/.local/bin` until the `mkdir`, and Debian's
+`~/.profile` puts it on the PATH of the login shells that start after it
+exists: log in again, or run `. ~/.profile`, before `yardr --version`.
 
 `checksums.txt` comes from the same release as the archive, so it shows that
 the download is whole, not who made it. A release whose checksums were
@@ -323,10 +328,19 @@ A machine reached over ssh, with nobody at a terminal of its own. The order
 matters: each step is what the next one needs. An agent doing this for
 someone reads [agents.md](agents.md) first.
 
+The yard runs as an account of its own: a regular user with a home and a
+shell (`useradd --create-home --shell /bin/bash yardr`), reached by ssh or
+`sudo -iu yardr`. `sudo -u yardr` is no way in: it leaves the account without
+a systemd session, and `systemctl --user` has nothing to talk to. The machine
+needs git beside yardr, herdr and the harness (`apt install git` on Debian),
+and a person with root once, for step 3 where there is no polkit.
+
 One script does these steps, and a second run of it changes nothing:
-`contrib/server-yard/server-yard --harness <kind> --operator <name>`
-([its README](../contrib/server-yard/README.md)). What follows is what it
-does, step by step.
+`server-yard --harness <kind> --operator <name>`, which a release archive holds
+beside `yardr` (`tar -xzf <archive> server-yard`) and a checkout has as
+`contrib/server-yard/server-yard`
+([its README](../contrib/server-yard/README.md), with a run of it on a fresh
+Debian server). What follows is what it does, step by step.
 
 1. **Put the programs where every shell finds them.** yardr, herdr and the
    harness have to be on the PATH of three shells: yours, a shell without a
@@ -345,7 +359,10 @@ does, step by step.
 3. **Let your services run with nobody logged in:**
    `loginctl enable-linger "$USER"`. Without it a systemd user unit ends
    with your last ssh session
-   ([configuration.md](configuration.md#login-services)).
+   ([configuration.md](configuration.md#login-services)). A server without
+   polkit refuses the account this for itself (`Could not enable linger:
+   Access denied`): a person with root runs `loginctl enable-linger <account>`
+   once, and the account goes on from there.
 
 4. **Check that the harness works, not only that it is installed.** Log in
    to it as its own documentation says, then:
@@ -371,6 +388,7 @@ does, step by step.
    ```sh
    yardr init --harness codex --start     # no form: flags only, see yardr init --help
    yardr daemon install                   # a systemd user unit, started now and at boot
+   yardr web install                      # the web view the same way, on 127.0.0.1:8791 (the script does this too)
    yardr doctor
    ```
 
@@ -395,9 +413,11 @@ On Linux the checksum line of [the download](#from-a-release-archive) is
 `sha256sum --ignore-missing -c checksums.txt`. Without `--ignore-missing` it
 fails on the three archives you did not download.
 
-This part is written from one such install (v0.1.0, Ubuntu, 5 Oct 2026) and
-from herdr's documentation. The script is tested with stand-ins for herdr
-and the harness (its README); yardr's tests run on no machine without a
+This part was written from one such install (v0.1.0, Ubuntu, 5 Oct 2026) and
+from herdr's documentation, and the steps and the script were then run on a
+fresh Debian 12 server from a release archive (the README of
+contrib/server-yard records that run). The script is also tested with
+stand-ins for herdr and the harness; yardr's tests run on no machine without a
 desktop.
 
 ## A yard somewhere else

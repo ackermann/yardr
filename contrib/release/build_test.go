@@ -62,6 +62,19 @@ func TestBuildStampsTheVersionAndPacksTheArchive(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(unpacked, "README.md")); err != nil {
 		t.Errorf("the archive has no README: %v", err)
 	}
+	// An operator handed the archive alone sets a server up with the script
+	// in it: the tree's own, and executable.
+	script, err := os.Stat(filepath.Join(unpacked, "server-yard"))
+	if err != nil || script.Mode().Perm()&0o111 == 0 {
+		t.Errorf("the archive's server-yard is not an executable file: %v, %v", script, err)
+	}
+	packed, err := os.ReadFile(filepath.Join(unpacked, "server-yard"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree, err := os.ReadFile("../server-yard/server-yard"); err != nil || !bytes.Equal(packed, tree) {
+		t.Errorf("the archive's server-yard is not contrib/server-yard/server-yard (%v)", err)
+	}
 	out, err := exec.Command(filepath.Join(unpacked, "yardr"), "version").CombinedOutput()
 	if err != nil {
 		t.Fatalf("yardr version: %v\n%s", err, out)
@@ -107,7 +120,7 @@ func members(t *testing.T, archive string) {
 		t.Fatal(err)
 	}
 	// The script's list.
-	want := map[string]bool{"yardr": true, "README.md": true, "LICENSE": true, "NOTICE": true}
+	want := map[string]bool{"yardr": true, "server-yard": true, "README.md": true, "LICENSE": true, "NOTICE": true}
 	got := map[string]bool{}
 	for tr := tar.NewReader(gz); ; {
 		h, err := tr.Next()
