@@ -853,7 +853,7 @@ func TestDoctorHerdrLoginService(t *testing.T) {
 		t.Fatalf("with a service of the person's own: %+v", p)
 	}
 	os.Remove(own)
-	u, err := herdrUnit("/usr/local/bin/herdr")
+	u, err := herdrUnit(nil, "/usr/local/bin/herdr")
 	if err != nil {
 		t.Fatal(err)
 	}

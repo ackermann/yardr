@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -641,22 +642,39 @@ func Start(ctx context.Context, c *config.Config) error {
 	return fmt.Errorf("yardr server did not answer within 10s; see %s", c.LogFile())
 }
 
+// egressVars are the standard variables by which a machine behind a
+// company's egress proxy reaches the outside: the proxy's address and what
+// is reached without it, in the two cases tools read them in (Go reads
+// either, the upper case first; curl, and git with it, reads only the lower
+// case http_proxy), and the roots a proxy that inspects TLS signs with:
+// SSL_CERT_FILE and SSL_CERT_DIR for Go on Linux and for OpenSSL,
+// NODE_EXTRA_CA_CERTS for a harness that runs on Node, which does not read
+// the system's store. yardr sets none and runs no proxy: it hands on what
+// the operator's environment has (docs/configuration.md, "Behind an egress proxy").
+var egressVars = []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"}
+
+// IsEgressVar reports whether key is one of the egressVars.
+func IsEgressVar(key string) bool { return slices.Contains(egressVars, key) }
+
 // ServerEnv is the environment a detached server starts with, from the
 // starter's environ: PATH and HOME (git, which reads the depots' .yardr/ from
-// their base, needs both), the settings the server reads
-// (config.ServerSettings), the test process that started it
-// (config.TestOwnerEnv), which the server stops with when that test is
-// killed, the test-only tick that shortens its watch
+// their base, needs both), the proxy and CA variables (egressVars), without
+// which a box behind a company's proxy reaches nothing its calls and its git
+// go to, the settings the server reads (config.ServerSettings), the test
+// process that started it (config.TestOwnerEnv), which the server stops with
+// when that test is killed, the test-only tick that shortens its watch
 // (config.TestHomeCheckEnv), and the home it serves, in place of whatever
 // YARDR_HOME said.
-// Nothing else: no credential, no identity (the starter's actor,
+// Nothing else: no credential (a proxy's address, which may hold one, is the
+// operator's to give and goes as it is), no identity (the starter's actor,
 // bead, session and branch are the starter's, not the server's), no agent's
 // settings. The settings reach it from an operator's shell only: a session
 // or a script is started without them (config.WithoutServerSettings).
 func ServerEnv(environ []string, home string) []string {
 	var env []string
 	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv) || config.IsVar(k, config.ServerSettings...) {
+		if k, _, _ := strings.Cut(kv, "="); k == "PATH" || k == "HOME" || IsEgressVar(k) || config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv) || config.IsVar(k, config.ServerSettings...) {
 			env = append(env, kv)
 		}
 	}

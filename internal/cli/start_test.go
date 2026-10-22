@@ -559,12 +559,13 @@ func TestWaitEndsOnAFailedStart(t *testing.T) {
 }
 
 // The background daemon keeps the starter's environment but not its
-// identity, and works for the home it was started for.
+// identity, and works for the home it was started for. The proxy and CA
+// variables are the starter's, so it has them.
 func TestDaemonEnv(t *testing.T) {
 	t.Parallel()
-	got := daemonEnv([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_ACTOR=a", "YARDR_BEAD=b", "YARDR_SESSION=s",
-		"YARDR_CREW=r", "YARDR_HOME=/elsewhere", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, "/y")
-	want := []string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x", "YARDR_HOME=/y"}
+	got := daemonEnv(slices.Concat([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_ACTOR=a", "YARDR_BEAD=b", "YARDR_SESSION=s",
+		"YARDR_CREW=r", "YARDR_HOME=/elsewhere", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, egressEnviron), "/y")
+	want := slices.Concat([]string{"PATH=/bin", "HERDR_SOCKET_PATH=/s", "YARDR_EVENT_RETENTION=9d", "TOKEN=x"}, egressEnviron, []string{"YARDR_HOME=/y"})
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %v", got)
 	}

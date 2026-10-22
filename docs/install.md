@@ -170,7 +170,7 @@ service for each: a launchd agent on macOS, a systemd user unit on Linux
 
 | part | its login service |
 |---|---|
-| herdr's server | `dev.yardr.herdr.plist` in `~/Library/LaunchAgents/`, `yardr-herdr.service` in `~/.config/systemd/user/`: the two files below, written by yardr, with the herdr your login shell finds and that shell's PATH. One for the user, not for the yard |
+| herdr's server | `dev.yardr.herdr.plist` in `~/Library/LaunchAgents/`, `yardr-herdr.service` in `~/.config/systemd/user/`: the two files below, written by yardr, with the herdr your login shell finds, that shell's PATH and, when it has any, its proxy and CA variables. One for the user, not for the yard |
 | the daemon | what `yardr daemon install` writes |
 | the web view | what `yardr web install` writes, only when the yard's `web_addr` setting names its address. Without the setting it stays its own command: `yardr web install` |
 
@@ -299,6 +299,11 @@ needs), and its test holds it.
   is minimal (`~/.local/bin`, where harnesses install themselves, is not
   in it). If a harness is then not found in a pane, the PATH is what to
   fix.
+- Behind a company's proxy the file holds the proxy and CA variables too,
+  as the PATH is held: an `Environment=` line each in the unit, a key each
+  under `EnvironmentVariables` in the plist. `yardr up --login` writes the
+  ones its shell has. The agents' panes inherit them from herdr's server
+  ([configuration.md](configuration.md#behind-an-egress-proxy)).
 - Both restart it on failure only: a `herdr update`, which replaces the
   binary, and `herdr server stop` are not fought, and a stopped server
   stays stopped until the next login.
@@ -371,7 +376,9 @@ does, step by step.
 
    `yardr daemon install` writes the PATH of the shell it runs in into the
    unit, and names the programs that PATH lacks. Run it again after the PATH
-   changes ([configuration.md](configuration.md#login-services)).
+   changes ([configuration.md](configuration.md#login-services)). It writes
+   the shell's proxy and CA variables too, on a box behind a proxy
+   ([configuration.md](configuration.md#behind-an-egress-proxy)).
 
 6. **Look at the yardmaster.** `yardr init --start` and `yardr doctor` print its
    herdr agent (`<yard>-yardmaster`, `yardr-yardmaster` for `~/.yardr`):

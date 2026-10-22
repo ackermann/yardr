@@ -450,7 +450,7 @@ func (a *app) upHerdr(ctx context.Context, cfg *config.Config, login bool) (p ya
 	}
 	var u *unit
 	if l != nil {
-		u = herdrLoginToWrite(ctx, cfg, bin, l)
+		u = herdrLoginToWrite(ctx, cfg, a.environ(), bin, l)
 	}
 	if check.State == herdrUp {
 		p.Running = true

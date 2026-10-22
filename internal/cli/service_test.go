@@ -294,17 +294,42 @@ func TestServiceNameWithoutHome(t *testing.T) {
 	}
 }
 
+// egressEnviron are the proxy and CA variables of a box behind a company's
+// egress proxy, each spelled out: a list taken from the code would pass
+// whatever the code says. The lower-case forms are there because curl, and
+// git with it, read them and not the upper-case http_proxy.
+var egressEnviron = []string{"HTTPS_PROXY=http://proxy.corp:3128", "https_proxy=http://proxy.corp:3128",
+	"HTTP_PROXY=http://proxy.corp:3128", "http_proxy=http://proxy.corp:3128",
+	"NO_PROXY=localhost,.corp", "no_proxy=localhost,.corp",
+	"SSL_CERT_FILE=/etc/corp/ca.pem", "SSL_CERT_DIR=/etc/corp/certs", "NODE_EXTRA_CA_CERTS=/etc/corp/ca.pem"}
+
 // The environment a service gets is the server's and where herdr is, and
-// nothing else of the shell: no credential, no identity.
+// nothing else of the shell: no credential, no identity. The proxy and CA
+// variables are the server's, so every kind gets them, in its service and
+// when it is started in the background.
 func TestServiceEnv(t *testing.T) {
 	t.Parallel()
-	got := serviceEnv([]string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOME=/elsewhere", "YARDR_ACTOR=me", "YARDR_SESSION=s1",
+	got := serviceEnv(slices.Concat([]string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOME=/elsewhere", "YARDR_ACTOR=me", "YARDR_SESSION=s1",
 		"GITHUB_TOKEN=secret", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d", "HERDR_SOCKET_PATH=/tmp/h.sock",
-		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config", "YARDR_TEST_OWNER=4242 987654", "YARDR_TEST_HOME_CHECK=1s"}, "/Users/jo/.yardr", kindOf(svcDaemon))
-	want := []string{"HERDR_SOCKET_PATH=/tmp/h.sock", "HOME=/Users/jo", "PATH=/bin", "XDG_CONFIG_HOME=/Users/jo/.config",
-		"YARDR_HOME=/Users/jo/.yardr", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d"}
+		"HERDR_ENV=1", "XDG_CONFIG_HOME=/Users/jo/.config", "YARDR_TEST_OWNER=4242 987654", "YARDR_TEST_HOME_CHECK=1s",
+		"ALL_PROXY=socks5://proxy.corp:1080"}, egressEnviron), "/Users/jo/.yardr", kindOf(svcDaemon))
+	// In the order a service's file has them: sorted, upper case first.
+	want := []string{"HERDR_SOCKET_PATH=/tmp/h.sock", "HOME=/Users/jo", "HTTPS_PROXY=http://proxy.corp:3128",
+		"HTTP_PROXY=http://proxy.corp:3128", "NODE_EXTRA_CA_CERTS=/etc/corp/ca.pem", "NO_PROXY=localhost,.corp",
+		"PATH=/bin", "SSL_CERT_DIR=/etc/corp/certs", "SSL_CERT_FILE=/etc/corp/ca.pem", "XDG_CONFIG_HOME=/Users/jo/.config",
+		"YARDR_HOME=/Users/jo/.yardr", "YARDR_HOOK_ADDR=127.0.0.1:8790", "YARDR_INBOX_RETENTION=30d",
+		"http_proxy=http://proxy.corp:3128", "https_proxy=http://proxy.corp:3128", "no_proxy=localhost,.corp"}
 	if !slices.Equal(got, want) {
-		t.Fatalf("env = %q", got)
+		t.Fatalf("env = %q\nwant %q", got, want)
+	}
+	for _, k := range longRunnings {
+		for what, env := range map[string][]string{"service": serviceEnv(egressEnviron, "/h", k), "start": k.env(egressEnviron, "/h")} {
+			for _, kv := range egressEnviron {
+				if !slices.Contains(env, kv) {
+					t.Errorf("%s %s: no %s in %q", k.Name, what, kv, env)
+				}
+			}
+		}
 	}
 	// A kind's own variables are its service's too, and no other kind's.
 	environ := []string{"PATH=/bin", "OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer t", "OTEL_SERVICE_NAME=x", "GITHUB_TOKEN=secret"}

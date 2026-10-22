@@ -791,24 +791,43 @@ func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 	}
 }
 
-// ServerEnv keeps PATH, HOME and the yardr knobs, passes the test process
-// that started it through, replaces the home with the one served, and drops
-// everything else: a credential from a crew member's pane, the starter's
-// identity, the shell's own.
+// egressEnviron are the proxy and CA variables of a box behind a company's
+// egress proxy, each spelled out: a list taken from the code would pass
+// whatever the code says. The lower-case forms are there because curl, and
+// git with it, read them and not the upper-case http_proxy.
+var egressEnviron = []string{"HTTPS_PROXY=http://proxy.corp:3128", "https_proxy=http://proxy.corp:3128",
+	"HTTP_PROXY=http://proxy.corp:3128", "http_proxy=http://proxy.corp:3128",
+	"NO_PROXY=localhost,.corp", "no_proxy=localhost,.corp",
+	"SSL_CERT_FILE=/etc/corp/ca.pem", "SSL_CERT_DIR=/etc/corp/certs", "NODE_EXTRA_CA_CERTS=/etc/corp/ca.pem"}
+
+// ServerEnv keeps PATH, HOME, the proxy and CA variables and the yardr
+// knobs, passes the test process that started it through, replaces the home
+// with the one served, and drops everything else: a credential from a crew
+// member's pane, the starter's identity, the shell's own.
 func TestServerEnv(t *testing.T) {
-	got := ServerEnv([]string{"PATH=/bin", "HOME=/Users/jo", "GITHUB_TOKEN=ghp_x", "LINEAR_API_KEY=lin_x",
-		"YARDR_HOME=y1", "YARDR_ACTOR=yardmaster", "YARDR_CREW=yardmaster", "YARDR_BEAD=web-3",
-		"YARDR_SESSION=s1", "YARDR_STAGE=new", "YARDR_GROUP=g", "YARDR_BIN=/bin/yardr",
-		"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3",
-		"YARDR_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
-		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
-		"YARDR_TEST_HOME_CHECK=1s", "SHELL=/bin/zsh", "TERM=xterm"}, "/y1")
-	want := []string{"PATH=/bin", "HOME=/Users/jo", "YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2",
-		"YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_EVENT_RETENTION=1d",
-		"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
-		"YARDR_TEST_HOME_CHECK=1s", "YARDR_HOME=/y1"}
+	environ := slices.Concat([]string{"PATH=/bin", "HOME=/Users/jo", "GITHUB_TOKEN=ghp_x", "LINEAR_API_KEY=lin_x"},
+		egressEnviron,
+		// Not among the nine: a proxy yardr was not asked to hand on.
+		[]string{"ALL_PROXY=socks5://proxy.corp:1080", "CURL_CA_BUNDLE=/etc/corp/ca.pem"},
+		[]string{"YARDR_HOME=y1", "YARDR_ACTOR=yardmaster", "YARDR_CREW=yardmaster", "YARDR_BEAD=web-3",
+			"YARDR_SESSION=s1", "YARDR_STAGE=new", "YARDR_GROUP=g", "YARDR_BIN=/bin/yardr",
+			"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2", "YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3",
+			"YARDR_EVENT_RETENTION=1d", "YARDR_TEST_RPC=1", "YARDR_BASE=main",
+			"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
+			"YARDR_TEST_HOME_CHECK=1s", "SHELL=/bin/zsh", "TERM=xterm"})
+	got := ServerEnv(environ, "/y1")
+	want := slices.Concat([]string{"PATH=/bin", "HOME=/Users/jo"}, egressEnviron,
+		[]string{"YARDR_HOOK_ADDR=127.0.0.1:1", "YARDR_WEB_ADDR=127.0.0.1:2",
+			"YARDR_WEB_AS=jo", "YARDR_BDP_ADDR=127.0.0.1:3", "YARDR_EVENT_RETENTION=1d",
+			"YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock", "YARDR_TEST_OWNER=4242 987654",
+			"YARDR_TEST_HOME_CHECK=1s", "YARDR_HOME=/y1"})
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("ServerEnv =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// One set and empty goes as it is: yardr hands on what the starter has
+	// and judges none of it.
+	if got := ServerEnv([]string{"HTTPS_PROXY="}, "/y1"); !slices.Equal(got, []string{"HTTPS_PROXY=", "YARDR_HOME=/y1"}) {
+		t.Errorf("ServerEnv with an empty proxy = %v", got)
 	}
 }
 
@@ -841,6 +860,12 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_PPROF", "/y1/pprof.sock")
 	t.Setenv("YARDR_TEST_OWNER", "4242 987654")
 	t.Setenv("YARDR_TEST_HOME_CHECK", "1s")
+	// A box behind a company's proxy has it in the operator's shell, and
+	// the server it starts reaches its sources and remotes through it.
+	for _, kv := range egressEnviron {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
 	t.Chdir(t.TempDir())
 	if err := Start(context.Background(), c); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -868,15 +893,15 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		// environment has each of them, blank, when a session runs it
 		// (config.BlankServerSettings), whichever this test sets.
 		switch {
-		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv), config.IsVar(k, config.ServerSettings...):
+		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), IsEgressVar(k), config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv), config.IsVar(k, config.ServerSettings...):
 		case k == "PWD", k == "OLDPWD", k == "SHLVL", k == "_": // the shell's own
 		default:
 			t.Errorf("server got %s", kv)
 		}
 	}
-	for _, kv := range []string{"YARDR_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1",
+	for _, kv := range slices.Concat([]string{"YARDR_HOME=" + c.Home, "YARDR_HOOK_ADDR=127.0.0.1:1",
 		"YARDR_EVENT_RETENTION=1d", "YARDR_HOOK_PAYLOAD_RETENTION=2d", "YARDR_PPROF=/y1/pprof.sock",
-		"YARDR_TEST_OWNER=4242 987654", "YARDR_TEST_HOME_CHECK=1s"} {
+		"YARDR_TEST_OWNER=4242 987654", "YARDR_TEST_HOME_CHECK=1s"}, egressEnviron) {
 		if !slices.Contains(env, kv) {
 			t.Errorf("server lacks %s:\n%s", kv, strings.Join(env, "\n"))
 		}

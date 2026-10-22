@@ -600,7 +600,8 @@ The server is started by the first command that connects to a yard with no
 server, and serves every command after it. It gets none of that command's
 environment or working directory: the first command is as often an
 agent's, in a pane holding the credentials its `env_file` set and in a
-worktree, as the operator's. It starts with `PATH`, `HOME`, the settings
+worktree, as the operator's. It starts with `PATH`, `HOME`, the proxy and CA
+variables ([below](#behind-an-egress-proxy)), the settings
 the server reads (`YARDR_HOOK_ADDR`, `YARDR_EVENT_RETENTION`,
 `YARDR_HOOK_PAYLOAD_RETENTION`) and
 `YARDR_HOME` set to the home it serves, and runs in that home. So
@@ -1076,9 +1077,11 @@ The file holds:
   harness have to be on that `PATH`; the install names the ones that are
   not. Of the rest of that shell it takes the settings the server and the
   daemon read (`YARDR_HOOK_ADDR`, `YARDR_WEB_ADDR`, `YARDR_WEB_AS`,
-  `YARDR_BDP_ADDR` and the three `YARDR_*_RETENTION`) and
+  `YARDR_BDP_ADDR` and the three `YARDR_*_RETENTION`),
   where herdr is when that is not the default (`HERDR_SOCKET_PATH`,
-  `XDG_CONFIG_HOME`), and nothing else: no credential, no identity. A
+  `XDG_CONFIG_HOME`) and the proxy and CA variables
+  ([below](#behind-an-egress-proxy)), and nothing else: no identity, and no
+  credential but a password a proxy's address may hold. A
   yard whose [`herdr_session`](#settings) is set needs no
   `HERDR_SOCKET_PATH` there: the daemon reads the setting from the yard
   and reaches that session from a service installed in any shell. A
@@ -1105,7 +1108,8 @@ already is stopped first, as `yardr daemon stop` does, because a yard has
 one daemon and the service's would end on the lock the other holds; the
 sessions carry on, and the service's daemon takes them over from the store.
 An install over an installed service unloads it, writes it again and loads
-it: that is how a changed `PATH` or a moved yardr reaches it.
+it: that is how a changed `PATH`, a changed proxy variable or a moved yardr
+reaches it.
 
 `yardr daemon uninstall` (`yardr web uninstall`) unloads the service
 (`launchctl bootout gui/<uid>/<label>`, `systemctl --user disable --now`),
@@ -1121,7 +1125,7 @@ service. `yardr down --login` stops the yard and removes them.
 
 | part | `up --login` | `down --login` |
 |---|---|---|
-| herdr's server | writes `dev.yardr.herdr.plist` or `yardr-herdr.service`, a service of the user and of no yard: `herdr server` by the path your login shell finds it at, with that shell's `PATH` (and `XDG_CONFIG_HOME` when set), your home as working directory, restarted on a failure only. With a server running, the file is written and the server left as it is: launchd loads the file at the next login, systemd is told `enable`. With none, the service is loaded and starts it. One of yardr's that is there is `found`, and nothing is written | removes the file and tells systemd `disable`; never unloads it, so the server and its panes run on. Left, and said, while another yard's daemon service is in the directory: that yard starts at login and needs it |
+| herdr's server | writes `dev.yardr.herdr.plist` or `yardr-herdr.service`, a service of the user and of no yard: `herdr server` by the path your login shell finds it at, with that shell's `PATH` (and `XDG_CONFIG_HOME` and the proxy and CA variables when set), your home as working directory, restarted on a failure only. With a server running, the file is written and the server left as it is: launchd loads the file at the next login, systemd is told `enable`. With none, the service is loaded and starts it. One of yardr's that is there is `found`, and nothing is written | removes the file and tells systemd `disable`; never unloads it, so the server and its panes run on. Left, and said, while another yard's daemon service is in the directory: that yard starts at login and needs it |
 | the daemon | `yardr daemon install`, unless its service is installed and loaded. A daemon that runs is stopped for the service's | `yardr daemon uninstall` |
 | the web view, the BDP server | `yardr web install`, `yardr bdp install` with the address of the yard's `web_addr`, `bdp_addr`: only for a yard that sets it, and unless the service is installed. One that runs detached is stopped for the service's | `yardr web uninstall`, `yardr bdp uninstall`, for a yard that sets the address. On a yard that does not, a service that is installed is one `yardr web install` wrote: left, and said |
 
@@ -1489,6 +1493,7 @@ Environment variables yardr reads:
 | `YARDR_UPGRADE_RESTORE` | `true` or `false`, read by `yardr upgrade`; set, it is used instead of the `upgrade_restore` setting ([upgrade.md](upgrade.md#rollback)) |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, their lower-case forms, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS` | the standard proxy and CA variables, which the yard's own calls and its agents read. yardr sets none of them and hands on the ones its starter has, to the server, the daemon, the web view and herdr's server ([below](#behind-an-egress-proxy)) |
 | `YARDR_PPROF` | measuring: a path; the server serves Go's `net/http/pprof` on a unix socket there (mode 0600) for as long as it runs, read where the server starts. `curl --unix-socket <path> 'http://x/debug/pprof/profile?seconds=60'` is a CPU profile of a minute. Unset, nothing listens |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 | `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
@@ -1497,6 +1502,56 @@ Exec commands and herdr bead agents also get `YARDR_SESSION`, `YARDR_STAGE`,
 `YARDR_GROUP`, `YARDR_KIND`, `YARDR_MODEL` and `YARDR_GIT_SYSTEM_CLEAN` (see [groups.md](groups.md)). They get the session's
 OpenTelemetry trace context too, `TRACEPARENT` and
 `OTEL_RESOURCE_ATTRIBUTES` ([otel.md](otel.md#trace-context-for-the-work)).
+
+### Behind an egress proxy
+
+A box that reaches the internet only through a company's egress proxy needs
+the standard proxy variables in the parts of the yard that call out and,
+where the proxy inspects TLS, the company's CA. yardr sets none of them and
+runs no proxy. It hands on the ones its starter has, as they are. It reads
+no proxy auto-config (PAC) file and keeps no proxy credential in a secret.
+
+| variable | what it does |
+|---|---|
+| `HTTPS_PROXY`, `HTTP_PROXY` | name the proxy for https and for http requests. Go's clients read either case and prefer the upper. curl, and git with it, read the lower case, and for `http_proxy` only that |
+| `NO_PROXY` | names the hosts reached without the proxy: the box's own name, a JWKS URL inside the company, a peer yard on the LAN. Go never sends a request to `localhost` or a loopback address through a proxy |
+| `SSL_CERT_FILE`, `SSL_CERT_DIR` | name the roots that Go (on Linux, not on macOS) and OpenSSL trust, for a company CA that is not in the system's store |
+| `NODE_EXTRA_CA_CERTS` | names a file of extra roots for a harness that runs on Node, as claude does. Node does not read the system's store |
+
+`https_proxy`, `http_proxy` and `no_proxy` are passed on too, each as its
+starter has it, beside the upper-case ones.
+
+The calls that need them go out from the server and the daemon (a source's
+calls, a peer yard), from the web view (the JWKS URL of its JWT mode), from
+the telemetry export, and from each agent's pane (its model, its git
+remotes). Each part takes them from the environment it starts in:
+
+| part | gets them from |
+|---|---|
+| the store's server | the command that started it, the way it takes its `PATH` |
+| the daemon | the environment of the command that starts it, apart from the `YARDR_*` that name the starter; as a login service, the shell `yardr daemon install` ran in |
+| the web view, the BDP server, the telemetry export | the server's way when started with `start`; the shell of the `install` for a login service |
+| herdr's server, and through it every agent's pane | the shell that ran `yardr up`, apart from `YARDR_*`; `yardr up --login` writes them into its service. A service saved by hand holds only what you put in it, so add each variable there ([install.md](install.md#a-service-file-of-your-own)). The one `contrib/server-yard/server-yard` writes holds the `PATH` alone, and the script writes it again when it runs a second time |
+
+An `env_file` ([groups.md](groups.md)) can set any of them for the panes of
+one group alone.
+
+A service keeps the environment it was written with, and a running herdr
+server keeps the one it started with. After a variable changes, run `yardr
+daemon install` and `yardr web install` again. For herdr, `yardr down
+--login` and `yardr up --login` write its service again. The server that
+runs keeps its old values until `herdr server stop`, which ends its panes,
+and the next start.
+
+A source's commands, a mint command among them, get nothing of the yard's
+environment but `PATH`, `HOME`, `USER`, `LOGNAME`, their credential and
+`YARDR_SOURCE_BASE` ([integrations.md](integrations.md#a-declared-source)),
+so none of these variables reaches them.
+
+A proxy address can hold a password, as in `http://user:secret@proxy:3128`.
+yardr treats the address like any other value. It writes it into the service
+files, which are mode 0644, and `yardr daemon install` prints it. Prefer a
+proxy that lets the box through by its address.
 
 ### Retention: keeping `yard.db` bounded
 

@@ -168,7 +168,7 @@ func TestHerdrServiceOfANamedSession(t *testing.T) {
 	stubServices(t, "darwin")
 	runner.UseSession("work")
 	t.Cleanup(func() { runner.UseSession("") })
-	u, err := herdrUnit("/bin/herdr")
+	u, err := herdrUnit(nil, "/bin/herdr")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestHerdrLoginRejectsUnsafeSessionName(t *testing.T) {
 	runner.UseSession("")
 	t.Cleanup(func() { runner.UseSession("") })
 
-	if _, err := herdrUnit("/bin/herdr"); err == nil || !strings.Contains(err.Error(), "cannot name a login service file") {
+	if _, err := herdrUnit(nil, "/bin/herdr"); err == nil || !strings.Contains(err.Error(), "cannot name a login service file") {
 		t.Fatalf("herdrUnit accepted an unsafe inherited session name: %v", err)
 	}
 }
@@ -208,12 +208,19 @@ func TestHerdrLoginRejectsUnsafeSessionName(t *testing.T) {
 // From nothing up --login installs the service of herdr's server and the
 // daemon's, and it is the services that start both. A second run finds
 // both and writes and loads nothing. status and doctor say that herdr's
-// server starts at login.
+// server starts at login. The shell it runs in has the proxy and CA
+// variables of a box behind a company's proxy: herdr's service holds them,
+// which every agent's pane inherits, and nothing else of that shell.
 func TestUpLoginInstallsAndStarts(t *testing.T) {
-	home, _, a, herdrStarts, _ := upYard(t, false)
+	home, st, a, herdrStarts, _ := upYard(t, false)
 	rig := stubLogin(t, "darwin", herdrStarts)
 	rig.at(home)
 	dir, m := rig.dir, rig.m
+	env := yardEnv(t, st)
+	for _, kv := range slices.Concat(egressEnviron, []string{"GITHUB_TOKEN=ghp_secret", "ALL_PROXY=socks5://proxy.corp:1080"}) {
+		k, v, _ := strings.Cut(kv, "=")
+		env[k] = v
+	}
 	herdrFile := filepath.Join(dir, "dev.yardr.herdr.plist")
 	daemonFile := filepath.Join(dir, "dev.yardr.daemon."+homeID(home)+".plist")
 
@@ -237,8 +244,12 @@ func TestUpLoginInstallsAndStarts(t *testing.T) {
 	}
 	wantText(t, string(b), herdrWritten, "<string>/bin/herdr</string>\n\t\t<string>server</string>",
 		"<key>PATH</key>\n\t\t<string>/opt/yardr/bin:/usr/bin:/bin</string>", "<key>SuccessfulExit</key>\n\t\t<false/>")
-	if strings.Contains(string(b), home) {
-		t.Errorf("herdr's service names the yard:\n%s", b)
+	for _, kv := range egressEnviron {
+		k, v, _ := strings.Cut(kv, "=")
+		wantText(t, string(b), "<key>"+k+"</key>\n\t\t<string>"+v+"</string>")
+	}
+	if strings.Contains(string(b), home) || strings.Contains(string(b), "GITHUB_TOKEN") || strings.Contains(string(b), "ALL_PROXY") {
+		t.Errorf("herdr's service names the yard, or holds what is not the server's to have:\n%s", b)
 	}
 	if _, err := os.Stat(daemonFile); err != nil {
 		t.Fatal(err)
@@ -527,7 +538,7 @@ func TestUpLoginInstallsTheWebViewTheYardNames(t *testing.T) {
 func TestDownLoginRemovesNothingBeforeItStops(t *testing.T) {
 	_, _, _, _, a, _ := downYard(t, map[string]string{"yardmaster": agentIdle})
 	dir, _ := stubServices(t, "darwin")
-	u, err := herdrUnit("/bin/herdr")
+	u, err := herdrUnit(nil, "/bin/herdr")
 	if err != nil {
 		t.Fatal(err)
 	}

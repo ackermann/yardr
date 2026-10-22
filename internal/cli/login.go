@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/server"
 )
 
 // yardr up --login is yardr up that stays: what it starts is started again
@@ -105,8 +106,11 @@ func herdrUnitFile(session string) (manager, name, path string, err error) {
 // herdrUnit is the service for the server of the herdr at bin as this yardr
 // would write it now: the files docs/install.md shows. Its PATH is this
 // process's, which up --login has made the login shell's (useLoginPATH):
-// the agents' panes inherit the server's environment.
-func herdrUnit(bin string) (*unit, error) {
+// the agents' panes inherit the server's environment. They inherit the
+// proxy and CA variables of environ, the run's, the same way: on a box
+// behind a company's proxy an agent reaches its model through them or not
+// at all.
+func herdrUnit(environ []string, bin string) (*unit, error) {
 	session, env, err := loginSession()
 	if err != nil {
 		return nil, err
@@ -126,6 +130,11 @@ func herdrUnit(bin string) (*unit, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		// Where herdr keeps its sessions and their sockets.
 		env = append(env, "XDG_CONFIG_HOME="+dir)
+	}
+	for _, kv := range environ {
+		if k, _, _ := strings.Cut(kv, "="); server.IsEgressVar(k) {
+			env = append(env, kv)
+		}
 	}
 	sort.Strings(env)
 	u := &unit{Kind: svcHerdr, Manager: manager, Name: name, Path: path, Home: home, Program: bin, Args: []string{"server"}, Env: env, Mode: 0o644}
@@ -321,9 +330,9 @@ func loginFailed(units []loginUnit) bool {
 // herdrLoginToWrite is the service up --login has to write for the server
 // of the herdr at bin, nil when it has none to write: l then says what was
 // found (yardr's own, or one that is not and is left) or what kept it.
-func herdrLoginToWrite(ctx context.Context, cfg *config.Config, bin string, l *loginUnit) *unit {
+func herdrLoginToWrite(ctx context.Context, cfg *config.Config, environ []string, bin string, l *loginUnit) *unit {
 	again := yardrAt(cfg.Home) + " up --login"
-	u, err := herdrUnit(bin)
+	u, err := herdrUnit(environ, bin)
 	if err != nil {
 		l.Error, l.Do = err.Error(), fmt.Sprintf("%s settings set herdr_session <name>, then: %s", yardrAt(cfg.Home), again)
 		return nil
