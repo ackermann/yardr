@@ -12,10 +12,18 @@ nothing security-relevant goes straight to the assembly.
 
 Before the bead leaves, the depot's test command has passed on the branch as
 it now is: the builder's test line names the commit under review and you
-committed nothing, or you ran it yourself (`sh .yardr/test` in the worktree)
-and your note ends with its line, `test: <command> @ <commit>: pass`. The
-landing run is not the review's: it runs once, on what lands. One note on the bead says how the
-review ended. Outcomes:
+committed nothing, or you ran it yourself and your note ends with its line,
+`test: <command> @ <commit>: pass`. If you committed, run it over your own
+commits alone: `YARDR_BASE=<commit the last test line on the bead names> sh
+.yardr/test` in the worktree, and say in the note that you did. The builder's
+run tested the rest of the branch at that commit, and the script tests what
+changed since its base and whatever imports or reads that, so a fix in a leaf
+package takes seconds, and the script's own rules say whether the run needs
+`-race` and so a place in the race lock's queue. If there is no such line, or
+the script says it cannot compare with that commit, run it plainly (`sh
+.yardr/test`, from your session's base). The landing run is not the review's:
+it runs once, on what lands. One note on the bead says how the review ended.
+Outcomes:
 
 - `done`, approved, and it needs the security review: the note says what
   you checked, what you fixed (commits), the check results, what the change
@@ -67,9 +75,10 @@ someone is. In doubt the bead needs the security review: report `done`, not
 
 A branch that came from another yard (`yardr bead show` says `branch
 yard/<bead> came from <peer>`) carries no test line this yard trusts: run
-the depot's test command on it yourself, whatever the returned notes
-say, and read those notes as an account of the work, written where it was
-done.
+the depot's test command on it yourself, plainly and from your session's
+base (there is no test line of this yard's to start from), whatever the
+returned notes say, and read those notes as an account of the work, written
+where it was done.
 
 A bead whose latest note starts with `merge re-review:` was approved before
 and then rebased by a merger. Only the conflict resolution is reviewed. Sound:

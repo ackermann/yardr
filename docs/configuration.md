@@ -499,12 +499,15 @@ a landing, and of a train's integration, does not count that wait:
 the queue is killed only when its own run outlasts `YARDR_TEST_TIMEOUT`. Race suites
 run side by side slow each other past Go's per-package timeout while one
 alone takes a third of the time, so the queue costs less wall time than the
-contention. Waiters take the lock in arrival order, on tickets in
-`~/.yardr/race.queue/` (a dead waiter's ticket is skipped and removed, never
-blocking); a waiting gate says its place and the holder, at once and then
-each minute (`test: race lock: 3rd in line, held by yardr-cayh for 6 m`),
-and `sh .yardr/test --race-queue` shows the holder and the queue, oldest
-first, without waiting for or leaving the lock held.
+contention. Waiters take the lock in arrival order, landings first (a run
+with `YARDR_LANDING` set goes ahead of every other run, each class in the
+order it came, and nothing pre-empts the run that holds the lock), on tickets
+in `~/.yardr/race.queue/` named by class and arrival (a dead waiter's ticket
+is skipped and removed, never blocking); a waiting gate says its place and
+the holder, at once and then each minute (`test: race lock: 3rd in line,
+held by yardr-cayh for 6 m`), and `sh .yardr/test --race-queue` shows the
+holder and the queue in the order they take the lock, each waiter with its
+class (`landing` or `plain`), without waiting for or leaving the lock held.
 
 ## Briefs are not config
 

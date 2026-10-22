@@ -199,9 +199,25 @@ bead: it runs on a quiet machine as a backstop
 `YARDR_LANDING=1` on the base itself. Until 5 Oct 2026 the whole suite
 ran three times, for the builder, the reviewer and the assembly: about
 16 of a bead's 37 minutes at the median. The builder now runs the
-script plainly, and the reviewer runs it plainly or not at all: not at
-all when the builder's test line names the commit under review and the
-reviewer committed nothing.
+script plainly, and a reviewer runs it over its own commits or not at
+all: not at all when the builder's test line names the commit under
+review and the reviewer committed nothing, and otherwise with
+`YARDR_BASE` set to the commit the last test line on the bead names (the
+stage files of `review` and `review-security` say so, yardr-0cw8). The
+script tests what changed since its base and whatever imports or reads
+that, so the selection is the reviewer's commits alone, not the
+builder's whole change again: a fix in a leaf package takes seconds, and
+the script's rules for any run decide whether it needs `-race` and so a
+place in the race lock's queue. A review base left behind by a rebase is
+compared from the commit it and `HEAD` share, which lies before the tested
+commit: the run tests more, never less. If the named base is ahead of
+`HEAD`, the merge base is `HEAD` and would select nothing, so the script
+says "cannot compare"; the reviewer then runs plainly from the session's
+base. A base that is not in the repository at all also says "cannot
+compare". On 22 Oct 2026 the reviewer's two runs
+of one bead waited 1530 s and 1447 s of about 2000 s each on the lock, and
+the security reviewer's run 1372 s, all to test the builder's whole change
+again after a review fix (yardr-a7sd).
 
 With `YARDR_LANDING=1` the script first asks what changed since
 `YARDR_BASE`, as a plain run does; the assembly has just rebased the
@@ -294,7 +310,22 @@ which is the selection plus the six for a branch that changes
 something compiled, as these do. An edit to `.yardr/test` on a branch
 is tested by the builder's own run alone: the assembly runs the copy
 `main` has. A reviewer's commits subject "review: <what>" get a
-plain run too, so a fault in one of them is the assembly's to find.
+plain run too, over those commits alone, so a fault in one of them that
+this run cannot see is the assembly's to find.
+
+The runs that race take one machine-wide lock at a time, and a landing
+goes first in its queue (yardr-0cw8). The queue is a ticket for each
+waiter in `~/.yardr/race.queue/`, named by its class, `0-` for a run with
+`YARDR_LANDING` set (a landing, or the quiet run) and `1-` for any other,
+then the time it arrived and its pid. The first live ticket may take the
+lock, so landings are served before every other run, and each class in
+the order it came. A landing is what frees the next bead of a chain: on
+22 Oct 2026 an approved bead waited behind builders and reviewers on a
+queue of six. The run that holds the lock is never pre-empted, so a
+landing waits for it to end, and the plain runs cannot starve, since
+there are only as many landings as there are approved beads. `sh
+.yardr/test --race-queue` shows the holder and the waiters in the order
+they take the lock, each with its class (`landing` or `plain`).
 
 How many landing runs go at once is the assembly group's `limit`:
 every depot of this yard lands through one group
@@ -322,8 +353,10 @@ own), and the stage file `.yardr/flows/default/review.md` (when each
 outcome applies). It is the last review of whether the bead does what it
 says, so it fixes what it can on the branch (commits subject
 "review: <what>") rather than only reporting, tries the change,
-runs the depot's test command if it committed or the builder's test line is
-not for the commit under review (the landing run is the assembly's), and then:
+runs the depot's test command if it committed (over its own commits, with
+`YARDR_BASE` at the commit the last test line names) or the builder's test
+line is not for the commit under review (the landing run is the assembly's),
+and then:
 
 - **approves**: a note with what it checked and fixed, then `yardr bead
   done` (to `review-security`) when the diff touches anything

@@ -83,7 +83,17 @@ fix -- still runs it on its new sha. That covers a repeat builder pass
 too: a pass with no new commit since a green line does not rerun
 (yardr-dx5f ran one sha three times across a hold and unhold). Every
 note says `reran` or `names this tip`, so the re-measure can tell a
-fresh leg from a quoted line. The assembly's runs are outside this rule:
+fresh leg from a quoted line. A stage that committed runs over its own
+commits alone, `YARDR_BASE=<the commit the last test line names> sh
+.yardr/test`, so its selection is what those commits changed and whatever
+imports or reads it (yardr-0cw8): a fix in a leaf package takes seconds,
+and the script's rules for any run decide whether it needs `-race`, and so
+a place in the race lock's queue. A review base left behind by a rebase is
+compared from the commit it and `HEAD` share, which lies before the tested
+commit, so the run selects more, never less. If the named base is ahead of
+`HEAD`, the merge base is `HEAD` and would select nothing, so the script
+says "cannot compare" and the reviewer runs plainly from the session's
+base. The assembly's runs are outside this rule:
 the landing always runs, on exactly what lands, every time, including
 after a merger's rebase that changed nothing
 (`contrib/assembly/merge-local`: the test command "runs on exactly what
@@ -111,6 +121,14 @@ of such a branch does the same. One whose change cannot be
 selected (go.mod or go.sum, a deletion, a file no row knows) and one
 with nothing to compare with still run the whole suite. The whole
 suite otherwise runs only when the yard is quiet (R6 below).
+A landing's race leg takes the machine-wide race lock ahead of every other
+run's (yardr-0cw8): a ticket in the lock's queue is named by class, `0-`
+for a run with `YARDR_LANDING` set and `1-` for any other, and the first
+live ticket may take the lock, so landings go first and each class keeps
+its arrival order. The run that holds the lock is never pre-empted, and
+the plain runs cannot starve, since there are only as many landings as
+there are approved beads. `sh .yardr/test --race-queue` shows each
+waiter's class.
 
 R6. The whole suite still runs, but when the yard is quiet, not on a timer
 and not as a gate on any bead. The daemon's trigger

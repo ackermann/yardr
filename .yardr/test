@@ -33,7 +33,9 @@
 #
 # What the branch touched is what changed since the base: YARDR_BASE (an
 # agent's session and the assembly have it: main, or the train's branch for
-# a wagon), else origin/main. The first line of the output says which.
+# a wagon), else origin/main. The first line of the output says which. A
+# reviewer that committed sets it to the commit the last test line names, so
+# the selection is its own commits alone (the review stages say so).
 #
 # Two budgets (docs/testing.md R1 and R2): a package's tests finish in 60 s
 # under -race, and a test sleeps no more than 500 ms at a site. Each has its
@@ -157,13 +159,20 @@ runlogged() {
 # its other files are. macOS has no flock binary; perl's flock is the
 # same call.
 # In front of the flock is a ticket queue, so waiters take the lock in
-# arrival order: each writes a timestamped ticket with its pid, start time,
-# bead and worktree, and only the oldest live ticket may take the flock. A
-# dead waiter's ticket is skipped and removed. Waiting gates print their
-# place and the holder at once and then each minute. The holder records
-# itself beside the lock for that line.
-# sh .yardr/test --race-queue shows the holder and waiters, oldest first,
-# without creating a ticket or leaving a lock held.
+# arrival order, landings first: each writes a ticket with its class, a
+# timestamp, its pid, start time, bead and worktree, and only the first live
+# ticket may take the flock. The class is the ticket name's first part, 0 for
+# a run with YARDR_LANDING set and 1 for any other, so the names sort
+# landings first and each class in arrival order. A landing is what frees the
+# next bead of a chain, and there are only as many as there are approved
+# beads, so landings cannot starve the other runs. Nothing pre-empts the
+# holder: a landing waits for the run that holds the lock. A dead waiter's
+# ticket is skipped and removed. Waiting gates print their place and the
+# holder at once and then each minute. The holder records itself beside the
+# lock for that line.
+# sh .yardr/test --race-queue shows the holder and waiters, each with its
+# class, in the order they take the lock, without creating a ticket or
+# leaving a lock held.
 # The perl holds the lock itself while the worker it forked runs
 # the race leg under it: the worker closes the lock's fd before it execs,
 # so nothing the leg starts can hold the lock past the leg, however long it
@@ -273,20 +282,32 @@ sub read_kv {
 sub ids {
   my ($name) = @_;
   my $kv = read_kv("$qdir/$name");
-  my ($fpid) = $name =~ /-(\d+)$/;
+  my ($fpid) = $name =~ /^(?:[01]-)?\d+-(\d+)$/;
   my $pid = (defined($kv) && defined($kv->{pid}) && $kv->{pid} =~ /^\d+$/) ? $kv->{pid} : $fpid;
   my $start = (defined($kv) && defined($kv->{start})) ? $kv->{start} : "";
   return ($pid, $start, $kv);
 }
-# queued names the queue entries oldest first: zero-padded seconds and
-# nanoseconds, then the pid, so the names sort in arrival order.
+# qkey is what queue entries sort by: the name, which starts with the class
+# (0 for a landing, 1 for any other run), then zero-padded seconds and
+# nanoseconds, then the pid, so landings sort first and each class in arrival
+# order. A ticket made by an older copy of this script has no class: it is a
+# plain run, in its place by the time it came.
+sub qkey {
+  my ($name) = @_;
+  return $name =~ /^[01]-/ ? $name : "1-$name";
+}
+# queued names the queue entries in the order they take the lock. A ticket an
+# older copy of this script made is queued among the plain runs, so its run
+# keeps its turn and stays in the view, and the ticket is removed once dead.
+# That older copy lists no classed ticket, so between the two kinds the flock
+# alone decides who takes the lock.
 sub queued {
   opendir(my $dh, $qdir) or return ();
-  my @names = sort grep(/^\d+-\d+$/, readdir($dh));
+  my @names = sort { qkey($a) cmp qkey($b) } grep(/^(?:[01]-)?\d+-\d+$/, readdir($dh));
   closedir($dh);
   return @names;
 }
-# front is the oldest live ticket, dead ones ahead of it removed; ()
+# front is the first live ticket, dead ones ahead of it removed; ()
 # when the queue is empty.
 sub front {
   for my $n (queued()) {
@@ -305,15 +326,29 @@ sub fullclean {
     unlink("$qdir/$n") unless alive($pid, $start);
   }
 }
-# place counts the live tickets ahead of $mine, plus one; dead ones
-# found on the way are removed.
+# is_holder tells whether a ticket, by its pid and recorded start, is the
+# one the holder file names ($hkv, undef where there is none): the holder
+# keeps its ticket until it exits. Where either start is unknown the pid
+# stands alone.
+sub is_holder {
+  my ($hkv, $pid, $start) = @_;
+  return 0 unless defined($hkv) && defined($hkv->{pid}) && defined($pid) && $pid eq $hkv->{pid};
+  return !defined($hkv->{start}) || $hkv->{start} eq "" || !defined($start) || $start eq "" || $start eq $hkv->{start};
+}
+# place counts the runs that take the lock before $mine, plus one: the live
+# tickets ahead of it in the queue, and the holder, whose ticket sorts behind
+# every landing when the holder is not one, so queued runs count it in their
+# place whatever their class. Dead tickets found ahead of $mine are removed.
 sub place {
   my ($mine) = @_;
+  my $hkv = read_kv($holder);
   my $n = 1;
+  my $ahead = 1;
   for my $t (queued()) {
-    last if $t ge $mine;
+    if ($t eq $mine) { $ahead = 0; next }
     my ($pid, $start) = ids($t);
-    if (alive($pid, $start)) { $n++ } else { unlink("$qdir/$t") }
+    next unless $ahead || is_holder($hkv, $pid, $start);
+    if (alive($pid, $start)) { $n++ } elsif ($ahead) { unlink("$qdir/$t") }
   }
   return $n;
 }
@@ -358,16 +393,18 @@ sub identity {
   $dir =~ s/[\r\n]+/ /g;
   return ($bead, $dir);
 }
-# mkticket queues this waiter behind the tickets there are: a file
-# <seconds><nanoseconds>-<pid> holding its pid and start time, its bead
-# and its worktree. It arrives by rename, so a listing never sees it
-# half written.
+# mkticket queues this waiter behind the tickets of its class: a file
+# <class>-<seconds><nanoseconds>-<pid> holding its pid and start time, its
+# bead and its worktree. The class is 0 for a run with YARDR_LANDING set (as
+# the script reads it: non-empty) and 1 for any other. It arrives by rename,
+# so a listing never sees it half written.
 sub mkticket {
   if (!-d $qdir) {
     mkdir($qdir, 0700) or $!{EEXIST} or die "test: cannot make $qdir: $!\n";
   }
   my ($s, $us) = gettimeofday();
-  my $name = sprintf("%010d%09d-%d", $s, $us * 1000, $$);
+  my $class = (defined($ENV{YARDR_LANDING}) && $ENV{YARDR_LANDING} ne "") ? 0 : 1;
+  my $name = sprintf("%d-%010d%09d-%d", $class, $s, $us * 1000, $$);
   my ($bead, $dir) = identity();
   my $start = my_start();
   for (1..10) {
@@ -430,9 +467,9 @@ sub status_line {
     warn "test: race lock: $ord in line, holder unknown\n";
   }
 }
-# show_queue prints the holder and the waiters with their beads and
-# ages, without waiting for or leaving the lock held: the --race-queue
-# view. Dead tickets are skipped, not removed.
+# show_queue prints the holder and the waiters with their classes, beads and
+# ages, in the order they take the lock, without waiting for or leaving the
+# lock held: the --race-queue view. Dead tickets are skipped, not removed.
 sub show_queue {
   my $hkv = read_kv($holder);
   my $live = defined($hkv) && alive($hkv->{pid}, $hkv->{start});
@@ -472,13 +509,13 @@ sub show_queue {
     next unless alive($pid, $start);
     # The holder keeps its ticket until exit so queued runs count it in
     # their place. Show it above as the holder, not again as a waiter.
-    next if $live && defined($hkv->{pid}) && defined($pid) && $pid eq $hkv->{pid}
-      && (!defined($hkv->{start}) || $hkv->{start} eq "" || !defined($start) || $start eq "" || $start eq $hkv->{start});
+    next if $live && is_holder($hkv, $pid, $start);
     $i++;
-    my ($cs) = $n =~ /^(\d{10})/;
+    my ($class, $cs) = $n =~ /^(?:([01])-)?(\d{10})/;
     my $age = defined($cs) ? time - $cs : 0;
     my $dir = (defined($kv) && defined($kv->{dir})) ? $kv->{dir} : "?";
-    print "test: race lock: " . ordinal($i) . " in line: " . who($kv, $pid) . " waiting " . fmt_age($age) . " ($dir)\n";
+    my $kind = (defined($class) && $class eq "0") ? "landing" : "plain";
+    print "test: race lock: " . ordinal($i) . " in line ($kind): " . who($kv, $pid) . " waiting " . fmt_age($age) . " ($dir)\n";
   }
 }
 if (@ARGV && $ARGV[0] eq "--show-queue") {
@@ -1301,9 +1338,10 @@ if [ -n "$YARDR_TEST_RACE_LEG" ]; then
   trap - EXIT
   exit "$rc"
 fi
-# A read-only look at the machine race lock: who holds it and waits, oldest
-# first. It takes no ticket and holds no lock, so it runs anywhere, without a
-# base, and prints no test line: it looked, it ran nothing.
+# A read-only look at the machine race lock: who holds it and waits, in the
+# order they take it. It takes no ticket and holds no lock, so it runs
+# anywhere, without a base, and prints no test line: it looked, it ran
+# nothing.
 if [ "$1" = "--race-queue" ]; then
   racelocked --show-queue
   rc=$?
@@ -1315,18 +1353,34 @@ fi
 # tested for what it changed, not for the train's earlier wagons again.
 # Without the base nothing can be told apart, which must not read as "nothing
 # changed": a plain run could not run, and a landing is the whole suite (CI's
-# checkout has one commit and no origin/main).
+# checkout has one commit and no origin/main). A review base left behind by a
+# rebase is compared from where it and HEAD meet, which selects more, never
+# less. If the named base is ahead of HEAD, the merge base is HEAD and would
+# select nothing, so the script says it cannot compare instead of passing an
+# empty selection; the review stage can then run plainly from its session's
+# base.
 if [ -n "$YARDR_BASE" ]; then
   base=$YARDR_BASE said="YARDR_BASE"
 else
   base=origin/main said="the default, YARDR_BASE not being set"
 fi
 from=$(git merge-base "$base" HEAD) || from=
+no_base_reason="no such commit here, or none in common with HEAD"
+no_base_suffix="is no commit here, or has none in common with HEAD"
+if [ -n "$from" ]; then
+  head_commit=$(git rev-parse HEAD)
+  base_commit=$(git rev-parse "$base")
+  if [ "$from" = "$head_commit" ] && [ "$base_commit" != "$head_commit" ]; then
+    from=
+    no_base_reason="base is not an ancestor of HEAD"
+    no_base_suffix="is not an ancestor of HEAD"
+  fi
+fi
 if [ -z "$from" ]; then
   if [ -n "$YARDR_LANDING" ]; then
-    whole "$base ($said) is no commit here, or has none in common with HEAD"
+    whole "$base ($said) $no_base_suffix"
   fi
-  echo "test: cannot compare with $base ($said): no such commit here, or none in common with HEAD" >&2
+  echo "test: cannot compare with $base ($said): $no_base_reason" >&2
   exit 2
 fi
 since="since $base ($said), from $(git rev-parse --short "$from")"

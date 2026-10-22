@@ -29,12 +29,19 @@ saying so, and the outcome is `done`.
 A small finding is fixed on the branch (commits subject
 "<bead id> review: <what>"), not sent back, with a regression test. Before
 the bead leaves, the depot's test command has passed on the branch as it now
-is: the last test line on the
-bead names the commit under review and you committed nothing, or you ran it
-yourself (`sh .yardr/test` in the worktree) and your note ends with its
-line, `test: <command> @ <commit>: pass`. The whole suite is not this
-stage's: it runs once, on what lands. One note on the bead says how the
-review ended. Outcomes:
+is: the last test line on the bead names the commit under review and you
+committed nothing, or you ran it yourself and your note ends with its line,
+`test: <command> @ <commit>: pass`. If you committed, run it over your own
+commits alone: `YARDR_BASE=<commit the last test line on the bead names> sh
+.yardr/test` in the worktree, and say in the note that you did. The earlier
+runs tested the rest of the branch at that commit, and the script tests what
+changed since its base and whatever imports or reads that, so a fix in a leaf
+package takes seconds, and the script's own rules say whether the run needs
+`-race` and so a place in the race lock's queue. If there is no such line, or
+the script says it cannot compare with that commit, run it plainly (`sh
+.yardr/test`, from your session's base). The whole suite is not this stage's:
+it runs once, on what lands. One note on the bead says how the review ended.
+Outcomes:
 
 - `done`, passed: the note says what the change opens and to whom, or that
   it touches nothing on the list, what you fixed (commits), and any risk

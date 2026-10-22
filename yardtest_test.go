@@ -109,7 +109,12 @@ func TestYardTestRowsAreThere(t *testing.T) {
 // The base .yardr/test compares with: YARDR_BASE, else origin/main, and its
 // first line says which. One it cannot find is "could
 // not run" (exit 2), never "nothing changed"; for a landing it is the whole
-// suite, as a landing of nothing is.
+// suite, as a landing of nothing is. A commit on the branch is a base like
+// any other: a reviewer that committed names the commit the last test line
+// does (the review stages say so), and the plan holds what its own commits
+// changed, and what imports it. If that commit is ahead of HEAD, the merge
+// base is HEAD and the script must fail closed instead of passing an empty
+// selection.
 func TestYardTestSaysItsBase(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
@@ -126,13 +131,23 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			files[pkg+"/p.go"] = "package p\n"
 		}
 	}
-	for name, text := range files {
+	// What a branch changes below: a package nothing imports, one that embeds
+	// a file, and the one that imports it.
+	files["alone/p.go"] = "package p\n"
+	files["emb/p.go"] = "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n"
+	files["emb/a.txt"] = "a\n"
+	files["top/p.go"] = "package top\n\nimport _ \"m.test/m/emb\"\n"
+	write := func(name, text string) {
+		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for name, text := range files {
+		write(name, text)
 	}
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
@@ -190,6 +205,72 @@ func TestYardTestSaysItsBase(t *testing.T) {
 			"test: no comparable base: running the socket suites beside the first run\n"
 		if code != 0 || !strings.HasSuffix(out, want) {
 			t.Errorf("exit %d, output %q, want exit 0 and at its end %q", code, out, want)
+		}
+	})
+	t.Run("a base ahead of HEAD", func(t *testing.T) {
+		gitT(t, dir, "checkout", "-q", "other")
+		write("alone/p.go", "package p\n\nvar Future int\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "a later test line")
+		ahead := gitT(t, dir, "rev-parse", "HEAD")
+		gitT(t, dir, "checkout", "-q", "main")
+
+		out, code := run("YARDR_BASE=" + ahead)
+		want := "test: cannot compare with " + ahead + " (YARDR_BASE): base is not an ancestor of HEAD\n"
+		if code != 2 || !strings.Contains(out, want) {
+			t.Errorf("a base ahead of HEAD: exit %d, output %q, want exit 2 and %q", code, out, want)
+		}
+
+		out, code = run("YARDR_BASE="+ahead, "YARDR_LANDING=1")
+		first, _, _ := strings.Cut(out, "\n")
+		want = "test: YARDR_LANDING is set, and " + ahead + " (YARDR_BASE) is not an ancestor of HEAD: the whole suite"
+		if code != 0 || first != want {
+			t.Errorf("a landing with a base ahead of HEAD: exit %d, first line %q, want exit 0 and %q", code, first, want)
+		}
+	})
+	// The builder changed a package nothing imports, the reviewer a file that
+	// another package embeds. Against the builder's commit the plan holds the
+	// reviewer's change alone and the package that imports it. Once main has
+	// moved and the branch is rebased, that commit is no ancestor of HEAD: the
+	// script compares from where the two meet, the commit the builder started
+	// from, so the plan holds the whole branch and what main gained meanwhile,
+	// more than the reviewer's commits and never less.
+	t.Run("a base on the branch", func(t *testing.T) {
+		gitT(t, dir, "checkout", "-q", "-b", "feature")
+		t.Cleanup(func() {
+			gitT(t, dir, "checkout", "-q", "-f", "main")
+			gitT(t, dir, "branch", "-q", "-D", "feature")
+		})
+		write("alone/p.go", "package p\n\nvar Built int\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "builder")
+		built := gitT(t, dir, "rev-parse", "HEAD")
+		write("emb/a.txt", "fixed\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "review fix")
+		const tested = "test: testing, with -race, what changed, what imports it and what reads it:"
+		out, code := run("YARDR_BASE=" + built)
+		want := "test: what changed since " + built + " (YARDR_BASE), from " + gitT(t, dir, "rev-parse", "--short", built) + "\n" +
+			tested + " m.test/m/emb m.test/m/top\n"
+		if code != 0 || out != want {
+			t.Errorf("a base on the branch: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
+		}
+		gitT(t, dir, "checkout", "-q", "main")
+		write("docs/web.md", "moved\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "main moves")
+		gitT(t, dir, "checkout", "-q", "feature")
+		gitT(t, dir, "rebase", "-q", "main")
+		var exit *exec.ExitError
+		if err := exec.Command("git", "-C", dir, "merge-base", "--is-ancestor", built, "HEAD").Run(); !errors.As(err, &exit) || exit.ExitCode() != 1 {
+			t.Fatalf("the commit tested before the rebase is an ancestor of HEAD after it: %v", err)
+		}
+		out, code = run("YARDR_BASE=" + built)
+		want = "test: what changed since " + built + " (YARDR_BASE), from " + short + "\n" +
+			"test: docs/web.md changed: read by the tests of .\n" +
+			tested + " m.test/m m.test/m/alone m.test/m/emb m.test/m/top\n"
+		if code != 0 || out != want {
+			t.Errorf("a base the branch was rebased away from: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
 		}
 	})
 }
@@ -2037,8 +2118,9 @@ exec "$@"
 	}
 }
 
-// raceTicketName matches a queue ticket: <seconds><nanoseconds>-<pid>.
-var raceTicketName = regexp.MustCompile(`^\d+-\d+$`)
+// raceTicketName matches a queue ticket: <class>-<seconds><nanoseconds>-<pid>,
+// the class 0 for a landing and 1 for any other run.
+var raceTicketName = regexp.MustCompile(`^[01]-\d+-\d+$`)
 
 // raceWaitStarted matches the line a run prints when its first attempt at the
 // race lock failed, before its first sleep: the one sign that it queued. The
@@ -2077,8 +2159,10 @@ func raceLockDriver(t *testing.T) (driver, home string) {
 	return driver, home
 }
 
-// The race lock serves waiters in arrival order, and says so: waiters
-// queued behind a held lock in a known order take it in that order, each
+// The race lock serves waiters in arrival order, landings first, and says
+// so: waiters queued behind a held lock in a known order take it in that
+// order, a landing (YARDR_LANDING set and not empty) before the plain runs
+// that queued earlier, and two of a class in the order they came, each
 // printing its place and the holder. A waiter killed with KILL while
 // queued leaves a ticket the next waiter skips and removes, and one killed
 // with TERM removes its own ticket and exits 143. A ticket carries the
@@ -2103,7 +2187,7 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 		out *os.File
 		in  *os.File
 	}
-	start := func(bead string, args ...string) raceRun {
+	startWith := func(bead string, env []string, args ...string) raceRun {
 		t.Helper()
 		out, err := os.CreateTemp("", "racequeue")
 		if err != nil {
@@ -2117,7 +2201,7 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 		}
 		cmd := exec.CommandContext(ctx, driver, append([]string{filepath.Join(home, "worker.status")}, args...)...)
 		cmd.Dir = wt
-		cmd.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead)
+		cmd.Env = append(append(scriptEnv(), "HOME="+home, "YARDR_BEAD="+bead), env...)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, out
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error {
@@ -2139,6 +2223,7 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 		in.Close()
 		return raceRun{cmd, out, release}
 	}
+	start := func(bead string, args ...string) raceRun { return startWith(bead, nil, args...) }
 	finish := func(q raceRun) (int, []byte) {
 		t.Helper()
 		q.in.Close()
@@ -2199,10 +2284,27 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+	// waitPlace waits for a waiter to print its place, which it does once it
+	// has looked at the queue. The place counts the tickets there are as it
+	// looks, so a waiter is started only after the one before it has printed
+	// its own, and the holder is released only after all have.
+	waitPlace := func(q raceRun) {
+		t.Helper()
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			b, _ := os.ReadFile(q.out.Name())
+			if strings.Contains(string(b), " in line, ") {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("a waiter printed no place in 30 s:\n%s", b)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 	killTicket := func(name string, sig syscall.Signal) {
 		t.Helper()
-		_, s, _ := strings.Cut(name, "-")
-		pid, err := strconv.Atoi(s)
+		pid, err := strconv.Atoi(name[strings.LastIndex(name, "-")+1:])
 		if err != nil {
 			t.Fatalf("ticket %q names no pid", name)
 		}
@@ -2234,23 +2336,28 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	if code, _ := finish(dead); code != 137 {
 		t.Errorf("a waiter killed with KILL exits %d, want 137", code)
 	}
-	w2 := start("w2-bead", "sh", "-c", "echo w2 >>"+quote(order))
-	known = waitTicket(known)
-	w3 := start("w3-bead", "sh", "-c", "echo w3 >>"+quote(order))
-	known = waitTicket(known)
-	// A ticket carries the waiter's bead and worktree.
-	found := false
-	for _, n := range tickets() {
-		b, _ := os.ReadFile(filepath.Join(qdir, n))
-		if strings.Contains(string(b), "bead=w2-bead\n") {
-			found = true
-			if !strings.Contains(string(b), "dir="+wt+"\n") {
-				t.Errorf("the w2 ticket names no worktree %q:\n%s", wt, b)
+	// ticketOf is the ticket a bead's waiter queued under, "" for none.
+	ticketOf := func(bead string) string {
+		t.Helper()
+		for _, n := range tickets() {
+			if b, _ := os.ReadFile(filepath.Join(qdir, n)); strings.Contains(string(b), "bead="+bead+"\n") {
+				return n
 			}
 		}
+		return ""
 	}
-	if !found {
+	w2 := start("w2-bead", "sh", "-c", "echo w2 >>"+quote(order))
+	known = waitTicket(known)
+	waitPlace(w2)
+	// A YARDR_LANDING that is set and empty is no landing, as the script reads it.
+	w3 := startWith("w3-bead", []string{"YARDR_LANDING="}, "sh", "-c", "echo w3 >>"+quote(order))
+	known = waitTicket(known)
+	waitPlace(w3)
+	// A ticket carries the waiter's bead and worktree.
+	if n := ticketOf("w2-bead"); n == "" {
 		t.Errorf("no ticket carries bead=w2-bead")
+	} else if b, _ := os.ReadFile(filepath.Join(qdir, n)); !strings.Contains(string(b), "dir="+wt+"\n") {
+		t.Errorf("the w2 ticket names no worktree %q:\n%s", wt, b)
 	}
 	// A waiter killed with TERM removes its own ticket and exits 143.
 	term := start("term-bead", "sh", "-c", "echo term >>"+quote(order))
@@ -2269,29 +2376,54 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	if slices.Contains(tickets(), termTicket) {
 		t.Errorf("the TERM killed waiter's ticket is still queued")
 	}
+	// Two landings queue after both plain waiters. They take the lock before
+	// them, in the order they came, and the holder, a plain run, is not
+	// pre-empted: it still holds the lock until the test lets it go. Each
+	// counts the holder in its place, as a plain waiter does, though its
+	// ticket sorts behind theirs.
+	l1 := startWith("l1-bead", []string{"YARDR_LANDING=1"}, "sh", "-c", "echo l1 >>"+quote(order))
+	known = waitTicket(known)
+	waitPlace(l1)
+	l2 := startWith("l2-bead", []string{"YARDR_LANDING=1"}, "sh", "-c", "echo l2 >>"+quote(order))
+	known = waitTicket(known)
+	waitPlace(l2)
+	// The class is the first part of the ticket's name.
+	for bead, class := range map[string]string{"holder-bead": "1-", "w2-bead": "1-", "w3-bead": "1-", "l1-bead": "0-", "l2-bead": "0-"} {
+		if n := ticketOf(bead); !strings.HasPrefix(n, class) {
+			t.Errorf("the ticket of %s is %q, want one of class %s", bead, n, class)
+		}
+	}
 	if code, out := finish(holder); code != 0 {
 		t.Fatalf("the holder exits %d, want 0:\n%s", code, out)
 	}
-	w2code, w2out := finish(w2)
-	w3code, w3out := finish(w3)
-	if w2code != 0 || w3code != 0 {
-		t.Fatalf("the waiters exit %d and %d, want 0:\n%s\n%s", w2code, w3code, w2out, w3out)
+	type waiter struct {
+		bead string
+		run  raceRun
+		want string
 	}
-	// The survivors ran in arrival order, past the killed tickets.
-	if body, _ := os.ReadFile(order); string(body) != "w2\nw3\n" {
-		t.Errorf("the runs ordered %q, want %q", body, "w2\nw3\n")
+	waiters := []waiter{
+		{"w2-bead", w2, `(?m)^test: race lock: 2nd in line, held by holder-bead for \d+ s$`},
+		{"w3-bead", w3, `(?m)^test: race lock: 3rd in line, held by holder-bead for \d+ s$`},
+		{"l1-bead", l1, `(?m)^test: race lock: 2nd in line, held by holder-bead for \d+ s$`},
+		{"l2-bead", l2, `(?m)^test: race lock: 3rd in line, held by holder-bead for \d+ s$`},
 	}
-	// Each printed its place and the holder while it waited.
-	for out, want := range map[string]string{
-		string(w2out): `(?m)^test: race lock: 2nd in line, held by holder-bead for \d+ s$`,
-		string(w3out): `(?m)^test: race lock: 3rd in line, held by holder-bead for \d+ s$`,
-	} {
-		if ok, _ := regexp.MatchString(want, out); !ok {
-			t.Errorf("a waiter printed no %q:\n%s", want, out)
+	for _, w := range waiters {
+		code, out := finish(w.run)
+		if code != 0 {
+			t.Fatalf("%s exits %d, want 0:\n%s", w.bead, code, out)
 		}
-		if !strings.Contains(out, "test: waited ") {
-			t.Errorf("a waiter printed no waited line:\n%s", out)
+		// Each printed its place and the holder while it waited.
+		if ok, _ := regexp.MatchString(w.want, string(out)); !ok {
+			t.Errorf("%s printed no %q:\n%s", w.bead, w.want, out)
 		}
+		if !strings.Contains(string(out), "test: waited ") {
+			t.Errorf("%s printed no waited line:\n%s", w.bead, out)
+		}
+	}
+	// The landings ran first, then the plain runs, each class in arrival
+	// order, past the killed tickets.
+	if body, _ := os.ReadFile(order); string(body) != "l1\nl2\nw2\nw3\n" {
+		t.Errorf("the runs ordered %q, want %q", body, "l1\nl2\nw2\nw3\n")
 	}
 	// Nothing is left behind: no ticket, live or dead, and no holder.
 	if got := tickets(); len(got) != 0 {
@@ -2300,19 +2432,26 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".yardr", "race.holder")); !os.IsNotExist(err) {
 		t.Errorf("the holder file is left behind")
 	}
-	// A pre-seeded dead ticket at the back of the queue is absent after
-	// the next acquisition: the acquirer's fullclean reaps it. The seed
-	// sorts last by a future timestamp, so front does not reach it, and
-	// a live ticket lingering here would convict the perl instead.
+	// Pre-seeded dead tickets at the back of the queue are absent after the
+	// next acquisition: the acquirer's fullclean reaps them. The first sorts
+	// last by a future timestamp; the second is named as an older copy of the
+	// script named its tickets, with no class, which sorts after every
+	// classed one. So front does not reach either, and a live ticket
+	// lingering here would convict the perl instead.
 	if err := os.MkdirAll(qdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	deadPID := raceDeadPID(t)
 	now := time.Now().Unix()
-	seedName := fmt.Sprintf("%010d%09d-%d", now+3600, 999999999, deadPID)
+	seedNames := []string{
+		fmt.Sprintf("1-%010d%09d-%d", now+3600, 999999999, deadPID),
+		fmt.Sprintf("%010d%09d-%d", now+3600, 999999999, deadPID),
+	}
 	seed := fmt.Sprintf("pid=%d\nstart=0\nbead=dead-seed\ndir=%s\ncreated=%d\n", deadPID, wt, now)
-	if err := os.WriteFile(filepath.Join(qdir, seedName), []byte(seed), 0o600); err != nil {
-		t.Fatal(err)
+	for _, name := range seedNames {
+		if err := os.WriteFile(filepath.Join(qdir, name), []byte(seed), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// No holder blocks it: the waiter takes the lock at once, so its
 	// ticket may come and go before a poll sees it. Finish it and read
@@ -2321,8 +2460,10 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	if code, out := finish(seedWaiter); code != 0 {
 		t.Fatalf("the seed waiter exits %d, want 0:\n%s", code, out)
 	}
-	if slices.Contains(tickets(), seedName) {
-		t.Errorf("the pre-seeded dead ticket is still queued after the next acquisition")
+	for _, name := range seedNames {
+		if _, err := os.Stat(filepath.Join(qdir, name)); !os.IsNotExist(err) {
+			t.Errorf("the pre-seeded dead ticket %s is still queued after the next acquisition: %v", name, err)
+		}
 	}
 }
 
@@ -2411,12 +2552,14 @@ func raceDeadPID(t *testing.T) int {
 	return cmd.Process.Pid
 }
 
-// The --race-queue view prints the holder and waiters with their beads
-// and ages, oldest first, skipping dead tickets without leaving a ticket
-// or lock behind. Synthetic tickets stand in for queued runs: a helper
-// process stands in for the holder, the test's own pid for live waiters,
-// and a reaped child for a dead waiter. Its own home stands in for the
-// yard's, so no real gate waits on it.
+// The --race-queue view prints the holder and waiters with their classes,
+// beads and ages, in the order they take the lock (a landing first, even when
+// it is the newest; a ticket from an older copy of the script, which has no
+// class, among the plain runs by the time it came), skipping dead tickets
+// without leaving a ticket or lock behind. Synthetic tickets stand in for
+// queued runs: a helper process stands in for the holder, the test's own pid
+// for live waiters, and a reaped child for a dead waiter. Its own home stands
+// in for the yard's, so no real gate waits on it.
 func TestYardTestRaceQueueView(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("no perl in PATH")
@@ -2445,16 +2588,26 @@ func TestYardTestRaceQueueView(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ticket := func(when int64, pid int, start, bead, dir string) {
+	// class is the first part of a ticket's name: 0 for a landing, 1 for any
+	// other run, none for a ticket an older copy of the script made.
+	ticket := func(class string, when int64, pid int, start, bead, dir string) {
 		t.Helper()
-		write(qdir, strconv.FormatInt(when, 10)+"000000000-"+strconv.Itoa(pid),
+		name := strconv.FormatInt(when, 10) + "000000000-" + strconv.Itoa(pid)
+		if class != "" {
+			name = class + "-" + name
+		}
+		write(qdir, name,
 			"pid="+strconv.Itoa(pid)+"\nstart="+start+"\nbead="+bead+"\ndir="+dir+"\ncreated="+strconv.FormatInt(when, 10)+"\n")
 	}
 	live := raceOwnStart(t, self)
-	ticket(now-400, raceDeadPID(t), "bogus", "gone-bead", "/wt/gone")
-	ticket(now-350, holderPID, holderStart, "holder-bead", "/wt/holder")
-	ticket(now-300, self, live, "old-bead", "/wt/old")
-	ticket(now-30, self, live, "new-bead", "/wt/new")
+	ticket("1", now-400, raceDeadPID(t), "bogus", "gone-bead", "/wt/gone")
+	ticket("1", now-350, holderPID, holderStart, "holder-bead", "/wt/holder")
+	ticket("1", now-300, self, live, "old-bead", "/wt/old")
+	ticket("", now-200, self, live, "legacy-bead", "/wt/legacy")
+	ticket("0", now-30, self, live, "new-bead", "/wt/new")
+	// A ticket whose content says nothing is a waiter all the same: its pid is
+	// in its name.
+	write(qdir, "1-"+strconv.FormatInt(now-100, 10)+"000000000-"+strconv.Itoa(self), "")
 	write(yard, "race.holder",
 		"pid="+strconv.Itoa(holderPID)+"\nstart="+holderStart+"\nbead=holder-bead\ndir=/wt/holder\nsince="+strconv.FormatInt(now-360, 10)+"\n")
 	view := func() string {
@@ -2476,13 +2629,20 @@ func TestYardTestRaceQueueView(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := view()
-	for _, want := range []string{
-		`(?m)^test: race lock: held by holder-bead for 6 m \(/wt/holder\)$`,
-		`(?m)^test: race lock: 1st in line: old-bead waiting 5 m \(/wt/old\)$`,
-		`(?m)^test: race lock: 2nd in line: new-bead waiting 3\d s \(/wt/new\)$`,
-	} {
-		if ok, _ := regexp.MatchString(want, out); !ok {
-			t.Errorf("the view prints no %q:\n%s", want, out)
+	want := []string{
+		`^test: race lock: held by holder-bead for 6 m \(/wt/holder\)$`,
+		`^test: race lock: 1st in line \(landing\): new-bead waiting 3\d s \(/wt/new\)$`,
+		`^test: race lock: 2nd in line \(plain\): old-bead waiting 5 m \(/wt/old\)$`,
+		`^test: race lock: 3rd in line \(plain\): legacy-bead waiting 3 m \(/wt/legacy\)$`,
+		`^test: race lock: 4th in line \(plain\): pid ` + strconv.Itoa(self) + ` waiting 1 m \(\?\)$`,
+	}
+	if lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n"); len(lines) != len(want) {
+		t.Errorf("the view prints %d lines, want %d:\n%s", len(lines), len(want), out)
+	} else {
+		for i, w := range want {
+			if ok, _ := regexp.MatchString(w, lines[i]); !ok {
+				t.Errorf("line %d of the view is %q, want one matching %q", i+1, lines[i], w)
+			}
 		}
 	}
 	if strings.Contains(out, "gone-bead") {
@@ -2503,8 +2663,10 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	if !strings.Contains(out, "test: race lock: free\n") {
 		t.Errorf("the free lock views as:\n%s", out)
 	}
-	if !strings.Contains(out, "old-bead") || !strings.Contains(out, "new-bead") {
-		t.Errorf("the view lost the waiters:\n%s", out)
+	for _, bead := range []string{"old-bead", "new-bead", "legacy-bead"} {
+		if !strings.Contains(out, bead) {
+			t.Errorf("the view lost %s:\n%s", bead, out)
+		}
 	}
 	// Nothing anywhere: free alone, and the view took nothing.
 	if err := os.Remove(filepath.Join(yard, "race.lock")); err != nil {
