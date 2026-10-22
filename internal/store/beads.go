@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -52,6 +53,12 @@ type Bead struct {
 	// held and the holder is not known: a hold from before the yard kept
 	// the holder reads as unknown, never as anyone.
 	HeldBy string `json:"held_by,omitempty"`
+	// Rounds is the bead's own record of the stages it has reached and how
+	// many times an outcome brought it back to each: a key for every stage
+	// it has been in, the rounds counted for that stage as the value (see
+	// rounds.go). It does not read the ETA's visited list, which stops at
+	// ETAVisitedCap stages. Absent on a bead from before the record.
+	Rounds map[string]int `json:"rounds,omitempty"`
 	// Revision is an opaque token that changes on every real state change.
 	Revision string `json:"revision"`
 	// Train is the handle of the train the bead is a child of (see Family),
@@ -611,7 +618,9 @@ func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage strin
 
 // insertBead gives a new bead its UUID, from its creation time and after
 // every key already stored, and its handle: handle when given, else one
-// minted under prefix. Then it mints the bead.
+// minted under prefix. It records the bead's first stage in Rounds, here
+// because every bead is made through this call, those a person files and
+// those that arrive from another yard alike. Then it mints the bead.
 func (w *wtx) insertBead(row *beadRow, prefix, handle, actor string) error {
 	last, _ := w.Bucket(bBeads).Cursor().Last()
 	u := after(string(last), uuidAt(row.CreatedAt))
@@ -628,6 +637,7 @@ func (w *wtx) insertBead(row *beadRow, prefix, handle, actor string) error {
 	if err := w.Bucket(bHandles).Put([]byte(row.ID), []byte(row.UUID)); err != nil {
 		return err
 	}
+	row.enter(row.Stage, false)
 	return w.mintBead(row, actor)
 }
 
@@ -1129,6 +1139,7 @@ func (b *Bead) clone() Bead {
 	c.Depot, c.Group, c.Session = copyOf(b.Depot), copyOf(b.Group), copyOf(b.Session)
 	c.CloseReason, c.CreatedBy, c.ClosedAt = copyOf(b.CloseReason), copyOf(b.CreatedBy), copyOf(b.ClosedAt)
 	c.Labels = slices.Clone(b.Labels)
+	c.Rounds = maps.Clone(b.Rounds)
 	if b.Metadata != nil {
 		c.Metadata = cloneJSON(b.Metadata).(map[string]any)
 	}
@@ -1762,6 +1773,11 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 			}
 		}
 		terminal = f != nil && f.IsTerminal(stage)
+		// A move whose event names an outcome brings the bead back round
+		// to a stage it had been in, and counts; a move by a person does
+		// not (see rounds.go). Before exitStay, which lists the stage as
+		// visited.
+		b.enter(stage, outcome != "")
 		// Before ending the session frees the bead: the exit records
 		// whose work ended (exitStay), and the event says so too.
 		if err := exitStay(w.Tx, b, stage, now()); err != nil {

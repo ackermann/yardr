@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -248,11 +250,43 @@ func TestDone(t *testing.T) {
 		t.Fatalf("next outcomes = %+v, %v", next, err)
 	}
 
+	// The bead keeps the stages it has reached, and the rounds an outcome
+	// has brought it back to each: a key for every stage, at zero when it
+	// is reached for the first time, by hand or by outcome. Read back from
+	// the store after each step, whole.
+	rounds := func(want map[string]int) {
+		t.Helper()
+		got, err := s.GetBead(ctx, b.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !maps.Equal(got.Rounds, want) {
+			t.Fatalf("rounds = %v, want %v", got.Rounds, want)
+		}
+	}
+	if !maps.Equal(b.Rounds, map[string]int{"new": 0}) {
+		t.Fatalf("a created bead has rounds %v, want its first stage at zero", b.Rounds)
+	}
+	rounds(map[string]int{"new": 0})
+	if all, err := s.ListBeads(ctx, store.BeadFilter{Depot: "yard"}); err != nil || len(all) != 1 || !maps.Equal(all[0].Rounds, b.Rounds) {
+		t.Fatalf("listed %+v, %v; want the bead with rounds %v", all, err, b.Rounds)
+	}
+	// A move by hand gives a stage reached for the first time its key, and
+	// adds nothing to one that has it: back in new, which has its key, the
+	// count stays at zero.
+	for _, to := range []string{"backlog", "new"} {
+		if _, err := s.Advance(ctx, b.ID, to, store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		rounds(map[string]int{"new": 0, "backlog": 0})
+	}
+
 	// No --outcome means done.
 	got, err := s.Done(ctx, b.ID, "", "built it", store.Expect{}, "builder")
 	if err != nil || got.Stage != "review" {
 		t.Fatalf("done from new = %+v, %v", got, err)
 	}
+	rounds(map[string]int{"new": 0, "backlog": 0, "review": 0})
 	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 1 || notes[0].Text != "built it" {
 		t.Fatalf("notes = %+v", notes)
 	}
@@ -262,10 +296,12 @@ func TestDone(t *testing.T) {
 		t.Fatalf("last event = %+v, %v", evs, err)
 	}
 
-	// An explicit outcome picks its edge.
+	// An explicit outcome picks its edge. Back in new, which the bead has
+	// been in, the outcome is a round.
 	if got, err = s.Done(ctx, b.ID, "changes", "rename the flag", store.Expect{}, "reviewer"); err != nil || got.Stage != "new" {
 		t.Fatalf("changes from review = %+v, %v", got, err)
 	}
+	rounds(map[string]int{"new": 1, "backlog": 0, "review": 0})
 
 	// An unknown outcome is refused, names the stage's outcomes, and
 	// leaves neither a move nor a note behind.
@@ -284,11 +320,13 @@ func TestDone(t *testing.T) {
 	if notes, _ := s.Notes(ctx, b.ID); len(notes) != 2 {
 		t.Fatalf("refused outcome left a note: %+v", notes)
 	}
+	rounds(map[string]int{"new": 1, "backlog": 0, "review": 0})
 
 	// A stage with several bare edges has no outcomes: advance --to.
 	if _, err := s.Done(ctx, b.ID, "question", "", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	rounds(map[string]int{"new": 1, "backlog": 0, "review": 0, "decide": 0})
 	_, err = s.Done(ctx, b.ID, "", "", store.Expect{}, "me")
 	if err == nil || !strings.Contains(err.Error(), "names no outcomes for stage decide") || !strings.Contains(err.Error(), "advance --to") {
 		t.Fatalf("done from decide err = %v", err)
@@ -300,11 +338,15 @@ func TestDone(t *testing.T) {
 	if got, err = s.Advance(ctx, b.ID, "backlog", store.Expect{}, "me"); err != nil || got.Stage != "backlog" {
 		t.Fatalf("advance decide -> backlog = %+v, %v", got, err)
 	}
+	// Neither the refusals nor the move by hand into backlog, which has its
+	// key, added a round.
+	rounds(map[string]int{"new": 1, "backlog": 0, "review": 0, "decide": 0})
 
-	// A single way out gets done implicitly.
+	// A single way out gets done implicitly: back in new again, a second round.
 	if got, err = s.Done(ctx, b.ID, "", "", store.Expect{}, "me"); err != nil || got.Stage != "new" {
 		t.Fatalf("implicit done from backlog = %+v, %v", got, err)
 	}
+	rounds(map[string]int{"new": 2, "backlog": 0, "review": 0, "decide": 0})
 
 	// An edge without an outcome is reachable by advance only, even when
 	// it leads to a terminal stage; entering it still closes the bead.
@@ -313,11 +355,57 @@ func TestDone(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The first of the two came back to review, a round; the second reached
+	// approved for the first time.
+	rounds(map[string]int{"new": 2, "backlog": 0, "review": 1, "decide": 0, "approved": 0})
 	if _, err := s.Done(ctx, b.ID, "merged", "", store.Expect{}, "me"); err == nil || !strings.Contains(err.Error(), "outcomes: failed") {
 		t.Fatalf("done --outcome merged err = %v", err)
 	}
 	if got, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "assembly"); err != nil || got.Status != "closed" {
 		t.Fatalf("advance to merged = %+v, %v", got, err)
+	}
+	// The terminal stage is reached too, and the closed bead keeps its record.
+	rounds(map[string]int{"new": 2, "backlog": 0, "review": 1, "decide": 0, "approved": 0, "merged": 0})
+
+	// The record is the bead's own: the ETA's visited list holds the first
+	// ETAVisitedCap stages a bead reaches and no more, and a flow may have
+	// more. In a flow of two stages past that, the first with a way back to
+	// itself, a same-stage outcome is a round; and after the bead has been
+	// walked to the last stage, sent back to the one before it, which is
+	// the first the list never held, that is a round too.
+	stages := make([]string, store.ETAVisitedCap+2)
+	for i := range stages {
+		stages[i] = fmt.Sprintf("s%02d", i)
+	}
+	past := stages[store.ETAVisitedCap]
+	var long strings.Builder
+	fmt.Fprintf(&long, "%s -> %s on done | %s on retry\n", stages[0], stages[1], stages[0])
+	for i := 1; i < len(stages)-1; i++ {
+		fmt.Fprintf(&long, "%s -> %s on done\n", stages[i], stages[i+1])
+	}
+	fmt.Fprintf(&long, "%s -> %s on changes\n", stages[len(stages)-1], past)
+	putFlow(t, s, "yard", "long", long.String())
+	l, err := s.CreateBead(ctx, store.NewBead{Title: "long", Depot: "yard", Type: "long"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{stages[0]: 1}
+	if got, err := s.Done(ctx, l.ID, "retry", "", store.Expect{}, "me"); err != nil || got.Stage != stages[0] || !maps.Equal(got.Rounds, want) {
+		t.Fatalf("retry in %s = %+v, %v; want a round there", stages[0], got, err)
+	}
+	for _, to := range stages[1:] {
+		got, err := s.Done(ctx, l.ID, "", "", store.Expect{}, "me")
+		if err != nil || got.Stage != to {
+			t.Fatalf("done to %s = %+v, %v", to, got, err)
+		}
+		want[to] = 0
+		if !maps.Equal(got.Rounds, want) {
+			t.Fatalf("on reaching %s the rounds are %v, want %v", to, got.Rounds, want)
+		}
+	}
+	want[past] = 1
+	if got, err := s.Done(ctx, l.ID, "changes", "", store.Expect{}, "me"); err != nil || got.Stage != past || !maps.Equal(got.Rounds, want) {
+		t.Fatalf("changes back to %s = %+v, %v; want the round counted: %v", past, got, err, want)
 	}
 }
 

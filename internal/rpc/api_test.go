@@ -448,6 +448,7 @@ var apiCalls = []apiCall{
 			{"stage", "string", "the bead's stage"},
 			{"topic", "string", "the bead's topic: its first `topic:` label, `\"\"` when it has none"},
 			{"labels", "array of string", "the bead's labels"},
+			{"rounds", "object?", "the stages the bead has reached, each with the rounds counted for it: how many times an outcome brought the bead back to a stage it had been in (a reviewer's `changes`, a failed landing), a same-stage outcome included. A stage reached for the first time reads `0`, and a move by hand (`yardr bead advance --to`) adds none. Absent on a bead from before the record, and on a `bead@peer`"},
 			{"notes[].seq", "number", "the note's seq"},
 			{"notes[].kind", "string", "the note's kind: `note`, `journal` or `handoff`"},
 			{"notes[].author", "string", "who wrote it"},

@@ -425,6 +425,10 @@ type BeadView struct {
 	Labels []string   `json:"labels"`
 	Notes  []BeadNote `json:"notes"`
 	Asks   []BeadAsk  `json:"asks"`
+	// Rounds is Bead.Rounds: the stages the bead has reached, each with the
+	// times an outcome brought it back to it. Absent on a bead from before
+	// the record, and on one of another yard's.
+	Rounds map[string]int `json:"rounds,omitempty"`
 	// ETA and Late are the bead's estimate, absent when there is nothing
 	// to say; the same shapes bead show --json carries.
 	ETA  *eta.ETA  `json:"eta,omitempty"`
@@ -453,7 +457,7 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 	}
 	v := &BeadView{
 		ID: b.ID, Title: b.Title, Body: b.Body, Stage: b.Stage, Topic: topicOf(*b), Labels: b.Labels,
-		Notes: []BeadNote{}, Asks: []BeadAsk{},
+		Notes: []BeadNote{}, Asks: []BeadAsk{}, Rounds: b.Rounds,
 	}
 	for _, n := range notes {
 		if n.Kind == NoteAsk || n.Kind == NoteAnswer {

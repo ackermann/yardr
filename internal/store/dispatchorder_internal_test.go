@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -42,7 +43,8 @@ const arrivalFlow = "arrived -> build | returned on refused\nbuild -> returned o
 
 // A bead that arrives over the peer link queues by its arrival: it carries
 // the stay clock as a created bead does, so it sorts after the beads that
-// were already waiting, not as a zero time ahead of everything.
+// were already waiting, not as a zero time ahead of everything. It carries
+// the key of its first stage in Rounds as a created bead does, too.
 func TestPeerBeadArrivesQueuedByArrival(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
@@ -80,6 +82,9 @@ func TestPeerBeadArrivesQueuedByArrival(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if want := map[string]int{"arrived": 0}; !maps.Equal(local.Rounds, want) {
+		t.Fatalf("the bead created carries rounds %v, want %v", local.Rounds, want)
+	}
 	y.at(t0.Add(time.Hour))
 	body, _ := json.Marshal(map[string]any{"v": 1, "yardr": "v0.9.1", "bead": "web-k3f9", "stage": "build",
 		"title": "Add the export", "body": "As a CSV.", "type": "feature", "priority": 1,
@@ -98,6 +103,9 @@ func TestPeerBeadArrivesQueuedByArrival(t *testing.T) {
 	row := y.row(t, bs[0].ID)
 	if row.StayStart.IsZero() || !row.StayStart.Equal(row.CreatedAt) || !slices.Equal(row.Visited, []string{"arrived"}) {
 		t.Fatalf("the bead that arrived carries stay=%v created=%v visited=%v", row.StayStart, row.CreatedAt, row.Visited)
+	}
+	if want := map[string]int{"arrived": 0}; !maps.Equal(row.Rounds, want) {
+		t.Fatalf("the bead that arrived carries rounds %v, want %v", row.Rounds, want)
 	}
 	got, err := y.Dispatchable(ctx)
 	if err != nil {
