@@ -752,6 +752,10 @@ credential in it whether their file sets that. The value is never printed.
 				}
 				if d.Notify != nil {
 					fmt.Fprintln(w, "  "+notifyLine(d))
+					if len(d.Notify.Image) > 0 {
+						fmt.Fprintf(w, "  command notify.image: %s\n", strings.Join(d.Notify.Image, " "))
+						fmt.Fprintln(w, "    "+commandFileLine(files["notify.image"]))
+					}
 				} else {
 					fmt.Fprintln(w, "  notify: the file has no notify key, so no user is told through it")
 				}
@@ -772,6 +776,9 @@ credential in it whether their file sets that. The value is never printed.
 						}
 						fmt.Fprintf(w, "  command %s: %s\n", cmd.Key, strings.Join(cmd.Argv, " "))
 						fmt.Fprintln(w, "    "+commandFileLine(files[cmd.Key]))
+					}
+					if d.Thread.Files {
+						fmt.Fprintln(w, "  thread.files: replies take files (yardr reply --file)")
 					}
 					if d.Thread.Place != "" {
 						fmt.Fprintf(w, "  thread.place: %s\n", d.Thread.Place)

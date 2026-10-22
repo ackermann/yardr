@@ -834,7 +834,10 @@ func TestSourceCommandFiles(t *testing.T) {
 	}
 	file := filepath.Join(dir, "lin.yaml")
 	decl := "name: lin\nbase: https://api.linear.app\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +
-		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n  labels: true\n" +
+		"  tell:\n    kind: update\n    params:\n      who: { type: string }\n      text: { type: string, max: 1024 }\n" +
+		"    request: { method: POST, path: /tell, body: { who: \"{who}\", text: \"{text}\" } }\n" +
+		"notify:\n  call: tell\n  address: { param: who, env: LIN_WHO }\n  text: text\n  image: [scripts/image]\n" +
+		"thread:\n  reply: [scripts/thread, reply]\n  open: [" + own + ", open]\n  place: team\n  labels: true\n  files: true\n" +
 		"link:\n  host: linear.app\n  issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'\n  fixed: \"https://linear.app/{1}/issue/{2}\"\n  thread: \"{2}\"\n  fold: lower\n" +
 		"identity:\n  fold: lower\n" +
 		"hook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: Lin-Sig, encoding: hex }\n    delivery: { header: Lin-Delivery }\n  bodies: unique\n  normalize: [scripts/normalize]\n"
@@ -860,8 +863,11 @@ func TestSourceCommandFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "scripts", "normalize"), []byte("#!/bin/sh\necho '{}'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "image"), []byte("#!/bin/sh\necho '{}'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, err := run(t, a.sourceCmd(), "add", file)
-	if err != nil || !strings.Contains(out, "the commands' files are under "+filepath.Join(home, "sources", "lin")+", each mode 0700: scripts/thread, scripts/normalize") {
+	if err != nil || !strings.Contains(out, "the commands' files are under "+filepath.Join(home, "sources", "lin")+", each mode 0700: scripts/thread, scripts/image, scripts/normalize") {
 		t.Fatalf("add: %q %v", out, err)
 	}
 	copied := filepath.Join(home, "sources", "lin", "scripts", "thread")
@@ -879,6 +885,8 @@ func TestSourceCommandFiles(t *testing.T) {
 		"the program is the operator's own, not copied",
 		"thread.place: team",
 		"thread.labels: label:<name> adds one, never removes",
+		"thread.files: replies take files",
+		"command notify.image: scripts/image",
 		"link: issues of linear.app",
 		"fold: lower",
 		"identity: keys fold lower",
@@ -897,6 +905,7 @@ func TestSourceCommandFiles(t *testing.T) {
 	out, err = run(t, a.sourceCmd(), "check", "lin")
 	for _, want := range []string{
 		"lin: command thread.reply (scripts/thread reply): can be run",
+		"lin: command notify.image (scripts/image): can be run",
 		"lin: command thread.open (" + own + " open): can be run",
 		"lin: command hook.normalize (scripts/normalize): can be run",
 	} {
