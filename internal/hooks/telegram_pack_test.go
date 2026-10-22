@@ -488,6 +488,10 @@ type telegramSend struct {
 type telegramMedia struct {
 	t     *testing.T
 	sends []telegramSend
+	// refuse, when set, is the description of a 400 every picture and
+	// document send is answered with, as the service answers one it will
+	// not take.
+	refuse string
 }
 
 func (s *telegramMedia) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -521,6 +525,11 @@ func (s *telegramMedia) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sends = append(s.sends, send)
 	w.Header().Set("Content-Type", "application/json")
+	if s.refuse != "" && send.method != "sendMessage" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 400, "description": s.refuse})
+		return
+	}
 	fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 4241+len(s.sends))
 }
 
@@ -708,6 +717,22 @@ func TestTelegramPackTell(t *testing.T) {
 	}
 	if len(stub.sends) != before {
 		t.Fatalf("%d sends for refused tells", len(stub.sends)-before)
+	}
+
+	// A picture the service will not take fails the tell with the service's
+	// words, and with no address in them: the daemon logs and records the
+	// error of a tell, and the address is the person's.
+	stub.refuse = "Bad Request: PHOTO_INVALID_DIMENSIONS"
+	_, err = tell(cred, map[string]any{"address": "123456789", "title": "t", "text": "x", "image": png})
+	if err == nil || !strings.Contains(err.Error(), "PHOTO_INVALID_DIMENSIONS") || strings.Contains(err.Error(), "123456789") {
+		t.Fatalf("a refused picture: %v", err)
+	}
+	// What the service says is outside the yard: a token it echoes, and
+	// a control character in its words, do not reach the error.
+	stub.refuse = "Bad Request: " + cred + " \x1b[31mred"
+	_, err = tell(cred, map[string]any{"address": "123456789", "title": "t", "text": "x", "image": png})
+	if err == nil || !strings.Contains(err.Error(), "Bad Request:") || strings.Contains(err.Error(), cred) || strings.Contains(err.Error(), "\x1b") {
+		t.Fatalf("a refusal that echoes the token: %q", err)
 	}
 }
 

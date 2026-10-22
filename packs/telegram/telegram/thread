@@ -39,23 +39,31 @@ send_message() { # one text to the chat, by sendMessage; prints the message's id
   printf '%s' "$mid"
 }
 
+describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token taken out should the service echo it
+  local d
+  d=$(jq -r '.description // empty | .[0:200]' <<<"$1" 2>/dev/null | tr -cd '[:print:]') || d=""
+  printf '%s' "${d//"$TELEGRAM_BOT_TOKEN"/}"
+}
+
 send_media() { # one picture or document to the chat, by sendPhoto or sendDocument; prints the message's id
   method=$1; field=$2; file=$3; caption=$4
   [ -f "$file" ] || { echo "$method found no file at $file" >&2; return 1; }
   # The address goes to curl on its stdin, as send_message's does; the
-  # caption goes as data, never parsed for @ or <>.
+  # caption goes as data, never parsed for @ or <>. An error names the
+  # method and what the service said, not the chat: a tell's error is
+  # logged and recorded, and the chat is the person's address.
   args=(-F "chat_id=$thread" -F "$field=@$file")
   if [ -n "$caption" ]; then args+=(--form-string "caption=$caption"); fi
   out=$(printf 'url = "%s"\n' "$YARDR_SOURCE_BASE/bot$TELEGRAM_BOT_TOKEN/$method" \
     | curl -sS --fail-with-body -K - "${args[@]}") || {
     code=$?
-    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
-    echo "$method to chat $thread failed${desc:+: $desc} (curl exit $code)" >&2
+    desc=$(describe "$out")
+    echo "$method failed${desc:+: $desc} (curl exit $code)" >&2
     return 1
   }
   jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
-    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
-    echo "${desc:-$method failed}" >&2
+    desc=$(describe "$out")
+    echo "$method failed${desc:+: $desc}" >&2
     return 1
   }
   mid=$(jq -r '(.result.message_id // "") | tostring' <<<"$out" 2>/dev/null) && [ -n "$mid" ] || {
