@@ -32,6 +32,19 @@
 //	curl http://A/messages                          # the messages taken, and how many were asked for
 //	curl -d status=500 http://A/messages/answer     # fail from now on; status=200 takes them again
 //
+// With -bot-dir it is a chat service's bot API too, for a declared source
+// whose file has `base: http://A` and takes its credential in the path
+// (/bot<token>/sendMessage): sendMessage as JSON, sendPhoto and
+// sendDocument as a multipart form, the token of -bot-token. It keeps every
+// request, taken or refused, and the bytes of every file in -bot-dir, and
+// refuses a photo as the service does with a 400: over 10 MB, over 10000
+// pixels in width and height together, a ratio over 20, or no picture at
+// all. A script beside the yard's, in ../, rehearses a pack against it (see
+// ../README.md).
+//
+//	curl http://A/requests                          # what it was sent, each upload by its name, type, size and hash
+//	curl http://A/requests/3/file                   # the bytes of the third, as they came
+//
 // And it is a customer system, for a declared source whose calls a session
 // makes with yardr call (contrib/isolated-yard/sources/crm.yaml, with BASE
 // replaced by http://A): GET /crm/me, /crm/customers/<digits>, /crm/moved
@@ -65,6 +78,8 @@ func main() {
 	linear := flag.String("linear-key", "lin_api_standin", "the Linear credential taken")
 	github := flag.String("github-token", "gh-standin", "the GitHub credential taken")
 	push := flag.String("push-token", "push-standin", "the application token a message is taken with")
+	bot := flag.String("bot-token", "123456:standin", "the token the bot API takes in a request's path (/bot<token>/sendMessage)")
+	botDir := flag.String("bot-dir", "", "directory the bot API keeps every file it is sent in; without it there is no bot API")
 	crm := flag.String("crm-token", "crm-standin", "the bearer token the customer system under /crm/ takes")
 	crmUpdate := flag.String("crm-update-token", "crm-update-standin", "the bearer token a note on a customer is taken with")
 	appKey := flag.String("github-app-key", "", "file to write a GitHub App's throwaway private key to; without it there is no App")
@@ -72,7 +87,7 @@ func main() {
 	appSlug := flag.String("github-app-slug", "yardr", "the App's slug: it comments as <slug>[bot]")
 	appRepos := flag.String("github-app-repos", "", "owner/repo the App is installed on, comma-separated")
 	flag.Parse()
-	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push, CRMToken: *crm, CRMUpdateToken: *crmUpdate}
+	s := &standin.Server{LinearKey: *linear, GitHubToken: *github, File: *state, PushToken: *push, BotToken: *bot, BotDir: *botDir, CRMToken: *crm, CRMUpdateToken: *crmUpdate}
 	if *appKey != "" {
 		app, err := standin.NewApp(*appID, *appSlug, *appKey, strings.FieldsFunc(*appRepos, func(r rune) bool { return r == ',' })...)
 		if err != nil {
@@ -89,6 +104,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("stand-in for Linear (/graphql), GitHub (/repos/) a service that takes messages (/1/messages.json) and a customer system (/crm/) on %s", ln.Addr())
+	log.Printf("stand-in for Linear (/graphql), GitHub (/repos/) a service that takes messages (/1/messages.json), a bot API (/bot<token>/, with -bot-dir) and a customer system (/crm/) on %s", ln.Addr())
 	log.Fatal(http.Serve(ln, s.Handler()))
 }
