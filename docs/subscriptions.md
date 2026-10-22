@@ -794,7 +794,10 @@ A blocked hook shows in three places:
   others (mode 0644); chmod 600 it`. The state is what the last delivery
   found, so a file broken since then shows on the next one.
 - one `hook_blocked` event (`hook`, `path`, `reason`; never what the file
-  holds) when the block begins, not one per refused delivery.
+  holds) when the block begins, not one per refused delivery. The device
+  stream tells it whole to a device of the operator alone: to any other
+  device it is the `hook` and no `path` or `reason`, which names the file
+  too ([api.md](api.md#over-the-network)).
 - the server log: `hook delivery rejected … reason=blocked status=503` for
   every refused delivery, and `hook unblocked` when it ends.
 

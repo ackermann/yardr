@@ -684,15 +684,24 @@ nothing else. What is not the same:
   more. So it is to every device of a yard with no operator. The socket
   tells the whole card and result, as it tells the operator's words in
   `Settings`.
-- **The stream tells the file a source was pointed at to a device of the
-  operator alone**: a `source_set` event has `data.env_file` for such a
-  device, and for any other it has the `source` and no `env_file`, whether
-  the stream replays it or sends it as it happens; a yard with no operator
-  tells it to no device. A setup that took a candidate points the source
-  its pack added at the candidate's file, and `yardr source set <source>
+- **The stream tells the files and the command of the operator's
+  configuration to a device of the operator alone**: a `source_set` event
+  has `data.env_file`, the file a source was pointed at, and
+  `data.mint_command`, the command it mints its token with; a `user_set`
+  has `data.env_file`, the file a user's address is read from; a
+  `hook_blocked` has `data.path`, the file the hook's secret is read from,
+  and `data.reason`, the error of reading it, which names the file too.
+  To any other device the event has the `source`, the `user` or the `hook`
+  and none of those, whether the stream replays it or sends it as it
+  happens; a yard with no operator tells them to no device. That holds for
+  the user's own device: a `user_set` names the user and not their file, to
+  them as to any other. A setup that took a candidate points the source its
+  pack added at the candidate's file, and `yardr source set <source>
   env_file=<path>` points any source at one: the event is the same, and so
-  is the hold. A `source_set` of another setting is sent as it is. The
-  socket tells the whole event.
+  is the hold. What else these events carry is sent as it is: the
+  `calls_per_hour` and `updates_per_hour` of a `source_set`, and the
+  `notify`, `tell` and `approved` of a `user_set`. The socket tells the
+  whole event.
 - **The stream carries the device's own mail alone**: a `mail`, `mail_read`
   or `reaction` event is sent only to a device of its sender or its
   receiver (a read receipt to its reader alone), however far back the
@@ -4581,9 +4590,12 @@ answer, and the event of the change the command made (`peer_allowed`,
 `source_set`, `source_granted`, `subscribed`, `user_set`, `user_added`,
 `user_removed`, `crew_defined`, `setting_changed`, `peer_renamed`,
 `originator_changed`, `timer_removed`), which also carries `approved` with
-the bead and the ask. A `source_set` that points a source at a file names
-it, and the stream tells that file to a device of the operator alone ([over
-the network](#over-the-network)).
+the bead and the ask. A `source_set` that points a source at a file or sets
+its mint command names it, a `user_set` that points a user at a file names
+it, and a `hook_blocked` names the file of the hook's secret: the stream
+tells these to a device of the operator alone, and to any other device the
+event names the source, the user or the hook and not them ([over the
+network](#over-the-network)).
 
 An approval never crosses a link to another yard either: a run ask is
 approved in the yard that asked, and `ApproveAsk` refuses a `bead@peer`.
