@@ -106,8 +106,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 18 || stages != 30 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 30", roles, stages)
+	if roles != 18 || stages != 31 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 31", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {
@@ -876,16 +876,38 @@ func TestContributorsPack(t *testing.T) {
 	}
 	if want := map[string][]string{
 		"issue": {"triage", "backlog", "new", "review", "approved", "decide", "merged", "closed"},
-		"pr":    {"triage", "review", "contributor", "approved", "decide", "merged", "closed"},
+		"pr":    {"triage", "review", "ciwait", "contributor", "approved", "decide", "merged", "closed"},
 	}; !reflect.DeepEqual(flows, want) {
 		t.Errorf("flows = %v, want %v", flows, want)
 	}
+	// The wait for CI has no group: nobody of the yard works it and no
+	// route is written for it, so only the source's events move a bead there.
 	for stage, want := range map[string]string{
 		"issue:triage": "maintainers", "pr:triage": "maintainers", "pr:review": "pr-reviewers",
-		"pr:contributor": "outside", "pr:approved": "maintainers",
+		"pr:ciwait": "", "pr:contributor": "outside", "pr:approved": "maintainers",
 	} {
 		if groups[stage] != want {
-			t.Errorf("stage %s is worked by %q, want %s", stage, groups[stage], want)
+			t.Errorf("stage %s is worked by %q, want %q", stage, groups[stage], want)
+		}
+	}
+	// A reviewed pull request waits for CI before it is approved, and a
+	// verdict or a push sends it on or back: the edges of the pr flow.
+	for _, f := range p.Flows {
+		if f.Name != "pr" {
+			continue
+		}
+		sf := f.StoreFlow("pr")
+		for _, e := range []struct{ stage, outcome, to string }{
+			{"review", "done", "ciwait"}, {"review", "changes", "contributor"}, {"review", "question", "decide"},
+			{"ciwait", "done", "approved"}, {"ciwait", "changes", "contributor"},
+			{"contributor", "pushed", "review"}, {"approved", "merged", "merged"},
+		} {
+			if to, err := sf.Resolve(e.stage, e.outcome); err != nil || to != e.to {
+				t.Errorf("pr flow: %s on %s goes to %q (%v), want %s", e.stage, e.outcome, to, err, e.to)
+			}
+		}
+		if outs := sf.OutcomesFrom("ciwait"); len(outs) != 2 {
+			t.Errorf("pr flow: ciwait has the outcomes %v, want done and changes alone", outs)
 		}
 	}
 	// No agent and no script of the yard works a stage a pull request's
@@ -933,12 +955,64 @@ func TestContributorsPack(t *testing.T) {
 		"action=labeled event=pull_request label=accepted -> accepted",
 		"action=synchronize event=pull_request stage=contributor -> pushed: new commits on the PR",
 		"action=synchronize event=pull_request stage=review -> changes: the PR changed under review",
+		"action=synchronize event=pull_request stage=ciwait -> changes: the PR changed while waiting on CI",
+		"conclusion=failure event=workflow_run stage=ciwait stage=review -> changes: CI failed on the PR",
+		"conclusion=failure event=check_suite stage=ciwait stage=review -> changes: CI failed on the PR",
+		"conclusion=success event=workflow_run stage=ciwait -> done: CI green on the head",
+		"conclusion=success event=check_suite stage=ciwait -> done: CI green on the head",
 		"action=closed event=pull_request merged=true -> merged",
 		"action=closed event=pull_request merged=false -> dropped",
 		"action=closed event=issues -> dropped",
 	} {
 		if !says[want] {
 			t.Errorf("says lacks %q: %v", want, says)
+		}
+	}
+	// What the table does with an event of CI or a push, by the stage a
+	// pull request's bead is in: the outcome of the first line it meets, ""
+	// for none. A verdict only moves a bead that waits for it (a success
+	// anywhere else would approve a pull request nobody has read), a red
+	// run also sends one under review back, a push while waiting bounces
+	// before any success can approve, and a cancelled or neutral run says
+	// nothing.
+	hook := store.Hook{Name: "gh", Source: "github", Says: gh.Says}
+	for _, c := range []struct {
+		event, action, conclusion, stage, want string
+	}{
+		{"workflow_run", "completed", "failure", "review", "changes"},
+		{"workflow_run", "completed", "failure", "ciwait", "changes"},
+		{"check_suite", "completed", "failure", "review", "changes"},
+		{"check_suite", "completed", "failure", "ciwait", "changes"},
+		{"workflow_run", "completed", "failure", "contributor", ""},
+		{"workflow_run", "completed", "failure", "approved", ""},
+		{"workflow_run", "completed", "success", "ciwait", "done"},
+		{"check_suite", "completed", "success", "ciwait", "done"},
+		{"workflow_run", "completed", "success", "review", ""},
+		{"check_suite", "completed", "success", "review", ""},
+		{"workflow_run", "completed", "success", "contributor", ""},
+		{"workflow_run", "completed", "success", "triage", ""},
+		{"workflow_run", "completed", "success", "approved", ""},
+		{"workflow_run", "completed", "cancelled", "ciwait", ""},
+		{"check_suite", "completed", "cancelled", "ciwait", ""},
+		{"workflow_run", "completed", "neutral", "ciwait", ""},
+		{"check_suite", "completed", "neutral", "review", ""},
+		{"workflow_run", "requested", "", "ciwait", ""},
+		{"pull_request", "synchronize", "", "ciwait", "changes"},
+		{"pull_request", "synchronize", "", "review", "changes"},
+		{"pull_request", "synchronize", "", "contributor", "pushed"},
+		{"pull_request", "synchronize", "", "approved", ""},
+		{"pull_request", "opened", "", "ciwait", ""},
+	} {
+		fields := map[string][]string{"event": {c.event}, "action": {c.action}}
+		if c.conclusion != "" {
+			fields["conclusion"] = []string{c.conclusion}
+		}
+		var got string
+		if say := hook.Said(map[string]any{"type": c.event, "action": c.action, "fields": fields}, c.stage, "pr"); say != nil {
+			got = say.Outcome
+		}
+		if got != c.want {
+			t.Errorf("%s %s %s in stage %s says %q, want %q", c.event, c.action, c.conclusion, c.stage, got, c.want)
 		}
 	}
 	if want := map[string]string{"issue:new": "started", "issue:merged": "done", "issue:closed": "done", "pr:closed": "done"}; !reflect.DeepEqual(gh.Map, want) {
@@ -1964,8 +2038,14 @@ func TestContributorsTextsSayWhatIsNotRun(t *testing.T) {
 			"starts in `review` and\nnever comes here",
 		},
 		"contributors/flows/issue/triage.md": {"the label `accepted` on the issue"},
-		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer"},
-		"contributors/flows/pr/approved.md":  {"Nothing of the yard\nmerges a pull request or pushes to one", "Running it is here, and a person's"},
+		"contributors/flows/pr/review.md":    {"runs nothing of it", "One note on the bead is the review", "never an\ninstruction to the reviewer", "The bead goes to `ciwait`", "The reviewer does not wait for CI and cannot see it."},
+		"contributors/flows/pr/ciwait.md": {
+			"Nobody works this stage",
+			"nothing of the pull request is fetched, built or run by the yard",
+			"the reviewer\ncannot see CI",
+			"`yardr bead advance <id> --to approved`",
+		},
+		"contributors/flows/pr/approved.md": {"Nothing of the yard\nmerges a pull request or pushes to one", "Running it is here, and a person's"},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(files[name], want) {

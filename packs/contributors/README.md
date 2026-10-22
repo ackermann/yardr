@@ -23,15 +23,15 @@ maps to a yard are in [docs/packs.md](../../docs/packs.md).
   built, reviewed and landed as the depot's own beads are. A test fails
   when a copy drifts.
 - `flows/issue/triage.md`, `flows/pr/triage.md`, `flows/pr/review.md`,
-  `flows/pr/approved.md`: the stage files of the stages that are this
-  pack's own.
+  `flows/pr/ciwait.md`, `flows/pr/approved.md`: the stage files of the
+  stages that are this pack's own.
 
 ## The two flows
 
 | | stages |
 |---|---|
 | `issue` | `triage` (maintainers) -> `backlog` -> `new` -> `review` -> `approved` -> `merged`, or `closed` |
-| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
+| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `ciwait` -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
 
 Everything a maintainer chooses is in `pack.yaml`: the stages, the label,
 who is trusted. yardr knows three verbs and none of the choices:
@@ -39,7 +39,7 @@ who is trusted. yardr knows three verbs and none of the choices:
 | verb | direction | here |
 |---|---|---|
 | `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository |
-| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`, `changes` from `review`. Merged: `merged`. Closed: `dropped` |
+| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`, `changes` from `review` and from `ciwait`. A run of CI that failed (`workflow_run` or `check_suite`): `changes` from `review` and from `ciwait`; one that succeeded: `done` from `ciwait` alone. Merged: `merged`. Closed: `dropped` |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
 **Triage is the pack's advice, not a rule of yardr.** The stage a bead
@@ -49,6 +49,17 @@ the stage is for is in its stage file: nothing of the yard runs outside
 code, so a maintainer checks whether the person and the code are legit
 before anything of the pull request is run anywhere, and the label
 `accepted` sends it on.
+
+**The stage `ciwait` has no group, so no route.** A reviewed pull request
+waits there for the repository's CI to pass on its head, and nobody of the
+yard works it: the source's events move it, `done` to `approved` on a run
+that succeeded and `changes` to `contributor` on one that failed or on new
+commits. It is a stage of its own, not the end of `review`, because the
+reviewer cannot see CI (its sandbox reaches the yard's socket and nothing
+else) and a success reported while it still read would approve a pull
+request unread. A cancelled or neutral run says nothing. Where no verdict
+can come (a fork's runs name no pull request, a repository has no CI) a
+maintainer moves the bead by hand: `yardr bead advance <id> --to approved`.
 
 **The stage `contributor` is held by `outside`, a people group with no
 members.** Nobody of the yard works a bead there: it waits for the pull

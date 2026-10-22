@@ -31,13 +31,20 @@ flows:
       closed:   { end: true }
 
   # A pull request from outside: a maintainer looks, a reviewer that only
-  # reads reviews it, the contributor answers on GitHub, a maintainer merges
-  # on GitHub. Nothing of the yard pushes to the pull request.
+  # reads reviews it, the repository's CI runs on it, the contributor answers
+  # on GitHub, a maintainer merges on GitHub. Nothing of the yard pushes to
+  # the pull request, and nothing of it runs on the yard's machine.
   pr:
     type: pr
     stages:
       triage:      { group: maintainers,  file: flows/pr/triage.md,   outcomes: { accepted: review, dropped: closed }, manual: [review, closed] }
-      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: approved, changes: contributor, question: decide } }
+      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide } }
+      # Waits for the repository's CI on the pull request's head: no group,
+      # so no route and nobody of the yard works it, and only the source's
+      # events move it. Not a stage of review because the reviewer cannot see
+      # CI, and a success line there would approve a pull request before
+      # anyone had read it.
+      ciwait:      { file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor } }
       # Waits for the pull request to change: nobody of the yard works it.
       contributor: { group: outside,      outcomes: { pushed: review, dropped: closed } }
       approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed] }
@@ -93,6 +100,17 @@ sources:
       - { where: "event=pull_request action=labeled label=accepted", outcome: accepted }
       - { where: "event=pull_request action=synchronize stage=contributor", outcome: pushed, note: "new commits on the PR" }
       - { where: "event=pull_request action=synchronize stage=review", outcome: changes, note: "the PR changed under review" }
+      # CI. A run that failed sends the pull request back to its contributor
+      # from review or from the wait for CI; only a run that succeeded in the
+      # wait lets it on, so a pull request is never approved by a CI result
+      # before it has been read. A cancelled or neutral run says nothing. The
+      # dispatcher counts a run only on the pull request's head, and a push
+      # while waiting bounces first: a success for an old head never approves.
+      - { where: "event=workflow_run conclusion=failure stage=review stage=ciwait", outcome: changes, note: "CI failed on the PR" }
+      - { where: "event=check_suite conclusion=failure stage=review stage=ciwait", outcome: changes, note: "CI failed on the PR" }
+      - { where: "event=workflow_run conclusion=success stage=ciwait", outcome: done, note: "CI green on the head" }
+      - { where: "event=check_suite conclusion=success stage=ciwait", outcome: done, note: "CI green on the head" }
+      - { where: "event=pull_request action=synchronize stage=ciwait", outcome: changes, note: "the PR changed while waiting on CI" }
       - { where: "event=pull_request action=closed merged=true", outcome: merged }
       - { where: "event=pull_request action=closed merged=false", outcome: dropped }
 

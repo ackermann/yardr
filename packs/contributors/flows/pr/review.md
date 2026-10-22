@@ -20,7 +20,10 @@ the pull request what they choose. It names what was read and what was not,
 and that nothing was run. Outcomes:
 
 - `done`: a maintainer can merge it as it is, or with what the note lists
-  as small. The bead goes to `approved`, to the maintainers.
+  as small. The bead goes to `ciwait` and waits there for the repository's
+  CI to pass on the head that was read; it reaches `approved`, to the
+  maintainers, only then, and CI that fails sends it to the contributor.
+  The reviewer does not wait for CI and cannot see it.
 - `changes`: the contributor has to change it. The note has findings they
   can act on, by file and line. The bead goes to `contributor` and comes
   back when the pull request has new commits.

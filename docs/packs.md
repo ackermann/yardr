@@ -1372,7 +1372,7 @@ yardr pack apply contributors --depot web \
 | flow | stages |
 |---|---|
 | `issue` | `triage` (maintainers) -> `backlog` -> `new` -> `review` -> `approved` -> `merged`, or `closed`: from `backlog` on, the starter's stages and groups |
-| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
+| `pr` | `triage` (maintainers) -> `review` (pr-reviewers) -> `ciwait` -> `contributor` (outside) -> `approved` (maintainers) -> `merged`, or `closed` |
 
 What moves a bead through them is the pack's `sources.github`, in three
 verbs. The stages, the label and who is trusted are the pack's lines;
@@ -1381,7 +1381,7 @@ yardr knows the verbs alone:
 | verb | direction | in this pack |
 |---|---|---|
 | `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) |
-| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor` and `changes` in `review`; a merge says `merged`, a close `dropped` |
+| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor` and `changes` in `review` and `ciwait`; a run of CI that failed says `changes` in `review` and `ciwait`, one that succeeded `done` in `ciwait`; a merge says `merged`, a close `dropped` |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
 - **Triage is the pack's advice, and no rule of yardr.** Its stage file
@@ -1389,6 +1389,12 @@ yardr knows the verbs alone:
   before anything of a pull request is run anywhere. Which stage a bead
   starts in is a line of `makes`: a trusted author's pull request starts in
   `review`, and a copy of the pack may trust more authors, or all.
+- **`ciwait` has no group.** A reviewed pull request waits there for the
+  repository's CI to pass on its head; nobody of the yard works it and no
+  route is written for it, and only the source's events move it (`done`
+  to `approved` on a run that succeeded, `changes` to `contributor` on one
+  that failed or on new commits). The reviewer cannot see CI, which is why
+  the wait is a stage of its own and not the end of `review`.
 - **`contributor` is held by `outside`, a people group with no members.**
   A bead there waits for the pull request to change; nobody of the yard
   works it, and `yardr review` shows where it waits.
