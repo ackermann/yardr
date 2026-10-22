@@ -263,6 +263,10 @@ func TestYardTestSelects(t *testing.T) {
 	write("mdemb/dropped/y.txt", "y\n")
 	write("mdemb/dropped/.hidden", "hidden\n")
 	write("mdtop/p.go", "package mdtop\n\nimport _ \"m.test/m/mdemb\"\n")
+	// One whose pattern the rule does not read: ? is a glob it leaves alone.
+	write("qemb/p.go", "package qemb\n\nimport \"embed\"\n\n//go:embed v?.txt\nvar V embed.FS\n")
+	write("qemb/v1.txt", "v\n")
+	write("qemb/other.txt", "other\n")
 	write("alone/p.go", "package p\n")
 	// A package one case's change deletes, while the script still rows
 	// it, as base's copy does at a landing.
@@ -377,6 +381,10 @@ func TestYardTestSelects(t *testing.T) {
 		// it alone is read by no known package.
 		{"deleted hidden files under all: and under a plain name", []string{"-mdemb/kept/.hidden", "-mdemb/dropped/.hidden"}, []string{
 			pre + "mdemb/dropped/.hidden is read by no known package: testing everything"}},
+		// A pattern the rule cannot read takes every path under its package:
+		// other.txt is over-selected, and not left to read as a file nobody knows.
+		{"a deleted file under a pattern the rule cannot read", []string{"-qemb/other.txt"}, []string{
+			tested + " m.test/m/qemb"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
 			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
