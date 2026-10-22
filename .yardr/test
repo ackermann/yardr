@@ -1412,7 +1412,16 @@ built() {
   again go build ./...
   sleepbudget
 }
-changed=$(git diff --name-only "$from")
+# No renames, here and in the two diffs below: a move is the deletion of the
+# old path and the addition of the new, and both are judged. git's rename
+# detection lists a pure rename's new path alone, under --name-only and
+# under --diff-filter=D, so a file moved out of a tree a package embeds
+# (packs/starter/roles/builder.md to docs/design/builder.md) read as one
+# new file at a path nothing embeds: no .go file, no embedded file, no
+# deletion. The package was not selected, the run was not raced, and a
+# landing called it "nothing compiled changed" (yardr-mwh8). A move costs
+# what a deletion does: the run keeps -race, and a landing is the whole suite.
+changed=$(git diff --no-renames --name-only "$from")
 # What is tested, with the race detector: the packages that changed, and
 # every package that imports one of them, however far up, since a change
 # breaks its importers as easily as itself. go list knows both, with the
@@ -1435,13 +1444,13 @@ pick() {
 tmp=$(mktemp -d)
 printf '%s\n' "$reads" >"$tmp/reads"
 printf '%s\n' "$changed" >"$tmp/changed"
-git diff --name-only --diff-filter=D "$from" >"$tmp/deleted"
+git diff --no-renames --name-only --diff-filter=D "$from" >"$tmp/deleted"
 # Directories the change deletes: in the base, with no tracked file left in
 # the tree. A row naming one is skipped, not stale (below): the branch
 # removes the row, but a landing runs the base's copy of this script, whose
 # row still names the directory. Judged from git, not from the deleted
-# files: a directory the change moves elsewhere is deleted too, and a move
-# reads as renamed files, not deleted ones.
+# files, which do not say whether the directory has a file left: a
+# directory the change moves elsewhere is deleted too.
 : >"$tmp/deldirs"
 printf '%s\n' "$reads" | awk '{ for (i = 2; i <= NF; i++) print $i }' | sort -u >"$tmp/dirs"
 while IFS= read -r word; do
@@ -1558,7 +1567,7 @@ if [ -n "$YARDR_LANDING" ]; then
   if [ -n "$file" ]; then
     whole "$file changed $since"
   fi
-  file=$(git diff --name-only --diff-filter=D "$from" | head -n 1)
+  file=$(git diff --no-renames --name-only --diff-filter=D "$from" | head -n 1)
   if [ -n "$file" ]; then
     whole "$file was deleted $since"
   fi

@@ -3,7 +3,7 @@ last commit. It runs gofmt, go vet, go build, then go test -race on the
 packages changed since the base (`YARDR_BASE`, which your session has; its
 first line says what it compared with), every package that imports one, and
 the packages its table says read a changed file by path. When nothing
-compiled changed (no .go file, no embedded file, no deletion: a design
+compiled changed (no .go file, no embedded file, no deletion or move: a design
 document, say) the same packages run without -race, so without a place in
 the race lock's queue, and its first line says so. The landing run
 (`YARDR_LANDING=1 sh .yardr/test` on a code change: the selection plus
@@ -14,7 +14,7 @@ lands, and a red one comes back to you. The whole suite (every package)
 runs on a quiet machine, not at each landing. A landing that changes
 nothing compiled (no .go file, no embedded file) is the plain run
 there too; its first line says which it is, as it does for a landing
-whose change cannot be selected (go.mod or go.sum, a deleted file, a
+whose change cannot be selected (go.mod or go.sum, a deleted or moved file, a
 file the table has no row for), which is still the whole suite. Run the landing run yourself only when the change is of a kind the plain
 run cannot see: cross-package behaviour or tests in packages it skips, race
 coverage outside the packages it selects, a test that reads a file by path

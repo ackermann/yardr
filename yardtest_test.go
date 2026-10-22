@@ -241,6 +241,15 @@ func TestYardTestSelects(t *testing.T) {
 	write("emb/p.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n")
 	write("emb/a.txt", "a\n")
 	write("top/p.go", "package top\n\nimport _ \"m.test/m/emb\"\n")
+	// One that embeds a glob below its directory, as internal/web does its
+	// templates, and one that imports it. A page that leaves the glob is no
+	// error for go list, as emb's file would be: the package embeds one page
+	// fewer, and only the deleted-file rule can tell. It stops at the
+	// package's own directory (yardr-56xw), so the glob is below it.
+	write("globemb/p.go", "package globemb\n\nimport \"embed\"\n\n//go:embed pages/*.md\nvar Pages embed.FS\n")
+	write("globemb/pages/a.md", "a\n")
+	write("globemb/pages/b.md", "b\n")
+	write("globtop/p.go", "package globtop\n\nimport _ \"m.test/m/globemb\"\n")
 	write("alone/p.go", "package p\n")
 	// A package one case's change deletes, while the script still rows
 	// it, as base's copy does at a landing.
@@ -259,8 +268,10 @@ func TestYardTestSelects(t *testing.T) {
 	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
 
 	since := " since " + base + " (YARDR_BASE), from " + short
-	// The script's plan for a branch that changed these files, or deleted
-	// them (a name after "-"): its first line, and the rest.
+	// The script's plan for a branch that changed these files, deleted them
+	// (a name after "-") or moved them (a name "from -> to", done by git mv,
+	// which git reports as a rename unless asked not to): its first line, and
+	// the rest.
 	planned := func(t *testing.T, script string, env []string, changed ...string) (first, rest string, err error) {
 		t.Helper()
 		gitT(t, dir, "reset", "-q", "--hard", base)
@@ -270,9 +281,6 @@ func TestYardTestSelects(t *testing.T) {
 			if strings.HasSuffix(name, ".go") {
 				text = "package p\n\nvar Changed int\n"
 			}
-			if name == "moved/p.go" {
-				text = "package p\n\nvar Existing int\n"
-			}
 			if name == "go.mod" {
 				text = "module m.test/m\n\ngo 1.21\n\n// changed\n"
 			}
@@ -280,6 +288,11 @@ func TestYardTestSelects(t *testing.T) {
 				if err := os.Remove(filepath.Join(dir, gone)); err != nil {
 					t.Fatal(err)
 				}
+			} else if from, to, ok := strings.Cut(name, " -> "); ok {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, to)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				gitT(t, dir, "mv", from, to)
 			} else {
 				write(name, text)
 			}
@@ -328,6 +341,13 @@ func TestYardTestSelects(t *testing.T) {
 		{"a deleted file under no embedded directory", []string{"-docs/web.md"}, []string{
 			pre + "docs/web.md changed: read by the tests of .",
 			tested + " m.test/m"}},
+		// git's rename detection would list the new path alone, one that
+		// nothing embeds. A move is the deletion of the old path and the
+		// addition of the new, so the page that left the glob selects its
+		// package as a deleted page does, and the run keeps -race.
+		{"a file moved out of an embedded glob", []string{"globemb/pages/b.md -> docs/design/b.md"}, []string{
+			pre + "docs/design/b.md changed: read by the tests of .",
+			tested + " m.test/m m.test/m/globemb m.test/m/globtop"}},
 		{"another package's testdata", []string{"internal/hooks/testdata/github/ping.json"}, []string{
 			pre + "internal/hooks/testdata/github/ping.json changed: read by the tests of internal/hooks internal/dispatch",
 			testedNoRace + " m.test/m/internal/dispatch m.test/m/internal/hooks"}},
@@ -455,6 +475,10 @@ func TestYardTestSelects(t *testing.T) {
 		// What embedded a file that is gone cannot be asked any more.
 		{"a landing that deletes a file", []string{"-docs/web.md"},
 			landing + "docs/web.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+		// A move deletes the old path too, and what embedded it cannot be
+		// asked any more. It used to read as one new file: nothing compiled.
+		{"a landing that moves a file out of an embedded glob", []string{"globemb/pages/b.md -> docs/design/b.md"},
+			landing + "globemb/pages/b.md was deleted" + since + wholeSuffix, []string{skipSocket}},
 		{"a landing of nothing", nil,
 			landing + "nothing changed" + since + wholeSuffix, []string{skipSocket}},
 		// A Go change runs the selection plus the six while its plain
@@ -675,16 +699,21 @@ func TestYardTestSelects(t *testing.T) {
 		if want := landing + "fakepkg/p.go was deleted" + since + wholeSuffix; err != nil || first != want || rest != skipSocket {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
 		}
-		// A directory move is a rename, so a landing reaches pick() instead
-		// of taking the whole-suite path for a deleted file. This reproduces
-		// the case where the base's row still names fakepkg/.
-		first, rest, err = planned(t, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go", "moved/p.go")
-		want := strings.Join([]string{
+		// A directory move is the deletion of its files and the addition of
+		// the new ones, not a rename: git's rename detection used to hide the
+		// deletion, which let a landing reach pick() with the base's row
+		// still naming fakepkg/ instead of taking the whole-suite path.
+		out, err = plan(t, deleted, false, "fakepkg/p.go -> moved/p.go")
+		if want := strings.Join([]string{
 			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
-			tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/moved",
-		}, "\n")
-		if wantFirst := landing + "moved/p.go changed" + since + selectionSuffix; err != nil || first != wantFirst || rest != skipSocket+"\n"+want {
-			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s\n%s", err, first, rest, wantFirst, skipSocket, want)
+			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
+			tested + " m.test/m m.test/m/moved",
+		}, "\n"); err != nil || out != want {
+			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
+		}
+		first, rest, err = planned(t, deleted, []string{"YARDR_LANDING=1"}, "fakepkg/p.go -> moved/p.go")
+		if want := landing + "fakepkg/p.go was deleted" + since + wholeSuffix; err != nil || first != want || rest != skipSocket {
+			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
 		}
 		stale := strings.Replace(deleted, "\nreads='\n", "\nreads='\nnowhere/ nowhere\n", 1)
 		first, rest, err = planned(t, stale, nil, "-fakepkg/p.go")
