@@ -351,12 +351,12 @@ func (s *Store) CheckFor(ctx context.Context, user string) error {
 // originatorFor is the originator of the bead nb makes for actor: the
 // user the bead is for, whose subscription builds it. A bead made from
 // others (a fold) has its oldest member's as stored, whoever makes it. An
-// explicit For wins over every default, outside a bead agent's pane; a follow-up
-// inherits the origin's originator, as stored; what is filed from a bead
-// agent's pane takes the pane bead's; a person creating a bead is its
-// originator; and a crew member's actor, a hook's, and any other actor
-// that is no user's leave the bead the operator's, as every bead is. A
-// default never spends another person's subscription: only an explicit
+// explicit For wins over every default, outside a bead agent's pane; a
+// follow-up inherits the origin's originator, as stored; what is filed
+// from a bead agent's pane takes the pane bead's; a person creating a bead
+// is its originator; and a crew member's actor, a hook's, and any other
+// actor that is no user's leave the bead the operator's, as every bead is.
+// A default never spends another person's subscription: only an explicit
 // For, or arriving through a bead already theirs, puts another person's
 // name on a bead.
 func (w *wtx) originatorFor(ctx context.Context, nb NewBead, actor string) (string, error) {

@@ -149,8 +149,9 @@ const foldTitleMax = 100
 
 // foldTitle names a carrier after its members: "<depot> bundle: <title>;
 // <title>". One that would pass foldTitleMax keeps the titles that fit whole
-// and ends in " (+n more)" for the members it names no more; only when the
-// first title alone is too long is it cut, on a word.
+// and ends in " (+n more)", n counting the members it leaves out. Only a
+// first title that is too long on its own is cut, on a word, with the same
+// ending.
 func foldTitle(depot *string, titles []string) string {
 	head := "bundle: "
 	if depot != nil {
@@ -207,7 +208,7 @@ func foldBody(members []*beadRow, trigger, actor string) string {
 
 // sizePoints is the points a bead with these labels adds to a fold, by its
 // size: label (the yardmaster's rubric): small 1, medium 2, large 4, and 2
-// for a bead with none.
+// for a bead with none of those.
 func sizePoints(labels []string) int {
 	for _, l := range labels {
 		switch l {
