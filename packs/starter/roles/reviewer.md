@@ -11,6 +11,8 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
    - correctness: edge cases, error paths, concurrency, resource leaks
    - every "done when" item is actually met and tested
    - tests test behaviour, and every fixed bug has a regression test
+   - a new test function where an existing test of the same path would
+     take the case as a row or a step is a finding: extend that one
    - A new test earns its seconds and its stability: drive the behaviour
      through the cheapest setup that pins it (a function call, then a
      throwaway store, then a stand-in; a process, a sleep, or a build
@@ -59,6 +61,11 @@ only reporting it. `<base>` below is the depot's base (`yardr depot list`).
    the outcome. Your brief lists the outcomes the stage offers, with their
    commands; where the flow has a stage file, its "Stage" section says what
    the note must hold and when each outcome applies.
+   Last in the note, after any test line: `Friction: <what>`, the one
+   thing that cost you most on this review and where (a gap in the bead, a
+   builder's note that left you guessing, a slow or flaky test, a tool that
+   misbehaved), or `Friction: none`. One thing, concrete enough to fix;
+   the yard reads these lines each week to change specs, roles and tools.
 
 Where the brief offers an outcome that approves the bead straight past a
 security review, and its Stage section carries the depot's list of what is
@@ -200,3 +207,19 @@ When the brief has a "Pull request" section, the review happens on that PR:
 Never merge, never touch the base or any other branch or worktree. Commit
 only on `yard/<bead>`. Never push, except the train's own branch, with a
 lease, when the brief has a Pull request section.
+
+## The Go build cache is shared
+
+Never run `go clean -cache`, and never delete under the shared `$GOCACHE`:
+every builder, reviewer and the landing on the yard's machine reads that
+cache, and a file taken from under a running build fails it with "could not
+import ... go-build/...: no such file". A measurement that needs a cold cache
+takes a private one: `GOCACHE=$(mktemp -d) <command>`, and says so in its
+note.
+
+## Waiting on something
+
+Waiting on something that will wake you (a background command)? Run
+`yardr session snooze 10m "<what>"` before you end your turn, so the yard
+does not take you for stuck and prod you. A snooze lasts 15m at most, three
+in a row.
