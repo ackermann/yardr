@@ -330,11 +330,12 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 }
 
 // A group at its limit of sessions is waited for, not passed over: only a
-// quota condition sends a bead to a further group.
+// quota condition sends a bead to a further group. The waiting bead gets
+// one group_wait event naming the group, and none again on the next pass.
 func TestGroupAtItsLimitIsWaitedForNotPassedOver(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	s, f, d, p, _, _ := quotaYard(t, "a@Weekly<80", "b")
+	s, f, d, p, r, _ := quotaYard(t, "a@Weekly<80", "b")
 	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "kimi"}}, "me"))
 	p.say(weekly(70, 10))
 	one, two := newBead(t, s, "one"), newBead(t, s, "two")
@@ -345,12 +346,70 @@ func TestGroupAtItsLimitIsWaitedForNotPassedOver(t *testing.T) {
 		t.Fatalf("starts = %v, want one: a is at its limit", got)
 	}
 	groups := []string{}
+	waiting := ""
 	for _, id := range []string{one.ID, two.ID} {
 		g, _ := claimedBy(t, s, id)
 		groups = append(groups, g)
+		if g == "" {
+			waiting = id
+		}
 	}
 	if strings.Join(groups, ",") != "a," && strings.Join(groups, ",") != ",a" {
 		t.Fatalf("groups of the two beads = %q, want one with a and one waiting", groups)
+	}
+	evs := eventKinds(t, s, waiting, "group_wait")
+	if len(evs) != 1 {
+		t.Fatalf("group_wait events of the waiting bead = %d, want 1 over three passes", len(evs))
+	}
+	data := evs[0].Data
+	gs, _ := data["groups"].([]any)
+	if data["stage"] != "new" || data["route"] != r.ID || len(gs) != 1 {
+		t.Fatalf("group_wait = %v, want stage new, the route and the one group", data)
+	}
+	g, _ := gs[0].(map[string]any)
+	if g["group"] != "a" || !strings.Contains(fmt.Sprint(g["reason"]), "limit (1)") {
+		t.Fatalf("group_wait groups = %v, want a at its limit", gs)
+	}
+	started := one.ID
+	if waiting == one.ID {
+		started = two.ID
+	}
+	if evs := eventKinds(t, s, started, "group_wait"); len(evs) != 0 {
+		t.Fatalf("group_wait events of the started bead = %v, want none", evs)
+	}
+}
+
+// A bead whose only group is at its limit waits with one group_wait event,
+// and none again on the next pass. No group is free, so the choice reports
+// the wait itself instead of asking the quota.
+func TestSingleGroupRouteAtItsLimitWaitsWithOneEvent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, f, d, p, r, _ := quotaYard(t, "a")
+	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 1, Config: map[string]any{"kind": "kimi"}}, "me"))
+	p.say(weekly(70, 10))
+	one, two := newBead(t, s, "one"), newBead(t, s, "two")
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	if got := f.starts(); len(got) != 1 {
+		t.Fatalf("starts = %v, want one: a is at its limit", got)
+	}
+	waiting := one.ID
+	if g, _ := claimedBy(t, s, one.ID); g != "" {
+		waiting = two.ID
+	}
+	evs := eventKinds(t, s, waiting, "group_wait")
+	if len(evs) != 1 {
+		t.Fatalf("group_wait events of the waiting bead = %d, want 1 over two passes", len(evs))
+	}
+	data := evs[0].Data
+	gs, _ := data["groups"].([]any)
+	if data["stage"] != "new" || data["route"] != r.ID || len(gs) != 1 {
+		t.Fatalf("group_wait = %v, want stage new, the route and the one group", data)
+	}
+	g, _ := gs[0].(map[string]any)
+	if g["group"] != "a" || !strings.Contains(fmt.Sprint(g["reason"]), "limit (1)") {
+		t.Fatalf("group_wait groups = %v, want a at its limit", gs)
 	}
 }
 

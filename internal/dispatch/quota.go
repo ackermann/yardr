@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
@@ -36,9 +37,10 @@ const routeLimitsMemory = 5 * time.Minute
 // that start none, a script's or a person's, asks nothing. It is run only
 // when one of the route's groups could start a bead now: a bead that would
 // wait anyway (every group at its limit, its runtime down, held back for its
-// model) asks nothing. When no group's condition holds, or a window of each
-// group's provider is used up, the bead waits, and says so in one quota_wait
-// event until it starts.
+// model) asks nothing, and says so in one group_wait event until it starts.
+// When no group's condition holds, or a window of each group's provider is
+// used up, the bead waits, and says so in one quota_wait event until it
+// starts.
 //
 // def is the yard's default_kind setting, for a group that names no kind.
 func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Route, groups map[string]store.Group, active map[string]int, def string) (c store.RouteChoice, ok bool) {
@@ -46,15 +48,24 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 		return r.Choose(nil), true
 	}
 	free := false
+	var waits []waitedGroup
 	for _, rg := range r.Groups() {
 		g, known := groups[rg.Name]
-		o := d.down[rg.Name]
-		_, held := d.paused[rg.Name][modelFor(g, b)]
-		if known && active[g.Name] < g.Limit && !(o != nil && time.Now().Before(o.until)) && !held {
+		if !known {
+			continue
+		}
+		if w, ok := d.waitReason(g, b, active); ok {
+			waits = append(waits, w)
+		} else {
 			free = true
 		}
 	}
 	if !free {
+		// A route that names no known group stays silent, as before:
+		// there is nothing to name.
+		if len(waits) > 0 {
+			d.reportGroupWait(ctx, b, r, waits)
+		}
 		return c, false
 	}
 	c = r.Choose(func(group, source string) store.Quota {
@@ -85,6 +96,61 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 	d.Log.Warn("quota_wait", "bead", b.ID, "route", r.ID, "reason", c.Why())
 	_ = d.Store.LogDispatch(ctx, b.ID, "quota_wait", actor, data)
 	return c, false
+}
+
+// waitedGroup is a group that cannot start a bead now, with why in words.
+type waitedGroup struct {
+	Group  string
+	Reason string
+}
+
+// waitReason is why g cannot start b now: its limit, its runtime, or its
+// model's hold, in the order the dispatcher checks them. It reports false
+// when the group could start the bead.
+func (d *Dispatcher) waitReason(g store.Group, b store.Bead, active map[string]int) (waitedGroup, bool) {
+	if active[g.Name] >= g.Limit {
+		if g.Limit == 0 {
+			return waitedGroup{g.Name, fmt.Sprintf("group %s is paused (limit 0); the bead starts when the limit is raised (yardr group set %s --limit <n>)", g.Name, g.Name)}, true
+		}
+		return waitedGroup{g.Name, fmt.Sprintf("group %s runs as many sessions as its limit (%d) allows; the bead starts when one ends, or the limit is raised (yardr group set %s --limit <n>)", g.Name, g.Limit, g.Name)}, true
+	}
+	if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
+		return waitedGroup{g.Name, fmt.Sprintf("group %s's runtime is down (see the group's runtime_down event); the bead starts when it is tried again", g.Name)}, true
+	}
+	// A session of the group sits stalled with this model, or waits
+	// with it for a usage limit's window to reset: another would end
+	// the same way (see holdBack).
+	model := modelFor(g, b)
+	if sid, held := d.paused[g.Name][model]; held {
+		with := "the agent's default model"
+		if model != "" {
+			with = "model " + model
+		}
+		return waitedGroup{g.Name, fmt.Sprintf("group %s starts no session with %s while session %s holds it back (stalled, or waiting for a usage window); the bead starts when that session ends, or with another model", g.Name, with, sid)}, true
+	}
+	return waitedGroup{}, false
+}
+
+// reportGroupWait logs one group_wait event for a bead its route's groups
+// cannot start now: each group with its reason in words. Once per stage
+// and route until the bead starts, as quota_wait is.
+func (d *Dispatcher) reportGroupWait(ctx context.Context, b store.Bead, r *store.Route, waits []waitedGroup) {
+	key := "group_wait|" + b.Stage + "|" + r.ID
+	if d.reported[b.ID] == key {
+		return
+	}
+	d.reported[b.ID] = key
+	groups := make([]map[string]any, 0, len(waits))
+	reasons := make([]string, 0, len(waits))
+	for _, w := range waits {
+		groups = append(groups, map[string]any{"group": w.Group, "reason": w.Reason})
+		reasons = append(reasons, w.Reason)
+	}
+	reason := strings.Join(reasons, "; ")
+	d.Log.Warn("group_wait", "bead", b.ID, "route", r.ID, "reason", reason)
+	_ = d.Store.LogDispatch(ctx, b.ID, "group_wait", actor, map[string]any{
+		"stage": b.Stage, "route": r.ID, "groups": groups, "reason": reason,
+		"hint": "the bead waits until a group of its route can start it (yardr session list; yardr group list)"})
 }
 
 // routeQuota is what the yard's limits source says of the provider the

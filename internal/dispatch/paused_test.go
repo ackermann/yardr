@@ -12,8 +12,8 @@ import (
 
 // A group at limit 0 is paused: it claims nothing new, while its running
 // session carries on and advances its bead; raising the limit resumes it.
-// A bead that waits for its paused group gets no event, as a bead at its
-// group's limit gets none.
+// A bead that waits for its paused group gets one group_wait event naming
+// the pause, as a bead at its group's limit gets one naming the limit.
 func TestGroupLimitZeroPauses(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
@@ -31,6 +31,7 @@ func TestGroupLimitZeroPauses(t *testing.T) {
 	zero := 0
 	_, err = s.SetGroup(ctx, "builders", store.GroupEdit{Limit: &zero}, "me")
 	must(t, err)
+	t3, _ := s.CreateBead(ctx, store.NewBead{Title: "t3"}, "me")
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if got := f.starts(); !slices.Equal(got, []string{t1.ID}) {
@@ -38,6 +39,16 @@ func TestGroupLimitZeroPauses(t *testing.T) {
 	}
 	if n := len(cappedEvents(t, s, t2.ID)); n != 0 {
 		t.Errorf("%d capped events on the bead that waits for its group, want none", n)
+	}
+	if evs := eventKinds(t, s, t2.ID, "group_wait"); len(evs) != 1 {
+		t.Errorf("group_wait events on the bead that waits for its group = %d, want 1", len(evs))
+	} else if reason, _ := evs[0].Data["reason"].(string); !strings.Contains(reason, "limit (1)") {
+		t.Errorf("group_wait reason = %q, want the limit of the pass before the pause", reason)
+	}
+	if evs := eventKinds(t, s, t3.ID, "group_wait"); len(evs) != 1 {
+		t.Errorf("group_wait events on the bead made under the pause = %d, want 1", len(evs))
+	} else if reason, _ := evs[0].Data["reason"].(string); !strings.Contains(reason, "paused (limit 0)") {
+		t.Errorf("group_wait reason = %q, want the pause", reason)
 	}
 
 	// The running session carries on: its bead advances.

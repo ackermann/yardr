@@ -5,9 +5,9 @@ humans, or another yard. Its runner says how work starts; routes (`yardr route a
 stage's beads to it. What a group's settings are, and where they are kept,
 is in [configuration.md](configuration.md).
 
-A group and a route log an event when they appear and when they go, so
-whoever follows the yard by its events (`yardr events`) sees its structure
-change:
+Groups and routes log structural changes, and the dispatcher logs when a
+bead cannot start with its route's group or groups. Whoever follows the yard
+by its events (`yardr events`) sees these changes and waits:
 
 | kind | logged by | data |
 |---|---|---|
@@ -16,6 +16,7 @@ change:
 | `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)); `note` where the route carries one |
 | `route_removed` | `route rm` | the same fields, of the route as it was |
 | `route_set` | `route set` | `was`, `is`: the route's fields as `route_added` carries them, before and after |
+| `group_wait` | the dispatcher, when a bead cannot start with its route's group or groups because of a limit, runtime outage or model hold | `stage`, `route`, `groups` (`group`, `reason`), `reason`, `hint` |
 
 Removing a group or a route that is not there logs nothing. A depot's routes
 that go with `yardr depot rm` are named by its `depot_removed`.
@@ -387,7 +388,12 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
 - **A group at its limit is waited for, not passed over.** So is one whose
   runtime is down or that is held back for a model. Only a quota condition
   sends a bead to a further group, and what the yard runs at once stays
-  bounded by the groups' limits.
+  bounded by the groups' limits. The bead gets one `group_wait` event,
+  logged once per stage and route until it starts, as `quota_wait` is:
+  `route`, `groups` (each group with its `reason` in words: at its limit,
+  its runtime down, or held back for the bead's model), `reason` (the same
+  on one line) and `hint`. A group at limit 0 says paused instead of
+  counting.
 - **A condition that cannot be evaluated holds.** No source answers for
   the group's provider, its command failed, the report has no window of
   that label, gives it no percentage or, for a condition on the target,
@@ -1078,7 +1084,8 @@ The daemon checks it beside the group's limit before it starts a session:
 
 A bead the cap alone keeps from starting gets one `capped` event with the
 setting in its `reason`, as a bead in `backoff` gets one; a bead that waits
-for its own group's limit gets none, as before. No group has a share of
+for its own group's limit gets one `group_wait` event naming the group
+instead. No group has a share of
 the cap: a place that comes free goes to the first bead the daemon would
 start anyway, whatever its group, so a landing can wait behind builders.
 Lowering the setting under what runs stops nothing; no session starts
@@ -1111,8 +1118,8 @@ large number. A new group starts with limit 1; it is paused after, with
 
 A bead a paused yard alone keeps from starting gets one `capped` event
 whose reason names the pause, as a bead the cap binds gets one; a bead that
-waits for its own paused group gets none, as a bead at its group's limit
-gets none. `yardr status` shows a paused yard on its `work` line
+waits for its own paused group gets one `group_wait` event whose reason
+names the pause. `yardr status` shows a paused yard on its `work` line
 (`2 sessions running (builders 2), max_sessions 0 (paused)`), `yardr group
 list` shows a paused group as `0 (paused)`, and `yardr bead show` says such
 a bead `waits for builders (paused)`. The crew keeps running under a pause:
@@ -1258,7 +1265,8 @@ reports the work gone (process exited, herdr agent gone) the session is marked
 `died` and the bead is routed again after a backoff; after 3 failures in one
 stage the bead is held (`yardr bead unhold` grants fresh attempts).
 A runner that cannot start anything (herdr missing or down) is an outage, not
-a failure of the bead: the group backs off and logs `runtime_down` once.
+a failure of the bead: the group backs off and logs `runtime_down` once, and
+each bead that waits for the group gets one `group_wait` event naming it.
 Groups can also limit how long a session sits idle or runs (`idle`,
 `max_age`, `grace`; [configuration.md](configuration.md#session-limits-and-outages)).
 A session that waits for the window of a usage limit to reset is not idle

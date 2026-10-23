@@ -102,7 +102,9 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 		t.Fatalf("session_stalled data = %v", data)
 	}
 
-	// The next bead of the group waits: its session would stall too.
+	// The next bead of the group waits: its session would stall too. It
+	// gets one group_wait event naming the held model, and none again on
+	// the next pass.
 	b2, _ := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
 	later(d)
 	must(t, d.Reconcile(ctx))
@@ -112,6 +114,13 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	}
 	if n := len(eventKinds(t, s, b.ID, "session_stalled")); n != 1 {
 		t.Fatalf("session_stalled events = %d, want 1 per session", n)
+	}
+	waits := eventKinds(t, s, b2.ID, "group_wait")
+	if len(waits) != 1 {
+		t.Fatalf("group_wait events of the bead that waits for the model = %d, want 1", len(waits))
+	}
+	if reason, _ := waits[0].Data["reason"].(string); !strings.Contains(reason, "model claude-nope-9") {
+		t.Fatalf("group_wait reason = %q, want the held model", reason)
 	}
 
 	// A daemon that replaced itself tells nobody again and still holds the
@@ -125,6 +134,9 @@ func TestStalledSessionIsReportedOnceWithItsPane(t *testing.T) {
 	}
 	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
 		t.Fatalf("starts after a restart = %v", got)
+	}
+	if n := len(eventKinds(t, s, b2.ID, "group_wait")); n != 2 {
+		t.Fatalf("group_wait events after a restart = %d, want 2: the wait is reported once per daemon, as quota_wait is", n)
 	}
 
 	// A bead that brings its own model is not held back by the group's.

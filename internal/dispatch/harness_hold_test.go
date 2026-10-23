@@ -86,8 +86,9 @@ func holdYard(t *testing.T) (s store.API, r *paneRunner, d *dispatch.Dispatcher,
 // its group and model waits too, since its session would stop on the same
 // limit. While the provider shows that window used up the group starts no
 // session whatever its model (the route reads the windows, as a condition
-// does): the bead of the waiting model is held without a question, and the
-// one of another model waits on the quota. When the provider shows it open,
+// does): the bead of the waiting model is held without a question, with one
+// group_wait event naming the hold, and the one of another model waits on
+// the quota. When the provider shows it open,
 // a minute before the wake, the bead of another model starts and the one of
 // the waiting model still does not. The event says so, with the model. The
 // passes of the wait ask the provider nothing more, in this daemon or its
@@ -132,6 +133,13 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	}
 	if n := len(eventKinds(t, s, b2.ID, "quota_wait")); n != 0 {
 		t.Fatalf("quota_wait events of the bead held back = %d, want none: the hold keeps it before the quota is asked", n)
+	}
+	waits := eventKinds(t, s, b2.ID, "group_wait")
+	if len(waits) != 1 {
+		t.Fatalf("group_wait events of the bead held back = %d, want 1 naming the model hold", len(waits))
+	}
+	if reason, _ := waits[0].Data["reason"].(string); !strings.Contains(reason, "model k3") {
+		t.Fatalf("group_wait reason = %q, want the held model", reason)
 	}
 	if waits := eventKinds(t, s, b3.ID, "quota_wait"); len(waits) != 1 || waits[0].Data["resets_at"] != resets.UTC().Format(time.RFC3339) {
 		t.Fatalf("quota_wait events of the bead of another model = %v, want one with the reset", waits)

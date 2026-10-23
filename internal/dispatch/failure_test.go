@@ -152,6 +152,8 @@ func TestBeadBlockedStartHoldsBeadWithReason(t *testing.T) {
 
 // While a group's runtime is down its beads are not tried again before the
 // backoff ends; an error of the bead's own still counts toward the hold.
+// Each bead that waits for the down runtime gets one group_wait event
+// naming the group, and none again on the next pass.
 func TestRuntimeDownBacksOff(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
@@ -161,14 +163,26 @@ func TestRuntimeDownBacksOff(t *testing.T) {
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 3}, "me"))
 	_, _ = s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
+	var ids []string
 	for i := range 3 {
-		_, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i)}, "me")
+		b, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("b", i)}, "me")
 		must(t, err)
+		ids = append(ids, b.ID)
 	}
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if n := r.tries(); n != 1 {
 		t.Fatalf("starts tried = %d, want 1: the pass should stop at the first outage and back off", n)
+	}
+	must(t, d.Reconcile(ctx))
+	for _, id := range ids {
+		evs := eventKinds(t, s, id, "group_wait")
+		if len(evs) != 1 {
+			t.Fatalf("group_wait events of %s = %d, want 1 over three passes", id, len(evs))
+		}
+		if reason, _ := evs[0].Data["reason"].(string); !strings.Contains(reason, "runtime is down") {
+			t.Fatalf("group_wait reason of %s = %q, want the down runtime", id, reason)
+		}
 	}
 
 	// A bead-specific failure is unchanged: it counts, and holds.

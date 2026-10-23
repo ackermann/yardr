@@ -114,12 +114,11 @@ func (r *beadRouting) line(now time.Time) string {
 
 // groupWait is why a ready bead no group owns waits for its group: the
 // route that matched it, what of the bead matched, and the group that
-// would take it with its live count and limit. The dispatcher skips such
-// a bead silently on every pass, by design, so no event says it waits;
-// bead show, which reads the bead's events, had nothing to say of it.
-// This is computed instead from the routes, groups and live sessions,
-// the dispatcher's way but read-only: nothing is asked of a provider and
-// no event is written. Bead show says it of one bead, ready --waiting of
+// would take it with its live count and limit. The dispatcher logs one
+// group_wait event for such a bead, once until it starts; this is the
+// same wait computed from the routes, groups and live sessions, the
+// dispatcher's way but read-only: nothing is asked of a provider and no
+// event is written. Bead show says it of one bead, ready --waiting of
 // every such bead, in the same words.
 type groupWait struct {
 	// Group would take the bead; Active of its Limit slots are live.

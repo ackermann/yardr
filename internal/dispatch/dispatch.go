@@ -1300,16 +1300,8 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			d.reportOnce(ctx, b, "no_runner", fmt.Sprintf("group %q has no usable runner %q", choice.Group, g.Runner))
 			continue
 		}
-		if active[g.Name] >= g.Limit {
-			continue
-		}
-		if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
-			continue
-		}
-		// A session of the group sits stalled with this model, or waits
-		// with it for a usage limit's window to reset: another would end
-		// the same way (see holdBack).
-		if _, held := d.paused[g.Name][modelFor(g, b)]; held {
+		if w, waits := d.waitReason(g, b, active); waits {
+			d.reportGroupWait(ctx, b, r, []waitedGroup{w})
 			continue
 		}
 		// The yard's cap, beside the group's: after what makes the bead
