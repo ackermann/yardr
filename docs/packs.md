@@ -1505,7 +1505,7 @@ yardr knows the verbs alone:
 | verb | direction | in this pack |
 |---|---|---|
 | `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
-| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a merge says `merged`, a close `dropped`, in `triage`, `review`, `ciwait`, `contributor` and `approved`. No event of GitHub's CI says anything: the pull request's CI is the yard's own |
+| `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a merge says `merged`, a close `dropped`, in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
 - **Triage is the pack's advice, and no rule of yardr.** Its stage file
@@ -1546,12 +1546,14 @@ yardr knows the verbs alone:
   works it, and `yardr review` shows where it waits.
 - **A merge or a close ends the bead.** `merged` and `dropped` are the
   source's word, said by two lines that name no stage, and `triage`,
-  `review`, `ciwait`, `contributor` and `approved` each lead them to `merged`
-  and `closed`: a maintainer can merge a pull request nobody of the yard has
-  read, and its author can close one under review. In `ciwait` the run is
-  stopped and a report it still makes is refused, as after a push. A bead
-  the yard holds is moved by no event, so one held in `ciwait` because its
-  pull request was found over is advanced by hand.
+  `review`, `ciwait`, `contributor`, `approved` and `decide` each lead them
+  to `merged` and `closed`: a maintainer can merge a pull request nobody of
+  the yard has read, and its author can close one under review. A reviewer's
+  `question` sends the bead to `decide` to wait for a member of `decisions`,
+  and a merge or a close meanwhile ends it there, without the answer. In
+  `ciwait` the run is stopped and a report it still makes is refused, as
+  after a push. A bead the yard holds is moved by no event, so one held in
+  `ciwait` because its pull request was found over is advanced by hand.
 - **The import asks for the maintainers** (`--members maintainers=…`),
   who move a bead out of `triage` and `approved`, **and for the agent of
   `pr-reviewers`**.
