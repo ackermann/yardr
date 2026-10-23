@@ -33,9 +33,9 @@ clip() { # a text cut to n characters, not bytes, with the ellipsis the declared
   jq -nr --arg s "$1" --argjson n "$2" '$s | if length > $n then .[0:$n-1] + "…" else . end'
 }
 
-describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token and the user key taken out should the service echo them
+describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token and the user key taken out should the service echo them. The delete names its range in octal because busybox tr reads [:print:] with -c as literal characters.
   local d
-  d=$(jq -r '(.errors // []) | map(tostring) | join(", ")' <<<"$1" 2>/dev/null | tr -cd '[:print:]') || d=""
+  d=$(jq -r '(.errors // []) | map(tostring) | join(", ")' <<<"$1" 2>/dev/null | tr -d '\000-\037\177') || d=""
   d=${d//"$PUSHOVER_TOKEN"/}
   d=${d//"$address"/}
   printf '%s' "${d:0:200}"

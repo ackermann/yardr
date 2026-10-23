@@ -39,9 +39,9 @@ send_message() { # one text to the chat, by sendMessage; prints the message's id
   printf '%s' "$mid"
 }
 
-describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token and chat id taken out should the service echo them
+describe() { # what the service said of a refusal, for an error the daemon logs: one line of printable characters, 200 at most, the token and chat id taken out should the service echo them. The delete names its range in octal because busybox tr reads [:print:] with -c as literal characters.
   local d
-  d=$(jq -r '.description // empty' <<<"$1" 2>/dev/null | tr -cd '[:print:]') || d=""
+  d=$(jq -r '.description // empty' <<<"$1" 2>/dev/null | tr -d '\000-\037\177') || d=""
   d=${d//"$TELEGRAM_BOT_TOKEN"/}
   d=${d//"$thread"/}
   printf '%s' "${d:0:200}"

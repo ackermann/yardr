@@ -813,11 +813,13 @@ func TestTelegramPackTell(t *testing.T) {
 		t.Fatalf("a refused picture: %v", err)
 	}
 	// What the service says is outside the yard: a token and chat id it
-	// echoes, and a control character in its words, do not reach the error.
-	stub.refuse = "Bad Request: " + cred + " 123456789 \x1b[31mred"
+	// echoes, and a control character in its words, do not reach the
+	// error, while its non-ASCII words stay whole.
+	stub.refuse = "Bad Request: " + cred + " 123456789 \x1b[31mred caf\u00e9\x07\x7f…"
 	_, err = tell(cred, map[string]any{"address": "123456789", "title": "t", "text": "x", "image": png})
-	if err == nil || !strings.Contains(err.Error(), "Bad Request:") || strings.Contains(err.Error(), cred) ||
-		strings.Contains(err.Error(), "123456789") || strings.Contains(err.Error(), "\x1b") {
+	if err == nil || !strings.Contains(err.Error(), "Bad Request:") || !strings.Contains(err.Error(), "[31mred café…") ||
+		strings.Contains(err.Error(), cred) || strings.Contains(err.Error(), "123456789") ||
+		strings.Contains(err.Error(), "\x1b") || strings.Contains(err.Error(), "\x07") || strings.Contains(err.Error(), "\x7f") {
 		t.Fatalf("a refusal that echoes the token: %q", err)
 	}
 }

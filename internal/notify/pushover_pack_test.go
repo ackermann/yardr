@@ -284,16 +284,17 @@ func TestPushoverPackTell(t *testing.T) {
 	}
 
 	// What the service says of a refusal is in the error, with the token and
-	// the key taken out should it echo them, and no control character; what
-	// is no JSON adds nothing.
+	// the key taken out should it echo them, no control character, and its
+	// non-ASCII words whole; what is no JSON adds nothing.
 	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, `{"status":0,"errors":["user %s is invalid","token %s is too, \u001b[31mred"]}`, packKey, packToken)
+		fmt.Fprintf(w, `{"status":0,"errors":["user %s is invalid","token %s is too, \u001b[31mred caf\u00e9\u0007\u007f…"]}`, packKey, packToken)
 	}))
 	defer echo.Close()
 	_, err = p.tell(echo.URL+"/1", packToken, valid)
-	if err == nil || !strings.Contains(err.Error(), "is invalid") || !strings.Contains(err.Error(), "is too, [31mred") ||
-		strings.Contains(err.Error(), packKey) || strings.Contains(err.Error(), packToken) || strings.Contains(err.Error(), "\x1b") {
+	if err == nil || !strings.Contains(err.Error(), "is invalid") || !strings.Contains(err.Error(), "is too, [31mred café…") ||
+		strings.Contains(err.Error(), packKey) || strings.Contains(err.Error(), packToken) || strings.Contains(err.Error(), "\x1b") ||
+		strings.Contains(err.Error(), "\x07") || strings.Contains(err.Error(), "\x7f") {
 		t.Fatalf("a refusal that echoes the secrets: %q", err)
 	}
 	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
