@@ -160,7 +160,7 @@ Not for a pack, whatever it happens to do today:
 | the placeholders `{{operator}}` and `{{<crew member>}}` in a role or stage file | stable | any other `{{...}}` there is refused |
 | a role, script, stage file, setup file or declaration is a path relative to the pack's directory, inside it, to a regular file. A command program is a file beside its declaration, inside the pack | stable | |
 | the digest: sha256 over each file the pack names, as its path, a NUL, its length, a NUL and its bytes, in path order | stable | |
-| a pack at a URL: one GET per file, over https, or plain http to this machine alone. A redirect stays within the host and never goes down to http. A file is at most 1 MiB and takes at most 10 s | stable | |
+| a pack at a URL: one GET per file, over https, or plain http to this machine alone. A redirect stays within the host and never goes down to http. A file is at most 1 MiB and takes at most 10 s. `pack check` and `pack apply` take `--auth <name>`, which sends the header in `<home>/packs/<name>.auth` with every GET, to the pack's host alone; the record keeps the name, never the value | stable | |
 | the start of a mistake, `file:line: key:`, and its JSON form in `pack check --json` (`file`, `line`, `key`, `error`) | stable | |
 | the words after that start | internal | |
 | a file the pack does not name | not read | no file is found by convention |

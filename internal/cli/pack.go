@@ -30,10 +30,12 @@ type packFlags struct {
 	opts   pack.Options
 	crew   []string
 	groups []string
+	auth   string
 }
 
 func (f *packFlags) register(c *cobra.Command, verb string) {
 	c.Flags().StringVar(&f.opts.Depot, "depot", "", "the depot the pack "+verb+" imported into (not for a pack of kind source, which is imported into the yard)")
+	c.Flags().StringVar(&f.auth, "auth", "", "for a pack at a URL: send the header in <home>/packs/<name>.auth with every GET; the record keeps the name, never the value")
 	f.registerShape(c)
 	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --depot-roles")
 	c.MarkFlagsMutuallyExclusive("depot-roles", "pack-roles")
@@ -125,8 +127,8 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 // loadPack reads the pack arg names (resolvePack). With --json an invalid
 // pack's mistakes are printed as data, and the error is the exit code alone:
 // Execute adds nothing to what a red check has printed.
-func (a *app) loadPack(w io.Writer, ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
-	p, err := resolvePack(ctx, st, arg, depot)
+func (a *app) loadPack(w io.Writer, ctx context.Context, st store.API, arg, depot, auth, home string) (*pack.Pack, error) {
+	p, err := resolvePack(ctx, st, arg, depot, auth, home)
 	var errs pack.Errors
 	if a.json && errors.As(err, &errs) {
 		enc := json.NewEncoder(w)
@@ -144,12 +146,19 @@ func (a *app) loadPack(w io.Writer, ctx context.Context, st store.API, arg, depo
 // recorded it was (the import into depot when there are several, else the
 // latest), and otherwise of a pack yardr embeds. A name is never tried as
 // a directory, so what `starter` means does not depend on where the command
-// is run: ./starter is the directory.
-func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pack, error) {
+// is run: ./starter is the directory. A pack at a URL is fetched with the
+// credential auth names (--auth), or with the one the record names where arg
+// is a bare word and no flag says otherwise; home is the yard whose
+// <home>/packs/<name>.auth holds it. An explicit auth with a pack that is
+// read from anywhere but a URL is refused, not ignored.
+func resolvePack(ctx context.Context, st store.API, arg, depot, auth, home string) (*pack.Pack, error) {
 	if pack.IsURL(arg) {
-		return pack.Load(pack.URLFS(arg), arg)
+		return loadURLPack(arg, auth, home)
 	}
 	if packDir(arg) {
+		if auth != "" {
+			return nil, fmt.Errorf("--auth %q is for a pack at a URL: %s is a directory", auth, arg)
+		}
 		return pack.LoadDir(arg)
 	}
 	recs, err := st.Packs(ctx)
@@ -164,14 +173,29 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 	}
 	if rec != nil && !fromEmbedded(rec.Source) {
 		if pack.IsURL(rec.Source) {
-			if _, err := fs.ReadFile(pack.URLFS(rec.Source), pack.File); err != nil {
+			want := auth
+			if want == "" {
+				want = rec.Auth
+			}
+			fsys, name, err := urlPackFS(rec.Source, want, home)
+			if err != nil {
+				return nil, err
+			}
+			if _, err := fs.ReadFile(fsys, pack.File); err != nil {
 				return nil, fmt.Errorf("pack %s was imported into %s from %s, which is gone (%v)", arg, inDepot(rec.Depot), rec.Source, err)
 			}
-			p, err := pack.Load(pack.URLFS(rec.Source), rec.Source)
-			if err == nil && p.Name != arg {
+			p, err := pack.Load(fsys, rec.Source)
+			if err != nil {
+				return nil, err
+			}
+			p.Auth = name
+			if p.Name != arg {
 				return nil, fmt.Errorf("pack %s was imported into %s from %s, which now holds pack %s", arg, inDepot(rec.Depot), rec.Source, p.Name)
 			}
-			return p, err
+			return p, nil
+		}
+		if auth != "" {
+			return nil, fmt.Errorf("--auth %q is for a pack at a URL: pack %s was imported into %s from the directory %s", auth, arg, inDepot(rec.Depot), rec.Source)
 		}
 		if _, err := os.Stat(filepath.Join(rec.Source, pack.File)); err != nil {
 			return nil, fmt.Errorf("pack %s was imported into %s from %s, which is gone (%v): give the directory the pack is in now", arg, inDepot(rec.Depot), rec.Source, err)
@@ -183,6 +207,9 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 		return p, err
 	}
 	if _, err := fs.Stat(packs.FS, arg+"/"+pack.File); err == nil {
+		if auth != "" {
+			return nil, fmt.Errorf("--auth %q is for a pack at a URL: pack %s is one yardr embeds", auth, arg)
+		}
 		sub, err := fs.Sub(packs.FS, arg)
 		if err != nil {
 			return nil, err
@@ -202,6 +229,36 @@ func resolvePack(ctx context.Context, st store.API, arg, depot string) (*pack.Pa
 		hint = fmt.Sprintf("for the directory %s here, write ./%s", arg, arg)
 	}
 	return nil, fmt.Errorf("no pack named %q: this yard has imported %s, yardr embeds %s; %s", arg, or(strings.Join(imported, ", "), "none"), or(strings.Join(embedded, ", "), "none"), hint)
+}
+
+// loadURLPack reads the pack at the URL arg, fetched with the credential auth
+// names ("", for none) from the yard at home. The pack keeps the name it was
+// fetched with, so the record of an import keeps it too.
+func loadURLPack(arg, auth, home string) (*pack.Pack, error) {
+	fsys, name, err := urlPackFS(arg, auth, home)
+	if err != nil {
+		return nil, err
+	}
+	p, err := pack.Load(fsys, arg)
+	if err != nil {
+		return nil, err
+	}
+	p.Auth = name
+	return p, nil
+}
+
+// urlPackFS is the pack at the URL base as an fs.FS, fetched with the
+// credential auth names ("", for none): its header with every GET. It returns
+// the file system and the name it fetches with.
+func urlPackFS(base, auth, home string) (fs.FS, string, error) {
+	if auth == "" {
+		return pack.URLFS(base), "", nil
+	}
+	h, err := pack.ReadAuth(home, auth)
+	if err != nil {
+		return nil, "", err
+	}
+	return pack.URLFSAuth(base, h), auth, nil
 }
 
 // embeddedPacks are the packs the binary carries, by name: a bare word
@@ -232,8 +289,18 @@ func packDir(arg string) bool {
 func (a *app) openPack(w, warn io.Writer, ctx context.Context, arg string, f *packFlags, yard func() error, validate bool) (store.API, *config.Config, *pack.Pack, error) {
 	var p *pack.Pack
 	if packDir(arg) {
+		// Home for a URL pack's --auth, from the config alone and creating
+		// nothing: the store is not opened until the pack has been read.
+		home := f.opts.Home
+		if home == "" && pack.IsURL(arg) && f.auth != "" {
+			cfg, err := a.configReadOnly()
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			home = cfg.Home
+		}
 		var err error
-		if p, err = a.loadPack(w, ctx, nil, arg, f.opts.Depot); err != nil {
+		if p, err = a.loadPack(w, ctx, nil, arg, f.opts.Depot, f.auth, home); err != nil {
 			return nil, nil, nil, err
 		}
 		// Before the yard is asked anything: a directory pack is fully
@@ -254,7 +321,7 @@ func (a *app) openPack(w, warn io.Writer, ctx context.Context, arg string, f *pa
 		return nil, nil, nil, err
 	}
 	if p == nil {
-		if p, err = a.loadPack(w, ctx, st, arg, f.opts.Depot); err != nil {
+		if p, err = a.loadPack(w, ctx, st, arg, f.opts.Depot, f.auth, f.opts.Home); err != nil {
 			return nil, nil, nil, err
 		}
 		if validate {
@@ -1601,6 +1668,9 @@ func printRecord(w io.Writer, r store.PackImport) {
 		}
 	}
 	fmt.Fprintf(w, "  source     %s\n", src)
+	if r.Auth != "" {
+		fmt.Fprintf(w, "  auth       %s\n", r.Auth)
+	}
 	if r.Flow != "" {
 		fmt.Fprintf(w, "  flow       %s (stored as %s)\n", r.Flow, pack.FlowName(r.Pack, r.Flow))
 	}

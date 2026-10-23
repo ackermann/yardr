@@ -46,6 +46,11 @@ type Pack struct {
 	// pack in no directory what Load was told it is from.
 	Dir  string `json:"dir"`
 	Name string `json:"name"`
+	// Auth is the name of the credential the pack was fetched with (--auth),
+	// "" for a pack read without one. Whoever reads a pack at a URL sets it;
+	// the record of an import keeps it, so a later import reads the pack with
+	// it again. The value stays in the file it was read from.
+	Auth string `json:"auth,omitempty"`
 	// API is the pack API the pack says it is written for (api), 1 for a
 	// pack that says none: every pack there was before the key is API 1.
 	API int `json:"api"`

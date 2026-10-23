@@ -348,7 +348,11 @@ Each time yardr reads a file of a URL pack, it makes one GET; planning and
 applying can read the same file separately. Plain `http://` is refused unless
 it goes to this machine (`localhost`, `127.0.0.1`, `[::1]`), for a stand-in. A
 redirect is followed within the pack's own host and refused to another host,
-or from https down to http; a file of more than 1 MiB is refused. The files
+or from https down to http; a file of more than 1 MiB is refused. With
+`--auth <name>` every GET sends the header in `<home>/packs/<name>.auth`,
+one line such as `Authorization: Bearer ...`, to the pack's host alone; the
+file is the operator's to put there, a regular file no one but its owner may
+read or write. The files
 `yardr pack apply` installs are the bytes it hashed in its check, never a
 second download of them: a server that answers differently once the import
 is under way changes nothing that is installed.
@@ -380,15 +384,16 @@ is still the name, and `./starter` is the directory. An imported pack comes
 before an embedded one of its name; when it was imported into several depots
 the import into `--depot` says where it is, else the latest. If the recorded
 directory is gone the command stops and names it: give the directory the
-pack is in now. An import from a URL records the URL, and the next use of
-the name reads the pack from it again. A word that names no pack is an error listing the packs the
+pack is in now. An import from a URL records the URL, and with `--auth`
+the name of the credential, never the value; the next use of
+the name reads the pack from it again, with that credential. A word that names no pack is an error listing the packs the
 yard has imported and the ones yardr embeds.
 
 ## yardr pack check
 
 ```sh
 yardr pack check <pack> [--depot <depot>] [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
-    [--flow <flow>] [--depot-roles] [--json]
+    [--flow <flow>] [--depot-roles] [--auth <name>] [--json]
 ```
 
 Its first line names the pack, where it was read from, the kind it declares
@@ -942,7 +947,7 @@ yardr pack apply <pack> [--depot <depot>] [--yes] [--sha256 <digest>] [--prune]
     [--crew <pack's>=<yard's>]… [--group <pack's>=<yard's>]…
     [--open-threads <pack's>=<source>,…|none]…
     [--calls <group>|crew:<pack's>=<source>:<call>,…|none]…
-    [--flow <flow>] [--depot-roles] [--json]
+    [--flow <flow>] [--depot-roles] [--auth <name>] [--json]
 ```
 
 A pack of kind `source` is applied without `--depot`, which is refused for

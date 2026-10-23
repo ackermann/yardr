@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/source"
 )
 
@@ -72,6 +73,52 @@ func checkFetch(u *url.URL) error {
 	return fmt.Errorf("%q is not a scheme a pack is fetched by: want https://", u.Scheme)
 }
 
+// Header is the line of a pack auth file, split into its field and value:
+// what URLFSAuth sends with every GET of the pack.
+type Header struct {
+	Field string
+	Value string
+}
+
+// ReadAuth reads the credential name says: the file <home>/packs/<name>.auth,
+// which holds one header line such as "Authorization: Bearer ...". It is read
+// as a secret file is (config.ReadSecretFile): a regular file no one but its
+// owner may read or write. Errors name the file or the name, never the value.
+func ReadAuth(home, name string) (Header, error) {
+	if !validName.MatchString(name) {
+		return Header{}, fmt.Errorf("auth %q: want a name of letters, digits, dots, dashes and underscores, starting with a letter or digit", name)
+	}
+	raw, path, err := config.ReadSecretFile(filepath.Join(config.At(home).Packs(), name+".auth"))
+	if err != nil {
+		return Header{}, err
+	}
+	if strings.ContainsAny(string(raw), "\r\n") {
+		return Header{}, fmt.Errorf("auth file %s: want one header line such as \"Authorization: Bearer ...\"", path)
+	}
+	field, value, ok := strings.Cut(string(raw), ":")
+	if field = strings.TrimSpace(field); !ok || !validHeaderField(field) {
+		return Header{}, fmt.Errorf("auth file %s: want one header line such as \"Authorization: Bearer ...\"", path)
+	}
+	if value = strings.TrimSpace(value); value == "" {
+		return Header{}, fmt.Errorf("auth file %s: the header line has no value", path)
+	}
+	return Header{Field: field, Value: value}, nil
+}
+
+// validHeaderField reports whether s is a header field name: no space, no
+// control and no colon, so what ReadAuth returns is what a request sends.
+func validHeaderField(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c <= ' ' || c >= 0x7f || c == ':' {
+			return false
+		}
+	}
+	return true
+}
+
 // URLFS is the pack at base URL as an fs.FS: what Load reads a pack from,
 // over HTTP. Open GETs base with the file's slash path on it, so base is
 // the pack's directory on a web server, with or without its trailing slash:
@@ -81,11 +128,20 @@ func checkFetch(u *url.URL) error {
 // at most MaxURLFile bytes. A file is fetched every time it is opened, so a
 // caller that checks a file and then installs it keeps the bytes it checked.
 func URLFS(base string) fs.FS {
-	return &urlFS{base: strings.TrimSuffix(base, "/") + "/"}
+	return URLFSAuth(base, Header{})
+}
+
+// URLFSAuth is URLFS with a credential: every GET sends the header, and only
+// to the pack's own host, since a redirect elsewhere is refused before it is
+// followed (packRedirect).
+func URLFSAuth(base string, h Header) fs.FS {
+	return &urlFS{base: strings.TrimSuffix(base, "/") + "/", header: h}
 }
 
 type urlFS struct {
 	base string // the pack's directory URL, ending in "/"
+	// header is sent with every GET, Field: Value; none when Field is "".
+	header Header
 }
 
 func (f *urlFS) Open(name string) (fs.File, error) {
@@ -98,6 +154,9 @@ func (f *urlFS) Open(name string) (fs.File, error) {
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: %w", u, err)
+	}
+	if f.header.Field != "" {
+		req.Header.Set(f.header.Field, f.header.Value)
 	}
 	// Before any connection: nothing goes to a host the rule refuses.
 	if err := checkFetch(req.URL); err != nil {

@@ -76,6 +76,25 @@ func TestRecordPack(t *testing.T) {
 		t.Fatalf("records = %+v", got)
 	}
 
+	// A new credential name is something new too: the record is written, and
+	// the event carries the name. The same name again changes nothing.
+	again.Auth = "ci-red"
+	if wrote, err := st.RecordPack(ctx, again, false, "bob"); err != nil || !wrote {
+		t.Fatalf("a record with a new credential: %v, %v", wrote, err)
+	}
+	if e := last(); e.Kind != "pack_applied" || e.Data["auth"] != "ci-red" {
+		t.Fatalf("event = %+v", e)
+	}
+	if got, _ := st.Packs(ctx); got[0].Auth != "ci-red" {
+		t.Fatalf("records = %+v", got)
+	}
+	if wrote, err := st.RecordPack(ctx, again, false, "ann"); err != nil || wrote {
+		t.Fatalf("the same credential again: %v, %v", wrote, err)
+	}
+	if e := last(); e.Kind != "pack_unchanged" || e.Data["auth"] != "ci-red" {
+		t.Fatalf("event = %+v", e)
+	}
+
 	if _, err := st.DeleteDepot(ctx, "web", "me"); err != nil {
 		t.Fatal(err)
 	}

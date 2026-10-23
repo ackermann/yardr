@@ -78,6 +78,9 @@ type Options struct {
 type Plan struct {
 	Pack string `json:"pack"`
 	Dir  string `json:"dir"`
+	// Auth is the name of the credential the pack was fetched with (--auth),
+	// "" for none. The record of the import keeps it, never the value.
+	Auth string `json:"auth,omitempty"`
 	// Digest is the sha256 of the files the pack is made of (Pack.digest),
 	// in hex: the one thing an operator who has read a pack can name it by,
 	// and the pin of pack apply --sha256 (CheckDigest). It is the pack's,
@@ -688,7 +691,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 		return nil, err
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, depot: depot, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
+		Pack: p.Name, Dir: p.Dir, Auth: p.Auth, Kind: p.Kind, src: p.fsys, Depot: o.Depot, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Optional: []OptionalSource{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}
@@ -754,7 +757,7 @@ func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, 
 		return nil, fmt.Errorf("pack %s is of kind source: it has no flow (--flow %s)", p.Name, o.Flow)
 	}
 	b := &planner{ctx: ctx, st: st, p: p, o: o, plan: &Plan{
-		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
+		Pack: p.Name, Dir: p.Dir, Auth: p.Auth, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
 		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
 		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Optional: []OptionalSource{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
 	}}

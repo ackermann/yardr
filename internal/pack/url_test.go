@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -205,7 +206,13 @@ func TestURLFSErrors(t *testing.T) {
 	// A file may move within the host the pack is on and no further: a
 	// redirect to another host is refused, and the other host is never asked.
 	var asked atomic.Int32
-	away := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { asked.Add(1) }))
+	var sawAuth atomic.Bool
+	away := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked.Add(1)
+		if r.Header.Get("Authorization") != "" {
+			sawAuth.Store(true)
+		}
+	}))
 	defer away.Close()
 	mux := http.NewServeMux()
 	mux.Handle("/starter/", http.StripPrefix("/starter/", http.FileServer(http.FS(os.DirFS(starter)))))
@@ -242,6 +249,19 @@ func TestURLFSErrors(t *testing.T) {
 	}
 	if n := asked.Load(); n != 0 {
 		t.Errorf("the other host was asked %d times", n)
+	}
+	// With a credential the redirect is still refused, and the header is not
+	// sent there: the refusal comes before any follow.
+	authed := pack.URLFSAuth(site.URL+"/away/", pack.Header{Field: "Authorization", Value: "Bearer test-token"})
+	if _, err := fs.ReadFile(authed, "pack.yaml"); err == nil ||
+		!strings.Contains(err.Error(), "which is not the host the pack is served from") {
+		t.Errorf("a redirect to another host, with a credential: %v", err)
+	}
+	if n := asked.Load(); n != 0 {
+		t.Errorf("the other host was asked %d times with a credential", n)
+	}
+	if sawAuth.Load() {
+		t.Errorf("the other host was sent the header")
 	}
 	if got, err := fs.ReadFile(pack.URLFS(site.URL+"/exact/"), "pack.yaml"); err != nil || len(got) != pack.MaxURLFile {
 		t.Errorf("a body of exactly the cap: %d bytes, %v", len(got), err)
@@ -295,6 +315,139 @@ func TestURLPackPlansFromTheBytesItReadFirst(t *testing.T) {
 		}
 	}
 	t.Errorf("the plan hashed none of the %d answers the server gave", gets.Load())
+}
+
+// A pack behind a credential is fetched with it: a server that answers 401
+// without the header serves the pack with it, and every GET carries the
+// header. A redirect within the host keeps it. The pack is the directory's,
+// and its digest too.
+func TestURLPackFetchesWithAuth(t *testing.T) {
+	const value = "Bearer test-token"
+	var with, without atomic.Int32
+	site := http.StripPrefix("/starter/", http.FileServer(http.FS(os.DirFS(starter))))
+	mux := http.NewServeMux()
+	mux.Handle("/starter/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == value {
+			with.Add(1)
+			site.ServeHTTP(w, r)
+			return
+		}
+		without.Add(1)
+		http.Error(w, "who are you", http.StatusUnauthorized)
+	}))
+	mux.Handle("/moved/pack.yaml", http.RedirectHandler("/starter/pack.yaml", http.StatusMovedPermanently))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	base := srv.URL + "/starter/"
+
+	if _, err := fs.ReadFile(pack.URLFS(base), "pack.yaml"); err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("without the header: %v", err)
+	} else if strings.Contains(err.Error(), value) {
+		t.Fatalf("the error carries the value: %v", err)
+	}
+	if n := without.Load(); n != 1 {
+		t.Fatalf("without the header the server was asked %d times, want 1", n)
+	}
+	authed := pack.URLFSAuth(base, pack.Header{Field: "Authorization", Value: value})
+	got, err := pack.Load(authed, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := pack.LoadDir(starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != want.Name || !reflect.DeepEqual(got.Files(), want.Files()) {
+		t.Fatalf("URL pack = %s %v, directory pack = %s %v", got.Name, got.Files(), want.Name, want.Files())
+	}
+	if n := without.Load(); n != 1 {
+		t.Errorf("%d GETs arrived without the header, want the first alone", n)
+	}
+	if n := with.Load(); n == 0 {
+		t.Error("no GET arrived with the header")
+	}
+	st, o := yard(t)
+	if urlPlan, dirPlan := build(t, st, got, o), build(t, st, want, o); urlPlan.Digest == "" || urlPlan.Digest != dirPlan.Digest {
+		t.Errorf("URL plan digest %q, directory plan digest %q", urlPlan.Digest, dirPlan.Digest)
+	}
+	// A redirect within the host keeps the header: the moved file is the
+	// pack's, served to no GET without it.
+	moved, err := fs.ReadFile(pack.URLFSAuth(srv.URL+"/moved/", pack.Header{Field: "Authorization", Value: value}), "pack.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir, err := os.ReadFile(filepath.Join(starter, "pack.yaml")); err != nil || !bytes.Equal(moved, dir) {
+		t.Errorf("the moved file is %d bytes, %v", len(moved), err)
+	}
+	if n := without.Load(); n != 1 {
+		t.Errorf("%d GETs arrived without the header after the redirect, want the first alone", n)
+	}
+}
+
+// The credential --auth names is the file <home>/packs/<name>.auth, one
+// header line, split into its field and value. It is read as a secret file
+// is, and what is wrong names the file or the name, never the value.
+func TestReadAuth(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(config.At(home).Packs(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, text string, mode os.FileMode) string {
+		t.Helper()
+		path := filepath.Join(config.At(home).Packs(), name+".auth")
+		if err := os.WriteFile(path, []byte(text), mode); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	const secret = "Bearer test-token"
+	write("ci-red", "Authorization: "+secret+"\n", 0o600)
+	if h, err := pack.ReadAuth(home, "ci-red"); err != nil || h.Field != "Authorization" || h.Value != secret {
+		t.Errorf("ReadAuth = %+v, %v", h, err)
+	}
+	write("spaced", "  Authorization:  "+secret+"  \n\n", 0o600)
+	if h, err := pack.ReadAuth(home, "spaced"); err != nil || h.Field != "Authorization" || h.Value != secret {
+		t.Errorf("a line with space around it = %+v, %v", h, err)
+	}
+	write("colon", "X-Token: a:b\n", 0o600)
+	if h, err := pack.ReadAuth(home, "colon"); err != nil || h.Field != "X-Token" || h.Value != "a:b" {
+		t.Errorf("a value with a colon = %+v, %v", h, err)
+	}
+	write("open", "Authorization: "+secret+"\n", 0o600)
+	open := filepath.Join(config.At(home).Packs(), "open.auth")
+	if err := os.Chmod(open, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ name, file, text string }{
+		{"missing", "missing", ""},
+		{"open to others", "open", "Authorization: " + secret + "\n"},
+		{"empty", "empty", ""},
+		{"two lines", "two", "Authorization: " + secret + "\nX-Other: y\n"},
+		{"no colon", "nocolon", "Authorization\n"},
+		{"no field", "nofield", ": " + secret + "\n"},
+		{"no value", "novalue", "Authorization:\n"},
+		{"a field with a space", "space", "Bad Field: " + secret + "\n"},
+	} {
+		if c.name != "missing" && c.name != "open to others" {
+			write(c.file, c.text, 0o600)
+		}
+		_, err := pack.ReadAuth(home, c.file)
+		if err == nil {
+			t.Errorf("%s: read", c.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), c.file+".auth") {
+			t.Errorf("%s: %v, which names no file", c.name, err)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("%s: %v, which carries the value", c.name, err)
+		}
+	}
+	for _, name := range []string{"", "a/b", "..", "../x", ".auth", "ci red"} {
+		if _, err := pack.ReadAuth(home, name); err == nil || !strings.Contains(err.Error(), "want a name") {
+			t.Errorf("ReadAuth(%q) = %v", name, err)
+		}
+	}
 }
 
 // onPut is a store that does something just before it saves a source: the

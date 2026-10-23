@@ -35,6 +35,10 @@ type PackImport struct {
 	Source string `json:"source"`
 	Commit string `json:"commit,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
+	// Auth is the name of the credential a pack at a URL was fetched with
+	// (--auth), "" for none. The value stays in <home>/packs/<name>.auth and
+	// is never stored: the record, pack list and the pack event carry the name.
+	Auth string `json:"auth,omitempty"`
 	// Flow is the pack's flow the depot follows, by the pack's name for it.
 	Flow string `json:"flow,omitempty"`
 	// Setup says the pack carried setup notes, its author's words about
@@ -212,6 +216,9 @@ func (s *Store) RecordPack(ctx context.Context, rec PackImport, changed bool, ac
 			return err
 		}
 		data := map[string]any{"pack": rec.Pack, "depot": rec.Depot, "source": rec.Source}
+		if rec.Auth != "" {
+			data["auth"] = rec.Auth
+		}
 		if rec.Commit != "" {
 			data["commit"] = rec.Commit
 		}

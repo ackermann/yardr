@@ -756,7 +756,7 @@ func yardmasterRole(ctx context.Context, st store.API, home, yardmaster string, 
 	ofDefault := func(err error) error {
 		return fmt.Errorf("the yard's default pack, %s (yardr settings get %s): %w", arg, defaultPackSetting, err)
 	}
-	p, err := resolvePack(ctx, st, arg, "")
+	p, err := resolvePack(ctx, st, arg, "", "", home)
 	if err != nil {
 		return ofDefault(err)
 	}

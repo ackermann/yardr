@@ -188,8 +188,8 @@ var eventDataTold = map[string][]string{
 	"hook_files":           {"seq"},
 	"hook_quiet":           {"gap", "hook", "last", "source"},
 	"hook_listener_failed": {},
-	"pack_applied":         {"approved", "commit", "depot", "pack"},
-	"pack_unchanged":       {"approved", "commit", "depot", "pack"},
+	"pack_applied":         {"approved", "auth", "commit", "depot", "pack"},
+	"pack_unchanged":       {"approved", "auth", "commit", "depot", "pack"},
 
 	// The yard's own arrangement: depots, flows, groups and routes. A depot's
 	// path and test command, a route's note and the conditions of its groups
