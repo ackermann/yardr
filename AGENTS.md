@@ -91,8 +91,9 @@ it lists every exported name with its comment, faster than grepping.
 - `storetest`: throwaway stores for tests; with `YARDR_TEST_RPC=1` they
   talk over a real unix socket.
 - `testload`: the factor the gate gives a loaded race leg
-  (`YARDR_TEST_LOAD`) and `Scale`, which makes a wait written for an idle
-  box that many times longer; the contrib suites' fuses go through it.
+  (`YARDR_TEST_LOAD`), `Scale`, which makes a wait written for an idle box
+  that many times longer, and `Loaded`, the gate's verdict that the machine
+  is loaded; the contrib suites' fuses go through `Scale`.
 - `udiff`: one unified-diff rendering shared by history and ask cards.
 - `version`: build identity, noticing when the binary was replaced, and
   keeping the daemon's own descriptors out of what it execs (self-replace,

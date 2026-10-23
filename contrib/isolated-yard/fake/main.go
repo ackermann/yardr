@@ -103,7 +103,10 @@ func main() {
 	// as a harness does that is not logged in: no prompt box, and input is
 	// held without showing it (the terminal's echo is off), so the first
 	// prompt reaches the agent only after login. Removing the file is login:
-	// the box comes and the held prompt is handled.
+	// the box comes and the held prompt is handled. The log says when a
+	// prompt is held: a line that arrives after the file is gone was typed
+	// after the login and is drawn as such (process), so a caller that sends
+	// a prompt and then logs in waits for that line, not for a while.
 	//
 	// The screen is Claude Code's menu of login methods, drawn as the
 	// harness file reads it live (harnesses/claude.yaml, login): the
@@ -142,6 +145,11 @@ func main() {
 				// logs in, handle it instead of silently losing it.
 				if len(held) == 0 {
 					held = append(held, line)
+					// Without the text: the prompt is logged when it is handled,
+					// and isolated-yard down counts the stand-in's starts by
+					// searching this log for ' start ', which a second copy of
+					// a prompt would give one more chance to match.
+					logf("held a prompt")
 				}
 			case <-time.After(200 * time.Millisecond):
 			}

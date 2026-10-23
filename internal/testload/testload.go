@@ -6,7 +6,8 @@
 // burns the whole of a scaled one: the factor costs a green run nothing.
 // What a test measures does not go through here: a deadline that is an
 // input of the program under test is the test's to set, and the pause
-// between two looks is no fuse.
+// between two looks is no fuse. Loaded is the gate's verdict itself, for the
+// rare test that must tell a slow machine from a slow program.
 package testload
 
 import (
@@ -31,6 +32,16 @@ func factor() float64 {
 		return 1
 	}
 	return f
+}
+
+// Loaded reports whether the gate found the machine loaded when it gave the
+// run its factor: a factor above 1. A test that skips what only load explains
+// (a browser that missed its deadline) asks this, so that the gate's reading
+// is the one every suite shares, and reads the machine itself only when this
+// is false: a factor of 1 is no verdict that the machine is quiet, since it is
+// also what an unknown load has and what a run the gate gave none has.
+func Loaded() bool {
+	return factor() > 1
 }
 
 // Scale is d made as many times longer as the run's factor says. A wait that

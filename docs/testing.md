@@ -64,7 +64,12 @@ the thing waited on is a program outside the test (a harness binary, a
 browser): there the bound is product code, its failure under load is a
 product question, and the test stubs the bound long (as the doctor
 tests stub thirty seconds) instead of inheriting whatever load leaves
-of it. A count inside a fixed wall-clock window, and a sleep followed
+of it. Where a test must still tell a slow machine from a slow program,
+as contrib/shot's real Chrome does to skip a miss of its deadline, it
+asks `testload.Loaded`, the gate's verdict for the leg, and reads the
+machine's load itself only when that is false: a factor of 1 is also
+what an unknown load and a plain run have. A count inside a fixed
+wall-clock window, and a sleep followed
 by asserting the slept-for event exists, are both the first shape
 written wrong. A reviewer checks the pick without running anything, as
 the sleep scan is checked: a diff that adds a test names one of the

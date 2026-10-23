@@ -122,7 +122,7 @@ func start(t *testing.T, loginNeeded bool) *standIn {
 // a fuse against a stand-in that never draws, not a window its start must fit
 // in. Beside a full race run the start of a binary just built, and its answer
 // to a line it is sent, took longer than the 10 s this once was (yardr-g9tn).
-// It is written for an idle box and draw sizes it to the machine
+// It is written for an idle box and draw and waitLog size it to the machine
 // (testload.Scale).
 const drawFuse = time.Minute
 
@@ -154,6 +154,26 @@ func (s *standIn) draw(end string) {
 	}
 	// As the pane's terminal passes it on: a line feed returns the carriage.
 	s.scr.write(strings.ReplaceAll(got.String(), "\n", "\r\n"))
+}
+
+// waitLog waits for the stand-in to say in its log (agents.log beside its bin
+// directory) what a test waits on, a line that ends with what, where nothing
+// it draws says so: a line it holds at the login screen shows nowhere. The
+// pause between two looks is no fuse; the wait ends at the fuse (drawFuse,
+// sized to the machine) and then fails with the log it found.
+func (s *standIn) waitLog(what string) {
+	s.t.Helper()
+	log := filepath.Join(s.d, "agents.log")
+	fuse := testload.Scale(drawFuse)
+	for deadline := time.Now().Add(fuse); ; time.Sleep(10 * time.Millisecond) {
+		raw, _ := os.ReadFile(log)
+		if strings.Contains(string(raw), " "+what+"\n") {
+			return
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatalf("no %q in the stand-in's log in %s:\n%s", what, fuse, raw)
+		}
+	}
 }
 
 // boxEnd is what the stand-in's box ends with: the cursor put after the mark.
@@ -207,8 +227,9 @@ func TestHeldPromptIsDrawnFromTheInputLine(t *testing.T) {
 	if _, err := io.WriteString(s.in, "first prompt\n"); err != nil {
 		t.Fatal(err)
 	}
-	// The stand-in holds a line it has read; give it the time to read it.
-	time.Sleep(500 * time.Millisecond)
+	// Logged in only once the stand-in holds the line: one it has not read yet
+	// is taken as typed after the login, and drawn from another row.
+	s.waitLog("held a prompt")
 	if err := os.Remove(filepath.Join(s.d, "login-needed")); err != nil {
 		t.Fatal(err)
 	}

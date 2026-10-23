@@ -48,7 +48,9 @@ screen (Claude Code's menu of login methods: `Select login method:` with the
 selected option carrying `❯`, then `Paste code here if prompted>`; no prompt
 box) and takes what it is sent without showing it, holding its first prompt
 until it is ready; removing the file is the login, and the prompt box and
-held prompt come. With a file
+held prompt come. `D/agents.log` says `held a prompt` once it holds one, so a
+trial that sends a prompt and then logs it in waits for that line: a prompt
+not yet read when the file goes is typed after the login, not held. With a file
 `D/answer` a stand-in says that file's text (as `⏺ <line>`) to every prompt
 it takes and waits for input again, as a harness does that stops on an error
 of its own (`API Error: Repeated 529 Overloaded errors`). With a file

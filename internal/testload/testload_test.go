@@ -25,6 +25,7 @@ func TestScale(t *testing.T) {
 	}{
 		{"unset", "", wait, wait},
 		{"one", "1", wait, wait},
+		{"a tenth over", "1.1", wait, 11 * time.Second},
 		{"a fraction of a core over", "2.5", wait, 25 * time.Second},
 		{"the gate's cap", "4", wait, 40 * time.Second},
 		{"a whole minute", "4.0", time.Minute, 4 * time.Minute},
@@ -43,6 +44,11 @@ func TestScale(t *testing.T) {
 			t.Setenv(config.Key(Env), c.value)
 			if got := Scale(c.d); got != c.want {
 				t.Errorf("Scale(%s) with YARDR_TEST_LOAD=%q = %s, want %s", c.d, c.value, got, c.want)
+			}
+			// Loaded is the same factor read as a verdict: it is above 1 where
+			// a wait is made longer, and a value Scale does not take is none.
+			if got, want := Loaded(), Scale(wait) > wait; got != want {
+				t.Errorf("Loaded() with YARDR_TEST_LOAD=%q = %v, want %v (Scale(%s) = %s)", c.value, got, want, wait, Scale(wait))
 			}
 		})
 	}

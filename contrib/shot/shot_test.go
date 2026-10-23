@@ -9,6 +9,10 @@ package shot
 // flags. The refusals need no Chrome: the script checks the file and the
 // page first. Nothing waits on Chrome without a deadline: the script stops
 // it after SHOT_TIMEOUT, and the tests stop the script at their context's.
+// SHOT_TIMEOUT is what a test gives the script, the script's input, and is
+// not scaled; the context's deadline, every wait for a stand-in and every
+// bound on how long a run took are written for an idle box and sized to the
+// machine (testload.Scale), as in the other contrib suites.
 
 import (
 	"bytes"
@@ -28,6 +32,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // page is one local page at /page; every other path is missing.
@@ -46,8 +53,10 @@ func page(t *testing.T) *httptest.Server {
 	return s
 }
 
-// shotTimeout is the deadline the tests give runShot: a minute, the
-// script's own Chrome bound.
+// shotTimeout is the script's own Chrome bound, a minute: what
+// TestShotWritesAWindowSizedPNG gives it as SHOT_TIMEOUT where the machine is
+// not loaded (windowTimeout), and, for an idle box, how long a test waits on
+// the script (shotFuse).
 const shotTimeout = time.Minute
 
 // shotLoadTimeout is the deadline the window-sized-PNG test gives a
@@ -57,11 +66,20 @@ const shotTimeout = time.Minute
 // under -race on a loaded machine, 6 s quiet).
 const shotLoadTimeout = 10 * time.Second
 
+// shotFuse is how long a test waits on the script before it gives up on it:
+// a fuse against a script that hangs, not a measure of it. It is written for
+// an idle box and sized to the machine (testload.Scale), so a script that was
+// only slow under a landing's load is not failed for it. The deadline a test
+// gives the script as SHOT_TIMEOUT is the script's input and is not scaled.
+func shotFuse() time.Duration {
+	return testload.Scale(shotTimeout)
+}
+
 // shotCtx gives runShot its deadline: the tests never wait on the script
-// past a minute, whatever Chrome does.
+// past shotFuse, whatever Chrome does.
 func shotCtx(t *testing.T) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), shotTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), shotFuse())
 	t.Cleanup(cancel)
 	return ctx
 }
@@ -133,18 +151,26 @@ func timeoutSecs(ctx context.Context, start time.Time) string {
 // underLoad reports whether a slow Chrome is the machine's fault, not the
 // shot's: the landing suite, and any run with the race detector, load the
 // machine enough that headless Chrome can miss its minute, and so does
-// whatever else the machine is doing, which its load average shows
-// (machineLoaded): a plain full run beside other work is as slow.
+// whatever else the machine is doing, which the gate's factor or its load
+// average shows (machineLoaded): a plain full run beside other work is as
+// slow.
 func underLoad() bool {
 	return os.Getenv("YARDR_LANDING") != "" || race() || machineLoaded()
 }
 
 // machineLoaded reports whether the machine is too loaded for a timing
-// verdict by the gate's own measure (loadedmachine in .yardr/test, rule R1
-// in docs/testing.md): its one-minute load average is past its core count.
-// Where the load cannot be read it is not loaded: an unknown load excuses no
-// hang, as it passes no package there.
+// verdict. Where the gate found it loaded when it gave the race leg its factor
+// (testload.Loaded) that is the answer, taken once for every suite, and the
+// machine is not read again. A factor of 1 is no verdict that it is quiet: an
+// unknown load has it too, and so has a plain run, which the gate gives no
+// factor. Then the machine is read by the gate's own measure (loadedmachine in
+// .yardr/test, rule R1 in docs/testing.md): its one-minute load average is
+// past its core count. Where the load cannot be read it is not loaded: an
+// unknown load excuses no hang, as it passes no package there.
 func machineLoaded() bool {
+	if testload.Loaded() {
+		return true
+	}
 	avg, cores, ok := loadReading()
 	return ok && avg > cores
 }
@@ -579,7 +605,7 @@ func TestWindowVerdictOfAHungChrome(t *testing.T) {
 // test skips a stalled Chrome there, so its deadline is short, and the
 // package stays inside the 60 s budget (docs/testing.md R1). A sleeper
 // stands in for the stalled Chrome; the bound is three times the loaded
-// deadline, waited on, not slept for.
+// deadline, sized to the machine, waited on, not slept for.
 func TestShotWindowTimeoutIsShortUnderLoad(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -599,8 +625,8 @@ func TestShotWindowTimeoutIsShortUnderLoad(t *testing.T) {
 	if rc == 0 || !strings.Contains(text, "chrome did not finish within") {
 		t.Fatalf("a Chrome past the loaded deadline: exit %d, %q, want a refusal naming the deadline", rc, text)
 	}
-	if dt := time.Since(start); dt > 3*shotLoadTimeout {
-		t.Errorf("the refusal took %s, want the loaded deadline of %s", dt.Round(time.Millisecond), timeout)
+	if dt, within := time.Since(start), testload.Scale(3*shotLoadTimeout); dt > within {
+		t.Errorf("the refusal took %s, want the loaded deadline of %s (within %s)", dt.Round(time.Millisecond), timeout, within)
 	}
 	dead(t, pids)
 }
@@ -632,12 +658,15 @@ func dead(t *testing.T, pids string) {
 	deadWithin(t, pids, 10*time.Second)
 }
 
+// deadWithin is dead with its own fuse, written for an idle box like the
+// others and sized to the machine.
 func deadWithin(t *testing.T, pids string, within time.Duration) {
 	t.Helper()
 	raw, err := os.ReadFile(pids)
 	if err != nil {
 		t.Fatal(err)
 	}
+	within = testload.Scale(within)
 	giveUp := time.Now().Add(within)
 	for _, field := range strings.Fields(string(raw)) {
 		pid, err := strconv.Atoi(field)
@@ -653,13 +682,19 @@ func deadWithin(t *testing.T, pids string, within time.Duration) {
 	}
 }
 
+// readyFuse is how long a test waits for a stand-in Chrome to be ready, for
+// an idle box: ready sizes it to the machine, and so does the sleep
+// readySleep holds for the same stand-in (readyLooks).
+const readyFuse = 30 * time.Second
+
 // ready waits for the stand-in to be ready: the pids file it writes on
-// start, up to within. Under load the stand-in can take seconds to be
-// scheduled; the deadline the test then takes must not start before this
-// returns. It returns when the file appeared, so the kill after it is told
-// from one that took the whole bound.
+// start, up to within, sized to the machine. Under load the stand-in can take
+// seconds to be scheduled; the deadline the test then takes must not start
+// before this returns. It returns when the file appeared, so the kill after
+// it is told from one that took the whole bound.
 func ready(t *testing.T, pids string, within time.Duration) time.Time {
 	t.Helper()
+	within = testload.Scale(within)
 	giveUp := time.Now().Add(within)
 	for {
 		if _, err := os.Stat(pids); err == nil {
@@ -674,11 +709,18 @@ func ready(t *testing.T, pids string, within time.Duration) time.Time {
 	}
 }
 
+// readyLooks is how many looks of a tenth of a second readySleep's sleep takes
+// for the stand-in: the fuse ready waits for it, sized to the machine, so that
+// the sleep does not give up, and the watchdog's clock start, before ready has.
+func readyLooks() int {
+	return int(testload.Scale(readyFuse) / (100 * time.Millisecond))
+}
+
 // readySleep is a sleep for the timeout test: the script's watchdog must
 // not start its SHOT_TIMEOUT clock before the stand-in Chrome is ready, so
 // this sleep waits for readyFile (the pids file the stand-in writes on
-// start), with a generous bound, and then sleeps as asked. Past the bound
-// it sleeps anyway, and the test fails on its assertions instead of
+// start), with a generous bound (readyLooks), and then sleeps as asked. Past
+// the bound it sleeps anyway, and the test fails on its assertions instead of
 // hanging.
 func readySleep(t *testing.T, readyFile string) []string {
 	t.Helper()
@@ -689,7 +731,7 @@ func readySleep(t *testing.T, readyFile string) []string {
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"i=0\n" +
-		"while [ ! -e \"$SHOT_SLEEP_READY\" ] && [ \"$i\" -lt 300 ]; do \"$SHOT_REAL_SLEEP\" 0.1; i=$((i+1)); done\n" +
+		"while [ ! -e \"$SHOT_SLEEP_READY\" ] && [ \"$i\" -lt " + strconv.Itoa(readyLooks()) + " ]; do \"$SHOT_REAL_SLEEP\" 0.1; i=$((i+1)); done\n" +
 		"exec \"$SHOT_REAL_SLEEP\" \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -780,7 +822,7 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 		// pids file, and only then takes the second.
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
-		backstop := time.AfterFunc(shotTimeout, cancel)
+		backstop := time.AfterFunc(shotFuse(), cancel)
 		t.Cleanup(func() { backstop.Stop() })
 		type outcome struct {
 			rc   int
@@ -792,7 +834,7 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 			rc, text, err := runShotCmd(ctx, []string{s.URL + "/page", out}, env...)
 			done <- outcome{rc, text, err}
 		}()
-		readyAt := ready(t, pids, 30*time.Second)
+		readyAt := ready(t, pids, readyFuse)
 		kill := time.AfterFunc(time.Second, cancel)
 		defer kill.Stop()
 		res := <-done
@@ -805,8 +847,8 @@ func TestShotKillsAChromeThatDoesNotFinish(t *testing.T) {
 		if !strings.Contains(res.text, "chrome is warming up") {
 			t.Errorf("the refusal is %q, without what Chrome printed", res.text)
 		}
-		if dt := time.Since(readyAt); dt > 10*time.Second {
-			t.Errorf("the kill took %s after the stand-in was ready, want the test's one-second deadline", dt.Round(time.Millisecond))
+		if dt, within := time.Since(readyAt), testload.Scale(10*time.Second); dt > within {
+			t.Errorf("the kill took %s after the stand-in was ready, want the test's one-second deadline (within %s)", dt.Round(time.Millisecond), within)
 		}
 		dead(t, pids)
 	})
@@ -853,9 +895,9 @@ func TestShotStopsChromeWhenTheScriptIsStopped(t *testing.T) {
 	}
 	pgid := cmd.Process.Pid
 	t.Cleanup(func() { syscall.Kill(-pgid, syscall.SIGKILL) })
-	backstop := time.AfterFunc(shotTimeout, func() { syscall.Kill(-pgid, syscall.SIGKILL) })
+	backstop := time.AfterFunc(shotFuse(), func() { syscall.Kill(-pgid, syscall.SIGKILL) })
 	defer backstop.Stop()
-	ready(t, pids, 30*time.Second)
+	ready(t, pids, readyFuse)
 	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -902,7 +944,10 @@ func TestShotStopsChromeWhenTheScriptIsStopped(t *testing.T) {
 // stand-in's ready marker, so process startup under load does not consume
 // the watchdog's allowance; a slow run fails however fast the rest were.
 // The bound is the timeout plus four seconds: normal runs take about two,
-// slow ones over six.
+// slow ones over six. Like the other bounds on how long a run took it is
+// sized to the machine (testload.Scale), so on a loaded leg it no longer
+// parts a slow run from a normal one; a plain run, which has no factor, keeps
+// it as it is.
 func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -927,7 +972,7 @@ func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
 			rc, text, err := runShotCmd(ctx, []string{s.URL + "/page", out}, env...)
 			done <- outcome{rc, text, err}
 		}()
-		readyAt := ready(t, pids, 30*time.Second)
+		readyAt := ready(t, pids, readyFuse)
 		res := <-done
 		if res.err != nil {
 			t.Fatalf("run %d of %d: shot: %v", i+1, runs, res.err)
@@ -935,20 +980,23 @@ func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
 		if res.rc == 0 || !strings.Contains(res.text, "chrome did not finish within 1s") {
 			t.Errorf("run %d of %d: exit %d, %q, want a refusal naming the deadline", i+1, runs, res.rc, res.text)
 		}
-		if dt := time.Since(readyAt); dt > 5*time.Second {
-			t.Errorf("run %d of %d: the refusal took %s after Chrome was ready, want within SHOT_TIMEOUT + 4 s", i+1, runs, dt.Round(time.Millisecond))
+		if dt, within := time.Since(readyAt), testload.Scale(5*time.Second); dt > within {
+			t.Errorf("run %d of %d: the refusal took %s after Chrome was ready, want within SHOT_TIMEOUT + 4 s (within %s here)", i+1, runs, dt.Round(time.Millisecond), within)
 		}
 		dead(t, pids)
 	}
 }
 
 // A slow Chrome is the machine's fault on the landing suite, under the race
-// detector and on a machine whose load is past its cores, and the shot's own
-// anywhere else. The machine's own load is pinned, as the gate's tests pin
-// theirs, so what the test finds does not depend on what else is running.
+// detector, on a machine the gate found loaded and on one whose load is past
+// its cores, and the shot's own anywhere else. The machine's own load is
+// pinned, as the gate's tests pin theirs, and so is the gate's factor, which a
+// race leg gives this test too, so what it finds does not depend on what else
+// is running.
 func TestUnderLoad(t *testing.T) {
 	t.Setenv("YARDR_TEST_LOADAVG", "1.5")
 	t.Setenv("YARDR_TEST_CORES", "10")
+	t.Setenv(config.Key(testload.Env), "")
 	t.Setenv("YARDR_LANDING", "1")
 	if !underLoad() {
 		t.Error("underLoad with YARDR_LANDING=1 is false")
@@ -961,30 +1009,48 @@ func TestUnderLoad(t *testing.T) {
 	if !underLoad() {
 		t.Error("underLoad on a machine at load 72.4 on 10 cores is false")
 	}
+	t.Setenv("YARDR_TEST_LOADAVG", "1.5")
+	t.Setenv(config.Key(testload.Env), "2.5")
+	if !underLoad() {
+		t.Error("underLoad where the gate gave the leg a factor of 2.5 is false")
+	}
 }
 
 // The machine is loaded when its one-minute load average is past its core
 // count, as the gate's loadedmachine says; at the count is not past it, and
-// a load or a count that cannot be read is no load (yardr-zkfj).
+// a load or a count that cannot be read is no load (yardr-zkfj). Where the gate
+// found it loaded when it gave the leg its factor, a factor above 1, it is
+// loaded however it reads now, or whether it reads at all; a factor of 1, or
+// one that is no factor, says nothing, and the reading decides.
 func TestMachineLoaded(t *testing.T) {
 	for _, c := range []struct {
 		avg, cores string
+		factor     string // the gate's YARDR_TEST_LOAD
 		want       bool
 	}{
-		{"72.4", "10", true},
-		{"10.5", "10", true},
-		{"10", "10", false},
-		{"1.5", "10", false},
-		{"", "10", false},
-		{"unknown", "10", false},
-		{"72.4", "", false},
-		{"72.4", "0", false},
+		{"72.4", "10", "", true},
+		{"10.5", "10", "", true},
+		{"10", "10", "", false},
+		{"1.5", "10", "", false},
+		{"", "10", "", false},
+		{"unknown", "10", "", false},
+		{"72.4", "", "", false},
+		{"72.4", "0", "", false},
+		{"1.5", "10", "2.5", true},
+		{"1.5", "10", "1.1", true},
+		{"unknown", "10", "4.0", true},
+		{"", "", "4.0", true},
+		{"72.4", "10", "1.0", true},
+		{"1.5", "10", "1.0", false},
+		{"72.4", "10", "heavy", true},
+		{"1.5", "10", "0.5", false},
 	} {
-		t.Run(c.avg+" on "+c.cores, func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s on %s, factor %s", c.avg, c.cores, c.factor), func(t *testing.T) {
 			t.Setenv("YARDR_TEST_LOADAVG", c.avg)
 			t.Setenv("YARDR_TEST_CORES", c.cores)
+			t.Setenv(config.Key(testload.Env), c.factor)
 			if got := machineLoaded(); got != c.want {
-				t.Errorf("machineLoaded at load %q on %q cores is %v, want %v", c.avg, c.cores, got, c.want)
+				t.Errorf("machineLoaded at load %q on %q cores with factor %q is %v, want %v", c.avg, c.cores, c.factor, got, c.want)
 			}
 		})
 	}
@@ -1027,6 +1093,34 @@ func TestSystemLoadIsRead(t *testing.T) {
 	avg, cores, ok := loadReading()
 	if !ok || avg < 0 || cores < 1 {
 		t.Errorf("the system's load reading is %v on %v cores, ok=%v", avg, cores, ok)
+	}
+}
+
+// The suite's fuses follow the gate's factor: the wait on the script, and the
+// looks readySleep's sleep takes for a stand-in, which are as long as the wait
+// for it that ready makes, or the sleep would start the watchdog's clock
+// before ready gave up. Neither is a measure of the script: SHOT_TIMEOUT, the
+// deadline a test gives it, is its input and stays as the test sets it.
+func TestFusesAreSizedToTheMachine(t *testing.T) {
+	for _, c := range []struct {
+		factor string
+		fuse   time.Duration
+		looks  int
+	}{
+		{"", time.Minute, 300},
+		{"1.0", time.Minute, 300},
+		{"2.5", 150 * time.Second, 750},
+		{"4.0", 4 * time.Minute, 1200},
+	} {
+		t.Run("factor "+c.factor, func(t *testing.T) {
+			t.Setenv(config.Key(testload.Env), c.factor)
+			if got := shotFuse(); got != c.fuse {
+				t.Errorf("shotFuse at factor %q is %s, want %s", c.factor, got, c.fuse)
+			}
+			if got := readyLooks(); got != c.looks {
+				t.Errorf("readyLooks at factor %q is %d, want %d", c.factor, got, c.looks)
+			}
+		})
 	}
 }
 
