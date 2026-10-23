@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1598,7 +1599,7 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 			}
 		}
 		return stage, nil
-	})
+	}, nil)
 	return b, s.refused(ctx, id, "yardr bead advance "+id+" --to "+stage, exp, actor, err)
 }
 
@@ -1607,7 +1608,8 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 // write like AdvanceNote. The outcome is recorded on the advanced event.
 // A bead no flow governs has no outcomes: it is moved with Advance.
 // The session's own done is refused while a note on the bead names that
-// session and is not acked (see checkUnread). DoneSafe is refused while the
+// session and is not acked (see checkUnread), and while its worktree has
+// uncommitted changes (see checkWorktree). DoneSafe is refused while the
 // bead's diff touches a path the depot lists (SecurityPathsFile). From a
 // session's or a crew member's pane the move and its note are recorded as
 // that session's actor or that crew member, whatever actor says; from
@@ -1617,7 +1619,8 @@ func (s *Store) Done(ctx context.Context, id, outcome, note string, exp Expect, 
 	command := DoneCommand(id, outcome)
 	// Read before the write: git must not run inside one.
 	safe := s.checkDoneSafe(ctx, id, outcome)
-	b, err := s.advance(ctx, id, note, exp, actor, true, donePick(outcome, safe))
+	dirty := s.checkWorktree(ctx, id, exp)
+	b, err := s.advance(ctx, id, note, exp, actor, true, donePick(outcome, safe), dirty)
 	return b, s.refused(ctx, id, command, exp, actor, err)
 }
 
@@ -1654,9 +1657,10 @@ func donePick(outcome string, safe *safeCheck) func(f *Flow, b *beadRow, data ma
 // under the bead's flow (nil without one), may add to the event's data,
 // and refuses by returning an error. gateUnread is Done's alone: the
 // session's own done while its notes are unread is refused (see
-// checkUnread). A move the flow or the stage's group refuses says which,
-// for move_refused (see refused).
-func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor string, gateUnread bool, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
+// checkUnread), as it is while its worktree has uncommitted changes
+// (dirty, read before the write by checkWorktree). A move the flow or the
+// stage's group refuses says which, for move_refused (see refused).
+func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor string, gateUnread bool, pick func(f *Flow, b *beadRow, data map[string]any) (string, error), dirty *worktreeCheck) (*Bead, error) {
 	pre, err := s.GetBead(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1691,6 +1695,9 @@ func (s *Store) advance(ctx context.Context, id, note string, exp Expect, actor 
 		// Before the note, like the check: a refused done leaves none.
 		if gateUnread {
 			if err := w.checkUnread(ctx, exp, cur); err != nil {
+				return err
+			}
+			if err := dirty.refusal(); err != nil {
 				return err
 			}
 		}
@@ -1774,6 +1781,107 @@ func (w *wtx) checkUnread(ctx context.Context, exp Expect, b *beadRow) error {
 	}
 	return fmt.Errorf("bead %s: session %s has %d unread %s; ack each with `yardr bead note %s --ack <seq>` and try again:\n%s",
 		b.ID, sess.ID, len(unread), notes, b.ID, strings.Join(lines, "\n"))
+}
+
+// worktreeGitTimeout bounds the git a done waits for: a worktree that
+// hangs refuses the report, and the agent that made it is told so,
+// instead of its command never coming back.
+const worktreeGitTimeout = 30 * time.Second
+
+// worktreeCheck is what Done found out about the caller session's
+// worktree, before its write: git must not run inside one. Either the
+// worktree has uncommitted changes (files), or whether it does could not
+// be told (err), which holds the report too: a done whose work cannot be
+// shown to be committed is not the session's to report.
+type worktreeCheck struct {
+	session  string
+	bead     string
+	worktree string
+	files    []string
+	err      error
+}
+
+// checkWorktree reads the caller session's worktree for a done of bead
+// id, or nil when there is nothing to hold it to: no session, another
+// bead's session, a runner with no worktree of its own (exec, manual,
+// peer), a session whose handle names no worktree, or a clean one.
+// Everything the move would refuse anyway is left to it.
+func (s *Store) checkWorktree(ctx context.Context, id string, exp Expect) *worktreeCheck {
+	var found *worktreeCheck
+	_ = s.read(func(tx *bolt.Tx) error {
+		row, err := loadBead(tx, id)
+		if err != nil {
+			return nil
+		}
+		sess, err := callerSessionTx(tx, callerOf(ctx), exp, row)
+		if err != nil {
+			return nil
+		}
+		if sess == nil || sess.Bead != row.UUID {
+			return nil
+		}
+		switch sess.RunnerName() {
+		case "exec", "manual", "peer":
+			return nil
+		}
+		dir, _ := sess.Handle["worktree"].(string)
+		if dir == "" {
+			return nil
+		}
+		found = &worktreeCheck{session: sess.ID, bead: row.ID, worktree: dir}
+		return nil
+	})
+	if found == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, worktreeGitTimeout)
+	defer cancel()
+	out, err := git(ctx, found.worktree, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		found.err = err
+		return found
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			continue
+		}
+		path := line
+		if len(line) > 3 {
+			path = line[3:]
+		}
+		found.files = append(found.files, path)
+	}
+	if len(found.files) == 0 {
+		return nil
+	}
+	return found
+}
+
+// refusal is the error that holds the session's own done while its
+// worktree has uncommitted changes, or nil: it names each changed file
+// and the three ways out, or why the worktree could not be read.
+func (c *worktreeCheck) refusal() error {
+	if c == nil {
+		return nil
+	}
+	if c.err != nil {
+		return fmt.Errorf("bead %s: session %s's worktree %s could not be checked for uncommitted changes: %s; fix the worktree and try again",
+			c.bead, c.session, c.worktree, c.err)
+	}
+	const shown = 20
+	files := c.files
+	lines := make([]string, 0, len(files)+1)
+	for _, file := range files[:min(len(files), shown)] {
+		// The agent names its own files, so a name may carry
+		// terminal controls or line breaks; quote it before
+		// returning the refusal to the session that reported done.
+		lines = append(lines, strconv.QuoteToASCII(file))
+	}
+	if len(files) > shown {
+		lines = append(lines, fmt.Sprintf("and %d more", len(files)-shown))
+	}
+	return fmt.Errorf("bead %s: session %s has uncommitted changes in its worktree (%s); commit them, remove them, or attach them to a note with `yardr bead note %s --file <path>` and remove them, then try again:\n%s",
+		c.bead, c.session, countNoun(len(files), "file"), c.bead, strings.Join(lines, "\n"))
 }
 
 // moveBead is the move itself, inside a write: the bead goes to the stage
@@ -2199,7 +2307,13 @@ func (w *wtx) check(ctx context.Context, e Expect, b *beadRow) error {
 // pane the call came from when the store knows it, else the one e names,
 // which must exist. nil when neither names one.
 func (w *wtx) callerSession(ctx context.Context, e Expect, b *beadRow) (*Session, error) {
-	pane, err := paneSession(w.Tx, callerOf(ctx))
+	return callerSessionTx(w.Tx, callerOf(ctx), e, b)
+}
+
+// callerSessionTx is callerSession on a bare transaction, for the reads
+// before a write that resolve the caller the same way (checkWorktree).
+func callerSessionTx(tx *bolt.Tx, pid int, e Expect, b *beadRow) (*Session, error) {
+	pane, err := paneSession(tx, pid)
 	if err != nil {
 		return nil, err
 	}
@@ -2212,7 +2326,7 @@ func (w *wtx) callerSession(ctx context.Context, e Expect, b *beadRow) (*Session
 		return nil, nil
 	}
 	sess := new(Session)
-	ok, err := get(w.Tx, bSessions, e.Session, sess)
+	ok, err := get(tx, bSessions, e.Session, sess)
 	if err != nil {
 		return nil, err
 	}

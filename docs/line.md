@@ -105,6 +105,14 @@ each unread note, with its number, writer and text, and how to ack it
 A person moving the bead is not gated, nor is a session of a runner with
 no agent to ack (exec, manual, peer).
 
+**Done waits for a clean worktree.** The session's own `yardr bead done`
+is refused while the worktree its handle names has uncommitted changes.
+The refusal names each changed file, with the three ways out: commit
+them, remove them, or attach them to a note (`yardr bead note <id>
+--file <path>`) and remove them; once the worktree reads clean the same
+done passes. A person moving the bead is not gated, nor is a session
+whose handle names no worktree.
+
 The telling reaches the session whatever its pane shows. Where the pane
 shows the prompt of its harness the telling is typed into it, as a crew
 member's nudge is ([crew.md](crew.md#text-in-the-input)); where it shows

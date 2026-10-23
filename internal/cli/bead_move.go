@@ -54,7 +54,10 @@ says otherwise) and moves the bead to the stage its flow names for it, as
 advance would. A stage with a single way out offers done for it.
 yardr prime --bead lists the stage's outcomes. The session's own done is
 refused while a note on the bead names that session and is not acked; the
-refusal shows each unread note and how to ack it. --outcome done-safe is
+refusal shows each unread note and how to ack it. It is refused while the
+session's worktree has uncommitted changes; the refusal names each
+changed file, and committing them, removing them, or attaching them to a
+note and removing them clears it. --outcome done-safe is
 refused while the bead's diff touches a path its depot lists in
 .yardr/security_paths; the refusal names the files, and done goes to the
 review that reads them.`,
