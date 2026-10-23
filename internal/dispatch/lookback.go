@@ -16,8 +16,9 @@ import (
 // command reads the CI state of one commit of it. Both run as a thread
 // command does: one JSON object on stdin, one on stdout, with the
 // credential under the variable credential.env names, the proxy and CA
-// variables the process that runs them has, and YARDR_SOURCE_BASE, with
-// nothing else of the yard. Both use the hook's as crew member's
+// variables the process that runs them has, and YARDR_SOURCE_BASE, set to
+// the source's selected base, with nothing else of the yard. Both use the
+// hook's as crew member's
 // credential, resolved as for a move (issues.go), and do not try an ambient
 // credential.
 

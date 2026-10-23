@@ -162,6 +162,7 @@ func setupAsked(prefix string) []field {
 	return []field{
 		{prefix + "setup", "object?", "the setup a setup ask proposes, as `Bead` says it; absent on any other ask"},
 		{prefix + "setup.pack", "string", "the embedded pack to set up, of kind source"},
+		{prefix + "setup.base", "string?", "the selected region base name; absent when calls go to the declaration's own base"},
 		{prefix + "setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
 		{prefix + "setup.account", "array of string", "the names to type unseen beside the preset pick"},
 		{prefix + "setup.account_file", "string", "the file the value goes to, on the yard's machine"},
@@ -515,6 +516,7 @@ var apiCalls = []apiCall{
 			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
 			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].setup.pack", "string", "the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered"},
+			{"asks[].setup.base", "string?", "the selected region base name; absent when calls go to the declarations' own bases"},
 			{"asks[].setup.label", "string?", "the build the pack is embedded in, as the card shows it"},
 			{"asks[].setup.account", "array of string", "the names the account is made of: the mint's inputs where the pack's credential is minted, else every credential name. A first setup types every one beside the preset pick; an update says by `given` and `missing` which of them the account file that stands holds. Where the card lists candidates, the answer names one of them instead"},
 			{"asks[].setup.account_file", "string", "the file a typed value goes to, on the yard's machine; on an update, the account file that stands"},
@@ -1462,15 +1464,19 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	// taken, an update that keeps the account that stands, and one that
 	// types the name it is missing.
 	setup := func(question, why, pack string, to ...store.Grantee) uint64 {
+		base := ""
+		if pack == "courier" {
+			base = "eu"
+		}
 		seq, err := st.AddAsk(ctx, crm.ID, store.Ask{Question: question, To: "jo", Context: []string{why},
-			Setup: &store.AskSetup{Pack: pack, To: to}}, "yardmaster")
+			Setup: &store.AskSetup{Pack: pack, To: to, Base: base}}, "yardmaster")
 		must(err)
 		return seq
 	}
 	setupTo := []store.Grantee{{Group: "builders"}, {Crew: "yardmaster"}}
 	apiSetupAsks[0], err = st.AddAsk(ctx, crm.ID, store.Ask{Question: "Set up the courier source?", To: "jo",
 		Context: []string{"The nightly run pages through it."}, Recommend: 1, Why: "reading is the job",
-		Setup: &store.AskSetup{Pack: "courier", To: setupTo}}, "yardmaster")
+		Setup: &store.AskSetup{Pack: "courier", To: setupTo, Base: "eu"}}, "yardmaster")
 	must(err)
 	apiSetupAsks[1] = setup("Set up the courier source for the night crew?", "The night run pages through it.", "courier", store.Grantee{Crew: "yardmaster"})
 	apiSetupAsks[2] = setup("Update the ledger source?", "The build brings the ledger's new base.", "ledger", setupTo...)
@@ -1630,6 +1636,7 @@ func apiSource(name, env, update string) string {
 // account is its mint input, shared with the existing courier source.
 func apiSetupSource(name string) string {
 	return "name: " + name + "\nbase: https://" + name + ".example.com/api\n" +
+		"bases:\n  us: https://" + name + ".example.com/api\n  eu: https://eu." + name + ".example.com/api\n" +
 		"credential:\n  env: COURIER_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n" +
 		"  mint: [COURIER_ACCOUNT]\n  mint_command: [courier-mint]\n" +
 		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" +

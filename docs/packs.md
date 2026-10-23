@@ -839,11 +839,11 @@ declared source pushover, from sources/pushover.yaml
   refuses there makes the pack invalid, named by the declaration's file,
   line and key. The name in the file is the pack's key.
 - **A declaration in a pack for a depot has the keys `name`, `about`,
-  `base`, `credential`, `check`, `idempotency`, `calls` and `notify`, and
-  no other.** A key a later yardr reads in a declaration is not thereby one
-  a pack may bring: a pack for a depot brings no command the yard runs. A
-  pack of kind `source` may also bring `hook`, `thread` and `link`
-  ([An integration pack](#an-integration-pack-kind-source)); `limits` stays
+  `base`, optional `bases`, `credential`, `check`, `idempotency`, `calls`
+  and `notify`, and no other.** A key a later yardr reads in a declaration
+  is not thereby one a pack may bring: a pack for a depot brings no command
+  the yard runs. A pack of kind `source` may also bring `hook`, `thread` and
+  `link` ([An integration pack](#an-integration-pack-kind-source)); `limits` stays
   refused in every pack: what a subscription still carries is the yard's to
   ask, not a pack's to say.
 - **The commands' files are the pack's to carry.** In a pack of kind
@@ -871,9 +871,11 @@ declared source pushover, from sources/pushover.yaml
   <user>=<source>[,<envfile>]` set both as the import runs, as `yardr
   source set` and `yardr user set` do, and are refused as there; both are
   repeatable, the last wins for one source or user, and neither is asked
-  for. Setting a source's file is the operator's, and telling a user
-  theirs or the operator's: run by anyone else the import does the rest
-  and sets neither. Where no call is granted and a crew member holds the
+  for. `--source-base <source>=<name>` calls the declaration's region
+  base `<name>` the same way; a source no flag names takes the last
+  import's answer, unless told anew. Setting a source is the operator's,
+  and telling a user theirs or the operator's: run by anyone else the
+  import does the rest and sets none of them. Where no call is granted and a crew member holds the
   key, the plan says nothing of the source's file: the server makes no
   call of it, and only `yardr source check <name>` reads the source's own
   file.
@@ -1000,12 +1002,14 @@ answers nothing, since its binding is the yard's and is kept; that is not
 an error, so the same command can be run again. A crew member the import
 creates works in the yard's home, as one made by `yardr crew add` does.
 
-Two flags are never asked for, in a terminal or without one: `--source-env
-<source>=<file>` and `--notify <user>=<source>[,<envfile>]`, which set a
-declared source's file and the user told through it as the import runs
+Three flags are never asked for, in a terminal or without one: `--source-env
+<source>=<file>`, `--notify <user>=<source>[,<envfile>]` and `--source-base
+<source>=<name>`, which set a declared source's file, the user told through
+it, and the region base it calls as the import runs
 ([Declared sources](#how-a-pack-maps-to-the-yard)). Nothing is set but
-what they give; without them the plan and the output give the `source set`
-and `user set` commands that are owed.
+what they give, except a base the last import's answer gives; without them
+the plan and the output give the `source set` and `user set` commands that
+are owed.
 
 **One answer to `--crew` per yard.** The filled copies of a pack's
 roles and stage files are installed once per pack
@@ -1826,9 +1830,9 @@ which command or who would, and `result.exposed` lists each `crew` with the
 run set no stage map for it, and `result.mapped` the maps it set, each with
 `hook`, `source`, `as` and `map`; `sources_refused` is declared source ->
 why this run did not add it, and `result.declared` the names of those it
-added or replaced; `sets` is what `--source-env` and `--notify` set for
-the declared sources, `set` and `skip` each holding source -> the lines
-said):
+added or replaced; `sets` is what `--source-env`, `--notify` and
+`--source-base` set for the declared sources, `set` and `skip` each
+holding source -> the lines said):
 
 ```json
 {

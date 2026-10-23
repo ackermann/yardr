@@ -104,6 +104,46 @@ func TestSourceAddShowRemove(t *testing.T) {
 	if out, err = run(t, a.sourceCmd(), "set", "pushover", "env_file="+env); err != nil || !strings.Contains(out, "source pushover: PUSHOVER_TOKEN is set in "+env) {
 		t.Fatalf("set: %q %v", out, err)
 	}
+	decl, err := os.ReadFile("testdata/pushover.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withBases := strings.Replace(string(decl), "base: https://api.pushover.net/1\n",
+		"base: https://api.pushover.net/1\nbases:\n  us: https://api.pushover.net/1\n  eu: https://eu.api.pushover.net/1\n", 1)
+	if withBases == string(decl) {
+		t.Fatal("the test adds no region bases")
+	}
+	baseFile := filepath.Join(t.TempDir(), "pushover.yaml")
+	if err := os.WriteFile(baseFile, []byte(withBases), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", baseFile); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.sourceCmd(), "set", "pushover", "base=xx"); err == nil || !strings.Contains(err.Error(), "(it has: eu, us)") {
+		t.Fatalf("set base=xx: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "set", "pushover", "base=eu")
+	if err != nil || !strings.Contains(out, "source pushover: calls go to https://eu.api.pushover.net/1 (base eu)") {
+		t.Fatalf("set base=eu: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "show", "pushover")
+	if err != nil || !strings.Contains(out, "pushover  https://eu.api.pushover.net/1 (base eu)") || !strings.Contains(out, "bases: eu https://eu.api.pushover.net/1, us https://api.pushover.net/1") {
+		t.Fatalf("show with region base: %q %v", out, err)
+	}
+	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "https://eu.api.pushover.net/1 (base eu)") {
+		t.Fatalf("list with region base: %q %v", out, err)
+	}
+	if _, err := st.PutSource(context.Background(), "pushover.yaml", string(decl), "jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.sourceCmd(), "show", "pushover")
+	if err != nil || !strings.Contains(out, "pushover  https://api.pushover.net/1\n") || strings.Contains(out, "(base eu)") {
+		t.Fatalf("show after the declaration drops eu: %q %v", out, err)
+	}
+	if out, err = run(t, a.sourceCmd(), "set", "pushover", "base="); err != nil || !strings.Contains(out, "source pushover: calls go to https://api.pushover.net/1\n") {
+		t.Fatalf("clear region base: %q %v", out, err)
+	}
 	out, err = run(t, a.sourceCmd(), "check", "pushover")
 	if err != nil || !strings.Contains(out, "names no check call") || !strings.Contains(out, "nothing was sent") || strings.Contains(out, "tok-of-the-yard") {
 		t.Fatalf("check of a source without a check call: %q %v", out, err)

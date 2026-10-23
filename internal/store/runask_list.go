@@ -70,20 +70,20 @@ func seen(parts ...any) string {
 }
 
 // sourceSeen is what a run ask keeps of a source: its declaration text,
-// where its credential comes from, and the whole destination inventory
-// of its command copies (inventoryOf). A replaced file may keep a call's
-// name, method and path and send another body, and every sentence then
-// reads as before; a copy changed, added, removed or chmodded under it
-// reads as nothing on the card, and is caught here alone.
+// where its credential comes from and where its calls go, and the whole
+// destination inventory of its command copies (inventoryOf). A replaced
+// file may keep a call's name, method and path and send another body, and
+// every sentence then reads as before; a copy changed, added, removed or
+// chmodded under it reads as nothing on the card, and is caught here alone.
 func (w *wtx) sourceSeen(src *Source) (string, error) {
 	inv, _, err := w.inventoryOf(src.Name, false)
 	if err != nil {
 		return "", err
 	}
 	if len(inv) > 0 {
-		return seen(src.Text, src.EnvFile, src.MintCommand, inv), nil
+		return seen(src.Text, src.EnvFile, src.MintCommand, src.Base, inv), nil
 	}
-	return seen(src.Text, src.EnvFile, src.MintCommand), nil
+	return seen(src.Text, src.EnvFile, src.MintCommand, src.Base), nil
 }
 
 // lastEvent is the newest event of the kind kind that match takes, among
@@ -134,10 +134,14 @@ func (w *wtx) staleSource(seq uint64, name string, was, now AskRun) error {
 	set := lastEvent(w.Tx, "source_set", func(e Event) bool {
 		_, file := e.Data[SourceEnvFile]
 		_, mint := e.Data[SourceMintCommand]
-		return e.Data["source"] == name && (file || mint)
+		_, base := e.Data[SourceBase]
+		return e.Data["source"] == name && (file || mint || base)
 	})
 	switch {
 	case set != nil && (added == nil || set.Seq > added.Seq):
+		if _, base := set.Data[SourceBase]; base {
+			return fmt.Errorf("ask %d was written when the source %s used another base: its base was set since%s. %s", seq, name, since(set), nothingRan)
+		}
 		what := SourceEnvFile
 		if _, mint := set.Data[SourceMintCommand]; mint {
 			what = SourceMintCommand
@@ -224,9 +228,10 @@ func andList(words []string) string {
 }
 
 // parseSourceLimit reads the words of source set <source> <setting>=<n>.
-// Where the credential comes from is read too, and refused as the
-// operator's alone by the check, not here: a path and a program are no
-// words of a command that is approved from a card.
+// Where the credential comes from, and where it is sent, is read too,
+// and refused as the operator's alone by the check, not here: a path, a
+// program and a base are no words of a command that is approved from a
+// card.
 func parseSourceLimit(rest []string) ([]string, error) {
 	const use = "yardr source set <source> calls_per_hour=<n> or updates_per_hour=<n>"
 	args, _, err := runWords(use, "source set", "the operator's", rest, nil)
@@ -241,12 +246,12 @@ func parseSourceLimit(rest []string) ([]string, error) {
 	switch {
 	case !ok:
 		return nil, fmt.Errorf("--run takes %s: %q is no setting", use, args[1])
-	case key != SourceCallsPerHour && key != SourceUpdatesPerHour && key != SourceEnvFile && key != SourceMintCommand:
+	case key != SourceCallsPerHour && key != SourceUpdatesPerHour && key != SourceEnvFile && key != SourceMintCommand && key != SourceBase:
 		return nil, fmt.Errorf("source %s: %s is no setting of a source (it has: %s)", name, key, strings.Join(SourceSettings, ", "))
 	case value == "":
 		return nil, fmt.Errorf("--run takes %s, and source set with %s= and nothing after it is the operator's to type in a terminal", use, key)
 	}
-	if key == SourceEnvFile || key == SourceMintCommand {
+	if key == SourceEnvFile || key == SourceMintCommand || key == SourceBase {
 		return []string{name, args[1]}, nil
 	}
 	n, err := sourceSetting(name, key, value)
@@ -257,8 +262,8 @@ func parseSourceLimit(rest []string) ([]string, error) {
 }
 
 // checkSourceLimit is the source set's own check as the asker: the two
-// limits may be proposed, and where the credential comes from is the
-// operator's alone.
+// limits may be proposed, and where the credential comes from, and where
+// it is sent, is the operator's alone.
 func checkSourceLimit(ctx context.Context, w *wtx, argv []string, actor string) error {
 	name, key, _ := sourceLimitOf(argv)
 	_, err := w.sourceSetCheck(ctx, name, key, actor)
@@ -303,6 +308,7 @@ func (w *wtx) sourceLimitCard(argv []string, asking bool) (AskRun, error) {
 	if err != nil {
 		return AskRun{}, err
 	}
+	d = d.WithBase(src.Base)
 	has := limitOf(src, key)
 	if asking && n == has {
 		return AskRun{}, fmt.Errorf("source %s: %s is %d already, so the command would change nothing", name, key, has)
@@ -596,6 +602,7 @@ func (w *wtx) grantCard(argv []string, asking bool) (AskRun, error) {
 	if err != nil {
 		return AskRun{}, err
 	}
+	d = d.WithBase(src.Base)
 	var pack, label, build string
 	calls := []string{what}
 	if preset != "" {

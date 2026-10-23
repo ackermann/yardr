@@ -29,12 +29,17 @@ import (
 // envelope. stdin is the file argv[1] names, so the test reads what the
 // command was handed.
 const acmeNormalize = `#!/bin/sh
+printf '%s' "$YARDR_SOURCE_BASE" > "$1.base"
 cat > "$1"
 printf '%s' '{"type":"ping","action":"create","text":"hi","actor":{"id":"u1","name":"Ann"},"fields":{"team":["ENG"],"queue":["triage"]}}'
 `
 
 func acmeText(stdin string) string {
 	return fmt.Sprintf(`name: acme
+base: https://api.acme.test
+bases:
+  us: https://api.acme.test
+  eu: https://eu.api.acme.test
 hook:
   verify:
     scheme: hmac-sha256
@@ -45,6 +50,8 @@ hook:
   bodies: unique
   normalize: [normalize, %s]
   keys: [team, queue]
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
 `, stdin)
 }
 
@@ -72,6 +79,9 @@ func acmeDepot(t *testing.T) (*depot, string) {
 	}
 	scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
 	if _, err := r.st.PutSource(ctx, "acme.yaml", acmeText(stdin), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.SetSource(ctx, "acme", store.SourceBase, "eu", "me"); err != nil {
 		t.Fatal(err)
 	}
 	secretFile := filepath.Join(home, "acme.secret")
@@ -113,6 +123,9 @@ func TestDeclaredDeliveryRecorded(t *testing.T) {
 	body := acmeBody(r.now)
 	if code := r.acme(t, body, secret, "a-1"); code != http.StatusOK {
 		t.Fatalf("good signature: %d", code)
+	}
+	if base, err := os.ReadFile(stdin + ".base"); err != nil || string(base) != "https://eu.api.acme.test" {
+		t.Fatalf("normalize command received base %q, %v", base, err)
 	}
 	evs := r.hookEvents(t)
 	if len(evs) != 1 {

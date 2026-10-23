@@ -85,15 +85,16 @@ func (f *packFlags) registerShape(c *cobra.Command) {
 // init's with --pack.
 type importFlags struct {
 	packFlags
-	binds     []string
-	members   []string
-	opens     []string
-	calls     []string
-	sourceEnv []string
-	notify    []string
-	sha256    digestFlag
-	yes       bool
-	prune     bool // pack apply's alone
+	binds      []string
+	members    []string
+	opens      []string
+	calls      []string
+	sourceEnv  []string
+	sourceBase []string
+	notify     []string
+	sha256     digestFlag
+	yes        bool
+	prune      bool // pack apply's alone
 }
 
 // digestFlag is --sha256, a pack's digest. It is held to a digest when the
@@ -122,6 +123,7 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.opens, "open-threads", nil, "<pack's crew member>=linear,github: let the crew member that takes it open threads in these of the sources the pack asks for, and in no other; =none for no (repeatable)")
 	c.Flags().StringArrayVar(&f.calls, "calls", nil, "<group>=<source>:read,<call>: let the group's sessions make these of the calls the pack asks for of a declared source, and no other; crew:<pack's crew member>=… for a crew member; <source>:none for no (repeatable)")
 	c.Flags().StringArrayVar(&f.sourceEnv, "source-env", nil, "<source>=<file>: set the file the source's credential is read from, as yardr source set <source> env_file=<file> does, for a source the pack declares (repeatable)")
+	c.Flags().StringArrayVar(&f.sourceBase, "source-base", nil, "<source>=<name>: call the declaration's region base <name> for a source the pack declares, as yardr source set <source> base=<name> does (repeatable; default: as at the last import)")
 	c.Flags().StringArrayVar(&f.notify, "notify", nil, "<user>=<source>[,<envfile>]: tell the user through the source, as yardr user set <user> notify=<source> env_file=<envfile> does, for a source the pack declares that can tell a user (repeatable)")
 	c.Flags().BoolVar(&f.yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
 	c.Flags().Var(&f.sha256, "sha256", "apply only the pack whose digest this is (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is asked or written")
@@ -771,10 +773,11 @@ type plannedImport struct {
 	refused map[string]string
 	// sources says, by declared source, why this run does not add it.
 	sources map[string]string
-	// envs and tos are the checked --source-env and --notify flags, and
-	// sets what applying them did.
+	// envs, tos and bases are the checked --source-env, --notify and
+	// --source-base flags, and sets what applying them did.
 	envs  []sourceEnv
 	tos   []notifyTo
+	bases []sourceBase
 	sets  *notifySets
 	prune bool
 	yes   bool
@@ -871,10 +874,10 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 		_ = a.out(w, plan, func(w io.Writer) { printPlan(w, plan, nil, nil, nil, nil, true) })
 		return nil, errCheckFailed
 	}
-	// What --source-env and --notify set for the sources the plan
-	// declares: checked against the plan and the yard before anything is
-	// written, and set once the import wrote its objects.
-	envs, tos, err := planNotify(ctx, st, p, f.sourceEnv, f.notify)
+	// What --source-env, --notify and --source-base set for the sources
+	// the plan declares: checked against the plan and the yard before
+	// anything is written, and set once the import wrote its objects.
+	envs, tos, bases, err := planNotify(ctx, st, p, f.opts.Depot, f.sourceEnv, f.notify, f.sourceBase)
 	if err != nil {
 		return nil, err
 	}
@@ -955,7 +958,7 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 			todo++
 		}
 	}
-	if !asking && !f.yes && (todo+len(open.Answers)+len(calls.Answers)+len(envs)+len(tos) > 0 || also != "") {
+	if !asking && !f.yes && (todo+len(open.Answers)+len(calls.Answers)+len(envs)+len(tos)+len(bases) > 0 || also != "") {
 		return nil, noTerminal{fmt.Sprintf("%s changes the yard: give --yes, or run it in a terminal to be asked", cmd)}
 	}
 	if (todo > 0 || also != "") && !f.yes {
@@ -982,7 +985,7 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 	if err := expose.ask(); err != nil {
 		return nil, cancelled(w, err)
 	}
-	return &plannedImport{st: st, plan: plan, pack: p, opts: f.opts, answers: answers, open: open, calls: calls, expose: expose, refused: refused, sources: sources, envs: envs, tos: tos, prune: f.prune, yes: f.yes}, nil
+	return &plannedImport{st: st, plan: plan, pack: p, opts: f.opts, answers: answers, open: open, calls: calls, expose: expose, refused: refused, sources: sources, envs: envs, tos: tos, bases: bases, prune: f.prune, yes: f.yes}, nil
 }
 
 // apply writes a planned import and says what it did. extra is what the
@@ -999,7 +1002,25 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 		return err
 	}
 	defer release()
-	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, Expose: i.expose.Answers, MapRefused: i.refused, SourceRefused: i.sources, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
+	// The bases the import will set, for the record: a refused or
+	// skipped one is recorded no more than it is set.
+	var recordBase map[string]string
+	if len(i.bases) > 0 {
+		ops, err := yardOperators(ctx, i.st)
+		if err != nil {
+			return err
+		}
+		for _, b := range i.bases {
+			if setSkipped(i.sources, ops, a.who(), b.source) != "" {
+				continue
+			}
+			if recordBase == nil {
+				recordBase = map[string]string{}
+			}
+			recordBase[b.source] = b.name
+		}
+	}
+	res, err := pack.Apply(ctx, i.st, i.plan, pack.ApplyOptions{Answers: i.answers, OpenThreads: i.open.Answers, Calls: i.calls.Answers, Expose: i.expose.Answers, MapRefused: i.refused, SourceRefused: i.sources, SourceBase: recordBase, Prune: i.prune, Overwrite: i.yes, Actor: a.who()})
 	if err != nil {
 		if res != nil {
 			v := map[string]any{"plan": i.plan, "answers": i.answers, "open_threads": i.open, "calls": i.calls, "expose": i.expose, "maps_refused": i.refused, "sources_refused": i.sources, "result": res}
@@ -1015,12 +1036,12 @@ func (i *plannedImport) apply(w io.Writer, ctx context.Context, a *app, extra ma
 		}
 		return err
 	}
-	// After the objects: the sources are there for --source-env and
-	// --notify to be set on. The plan is made again, so what the sets
-	// leave open is said fresh.
+	// After the objects: the sources are there for --source-env,
+	// --notify and --source-base to be set on. The plan is made again,
+	// so what the sets leave open is said fresh.
 	var serr error
-	if len(i.envs)+len(i.tos) > 0 {
-		i.sets, serr = applyNotify(ctx, i.st, i.plan, a.who(), i.sources, i.envs, i.tos)
+	if len(i.envs)+len(i.tos)+len(i.bases) > 0 {
+		i.sets, serr = applyNotify(ctx, i.st, i.plan, a.who(), i.sources, i.envs, i.tos, i.bases)
 		if fresh, ferr := pack.Build(ctx, i.st, i.pack, i.opts); ferr == nil {
 			i.plan.Declared = fresh.Declared
 		}

@@ -49,13 +49,19 @@ func (c *carrier) askSetup(ctx context.Context, rec *store.Carry) (*store.AskSet
 }
 
 // carrySetup carries out the approved setup setup with the preset picked:
-// the apply, the account and the grants, each verified back. A failure of
-// any step stops the rest and is recorded on the ask (FailCarry).
+// the apply, the base, the account and the grants, each verified back. A
+// failure of any step stops the rest and is recorded on the ask
+// (FailCarry).
 func (c *carrier) carrySetup(ctx context.Context, rec *store.Carry, setup *store.AskSetup, picked int) (string, string) {
 	lines, failure := c.carrySetupApply(ctx, rec, setup)
 	if failure != "" {
 		return "", failure
 	}
+	based, failure := c.carrySetupBase(ctx, rec, setup)
+	if failure != "" {
+		return "", failure
+	}
+	lines = append(lines, based...)
 	file, failure := c.carrySetupAccount(ctx, rec, setup, picked)
 	if failure != "" {
 		return "", failure
@@ -85,6 +91,40 @@ func (c *carrier) carrySetupApply(ctx context.Context, rec *store.Carry, setup *
 		return nil, failure
 	}
 	return packResultLines(res, plan, false), ""
+}
+
+// carrySetupBase is a setup's base step: each carried source whose
+// declaration names region bases is set to the asked one, as the
+// operator. Nothing is set where the ask chose none. It answers what it
+// set, a line a source.
+func (c *carrier) carrySetupBase(ctx context.Context, rec *store.Carry, setup *store.AskSetup) ([]string, string) {
+	if setup.Base == "" {
+		return nil, ""
+	}
+	var lines []string
+	for _, carried := range setup.Carried {
+		src, err := c.st.GetSource(ctx, carried.Name)
+		if err != nil {
+			return nil, failWords(fmt.Sprintf("pack %s is applied, but the base of source %s was not set: %v", setup.Pack, carried.Name, err),
+				"yardr source set "+carried.Name+" base="+setup.Base)
+		}
+		d, err := src.Declaration()
+		if err != nil {
+			return nil, failWords(fmt.Sprintf("pack %s is applied, but the base of source %s was not set: %v", setup.Pack, carried.Name, err),
+				"yardr source set "+carried.Name+" base="+setup.Base)
+		}
+		if len(d.Bases) == 0 {
+			continue
+		}
+		saved, err := c.st.SetSource(ctx, carried.Name, store.SourceBase, setup.Base, rec.Actor)
+		if err != nil {
+			return nil, failWords(fmt.Sprintf("pack %s is applied, but the base of source %s was not set: %v", setup.Pack, carried.Name, err),
+				"yardr source set "+carried.Name+" base="+setup.Base)
+		}
+		url, _ := d.BaseURL(saved.Base)
+		lines = append(lines, fmt.Sprintf("source %s: calls go to %s (base %s)", saved.Name, url, saved.Base))
+	}
+	return lines, ""
 }
 
 // carrySetupAccount is a setup's account step: for a typed approval the

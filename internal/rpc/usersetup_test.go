@@ -798,6 +798,16 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 	must(err)
 	_, err = y.st.SetSource(ctx, "crm", store.SourceCallsPerHour, "120", "jo")
 	must(err)
+	const regional = `name: regional
+base: https://us.example.test
+bases:
+  eu: https://eu.example.test
+credential: { env: REGION_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
+`
+	_, err = y.st.PutSource(ctx, "regional.yaml", regional, "jo")
+	must(err)
 	// A hook whose secret file the receiver finds open to others, and says so
 	// in the words it logs the block with: the error of reading the file.
 	dir := filepath.Dir(file)
@@ -824,6 +834,8 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 	must(err)
 	const mint = "/home/jo/bin/crm-mint --org acme"
 	_, err = y.st.SetSource(ctx, "crm", store.SourceMintCommand, mint, "jo")
+	must(err)
+	_, err = y.st.SetSource(ctx, "regional", store.SourceBase, "eu", "jo")
 	must(err)
 	// sam's own device is told no more of their file than jo's of anyone's.
 	address := filepath.Join(dir, "sam.env")
@@ -862,6 +874,7 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 		{"source": "crm", "calls_per_hour": "120"},
 		{"source": "crm", "env_file": moved},
 		{"source": "crm", "mint_command": mint},
+		{"source": "regional", "base": "eu"},
 		{"user": "sam", "env_file": address, "tell": "mail"},
 		{"hook": "linear", "path": secret, "reason": open.Error()},
 		{"crew": "yardmaster", "handle": map[string]any{"dir": crewDir, "first_prompt": handle["first_prompt"]}},
@@ -879,6 +892,7 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 		{"source": "crm", "calls_per_hour": "120"},
 		{"source": "crm"},
 		{"source": "crm"},
+		{"source": "regional"},
 		{"user": "sam", "tell": "mail"},
 		{"hook": "linear"},
 		{"crew": "yardmaster"},

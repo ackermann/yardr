@@ -190,6 +190,55 @@ func TestHookRegisterMakesSecretAndCalls(t *testing.T) {
 	if strings.Contains(string(db), string(secret)) {
 		t.Fatal("the made secret stands in the store file")
 	}
+	t.Run("chosen region base", func(t *testing.T) {
+		var defaultHits []registerHit
+		status := http.StatusOK
+		y := registerYard(t, &defaultHits, &status)
+		var regionHits []registerHit
+		region := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			hit := registerHit{method: r.Method, path: r.URL.Path, auth: r.Header.Get("Authorization"), raw: string(b)}
+			_ = json.Unmarshal(b, &hit.body)
+			regionHits = append(regionHits, hit)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}))
+		t.Cleanup(region.Close)
+		src, err := y.GetSource(y.ctx, "bot")
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(src.Text, "base: "+mustBase(t, src)+"\n", "base: "+mustBase(t, src)+"\nbases:\n  eu: "+region.URL+"\n", 1)
+		if text == src.Text {
+			t.Fatal("the test adds no region base")
+		}
+		if _, err := y.PutSource(y.ctx, "bot.yaml", text, "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.SetSource(y.ctx, "bot", SourceBase, "eu", "mckean"); err != nil {
+			t.Fatal(err)
+		}
+		ask := y.ask(t, Ask{Question: "Set the bot hook up?", To: "mckean", Context: []string{"a", "b"}, Run: &AskRun{Argv: []string{"hook", "add", "bot", "--source", "bot"}}}, "yardmaster")
+		card := strings.Join(y.asked(t, ask).Ask.Run.Does, "\n")
+		if !strings.Contains(card, "at "+region.URL+" to register") || strings.Contains(card, mustBase(t, src)) {
+			t.Fatalf("the hook card does not name only the selected base:\n%s", card)
+		}
+		if _, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", true); err != nil {
+			t.Fatal(err)
+		}
+		if len(regionHits) != 1 || regionHits[0].path != "/setWebhook" || len(defaultHits) != 0 {
+			t.Fatalf("region requests = %+v, default requests = %+v", regionHits, defaultHits)
+		}
+	})
+}
+
+func mustBase(t *testing.T, src *Source) string {
+	t.Helper()
+	d, err := src.Declaration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d.Base
 }
 
 func TestHookRegisterFailureLeavesHookAndRetries(t *testing.T) {

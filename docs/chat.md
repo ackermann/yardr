@@ -530,6 +530,8 @@ carries the three as one decision: `yardr bead ask <id> "<question>"
 --setup <pack> --crew <name>` (or `--group <group>`, repeatable, at
 least one). `--recommend` counts the card's preset options as `yardr
 pack show` prints them, with `--why` saying why, as on any option ask.
+`--source-base <name>` calls the pack's region base `<name>`, for a pack
+whose source declares bases; the card shows the base it will call.
 The card shows the pack's declaration whole with its mint, the account
 to type unseen or the listed candidates to take, and one option per
 preset, each rendered by the yard from the declarations with the

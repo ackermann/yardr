@@ -105,7 +105,7 @@ func TestDeclaredSourceRefusals(t *testing.T) {
 		msg         string
 	}{
 		{name: "a limits key", declaration: strings.Replace(pushover, "calls:\n", "limits:\n  hour: 60\ncalls:\n", 1),
-			file: "sources/pushover.yaml", key: "limits", line: 6, msg: "a declaration in a pack has name, about, base, credential, check, idempotency, calls, notify and no other key"},
+			file: "sources/pushover.yaml", key: "limits", line: 6, msg: "a declaration in a pack has name, about, base, bases, credential, check, idempotency, calls, notify and no other key"},
 		// limits stays refused in every pack: it is the yard's to ask.
 		{name: "a limits command", declaration: pushover + "limits:\n  command: [/opt/q, \"{provider}\"]\n  kinds: { kimi: kimi }\n",
 			file: "sources/pushover.yaml", key: "limits", line: 25, msg: "what else a source may have is set in the yard, by its operator"},

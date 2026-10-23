@@ -553,7 +553,7 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 	does := []string{fmt.Sprintf("pack %s (%s), of kind source, into the yard: it %s, and changes nothing else. It grants no call, makes no hook, and sets no credential's file.",
 		name, reading.Label, strings.Join(clauses, " and "))}
 	for i := range carried {
-		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false)
+		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false, "")
 		if err != nil {
 			return nil, err
 		}
@@ -568,8 +568,10 @@ func (w *wtx) packSourceDoes(name string, reading *PackReading, carried []AskSou
 // carries its change on its own command line; only a file the pack drops
 // keeps a line of its own, having no command line to carry it. Where
 // settleAccount the credential is no part of what stays owed after: the
-// card settles the account itself, as a setup card does.
-func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settleAccount bool) ([]string, error) {
+// card settles the account itself, as a setup card does. base is the
+// region base a setup ask chose for this source, "" for the declaration's
+// own.
+func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settleAccount bool, base string) ([]string, error) {
 	progs := map[string]bool{}
 	for _, c := range d.Commands() {
 		if c.Relative() {
@@ -582,7 +584,7 @@ func (w *wtx) packOneSourceDoes(carried AskSource, d *source.Declaration, settle
 			diffs[df.Program] = df
 		}
 	}
-	full := sourceDoesChanged(d, carried, diffs, settleAccount)
+	full := sourceDoesChanged(d, carried, diffs, settleAccount, base)
 	lines := full[1:] // the pack line stands for the adding line
 	_, was, err := sourceIn(w.Tx, carried.Name)
 	if errors.Is(err, ErrNotFound) {
@@ -783,7 +785,7 @@ func (w *wtx) packDepotDoes(name string, reading *PackReading, carried []AskSour
 		}
 	}
 	for i := range carried {
-		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false)
+		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], false, "")
 		if err != nil {
 			return nil, err
 		}

@@ -698,6 +698,23 @@ yardr source check pushover                                       # the credenti
 yardr source rm pushover
 ```
 
+`base` is the default host for calls. A service that runs in multiple
+regions can also declare named bases, each held to the same checks as
+`base`:
+
+```yaml
+base: https://api.example.com/v1
+bases:
+  us: https://api.example.com/v1
+  eu: https://eu.api.example.com/v1
+```
+
+The operator chooses one by name with `yardr source set <source> base=<name>`;
+`base=` restores the declaration's default. Only names in
+`bases` are accepted, since this setting decides where the credential is
+sent. `yardr source show` and `list` show the host in use. Calls and
+commands the source names use that selected URL.
+
 - **The file holds no secret.** It names the variable the credential is in;
   the value is read from the `env_file` at each call (mode 0600, as every
   env file). So the declaration is kept in the store, shown, and carried by
@@ -768,7 +785,7 @@ yardr source rm pushover
   `{inputs, scope}` on stdin for a `{token, expires_at}`. Its environment
   is `PATH`, `HOME`, `USER` and `LOGNAME`, the proxy and CA variables
   ([below](#commands-a-file-names)), and `YARDR_SOURCE_BASE`, the
-  declaration's `base`: a helper that reads the user's keyring looks it
+  selected base: a helper that reads the user's keyring looks it
   up by user name, a mint behind a company's egress proxy reaches its
   service through it, and nothing else of the yard's environment reaches
   it. `USER` and `LOGNAME` are the asking process's own, each empty one taken
@@ -873,12 +890,12 @@ yardr source rm pushover
   "<what it is for>"`, [chat.md](chat.md#setting-up-a-packs-sources)):
   the apply, the account and the preset grants together. Every
   other command of a source stays the operator's to type in a terminal:
-  a replacement by `source add`, `source set env_file=` and
-  `mint_command=`, `source key` (a key is asked for with a secret ask)
-  and `source rm`. Their words are a file, a path or a program, and a
-  command that is approved from a card has only names the yard holds,
-  numbers and flags: `source add` is the one exception, and its file's
-  bytes are on the card.
+  a replacement by `source add`, `source set env_file=`, `mint_command=`
+  and `base=`, `source key` (a key is asked for with a secret ask)
+  and `source rm`. Their words are a file, a path, a program or the name
+  of where the credential is sent, and a command that is approved from a
+  card has only names the yard holds, numbers and flags: `source add` is
+  the one exception, and its file's bytes are on the card.
 - **Its name is none of `peer`, `token`, `yardr`**, the sources yardr
   has of its own. With a `hook` key it is a hook source: a hook receives
   it (`yardr hook add acme --source acme --secret-file …`), and
@@ -995,7 +1012,7 @@ link:                                 # the source's issues as a bead's link
   be run; it runs none.
 - **What a command is handed** is its environment: `PATH`, `HOME`, `USER`
   and `LOGNAME`, the proxy and CA variables, the variable `credential.env`
-  names and `YARDR_SOURCE_BASE`, the declaration's `base` — so a test can
+  names and `YARDR_SOURCE_BASE`, the selected base — so a test can
   point the command at a stand-in. `USER` and `LOGNAME` are the asking
   process's own, each empty one taken from the system's user for the
   process instead, as a mint's are. The proxy and CA variables are the
@@ -1200,7 +1217,7 @@ hook:
   url, secret: secret_token }`, any other parameter fixed in the call's
   body or optional. With scheme `secret` the hook card needs no typed
   secret: the yard makes one, keeps it in the hook's file, and on
-  approval calls the register call at the source's `base` to register
+  approval calls the register call at the source's selected base to register
   `hook_public_url` plus `/<hook name>` ([configuration.md](configuration.md#settings)).
   A failed call leaves the hook in place and approving again retries.
   With a signature the service makes (`hmac-sha256`) the typed secret

@@ -67,7 +67,13 @@ type ApplyOptions struct {
 	// rest of the import does not depend on it, and who the actor is was
 	// checked by whoever fills this in.
 	SourceRefused map[string]string
-	Actor         string
+	// SourceBase are the region bases to record as this import's answers
+	// (--source-base): the source -> the base's name. Whoever fills this
+	// in sets them after Apply returns, and passes only those the actor
+	// may set: a refused or skipped one is recorded no more than it is
+	// set. The next import takes them as the default unless told anew.
+	SourceBase map[string]string
+	Actor      string
 	// ApprovedBead and ApprovedAsk name the run ask this import is
 	// carried out from, where it is one (yardr-bht9 3.5): the record's
 	// event then carries it. Empty for a terminal import.
@@ -273,7 +279,7 @@ func Apply(ctx context.Context, st store.API, p *Plan, o ApplyOptions) (*Result,
 	}
 	pruned := prune(ctx, st, p, o, res)
 
-	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Auth: p.Auth, Flow: p.Flow, Setup: p.SetupFile != "", DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew, ApprovedBead: o.ApprovedBead, ApprovedAsk: o.ApprovedAsk}
+	rec := store.PackImport{Pack: p.Pack, Depot: p.Depot, Source: p.Dir, Auth: p.Auth, Flow: p.Flow, Setup: p.SetupFile != "", DepotRoles: p.DepotRoles, Groups: p.Groups, Crew: p.Crew, SourceBase: o.SourceBase, ApprovedBead: o.ApprovedBead, ApprovedAsk: o.ApprovedAsk}
 	// A pack in no directory (one yardr embeds) has no commit of its own:
 	// its source names the build it came in.
 	if filepath.IsAbs(p.Dir) {

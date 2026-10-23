@@ -75,12 +75,15 @@ hook:
 # an agent calls. Every call's project is the id the project's settings
 # show, the team id the /api/projects/ routes take.
 
-# US Cloud. The declaration's base is fixed: `yardr source set` sets no
-# base, so an EU yard copies this file with https://eu.posthog.com and
-# adds it after the pack (the setup says how). The hook needs no such
-# copy: the issue's URL is built from the project.url the delivery
-# carries, on whichever host sent it.
+# The cloud the calls go to: the US base, unless the yard set the EU one
+# (`yardr source set posthog base=eu`, or `yardr pack apply posthog
+# --source-base posthog=eu`, which a re-apply keeps). The hook needs no
+# such setting: the issue's URL is built from the project.url the
+# delivery carries, on whichever host sent it.
 base: https://us.posthog.com
+bases:
+  us: https://us.posthog.com
+  eu: https://eu.posthog.com
 calls:
   query:
     kind: read

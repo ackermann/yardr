@@ -126,6 +126,56 @@ func TestCarrySetupGoogleMail(t *testing.T) {
 	}
 }
 
+// A setup that chose a region base sets it on each carried source that
+// declares bases, as the operator, and says where its calls go. A setup
+// that chose none sets nothing, and a carried source without bases is
+// left out.
+func TestCarrySetupBase(t *testing.T) {
+	ctx := context.Background()
+	st, home, _ := carryYard(t)
+	text := `name: widget
+base: https://widget.example.com
+bases:
+  us: https://widget.example.com
+  eu: https://eu.widget.example.com
+credential: { env: WIDGET_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
+`
+	if _, err := st.PutSource(ctx, "widget.yaml", text, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	plain := `name: plain
+base: https://plain.example.com
+credential: { env: PLAIN_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
+`
+	if _, err := st.PutSource(ctx, "plain.yaml", plain, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	c := testCarrier(st, home, "boot-one")
+	rec := &store.Carry{Bead: "yardr-x", Ask: 1, Actor: "mckean"}
+	setup := &store.AskSetup{Pack: "widget", Base: "eu", Carried: []store.AskSource{{Name: "widget", Text: text}, {Name: "plain", Text: plain}}}
+	lines, failure := c.carrySetupBase(ctx, rec, setup)
+	if failure != "" {
+		t.Fatal(failure)
+	}
+	if want := "source widget: calls go to https://eu.widget.example.com (base eu)"; len(lines) != 1 || lines[0] != want {
+		t.Fatalf("lines = %q, want only %q", lines, want)
+	}
+	if src, err := st.GetSource(ctx, "widget"); err != nil || src.Base != "eu" {
+		t.Fatalf("the source after the base step = %+v, %v", src, err)
+	}
+	if src, err := st.GetSource(ctx, "plain"); err != nil || src.Base != "" {
+		t.Fatalf("the source without bases after the base step = %+v, %v", src, err)
+	}
+	setup = &store.AskSetup{Pack: "widget", Carried: []store.AskSource{{Name: "widget", Text: text}}}
+	if lines, failure := c.carrySetupBase(ctx, rec, setup); failure != "" || len(lines) != 0 {
+		t.Fatalf("with no base chosen: %q, %q", lines, failure)
+	}
+}
+
 // A setup approved under one build is carried out by a server that runs
 // another, the pack the same file for file: the apply step holds the reading
 // to the card's bytes and to its label without the build, and the build the

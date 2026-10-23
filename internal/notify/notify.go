@@ -238,6 +238,9 @@ func (p declared) names() []string { return []string{p.d.Notify.AddressEnv} }
 func (p declared) pictured() bool { return len(p.d.Notify.Image) > 0 }
 
 func (p declared) send(ctx context.Context, home string, env map[string]string, m Message) (int, error) {
+	// The telling goes to the source's chosen base, the call and the
+	// image command alike.
+	p.d = p.d.WithBase(p.src.Base)
 	cred, _, err := p.d.ReadCredential(ctx, p.src.EnvFile, p.src.Mint, source.Update)
 	if err != nil {
 		return 0, notSetUp("source %s: %v", p.d.Name, err)

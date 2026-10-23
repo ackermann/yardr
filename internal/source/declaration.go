@@ -30,6 +30,7 @@ package source
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"regexp"
@@ -73,8 +74,13 @@ type Declaration struct {
 	// Base is where every call's path is under, without a trailing slash.
 	// Empty for a source that declares no call, which has a Limits, and
 	// for one whose credential is the address (Credential.URL).
-	Base       string      `json:"base"`
-	Credential *Credential `json:"credential,omitempty"`
+	Base string `json:"base"`
+	// Bases names the regions' bases beside Base, which stays the
+	// default: name -> URL, without a trailing slash. A source setting
+	// base names one of them, "" for Base; each is held to Base's
+	// checks. Empty for a service that runs in one region.
+	Bases      map[string]string `json:"bases,omitempty"`
+	Credential *Credential       `json:"credential,omitempty"`
 	// Check names the call `yardr source check` makes: a read call that
 	// needs no parameter. Empty when the file names none.
 	Check string `json:"check,omitempty"`
@@ -301,6 +307,54 @@ func (d *Declaration) Address() string {
 		return "the URL in " + d.Credential.Env
 	}
 	return d.Base
+}
+
+// BaseURL is the address the source's calls go to when its base setting
+// names name: the base for "", the named one of bases. ok is false for a
+// name the file declares none of: no free-text base is accepted from
+// anyone, anywhere, so the credential goes only to a host the file
+// declares.
+func (d *Declaration) BaseURL(name string) (url string, ok bool) {
+	if name == "" {
+		return d.Base, true
+	}
+	u, ok := d.Bases[name]
+	return u, ok
+}
+
+// WithBase is d with the base setting name in place of its own: what a
+// call of a source set to name is made against. "" and a name the file
+// declares none of are d itself: the setting names nothing under a
+// declaration that lost it, and the call goes to the default base.
+func (d *Declaration) WithBase(name string) *Declaration {
+	u, ok := d.BaseURL(name)
+	if !ok || u == d.Base {
+		return d
+	}
+	c := *d
+	c.Base = u
+	return &c
+}
+
+// BaseNames are the names the file declares bases under, in order: what a
+// refusal of an unknown one lists.
+func (d *Declaration) BaseNames() []string {
+	return slices.Sorted(maps.Keys(d.Bases))
+}
+
+// CheckBase holds value to the file's bases: "" is the base itself, and
+// anything else names one of bases.
+func (d *Declaration) CheckBase(value string) error {
+	if value == "" {
+		return nil
+	}
+	if len(d.Bases) == 0 {
+		return fmt.Errorf("source %s: base=%q: the declaration names no bases, so there is nothing a base would choose", d.Name, value)
+	}
+	if _, ok := d.Bases[value]; !ok {
+		return fmt.Errorf("source %s: base=%q: the declaration has no such base (it has: %s)", d.Name, value, strings.Join(d.BaseNames(), ", "))
+	}
+	return nil
 }
 
 // Call returns the call of that name.
@@ -571,9 +625,9 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 }
 
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
-	var calls, check, notify, hear, base, credential, idempotency, hook *entry
+	var calls, check, notify, hear, base, bases, credential, idempotency, hook *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "hook", "identity", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "bases", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "hook", "identity", "events") {
 		switch e.key {
 		case "name":
 			named = true
@@ -594,6 +648,9 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			if s, ok := r.str(e.v, e.path); ok {
 				d.Base = r.base(e.v, e.path, s)
 			}
+		case "bases":
+			bases = &e
+			d.Bases = r.bases(e)
 		case "credential":
 			credential = &e
 			d.Credential = r.credential(e)
@@ -638,12 +695,12 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		} else if d.Hook != nil {
 			alone = "hook alone"
 		}
-		for _, e := range []*entry{base, credential, check, idempotency, notify, hear} {
+		for _, e := range []*entry{base, bases, credential, check, idempotency, notify, hear} {
 			if e != nil {
 				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has %s)", alone)
 			}
 		}
-		d.Base, d.Credential = "", nil
+		d.Base, d.Bases, d.Credential = "", nil, nil
 		return
 	}
 	// A credential that is the address is every call's address, so it
@@ -652,6 +709,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	switch {
 	case base != nil && address:
 		r.errf(base.k, base.path, "the credential is the address every call goes to (credential.url: true), so the file names no base beside it")
+	case bases != nil && address:
+		r.errf(bases.k, bases.path, "the credential is the address every call goes to (credential.url: true), so the file names no bases beside it")
 	case base == nil && !address:
 		r.errf(root, "base", "missing: the address every call's path is under (https://…), or credential.url: true where the credential is the address itself")
 	}
@@ -909,6 +968,33 @@ func (r *reader) base(n *yaml.Node, key, s string) string {
 		return strings.TrimRight(s, "/")
 	}
 	return ""
+}
+
+// bases reads the regions' bases beside base: each name, and each URL
+// held to what a base is (reader.base). A URL that fails is refused and
+// left out, like a base that fails.
+func (r *reader) bases(e entry) map[string]string {
+	var out map[string]string
+	for _, f := range r.entries(e.v, e.path) {
+		if !validName.MatchString(f.key) {
+			r.errf(f.k, f.path, "name %q: use lowercase letters, digits, - and _, starting with a letter or digit", f.key)
+			continue
+		}
+		s, ok := r.str(f.v, f.path)
+		if !ok {
+			continue
+		}
+		if u := r.base(f.v, f.path, s); u != "" {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[f.key] = u
+		}
+	}
+	if e.v.Kind == yaml.MappingNode && len(e.v.Content) == 0 {
+		r.errf(e.v, e.path, "no base: bases names the regions' bases beside base, or is left out")
+	}
+	return out
 }
 
 // LoopbackHost reports whether host, as written, is this machine's

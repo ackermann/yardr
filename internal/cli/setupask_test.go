@@ -132,6 +132,48 @@ func TestBeadAskSetupAndAnswer(t *testing.T) {
 	if want := "ask 1, asked by yardmaster: setup of pack clipphone, preset read to crew yardmaster\njo gave CLIPHONE_ACCOUNT\njo approved it: approved, to be carried out\n"; out != want {
 		t.Fatalf("answer printed %q, want %q", out, want)
 	}
+	beadAskSetupSourceBase(t)
+}
+
+// beadAskSetupSourceBase checks that --source-base reaches a setup ask's
+// stored card and names the host its calls will use.
+func beadAskSetupSourceBase(t *testing.T) {
+	y, b := setupYardCLI(t)
+	decl := strings.Replace(cliSetupDecl, "base: https://clipphone.example.com\n",
+		"base: https://clipphone.example.com\nbases:\n  us: https://clipphone.example.com\n  eu: https://eu.clipphone.example.com\n", 1)
+	if decl == cliSetupDecl {
+		t.Fatal("the test adds no bases")
+	}
+	reading := cliSetupReading()
+	reading.Sources[0].Text = decl
+	y.own.SetPackReader(func(ctx context.Context, name string, yard store.API) (*store.PackReading, error) {
+		if name != "clipphone" {
+			return nil, errFakeNoPackCLI(name)
+		}
+		return reading, nil
+	})
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Set up clipphone for the yardmaster?",
+		"--setup", "clipphone", "--crew", "yardmaster", "--source-base", "eu",
+		"--context", "The yardmaster rings the person when a bead needs them."); err != nil {
+		t.Fatal(err)
+	}
+	notes, err := y.st.Notes(context.Background(), b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var setup *store.AskSetup
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq == 1 {
+			setup = r.Ask.Setup
+		}
+	}
+	if setup == nil || setup.Base != "eu" {
+		t.Fatalf("the stored setup = %+v", setup)
+	}
+	joined := strings.Join(setup.Does, "\n")
+	if want := "source clipphone: its calls go to https://eu.clipphone.example.com (base eu)."; !strings.Contains(joined, want) {
+		t.Errorf("the card lacks %q:\n%s", want, joined)
+	}
 }
 
 // A setup ask is refused for the combinations it takes none of, for no
@@ -143,16 +185,18 @@ func TestBeadAskSetupRefusals(t *testing.T) {
 		args []string
 		want string
 	}{
-		"run":           {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--run", "user add x", "--context", "C"}, "one of the two"},
-		"secret":        {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--secret", "crm", "--context", "C"}, "one of the two"},
-		"as":            {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--as", "ada", "--context", "C"}, "--setup refuses --as"},
-		"for-user":      {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--for-user", "ada", "--context", "C"}, "not --setup"},
-		"no grantee":    {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--context", "C"}, "--crew <name> or --group <name>"},
-		"crew without":  {[]string{"ask", b.ID, "Q", "--crew", "yardmaster", "--context", "C", "--option", "A: B"}, "they go with --setup <pack>"},
-		"no such pack":  {[]string{"ask", b.ID, "Q", "--setup", "nosuch", "--crew", "yardmaster", "--context", "C"}, "embeds no pack"},
-		"writer option": {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--context", "C", "--option", "A: B"}, "takes no --option"},
-		"bad recommend": {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--context", "C", "--recommend", "9", "--why", "W"}, "--recommend 9 names none"},
-		"operator asks": {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--context", "C"}, "needs no approval"},
+		"run":                          {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--run", "user add x", "--context", "C"}, "one of the two"},
+		"secret":                       {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--secret", "crm", "--context", "C"}, "one of the two"},
+		"as":                           {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--as", "ada", "--context", "C"}, "--setup refuses --as"},
+		"for-user":                     {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--for-user", "ada", "--context", "C"}, "not --setup"},
+		"no grantee":                   {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--context", "C"}, "--crew <name> or --group <name>"},
+		"crew without":                 {[]string{"ask", b.ID, "Q", "--crew", "yardmaster", "--context", "C", "--option", "A: B"}, "they go with --setup <pack>"},
+		"base without":                 {[]string{"ask", b.ID, "Q", "--source-base", "eu", "--context", "C", "--option", "A: B"}, "it goes with --setup <pack>"},
+		"base of a pack without bases": {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--source-base", "eu", "--context", "C"}, "pack clipphone declares no bases"},
+		"no such pack":                 {[]string{"ask", b.ID, "Q", "--setup", "nosuch", "--crew", "yardmaster", "--context", "C"}, "embeds no pack"},
+		"writer option":                {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--context", "C", "--option", "A: B"}, "takes no --option"},
+		"bad recommend":                {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--context", "C", "--recommend", "9", "--why", "W"}, "--recommend 9 names none"},
+		"operator asks":                {[]string{"ask", b.ID, "Q", "--setup", "clipphone", "--crew", "yardmaster", "--context", "C"}, "needs no approval"},
 	} {
 		args, want := tc.args, tc.want
 		who := "yardmaster"

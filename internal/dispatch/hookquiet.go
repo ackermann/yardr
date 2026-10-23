@@ -149,6 +149,8 @@ func (d *Dispatcher) webhookBroken(ctx context.Context, h store.Hook) (broken st
 	if decl == nil || !decl.HearsChat() || decl.Check == "" {
 		return "", false
 	}
+	// The probe goes to the source's chosen base, as a call does.
+	decl = decl.WithBase(src.Base)
 	cred, _, err := decl.ReadCredential(ctx, src.EnvFile, src.Mint, source.Read)
 	if err != nil {
 		d.Log.Warn("quiet hooks", "hook", h.Name, "err", err)

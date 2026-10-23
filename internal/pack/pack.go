@@ -121,14 +121,14 @@ type Declared struct {
 // at its root. The list is the pack's own, not the reader's of
 // internal/source: a key that reader learns later is not thereby one a pack
 // may bring, and is refused until it is added here.
-var DeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify"}
+var DeclarationKeys = []string{"name", "about", "base", "bases", "credential", "check", "idempotency", "calls", "notify"}
 
 // SourceDeclarationKeys are the keys a declaration in a pack of kind
 // source may have at its root: a pack for the yard brings the commands a
 // declaration names, which a pack for a depot does not. limits stays
 // refused in every pack: what a harness kind's subscription still carries
 // is the yard's to ask, not a pack's to say.
-var SourceDeclarationKeys = []string{"name", "about", "base", "credential", "check", "idempotency", "calls", "notify", "hear", "hook", "thread", "link", "identity", "events"}
+var SourceDeclarationKeys = []string{"name", "about", "base", "bases", "credential", "check", "idempotency", "calls", "notify", "hear", "hook", "thread", "link", "identity", "events"}
 
 type Flow struct {
 	Name string `json:"name"`

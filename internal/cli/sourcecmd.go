@@ -210,6 +210,17 @@ says Accepted), and is not kept.
     env: WEBHOOK_URL
     url: true
 
+A service that runs in several regions declares each region's base under
+bases beside its own, which stays the default: its calls go to the one the
+yard set with yardr source set <name> base=<name>, and to its own with none
+set. Each is held to what a base is, and no free-text base is accepted: the
+credential goes only to a host the file declares.
+
+  base: https://crm.example.com/api/v2
+  bases:
+    us: https://crm.example.com/api/v2
+    eu: https://eu.crm.example.com/api/v2
+
 idempotency names the header a service takes a key in, by which it tells an
 update it was sent before from a new one. yardr call then sends each update
 with a key, and the same key when the same caller makes the same call with
@@ -551,7 +562,7 @@ env_file; what the new file changes of its calls is printed.`,
 				if len(d.Calls) == 0 {
 					fmt.Fprintf(w, "source %s saved: no call, its limits command alone\n", d.Name)
 				} else {
-					fmt.Fprintf(w, "source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), d.Address())
+					fmt.Fprintf(w, "source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), baseInUse(d, saved.Base))
 				}
 				for _, l := range changes {
 					fmt.Fprintln(w, "  "+l)
@@ -640,7 +651,7 @@ env_file; what the new file changes of its calls is printed.`,
 							kinds = "itself"
 						}
 					}
-					rows = append(rows, []string{d.Name, or(d.Address(), "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
+					rows = append(rows, []string{d.Name, or(baseInUse(d, src.Base), "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
 				table(w, "NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
 			})
@@ -725,9 +736,12 @@ credential in it whether their file sets that. The value is never printed.
 				out["as"] = as
 			}
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Fprintf(w, "%s  %s\n", d.Name, or(d.Address(), "no calls"))
+				fmt.Fprintf(w, "%s  %s\n", d.Name, or(baseInUse(d, src.Base), "no calls"))
 				if d.About != "" {
 					fmt.Fprintf(w, "  %s\n", d.About)
+				}
+				if line := basesLine(d); line != "" {
+					fmt.Fprintf(w, "  %s\n", line)
 				}
 				fmt.Fprintf(w, "  credential: %s\n", state)
 				if d.Credential.Minted() {
@@ -994,8 +1008,8 @@ identity hearing, which ignores nothing.`,
 	ignore.Flags().String("rm", "", "stop ignoring this sender id")
 
 	set := &cobra.Command{
-		Use:   "set <name> env_file=<file> | mint_command=<program> [args...] | calls_per_hour=<n> | updates_per_hour=<n>",
-		Short: "Change a source's credential or per-hour call limits",
+		Use:   "set <name> env_file=<file> | mint_command=<program> [args...] | calls_per_hour=<n> | updates_per_hour=<n> | base=<name>",
+		Short: "Change a source's credential, per-hour call limits or region base",
 		Long: `env_file is a file of KEY=VALUE lines that sets the variable the source's
 declaration names (credential.env, and credential.update_env where it names
 one). It is held to the rule of every env_file:
@@ -1026,19 +1040,26 @@ calls_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceCallLimit) +
 
 updates_per_hour is how many of those calls are updates (` + fmt.Sprint(store.SourceUpdateLimit) + ` unless set):
 an update is counted as a call and as an update, and is refused when either
-is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceUpdateLimit) + ` again.`,
+is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.SourceUpdateLimit) + ` again.
+
+base is which of the declaration's region bases the source's calls go to,
+one of the names under its bases key. It is refused where the file declares
+none, and a name it has not is refused with the names it has: no free-text
+base is accepted, so the credential goes only to a host the file declares.
+base= with nothing after it is the declaration's own base again.`,
 		Example: `  umask 077
   IFS= read -rs v && printf 'CRM_TOKEN=%s\n' "$v" > ~/.yardr/sources/crm.env; unset v
   chmod 600 ~/.yardr/sources/crm.env
   yardr source set crm env_file=~/.yardr/sources/crm.env
   yardr source set crm mint_command=/Users/me/bin/crm-mint
   yardr source set crm calls_per_hour=20
-  yardr source set crm updates_per_hour=3`,
+  yardr source set crm updates_per_hour=3
+  yardr source set posthog base=eu`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
 			key, value, ok := strings.Cut(args[1], "=")
 			if !ok || !slices.Contains(store.SourceSettings, key) {
-				return fmt.Errorf("%q: want %s=<file>, %s=<program> [args...], %s=<n> or %s=<n>, the settings a source has", args[1], store.SourceEnvFile, store.SourceMintCommand, store.SourceCallsPerHour, store.SourceUpdatesPerHour)
+				return fmt.Errorf("%q: want %s=<file>, %s=<program> [args...], %s=<n>, %s=<n> or %s=<name>, the settings a source has", args[1], store.SourceEnvFile, store.SourceMintCommand, store.SourceCallsPerHour, store.SourceUpdatesPerHour, store.SourceBase)
 			}
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1090,12 +1111,28 @@ is used up. updates_per_hour= with nothing after it is ` + fmt.Sprint(store.Sour
 					return fmt.Errorf("source %s: %w", src.Name, err)
 				}
 				state = "mint command " + value
+			} else if key == store.SourceBase {
+				d, err := src.Declaration()
+				if err != nil {
+					return err
+				}
+				if err := d.CheckBase(value); err != nil {
+					return err
+				}
 			}
 			saved, err := st.SetSource(c.Context(), args[0], key, value, a.who())
 			if err != nil {
 				return err
 			}
-			if key != store.SourceEnvFile && key != store.SourceMintCommand {
+			switch key {
+			case store.SourceEnvFile, store.SourceMintCommand:
+			case store.SourceBase:
+				d, err := saved.Declaration()
+				if err != nil {
+					return err
+				}
+				state = baseState(d, saved.Base)
+			default:
 				state = saved.LimitsLine()
 			}
 			return a.out(c.OutOrStdout(), saved, func(w io.Writer) { fmt.Fprintf(w, "source %s: %s\n", saved.Name, state) })
@@ -1418,6 +1455,8 @@ process for it. Nothing of the request is written anywhere.`,
 			if err != nil {
 				return err
 			}
+			// The check call goes to the source's chosen base, as a call does.
+			d = d.WithBase(src.Base)
 			// With --as the credential looked at and read is the user's,
 			// from the file their record names, and the check call is made
 			// as them.
@@ -1596,6 +1635,43 @@ func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, u
 func notifyLine(d *source.Declaration) string {
 	n := d.Notify
 	return fmt.Sprintf("notify: the call %s tells a user, at the %s of their env_file (yardr user set <name> %s=%s)", n.Call, n.AddressEnv, store.UserNotify, d.Name)
+}
+
+// baseInUse is the base the source's calls go to, in words: its address,
+// with the setting's name where one is chosen. "" for a source that
+// declares no call.
+func baseInUse(d *source.Declaration, base string) string {
+	addr := d.WithBase(base).Address()
+	if addr == "" {
+		return ""
+	}
+	if _, ok := d.BaseURL(base); base != "" && ok {
+		addr += " (base " + base + ")"
+	}
+	return addr
+}
+
+// baseState is the source's base as yardr source set prints it after a
+// base was set: where its calls go.
+func baseState(d *source.Declaration, base string) string {
+	if addr := baseInUse(d, base); addr != "" {
+		return "calls go to " + addr
+	}
+	return "the file declares no call"
+}
+
+// basesLine lists the region bases the file declares beside its own base,
+// in a line for yardr source show; "" for a service that runs in one
+// region.
+func basesLine(d *source.Declaration) string {
+	if len(d.Bases) == 0 {
+		return ""
+	}
+	var each []string
+	for _, name := range d.BaseNames() {
+		each = append(each, name+" "+d.Bases[name])
+	}
+	return "bases: " + strings.Join(each, ", ")
 }
 
 // hearLine says in a line which deliveries of a source are kept: one whose

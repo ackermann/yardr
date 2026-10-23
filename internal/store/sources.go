@@ -27,18 +27,20 @@ func init() { allBuckets = append(allBuckets, bSources) }
 
 // The settings of a declared source: the file its credential is read from,
 // the command that mints it where the file names a mint, how many calls of
-// it one caller makes in an hour (SourceCallLimit when unset), and how many
-// of those are updates (SourceUpdateLimit).
+// it one caller makes in an hour (SourceCallLimit when unset), how many
+// of those are updates (SourceUpdateLimit), and which of the declaration's
+// region bases its calls go to (the declaration's own base when unset).
 const (
 	SourceEnvFile        = "env_file"
 	SourceMintCommand    = "mint_command"
 	SourceCallsPerHour   = "calls_per_hour"
 	SourceUpdatesPerHour = "updates_per_hour"
+	SourceBase           = "base"
 )
 
 // SourceSettings are the settings a source has, as yardr source set names
 // them.
-var SourceSettings = []string{SourceEnvFile, SourceMintCommand, SourceCallsPerHour, SourceUpdatesPerHour}
+var SourceSettings = []string{SourceEnvFile, SourceMintCommand, SourceCallsPerHour, SourceUpdatesPerHour, SourceBase}
 
 // Source is a declared source: its file as it was added, and where the
 // yard keeps the credential the file names. The file holds no secret and
@@ -81,6 +83,11 @@ type Source struct {
 	// UpdatesPerHour is how many of those calls are updates; 0 for
 	// SourceUpdateLimit.
 	UpdatesPerHour int `json:"updates_per_hour,omitempty"`
+	// Base is the name of the region's base the source's calls go to,
+	// one of the declaration's bases; "" for the declaration's own
+	// base. Empty until the operator sets it; PutSource keeps what the
+	// source has.
+	Base string `json:"base,omitempty"`
 	// Ignored are the sender ids in this source the operator has
 	// answered for in particular: a delivery from one is dropped
 	// without a card under any hook word, until the entry is removed
@@ -187,7 +194,7 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 		if err != nil {
 			return err
 		}
-		src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour
+		src.EnvFile, src.MintCommand, src.CallsPerHour, src.UpdatesPerHour, src.Base = was.EnvFile, was.MintCommand, was.CallsPerHour, was.UpdatesPerHour, was.Base
 		src.Ignored = was.Ignored
 		if d.Limits != nil {
 			if err := limitsKindsFree(w.Tx, d); err != nil {
@@ -292,10 +299,12 @@ func fileStands(path string) bool {
 // SetSource sets a setting of the source name: SourceEnvFile, to the path
 // of the file its credential is read from, or to "" for none;
 // SourceMintCommand, to the command that mints it where the file names a
-// mint, or to "" for none; or SourceCallsPerHour or SourceUpdatesPerHour,
+// mint, or to "" for none; SourceCallsPerHour or SourceUpdatesPerHour,
 // to a whole number from 1, or to "" for SourceCallLimit and
-// SourceUpdateLimit. The path and the command are kept as given: whoever
-// calls resolves them, since the server may run in another directory.
+// SourceUpdateLimit; or SourceBase, to the name of one of the
+// declaration's bases, or to "" for the declaration's own base. The path
+// and the command are kept as given: whoever calls resolves them, since
+// the server may run in another directory.
 func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (*Source, error) {
 	perHour, err := sourceSetting(name, key, value)
 	if err != nil {
@@ -313,10 +322,12 @@ func (s *Store) SetSource(ctx context.Context, name, key, value, actor string) (
 }
 
 // sourceSetting checks a setting of the source name as SetSource takes it,
-// and answers the number of one that is a limit, 0 for none.
+// and answers the number of one that is a limit, 0 for none. A base names
+// one of the declaration's bases, which takes the stored source to check:
+// sourceSetCheck holds it, with the source in hand.
 func sourceSetting(name, key, value string) (perHour int, err error) {
 	switch key {
-	case SourceEnvFile, SourceMintCommand:
+	case SourceEnvFile, SourceMintCommand, SourceBase:
 	case SourceCallsPerHour, SourceUpdatesPerHour:
 		if value != "" {
 			n, err := strconv.Atoi(value)
@@ -339,8 +350,8 @@ func sourceSetting(name, key, value string) (perHour int, err error) {
 // sourceSetting has checked. by is the ask the change was approved on, nil
 // for one typed at a terminal: the event then names it (ApproveAsk).
 // sourceSetAsk is whether setting key of a source may be proposed as a
-// run ask: the two limits may, and where a credential comes from is the
-// operator's alone.
+// run ask: the two limits may, and where a credential comes from, and
+// where it is sent, is the operator's alone.
 func sourceSetAsk(key string) AskClass {
 	if key == SourceCallsPerHour || key == SourceUpdatesPerHour {
 		return Askable
@@ -353,6 +364,15 @@ func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour in
 	if err != nil {
 		return nil, err
 	}
+	if key == SourceBase {
+		d, err := src.Declaration()
+		if err != nil {
+			return nil, err
+		}
+		if err := d.CheckBase(value); err != nil {
+			return nil, err
+		}
+	}
 	switch key {
 	case SourceEnvFile:
 		src.EnvFile = value
@@ -362,6 +382,8 @@ func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour in
 		src.CallsPerHour = perHour
 	case SourceUpdatesPerHour:
 		src.UpdatesPerHour = perHour
+	case SourceBase:
+		src.Base = value
 	}
 	if err := put(w.Tx, bSources, name, src); err != nil {
 		return nil, err

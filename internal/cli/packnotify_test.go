@@ -122,6 +122,99 @@ func TestPackApplySourceEnvReportsPackMint(t *testing.T) {
 	}
 }
 
+// An apply with --source-base calls the named region base, and a second
+// apply with no flag keeps it: the import records the answer, as at the
+// last import, and sets it again, writing nothing when it stands already.
+func TestPackApplySourceBaseKeepsRegion(t *testing.T) {
+	t.Parallel()
+	a := openApp(t)
+	ctx := context.Background()
+
+	out, err := run(t, a.packCmd(), "apply", "posthog", "--yes", "--source-base", "posthog=eu")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	const set = "source posthog: calls go to https://eu.posthog.com (base eu)\n"
+	if !strings.Contains(out, set) {
+		t.Errorf("pack apply lacks %q:\n%s", set, out)
+	}
+	src, err := a.st.GetSource(ctx, "posthog")
+	if err != nil || src.Base != "eu" {
+		t.Fatalf("the source after the apply = %+v, %v", src, err)
+	}
+	recs, err := a.st.Packs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || recs[0].Pack != "posthog" || recs[0].SourceBase["posthog"] != "eu" {
+		t.Fatalf("the import recorded %+v", recs)
+	}
+	sets := func() int {
+		t.Helper()
+		evs, err := a.st.Events(ctx, "", 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var n int
+		for _, e := range evs {
+			if e.Kind == "source_set" {
+				n++
+			}
+		}
+		return n
+	}
+	before := sets()
+
+	out, err = run(t, a.packCmd(), "apply", "posthog", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, set) {
+		t.Errorf("the second apply lacks %q:\n%s", set, out)
+	}
+	if src, err := a.st.GetSource(ctx, "posthog"); err != nil || src.Base != "eu" {
+		t.Fatalf("the source after the second apply = %+v, %v", src, err)
+	}
+	if got := sets(); got != before {
+		t.Errorf("the second apply logged %d source_set events, want %d", got, before)
+	}
+
+	// Told anew, the flag wins over the last import.
+	out, err = run(t, a.packCmd(), "apply", "posthog", "--yes", "--source-base", "posthog=us")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "source posthog: calls go to https://us.posthog.com (base us)\n") {
+		t.Errorf("the third apply lacks the us base:\n%s", out)
+	}
+	if src, err := a.st.GetSource(ctx, "posthog"); err != nil || src.Base != "us" {
+		t.Fatalf("the source after the third apply = %+v, %v", src, err)
+	}
+}
+
+// A base the import may not set is skipped with why, and recorded no
+// more than it is set.
+func TestPackApplySourceBaseSkipped(t *testing.T) {
+	t.Parallel()
+	a := openApp(t)
+	a.actor = "web-builder-1"
+	out, err := run(t, a.packCmd(), "apply", "posthog", "--yes", "--source-base", "posthog=eu")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	const skip = "the base of source posthog was not set: the source was not added (adding a source is the operator's (me), and this is web-builder-1)\n"
+	if !strings.Contains(out, skip) {
+		t.Errorf("pack apply lacks %q:\n%s", skip, out)
+	}
+	recs, err := a.st.Packs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 || len(recs[0].SourceBase) != 0 {
+		t.Fatalf("the import recorded %+v", recs)
+	}
+}
+
 // The telegram pack applies the same way: the source with the token in
 // its path, and the user told through it.
 func TestPackApplyNotifyTelegram(t *testing.T) {
@@ -346,6 +439,11 @@ func TestPackApplyNotifyRefusesBeforeWriting(t *testing.T) {
 		{"notify for no declared source", "pushover", []string{"--notify", "me=crm"}, `--notify "me=crm": the pack declares no source crm`},
 		{"notify for no user", "pushover", []string{"--notify", "ada=pushover"}, "--notify ada=pushover: no user ada (yardr user add ada)"},
 		{"notify for a file without the address", "pushover", []string{"--notify", "me=pushover," + envFile(t, "ELSE=x\n", 0o600)}, "does not set PUSHOVER_USER"},
+		{"source-base without a name", "pushover", []string{"--source-base", "pushover"}, `--source-base "pushover": want <source>=<name>`},
+		{"source-base without a source", "pushover", []string{"--source-base", "=eu"}, `--source-base "=eu": want <source>=<name>`},
+		{"source-base for no declared source", "pushover", []string{"--source-base", "crm=eu"}, `--source-base "crm=eu": the pack declares no source crm`},
+		{"source-base for a source without bases", "pushover", []string{"--source-base", "pushover=eu"}, "--source-base pushover=eu: source pushover: base=\"eu\": the declaration names no bases"},
+		{"source-base for a name the file has not", "posthog", []string{"--source-base", "posthog=xx"}, "--source-base posthog=xx: source posthog: base=\"xx\": the declaration has no such base (it has: eu, us)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := openApp(t)

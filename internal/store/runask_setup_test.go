@@ -270,6 +270,55 @@ func TestSetupCardShowsDeclarationMintAccountAndPresets(t *testing.T) {
 			t.Errorf("the terminal card lacks %q:\n%s", want, lines)
 		}
 	}
+	setupAskSourceBase(t)
+}
+
+// setupAskSourceBase checks a setup's selected region in its card and
+// approval, and that names outside the pack's bases are refused.
+func setupAskSourceBase(t *testing.T) {
+	y, _ := runYard(t)
+	decl := strings.Replace(setupDecl, "base: https://setupmail.example.com/v1\n",
+		"base: https://setupmail.example.com/v1\nbases:\n  us: https://setupmail.example.com/v1\n  eu: https://eu.setupmail.example.com/v1\n", 1)
+	if decl == setupDecl {
+		t.Fatal("the test adds no bases")
+	}
+	f := setupMailPack()
+	f.sources[0].text = decl
+	y.setSetupPack(f)
+	ask := setupAsk()
+	ask.Setup.Base = "eu"
+	seq := y.ask(t, ask, "yardmaster")
+	got := y.asked(t, seq)
+	if got.Ask.Setup.Base != "eu" {
+		t.Fatalf("the stored base = %q", got.Ask.Setup.Base)
+	}
+	joined := strings.Join(got.Ask.Setup.Does, "\n")
+	if want := "source setupmail: its calls go to https://eu.setupmail.example.com/v1 (base eu)."; !strings.Contains(joined, want) {
+		t.Errorf("the card lacks %q:\n%s", want, joined)
+	}
+	if strings.Contains(joined, "https://setupmail.example.com/v1.") {
+		t.Errorf("the card shows the default base too:\n%s", joined)
+	}
+	if got.Ask.Options[0].Consequence == "" || !strings.Contains(got.Ask.Options[0].Consequence, "https://eu.setupmail.example.com") ||
+		strings.Contains(got.Ask.Options[0].Consequence, "https://setupmail.example.com") {
+		t.Errorf("the preset grants do not name the selected base: %s", got.Ask.Options[0].Consequence)
+	}
+	done := y.approveSetup(t, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "mckean")
+	if done.Pack != "setupmail" || done.Preset != "read" || done.Result != CarryPending {
+		t.Fatalf("the approval recorded %+v", done)
+	}
+
+	ask = setupAsk()
+	ask.Setup.Base = "xx"
+	if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), "(it has: eu, us)") {
+		t.Errorf("a setup with an unknown base was stored or refused otherwise: %v", err)
+	}
+	y.setSetupPack(setupMailPack())
+	ask = setupAsk()
+	ask.Setup.Base = "eu"
+	if _, err := y.AddAsk(y.ctx, y.bead, ask, "yardmaster"); err == nil || !strings.Contains(err.Error(), "--source-base eu: pack setupmail declares no bases") {
+		t.Errorf("a setup with a base of a pack without bases was stored or refused otherwise: %v", err)
+	}
 }
 
 // A pack past 40 lines stays on the existing per-step flow, with pack

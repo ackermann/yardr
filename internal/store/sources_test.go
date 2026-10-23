@@ -107,6 +107,74 @@ func TestDeclaredSource(t *testing.T) {
 	}
 }
 
+const sourceFileBases = `name: pushover
+base: https://api.pushover.net/1
+bases:
+  us: https://api.pushover.net/1
+  eu: https://eu.api.pushover.net/1
+credential: { env: PUSHOVER_TOKEN }
+calls:
+  message:
+    kind: update
+    params: { user: { type: string }, text: { type: string, max: 1024 } }
+    request: { method: POST, path: /messages.json, body: { token: "{credential}", user: "{user}", message: "{text}" } }
+`
+
+const sourceFileSingle = `name: single
+base: https://single.example.com
+credential: { env: SINGLE_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /ping } }
+`
+
+// A source whose service runs in several regions calls the region base
+// its base setting names, "" for the file's own: a name the file has not
+// is refused with the names it has, and replacing the file keeps the
+// setting, as it keeps where the credential is.
+func TestDeclaredSourceBase(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	src, err := st.PutSource(ctx, "pushover.yaml", sourceFileBases, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if src.Base != "" {
+		t.Fatalf("base unset = %q", src.Base)
+	}
+	if _, err := st.SetSource(ctx, "pushover", store.SourceBase, "xx", "jo"); err == nil ||
+		!strings.Contains(err.Error(), `base="xx": the declaration has no such base (it has: eu, us)`) {
+		t.Fatalf("base=xx: %v", err)
+	}
+	if src, err = st.SetSource(ctx, "pushover", store.SourceBase, "eu", "jo"); err != nil || src.Base != "eu" {
+		t.Fatalf("base=eu: %+v, %v", src, err)
+	}
+	changed := strings.Replace(sourceFileBases, "max: 1024", "max: 512", 1)
+	if src, err = st.PutSource(ctx, "pushover.yaml", changed, "jo"); err != nil || src.Base != "eu" {
+		t.Fatalf("replaced = %+v, %v", src, err)
+	}
+	if src, err = st.SetSource(ctx, "pushover", store.SourceBase, "", "jo"); err != nil || src.Base != "" {
+		t.Fatalf("base cleared: %+v, %v", src, err)
+	}
+	if _, err := st.PutSource(ctx, "single.yaml", sourceFileSingle, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSource(ctx, "single", store.SourceBase, "eu", "jo"); err == nil ||
+		!strings.Contains(err.Error(), "the declaration names no bases") {
+		t.Fatalf("base=eu without bases: %v", err)
+	}
+	evs, err := st.EventsSince(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Kind == "source_set" && e.Data["source"] == "pushover" && e.Data["base"] == "eu" {
+			return
+		}
+	}
+	t.Fatalf("no source_set event carries base=eu: %+v", evs)
+}
+
 // What the parser refuses is not kept, and the error names the file as the
 // caller named it.
 func TestDeclaredSourceRefusedIsNotKept(t *testing.T) {
@@ -178,6 +246,9 @@ func TestDeclaredSourceIsTheOperators(t *testing.T) {
 	}
 	if _, err := own.SetSource(pane, "pushover", store.SourceEnvFile, "/tmp/mine.env", "jo"); err == nil || !strings.Contains(err.Error(), "this is the crew member yardmaster") {
 		t.Fatalf("SetSource from the yardmaster's pane as jo = %v", err)
+	}
+	if _, err := own.SetSource(pane, "pushover", store.SourceBase, "eu", "jo"); err == nil || !strings.Contains(err.Error(), "this is the crew member yardmaster") {
+		t.Fatalf("SetSource base from the yardmaster's pane as jo = %v", err)
 	}
 	if _, err := own.KeySource(pane, "pushover", map[string]string{"PUSHOVER_TOKEN": "s3cret"}, "jo"); err == nil || !strings.Contains(err.Error(), "setting a source's credential is the operator's (jo)") || !strings.Contains(err.Error(), "this is the crew member yardmaster") {
 		t.Fatalf("KeySource from the yardmaster's pane as jo = %v", err)

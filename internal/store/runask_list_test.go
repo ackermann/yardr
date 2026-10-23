@@ -160,13 +160,13 @@ func TestRunAskSourceLimit(t *testing.T) {
 	run := *y.asked(t, seq).Ask.Run
 	want := AskRun{
 		Argv:        []string{"source", "set", "crm", "calls_per_hour=200"},
-		Description: "Change a source's credential or per-hour call limits",
+		Description: "Change a source's credential, per-hour call limits or region base",
 		Does:        []string{crmAt + " may be called 200 times an hour by each session or crew member that may call it. It may be called 60 times now."},
 		Back:        "yardr source set crm calls_per_hour=60",
 		BackBy:      "only the operator",
 	}
 	if !slices.Equal(run.Argv, want.Argv) || !slices.Equal(run.Does, want.Does) || run.Back != want.Back || run.BackBy != want.BackBy ||
-		len(run.Seen) != 1 || run.Seen["source crm"] != seen(runCRM, "", "") {
+		len(run.Seen) != 1 || run.Seen["source crm"] != seen(runCRM, "", "", "") {
 		t.Fatalf("the ask stores %+v, want %+v", run, want)
 	}
 	card := y.asked(t, seq).Lines()
@@ -245,7 +245,7 @@ func TestRunAskSourceLimitChanged(t *testing.T) {
 func jsonNumber(n int) string { b, _ := json.Marshal(n); return string(b) }
 
 // A run ask about a source is held to the source it was written from by a
-// SHA-256 over its declaration text, its env_file and its mint_command. A
+// SHA-256 over its declaration text, credential settings and chosen base. A
 // declaration that replaces it with the same host and a call of the same
 // name, kind, method and path whose body differs reads the same on the
 // card, sentence for sentence, and is another: the approval is refused. So
@@ -255,10 +255,11 @@ func TestRunAskIsHeldToTheSource(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		command string
+		prepare func(t *testing.T, y *askYard)
 		change  func(t *testing.T, y *askYard)
 		want    string
 	}{
-		{"the declaration replaced", "source grant crm note --crew yardmaster", func(t *testing.T, y *askYard) {
+		{"the declaration replaced", "source grant crm note --crew yardmaster", nil, func(t *testing.T, y *askYard) {
 			other := strings.Replace(runCRM, `body: { text: "{text}" }`, `body: { text: "{text}", public: true }`, 1)
 			if other == runCRM {
 				t.Fatal("the test replaces nothing")
@@ -267,22 +268,47 @@ func TestRunAskIsHeldToTheSource(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, "ask 1 was written from another declaration of the source crm: it was replaced since (source_added, 12 Oct 14:00, by mckean). "},
-		{"env_file set", "source grant crm read --group builders", func(t *testing.T, y *askYard) {
+		{"env_file set", "source grant crm read --group builders", nil, func(t *testing.T, y *askYard) {
 			if _, err := y.SetSource(y.ctx, "crm", SourceEnvFile, "/elsewhere/crm.env", "mckean"); err != nil {
 				t.Fatal(err)
 			}
 		}, "ask 1 was written when the source crm took its credential from elsewhere: its env_file was set since (source_set, 12 Oct 14:00, by mckean). "},
-		{"mint_command changed", "source set crm calls_per_hour=200", func(t *testing.T, y *askYard) {
+		{"mint_command changed", "source set crm calls_per_hour=200", nil, func(t *testing.T, y *askYard) {
 			if _, err := y.SetSource(y.ctx, "crm", SourceMintCommand, "/usr/local/bin/mint", "mckean"); err != nil {
 				t.Fatal(err)
 			}
 		}, "ask 1 was written when the source crm took its credential from elsewhere: its mint_command was set since (source_set, 12 Oct 14:00, by mckean). "},
+		{"base changed", "source grant crm read --group builders", func(t *testing.T, y *askYard) {
+			src := y.source(t)
+			text := strings.Replace(src.Text, "base: https://crm.example.com/v1\n", "base: https://crm.example.com/v1\nbases:\n  eu: https://eu.crm.example.com/v1\n", 1)
+			if text == src.Text {
+				t.Fatal("the test adds no bases")
+			}
+			if _, err := y.PutSource(y.ctx, "crm.yaml", text, "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}, func(t *testing.T, y *askYard) {
+			if _, err := y.SetSource(y.ctx, "crm", SourceBase, "eu", "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}, "ask 1 was written when the source crm used another base: its base was set since (source_set, 12 Oct 14:00, by mckean). "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			y := listYard(t)
+			if c.prepare != nil {
+				c.prepare(t, y)
+			}
 			seq := y.ask(t, listAsk("mckean", c.command), "yardmaster")
 			c.change(t, y)
-			y.sameCard(t, seq, "source crm")
+			if c.name == "base changed" {
+				was := *y.asked(t, seq).Ask.Run
+				now := y.card(t, was)
+				if slices.Equal(now.Does, was.Does) {
+					t.Errorf("the card still names the old source base: %q", now.Does)
+				}
+			} else {
+				y.sameCard(t, seq, "source crm")
+			}
 			y.refusedStale(t, seq, strings.Replace(c.want, "12 Oct 14:00", y.now.Local().Format("2 Jan 15:04"), 1))
 			if src := y.source(t); src.CallsPerHour != 0 || len(y.grants(t)) != 0 {
 				t.Fatalf("the refused approval changed the source: %+v, %v", src, y.grants(t))
@@ -312,7 +338,7 @@ func TestRunAskGrant(t *testing.T) {
 		},
 		Back: "yardr source revoke crm read --group builders --group reviewers --crew yardmaster",
 		Seen: map[string]string{
-			"source crm":      seen(runCRM, "", ""),
+			"source crm":      seen(runCRM, "", "", ""),
 			"group builders":  seen("exec", map[string]any{"cmd": "make build"}),
 			"group reviewers": seen("herdr", map[string]any{"kind": "codex", "prompt": "roles/reviewer.md"}),
 			"crew yardmaster": seen("herdr", map[string]any{"kind": "claude", "args": []string{"--careful"}}, "/yard"),
@@ -623,6 +649,8 @@ func TestRunAskListRefusals(t *testing.T) {
 		{"source set crm env_file=", "source set with env_file= and nothing after it is " + terminal},
 		{"source set crm mint_command=/usr/local/bin/mint", alone},
 		{"source set crm mint_command=", "source set with mint_command= and nothing after it is " + terminal},
+		{"source set crm base=eu", alone},
+		{"source set crm base=", "source set with base= and nothing after it is " + terminal},
 		{"source set crm calls_per_hour=", "source set with calls_per_hour= and nothing after it is " + terminal},
 		{"source set crm calls_per_hour=200 --actor mckean", "source set with --actor is " + terminal},
 		{"source set crm calls_per_hour=200 updates_per_hour=3", "one source and one setting, not 3 words"},

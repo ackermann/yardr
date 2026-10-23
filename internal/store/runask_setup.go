@@ -67,6 +67,12 @@ type AskSetup struct {
 	// To are the grantees, the groups before the crew members and each in
 	// the order of their names.
 	To []Grantee `json:"to"`
+	// Base is the region base the setup's calls go to (--source-base),
+	// one of the pack's sources' declared bases, "" for the
+	// declaration's own. The writer's, kept as Pack and To are: every
+	// carried source that declares bases is set to it when the setup is
+	// carried out.
+	Base string `json:"base,omitempty"`
 	// Account are the names to type unseen beside the preset pick: the
 	// mint's inputs where the pack's credential is minted, else every
 	// credential name. AccountFile is the file the value goes to. Where
@@ -182,6 +188,9 @@ type SetupAsked struct {
 	// To are who the grants are for: each crew member and each group by
 	// name, the groups before the crew members.
 	To []Grantee `json:"to"`
+	// Base is the region base the setup's calls go to, "" for the
+	// declarations' own.
+	Base string `json:"base,omitempty"`
 }
 
 // setup is the setup of the ask a as a client shows it, nil for an ask
@@ -193,7 +202,8 @@ func (a Ask) setup() *SetupAsked {
 	return &SetupAsked{Pack: a.Setup.Pack, Label: a.Setup.Label, Account: a.Setup.Account,
 		AccountFile: a.Setup.AccountFile, Given: a.Setup.Given, Missing: a.Setup.Missing,
 		Candidates: a.Setup.Candidates, Does: a.Setup.Does, Back: a.Setup.Back,
-		BackBy: a.Setup.BackBy, Carried: a.Setup.Carried, Presets: a.Setup.Presets, To: a.Setup.To}
+		BackBy: a.Setup.BackBy, Carried: a.Setup.Carried, Presets: a.Setup.Presets, To: a.Setup.To,
+		Base: a.Setup.Base}
 }
 
 // WithoutCandidates is the card as it reads where the yard's other accounts
@@ -333,7 +343,7 @@ func (w *wtx) askedSetup(ctx context.Context, ask Ask, to, actor string) (*AskSe
 	case !ops.is(to):
 		return nil, nil, fmt.Errorf("a setup is %s to approve (%s): the yard carries it out as them, so %s cannot be asked to", ops.article(), ops, to)
 	}
-	card, err := w.setupCard(pack, ask.Setup.To)
+	card, err := w.setupCard(pack, ask.Setup.To, ask.Setup.Base)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -355,11 +365,36 @@ func (w *wtx) askedSetup(ctx context.Context, ask Ask, to, actor string) (*AskSe
 		}
 		decls[d.Name] = d
 	}
-	options, err := w.setupOptions(card.Presets, card.Carried, decls, card.To, ask.Recommend)
+	options, err := w.setupOptions(card.Presets, card.Carried, decls, card.To, card.Base, ask.Recommend)
 	if err != nil {
 		return nil, nil, err
 	}
 	return card, options, nil
+}
+
+// checkSetupBase holds the setup's region base to the pack's carried
+// sources: "" is the declarations' own, and anything else is declared by
+// every carried source that declares bases. A pack none of whose sources
+// declares bases takes none.
+func checkSetupBase(pack string, carried []AskSource, decls map[string]*source.Declaration, base string) error {
+	if base == "" {
+		return nil
+	}
+	any := false
+	for _, c := range carried {
+		d := decls[c.Name]
+		if d == nil || len(d.Bases) == 0 {
+			continue
+		}
+		any = true
+		if err := d.CheckBase(base); err != nil {
+			return err
+		}
+	}
+	if !any {
+		return fmt.Errorf("--source-base %s: pack %s declares no bases: none of its sources names region bases", base, pack)
+	}
+	return nil
 }
 
 // normSetupTo is the grantees in the yard's own order, once each: the
@@ -390,8 +425,9 @@ func normSetupTo(to []Grantee) []Grantee {
 // setupCard is the card of setting up pack for the grantees to: the
 // server's own pack in the yard's sentences, the account line, and the
 // grants the presets give to whom. Asking refuses what the row refuses;
-// an approval reads it again and setupStale says what moved.
-func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
+// an approval reads it again and setupStale says what moved. base is the
+// region base the setup's calls go to, held to the pack's declarations.
+func (w *wtx) setupCard(pack string, to []Grantee, base string) (*AskSetup, error) {
 	read := w.packReaderOf()
 	if read == nil {
 		return nil, fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store, so no card can be written from the binary that runs the yard: a setup is proposed from a yard its server runs", pack)
@@ -427,6 +463,9 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 		declTotal += len(s.Text)
 		decls[d.Name] = d
 		carried = append(carried, norm)
+	}
+	if err := checkSetupBase(pack, carried, decls, base); err != nil {
+		return nil, err
 	}
 	if declTotal > MaxRunPackDeclarations {
 		return nil, fmt.Errorf("pack %s: its declarations run to %d bytes together: a card holds at most %d, so this is the operator's to set up in a terminal (yardr pack check %s shows it there)", pack, declTotal, MaxRunPackDeclarations, pack)
@@ -503,11 +542,11 @@ func (w *wtx) setupCard(pack string, to []Grantee) (*AskSetup, error) {
 			seenMap[t.seenKey()] = fingerprint
 		}
 	}
-	does, err := w.setupDoes(pack, reading, carried, decls, account, file, given, missing, candidates, to)
+	does, err := w.setupDoes(pack, reading, carried, decls, account, file, given, missing, candidates, to, base)
 	if err != nil {
 		return nil, err
 	}
-	card := &AskSetup{Pack: pack, Kind: reading.Kind, Label: reading.Label, To: to,
+	card := &AskSetup{Pack: pack, Kind: reading.Kind, Label: reading.Label, To: to, Base: base,
 		Account: account, AccountFile: file, Given: given, Missing: missing,
 		Candidates: candidates, Carried: carried, Presets: presets,
 		Does: does, Seen: seenMap, Back: setupBack(carried, to), BackBy: "the operator"}
@@ -854,7 +893,7 @@ func candidateSeen(c AskCandidate) string {
 // file, the account step doing that. Each source reads as the apply card
 // renders it but for what stays owed after: the card settles the account
 // itself, so the credential is no part of it.
-func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration, account []string, file string, given bool, missing []string, candidates []AskCandidate, to []Grantee) ([]string, error) {
+func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, decls map[string]*source.Declaration, account []string, file string, given bool, missing []string, candidates []AskCandidate, to []Grantee, base string) ([]string, error) {
 	adds, replaces, files, commands, err := w.packSourceCounts(carried, decls)
 	if err != nil {
 		return nil, err
@@ -877,7 +916,11 @@ func (w *wtx) setupDoes(pack string, reading *PackReading, carried []AskSource, 
 		// The card settles the account itself, so the credential is no
 		// part of what stays owed after it; which user a notifying
 		// source tells still is.
-		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], true)
+		chose := ""
+		if d := decls[carried[i].Name]; base != "" && d != nil && len(d.Bases) > 0 {
+			chose = base
+		}
+		lines, err := w.packOneSourceDoes(carried[i], decls[carried[i].Name], true, chose)
 		if err != nil {
 			return nil, err
 		}
@@ -976,10 +1019,10 @@ func setupBack(carried []AskSource, to []Grantee) string {
 // who wants no grants declines the card and applies by terminal. On a
 // drift card each preset is rendered against what the grantees hold:
 // calls held marked held, calls the preset would add marked new.
-func (w *wtx) setupOptions(presets []AskPreset, carried []AskSource, decls map[string]*source.Declaration, to []Grantee, recommend int) ([]AskOption, error) {
+func (w *wtx) setupOptions(presets []AskPreset, carried []AskSource, decls map[string]*source.Declaration, to []Grantee, base string, recommend int) ([]AskOption, error) {
 	out := make([]AskOption, 0, len(presets)+1)
 	for _, p := range presets {
-		says, err := w.setupPresetSays(p, carried, decls, to)
+		says, err := w.setupPresetSays(p, carried, decls, to, base)
 		if err != nil {
 			return nil, err
 		}
@@ -997,7 +1040,7 @@ func (w *wtx) setupOptions(presets []AskPreset, carried []AskSource, decls map[s
 // today's reads with the later-reads line, an update marked as changing
 // something there. It reads as the grant card reads, for each source the
 // preset grants of.
-func (w *wtx) setupPresetSays(p AskPreset, carried []AskSource, decls map[string]*source.Declaration, to []Grantee) (string, error) {
+func (w *wtx) setupPresetSays(p AskPreset, carried []AskSource, decls map[string]*source.Declaration, to []Grantee, base string) (string, error) {
 	var clauses []string
 	for i := range carried {
 		d := decls[carried[i].Name]
@@ -1010,7 +1053,7 @@ func (w *wtx) setupPresetSays(p AskPreset, carried []AskSource, decls map[string
 		if len(calls) == 0 {
 			continue
 		}
-		says, err := w.setupPresetSourceSays(p.Name, d, calls, to)
+		says, err := w.setupPresetSourceSays(p.Name, d.WithBase(base), calls, to)
 		if err != nil {
 			return "", err
 		}
@@ -1380,7 +1423,7 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 			}
 		}
 	}
-	card, err := w.setupCard(was.Pack, was.To)
+	card, err := w.setupCard(was.Pack, was.To, was.Base)
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w. %s", seq, err, nothingRan)
 	}

@@ -339,10 +339,13 @@ func TestBriefPullRequestChecksTimeOut(t *testing.T) {
 	// Serial: shortens checksTimeout.
 	bin := t.TempDir()
 	hang := filepath.Join(bin, "hang")
-	scripttest.Write(t, hang, "#!/bin/sh\nexec sleep 30\n")
+	scripttest.Write(t, hang, "#!/bin/sh\nprintf '%s' \"$YARDR_SOURCE_BASE\" > selected-base\nexec sleep 30\n")
 	st := storetest.New(t)
 	decl := `name: forge
 base: https://forge.test
+bases:
+  us: https://forge.test
+  eu: https://eu.forge.test
 link:
   host: forge.test
   issue: '^/([^/]+)/([^/]+)/issues/([0-9]+)'
@@ -363,10 +366,17 @@ calls:
 	if _, err := st.PutSource(context.Background(), "forge.yaml", decl, "me"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.SetSource(context.Background(), "forge", store.SourceBase, "eu", "me"); err != nil {
+		t.Fatal(err)
+	}
 	defer func(d time.Duration) { checksTimeout = d }(checksTimeout)
 	checksTimeout = 100 * time.Millisecond
 	start := time.Now()
-	read, got := prChecks(st, t.TempDir(), "https://forge.test/o/r/pull/7")
+	home := t.TempDir()
+	read, got := prChecks(st, home, "https://forge.test/o/r/pull/7")
+	if base, err := os.ReadFile(filepath.Join(home, "selected-base")); err != nil || string(base) != "https://eu.forge.test" {
+		t.Errorf("the pr command received base %q, %v", base, err)
+	}
 	if read != "source forge's ci command" {
 		t.Errorf("prChecks read %q", read)
 	}

@@ -9,16 +9,18 @@ in PostHog's pages.
 
 1. **A personal API key.** In PostHog, your user settings → Personal API
    keys (Settings → Personal API keys,
-   `https://us.posthog.com/settings/user-api-keys#personal-api-keys`):
-   create one with the scopes `query:read`, `error_tracking:read`,
-   `user:read`, `session_recording:read` and `replay_scanner:read`, for
-   the queries, the issues, the check, the recordings and the
-   observations below. The yard sends it as `Authorization: Bearer`,
-   read from the variable `POSTHOG_API_KEY`, the name and never the
-   value.
+   `https://us.posthog.com/settings/user-api-keys#personal-api-keys`, or
+   `https://eu.posthog.com/settings/user-api-keys#personal-api-keys` on
+   EU Cloud): create one with the scopes `query:read`,
+   `error_tracking:read`, `user:read`, `session_recording:read` and
+   `replay_scanner:read`, for the queries, the issues, the check, the
+   recordings and the observations below. The yard sends it as
+   `Authorization: Bearer`, read from the variable `POSTHOG_API_KEY`,
+   the name and never the value.
 2. **The project id.** In PostHog, the project's settings → Project ID
-   (`https://us.posthog.com/settings/project#variables`): the number,
-   which every call below takes as `project`.
+   (`https://us.posthog.com/settings/project#variables`, or
+   `https://eu.posthog.com/settings/project#variables` on EU Cloud):
+   the number, which every call below takes as `project`.
 3. **Apply the pack.** As the operator:
    ```sh
    yardr pack apply posthog
@@ -136,11 +138,9 @@ in PostHog's pages.
    ```
 
 On EU Cloud the calls go to `https://eu.posthog.com` instead of
-`https://us.posthog.com`: the pack ships the US base, and `yardr source
-set` sets no base, so copy the pack's directory from a yardr checkout,
-change `base:` in `posthog.yaml`, and add it after the pack is applied
-(`yardr source add <copy>/posthog.yaml`, beside its `posthog/`
-directory, which the add copies with it). The hook needs no such copy:
-the issue's and the replay's URLs are built from the `project.url` the
-delivery carries, on whichever host sent it. Applying the pack again
-replaces the declaration with the US base, so add the copy again after.
+`https://us.posthog.com`: the pack declares both bases, and the yard
+picks one by name, in step 3 (`yardr pack apply posthog --source-base
+posthog=eu`, which a re-apply keeps) or any time after (`yardr source
+set posthog base=eu`). The hook needs no such setting: the issue's and
+the replay's URLs are built from the `project.url` the delivery carries,
+on whichever host sent it.

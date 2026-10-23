@@ -111,6 +111,32 @@ func TestSecretAskIsStoredWithTheDeclarationsNames(t *testing.T) {
 	if strings.Contains(lines, "words wanted") || strings.Contains(lines, "evil") {
 		t.Errorf("the card:\n%s", lines)
 	}
+	src, err := y.GetSource(y.ctx, "crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	region := strings.Replace(src.Text, "base: https://crm.example.com/api\n",
+		"base: https://crm.example.com/api\nbases:\n  eu: https://eu.crm.example.com/api\n", 1)
+	if region == src.Text {
+		t.Fatal("the test adds no bases")
+	}
+	if _, err := y.PutSource(y.ctx, "crm.yaml", region, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.SetSource(y.ctx, "crm", SourceBase, "eu", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	regionAsk := y.ask(t, secretAsk("crm"), "yardmaster")
+	if got := y.asked(t, regionAsk).Ask.Secret.Host; got != "https://eu.crm.example.com" {
+		t.Fatalf("the regional secret ask host = %q", got)
+	}
+	if _, err := y.SetSource(y.ctx, "crm", SourceBase, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.GiveSecret(y.ctx, y.bead, regionAsk, map[string]string{"CRM_TOKEN": "value"}, "mckean", true); err == nil ||
+		!strings.Contains(err.Error(), "says the secret is for the source crm at https://eu.crm.example.com") {
+		t.Fatalf("a secret ask from the old base was accepted or refused otherwise: %v", err)
+	}
 }
 
 // A secret ask for a source whose credential is minted is stored asking

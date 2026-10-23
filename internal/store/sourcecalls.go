@@ -1185,6 +1185,10 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 	if key != nil {
 		sentWith, attempt = key.Key, key.Attempts
 	}
+	// The call goes to the source's chosen base: the declaration with
+	// the base setting in place of its own, so the credential, the mint
+	// and the request all go to one address.
+	d = d.WithBase(src.Base)
 	var cred string
 	if req.As == "" {
 		cred, _, err = d.ReadCredential(ctx, src.EnvFile, src.mintIn(s.home), call.Kind)

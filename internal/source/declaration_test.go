@@ -282,6 +282,8 @@ func TestParseRefusesACredentialThatIsTheAddress(t *testing.T) {
 	}{
 		{"a base beside it", with("credential:", "base: https://hooks.example.com\ncredential:"),
 			"base", "the credential is the address every call goes to (credential.url: true), so the file names no base beside it"},
+		{"region bases beside it", with("credential:", "bases:\n  eu: https://eu.hooks.example.com\ncredential:"),
+			"bases", "the credential is the address every call goes to (credential.url: true), so the file names no bases beside it"},
 		{"a header to send it in", with("  url: true", "  url: true\n  header: \"X-Hook: {credential}\""),
 			"credential.header", "the credential is the address every call goes to (url: true), and is not sent in a header"},
 		{"a path to put it in", with("  url: true", "  url: true\n  in_path: true"),
@@ -320,6 +322,60 @@ func TestParseRefusesACredentialThatIsTheAddress(t *testing.T) {
 	_, err := Parse("webhook.yaml", []byte(with("  url: true\n", "")))
 	if err == nil || !strings.Contains(err.Error(), "base: missing: the address every call's path is under (https://…), or credential.url: true where the credential is the address itself") {
 		t.Fatalf("without url or a base: %v", err)
+	}
+}
+
+// A service in several regions declares each region's base beside its
+// own: the source setting base names one of them, "" for the base
+// itself, and anything else is refused with the names the file has.
+func TestParseBases(t *testing.T) {
+	text := strings.Replace(crm, "base: https://crm.example.com/api/v2\n",
+		"base: https://crm.example.com/api/v2\nbases:\n  us: https://crm.example.com/api/v2\n  eu: https://eu.crm.example.com/api/v2\n", 1)
+	d, err := Parse("crm.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Base != "https://crm.example.com/api/v2" || len(d.Bases) != 2 ||
+		d.Bases["us"] != "https://crm.example.com/api/v2" || d.Bases["eu"] != "https://eu.crm.example.com/api/v2" {
+		t.Fatalf("bases = %+v under %q", d.Bases, d.Base)
+	}
+	if names := d.BaseNames(); len(names) != 2 || names[0] != "eu" || names[1] != "us" {
+		t.Fatalf("names = %q", names)
+	}
+	if u, ok := d.BaseURL(""); !ok || u != d.Base {
+		t.Fatalf(`BaseURL("") = %q, %v`, u, ok)
+	}
+	if u, ok := d.BaseURL("eu"); !ok || u != "https://eu.crm.example.com/api/v2" {
+		t.Fatalf(`BaseURL("eu") = %q, %v`, u, ok)
+	}
+	if _, ok := d.BaseURL("xx"); ok {
+		t.Fatalf(`BaseURL("xx") is held`)
+	}
+	if got := d.WithBase(""); got != d {
+		t.Fatalf("WithBase(\"\") copies the declaration")
+	}
+	if got := d.WithBase("xx"); got != d {
+		t.Fatalf(`WithBase("xx") is not the declaration itself`)
+	}
+	at := d.WithBase("eu")
+	if at == d || at.Base != "https://eu.crm.example.com/api/v2" || at.Name != d.Name || len(at.Bases) != 2 {
+		t.Fatalf("WithBase(eu) = %+v", at)
+	}
+	if err := d.CheckBase(""); err != nil {
+		t.Fatalf(`CheckBase("") = %v`, err)
+	}
+	if err := d.CheckBase("eu"); err != nil {
+		t.Fatalf(`CheckBase("eu") = %v`, err)
+	}
+	if err := d.CheckBase("xx"); err == nil || !strings.Contains(err.Error(), `(it has: eu, us)`) {
+		t.Fatalf(`CheckBase("xx") = %v`, err)
+	}
+	plain, err := Parse("crm.yaml", []byte(crm))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plain.CheckBase("eu"); err == nil || !strings.Contains(err.Error(), "names no bases") {
+		t.Fatalf(`CheckBase("eu") without bases = %v`, err)
 	}
 }
 
@@ -388,6 +444,14 @@ func TestParseRefuses(t *testing.T) {
 			"calls.customer.params.id.pattern", "error parsing regexp"},
 		{"a call named as every read call", with("  ping:     {", "  read:     {"),
 			"calls.read", "stands for every read call"},
+		{"a region base over plain http", with("base: https://crm.example.com/api/v2\n", "base: https://crm.example.com/api/v2\nbases:\n  eu: http://eu.crm.example.com/api/v2\n"),
+			"bases.eu", "http:// is for a stand-in on this machine only"},
+		{"a region base that is no address", with("base: https://crm.example.com/api/v2\n", "base: https://crm.example.com/api/v2\nbases:\n  eu: eu-west\n"),
+			"bases.eu", "is no address"},
+		{"a region base named loosely", with("base: https://crm.example.com/api/v2\n", "base: https://crm.example.com/api/v2\nbases:\n  EU: https://eu.crm.example.com/api/v2\n"),
+			"bases.EU", "use lowercase letters"},
+		{"no region base", with("base: https://crm.example.com/api/v2\n", "base: https://crm.example.com/api/v2\nbases: {}\n"),
+			"bases", "no base: bases names the regions' bases beside base, or is left out"},
 		{"no calls", "name: x\nbase: https://x.example.com\n", "calls", "missing"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -639,6 +703,7 @@ func TestParseLimitsRefusals(t *testing.T) {
 		"a program that leaves the file":  {limits("  command: [../q, \"{provider}\"]\n" + kinds), `limits.command: the program "../q" has a '.' or '..' segment`},
 		"a key it does not have":          {limits(cmd + kinds + "  timeout: 5\n"), "limits.timeout: unknown key (known here: command, kinds)"},
 		"a base and no calls":             {"name: q\nbase: https://q.example.com\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: base: is for the calls of a source, and this file declares none"},
+		"region bases and no calls":       {"name: q\nbases:\n  eu: https://eu.q.example.com\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: bases: is for the calls of a source, and this file declares none"},
 		"a credential and no calls":       {"name: q\ncredential: { env: Q }\n" + limits(cmd + kinds)[len("name: q\n"):], "f:2: credential: is for the calls of a source"},
 		"neither calls nor limits":        {"name: q\n", "calls: missing: a source is the calls it declares, or its limits command"},
 		"calls, limits and no base":       {strings.Replace(pushover, "base: https://api.pushover.net/1\n", "", 1) + "limits:\n" + cmd + kinds, "base: missing: the address every call's path is under"},

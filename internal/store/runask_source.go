@@ -222,7 +222,7 @@ func pluralCalls(n int) string {
 // without opening the text approves nothing these sentences have not
 // named. The text itself stands behind them in a terminal.
 func sourceDoes(d *source.Declaration, carried AskSource) []string {
-	return sourceDoesChanged(d, carried, nil, false)
+	return sourceDoesChanged(d, carried, nil, false, "")
 }
 
 // sourceDoesChanged renders as sourceDoes does, and where diffs names a
@@ -231,15 +231,17 @@ func sourceDoes(d *source.Declaration, carried AskSource) []string {
 // the uses the file already names. A replacement's card reads that way,
 // so the change is said once and not again on its own line. Where
 // settleAccount the credential is no part of what stays owed after: the
-// card settles the account itself, as a setup card does.
-func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff, settleAccount bool) []string {
+// card settles the account itself, as a setup card does. base is the
+// region base a setup ask chose, "" for the declaration's own: the card
+// shows the base the setup will call.
+func sourceDoesChanged(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff, settleAccount bool, base string) []string {
 	files, commands := len(carried.Files), len(d.Commands())
 	copies := "copies no command files"
 	if files > 0 {
 		copies = fmt.Sprintf("copies %s (%s)", countNoun(files, "command file"), countNoun(commands, "command"))
 	}
 	does := []string{fmt.Sprintf("it adds one source and %s, and changes nothing else. It grants no call, makes no hook, and sets no credential's file.", copies)}
-	does = append(does, credentialSays(d, carried, diffs))
+	does = append(does, credentialSays(d, carried, diffs, base))
 	for i := range d.Calls {
 		does = append(does, callSaysWhole(d, &d.Calls[i])...)
 	}
@@ -337,10 +339,13 @@ func safeSourceCardLine(s string) string {
 // declaration brings with its file's sha256 whole, or its change where
 // diffs names one: that program runs with the operator's logins, so what
 // approving it approves is said where the credential is.
-func credentialSays(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff) string {
+func credentialSays(d *source.Declaration, carried AskSource, diffs map[string]AskFileDiff, base string) string {
 	head := fmt.Sprintf("source %s: it has no base and calls nothing.", d.Name)
 	if addr := d.Address(); addr != "" {
 		head = fmt.Sprintf("source %s: its calls go to %s.", d.Name, addr)
+		if u, ok := d.BaseURL(base); base != "" && ok {
+			head = fmt.Sprintf("source %s: its calls go to %s (base %s).", d.Name, u, base)
+		}
 	}
 	if d.Credential == nil {
 		return head + " It names no credential."

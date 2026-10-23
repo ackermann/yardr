@@ -32,6 +32,7 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askSecret, askForUser, askForCrew, askAs, askRun, askSecretLogin, askSecretHook, askHookSource string
 	var askSetup string
 	var askCrew, askGroup []string
+	var askSourceBase string
 	var askEnv []string
 	var askTakeBack bool
 	ask := &cobra.Command{
@@ -324,7 +325,9 @@ working a bead does not: it says what it needs in a note on the bead.
 
 --setup <pack> sets up an embedded pack of kind source as one decision:
 the apply, the account and the grants. It takes --crew <name> and --group
-<group>, repeatable, at least one: who the grants are for. --recommend
+<group>, repeatable, at least one: who the grants are for. --source-base
+<name> calls the pack's region base <name>, for a pack whose source
+declares bases; the card shows the base it will call. --recommend
 counts the card's preset options as yardr pack show prints them, with
 --why saying why, as on any option ask. The card shows the pack's
 declaration whole with its mint, the account to type unseen or the listed
@@ -333,7 +336,8 @@ from the declarations with the grantee, and You decide last, which grants
 the recommended preset. The operator approves with the preset pick and
 the account together (yardr bead answer <id> <ask> <n> --secret, or
 --account <source> where the card lists one); the yard then applies the
-pack, takes the account, and grants the preset picked, as the operator.
+pack, sets the base where one was chosen, takes the account, and grants
+the preset picked, as the operator.
 An approval is refused when the yard changed since the ask, which is then
 asked again. A pack past 40 lines, one carrying sources under different
 credentials, and one with no presets stay on the existing per-step flow:
@@ -466,6 +470,8 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--for-crew says whose own credential in a source is asked for: it goes with --secret <source>, not --setup")
 			case !c.Flags().Changed("setup") && (c.Flags().Changed("crew") || c.Flags().Changed("group")):
 				return fmt.Errorf("--crew and --group name who a setup's grants are for: they go with --setup <pack>")
+			case !c.Flags().Changed("setup") && c.Flags().Changed("source-base"):
+				return fmt.Errorf("--source-base names the region base a setup's calls go to: it goes with --setup <pack>")
 			case askForUser != "" && askSecret == "" && !c.Flags().Changed("secret-login"):
 				return fmt.Errorf("--for-user says whose own address in a source is asked for: it goes with --secret <source>")
 			case askForUser != "" && len(askEnv) > 0:
@@ -593,7 +599,7 @@ what the person asked does, and this is the asker's own.`,
 				for _, cm := range askCrew {
 					to = append(to, store.Grantee{Crew: cm})
 				}
-				q.Setup = &store.AskSetup{Pack: askSetup, To: to}
+				q.Setup = &store.AskSetup{Pack: askSetup, To: to, Base: askSourceBase}
 			}
 			if c.Flags().Changed("run") {
 				// As typed, in one string: the yard splits and parses it.
@@ -762,6 +768,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askSetup, "setup", "", "set up this embedded pack of kind source as one decision: the apply, the account and the grants, with --crew/--group naming who the grants are for")
 	ask.Flags().StringArrayVar(&askCrew, "crew", nil, "with --setup: the grants are for this crew member (repeatable; at least one of --crew and --group)")
 	ask.Flags().StringArrayVar(&askGroup, "group", nil, "with --setup: the grants are for this group's sessions (repeatable; at least one of --crew and --group)")
+	ask.Flags().StringVar(&askSourceBase, "source-base", "", "with --setup: the setup's calls go to the pack's region base <name>, for a pack whose source declares bases")
 	ask.Flags().StringSliceVar(&askEnv, "env", nil, "with --secret: only these variables of the source's credential (default the mint's inputs where the declaration names a mint, else every one it names)")
 	ask.Flags().BoolVar(&askTakeBack, "take-back", false, "take an open ask back instead of asking: <id> <ask> \"<reason>\" (the asker's, or the operator's)")
 	ask.Flags().BoolVar(&askNew, "new", false, "the question is about no bead: make one titled with it, and the ask on it, in one write")

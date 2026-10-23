@@ -345,7 +345,9 @@ func trainOf(branch string) string {
 func (rc *Receiver) adapter(ctx context.Context, name string) (Adapter, bool) {
 	var d *source.Declaration
 	if src, err := rc.st.GetSource(ctx, name); err == nil {
-		d, _ = src.Declaration()
+		if declared, err := src.Declaration(); err == nil {
+			d = declared.WithBase(src.Base)
+		}
 	}
 	return AdapterFor(name, d, rc.home)
 }

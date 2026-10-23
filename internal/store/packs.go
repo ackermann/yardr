@@ -80,6 +80,11 @@ type PackImport struct {
 	// a no to one yard is none to the next of that name. A peer nobody was
 	// asked about is not in it, so a later import asks.
 	Expose map[string]map[string]bool `json:"expose_to_peers,omitempty"`
+	// SourceBase are the answers to which region base a declared source's
+	// calls go to (--source-base): the source -> the base's name. The
+	// next import takes them as the default unless told anew, as it does
+	// the crew and the groups, so a re-apply keeps the region.
+	SourceBase map[string]string `json:"source_base,omitempty"`
 }
 
 // PackObject is one object of the yard that came from a pack, with what it
@@ -166,6 +171,9 @@ func normalPack(p PackImport) PackImport {
 		}
 	}
 	p.OpenThreads, p.Calls, p.Expose = answered(p.OpenThreads), answered(p.Calls), answered(p.Expose)
+	if len(p.SourceBase) == 0 {
+		p.SourceBase = nil
+	}
 	return p
 }
 

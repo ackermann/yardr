@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -17,13 +18,17 @@ import (
 // the declaration of a source and names no file and no user; --source-env
 // <source>=<file> sets the file the source's credential is read from, and
 // --notify <user>=<source>[,<envfile>] tells the user through it, as yardr
-// source set and yardr user set do. Both are for a source the plan
-// declares, and both are repeatable, the last winning for one source or
-// user. What the actor may not set is skipped, with why, and the rest of
-// the import is done.
+// source set and yardr user set do. --source-base <source>=<name> calls
+// the declaration's region base <name>, as yardr source set <source>
+// base=<name> does. All are for a source the plan declares, and all are
+// repeatable, the last winning for one source or user. What the actor may
+// not set is skipped, with why, and the rest of the import is done.
 
 // sourceEnv is one --source-env <source>=<file>.
 type sourceEnv struct{ source, file string }
+
+// sourceBase is one --source-base <source>=<name>.
+type sourceBase struct{ source, name string }
 
 // notifyTo is one --notify <user>=<source>[,<envfile>].
 type notifyTo struct{ user, source, file string }
@@ -53,8 +58,11 @@ func (s *notifySets) add(set bool, src, line string) {
 // planNotify checks the flags against the plan and the yard: the form,
 // the sources the plan declares, the users, and the files with what each
 // sets, as the set commands check them. Everything a set needs is checked
-// before the import writes; who may set it is decided when it runs.
-func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notifyFlags []string) ([]sourceEnv, []notifyTo, error) {
+// before the import writes; who may set it is decided when it runs. A
+// source the pack declares with region bases that no --source-base flag
+// names takes the last import's answer, unless told anew; a recorded name
+// the pack declares no more is left out, as a dropped crew mapping is.
+func planNotify(ctx context.Context, st store.API, p *pack.Pack, depot string, envFlags, notifyFlags, baseFlags []string) ([]sourceEnv, []notifyTo, []sourceBase, error) {
 	decls := map[string]*source.Declaration{}
 	for _, d := range p.Declared {
 		decls[d.Name] = d.Declaration
@@ -73,24 +81,24 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notif
 	for _, kv := range envFlags {
 		name, file, ok := strings.Cut(kv, "=")
 		if !ok || name == "" || file == "" {
-			return nil, nil, fmt.Errorf("--source-env %q: want <source>=<file>", kv)
+			return nil, nil, nil, fmt.Errorf("--source-env %q: want <source>=<file>", kv)
 		}
 		d, err := decl("--source-env", kv, name)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if d.Credential == nil {
-			return nil, nil, fmt.Errorf("--source-env %s=%s: the declaration names no credential, so there is nothing a file would set", name, file)
+			return nil, nil, nil, fmt.Errorf("--source-env %s=%s: the declaration names no credential, so there is nothing a file would set", name, file)
 		}
 		if file, err = config.ExpandPath(file); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		// As yardr source set checks it: the file is refused here, and a
 		// mint without its command is the next step, not a refusal.
 		if _, err := d.CredentialState(file, nil); err != nil {
 			var noCommand *source.NoMintCommand
 			if !errors.As(err, &noCommand) {
-				return nil, nil, fmt.Errorf("--source-env %s=%s: %w", name, file, err)
+				return nil, nil, nil, fmt.Errorf("--source-env %s=%s: %w", name, file, err)
 			}
 		}
 		envs = append(envs, sourceEnv{name, file})
@@ -99,39 +107,74 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notif
 	for _, kv := range notifyFlags {
 		user, rest, ok := strings.Cut(kv, "=")
 		if !ok || user == "" || rest == "" {
-			return nil, nil, fmt.Errorf("--notify %q: want <user>=<source>[,<envfile>]", kv)
+			return nil, nil, nil, fmt.Errorf("--notify %q: want <user>=<source>[,<envfile>]", kv)
 		}
 		name, file, _ := strings.Cut(rest, ",")
 		if name == "" {
-			return nil, nil, fmt.Errorf("--notify %q: want <user>=<source>[,<envfile>]", kv)
+			return nil, nil, nil, fmt.Errorf("--notify %q: want <user>=<source>[,<envfile>]", kv)
 		}
 		d, err := decl("--notify", kv, name)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if d.Notify == nil {
-			return nil, nil, fmt.Errorf("--notify %s=%s: the source cannot tell a user: its file has no notify key", user, name)
+			return nil, nil, nil, fmt.Errorf("--notify %s=%s: the source cannot tell a user: its file has no notify key", user, name)
 		}
 		if _, err := st.GetUser(ctx, user); err != nil {
-			return nil, nil, fmt.Errorf("--notify %s=%s: no user %s (yardr user add %s)", user, name, user, user)
+			return nil, nil, nil, fmt.Errorf("--notify %s=%s: no user %s (yardr user add %s)", user, name, user, user)
 		}
 		if file != "" {
 			if file, err = config.ExpandPath(file); err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			// As yardr user set checks it: a file that is open to
 			// others, or does not set the address, is refused here.
 			f, err := config.ReadEnvFile(file)
 			if err != nil {
-				return nil, nil, fmt.Errorf("--notify %s=%s: %w", user, name, err)
+				return nil, nil, nil, fmt.Errorf("--notify %s=%s: %w", user, name, err)
 			}
 			if source.Lookup(f.Env, d.Notify.AddressEnv) == "" {
-				return nil, nil, fmt.Errorf("--notify %s=%s: user %s: env_file %s does not set %s", user, name, user, f.Path, d.Notify.AddressEnv)
+				return nil, nil, nil, fmt.Errorf("--notify %s=%s: user %s: env_file %s does not set %s", user, name, user, f.Path, d.Notify.AddressEnv)
 			}
 		}
 		tos = append(tos, notifyTo{user, name, file})
 	}
-	return envs, tos, nil
+	var bases []sourceBase
+	named := map[string]bool{}
+	for _, kv := range baseFlags {
+		name, base, ok := strings.Cut(kv, "=")
+		if !ok || name == "" || base == "" {
+			return nil, nil, nil, fmt.Errorf("--source-base %q: want <source>=<name>", kv)
+		}
+		d, err := decl("--source-base", kv, name)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		// As yardr source set checks it: the name is held to the
+		// declaration's bases here, before anything is written.
+		if err := d.CheckBase(base); err != nil {
+			return nil, nil, nil, fmt.Errorf("--source-base %s=%s: %v", name, base, err)
+		}
+		named[name] = true
+		bases = append(bases, sourceBase{name, base})
+	}
+	// Whoever a source's calls went to at the last import, unless told
+	// anew: the record's answer for a source no flag names.
+	if recs, err := st.Packs(ctx); err != nil {
+		return nil, nil, nil, err
+	} else if i := slices.IndexFunc(recs, func(r store.PackImport) bool { return r.Pack == p.Name && r.Depot == depot }); i >= 0 {
+		for _, name := range slices.Sorted(maps.Keys(decls)) {
+			if named[name] || decls[name] == nil || len(decls[name].Bases) == 0 {
+				continue
+			}
+			if base, ok := recs[i].SourceBase[name]; ok {
+				if _, ok := decls[name].Bases[base]; ok {
+					bases = append(bases, sourceBase{name, base})
+				}
+			}
+		}
+	}
+	return envs, tos, bases, nil
 }
 
 // applyNotify sets what planNotify planned, after the import wrote its
@@ -139,21 +182,29 @@ func planNotify(ctx context.Context, st store.API, p *pack.Pack, envFlags, notif
 // is skipped, with why, and the rest is done. A set that fails stops the
 // import where it is: what was set before stays, and running the command
 // again finishes it. A set that is already as it would be writes nothing.
-func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor string, refused map[string]string, envs []sourceEnv, tos []notifyTo) (*notifySets, error) {
+// setSkipped says why the import sets nothing on the source: the source
+// was not added, or setting a source is not the actor's to do. "" sets it.
+func setSkipped(refused map[string]string, ops []string, actor, name string) string {
+	if why := refused[name]; why != "" {
+		return fmt.Sprintf("the source was not added (%s)", why)
+	}
+	// As adding a source: setting a source is the operator's, and the
+	// rest of the import is done.
+	if len(ops) > 0 && !slices.Contains(ops, actor) {
+		return fmt.Sprintf("setting a source's credential is %s, and this is %s. The rest of the import does not depend on it", store.OperatorsWhose(ops), actor)
+	}
+	return ""
+}
+
+func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor string, refused map[string]string, envs []sourceEnv, tos []notifyTo, bases []sourceBase) (*notifySets, error) {
 	sets := &notifySets{}
 	ops, err := yardOperators(ctx, st)
 	if err != nil {
 		return sets, err
 	}
 	for _, e := range envs {
-		if why := refused[e.source]; why != "" {
-			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: the source was not added (%s)", e.source, why))
-			continue
-		}
-		// As adding a source: setting where a credential is read from
-		// is the operator's, and the rest of the import is done.
-		if len(ops) > 0 && !slices.Contains(ops, actor) {
-			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: setting a source's credential is %s, and this is %s. The rest of the import does not depend on it", e.source, store.OperatorsWhose(ops), actor))
+		if why := setSkipped(refused, ops, actor, e.source); why != "" {
+			sets.add(false, e.source, fmt.Sprintf("the env_file of source %s was not set: %s", e.source, why))
 			continue
 		}
 		src, err := st.GetSource(ctx, e.source)
@@ -177,6 +228,33 @@ func applyNotify(ctx context.Context, st store.API, plan *pack.Plan, actor strin
 			return sets, err
 		}
 		sets.add(true, e.source, fmt.Sprintf("source %s: %s", saved.Name, state))
+	}
+	for _, b := range bases {
+		if why := setSkipped(refused, ops, actor, b.source); why != "" {
+			sets.add(false, b.source, fmt.Sprintf("the base of source %s was not set: %s", b.source, why))
+			continue
+		}
+		src, err := st.GetSource(ctx, b.source)
+		if err != nil {
+			return sets, fmt.Errorf("source %s: %w", b.source, err)
+		}
+		if src.Base == b.name {
+			d, err := src.Declaration()
+			if err != nil {
+				return sets, err
+			}
+			sets.add(true, b.source, fmt.Sprintf("source %s: %s", src.Name, baseState(d, src.Base)))
+			continue
+		}
+		saved, err := st.SetSource(ctx, b.source, store.SourceBase, b.name, actor)
+		if err != nil {
+			return sets, fmt.Errorf("source %s: %w", b.source, err)
+		}
+		d, err := saved.Declaration()
+		if err != nil {
+			return sets, err
+		}
+		sets.add(true, b.source, fmt.Sprintf("source %s: %s", saved.Name, baseState(d, saved.Base)))
 	}
 	for _, n := range tos {
 		if why := refused[n.source]; why != "" {

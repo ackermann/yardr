@@ -261,6 +261,64 @@ func TestSourceCallBySession(t *testing.T) {
 	}
 }
 
+// A call goes to the source's chosen region base, and to the file's own
+// with the setting cleared: two stand-ins tell which was called.
+func TestSourceCallChosenBase(t *testing.T) {
+	t.Parallel()
+	_, s := storetest.NewOwned(t)
+	ctx := crmYard(t, s)
+	src, err := s.GetSource(ctx, "crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := src.Declaration()
+	if err != nil {
+		t.Fatal(err)
+	}
+	eu := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+crmToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/eu/me" {
+			io.WriteString(w, `{"id":"eu"}`)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(eu.Close)
+	text := strings.Replace(src.Text, "base: "+d.Base+"\n", "base: "+d.Base+"\nbases:\n  eu: "+eu.URL+"/eu\n", 1)
+	if text == src.Text {
+		t.Fatal("the test adds no bases")
+	}
+	if _, err := s.PutSource(ctx, "crm.yaml", text, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	call := func() string {
+		t.Helper()
+		res, err := s.CallSource(ctx, store.SourceCall{Source: "crm", Call: "ping", Actor: "jo"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(res.Answer)
+	}
+	if got := call(); got != `{"id":"app"}` {
+		t.Fatalf("with no base set: %s", got)
+	}
+	if _, err := s.SetSource(ctx, "crm", store.SourceBase, "eu", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := call(); got != `{"id":"eu"}` {
+		t.Fatalf("with base=eu: %s", got)
+	}
+	if _, err := s.SetSource(ctx, "crm", store.SourceBase, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := call(); got != `{"id":"app"}` {
+		t.Fatalf("with the base cleared: %s", got)
+	}
+}
+
 // The operator makes any call without a grant; a crew member the ones it
 // was granted, by name or through read; anyone else none.
 func TestSourceCallGrants(t *testing.T) {

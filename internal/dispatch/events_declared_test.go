@@ -25,6 +25,9 @@ import (
 func liveDecl(pr, prCalls, ci, ciCalls string) string {
 	return `name: forge
 base: https://forge.test
+bases:
+  us: https://forge.test
+  eu: https://eu.forge.test
 credential:
   env: FORGE_TOKEN
 hook:
@@ -79,6 +82,9 @@ func liveForge(t *testing.T, r *ghDepot, lines ...string) (prCalls, ciCalls stri
 	liveScript(t, pr, `{"head": "`+fixtureSHA+`", "base": "main", "state": "open"}`)
 	liveScript(t, ci, `{"head": "`+fixtureSHA+`", "base": "main", "state": "open", "required": ["build"], "checks": [{"name": "build", "status": "completed", "conclusion": "success", "url": "https://forge.test/acme/yardr/runs/5"}]}`)
 	if _, err := r.api.PutSource(ctx, "forge.yaml", liveDecl(pr, prCalls, ci, ciCalls), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.api.SetSource(ctx, "forge", store.SourceBase, "eu", "me"); err != nil {
 		t.Fatal(err)
 	}
 	env := filepath.Join(bin, "yardmaster.env")
@@ -136,7 +142,7 @@ func TestForgeRunMovesTrainThroughScriptedPR(t *testing.T) {
 		t.Fatalf("yard-t in %s after a failed run on its pull request's head, want open", st)
 	}
 	wantRules(t, r.rules(t, "yard-t"), "changes review -> open")
-	for _, want := range []string{"token=forge-yardmaster", "base=https://forge.test",
+	for _, want := range []string{"token=forge-yardmaster", "base=https://eu.forge.test",
 		`"repo":"acme/yardr"`, `"number":"17"`, `"url":"https://forge.test/acme/yardr/pull/17"`} {
 		if got := scriptAsked(t, prCalls); !strings.Contains(got, want) {
 			t.Errorf("the pr command was asked %q, want %q in it", got, want)
@@ -163,7 +169,7 @@ func TestForgeCIMovesTrainThroughScriptedCI(t *testing.T) {
 	if st := r.stageOf(t, "yard-t"); st != "land" {
 		t.Fatalf("yard-t in %s with its CI green, want land", st)
 	}
-	for _, want := range []string{"token=forge-yardmaster", `"repo":"acme/yardr"`,
+	for _, want := range []string{"token=forge-yardmaster", "base=https://eu.forge.test", `"repo":"acme/yardr"`,
 		`"number":"17"`, `"sha":"` + fixtureSHA + `"`} {
 		if got := scriptAsked(t, ciCalls); !strings.Contains(got, want) {
 			t.Errorf("the ci command was asked %q, want %q in it", got, want)
