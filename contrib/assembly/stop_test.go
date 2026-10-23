@@ -34,6 +34,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // reportWatches is the report watch of each yard whose store this process
@@ -158,10 +160,11 @@ func touch(t *testing.T, file string) {
 }
 
 // awaitFile waits for file to exist. The one-minute deadline is a fuse against
-// a script that never gets there, not a window the fixture must fit in.
+// a script that never gets there, not a window the fixture must fit in; it is
+// written for an idle box and sized to the machine (testload.Scale).
 func awaitFile(t *testing.T, file, what string) {
 	t.Helper()
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(time.Minute)); ; time.Sleep(20 * time.Millisecond) {
 		if _, err := os.Stat(file); err == nil {
 			return
 		}
@@ -204,10 +207,10 @@ func gateRm(t *testing.T, bin string) (arm, held, release string) {
 // does, so a test that signals the script as soon as it sees that sleep could
 // signal it before the child exists, and have nothing to look for after. The
 // one-minute deadline is a fuse against a command that never starts, not a
-// window the fixture must fit in.
+// window the fixture must fit in; it is sized to the machine like awaitFile's.
 func awaitTestChild(t *testing.T, file string) int {
 	t.Helper()
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(time.Minute)); ; time.Sleep(20 * time.Millisecond) {
 		if b, err := os.ReadFile(file); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 				return pid
@@ -223,7 +226,7 @@ func awaitTestChild(t *testing.T, file string) int {
 // process takes a moment to go, one nothing killed never does.
 func assertGone(t *testing.T, pid int, what string) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(10 * time.Second)); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Errorf("%s (pid %d) outlived the script", what, pid)
@@ -321,7 +324,7 @@ func TestPRScriptsKilledWithTermLeaveNoTempBehind(t *testing.T) {
 				if code != 143 {
 					t.Errorf("%s run by %s and killed with TERM exits %d, want 143", script, shell, code)
 				}
-			case <-time.After(time.Minute):
+			case <-time.After(testload.Scale(time.Minute)):
 				t.Fatalf("%s did not end when its process group was sent TERM", script)
 			}
 			assertNothingLeft(t, record)

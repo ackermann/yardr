@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // screen is as much of a terminal as the stand-in draws on: lines of text
@@ -120,6 +122,8 @@ func start(t *testing.T, loginNeeded bool) *standIn {
 // a fuse against a stand-in that never draws, not a window its start must fit
 // in. Beside a full race run the start of a binary just built, and its answer
 // to a line it is sent, took longer than the 10 s this once was (yardr-g9tn).
+// It is written for an idle box and draw sizes it to the machine
+// (testload.Scale).
 const drawFuse = time.Minute
 
 // draw reads the stand-in's output onto the screen up to the next thing that
@@ -139,13 +143,14 @@ func (s *standIn) draw(end string) {
 		}
 		done <- nil
 	}()
+	fuse := testload.Scale(drawFuse)
 	select {
 	case err := <-done:
 		if err != nil {
 			s.t.Fatalf("the stand-in's output ended at %q: %v", got.String(), err)
 		}
-	case <-time.After(drawFuse):
-		s.t.Fatalf("no %q from the stand-in in %s", end, drawFuse)
+	case <-time.After(fuse):
+		s.t.Fatalf("no %q from the stand-in in %s", end, fuse)
 	}
 	// As the pane's terminal passes it on: a line feed returns the carriage.
 	s.scr.write(strings.ReplaceAll(got.String(), "\n", "\r\n"))

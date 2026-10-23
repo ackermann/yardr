@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // sourcesFuse is how long startSources waits for the stand-in to take an
@@ -18,7 +20,8 @@ import (
 // start must fit in. The first run of a file written a moment ago waits behind
 // the first runs of the other new files on the machine, a few a second, and
 // beside a full race run the stand-in's took longer than the 20 s this once
-// was (yardr-fwcc).
+// was (yardr-fwcc). It is written for an idle box and startSources sizes it to
+// the machine (testload.Scale).
 const sourcesFuse = 2 * time.Minute
 
 // startSources builds the sources stand-in into the yard and starts it,
@@ -54,6 +57,7 @@ func startSources(t *testing.T, d string) string {
 	}()
 	// The address the stand-in took is its first log line; wait on
 	// that effect, not on wall time.
+	fuse := testload.Scale(sourcesFuse)
 	for {
 		select {
 		case line, ok := <-lines:
@@ -63,8 +67,8 @@ func startSources(t *testing.T, d string) string {
 			if _, addr, found := strings.Cut(line, "a customer system (/crm/) on "); found {
 				return strings.TrimSpace(addr)
 			}
-		case <-time.After(sourcesFuse):
-			t.Fatalf("the stand-in took no address in %s", sourcesFuse)
+		case <-time.After(fuse):
+			t.Fatalf("the stand-in took no address in %s", fuse)
 		}
 	}
 }

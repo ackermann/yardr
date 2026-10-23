@@ -28,6 +28,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // baseCI is the depot's test script, a file of the base. It says where it ran
@@ -289,7 +290,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the test command's child pid %q: %v", rawPID, err)
 			}
-			deadline := time.Now().Add(500 * time.Millisecond)
+			deadline := time.Now().Add(testload.Scale(500 * time.Millisecond))
 			for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
 				time.Sleep(20 * time.Millisecond)
 			}
@@ -356,7 +357,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for deadline := time.Now().Add(5 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+			for deadline := time.Now().Add(testload.Scale(5 * time.Second)); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
 				if time.Now().After(deadline) {
 					_ = syscall.Kill(pid, syscall.SIGKILL)
 					t.Fatalf("the sleep the test script started (pid %d) outlived the deadline's kill", pid)

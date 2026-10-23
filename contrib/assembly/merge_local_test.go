@@ -30,6 +30,7 @@ import (
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 )
 
 var yardrBin string
@@ -436,7 +437,7 @@ func (y *yard) exec(script, group, id string) {
 	if err != nil {
 		y.t.Fatal(err)
 	}
-	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(60 * time.Second)); ; time.Sleep(50 * time.Millisecond) {
 		if alive, _ := e.Alive(ctx, h); !alive {
 			break
 		}

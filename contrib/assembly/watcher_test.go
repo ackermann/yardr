@@ -28,6 +28,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // watcherRun is merge-local's world for one direct run: a repository, a
@@ -288,7 +290,7 @@ func watcherSleepers(t *testing.T, record, limit string) [][2]int {
 // orphaned one never leaves.
 func awaitNoWatcherSleepers(t *testing.T, record, limit string) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(testload.Scale(2 * time.Second))
 	for {
 		strays := watcherSleepers(t, record, limit)
 		if len(strays) == 0 {
@@ -341,10 +343,11 @@ func assertWatcherSleepFds(t *testing.T, record, limit string) {
 // appear, so the recording is complete before the caller kills the run. The
 // one-minute deadline is a fuse against the watcher never starting, not a
 // window the fixture must fit in: a full race run can delay process startup.
-// Process-table visibility under load decides nothing.
+// Process-table visibility under load decides nothing. The minute is written
+// for an idle box and sized to the machine (testload.Scale).
 func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, tmp, record, limit string) (int, int) {
 	t.Helper()
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.Now().Add(testload.Scale(time.Minute))
 	var pid int
 	for {
 		if p, ok := watcherSleepPidFromFiles(t, tmp, record, limit); ok {

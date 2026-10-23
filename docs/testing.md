@@ -51,7 +51,13 @@ durations in `*_test.go` files; a sleep it cannot read, such as a
 variable, is not judged and still owes the budget. A test waits for the
 effect it asserts: it polls the condition (a store event, a file, a held
 question, a ticket) with a deadline that is only a fuse against a hang,
-never the measurement. Where the code owns the time the test waits on,
+never the measurement. In the contrib suites that fuse is written for an
+idle box and goes through `testload.Scale`, which multiplies it by the
+factor the race leg is given (`YARDR_TEST_LOAD`, the machine's load over
+its cores from 1 to 4; `.yardr/test` reads it and names it in a line), so
+a fuse is not raised by hand after it flakes in a landing. The deadline a
+test gives the program under test is that program's input, not a fuse,
+and is not scaled. Where the code owns the time the test waits on,
 the test sets that clock -- the fake clocks named above -- and advances
 it. A deadline taken from the load is the last resort, and only where
 the thing waited on is a program outside the test (a harness binary, a

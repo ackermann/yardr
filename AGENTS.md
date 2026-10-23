@@ -90,6 +90,9 @@ it lists every exported name with its comment, faster than grepping.
   `migrate_NNN_*.go`.
 - `storetest`: throwaway stores for tests; with `YARDR_TEST_RPC=1` they
   talk over a real unix socket.
+- `testload`: the factor the gate gives a loaded race leg
+  (`YARDR_TEST_LOAD`) and `Scale`, which makes a wait written for an idle
+  box that many times longer; the contrib suites' fuses go through it.
 - `udiff`: one unified-diff rendering shared by history and ask cards.
 - `version`: build identity, noticing when the binary was replaced, and
   keeping the daemon's own descriptors out of what it execs (self-replace,
@@ -136,6 +139,12 @@ it lists every exported name with its comment, faster than grepping.
   from `internal/scripttest`; wait on the effect, not on wall time. A
   package whose tests start a real yardr names its test binary to the
   servers it starts: its `TestMain` calls `storetest.NameTestBinary()`.
+- A wait in a contrib suite (a fuse against a hang, the deadline of a poll)
+  is written for an idle box and goes through `testload.Scale`: the gate
+  gives the race leg a factor from the machine's load (`YARDR_TEST_LOAD`,
+  1 to 4), so no wait is raised by hand after it flakes in a landing. What
+  a test measures, and what it gives the program under test as a deadline,
+  does not go through it.
 - The test rules are `docs/testing.md` (per-package time budget, sleep
   budget, parallelism); the gate is `sh .yardr/test` in the worktree, and
   its printed `test:` line is the record of a run.

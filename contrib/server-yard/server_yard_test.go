@@ -35,6 +35,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // TestMain names this test binary to the servers its yards start: a binary
@@ -237,9 +238,9 @@ func environOf(t *testing.T, pid int) string {
 	return ""
 }
 
-// gone waits up to 10s for pid to end.
+// gone waits up to 10s, on an idle box, for pid to end.
 func gone(pid int) bool {
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(10 * time.Second)); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		if !running(pid) {
 			return true
 		}
@@ -357,7 +358,7 @@ func (y *yard) serviceFile(t *testing.T, kind string) string {
 func (y *yard) waitDaemon(t *testing.T) int {
 	t.Helper()
 	lock := filepath.Join(y.yardhome, "daemon.lock")
-	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(15 * time.Second)); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if pid := pidIn(lock); running(pid) {
 			return pid
 		}
@@ -849,7 +850,7 @@ func TestFakeHerdrStopsWithItsOwner(t *testing.T) {
 
 	// Up: it answers on its socket. The minute is a fuse: the first run of a
 	// program built a moment ago queues behind the machine's other first runs.
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(time.Minute)); ; time.Sleep(50 * time.Millisecond) {
 		c, err := net.DialTimeout("unix", sock, time.Second)
 		if err == nil {
 			c.Close()
@@ -871,17 +872,18 @@ func TestFakeHerdrStopsWithItsOwner(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the stand-in ended with %v after its owner ended, want status 0", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(testload.Scale(5 * time.Second)):
 		t.Fatal("the stand-in kept running after its owner ended")
 	}
 }
 
 // waitFor polls cond until it holds. The minute is a fuse against a stand-in
 // that never gets there, not the measurement: the first run of a script
-// written a moment ago queues behind the machine's other first runs.
+// written a moment ago queues behind the machine's other first runs. It is
+// written for an idle box and sized to the machine (testload.Scale).
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	for deadline := time.Now().Add(time.Minute); !cond(); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(time.Minute)); !cond(); time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
@@ -953,7 +955,7 @@ func TestAHeldDaemonStartsOnlyForARelease(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer r.Close()
-				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(time.Minute))
 				defer cancel()
 				cmd := exec.CommandContext(ctx, filepath.Join(fakes, k.name), k.load...)
 				cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", k.stateVar + "=" + state, "STARTED=" + started}
@@ -974,7 +976,7 @@ func TestAHeldDaemonStartsOnlyForARelease(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if err := r.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
+				if err := r.SetReadDeadline(time.Now().Add(testload.Scale(time.Minute))); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := io.Copy(io.Discard, r); err != nil {

@@ -49,7 +49,9 @@ func gitT(t *testing.T, dir string, args ...string) string {
 // or the assembly, the socket client and the GOOS of a landing's steps, the
 // GOFLAGS the run's own script set for its go (a case that checks the flags
 // the script sets would find them there already), a plan, the race lock the
-// run's own race leg holds, and the quiet run's marks (YARDR_R1_STRICT and
+// run's own race leg holds, the load factor that leg was given
+// (YARDR_TEST_LOAD, which a case that checks what the script gives its go
+// would find there already), and the quiet run's marks (YARDR_R1_STRICT and
 // YARDR_QUIET_RUN), which would otherwise change strict-budget judging and
 // enable quiet-run-only tests. A case sets what it means the script to have:
 // one that runs the script sets YARDR_RACE_HELD, so its race step shares the
@@ -63,7 +65,7 @@ func scriptEnv() []string {
 func scriptEnvFrom(environ []string) []string {
 	return slices.DeleteFunc(environ, func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "GOFLAGS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN"}, k)
+		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "GOFLAGS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN", "YARDR_TEST_LOAD"}, k)
 	})
 }
 
@@ -875,15 +877,41 @@ func TestYardTestSelects(t *testing.T) {
 // gone under a run.
 const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.dev/yardr/internal/source (open ../../../../Library/Caches/go-build/43/439f5c1e-d: no such file or directory)"
 
+// wantLoads checks the load factor the fake go below saw on each call, from
+// the loads it wrote down: the race leg's go, its reruns with it, has the
+// factor of the load the case pinned (25.3 on 10 cores is 2.5), and no other
+// call has one. A landing must have run a race leg, so that a go never given
+// a factor cannot pass for one that needed none.
+func wantLoads(t *testing.T, fake string, landing bool) {
+	t.Helper()
+	loads, _ := os.ReadFile(filepath.Join(fake, "loads"))
+	raceCalls := 0
+	for _, call := range strings.Split(strings.TrimSpace(string(loads)), "\n") {
+		want := "unset"
+		if strings.HasPrefix(call, "test -race ") {
+			want = "2.5"
+			raceCalls++
+		}
+		if !strings.HasSuffix(call, " load="+want) {
+			t.Errorf("go was run as %q, want it with load=%s", call, want)
+		}
+	}
+	if landing && raceCalls == 0 {
+		t.Errorf("a landing ran no race leg in the loads:\n%s", loads)
+	}
+}
+
 // A go that fails one of its steps (its first argument, or "rpc" for a call
 // that has YARDR_TEST_RPC: a landing runs that one beside its other go test)
 // the first few times with a line of its own, printed as it is (printf, since
 // some shells' echo reads the backslashes a failing line can have), and writes
 // down every call: the arguments, after "rpc" when the call has
 // YARDR_TEST_RPC and after the GOOS it was given, and in goflags, a line a
-// call, the GOFLAGS it had. gofmt finds nothing to format.
+// call, the GOFLAGS it had, and in loads, a line a call, the YARDR_TEST_LOAD
+// it had. gofmt finds nothing to format.
 const fakeGo = `#!/bin/sh
 echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
+echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$* load=${YARDR_TEST_LOAD-unset}" >>"$FAKE/loads"
 echo "$GOFLAGS" >>"$FAKE/goflags"
 step=$1
 [ -z "$YARDR_TEST_RPC" ] || step=rpc
@@ -933,7 +961,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	const raceLost = cacheLost + "\nWARNING: DATA RACE\n--- FAIL: TestX (0.00s)\nFAIL\nFAIL\tm.test/m 0.123s"
 	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./..."}
-	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
+	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
 	for _, c := range []struct {
 		name   string
 		step   string // the step that fails,
@@ -964,6 +992,9 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, noBase, ""},
 		{"landing: a failing test", "test", "1", failing, false,
 			landing, 2, false, noBase, "test: FAILED: go test -race ./...\n" + failing},
+		// The race leg run again for the lost file has the load factor too.
+		{"landing: the race leg once", "test", "1", cacheLost, true,
+			[]string{landing[0], landing[1], landing[2], landing[2], landing[3]}, 1, true, noBase, ""},
 		// A race accuses the branch whatever the cache lost with it: the
 		// step is not run again for the cache, and the flaky retry
 		// refuses it for the same reason. Only a race leg, and so only a
@@ -1038,6 +1069,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 			}
+			wantLoads(t, fake, slices.Contains(c.env, "YARDR_LANDING=1"))
 			// Each of those had -trimpath after the caller's own flags: a
 			// line a call, so a go that missed it is told from the rest.
 			flags, _ := os.ReadFile(filepath.Join(fake, "goflags"))
@@ -1176,7 +1208,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./...", "test " + pkg}
 	landingNoRetry := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
-	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere"}
+	// The load is pinned, so the factor the race leg is given is known: 25.3
+	// on 10 cores is 2.5.
+	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
 	for _, c := range []struct {
 		name     string
 		testName string // override the failed test name
@@ -1399,6 +1433,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
 			}
+			wantLoads(t, fake, slices.Contains(c.env, "YARDR_LANDING=1"))
 			// The rerun is said before it: the failed packages, again. A
 			// race is said instead: the failed packages, not run again.
 			if c.raced {
@@ -2393,26 +2428,51 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 // and -count=1, and judged by the re-run, and the leg takes the lock once,
 // for the run, never again for the re-run. The perl is a stand-in that
 // logs every hold and runs the rest, so the run takes no real lock.
+//
+// The race leg also gives its go the load factor that sizes the waits of the
+// contrib suites (YARDR_TEST_LOAD, internal/testload), read when the leg starts
+// and named in a line: the machine's load over its cores from 1 to 4. Nothing
+// else gets it, the re-run alone included, so that a slow path of the product
+// still shows there; a factor the caller had is no one's but the gate's.
 func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 	t.Parallel()
 	script, err := os.ReadFile(yardTest)
 	if err != nil {
 		t.Fatal(err)
 	}
+	const (
+		underAlone = "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		quietSays  = "machine not loaded, or its load unknown"
+	)
 	for _, c := range []struct {
 		name  string
 		alone string // the re-run's Go duration: fast passes, over fails
 		ok    bool
 		want  string // the verdict line
+		// The machine's one-minute load on 10 cores, "" for a quiet 1.5; the
+		// YARDR_TEST_LOAD the caller started the script with, "" for none; and
+		// the factor the race leg is given with the load its line names.
+		avg, given, factor, says string
 	}{
-		{"under alone passes", "12.3s", true,
-			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"},
+		{"under alone passes", "12.3s", true, underAlone, "", "", "1.0", quietSays},
 		{"over alone fails naming both", "1m6.6s", false,
-			"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"},
+			"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)",
+			"", "", "1.0", quietSays},
 		{"sub-second alone passes", "750ms", true,
-			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.75 s alone: under budget, loaded run"},
+			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.75 s alone: under budget, loaded run",
+			"", "", "1.0", quietSays},
 		{"microsecond alone passes", "750µs", true,
-			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.00075 s alone: under budget, loaded run"},
+			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.00075 s alone: under budget, loaded run",
+			"", "", "1.0", quietSays},
+		// The arithmetic at its edges (the cap, an unreadable load) is the
+		// probe's, in TestYardTestBudgets; a row is a whole script run, and
+		// the package has no time to spare (docs/testing.md R1), so these
+		// two are the wiring: the factor reaches the race leg, and one the
+		// caller had does not reach anything.
+		{"a loaded machine sizes the leg's waits by its load over its cores", "12.3s", true, underAlone,
+			"25.3", "", "2.5", "load 25.3 on 10 cores"},
+		{"a factor the caller had is not passed on", "12.3s", true, underAlone,
+			"", "7", "1.0", quietSays},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fake, dir := t.TempDir(), t.TempDir()
@@ -2423,7 +2483,7 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 			// and runs the rest, as racelocked calls it.
 			goFake := `#!/bin/sh
 [ -z "$YARDR_TEST_RPC" ] || exit 0
-echo "${GOOS:+$GOOS }$* held=${YARDR_RACE_HELD-unset} lock=${FAKE_LOCK_HELD-unset}" >>"$FAKE/calls"
+echo "${GOOS:+$GOOS }$* held=${YARDR_RACE_HELD-unset} lock=${FAKE_LOCK_HELD-unset} load=${YARDR_TEST_LOAD-unset}" >>"$FAKE/calls"
 if [ "$1" = test ]; then
   case "$*" in
   *"-count=1"*) printf 'ok  \tyardr.dev/yardr/internal/dispatch\t%s\n' "$FAKE_ALONE" ;;
@@ -2469,14 +2529,21 @@ exec "$@"
 			cmd.Dir = dir
 			// No YARDR_RACE_HELD: the race leg takes the lock itself, as
 			// a top-level run does, and its worker keeps that hold through
-			// the package re-measurement. The load is pinned quiet, so
-			// the over-alone case fails however loaded the test machine
-			// is.
+			// the package re-measurement. The load is pinned, quiet unless
+			// a case sets it, so the over-alone case fails however loaded
+			// the test machine is.
+			avg := c.avg
+			if avg == "" {
+				avg = "1.5"
+			}
 			cmd.Env = append(scriptEnv(),
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"YARDR_LANDING=1", "YARDR_BASE=nowhere",
 				"HOME="+home, "TMPDIR="+tmp, "FAKE="+fake, "FAKE_ALONE="+c.alone,
-				"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10")
+				"YARDR_TEST_LOADAVG="+avg, "YARDR_TEST_CORES=10")
+			if c.given != "" {
+				cmd.Env = append(cmd.Env, "YARDR_TEST_LOAD="+c.given)
+			}
 			b, err := cmd.CombinedOutput()
 			out := string(b)
 			if (err == nil) != c.ok {
@@ -2488,12 +2555,17 @@ exec "$@"
 			// The re-run is the leg's flags and -count=1 on the one
 			// package, inside the hold the leg set.
 			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
-			wantCalls := "vet ./... held=unset lock=unset\n" +
-				"linux vet ./... held=unset lock=unset\n" +
-				"test -race ./... held=1 lock=1\n" +
-				"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1 lock=1"
+			wantCalls := "vet ./... held=unset lock=unset load=unset\n" +
+				"linux vet ./... held=unset lock=unset load=unset\n" +
+				"test -race ./... held=1 lock=1 load=" + c.factor + "\n" +
+				"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1 lock=1 load=unset"
 			if got := strings.TrimSpace(string(calls)); got != wantCalls {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, wantCalls)
+			}
+			// The leg says the factor it was given, once, with the load it read.
+			sizing := "test: YARDR_TEST_LOAD=" + c.factor + " for the race leg (" + c.says + ")\n"
+			if n := strings.Count(out, sizing); n != 1 {
+				t.Errorf("the output has the factor line %q %d times, want once", strings.TrimSpace(sizing), n)
 			}
 			// One hold, for the race leg: the re-run waited on nothing.
 			locks, _ := os.ReadFile(filepath.Join(fake, "locks"))
@@ -3104,7 +3176,8 @@ func TestYardTestRaceQueueView(t *testing.T) {
 
 // yardTestProbe pulls the budget checks out of .yardr/test: the two
 // allow-lists, the two functions that judge them, and what they call (took,
-// runlogged, the load samples). The probe runs them as the script has them,
+// runlogged, the load samples), and sizewaits, which reads the same load for
+// the race leg's wait factor. The probe runs them as the script has them,
 // so a case over it fails when the gate would. It also returns the
 // allow-listed directories and how many distinct sleep sites the table
 // holds. A script the cuts no longer follow fails the test, telling its
@@ -3132,11 +3205,12 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	runlogfn := cut("\nrunlogged() {", "}\n")
 	over := cut("\nover60='\n", "\n'\n")
 	loadfn := cut("\nloadedmachine() {\n", "\n}\n")
+	sizefn := cut("\nsizewaits() {\n", "\n}\n")
 	eitherfn := cut("\nloadedeither() {\n", "\n}\n")
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(eitherfn, `echo "$1"`) {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -3170,7 +3244,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + loadfn + eitherfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + loadfn + sizefn + eitherfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -3706,13 +3780,13 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 	})
 
-	t.Run("quiet run marks do not reach the budget probe", func(t *testing.T) {
+	t.Run("quiet run marks and the race leg's wait factor do not reach the budget probe", func(t *testing.T) {
 		dir := t.TempDir()
 		write(dir, "leak.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
-		inheritedEnv := append(os.Environ(), "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1")
+		inheritedEnv := append(os.Environ(), "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1", "YARDR_TEST_LOAD=3.0")
 		for _, kv := range scriptEnvFrom(inheritedEnv) {
 			k, _, _ := strings.Cut(kv, "=")
-			if k == "YARDR_R1_STRICT" || k == "YARDR_QUIET_RUN" {
+			if k == "YARDR_R1_STRICT" || k == "YARDR_QUIET_RUN" || k == "YARDR_TEST_LOAD" {
 				t.Fatalf("scriptEnv carries %q from the run", kv)
 			}
 		}
@@ -3868,6 +3942,46 @@ loadedmachine() {
 					t.Errorf("output %q, want it to hold %q", out, want)
 				}
 			})
+		}
+	})
+
+	t.Run("the race leg's wait factor is the load over the cores, from 1 to 4", func(t *testing.T) {
+		// sizewaits reads the load as loadedmachine does, so a quiet machine
+		// and an unreadable one are both 1, and says what it set under to.
+		const quiet = "machine not loaded, or its load unknown"
+		for _, c := range []struct {
+			name, avg, cores, factor, says string
+		}{
+			{"a quiet machine", "1.5", "10", "1.0", quiet},
+			{"a load at the core count", "10", "10", "1.0", quiet},
+			{"a load just past it", "10.4", "10", "1.0", "load 10.4 on 10 cores"},
+			{"twice the cores", "20", "10", "2.0", "load 20 on 10 cores"},
+			{"a fraction of a core over", "25.3", "10", "2.5", "load 25.3 on 10 cores"},
+			{"fewer cores", "6.8", "4", "1.7", "load 6.8 on 4 cores"},
+			{"four times the cores", "40", "10", "4.0", "load 40 on 10 cores"},
+			{"past four times the cores", "72.4", "10", "4.0", "load 72.4 on 10 cores"},
+			{"a load that is no number", "bogus", "10", "1.0", quiet},
+			{"cores that are no number", "20", "many", "1.0", quiet},
+			{"no cores", "20", "0", "1.0", quiet},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				out, code := runEnv(t.TempDir(), []string{"YARDR_TEST_LOADAVG=" + c.avg, "YARDR_TEST_CORES=" + c.cores},
+					"eval", `sizewaits; echo "under=$under"`)
+				want := "test: YARDR_TEST_LOAD=" + c.factor + " for the race leg (" + c.says + ")\n" +
+					"under=env YARDR_TEST_LOAD=" + c.factor + "\n"
+				if code != 0 || out != want {
+					t.Errorf("exit %d, output %q, want exit 0 and %q", code, out, want)
+				}
+			})
+		}
+		// loadedmachine answers only for a machine past its cores, but the
+		// factor keeps its own floor: a line under the cores, which a change
+		// to that predicate could let through, is 1 and not a shorter wait.
+		out, code := runEnv(t.TempDir(), nil, "eval",
+			`loadedmachine() { echo "load 5 on 10 cores"; }; sizewaits; echo "under=$under"`)
+		want := "test: YARDR_TEST_LOAD=1.0 for the race leg (load 5 on 10 cores)\nunder=env YARDR_TEST_LOAD=1.0\n"
+		if code != 0 || out != want {
+			t.Errorf("a line under the cores: exit %d, output %q, want exit 0 and %q", code, out, want)
 		}
 	})
 

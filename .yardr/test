@@ -55,6 +55,16 @@
 # a plain run, which is never raced, judges none, and the landing and the quiet
 # run do. R2 reads the tree, not the run, and is judged as before.
 #
+# A wait in a contrib suite (a fuse against a hang, the deadline of a poll) is
+# written for an idle box, and the race leg sizes it to the machine it runs on
+# (sizewaits): go test -race gets YARDR_TEST_LOAD, the machine's load over its
+# cores from 1 to 4, which internal/testload multiplies each wait by, and a line
+# names it. So no wait is raised by hand after it flakes in a landing. The
+# re-run of an over-budget package alone gets no factor, so that a slow path of
+# the product still shows there, and a plain run gets none: a test reads the
+# variable, so go's test cache would keep a result for each value the load
+# made, and a builder's rerun of the same tree would miss it.
+#
 # After each step a line says how many seconds it took (test: go vet ./...
 # took 14 s), so a landing's log shows where a run's time went. The run ends
 # with its test line, the line a note carries whole: `test: sh .yardr/test @
@@ -74,6 +84,10 @@ set -e
 # The settings of the yard's server are not the tests': a server one of them
 # starts would listen on this yard's webhook address (config.ServerSettings).
 unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_PPROF
+# The load factor is the race leg's to give (sizewaits). One the run was started
+# with, by a hand or by the race leg of a test that runs this script, would size
+# the plain run and the re-run of a package alone as well.
+unset YARDR_TEST_LOAD
 # Every go command of the run, and the go the tests start (the black-box
 # suites build the binary), builds with -trimpath. Without it a package's
 # directory goes into the ID of each action that builds it, and so into the ID
@@ -661,10 +675,17 @@ again() {
         rm -f "$log" "$log.rc" "$acc" "$status"
         return "$rc"
       fi
+      # The leg runs here, under the lock (its holder re-entered the script, or
+      # the run held it already), so the machine is read now: the wait for the
+      # lock is over, and the load is the one the leg starts in. The failed
+      # packages below run again in the same factor, as the question is
+      # whether they fail in the load that failed them.
+      sizewaits
       ;;
   esac
   rc=0
-  runlogged "$log" "$under" "$@" || rc=$?
+  # shellcheck disable=SC2086
+  runlogged "$log" $under "$@" || rc=$?
   if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
   waited_total=$((waited_total + $(waitcount "$log")))
   step_ok=0
@@ -684,7 +705,8 @@ again() {
   if [ "$rc" != 0 ] && [ "$raced" = 0 ] && grep -q 'go-build/.*: no such file or directory' "$log"; then
     echo "test: the Go build cache lost a file under us; running again" >&2
     rc=0
-    runlogged "$log" "$under" "$@" || rc=$?
+    # shellcheck disable=SC2086
+    runlogged "$log" $under "$@" || rc=$?
     if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
     waited_total=$((waited_total + $(waitcount "$log")))
     case " $* " in
@@ -753,7 +775,7 @@ again() {
             echo "test: running the failed packages again: $pkgs_line" >&2
             rc=0
             # shellcheck disable=SC2086
-            runlogged "$log" "$under" $prefix $flags $pkgs || rc=$?
+            runlogged "$log" $under $prefix $flags $pkgs || rc=$?
             if [ "$race" = 1 ]; then cat "$log" >>"$acc"; fi
             waited_total=$((waited_total + $(waitcount "$log")))
             # The rerun ran only the failed packages: its passes add to the
@@ -1051,6 +1073,31 @@ loadedmachine() {
   case "$cores" in ''|*[!0-9.]*|.*|*.*.*|*.) return 1;; esac
   awk -v a="$avg" -v c="$cores" 'BEGIN { exit !(a > c && c > 0) }' || return 1
   echo "load $avg on $cores cores"
+}
+# sizewaits sizes the race leg's waits to this machine: it sets under, the
+# command the leg's go test runs behind, to env with YARDR_TEST_LOAD, and says
+# so in a line. The factor is the load over the cores, as loadedmachine's line
+# gives both, from 1 to 4. A machine that is quiet, or whose load is unknown, is
+# 1: unknown load never widens a wait, as it excuses no package from the budget.
+# 4 is about the ratio a landing has been seen in (a load of 40 on 10 cores) and
+# as much room as the waits raised by hand needed. A wait that is met returns
+# early however long it is, so the factor costs a green run nothing; one that is
+# not met is a hang, which a longer fuse only makes slower to report, and go
+# test's own ten minutes end a suite whatever the factor. One decimal, with a
+# point: internal/testload reads a point only, and awk writes the locale's.
+sizewaits() {
+  loadline=$(loadedmachine) || loadline=
+  loadf=$(printf '%s\n' "$loadline" | LC_ALL=C awk '
+    $1 == "load" && $5 == "cores" && $4 > 0 {
+      f = $2 / $4
+      if (f < 1) f = 1
+      if (f > 4) f = 4
+      printf "%.1f\n", f
+      found = 1
+    }
+    END { if (!found) print "1.0" }')
+  under="env YARDR_TEST_LOAD=$loadf"
+  echo "test: YARDR_TEST_LOAD=$loadf for the race leg (${loadline:-machine not loaded, or its load unknown})"
 }
 # loadedeither judges whether a re-run sat in a load, from the two
 # loadedmachine samples around it: $1 as the re-run started, $2 as it ended,

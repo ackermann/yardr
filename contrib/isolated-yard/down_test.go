@@ -34,6 +34,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // script runs isolated-yard from the repository's root, where `bare`
@@ -181,7 +182,7 @@ func approve(d, bead string, seq int) (string, error) {
 // pidIn reads the pid a server or daemon left in file, waiting for it.
 func pidIn(t *testing.T, file string) int {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(10 * time.Second)); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 		b, _ := os.ReadFile(file)
 		line, _, _ := strings.Cut(string(b), "\n")
 		pid, _, _ := strings.Cut(strings.TrimSpace(line), " ")
@@ -636,7 +637,10 @@ func startSleeper(t *testing.T, home, owner string) int {
 // from leaving the sleeper's five-minute cap behind. watchdogStartFuse is a
 // minute for another reason: the first run of a program built a moment ago
 // can wait behind the machine's other first runs. watchdogRunFuse bounds the
-// status test, which intentionally retries after two one-second answers.
+// status test, which intentionally retries after two one-second answers. All
+// three are written for an idle box: waitFor and the contexts that take them
+// size them to the machine (testload.Scale), so none is raised by hand when a
+// landing's load outgrows it.
 const (
 	ownerGoneFuse     = time.Minute
 	watchdogStartFuse = time.Minute

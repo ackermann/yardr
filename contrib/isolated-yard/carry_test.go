@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // runIn is in without the failure: a caller that waits on an effect
@@ -40,7 +42,7 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 	// effect — the declaration is stored a moment before its files,
 	// and the files are copied one at a time, so wait for each copy
 	// the test then holds to its mode, not only the first.
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(testload.Scale(60 * time.Second))
 	var shown string
 	for {
 		out, err := runIn(d, "env", "YARDR_ACTOR=mckean", "yardr", "source", "show", "telegram")
@@ -73,7 +75,7 @@ func TestCarryPackApplyTelegram(t *testing.T) {
 	// carried out. Wait on that last effect too, with a deadline of
 	// its own: under load the copies' wait may take most of its, and
 	// the card must not fail on the intermediate state for that.
-	deadline = time.Now().Add(60 * time.Second)
+	deadline = time.Now().Add(testload.Scale(60 * time.Second))
 	for {
 		got, err := runIn(d, "env", "YARDR_ACTOR=mckean", "yardr", "prime", "--bead", bead)
 		if err == nil && strings.Contains(got, "approved, ran: yardr pack apply telegram") {

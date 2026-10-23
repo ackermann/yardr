@@ -16,6 +16,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // The finding's case is a SIGKILLed test binary that runs no cleanup; no
@@ -75,9 +76,10 @@ func TestServerStopsWhenItsTestOwnerIsGone(t *testing.T) {
 	}
 	sleep.Process.Kill()
 	sleep.Wait()
-	for deadline := time.Now().Add(90 * time.Second); peer.Alive(serverPID, serverStart); {
+	fuse := testload.Scale(90 * time.Second)
+	for deadline := time.Now().Add(fuse); peer.Alive(serverPID, serverStart); {
 		if time.Now().After(deadline) {
-			t.Fatalf("the server (pid %d) outlived its owner past 90s", serverPID)
+			t.Fatalf("the server (pid %d) outlived its owner past %s", serverPID, fuse)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}

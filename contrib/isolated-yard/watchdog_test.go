@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // scriptPath is the isolated-yard script, by the path a yard's watchdog is
@@ -104,7 +105,7 @@ func TestWatchdogTakesTheYardDownWhenItsOwnerIsGone(t *testing.T) {
 	// another owner: one that has ended. Bound this command as well as the
 	// background watches, so a broken watch cannot hang the package test.
 	owner := deadOwner(t)
-	ctx, cancel := context.WithTimeout(context.Background(), ownerGoneFuse)
+	ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(ownerGoneFuse))
 	defer cancel()
 	cmd := exec.CommandContext(ctx, filepath.Join(d, "e"), "env", config.Key(config.TestOwnerEnv)+"="+owner, scriptPath(t), "watchdog", d)
 	raw, err := cmd.CombinedOutput()
@@ -198,7 +199,7 @@ func TestWatchdogTakesAYardDownOnlyForAGoneOwner(t *testing.T) {
 
 			// Not through D/e: the yard has nothing a watchdog does not use,
 			// and the name it needs is the one thing it is given.
-			ctx, cancel := context.WithTimeout(context.Background(), watchdogRunFuse)
+			ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(watchdogRunFuse))
 			defer cancel()
 			cmd := exec.CommandContext(ctx, scriptPath(t), "watchdog", d)
 			cmd.Env = []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", config.Key(config.TestOwnerEnv) + "=1 1"}

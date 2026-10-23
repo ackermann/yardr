@@ -19,6 +19,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // tests makes test depot r's test command, which merge-local and
@@ -157,7 +158,7 @@ func TestMergeLocalTestsDeadlineIsRed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Killed, it is gone once its parent, killed too, is reaped by init.
-	for deadline := time.Now().Add(5 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(5 * time.Second)); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Fatalf("the sleep the test command started (pid %d) outlived the deadline's kill", pid)

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/contrib/server-yard/managers"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // matrixOperator is the person every yard of the matrix is for. The steps
@@ -309,9 +310,10 @@ type depotState struct {
 
 // waitFor polls cond every 250 ms until it holds, and reports whether it did
 // within fuse. The fuse is against a hang; what is waited for is the
-// condition.
+// condition. A caller writes the fuse for an idle box and waitFor sizes it to
+// the machine (testload.Scale).
 func waitFor(fuse time.Duration, cond func() bool) bool {
-	for deadline := time.Now().Add(fuse); ; time.Sleep(250 * time.Millisecond) {
+	for deadline := time.Now().Add(testload.Scale(fuse)); ; time.Sleep(250 * time.Millisecond) {
 		if cond() {
 			return true
 		}
