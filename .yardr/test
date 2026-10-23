@@ -32,7 +32,8 @@
 # is the same, whatever it changed). The whole suite otherwise runs only when
 # the yard is quiet (docs/testing.md R6) and where someone runs
 # YARDR_LANDING=1 on the base itself. The first line says which run it
-# is, and why.
+# is, and why. A loaded machine runs the race leg with go test's -p set from
+# the load (gatepar), not on every core.
 #
 # What the branch touched is what changed since the base: YARDR_BASE (an
 # agent's session and the assembly have it: main, or the train's branch for
@@ -1152,6 +1153,43 @@ loadedeither() {
     return 1
   fi
 }
+# gatepar prints the -p a landing's race leg runs go test with, from the line
+# loadedmachine printed ($1), and fails with no output where $1 is empty: the
+# machine was quiet or its load unknown, and the leg runs go's own default,
+# every core, as it always has. Go builds and runs up to -p packages at once,
+# each with parallel tests of its own, beside the builders and the socket leg
+# (yardr-y6js: load 39-64 on 10 cores struck the watchdog tests of
+# contrib/isolated-yard five times in a morning, each a fuse a down outlasted),
+# so on a loaded machine the leg takes the cores the load leaves it: the cores
+# squared over the load, rounded down. Load 40 on 10 cores gives 2, 15 gives 6.
+# Never under 2, which still lets a build overlap a test run, and never over
+# the cores, which would raise go's default. It reads nothing from the
+# machine, so the gate's own tests feed it canned lines.
+gatepar() {
+  [ -n "$1" ] || return 1
+  printf '%s\n' "$1" | awk '{
+    a = $2 + 0; c = $4 + 0
+    p = int(c * c / a)
+    if (p < 2) p = 2
+    if (p > c) p = int(c)
+    print p
+  }'
+}
+# legflag sets legpar, the -p flag of the race leg's go test, and says so in
+# one line where the load made one (gatepar). On a quiet machine, or one whose
+# load is unknown, legpar is empty and nothing is said: the leg's command is
+# what it was. The load is read when the leg is queued, before the lock,
+# because -p is part of the command the lock holder runs and again re-runs
+# from; a wait of a minute or two leaves the one-minute average much as it
+# was. -p=N is one word, so the dash-words again and packagebudget carry to a
+# re-run keep it whole; a bare -p would reach it as -p -count=1.
+legflag() {
+  legpar=
+  legload=$(loadedmachine) || return 0
+  legn=$(gatepar "$legload") || return 0
+  echo "test: go test -p=$legn ($legload)"
+  legpar=-p=$legn
+}
 # packagebudget judges the 60 s budget (docs/testing.md R1) on a go test
 # -race leg's output ($1): only the ok lines carry judged durations, a
 # package whose tests failed being already red without it. Cached packages
@@ -1498,11 +1536,15 @@ whole() {
     socket=$!
   fi
   first=0
+  # A loaded machine's race leg takes the cores the load leaves it (legflag).
+  # Unquoted, an empty legpar is no word at all.
+  legflag
   if [ "$2" = selection ] && [ -n "$pkgs" ]; then
     # shellcheck disable=SC2086
-    again go test -race $pkgs || first=$?
+    again go test -race $legpar $pkgs || first=$?
   else
-    again go test -race ./... || first=$?
+    # shellcheck disable=SC2086
+    again go test -race $legpar ./... || first=$?
   fi
   if [ "$leg" != beside ]; then
     exit "$first"

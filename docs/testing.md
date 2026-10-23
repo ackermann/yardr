@@ -38,7 +38,11 @@ holds the loaded minutes the re-run was about to sit in. The line names the
 start sample's load where that is loaded, else the end's. On a loaded
 machine, the failure line names both times and the load beside them; on a
 machine quiet at both samples it names both times. Unknown load counts as
-quiet and fails as before.
+quiet and fails as before. A landing's `-p` follows the same load: past the
+core count the race leg runs `go test -race -p=N`, N the cores squared over the
+load, rounded down (at least 2, at most the cores), and logs one `test: go test
+-p=N (load A on C cores)` line; a quiet or unknown load runs go's default and
+logs nothing (yardr-y6js).
 
 R2. A test sleeps no more than 500 ms at a site, and a poll loop polls a
 condition with a deadline. Exactly 500 ms complies; over fails unless

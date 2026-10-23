@@ -55,20 +55,25 @@ func gitT(t *testing.T, dir string, args ...string) string {
 // of (YARDR_TEST_BEADS, which a case that checks the beads a flaky log line
 // carries would find there already), and the quiet run's marks
 // (YARDR_R1_STRICT and YARDR_QUIET_RUN), which would otherwise change
-// strict-budget judging and enable quiet-run-only tests. A case sets what it
-// means the script to have: one that runs the script sets YARDR_RACE_HELD, so
-// its race step shares the hold instead of taking the machine's lock, except
-// the lock's own test, which takes a lock of its own.
+// strict-budget judging and enable quiet-run-only tests. It also reads a quiet
+// machine, a load of 1.5 on 10 cores, whatever the machine and the run: a
+// loaded one would give a landing's race leg a -p of its own (gatepar), and
+// the cases that run a landing assert the go commands it makes. A case sets
+// what it means the script to have, after these, so its own load wins: one that
+// runs the script sets YARDR_RACE_HELD, so its race step shares the hold instead
+// of taking the machine's lock, except the lock's own test, which takes a lock
+// of its own.
 func scriptEnv() []string {
 	return scriptEnvFrom(os.Environ())
 }
 
 // scriptEnvFrom lets a case check the filter with a synthetic run environment.
 func scriptEnvFrom(environ []string) []string {
-	return slices.DeleteFunc(environ, func(kv string) bool {
+	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
 		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "GOFLAGS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN", "YARDR_TEST_LOAD", "YARDR_TEST_BEADS"}, k)
 	})
+	return append(env, "YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10")
 }
 
 func yardTestRows(t *testing.T) (script string, rows []readsRow) {
@@ -757,22 +762,28 @@ func TestYardTestSelects(t *testing.T) {
 		line    string
 		calls   []string
 		steps   []string
+		load    []string // the machine's load, where a row means one: else the quiet one scriptEnv pins
 	}{
 		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", selectionSuffix, skipSocket,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selCLI},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selCLI}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selCLI}, nil},
 		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", selectionSuffix, runSocketStore,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selRPC,
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
-		{"a landing over internal/web starts the socket leg", "internal/web/p.go", "internal/web/p.go changed", selectionSuffix, runSocketWeb,
-			[]string{"vet ./...", "linux vet ./...", "test -race " + selWEB, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selWEB,
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
+		// A loaded machine, on the row that starts the socket leg: the selection's
+		// race leg takes the cores the load leaves it (gatepar), and the suites
+		// beside it stay go's default. The root package has no seconds to spare
+		// (yardr-fvkm), so this row replaces one instead of adding one.
+		{"a landing over internal/web starts the socket leg, and on a loaded machine runs its race leg with -p=2", "internal/web/p.go", "internal/web/p.go changed", selectionSuffix, runSocketWeb,
+			[]string{"vet ./...", "linux vet ./...", "test -race -p=2 " + selWEB, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race -p=2 " + selWEB,
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
+			[]string{"YARDR_TEST_LOADAVG=40", "YARDR_TEST_CORES=10"}},
 		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", wholeSuffix, runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
-				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}},
+				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			realGo, err := exec.LookPath("go")
@@ -788,13 +799,21 @@ func TestYardTestSelects(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
-				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.changed)
+			first, rest, err := planned(t, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
+				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.load...), c.changed)
 			if err != nil || first != landing+c.reason+since+c.suffix {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
 			if !strings.Contains(rest, c.line+"\n") {
 				t.Errorf("the output has no gate line %q in:\n%s", c.line, rest)
+			}
+			// One line says the -p, and only where the load made one.
+			var wantPar []string
+			if c.load != nil {
+				wantPar = []string{"test: go test -p=2 (load 40 on 10 cores)"}
+			}
+			if got := regexp.MustCompile(`(?m)^test: go test -p=.*$`).FindAllString(rest, -1); !slices.Equal(got, wantPar) {
+				t.Errorf("the output's -p lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantPar, "\n"))
 			}
 			// The socket leg runs beside go test -race, so which of the
 			// two go is called for first is not told: its calls are
@@ -961,7 +980,8 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	const notice = "the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
 	const raceLost = cacheLost + "\nWARNING: DATA RACE\n--- FAIL: TestX (0.00s)\nFAIL\nFAIL\tm.test/m 0.123s"
-	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
+	// The landing rows run at a load of 25.3 on 10 cores: the race leg has -p=3.
+	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./..."}
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
 	for _, c := range []struct {
@@ -993,7 +1013,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		{"landing: vet once", "vet", "1", cacheLost, true,
 			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, noBase, ""},
 		{"landing: a failing test", "test", "1", failing, false,
-			landing, 2, false, noBase, "test: FAILED: go test -race ./...\n" + failing},
+			landing, 2, false, noBase, "test: FAILED: go test -race -p=3 ./...\n" + failing},
 		// The race leg run again for the lost file has the load factor too.
 		{"landing: the race leg once", "test", "1", cacheLost, true,
 			[]string{landing[0], landing[1], landing[2], landing[2], landing[3]}, 1, true, noBase, ""},
@@ -1002,7 +1022,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		// refuses it for the same reason. Only a race leg, and so only a
 		// landing's, can report one.
 		{"landing: a race with a lost cache file", "test", "1", raceLost, false,
-			landing, 1, false, noBase, "test: FAILED: go test -race ./...\nWARNING: DATA RACE"},
+			landing, 1, false, noBase, "test: FAILED: go test -race -p=3 ./...\nWARNING: DATA RACE"},
 		{"landing: a failing socket test", "rpc", "1", failing, false,
 			landing, 2, false, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/\n" + failing},
 		{"landing: the socket step once", "rpc", "1", cacheLost, true,
@@ -1089,7 +1109,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			// The socket step's output is whole and after the other's: none
 			// of it before the line that says how long go test -race took.
 			if at := strings.Index(out, "ran rpc test"); at >= 0 {
-				if end := strings.Index(out, "test: go test -race ./... took"); end < 0 || at < end {
+				if end := strings.Index(out, "test: go test -race -p=3 ./... took"); end < 0 || at < end {
 					t.Errorf("the socket step's output is not after the whole of go test -race's")
 				}
 			}
@@ -1208,13 +1228,14 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	title := "Flaky: " + test + " (" + pkg + ")"
 	other := "m-1 Something else\n"
 	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}
-	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
+	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race -p=3 ./...",
 		"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
-	landing := []string{"vet ./...", "linux vet ./...", "test -race ./...", "test -race " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
+	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "test -race -p=3 " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./...", "test " + pkg}
-	landingNoRetry := []string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
-	// The load is pinned, so the factor the race leg is given is known: 25.3
-	// on 10 cores is 2.5.
+	landingNoRetry := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
+	// The load is pinned, so what the race leg is given is known: 25.3 on 10
+	// cores is a factor of 2.5 and a -p of 3, which the rerun of its failed
+	// packages keeps; the socket suites beside the leg stay go's default.
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
 	for _, c := range []struct {
 		name     string
@@ -1309,8 +1330,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
 		// itself rather than the gate.
-		{name: "landing: passes on rerun", times: "1", ok: true, calls: landing, env: noBase, steps: landingSteps},
 		{name: "landing: fails twice", times: "2", ok: false, calls: landing, env: noBase, steps: landingSteps},
+		{name: "landing: passes on rerun", times: "1", ok: true, calls: landing, env: noBase, steps: landingSteps},
 		// Only a race leg, and so only a landing's, can report a race.
 		{name: "landing: a race fails without a retry", times: "1", ok: false, calls: landingNoRetry, env: noBase, steps: landingSteps,
 			line: raceFail, racePkgs: pkg, raced: true},
@@ -1338,7 +1359,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			// run's is not.
 			failedStep := "go test ./..."
 			if slices.Contains(c.env, "YARDR_LANDING=1") {
-				failedStep = "go test -race ./..."
+				failedStep = "go test -race -p=3 ./..."
 			}
 			script, err := os.ReadFile(yardTest)
 			if err != nil {
@@ -2543,27 +2564,28 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 		// The machine's one-minute load on 10 cores, "" for a quiet 1.5; the
 		// YARDR_TEST_LOAD the caller started the script with, "" for none; and
 		// the factor the race leg is given with the load its line names.
-		avg, given, factor, says string
+		avg, given, factor, says, par string
 	}{
-		{"under alone passes", "12.3s", true, underAlone, "", "", "1.0", quietSays},
+		{"under alone passes", "12.3s", true, underAlone, "", "", "1.0", quietSays, ""},
 		{"over alone fails naming both", "1m6.6s", false,
 			"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)",
-			"", "", "1.0", quietSays},
+			"", "", "1.0", quietSays, ""},
 		{"sub-second alone passes", "750ms", true,
 			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.75 s alone: under budget, loaded run",
-			"", "", "1.0", quietSays},
+			"", "", "1.0", quietSays, ""},
 		{"microsecond alone passes", "750µs", true,
 			"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 0.00075 s alone: under budget, loaded run",
-			"", "", "1.0", quietSays},
+			"", "", "1.0", quietSays, ""},
 		// The arithmetic at its edges (the cap, an unreadable load) is the
 		// probe's, in TestYardTestBudgets; a row is a whole script run, and
 		// the package has no time to spare (docs/testing.md R1), so these
-		// two are the wiring: the factor reaches the race leg, and one the
-		// caller had does not reach anything.
-		{"a loaded machine sizes the leg's waits by its load over its cores", "12.3s", true, underAlone,
-			"25.3", "", "2.5", "load 25.3 on 10 cores"},
+		// two are the wiring: the factor and the -p reach the race leg (and the
+		// -p its alone re-run), and a factor the caller had does not reach
+		// anything.
+		{"a loaded machine sizes the leg's waits and its -p by its load over its cores", "12.3s", true, underAlone,
+			"25.3", "", "2.5", "load 25.3 on 10 cores", "-p=3"},
 		{"a factor the caller had is not passed on", "12.3s", true, underAlone,
-			"", "7", "1.0", quietSays},
+			"", "7", "1.0", quietSays, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fake, dir := t.TempDir(), t.TempDir()
@@ -2644,12 +2666,17 @@ exec "$@"
 				t.Errorf("the output has no verdict line %q", c.want)
 			}
 			// The re-run is the leg's flags and -count=1 on the one
-			// package, inside the hold the leg set.
+			// package, inside the hold the leg set: the -p of a loaded
+			// machine's leg among them, as one word.
+			race := "test -race"
+			if c.par != "" {
+				race += " " + c.par
+			}
 			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
 			wantCalls := "vet ./... held=unset lock=unset load=unset\n" +
 				"linux vet ./... held=unset lock=unset load=unset\n" +
-				"test -race ./... held=1 lock=1 load=" + c.factor + "\n" +
-				"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1 lock=1 load=unset"
+				race + " ./... held=1 lock=1 load=" + c.factor + "\n" +
+				race + " -count=1 yardr.dev/yardr/internal/dispatch held=1 lock=1 load=unset"
 			if got := strings.TrimSpace(string(calls)); got != wantCalls {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, wantCalls)
 			}
@@ -2657,6 +2684,15 @@ exec "$@"
 			sizing := "test: YARDR_TEST_LOAD=" + c.factor + " for the race leg (" + c.says + ")\n"
 			if n := strings.Count(out, sizing); n != 1 {
 				t.Errorf("the output has the factor line %q %d times, want once", strings.TrimSpace(sizing), n)
+			}
+			// One line says the -p, with the load it came from, and only
+			// where the load made one.
+			var wantPar []string
+			if c.par != "" {
+				wantPar = []string{"test: go test " + c.par + " (load " + c.avg + " on 10 cores)"}
+			}
+			if got := regexp.MustCompile(`(?m)^test: go test -p=.*$`).FindAllString(out, -1); !slices.Equal(got, wantPar) {
+				t.Errorf("the output's -p lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantPar, "\n"))
 			}
 			// One hold, for the race leg: the re-run waited on nothing.
 			locks, _ := os.ReadFile(filepath.Join(fake, "locks"))
@@ -3267,8 +3303,9 @@ func TestYardTestRaceQueueView(t *testing.T) {
 
 // yardTestProbe pulls the budget checks out of .yardr/test: the two
 // allow-lists, the two functions that judge them, and what they call (took,
-// runlogged, the load samples), and sizewaits, which reads the same load for
-// the race leg's wait factor. The probe runs them as the script has them,
+// runlogged, the load samples), sizewaits, which reads the same load for
+// the race leg's wait factor, and gatepar and legflag, which turn it into
+// the race leg's -p. The probe runs them as the script has them,
 // so a case over it fails when the gate would. It also returns the
 // allow-listed directories and how many distinct sleep sites the table
 // holds. A script the cuts no longer follow fails the test, telling its
@@ -3298,10 +3335,12 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	loadfn := cut("\nloadedmachine() {\n", "\n}\n")
 	sizefn := cut("\nsizewaits() {\n", "\n}\n")
 	eitherfn := cut("\nloadedeither() {\n", "\n}\n")
+	gatefn := cut("\ngatepar() {\n", "\n}\n")
+	legfn := cut("\nlegflag() {\n", "\n}\n")
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -3335,7 +3374,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + loadfn + sizefn + eitherfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -3847,6 +3886,28 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 	})
 
+	t.Run("the alone re-run carries the leg's -p as one word", func(t *testing.T) {
+		// A loaded landing's race leg has -p=N (gatepar), and the re-run takes
+		// the leg's flags, the dash-words after test: in two words, -p 2 would
+		// reach it as -p -count=1, which go refuses.
+		dir := t.TempDir()
+		write(dir, "par.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		fake, env := r1go(t)
+		out, code := runEnv(dir, append(env, "FAKE_OVER="),
+			"packagebudget", "par.txt", "go", "test", "-race", "-p=2", "./...")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
+		if !strings.Contains(out, want+"\n") {
+			t.Errorf("output %q, want it to hold %q", out, want)
+		}
+		calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+		if got, want := strings.TrimSpace(string(calls)), "test -race -p=2 -count=1 yardr.dev/yardr/internal/dispatch held=1"; got != want {
+			t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
 	t.Run("a package over budget alone on a loaded machine passes", func(t *testing.T) {
 		dir := t.TempDir()
 		write(dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
@@ -4073,6 +4134,70 @@ loadedmachine() {
 		want := "test: YARDR_TEST_LOAD=1.0 for the race leg (load 5 on 10 cores)\nunder=env YARDR_TEST_LOAD=1.0\n"
 		if code != 0 || out != want {
 			t.Errorf("a line under the cores: exit %d, output %q, want exit 0 and %q", code, out, want)
+		}
+	})
+
+	t.Run("gatepar gives the race leg the cores the load leaves it", func(t *testing.T) {
+		// The line loadedmachine printed in, the leg's -p out: the cores
+		// squared over the load, rounded down, at least 2 and at most the
+		// cores. The line is all it reads, so the cases need no machine.
+		for _, c := range []struct {
+			line string
+			want string
+		}{
+			{"load 40 on 10 cores", "2"},
+			{"load 15 on 10 cores", "6"},
+			{"load 10.5 on 10 cores", "9"},
+			{"load 72.4 on 10 cores", "2"}, // 1.38 rounds down to 1, held at 2
+			{"load 5 on 1 cores", "1"},     // 2 would raise go's default of 1
+			{"load 4 on 10 cores", "10"},   // a line loadedmachine never prints: all the cores
+		} {
+			t.Run(c.line, func(t *testing.T) {
+				out, code := run(t.TempDir(), "gatepar", c.line)
+				if code != 0 || out != c.want+"\n" {
+					t.Errorf("exit %d, output %q, want exit 0 and %q", code, out, c.want+"\n")
+				}
+			})
+		}
+		// No line is where loadedmachine found the machine quiet or its load
+		// unknown: no -p, so the leg's command is what it was.
+		if out, code := run(t.TempDir(), "gatepar", ""); code != 1 || out != "" {
+			t.Errorf("an empty line: exit %d, output %q, want exit 1 and no output", code, out)
+		}
+	})
+
+	t.Run("the leg's -p follows the load, and a quiet or unknown one adds none", func(t *testing.T) {
+		// legflag sets the flag the race leg's command carries and says so in
+		// one line, only where the load made one. The probe here carries a
+		// function that shows the flag it set.
+		showing, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
+		if !ok {
+			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
+		}
+		showing += "\nshowleg() { legflag; echo \"legpar=[$legpar]\"; }\n\"$@\"\n"
+		showingPath := filepath.Join(t.TempDir(), "showing.sh")
+		if err := os.WriteFile(showingPath, []byte(showing), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range []struct {
+			name string
+			avg  string // the machine's one-minute load on 10 cores: quiet where empty, as scriptEnv pins it
+			want string
+		}{
+			{"quiet", "", "legpar=[]\n"},
+			{"loaded", "40", "test: go test -p=2 (load 40 on 10 cores)\nlegpar=[-p=2]\n"},
+			{"unknown", "bogus", "legpar=[]\n"},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				var env []string
+				if c.avg != "" {
+					env = []string{"YARDR_TEST_LOADAVG=" + c.avg, "YARDR_TEST_CORES=10"}
+				}
+				out, code := runProbe(t, showingPath, t.TempDir(), os.Environ(), env, "showleg")
+				if code != 0 || out != c.want {
+					t.Errorf("exit %d, output %q, want exit 0 and %q", code, out, c.want)
+				}
+			})
 		}
 	})
 
