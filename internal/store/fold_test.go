@@ -975,6 +975,132 @@ func TestFoldBeads(t *testing.T) {
 				}
 			},
 		},
+		{
+			// The filing's repro: x holds b, and the carrier is made with none
+			// of b's blockers, so it would route and build while x is open.
+			// The blocked member is the second, to show the check is not made
+			// on the first alone.
+			name: "a member that an open bead blocks is refused, naming the blocker", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-h1", Title: "a"}, {ID: "plain-h2", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				x := outside(t, s, NewBead{ID: "plain-hx", Title: "x", Depot: "plain"})
+				if err := s.AddDep(ctx, x.ID, made[1].ID, DepBlocks, "", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if holders, err := s.OpenBlockers(ctx, made[1].ID); err != nil || !slices.Equal(holders, []string{x.ID}) {
+					t.Fatalf("%s is held by %v, %v before the fold; want %s", made[1].ID, holders, err, x.ID)
+				}
+			},
+			wantErr: "bead plain-h2 is blocked by plain-hx: a fold takes beads nothing blocks",
+		},
+		{
+			// Two edges from one blocker hold as one, as the gate counts them.
+			name: "each blocker is named once, however many edges it holds the member by", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-h3", Title: "a"}, {ID: "plain-h4", Title: "b"}, {ID: "plain-h5", Title: "c"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				for _, id := range []string{"plain-hy", "plain-hz"} {
+					outside(t, s, NewBead{ID: id, Title: id, Depot: "plain"})
+				}
+				for _, e := range [][2]string{{"plain-hz", ""}, {"plain-hy", ""}, {"plain-hz", "review"}} {
+					if err := s.AddDep(ctx, e[0], made[2].ID, DepBlocks, "", e[1], "mckean"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			},
+			wantErr: "bead plain-h5 is blocked by plain-hy, plain-hz: a fold",
+		},
+		{
+			// A manual group holds the beads of its stage, and a fold's main use
+			// is on those: its claim is a person's turn and does not stop a fold,
+			// and what blocks the member is looked at all the same.
+			name: "a member a manual group holds is refused when an open bead blocks it", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-he", Title: "a"}, {ID: "plain-hf", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				foldManualHold(t, s, made...)
+				x := outside(t, s, NewBead{ID: "plain-hg", Title: "x", Depot: "plain"})
+				if err := s.AddDep(ctx, x.ID, made[1].ID, DepBlocks, "", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "bead plain-hf is blocked by plain-hg: a fold takes beads nothing blocks",
+		},
+		{
+			name: "a member whose blocker has closed is folded, and the carrier is not blocked", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-h6", Title: "a"}, {ID: "plain-h7", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				x := outside(t, s, NewBead{ID: "plain-hw", Title: "x", Depot: "plain"})
+				if err := s.AddDep(ctx, x.ID, made[0].ID, DepBlocks, "", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.CloseBead(ctx, x.ID, "done", Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "stage", got.Stage, "ready")
+				if holders, err := s.OpenBlockers(ctx, got.ID); err != nil || len(holders) != 0 {
+					t.Errorf("the carrier is held by %v, %v; want none", holders, err)
+				}
+			},
+		},
+		{
+			// The blocker closes in the same write and the parts are built in
+			// the order given, so what orders them is no reason to refuse.
+			name: "a member that another member blocks is folded with it", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-h8", Title: "a"}, {ID: "plain-h9", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				if err := s.AddDep(ctx, made[1].ID, made[0].ID, DepBlocks, "", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "stage", got.Stage, "ready")
+				if holders, err := s.OpenBlockers(ctx, got.ID); err != nil || len(holders) != 0 {
+					t.Errorf("the carrier is held by %v, %v; want none", holders, err)
+				}
+			},
+		},
+		{
+			// a stands in new, so an edge that holds it at approved holds
+			// nothing now: it is the gate's own reading, which bead show
+			// prints as blocked by, and the fold's. The edge ends in the
+			// closed member; the carrier does not inherit it.
+			name: "an edge that holds a member only at another stage holds nothing now, and does not refuse", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-ha", Title: "a"}, {ID: "plain-hb", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				x := outside(t, s, NewBead{ID: "plain-hv", Title: "x", Depot: "plain"})
+				if err := s.AddDep(ctx, x.ID, made[0].ID, DepBlocks, "approved", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if holders, err := s.OpenBlockers(ctx, made[0].ID); err != nil || len(holders) != 0 {
+					t.Fatalf("%s is held by %v, %v before the fold; want none, standing short of approved", made[0].ID, holders, err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "stage", got.Stage, "ready")
+				foldWantEdges(t, s, got.ID, DepBlocks)
+			},
+		},
+		{
+			// The release is the repository flow's to say (x stands in new,
+			// past ready along its chain), and a fold finds the repository on
+			// its own as a read of the gate does, or it would refuse what
+			// bead show says nothing blocks.
+			name: "a blocker a repository flow has released through its until stage holds nothing, and does not refuse", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-hc", Title: "a"}, {ID: "plain-hd", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				x := outside(t, s, NewBead{ID: "repo-hu", Title: "x", Depot: "repo", Type: "chain", Stage: "new"})
+				if err := s.AddDep(ctx, x.ID, made[0].ID, DepBlocks, "", "ready", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if holders, err := s.OpenBlockers(ctx, made[0].ID); err != nil || len(holders) != 0 {
+					t.Fatalf("%s is held by %v, %v before the fold; want none, its blocker past ready", made[0].ID, holders, err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "stage", got.Stage, "ready")
+			},
+		},
 		func() foldRow {
 			var origin, found, other Bead
 			return foldRow{

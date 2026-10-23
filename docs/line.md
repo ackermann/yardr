@@ -1609,9 +1609,18 @@ The members must be open, not worked by a session, of one depot and one
 flow, and this yard's own: a bead that came from another yard and has not
 gone back, or is away at one, is refused. A bead a manual group holds is not
 worked by a session, since its claim is a person's turn and nothing runs. It
-is folded, and the fold ends the claim. A bead's agent cannot fold, since its
-pane may not make the call; a person or a crew member can. A fold of one bead
-is refused, since its carrier would be that bead with a worse title.
+is folded, and the fold ends the claim. A bead that an open bead blocks
+(`yardr bead show` says `blocked by`) is refused, naming the blocker: the
+fold re-points what a member blocks and not what blocks it, so the carrier
+would be ready while the blocker is open. Fold it once the blocker closes,
+leave it out, or take the edge off with `yardr dep rm` when the order no
+longer matters. A blocker folded with it does not refuse, since it closes in
+the same fold. An edge that holds a bead only at another stage (`--at`), or
+that its blocker has released (`--until`), holds nothing now: the fold does
+not refuse it, and the carrier does not inherit it. A bead's agent cannot
+fold, since its pane may not make the call; a person or a crew member can. A
+fold of one bead is refused, since its carrier would be that bead with a
+worse title.
 
 The carrier starts in `--to`. Without it, it starts where its members wait:
 in the stage they all wait in, or, when that stage is a siding (a stage worked

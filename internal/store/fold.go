@@ -69,18 +69,19 @@ type FoldWatcher struct {
 // opts.To that holds each of them as a part, whatever each tracked, blocked
 // and was watched for moved to it, a folded edge from it to each that records
 // that, and each of them closed "folded into <carrier>". It is all or
-// nothing. A member that is closed, worked by a session or another yard's,
-// members of two depots or of two flows, and a caller in the pane of a bead's
-// agent (which may close only its own bead) are refused before anything is
-// made, and a fold that fails after it leaves nothing behind. A manual group's
-// claim is a person's turn, not a session at work, so a member it holds is
-// folded and the close ends the claim.
+// nothing. A member that is closed, worked by a session, another yard's or
+// blocked by an open bead that is not folded with it (checkFoldable), members
+// of two depots or of two flows, and a caller in the pane of a bead's agent
+// (which may close only its own bead) are refused before anything is made, and
+// a fold that fails after it leaves nothing behind. A manual group's claim is a
+// person's turn, not a session at work, so a member it holds is folded and the
+// close ends the claim.
 //
 // What git must read is read here, before the write: the repository flows
 // for the flow of every member (the carrier is governed by the oldest's, and
-// a refusal names them all), and for the gates the members' closes flip. The
-// write reads the members again, so a member edited meanwhile is folded as it
-// is.
+// a refusal names them all), and for the gates: the members' own, which say
+// what blocks them, and those their closes flip. The write reads the members
+// again, so a member edited meanwhile is folded as it is.
 func (s *Store) FoldBeads(ctx context.Context, ids []string, opts FoldOptions, actor string) (*Bead, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("a fold needs beads to fold")
@@ -115,11 +116,15 @@ func (s *Store) FoldBeads(ctx context.Context, ids []string, opts FoldOptions, a
 			return nil, err
 		}
 	}
-	var targets []string
+	// The gates the write reads through a repository's flows: each member's
+	// own, which say what holds it now, and those of the beads it blocks,
+	// which its close flips.
+	var gated []string
 	for _, m := range pre {
-		targets = append(targets, s.blocksTargets(ctx, m.ID)...)
+		gated = append(gated, m.ID)
+		gated = append(gated, s.blocksTargets(ctx, m.ID)...)
 	}
-	look := &untilLooks{repos: s.gateRepos(ctx, targets...), memo: flowMemo{}}
+	look := &untilLooks{repos: s.gateRepos(ctx, gated...), memo: flowMemo{}}
 	var carrier *Bead
 	err = s.write(func(w *wtx) error {
 		members := make([]*beadRow, len(ids))
@@ -150,9 +155,10 @@ func (s *Store) FoldBeads(ctx context.Context, ids []string, opts FoldOptions, a
 // foldBlocks, copyWatches), a folded edge from the carrier records that, and
 // the member closes. The carrier gets a note on where the members' notes and
 // files are, and one folded event. reads are what readsFor read for the
-// oldest member, look how the gates the closes flip are read. trigger says
-// what folded them ("hand", or what made a siding ready) and is written into
-// the body.
+// oldest member, look how the gates are read: the members' own, which a
+// blocked member is refused by, and those the closes flip. trigger says what
+// folded them ("hand", or what made a siding ready) and is written into the
+// body.
 //
 // Everything that can be refused is refused before the first thing is made,
 // and a failure after it rolls the whole write back.
@@ -174,8 +180,11 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 	if err != nil {
 		return nil, err
 	}
+	if look == nil {
+		look = &untilLooks{memo: flowMemo{}}
+	}
 	for _, m := range members {
-		if err := w.checkFoldable(ctx, m); err != nil {
+		if err := w.checkFoldable(ctx, m, seen, look); err != nil {
 			return nil, err
 		}
 	}
@@ -220,9 +229,6 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 	carrier, err := w.createBead(ctx, nb, author, reads)
 	if err != nil {
 		return nil, err
-	}
-	if look == nil {
-		look = &untilLooks{memo: flowMemo{}}
 	}
 	ids := make([]string, len(members))
 	// What the carrier's note says: where each member's notes and files
@@ -361,12 +367,25 @@ func (w *wtx) foldBlocks(carrier, member *beadRow, moved *FoldMoved, look *until
 
 // checkFoldable refuses a member a fold cannot take, saying why: a bead the
 // caller may not close (checkCloseOwn, since a fold closes it), one already
-// closed, one a session works (taking it would end that session's work), and
-// one of another yard's, which closing returns to its yard as refused, or
-// takes back from it. A manual group's claim is a person's turn with nothing
-// running, not a session at work, so the bead is taken and the close ends the
-// claim, as it does for any bead.
-func (w *wtx) checkFoldable(ctx context.Context, m *beadRow) error {
+// closed, one a session works (taking it would end that session's work), one
+// of another yard's, which closing returns to its yard as refused, or takes
+// back from it, and one an open bead blocks now. A manual group's claim is a
+// person's turn with nothing running, not a session at work, so the bead is
+// taken and the close ends the claim, as it does for any bead.
+//
+// A fold re-points what a member blocks to the carrier, but what blocks the
+// member stays on the member, which the fold closes: the carrier would route
+// and build with that blocker still open. The siding design leaves such a
+// bead where it waits (docs/design/2026-10-22-yardr-9x0n-siding.md, 3.5),
+// and a fold by hand takes the same rule, by the gate ready reads
+// (openBlockers), so what bead show calls blocked is what is refused. An edge
+// that holds the member only at another stage, or that its blocker has
+// released, holds nothing now and is not looked at. A blocker that is a
+// member too (folding holds the members' UUIDs) closes in the same write and
+// only orders parts of one bundle, so it does not refuse.
+//
+// look reads the gates of the blockers' until edges, as the read path does.
+func (w *wtx) checkFoldable(ctx context.Context, m *beadRow, folding map[string]bool, look *untilLooks) error {
 	if err := w.checkCloseOwn(ctx, m); err != nil {
 		return fmt.Errorf("a fold closes its members: %w", err)
 	}
@@ -385,6 +404,19 @@ func (w *wtx) checkFoldable(ctx context.Context, m *beadRow) error {
 	}
 	if p := b.Away(); p != nil && p.ReturnedAt == nil {
 		return fmt.Errorf("bead %s is away at another yard: a fold takes beads that are here", m.ID)
+	}
+	h := handlesIn(w.Tx)
+	var blockers []string
+	for _, u := range openBlockers(w.Tx, &m.Bead, look) {
+		if !folding[u] {
+			blockers = append(blockers, h.of(u))
+		}
+	}
+	if len(blockers) > 0 {
+		// Several edges from one blocker hold as one.
+		slices.Sort(blockers)
+		return fmt.Errorf("bead %s is blocked by %s: a fold takes beads nothing blocks, since its carrier is made without a member's blockers and would be ready while they are open",
+			m.ID, strings.Join(slices.Compact(blockers), ", "))
 	}
 	return nil
 }
