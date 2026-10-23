@@ -46,13 +46,15 @@ func gitT(t *testing.T, dir string, args ...string) string {
 
 // scriptEnv is this test's environment without what the run it is in gave
 // the script it is part of: the base and the landing of an agent's session
-// or the assembly, the socket client and the GOOS of a landing's steps, a
-// plan, the race lock the run's own race leg holds, and the quiet run's
-// marks (YARDR_R1_STRICT and YARDR_QUIET_RUN), which would otherwise change
-// strict-budget judging and enable quiet-run-only tests. A case sets what
-// it means the script to have: one that runs the script sets YARDR_RACE_HELD,
-// so its race step shares the hold instead of taking the machine's lock,
-// except the lock's own test, which takes a lock of its own.
+// or the assembly, the socket client and the GOOS of a landing's steps, the
+// GOFLAGS the run's own script set for its go (a case that checks the flags
+// the script sets would find them there already), a plan, the race lock the
+// run's own race leg holds, and the quiet run's marks (YARDR_R1_STRICT and
+// YARDR_QUIET_RUN), which would otherwise change strict-budget judging and
+// enable quiet-run-only tests. A case sets what it means the script to have:
+// one that runs the script sets YARDR_RACE_HELD, so its race step shares the
+// hold instead of taking the machine's lock, except the lock's own test,
+// which takes a lock of its own.
 func scriptEnv() []string {
 	return scriptEnvFrom(os.Environ())
 }
@@ -61,7 +63,7 @@ func scriptEnv() []string {
 func scriptEnvFrom(environ []string) []string {
 	return slices.DeleteFunc(environ, func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN"}, k)
+		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "GOFLAGS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN"}, k)
 	})
 }
 
@@ -877,9 +879,11 @@ const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.d
 // that has YARDR_TEST_RPC: a landing runs that one beside its other go test)
 // the first few times with a line of its own, and writes down every call:
 // the arguments, after "rpc" when the call has YARDR_TEST_RPC and after the
-// GOOS it was given. gofmt finds nothing to format.
+// GOOS it was given, and in goflags, a line a call, the GOFLAGS it had.
+// gofmt finds nothing to format.
 const fakeGo = `#!/bin/sh
 echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
+echo "$GOFLAGS" >>"$FAKE/goflags"
 step=$1
 [ -z "$YARDR_TEST_RPC" ] || step=rpc
 if [ "$step" = "$FAKE_STEP" ]; then
@@ -918,7 +922,9 @@ fi
 // say what failed: a failing test's a second time. A landing runs the socket
 // suites beside the tests, whether those are green or not; each of the two
 // is run again by the same rule, either makes the run red, and the socket
-// step's output follows the whole of the other's.
+// step's output follows the whole of the other's. Every go it runs, each
+// run of a step included, has -trimpath in its GOFLAGS, after the caller's
+// own, so that the Go cache serves one worktree's results to another.
 func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	t.Parallel()
 	const notice = "the Go build cache lost a file under us; running again"
@@ -947,6 +953,9 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			[]string{plain[0], plain[1], plain[2], plain[2]}, 2, true, nil, "test: FAILED: go test ./..."},
 		{"a failing test", "test", "1", failing, false,
 			plain, 2, false, nil, "test: FAILED: go test ./...\n" + failing},
+		// No step fails: the caller's GOFLAGS are among what every go has.
+		{"the caller's GOFLAGS stay", "none", "0", "never printed", true,
+			plain, 0, false, []string{"GOFLAGS=-mod=mod"}, ""},
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
 		// itself rather than the gate.
@@ -1027,6 +1036,20 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			if got, want := strings.Join(append(ran, beside...), "\n"), strings.Join(c.calls, "\n"); got != want {
 				t.Errorf("go was run as:\n%s\nwant:\n%s", got, want)
+			}
+			// Each of those had -trimpath after the caller's own flags: a
+			// line a call, so a go that missed it is told from the rest.
+			flags, _ := os.ReadFile(filepath.Join(fake, "goflags"))
+			wantFlags := "-trimpath"
+			for _, kv := range c.env {
+				if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
+					wantFlags = v + " " + wantFlags
+				}
+			}
+			for i, got := range strings.Split(strings.TrimSpace(string(flags)), "\n") {
+				if got != wantFlags {
+					t.Errorf("go call %d had GOFLAGS %q, want %q", i+1, got, wantFlags)
+				}
 			}
 			// The socket step's output is whole and after the other's: none
 			// of it before the line that says how long go test -race took.

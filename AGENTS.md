@@ -137,6 +137,10 @@ it lists every exported name with its comment, faster than grepping.
 - The test rules are `docs/testing.md` (per-package time budget, sleep
   budget, parallelism); the gate is `sh .yardr/test` in the worktree, and
   its printed `test:` line is the record of a run.
+- The gate sets `GOFLAGS=-trimpath`, so one worktree's cached builds and
+  test results serve the others. A source file's path in a trace or from
+  `runtime.Caller` is then its import path: a test finds a repo file from
+  its package directory (`../../packs/starter`) or through `packs.FS`.
 - A `test: flaky:` line files itself: the gate appends one line per flaky
   line -- date, short sha, packages, tests -- to `yardr-flaky.log` in the
   git common dir, which the repo owns and every worktree shares, files a

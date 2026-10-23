@@ -74,6 +74,24 @@ set -e
 # The settings of the yard's server are not the tests': a server one of them
 # starts would listen on this yard's webhook address (config.ServerSettings).
 unset YARDR_HOOK_ADDR YARDR_EVENT_RETENTION YARDR_HOOK_PAYLOAD_RETENTION YARDR_PPROF
+# Every go command of the run, and the go the tests start (the black-box
+# suites build the binary), builds with -trimpath. Without it a package's
+# directory goes into the ID of each action that builds it, and so into the ID
+# of every test binary that imports it: the same source in another worktree
+# gets other IDs, and the build and test results in the user's Go cache, one
+# for every worktree on the machine, serve no worktree but the one that made
+# them (yardr-nam1: none of 28 packages was cached from a second worktree, 19
+# with the flag; the nine left read repo files by path, which go hashes with
+# the file's path and mtime). It is GOFLAGS, once, and not a flag on each
+# call: again knows a step by its words (go test -race) and runs a failed or
+# over-budget package again from them, and a flag in the words would not reach
+# the go the tests start. The caller's GOFLAGS stay, the flag after them; one
+# that only go env -w set is shadowed, the variable winning, and reading its
+# file would be one more go call. With the flag a trace, and runtime.Caller,
+# name a file by import path, so a test finds a repo file from its package
+# directory.
+GOFLAGS="${GOFLAGS:+$GOFLAGS }-trimpath"
+export GOFLAGS
 # The run's own test line is printed by finish, on exit, from these: the wall
 # seconds since started, the race-lock seconds the legs waited, and the
 # packages go test printed `ok` and `FAIL` for. tmp is pick's, below.

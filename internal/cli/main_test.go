@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +22,7 @@ import (
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // errNoServer is what a command gets in a test when it reaches for the
@@ -294,28 +294,25 @@ func needPackTools(t *testing.T) {
 // declareGitHubPack declares the pack's github source in st, pointed at
 // base ("" keeps the pack's own), with its command files under home (""
 // declares the name alone, for a test that runs none of them): what the
-// thread commands run. actor is who declares it. The pack is found from
-// this file, since a test may run with another working directory.
+// thread commands run. actor is who declares it. The pack is the embedded
+// one, so finding it needs neither the working directory, which a test may
+// change, nor the path of this file, which a build with -trimpath (the
+// gate's) does not keep.
 func declareGitHubPack(t *testing.T, st store.API, home, base, actor string) {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed")
-	}
-	dir := filepath.Join(filepath.Dir(file), "..", "..", "packs", "github")
-	text, err := os.ReadFile(filepath.Join(dir, "github.yaml"))
+	text, err := packs.FS.ReadFile("github/github.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if base != "" {
 		text = []byte(strings.Replace(string(text), "base: https://api.github.com", "base: "+base, 1))
 	}
-	d, err := source.Parse(filepath.Join(dir, "github.yaml"), text)
+	d, err := source.Parse("packs/github/github.yaml", text)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if home != "" {
-		if err := d.CopyCommandFiles(dir, home); err != nil {
+		if err := d.CopyCommandFilesFS(packs.FS, "github", home); err != nil {
 			t.Fatal(err)
 		}
 		scripttest.Relink(t, filepath.Join(home, "sources", d.Name))
