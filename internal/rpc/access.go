@@ -131,6 +131,7 @@ var Access = map[string]Class{
 	"Ready":        Read,
 	"Waiting":      Read,
 	"Dispatchable": Read,
+	"SidingBeads":  Read,
 	"UpdateBead":   Agent, // but a pin of its flow, its type or depot (store.UpdateBead)
 	// A move is held by the store to the edges its flow allows, and to the
 	// members of the stage's group: it is no wider than an outcome.

@@ -232,6 +232,42 @@ func TestGroupSetChecksAManualGroupsWait(t *testing.T) {
 	}
 }
 
+// A manual group is a siding by the keys fold, fold_after and fold_max
+// (yardr-tywp): group set takes a count of 2 or more and a duration with
+// days, group show prints them, and what is no count, is below 2, or is set
+// on a group of another runner is refused where it is typed, leaving the
+// group as it was.
+func TestGroupSetChecksASidingsKeys(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	mustAs(t, st, "jo", "group", "add", "siding", "--runner", "manual")
+	if out := mustAs(t, st, "jo", "group", "set", "siding", "fold=4", "fold_after=1d", "fold_max=6"); out !=
+		"group siding saved\n  fold: (not set) -> 4\n  fold_after: (not set) -> 1d\n  fold_max: (not set) -> 6\n" {
+		t.Fatalf("set of the siding keys printed %q", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "show", "siding"); !strings.Contains(out, "\n  fold=4\n  fold_after=1d\n  fold_max=6\n") {
+		t.Fatalf("group show does not print the siding keys:\n%s", out)
+	}
+	for want, args := range map[string][]string{
+		"manual runner needs config.fold as a whole number of 2 or more, got the JSON number 1":        {"fold=1"},
+		"manual runner needs config.fold as a whole number of 2 or more, got the JSON string \"four\"": {"fold=four"},
+		"manual runner needs config.fold_max as a whole number of 2 or more, got the JSON number 0":    {"fold_max=0"},
+		"manual runner needs config.fold_after as a duration such as 40m, 12h or 7d":                   {"fold_after=soon"},
+	} {
+		refusedAs(t, st, "jo", want, append([]string{"group", "set", "siding"}, args...)...)
+	}
+	mustAs(t, st, "jo", "group", "add", "agents", "--runner", "herdr", "--set", "kind=claude")
+	for _, key := range []string{"fold=4", "fold_after=8h", "fold_max=6"} {
+		refusedAs(t, st, "jo", `unknown config key "`+strings.Split(key, "=")[0]+`"`, "group", "set", "agents", key)
+	}
+	if g := group(t, st, "siding"); !reflect.DeepEqual(g.Config, map[string]any{"fold": 4.0, "fold_after": "1d", "fold_max": 6.0}) {
+		t.Fatalf("a refused set changed the siding: %+v", g.Config)
+	}
+	if g := group(t, st, "agents"); !reflect.DeepEqual(g.Config, map[string]any{"kind": "claude"}) {
+		t.Fatalf("a refused set changed the herdr group: %+v", g.Config)
+	}
+}
+
 // An exec group takes env_file, as a herdr group does: a script group's
 // command gets what it needs to act outside the yard from a file, not from
 // cmd, which is in the store.

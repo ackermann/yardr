@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -38,6 +39,11 @@ const (
 	// (ParseSpan). A limit's 0 or off has no meaning for it: a key of this
 	// type is turned off by not being set.
 	ConfigSpan = "a duration such as 40m, 12h or 7d"
+	// ConfigCount is a whole number of 2 or more: how many beads make a
+	// fold, or the most points one may weigh (two beads weigh two points at
+	// the least). A smaller one would fold nothing, so it is refused where
+	// it is typed.
+	ConfigCount = "a whole number of 2 or more"
 	// ConfigNames is names separated by commas, or a list of them.
 	ConfigNames = "names separated by commas, or a list"
 	// ConfigWord is one word: a string, or the number or boolean --set
@@ -82,6 +88,9 @@ var ConfigKeys = []ConfigKey{
 	{"greet", ConfigString, []string{"herdr"}, CrewConfig, "the user the crew member's first session greets"},
 	{"notify", ConfigSwitch, []string{"manual"}, GroupConfig, "true: a herdr notification says a bead is waiting"},
 	{"wait", ConfigSpan, []string{"manual"}, GroupConfig, "how long a bead may be in a stage of the group before a waited event, once per stay; unset: never"},
+	{"fold", ConfigCount, []string{"manual"}, GroupConfig, fmt.Sprintf("makes the group a siding: the beads waiting in a stage of the group are folded into one bead when this many wait; default %d", SidingFold)},
+	{"fold_after", ConfigSpan, []string{"manual"}, GroupConfig, fmt.Sprintf("makes the group a siding: the beads waiting are folded when the latest has waited this long; default %s", Span(SidingAfter))},
+	{"fold_max", ConfigCount, []string{"manual"}, GroupConfig, fmt.Sprintf("makes the group a siding: the most points one fold may carry, a small bead 1, a medium 2, a large 4, one with no size 2; default %d", SidingMax)},
 	{GroupPeer, ConfigWord, []string{PeerRunner}, GroupConfig, "the linked yard that works the group's beads (required)"},
 	{GroupTries, ConfigWord, []string{PeerRunner}, GroupConfig, fmt.Sprintf("how often a bead is posted to the peer before it is given up; default %d", PeerBeadTries)},
 	{GroupRemote, ConfigWord, []string{PeerRunner}, GroupConfig, "the remote a branch the peer returns is fetched from; default " + PeerRemote},
@@ -250,10 +259,32 @@ func configTyped(want string, v any) bool {
 	case ConfigSpan:
 		_, err := ParseSpan(s)
 		return isString && err == nil
+	case ConfigCount:
+		_, ok := wholeCount(v)
+		return ok
 	case ConfigWord:
 		return isString || isBool || isNumber
 	}
 	return false
+}
+
+// wholeCount is v, a decoded JSON number or a Go int, as the count
+// ConfigCount holds a key to: a whole number of 2 or more, and one that is
+// an int on any machine.
+func wholeCount(v any) (int, bool) {
+	var n float64
+	switch v := v.(type) {
+	case float64:
+		n = v
+	case int:
+		n = float64(v)
+	default:
+		return 0, false
+	}
+	if n < 2 || n != math.Trunc(n) || n > math.MaxInt32 {
+		return 0, false
+	}
+	return int(n), true
 }
 
 // jsonKind names a decoded JSON value, with the value where it is short

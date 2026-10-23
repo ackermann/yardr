@@ -13,31 +13,17 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-// foldFlow is the flow the beads of these tests follow: a siding that leads
-// on to ready before new, as the siding design's flows do.
+// foldFlow is the flow the beads of these tests follow: two stages that wait
+// to be folded (siding and slow) and lead on to ready before new, as the
+// siding design's flows do.
 const foldFlow = `
-backlog -> siding | new
+backlog -> siding | slow | new
 siding -> ready | backlog
+slow -> ready | backlog
 ready -> new | backlog
 new -> merged
 merged terminal
 `
-
-// sidingFolds is a store whose siding group sets fold, the key that makes a
-// manual group's stage a siding. No group can set it until the config keys
-// accept it (yardr-tywp), so the test presents the group as it will be once
-// they do, as oldServer presents an older server.
-type sidingFolds struct{ store.API }
-
-func (s sidingFolds) Groups(ctx context.Context) ([]store.Group, error) {
-	groups, err := s.API.Groups(ctx)
-	for i := range groups {
-		if groups[i].Name == "siding" {
-			groups[i].Config = map[string]any{"fold": 4}
-		}
-	}
-	return groups, err
-}
 
 // noEvents is a store whose events cannot be read, so that the points of a
 // fold, which the store writes on the carrier's event, are not to be had.
@@ -47,9 +33,11 @@ func (noEvents) Events(context.Context, string, int) ([]store.Event, error) {
 	return nil, errors.New("events are gone")
 }
 
-// foldYard is a store with the depot yd, whose beads follow foldFlow, and a
-// manual group working its siding stage. newBead makes a bead of it in the
-// stage and with the labels given: yd-1 and on, titled "part <id>".
+// foldYard is a store with the depot yd, whose beads follow foldFlow, a manual
+// group working its siding stage, which sets fold, another working its slow
+// stage, which sets fold_after alone, and a third working its ready stage,
+// which sets none. newBead makes a bead of it in the stage and with the
+// labels given: yd-1 and on, titled "part <id>".
 func foldYard(t *testing.T) (store.API, func(stage string, labels ...string) string) {
 	t.Helper()
 	ctx := context.Background()
@@ -68,12 +56,17 @@ func foldYard(t *testing.T) (store.API, func(stage string, labels ...string) str
 	if err := st.SetFlowPointer(ctx, "yd", "", "fold.f", "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutGroup(ctx, store.Group{Name: "siding", Runner: "manual", Members: []string{"me"}}, "me"); err != nil {
-		t.Fatal(err)
-	}
 	depot := "yd"
-	if _, err := st.AddRoute(ctx, store.Route{Stage: "siding", Depot: &depot, Group: "siding"}, "me"); err != nil {
-		t.Fatal(err)
+	for _, g := range []struct {
+		stage  string
+		config map[string]any
+	}{{"siding", map[string]any{"fold": 4}}, {"slow", map[string]any{"fold_after": "2h"}}, {"ready", nil}} {
+		if err := st.PutGroup(ctx, store.Group{Name: g.stage, Runner: "manual", Members: []string{"me"}, Config: g.config}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AddRoute(ctx, store.Route{Stage: g.stage, Depot: &depot, Group: g.stage}, "me"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	n := 0
 	return st, func(stage string, labels ...string) string {
@@ -98,8 +91,7 @@ func TestBeadFold(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	st, newBead := foldYard(t)
-	plain := &app{st: st, actor: "me"}
-	sided := &app{st: sidingFolds{st}, actor: "me"}
+	yard := &app{st: st, actor: "me"}
 
 	// The carrier line: its id is not known beforehand.
 	carrierOf := func(t *testing.T, out string) string {
@@ -113,18 +105,18 @@ func TestBeadFold(t *testing.T) {
 
 	rows := []struct {
 		name   string
-		app    *app
 		stages []string                  // where the beads wait
 		args   []string                  // beside their ids
 		want   string                    // the carrier's stage
 		err    func(ids []string) string // the fold is refused, with this error
 	}{
-		{name: "--to names the stage", app: plain, stages: []string{"backlog", "backlog"}, args: []string{"--to", "ready"}, want: "ready"},
-		{name: "beads that share a stage start the carrier in it", app: plain, stages: []string{"backlog", "backlog"}, want: "backlog"},
-		{name: "beads in a siding start the carrier where it leads first", app: sided, stages: []string{"siding", "siding"}, want: "ready"},
-		{name: "--to wins over a siding", app: sided, stages: []string{"siding", "siding"}, args: []string{"--to", "new"}, want: "new"},
-		{name: "a stage whose group sets no fold is no siding", app: plain, stages: []string{"siding", "siding"}, want: "siding"},
-		{name: "beads in a siding and beads outside it share no stage", app: sided, stages: []string{"backlog", "siding", "backlog"},
+		{name: "--to names the stage", stages: []string{"backlog", "backlog"}, args: []string{"--to", "ready"}, want: "ready"},
+		{name: "beads that share a stage start the carrier in it", stages: []string{"backlog", "backlog"}, want: "backlog"},
+		{name: "beads in a siding start the carrier where it leads first", stages: []string{"siding", "siding"}, want: "ready"},
+		{name: "any key of a siding makes a stage one", stages: []string{"slow", "slow"}, want: "ready"},
+		{name: "--to wins over a siding", stages: []string{"siding", "siding"}, args: []string{"--to", "new"}, want: "new"},
+		{name: "a stage whose group sets no fold is no siding", stages: []string{"ready", "ready"}, want: "ready"},
+		{name: "beads in a siding and beads outside it share no stage", stages: []string{"backlog", "siding", "backlog"},
 			err: func(ids []string) string {
 				return "these beads wait in different stages (backlog: " + ids[0] + ", " + ids[2] + "; siding: " + ids[1] + "): say where the carrier starts with --to <stage>"
 			}},
@@ -135,7 +127,7 @@ func TestBeadFold(t *testing.T) {
 			for i, stage := range r.stages {
 				ids[i] = newBead(stage)
 			}
-			out, err := run(t, r.app.beadCmd(), append(append([]string{"fold"}, ids...), r.args...)...)
+			out, err := run(t, yard.beadCmd(), append(append([]string{"fold"}, ids...), r.args...)...)
 			if r.err != nil {
 				if want := r.err(ids); err == nil || err.Error() != want {
 					t.Fatalf("fold = %q, %v; want the error %q", out, err, want)
@@ -163,7 +155,7 @@ func TestBeadFold(t *testing.T) {
 
 	t.Run("the line says what the carrier is made of and weighs", func(t *testing.T) {
 		a, b, c := newBead("backlog", "size:small", "difficulty:1"), newBead("backlog", "size:small"), newBead("backlog", "size:small", "difficulty:1")
-		out, err := run(t, plain.beadCmd(), "fold", c, a, b, "--to", "ready")
+		out, err := run(t, yard.beadCmd(), "fold", c, a, b, "--to", "ready")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +169,7 @@ func TestBeadFold(t *testing.T) {
 
 	t.Run("the line has no difficulty the beads did not have", func(t *testing.T) {
 		a, b := newBead("backlog", "size:large"), newBead("backlog", "size:medium")
-		out, err := run(t, plain.beadCmd(), "fold", a, b, "--to", "ready")
+		out, err := run(t, yard.beadCmd(), "fold", a, b, "--to", "ready")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -188,7 +180,7 @@ func TestBeadFold(t *testing.T) {
 
 	t.Run("--title is the carrier's title", func(t *testing.T) {
 		a, b := newBead("backlog"), newBead("backlog")
-		out, err := run(t, plain.beadCmd(), "fold", a, b, "--title", "the pair")
+		out, err := run(t, yard.beadCmd(), "fold", a, b, "--title", "the pair")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,7 +193,7 @@ func TestBeadFold(t *testing.T) {
 		}
 		// Without it the store's: the depot, then the titles.
 		x, y := newBead("backlog"), newBead("backlog")
-		out, err = run(t, plain.beadCmd(), "fold", x, y)
+		out, err = run(t, yard.beadCmd(), "fold", x, y)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -239,7 +231,7 @@ func TestBeadFold(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out, err := run(t, plain.beadCmd(), "fold", ba.UUID, b, "--to", "ready")
+		out, err := run(t, yard.beadCmd(), "fold", ba.UUID, b, "--to", "ready")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +242,7 @@ func TestBeadFold(t *testing.T) {
 
 	t.Run("one bead is no fold", func(t *testing.T) {
 		a := newBead("backlog")
-		if out, err := run(t, plain.beadCmd(), "fold", a, "--to", "ready"); err == nil || !strings.Contains(err.Error(), "a fold takes two beads or more") {
+		if out, err := run(t, yard.beadCmd(), "fold", a, "--to", "ready"); err == nil || !strings.Contains(err.Error(), "a fold takes two beads or more") {
 			t.Fatalf("fold of one bead = %q, %v", out, err)
 		}
 		if b, _ := st.GetBead(ctx, a); b == nil || b.Status != "open" {
@@ -264,7 +256,7 @@ func TestBeadFold(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out, err := run(t, plain.beadCmd(), "fold", a, "yd-nope", "--to", "ready"); err == nil {
+		if out, err := run(t, yard.beadCmd(), "fold", a, "yd-nope", "--to", "ready"); err == nil {
 			t.Fatalf("fold of an unknown bead = %q", out)
 		}
 		after, err := st.ListBeads(ctx, store.BeadFilter{All: true})
@@ -303,7 +295,7 @@ func TestBeadFold(t *testing.T) {
 			t.Fatal(err)
 		}
 		a, b := newBead("siding"), newBead("siding", "elsewhere")
-		out, err := run(t, sided.beadCmd(), "fold", a, b)
+		out, err := run(t, yard.beadCmd(), "fold", a, b)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -328,7 +320,7 @@ func TestBeadFold(t *testing.T) {
 			}
 			ids = append(ids, id)
 		}
-		out, err := run(t, sided.beadCmd(), "fold", ids[0], ids[1])
+		out, err := run(t, yard.beadCmd(), "fold", ids[0], ids[1])
 		if want := "stage siding is a siding, but no stage follows it: say where the carrier starts with --to <stage>"; err == nil || err.Error() != want {
 			t.Fatalf("fold = %q, %v; want the error %q", out, err, want)
 		}
@@ -339,7 +331,7 @@ func TestBeadFold(t *testing.T) {
 		if _, err := st.CloseBead(ctx, b, "done", store.Expect{}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if out, err := run(t, plain.beadCmd(), "fold", a, b, "--to", "ready"); err == nil || !strings.Contains(err.Error(), "bead "+b+" is closed") {
+		if out, err := run(t, yard.beadCmd(), "fold", a, b, "--to", "ready"); err == nil || !strings.Contains(err.Error(), "bead "+b+" is closed") {
 			t.Fatalf("fold of a closed bead = %q, %v", out, err)
 		}
 	})

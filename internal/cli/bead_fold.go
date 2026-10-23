@@ -29,10 +29,10 @@ for moves to the carrier; its notes and files stay on it, and a note on the
 carrier says where.
 
 The carrier starts in --to. Without it, in the stage the beads share, or,
-when they wait in a siding (a stage worked by a manual group that sets
-fold), in the stage the siding leads to first; beads in different stages
-need --to. --title replaces the title the carrier gets, "<depot> bundle:
-<title>; <title>".
+when they wait in a siding (a stage worked by a manual group that sets fold,
+fold_after or fold_max), in the stage the siding leads to first; beads in
+different stages need --to. --title replaces the title the carrier gets,
+"<depot> bundle: <title>; <title>".
 
 The beads must be open, unclaimed, and of one depot and one flow, and none
 may have come from another yard or be away at one. A fold is all or nothing:
@@ -174,10 +174,9 @@ func foldStage(ctx context.Context, st store.API, members []store.Bead) (string,
 }
 
 // inSiding says whether each of the members waits in a siding: a stage whose
-// route, for that bead, reaches a group that sets fold. That is what makes a
-// stage one, so that neither its name nor the flow says anything of it; the
-// key is one only a manual group accepts, which is why it is not asked for
-// the runner as well.
+// route, for that bead, reaches a group that is one (store.SidingOf, which
+// flow show asks as well). That is what makes a stage one, so that neither
+// its name nor the flow says anything of it.
 func inSiding(ctx context.Context, st store.API, members []store.Bead) (bool, error) {
 	routes, err := st.Routes(ctx)
 	if err != nil {
@@ -200,7 +199,7 @@ func inSiding(ctx context.Context, st store.API, members []store.Bead) (bool, er
 		if i < 0 {
 			return false, nil
 		}
-		if _, ok := groups[i].Config["fold"]; !ok {
+		if _, ok := store.SidingOf(groups[i]); !ok {
 			return false, nil
 		}
 	}

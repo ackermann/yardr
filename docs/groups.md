@@ -981,7 +981,7 @@ key sets them.
 
 | runner | starts | config |
 |---|---|---|
-| `manual` | nothing; the bead waits on the group | `notify`, `wait` ([below](#a-bead-that-waits-long)) |
+| `manual` | nothing; the bead waits on the group | `notify`, `wait` ([below](#a-bead-that-waits-long)), `fold`, `fold_after`, `fold_max` ([below](#a-siding)) |
 | `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group), `YARDR_KIND` (`exec`), `YARDR_MODEL` and `YARDR_GIT_SYSTEM_CLEAN`; for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [line.md](line.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TEST` (the depot's test command, unset when it has none, see [configuration.md](configuration.md#registering-a-depot)); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([line.md](line.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([line.md](line.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees`, `env_file` |
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_KIND` (its harness kind), `YARDR_MODEL`, `YARDR_GIT_SYSTEM_CLEAN`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `still`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
@@ -1134,6 +1134,45 @@ The stay is read from the bead's events, where the `waited` raised for it is
 also what says it was told. A bead that has waited longer than the yard
 keeps events ([configuration.md](configuration.md#retention-keeping-yarddb-bounded), 90 days) is
 counted from when it was made and may be told of once more.
+
+### A siding
+
+Small changes to one depot are built and reviewed better as one bead than as
+one bead each, and `yardr bead fold` makes that bead
+([line.md](line.md#folding-beads)). A **siding** is where they wait for it: a
+stage of the depot's flow, worked by a manual group that sets any of `fold`,
+`fold_after` and `fold_max`. It needs no flow syntax and no other kind of
+group: a stage is a siding when its route reaches such a group.
+
+```sh
+yardr group add siding --runner manual --members ada,yardmaster \
+  --set fold=4 --set fold_after=8h --set fold_max=6
+yardr route add --stage siding --group siding --depot yardr
+```
+
+| key | value | what | unset |
+|---|---|---|---|
+| `fold` | a whole number of 2 or more | how many beads waiting in a stage of the group make a fold | 4 |
+| `fold_after` | a duration (`40m`, `12h`, `7d`) | how long after the latest bead entered the stage a fold is due | `8h` |
+| `fold_max` | a whole number of 2 or more | the most points one fold may carry: a bead with `size:small` is 1 point, `size:medium` 2, `size:large` 4, and one with none of them 2 | 6 |
+
+Setting any one makes the group a siding, and the others take the numbers in
+the last column: four beads is about what the shaper bundled by hand, and six
+points is six small beads or three mediums, what one session can build and one
+review hold. The keys are a manual group's: a group of another runner refuses
+them, and a count below 2 is refused where it is typed, since a fold takes two
+beads and two beads weigh two points at the least.
+
+A siding is a depot's: `yardr flow show` counts the depot's own beads, so two
+depots served by one group (a yard default route) have a siding each, and a
+depot route can give a depot a group of its own with other numbers. A group
+that works two stages of a flow makes a siding of each, with its numbers.
+
+A siding does not fold by itself. `yardr bead fold` makes the carrier, and
+without `--to` starts it in the first stage the flow leads on to from the
+siding, so that `siding -> ready | backlog` has it wait at `ready` for a person
+and `siding -> new` builds it at once. `yardr flow show <depot>` says where
+each siding stands against its numbers ([flows.md](flows.md#a-siding)).
 
 ### Peer groups
 

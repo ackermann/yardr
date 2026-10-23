@@ -1613,7 +1613,8 @@ since its carrier would be that bead with a worse title.
 
 The carrier starts in `--to`. Without it, it starts where its members wait:
 in the stage they all wait in, or, when that stage is a siding (a stage worked
-by a manual group that sets `fold`), in the first stage its flow leads to
+by a manual group that sets `fold`, `fold_after` or `fold_max`, see
+[groups.md](groups.md#a-siding)), in the first stage its flow leads to
 from the siding, since a siding is where beads wait to be folded and not
 where the fold waits. Members in different stages have no stage to start
 in, and the command asks for `--to <stage>`.

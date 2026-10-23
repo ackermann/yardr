@@ -10,12 +10,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"io"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/flowdraw"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
@@ -177,6 +179,13 @@ flow file or a pack with no yard.`,
 						rows = append(rows, []string{s.Stage, or(strings.Join(append([]string{s.Group}, s.Else...), " else "), "-"), members, strconv.Itoa(s.Open), file, next})
 					}
 					table(w, "STAGE\tGROUP\tMEMBERS\tOPEN\tFILE\tNEXT", rows)
+					for _, s := range v.Stages {
+						if s.Siding != nil {
+							for _, line := range sidingLines(s.Stage, s.Siding, time.Now()) {
+								fmt.Fprintln(w, line)
+							}
+						}
+					}
 					for _, warning := range v.Warnings {
 						fmt.Fprintf(w, "warning: %s\n", warning)
 					}
@@ -560,6 +569,29 @@ type stageView struct {
 	// StageFile is the stage's file, if it has one: in the depot's repository,
 	// or in the yard's home for a store flow.
 	StageFile string `json:"stage_file,omitempty"`
+	// Siding is set when Group is a siding (store.SidingOf): what it folds by
+	// and what waits in the stage now.
+	Siding *sidingView `json:"siding,omitempty"`
+}
+
+// sidingView is a siding stage as flow show says it: the numbers its group
+// folds by, where the carrier goes, and what waits in the stage now.
+type sidingView struct {
+	Fold      int    `json:"fold"`       // beads that fill it
+	FoldAfter string `json:"fold_after"` // how long after the latest arrival it folds anyway, as a duration is written (ParseSpan)
+	FoldMax   int    `json:"fold_max"`   // the most points one fold may carry
+	// To is the stage the carrier goes to: the first the flow leads on to.
+	// Absent when it leads nowhere, which Warning then says.
+	To      string `json:"to,omitempty"`
+	Waiting int    `json:"waiting"` // open beads in the stage that this flow governs
+	Points  int    `json:"points"`  // what they weigh together
+	Stuck   int    `json:"stuck"`   // those a fold would leave where they are (store.SidingBead)
+	// FoldsAt is when the fold_after of the latest bead to arrive ends: the
+	// time the siding folds at if the count is not reached before. Absent
+	// with nothing waiting.
+	FoldsAt *time.Time `json:"folds_at,omitempty"`
+	// Warning says why nothing will fold here.
+	Warning string `json:"warning,omitempty"`
 }
 
 // flowViews describes the flows governing depot's beads, the depot's own first.
@@ -624,21 +656,32 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 			// Routes may match on type; a depot flow is shown for the default type.
 			// The probe names no originator, so it reads as the operator's.
 			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Depot: &depot, Priority: store.DefaultPriority}
+			var siding *store.Siding
 			if r := dispatch.Match(routes, probe, operator); r != nil {
 				sv.Group, sv.Else = r.Worker(), r.Further()
 				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == sv.Group }); i >= 0 && groups[i].Runner == "manual" {
 					sv.Human, sv.Members = true, groups[i].Members
+					if si, ok := store.SidingOf(groups[i]); ok {
+						siding = &si
+					}
 				} else if i >= 0 {
 					sv.Yard = groups[i].AtPeer()
 				}
 			} else if !sv.Terminal {
 				v.Warnings = append(v.Warnings, fmt.Sprintf("stage %s has no route: beads there wait for a human", s))
 			}
+			var waiting []string
 			for _, b := range beads {
 				// A bead that pins its flow follows that one instead.
 				governed := store.PinnedFlow(&b) == "" && (b.Type == rf.Type || (rf.Type == "" && !typed[b.Type]))
 				if governed && b.Stage == s {
 					sv.Open++
+					waiting = append(waiting, b.ID)
+				}
+			}
+			if siding != nil {
+				if sv.Siding, err = newSidingView(ctx, st, *siding, sv, waiting); err != nil {
+					return nil, err
 				}
 			}
 			// A broken ## Ask section in the stage's file warns beside
@@ -692,4 +735,66 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 			fmt.Sprintf("bead %s: it is not routed and waits until someone advances it (yardr bead advance %s --to <stage>)", sb, sb.Bead))
 	}
 	return views, nil
+}
+
+// newSidingView describes the stage sv as a siding that folds by si, with the
+// beads waiting in it. When each entered and whether a fold would take it is
+// the store's to say (SidingBeads). The carrier goes to the first stage the
+// flow leads on to; a stage no edge leaves has none, so nothing folds there
+// (the flow's own way back to its first stage from such a stage is no place
+// to fold to).
+func newSidingView(ctx context.Context, st store.API, si store.Siding, sv stageView, waiting []string) (*sidingView, error) {
+	v := &sidingView{Fold: si.Fold, FoldAfter: store.Span(si.After), FoldMax: si.Max, Waiting: len(waiting)}
+	if len(sv.Next) > 0 {
+		v.To = sv.Next[0]
+	} else {
+		v.Warning = fmt.Sprintf("%s has fold=%d but no next stage; nothing will fold here", sv.Stage, si.Fold)
+	}
+	if len(waiting) == 0 {
+		return v, nil
+	}
+	beads, err := st.SidingBeads(ctx, waiting)
+	if err != nil {
+		return nil, err
+	}
+	var latest time.Time
+	for _, b := range beads {
+		v.Points += b.Points
+		if b.Stuck != "" {
+			v.Stuck++
+		}
+		if b.Entered.After(latest) {
+			latest = b.Entered
+		}
+	}
+	if !latest.IsZero() {
+		at := latest.Add(si.After)
+		v.FoldsAt = &at
+	}
+	return v, nil
+}
+
+// sidingLines are the lines flow show prints under the table for a siding
+// stage: what it folds by and where the carrier goes, then what waits now and
+// when it folds, indented to stand under the first. A stage with no next
+// stage has the warning in place of the second. now is the day a time of
+// today is written without its date.
+func sidingLines(stage string, v *sidingView, now time.Time) []string {
+	head := stage + ": "
+	first := fmt.Sprintf("%sfolds at %s, or %s after the latest arrives; at most %s", head, plural(v.Fold, "bead"), v.FoldAfter, plural(v.FoldMax, "point"))
+	if v.To != "" {
+		first += "; the carrier goes to " + v.To
+	}
+	if v.Warning != "" {
+		return []string{first, "warning: " + v.Warning}
+	}
+	second := fmt.Sprintf("now %d waiting, %s", v.Waiting, plural(v.Points, "point"))
+	if v.Stuck > 0 {
+		second += fmt.Sprintf(", %d stuck", v.Stuck)
+	}
+	second += fmt.Sprintf("; folds at %d", v.Fold)
+	if v.FoldsAt != nil {
+		second += " or at " + limits.Clock(*v.FoldsAt, now)
+	}
+	return []string{first, strings.Repeat(" ", len(head)) + second}
 }

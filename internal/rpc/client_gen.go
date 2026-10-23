@@ -56,6 +56,9 @@ func (c *Client) Release(ctx context.Context, id, reason string, exp store.Expec
 func (c *Client) FoldBeads(ctx context.Context, ids []string, opts store.FoldOptions, actor string) (*store.Bead, error) {
 	return callV[*store.Bead](c, ctx, "FoldBeads", ids, opts, actor)
 }
+func (c *Client) SidingBeads(ctx context.Context, ids []string) ([]store.SidingBead, error) {
+	return callV[[]store.SidingBead](c, ctx, "SidingBeads", ids)
+}
 
 func (c *Client) AddDep(ctx context.Context, from, to, kind, at, until, actor string) error {
 	return c.call(ctx, "AddDep", nil, from, to, kind, at, until, actor)

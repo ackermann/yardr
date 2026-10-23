@@ -26,6 +26,7 @@ type API interface {
 	SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error)
 	Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error)
 	FoldBeads(ctx context.Context, ids []string, opts FoldOptions, actor string) (*Bead, error)
+	SidingBeads(ctx context.Context, ids []string) ([]SidingBead, error)
 
 	AddDep(ctx context.Context, from, to, kind, at, until, actor string) error
 	RemoveDep(ctx context.Context, from, to, kind, at, until, actor string) error

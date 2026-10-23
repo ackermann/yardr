@@ -799,6 +799,50 @@ works without one, for beads that end outside the flow (the reference
 assembly falls back to it when the flow has no `merged`, see
 [line.md](line.md#4-approved-the-assembly-lands-it-on-main)).
 
+## A siding
+
+A stage whose route reaches a siding, a manual group that sets `fold`,
+`fold_after` or `fold_max` ([groups.md](groups.md#a-siding)), is where small
+beads wait to be folded into one ([line.md](line.md#folding-beads)).
+`yardr flow show <depot>` says so under the table, two lines for each such
+stage of the flow:
+
+```
+STAGE    GROUP    MEMBERS         OPEN  FILE  NEXT
+backlog  backlog  ada,yardmaster  6     yes   siding | new | decide
+siding   siding   ada,yardmaster  3     yes   ready | backlog
+ready    ready    ada,yardmaster  0     yes   new | backlog
+...
+siding: folds at 4 beads, or 8h after the latest arrives; at most 6 points; the carrier goes to ready
+        now 3 waiting, 4 points, 1 stuck; folds at 4 or at 09:40
+```
+
+The first line is the group's numbers (4, 8h and 6 where it states none) and
+the stage the carrier goes to, the first stage the flow leads on to from the
+siding. The second is where the siding stands: the open beads in the stage
+that this flow governs, what they weigh in points, how many of them a fold
+would leave where they are, and when it folds, at the count or at the end of
+`fold_after` from the latest bead to enter, whichever comes first. A bead is
+**stuck** when it is held, claimed by a session that works it, blocked by an
+open bead, or has a question to a person open; a bead that a manual group
+holds, as it holds the beads of its stage up to its `--limit`, is not. The
+time is the clock alone for today and has its day otherwise, and is left out
+when nothing waits.
+
+A stage that no rule of the flow leaves, or a terminal one, has no stage for the
+carrier to go to. It has a `warning:` in place of the second line:
+
+```
+siding: folds at 4 beads, or 8h after the latest arrives; at most 6 points
+warning: siding has fold=4 but no next stage; nothing will fold here
+```
+
+A group that works two stages of a flow has a pair under each, counting that
+stage's beads. With `--json` each such stage has a `siding` object: `fold`,
+`fold_after`, `fold_max`, `to`, `waiting`, `points`, `stuck`, `folds_at` and
+`warning`, of which `to`, `folds_at` and `warning` are absent when there is
+nothing to say.
+
 ## Worked example: depot yardr
 
 This is the depot flow yardr reports in `yardr flow show yardr` (as of
