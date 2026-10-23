@@ -993,6 +993,12 @@ key sets them.
 | `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_KIND` (its harness kind), `YARDR_MODEL`, `YARDR_GIT_SYSTEM_CLEAN`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `still`, `label`, `env_file`, `trust` |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
+An exec script acts as its group, whatever actor it names: a command
+from its session that says `YARDR_ACTOR=…` or `--actor …` is served as
+the group all the same, so a pack's script cannot act as the operator.
+Its notes and moves are recorded as the group, and what only the
+operator may do is refused as the group.
+
 A commit a herdr or exec session makes goes through the yard's own
 commit-msg hook, kept in the yard's home (`githooks/`) and pointed at with
 `core.hooksPath` in the session's environment, so the depot's shared

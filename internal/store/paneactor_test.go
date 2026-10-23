@@ -95,7 +95,8 @@ func paneMoveYard(t *testing.T) (store.API, context.Context, *store.Bead, *store
 
 // A move from a session's or a crew member's pane is recorded as that
 // session's actor or that crew member, whatever --actor says: an agent
-// cannot move a bead as the operator by naming them. The move's event
+// cannot move a bead as the operator by naming them. An exec session's
+// script runs as its group, so its move is the group's. The move's event
 // and its note name the pane's actor. From no pane the actor stands as
 // given.
 func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
@@ -244,6 +245,50 @@ func TestMoveFromAPaneIsThatPanesActor(t *testing.T) {
 		}
 		if a := lastEventActor(t, s, ctx, other.ID, "dep_removed"); a != "yardmaster" {
 			t.Fatalf("dep_removed event actor = %q, want yardmaster", a)
+		}
+	})
+
+	t.Run("exec session", func(t *testing.T) {
+		s, ctx := flowDepot(t)
+		putFlow(t, s, "yard", "", outcomeFlow)
+		if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PutGroup(ctx, store.Group{Name: "builders", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "op"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "a", Depot: "yard", Stage: "new"}, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, "builders", "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// An exec handle names the script's pid, without an agent:
+		// this test process itself, as the mail test's does.
+		if err := s.MarkRunning(ctx, sess.ID, map[string]any{"pid": os.Getpid()}); err != nil {
+			t.Fatal(err)
+		}
+		pane := store.WithCaller(ctx, os.Getpid())
+		// The script names the operator, and is served as its group:
+		// a pack's script cannot act as the operator (yardr-9pqk).
+		// What only the operator may do is refused as the group,
+		// while the session lives, before its own move ends it.
+		if err := s.SetSetting(pane, "hook_addr", "127.0.0.1:8790", "op"); err == nil ||
+			!strings.Contains(err.Error(), "only the operator (op) may change a setting; this is builders") {
+			t.Fatalf("SetSetting from the exec pane naming the operator = %v, want a refusal as builders", err)
+		}
+		got, err := s.Done(pane, b.ID, "", "words", store.Expect{Session: sess.ID}, "op")
+		if err != nil || got.Stage != "review" {
+			t.Fatalf("the exec pane's own done = %+v, %v", got, err)
+		}
+		if a := lastEventActor(t, s, ctx, b.ID, "advanced"); a != "builders" {
+			t.Fatalf("advanced event actor = %q, want the pane's group builders", a)
+		}
+		notes, _ := s.Notes(ctx, b.ID)
+		if len(notes) == 0 || notes[len(notes)-1].Author != "builders" {
+			t.Fatalf("move note = %+v, want author builders", notes)
 		}
 	})
 
