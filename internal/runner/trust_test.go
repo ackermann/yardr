@@ -640,6 +640,129 @@ func TestStartAgentLeavesRenamedOnboardingAnswer(t *testing.T) {
 	}
 }
 
+// shownDialogHerdr is a fake herdr whose agent drew its startup dialog
+// before the start looked: agent start succeeds, the pane shows screen,
+// `down` toggles it between no and yes as the real one wraps, and Enter
+// answers it. `agent prompt` is a tripwire: the start must answer the
+// dialog instead of delivering into it.
+func shownDialogHerdr(t *testing.T, no, yes, screen string) (h *Herdr, calls func() string) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	for name, text := range map[string]string{"no": no, "yes": yes, "screen": screen} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h = &Herdr{Bin: fakeHerdrBin(t, `cd `+dir+`
+echo "$@" >> calls
+case "$1 $2" in
+  "agent start") echo '{"result":{"type":"agent_started"}}' ;;
+  "pane read") cat screen ;;
+  "pane send-keys")
+    case "$4" in
+      down) if cmp -s screen no; then cp yes screen; elif cmp -s screen yes; then cp no screen; fi ;;
+      enter) if cmp -s screen yes; then : > screen; touch answered; else touch wrong; fi ;;
+    esac ;; # as herdr: nothing printed
+  "agent prompt") touch prompted; echo '{"error":{"code":"agent_blocked","message":"at a dialog"},"id":"x"}' >&2; exit 1 ;;
+  *) echo '{"result":{"type":"ok"}}' ;;
+esac`)}
+	t.Cleanup(func() {
+		if _, err := os.Stat(filepath.Join(dir, "wrong")); err == nil {
+			t.Error("Enter was sent with the cursor off the accepting answer")
+		}
+		if _, err := os.Stat(filepath.Join(dir, "prompted")); err == nil {
+			t.Error("the first prompt was delivered into the showing dialog")
+		}
+	})
+	return h, func() string {
+		b, _ := os.ReadFile(log)
+		return string(b)
+	}
+}
+
+// Found live (yardr-gkyy): the yardmaster's trust dialog drew before its
+// start looked, so the screen read as up and the first prompt was typed
+// into the dialog; its Enter selected "No, exit" and the session died
+// three seconds old. A dialog showing at the start is answered instead of
+// talked over: the prompt stays pending and no delivery is made. With
+// trust=false the dialog still gates the delivery, and nothing is
+// answered: the human answers it in the pane.
+func TestStartAgentAnswersDialogShownAtStart(t *testing.T) {
+	t.Parallel()
+	claude, _ := agents.Lookup("claude")
+	yes := claude.Trust.Answers[0]
+	drawing := " Quick safety check: Is this a project you\n ❯ \n"
+	for _, c := range []struct {
+		name, screen string
+		trust        *agents.Trust
+		key          *agents.Trust
+		mark         bool // the answer lands on the handle
+		moves        bool // down is sent before enter
+	}{
+		{"cursor off the answer", trustDialog("No, exit"), claude.Trust, nil, true, true},
+		{"cursor on the answer", trustDialog(yes), claude.Trust, nil, true, false},
+		{"trust=false gates the delivery", trustDialog("No, exit"), nil, claude.ApiKey, false, false},
+		{"the dialog still drawing", drawing, claude.Trust, nil, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, calls := shownDialogHerdr(t, trustDialog("No, exit"), trustDialog(yes), c.screen)
+			handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
+				map[string]any{"agent": "b1", "pane": "w1:p1", harnessKind: "claude"}, c.trust, c.key, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handle[store.PendingPrompt] != "read the brief" || (handle["trust_accepted"] == true) != c.mark {
+				t.Fatalf("handle = %v\n%s", handle, calls())
+			}
+			got := calls()
+			down, enter := strings.Index(got, "pane send-keys w1:p1 down"), strings.Index(got, "pane send-keys w1:p1 enter")
+			switch {
+			case strings.Contains(got, "agent prompt"):
+				t.Fatalf("delivered into the showing dialog:\n%s", got)
+			case (enter >= 0) != c.mark:
+				t.Fatalf("enter sent = %v, want answer = %v:\n%s", enter >= 0, c.mark, got)
+			case (down >= 0) != c.moves:
+				t.Fatalf("down sent = %v, want moves = %v:\n%s", down >= 0, c.moves, got)
+			case c.moves && enter < down:
+				t.Fatalf("enter before down:\n%s", got)
+			}
+		})
+	}
+}
+
+// startupShown sees every startup dialog of the kind by its mark, drawn or
+// drawing, and nothing else: another question and the bare input gate
+// nothing, nor does an unknown kind or one with no dialog to answer.
+func TestStartupShown(t *testing.T) {
+	t.Parallel()
+	claude, _ := agents.Lookup("claude")
+	dark := claude.Onboarding[0].Answers[0]
+	for _, c := range []struct {
+		name, kind, screen string
+		want               bool
+	}{
+		{"trust, drawn", "claude", trustDialog("No, exit"), true},
+		{"trust, drawing", "claude", " Quick safety check: Is this a project you\n ❯ \n", true},
+		{"api key", "claude", apiKeyDialog("No (recommended)"), true},
+		{"theme picker", "claude", themeDialog(dark), true},
+		{"security notes", "claude", securityDialog(), true},
+		{"another question", "claude", " Do you want to allow this?\n ❯ Yes\n", false},
+		{"the bare input", "claude", " ❯ \n", false},
+		{"unknown kind", "nope", trustDialog("No, exit"), false},
+		{"a kind with no dialog", "pi", trustDialog("No, exit"), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			h, _ := shownDialogHerdr(t, c.screen, c.screen, c.screen)
+			if got := h.startupShown(context.Background(), "w1:p1", c.kind); got != c.want {
+				t.Errorf("startupShown(%q) = %v, want %v", c.name, got, c.want)
+			}
+		})
+	}
+}
+
 // The dispatcher's later passes answer a trust dialog that drew only after
 // the start looked (yardr-v3mp): AcceptTrust answers the dialog of the
 // config's kind by the same rule as the start, and nothing else.

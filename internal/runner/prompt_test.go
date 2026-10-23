@@ -720,13 +720,17 @@ esac`)
 			// (yardr-bcx5), of a kind whose mark says what that is; one after.
 			// A kind with a login screen gets one more between them, the
 			// login read (yardr-khfs), unless the screen gate already held
-			// the prompt back.
+			// the prompt back, and a kind with a startup dialog one more
+			// still, the dialog peek that gates the delivery (yardr-gkyy).
 			_, marked := marksOf(c.kind)
 			want, typed := 1, true
 			if marked {
 				want++
 			}
 			if hn, _ := agents.Lookup(c.kind); len(hn.Login) > 0 && c.look != "no screen, not typed" {
+				want++
+			}
+			if hn, _ := agents.Lookup(c.kind); (hn.Trust != nil || hn.ApiKey != nil || len(hn.Onboarding) > 0) && c.look != "no screen, not typed" {
 				want++
 			}
 			switch {

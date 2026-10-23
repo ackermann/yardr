@@ -24,7 +24,10 @@ import (
 // With trust, the questions yardr answers itself are the folder-trust
 // dialog the kind's file names, with key its use-this-API-key dialog, and
 // the onboarding screens onboarding names, each in turn (see acceptTrust);
-// the handle then says which.
+// the handle then says which. A dialog showing when the prompt would be
+// delivered is answered instead of talked over: its cursor reads as the
+// harness's screen, so without this the prompt would go into the dialog
+// and its Enter would answer it blind (see startupShown).
 func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt string, handle map[string]any, trust, key *agents.Trust, onboarding []agents.Trust) (map[string]any, error) {
 	var err error
 	// A pane created a moment ago may not have its shell prompt up yet.
@@ -41,16 +44,7 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		pane, _ := handle["pane"].(string)
 		answered := ""
 		if pane != "" {
-			switch {
-			case trust != nil && h.acceptTrust(ctx, pane, *trust):
-				answered = dispatch.TrustAccepted
-			case key != nil && h.acceptTrust(ctx, pane, *key):
-				answered = dispatch.KeyAccepted
-			default:
-				if i := h.acceptOnboarding(ctx, pane, onboarding); i >= 0 {
-					answered = dispatch.OnboardingAccepted(i)
-				}
-			}
+			answered = h.answerStartup(ctx, pane, trust, key, onboarding)
 		}
 		if answered == "" {
 			handle[store.PendingPrompt] = prompt
@@ -85,6 +79,19 @@ func (h *Herdr) startAgent(ctx context.Context, args []string, name, prompt stri
 		return handle, nil
 	}
 	pane, _ := handle["pane"].(string)
+	kind, _ := handle[harnessKind].(string)
+	if h.startupShown(ctx, pane, kind) {
+		// A startup dialog is showing (or drawing): it reads as the
+		// harness's screen, but keys typed now go into the dialog, and
+		// the prompt's Enter would answer it blind. Answer it as a start
+		// that found the agent not ready does, and leave the prompt
+		// pending: the dispatcher delivers it once the agent is idle.
+		if answered := h.answerStartup(ctx, pane, trust, key, onboarding); answered != "" {
+			handle[answered] = true
+		}
+		handle[store.PendingPrompt] = prompt
+		return handle, nil
+	}
 	took, err := h.prompt(ctx, name, pane, prompt)
 	if err != nil {
 		return handle, err

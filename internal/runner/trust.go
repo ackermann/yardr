@@ -87,6 +87,64 @@ func onboardingEntries(cfg map[string]any) []agents.Trust {
 	return kind.Onboarding
 }
 
+// startupShown reports whether pane shows one of kind's startup dialogs
+// yardr answers itself (folder trust, API key, onboarding): the dialog's
+// mark, drawn or drawing. The dialog's cursor carries the mark of the
+// harness's input (Claude Code's ❯), so a showing dialog reads as the
+// harness's screen (HarnessScreen): startAgent asks this before it delivers
+// the first prompt, and answers the dialog instead of talking over it.
+// Found live (yardr-gkyy): the trust dialog drew before the start looked,
+// the prompt was typed into it, and its Enter selected "No, exit", so the
+// session died three seconds old. It is asked of the kind's own entries,
+// not the session's: with trust=false the dialog still gates the delivery,
+// and the answer is then nothing to give (the human answers it in the pane).
+func (h *Herdr) startupShown(ctx context.Context, pane, kind string) bool {
+	hn, ok := agents.Lookup(kind)
+	if !ok || pane == "" {
+		return false
+	}
+	entries := make([]agents.Trust, 0, len(hn.Onboarding)+2)
+	if hn.Trust != nil {
+		entries = append(entries, *hn.Trust)
+	}
+	if hn.ApiKey != nil {
+		entries = append(entries, *hn.ApiKey)
+	}
+	entries = append(entries, hn.Onboarding...)
+	if len(entries) == 0 {
+		return false
+	}
+	screen, err := h.readPane(ctx, pane, 0)
+	if err != nil {
+		return false
+	}
+	for _, l := range strings.Split(screen, "\n") {
+		for _, e := range entries {
+			if e.ShowsDialog(l) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// answerStartup answers the startup dialog showing in pane, if it is one
+// yardr answers itself (folder trust, API key, onboarding, in that order),
+// and reports the handle mark for the answer, "" when none landed.
+func (h *Herdr) answerStartup(ctx context.Context, pane string, trust, key *agents.Trust, onboarding []agents.Trust) string {
+	switch {
+	case trust != nil && h.acceptTrust(ctx, pane, *trust):
+		return dispatch.TrustAccepted
+	case key != nil && h.acceptTrust(ctx, pane, *key):
+		return dispatch.KeyAccepted
+	default:
+		if i := h.acceptOnboarding(ctx, pane, onboarding); i >= 0 {
+			return dispatch.OnboardingAccepted(i)
+		}
+	}
+	return ""
+}
+
 // trustAnswer finds t on a pane's screen: found when the dialog is up,
 // which takes its mark and one accepting answer on separate lines,
 // selected when the dialog's cursor is on the exact answer line.
