@@ -119,7 +119,9 @@ func TestNoPassReadsAPanesHistory(t *testing.T) {
 }
 
 // Outside a pass the history read is herdr's own, and only that one: what
-// a person's command asks for. Tail, which the chat polls, stays passive.
+// a person's command asks for. Tail, which the chat polls, stays passive,
+// and PaneScreen, which the operator's SessionScreen answers with, is the
+// screen form.
 func TestOnlyHistoryReadsHistory(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -140,6 +142,16 @@ esac`)}
 	}
 	if bad := scrollingReads(readCalls(t, dir+"/calls")); len(bad) != 1 {
 		t.Fatalf("History made %d history reads, want 1:\n%s", len(bad), readCalls(t, dir+"/calls"))
+	}
+	if _, err := h.PaneScreen(ctx, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	calls := readCalls(t, dir+"/calls")
+	if bad := scrollingReads(calls); len(bad) != 1 {
+		t.Fatalf("with the screen read, %d history reads, want History's 1:\n%s", len(bad), calls)
+	}
+	if want := "pane read p1 --source visible --format ansi"; !strings.Contains(calls, want) {
+		t.Errorf("PaneScreen read no %q:\n%s", want, calls)
 	}
 }
 

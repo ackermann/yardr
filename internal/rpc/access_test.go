@@ -88,7 +88,7 @@ func TestSocketPeerWithoutCredentialsCanOnlyRead(t *testing.T) {
 	if err := allowed(ctx, st, "Groups"); err != nil {
 		t.Errorf("read call from an unidentified peer: %v", err)
 	}
-	for _, method := range []string{"AddNote", "PutGroup", "Claim", "Backup"} {
+	for _, method := range []string{"AddNote", "PutGroup", "Claim", "Backup", "SessionScreen"} {
 		if err := allowed(ctx, st, method); err == nil {
 			t.Errorf("%s from an unidentified peer was allowed", method)
 		}

@@ -122,6 +122,7 @@ type API interface {
 	ClosedWithWorkspace(ctx context.Context) ([]Session, error)
 	Uncounted(ctx context.Context) ([]Session, error)
 	FailureCount(ctx context.Context, bead, stage string) (int, error)
+	SessionScreen(ctx context.Context, session string) (*SessionScreen, error)
 
 	Events(ctx context.Context, bead string, limit int) ([]Event, error)
 	EventsOfKind(ctx context.Context, kind string, limit int) ([]Event, error)

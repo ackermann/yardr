@@ -4704,12 +4704,14 @@ operator's alone to make. An operator is a user whose role is `operator`
 there may be several, and each of them makes these calls. The `operator`
 setting names one of them, the one an ask with no `--to` goes to; any
 operator approves or answers it. In yardr's code the list is `OperatorCalls`, and
-it has four calls: `GiveSecret`, which gives the credential a secret ask
+it has five calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, `ApproveSetup`, which approves a setup ask with
 the preset pick and the account together: typed, taken from a candidate, or
-kept as it stands, and `SourceGrants`, which reads every grant of the
-yard's sources, the whole of who may call what. Each of the first three
+kept as it stands, `SourceGrants`, which reads every grant of the
+yard's sources, the whole of who may call what, and `SessionScreen`,
+which reads what a running session's pane shows, its visible screen with
+the ANSI styling. Each of the first three
 takes `weighed`, the client's word that its person saw the card's weight,
 and the yard refuses a weighty card without it ([weighty
 cards](#weighty-cards)). Where they are served, and to whom:
@@ -5209,6 +5211,29 @@ POST /call/SourceGrants
 | `[].given{}.bead` | string, may be absent | the bead of the card it was approved on; absent for a grant given at a terminal |
 | `[].given{}.ask` | number, may be absent | the ask it was approved on; absent for a grant at a terminal |
 | `[].given{}.asker` | string, may be absent | who asked it; absent for a grant at a terminal, and where the ask's note is gone |
+
+### `SessionScreen`
+
+Reads what a running session's pane shows: its visible screen with the terminal's ANSI styling, so the operator sees whether something hangs (a dialog, a login screen, a spinner). `session` is a session id or a crew member's name, the id first; a crew member's is its own session's screen. The read is passive: it moves nothing in the pane, on the alternate screen or off it. The reply is the screen alone: no width or height rides with it, and a client that draws it measures them itself. It is the operator's to read: on the socket the operator's alone, and on the listener there for a device of the operator and for no other caller. A screen can show what an agent printed, a secret among it, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and never over the link from the edge.
+
+| argument | type | |
+|---|---|---|
+| `session` | string | a session id, or a crew member's name for its own session's screen |
+
+```
+POST /call/SessionScreen
+{"session":"yardmaster"}
+
+{
+  "result": {
+    "screen": "\u001b[1mYardr yardmaster\u001b[0m\n❯ "
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `screen` | string | the pane's visible screen, with the terminal's ANSI styling |
 
 <!-- /local -->
 

@@ -326,6 +326,9 @@ func (c *Client) Uncounted(ctx context.Context) ([]store.Session, error) {
 func (c *Client) FailureCount(ctx context.Context, bead, stage string) (int, error) {
 	return callV[int](c, ctx, "FailureCount", bead, stage)
 }
+func (c *Client) SessionScreen(ctx context.Context, session string) (*store.SessionScreen, error) {
+	return callV[*store.SessionScreen](c, ctx, "SessionScreen", session)
+}
 
 func (c *Client) Events(ctx context.Context, bead string, limit int) ([]store.Event, error) {
 	return callV[[]store.Event](c, ctx, "Events", bead, limit)

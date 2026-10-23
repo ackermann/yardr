@@ -292,6 +292,14 @@ func (h *Herdr) readPaneStyled(ctx context.Context, pane string, lines int) (str
 	return h.paneRead(ctx, pane, lines, true)
 }
 
+// PaneScreen is the styled screen of pane: its visible screen with the
+// terminal's styling left in, and nothing of herdr's scrollback. The read
+// is passive (see paneForm): of an idle agent on the alternate screen it
+// moves nothing. It is what the store's SessionScreen answers with.
+func (h *Herdr) PaneScreen(ctx context.Context, pane string) (string, error) {
+	return h.readPaneStyled(ctx, pane, 0)
+}
+
 // readHistory is the plain text of pane's last lines lines, history
 // included: the one read for which herdr may scroll an idle agent's
 // transcript, so only what a person runs calls it (see Herdr.History). In a

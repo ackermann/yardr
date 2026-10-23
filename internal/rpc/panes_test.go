@@ -114,6 +114,10 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 			_, err := c.FoldBeads(ctx, []string{b.ID}, store.FoldOptions{To: "backlog"}, "jo")
 			return err
 		}},
+		{"SessionScreen", func() error {
+			_, err := c.SessionScreen(ctx, sess.ID)
+			return err
+		}},
 	}
 	for _, r := range refused {
 		if err := r.call(); err == nil || !strings.HasPrefix(err.Error(), r.method+" is ") {

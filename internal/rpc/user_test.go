@@ -85,6 +85,14 @@ func call(t *testing.T, h http.Handler, token, method, body string) string {
 	return strings.TrimSpace(w.Body.String())
 }
 
+// userPaneReader is the pane reader of the listener test: every pane
+// answers with the same styled screen.
+type userPaneReader string
+
+func (r userPaneReader) PaneScreen(_ context.Context, _ string) (string, error) {
+	return string(r), nil
+}
+
 func eventsOfKind(t *testing.T, st *store.Store, kind string) []store.Event {
 	t.Helper()
 	evs, err := st.EventsOfKind(context.Background(), kind, 1000)
@@ -136,8 +144,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 26 {
 		t.Errorf("%d calls are served and Calls has %d, want 26 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SourceGrants"}) || len(OperatorCalls) != 4 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SourceGrants and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants"}) || len(OperatorCalls) != 5 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants and no other", operators, OperatorCalls)
 	}
 	// The whole grant graph is the operator's to read: to sam's device the
 	// call is not there, as a method the yard does not have, whatever it
@@ -213,6 +221,59 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	h.ServeHTTP(w, routed)
 	if !strings.Contains(w.Body.String(), `"result":[]`) {
 		t.Errorf("SourceGrants through the TLS router is answered %s, want an empty list", w.Body)
+	}
+	// SessionScreen is the other operator-only read whose bearer token
+	// stays under the transport rule. The crew member's name resolves to
+	// its own session, whose visible screen keeps the ANSI styling.
+	if err := st.CrewStarted(context.Background(), "yardmaster", map[string]any{"pane": "p1"}); err != nil {
+		t.Fatal(err)
+	}
+	st.SetPaneReader(userPaneReader("\x1b[1mYardr yardmaster\x1b[0m\n❯ "))
+	w = ask(h, http.MethodPost, "/user/call/SessionScreen", token, unread{t})
+	for _, want := range []string{
+		"a session's screen is taken over https only",
+		"in plain HTTP from another machine",
+		"The device's token was sent with it",
+		"yardr user device rm",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("SessionScreen from another machine is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	edge = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", unread{t})
+	edge.RemoteAddr = linkRemoteAddr
+	edge.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, edge)
+	for _, want := range []string{"not read over the link", "The edge saw the device's token", "yardr user device rm"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("SessionScreen over the edge is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	local = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", strings.NewReader(`{"session":"yardmaster"}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), `"screen":"\u001b[1mYardr yardmaster\u001b[0m\n❯ "`) {
+		t.Errorf("SessionScreen from the yard's machine is answered %s, want the styled screen", w.Body)
+	}
+	local = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", strings.NewReader(`{"session":"nope"}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), `"code":"not-found"`) {
+		t.Errorf("SessionScreen of no session is answered %s, want not found", w.Body)
+	}
+	routed = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", strings.NewReader(`{"session":"yardmaster"}`))
+	routed.RemoteAddr = "192.0.2.15:40000"
+	routed.Header.Set("Authorization", "Bearer "+token)
+	routed.Header.Set("X-Forwarded-Proto", "https")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, routed)
+	if !strings.Contains(w.Body.String(), `"screen":`) {
+		t.Errorf("SessionScreen through the TLS router is answered %s, want the screen", w.Body)
 	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))

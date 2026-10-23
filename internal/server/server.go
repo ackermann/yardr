@@ -134,6 +134,10 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	// preset grant ask their presets by source.
 	st.SetPackReader(packReaderFor(c.Home))
 	st.SetPresetReader(presetReaderFor())
+	// How the operator's SessionScreen reads a pane's screen: herdr, as
+	// the runner builds it, with the store to follow the yard's herdr
+	// session setting on every read.
+	st.SetPaneReader(&runners.Herdr{Bin: "herdr", WorktreeRoot: c.Worktrees(), YardHome: c.Home, Store: st})
 	// The carrying out of approved applies (carry.go): this start's
 	// boot takes up what an earlier one left, before it serves.
 	boot := newBoot()

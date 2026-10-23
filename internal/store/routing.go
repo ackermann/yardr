@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -2437,6 +2438,75 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, error) {
 		return nil, err
 	}
 	return sess, nil
+}
+
+// SessionScreen is what a running session's pane shows: its visible screen,
+// with the terminal's styling left in as SGR escapes.
+type SessionScreen struct {
+	Screen string `json:"screen"`
+}
+
+// PaneReader reads a pane's visible screen, styled: the read SessionScreen
+// answers with. The process that owns the store registers it
+// (SetPaneReader); a store no server owns has none.
+type PaneReader interface {
+	PaneScreen(ctx context.Context, pane string) (string, error)
+}
+
+// SetPaneReader tells the store how its owning process reads a pane's
+// screen, as SetPackReader tells it how it reads the packs yardr embeds. A
+// store no server owns has none, and a screen read of it is refused naming
+// the server.
+func (s *Store) SetPaneReader(r PaneReader) { s.paneReader = r }
+
+// SessionScreen answers what the session's pane shows: the visible screen
+// of the session session names, with its ANSI styling, read passively — the
+// read moves nothing in the pane (docs/groups.md "How a pane is read").
+// session is a session id or a crew member's name, the id first: a crew
+// member's is its own session's screen. It is the operator's call
+// (rpc.OperatorCalls): on the socket the operator's alone, and on the
+// listener a device of an operator's. A screen can show what an agent
+// printed, a secret among it.
+func (s *Store) SessionScreen(ctx context.Context, session string) (*SessionScreen, error) {
+	pane, err := s.sessionPane(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	if s.paneReader == nil {
+		return nil, fmt.Errorf("session %s: no server has registered a pane reader on this store", session)
+	}
+	screen, err := s.paneReader.PaneScreen(ctx, pane)
+	if err != nil {
+		return nil, err
+	}
+	return &SessionScreen{Screen: screen}, nil
+}
+
+// sessionPane is the pane of the session session names: a session id first,
+// else a crew member's name, whose own session's pane it is. A session with
+// no pane recorded is refused naming it; one neither names is not found.
+func (s *Store) sessionPane(ctx context.Context, session string) (string, error) {
+	sess, err := s.GetSession(ctx, session)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return "", err
+	}
+	if err == nil {
+		if pane, _ := sess.Handle["pane"].(string); pane != "" {
+			return pane, nil
+		}
+		return "", fmt.Errorf("session %s has no pane", session)
+	}
+	r, err := s.GetCrew(ctx, session)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return "", fmt.Errorf("session %s: %w", session, ErrNotFound)
+		}
+		return "", err
+	}
+	if pane, _ := r.Session("").Handle["pane"].(string); pane != "" {
+		return pane, nil
+	}
+	return "", fmt.Errorf("crew member %s has no pane", session)
 }
 
 // sessionsWhere returns matching sessions by start time. match sees the

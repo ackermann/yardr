@@ -237,6 +237,7 @@ var Access = map[string]Class{
 	"ClosedWithWorkspace": Read,
 	"Uncounted":           Read,
 	"FailureCount":        Read,
+	"SessionScreen":       Operator, // a screen can show what an agent printed, a secret among it
 
 	// The log and the store.
 	"Events":       Read,

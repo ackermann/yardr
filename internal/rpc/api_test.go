@@ -788,6 +788,17 @@ var apiOperatorCalls = []apiCall{
 			{"[].given{}.asker", "string?", "who asked it; absent for a grant at a terminal, and where the ask's note is gone"},
 		},
 	},
+	{
+		method: "SessionScreen",
+		says:   "Reads what a running session's pane shows: its visible screen with the terminal's ANSI styling, so the operator sees whether something hangs (a dialog, a login screen, a spinner). `session` is a session id or a crew member's name, the id first; a crew member's is its own session's screen. The read is passive: it moves nothing in the pane, on the alternate screen or off it. The reply is the screen alone: no width or height rides with it, and a client that draws it measures them itself. It is the operator's to read: on the socket the operator's alone, and on the listener there for a device of the operator and for no other caller. A screen can show what an agent printed, a secret among it, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and never over the link from the edge.",
+		args: []field{
+			{"session", "string", "a session id, or a crew member's name for its own session's screen"},
+		},
+		requests: []string{`{"session":"yardmaster"}`},
+		fields: []field{
+			{"screen", "string", "the pane's visible screen, with the terminal's ANSI styling"},
+		},
+	},
 }
 
 // apiEvent is one kind of event of the doc: is picks it from the stream.
@@ -1027,6 +1038,12 @@ func apiYard(t *testing.T) string {
 // apiDevice is the device jo has in the yard of the doc.
 const apiDevice = "phone"
 
+// apiPaneReader is the pane reader of the yard of the doc: every pane
+// shows screen.
+type apiPaneReader string
+
+func (r apiPaneReader) PaneScreen(_ context.Context, _ string) (string, error) { return string(r), nil }
+
 // apiStore is the store of apiYard, and the token of jo's device.
 func apiStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
@@ -1050,6 +1067,8 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	must(st.CrewStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}))
 	must(st.CrewStatus(ctx, "yardmaster", "working"))
+	// What SessionScreen answers with: the yardmaster's pane, styled.
+	st.SetPaneReader(apiPaneReader("\x1b[1mYardr yardmaster\x1b[0m\n❯ "))
 
 	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	must(err)
@@ -1818,11 +1837,11 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the four calls
+	// there was a second list, and a device of the operator the five calls
 	// of OperatorCalls besides: a call is added to either on purpose, here
 	// too.
-	if len(Calls) != 26 || len(OperatorCalls) != 4 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 4", len(Calls), len(OperatorCalls))
+	if len(Calls) != 26 || len(OperatorCalls) != 5 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 5", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
@@ -1923,6 +1942,7 @@ func TestCallByName(t *testing.T) {
 		{"Users", `{"name":"jo"}`, `{"error":{"code":"error","message":"argument \"name\": Users has none of that name (it takes none)"}}`},
 		{"Sessions", `{"all":true}`, `{"error":{"code":"error","message":"arguments: Sessions takes them as a JSON array: only the calls docs/api.md names take them by name"}}`},
 		{"Sessions", `[true]`, `{"result":`},
+		{"SessionScreen", `{"session":"yardmaster"}`, `"screen":"\u001b[1mYardr yardmaster\u001b[0m\n❯ "`},
 		// An argument a later build added is one a client of before leaves
 		// out, by position as by name: weighed is then false, which a
 		// routine card takes, and a weighty one refuses with its words.

@@ -52,11 +52,11 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     calls more are the four of OperatorCalls, GiveSecret, ApproveAsk,
-//     ApproveSetup and SourceGrants, for a device of an operator, and not
-//     there for anyone else (operatorCall), but GiveSecret for a device of
-//     a user whose own address or credential in a source is asked for
-//     (ownSecret);
+//     calls more are the five of OperatorCalls, GiveSecret, ApproveAsk,
+//     ApproveSetup, SourceGrants and SessionScreen, for a device of an
+//     operator, and not there for anyone else (operatorCall), but
+//     GiveSecret for a device of a user whose own address or credential
+//     in a source is asked for (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - Settings answers the keys of deviceSettings and no other, and the
 //     stream carries the value of a setting_changed for those alone
@@ -1148,6 +1148,9 @@ func inTheClear(r *http.Request, name, router string) string {
 	if name == "SourceGrants" {
 		return sourceGrantsInTheClear(r, router)
 	}
+	if name == "SessionScreen" {
+		return sessionScreenInTheClear(r, router)
+	}
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
 	if name == "ApproveAsk" || name == "ApproveSetup" {
@@ -1206,6 +1209,35 @@ func sourceGrantsInTheClear(r *http.Request, router string) string {
 		for _, p := range strings.Split(proto, ",") {
 			if !strings.EqualFold(strings.TrimSpace(p), "https") {
 				return "the operator's grant list is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+					"Give the device the yard's https:// address, or " + readHere + crossed
+			}
+		}
+	}
+	return ""
+}
+
+// sessionScreenInTheClear keeps a session's screen under the same transport
+// rule as the other operator calls: a screen can show what an agent
+// printed, a secret among it, so it is read over https or from the yard's
+// own machine, and never over the link from the edge.
+func sessionScreenInTheClear(r *http.Request, router string) string {
+	const crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	const readHere = "Read it on the yard's machine."
+	if r.RemoteAddr == linkRemoteAddr {
+		return "a session's screen is not read over the link: this request came down the link from the edge. " +
+			readHere + " The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+	}
+	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
+		if fromRouter(r, router) {
+			return ""
+		}
+		return "a session's screen is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
+			"Put the proxy or tunnel that ends TLS on the yard's machine, or " + readHere + crossed
+	}
+	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
+		for _, p := range strings.Split(proto, ",") {
+			if !strings.EqualFold(strings.TrimSpace(p), "https") {
+				return "a session's screen is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
 					"Give the device the yard's https:// address, or " + readHere + crossed
 			}
 		}

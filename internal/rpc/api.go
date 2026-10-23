@@ -99,11 +99,17 @@ var Calls = map[string][]string{
 // which card (design yardr-ekmx 3.4). It changes nothing and carries no
 // secret, but the whole grant graph is the operator's to read, so it is here
 // and not in Calls.
+//
+// SessionScreen reads what a running session's pane shows: its visible
+// screen with the ANSI styling, so the operator sees whether something
+// hangs. It changes nothing, but a screen can show what an agent printed,
+// a secret among it, so it is the operator's to read and no one else's.
 var OperatorCalls = map[string][]string{
-	"GiveSecret":   {"bead", "ask", "values", "actor", "weighed"},
-	"ApproveAsk":   {"bead", "ask", "actor", "weighed"},
-	"ApproveSetup": {"bead", "ask", "option", "values", "account", "actor", "weighed"},
-	"SourceGrants": {"source"},
+	"GiveSecret":    {"bead", "ask", "values", "actor", "weighed"},
+	"ApproveAsk":    {"bead", "ask", "actor", "weighed"},
+	"ApproveSetup":  {"bead", "ask", "option", "values", "account", "actor", "weighed"},
+	"SourceGrants":  {"source"},
+	"SessionScreen": {"session"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of
