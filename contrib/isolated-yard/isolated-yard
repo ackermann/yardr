@@ -94,9 +94,12 @@ match_home() {
     END { if (bad) exit 2 }'
 }
 
-# removed is the yard down has just deleted: the one directory home_pids
-# takes without the mark of `up` in it.
-removed=
+# accepted_or_removed is the yard down has checked and lists by its home
+# alone: the mark of `up` was read at its top, and the yard may be gone
+# already when a later listing runs (removed by this down, or by another
+# remover between its listings). It is the one directory home_pids takes
+# without the mark in it; pids for a caller-named directory stays strict.
+accepted_or_removed=
 
 # pids of the processes whose YARDR_HOME is $1 or inside it, whatever binary
 # they run and whoever started them: a server started by the installed
@@ -114,7 +117,7 @@ home_pids() {
   /tmp/iy.*) ;;
   *) echo "isolated-yard: $1 is not an isolated yard" >&2; return 1 ;;
   esac
-  if [ "$removed" != "$1" ] && [ "$(cat "$1/.isolated-yard" 2>/dev/null)" != "$1" ]; then
+  if [ "$accepted_or_removed" != "$1" ] && [ "$(cat "$1/.isolated-yard" 2>/dev/null)" != "$1" ]; then
     echo "isolated-yard: $1 was not made by isolated-yard up" >&2
     return 1
   fi
@@ -230,6 +233,10 @@ down() {
     echo "isolated-yard: $d was not made by isolated-yard up; nothing stopped or removed" >&2
     exit 2
   fi
+  # Checked: the listings below go by the home whether or not the yard is
+  # still there (another remover may take it between them). The stray check
+  # after the removal is what makes this safe, and it still ends down.
+  accepted_or_removed=$d
   # The exec scripts first, while the server and the daemon answer: only
   # their handles name them (see exec_pids), and the validation reaches
   # the daemon. Each validated pid names a process GROUP (setsid made the
@@ -288,8 +295,14 @@ down() {
   done
   left=$(yard_pids "$d") || exit 1
   if [ -n "$left" ]; then
-    # shellcheck disable=SC2086
-    echo "isolated-yard: still running, $d kept:" $left >&2
+    if [ -d "$d" ]; then
+      # shellcheck disable=SC2086
+      echo "isolated-yard: still running, $d kept:" $left >&2
+    else
+      # Another remover took the yard between the listings: say so, not kept.
+      # shellcheck disable=SC2086
+      echo "isolated-yard: still running, $d already removed:" $left >&2
+    fi
     exit 1
   fi
   # A version probe (`claude --version`, what yardr doctor runs) and a
@@ -309,7 +322,6 @@ down() {
   # check below still looks for what the yard left running (yardr-b6x7).
   chmod -R u+w "$d" || true
   rm -rf "$d"
-  removed=$d
   # With the directory gone only the home tells: anything started while the
   # yard was being stopped is found here.
   left=$(yard_pids "$d") || exit 1

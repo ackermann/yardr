@@ -624,6 +624,123 @@ func TestDownMeetsAnotherRemover(t *testing.T) {
 	}
 }
 
+// noSuchPid is a pid no system has, past every pid_max: a signal sent to it
+// reaches no one, and the process a listing names by it never ends.
+const noSuchPid = 2147483000
+
+// yardr-st1s: two downs can converge on one yard (the watchdog's and a
+// test's cleanup), and the later one must not fail for what the earlier did
+// after its check of the mark. A stub stands for the other remover; the yard
+// is a stub too, the mark and a D/e: all down does with it is look for its
+// processes and remove it. The first two cases strike between the listings:
+// the stub ps removes the yard at its first axeww listing, then runs the real
+// ps. In the second every listing also names a process of the home that no
+// signal ends (another user's, in life), so the check before the removal
+// finds it still running with the yard already gone, however many listings
+// come before that check. The third strikes at the first read of the mark
+// after down's own: the stub cat takes the yard first, so a down that asks
+// for the mark again (as its first listing would, were the check not
+// remembered) refuses the yard.
+func TestDownWhenAnotherRemoverTakesTheYardBetweenListings(t *testing.T) {
+	t.Parallel()
+	realPs, err := exec.LookPath("ps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	realCat, err := exec.LookPath("cat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		// atMark is the stub that strikes at a read of the mark (cat), not at
+		// a listing (ps). stuck lists a process of the yard that no signal
+		// ends.
+		atMark, stuck bool
+		status        int
+		// out names what down prints, with the yard for its %s; absent names
+		// what it must not print.
+		out    []string
+		absent []string
+	}{
+		{name: "between the listings, no process of the yard is left", status: 0,
+			out: []string{"stopped and removed %s"}},
+		{name: "between the listings, a process of the yard is still running", stuck: true, status: 1,
+			out:    []string{"still running", "%s already removed: " + strconv.Itoa(noSuchPid)},
+			absent: []string{"kept"}},
+		{name: "at the first read of the mark after the check", atMark: true, status: 0,
+			out:    []string{"stopped and removed %s"},
+			absent: []string{"was not made by"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			d, err := os.MkdirTemp("/tmp", "iy.")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(d) })
+			bin := t.TempDir()
+			files := map[string]string{
+				filepath.Join(d, ".isolated-yard"): d + "\n",
+				filepath.Join(d, "e"):              "#!/bin/sh\nexit 0\n",
+			}
+			if c.atMark {
+				// Down reads the mark once of itself, at its start.
+				files[filepath.Join(bin, "cat")] = `#!/bin/sh
+if [ -f "` + filepath.Join(bin, "cat.read") + `" ]; then
+  /bin/rm -rf "` + d + `"
+fi
+: > "` + filepath.Join(bin, "cat.read") + `"
+exec "` + realCat + `" "$@"
+`
+			} else {
+				stuck := ""
+				if c.stuck {
+					stuck = `echo "` + strconv.Itoa(noSuchPid) + ` sleep YARDR_HOME=` + d + `/y"`
+				}
+				// The first listing takes the yard after down's read of the
+				// mark for it (home_pids reads the mark before it runs ps); the
+				// later ones find it gone.
+				files[filepath.Join(bin, "ps")] = `#!/bin/sh
+case " $* " in
+*" axeww "*) ;;
+*) exec "` + realPs + `" "$@" ;;
+esac
+/bin/rm -rf "` + d + `"
+"` + realPs + `" "$@" || exit 1
+` + stuck + `
+`
+			}
+			for path, body := range files {
+				if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			cmd := exec.Command(scriptPath(t), "down", d)
+			cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "PATH=") }),
+				"PATH="+bin+":"+os.Getenv("PATH"))
+			out, _ := cmd.CombinedOutput()
+			if got := cmd.ProcessState.ExitCode(); got != c.status {
+				t.Errorf("down exited %d, want %d:\n%s", got, c.status, out)
+			}
+			for _, want := range c.out {
+				if want = strings.Replace(want, "%s", d, 1); !strings.Contains(string(out), want) {
+					t.Errorf("down printed:\n%s\nwant %q", out, want)
+				}
+			}
+			for _, want := range c.absent {
+				if strings.Contains(string(out), want) {
+					t.Errorf("down printed:\n%s\nwant no %q", out, want)
+				}
+			}
+			if _, err := os.Stat(d); !os.IsNotExist(err) {
+				t.Errorf("after down, %s: %v; want it removed", d, err)
+			}
+		})
+	}
+}
+
 // yardr-jd3w: a version probe (`claude --version`, what yardr doctor runs)
 // and a one-shot call (`claude -p`, what yardr doctor --try runs) start no
 // agent, so `down` leaves those starts out of what it reports: a trial's

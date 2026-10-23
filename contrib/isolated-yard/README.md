@@ -346,8 +346,13 @@ file open, and `pids` would list them as the yard's own.
 A `down` can meet another remover of the same yard: the watchdog's, and the
 cleanup of a test that gave up waiting for it. The one that finds D gone, or
 going, when it comes to remove it goes on to its last check, which still
-looks for what the yard left running. One that starts after D is gone says
-`no yard at D` and exits 2, which the cleanups of the tests let pass.
+looks for what the yard left running. One that finds D gone between two of
+its process listings goes on the same way: it read the mark once, at its
+start, and lists by the home from then on, whether or not D is still there.
+It exits 1 when a process of the home still runs at either check, saying
+`D already removed` at the first where it would say `D kept` with D there.
+One that starts after D is gone says `no yard at D` and exits 2, which the
+cleanups of the tests let pass.
 
 `watchdog_test.go` tests the watchdog with owners that have ended, and with an
 `alive` that answers as told: nothing in it kills a test binary.
