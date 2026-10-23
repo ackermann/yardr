@@ -2510,6 +2510,162 @@ fi
 	}
 }
 
+// A gate ended by a signal prints no `pass`: its test line agrees with the
+// non-zero status it ends with. The run below selects one package and is
+// TERM'd in its own process group once its go test step starts: it must exit
+// non-zero with no `: pass,` line. Where the shell runs the EXIT trap (bash)
+// the line says `fail`; where it runs none on signal death (dash) there is
+// no line at all, so a test line is only required to say `fail` when one is
+// printed. Cleanup on signal death is the EXIT trap's, which dash skips, so
+// unlike its neighbours this test asserts nothing is left behind.
+func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
+	t.Parallel()
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rows := yardTestRows(t)
+	// The selection answers the gate's go list with the changed package
+	// and every package the reads table names, so no row fails the run
+	// for naming what is no package here.
+	seen := map[string]bool{".": true, "a": true}
+	dirs := []string{".", "a"}
+	for _, row := range rows {
+		for _, pkg := range row.pkgs {
+			if !seen[pkg] {
+				seen[pkg] = true
+				dirs = append(dirs, pkg)
+			}
+		}
+	}
+	var list strings.Builder
+	for _, d := range dirs {
+		dir, imp := "$(pwd)/"+d, "m.test/m/"+d
+		if d == "." {
+			dir, imp = "$(pwd)", "m.test/m"
+		}
+		fmt.Fprintf(&list, "  printf '%%s\\n' \"%s|%s|||\"\n", imp, dir)
+	}
+	for _, c := range []struct {
+		name        string
+		groupSignal bool
+		wantCode    int
+	}{
+		{"TERM", true, -1},
+		{"INT", false, 130},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The fake go answers the selection's list. For TERM it holds
+			// its test step at a marker; for INT it signals the gate shell
+			// and exits so the shell handles INT after the command returns.
+			goFake := "#!/bin/sh\n" +
+				"if [ \"$1\" = list ]; then\n" + list.String() +
+				"elif [ \"$1\" = test ]; then\n" +
+				"  : >\"$FAKE/started\"\n" +
+				"  if [ \"$SIGNAL\" = INT ]; then kill -INT \"$(cat \"$FAKE/gate.pid\")\"; else sleep 30; fi\n" +
+				"fi\n"
+			fake, dir := t.TempDir(), t.TempDir()
+			for name, text := range map[string]string{"go": goFake, "gofmt": "#!/bin/sh\n"} {
+				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			tmp := filepath.Join(fake, "tmp")
+			if err := os.Mkdir(tmp, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// A branch that changed one package's .go file: a plain run tests
+			// that package, and asks go for the list of them.
+			if err := os.MkdirAll(filepath.Join(dir, "a"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			a := filepath.Join(dir, "a", "a.go")
+			if err := os.WriteFile(a, []byte("package a\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitT(t, dir, "init", "-q", "-b", "main")
+			gitT(t, dir, "add", "-A")
+			gitT(t, dir, "commit", "-q", "-m", "base")
+			if err := os.WriteFile(a, []byte("package a\n\n// touched\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-c", "echo $$ > \"$FAKE/gate.pid\"\n"+string(script))
+			cmd.Dir = dir
+			// Its own process group, so the TERM below reaches the script and
+			// the go test it holds, and nothing else.
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			cmd.Env = append(scriptEnv(),
+				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"TMPDIR="+tmp, "FAKE="+fake, "SIGNAL="+c.name, "YARDR_RACE_HELD=1")
+			var stdout, stderr strings.Builder
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			pgid := cmd.Process.Pid
+			done := make(chan struct{})
+			var runErr error
+			go func() {
+				runErr = cmd.Wait()
+				close(done)
+			}()
+			// Once the test step starts, signal the gate as a tree kill
+			// would, or let the fake go send INT to the waiting shell.
+			marker := filepath.Join(fake, "started")
+			deadline := time.Now().Add(60 * time.Second)
+			for {
+				if _, err := os.Stat(marker); err == nil {
+					break
+				}
+				select {
+				case <-done:
+					t.Fatalf("the run exited before its test step, output:\n%s%s", stdout.String(), stderr.String())
+				default:
+				}
+				if time.Now().After(deadline) {
+					_ = syscall.Kill(-pgid, syscall.SIGKILL)
+					<-done
+					t.Fatalf("the run never started its test step, output:\n%s%s", stdout.String(), stderr.String())
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if c.groupSignal {
+				if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+					_ = syscall.Kill(-pgid, syscall.SIGKILL)
+					<-done
+					t.Fatalf("TERM the run's process group: %v", err)
+				}
+			}
+			<-done
+			out := stdout.String() + stderr.String()
+			if runErr == nil {
+				t.Errorf("a killed gate exited 0, want non-zero")
+			}
+			if c.wantCode >= 0 {
+				var ee *exec.ExitError
+				if !errors.As(runErr, &ee) || ee.ExitCode() != c.wantCode {
+					t.Errorf("a killed gate exited %v, want %d", runErr, c.wantCode)
+				}
+			}
+			if strings.Contains(out, ": pass,") {
+				t.Errorf("a killed gate printed a pass test line")
+			}
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "sh .yardr/test @") && !strings.Contains(line, ": fail,") {
+					t.Errorf("a killed gate's test line %q, want fail", line)
+				}
+			}
+			if t.Failed() {
+				t.Logf("output:\n%s", out)
+			}
+		})
+	}
+}
+
 // The landing's socket leg runs in a background shell. Its package totals
 // must retain the same retry-aware meaning as the foreground leg: a package
 // that fails once and passes on retry is passed, not both passed and failed.

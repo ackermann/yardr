@@ -117,6 +117,9 @@ beside=
 beside_counts=
 finish() {
   rc=$?
+  # A signal the traps below caught: the run did not pass, whatever the
+  # last command's status was when it arrived.
+  [ -n "$killed" ] && rc=$killed
   trap - EXIT
   [ -z "$tmp" ] || [ ! -d "$tmp" ] || rm -rf "$tmp"
   [ -z "$beside" ] || [ ! -e "$beside" ] || rm -f "$beside"
@@ -129,6 +132,30 @@ finish() {
   exit "$rc"
 }
 trap 'finish' EXIT
+# A gate ended by a signal prints no `pass`: its test line agrees with the
+# non-zero status it ends with. TERM and INT set killed to the signal's
+# conventional exit status and restore that signal's default so it cannot
+# re-enter. INT briefly ignores TERM while stopping the process group, because
+# that cleanup signal also targets this shell; then it restores TERM's default
+# and exits 130. The group kill's `|| true` is load-bearing under `set -e`:
+# where the signal already reached the group, there is nothing left to kill.
+killed=
+onterm() {
+  killed=143
+  trap - TERM
+  kill -TERM 0 2>/dev/null || true
+  exit 143
+}
+onint() {
+  killed=130
+  trap - INT
+  trap '' TERM
+  kill -TERM 0 2>/dev/null || true
+  trap - TERM
+  exit 130
+}
+trap 'onterm' TERM
+trap 'onint' INT
 # took says how long a step ($2) took, in whole seconds since $1 (date +%s).
 took() { echo "test: $2 took $(($(date +%s) - $1)) s"; }
 # listed says how long choosing the packages took, where they were chosen
