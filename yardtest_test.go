@@ -2406,7 +2406,7 @@ func TestYardTestRaceLockServesWaitersInOrder(t *testing.T) {
 	known = waitTicket(known)
 	waitPlace(l1)
 	l2 := startWith("l2-bead", []string{"YARDR_LANDING=1"}, "sh", "-c", "echo l2 >>"+quote(order))
-	known = waitTicket(known)
+	waitTicket(known)
 	waitPlace(l2)
 	// The class is the first part of the ticket's name.
 	for bead, class := range map[string]string{"holder-bead": "1-", "w2-bead": "1-", "w3-bead": "1-", "l1-bead": "0-", "l2-bead": "0-"} {
