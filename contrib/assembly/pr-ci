@@ -46,13 +46,15 @@
 #                       waited for the race lock (default 1800)
 #
 # The test command is the one every landing runs, run as merge-local runs it,
-# in the checkout of the head and without YARDR_LANDING, which this is not.
-# Where the command is the path of a file the base has (test=.yardr/test), the
-# base's copy of that file is what runs, with sh: a pull request cannot change
-# the script that judges it, which matters most for a fork's. Anything else is
-# a command for sh -c, which the pull request's own files may change (a
-# package.json's scripts); the note says which ran. The run does not get the
-# App's id and key file, which are for the token alone.
+# in the checkout of the head and with YARDR_LANDING=1. This run is the pull
+# request's landing run: merge-pr merges a head it passed on and no landing by
+# the assembly follows, so no other run of the command stands between the head
+# and the base. Where the command is the path of a file the base has
+# (test=.yardr/test), the base's copy of that file is what runs, with sh: a
+# pull request cannot change the script that judges it, which matters most for
+# a fork's. Anything else is a command for sh -c, which the pull request's own
+# files may change (a package.json's scripts); the note says which ran. The run
+# does not get the App's id and key file, which are for the token alone.
 #
 # Exit 1, or any other not named here, is a red run, the contributor's to fix.
 # Exit 2 is the command saying it could not run at all (a tool missing, a base
@@ -344,8 +346,9 @@ git -C "$REPO" worktree add --detach --quiet "$WT" "$head" >"$errf" 2>&1 ||
 # The depot's test command runs on exactly the head GitHub named, as merge-local
 # runs it for a bead. Where the command is the path of a file the base has
 # (test=.yardr/test), the base's copy of that file is what runs, with sh, in the
-# checkout of the head; anything else is a command for sh -c. No YARDR_LANDING:
-# this is no landing, and what a depot's command makes of that is its own.
+# checkout of the head; anything else is a command for sh -c. With
+# YARDR_LANDING=1: this is the pull request's landing run, and what a depot's
+# command makes of that is its own.
 if [ "$(git -C "$REPO" cat-file -t "$BASE:$TEST" 2>/dev/null)" = blob ]; then
   WHAT="the base's copy of $TEST"
 else
@@ -373,9 +376,12 @@ runtest() {
   t0=$(date +%s)
   (
     cd "$WT" || exit 2
+    # The landing run's switch is set here, never inherited: a depot's command
+    # reads an empty one as no landing, and this run is the pull request's.
+    export YARDR_LANDING=1
     # The tests of a pull request have no use for the App's id and key file,
     # which are for the token alone.
-    unset YARDR_LANDING GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY_FILE
+    unset GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY_FILE
     # The test command starts with no descriptor above 2 that the run did
     # not give it: close every inherited one first, as merge-local's does
     # for a landing (the daemon's leaked resolver sockets once reached the

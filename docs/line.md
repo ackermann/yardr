@@ -1658,12 +1658,15 @@ merge-pr does (below), and:
   (`yardr depot show`). Where the command is a file the base has
   (`.yardr/test`), the **base's** copy of it runs, never the pull request's,
   so that a pull request cannot change the script that judges it; any other
-  command runs as the pull request's own files make it. It runs without
-  `YARDR_LANDING`, which this is not (depot yardr's `.yardr/test` then runs
-  the selection the change calls for, without `-race`, and not the black-box
-  suites a landing adds), and without the App's id and key file. The exit
-  codes mean what they do in merge-local: 1 and the like are red, 2 is "could
-  not run", above 128 is
+  command runs as the pull request's own files make it. It runs with
+  `YARDR_LANDING=1` and without the App's id and key file, because this is
+  the pull request's landing run: merge-pr merges a head this run passed on
+  and no landing by the assembly follows, so no other run of the command
+  stands between the head and the base. Depot yardr's `.yardr/test` then runs
+  what a bead's landing does, the selection plus the six black-box suites
+  under `-race`, and the whole suite for a change it cannot select (a
+  dependency bump's `go.mod` or `go.sum`). The exit codes mean what they do
+  in merge-local: 1 and the like are red, 2 is "could not run", above 128 is
   a signal and is run once more, and a run past `YARDR_TEST_TIMEOUT` (1800
   seconds besides what it waited for the race lock) is killed and is red;
 - on green, asks GitHub for the head once more. The same commit is recorded
@@ -1716,9 +1719,13 @@ merge-pr's group has ("Merging pull requests", below): the same file serves
 both, and the github source's `mint_command` is the mint, as there. The App
 needs Pull requests read on the repositories, for the head. The group is the
 yard's, made once, and `--group pr-ci=pr-ci` maps the pack's group to it for
-every depot, so their runs queue one behind another; the test gate's race lock
-does not queue them, since a run without `YARDR_LANDING` is not raced. The
-apply writes the route for each depot:
+every depot, so their runs queue one behind another, and a run of depot yardr
+waits for the test gate's race lock as a landing does, since it is raced (the
+wait does not count against `YARDR_TEST_TIMEOUT`). A pull request to depot
+yardr that changes `go.mod` or `go.sum` runs the whole suite, so a machine
+that needs more than the default 1800 seconds for that sets a longer
+`YARDR_TEST_TIMEOUT` in the group's `cmd`. The apply writes the route for each
+depot:
 `ciwait`, type `pr`, to `pr-ci`. A yard whose `pr` flow is its own routes the
 stage by hand instead (`yardr route add --stage ciwait --type pr --originator
 any --group pr-ci`), a default that a later apply with the mapping leaves to

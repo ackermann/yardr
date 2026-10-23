@@ -15,8 +15,9 @@ bead reaches this one only by the reviewer's report. A script that finds a
 bead anywhere else refuses it.
 
 What runs is the depot's test command, in a checkout of the head of its
-own, without `YARDR_LANDING`, which belongs to a landing. Where the command
-is a file the base has (`.yardr/test`), it is the base's copy of that file
+own, with `YARDR_LANDING=1`: this is the pull request's landing run, and no
+landing by the assembly follows it. Where the command is a file the
+base has (`.yardr/test`), it is the base's copy of that file
 that runs, never the pull request's, so that a pull request cannot change
 the script that judges it. A command that is no file of the base (`npm
 test`) runs as the pull request's own files make it, and the note says

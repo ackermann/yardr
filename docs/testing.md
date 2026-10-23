@@ -80,8 +80,9 @@ threaded its output and environment through its commands. Packages under
 budget comply until they breach it, and the budget is their backstop then.
 
 R4. Race at landing only. `go test -race` runs in the landing run
-(`YARDR_LANDING=1`, the assembly's, on exactly what lands) and in the quiet
-whole-suite run (R6), and nowhere else. A builder's or reviewer's run of
+(`YARDR_LANDING=1`, the assembly's, on exactly what lands; for a pull request
+from outside, pr-ci's run of its head, which no landing follows) and in the
+quiet whole-suite run (R6), and nowhere else. A builder's or reviewer's run of
 `.yardr/test` tests the same selection without `-race`, says so in its first
 line (`testing without -race (race runs at landing only, docs/testing.md
 R4)`), and so never takes the machine-wide race lock, nor judges R1, which

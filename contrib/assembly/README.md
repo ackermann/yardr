@@ -206,8 +206,9 @@ and nothing is fetched. Then it fetches `refs/pull/<n>/head` from the
 depot's `origin` and checks that commit out, detached, in a worktree of its
 own (`<worktrees>/<depot>/<bead>-ci`), removed when the script ends. It runs
 `YARDR_TEST` there as merge-local does, with the base's copy of a test file
-the base has, without `YARDR_LANDING`, red on exit 1, held on exit 2, run once
-more when a signal ended it, and killed and red past `YARDR_TEST_TIMEOUT`.
+the base has, with `YARDR_LANDING=1` (the run is the pull request's landing
+run: no landing by the assembly follows it), red on exit 1, held on exit 2, run
+once more when a signal ended it, and killed and red past `YARDR_TEST_TIMEOUT`.
 Green on the head GitHub still names records it as the bead's `ci_head` and
 reports `done`, to `approved`; red, or a head that moved meanwhile, reports
 `changes`, to `contributor`, with the end of the output. Whatever is no

@@ -201,14 +201,16 @@ func (c *ciYard) checkoutGone(id, what string) {
 // pr-ci runs the depot's test command on the head GitHub names when it is the
 // one the bead's reviewer recorded (in any case of its letters), in a checkout
 // of its own: the base's copy of the script, however the pull request edited
-// it, without YARDR_LANDING and without the App's inputs, and records the head
+// it, with YARDR_LANDING=1 and without the App's inputs, and records the head
 // it passed on as ci_head and reports done; a red run, one past its deadline
 // and a head that moved while it ran report changes, with the end of the output
 // where there is one; a run that cannot run holds the bead, as one that a
 // signal ended twice does, and one ended once is run again. Whichever it is,
 // the checkout is gone afterwards, the depot's own checkout and refs are as
 // they were, and GitHub was asked only to read the pull request, with a token
-// that is nowhere but gh's environment.
+// that is nowhere but gh's environment. A test command that is no file of the
+// base runs as a command, in the same environment: the landing's switch is set
+// over whatever the group's cmd left in it.
 func TestPRCIJudgesTheHead(t *testing.T) {
 	c := newCIYard(t)
 	depot := c.git(c.repo, "status", "--porcelain") + c.git(c.repo, "rev-parse", "HEAD")
@@ -219,6 +221,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 		stand    map[string]string // the stand-in's, besides the head; {sha} is the pull request's commit
 		head     string            // what GitHub says the head is at first, the pull request's commit unless written
 		reviewed string            // what the reviewer recorded, the head GitHub says unless written; {SHA} is the pull request's commit in capitals
+		tests    string            // the depot's test command, ci.sh (a file of the base) unless written
 		opts     string            // more for the group's cmd
 		stage    string            // where the bead ends
 		hold     bool
@@ -229,6 +232,12 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 	}{
 		{what: "green", files: map[string]string{"feature.txt": "new\n"}, reviewed: "{SHA}", stage: "approved",
 			wants: []string{"the tests passed on {url} at {sha} (the base's copy of ci.sh,", "ci_head={sha}", "Its last line: test: ci.sh @ {short}: pass"}},
+		// A command no file of the base has runs with sh -c, and gets the landing
+		// run's switch as the base's copy does. The group's cmd leaves the switch
+		// empty, as a stray one in the daemon's environment would: a depot's command
+		// reads that as no landing, so it is set, not defaulted.
+		{what: "a test command that is no file of the base", tests: `echo "the command: landing=${YARDR_LANDING-unset}, app=${GITHUB_APP_ID-unset}"`, opts: "YARDR_LANDING=", stage: "approved",
+			wants: []string{"the tests passed on {url} at {sha} (the command echo ", "ci_head={sha}"}, not: []string{"the base's copy"}},
 		{what: "red, though the pull request rewrote the test script to pass", files: map[string]string{"ci.sh": "echo the copy on the branch\nexit 0\n", "RED": "red\n"}, stage: "contributor",
 			wants: []string{"the tests failed on {url} at {short} (the base's copy of ci.sh, exit 1); its output:", "ci.sh of the base: in ", "RED is in the tree"},
 			not:   []string{"the copy on the branch"}},
@@ -252,6 +261,7 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 		fill := strings.NewReplacer("{url}", prURLn(num), "{sha}", sha, "{short}", sha[:7], "{SHA}", strings.ToUpper(sha))
 		c.prBeadIn(id, prURLn(num), "ciwait", false)
 		c.reviewed(id, fill.Replace(or(tc.reviewed, or(tc.head, sha))))
+		c.tests(or(tc.tests, "ci.sh"))
 		opts := c.opts
 		if tc.opts != "" {
 			c.opts += " " + tc.opts
@@ -315,10 +325,11 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 		switch tc.what {
 		case "green":
 			// The depot has the commit now, and the test ran on it, in a
-			// checkout of its own, with the App's inputs and the landing's
-			// switch left out of its environment.
+			// checkout of its own, with the landing's switch set and the App's
+			// inputs left out of its environment. TestMain leaves no YARDR_
+			// variable in this process, so the switch is pr-ci's own.
 			c.git(c.repo, "cat-file", "-e", sha+"^{commit}")
-			if want := "ci.sh of the base: in " + filepath.Join(c.home, "worktrees", "r", id+"-ci") + ", at " + sha + ", landing=unset, app=unset"; !strings.Contains(c.log, want) {
+			if want := "ci.sh of the base: in " + filepath.Join(c.home, "worktrees", "r", id+"-ci") + ", at " + sha + ", landing=1, app=unset"; !strings.Contains(c.log, want) {
 				t.Errorf("green: the log lacks %q:\n%s", want, c.log)
 			}
 			if n := countCalls(t, c.gh, "pr view "); n != 2 {
@@ -328,6 +339,12 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 				if strings.Contains(text, mintToken) {
 					t.Errorf("green: %s hold the token", what)
 				}
+			}
+		case "a test command that is no file of the base":
+			// It ran as a command with the same environment: the switch set over
+			// the empty one the group gave it, and the App's inputs gone.
+			if want := "the command: landing=1, app=unset"; !strings.Contains(c.log, want) {
+				t.Errorf("%s: the log lacks %q:\n%s", tc.what, want, c.log)
 			}
 		case "past the deadline":
 			// What the run started is killed with it.
