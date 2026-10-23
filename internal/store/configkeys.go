@@ -80,6 +80,7 @@ var ConfigKeys = []ConfigKey{
 	{"prompt", ConfigString, []string{"herdr"}, "", "the role prompt file a session's brief starts with"},
 	{"env_file", ConfigString, []string{"herdr"}, "", "a file of KEY=VALUE lines (mode 0600) that join the session's environment"},
 	{"env_file", ConfigString, []string{"exec"}, GroupConfig, "a file of KEY=VALUE lines (mode 0600) that join the session's environment"},
+	{"timeout", ConfigSpan, []string{"exec"}, GroupConfig, "how long a session's script may run before the yard stops it and fails the session; unset: no timeout"},
 	{"login_for", ConfigString, []string{"herdr"}, GroupConfig, "the user whose login the group's env_file carries; unset: the operator's"},
 	{"env_command", ConfigWords, []string{"herdr"}, CrewConfig, "a command that prints KEY=VALUE lines for the session's environment, run at each start"},
 	{CrewForKey, ConfigNames, nil, CrewConfig, "the users the crew member serves; unset: everyone"},

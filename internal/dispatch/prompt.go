@@ -1005,11 +1005,11 @@ func (d *Dispatcher) promptEvents(ctx context.Context, bead string, who, handle 
 	}
 }
 
-// lookAt has Run make its next pass no later than at: a pending prompt is
-// then delivered, or looked for, when it is due and not an Interval later.
+// lookAt has Run make its next pass no later than at, when scheduled work
+// becomes due.
 func (d *Dispatcher) lookAt(at time.Time) {
-	if d.promptDue == nil || at.Before(*d.promptDue) {
-		d.promptDue = &at
+	if d.lookDue == nil || at.Before(*d.lookDue) {
+		d.lookDue = &at
 	}
 }
 

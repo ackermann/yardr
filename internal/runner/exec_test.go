@@ -622,3 +622,127 @@ func TestExecEnvCarriesUser(t *testing.T) {
 		check(t, inherited(dispatch.Job{}), me, me)
 	})
 }
+
+// A script that runs past its exec group's timeout is stopped by the yard:
+// the session fails with a reason naming the timeout, the bead is released
+// with a note saying why, and the freed slot starts the next bead on the
+// next pass. A group without the setting waits as before (see
+// TestExecAdoptedSessionRunsUntilItsProcessExits).
+func TestExecTimeoutEndsTheSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := storetest.New(t)
+	mustT(t, st.PutGroup(ctx, store.Group{Name: "assembly", Runner: "exec", Limit: 1,
+		Config: map[string]any{"cmd": "sleep 30", "dir": t.TempDir(), "timeout": "1s"}}, "me"))
+	_, err := st.AddRoute(ctx, store.Route{Stage: "merge", Group: "assembly"}, "me")
+	mustT(t, err)
+	first, err := st.CreateBead(ctx, store.NewBead{Title: "land it", Stage: "merge"}, "t")
+	mustT(t, err)
+	next, err := st.CreateBead(ctx, store.NewBead{Title: "land it too", Stage: "merge"}, "t")
+	mustT(t, err)
+
+	d := &dispatch.Dispatcher{Store: st, Runners: map[string]dispatch.Runner{"exec": &Exec{}},
+		Backoff: time.Hour, Interval: time.Hour} // the timeout, not the fallback tick, wakes the next pass
+	mustT(t, d.Reconcile(ctx))
+	got, err := st.GetBead(ctx, first.ID)
+	mustT(t, err)
+	if got.Session == nil {
+		t.Fatalf("not started: %+v", got)
+	}
+	sess := *got.Session
+	s, err := st.GetSession(ctx, sess)
+	mustT(t, err)
+	pid, err := pidOf(s.Handle)
+	mustT(t, err)
+	start, ok := uintOf(s.Handle["start"])
+	if !ok {
+		t.Fatalf("handle has no start time: %v", s.Handle)
+	}
+	// Whatever is left of our own sessions at the end, and only that: the
+	// timed-out script is stopped by the pass, the next bead's still runs.
+	var second string
+	runCtx, stopRun := context.WithCancel(ctx)
+	runDone := make(chan error, 1)
+	go func() { runDone <- d.Run(runCtx) }()
+	t.Cleanup(func() {
+		stopRun()
+		<-runDone
+		for _, id := range []string{sess, second} {
+			if id == "" {
+				continue
+			}
+			s, err := st.GetSession(ctx, id)
+			if err != nil {
+				continue
+			}
+			pid, err := pidOf(s.Handle)
+			start, ok := uintOf(s.Handle["start"])
+			if err != nil || !ok {
+				continue
+			}
+			if st, err := procStat(pid); err == nil && st.start == start {
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
+			}
+			_, _ = syscall.Wait4(pid, nil, syscall.WNOHANG, nil)
+		}
+	})
+
+	// Run schedules a pass at the timeout instead of waiting for its regular
+	// interval. Poll the outcome, not the clock.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		s, err = st.GetSession(ctx, sess)
+		mustT(t, err)
+		if s.State == "failed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("session still %s 10 s after its 1 s timeout", s.State)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if s.Error == nil || !strings.Contains(*s.Error, "timeout 1s") {
+		t.Fatalf("failed session names %v, want timeout 1s", s.Error)
+	}
+	stopDeadline := time.Now().Add(5 * time.Second)
+	for {
+		st, err := procStat(pid)
+		if errors.Is(err, fs.ErrNotExist) || (err == nil && (st.start != start || st.state == 'Z')) {
+			break
+		}
+		if time.Now().After(stopDeadline) {
+			t.Fatalf("timed-out script process %d is still running: %v", pid, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got, err = st.GetBead(ctx, first.ID)
+	mustT(t, err)
+	if got.Session != nil {
+		t.Fatalf("timed-out bead still holds its session: %+v", got)
+	}
+	notes, err := st.Notes(ctx, first.ID)
+	mustT(t, err)
+	var found bool
+	for _, n := range notes {
+		if strings.Contains(n.Text, sess) && strings.Contains(n.Text, "timeout") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no note on the bead names the timed-out session: %+v", notes)
+	}
+	var secondBead *store.Bead
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		secondBead, err = st.GetBead(ctx, next.ID)
+		mustT(t, err)
+		if secondBead.Session != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the timed-out session's slot did not free for the next bead")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	second = *secondBead.Session
+}

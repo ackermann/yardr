@@ -43,6 +43,10 @@ import (
 //	         end stands unchanged before it counts as idle, whatever it
 //	         shows; default 10m (see stillIdle). A harness at work redraws
 //	         its screen, so a still pane is not working.
+//	timeout  how long an exec session's script may run before the yard
+//	         stops it and fails the session; exec groups only, unset: none.
+//	         A script ends itself, so without one the group's slot is held
+//	         as long as the script runs.
 //
 // "off" or "0" turns a limit off. The defaults apply to runners that report
 // an agent's status (herdr); for others (exec, manual) a limit applies only
@@ -69,8 +73,9 @@ const AgedAt = "aged_at"
 
 // limits applies g's idle and age limits to the live session s, raising
 // session_idle and session_aged once each and stopping the session after
-// the grace period, or at the age cap when there is none. It reports
-// whether s is still live.
+// the grace period, or at the age cap when there is none. An exec session
+// past its group's timeout is stopped at once. It reports whether s is
+// still live.
 func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g store.Group) bool {
 	if s.State != "running" {
 		return true
@@ -214,6 +219,34 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 			d.harnessOver(ctx, s)
 			if st == "working" {
 				d.snoozeOver(ctx, s)
+			}
+		}
+	}
+
+	// An exec group's script ends itself; with timeout the yard ends it
+	// once it has run past the group's setting, so a hung script holds
+	// the group's slot no longer than the operator allows. Before the age
+	// below, so the deadline the operator set for the script is the one
+	// that names it. The store took the value as ParseSpan reads it; one
+	// from before config was checked that does not parse is no timeout.
+	if g.Runner == "exec" {
+		if raw, _ := g.Config["timeout"].(string); raw != "" {
+			if to, err := store.ParseSpan(raw); err == nil {
+				deadline := s.StartedAt.Add(to)
+				if !now.Before(deadline) {
+					ranFor := now.Sub(s.StartedAt)
+					reason := fmt.Sprintf("timed out after %s (timeout %s)",
+						round(ranFor), store.Span(to))
+					d.end(ctx, *s, "failed", reason)
+					note := fmt.Sprintf("Session %s stopped by the yard: %s. The bead is released for another attempt; "+
+						"if the work needs longer, raise the group's timeout.", s.ID, reason)
+					if err := d.Store.AddNote(ctx, s.Bead, note, actor); err != nil {
+						d.Log.Warn("note on timed-out session", "session", s.ID, "bead", s.Bead, "err", err)
+					}
+					return false
+				} else {
+					d.lookAt(deadline)
+				}
 			}
 		}
 	}

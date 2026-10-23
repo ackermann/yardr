@@ -110,8 +110,9 @@ func TestGroupSetRefuses(t *testing.T) {
 		"group nobody: not found":                                             {"nobody", "dir=/x"},
 		// The runner is asked of the group as it would be, and the hint is
 		// this command's: the key bare.
-		`group tick: exec runner needs config.cmd as a string, got the JSON boolean true; write 'cmd="true"'`: {"tick", "cmd=true"},
-		"group tick: exec runner needs config.cmd":                                                            {"tick", "--unset", "cmd"},
+		`group tick: exec runner needs config.cmd as a string, got the JSON boolean true; write 'cmd="true"'`:           {"tick", "cmd=true"},
+		"group tick: exec runner needs config.cmd":                                                                      {"tick", "--unset", "cmd"},
+		`group tick: exec runner needs config.timeout as a duration such as 40m, 12h or 7d, got the JSON string "soon"`: {"tick", "timeout=soon"},
 	} {
 		refusedAs(t, st, "jo", want, append([]string{"group", "set"}, args...)...)
 	}
@@ -270,7 +271,8 @@ func TestGroupSetChecksASidingsKeys(t *testing.T) {
 
 // An exec group takes env_file, as a herdr group does: a script group's
 // command gets what it needs to act outside the yard from a file, not from
-// cmd, which is in the store.
+// cmd, which is in the store. And it takes timeout: how long a session's
+// script may run before the yard stops it.
 func TestGroupSetExecEnvFile(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
@@ -282,5 +284,12 @@ func TestGroupSetExecEnvFile(t *testing.T) {
 	want := map[string]any{"cmd": "make deploy", "env_file": "/srv/deploy.env"}
 	if g := group(t, st, "deployers"); !reflect.DeepEqual(g.Config, want) {
 		t.Fatalf("after the set: %+v", g)
+	}
+	if out := mustAs(t, st, "jo", "group", "set", "deployers", "timeout=2h"); out !=
+		"group deployers saved\n  timeout: (not set) -> 2h\n" {
+		t.Fatalf("set of timeout printed %q", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "show", "deployers"); !strings.Contains(out, "\n  timeout=2h\n") {
+		t.Fatalf("group show does not print the timeout:\n%s", out)
 	}
 }

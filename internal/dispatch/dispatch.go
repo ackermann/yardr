@@ -302,11 +302,11 @@ type Dispatcher struct {
 	// (see timers); nil with none.
 	timerDue *time.Time
 
-	// promptDue is when a pending prompt is next to be delivered or looked
-	// for, as of the last pass (see pendingPrompt); nil with none.
+	// lookDue is when the dispatcher next has work due, as of the last pass;
+	// nil when nothing needs a pass before the regular interval.
 	// promptIdle is session (or "crew:<name>") -> when its agent was
 	// first seen idle with a prompt that has not been delivered yet.
-	promptDue  *time.Time
+	lookDue    *time.Time
 	promptIdle map[string]time.Time
 	// drafts is session (or "crew:<name>") -> the text found in its
 	// agent's input when yardr had something to type there. See inputHeld.
@@ -710,8 +710,8 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		var due <-chan time.Time
 		var timer *time.Timer
 		next := d.timerDue
-		if d.promptDue != nil && (next == nil || d.promptDue.Before(*next)) {
-			next = d.promptDue
+		if d.lookDue != nil && (next == nil || d.lookDue.Before(*next)) {
+			next = d.lookDue
 		}
 		if d.pushDue != nil && (next == nil || d.pushDue.Before(*next)) {
 			next = d.pushDue
@@ -830,7 +830,7 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// One snapshot of each pane for the whole pass, whatever checks read
 	// from it (see PaneCache).
 	ctx = WithPaneCache(ctx)
-	d.promptDue, d.pushDue = nil, nil
+	d.lookDue, d.pushDue = nil, nil
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
 		return err
