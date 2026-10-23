@@ -2,6 +2,8 @@ package shot
 
 // These tests run the reference screenshot script against pages of their
 // own: an httptest server on loopback, never the network and never Dokku.
+// The script runs without the box's proxy variables, so a box behind a
+// proxy runs the same suite; the tests that need a proxy set their own.
 // The shot itself needs headless Chrome, which the machine running the
 // tests may not have, may give no display to draw on (macOS Chrome then
 // hangs), or may be too loaded for it to finish; then that test skips, and a
@@ -29,6 +31,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -94,12 +97,12 @@ func windowTimeout() time.Duration {
 	return shotTimeout
 }
 
-// runShot runs the script with args and the environment added to its own.
-// The script's Chrome can hang under load, so ctx carries the deadline: at
-// it the script's process group is killed whole (a wrapper script's child
-// would otherwise keep the output pipe open past the timeout) and runShot
-// returns what was printed so far with the reason, in the script's own
-// Chrome-timeout words.
+// runShot runs the script with args and env added to its own, without the
+// box's proxy variables (scriptEnv). The script's Chrome can hang under
+// load, so ctx carries the deadline: at it the script's process group is
+// killed whole (a wrapper script's child would otherwise keep the output
+// pipe open past the timeout) and runShot returns what was printed so far
+// with the reason, in the script's own Chrome-timeout words.
 func runShot(ctx context.Context, t *testing.T, args []string, env ...string) (int, string) {
 	t.Helper()
 	rc, out, err := runShotCmd(ctx, args, env...)
@@ -115,7 +118,7 @@ func runShot(ctx context.Context, t *testing.T, args []string, env ...string) (i
 func runShotCmd(ctx context.Context, args []string, env ...string) (int, string, error) {
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, "./shot", args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = scriptEnv(env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = time.Second
@@ -146,6 +149,31 @@ func timeoutSecs(ctx context.Context, start time.Time) string {
 		return strconv.Itoa(s) + "s"
 	}
 	return "0s"
+}
+
+// scriptEnv is the script's environment: its own, without the proxy
+// variables, plus env. curl honours the proxy for every host, so the box's
+// proxy would bend every test that checks a page (a proxy that answers
+// nothing fails them all); each test that needs a proxy sets its own.
+func scriptEnv(env ...string) []string {
+	base := os.Environ()
+	out := make([]string, 0, len(base)+len(env))
+	for _, kv := range base {
+		if name, _, _ := strings.Cut(kv, "="); isProxyVar(name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, env...)
+}
+
+// isProxyVar reports whether name is a proxy variable curl honours.
+func isProxyVar(name string) bool {
+	switch strings.ToLower(name) {
+	case "http_proxy", "https_proxy", "all_proxy", "no_proxy":
+		return true
+	}
+	return false
 }
 
 // underLoad reports whether a slow Chrome is the machine's fault, not the
@@ -300,6 +328,135 @@ func TestShotPassesFlagsToChrome(t *testing.T) {
 	}
 	if _, err := os.Stat(prof); !os.IsNotExist(err) {
 		t.Errorf("the throwaway profile %s is still there: %v", prof, err)
+	}
+}
+
+// A loopback page shoots however the proxy variables are set: the check
+// bypasses the proxy for loopback, the way Go's clients do, so a proxy
+// that answers nothing cannot fail it. no_proxy names another host, so
+// the bypass must come from the script and not the environment.
+func TestShotBypassesADeadProxyForLoopback(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	s := page(t)
+	// A proxy that answers nothing: listened on and closed.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := "http://" + l.Addr().String()
+	l.Close()
+	env, _ := standin(t, "shot", 0)
+	env = append(env,
+		"http_proxy="+dead, "https_proxy="+dead, "all_proxy="+dead,
+		"HTTP_PROXY="+dead, "HTTPS_PROXY="+dead, "ALL_PROXY="+dead,
+		"no_proxy=example.invalid", "NO_PROXY=example.invalid",
+	)
+	out := filepath.Join(t.TempDir(), "shot.png")
+	rc, text := runShot(shotCtx(t), t, []string{s.URL + "/page", out}, env...)
+	if rc != 0 {
+		t.Fatalf("a loopback page past a dead proxy: exit %d: %s", rc, text)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil || string(got) != "shot" {
+		t.Fatalf("shot wrote %q, %v, want the stand-in's bytes", got, err)
+	}
+}
+
+// The check carries --noproxy with the page's host exactly for a loopback
+// page (Go's bypass set: 127.0.0.0/8, ::1 and localhost); a remote page
+// keeps no flag, so it goes through the proxy it may need. A stand-in
+// curl records its arguments instead of fetching, so the table pins the
+// match with no network.
+func TestShotBypassesTheProxyOnlyForLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		url  string
+		want string // the --noproxy host, or "" for no flag
+	}{
+		{"127.0.0.1", "http://127.0.0.1:9/page", "127.0.0.1"},
+		{"127.0.0.2", "http://127.0.0.2/page", "127.0.0.2"},
+		{"127.1.2.3 over https", "https://127.1.2.3:443/page", "127.1.2.3"},
+		{"behind userinfo", "http://ada@127.0.0.1/page", "127.0.0.1"},
+		{"localhost", "http://localhost:9/page", "localhost"},
+		{"localhost in uppercase", "http://LOCALHOST/page", "localhost"},
+		{"localhost with query and no path", "http://LOCALHOST?x=1", "localhost"},
+		{"::1", "http://[::1]:9/page", "::1"},
+		{"128.0.0.1 is not loopback", "http://128.0.0.1/page", ""},
+		{"an octet over 255 is not an address", "http://127.999.1.1/page", ""},
+		{"an octet with a leading zero is not an address", "http://127.00.0.1/page", ""},
+		{"another octet with a leading zero is not an address", "http://127.0.01.1/page", ""},
+		{"a fifth part is not an address", "http://127.0.0.1.5/page", ""},
+		{"a trailing dot is not a dotted quad", "http://127.0.0.1./page", ""},
+		{"a name starting with 127. is not an address", "http://127.0.0.1.example/page", ""},
+		{"a remote name", "http://example.com/page", ""},
+		{"a remote address", "http://203.0.113.7/page", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			curlArgs := filepath.Join(dir, "curl-args")
+			fake := filepath.Join(dir, "curl")
+			script := "#!/bin/sh\n" +
+				"echo \"$@\" >" + curlArgs + "\n" +
+				"exit 0\n"
+			if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			env, _ := standin(t, "shot", 0)
+			env = append(env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			out := filepath.Join(t.TempDir(), "shot.png")
+			rc, text := runShot(shotCtx(t), t, []string{tc.url, out}, env...)
+			if rc != 0 {
+				t.Fatalf("shot %s: exit %d: %s", tc.url, rc, text)
+			}
+			raw, err := os.ReadFile(curlArgs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := ""
+			fields := strings.Fields(string(raw))
+			for i, field := range fields {
+				if rest, ok := strings.CutPrefix(field, "--noproxy="); ok {
+					got = rest
+				} else if field == "--noproxy" && i+1 < len(fields) {
+					got = fields[i+1]
+				}
+			}
+			if got != tc.want {
+				t.Errorf("shot %s: curl got --noproxy %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+}
+
+// A remote page's check still goes through the proxy: with only a proxy
+// set, a page no direct fetch could reach shoots, and the proxy saw the
+// check in proxy form.
+func TestShotChecksARemotePageThroughTheProxy(t *testing.T) {
+	if _, err := exec.LookPath("curl"); err != nil {
+		t.Skip("no curl: it checks the page before the shot")
+	}
+	var mu sync.Mutex
+	saw := ""
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		saw = r.RequestURI
+		mu.Unlock()
+	}))
+	t.Cleanup(proxy.Close)
+	env, _ := standin(t, "shot", 0)
+	env = append(env, "http_proxy="+proxy.URL, "HTTP_PROXY="+proxy.URL)
+	remote := "http://proxy-check.invalid/page"
+	out := filepath.Join(t.TempDir(), "shot.png")
+	rc, text := runShot(shotCtx(t), t, []string{remote, out}, env...)
+	if rc != 0 {
+		t.Fatalf("a remote page through a proxy: exit %d: %s", rc, text)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if saw != remote {
+		t.Errorf("the proxy saw %q, want the page's absolute URI", saw)
 	}
 }
 
@@ -883,7 +1040,7 @@ func TestShotStopsChromeWhenTheScriptIsStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("./shot", s.URL+"/page", out)
-	cmd.Env = append(os.Environ(), "SHOT_CHROME="+bin)
+	cmd.Env = scriptEnv("SHOT_CHROME=" + bin)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// A file, not a buffer: a buffer's pipe stays open in an orphaned
 	// stand-in, and Wait waits out its sleep instead of returning at the
