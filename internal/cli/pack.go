@@ -119,7 +119,7 @@ func (f *importFlags) registerAnswers(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.sourceEnv, "source-env", nil, "<source>=<file>: set the file the source's credential is read from, as yardr source set <source> env_file=<file> does, for a source the pack declares (repeatable)")
 	c.Flags().StringArrayVar(&f.notify, "notify", nil, "<user>=<source>[,<envfile>]: tell the user through the source, as yardr user set <user> notify=<source> env_file=<envfile> does, for a source the pack declares that can tell a user (repeatable)")
 	c.Flags().BoolVar(&f.yes, "yes", false, "apply without asking for confirmation, and overwrite an installed file that was edited by hand")
-	c.Flags().Var(&f.sha256, "sha256", "apply only the pack whose digest this is, the last line of pack check's plan (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is asked or written")
+	c.Flags().Var(&f.sha256, "sha256", "apply only the pack whose digest this is (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is asked or written")
 }
 
 // loadPack reads the pack arg names (resolvePack). With --json an invalid
@@ -321,7 +321,7 @@ func (a *app) packCmd() *cobra.Command {
 (packs/starter, ./mine, ~/packs/team), or a URL: the pack's directory on a
 web server (https://yardr.dev/packs/starter/), fetched when the command
 runs; plain http is for a server on this machine only. A pack applied with
---yes is read by no one: pack check ends its plan with the pack's digest
+--yes is read by no one: pack check prints the pack's digest
 (digest sha256:<hex>, over pack.yaml and every file it names), and pack apply
 --sha256 <hex> refuses a pack whose digest is another. A bare word is a name:
 of a pack this yard has imported (yardr pack list), read again from where it
@@ -1997,9 +1997,15 @@ func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[
 			fmt.Fprintln(w, "  "+r)
 		}
 	}
-	// Last in the plan, to be copied: pack apply --sha256 takes it as it is.
+	// The code an import brings runs as whoever runs the yard, and applying
+	// the pack is the consent to that, so the plan ends by naming the files
+	// that run (docs/pack-api.md). A pack with none says nothing. The digest
+	// is just above that line, when there is one, and pins these files too.
 	if p.Digest != "" {
 		fmt.Fprintf(w, "\ndigest sha256:%s\n", p.Digest)
+	}
+	if len(p.Programs) > 0 {
+		fmt.Fprintf(w, "\nruns %s of the pack as you: %s\n", plural(len(p.Programs), "program"), strings.Join(p.Programs, ", "))
 	}
 	if setup && p.SetupFile != "" {
 		fmt.Fprintln(w)

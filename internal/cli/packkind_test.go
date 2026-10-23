@@ -81,6 +81,10 @@ func TestPackCheckSourcePackNeedsNoDepot(t *testing.T) {
 		"  command thread.reply: acme/thread, sha256 ",
 		"  would be added to the yard's sources\n",
 		"  missing  env file     no env_file is set for it",
+		// The programs the commands name, each once and in path order, after
+		// the digest that pins them.
+		"\ndigest sha256:",
+		"\nruns 2 programs of the pack as you: acme/normalize, acme/thread\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the plan lacks %q:\n%s", want, out)

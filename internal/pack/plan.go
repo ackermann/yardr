@@ -83,6 +83,13 @@ type Plan struct {
 	// and the pin of pack apply --sha256 (CheckDigest). It is the pack's,
 	// not the plan's: another depot or other answers do not change it.
 	Digest string `json:"digest"`
+	// Programs are the files of the pack that run, as the user who runs the
+	// yard, once it is imported: a group's script and the programs of a
+	// declaration's commands (Pack.programs), as paths in the pack, sorted.
+	// An operator who has read the pack and pinned its digest has read these
+	// too; check prints them in a line above the digest. Empty for a pack
+	// that has none, and then the text says nothing.
+	Programs []string `json:"programs"`
 	// Kind is the kind of depot the pack says it is for, "" when it says
 	// none.
 	Kind  string `json:"kind,omitempty"`
@@ -732,6 +739,7 @@ func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error)
 	if b.plan.Digest, err = p.digest(); err != nil {
 		return nil, err
 	}
+	b.plan.Programs = p.programs()
 	return b.plan, nil
 }
 
@@ -772,6 +780,7 @@ func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, 
 	if b.plan.Digest, err = p.digest(); err != nil {
 		return nil, err
 	}
+	b.plan.Programs = p.programs()
 	return b.plan, nil
 }
 

@@ -8,9 +8,11 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/docs"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
@@ -297,6 +299,22 @@ func TestStrictness(t *testing.T) {
 		{name: "no name", old: "name: small\n", new: "", key: "name", msg: "missing", line: 1},
 		{name: "kind of no depot", old: "name: small\n", new: "name: small\nkind: svn\n", key: "kind", msg: `kind "svn": a pack is for a depot of kind git or dir`, line: 2},
 		{name: "kind is a string", old: "name: small\n", new: "name: small\nkind: [git, dir]\n", key: "kind", msg: "want a string", line: 2},
+		// api names the pack API the pack is written for. One above what
+		// this yardr reads is the pack's one mistake, wherever the key
+		// stands and whatever else is wrong with the pack: the rest would
+		// be this yardr's mistakes, not the pack's.
+		{name: "api above what this yardr reads", old: "name: small\n", new: "name: small\napi: 2\n", key: "api", msg: "this pack is written for pack API 2, and this yardr reads up to 1: upgrade yardr (yardr upgrade)", line: 2},
+		{name: "api far above", old: "name: small\n", new: "name: small\napi: 1000\n", key: "api", msg: "this pack is written for pack API 1000, and this yardr reads up to 1", line: 2},
+		{name: "api above, beside a key this yardr lacks", old: "name: small\n", new: "name: small\napi: 2\nmodel: opus\n", key: "api", msg: "upgrade yardr", line: 2},
+		{name: "api above, beside a file that is missing", old: "name: small\n", new: "name: small\napi: 2\n", files: map[string]string{"roles/builder.md": ""}, key: "api", msg: "upgrade yardr", line: 2},
+		{name: "api above, last in the file and beside a scope that is wrong", old: "      linear: involved\n", new: "      linear: everything\napi: 3\n", key: "api", msg: "this pack is written for pack API 3", line: 22},
+		{name: "api of none", old: "name: small\n", new: "name: small\napi: 0\n", key: "api", msg: "want a whole number, 1 or more (the pack API this pack is written for, docs/pack-api.md), got int 0", line: 2},
+		{name: "api below zero", old: "name: small\n", new: "name: small\napi: -1\n", key: "api", msg: "got int -1", line: 2},
+		{name: "api is a string", old: "name: small\n", new: "name: small\napi: \"1\"\n", key: "api", msg: `got "1"`, line: 2},
+		{name: "api is a fraction", old: "name: small\n", new: "name: small\napi: 1.5\n", key: "api", msg: "got float 1.5", line: 2},
+		{name: "api is a list", old: "name: small\n", new: "name: small\napi: [1]\n", key: "api", msg: "got a list", line: 2},
+		{name: "api is nothing", old: "name: small\n", new: "name: small\napi:\n", key: "api", msg: "got nothing", line: 2},
+		{name: "api given twice", old: "name: small\n", new: "name: small\napi: 1\napi: 1\n", key: "api", msg: "given twice", line: 3},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -392,6 +410,51 @@ func TestKindIsTheDepotKindThePackIsFor(t *testing.T) {
 		if err != nil || p.Kind != want {
 			t.Errorf("pack %s: kind = %q, %v, want %q", name, p.Kind, err, want)
 		}
+	}
+}
+
+// A pack says which pack API it is written for, or says nothing and is
+// written for API 1, as every pack was before the key.
+func TestAPIIsTheNumberThePackSaysItIsWrittenFor(t *testing.T) {
+	if pack.API != 1 {
+		t.Fatalf("pack.API = %d: this test knows API 1 alone, and so does the page's list of what each number added", pack.API)
+	}
+	for name, text := range map[string]string{
+		"no key":               small,
+		"api first":            strings.Replace(small, "name: small\n", "name: small\napi: 1\n", 1),
+		"api last in the file": small + "api: 1\n",
+	} {
+		if p, err := pack.LoadDir(writePack(t, smallFiles(text))); err != nil || p.API != 1 {
+			t.Errorf("%s: api = %d, %v, want 1", name, p.API, err)
+		}
+	}
+}
+
+// The page lists what each API number added, under a heading of its own, and
+// this yardr reads up to the last of them: a number raised without its
+// heading, or a heading without the number, fails here, so the page cannot
+// say less than yardr reads or more.
+func TestPackAPIPageListsEveryNumberYardrReads(t *testing.T) {
+	section, ok := docs.Section("pack-api", "what each number added")
+	if !ok {
+		t.Fatal("docs/pack-api.md is not a page the binary carries, or has no section on what each number added")
+	}
+	var got []int
+	for line := range strings.Lines(section) {
+		if rest, ok := strings.CutPrefix(line, "### API "); ok {
+			n, err := strconv.Atoi(strings.TrimSpace(rest))
+			if err != nil {
+				t.Fatalf("the heading %q is no API number", strings.TrimSpace(line))
+			}
+			got = append(got, n)
+		}
+	}
+	want := make([]int, pack.API)
+	for i := range want {
+		want[i] = i + 1
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("the page has headings for API %v, and this yardr reads %v (pack.API is %d)", got, want, pack.API)
 	}
 }
 

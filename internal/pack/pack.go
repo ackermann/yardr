@@ -30,6 +30,14 @@ import (
 // File is the pack's one declarative file, at the root of its directory.
 const File = "pack.yaml"
 
+// API is the highest pack API this yardr reads: the contract between a yard
+// and a pack, written down in docs/pack-api.md. A pack says which it is
+// written for with the api key; one above this is refused before any other
+// key is read, since an older yardr that read on would call a newer key
+// unknown instead of saying that it is too old. It rises by one in the
+// release that adds anything to what the page lists as stable.
+const API = 1
+
 // Pack is a pack as written. Everything that has an order in the file
 // keeps it: flows, a flow's stages (the first is where a bead starts), a
 // stage's outcomes, groups and crew members.
@@ -38,6 +46,9 @@ type Pack struct {
 	// pack in no directory what Load was told it is from.
 	Dir  string `json:"dir"`
 	Name string `json:"name"`
+	// API is the pack API the pack says it is written for (api), 1 for a
+	// pack that says none: every pack there was before the key is API 1.
+	API int `json:"api"`
 	// Kind is the kind of depot the pack is written for, one of Kinds, or
 	// KindSource for a pack that is imported into the yard itself, and
 	// into no depot; "" for a pack that says none and fits either depot.
@@ -307,10 +318,16 @@ func Load(fsys fs.FS, dir string) (*Pack, error) {
 	if err := yaml.Unmarshal(text, &doc); err != nil {
 		return nil, Errors{{File: file, Msg: err.Error()}}
 	}
-	p := &Pack{Dir: dir, fsys: fsys, reads: rd}
+	p := &Pack{Dir: dir, API: 1, fsys: fsys, reads: rd}
 	if len(doc.Content) == 0 {
 		r.errs = append(r.errs, Error{File: file, Msg: "empty: a pack has at least a name"})
 	} else {
+		// First of all, before a key, a file or a placeholder is read: what
+		// a pack written for a later API says may be what this yardr has no
+		// words for, and its mistakes would be this yardr's own.
+		if e, ok := r.later(doc.Content[0]); ok {
+			return nil, Errors{e}
+		}
 		r.pack(p, doc.Content[0])
 	}
 	sort.SliceStable(r.errs, func(i, j int) bool { return r.errs[i].Line < r.errs[j].Line })
@@ -600,11 +617,47 @@ func (r *reader) count(n *yaml.Node, key, what string) (int, bool) {
 	return v, true
 }
 
+// apiNumber reads the value of an api key: a whole number, 1 or more.
+func apiNumber(n *yaml.Node) (int, bool) {
+	v, err := strconv.Atoi(n.Value)
+	if n.Kind != yaml.ScalarNode || n.Tag != "!!int" || err != nil || v < 1 {
+		return 0, false
+	}
+	return v, true
+}
+
+// later is the one mistake of a pack whose api key names a pack API above
+// the one this yardr reads (API), at the line of the number. Only the root
+// is looked at, and only for a number that is one; any other value of api is
+// an ordinary mistake, which the root keys report in their turn.
+func (r *reader) later(root *yaml.Node) (Error, bool) {
+	if root.Kind != yaml.MappingNode {
+		return Error{}, false
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		k, v := root.Content[i], root.Content[i+1]
+		if k.Kind != yaml.ScalarNode || k.Tag != "!!str" || k.Value != "api" {
+			continue
+		}
+		if n, ok := apiNumber(v); ok && n > API {
+			return Error{File: r.file, Line: v.Line, Key: "api", Msg: fmt.Sprintf("this pack is written for pack API %d, and this yardr reads up to %d: upgrade yardr (yardr upgrade)", n, API)}, true
+		}
+	}
+	return Error{}, false
+}
+
 func (r *reader) pack(p *Pack, root *yaml.Node) {
 	var flows, groups, crew, sources, presets *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "kind", "setup", "flows", "groups", "crew", "sources", "presets") {
+	for _, e := range r.entries(root, "", "name", "api", "kind", "setup", "flows", "groups", "crew", "sources", "presets") {
 		switch e.key {
+		case "api":
+			// Not above API: later has refused the pack before this.
+			if n, ok := apiNumber(e.v); ok {
+				p.API = n
+			} else {
+				r.errf(e.v, e.path, "want a whole number, 1 or more (the pack API this pack is written for, docs/pack-api.md), got %s", describe(e.v))
+			}
 		case "setup":
 			p.Setup, p.SetupText = r.setupFile(e.v, e.path)
 		case "name":

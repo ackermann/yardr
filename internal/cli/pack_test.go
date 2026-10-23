@@ -73,6 +73,10 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 		"its stage files would be copied to " + filepath.Join(a.cfg.Home, "flows", "starter.<flow>") + "\n",
 		"  create           flows/default/new.md -> " + filepath.Join(a.cfg.Home, "flows", "starter.default", "new.md") + "\n",
 		"35 to create, 0 to change, 0 unchanged, 0 not in the pack\n",
+		// What runs as the user who runs the yard, after the digest that
+		// pins it: one program here.
+		"\ndigest sha256:",
+		"\nruns 1 program of the pack as you: scripts/merge-local\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the plan lacks %q", want)
@@ -95,11 +99,26 @@ func TestPackCheckPrintsThePlan(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.Pack != "starter" || len(plan.Objects) != 35 || len(plan.Questions) != 13 {
 		t.Fatalf("json plan: %v\n%s", err, out)
 	}
-	// The pack's digest ends the plan, to be copied, and is the same with
-	// other flags: it is the pack's and not the plan's. The setup notes, when
-	// the pack has them, come after.
-	if len(plan.Digest) != 64 || !strings.HasSuffix(strings.TrimSpace(text), "\ndigest sha256:"+plan.Digest) {
-		t.Errorf("the plan does not end with the digest %q:\n%s", plan.Digest, text)
+	// The digest is followed by the programs line, the plan's last line.
+	if len(plan.Digest) != 64 || !strings.Contains(text, "\ndigest sha256:"+plan.Digest+"\n\nruns 1 program of the pack as you: scripts/merge-local") || !strings.HasSuffix(strings.TrimSpace(text), "runs 1 program of the pack as you: scripts/merge-local") {
+		t.Errorf("the plan does not end with its programs after the digest %q:\n%s", plan.Digest, text)
+	}
+	if !slices.Equal(plan.Programs, []string{"scripts/merge-local"}) {
+		t.Errorf("the json plan's programs = %v, want the starter's script", plan.Programs)
+	}
+
+	// A pack that runs nothing of its own says nothing of programs in the
+	// text, and has an empty array in the JSON, not null.
+	quiet := t.TempDir()
+	if err := os.WriteFile(filepath.Join(quiet, "pack.yaml"), []byte("name: quiet\nflows:\n  default:\n    stages:\n      new: { group: people, outcomes: { done: done } }\n      done: { end: true }\ngroups:\n  people: { people: true }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.packCmd(), "check", quiet, "--depot", "web"); err != nil || !strings.Contains(out, `"programs": []`) {
+		t.Errorf("a pack that runs nothing, as json: %v\n%s", err, out)
+	}
+	a.json = false
+	if out, err = run(t, a.packCmd(), "check", quiet, "--depot", "web"); err != nil || strings.Contains(out, "runs ") || !strings.Contains(out, "\ndigest sha256:") {
+		t.Errorf("a pack that runs nothing: %v\n%s", err, out)
 	}
 }
 

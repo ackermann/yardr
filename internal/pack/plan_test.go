@@ -255,6 +255,11 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if g := find(t, plan, "group", "backlog").Group; g.Runner != "manual" {
 		t.Fatalf("backlog = %+v", g)
 	}
+	// The one program the starter runs, the script of that group, is named
+	// in the plan as a path in the pack, as check prints it above the digest.
+	if !slices.Equal(plan.Programs, []string{"scripts/merge-local"}) {
+		t.Fatalf("programs = %v, want the starter's assembly script", plan.Programs)
+	}
 	f := find(t, plan, "file", "scripts/merge-local").File
 	if f.To != filepath.Join(install, "scripts", "merge-local") || f.Mode != "0755" || !filepath.IsAbs(f.From) {
 		t.Fatalf("merge-local = %+v", f)

@@ -36,6 +36,7 @@ plain words kept on purpose, because they name general machinery.
 | link | a bead's tie to an outside issue it tracks or relates to |
 | peer | another yard this one is linked with |
 | pack | a way of working as one directory: flows, groups, roles, crew members |
+| pack API | the contract between a yard and a pack built outside this repository: what the pack may say in its files, run in its scripts and hear, each marked stable or internal, under an `api:` number in `pack.yaml` that rises when the stable part grows ([pack-api.md](pack-api.md)) |
 | operator | the person who runs the yard; one of its users |
 | user | a person of the yard: a name and an inbox |
 | device | one program of a user that calls the yard from outside it, let in by a token the yard gave it ([users.md](users.md#devices)) |

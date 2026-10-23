@@ -15,7 +15,9 @@ imported; `yardr pack export` writes a depot's way of working out as a pack
 flow with the groups it puts at each stage, with no yard
 ([flows.md](flows.md#drawing-a-flow)). A pack is a directory on this
 machine, one yardr carries in its binary, or the pack's directory on a web
-server, fetched when the command runs.
+server, fetched when the command runs. What a pack built outside this
+repository may rely on, key by key and variable by variable, and what is
+yardr's own, is [pack-api.md](pack-api.md).
 
 The pack yardr ships is [`packs/starter`](../packs/starter): a flow from
 backlog to merged with its stage files, the roles of a builder, a reviewer,
@@ -167,6 +169,7 @@ sources:
 | key | meaning |
 |---|---|
 | `name` | the pack's name: letters, digits, `.`, `_`, `-`. It names the directory its files are copied to and goes in front of its flows' names |
+| `api` | optional: the pack API the pack is written for, a whole number, 1 or more, and **1 when the key is absent**, so every pack written before the key is a pack of API 1. A pack above the highest API this yardr reads is refused before any other key is read, with the cause (`upgrade yardr`) instead of an unknown key. The number rises on every addition to what is stable, and [pack-api.md](pack-api.md#the-api-number) lists what each number added |
 | `kind` | optional: the kind of depot the pack is for, `git` (a repository: beads are built on branches and landed on a base) or `dir` (a plain directory: nothing is committed and nothing merges), or `source`: the pack is an integration, imported into the yard itself and into no depot ([An integration pack](#an-integration-pack-kind-source)). `yardr depot init` refuses the pack for a depot of the other kind ([below](#yardr-depot-init)). A pack without the key fits either depot |
 | `setup` | optional, for a pack of any kind: the pack's setup notes, its author's words about what a setup takes — where in the service a webhook is made and which events it needs, what an identity wants, how to test. A file of the pack, markdown (`setup: SETUP.md`), at most 64 KB, with something in it. `pack check` prints it after the plan, `pack apply` after what it did (or names `pack show <pack>` when nothing changed), `pack show <pack>` prints it later, and a crew member's prime names it by that command, so the one who helps with a setup reads it first. The notes are marked as the pack's, not checked by yardr. Text only: the pack still carries no secret, sets no identity and grants nothing |
 | `flows.<flow>.stages` | the flow's stages, **in file order**: the first is where a bead starts |
@@ -277,6 +280,9 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 
 - an unknown key, a key given twice, a value of the wrong kind;
 - a `kind` that is none of `git`, `dir` and `source`;
+- an `api` that is no whole number of 1 or more, or that names a pack API
+  above the highest this yardr reads. The second is the pack's one mistake,
+  named before any other key is read ([The API number](pack-api.md#the-api-number));
 - a key or a name YAML reads as a boolean: bare `on`, `off`, `yes`, `no`,
   `y`, `n`, `true`, `false`. One YAML reader takes `on:` for a key called
   "on" and the next for `true`, so a pack may not depend on it (it is why
@@ -349,7 +355,7 @@ is under way changes nothing that is installed.
 
 **Pinning a pack.** A pack applied with `--yes` is read by no one, and a
 server may have changed what it serves since someone did. `yardr pack check`
-ends its plan with the pack's digest, `digest sha256:<hex>`: one sha256 over
+prints the pack's digest, `digest sha256:<hex>`: one sha256 over
 `pack.yaml` and every file it names (the roles and scripts, the stage files
 of all its flows, the setup notes, the declarations and the programs of their
 commands), each as its path in the pack, a NUL, its length, a NUL and its
@@ -410,8 +416,13 @@ what each subscribed source has and lacks, which sources the yard has
 nothing of, once each as optional, what each crew member would be let
 open threads in ([Opening threads](#how-a-pack-maps-to-the-yard)), which peers each crew member the pack asks
 it for is exposed to ([Exposing a crew member to peers](#how-a-pack-maps-to-the-yard)), and notes. The plan ends
-with the pack's digest (`digest sha256:<hex>`), which `pack apply --sha256` takes
-([Pinning a pack](#naming-a-pack)). After the plan
+with one line naming the programs, when it has any: `runs 2 programs of the pack as you:
+acme/normalize, scripts/land`. They are the scripts its groups run (`run:`) and
+the files its declarations' commands name, each as a path in the pack, sorted,
+and applying the pack authorizes yardr to run them as the user who runs the yard
+([pack-api.md](pack-api.md#what-applying-a-pack-runs)). A pack with none prints
+no such line. The digest (`digest sha256:<hex>`) immediately above it is what
+`pack apply --sha256` takes ([Pinning a pack](#naming-a-pack)). After the plan
 come the pack's setup notes (`setup`), when it has any: its author's words
 about what a setup takes, marked as the pack's, not checked by yardr. `--json` prints the
 same plan as data ([below](#the-plan-as-data)). It exits 1 on an invalid
@@ -1785,7 +1796,7 @@ said):
 
 ```json
 {
-  "pack": "starter", "dir": "/…/packs/starter", "digest": "9f2c…", "kind": "git", "depot": "yardr",
+  "pack": "starter", "dir": "/…/packs/starter", "digest": "9f2c…", "programs": ["scripts/merge-local"], "kind": "git", "depot": "yardr",
   "flow": "default", "depot_roles": false, "groups": {"builders": "yardr-builders"}, "crew": {"yardmaster": "boss"},
   "fill": {"operator": "Jo", "yardmaster": "boss"},
   "home": "/Users/me/.yardr",
@@ -1809,7 +1820,10 @@ said):
 
 `kind` is the kind of depot the pack declares, left out for a pack that
 declares none. `digest` is the pack's digest in hex, without the `sha256:`
-that `pack check` prints before it. `install` is where roles and scripts are copied, `stage_files` the
+that `pack check` prints before it. `programs` are the files of the pack that
+run as the user who runs the yard once it is imported: the script of each
+group with `run:` and the programs of a declaration's commands, as paths in
+the pack, sorted, each once, and an empty array for a pack with none. `install` is where roles and scripts are copied, `stage_files` the
 directory under which each flow's stage files are
 (`<stage_files>/<pack>.<flow>/<stage>.md`). `fill` is what the import puts
 for each placeholder, by its name. `setup` and `setup_file` are the pack's

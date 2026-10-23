@@ -15,6 +15,7 @@ commands. These pages go deeper. Yardr's [Principles](../README.md#principles) e
 | [line.md](line.md) | how a bead moves in practice, using depot yardr: backlog, yardmaster, builders, review, assembly |
 | [dir-depots.md](dir-depots.md) | depots that are a plain directory, not a repository: the `dir` pack `depot init` sets them up from, their flows, a worked example (summarizing a folder of documents) |
 | [packs.md](packs.md) | packs: a yard's flows, groups, roles, crew members and declared sources as one directory; `yardr pack check`, `apply` and `list`, how a pack maps to the yard, the import record and pruning |
+| [pack-api.md](pack-api.md) | the pack API, the contract between a yard and a pack built outside this repository: `api:` in `pack.yaml` and the rule for raising it, then every seam as stable or internal (the files, what an exec group's script gets, what a source's command gets, the commands a script runs, what a pack hears, what it gives agents), and what is left out |
 | [groups.md](groups.md) | groups and runners (manual, exec, herdr, peer), what yardr knows of a harness kind (`yardr harness`), herdr setup |
 | [review.md](review.md) | `yardr review`: working through beads waiting on humans |
 | [crew.md](crew.md) | always-on sessions (a yardmaster): inbox, hooks, journal, prime, memories |

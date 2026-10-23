@@ -60,6 +60,27 @@ func (p *Pack) named() []string {
 	}
 	for _, d := range p.Declared {
 		out = append(out, d.File)
+	}
+	out = append(out, p.programs()...)
+	slices.Sort(out)
+	out = slices.Compact(out)
+	return slices.DeleteFunc(out, func(s string) bool { return s == "" })
+}
+
+// programs are the files of the pack that run once it is imported, as the
+// user who runs the yard: the script of each group that has one (run:) and
+// the program of every command a declaration names, as slash paths in the
+// pack's directory, sorted, each once. A pack's roles and prompts are text
+// an agent reads and are not among them. It is the part of named that is
+// code, so that the digest that pins the pack and the line pack check
+// prints above it (Plan.Programs) cannot differ about which files those are.
+// It is never nil: the plan carries it as a JSON array.
+func (p *Pack) programs() []string {
+	out := []string{}
+	for _, g := range p.Groups {
+		out = append(out, g.Run)
+	}
+	for _, d := range p.Declared {
 		for _, c := range d.Declaration.Commands() {
 			if c.Relative() {
 				out = append(out, path.Join(declDir(d.File), c.Argv[0]))

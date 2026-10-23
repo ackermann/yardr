@@ -67,14 +67,26 @@ func recordsDigest(files map[string]string) string {
 func TestDigestIsOfEveryFileThePackNames(t *testing.T) {
 	t.Parallel()
 	st, o := yard(t)
+	// A pack of agents alone runs nothing of its own.
+	noScript := digestFiles()
+	noScript["pack.yaml"] = strings.Replace(digestYAML, "assembly: { run: scripts/land }", "assembly: { agent: roles/builder.md }", 1)
+	delete(noScript, "scripts/land")
+	// acme's declaration up to the keys that name commands.
+	noCommands, _, _ := strings.Cut(cmdDecl, "hook:")
+	depotOther := pack.Options{Depot: "web", Home: t.TempDir(), Flow: "other", Crew: map[string]string{"yardmaster": "boss"}}
 	for _, c := range []struct {
 		name  string
 		files map[string]string
 		o     pack.Options
 		other pack.Options // the same pack, imported otherwise
+		// programs are the files of it that run: what the plan names above
+		// its digest, which pins them with the rest.
+		programs []string
 	}{
-		{"a pack for a depot", digestFiles(), o, pack.Options{Depot: "web", Home: t.TempDir(), Flow: "other", Crew: map[string]string{"yardmaster": "boss"}}},
-		{"a pack of kind source", sourcePackFiles(), pack.Options{Home: o.Home}, pack.Options{Home: t.TempDir()}},
+		{"a pack for a depot", digestFiles(), o, depotOther, []string{"scripts/land"}},
+		{"a pack of kind source", sourcePackFiles(), pack.Options{Home: o.Home}, pack.Options{Home: t.TempDir()}, []string{"acme/normalize", "acme/thread"}},
+		{"a pack that runs nothing", noScript, o, depotOther, []string{}},
+		{"a pack of kind source that runs nothing", map[string]string{"pack.yaml": sourcePackYAML, "acme.yaml": noCommands}, pack.Options{Home: o.Home}, pack.Options{Home: t.TempDir()}, []string{}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			plan := func(files map[string]string, o pack.Options) *pack.Plan {
@@ -84,6 +96,11 @@ func TestDigestIsOfEveryFileThePackNames(t *testing.T) {
 			want := plan(c.files, c.o)
 			if want.Digest != recordsDigest(c.files) {
 				t.Errorf("digest = %s, want %s: each file's path, a NUL, its length, a NUL and its bytes, in path order", want.Digest, recordsDigest(c.files))
+			}
+			// Each once (acme/thread is six commands' program), and an array
+			// in the plan's JSON also when there is none.
+			if !slices.Equal(want.Programs, c.programs) || want.Programs == nil {
+				t.Errorf("programs = %#v, want %#v", want.Programs, c.programs)
 			}
 			for _, name := range slices.Sorted(maps.Keys(c.files)) {
 				changed := maps.Clone(c.files)
