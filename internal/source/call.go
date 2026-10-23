@@ -193,6 +193,9 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 		return nil, fail(BadParam, 0, "%v", err)
 	}
 
+	// start is before Timeout is applied: cause() measures the source's
+	// own bound from it, and Took below too.
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	var body io.Reader
@@ -223,10 +226,9 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 		req.Header.Set(d.Idempotency, key)
 	}
 
-	start := time.Now()
 	resp, err := client(base.Scheme == "http").Do(req)
 	if err != nil {
-		return nil, fail(unsent(ctx, err), 0, "no answer from %s: %s", where, cause(ctx, err))
+		return nil, fail(unsent(ctx, err), 0, "no answer from %s: %s", where, cause(ctx, err, start))
 	}
 	defer resp.Body.Close()
 	res := &Result{Status: resp.StatusCode}
@@ -248,7 +250,7 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	res.Bytes, res.Took = len(raw), time.Since(start)
 	switch {
 	case err != nil:
-		return nil, fail(unsent(ctx, err), resp.StatusCode, "the answer of %s broke off: %s", where, cause(ctx, err))
+		return nil, fail(unsent(ctx, err), resp.StatusCode, "the answer of %s broke off: %s", where, cause(ctx, err, start))
 	case len(raw) > AnswerLimit:
 		return nil, fail(TooLarge, resp.StatusCode, "the answer is over %d bytes, the most yardr reads of one: it is refused, not cut, since half a JSON document misleads", AnswerLimit)
 	case len(bytes.TrimSpace(raw)) == 0:
@@ -316,9 +318,15 @@ func unsent(ctx context.Context, err error) string {
 }
 
 // cause says why without the address: net/http's error names the URL, and
-// a URL has the values of the call in it.
-func cause(ctx context.Context, err error) string {
+// a URL has the values of the call in it. start is when the call began,
+// before Timeout was applied to ctx: a deadline of ctx's that falls short
+// of start+Timeout is the caller's own, and the wait it names is the
+// caller's bound, not Timeout's.
+func cause(ctx context.Context, err error, start time.Time) string {
 	if unsent(ctx, err) == TimedOut {
+		if deadline, ok := ctx.Deadline(); ok && deadline.Before(start.Add(Timeout)) {
+			return "nothing within the caller's " + roundBound(deadline.Sub(start)).String()
+		}
 		return "nothing within " + Timeout.String()
 	}
 	var u *url.Error
@@ -326,6 +334,24 @@ func cause(ctx context.Context, err error) string {
 		err = u.Err
 	}
 	return err.Error()
+}
+
+// roundBound rounds a caller's bound to what reads: the wait a deadline
+// leaves is the caller's whole seconds minus the breath the call took to
+// begin, which unrounded reads as 9.999999s. Within a tenth of a second
+// of whole seconds it says those; further off it steps down, to a tenth
+// of a second past one and to milliseconds below.
+func roundBound(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	if near := d.Round(time.Second); near > 0 && d-near < 100*time.Millisecond && near-d < 100*time.Millisecond {
+		return near
+	}
+	if d >= time.Second {
+		return d.Round(100 * time.Millisecond)
+	}
+	return d.Round(time.Millisecond)
 }
 
 // redacted stands in what is said of a call for the address it went to.

@@ -394,6 +394,38 @@ func TestDoTimesOut(t *testing.T) {
 		t.Fatalf("the call took %s", took)
 	}
 	clean(t, err)
+
+	// A call cut by its caller's own deadline names the caller's bound,
+	// not Timeout's.
+	Timeout = time.Minute
+	params := map[string]string{"user": user30, "title": "t", "text": secretText}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = Do(ctx, d, "message", params, token)
+	if reason(err) != TimedOut || !strings.Contains(err.Error(), "nothing within the caller's 1s") {
+		t.Fatalf("caller-cut err = %v", err)
+	}
+	clean(t, err)
+}
+
+func TestRoundBound(t *testing.T) {
+	for _, tc := range []struct {
+		in   time.Duration
+		want string
+	}{
+		{9999 * time.Millisecond, "10s"},    // whole seconds minus a breath
+		{999 * time.Millisecond, "1s"},      // just under a second reads as one
+		{1500 * time.Millisecond, "1.5s"},   // further off keeps its tenth
+		{10400 * time.Millisecond, "10.4s"}, // past ten, tenths past whole
+		{300 * time.Millisecond, "300ms"},
+		{90 * time.Millisecond, "90ms"},
+		{0, "0s"}, // a deadline already past leaves no wait
+		{-time.Second, "0s"},
+	} {
+		if got := roundBound(tc.in).String(); got != tc.want {
+			t.Errorf("roundBound(%s) = %s, want %s", tc.in, got, tc.want)
+		}
+	}
 }
 
 // A service that is not there: the error names the host and the cause, and
