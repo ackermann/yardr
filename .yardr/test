@@ -143,12 +143,17 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # naming the packages whose output reported the race. An ordinary flake can
 # still pass on its second run; the flaky line in the output makes that
 # visible, and one line per flaky line is appended to yardr-flaky.log in
-# the git common dir, which the repo owns and every worktree shares. A test
-# the log already names is filed as a backlog P3 `Flaky: <Test> (<pkg>)`
-# carrying its lines, unless an open bead already carries the title; where
-# the yardr CLI is not there (CI, a fork) the log line stays the record. A
-# test that flaked 3 times in 7 days fails the step instead of passing on
-# its rerun. AGENTS.md says what a hand reading old lines files.
+# the git common dir, which the repo owns and every worktree shares. The
+# rerun's output replaces the first run's, so that line also keeps what the
+# first run printed for each failed test (flakyfails), behind a separator:
+# the printed line stays short because whoever ran the gate watched the
+# failure, and the log line is what is left of it for whoever did not (a
+# landing, a session that has ended). A test the log already names is filed
+# as a backlog P3 `Flaky: <Test> (<pkg>)` carrying its lines, unless an open
+# bead already carries the title; where the yardr CLI is not there (CI, a
+# fork) the log line stays the record. A test that flaked 3 times in 7 days
+# fails the step instead of passing on its rerun. AGENTS.md says what a hand
+# reading old lines files.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
 # A step's output is kept in its log and printed. Outside the race worker it
@@ -722,6 +727,9 @@ again() {
             set -f
             tpkgs=$(for t in $tests; do pkgof "$log" "$t" | awk -v t="$t" '{ print t " " $0 }'; done)
             set +f
+            # What this run printed for each failed test, for the log line:
+            # the rerun replaces it, and no other copy is kept.
+            fails=$(flakyfails "$log" || true)
             # The same flags, the failed packages only: the prefix up to and
             # including "test" (env ... go test), then the flags (what after
             # test starts with -), then the failed packages. Packages and
@@ -758,13 +766,15 @@ again() {
               fi
               echo "test: flaky: $flaky"
               # The same line in the log the repo owns: date, short sha, and
-              # the names the printed line carries. It is not committed. A
-              # run that cannot write it still passes: the line above stays
-              # the record.
+              # the names the printed line carries, then the failing lines
+              # kept above. It is not committed. A run that cannot write it
+              # still passes: the line above stays the record. printf, not
+              # echo: the kept lines have backslashes, which some shells'
+              # echo reads.
               flakylog=
               if common=$(git rev-parse --git-common-dir 2>/dev/null); then
                 flakylog="$common/yardr-flaky.log"
-                echo "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky" >>"$flakylog" || true
+                printf '%s\n' "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky${fails:+$flaky_sep$fails}" >>"$flakylog" || true
               fi
               # A test the log names more than once flaked before: file it,
               # and fail the step when it flaked twice before in the last 7
@@ -792,13 +802,13 @@ again() {
                 strike=0
                 set -f
                 for t in $tests; do
-                  sightings=$(grep -c -F " $t " "$flakylog" || true)
+                  sightings=$(flakylines "$t" "$flakylog" | awk 'END { print NR }')
                   if [ "$have_yardr" = 1 ] && [ "${sightings:-0}" -ge 2 ]; then
                     pkg=$(printf '%s\n' "$tpkgs" | awk -v t="$t" '$1 == t { printf "%s%s", sep, $2; sep = " " } END { printf "\n" }')
                     [ -n "$pkg" ] || pkg=$pkgs_line
                     flakyfile "Flaky: $t ($pkg)" "$t" "$flakylog" "$depot"
                   fi
-                  recent=$(grep -F " $t " "$flakylog" | perl -MTime::Piece -ne '
+                  recent=$(flakylines "$t" "$flakylog" | perl -MTime::Piece -ne '
                     BEGIN { $cut = (localtime(time - 7 * 86400))->strftime("%F %T"); $n = 0 }
                     $n++ if /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} / && substr($_, 0, 19) ge $cut;
                     END { print "$n\n" }
@@ -873,6 +883,76 @@ pkgof() {
     }
   ' "$1"
 }
+# A flaky log line is its head (date, short sha, and the tests and packages
+# the printed flaky line names) and, when the first run's failing lines were
+# kept (flakyfails), this separator and those lines. No head holds the
+# separator: test names and package paths have no spaces.
+flaky_sep=' | '
+# flakyfails prints, on one line, what a go test log ($1) holds for each test
+# that failed, for the flaky log: a block per `--- FAIL:` line, that line and
+# the lines under it, which go indents deeper than it (a subtest's report
+# stands inside its parent's, so a subtest has a block of its own and its
+# parent's holds it too). A block keeps at most 6 lines of 200 characters,
+# its lines joined by a backslash and an n, and the log at most 20 blocks
+# (the quiet run caps its failing test names at 20 as well: a stalled box
+# fails tens of tests, and the line is copied into a bead), the blocks
+# joined by the separator. A line that is not deeper than a block's FAIL
+# line ends it, so output the code under test prints between reports is
+# not kept; a test that panics is the exception, since go prints its panic
+# unindented right after its FAIL line, and that one line joins the blocks
+# it follows. Whitespace-only lines, which go prints inside a multi-line
+# message, are skipped, and control characters other than a tab are dropped,
+# so that a terminal showing the log or a bead copied from it is not moved by
+# what a test printed. Empty when no test failed. It reads the first run's
+# log, which the rerun replaces.
+flakyfails() {
+  awk -v sep="$flaky_sep" '
+    function keep(b, s) {
+      if (cnt[b] >= 6) return
+      sub(/[ \t\r]+$/, "", s)
+      match(s, /^ */)
+      s = substr(s, (RLENGTH < lvl[b] ? RLENGTH : lvl[b]) + 1, 200)
+      txt[b] = (cnt[b] ? txt[b] "\\n" : "") s
+      cnt[b]++
+    }
+    /^ +$/ { next }
+    {
+      match($0, /^ */)
+      depth = RLENGTH
+      if ($0 ~ /^panic: /) {
+        for (j = 1; j <= sp; j++) keep(stack[j], $0)
+      }
+      while (sp > 0 && lvl[stack[sp]] >= depth) sp--
+      for (j = 1; j <= sp; j++) keep(stack[j], $0)
+      if ($0 ~ /^ *--- FAIL: / && nb < 20) {
+        nb++
+        lvl[nb] = depth
+        keep(nb, $0)
+        stack[++sp] = nb
+      }
+    }
+    END {
+      for (k = 1; k <= nb; k++) out = out (k > 1 ? sep : "") txt[k]
+      if (nb) print out
+    }
+  ' "$1" | tr -d '\001-\010\013-\037\177'
+}
+# flakylines prints the lines of the flaky log ($2) that name a test ($1),
+# in their head: behind the separator are the failing lines of the tests the
+# head names, which can mention a test that did not flake, and a mention is
+# no sighting. A line without the separator is all head, as the lines
+# written before the separator existed are. The name is passed in the
+# environment so awk reads it as data, not as an escape sequence.
+flakylines() {
+  FLAKY_TEST=" $1 " awk -v sep="$flaky_sep" '
+    {
+      head = $0
+      i = index(head, sep)
+      if (i) head = substr(head, 1, i - 1)
+    }
+    index(head, ENVIRON["FLAKY_TEST"]) { print }
+  ' "$2"
+}
 # flakyfile files a bead for a test ($2) that flaked again: a backlog P3
 # titled $1, carrying the test's lines of the flaky log ($3). An open
 # bead already carrying the title is the filing: nothing is filed twice.
@@ -895,7 +975,7 @@ flakyfile() {
   else
     set --
   fi
-  if ! filed=$(grep -F " $test " "$logf" | yardr bead create "$title" "$@" --stage backlog -p 3 -b - 2>&1); then
+  if ! filed=$(flakylines "$test" "$logf" | yardr bead create "$title" "$@" --stage backlog -p 3 -b - 2>&1); then
     echo "test: warning: cannot file the repeat flake $test: $filed" >&2
     return 0
   fi

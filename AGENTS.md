@@ -148,12 +148,18 @@ it lists every exported name with its comment, faster than grepping.
   git common dir, which the repo owns and every worktree shares, files a
   backlog P3 `Flaky: <Test> (<pkg>)` when the test is already named in the
   log (deduped by title; skipped where the yardr CLI is not there), and
-  fails the step when the test flaked 3 times in 7 days. A hand reading
-  old lines files the same way -- a repeat, or a failure that accuses the
-  product (a race report, a product assertion, a wrong result rather than
-  a timeout); otherwise the log line is the record, named in the handover
-  note. A race fails the step without a retry, and a package that fails
-  twice fails as before.
+  fails the step when the test flaked 3 times in 7 days. The rerun's
+  output replaces the first run's, so the log line also keeps what the
+  first run printed for each failed test, behind ` | `: its `--- FAIL:`
+  line and the lines under it (6 lines of 200 characters at most for a
+  test, 20 tests at most, a literal `\n` between lines), and the filed
+  bead carries the whole line. Only the part before the ` | ` names the
+  tests that flaked. A hand reading old lines files the same way -- a
+  repeat, or a failure that accuses the product (a race report, a
+  product assertion, a wrong result rather than a timeout); otherwise
+  the log line is the record, named in the handover note. A race fails
+  the step without a retry, and a package that fails twice fails as
+  before.
 - `gofmt` and `go vet` are clean on every change; the module builds with
   the Go in `go.mod`.
 

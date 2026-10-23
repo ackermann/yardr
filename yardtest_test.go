@@ -877,10 +877,11 @@ const cacheLost = "vet: internal/store/sources.go:10:2: could not import yardr.d
 
 // A go that fails one of its steps (its first argument, or "rpc" for a call
 // that has YARDR_TEST_RPC: a landing runs that one beside its other go test)
-// the first few times with a line of its own, and writes down every call:
-// the arguments, after "rpc" when the call has YARDR_TEST_RPC and after the
-// GOOS it was given, and in goflags, a line a call, the GOFLAGS it had.
-// gofmt finds nothing to format.
+// the first few times with a line of its own, printed as it is (printf, since
+// some shells' echo reads the backslashes a failing line can have), and writes
+// down every call: the arguments, after "rpc" when the call has
+// YARDR_TEST_RPC and after the GOOS it was given, and in goflags, a line a
+// call, the GOFLAGS it had. gofmt finds nothing to format.
 const fakeGo = `#!/bin/sh
 echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
 echo "$GOFLAGS" >>"$FAKE/goflags"
@@ -891,7 +892,7 @@ if [ "$step" = "$FAKE_STEP" ]; then
   n=$((n + 1))
   echo "$n" >"$FAKE/n"
   if [ "$n" -le "$FAKE_TIMES" ]; then
-    echo "$FAKE_LINE" >&2
+    printf '%s\n' "$FAKE_LINE" >&2
     exit 1
   fi
 fi
@@ -1116,11 +1117,49 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // carries the title; a test that flaked 3 times in 7 days fails the step
 // instead of passing on its rerun. Where the yardr CLI is not there the
 // log line stays the record.
+//
+// The rerun's output replaces the first run's, so the log line keeps what the
+// first run printed for each failed test, behind a separator: the test's
+// `--- FAIL:` line and the lines under it (a subtest has a block of its own,
+// its parent's holds it), at most 6 lines of 200 characters, joined by a
+// backslash and an n, and 20 blocks to a line. The printed line stays short.
+// Only the part before the separator says which tests flaked: a line without
+// it, as the log held before the separator existed, is all of it.
 func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	t.Parallel()
 	const pkg = "m.test/m"
 	const test = "TestX"
+	// The log line's separator, and what joins the lines of a block: a
+	// backslash and an n, which a raw string spells.
+	const sep, eol = " | ", `\n`
 	flakyFail := "--- FAIL: " + test + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
+	// Reports as go prints them: a parent with two failing subtests and a
+	// message of its own after them, noise from the code under test before,
+	// between and after the reports, then a second test.
+	nestedFail := "2026/10/23 02:02:23 noise before the reports\n" +
+		"--- FAIL: TestX (0.50s)\n" +
+		"    --- FAIL: TestX/mail (10.20s)\n" +
+		"        x_test.go:604: open /tmp/a: no such file or directory\n" +
+		"    --- FAIL: TestX/done (10.38s)\n" +
+		"        x_test.go:674: open /tmp/b: no such file or directory\n" +
+		"    x_test.go:700: the parent's own message\n" +
+		"2026/10/23 02:02:24 noise between the reports\n" +
+		"--- FAIL: TestY (0.01s)\n" +
+		"    y_test.go:5: boom\n" +
+		"2026/10/23 02:02:25 noise after the reports\n" +
+		"FAIL\nFAIL\t" + pkg + " 0.123s"
+	nestedKept := strings.Join([]string{
+		"--- FAIL: TestX (0.50s)" + eol + "    --- FAIL: TestX/mail (10.20s)" + eol + "        x_test.go:604: open /tmp/a: no such file or directory" + eol +
+			"    --- FAIL: TestX/done (10.38s)" + eol + "        x_test.go:674: open /tmp/b: no such file or directory" + eol + "    x_test.go:700: the parent's own message",
+		"--- FAIL: TestX/mail (10.20s)" + eol + "    x_test.go:604: open /tmp/a: no such file or directory",
+		"--- FAIL: TestX/done (10.38s)" + eol + "    x_test.go:674: open /tmp/b: no such file or directory",
+		"--- FAIL: TestY (0.01s)" + eol + "    y_test.go:5: boom",
+	}, sep)
+	// A sighting of another test, whose kept lines mention TestX.
+	mentions := "TestOther (m.test/m) passed on rerun" + sep + "--- FAIL: TestOther (0.30s)" + eol + "    x_test.go:9: waiting for TestX to start"
+	// A package that failed with no test to name (a timeout): there is
+	// nothing to keep, and the line stays the short one.
+	timeoutFail := "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestX (10m0s)\n\nFAIL\t" + pkg + " 600.123s"
 	raceFail := "WARNING: DATA RACE\n" + flakyFail
 	racePkg, ordinaryPkg := pkg+"/race", pkg+"/ordinary"
 	raceFailMixed := "WARNING: DATA RACE\n--- FAIL: TestRace (0.00s)\nFAIL\nFAIL\t" + racePkg + " 0.123s\n" +
@@ -1156,6 +1195,12 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		create   bool            // the run files the flake through the stub
 		depot    string          // the --depot the filing names: empty for none
 		strike   bool            // the flake is a third in 7 days: the step fails
+		tests    string          // the tests the flaky line names, space separated: testName when empty
+		kept     string          // what the log line keeps behind the separator: the bare FAIL line when line is empty
+		noTests  bool            // the failure names no test, so the flaky line names the package and the log line keeps nothing
+		seedAs   string          // the text of each seeded sighting after its sha: the short head when empty
+		unlisted bool            // the run sees no repeat, so it lists no beads
+		foreign  string          // one more seeded line, which names the test only behind its separator
 	}{
 		{name: "plain: passes on rerun", times: "1", ok: true, calls: plain, steps: plainSteps},
 		{name: "plain: fails twice", times: "2", ok: false, calls: plain, steps: plainSteps},
@@ -1182,6 +1227,24 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			seed: []time.Duration{8 * 24 * time.Hour, 9 * 24 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
 		{name: "plain: without the yardr CLI a repeat only logs", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{24 * time.Hour}, barePath: true},
+		// The rerun's output replaces the first run's, so the log line keeps
+		// the failing lines of each failed test behind a separator, and the
+		// printed line stays short.
+		{name: "plain: a subtest has a block of its own and its parent's holds it", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: nestedFail, tests: "TestX TestX/done TestX/mail TestY", kept: nestedKept},
+		{name: "plain: a failure with no test keeps the short line", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: timeoutFail, noTests: true},
+		// A repeat files the lines whole, the kept ones with them. Only the
+		// part before the separator names the tests that flaked: a test that
+		// another test's kept lines mention has no sighting of its own, which
+		// would file it and strike it.
+		{name: "plain: a repeat flake files the kept lines too", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true,
+			seedAs:  "TestX (m.test/m) passed on rerun" + sep + "--- FAIL: TestX (0.30s)" + eol + "    x_test.go:9: an older boom",
+			foreign: mentions},
+		{name: "plain: a test named only in another's kept lines is no sighting", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other, unlisted: true,
+			seedAs: mentions},
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
 		// itself rather than the gate.
@@ -1198,7 +1261,17 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if c.testName != "" {
 				testName = c.testName
 			}
-			flaky := "test: flaky: " + testName + " (" + pkg + ") passed on rerun"
+			// The head of the log line, which the printed line repeats: the
+			// tests that failed and their package.
+			names := testName
+			if c.tests != "" {
+				names = c.tests
+			}
+			head := names + " (" + pkg + ") passed on rerun"
+			if c.noTests {
+				head = pkg + " passed on rerun"
+			}
+			flaky := "test: flaky: " + head
 			caseTitle := "Flaky: " + testName + " (" + pkg + ")"
 			// The step a failure summary names: a landing's is raced, a plain
 			// run's is not.
@@ -1245,12 +1318,21 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			}
 			flakyLog := filepath.Join(common, "yardr-flaky.log")
 			// Prior sightings, at the short sha the run appends under, so
-			// the log's lines all read as the gate's own.
+			// the log's lines all read as the gate's own. Without a text of
+			// their own they are the short lines the log held before the
+			// separator existed.
 			if len(c.seed) > 0 {
 				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
+				seedText := testName + " (" + pkg + ") passed on rerun"
+				if c.seedAs != "" {
+					seedText = c.seedAs
+				}
 				var seeds []string
+				if c.foreign != "" {
+					seeds = append(seeds, time.Now().Add(-time.Hour).Format("2006-01-02 15:04:05")+" "+sha+" "+c.foreign)
+				}
 				for _, age := range c.seed {
-					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+sha+" "+testName+" ("+pkg+") passed on rerun")
+					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+sha+" "+seedText)
 				}
 				if err := os.WriteFile(flakyLog, []byte(strings.Join(seeds, "\n")+"\n"), 0o644); err != nil {
 					t.Fatal(err)
@@ -1309,6 +1391,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			} else if !strings.Contains(out, running+"\n") {
 				t.Errorf("the output has no %q line", running)
 			}
+			var logged []string
 			if c.ok || c.strike {
 				// One flaky line names the test and its package; a strike
 				// fails the step after it.
@@ -1332,23 +1415,47 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				var logged []string
 				if s := strings.TrimSpace(string(logb)); s != "" {
 					logged = strings.Split(s, "\n")
 				}
-				if len(logged) != n+len(c.seed) {
-					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d) plus the %d priors", len(logged), n, len(c.seed))
+				priors := len(c.seed)
+				if c.foreign != "" {
+					priors++
+				}
+				if len(logged) != n+priors {
+					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d) plus the %d priors", len(logged), n, priors)
 				}
 				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
 				dated := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} `)
+				wants := []string{sha, pkg, testName}
+				if c.noTests {
+					wants = []string{sha, pkg}
+				}
 				for _, line := range logged {
-					for _, want := range []string{sha, pkg, testName} {
+					for _, want := range wants {
 						if !strings.Contains(line, want) {
 							t.Errorf("flaky log line %q, want it to carry %q", line, want)
 						}
 					}
 					if !dated.MatchString(line) {
 						t.Errorf("flaky log line %q, want it to start with the date", line)
+					}
+				}
+				// The run's own line is the last: the date, the head the
+				// printed line repeats, and, behind the separator, what the
+				// first run printed for each failed test. A failure that
+				// names no test keeps none, and its line is the short one.
+				if len(logged) > 0 {
+					kept := c.kept
+					if c.line == "" {
+						kept = "--- FAIL: " + testName + " (0.00s)"
+					}
+					want := sha + " " + head
+					if kept != "" {
+						want += sep + kept
+					}
+					if last := logged[len(logged)-1]; len(last) < len("2006-01-02 15:04:05 ") || last[len("2006-01-02 15:04:05 "):] != want {
+						t.Errorf("the run's flaky log line is %q, want the date and then %q", last, want)
 					}
 				}
 				if c.strike {
@@ -1431,6 +1538,13 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 						t.Errorf("the filed body line %q, want the test's log line", line)
 					}
 				}
+				// Whole lines, the kept ones with them: the body is what the
+				// log says of the test, here every line that names it in its
+				// head, not the one that mentions it behind the separator.
+				named := slices.DeleteFunc(slices.Clone(logged), func(line string) bool { return c.foreign != "" && strings.HasSuffix(line, c.foreign) })
+				if !slices.Equal(carried, named) {
+					t.Errorf("the filed body is:\n%s\nwant the flaky log's lines that name the test:\n%s", strings.Join(carried, "\n"), strings.Join(named, "\n"))
+				}
 				if want := "test: filed m-filed: " + caseTitle + "\n"; !strings.Contains(out, want) {
 					t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
 				}
@@ -1440,8 +1554,12 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if c.yardr {
 				// Every repeat consults the open beads once; only a case
 				// whose bead names a depot asks the CLI for it.
-				if lists != 1 {
-					t.Errorf("the run listed beads %d times, want 1", lists)
+				wantLists := 1
+				if c.unlisted {
+					wantLists = 0
+				}
+				if lists != wantLists {
+					t.Errorf("the run listed beads %d times, want %d", lists, wantLists)
 				}
 				wantShows := 0
 				if c.show != "" {
@@ -1468,6 +1586,166 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			}
 			if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
 				t.Errorf("left behind: %v", left)
+			}
+		})
+	}
+}
+
+// What the flaky log line keeps of the first run (flakyfails) and which of its
+// lines name a test (flakylines), through the script's own functions, cut out
+// of it and run on output as go prints it: a shell and an awk a case, where a
+// gate run costs seconds. TestYardTestRerunsFailedPackagesOnce pins that the
+// gate writes and reads them. A block is a test's `--- FAIL:` line and the
+// lines indented deeper than it, so a subtest has a block of its own and its
+// parent's holds it; output between reports ends a block; a panic's line,
+// which go prints unindented after the FAIL line, joins the blocks it follows;
+// a block keeps 6 lines of 200 characters and a line 20 blocks; control
+// characters are dropped. Only the head of a log line, before the separator,
+// names the tests that flaked.
+func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The functions as the script has them, from the separator to the
+	// filing: a script the cuts no longer follow fails the test, telling
+	// its editor to move the probe with it.
+	_, fns, ok := strings.Cut(string(b), "\nflaky_sep=")
+	if ok {
+		fns, _, ok = strings.Cut("flaky_sep="+fns, "\n# flakyfile files a bead")
+	}
+	if !ok || !strings.Contains(fns, "\nflakyfails() {") || !strings.Contains(fns, "\nflakylines() {") {
+		t.Fatalf("cannot cut flakyfails and flakylines out of %s: move the probe with the script", yardTest)
+	}
+	dir := t.TempDir()
+	probe := filepath.Join(dir, "probe.sh")
+	if err := os.WriteFile(probe, []byte(fns+"\n\"$@\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// run calls one of the functions on a file, and returns what it printed
+	// less its last newline.
+	run := func(t *testing.T, in, fn string, args ...string) string {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "in")
+		if err := os.WriteFile(file, []byte(in), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("sh", append([]string{probe, fn}, append(args, file)...)...)
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil || stderr.Len() > 0 {
+			t.Fatalf("%s: %v\n%s", fn, err, stderr.String())
+		}
+		return strings.TrimSuffix(string(out), "\n")
+	}
+	const sep, eol = " | ", `\n`
+	block := func(lines ...string) string { return strings.Join(lines, eol) }
+	// A report of seven lines, the fifth 300 characters long: six are kept,
+	// the fifth cut at 200, and the seventh is dropped.
+	long := "    a_test.go:5: " + strings.Repeat("x", 300)
+	// Twenty-five tests fail with a line each: twenty blocks are kept.
+	var manyIn, manyBlocks []string
+	for i := range 25 {
+		manyIn = append(manyIn, fmt.Sprintf("--- FAIL: TestT%02d (0.00s)\n    t_test.go:1: boom %02d", i, i))
+		if i < 20 {
+			manyBlocks = append(manyBlocks, block(fmt.Sprintf("--- FAIL: TestT%02d (0.00s)", i), fmt.Sprintf("    t_test.go:1: boom %02d", i)))
+		}
+	}
+	for _, c := range []struct {
+		name string
+		in   string
+		want []string // the blocks, in the order the reports print them
+	}{
+		{"an assertion", "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\nFAIL\nFAIL\tm.test/a 0.1s\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
+		{"a report with no lines under it", "--- FAIL: TestA (0.00s)\nFAIL\nFAIL\tm.test/a 0.1s\n",
+			[]string{"--- FAIL: TestA (0.00s)"}},
+		// go indents a message's later lines by 8 and prints a blank one as
+		// the 8 spaces: neither ends the block, nor is kept.
+		{"a message of several lines", "--- FAIL: TestA (0.00s)\n    a_test.go:15: first line\n        \n        third line\n    a_test.go:16: stop here\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:15: first line", "        third line", "    a_test.go:16: stop here")}},
+		{"output between reports is not kept", "--- FAIL: TestA (0.00s)\n    a_test.go:1: one\n2026/10/23 02:02:23 noise from the code under test\n    a_test.go:2: under no report\n--- FAIL: TestB (0.00s)\n    b_test.go:1: two\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: one"), block("--- FAIL: TestB (0.00s)", "    b_test.go:1: two")}},
+		// The parent's message after its subtest is at the subtest's indent:
+		// it ends the subtest's block and belongs to the parent's.
+		{"a subtest and its parent's later message", "--- FAIL: TestP (0.01s)\n    --- FAIL: TestP/child (0.00s)\n        p_test.go:21: child went wrong\n    p_test.go:26: parent after\nFAIL\n",
+			[]string{
+				block("--- FAIL: TestP (0.01s)", "    --- FAIL: TestP/child (0.00s)", "        p_test.go:21: child went wrong", "    p_test.go:26: parent after"),
+				block("--- FAIL: TestP/child (0.00s)", "    p_test.go:21: child went wrong"),
+			}},
+		// Each block is shown as the test would print at the top level: the
+		// indentation of its FAIL line comes off its lines.
+		{"three deep", "--- FAIL: TestQ (0.00s)\n    --- FAIL: TestQ/mid (0.00s)\n        --- FAIL: TestQ/mid/deep (0.00s)\n            q_test.go:24: deep went wrong\nFAIL\n",
+			[]string{
+				block("--- FAIL: TestQ (0.00s)", "    --- FAIL: TestQ/mid (0.00s)", "        --- FAIL: TestQ/mid/deep (0.00s)", "            q_test.go:24: deep went wrong"),
+				block("--- FAIL: TestQ/mid (0.00s)", "    --- FAIL: TestQ/mid/deep (0.00s)", "        q_test.go:24: deep went wrong"),
+				block("--- FAIL: TestQ/mid/deep (0.00s)", "    q_test.go:24: deep went wrong"),
+			}},
+		{"6 lines of 200 characters", "--- FAIL: TestA (0.00s)\n    a_test.go:1: one\n    a_test.go:2: two\n    a_test.go:3: three\n    a_test.go:4: four\n" + long + "\n    a_test.go:6: six\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: one", "    a_test.go:2: two", "    a_test.go:3: three", "    a_test.go:4: four", long[:200])}},
+		{"20 blocks", strings.Join(manyIn, "\n") + "\nFAIL\n", manyBlocks},
+		// go prints a test's panic after its FAIL line, unindented, then a
+		// stack: the panic's line joins every block open at that point.
+		{"a panic", "--- FAIL: TestA (0.00s)\n    --- FAIL: TestA/sub (0.00s)\npanic: boom [recovered]\n\tpanic: boom\n\ngoroutine 7 [running]:\ntesting.tRunner.func1.2({0x1, 0x2})\n\ttesting/testing.go:1631 +0x1c4\nFAIL\tm.test/a 0.1s\n",
+			[]string{
+				block("--- FAIL: TestA (0.00s)", "    --- FAIL: TestA/sub (0.00s)", "panic: boom [recovered]"),
+				block("--- FAIL: TestA/sub (0.00s)", "panic: boom [recovered]"),
+			}},
+		{"backslashes and tabs as printed", "--- FAIL: TestA (0.00s)\n    a_test.go:12: got \"a\\nb\", want \"a\\tb\" in C:\\dir\\c\tend\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:12: got \"a\\nb\", want \"a\\tb\" in C:\\dir\\c\tend")}},
+		{"trailing spaces and carriage returns", "--- FAIL: TestA (0.00s)\r\n    a_test.go:1: one  \r\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: one")}},
+		// An escape sequence, a bell, a carriage return inside a line and a
+		// delete: none is kept, the rest of the line is.
+		{"control characters", "--- FAIL: TestA (0.00s)\n    a_test.go:1: red \x1b[31mbold\x1b[0m bell\a cr\rmid del\x7f end\tstop\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: red [31mbold[0m bell crmid del end\tstop")}},
+		// A FAIL marker inside a message is the message's text, no report.
+		{"a marker inside a message", "--- FAIL: TestA (0.00s)\n    a_test.go:3: output was --- FAIL: TestInner (0.00s)\nFAIL\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:3: output was --- FAIL: TestInner (0.00s)")}},
+		{"a test failing in two packages", "--- FAIL: TestA (0.00s)\n    a_test.go:1: in one\nFAIL\nFAIL\tm.test/one 0.1s\n--- FAIL: TestA (0.00s)\n    a_test.go:1: in two\nFAIL\nFAIL\tm.test/two 0.1s\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: in one"), block("--- FAIL: TestA (0.00s)", "    a_test.go:1: in two")}},
+		{"no test failed", "ok  \tm.test/a\t0.1s\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\nFAIL\tm.test/b 600.1s\n", nil},
+		{"an empty log", "", nil},
+	} {
+		t.Run("keeps: "+c.name, func(t *testing.T) {
+			if got, want := run(t, c.in, "flakyfails"), strings.Join(c.want, sep); got != want {
+				t.Errorf("flakyfails printed:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+
+	// The lines of a log that name a test: its name between spaces before
+	// the separator. A line without a separator is all head.
+	const log = "2026-10-20 10:00:00 abc1234 TestA TestA/sub (m.test/a) passed on rerun\n" +
+		"2026-10-20 10:05:00 abc1234 TestAB (m.test/a) passed on rerun\n" +
+		"2026-10-20 10:10:00 abc1234 TestC (m.test/c) passed on rerun | --- FAIL: TestC (0.00s)" + eol + "    c_test.go:1: waiting for TestA to start\n" +
+		"2026-10-20 10:15:00 abc1234 TestA (m.test/a) passed on rerun | --- FAIL: TestA (0.00s)" + eol + "    a_test.go:2: boom\n" +
+		"2026-10-20 10:20:00 abc1234 m.test/z passed on rerun\n" +
+		"2026-10-20 10:25:00 abc1234 TestX/a\\b (m.test/x) passed on rerun\n" +
+		"2026-10-20 10:30:00 abc1234 TestG* (m.test/g) passed on rerun\n"
+	logLines := strings.Split(strings.TrimSuffix(log, "\n"), "\n")
+	for _, c := range []struct {
+		name, test string
+		want       []int // the lines of log, by index
+	}{
+		{"a name in a head", "TestA", []int{0, 3}},
+		{"a subtest in a head", "TestA/sub", []int{0}},
+		{"a longer name is another test", "TestAB", []int{1}},
+		{"a name only in another test's kept lines", "TestC", []int{2}},
+		{"a name with a backslash is data", `TestX/a\b`, []int{5}},
+		{"a name with a glob character is data", "TestG*", []int{6}},
+		{"a pattern is no name", "Test*", nil},
+		{"a name the log lacks", "TestZ", nil},
+	} {
+		t.Run("names: "+c.name, func(t *testing.T) {
+			var want []string
+			for _, i := range c.want {
+				want = append(want, logLines[i])
+			}
+			if got := run(t, log, "flakylines", c.test); got != strings.Join(want, "\n") {
+				t.Errorf("flakylines %s printed:\n%s\nwant:\n%s", c.test, got, strings.Join(want, "\n"))
 			}
 		})
 	}
