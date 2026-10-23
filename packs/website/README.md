@@ -31,9 +31,9 @@ checkout. The format and how a pack maps to a yard are in
 ```
 backlog -> new | decide
 new -> review on done | decide on question | backlog
-review -> review-security on done | approved on done-safe | new on changes | decide on question
-review-security -> approved on done | new on changes | decide on question
-approved -> merged on done | new on failed | decide on question
+review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question
+review-security -> approved on done | new on changes max 3 then decide | decide on question
+approved -> merged on done | new on failed max 3 then decide | decide on question
 merged -> live on done | decide on failed
 decide -> backlog | new | merged
 live terminal
@@ -56,6 +56,23 @@ a task tracks moves to started, in review and done as the task enters
 `new`, `review` (or `review-security`) and `merged`, and stays done at
 `live`. There is no `github` says: the starter's lines report a train's
 pull request, and this pack has no train flow.
+
+## Limits on rounds
+
+The three ways back to `new` (`changes` from `review` and from
+`review-security`, `failed` from `approved`) are limited as the starter's are:
+3 rounds, counted together, and the fourth goes to `decide`, where a person
+reads the note that asked for it. The review cycle is the starter's, copied, so
+its reasons are too; the
+[starter's README](../starter/README.md#limits-on-rounds) gives them. The
+deploy stage has no limit: a deploy that fails goes to `decide` at once.
+
+`yardr flow show` prints a limit as `max 3 then decide`. A yard that wants
+other numbers changes them in its copy of the pack, or in the flow it keeps
+(`yardr flow set`). Importing the pack again gives a yard these limits, and
+`yardr pack check` shows them as a change to the flow first.
+[docs/flows.md](../../docs/flows.md#a-limit-on-rounds) says how rounds are
+counted and what the move to `then` writes to the log.
 
 ## The deploy group
 

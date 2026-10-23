@@ -356,12 +356,13 @@ outcome redirects the bead the same way.
 The packs that ship with yardr carry limits ([packs.md](packs.md#packyaml)).
 The starter pack's default flow limits its three ways back to `new` (`changes`
 from `review` and from `review-security`, `failed` from `approved`) to 3 rounds,
-counted together, and sends the fourth to `decide`. The design pack's flow
-limits `changes` from `critique` to 2 rounds and `failed` from `approved` to 3,
-both back to `draft`, then `decide`. The train flow has none. A yard that has the
-flow gets the limits when it imports the pack again (`yardr pack check` shows
-the change first), and a flow in a depot's repository has them when its file
-does: depot yardr's own,
+counted together, and sends the fourth to `decide`. The website pack's default
+flow, the starter's with a deploy stage, has the same three. The design pack's
+flow limits `changes` from `critique` to 2 rounds and `failed` from `approved`
+to 3, both back to `draft`, then `decide`. The train flow has none. A yard that
+has the flow gets the limits when it imports the pack again (`yardr pack check`
+shows the change first), and a flow in a depot's repository has them when its
+file does: depot yardr's own,
 [`.yardr/flows/default.flow`](../.yardr/flows/default.flow), carries the
 starter's three.
 

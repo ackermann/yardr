@@ -232,10 +232,11 @@ to that stage in the flow, and `yardr pack export` writes the mapping back.
 
 The packs that ship with yardr carry limits. The starter's default flow limits
 its three ways back to `new` (`changes` from `review` and from `review-security`,
-`failed` from `approved`) to 3 rounds, then `decide`; the design pack limits
-`changes` from `critique` to 2 rounds and `failed` from `approved` to 3, both
-back to `draft`, then `decide`. The starter's train flow has none. Importing
-either pack again gives a yard its limits.
+`failed` from `approved`) to 3 rounds, then `decide`, and the website pack's
+default flow, which is the starter's with a deploy stage, has the same three;
+the design pack limits `changes` from `critique` to 2 rounds and `failed` from
+`approved` to 3, both back to `draft`, then `decide`. The starter's train flow
+has none. Importing one of these packs again gives a yard its limits.
 
 **Paths.** A role, script or stage file is always relative to the pack's
 directory, so a pack works wherever it is cloned. An absolute path, a path

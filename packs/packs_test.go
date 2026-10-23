@@ -362,10 +362,11 @@ func TestStageFilesSayWhereARoundPastTheLimitGoes(t *testing.T) {
 			}
 		}
 	}
-	// The starter's three ways back to new and the design pack's two ways back
-	// to draft: a pack that gains one raises this number with its sentence.
-	if limited != 5 {
-		t.Errorf("%d limited outcomes in the packs, want the starter's 3 and the design pack's 2", limited)
+	// The starter's three ways back to new, the design pack's two ways back to
+	// draft and the website pack's three, which are the starter's: a pack that
+	// gains one raises this number with its sentence.
+	if limited != 8 {
+		t.Errorf("%d limited outcomes in the packs, want the starter's 3, the design pack's 2 and the website pack's 3", limited)
 	}
 }
 
@@ -553,11 +554,12 @@ func TestDesignPack(t *testing.T) {
 // The website pack is the starter's line with a deploy stage after landing,
 // for a website on the user's own Void platform: one depot flow, no train
 // flow, merged worked by the deploy group, live the end, and decide able to
-// send a bead back to merged. Its roles, stage files but merged.md's, and
-// merge-local are the starter's, byte for byte, so the two never say
-// different things of one stage; its deploy-void is the reference script's,
-// held equal in internal/pack beside the executable bits an embed has no
-// mode for. A change to one of them is made in both.
+// send a bead back to merged. Its three ways back to new are limited as the
+// starter's are, to 3 rounds and then decide. Its roles, stage files but
+// merged.md's, and merge-local are the starter's, byte for byte, so the two
+// never say different things of one stage; its deploy-void is the reference
+// script's, held equal in internal/pack beside the executable bits an embed
+// has no mode for. A change to one of them is made in both.
 func TestWebsitePack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, packs.Website)
 	if err != nil {
@@ -575,6 +577,9 @@ func TestWebsitePack(t *testing.T) {
 		line := s.Name + " (" + s.Group + ")"
 		for _, o := range s.Outcomes {
 			line += " " + o.Name + ":" + o.To
+			if o.Max > 0 {
+				line += fmt.Sprintf("(max %d then %s)", o.Max, o.Then)
+			}
 		}
 		if len(s.Manual) > 0 {
 			line += " -> " + strings.Join(s.Manual, ",")
@@ -587,9 +592,9 @@ func TestWebsitePack(t *testing.T) {
 	if want := []string{
 		"backlog (backlog) -> new,decide",
 		"new (builders) done:review question:decide -> backlog",
-		"review (reviewers) done:review-security done-safe:approved changes:new question:decide",
-		"review-security (security-reviewers) done:approved changes:new question:decide",
-		"approved (assembly) done:merged failed:new question:decide",
+		"review (reviewers) done:review-security done-safe:approved changes:new(max 3 then decide) question:decide",
+		"review-security (security-reviewers) done:approved changes:new(max 3 then decide) question:decide",
+		"approved (assembly) done:merged failed:new(max 3 then decide) question:decide",
 		"merged (deploy) done:live failed:decide",
 		"decide (decisions) -> backlog,new,merged",
 		"live ()",
