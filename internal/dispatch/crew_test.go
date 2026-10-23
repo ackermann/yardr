@@ -2057,9 +2057,10 @@ func TestCrewSessionGoneAtOnceIsAFailedStart(t *testing.T) {
 // Found live (yardr-ybxk): a session that was gone left its workspace open,
 // one for each, five by the time the daemon gave the crew member up. The
 // daemon keeps the handle of every such session and, when the next one has
-// started, closes them all but the latest, whose pane is the only place
-// that shows why the harness exited.
-func TestCrewSessionsGoneLeaveOneWorkspace(t *testing.T) {
+// started, closes every one that never ran, latest or not: its pane's last
+// lines are on the journal beside its failure, so nothing of the diagnosis
+// is lost with it.
+func TestCrewEarlyExitsLeaveNoWorkspace(t *testing.T) {
 	t.Parallel()
 	s, f, d, at := shortLived(t)
 	ctx := context.Background()
@@ -2069,13 +2070,11 @@ func TestCrewSessionsGoneLeaveOneWorkspace(t *testing.T) {
 		at(time.Second)
 		must(t, d.Reconcile(ctx))
 		r, _ := s.GetCrew(ctx, "yardmaster")
-		// Gone, and nothing started since: the one before it is still open
-		// too, and no more than that, however many went before.
+		// Gone, and nothing started since: only its own workspace is open,
+		// however many went before — each earlier one was closed at the
+		// next start.
 		want := fmt.Sprintf("yardmaster-%d", n)
-		if n > 1 {
-			want = fmt.Sprintf("yardmaster-%d yardmaster-%d", n-1, n)
-		}
-		if got := f.workspaces(); got != want || len(r.Left) != len(strings.Fields(want)) {
+		if got := f.workspaces(); got != want || len(r.Left) != 1 {
 			t.Fatalf("after %d sessions gone: workspaces %q, left %v; want %q", n, got, r.Left, want)
 		}
 		if n < store.MaxStartFails {
@@ -2086,22 +2085,85 @@ func TestCrewSessionsGoneLeaveOneWorkspace(t *testing.T) {
 	if r, _ := s.GetCrew(ctx, "yardmaster"); r.State != "failed" || f.n != store.MaxStartFails {
 		t.Fatalf("state %s after %d sessions", r.State, f.n)
 	}
-	// Five sessions gone; the next start leaves the last one's workspace
-	// beside its own.
+	// Five sessions gone; the next start closes the last one's workspace,
+	// leaving exactly the live one.
 	must(t, s.SetCrewEnabled(ctx, "yardmaster", true, "", "me"))
 	must(t, d.Reconcile(ctx))
 	r, _ := s.GetCrew(ctx, "yardmaster")
-	if got := f.workspaces(); got != "yardmaster-5 yardmaster-6" || !r.Live() || len(r.Left) != 1 || r.Left[0]["agent"] != "yardmaster-5" {
+	if got := f.workspaces(); got != "yardmaster-6" || !r.Live() || len(r.Left) != 0 {
 		t.Fatalf("after the next start: workspaces %q, crew member %+v", got, r)
 	}
 	// A session ended by yardr (here a restart) is stopped, which closes
-	// what it ran in: nothing of it is kept, and the latest that was gone
-	// stays.
+	// what it ran in: nothing of it is kept.
 	must(t, s.RequestRestart(ctx, "yardmaster", "test", "", "me"))
 	must(t, d.Reconcile(ctx))
 	r, _ = s.GetCrew(ctx, "yardmaster")
-	if got := f.workspaces(); got != "yardmaster-5 yardmaster-7" || len(r.Left) != 1 {
+	if got := f.workspaces(); got != "yardmaster-7" || len(r.Left) != 0 {
 		t.Fatalf("after a restart: workspaces %q, left %v", got, r.Left)
+	}
+}
+
+// A session whose harness exits before it is running leaves no dead
+// workspace behind: the restart closes what it opened, latest or not, after
+// its pane's parting words went on the journal beside the failure.
+func TestCrewEarlyExitRestartClosesItsWorkspace(t *testing.T) {
+	t.Parallel()
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	f.show("Error: no login found\nRun /login to connect")
+	f.set(agentOf(t, s), "")
+	at(time.Second)
+	must(t, d.Reconcile(ctx))
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if r.Live() || r.Failures != 1 || len(r.Left) != 1 {
+		t.Fatalf("after an early exit: %+v", r)
+	}
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	var tail string
+	for _, e := range evs {
+		if e.Kind == "crew_start_tail" {
+			tail, _ = e.Data["tail"].(string)
+		}
+	}
+	if tail != "Error: no login found\nRun /login to connect" {
+		t.Fatalf("crew_start_tail tail = %q", tail)
+	}
+	at(time.Until(*r.RetryAfter) + time.Second)
+	must(t, d.Reconcile(ctx))
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-2" || !r.Live() || len(r.Left) != 0 {
+		t.Fatalf("after the restart: workspaces %q, crew member %+v", got, r)
+	}
+}
+
+// A session that ran and then died keeps today's policy: the restart closes
+// every leftover but the latest, whose pane still shows why it died.
+func TestCrewRanSessionGoneKeepsLatestWorkspace(t *testing.T) {
+	t.Parallel()
+	s, f, d, at := shortLived(t)
+	ctx := context.Background()
+	must(t, d.Reconcile(ctx))
+	at(2 * store.MinSessionLife)
+	gone := func() {
+		t.Helper()
+		f.set(agentOf(t, s), "")
+		must(t, d.Reconcile(ctx)) // lived long enough: started again on this pass
+	}
+	gone()
+	r, _ := s.GetCrew(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-1 yardmaster-2" || !r.Live() || len(r.Left) != 1 || r.Failures != 0 {
+		t.Fatalf("after a ran session died: workspaces %q, crew member %+v", got, r)
+	}
+	// No failure, so no parting words: the spared pane is the record.
+	evs, _ := s.Events(ctx, r.Journal, 100)
+	if slices.ContainsFunc(evs, func(e store.Event) bool { return e.Kind == "crew_start_tail" }) {
+		t.Fatal("a ran session's death logged a start tail")
+	}
+	gone()
+	r, _ = s.GetCrew(ctx, "yardmaster")
+	if got := f.workspaces(); got != "yardmaster-2 yardmaster-3" || len(r.Left) != 1 || r.Left[0]["agent"] != "yardmaster-2" {
+		t.Fatalf("after the next died: workspaces %q, left %v", got, r.Left)
 	}
 }
 

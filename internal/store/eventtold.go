@@ -136,6 +136,7 @@ var eventDataTold = map[string][]string{
 	"crew_stopped":           {"crew", "user"},
 	"crew_start_failed":      {"crew", "failures", "user"},
 	"crew_gave_up":           {"crew", "failures", "user"},
+	"crew_start_tail":        {"crew", "user"},
 	"crew_blocked":           {"agent", "crew", "user"},
 	"crew_restart_requested": {"crew", "user"},
 	"crew_rotation_asked":    {"crew", "user"},

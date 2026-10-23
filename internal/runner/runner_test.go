@@ -1499,7 +1499,8 @@ func TestHerdrLabels(t *testing.T) {
 // bead, with the train between them for a child of one, and each stage's
 // tab the same with the stage in place of the group, ids without the depot;
 // on the first stage (worktree created) and on a later one (worktree
-// reopened, and relabelled).
+// reopened, and relabelled). A stage started again, after its session died
+// early, reopens the same workspace: no second one is left beside it.
 func TestHerdrStartLabels(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1566,6 +1567,16 @@ esac`)}
 	}
 	if got := tab(calls); got != "w1 "+wt+" review 13" {
 		t.Errorf("later stage tab %q:\n%s", got, calls)
+	}
+
+	// The same stage started again reopens the dead session's workspace
+	// rather than opening a second one beside it.
+	calls = start(t, exists, "new", builders, "")
+	if !strings.Contains(calls, "worktree open --cwd ") {
+		t.Errorf("same-stage restart did not reopen the dead session's workspace:\n%s", calls)
+	}
+	if got := tab(calls); got != "w1 "+wt+" new 13" {
+		t.Errorf("same-stage restart tab %q, want it in the reopened workspace:\n%s", got, calls)
 	}
 
 	// A child of a train: the workspace reads the train after the group, the

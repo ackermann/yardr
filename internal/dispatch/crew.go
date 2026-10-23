@@ -37,8 +37,9 @@ type CrewFinder interface {
 // CrewCloser is a CrewRunner in whose runtime a session that ends
 // by itself leaves something open (herdr: the workspace, whose pane's shell
 // outlives the harness). The dispatcher keeps the handle of every such
-// session (store.CrewMember.Left) and has all but the latest closed when the
-// crew member's next session starts. One that leaves nothing does not
+// session (store.CrewMember.Left) and has them closed when the crew
+// member's next session starts: every session that never ran, and all but
+// the latest of the rest. One that leaves nothing does not
 // implement it, and no handle is kept.
 type CrewCloser interface {
 	// CloseLeft closes what the gone session of handle left open. kept is
@@ -253,6 +254,20 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 			// harness printed before it exited, the only place the reason
 			// can be read. The handle is kept instead, where the runtime
 			// has something to close later (see closeLeft).
+			tail := ""
+			if early && s.st.RestartRequested == "" {
+				// A start that failed: its pane's last lines are read now,
+				// while the shell still holds them, and go on the journal
+				// with the failure. The handle is marked, so the next
+				// start closes what it left even as the latest: nothing of
+				// the diagnosis is lost with it.
+				if t, ok := runner.(Tailer); ok && len(s.st.Handle) > 0 {
+					tail, _ = t.Tail(ctx, s.st.Handle, stallTail)
+				}
+				if _, ok := runner.(CrewCloser); ok && len(s.st.Handle) > 0 {
+					d.setCrewHandle(ctx, s, withHandle(s.st.Handle, earlyExit, true))
+				}
+			}
 			gone := d.Store.CrewStoppedFor
 			if _, ok := runner.(CrewCloser); ok {
 				gone = d.Store.CrewGoneFor
@@ -272,7 +287,7 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 				// expired login): started again on this pass it would do the
 				// same every few seconds, forever. An ending that was asked
 				// for (a handoff, a rotation, a restart) is not one of these.
-				return d.crewStartFailed(ctx, runner, s, nil, fmt.Errorf(
+				return d.crewStartFailed(ctx, runner, s, nil, tail, fmt.Errorf(
 					"the session ended %s after its start (gone within %s counts as a failed start)",
 					lived.Round(time.Second), store.MinSessionLife))
 			}
@@ -302,7 +317,7 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	if finder, ok := runner.(CrewFinder); ok {
 		other, err := finder.LiveCrew(ctx, def, s.user)
 		if err != nil {
-			return d.crewStartFailed(ctx, runner, s, nil, err)
+			return d.crewStartFailed(ctx, runner, s, nil, "", err)
 		}
 		if other != nil {
 			// A second session under one name: both would act as the
@@ -334,7 +349,7 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 			// handle. Keep that partial start for home-loss cleanup too.
 			d.noteHomeStarted(startedCrewHome(def.Name, s.user, def.Runner, handle))
 		}
-		return d.crewStartFailed(ctx, runner, s, handle, err)
+		return d.crewStartFailed(ctx, runner, s, handle, "", err)
 	}
 	if def.Runner == "herdr" {
 		// The pane is open from here, whatever the store says next.
@@ -357,21 +372,38 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	return d.closeLeft(ctx, runner, s)
 }
 
+// earlyExit marks the handle of a crew session that never ran (an early
+// exit, gone within store.MinSessionLife): its pane's last lines are on the
+// journal beside its failure, so the next start closes what it left even as
+// the latest (see closeLeft).
+const earlyExit = "early_exit"
+
 // closeLeft closes what r's sessions that were gone left open in the
-// runtime, all but the latest: that one still shows why the last session
-// that died did. It runs when a session has started, so a crew member that is
-// given up keeps at most two, and one that is started again goes back to
-// one. Only handles yardr recorded are closed, never what merely carries
-// the crew member's label; one the runner keeps or cannot close stays listed
-// for the next start.
+// runtime: every session that never ran, latest or not, and all but the
+// latest of the rest — that one still shows why the last session that died
+// did. It runs when a session has started, so a crew member that is given
+// up keeps at most two, and one that is started again goes back to one, or
+// to none when every leftover never ran. Only handles yardr recorded are
+// closed, never what merely carries the crew member's label; one the runner
+// keeps or cannot close stays listed for the next start.
 func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, s *memberSession) error {
 	closer, ok := runner.(CrewCloser)
-	if !ok || len(s.st.Left) < 2 {
+	if !ok || len(s.st.Left) == 0 {
 		return nil
 	}
-	latest := len(s.st.Left) - 1
-	left := make([]map[string]any, 0, 1)
-	for _, h := range s.st.Left[:latest] {
+	spared := -1
+	for i := len(s.st.Left) - 1; i >= 0; i-- {
+		if s.st.Left[i][earlyExit] != true {
+			spared = i
+			break
+		}
+	}
+	left := make([]map[string]any, 0, len(s.st.Left))
+	for i, h := range s.st.Left {
+		if i == spared {
+			left = append(left, h)
+			continue
+		}
 		kept, err := closer.CloseLeft(ctx, s.member, h)
 		if err != nil {
 			d.Log.Warn("crew: closing what a gone session left", "crew", s.member.Name, "session", s.label(), "err", err)
@@ -381,7 +413,6 @@ func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, s *memberSess
 			left = append(left, h)
 		}
 	}
-	left = append(left, s.st.Left[latest])
 	if len(left) == len(s.st.Left) {
 		return nil
 	}
@@ -529,8 +560,10 @@ func crewSessionEvent(event store.Event, name, user string) bool {
 
 // crewStartFailed counts a start that did not happen, or whose session
 // was gone at once, against the session and backs it off; handle is what
-// the runner left behind.
-func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memberSession, handle map[string]any, err error) error {
+// the runner left behind. tail is the pane's last lines of a session that
+// was gone at once, "" where there are none: they go on the journal beside
+// the failure, since the next start closes what the session left.
+func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memberSession, handle map[string]any, tail string, err error) error {
 	backoff := min(30*time.Second<<min(s.st.Failures, 5), 10*time.Minute)
 	if s.st.Failures+1 >= store.MaxStartFails {
 		d.Log.Error("crew session given up", "crew", s.member.Name, "session", s.label(), "err", err, "failures", s.st.Failures+1)
@@ -550,7 +583,15 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memb
 			d.dropHome(crewHomeKey(s.member.Name, s.user))
 		}
 	}
-	return d.Store.CrewStartFailedFor(ctx, s.member.Name, s.user, err.Error(), backoff)
+	if err := d.Store.CrewStartFailedFor(ctx, s.member.Name, s.user, err.Error(), backoff); err != nil {
+		return err
+	}
+	if tail != "" {
+		if err := d.Store.LogDispatch(ctx, s.member.Journal, "crew_start_tail", actor, s.who(map[string]any{"tail": tail})); err != nil {
+			d.Log.Warn("crew session's last lines", "crew", s.member.Name, "session", s.label(), "err", err)
+		}
+	}
+	return nil
 }
 
 // crewRunning handles a healthy session: a first prompt still to

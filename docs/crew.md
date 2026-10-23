@@ -106,10 +106,14 @@ rotation, `yardr crew restart` or `stop`.
 itself, its pane's shell stays, and with it the workspace `<yard> <name>`.
 yardr does not close it then: the pane shows what the harness printed before
 it exited (`Not logged in · Run /login`), and that is the only place to read
-it. When the crew member's next session has started, yardr closes the
-workspaces its earlier sessions that were gone left, all but the latest. So
-a crew member has at most two of them beside its running session's: after five
-failed starts, the last two; after `yardr crew start`, the last one.
+it. A session that never ran (gone within 60 seconds of its start) has its
+pane's last lines copied onto its journal beside its `crew_start_failed`
+event, as `crew_start_tail`. When the crew member's next session has started,
+yardr closes the workspaces its earlier sessions that were gone left: every
+one that never ran, and all but the latest of the rest. So after five failed
+starts and `yardr crew start`, nothing dead stays beside the running
+session's; a session that ran and then died keeps its pane until the next
+start after it.
 
 yardr closes only a workspace it opened for that crew member, which it knows by
 the id it recorded at the start (`left` in `yardr crew show <name>
