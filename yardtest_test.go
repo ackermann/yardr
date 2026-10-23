@@ -1041,6 +1041,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			script, err := os.ReadFile(yardTest)
 			if err != nil {
 				t.Fatal(err)
@@ -1201,8 +1202,8 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // part before the separator says which tests flaked: a line without it, as
 // the log held before the separator existed, is all of it.
 //
-// A row is a whole run of the script, and the rows run one after another, 2 to
-// 3 s apiece: the root package has little room under R1's 60 s (yardr-fvkm).
+// A row is a whole run of the script, 2 to 3 s apiece, and the rows run in
+// parallel: the root package has little room under R1's 60 s (yardr-fvkm).
 // A case for flakyopen or flakyfile goes in
 // TestYardTestKeepsTheFailingLinesOfAFlake, which runs the functions alone.
 func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
@@ -1425,6 +1426,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			line: raceFailMixed, racePkgs: racePkg, raced: true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			testName := test
 			if c.testName != "" {
 				testName = c.testName
