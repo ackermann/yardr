@@ -2381,3 +2381,84 @@ func TestSchema28GrantsGainGiven(t *testing.T) {
 		t.Fatalf("schema after Open = %d; want 30", got)
 	}
 }
+
+// A store written by the v0.9.0 release opens under this build, migrates
+// from schema 19 to the current schema, and reads back: the depot, flow,
+// bead, user and hook it was written with. The stores above are this
+// build's records under an old stamp; the fixture's bytes are a released
+// build's, so this is the check that upgrading from it works (F3).
+//
+// To refresh the fixture at a release: check the release out in a detached
+// worktree (`git worktree add --detach <dir> vX.Y.Z`), add a temporary
+// program in it that opens a fresh store and writes one depot ({Name:
+// "web", Base: "origin/main", Test: "go test ./..."}), one flow ({Name:
+// "simple", Stages: ["new", "review"], Transitions: {"new": ["review"]},
+// Terminal: ["review"]}), one user ("ada"), one bead ({ID: "web-1", Title:
+// "a released bead", Body: "written by vX.Y.Z", Type: "task", Stage: "new",
+// Depot: "web", Labels: ["ui"]}) and one hook ({Name: "github", Source:
+// "github", SecretFile: "secrets/github"}), run it, copy the store over
+// testdata/vX.Y.Z.db (renaming the old file away), remove the worktree,
+// and update the file name, the bead's body and the pre-open stamp below.
+func TestReleasedStoreOpensAndMigrates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	copyFile(t, "testdata/v0.9.0.db", path)
+	if got := schemaOf(t, path); got != 19 {
+		t.Fatalf("fixture schema = %d; want 19 (v0.9.0)", got)
+	}
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := false
+	t.Cleanup(func() {
+		if !closed {
+			_ = s.Close(ctx)
+		}
+	})
+	depots, err := s.Depots(ctx)
+	if err != nil || len(depots) != 1 || depots[0].Name != "web" {
+		t.Errorf("depots = %+v, %v", depots, err)
+	}
+	b, err := s.GetBead(ctx, "web-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Title != "a released bead" || b.Body != "written by v0.9.0" || b.Type != "task" ||
+		b.Stage != "new" || b.Depot == nil || *b.Depot != "web" || !slices.Equal(b.Labels, []string{"ui"}) {
+		t.Errorf("bead = %+v", b)
+	}
+	f, err := s.GetFlow(ctx, "simple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.Stages, []string{"new", "review"}) || !slices.Equal(f.Terminal, []string{"review"}) ||
+		!slices.Equal(f.Transitions["new"], []string{"review"}) {
+		t.Errorf("flow = %+v", f)
+	}
+	u, err := s.GetUser(ctx, "ada")
+	if err != nil {
+		t.Errorf("GetUser = %v", err)
+	} else if u.Name != "ada" {
+		t.Errorf("user = %+v", u)
+	}
+	h, err := s.GetHook(ctx, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Source != "github" || h.SecretFile != "secrets/github" {
+		t.Errorf("hook = %+v", h)
+	}
+	err = s.Close(ctx)
+	closed = true
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := schemaOf(t, path); got != 30 {
+		t.Errorf("schema after Open = %d; want 30", got)
+	}
+	if got := schemaOf(t, "testdata/v0.9.0.db"); got != 19 {
+		t.Errorf("the fixture is stamped %d; the migrations ran on the copy", got)
+	}
+}
