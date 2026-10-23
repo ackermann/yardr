@@ -99,6 +99,9 @@ func TestPackApplySlackCarriesDeclarationAndScripts(t *testing.T) {
 	for _, want := range []string{
 		"  check: the call whoami (yardr source check slack)\n",
 		"    answers user_id, team_id, bot_id\n",
+		// The signature covers the timestamp beside the body, and the line
+		// says so.
+		"  hook.verify: hmac-sha256 over \"v0:{timestamp}:{body}\", the signature in the header X-Slack-Signature as hex past the prefix \"v0=\"\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("source show lacks %q:\n%s", want, out)

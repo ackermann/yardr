@@ -240,7 +240,7 @@ func TestPackApplyTelegramCarriesHookThreadHear(t *testing.T) {
 		"  command thread.posted: telegram/thread posted\n",
 		"  command thread.read: telegram/thread read\n",
 		"  command hook.normalize: telegram/normalize\n",
-		"  hook.verify: secret of the body in X-Telegram-Bot-Api-Secret-Token\n",
+		"  hook.verify: secret in the header X-Telegram-Bot-Api-Secret-Token, the hook's secret itself, compared as it arrives\n",
 		"  hook.bodies: unique\n",
 		"  hook.keys: chat\n",
 		"  hear: keeps a delivery whose chat is the TELEGRAM_CHAT_ID of an operator's env_file; anything else is dropped after verification\n",

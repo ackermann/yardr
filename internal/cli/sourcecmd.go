@@ -829,7 +829,7 @@ credential in it whether their file sets that. The value is never printed.
 				if d.Hook != nil {
 					fmt.Fprintf(w, "  command hook.normalize: %s\n", strings.Join(d.Hook.Normalize, " "))
 					fmt.Fprintln(w, "    "+commandFileLine(files["hook.normalize"]))
-					fmt.Fprintf(w, "  hook.verify: %s of the body in %s\n", d.Hook.Verify.Scheme, d.Hook.Verify.Signature.Header)
+					fmt.Fprintln(w, "  "+verifyLine(d))
 					fmt.Fprintf(w, "  hook.bodies: %s\n", d.Hook.Bodies)
 					if len(d.Hook.Keys) > 0 {
 						fmt.Fprintf(w, "  hook.keys: %s\n", strings.Join(d.Hook.Keys, ", "))
@@ -1636,6 +1636,53 @@ func limitsLine(d *source.Declaration) string {
 		return "limits: its command says what the source itself carries (yardr limits)"
 	}
 	return fmt.Sprintf("limits: its command says what the subscription of %s still carries (yardr limits <kind>)", strings.Join(d.Limits.KindNames(), ", "))
+}
+
+// verifyLine says in a line how a hook's deliveries are verified. A
+// signature is named by what it covers, never assumed to be the body: the
+// declaration may sign a template over the timestamp and the delivery id
+// beside it. The line then says how the signature arrives (encoding,
+// prefix, and the separator where one header carries several) and the key
+// it is made with where the secret writes one. The ask card says the same
+// in full (hookSays in the store); a knob added to hook.verify is named in
+// both.
+func verifyLine(d *source.Declaration) string {
+	v := d.Hook.Verify
+	if v.Scheme == source.HookSecret {
+		// Nothing is signed: the header holds the secret itself.
+		return fmt.Sprintf("hook.verify: secret in the header %s, the hook's secret itself, compared as it arrives", v.Signature.Header)
+	}
+	// An unset signed is the body alone, as the receiver reads it.
+	over := v.Signed
+	if over == "" || over == source.HookSigned {
+		over = "the body"
+	} else {
+		// A declaration's literal template may contain control characters;
+		// quote it so it stays one safe line in a terminal.
+		over = fmt.Sprintf("%q", over)
+	}
+	arrives := "as " + v.Signature.Encoding
+	if sep := v.Signature.List; sep != "" {
+		// Several signatures may stand side by side, and one that matches
+		// is enough.
+		each := "with no prefix"
+		if v.Signature.Prefix != "" {
+			each = fmt.Sprintf("past the prefix %q", v.Signature.Prefix)
+		}
+		arrives += fmt.Sprintf(", one or more separated by %q, each %s, any one of them passing", sep, each)
+	} else if v.Signature.Prefix != "" {
+		arrives += fmt.Sprintf(" past the prefix %q", v.Signature.Prefix)
+	}
+	line := fmt.Sprintf("hook.verify: hmac-sha256 over %s, the signature in the header %s %s", over, v.Signature.Header, arrives)
+	// A key the secret writes is not the secret's own bytes.
+	if k := v.Key; k != nil {
+		from := "the whole secret"
+		if k.Prefix != "" {
+			from = fmt.Sprintf("what follows the prefix %q in the secret", k.Prefix)
+		}
+		line += fmt.Sprintf("; the HMAC key is %s, read as %s", from, k.Encoding)
+	}
+	return line
 }
 
 // commandFileLine is one command's program in a line of yardr source show:

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -816,6 +817,83 @@ func TestSourceShowEvents(t *testing.T) {
 	}
 }
 
+// Show names a hook's signature from the declaration: what it covers (the
+// body, or a quoted template over the delivery id, the timestamp and the
+// body),
+// how it arrives (encoding, prefix, several at one separator) and the key
+// the secret writes. The plain shapes are pinned where a pack or a source
+// file is added (TestSourceCommandFiles, the slack and telegram packs);
+// these are the knobs a Standard Webhooks signature brings, alone and
+// together, with and without their prefixes.
+func TestSourceShowHookVerify(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	decl := func(name, verify string) string {
+		return "name: " + name + "\nhook:\n  verify:\n" + verify + "  bodies: unique\n  normalize: [/opt/chat/normalize]\n"
+	}
+	const standard = `    scheme: hmac-sha256
+    signed: "{delivery}.{timestamp}.{body}"
+    delivery: { header: webhook-id }
+    timestamp: { header: webhook-timestamp, unit: s, window: 5m }
+`
+	const plain = `    scheme: hmac-sha256
+    signed: body
+    delivery: { header: X-Delivery }
+`
+	const controlled = `    scheme: hmac-sha256
+    signed: "v0:{timestamp}:{body}\n\u001b[2K"
+    timestamp: { header: webhook-timestamp, unit: s, window: 5m }
+    delivery: { header: webhook-id }
+    signature: { header: webhook-signature, encoding: base64 }
+`
+	for i, tc := range []struct {
+		name, verify, want string
+	}{
+		{"the body behind a prefix", plain + `    signature: { header: X-Sig-256, encoding: hex, prefix: "sha256=" }
+`, `hook.verify: hmac-sha256 over the body, the signature in the header X-Sig-256 as hex past the prefix "sha256="`},
+		{"the delivery id, base64, several entries and a key the secret writes", standard + `    signature: { header: webhook-signature, encoding: base64, list: " ", prefix: "v1," }
+    key: { prefix: "whsec_", encoding: base64 }
+`, `hook.verify: hmac-sha256 over "{delivery}.{timestamp}.{body}", the signature in the header webhook-signature as base64, one or more separated by " ", each past the prefix "v1,", any one of them passing; the HMAC key is what follows the prefix "whsec_" in the secret, read as base64`},
+		{"the same with no prefix on either", standard + `    signature: { header: webhook-signature, encoding: base64, list: " " }
+    key: { encoding: base64 }
+`, `hook.verify: hmac-sha256 over "{delivery}.{timestamp}.{body}", the signature in the header webhook-signature as base64, one or more separated by " ", each with no prefix, any one of them passing; the HMAC key is the whole secret, read as base64`},
+		{"a template with terminal controls", controlled, `hook.verify: hmac-sha256 over "v0:{timestamp}:{body}\n\x1b[2K", the signature in the header webhook-signature as base64`},
+		{"several entries and no key", plain + `    signature: { header: X-Sig-256, encoding: hex, list: ",", prefix: "sha256=" }
+`, `hook.verify: hmac-sha256 over the body, the signature in the header X-Sig-256 as hex, one or more separated by ",", each past the prefix "sha256=", any one of them passing`},
+		{"a key written in another encoding than the signature, and one entry", plain + `    signature: { header: X-Sig-256, encoding: hex }
+    key: { prefix: "k_", encoding: base64 }
+`, `hook.verify: hmac-sha256 over the body, the signature in the header X-Sig-256 as hex; the HMAC key is what follows the prefix "k_" in the secret, read as base64`},
+	} {
+		name := fmt.Sprintf("hook%d", i)
+		if _, err := st.PutSource(context.Background(), name+".yaml", decl(name, tc.verify), "jo"); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		out, err := run(t, a.sourceCmd(), "show", name)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if want := "\n  " + tc.want + "\n"; !strings.Contains(out, want) {
+			t.Errorf("%s: show printed no %q:\n%s", tc.name, want, out)
+		}
+		if strings.ContainsAny(out, "\r\x1b") {
+			t.Errorf("%s: source show printed a terminal control character: %q", tc.name, out)
+		}
+	}
+
+	// An unset signed reads as the body alone, as the receiver and the ask
+	// card read it; only a declaration built by hand arrives without one.
+	d, err := source.Parse("hook.yaml", []byte(decl("hook", plain+`    signature: { header: X-Sig-256, encoding: hex }
+`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Hook.Verify.Signed = ""
+	if got, want := verifyLine(d), "hook.verify: hmac-sha256 over the body, the signature in the header X-Sig-256 as hex"; got != want {
+		t.Errorf("unset signed: verifyLine = %q, want %q", got, want)
+	}
+}
+
 // A command of a declaration that is a file beside the declaration's file
 // is copied into the yard at add, listed by show with its sha256, said
 // runnable by check without being run, and removed with the source; an
@@ -892,7 +970,7 @@ func TestSourceCommandFiles(t *testing.T) {
 		"identity: keys fold lower",
 		"command hook.normalize: scripts/normalize",
 		"file " + normalized + " sha256 " + hex.EncodeToString(sum[:]),
-		"hook.verify: hmac-sha256 of the body in Lin-Sig",
+		"  hook.verify: hmac-sha256 over the body, the signature in the header Lin-Sig as hex\n",
 		"hook.bodies: unique",
 	} {
 		if err != nil || !strings.Contains(out, want) {
