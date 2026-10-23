@@ -341,8 +341,9 @@ func (h *Herdr) lookFor(ctx context.Context, pane string, handle map[string]any,
 // harnessKind is a handle key: the kind of harness the session's agent was
 // started as (claude, codex, ...), which says how its pane is read (see
 // promptPlace). A handle from before the key was written has none, and its
-// pane is read as one of a kind yardr does not know.
-const harnessKind = "kind"
+// pane is read as one of a kind yardr does not know. The store names it too,
+// since the write that ends a crew session copies it off the handle it clears.
+const harnessKind = store.HandleKind
 
 // firstPrompt is a handle key: what a crew member's agent was first told.
 // A bead's session is told where its brief is, which its handle says; a

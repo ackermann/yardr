@@ -185,6 +185,161 @@ func TestRecordUsage(t *testing.T) {
 	}
 }
 
+// A crew session that ended is listed in Uncounted by the write that ended it,
+// for the line session and a conversation's alike, and only when it ran an
+// agent: one with no handle has nothing to count. RecordCrewUsage then finishes
+// the count in one write, taking its entry off and logging a crew_usage event
+// on no bead, and leaves the others as they were. A second call for the same
+// id changes nothing, and a call that cannot record fails without a trace.
+func TestRecordCrewUsage(t *testing.T) {
+	t.Parallel()
+	s, ctx := sessionYard(t)
+	serveYardmaster(t, s, ctx, "", map[string]string{"hal": "/tmp/hal.env"})
+
+	crew := func() *store.CrewMember {
+		t.Helper()
+		r, err := s.GetCrew(ctx, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	// run starts a session of user ("": the line session) with handle and ends
+	// it, by being gone or being stopped. It answers when the session started.
+	run := func(user string, handle map[string]any, gone bool) time.Time {
+		t.Helper()
+		if err := s.CrewStartedFor(ctx, "yardmaster", user, handle); err != nil {
+			t.Fatal(err)
+		}
+		started := *crew().Session(user).StartedAt
+		end := s.CrewStoppedFor
+		if gone {
+			end = s.CrewGoneFor
+		}
+		if err := end(ctx, "yardmaster", user, "done"); err != nil {
+			t.Fatal(err)
+		}
+		return started
+	}
+	// waiting is the ids of the sessions of user waiting for their count.
+	waiting := func(user string) []string {
+		t.Helper()
+		out := []string{}
+		for _, due := range crew().Session(user).Uncounted {
+			out = append(out, due.AgentSession)
+		}
+		return out
+	}
+	events := func() []store.Event {
+		t.Helper()
+		evs, err := s.EventsOfKind(ctx, "crew_usage", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return evs
+	}
+
+	before := time.Now().Truncate(time.Microsecond)
+	started := run("", map[string]any{"agent": "ym-1", "kind": "claude", "agent_session": "a1"}, false)
+	run("", map[string]any{"agent": "ym-2", "kind": "claude", "agent_session": "a2"}, true)
+	run("", nil, false)                                                                          // no agent was started: nothing to count
+	run("", map[string]any{"agent": "ym-4", "kind": "muse"}, false)                              // the runtime named no id
+	run("hal", map[string]any{"agent": "ym-hal", "kind": "codex", "agent_session": "h1"}, false) // a conversation's session
+	if got := waiting(""); !slices.Equal(got, []string{"a1", "a2", ""}) {
+		t.Fatalf("waiting for the line session = %q, want a1, a2 and the one with no id", got)
+	}
+	if got := waiting("hal"); !slices.Equal(got, []string{"h1"}) {
+		t.Fatalf("waiting for hal = %q, want h1, and none on the line session's list", got)
+	}
+	// The entry holds what the handle held, and when the session began and ended.
+	first := crew().Uncounted[0]
+	if first.Kind != "claude" || first.StartedAt == nil || !first.StartedAt.Equal(started) {
+		t.Fatalf("first entry = %+v, want claude, started at %v", first, started)
+	}
+	if first.StoppedAt.Before(before) || first.StoppedAt.After(time.Now()) {
+		t.Fatalf("stopped_at = %v, want a time of this test", first.StoppedAt)
+	}
+	if len(events()) != 0 {
+		t.Fatalf("crew_usage events before any count: %d", len(events()))
+	}
+
+	usage := map[string]any{"input": 1000, "fresh_input": 400, "output": 50, "cache_read": 600, "cache_write": 10, "read_at": "2026-10-22T08:05:00Z"}
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "", "a2", usage); err != nil {
+		t.Fatalf("RecordCrewUsage: %v", err)
+	}
+	if got := waiting(""); !slices.Equal(got, []string{"a1", ""}) {
+		t.Fatalf("waiting after counting a2 = %q, want the others as they were", got)
+	}
+	evs := events()
+	if len(evs) != 1 {
+		t.Fatalf("crew_usage events = %d, want 1", len(evs))
+	}
+	if e := evs[0]; e.Actor != "yard" || e.Bead != nil || e.Data["member"] != "yardmaster" || e.Data["kind"] != "claude" ||
+		e.Data["agent_session"] != "a2" || !sameJSON(t, e.Data["usage"], usage) || e.Data["user"] != nil {
+		t.Errorf("crew_usage = %+v, want the yard's, on no bead, of yardmaster's claude a2 with the usage and no user", e)
+	}
+	if len(crew().Left) != 1 {
+		t.Errorf("left = %v: counting a session is no part of closing what it left", crew().Left)
+	}
+
+	// A second call for the same id is nothing: no event, and not even a new
+	// revision of the crew member.
+	head, err := s.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := crew().Revision
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "", "a2", map[string]any{"input": 999999}); err != nil {
+		t.Fatalf("RecordCrewUsage again: %v", err)
+	}
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "", "a2", nil); err != nil {
+		t.Fatalf("RecordCrewUsage again with no count: %v", err)
+	}
+	if now, err := s.Head(ctx); err != nil || now != head || len(events()) != 1 || crew().Revision != rev {
+		t.Errorf("after the second call: log head %d (%v), %d events, revision changed %v; want nothing new", now, err, len(events()), crew().Revision != rev)
+	}
+
+	// A count of nothing is refused while the entry waits, and leaves it.
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "", "a1", nil); err == nil {
+		t.Error("RecordCrewUsage with no usage was taken")
+	}
+	if err := s.RecordCrewUsage(ctx, "no-such-member", "", "a1", usage); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("RecordCrewUsage of a crew member that is not there = %v, want not found", err)
+	}
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "no-such-user", "a1", usage); err == nil {
+		t.Error("RecordCrewUsage of a conversation session that is not there succeeded")
+	}
+	if got := waiting(""); !slices.Equal(got, []string{"a1", ""}) || len(events()) != 1 {
+		t.Fatalf("after the refused calls: waiting %q, %d events: want no change", got, len(events()))
+	}
+
+	// The session with no id is told apart by having none, and says why there
+	// is no count; a conversation's carries its user, and the line session's
+	// entries stay. The config no longer declares hal's conversation by now, and
+	// its row stays writable, as it is for stopping what still ran of it.
+	why := map[string]any{"missing": "no session id", "read_at": "2026-10-22T08:06:00Z"}
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "", "", why); err != nil {
+		t.Fatal(err)
+	}
+	serveYardmaster(t, s, ctx, "", nil)
+	if err := s.RecordCrewUsage(ctx, "yardmaster", "hal", "h1", usage); err != nil {
+		t.Fatal(err)
+	}
+	if got := waiting(""); !slices.Equal(got, []string{"a1"}) || len(waiting("hal")) != 0 {
+		t.Fatalf("waiting = %q, hal's %q: want a1 alone", got, waiting("hal"))
+	}
+	evs = events()
+	if len(evs) != 3 {
+		t.Fatalf("crew_usage events = %d, want 3", len(evs))
+	}
+	if e := evs[1]; e.Data["kind"] != "muse" || e.Data["agent_session"] != "" || !sameJSON(t, e.Data["usage"], why) {
+		t.Errorf("the count with no id = %+v, want muse, no id and the reason", e.Data)
+	}
+	if e := evs[2]; e.Data["user"] != "hal" || e.Data["kind"] != "codex" || e.Data["agent_session"] != "h1" {
+		t.Errorf("hal's count = %+v, want hal's codex h1", e.Data)
+	}
+}
+
 // sameJSON reports whether a and b are the same value to a JSON reader, so a
 // count the caller gave with ints is the one read back as numbers.
 func sameJSON(t *testing.T, a, b any) bool {

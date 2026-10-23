@@ -72,15 +72,10 @@ func countable(r Runner, s store.Session) bool {
 // since the runtime knows no agent after. "" when the handle has the id
 // already, when the runner names none, or when s is not counted.
 func (d *Dispatcher) lastAgentSession(ctx context.Context, r Runner, s store.Session) string {
-	ider, ok := r.(SessionIDer)
-	if !ok || !countable(r, s) || s.Handle[AgentSession] != nil {
+	if !countable(r, s) {
 		return ""
 	}
-	id, err := ider.SessionID(ctx, s.Handle)
-	if err != nil {
-		return ""
-	}
-	return id
+	return askAgentSession(ctx, r, s.Handle)
 }
 
 // markCountDue marks the count of s, a session whose agent was just stopped,
@@ -134,36 +129,53 @@ func (d *Dispatcher) usage(ctx context.Context, groups map[string]store.Group) e
 	return nil
 }
 
-// readUsage reads the count of the stopped session s and records it. It waits,
-// on the dispatcher's clock, for the cutoff of a kept session to pass (lines
-// up to it may still be coming) and for the agent's own total to be written,
-// and records the result on the pass that has one; an unreadable file is tried
-// again on the next.
+// readUsage reads the count of the stopped session s and records it, once
+// countRecord has one to give; an unreadable file is tried again on the next
+// pass.
 func (d *Dispatcher) readUsage(ctx context.Context, r UsageReader, s store.Session) {
 	due, _ := s.Handle[store.CountDue].(map[string]any)
 	stopped, _ := handleTime(due, CountStoppedAt)
+	rec := d.countRecord(ctx, r, s.Handle, stopped, "usage:"+s.ID, "session", s.ID, "bead", s.Bead)
+	if rec == nil {
+		return
+	}
+	if err := d.Store.RecordUsage(ctx, s.ID, rec); err != nil {
+		d.Log.Warn("record session usage", "session", s.ID, "bead", s.Bead, "err", err)
+	}
+}
+
+// countRecord is the record of what the agent of handle used, as the store
+// keeps it (RecordUsage, RecordCrewUsage), for a session whose agent stopped at
+// stopped: the same rules for the session of a bead and of a crew member. It is
+// nil on a pass that has none yet. It waits, on the dispatcher's clock, for the
+// cutoff of a kept session to pass (lines up to it may still be coming) and for
+// the agent's own total to be written, and gives the result on the pass that
+// has one; an unreadable file says nothing about the count, and is tried again
+// on the next pass. said keys what was told of a session that cannot be read,
+// and who names the session in the log.
+func (d *Dispatcher) countRecord(ctx context.Context, r UsageReader, handle map[string]any, stopped time.Time, said string, who ...any) map[string]any {
+	due, _ := handle[store.CountDue].(map[string]any)
 	until, kept := handleTime(due, CountUntil)
 	now := d.now()
 	if kept && now.Before(until) {
 		d.lookAt(until)
-		return
+		return nil
 	}
 	fallbackAt := stopped.Add(usageWait)
-	got, partial, missing, err := r.Usage(ctx, s.Handle, !now.Before(fallbackAt))
-	said := "usage:" + s.ID
+	got, partial, missing, err := r.Usage(ctx, handle, !now.Before(fallbackAt))
 	switch {
 	case errors.Is(err, ErrUsageNotYet):
 		if now.Before(fallbackAt) {
 			d.lookAt(fallbackAt)
 		}
-		return
+		return nil
 	case err != nil:
 		// Say it once per session and cause, not on every pass.
 		if msg := err.Error(); d.unknown[said] != msg {
 			d.unknown[said] = msg
-			d.Log.Warn("session usage unread", "session", s.ID, "bead", s.Bead, "err", err)
+			d.Log.Warn("session usage unread", append(who, "err", err)...)
 		}
-		return
+		return nil
 	}
 	delete(d.unknown, said)
 	rec := map[string]any{"read_at": now.UTC().Format(time.RFC3339)}
@@ -181,7 +193,5 @@ func (d *Dispatcher) readUsage(ctx context.Context, r UsageReader, s store.Sessi
 			rec["kept"] = true
 		}
 	}
-	if err := d.Store.RecordUsage(ctx, s.ID, rec); err != nil {
-		d.Log.Warn("record session usage", "session", s.ID, "bead", s.Bead, "err", err)
-	}
+	return rec
 }

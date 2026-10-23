@@ -468,6 +468,9 @@ func (c *Client) SetContextFor(ctx context.Context, name, user string, pct, wind
 func (c *Client) MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error {
 	return c.call(ctx, "MarkNotifiedFor", nil, name, user, seq)
 }
+func (c *Client) RecordCrewUsage(ctx context.Context, name, user, agentSession string, usage map[string]any) error {
+	return c.call(ctx, "RecordCrewUsage", nil, name, user, agentSession, usage)
+}
 func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) error {
 	return c.call(ctx, "Journal", nil, name, kind, text, actor)
 }

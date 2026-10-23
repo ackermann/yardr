@@ -171,12 +171,41 @@ func (s *Store) SetCrewHandleFor(ctx context.Context, name, user string, handle 
 	})
 }
 
-// CrewStoppedFor is CrewStopped for one session.
+// addUncounted adds the session that is ending to Uncounted, from what its
+// handle holds, so that the daemon can read what its agent used once the agent
+// has written it. The write that calls it clears the handle or moves it to Left,
+// and the next session's replaces it, so this is the one chance to keep the
+// agent's id with the session. A session with no handle started no agent, and
+// has nothing to count.
+func (st *CrewSession) addUncounted(at time.Time) {
+	if len(st.Handle) == 0 {
+		return
+	}
+	due := CrewUncounted{StoppedAt: at}
+	due.AgentSession, _ = st.Handle[HandleAgentSession].(string)
+	due.Kind, _ = st.Handle[HandleKind].(string)
+	if st.StartedAt != nil {
+		started := *st.StartedAt
+		due.StartedAt = &started
+	}
+	st.Uncounted = append(st.Uncounted, due)
+}
+
+// uncountedIndex is where the entry of the session whose agent's id is
+// agentSession stands in Uncounted, -1 where none does. Entries without an id
+// are alike: the oldest is the first.
+func (st CrewSession) uncountedIndex(agentSession string) int {
+	return slices.IndexFunc(st.Uncounted, func(due CrewUncounted) bool { return due.AgentSession == agentSession })
+}
+
+// CrewStoppedFor is CrewStopped for one session. The count of the tokens its
+// agent used is due from here (addUncounted).
 func (s *Store) CrewStoppedFor(ctx context.Context, name, user, reason string) error {
 	return s.changeCrewSession(name, user, func(w *wtx, r *CrewMember, st *CrewSession) error {
 		if st.State != "running" {
 			return nil
 		}
+		st.addUncounted(now())
 		st.State, st.Status, st.Handle = "stopped", "", nil
 		return w.event(r.Journal, "crew_stopped", "yard", sessionData(user, map[string]any{"crew": name, "reason": reason}))
 	})
@@ -195,8 +224,65 @@ func (s *Store) CrewGoneFor(ctx context.Context, name, user, reason string) erro
 		if len(st.Handle) > 0 {
 			st.Left = append(st.Left, st.Handle)
 		}
+		st.addUncounted(now())
 		st.State, st.Status, st.Handle = "stopped", "", nil
 		return w.event(r.Journal, "crew_stopped", "yard", sessionData(user, map[string]any{"crew": name, "reason": reason}))
+	})
+}
+
+// RecordCrewUsage records what a stopped crew session's agent used, in the one
+// write that finishes its count: the session's entry comes off Uncounted and a
+// crew_usage event, on no bead (a crew member is tied to none), says the same:
+// the member, the user of a conversation session, the kind, the id of the
+// agent's session and usage. The event is the record of the count, for it is
+// all that is left of the session's own: its handle is gone. Done in two
+// writes, a daemon that died between them would lose a session's count or log
+// it twice.
+//
+// An entry that is not there (one an earlier call took off, or a pass that read
+// Uncounted before another recorded the session) is left alone and logs
+// nothing, not even a new revision. Entries are told apart by the id of the
+// agent's session; those with none are alike, and the oldest goes first.
+//
+// usage is what the daemon read, or why it has none to give: the store keeps it
+// as given and reads none of it. The daemon's alone (daemonOnly), as
+// RecordUsage is: a count that a pane could write would be an agent choosing
+// what its session cost.
+func (s *Store) RecordCrewUsage(ctx context.Context, name, user, agentSession string, usage map[string]any) error {
+	if err := s.daemonOnly(ctx, "RecordCrewUsage"); err != nil {
+		return err
+	}
+	var r CrewMember
+	if err := s.read(func(tx *bolt.Tx) error {
+		ok, err := get(tx, bCrew, name, &r)
+		if err == nil && !ok {
+			err = fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	if user != "" {
+		_, row := r.Conversations[user]
+		if !r.HasConversation(user) && !row {
+			return fmt.Errorf("crew member %s has no conversation session for %s", name, user)
+		}
+	}
+	if r.Session(user).uncountedIndex(agentSession) < 0 {
+		return nil // no write, and no new revision, for what is counted already
+	}
+	return s.changeCrewSession(name, user, func(w *wtx, _ *CrewMember, st *CrewSession) error {
+		i := st.uncountedIndex(agentSession)
+		if i < 0 {
+			return nil
+		}
+		if len(usage) == 0 {
+			return fmt.Errorf("usage is empty: give what the session used, or why there is no count")
+		}
+		due := st.Uncounted[i]
+		st.Uncounted = slices.Delete(st.Uncounted, i, i+1)
+		return w.event("", "crew_usage", "yard", sessionData(user, map[string]any{
+			"member": name, "kind": due.Kind, "agent_session": due.AgentSession, "usage": usage}))
 	})
 }
 

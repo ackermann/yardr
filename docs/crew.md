@@ -312,6 +312,33 @@ session is asked to write its handoff now, and after `--handoff-grace`
 yardr restarts it whether it wrote one or not. A session already asked for
 its age is not asked for its use too.
 
+## What a crew session used
+
+The daemon counts the tokens each crew session's agent used, from the agent's
+own session file, as it does for a bead's session
+([groups.md](groups.md#what-a-session-used) has the figures and the rules). A
+crew member is tied to no bead, so the count goes to the crew member. The file
+is found by the id of the agent's session, which herdr forgets with the agent's
+tab, so the daemon keeps it on the session's handle as `agent_session`: it asks
+during the session's first 15 minutes, and once more when the daemon stops the
+session itself. The handle does not outlive the session, so the write that ends
+it, whatever ends it (a rotation, a restart, a crew member stopped or disabled,
+`yardr down`, or the session being gone), copies the id to `uncounted` on the
+crew member's record (`yardr crew show <name> --json`, in the member and in each
+of its `conversations`), with the harness `kind` and when the session started
+and stopped.
+
+The next pass reads the count of each entry and records it in one write: the
+entry comes off `uncounted`, and a `crew_usage` event on no bead says what the
+session used, with `member`, `user` (for a conversation session), `kind`,
+`agent_session` and `usage`. The event is all that is kept of the count. `usage`
+has the figures of a bead's `session_usage` (`input`, `fresh_input`, `output`,
+`cache_read`, `cache_write`, `read_at`, and `partial: true` when the count falls
+short), or `missing` with the reason in their place; the daemon waits as long
+for Claude Code's own total as it does for a bead's session. A kind herdr names
+no id for (Muse today) reads `missing: no session id`. `yardr events --kind
+crew_usage` lists them; no report adds them up yet.
+
 ## Text in the input
 
 A nudge is typed into the crew member's pane, and so is whatever a person is

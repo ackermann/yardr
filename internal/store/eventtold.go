@@ -96,11 +96,14 @@ var eventDataTold = map[string][]string{
 	"train_branched":           {"branch", "child", "commit", "from"},
 
 	// What a stopped session's agent used: the counts, the time they were read,
-	// whether they fall short, and the reason there is none. The store keeps
-	// the reading as the daemon gives it and reads none of it, so it is told
-	// field by field.
-	"session_usage": {"group", "kind", "session", "stage", "usage.input", "usage.fresh_input", "usage.output", "usage.cache_read",
-		"usage.cache_write", "usage.partial", "usage.kept", "usage.read_at", "usage.missing"},
+	// whether they fall short, and the reason there is none (toldUsage). The
+	// store keeps the reading as the daemon gives it and reads none of it, so it
+	// is told field by field. A crew session is named by its member and the user
+	// of a conversation. The id of its agent's own session is held: it names the
+	// agent's file on the yard's machine, and no one who is told the count needs
+	// it.
+	"session_usage": slices.Concat([]string{"group", "kind", "session", "stage"}, toldUsage),
+	"crew_usage":    slices.Concat([]string{"kind", "member", "user"}, toldUsage),
 
 	// Routing: why a bead waits. The reasons are made of the errors of git,
 	// the flows' files and the limits' commands, so none is told but the
@@ -276,6 +279,13 @@ const toldWhole = "*"
 // "What it writes says how it came"), and the users an event became a
 // notification for, which tells a client to read its notifications again.
 var toldEveryKind = []string{"via", "notified"}
+
+// toldUsage are the fields of a count that the kinds which carry one tell
+// (session_usage and crew_usage). The daemon makes the record of both with one
+// function, so one list says what of it is told and the two cannot differ. The
+// reasons for a missing count are the runner's own words, never a path.
+var toldUsage = []string{"usage.input", "usage.fresh_input", "usage.output", "usage.cache_read",
+	"usage.cache_write", "usage.partial", "usage.kept", "usage.read_at", "usage.missing"}
 
 // EventDataToldKinds are the kinds eventDataTold has a row for, sorted: those
 // whose data a decision was made for.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -86,6 +87,10 @@ func (d *Dispatcher) crew(ctx context.Context, paused bool) error {
 	for _, r := range rs {
 		d.noteHomeCrew(r)
 	}
+	// Before the sessions are kept: one that ends in this pass is first read in
+	// the next, once its agent has had the time between to write its last lines
+	// (as usage runs before teardown).
+	d.crewUsage(ctx, rs)
 	for _, r := range rs {
 		if err := d.member(ctx, r, paused); err != nil {
 			d.Log.Error("crew", "crew", r.Name, "err", err)
@@ -383,6 +388,71 @@ func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, s *memberSess
 	return d.Store.CrewLeftFor(ctx, s.member.Name, s.user, left)
 }
 
+// crewAgentSession records the id the runner names for the agent of the live
+// crew session s on its handle, as agentSession does for a bead's session:
+// within modelWindow of the start, so a kind the runner names no id for is not
+// asked on every pass for ever. With last it asks past the window too, as
+// the session is stopped and while its agent's tab is open (lastAgentSession):
+// a crew session lives for a day, and an agent that was slow to start its own
+// session would be missed by the first look alone. The ending of the session
+// copies the id off the handle, which does not outlive it (store.CrewUncounted).
+// s.st.Handle is updated with what it stores.
+func (d *Dispatcher) crewAgentSession(ctx context.Context, r Runner, s *memberSession, last bool) {
+	if !s.st.Live() || !last && (s.st.StartedAt == nil || d.now().Sub(*s.st.StartedAt) > modelWindow) {
+		return
+	}
+	id := askAgentSession(ctx, r, s.st.Handle)
+	if id == "" {
+		return // none yet, or unreachable: asked again next pass
+	}
+	h := withHandle(s.st.Handle, AgentSession, id)
+	if err := d.Store.SetCrewHandleFor(ctx, s.member.Name, s.user, h); err != nil {
+		d.Log.Warn("record agent session", "crew", s.member.Name, "session", s.label(), "err", err)
+		return
+	}
+	s.st.Handle = h
+}
+
+// crewUsage ends the count of every crew session that ended and is due one with
+// one result, recorded by the store in the write that finishes the count
+// (store.RecordCrewUsage), by the rules of a bead's session (usage): what the
+// agent used, or why there is no count. The entries to read are the ones that
+// wait on each session of members (store.CrewSession.Uncounted), the line
+// session's and every conversation's, whether the config still declares the
+// conversation or not.
+func (d *Dispatcher) crewUsage(ctx context.Context, members []store.CrewMember) {
+	for _, m := range members {
+		r, ok := d.Runners[m.Runner].(UsageReader)
+		if !ok {
+			continue // a runner that is gone leaves the entries as they are
+		}
+		d.crewSessionUsage(ctx, r, m.Name, "", m.CrewSession)
+		for _, user := range slices.Sorted(maps.Keys(m.Conversations)) {
+			d.crewSessionUsage(ctx, r, m.Name, user, m.Conversations[user])
+		}
+	}
+}
+
+// crewSessionUsage reads and records the count of each entry of the crew
+// session of name's user ("": the line session), oldest first.
+func (d *Dispatcher) crewSessionUsage(ctx context.Context, r UsageReader, name, user string, st store.CrewSession) {
+	for _, due := range st.Uncounted {
+		// The agent's file is found by its kind and its id alone. The handle
+		// is gone, and with it what a match by worktree would go by (a crew
+		// member runs in a directory of its own, not a bead's worktree), so a
+		// kind that herdr names no id for has none to count.
+		handle := map[string]any{store.HandleKind: due.Kind, AgentSession: due.AgentSession}
+		said := "usage:crew:" + name + ":" + user + ":" + due.AgentSession
+		rec := d.countRecord(ctx, r, handle, due.StoppedAt, said, "crew", name, "user", user)
+		if rec == nil {
+			continue
+		}
+		if err := d.Store.RecordCrewUsage(ctx, name, user, due.AgentSession, rec); err != nil {
+			d.Log.Warn("record crew usage", "crew", name, "user", user, "err", err)
+		}
+	}
+}
+
 // crewSeen records what the runtime says the session is doing, so that
 // who looks at the crew (yardr chat) reads it from the store and its
 // event stream and asks no runtime. The store writes a change only. A
@@ -490,6 +560,8 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	def := s.member
 	key := s.key()
 	idle := status == "idle" || status == "done"
+	// First, so that what the passes below write of the handle holds the id.
+	d.crewAgentSession(ctx, runner, s, false)
 	if _, pending := s.st.Handle[store.PendingPrompt]; !pending {
 		// A login screen is a crew state even when there is no inbox nudge
 		// due. In particular, Claude's selected login option can make the
@@ -786,6 +858,8 @@ const nudgeAtDialog = "nudge held: at a dialog"
 
 func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, s *memberSession, reason string) error {
 	if len(s.st.Handle) > 0 {
+		// Before the tab closes, which makes herdr forget the agent.
+		d.crewAgentSession(ctx, runner, s, true)
 		if err := runner.Stop(ctx, s.st.Handle); err != nil {
 			d.Log.Warn("crew stop", "crew", s.member.Name, "session", s.label(), "err", err)
 		} else {

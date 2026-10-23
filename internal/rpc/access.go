@@ -290,6 +290,7 @@ var Access = map[string]Class{
 	"MarkContextAskedFor":  Daemon,
 	"SetContextFor":        Daemon,
 	"MarkNotifiedFor":      Daemon,
+	"RecordCrewUsage":      Daemon,
 	"Journal":              Admin,
 	"CrewPrime":            Read,
 	"CrewPrimeFor":         Read,

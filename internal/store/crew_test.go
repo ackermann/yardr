@@ -112,7 +112,9 @@ func TestCrewCarriesItsModelAndKind(t *testing.T) {
 }
 
 // A session that was gone keeps its handle in Left, in the write that
-// stops it; one that yardr stopped leaves none.
+// stops it; one that yardr stopped leaves none. Either way the id of its
+// agent's session and its kind wait in Uncounted, for its count of tokens, in
+// the same write: the handle is gone with it.
 func TestCrewGoneKeepsItsHandle(t *testing.T) {
 	t.Parallel()
 	s := storetest.New(t)
@@ -130,8 +132,21 @@ func TestCrewGoneKeepsItsHandle(t *testing.T) {
 		}
 		return strings.Join(ws, " ")
 	}
+	owed := func() string {
+		t.Helper()
+		r, err := s.GetCrew(ctx, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var due []string
+		for _, u := range r.Uncounted {
+			due = append(due, u.AgentSession+"/"+u.Kind)
+		}
+		return strings.Join(due, " ")
+	}
 	for _, ws := range []string{"w1", "w2", "w3"} {
-		if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster", "workspace": ws}); err != nil {
+		if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster", "workspace": ws,
+			"kind": "claude", "agent_session": "id-" + ws}); err != nil {
 			t.Fatal(err)
 		}
 		end := s.CrewGone
@@ -145,9 +160,13 @@ func TestCrewGoneKeepsItsHandle(t *testing.T) {
 	if got := left(); got != "w1 w3" {
 		t.Fatalf("left = %q, want w1 w3", got)
 	}
+	const all = "id-w1/claude id-w2/claude id-w3/claude"
+	if got := owed(); got != all {
+		t.Fatalf("uncounted = %q, want the three sessions, gone and stopped alike: %q", got, all)
+	}
 	// Not running: nothing to keep, and no second event.
-	if err := s.CrewGone(ctx, "yardmaster", "again"); err != nil || left() != "w1 w3" {
-		t.Fatalf("gone twice: left %q, %v", left(), err)
+	if err := s.CrewGone(ctx, "yardmaster", "again"); err != nil || left() != "w1 w3" || owed() != all {
+		t.Fatalf("gone twice: left %q, uncounted %q, %v", left(), owed(), err)
 	}
 	evs, _ := s.Events(ctx, "yardmaster-journal", 100)
 	stopped := 0
@@ -162,9 +181,9 @@ func TestCrewGoneKeepsItsHandle(t *testing.T) {
 	if err := s.CrewLeft(ctx, "yardmaster", []map[string]any{{"workspace": "w3"}}); err != nil || left() != "w3" {
 		t.Fatalf("after CrewLeft: left %q, %v", left(), err)
 	}
-	// Redefining the crew member keeps them.
-	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil || left() != "w3" {
-		t.Fatalf("after a redefinition: left %q, %v", left(), err)
+	// Redefining the crew member keeps them, and what waits to be counted.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil || left() != "w3" || owed() != all {
+		t.Fatalf("after a redefinition: left %q, uncounted %q, %v", left(), owed(), err)
 	}
 }
 

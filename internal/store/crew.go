@@ -189,7 +189,42 @@ type CrewSession struct {
 	// in the runtime, and the handle is how the daemon knows it as its own
 	// when it closes all but the latest (CrewLeft).
 	Left []map[string]any `json:"left,omitempty"`
+
+	// Uncounted are the sessions that ended and whose agent's count of tokens
+	// is not recorded yet, oldest first. The write that ends a session adds
+	// one (CrewStopped, CrewGone), and RecordCrewUsage takes it off in the
+	// write that logs the count. They are kept here and not on the handle,
+	// which that same write clears or moves to Left and the next session's
+	// replaces.
+	Uncounted []CrewUncounted `json:"uncounted,omitempty"`
 }
+
+// CrewUncounted is a session of a crew member that ended and whose agent's
+// count of tokens is due: what the daemon needs to read it from the agent's
+// own session file, taken off the handle as the session ended.
+type CrewUncounted struct {
+	// AgentSession is the id of the session the agent keeps in its own file
+	// (HandleAgentSession), by which the file is found. "" where the runtime
+	// named none while the session ran: the count then says so.
+	AgentSession string `json:"agent_session,omitempty"`
+	// Kind is the harness kind of the agent (HandleKind), which says where
+	// its file is and which of its lines count.
+	Kind      string     `json:"kind,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	// StoppedAt is when the session ended, by the store's clock: the daemon
+	// waits for the agent to write its own total from then (dispatch.usage).
+	StoppedAt time.Time `json:"stopped_at"`
+}
+
+// Keys of a session's handle that the store reads besides the daemon and the
+// runner: the id of the session the agent keeps in its own file, which the
+// dispatcher records while the session runs, and the kind of harness the runner
+// started it as. The write that ends a crew session copies both to its entry in
+// Uncounted, since its handle does not outlive it.
+const (
+	HandleAgentSession = "agent_session"
+	HandleKind         = "kind"
+)
 
 func (s CrewSession) Live() bool { return s.State == "running" }
 

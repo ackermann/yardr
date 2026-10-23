@@ -172,6 +172,7 @@ type API interface {
 	MarkContextAskedFor(ctx context.Context, name, user string, pct, window int) error
 	SetContextFor(ctx context.Context, name, user string, pct, window int) error
 	MarkNotifiedFor(ctx context.Context, name, user string, seq uint64) error
+	RecordCrewUsage(ctx context.Context, name, user, agentSession string, usage map[string]any) error
 	Journal(ctx context.Context, name, kind, text, actor string) error
 	Mail(ctx context.Context, to, text, actor string, files ...BlobFile) error
 	React(ctx context.Context, seq uint64, emoji, actor string) error

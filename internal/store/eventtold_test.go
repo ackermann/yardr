@@ -46,6 +46,15 @@ func TestEventWithoutHeld(t *testing.T) {
 			"usage": map[string]any{"input": 10, "fresh_input": 4, "output": 5, "cache_read": 6, "cache_write": 0, "read_at": "2026-10-22T08:05:00Z", "partial": true, "file": "/home/jo/.claude/s1.jsonl"}}},
 			map[string]any{"session": "s1", "group": "builders", "stage": "new", "kind": "claude",
 				"usage": map[string]any{"input": 10, "fresh_input": 4, "output": 5, "cache_read": 6, "cache_write": 0, "read_at": "2026-10-22T08:05:00Z", "partial": true}}, true},
+		// A crew session's count is told as a bead session's is, by its member and
+		// the user of a conversation; the id of its agent's own session is held.
+		{"a count read from a crew session's file", store.Event{Kind: "crew_usage", Data: map[string]any{"member": "yardmaster", "user": "sam", "kind": "claude", "agent_session": "a2",
+			"usage": map[string]any{"input": 10, "fresh_input": 4, "output": 5, "cache_read": 6, "cache_write": 0, "read_at": "2026-10-22T08:05:00Z", "partial": true, "file": "/home/jo/.claude/a2.jsonl"}}},
+			map[string]any{"member": "yardmaster", "user": "sam", "kind": "claude",
+				"usage": map[string]any{"input": 10, "fresh_input": 4, "output": 5, "cache_read": 6, "cache_write": 0, "read_at": "2026-10-22T08:05:00Z", "partial": true}}, true},
+		{"a crew session's count that has none", store.Event{Kind: "crew_usage", Data: map[string]any{"member": "yardmaster", "kind": "muse", "agent_session": "",
+			"usage": map[string]any{"missing": "no session id", "read_at": "2026-10-22T08:05:00Z"}}},
+			map[string]any{"member": "yardmaster", "kind": "muse", "usage": map[string]any{"missing": "no session id", "read_at": "2026-10-22T08:05:00Z"}}, true},
 		{"a value that is no record", store.Event{Kind: "user_removed", Data: map[string]any{"user": "ada", "login": "/home/jo/ada.env"}},
 			map[string]any{"user": "ada"}, true},
 		{"no value for the record", store.Event{Kind: "user_removed", Data: map[string]any{"user": "ada", "login": nil}},

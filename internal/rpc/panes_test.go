@@ -109,6 +109,7 @@ func TestSocketRefusesABeadsPaneWhatIsNotAnAgents(t *testing.T) {
 		{"EndSession", func() error { return c.EndSession(ctx, sess.ID, "aborted", "an agent ends itself") }},
 		{"MarkStopped", func() error { return c.MarkStopped(ctx, sess.ID) }},
 		{"RecordUsage", func() error { return c.RecordUsage(ctx, sess.ID, map[string]any{"input": 1}) }},
+		{"RecordCrewUsage", func() error { return c.RecordCrewUsage(ctx, "yardmaster", "", "a1", map[string]any{"input": 1}) }},
 		{"FoldBeads", func() error {
 			_, err := c.FoldBeads(ctx, []string{b.ID}, store.FoldOptions{To: "backlog"}, "jo")
 			return err

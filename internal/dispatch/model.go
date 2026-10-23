@@ -37,14 +37,30 @@ type Modeler interface {
 // AgentSession is a handle key: the id of the session the session's agent
 // keeps in its own session file, which is how the file of what the agent
 // used is found once the session has ended. Kept on the handle, since
-// herdr names no agent whose tab is closed.
-const AgentSession = "agent_session"
+// herdr names no agent whose tab is closed. The store names it too, since the
+// write that ends a crew session copies it off the handle it clears.
+const AgentSession = store.HandleAgentSession
 
 // SessionIDer is implemented by runners that tell the id of the session an
 // agent keeps in its own session file ("" while it names none yet, or for a
 // kind the runner can read no id for).
 type SessionIDer interface {
 	SessionID(ctx context.Context, handle map[string]any) (string, error)
+}
+
+// askAgentSession is the id r names for the agent of handle, "" when the handle
+// has one already (nothing to ask), when r names none yet or can name none, and
+// when it cannot be reached: the caller asks again later, if it does at all.
+func askAgentSession(ctx context.Context, r Runner, handle map[string]any) string {
+	ider, ok := r.(SessionIDer)
+	if !ok || handle[AgentSession] != nil {
+		return ""
+	}
+	id, err := ider.SessionID(ctx, handle)
+	if err != nil {
+		return ""
+	}
+	return id
 }
 
 // agentSession records, once per session, the id its agent keeps its session
@@ -57,12 +73,11 @@ type SessionIDer interface {
 // for is not asked on every pass for ever, and teardown asks once more
 // (see lastAgentSession). s.Handle is updated with what it stores.
 func (d *Dispatcher) agentSession(ctx context.Context, r Runner, s *store.Session) {
-	ider, ok := r.(SessionIDer)
-	if !ok || s.Handle[AgentSession] != nil || d.now().Sub(s.StartedAt) > modelWindow {
+	if d.now().Sub(s.StartedAt) > modelWindow {
 		return
 	}
-	id, err := ider.SessionID(ctx, s.Handle)
-	if err != nil || id == "" {
+	id := askAgentSession(ctx, r, s.Handle)
+	if id == "" {
 		return // none yet, or unreachable: asked again next pass
 	}
 	h := withHandle(s.Handle, AgentSession, id)

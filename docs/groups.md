@@ -677,7 +677,8 @@ read waits for those two minutes to pass.
 
 A manual group's session is a person at work and an exec group's is a script:
 neither has an agent or a file, so neither is counted. Nor is a session that was
-stopped before the daemon began to count.
+stopped before the daemon began to count. A crew member's sessions are counted
+too, to the crew member ([crew.md](crew.md#what-a-crew-session-used)).
 
 ### A harness that stopped on an error
 
