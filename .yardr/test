@@ -1442,6 +1442,7 @@ packs/website/                 internal/pack
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/security_paths          internal/store
 .yardr/test                    .
+internal/server/               internal/rpc
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
 internal/web/assets/README.md  internal/web

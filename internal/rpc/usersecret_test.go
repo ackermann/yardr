@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -371,6 +372,23 @@ func TestUserGivesTheirOwnAddress(t *testing.T) {
 		t.Errorf("the source's own key was taken for sam's ask: %s", w.Body)
 	}
 	said = append(said, w.Body.String())
+	// A value the file cannot hold is refused before the store looks for the
+	// file, as the write refuses it after the file's name: a device that is not
+	// the operator's is told which value, and not the path it would have gone
+	// to. The operator's device is told the file, as before.
+	for _, bad := range []struct{ value, why string }{
+		{"", "is empty"}, {"one\ntwo", "has a line break in it"}, {" padded", "begins or ends with white space"}} {
+		refused := fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q},"weighed":true}`, seq, bad.value)
+		w = y.give(onTheMachine, y.sam, strings.NewReader(refused))
+		if !strings.Contains(w.Body.String(), "the value for PUSH_USER "+bad.why) || strings.Contains(w.Body.String(), file) || strings.Contains(w.Body.String(), "env_file") {
+			t.Errorf("sam's device sending %q is answered %s, want a refusal that names the variable and no file", bad.value, w.Body)
+		}
+		said = append(said, w.Body.String())
+		w = y.give(onTheMachine, y.jo, strings.NewReader(refused))
+		if !strings.Contains(w.Body.String(), "env_file "+file+": the value for PUSH_USER "+bad.why) {
+			t.Errorf("the operator's device sending %q for sam is answered %s, want the refusal that names the file", bad.value, w.Body)
+		}
+	}
 	if _, err := os.Stat(filepath.Dir(file)); !os.IsNotExist(err) {
 		t.Fatalf("a refused giving made a file of sam's (%v)", err)
 	}
@@ -384,9 +402,16 @@ func TestUserGivesTheirOwnAddress(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Error != nil || got.Result == nil {
 		t.Fatalf("the giving is answered %d %s (%v)", w.Code, w.Body, err)
 	}
-	if got.Result.File != file || got.Result.User != "sam" || got.Result.State != "PUSH_USER is set in "+file ||
+	// Where the value went is a path on the yard's machine, of no use to a
+	// device that is not the operator's: the file, the words that say where the
+	// address is set, and the source's record are held (giveSecret).
+	if got.Result.File != "" || got.Result.State != "" || got.Result.Missing != "" || got.Result.Source != nil ||
+		got.Result.User != "sam" || !slices.Equal(got.Result.Given, []string{"PUSH_USER"}) ||
 		got.Result.Next != "yardr user set sam notify=push tells sam through it" {
 		t.Errorf("the answer is %+v", got.Result)
+	}
+	if strings.Contains(w.Body.String(), file) || strings.Contains(w.Body.String(), "env_file") {
+		t.Errorf("sam's device is told where its address went: %s", w.Body)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "PUSH_USER="+value+"\n" {
 		t.Errorf("sam's file holds %q", b)
@@ -422,6 +447,14 @@ func TestUserGivesTheirOwnAddress(t *testing.T) {
 	w = y.give(onTheMachine, y.jo, strings.NewReader(strings.Replace(args, value, "typed-again", 1)))
 	if !strings.Contains(w.Body.String(), `"given":["PUSH_USER"]`) {
 		t.Errorf("the operator's device giving sam's address is answered %s", w.Body)
+	}
+	// The operator's device is told where it went, as the socket is.
+	var told struct {
+		Result *store.SourceKeyed `json:"result"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &told); err != nil || told.Result == nil ||
+		told.Result.File != file || told.Result.State != "PUSH_USER is set in "+file {
+		t.Errorf("the operator's device giving sam's address is told %+v (%v), want the file %s", told.Result, err, file)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "PUSH_USER=typed-again\n" {
 		t.Errorf("sam's file holds %q after the operator's giving", b)
@@ -505,10 +538,13 @@ func TestUserGivesTheirOwnCredential(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Error != nil || got.Result == nil {
 		t.Fatalf("the giving is answered %d %s (%v)", w.Code, w.Body, err)
 	}
-	if got.Result.File != file || got.Result.As != "sam" || got.Result.User != "" ||
-		got.Result.State != "CRM_TOKEN is set in "+file ||
+	if got.Result.File != "" || got.Result.State != "" || got.Result.Missing != "" || got.Result.Source != nil ||
+		got.Result.As != "sam" || got.Result.User != "" || !slices.Equal(got.Result.Given, []string{"CRM_TOKEN"}) ||
 		got.Result.Next != "yardr source check crm --as sam" {
 		t.Errorf("the answer is %+v", got.Result)
+	}
+	if strings.Contains(w.Body.String(), file) || strings.Contains(w.Body.String(), "env_file") {
+		t.Errorf("sam's device is told where its credential went: %s", w.Body)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN="+value+"\n" {
 		t.Errorf("sam's file holds %q", b)
@@ -544,6 +580,13 @@ func TestUserGivesTheirOwnCredential(t *testing.T) {
 	w = y.give(onTheMachine, y.jo, strings.NewReader(strings.Replace(args, value, "typed-again", 1)))
 	if !strings.Contains(w.Body.String(), `"given":["CRM_TOKEN"]`) {
 		t.Errorf("the operator's device giving sam's credential is answered %s", w.Body)
+	}
+	var told struct {
+		Result *store.SourceKeyed `json:"result"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &told); err != nil || told.Result == nil ||
+		told.Result.File != file || told.Result.State != "CRM_TOKEN is set in "+file {
+		t.Errorf("the operator's device giving sam's credential is told %+v (%v), want the file %s", told.Result, err, file)
 	}
 	if b, _ := os.ReadFile(file); string(b) != "CRM_TOKEN=typed-again\n" {
 		t.Errorf("sam's file holds %q after the operator's giving", b)

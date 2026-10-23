@@ -756,24 +756,89 @@ nothing else. What is not the same:
   more. So it is to every device of a yard with no operator. The socket
   tells the whole card and result, as it tells the operator's words in
   `Settings`.
-- **The stream tells the files and the command of the operator's
-  configuration to a device of an operator alone**: a `source_set` event
-  has `data.env_file`, the file a source was pointed at, and
-  `data.mint_command`, the command it mints its token with; a `user_set`
-  has `data.env_file`, the file a user's address is read from; a
-  `hook_blocked` has `data.path`, the file the hook's secret is read from,
-  and `data.reason`, the error of reading it, which names the file too.
-  To any other device the event has the `source`, the `user` or the `hook`
-  and none of those, whether the stream replays it or sends it as it
-  happens; a yard with no operator tells them to no device. That holds for
-  the user's own device: a `user_set` names the user and not their file, to
-  them as to any other. A setup that took a candidate points the source its
-  pack added at the candidate's file, and `yardr source set <source>
-  env_file=<path>` points any source at one: the event is the same, and so
-  is the hold. What else these events carry is sent as it is: the
-  `calls_per_hour` and `updates_per_hour` of a `source_set`, and the
-  `notify`, `tell` and `approved` of a `user_set`. The socket tells the
-  whole event.
+- **The stream tells a device that is no operator's only the data its
+  kind lists.** Each kind of event has a row of keys: the names of what the
+  event is about, numbers, the words of a fixed vocabulary, and every field
+  this page promises of it. The device is sent those keys and no others,
+  whether the stream replays the event or sends it as it happens. A kind with
+  no row is sent no `data` except `via` and `notified`. A device of an
+  operator is sent the whole event, except the `value` of a setting no device
+  is told, and the socket sends every event whole. A yard with no operator
+  sends the whole event to no device. The user's own device is held the same
+  as any other.
+- **What the stream holds back is an operator's files and commands, and the
+  words of errors that name them.** A `source_set` has `data.env_file`, the
+  file a source was pointed at, and `data.mint_command`, the command that
+  mints its token. A `user_set` has `data.env_file`, the file a user's
+  address is read from. A `hook_blocked` has `data.path`, the file the
+  hook's secret is read from, and `data.reason`, the error of reading it,
+  which names the file too. A `crew_started` and a `started` have
+  `data.handle`, which names the directory the session started in and the
+  yardr the agent was told to run. A `push_failed` has `data.error`, which
+  names the file of the user's address. A `depot_updated` has `data.path` and
+  `data.test`, a `backup_failed` has `data.dir`, a `workspace_kept` and a
+  `workspace_removed` have `data.worktree`, and a `move_refused` has
+  `data.command` and `data.error`. A `user_removed` has `data.login`, which
+  names the groups, the routes and the crew members that went with a removed
+  user and the `env_files` of their login that stay on disk; a device that is
+  no operator's is sent `groups`, `routes` and `crew` and not `env_files`. A
+  session's events have `tail`, `line`, `dialog` and `hint`, which quote its
+  pane and name commands to run there.
+  A device that is no operator's is sent the `source`, `user`, `hook`,
+  `crew`, `depot` or `session` each event is about, and none of those. A
+  setup that took a candidate points the source its pack added at the
+  candidate's file, and `yardr source set <source> env_file=<path>` points
+  any source at one. The event is the same, and so is the hold. What else a
+  `source_set` and a `user_set` carry is sent as it is: the `calls_per_hour`
+  and `updates_per_hour` of a source, and the `notify`, `tell` and
+  `approved` of a user.
+- **`Flows` says that a depot's flows could not be read, and not why, to a
+  device that is no operator's.** `depots[].error` is then `the flows
+  could not be read; why is an operator's to read`. A device of an operator
+  is told the error of the read, which names the directory of the depot's
+  repository. The depot, its beads and the rest of the board are the same.
+- **`GiveSecret` says which names were written, and not where, to a device
+  that is no operator's.** Such a device has the call for its own
+  address or credential in a source, and for the code of its own login, only.
+  Its answer has no `file`, `credential`, `missing` or `source`. The first
+  three name the file the value went to, and `source` is the source's whole
+  record, which holds the file it reads its credential from and the command
+  that mints its token. The code of a login goes to no file and the answer
+  names the login (`login`) and the names given (`given`), which are told.
+  A value the file cannot hold (empty, with a line break, or with white space
+  at an end) is refused for such a device with the words `the value for
+  <name> is empty` and the like, where a device of an operator is refused
+  with the file's name before them. A device of an operator is sent the file,
+  as the socket is.
+- **`Peers` has no `url` and no `error` for a device that is no
+  operator's.** The address of a link, and the words of the last send that
+  failed, which carry it, are an operator's. The names, what each link
+  carries and the roster are the same.
+- **`DeliveryFiles` says that a file was not taken, and not why, to a device
+  that is no operator's.** `[].not_taken` is then `the file was not
+  taken; why is an operator's to read`, where a device of an operator is told
+  the reason, which is the error of the fetch where it failed and names the
+  program of the source and the directory of the yard. The name, the size and
+  the type the source gave are the same.
+- **`Bead` and `UserAsks` tell a run ask as its asker typed it, to a device
+  that is no operator's.** The `run` card has `argv`, `command` and
+  `description`, and an approved ask's `ran` has `argv` and `failed`. The
+  yard's own words are held. `run.does` says what the command changes and
+  what is there now (a setting's stored value, the file of a user's address,
+  a hook's secret file), and is `[]`. `run.back` is the command that takes it
+  back, and is `""`. `ran.result` is what the command printed, and is `""`.
+  `run.back_by`, `run.carried` (the declarations and command files a source
+  brings) and `run.pack.plan` (the paths and the diffs of the files a pack
+  writes) are absent. A device of an operator is sent all of it, as the
+  socket is.
+- **A notification's `text` is made from what its person is told of the
+  event.** An operator's `UserNotifications` has the words of each event as
+  the stream sends it to an operator. Any other user's has the words as the
+  stream sends it to a device that is no operator's, so a
+  `workspace_kept` reads `session=s1` and not the worktree. A notification
+  is written when its event is logged. Who is an operator is read then, and
+  in a yard with none everyone gets the held words. A notification written
+  by an earlier build keeps the words it had.
 - **`Users`, `GetUser`, `Crew` and `GetCrew` tell the files and commands
   of the operator's configuration to a device of an operator alone**: a
   user's record has `env_file`, the file their address is read from, and

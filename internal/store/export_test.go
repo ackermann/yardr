@@ -451,7 +451,7 @@ func (s *Store) BulkNotify(user string, n int) (seqs []uint64, err error) {
 				return err
 			}
 			note := Notification{Seq: seq, At: now(), Source: SourceYardr, Kind: "noted", Text: "bulk (" + reasonSlot + ")"}
-			if err := w.notify(note, map[string]any{user: ReasonAll}); err != nil {
+			if err := w.notify(note, note, map[string]any{user: ReasonAll}); err != nil {
 				return err
 			}
 			seqs = append(seqs, seq)

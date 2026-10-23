@@ -224,6 +224,26 @@ func TestWriteEnvFileRefuses(t *testing.T) {
 	}
 }
 
+// EnvValueProblem says why a value cannot be written, naming the variable and
+// no file, and the write's refusal is those words after the file's name: a
+// caller that refuses before it looks at any file (a device's giving, which is
+// told no path of the yard's) says what the write would have.
+func TestEnvValueProblemIsTheWritesRefusalWithoutTheFile(t *testing.T) {
+	p := writeEnv(t, "TOKEN=old\n", 0o600)
+	for _, value := range []string{"", "a\nb", "a\rb", " a", "a "} {
+		why := EnvValueProblem("TOKEN", value)
+		if why == "" || strings.Contains(why, p) || strings.Contains(why, "env_file") {
+			t.Errorf("%q: the problem is %q, want words that name the variable and no file", value, why)
+		}
+		if _, _, err := WriteEnvFile(p, map[string]string{"TOKEN": value}); err == nil || err.Error() != "env_file "+p+": "+why {
+			t.Errorf("%q: the write says %v, want the file's name and %q", value, err, why)
+		}
+	}
+	if why := EnvValueProblem("TOKEN", "s3cret"); why != "" {
+		t.Errorf("a value the file holds is a problem: %q", why)
+	}
+}
+
 // A second file left by a write that died is removed by the next write,
 // whatever it is and whatever it holds: nothing of it reaches the env file.
 func TestWriteEnvFileRemovesALeftSecondFile(t *testing.T) {

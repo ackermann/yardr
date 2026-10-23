@@ -171,6 +171,24 @@ func WriteEnvFile(path string, values map[string]string, remove ...string) (reso
 	return writeEnvFile(path, values, remove, true)
 }
 
+// EnvValueProblem says why value cannot be the value of the variable name in
+// an env file, and "" when it can: what the reader would not give back as it
+// was given, since it reads a line and trims it. The words name the variable
+// and never the value or a file, so a refusal made before any file is looked
+// at (a device's giving, which is told no path of the yard's) reads as the
+// write's does after its file's name.
+func EnvValueProblem(name, value string) string {
+	switch {
+	case value == "":
+		return fmt.Sprintf("the value for %s is empty", name)
+	case strings.ContainsAny(value, "\r\n"):
+		return fmt.Sprintf("the value for %s has a line break in it", name)
+	case strings.TrimSpace(value) != value:
+		return fmt.Sprintf("the value for %s begins or ends with white space", name)
+	}
+	return ""
+}
+
 // RemoveEnvNames strikes each of names from the env file at path, by the
 // write WriteEnvFile makes, keeping every other line and comment. A file
 // that is not there is not made: there is nothing to strike, and that is
@@ -199,15 +217,8 @@ func writeEnvFile(path string, values map[string]string, remove []string, create
 		if struck[name] {
 			continue
 		}
-		// What the reader would not give back as it was given: it reads a
-		// line, and trims it.
-		switch {
-		case value == "":
-			return p, false, fmt.Errorf("env_file %s: the value for %s is empty", p, name)
-		case strings.ContainsAny(value, "\r\n"):
-			return p, false, fmt.Errorf("env_file %s: the value for %s has a line break in it", p, name)
-		case strings.TrimSpace(value) != value:
-			return p, false, fmt.Errorf("env_file %s: the value for %s begins or ends with white space", p, name)
+		if why := EnvValueProblem(name, value); why != "" {
+			return p, false, fmt.Errorf("env_file %s: %s", p, why)
 		}
 		names = append(names, name)
 	}

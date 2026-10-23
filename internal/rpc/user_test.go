@@ -565,16 +565,48 @@ func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 // command of the operator's, is a copy. The store hands one event, and one
 // map of its data, to every stream and every subscriber, so dropping the
 // value from it would take it from the operator's stream and the daemon's as
-// well.
+// well. What a device is not sent is what the kind of its event does not list
+// (store.Event.WithoutHeld): the rows below are the data the emitters write,
+// the handle of a crew member's session, the error of a send, a depot's path
+// and test command, a backup's directory, a worktree and a refused move's
+// command, and a kind with no row, which tells no data at all. A device of the
+// operator is sent each whole, but for a setting's value, which the settings
+// it is not told keep from every device.
 func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 	_, u, _ := userYard(t)
 	sam := &Caller{User: "sam", SaidBy: "tablet", device: true}
+	jo := &Caller{User: "jo", SaidBy: "phone", device: true}
 	for _, c := range []struct {
 		name  string
 		e     store.Event
 		held  string // the field of its data that sam is not sent
 		stays string // the field of its data that sam is sent
 	}{
+		{"a crew session's handle", store.Event{Kind: "crew_started", Data: map[string]any{"crew": "yardmaster", "user": "sam",
+			"handle": map[string]any{"dir": "/home/jo/.yardr/crew/yardmaster", "first_prompt": "Run /home/jo/go/bin/yardr prime --crew yardmaster"}}}, "handle", "crew"},
+		{"the error of a send", store.Event{Kind: "push_failed", Data: map[string]any{"user": "sam", "source": "push", "reason": "not_set_up", "tries": 0,
+			"error": "user sam: env_file /home/jo/.yardr/users/sam.env is not there"}}, "error", "reason"},
+		{"a depot's path", store.Event{Kind: "depot_updated", Data: map[string]any{"depot": "yardr", "kind": "git", "base": "main",
+			"path": "/home/jo/projects/yardr", "test": "sh .yardr/test"}}, "path", "depot"},
+		{"a depot's test command", store.Event{Kind: "depot_updated", Data: map[string]any{"depot": "yardr", "kind": "git", "base": "main",
+			"path": "/home/jo/projects/yardr", "test": "sh .yardr/test"}}, "test", "base"},
+		{"a backup's directory", store.Event{Kind: "backup_failed", Data: map[string]any{"every": "1h", "dir": "/Volumes/backup/yardr",
+			"reason": "mkdir /Volumes/backup/yardr: permission denied"}}, "dir", "every"},
+		{"the error of a backup", store.Event{Kind: "backup_failed", Data: map[string]any{"every": "1h", "dir": "/Volumes/backup/yardr",
+			"reason": "mkdir /Volumes/backup/yardr: permission denied"}}, "reason", "every"},
+		{"the worktree of a kept workspace", store.Event{Kind: "workspace_kept", Data: map[string]any{"session": "s1",
+			"worktree": "/home/jo/.yardr/worktrees/yardr/yd-shed", "reason": "git status in /home/jo/.yardr/worktrees/yardr/yd-shed: changes"}}, "worktree", "session"},
+		{"the worktree of a removed workspace", store.Event{Kind: "workspace_removed", Data: map[string]any{"session": "s1",
+			"worktree": "/home/jo/.yardr/worktrees/yardr/yd-shed"}}, "worktree", "session"},
+		{"the handle of a started session", store.Event{Kind: "started", Data: map[string]any{"session": "s1",
+			"handle": map[string]any{"agent": "yd-shed-new", "worktree": "/home/jo/.yardr/worktrees/yardr/yd-shed", "pane": "w1:p2"}}}, "handle", "session"},
+		{"the command of a refused move", store.Event{Kind: "move_refused", Data: map[string]any{"session": "s1", "stage": "new", "reason": "not_allowed",
+			"command": "yardr bead done yd-shed --outcome shipped", "error": "flow has no outcome shipped", "hint": "yardr bead show yd-shed"}}, "command", "reason"},
+		{"the error of a refused move", store.Event{Kind: "move_refused", Data: map[string]any{"session": "s1", "stage": "new", "reason": "not_allowed",
+			"command": "yardr bead done yd-shed --outcome shipped", "error": "flow has no outcome shipped", "hint": "yardr bead show yd-shed"}}, "error", "session"},
+		{"the screen of a blocked session", store.Event{Kind: "session_blocked", Data: map[string]any{"session": "s1", "stage": "new",
+			"tail": "$ cat /home/jo/.yardr/secret.env", "handle": map[string]any{"pane": "w1:p2"}}}, "tail", "session"},
+		{"the data of a kind that has no row", store.Event{Kind: "a_kind_added_later", Data: map[string]any{"via": "phone", "dir": "/home/jo/.yardr"}}, "dir", "via"},
 		{"a setting's value", store.Event{Kind: "setting_changed", Data: map[string]any{"key": store.HookPublicURLSetting, "value": "https://hooks.example.com/south"}}, "value", "key"},
 		{"a source's file", store.Event{Kind: "source_set", Data: map[string]any{"source": "crm", store.SourceEnvFile: "/home/jo/.yardr/sources/crm.env"}}, store.SourceEnvFile, "source"},
 		{"a source's mint command", store.Event{Kind: "source_set", Data: map[string]any{"source": "crm", store.SourceMintCommand: "/home/jo/bin/crm-mint --org acme"}}, store.SourceMintCommand, "source"},
@@ -584,6 +616,7 @@ func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			held, stays := c.e.Data[c.held], c.e.Data[c.stays]
+			whole := maps.Clone(c.e.Data)
 			sent, keep := u.deviceEvent(context.Background(), sam, c.e)
 			if !keep {
 				t.Errorf("sam is not sent the %s at all, want it without the %s", c.stays, c.held)
@@ -591,21 +624,56 @@ func TestUserDeviceEventLeavesTheSharedEventAsItWas(t *testing.T) {
 			if v, has := sent.Data[c.held]; has {
 				t.Errorf("sam is sent %v as the %s they are not told", v, c.held)
 			}
-			if sent.Data[c.stays] != stays {
+			if !reflect.DeepEqual(sent.Data[c.stays], stays) {
 				t.Errorf("sam is sent %v, want the %s kept", sent.Data, c.stays)
 			}
-			if c.e.Data[c.held] != held {
+			if raw, _ := json.Marshal(sent); strings.Contains(string(raw), "/home/jo") || strings.Contains(string(raw), "/Volumes") {
+				t.Errorf("sam is sent %s, which names a path of the yard's", raw)
+			}
+			if !reflect.DeepEqual(c.e.Data[c.held], held) {
 				t.Errorf("the event every other stream is handed is now %v, want its %s kept", c.e.Data, c.held)
+			}
+			// The operator's device is sent the whole of it, save a setting's
+			// value, which no device is told for a setting it is not told.
+			if c.e.Kind == "setting_changed" {
+				return
+			}
+			sent, keep = u.deviceEvent(context.Background(), jo, c.e)
+			if !keep || !reflect.DeepEqual(sent.Data, whole) {
+				t.Errorf("jo is sent %v (%v), want the event whole: %v", sent.Data, keep, whole)
 			}
 		})
 	}
+
+	// In a yard where no user is an operator nobody is sent the whole of it,
+	// the users that are there no more than sam.
+	t.Run("a yard with no operator", func(t *testing.T) {
+		st, err := store.Open(filepath.Join(t.TempDir(), "bare.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { st.Close(context.Background()) })
+		if _, err := st.AddUser(context.Background(), "jo", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		bare := NewUserServer(st, func(context.Context) string { return "south" }, nil)
+		e := store.Event{Kind: "workspace_removed", Data: map[string]any{"session": "s1", "worktree": "/home/jo/.yardr/worktrees/yardr/yd-shed"}}
+		for _, who := range []*Caller{jo, sam} {
+			sent, keep := bare.deviceEvent(context.Background(), who, e)
+			if _, has := sent.Data["worktree"]; !keep || has || sent.Data["session"] != "s1" {
+				t.Errorf("%s is sent %v (%v), want the session and not the worktree", who.User, sent.Data, keep)
+			}
+		}
+	})
 }
 
 // A user_removed that says what carried the removed user's login names its
 // env files to the operator's device alone: a path on the yard's machine
 // is the operator's configuration, as the file of a user_set is. Any other
 // device is sent the names with no file, and the event every other stream
-// is handed keeps them.
+// is handed keeps them. The event of a removal that was just written carries
+// the login as the store's own record and the one the log reads back as an
+// object; a device is sent the same of either.
 func TestUserDeviceEventHoldsARemovedUsersLoginFiles(t *testing.T) {
 	st, u, _ := userYard(t)
 	ctx := context.Background()
@@ -662,6 +730,22 @@ func TestUserDeviceEventHoldsARemovedUsersLoginFiles(t *testing.T) {
 	}
 	if files := whole.Data["login"].(map[string]any)["env_files"]; fmt.Sprint(files) != "["+file+"]" {
 		t.Errorf("the operator is sent %v, want the env file kept", whole.Data)
+	}
+
+	written := *removed
+	written.Data = map[string]any{"user": "ada", "login": store.UserLogin{
+		Groups: []string{"ada-builders"}, EnvFiles: []string{file}, Routes: []string{"r1"}, Crew: []string{"ada-chat"}}}
+	sent, _ = u.deviceEvent(ctx, sam, written)
+	got, ok = sent.Data["login"].(map[string]any)
+	if !ok || got["env_files"] != nil || fmt.Sprint(got["groups"], got["routes"], got["crew"]) != "[ada-builders] [r1] [ada-chat]" {
+		t.Errorf("sam is sent %+v of the event just written, want the names and no env file", sent.Data)
+	}
+	if login, _ := written.Data["login"].(store.UserLogin); fmt.Sprint(login.EnvFiles) != "["+file+"]" {
+		t.Errorf("the event every other stream is handed is now %+v, want its env file kept", written.Data)
+	}
+	whole, _ = u.deviceEvent(ctx, jo, written)
+	if login, _ := whole.Data["login"].(store.UserLogin); fmt.Sprint(login.EnvFiles) != "["+file+"]" {
+		t.Errorf("the operator is sent %+v of the event just written, want the env file kept", whole.Data)
 	}
 }
 

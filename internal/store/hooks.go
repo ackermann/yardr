@@ -1026,7 +1026,10 @@ func (w *wtx) delivered(actor string, data map[string]any) (uint64, error) {
 		if _, err := get(w.Tx, bEvents, seqKey(seq), &e); err != nil {
 			return 0, err
 		}
-		if err := w.notify(hookNotification(seq, e.At, data), told); err != nil {
+		// A delivery is the sender's words and the yard's news, not the
+		// operator's configuration: it is told whole to every user it reaches.
+		row := hookNotification(seq, e.At, data)
+		if err := w.notify(row, row, told); err != nil {
 			return 0, err
 		}
 	}

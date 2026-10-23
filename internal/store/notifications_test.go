@@ -122,6 +122,71 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 	}
 }
 
+// A notification is made from what its person is told of the event: an
+// operator's row names the event's data whole, and any other person's what
+// the kind lists (store.Event.WithoutHeld), so a person who subscribed to the
+// events of a kept workspace is not told the worktree's path, which is an
+// operator's. A yard with no operator tells every person the same, and the
+// row of a person is made when the event is logged: a change of role moves the
+// next one with it.
+func TestNotificationNamesWhatThePersonIsToldOfTheEvent(t *testing.T) {
+	t.Parallel()
+	s, ctx, b := yardrDepot(t)
+	user(t, s, "op", yardrSub(store.ScopeAll, "kind=workspace_kept"))
+	user(t, s, "ada", yardrSub(store.ScopeAll, "kind=workspace_kept"))
+	keep := func() {
+		t.Helper()
+		if err := s.LogDispatch(ctx, b.ID, "workspace_kept", "yard", map[string]any{
+			"session": "s1", "worktree": "/home/jo/.yardr/worktrees/yd/work", "reason": "git status: /home/jo/.yardr/worktrees/yd/work has changes"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	role := func(user, role, actor string) {
+		t.Helper()
+		if _, err := s.SetUser(ctx, user, map[string]string{store.UserRole: role}, actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// What each is told, and what neither is: the first line is of the yard
+	// with no operator.
+	const told = ` workspace_kept (all) by yard session=s1 on "work"`
+	whole := ` workspace_kept (all) by yard reason=git status: /home/jo/.yardr/worktrees/yd/work has changes session=s1 worktree=/home/jo/.yardr/worktrees/yd/work on "work"`
+	keep()
+	if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	keep()
+	// Another operator is told whole as the first is, by the role alone.
+	role("ada", store.RoleOperator, "op")
+	keep()
+	// And a user made a member is told no more, the next time. The setting
+	// names ada first: it keeps its user an operator.
+	if err := s.SetSetting(ctx, store.OperatorSetting, "ada", "op"); err != nil {
+		t.Fatal(err)
+	}
+	role("op", store.RoleMember, "ada")
+	keep()
+	for _, c := range []struct {
+		who  string
+		want []string
+	}{
+		{"op", []string{"*" + b.ID + told, "*" + b.ID + whole, "*" + b.ID + whole, "*" + b.ID + told}},
+		{"ada", []string{"*" + b.ID + told, "*" + b.ID + told, "*" + b.ID + whole, "*" + b.ID + whole}},
+	} {
+		if got := texts(notifications(t, s, c.who, 0)); fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%s's notifications = %q\nwant %q", c.who, got, c.want)
+		}
+	}
+	// The event itself is whole: the socket, the terminal and the agents read it so.
+	evs, err := s.Events(ctx, b.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := evs[len(evs)-1]; e.Kind != "workspace_kept" || e.Data["worktree"] != "/home/jo/.yardr/worktrees/yd/work" {
+		t.Errorf("the event is %+v, want the worktree kept in it", e)
+	}
+}
+
 // A person is not told of what they did themselves, as a crew member is not.
 func TestUserNotToldOfOwnActions(t *testing.T) {
 	t.Parallel()

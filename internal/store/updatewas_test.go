@@ -49,12 +49,19 @@ func TestUpdateKeepsWhatWas(t *testing.T) {
 
 // What a body was is nothing said now: a name in the body an update
 // replaces mentions nobody again, and a subscriber's line about the update
-// names the fields that changed without the old text.
+// names the fields that changed without the old text. The operator's line
+// names them as the event does, in was, and any other person's by the new
+// values the event tells (store.Event.WithoutHeld holds was, which is the old
+// text).
 func TestOldBodyIsNotSaidAgain(t *testing.T) {
 	t.Parallel()
 	s, ctx, _ := yardrDepot(t)
 	user(t, s, "ada", yardrSub(store.ScopeMentions))
 	user(t, s, "bob", yardrSub(store.ScopeAll, "kind=updated"))
+	user(t, s, "op", yardrSub(store.ScopeAll, "kind=updated"))
+	if err := s.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "door", Body: "ask @ada about the hinge", Depot: "yard", Stage: "new"}, "jane")
 	if err != nil {
 		t.Fatal(err)
@@ -69,8 +76,12 @@ func TestOldBodyIsNotSaidAgain(t *testing.T) {
 	if got := texts(notifications(t, s, "ada", 0)); len(got) != 1 {
 		t.Errorf("the old body mentioned ada again: %v", got)
 	}
-	got := texts(notifications(t, s, "bob", 0))
+	got := texts(notifications(t, s, "op", 0))
 	if len(got) != 1 || !strings.Contains(got[0], "body=true was=[body]") || strings.Contains(got[0], "hinge") {
+		t.Errorf("the operator's line about the update: %v", got)
+	}
+	got = texts(notifications(t, s, "bob", 0))
+	if len(got) != 1 || !strings.Contains(got[0], "body=true") || strings.Contains(got[0], "was=") || strings.Contains(got[0], "hinge") {
 		t.Errorf("bob's line about the update: %v", got)
 	}
 }

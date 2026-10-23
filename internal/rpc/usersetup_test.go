@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // courierMint is the mint program of the pack the setup ask sets up and of
@@ -411,8 +413,10 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 				t.Errorf("the view of sam's device is not the operator's but for the file:\n%+v\nwant\n%+v", sams, jos)
 			}
 
-			// The result of a run ask is the commands' and names no account's
-			// file: it is told as the store has it, to every device.
+			// A run ask is told as its asker typed it, to every device. What the
+			// yard wrote of it from its own records, which names the files and the
+			// settings it is about, and what it printed when approved, are the
+			// operator's: the same sentences without them, to any other device.
 			run, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the CRM be called more often?", To: "jo",
 				Context: []string{"The import was refused its 61st call of the hour."},
 				Run:     &store.AskRun{Argv: []string{"source", "set", "crm", "calls_per_hour=120"}}}, "yardmaster")
@@ -425,10 +429,30 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 			if stored, err = y.st.Bead(ctx, "yd-crm"); err != nil {
 				t.Fatal(err)
 			}
-			for who, token := range map[string]string{"jo's device": y.jo, "sam's device": y.sam} {
-				v, _ := y.bead(t, token)
-				if got, want := ranOf(t, v, run), ranOf(t, *stored, run); got.Result == "" || !reflect.DeepEqual(got, want) {
-					t.Errorf("%s is told the run ask's result %+v, want %+v", who, got, want)
+			for _, c := range []struct {
+				who, token string
+				whole      bool
+			}{{"jo's device", y.jo, true}, {"sam's device", y.sam, false}} {
+				v, raw := y.bead(t, c.token)
+				got, want := ranOf(t, v, run), ranOf(t, *stored, run)
+				card, whole := runOf(t, v, run), runOf(t, *stored, run)
+				if len(whole.Does) == 0 || whole.Back == "" || want.Result == "" {
+					t.Fatalf("the store tells the run ask %+v and its result %+v, want the yard's words of both", whole, want)
+				}
+				words := append(slices.Clone(whole.Does), whole.Back, want.Result)
+				if !c.whole {
+					want.Result = ""
+					cut := *whole
+					cut.Does, cut.Back, cut.BackBy, cut.Carried = []string{}, "", "", nil
+					whole = &cut
+				}
+				if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(card, whole) {
+					t.Errorf("%s is told the run ask %+v and its result %+v, want %+v and %+v", c.who, card, got, whole, want)
+				}
+				for _, said := range words {
+					if strings.Contains(raw, said) != c.whole {
+						t.Errorf("%s is told %q: %v, want %v", c.who, said, !c.whole, c.whole)
+					}
 				}
 			}
 
@@ -461,16 +485,33 @@ type toldAsks struct {
 }
 
 // blankHeld blanks what UserAsks holds back from a device that is not the
-// operator's: the candidates and the sentence of a setup card, and the result of
-// its approval. Two queues are equal after it when they differ in nothing else.
+// operator's: the candidates and the sentence of a setup card and the result of
+// its approval, and what the yard wrote of a run ask (withoutRunWords): the
+// sentences, the command that takes it back, what it carries and the plan of
+// its pack, and the result of its approval. Two queues are equal after it when
+// they differ in nothing else.
 func blankHeld(q *store.AskQueue) {
+	blankRun := func(run *store.RunAsked) {
+		if run == nil {
+			return
+		}
+		run.Does, run.Back, run.BackBy, run.Carried = []string{}, "", "", nil
+		if run.Pack != nil {
+			run.Pack.Plan = nil
+		}
+	}
 	for i := range q.Open {
 		if card := q.Open[i].Setup; card != nil {
 			card.Candidates, card.Does = nil, nil
 		}
+		blankRun(q.Open[i].Run)
 	}
 	for i := range q.Decided {
 		d := &q.Decided[i]
+		blankRun(d.Run)
+		if d.Run != nil && d.Ran != nil {
+			d.Ran.Result = ""
+		}
 		if d.Setup == nil {
 			continue
 		}
@@ -481,6 +522,22 @@ func blankHeld(q *store.AskQueue) {
 	}
 }
 
+// runOf is the card of the run ask seq in the view, which fails the test when
+// the view holds none.
+func runOf(t *testing.T, v store.BeadView, seq uint64) *store.RunAsked {
+	t.Helper()
+	for _, a := range v.Asks {
+		if a.Ask == seq {
+			if a.Run == nil {
+				t.Fatalf("the view tells ask %d as no run ask: %+v", seq, a)
+			}
+			return a.Run
+		}
+	}
+	t.Fatalf("the view holds no ask %d", seq)
+	return nil
+}
+
 // UserAsks tells the candidates of a setup card, and the file the account of an
 // approved setup is set in, to a device of the current operator and to no other,
 // as Bead tells them (TestUserBeadTellsCandidatesToTheOperatorAlone and
@@ -488,9 +545,11 @@ func blankHeld(q *store.AskQueue) {
 // operator, but the operator setting moves, and the user it was put to keeps the
 // ask in their queue. So the current operator is told, whoever the ask was put
 // to, and in a yard with no operator no device is. Every setup ask of the queue
-// is held, the open and the decided. The rest of the queue is as the store has
-// it, an approved run ask's result among it, and the store, which the socket
-// serves, keeps the queue whole.
+// is held, the open and the decided. A run ask is told as its asker typed it, and
+// what the yard wrote of it and of its approval is the operator's, as in Bead
+// (TestUserBeadTellsTheAccountFileToTheOperatorAlone). The rest of the queue is
+// as the store has it, and the store, which the socket serves, keeps the queue
+// whole.
 func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range accountCases {
@@ -587,8 +646,18 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 						t.Errorf("the store tells the result %+v after %s was told, want %q", d.Ran, who, ct.whole)
 					}
 				}
-				if approved != nil && approved.Ran.Result == "" {
-					t.Errorf("%s is told no result of the run ask: %+v", who, approved)
+				// A run ask is told as its asker typed it, to every device, and the
+				// yard's words of it (what it changes, takes back and printed) to
+				// the operator's alone.
+				if approved != nil {
+					cut := approved.Ran.Result == "" && len(approved.Run.Does) == 0 && approved.Run.Back == ""
+					if cut == listed {
+						t.Errorf("%s is told the run ask %+v and its result %+v, want the yard's words of it: %v", who, approved.Run, approved.Ran, listed)
+					}
+					if !slices.Equal(approved.Run.Argv, []string{"source", "set", "crm", "calls_per_hour=120"}) || approved.Run.Command == "" ||
+						!slices.Equal(approved.Ran.Argv, approved.Run.Argv) {
+						t.Errorf("%s is told the run ask %+v and its result %+v, want the command its asker typed", who, approved.Run, approved.Ran)
+					}
 				}
 				if !listed {
 					blankHeld(&got)
@@ -674,9 +743,17 @@ func (y *secretYard) replayed(t *testing.T, base, token string) (configs []map[s
 }
 
 // isConfiguration reports whether kind is an event whose files and command
-// the stream tells to a device of the operator alone (deviceEvent).
+// the stream tells to a device of the operator alone (deviceEvent): those that
+// set or name a file or a command, and the kinds the stream once told every
+// device whole, which carry a handle, a path, a directory or the words of an
+// error that names one (see the table of store.EventDataToldKinds).
 func isConfiguration(kind string) bool {
-	return kind == "source_set" || kind == "user_set" || kind == "hook_blocked"
+	switch kind {
+	case "source_set", "user_set", "hook_blocked",
+		"crew_started", "push_failed", "depot_updated", "backup_failed", "workspace_kept", "move_refused":
+		return true
+	}
+	return false
 }
 
 // The stream tells the files and the command of the operator's configuration,
@@ -694,6 +771,14 @@ func isConfiguration(kind string) bool {
 // its reason, which is the error of reading that file and names it too. What
 // else they carry is told as it is (the limit of a source, the parts a user is
 // told of), and the store, which the socket serves, keeps every event whole.
+//
+// The kinds the stream told every device whole are held the same way: the
+// handle of a crew member's session (crew_started), the error of a send that
+// names the user's file (push_failed), a depot's path and test command
+// (depot_updated), a backup's directory (backup_failed), the worktree of a
+// kept workspace (workspace_kept) and the command of a move that was refused
+// (move_refused). Each tells the name of what it is about, and the numbers and
+// the words of its own that its kind lists.
 func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
 	y, file := setupYard(t)
@@ -745,6 +830,29 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 	_, err = y.st.SetUser(ctx, "sam", map[string]string{store.UserEnvFile: address, store.UserTell: "mail"}, "jo")
 	must(err)
 	must(y.st.BlockHook(ctx, "linear", open.Error()))
+	// What the stream told every device whole: a crew member's session (its
+	// handle is the directory it started in and the yardr it was told to run),
+	// a send that failed on the user's file, a depot, a backup that could not
+	// be made, a workspace the daemon kept, and a command of an agent's that
+	// the yard refused.
+	crewDir := filepath.Join(dir, "crew", "yardmaster")
+	handle := map[string]any{"dir": crewDir, "first_prompt": "Run " + filepath.Join(dir, "bin", "yardr") + " prime --crew yardmaster"}
+	must(y.st.LogEvent(ctx, "", "crew_started", "yard", map[string]any{"crew": "yardmaster", "handle": handle}))
+	sendErr := "user sam: env_file " + address + " is not there"
+	must(y.st.LogEvent(ctx, "", "push_failed", "yard", map[string]any{"user": "sam", "source": "push", "reason": "not_set_up", "tries": 0, "error": sendErr}))
+	depotDir := filepath.Join(dir, "depots", "wharf")
+	must(y.st.PutDepot(ctx, store.Depot{Name: "wharf", Kind: store.DepotDir, Path: depotDir, Test: "make -C " + depotDir + " test"}, "jo"))
+	backupDir := filepath.Join(dir, "backups")
+	backupErr := "mkdir " + backupDir + ": permission denied"
+	must(y.st.LogDispatch(ctx, "", "backup_failed", "yard", map[string]any{"every": "1h", "dir": backupDir, "reason": backupErr}))
+	worktree := filepath.Join(dir, "worktrees", "yd-crm")
+	keptWhy := "git status in " + worktree + ": changes"
+	must(y.st.LogDispatch(ctx, "yd-crm", "workspace_kept", "yard", map[string]any{"session": "s1", "worktree": worktree, "reason": keptWhy}))
+	refusedCommand := "yardr bead done yd-crm --outcome shipped"
+	refusedWhy := "flow has no outcome shipped (see " + filepath.Join(dir, "flows", "default.yaml") + ")"
+	must(y.st.LogDispatch(ctx, "yd-crm", "move_refused", "yard", map[string]any{"agent": "yd-crm-new", "group": "builders", "reason": "not_allowed",
+		"session": "s1", "session_bead": "yd-crm", "stage": "new", "command": refusedCommand, "error": refusedWhy,
+		"hint": "the agent ran this command and the yard refused it"}))
 
 	const before = 4 // the writes above that came before the streams were open
 	whole := []map[string]any{
@@ -756,6 +864,13 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 		{"source": "crm", "mint_command": mint},
 		{"user": "sam", "env_file": address, "tell": "mail"},
 		{"hook": "linear", "path": secret, "reason": open.Error()},
+		{"crew": "yardmaster", "handle": map[string]any{"dir": crewDir, "first_prompt": handle["first_prompt"]}},
+		{"user": "sam", "source": "push", "reason": "not_set_up", "tries": float64(0), "error": sendErr},
+		{"depot": "wharf", "kind": store.DepotDir, "base": "", "path": depotDir, "test": "make -C " + depotDir + " test"},
+		{"every": "1h", "dir": backupDir, "reason": backupErr},
+		{"session": "s1", "worktree": worktree, "reason": keptWhy},
+		{"agent": "yd-crm-new", "group": "builders", "reason": "not_allowed", "session": "s1", "session_bead": "yd-crm", "stage": "new",
+			"command": refusedCommand, "error": refusedWhy, "hint": "the agent ran this command and the yard refused it"},
 	}
 	without := []map[string]any{
 		{"source": "courier-existing"},
@@ -766,6 +881,12 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 		{"source": "crm"},
 		{"user": "sam", "tell": "mail"},
 		{"hook": "linear"},
+		{"crew": "yardmaster"},
+		{"user": "sam", "source": "push", "reason": "not_set_up", "tries": float64(0)},
+		{"depot": "wharf", "kind": store.DepotDir, "base": ""},
+		{"every": "1h"},
+		{"session": "s1"},
+		{"agent": "yd-crm-new", "group": "builders", "reason": "not_allowed", "session": "s1", "session_bead": "yd-crm", "stage": "new"},
 	}
 	var stored []map[string]any
 	log, err := y.st.EventsSince(ctx, 0, 1000)
@@ -812,7 +933,8 @@ func TestUserStreamTellsTheOperatorsConfigurationToTheOperatorAlone(t *testing.T
 		if !reflect.DeepEqual(configs, want) {
 			t.Errorf("%s is sent the configuration events %v, want %v", who, configs, want)
 		}
-		for _, held := range []string{file, y.file, moved, mint, address, secret, open.Error()} {
+		for _, held := range []string{file, y.file, moved, mint, address, secret, open.Error(),
+			crewDir, sendErr, depotDir, backupDir, backupErr, worktree, keptWhy, refusedCommand, refusedWhy} {
 			if strings.Contains(raw, held) != listed {
 				t.Errorf("%s is sent %q: %v, want %v", who, held, !listed, listed)
 			}
@@ -1028,4 +1150,188 @@ func TestUserCallsTellTheOperatorsConfigurationToTheOperatorAlone(t *testing.T) 
 	must(err)
 	told("jo's device, a member's now", y.jo, "jo", false)
 	told("sam's device, the one operator's", y.sam, "sam", true)
+}
+
+// Calls beside those four told a file or a command of an operator's to any
+// device that made them. Flows says why a depot's flows could not be read in the
+// words of the read, which name the directory of the depot's repository: a device
+// that is no operator's is told that they could not be, and the depot and
+// its beads stay. Peers tells the address of each link and the words of the last
+// send that failed, which carry it. DeliveryFiles tells why a file of a hook
+// delivery was not taken, in the words of the fetch, which name the program of
+// the source and the directory of the yard. UserNotifications tells a person the
+// row of each event that became a notification for them, and the row names what
+// the event carries: it is made when the event is logged, from what the person
+// is told of the event, so a user who is no operator is not told the
+// worktree of a workspace that was kept, as the stream does not tell it. Each
+// moves with a user's role; the device of an operator is told what the socket
+// tells.
+func TestUserOtherCallsTellNoFileOrCommandToADeviceThatIsNotTheOperators(t *testing.T) {
+	ctx := context.Background()
+	y := newSecretYard(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	home := filepath.Dir(y.db)
+	// A depot whose repository is not there: reading its flows fails, and the
+	// words of the failure name the path.
+	repo := filepath.Join(home, "depots", "wharf")
+	must(y.st.PutDepot(ctx, store.Depot{Name: "wharf", Kind: store.DepotGit, Path: repo, Base: "main"}, "jo"))
+	// A link whose last send failed, in the words of the client that made it.
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	must(err)
+	const northURL = "http://10.0.0.5:8790"
+	_, err = y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key), URL: northURL}, "jo")
+	must(err)
+	_, err = y.st.AllowPeer(ctx, "north", store.PeerAllow{Send: []string{store.PeerPing}}, "jo")
+	must(err)
+	queued, err := y.st.PeerSend(ctx, "north", store.PeerPing, json.RawMessage(`{}`), "jo")
+	must(err)
+	failure := `Post "` + northURL + `/peers": dial tcp 10.0.0.5:8790: connection refused`
+	must(y.st.PeerSendFailed(ctx, "north", queued.Seq, failure, time.Now().Add(time.Hour), false))
+	// A delivery whose file was not fetched, because the source's program did
+	// not run.
+	delivery, _, err := y.st.RecordHook(ctx, "telegram", map[string]any{"source": "telegram", "type": "message", "text": "[document]"}, []byte("{}"), nil)
+	must(err)
+	notTaken := "document not fetched: thread.file of source telegram: fork/exec " + filepath.Join(home, "sources", "telegram", "file.py") + ": permission denied"
+	must(y.st.RecordDeliveryFiles(ctx, delivery, []store.BlobRef{{Name: "plans.pdf", Bytes: 1 << 20, NotTaken: notTaken}}))
+	// Both users hear of a workspace the daemon kept, which names its worktree
+	// and why in the words of git.
+	worktree := filepath.Join(home, "worktrees", "yd-crm")
+	for _, user := range []string{"jo", "sam"} {
+		must(y.st.AddSubscription(ctx, user, store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll,
+			Where: map[string]string{"kind": "workspace_kept"}}, user))
+	}
+	keep := func() {
+		t.Helper()
+		must(y.st.LogDispatch(ctx, "yd-crm", "workspace_kept", "yard", map[string]any{"session": "s1", "worktree": worktree,
+			"reason": "git status in " + worktree + ": changes"}))
+	}
+
+	// answer decodes the result of a call.
+	answer := func(token, method, args string, result any) {
+		t.Helper()
+		if err := json.Unmarshal([]byte(call(t, y.h, token, method, args)), &struct {
+			Result any `json:"result"`
+		}{result}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// probes tell what the device with the token is told of each: the words the
+	// operator's device is told, and what stands in their place for any other.
+	probes := []struct {
+		call, whole, held string
+		get               func(token string) string
+	}{
+		{"Flows", repo, flowsHeld, func(token string) string {
+			var board store.FlowsBoard
+			answer(token, "Flows", `{}`, &board)
+			for _, d := range board.Depots {
+				if d.Name == "wharf" {
+					return d.Error
+				}
+			}
+			t.Fatalf("Flows tells no depot wharf: %+v", board)
+			return ""
+		}},
+		{"Peers (the address)", northURL, "", func(token string) string {
+			var peers []store.Peer
+			answer(token, "Peers", `{}`, &peers)
+			for _, p := range peers {
+				if p.Name == "north" && slices.Equal(p.Send, []string{store.PeerPing}) {
+					return p.URL
+				}
+			}
+			t.Fatalf("Peers tells no link north that carries ping: %+v", peers)
+			return ""
+		}},
+		{"Peers (the last failure)", failure, "", func(token string) string {
+			var peers []store.Peer
+			answer(token, "Peers", `{}`, &peers)
+			for _, p := range peers {
+				if p.Name == "north" {
+					return p.Error
+				}
+			}
+			t.Fatalf("Peers tells no link north: %+v", peers)
+			return ""
+		}},
+		{"DeliveryFiles", notTaken, notTakenHeld, func(token string) string {
+			var files []store.BlobRef
+			answer(token, "DeliveryFiles", fmt.Sprintf(`{"seq":%d}`, delivery), &files)
+			if len(files) != 1 || files[0].Name != "plans.pdf" || files[0].Bytes != 1<<20 {
+				t.Fatalf("DeliveryFiles tells %+v, want the file's name and size", files)
+			}
+			return files[0].NotTaken
+		}},
+	}
+	// told fails unless each call tells the device with the token words that
+	// hold what the operator's are told when whole, and what stands in their
+	// place when not.
+	told := func(who, token string, whole bool) {
+		t.Helper()
+		for _, p := range probes {
+			got := p.get(token)
+			if whole && !strings.Contains(got, p.whole) || !whole && (got != p.held || strings.Contains(got, p.whole)) {
+				t.Errorf("%s is told %q by %s, want %q: whole is %v", who, got, p.call, p.whole, whole)
+			}
+		}
+	}
+	// notified is the text of the last notification of the device's user.
+	notified := func(token, user string) string {
+		t.Helper()
+		var page store.NotificationPage
+		answer(token, "UserNotifications", `{"name":`+strconv.Quote(user)+`}`, &page)
+		if len(page.Notifications) == 0 {
+			t.Fatalf("%s has no notification", user)
+		}
+		return page.Notifications[len(page.Notifications)-1].Text
+	}
+
+	// The socket tells whole, and so does the operator's device.
+	socket := ask(Handler(y.st, nil), http.MethodPost, "/call/Flows", "", strings.NewReader("{}")).Body.String()
+	if !strings.Contains(socket, repo) {
+		t.Fatalf("the socket's Flows does not name the repository %s: %s", repo, socket)
+	}
+	told("jo's device", y.jo, true)
+	told("sam's device", y.sam, false)
+	keep()
+	for _, c := range []struct {
+		who, token, user string
+		whole            bool
+	}{{"jo's device", y.jo, "jo", true}, {"sam's device", y.sam, "sam", false}} {
+		got := notified(c.token, c.user)
+		if !strings.Contains(got, "workspace_kept") || !strings.Contains(got, "session=s1") {
+			t.Errorf("%s is told the notification %q, want the row of the workspace that was kept", c.who, got)
+		}
+		if strings.Contains(got, worktree) != c.whole {
+			t.Errorf("%s is told the notification %q, want the worktree %s there: %v", c.who, got, worktree, c.whole)
+		}
+	}
+
+	// Each operator is told: the device of one made an operator moves with the
+	// role, and so does one made a member.
+	_, err = y.st.SetUser(ctx, "sam", map[string]string{store.UserRole: store.RoleOperator}, "jo")
+	must(err)
+	told("jo's device, one operator's of two", y.jo, true)
+	told("sam's device, an operator's now", y.sam, true)
+	must(y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"))
+	_, err = y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam")
+	must(err)
+	told("jo's device, a member's now", y.jo, false)
+	told("sam's device, the one operator's", y.sam, true)
+	// The row of a notification is made when its event is logged, so the next
+	// one follows the roles.
+	keep()
+	for _, c := range []struct {
+		who, token, user string
+		whole            bool
+	}{{"jo's device, a member's now", y.jo, "jo", false}, {"sam's device, the one operator's", y.sam, "sam", true}} {
+		if got := notified(c.token, c.user); strings.Contains(got, worktree) != c.whole {
+			t.Errorf("%s is told the notification %q, want the worktree %s there: %v", c.who, got, worktree, c.whole)
+		}
+	}
 }

@@ -213,7 +213,9 @@ func (w *wtx) deliver(e *Event) error {
 	}
 	if len(told) > 0 {
 		e.Data["notified"] = told
-		if err := w.notify(beadNotification(e, row), told); err != nil {
+		forOperator := beadNotification(e, row)
+		forOthers := toldNotification(e, forOperator, func(held *Event) Notification { return beadNotification(held, row) })
+		if err := w.notify(forOperator, forOthers, told); err != nil {
 			return err
 		}
 	}
@@ -283,7 +285,9 @@ func (w *wtx) deliverBeadless(e *Event) error {
 	}
 	if len(told) > 0 {
 		e.Data["notified"] = told
-		if err := w.notify(yardNotification(e), told); err != nil {
+		forOperator := yardNotification(e)
+		forOthers := toldNotification(e, forOperator, yardNotification)
+		if err := w.notify(forOperator, forOthers, told); err != nil {
 			return err
 		}
 	}

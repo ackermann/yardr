@@ -685,6 +685,44 @@ an operator alone the operator's own words to their agents,
 and the `setting_changed` event of such a setting comes with its key and
 without its value.
 
+**What a lost token of a user who is no operator gives away of an
+operator's configuration.** The yard's records of it (the settings, the
+users, the crew, the depots, the sources, the hooks and the links to other
+yards) reach a device in the results of its calls and in the events of the
+stream. A device that is no operator's is told no file, command or
+secret from either. The stream sends only the keys of each event that its
+kind lists: the names of what the event is about, numbers, and words from a
+fixed vocabulary. It holds back the rest, such as the handle of a crew
+member's session, the error of a failed send, a depot's path and test
+command, a backup's directory, a workspace's worktree, a refused move's
+command, a pane's screen, the files a removed user's login leaves on disk
+(the names of what went with them are sent), and any error text that names a
+file or a command.
+A kind with no row sends no data at all, so a kind added later says only that
+it happened until its author lists what it tells, and a test fails until they
+do. The calls hold back the same. `Flows` says that a depot's flows could not
+be read and not why. `Peers` has no address and no error text. `DeliveryFiles`
+says that a file was not taken and not why. `GiveSecret`, which a device of
+such a user has for their own address, credential or login code only, answers
+with the names it wrote and not the file they are in, and refuses a value the
+file cannot hold without naming the file. `Bead` and `UserAsks` tell a run
+ask as its asker typed it, without the yard's sentences about what it
+changes, the files it carries, the plan of a pack, or the result of its
+approval. A notification's text is made from what its person is told of the
+event. A device of an operator gets all of it whole.
+
+What a device can still read is text written about one thing that happened,
+as it was written. That is the command a run ask's asker typed, which can
+name a path or a value; the file a setup card says a typed account will be
+written to; a note the yard wrote on a bead about what it did or what failed,
+such as a landing's line, which names the test command it ran, or a fetch
+that did not work; and the words of an error a call returns when the yard's
+own file operation failed, such as a depot it could not read. Notifications
+written by an earlier build keep the words they had. What a person writes (a
+note, a mail, a question and its options) is sent as written to the readers
+of its bead or the parties of the mail, and is not an operator's
+configuration.
+
 **A stolen device of the operator can replace a source's credential, and
 cannot read one.** Until `yardr user device rm`, whoever holds its token
 can answer a secret ask that is not declined or taken back with a value of

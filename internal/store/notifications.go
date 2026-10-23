@@ -140,14 +140,26 @@ func (w *wtx) maySubscribe(ctx context.Context, name, actor string) error {
 	return fmt.Errorf("%s does not decide what %s is told: %s subscribes themselves, or %s does it for them", or(actor, "nobody"), name, name, who)
 }
 
-// notify writes the notification n for each of users (user -> reason), with
-// the push that tells it outside the yard (queuePush), and drops what is
-// over the bound. One already told (Told) is written and no push is queued
-// for it. n's text is its row with the place of the
-// reason left open (reasonSlot).
-func (w *wtx) notify(n Notification, users map[string]any) error {
-	row := n.Text
+// notify writes a notification for each of users (user -> reason), with the
+// push that tells it outside the yard (queuePush), and drops what is over the
+// bound. An operator's is whole and every other user's is told (see
+// toldNotification): the row names what the event carries, and a person who is
+// no operator is not told a file or a command of an operator's in it. Who is
+// an operator is read here, as the write stands, and a yard with none writes
+// the told one for everyone. One already told (Told) is written and no push is
+// queued for it. The text is its row with the place of the reason left open
+// (reasonSlot).
+func (w *wtx) notify(whole, told Notification, users map[string]any) error {
+	ops, err := operatorsIn(w.Tx)
+	if err != nil {
+		return err
+	}
 	for _, name := range slices.Sorted(maps.Keys(users)) {
+		n := told
+		if ops.is(name) {
+			n = whole
+		}
+		row := n.Text
 		n.Reason, _ = users[name].(string)
 		n.Text = n.line(row)
 		if err := put(w.Tx, bNotifications, join(name, seqKey(n.Seq)), n); err != nil {
@@ -225,6 +237,17 @@ func eventTold(e *Event) bool {
 func yardNotification(e *Event) Notification {
 	return Notification{Seq: e.Seq, At: e.At, Source: SourceYardr, Kind: e.Kind, Told: eventTold(e),
 		Text: fmt.Sprintf("%s (%s) by %s %s", e.Kind, reasonSlot, e.Actor, showMap(Brief(said(e.Data))))}
+}
+
+// toldNotification is the notification of e for a person who is not the
+// operator: made by remake, as whole was, from the event as WithoutHeld tells
+// it. Whether the event was told outside the yard already is the event's, and
+// is not what is told of it.
+func toldNotification(e *Event, whole Notification, remake func(*Event) Notification) Notification {
+	held, _ := e.WithoutHeld()
+	n := remake(&held)
+	n.Told = whole.Told
+	return n
 }
 
 // beadNotification is bead event e as a notification, its row in the words
