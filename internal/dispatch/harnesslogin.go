@@ -9,12 +9,14 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -268,8 +270,60 @@ func (d *Dispatcher) harnessLogins(ctx context.Context, rs []store.CrewMember) {
 				continue
 			}
 		}
+		if d.ownSignIn(ctx, rs, seat) {
+			continue
+		}
 		d.offerLogin(ctx, seat, operator)
 	}
+}
+
+// ownSignIn reports whether the seat is a person's conversation on a login of
+// their own that the person is signing in to now (yardr user add --login,
+// yardr user login). The card offerLogin makes leads a login with this
+// daemon's env, which is the machine's login and not the folder that env_for_
+// names (docs/crew.md), so for such a seat it cannot do what it says: the
+// person's own sign-in is the way, and its command starts the session again
+// when it ends well. The seat's env is the env_file of a group that carries
+// that user's login, and the sign-in is the open bead store.SigningIn reads.
+// A session already to start again needs no card either: the pass that carries
+// the restart out still reads the old session in rs. A sign-in that ends
+// without a login closes its bead, and the seat is offered like any other.
+func (d *Dispatcher) ownSignIn(ctx context.Context, rs []store.CrewMember, seat loginSeat) bool {
+	i := slices.IndexFunc(rs, func(r store.CrewMember) bool { return r.Name == seat.member })
+	if i < 0 {
+		return false
+	}
+	// The line session has no user, so no env_for_ either.
+	env := rs[i].EnvFor(seat.user)
+	if env == "" {
+		return false
+	}
+	groups, err := d.Store.Groups(ctx)
+	if err != nil || !slices.ContainsFunc(groups, func(g store.Group) bool {
+		file, _ := g.Config["env_file"].(string)
+		return g.LoginFor() == seat.user && sameEnvFile(env, file)
+	}) {
+		return false
+	}
+	if rs[i].Session(seat.user).RestartRequested != "" {
+		return true
+	}
+	beads, err := d.Store.ListBeads(ctx, store.BeadFilter{Type: store.TypeQuestion})
+	return err == nil && store.SigningIn(beads, seat.user, seat.kind, d.now())
+}
+
+// sameEnvFile reports whether two env_file settings name one file, as the
+// runner reads either: with a leading ~/ expanded.
+func sameEnvFile(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	pa, err := config.ExpandPath(a)
+	if err != nil {
+		return false
+	}
+	pb, err := config.ExpandPath(b)
+	return err == nil && filepath.Clean(pa) == filepath.Clean(pb)
 }
 
 // leadOf is the login led for the seat's kind, or one whose pick switches

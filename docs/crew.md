@@ -462,6 +462,19 @@ member's env file stays there, and that crew member's line session keeps
 reading it. A group's login is `yardr harness login --group`
 ([doctor.md](doctor.md)).
 
+A person's conversation on a login of their own (`yardr user add --login`,
+[groups.md](groups.md#a-person-with-a-login-of-their-own)) starts on a folder
+with no login in it and sits at the login screen until they have signed in.
+The yard asks the operator nothing about it while that sign-in is open: the
+ask above would lead the machine's login, and this session reads the person's
+folder. The sign-in stands on a bead of the person's (`sign_in` in its
+metadata, naming the harness), which its command makes before the
+conversation is served and closes when the sign-in ends, and the daemon reads
+it open for an hour at most. When the sign-in ends in a login, the command
+asks for the person's sessions at the login screen to start again, as the yard
+does after a login it leads itself; when it ends without one, the bead is
+closed and the session is asked about like any other at the screen.
+
 ## Findings from builders and reviewers
 
 What an agent finds outside its bead reaches the yardmaster on two channels,

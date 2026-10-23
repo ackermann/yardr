@@ -3,6 +3,7 @@ package store
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 // LoginOf finds what carries a user's own login by the groups that declare
@@ -64,6 +65,35 @@ func TestUnserve(t *testing.T) {
 		unserve(c.cfg, "ada")
 		if !reflect.DeepEqual(c.cfg, c.want) {
 			t.Errorf("%s: %+v, want %+v", c.name, c.cfg, c.want)
+		}
+	}
+}
+
+// A sign-in is open while a bead of the user's names the harness kind they
+// sign in to and has not been closed or left: one a command killed outright
+// left open holds nothing after SignInWithin, and another person's, another
+// harness's and a bead that is none of a sign-in's hold nothing at all.
+func TestSigningIn(t *testing.T) {
+	now := time.Now()
+	sign := func(user, kind string, age time.Duration, status string) Bead {
+		return Bead{Originator: user, Status: status, CreatedAt: now.Add(-age), Metadata: map[string]any{SignInMeta: kind}}
+	}
+	for _, c := range []struct {
+		name  string
+		beads []Bead
+		want  bool
+	}{
+		{"open", []Bead{sign("ada", "claude", time.Minute, "open")}, true},
+		{"among others", []Bead{sign("bob", "claude", time.Minute, "open"), sign("ada", "claude", time.Minute, "open")}, true},
+		{"none", nil, false},
+		{"closed", []Bead{sign("ada", "claude", time.Minute, "closed")}, false},
+		{"another person's", []Bead{sign("bob", "claude", time.Minute, "open")}, false},
+		{"another harness", []Bead{sign("ada", "codex", time.Minute, "open")}, false},
+		{"left open", []Bead{sign("ada", "claude", SignInWithin+time.Minute, "open")}, false},
+		{"not a sign-in", []Bead{{Originator: "ada", Status: "open", CreatedAt: now}}, false},
+	} {
+		if got := SigningIn(c.beads, "ada", "claude", now); got != c.want {
+			t.Errorf("%s: SigningIn = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

@@ -9,11 +9,73 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/store"
 )
+
+// signInWatch is a store that watches the command which signs user in: whether
+// their sign-in was open when the crew member that serves them was put (the
+// daemon starts the conversation at that write), whether their conversation
+// had been asked to start again when the sign-in's bead was closed, and, when
+// it comes to asking for their code, what atAsk does first, which plants the
+// sessions the daemon would have started by then.
+type signInWatch struct {
+	store.API
+	user  string
+	atAsk func()
+
+	mu     sync.Mutex
+	served []bool
+	closed []bool
+}
+
+func (w *signInWatch) PutCrew(ctx context.Context, def store.CrewMember, actor string) (*store.CrewMember, error) {
+	if def.EnvFor(w.user) != "" {
+		beads, err := w.API.ListBeads(ctx, store.BeadFilter{Type: store.TypeQuestion})
+		if err != nil {
+			return nil, err
+		}
+		w.mu.Lock()
+		w.served = append(w.served, store.SigningIn(beads, w.user, "claude", time.Now()))
+		w.mu.Unlock()
+	}
+	return w.API.PutCrew(ctx, def, actor)
+}
+
+func (w *signInWatch) CloseBead(ctx context.Context, id, reason string, exp store.Expect, actor string) (*store.Bead, error) {
+	r, err := w.API.GetCrew(ctx, "yardmaster")
+	w.mu.Lock()
+	w.closed = append(w.closed, err == nil && r.Session(w.user).RestartRequested != "")
+	w.mu.Unlock()
+	return w.API.CloseBead(ctx, id, reason, exp, actor)
+}
+
+func (w *signInWatch) AddAsk(ctx context.Context, id string, ask store.Ask, actor string) (uint64, error) {
+	if w.atAsk != nil {
+		w.atAsk()
+	}
+	return w.API.AddAsk(ctx, id, ask, actor)
+}
+
+// sitAt starts the yardmaster's session for user ("" for the line session) of
+// the harness kind, as the daemon records one, at its login screen unless
+// screen is "".
+func sitAt(t *testing.T, st store.API, user, kind, screen string) {
+	t.Helper()
+	handle := map[string]any{"agent": "y-" + user, "kind": kind}
+	if screen != "" {
+		handle[store.HarnessLoginKey] = screen
+	}
+	// Not Fatal: the relay calls this from a goroutine of its own.
+	if err := st.CrewStartedFor(context.Background(), "yardmaster", user, handle); err != nil {
+		t.Error(err)
+	}
+}
+
+const atLoginScreen = "Select login method:"
 
 // signedIn runs args, a command that leads user's sign-in, and plays the
 // person: it waits for the ask for their code, checks that it is theirs and
@@ -161,8 +223,16 @@ func TestUserAddWithALogin(t *testing.T) {
 	}
 	mustAs(t, st, "jo", "group", "rm", "stale")
 
-	// The whole of it, with the yardmaster serving everyone.
-	out, err := signedIn(t, st, "ada", "user", "add", "ada", "--login", "claude")
+	// The whole of it, with the yardmaster serving everyone. When her code is
+	// asked for, the daemon has started her conversation on a folder with no
+	// login in it, and it sits at the login screen; the line session of the
+	// yardmaster sits there too, and her sign-in is not its own.
+	watch := &signInWatch{API: st, user: "ada", atAsk: func() {
+		sitAt(t, st, "ada", "claude", atLoginScreen)
+		sitAt(t, st, "", "claude", atLoginScreen)
+	}}
+	rememberEnv(t, watch, yardEnv(t, st))
+	out, err := signedIn(t, watch, "ada", "user", "add", "ada", "--login", "claude")
 	if err != nil {
 		t.Fatalf("user add ada --login claude: %v\n%s", err, out)
 	}
@@ -212,6 +282,30 @@ func TestUserAddWithALogin(t *testing.T) {
 	if ym.EnvFor("ada") != env || len(ym.Served()) != 0 || !ym.HasConversation("ada") {
 		t.Errorf("the yardmaster after: %+v", ym.Config)
 	}
+	// Her sign-in was open before the conversation was served, since the
+	// daemon starts that session at the write and offers the operator no login
+	// card for it while the bead stands; the session at the screen was asked to
+	// start again on the login she made (hers alone, not the line session's)
+	// before the bead was closed, since a daemon that saw the bead closed first
+	// would offer the card for a session that is about to be gone.
+	if len(watch.served) != 1 || !watch.served[0] {
+		t.Errorf("the sign-in was open at each write that served ada: %v, want once, open", watch.served)
+	}
+	if len(watch.closed) != 1 || !watch.closed[0] {
+		t.Errorf("ada's conversation had been asked to start again when the bead was closed: %v, want once, yes", watch.closed)
+	}
+	if beads, err := st.ListBeads(ctx, store.BeadFilter{Type: store.TypeQuestion}); err != nil || store.SigningIn(beads, "ada", "claude", time.Now()) {
+		t.Errorf("ada's sign-in is open after it ended: %v", err)
+	}
+	if got := ym.Conversations["ada"].RestartRequested; got != "claude was logged in through the yard's asks" {
+		t.Errorf("ada's conversation was asked to start again with %q", got)
+	}
+	if ym.RestartRequested != "" {
+		t.Errorf("the line session was asked to start again (%q): the login is not its own", ym.RestartRequested)
+	}
+	if want := "  ada's conversation with yardmaster starts again on the login\n"; !strings.Contains(out, want) {
+		t.Errorf("the output lacks %q:\n%s", want, out)
+	}
 	// The login was led under ada's folder with the subscription, the page
 	// reached ada's inbox, and nothing is left asking: the ask is answered
 	// and its bead closed.
@@ -242,8 +336,24 @@ func TestUserAddWithALogin(t *testing.T) {
 	if ym, err = st.GetCrew(ctx, "yardmaster"); err != nil || strings.Join(ym.Served(), ",") != "ada,bob,jo" || ym.EnvFor("bob") != bobEnv {
 		t.Errorf("the yardmaster after bob: %+v, %v", ym.Config, err)
 	}
-	if out, err = signedIn(t, st, "ada", "user", "login", "ada", "--json"); err != nil {
-		t.Fatalf("user login ada: %v\n%s", err, out)
+	// The sign-in opened again starts again only a conversation that sits at
+	// the screen of the harness it signs in to: not hers at another harness's
+	// screen, nor hers running on a login.
+	for _, c := range []struct {
+		name  string
+		plant func()
+	}{
+		{"another harness's screen", func() { sitAt(t, st, "ada", "codex", atLoginScreen) }},
+		{"no screen", func() { sitAt(t, st, "ada", "claude", "") }},
+	} {
+		again := &signInWatch{API: st, user: "ada", atAsk: c.plant}
+		rememberEnv(t, again, yardEnv(t, st))
+		if out, err = signedIn(t, again, "ada", "user", "login", "ada", "--json"); err != nil {
+			t.Fatalf("user login ada: %v\n%s", err, out)
+		}
+		if ym, err = st.GetCrew(ctx, "yardmaster"); err != nil || ym.Conversations["ada"].RestartRequested != "" {
+			t.Errorf("ada's conversation at %s was asked to start again: %+v, %v", c.name, ym.Conversations["ada"], err)
+		}
 	}
 	var in userSignIn
 	if err := json.Unmarshal([]byte(out), &in); err != nil || !in.Mailed || !in.SignedIn || in.Bead == "" || in.Ask == 0 || in.Error != "" {
@@ -295,7 +405,11 @@ func TestUserAddWithALoginNobodyFinishes(t *testing.T) {
 	stub(t, &loginInputTimeout, 300*time.Millisecond)
 	mustAs(t, st, "jo", "group", "add", "builders", "--runner", "herdr", "--set", "kind=claude")
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--group", "builders")
-	out, err := as(t, st, "jo", "user", "add", "cy", "--login", "claude")
+	// Her conversation sits at the login screen all the while, as the daemon
+	// starts it by then.
+	watch := &signInWatch{API: st, user: "cy", atAsk: func() { sitAt(t, st, "cy", "claude", atLoginScreen) }}
+	rememberEnv(t, watch, yardEnv(t, st))
+	out, err := as(t, watch, "jo", "user", "add", "cy", "--login", "claude")
 	if !errors.Is(err, errCheckFailed) {
 		t.Fatalf("user add cy --login claude = %v, want the failed sign-in\n%s", err, out)
 	}
@@ -309,6 +423,17 @@ func TestUserAddWithALoginNobodyFinishes(t *testing.T) {
 	}
 	if q, err := st.UserAsks(ctx, "cy"); err != nil || len(q.Open) != 0 {
 		t.Errorf("cy's asks after the sign-in ended: %+v, %v", q, err)
+	}
+	// The login was not made: her session at the screen is left as it is, to
+	// be offered the operator's attention now that her sign-in is not open.
+	if beads, err := st.ListBeads(ctx, store.BeadFilter{Type: store.TypeQuestion}); err != nil || store.SigningIn(beads, "cy", "claude", time.Now()) {
+		t.Errorf("cy's sign-in is open after it ended: %v", err)
+	}
+	if ym, err := st.GetCrew(ctx, "yardmaster"); err != nil || !ym.Session("cy").Live() || ym.Session("cy").RestartRequested != "" {
+		t.Errorf("cy's conversation after a sign-in that made no login: %+v, %v", ym.Session("cy"), err)
+	}
+	if strings.Contains(out, "starts again") {
+		t.Errorf("the output says a session starts again:\n%s", out)
 	}
 }
 

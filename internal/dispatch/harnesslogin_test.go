@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -665,5 +666,148 @@ func TestLedLoginSwitchJoinsExistingKind(t *testing.T) {
 	}
 	if asks := openAsksOn(t, s, scout.Journal); len(asks) != 0 {
 		t.Errorf("scout has %d extra asks after the shared login completed", len(asks))
+	}
+}
+
+// ownLoginYard is a yard whose one crew session is the yardmaster's
+// conversation with ada, on a login of her own (a group that carries it and
+// the env file both name), sitting at Claude Code's login screen as it does
+// while she signs in. tweak changes her group before it is put, and setup runs
+// before the session starts, as yardr user add --login makes the sign-in's
+// bead before it serves the conversation.
+func ownLoginYard(t *testing.T, tweak func(*store.Group), setup func(store.API)) (store.API, *crewRunner, *dispatch.Dispatcher) {
+	t.Helper()
+	s, f, d, _ := loginSetup(t)
+	ctx := context.Background()
+	env := filepath.Join(t.TempDir(), "ada.env")
+	for _, user := range []string{"ada", "bob"} {
+		_, err := s.AddUser(ctx, user, "op")
+		must(t, err)
+	}
+	g := store.Group{Name: "ada-builders", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "login_for": "ada", "env_file": env}}
+	if tweak != nil {
+		tweak(&g)
+	}
+	must(t, s.PutGroup(ctx, g, "op"))
+	if setup != nil {
+		setup(s)
+	}
+	serveCrew(t, s, "ada", map[string]string{"ada": env})
+	passUntil(t, d, "ada's session at the login screen", func() bool {
+		r, err := s.GetCrew(ctx, "yardmaster")
+		return err == nil && r.Conversations["ada"].Handle[dispatch.HarnessLoginKey] != nil
+	})
+	return s, f, d
+}
+
+// signInBead makes user's sign-in to kind as the command that leads it does,
+// and answers a func that ends it.
+func signInBead(t *testing.T, s store.API, user, kind string) func() {
+	t.Helper()
+	b, err := s.CreateBead(context.Background(), store.NewBead{For: user, Title: "The code the sign-in page showed",
+		Type: store.TypeQuestion, Metadata: map[string]any{store.SignInMeta: kind}}, "op")
+	must(t, err)
+	return func() {
+		_, err := s.CloseBead(context.Background(), b.ID, "the sign-in of "+user+" ended", store.Expect{}, "op")
+		must(t, err)
+	}
+}
+
+// A person's conversation sits at the login screen from the moment the
+// yardmaster serves it until their sign-in ends, since it starts on a folder
+// that holds no login yet. The card the daemon offers the operator would lead
+// a login with the daemon's own env, the machine's login and not that folder,
+// so while the person's sign-in is open the seat is offered none: the
+// person's sign-in is the way. Any other seat at the screen is offered one.
+func TestSeatOnAPersonsOwnLoginIsOfferedNoCardWhileTheySignIn(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name    string
+		tweak   func(*store.Group) // what is not as it is for ada in her group
+		setup   func(*testing.T, store.API)
+		later   time.Duration // how long after the setup the daemon looks
+		offered bool
+	}{
+		{"their sign-in is open", nil, func(t *testing.T, s store.API) { signInBead(t, s, "ada", "claude") }, 0, false},
+		{"no sign-in", nil, nil, 0, true},
+		{"their sign-in ended", nil, func(t *testing.T, s store.API) { signInBead(t, s, "ada", "claude")() }, 0, true},
+		{"their sign-in was left open", nil, func(t *testing.T, s store.API) { signInBead(t, s, "ada", "claude") }, store.SignInWithin + time.Minute, true},
+		{"another person is signing in", nil, func(t *testing.T, s store.API) { signInBead(t, s, "bob", "claude") }, 0, true},
+		{"to another harness", nil, func(t *testing.T, s store.API) { signInBead(t, s, "ada", "codex") }, 0, true},
+		{"the seat is not on the group's login", func(g *store.Group) { g.Config["env_file"] = "/nowhere/else.env" },
+			func(t *testing.T, s store.API) { signInBead(t, s, "ada", "claude") }, 0, true},
+		{"the group carries another person's login", func(g *store.Group) { g.Config["login_for"] = "bob" },
+			func(t *testing.T, s store.API) { signInBead(t, s, "ada", "claude") }, 0, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			s, _, d := ownLoginYard(t, c.tweak, func(s store.API) {
+				if c.setup != nil {
+					c.setup(t, s)
+				}
+			})
+			if c.later > 0 {
+				dispatch.SetClock(d, func() time.Time { return time.Now().Add(c.later) })
+			}
+			if c.offered {
+				passUntil(t, d, "the card", func() bool { return len(openAsks(t, s)) == 1 })
+				if q := openAsks(t, s)[0].Ask.Question; !strings.Contains(q, "yardmaster (for ada) is not logged in") {
+					t.Errorf("the card asks %q", q)
+				}
+				return
+			}
+			for range 3 {
+				must(t, d.Reconcile(context.Background()))
+			}
+			if asks := openAsks(t, s); len(asks) != 0 {
+				t.Errorf("%d cards offered, want none: %+v", len(asks), asks[0].Ask)
+			}
+		})
+	}
+}
+
+// The command that signs a person in ends well by asking for the session to
+// start again and then closing its bead: two writes, and a pass between or
+// after them still reads the old session at the screen. The restart asked for
+// holds the seat as the open bead did, so no card comes for a session that
+// is about to start on the login.
+func TestSeatToStartAgainAfterTheSignInIsOfferedNoCard(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	var end func()
+	s, f, d := ownLoginYard(t, nil, func(s store.API) { end = signInBead(t, s, "ada", "claude") })
+	r, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	agent := r.Conversations["ada"].Handle["agent"].(string)
+
+	// Working, so the restart waits for its turn to end.
+	f.set(agent, "working")
+	must(t, s.RequestRestartFor(ctx, "yardmaster", "ada", "claude was logged in through the yard's asks", "", "op"))
+	end()
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if r, err = s.GetCrew(ctx, "yardmaster"); err != nil || r.Conversations["ada"].RestartRequested == "" {
+		t.Fatalf("the restart was carried out too soon to try the hold: %+v, %v", r.Conversations["ada"], err)
+	}
+	if asks := openAsks(t, s); len(asks) != 0 {
+		t.Fatalf("%d cards offered for a session to start again, want none: %+v", len(asks), asks[0].Ask)
+	}
+
+	// The turn ends, and the session starts on the login: no screen, no card.
+	f.mu.Lock()
+	f.login, f.input = "", ""
+	f.mu.Unlock()
+	f.set(agent, "idle")
+	passUntil(t, d, "ada's session started again", func() bool {
+		r, err := s.GetCrew(ctx, "yardmaster")
+		return err == nil && r.Conversations["ada"].Live() && r.Conversations["ada"].Handle["agent"] != agent
+	})
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if asks := openAsks(t, s); len(asks) != 0 {
+		t.Errorf("%d cards offered after the session started again, want none", len(asks))
 	}
 }

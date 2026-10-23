@@ -65,7 +65,8 @@ another's login. In this order, after checking that all of it can be made
   sign in on is mailed to them, and the code it shows is asked of them as a
   secret that goes to the waiting login and is kept nowhere. The command
   waits for it, within the login's own timeouts, proves the login with one
-  short call on their seat, and says what it made.
+  short call on their seat, starts their conversation again on it where it
+  sat at the login screen meanwhile, and says what it made.
 
 --like <group> names the group to copy where the yard's builders are not the
 group named builders, or the one group named <depot>-builders. Only claude is

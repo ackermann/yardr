@@ -401,7 +401,16 @@ func (a *app) addUserLogin(c *cobra.Command, st store.API, user, harness, like s
 		say("  route %s: %s%s, for %s's beads -> %s", saved.ID, saved.Stage, scope, user, g.Name)
 	}
 
+	// The sign-in's bead is made before the conversation is served, since the
+	// daemon starts that session as soon as it is, on a login folder that holds
+	// no login yet, and reads this bead open to offer the operator no login
+	// card for it while the person signs in (store.SigningIn).
+	bead, err := a.openSignIn(ctx, st, user, harness)
+	if err != nil {
+		return failed("the sign-in", err)
+	}
 	if err := a.serveUser(ctx, st, p); err != nil {
+		a.closeSignIn(ctx, st, bead, user)
 		return failed("the yardmaster's conversation", err)
 	}
 	made.Crew = p.crew
@@ -411,7 +420,7 @@ func (a *app) addUserLogin(c *cobra.Command, st store.API, user, harness, like s
 	// tells them, and a new user has neither: say so while the sign-in waits,
 	// which the operator's other terminal can set right.
 	say("  %s has no device yet, and reads the page and gives the code at one: yardr user device pair %s <device> --url <the address the yard is reached at>", user, user)
-	in, err := a.signIn(c, st, user, g.Name)
+	in, err := a.signIn(c, st, user, g.Name, bead)
 	made.SignIn = in
 	if a.json {
 		if oerr := a.out(w, made, nil); oerr != nil {
@@ -463,15 +472,51 @@ func writeNewFile(path string, data []byte, mode os.FileMode) error {
 	return f.Close()
 }
 
+// signInQuestion is the question of the ask for the person's code, and the
+// title of the bead the ask stands on.
+const signInQuestion = "The code the sign-in page showed"
+
+// openSignIn makes the bead user's sign-in stands on, which the code it asks
+// for goes on and which stays open for as long as the sign-in does
+// (store.SignInMeta). signIn closes it, whatever its end; a caller that
+// fails before it gets there closes it itself.
+func (a *app) openSignIn(ctx context.Context, st store.API, user, harness string) (string, error) {
+	b, err := st.CreateBead(ctx, store.NewBead{For: user, Title: signInQuestion, Type: store.TypeQuestion,
+		Body:     "The sign-in of " + user + " to Claude waits for the code its page shows.",
+		Metadata: map[string]any{store.SignInMeta: harness}}, a.who())
+	if err != nil {
+		return "", err
+	}
+	return b.ID, nil
+}
+
+// closeSignIn closes the bead of a sign-in that has ended, in a login or not.
+// It is not stopped by the signal that ended the command.
+func (a *app) closeSignIn(ctx context.Context, st store.API, bead, user string) {
+	end, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_, _ = st.CloseBead(end, bead, "the sign-in of "+user+" ended", store.Expect{}, a.who())
+}
+
 // signIn leads user's sign-in under group's login and relays it to them:
 // the page to sign in on is mailed to them, and the code it shows is asked
-// of them (a login-input secret ask) and handed to the waiting login. It
-// waits for the login to end, within the login's own timeouts, and says how
-// it went; a login that did not end in one is an error, after the line that
-// says why, with the command that opens it again.
-func (a *app) signIn(c *cobra.Command, st store.API, user, group string) (*userSignIn, error) {
-	ctx, stop := signal.NotifyContext(c.Context(), os.Interrupt, syscall.SIGTERM)
+// of them (a login-input secret ask, on bead) and handed to the waiting
+// login. It waits for the login to end, within the login's own timeouts, and
+// says how it went; a login that did not end in one is an error, after the
+// line that says why, with the command that opens it again. A login that
+// ended well starts the person's conversation sessions that sat at the login
+// screen again, before the bead is closed.
+func (a *app) signIn(c *cobra.Command, st store.API, user, group, bead string) (*userSignIn, error) {
+	// A closed terminal ends the command as a stop does: the bead must not
+	// outlive it, since the daemon reads it open as a sign-in in progress. Not
+	// when it runs under nohup: asking for the signal would undo the ignoring.
+	stops := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if !signal.Ignored(syscall.SIGHUP) {
+		stops = append(stops, syscall.SIGHUP)
+	}
+	ctx, stop := signal.NotifyContext(c.Context(), stops...)
 	defer stop()
+	defer a.closeSignIn(ctx, st, bead, user)
 	// What is said while the sign-in waits goes to the screen, and in JSON
 	// mode to stderr, where the one document of the run is not.
 	w := c.OutOrStdout()
@@ -512,7 +557,7 @@ func (a *app) signIn(c *cobra.Command, st store.API, user, group string) (*userS
 		needsOut.CloseWithError(err)
 		led <- err
 	}()
-	open, relayed := a.relayNeeds(leadCtx, st, user, needs, answers, in, say)
+	open, relayed := a.relayNeeds(leadCtx, st, user, bead, needs, answers, in, say)
 	if relayed != nil {
 		// Whatever stopped the relaying, the login must end: it is stopped,
 		// and what it still prints is read to its end so it is not left
@@ -526,12 +571,12 @@ func (a *app) signIn(c *cobra.Command, st store.API, user, group string) (*userS
 		err = relayed
 	}
 	// What was asked of them and not answered is taken back, and the bead the
-	// asks stood on closed: a sign-in that ended leaves nothing waiting.
+	// asks stand on is closed on the way out: a sign-in that ended leaves
+	// nothing waiting.
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	for _, q := range open {
 		_ = st.TakeBackAsk(cleanup, q.bead, q.seq, "the sign-in ended", a.who())
-		_, _ = st.CloseBead(cleanup, q.bead, "the sign-in of "+user+" ended", store.Expect{}, a.who())
 	}
 	if err != nil {
 		switch {
@@ -553,7 +598,39 @@ func (a *app) signIn(c *cobra.Command, st store.API, user, group string) (*userS
 		said += ", and one call to " + h.Label + " answered"
 	}
 	say("%s (the login is in %s)", said, file)
+	a.restartSeats(cleanup, st, user, h.Kind, say)
 	return in, nil
+}
+
+// restartSeats starts user's conversation sessions that sit at the harness's
+// login screen again: they started on a folder that held no login, and the
+// harness reads its login as it starts. While the sign-in is open the
+// daemon offers the operator no card for them (store.SigningIn), so nothing
+// else would start them again, as the daemon does for a login it leads
+// itself (docs/crew.md). The bead is still open: the daemon must not see the
+// sign-in ended while a session at the screen is still to be restarted.
+func (a *app) restartSeats(ctx context.Context, st store.API, user, kind string, say func(string, ...any)) {
+	crew, err := st.Crew(ctx)
+	if err != nil {
+		say("%s's conversation could not be looked up to start it again: %v", user, err)
+		return
+	}
+	def := defaultKind(ctx, st)
+	for _, r := range crew {
+		cs := r.Session(user)
+		// loginKindOf reads the handle of the member's line session: this is
+		// the user's session's.
+		r.Handle = cs.Handle
+		if !cs.LoginScreen || loginKindOf(def, r) != kind {
+			continue
+		}
+		reason := kind + " was logged in through the yard's asks"
+		if err := st.RequestRestartFor(ctx, r.Name, user, reason, "", a.who()); err != nil {
+			say("%s's conversation with %s sits at the login screen and could not be started again (%v): yardr crew restart %s --for %s does", user, r.Name, err, r.Name, user)
+			continue
+		}
+		say("%s's conversation with %s starts again on the login", user, r.Name)
+	}
 }
 
 // askedCode is a code asked of the person: the bead it stands on and its seq.
@@ -570,7 +647,7 @@ type askedCode struct {
 // that ended well but answers nothing (a plan without Claude Code, say) is
 // better found now than at their first bead. It answers the asks it made, and
 // why it stopped early when it did.
-func (a *app) relayNeeds(ctx context.Context, st store.API, user string, needs io.Reader, answers io.Writer, in *userSignIn, say func(string, ...any)) ([]askedCode, error) {
+func (a *app) relayNeeds(ctx context.Context, st store.API, user, bead string, needs io.Reader, answers io.Writer, in *userSignIn, say func(string, ...any)) ([]askedCode, error) {
 	var open []askedCode
 	scan := bufio.NewScanner(needs)
 	scan.Buffer(nil, loginLineMax)
@@ -597,20 +674,19 @@ func (a *app) relayNeeds(ctx context.Context, st store.API, user string, needs i
 			in.Mailed = true
 			say("the page to sign in on is mailed to %s", user)
 		case line.Need == needInput && line.Login != "":
-			made, err := st.AskNew(ctx, store.NewBead{For: user, Body: "The sign-in of " + user + " to Claude waits for the code its page shows."},
-				store.Ask{
-					Question: "The code the sign-in page showed",
-					To:       user,
-					Context: []string{"It is the code the page shows once you have signed in to Claude with your own account.",
-						"It goes to the sign-in that waits for it, and is kept nowhere."},
-					Secret: &store.AskSecret{Login: line.Login, As: user},
-				}, a.who())
+			seq, err := st.AddAsk(ctx, bead, store.Ask{
+				Question: signInQuestion,
+				To:       user,
+				Context: []string{"It is the code the page shows once you have signed in to Claude with your own account.",
+					"It goes to the sign-in that waits for it, and is kept nowhere."},
+				Secret: &store.AskSecret{Login: line.Login, As: user},
+			}, a.who())
 			if err != nil {
 				return open, fmt.Errorf("asking %s for the code: %w", user, err)
 			}
-			open = append(open, askedCode{made.Bead.ID, made.Ask})
-			in.Bead, in.Ask = made.Bead.ID, made.Ask
-			say("the code %s pastes back is ask %d on %s; the sign-in waits for it up to %s", user, made.Ask, made.Bead.ID, loginInputTimeout)
+			open = append(open, askedCode{bead, seq})
+			in.Bead, in.Ask = bead, seq
+			say("the code %s pastes back is ask %d on %s; the sign-in waits for it up to %s", user, seq, bead, loginInputTimeout)
 		case line.Need == needConfirm:
 			_, _ = answers.Write([]byte(`{"confirm":true}` + "\n"))
 		case line.Done:
@@ -624,8 +700,8 @@ func (a *app) relayNeeds(ctx context.Context, st store.API, user string, needs i
 func signInMail(user, page string) string {
 	return fmt.Sprintf("%s, your sign-in to Claude for this yard is waiting.\n"+
 		"Open %s and sign in to Claude with your own account. The page then shows a code.\n"+
-		"Paste the code into the ask \"The code the sign-in page showed\", which stands among your questions in footplate and the web view. The sign-in waits for it up to %s.",
-		user, page, loginInputTimeout)
+		"Paste the code into the ask %q, which stands among your questions in footplate and the web view. The sign-in waits for it up to %s.",
+		user, page, signInQuestion, loginInputTimeout)
 }
 
 // userLoginCmd is yardr user login <name>: the sign-in of user add --login
@@ -639,9 +715,10 @@ does at its end: the harness's own login runs into the group's folder, the
 page to sign in on is mailed to the user, and the code it shows is asked of
 them, a secret that goes to the waiting login and is kept nowhere. It waits
 for the login to end, within the login's own timeouts (docs/doctor.md),
-proves it with one short call on the user's seat, and says how it went. Use it when the sign-in did not finish, or to move a
-person's seat: the folder it signs in to is the one the group's env_file
-names.`,
+proves it with one short call on the user's seat, starts their conversation
+again on it where it sits at the login screen, and says how it went. Use it
+when the sign-in did not finish, or to move a person's seat: the folder it
+signs in to is the one the group's env_file names.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -667,7 +744,11 @@ names.`,
 			default:
 				return fmt.Errorf("several groups carry %s's login (%s), and a person signs in once: yardr harness login claude --group <group> leads one of them", args[0], strings.Join(theirs, ", "))
 			}
-			in, err := a.signIn(c, st, args[0], theirs[0])
+			bead, err := a.openSignIn(c.Context(), st, args[0], "claude")
+			if err != nil {
+				return err
+			}
+			in, err := a.signIn(c, st, args[0], theirs[0], bead)
 			if a.json {
 				if oerr := a.out(c.OutOrStdout(), in, nil); oerr != nil {
 					return oerr

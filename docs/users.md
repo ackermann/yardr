@@ -120,6 +120,7 @@ user ada added
   the page to sign in on is mailed to ada
   the code ada pastes back is ask 1 on yd-7m2k; the sign-in waits for it up to 10m0s
   ada is signed in as ada@example.com, and one call to Claude Code answered (the login is in ~/.yardr/groups/ada.env)
+  ada's conversation with yardmaster starts again on the login
 ```
 
 The page to sign in on is mailed to the person, and the code it shows comes
@@ -127,9 +128,11 @@ back as an ask of their own, which goes to the waiting login and is kept
 nowhere. They read the mail and give the code in a [device](#devices) (footplate,
 or the web view), so a new user is paired one while the sign-in waits, which
 takes up to a quarter of an hour. The sign-in ends with one short call to
-Claude Code on their seat, which proves the login answers. One that did not
-finish, or whose call did not answer, ends with how, and `yardr user login
-<name>` opens it again. [groups.md](groups.md#a-person-with-a-login-of-their-own)
+Claude Code on their seat, which proves the login answers, and with their
+conversation with the yardmaster started again on it: it started on a folder
+with no login in it, and the operator is asked nothing about it meanwhile. One
+that did not finish, or whose call did not answer, ends with how, and `yardr
+user login <name>` opens it again. [groups.md](groups.md#a-person-with-a-login-of-their-own)
 has what each step is by hand, and what the group is a copy of.
 
 `yardr user rm <name>` takes it back in the same write that removes the user:

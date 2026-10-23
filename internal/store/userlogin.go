@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // A person with a login of their own is made of records that name them
@@ -91,6 +92,31 @@ func (l UserLogin) Said(user string) []string {
 func hasEnvFor(cfg map[string]any, user string) bool {
 	_, ok := cfg[EnvForPrefix+user]
 	return ok
+}
+
+// SignInMeta is the metadata key of the bead a person's own sign-in stands on
+// (yardr user add --login, yardr user login); its value is the harness kind
+// being signed in. The command makes the bead before it serves the person's
+// conversation and closes it when the sign-in ends, whatever the end, so the
+// bead is open for exactly as long as the sign-in is. That is the one trace
+// of the sign-in the daemon can read: the command is a process of its own,
+// and the code it asks for comes and goes with it.
+const SignInMeta = "sign_in"
+
+// SignInWithin is how long a sign-in can be open: the login ends within its
+// own timeouts (a quarter of an hour, docs/doctor.md) and the one call that
+// proves it takes seconds. A bead open for longer is what a command killed
+// outright left, and holds nothing back.
+const SignInWithin = time.Hour
+
+// SigningIn reports whether beads hold an open sign-in of user to the harness
+// kind at now: their own login is being made, by the person, and no one else
+// can log in a session that sits at its login screen on it.
+func SigningIn(beads []Bead, user, kind string, now time.Time) bool {
+	return slices.ContainsFunc(beads, func(b Bead) bool {
+		of, _ := b.Metadata[SignInMeta].(string)
+		return b.open() && b.Originator == user && of == kind && now.Sub(b.CreatedAt) < SignInWithin
+	})
 }
 
 // userLogin is LoginOf over what the transaction holds.

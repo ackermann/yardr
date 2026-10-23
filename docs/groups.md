@@ -186,7 +186,12 @@ made. Each is a command that stands on its own:
    without Claude Code) is told at once and not at their first bead. It
    waits within the login's own timeouts (15 minutes for the login, 10 for
    the code). One that did not finish, or did not answer, is opened again
-   with `yardr user login ada`.
+   with `yardr user login ada`. The sign-in stands on a bead of ada's that
+   the command makes before it serves the conversation (6) and closes when the
+   sign-in ends. While it is open the yard asks the operator nothing about
+   ada's conversation, which sits at the login screen on a folder with no
+   login in it ([crew.md](crew.md#the-yard-leads-a-harnesss-login)); when the
+   login is made the command starts that conversation again.
 
 Only claude is wired; another harness name is refused. A folder or env file
 that exists is refused too, with its path: a removed user's login stays on
