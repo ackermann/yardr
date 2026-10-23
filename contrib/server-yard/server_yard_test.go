@@ -207,8 +207,24 @@ func (y *yard) cli(t *testing.T, args ...string) (string, error) {
 	return string(out), err
 }
 
-// running reports whether pid is a live process.
-func running(pid int) bool { return pid > 0 && syscall.Kill(pid, 0) == nil }
+// running reports whether pid is a live process. A zombie is not running:
+// kill -0 still answers for one, so where it says alive the state is read
+// with ps and a zombie counts as dead. ps listing nothing means the process
+// died between the checks.
+func running(pid int) bool {
+	if pid <= 0 || syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		return false
+	}
+	return !zombie(strings.TrimSpace(string(out)))
+}
+
+// zombie reports whether a ps STAT word names a process that is not
+// running: a zombie, or nothing at all where ps lists no such process.
+func zombie(stat string) bool { return stat == "" || strings.Contains(stat, "Z") }
 
 // pidIn reads the pid a lock or pid file names, 0 when it names none.
 func pidIn(path string) int {
@@ -246,6 +262,26 @@ func gone(pid int) bool {
 		}
 	}
 	return false
+}
+
+// TestZombie pins what running counts as dead: a zombie's STAT word, in
+// either ps's spelling, and nothing listed at all. A real zombie is not
+// kept instead: Go reaps adopted children on GC timing.
+func TestZombie(t *testing.T) {
+	for _, c := range []struct {
+		stat string
+		want bool
+	}{
+		{"Z", true},
+		{"Z+", true},
+		{"Ss", false},
+		{"R", false},
+		{"", true}, // ps lists nothing: dead between the checks
+	} {
+		if got := zombie(c.stat); got != c.want {
+			t.Errorf("zombie(%q) = %v, want %v", c.stat, got, c.want)
+		}
+	}
 }
 
 // stop ends what the script started, by pid: the daemon, the server it
