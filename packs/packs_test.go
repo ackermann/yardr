@@ -966,8 +966,8 @@ func TestContributorsPack(t *testing.T) {
 	// A reviewed pull request waits for CI before it is approved, and a
 	// verdict or a push sends it on or back: the edges of the pr flow. A
 	// bot's push leads from the read and from the wait back to review. The
-	// pull request's merge or close ends the bead in each stage a bead waits
-	// in while it is open, which only approved did.
+	// pull request's merge or close ends the bead in every stage it waits
+	// in while it is open.
 	var prFlow store.Flow
 	for _, f := range p.Flows {
 		if f.Name != "pr" {
@@ -983,6 +983,7 @@ func TestContributorsPack(t *testing.T) {
 			{"ciwait", "merged", "merged"}, {"ciwait", "dropped", "closed"},
 			{"contributor", "pushed", "review"}, {"contributor", "merged", "merged"}, {"contributor", "dropped", "closed"},
 			{"approved", "merged", "merged"}, {"approved", "dropped", "closed"},
+			{"decide", "merged", "merged"}, {"decide", "dropped", "closed"},
 		} {
 			if to, err := sf.Resolve(e.stage, e.outcome); err != nil || to != e.to {
 				t.Errorf("pr flow: %s on %s goes to %q (%v), want %s", e.stage, e.outcome, to, err, e.to)
@@ -1185,7 +1186,7 @@ func TestContributorsPack(t *testing.T) {
 	// that has to lead them out of each one a bead waits in while the pull
 	// request is open: with no edge the event has nowhere to go, and the
 	// bead stays after the pull request is over.
-	for _, stage := range []string{"triage", "review", "ciwait", "contributor", "approved"} {
+	for _, stage := range []string{"triage", "review", "ciwait", "contributor", "approved", "decide"} {
 		for _, c := range []struct{ merged, outcome, to string }{
 			{"true", "merged", "merged"},
 			{"false", "dropped", "closed"},

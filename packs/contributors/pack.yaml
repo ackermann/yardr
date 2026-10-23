@@ -40,7 +40,7 @@ flows:
   # tests, in ciwait.
   #
   # What became of the pull request is the source's word, and it can come
-  # while its bead waits in triage, review, ciwait or contributor: a
+  # while its bead waits in triage, review, ciwait, contributor or decide: a
   # maintainer merges on GitHub without waiting for the yard, or the author
   # closes it. Each of those stages has an edge for merged and for dropped, as
   # approved does, or the bead would stay open on a pull request that is over.
@@ -66,7 +66,10 @@ flows:
       # Back to ciwait by hand when the head moved after its run: the yard
       # merges only a head its CI passed on.
       approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed, ciwait] }
-      decide:      { group: decisions,    manual: [review, closed] }
+      # A reviewer's question waits here for a person, and the pull request can
+      # be merged or closed on GitHub meanwhile: the bead ends with it, or it
+      # would wait for an answer about a pull request that is over.
+      decide:      { group: decisions,    outcomes: { merged: merged, dropped: closed }, manual: [review, closed] }
       merged:      { end: true }
       closed:      { end: true }
 
@@ -153,7 +156,7 @@ sources:
       - { where: "event=pull_request action=synchronize stage=ciwait type=pr", outcome: changes, note: "the PR changed while waiting on CI" }
       # The end of the pull request, wherever its bead waits: these name no
       # stage, and the flow above leads them out of triage, review, ciwait,
-      # contributor and approved.
+      # contributor, approved and decide.
       - { where: "event=pull_request action=closed merged=true type=pr", outcome: merged }
       - { where: "event=pull_request action=closed merged=false type=pr", outcome: dropped }
 

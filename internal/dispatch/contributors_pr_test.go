@@ -486,34 +486,39 @@ func TestContributorsBotPushStartsTheReadAgain(t *testing.T) {
 }
 
 // A pull request merged or closed on GitHub ends its bead wherever the bead
-// waits before approved: in triage, under review, in the wait for the yard's
-// CI and with the contributor. The pack's two lines name no stage, so a stage
-// without an edge for them left the event nowhere to go, and the bead open on
-// a pull request that was over. Where the bead is worked its session ends with
-// it: the reviewer's is stopped, and so is the yard's CI, whose report is then
-// refused as one from a stage the bead has left, as it is after a push.
+// waits but approved, which had the edges first: in triage, under review, in
+// the wait for the yard's CI, with the contributor and in decide, where a
+// reviewer's question leaves it for a person. The pack's two lines name no
+// stage, so a stage without an edge for them left the event nowhere to go, and
+// the bead open on a pull request that was over. Where the bead is worked its
+// session ends with it: the reviewer's is stopped, and so is the yard's CI,
+// whose report is then refused as one from a stage the bead has left, as it is
+// after a push.
 func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
 	r.reviewedBy(t, "pr-reviewers")
 	ctx := context.Background()
-	// Triage and contributor are stages of people, crossed as the hook's crew
-	// member: the maintainers' members include it, as an import's must for the
-	// label accepted to move a bead, and the contributor's group has none.
-	// Their runner starts nothing of the yard's, as the daemon's manual one.
+	// Triage, contributor and decide are stages of people, crossed as the
+	// hook's crew member: the members of the maintainers and of the decisions
+	// include it, as an import's must for the label accepted to move a bead,
+	// and the contributor's group has none. Their runner starts nothing of the
+	// yard's, as the daemon's manual one.
 	r.d.Runners["manual"] = &fakeRunner{dead: map[string]bool{}}
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
 	must(t, r.api.PutGroup(ctx, store.Group{Name: "outside", Runner: "manual", Limit: 50}, "me"))
 	pr, everyone := "pr", store.OriginatorAny
-	for stage, group := range map[string]string{"triage": "maintainers", "contributor": "outside"} {
+	peopleGroup := map[string]string{"triage": "maintainers", "contributor": "outside", "decide": "decisions"}
+	for stage, group := range peopleGroup {
 		_, err := r.api.AddRoute(ctx, store.Route{Stage: stage, Type: &pr, Originator: &everyone, Group: group}, "me")
 		must(t, err)
 	}
 
 	// arrive makes the bead of a new pull request and takes it to stage as its
 	// events and reports would: a stranger's waits in triage, a bot's goes
-	// to the reader, whose verdict sends it on to the wait for CI, or back to
-	// its contributor.
+	// to the reader, whose verdict sends it on to the wait for CI, back to
+	// its contributor, or to a person with a question.
 	number := 50
 	arrive := func(stage string) *store.Bead {
 		number++
@@ -528,6 +533,9 @@ func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
 			r.reviewerSays(t, b.ID, false)
 		case "contributor":
 			_, err := r.api.Done(ctx, b.ID, "changes", "needs work", store.Expect{Stage: "review"}, "me")
+			must(t, err)
+		case "decide":
+			_, err := r.api.Done(ctx, b.ID, "question", "is this change wanted?", store.Expect{Stage: "review"}, "me")
 			must(t, err)
 		}
 		r.pass(t)
@@ -551,14 +559,14 @@ func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
 		return sessions
 	}
 
-	for _, stage := range []string{"triage", "review", "ciwait", "contributor"} {
+	for _, stage := range []string{"triage", "review", "ciwait", "contributor", "decide"} {
 		for _, c := range []struct{ fixture, outcome, to string }{
 			{"pull_request_closed_merged", "merged", "merged"},
 			{"pull_request_closed_unmerged", "dropped", "closed"},
 		} {
 			b := arrive(stage)
 			worked := workedIn(b.ID, stage)
-			if people := stage == "triage" || stage == "contributor"; people != (len(worked) == 0) {
+			if _, people := peopleGroup[stage]; people != (len(worked) == 0) {
 				t.Fatalf("%s in %s worked by %v", b.ID, stage, worked)
 			}
 
