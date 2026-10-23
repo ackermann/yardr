@@ -51,6 +51,15 @@ request is of its own branch.
 - **A bead has one link per issue.** Adding the other kind to an issue the
   bead already links replaces the link, and the command says so. Adding the
   same kind again is refused.
+- **The tracks link of a `pr` bead is fixed once the bead leaves `triage`.**
+  The yard tests and merges the pull request that link names, so a bead's
+  agent may not add or remove it. `link add` of a `tracks` link, `link rm` of
+  one, and `link add --relates` to the pull request the bead tracks (it takes
+  the tracks link's place) are refused, on any `pr` bead and on the one the
+  agent works, and the refusal names the bead and its stage. A maintainer
+  re-points the link from their own terminal with `link rm`, then `link add`.
+  People, the crew and the yard's scripts are not held, nor is a `pr` bead in
+  `triage`, a `relates` link to another issue, or a bead of any other type.
 
 `yardr link move <issue> --to <bead>` is for work that grew into a train:
 the train tracks the issue in place of the bead that started it. It is one

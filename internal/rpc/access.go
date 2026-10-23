@@ -155,8 +155,8 @@ var Access = map[string]Class{
 	"CheckFor":          Read,
 	"Family":            Read,
 	"Discovery":         Read,
-	"AddLink":           Agent,
-	"RemoveLink":        Agent,
+	"AddLink":           Agent, // but not a change to the tracks link of a pr bead past triage (store.AddLink)
+	"RemoveLink":        Agent, // but not the tracks link of a pr bead past triage (store.RemoveLink)
 	"MoveLink":          Admin,
 	"MoveLinkSource":    Operator,
 	"MoveSourceRecords": Operator,

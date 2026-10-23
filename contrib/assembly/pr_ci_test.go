@@ -427,12 +427,14 @@ func TestPRCIJudgesTheHead(t *testing.T) {
 
 // What is no verdict on a pull request holds the bead, with a note that says
 // why and nothing run: a bead that is not in ciwait, where no reviewer has read
-// the code; a head that is not the one its reviewer recorded, or a bead whose
-// reviewer recorded none or no full sha; a depot with no test command; a pull
-// request that is not open or that GitHub will not show; a remote that does not
-// give the head or does not have the pull request; a token that cannot be had;
-// a link that is no pull request address. Nothing is fetched or run for the
-// ones that are known before it is, and the bead's checkout is never made.
+// the code; a head that is not the one its reviewer recorded (the pull request
+// pushed to since, or its bead's link swapped for another pull request's), or a
+// bead whose reviewer recorded none or no full sha; a depot with no test
+// command; a pull request that is not open or that GitHub will not show; a
+// remote that does not give the head or does not have the pull request; a token
+// that cannot be had; a link that is no pull request address. Nothing is fetched
+// or run for the ones that are known before it is, and the bead's checkout is
+// never made.
 func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 	c := newCIYard(t)
 	none := ""
@@ -535,6 +537,48 @@ func TestPRCIHoldsWhatItCannotJudge(t *testing.T) {
 		if strings.Contains(c.log, "ci.sh of the base") {
 			t.Errorf("%s: the tests ran:\n%s", tc.what, c.log)
 		}
+	}
+
+	// A link swapped after the review is a head nobody read as well: the bead
+	// tracks another pull request than the one its reviewer read, and pr-ci
+	// asks GitHub about the pull request the link names now, while the head the
+	// reviewer recorded stays with the bead. Only a person swaps the link of a
+	// bead past triage (a bead's agent is refused by store.AddLink), as a
+	// maintainer would by hand: the link removed, the other added.
+	id, num, to := "r-s", 70, 71
+	read := c.pull(num, map[string]string{"feature.txt": "read\n"})
+	swapped := c.pull(to, map[string]string{"feature.txt": "swapped in\n"})
+	c.prBeadIn(id, prURLn(num), "ciwait", false)
+	c.reviewed(id, read)
+	ctx, st := context.Background(), rpc.NewClient((&config.Config{Home: c.home}).Socket())
+	if err := st.RemoveLink(ctx, id, prURLn(num), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddLink(ctx, id, store.NewLink{Kind: store.LinkTracks, Source: "github", URL: prURLn(to)}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	c.ci(id, mergeOpts{head: swapped}, nil)
+	what := "a link swapped for another pull request's after the review"
+	c.has(id, what, "ciwait", true)
+	c.noted(id, what, "head "+swapped+" is not the reviewed "+read+": needs re-review", "Nothing of "+prURLn(to)+" was fetched or run")
+	c.clean(id, what)
+	if c.fetched(swapped) {
+		t.Errorf("%s: the depot has the commit %s of the pull request now linked, which pr-ci was to leave where it was", what, swapped)
+	}
+	if b := c.beadOf(id); b.Metadata["ci_head"] != nil {
+		t.Errorf("%s: ci_head = %v on a bead no verdict was given for", what, b.Metadata["ci_head"])
+	}
+	// The head GitHub gave is the one of the pull request the link names now.
+	for _, call := range ghCalls(t, c.gh) {
+		if call != "" && !strings.HasPrefix(call, "pr view "+prURLn(to)+" ") {
+			t.Errorf("%s: GitHub was asked %q, want a read of %s alone", what, call, prURLn(to))
+		}
+	}
+	if countCalls(t, c.gh, "pr view "+prURLn(to)+" ") == 0 {
+		t.Errorf("%s: GitHub was not asked about %s:\n%v", what, prURLn(to), ghCalls(t, c.gh))
+	}
+	if strings.Contains(c.log, "ci.sh of the base") {
+		t.Errorf("%s: the tests ran:\n%s", what, c.log)
 	}
 }
 

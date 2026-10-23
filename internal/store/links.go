@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -141,14 +142,74 @@ func checkIssueURL(raw string) error {
 	return nil
 }
 
+// typePR is the type of a bead that tracks a pull request from outside (the
+// contributors pack's pr flow), and stageTriage the stage it waits in for a
+// maintainer to judge the pull request: nothing of the yard has fetched,
+// tested or merged it before it leaves.
+const (
+	typePR      = "pr"
+	stageTriage = "triage"
+)
+
+// tracksFixed says whether the tracks link of b is no bead agent's to change:
+// b is a pr bead and past triage.
+func tracksFixed(b *beadRow) bool { return b.Type == typePR && b.Stage != stageTriage }
+
+// checkPRTracks refuses a bead's agent (beadAgent) a change to the tracks link
+// of a pr bead past triage, on any such bead, its own included; what is the
+// change, as the refusal says it. The pull request the link names is the one
+// the yard fetches and runs the depot's tests on as the operator, and merges
+// once its reviewer said merge-ok (the contributors pack's ciwait and approved
+// stages), so an agent that could re-point it could send the yard to a pull
+// request nobody read. MoveLink, which reaches the same end, is Admin, and a
+// remove and an add reach it as well. Unlike checkMergeOK it makes no
+// exception for the bead the session owns: nothing in a pr flow re-points a
+// link past triage (the source set it when it made the bead), and the agent
+// that works the bead is the one a pull request would try to talk into it.
+// A person, the crew and the yard's scripts are not a bead's agent, and
+// before triage ends a link may still be put right by anyone.
+func (w *wtx) checkPRTracks(ctx context.Context, b *beadRow, what string) error {
+	if !tracksFixed(b) {
+		return nil
+	}
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil {
+		return err
+	}
+	return fmt.Errorf("bead %s is a pr bead past triage (in %s): the session %s of a bead's agent may not %s, whatever actor the command names; the yard fetches, tests and merges the pull request that link names, so a maintainer re-points it from their own terminal (yardr link rm %s <the old pull request>, then yardr link add %s <the new one>); an agent writes a note on the bead instead: yardr bead note %s \"which pull request it should track, and why\"",
+		b.ID, b.Stage, sess.ID, what, b.ID, b.ID, b.ID)
+}
+
+// checkPRTracksAdded is checkPRTracks for the link nl that AddLink makes: a
+// tracks link, or a relates link to an issue the bead tracks, which takes the
+// tracks link's place (addLink) and so removes it. A relates link to another
+// issue steers no runner and passes.
+func (w *wtx) checkPRTracksAdded(ctx context.Context, b *beadRow, nl NewLink) error {
+	if !tracksFixed(b) {
+		return nil
+	}
+	if nl.Kind == LinkTracks {
+		return w.checkPRTracks(ctx, b, "add a tracks link to "+nl.URL)
+	}
+	own, err := beadLinks(w.Tx, b.UUID)
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(own, func(l linkRow) bool { return l.Kind == LinkTracks && l.URL == nl.URL }) {
+		return w.checkPRTracks(ctx, b, "put a relates link in place of its tracks link to "+nl.URL)
+	}
+	return nil
+}
+
 // AddLink links a bead to an issue. A bead has one link per issue: the
 // other kind to an issue it already links replaces that link, reported in
 // LinkChange.Replaced. For kind tracks it refuses a bead that already
-// tracks an issue of the source, and an issue another bead tracks. The
-// bead's representation lists its links, so it is re-minted, as by an edge.
-// From a session's or a crew member's pane the link is recorded as that
-// session's actor or that crew member, whatever actor says; from anywhere
-// else, as given (paneAuthor).
+// tracks an issue of the source, and an issue another bead tracks. A bead's
+// agent is refused any change to the tracks link of a pr bead past triage
+// (checkPRTracks). The bead's representation lists its links, so it is
+// re-minted, as by an edge. From a session's or a crew member's pane the
+// link is recorded as that session's actor or that crew member, whatever
+// actor says; from anywhere else, as given (paneAuthor).
 func (s *Store) AddLink(ctx context.Context, ref string, nl NewLink, actor string) (*LinkChange, error) {
 	if err := checkLink(&nl); err != nil {
 		return nil, err
@@ -162,6 +223,9 @@ func (s *Store) AddLink(ctx context.Context, ref string, nl NewLink, actor strin
 		actor = resolved
 		row, err := w.loadBead(ref)
 		if err != nil {
+			return err
+		}
+		if err := w.checkPRTracksAdded(ctx, row, nl); err != nil {
 			return err
 		}
 		l, replaced, err := w.addLink(row, nl, actor, nil)
@@ -288,9 +352,11 @@ func (w *wtx) dropLink(l *linkRow) error {
 }
 
 // RemoveLink deletes the bead's link to the issue, of either kind; the
-// unlinked event is its record. From a session's or a crew member's pane
-// the removal is recorded as that session's actor or that crew member,
-// whatever actor says; from anywhere else, as given (paneAuthor).
+// unlinked event is its record. A bead's agent is refused the removal of
+// the tracks link of a pr bead past triage (checkPRTracks). From a
+// session's or a crew member's pane the removal is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere
+// else, as given (paneAuthor).
 func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error {
 	if PeerIssue(issue) {
 		return PeerRowRefusal(issue)
@@ -314,6 +380,11 @@ func (s *Store) RemoveLink(ctx context.Context, ref, issue, actor string) error 
 			l := &own[i]
 			if l.URL != issue {
 				continue
+			}
+			if l.Kind == LinkTracks {
+				if err := w.checkPRTracks(ctx, row, "remove its tracks link to "+l.URL); err != nil {
+					return err
+				}
 			}
 			if err := w.dropLink(l); err != nil {
 				return err

@@ -1723,6 +1723,16 @@ agent is refused it, on its own bead as on another (`yardr bead update --meta
 ci_head=…` from its pane): the reviewer reads a stranger's text, and a pull
 request that talked it into saying the tests passed would be merged untested.
 
+The pull request is the one the bead's tracks link names, when the script runs
+and again when merge-pr does, so once a `pr` bead has left `triage` the link
+is not a bead agent's to change. `yardr link add` of a tracks link and `yardr
+link rm` of one are refused to an agent, on any such bead and on the one it
+works ([links.md](links.md#the-rules)). Without that, a remove and an add
+would do what `yardr link move` does, which is a person's, and the check of
+`reviewed_head` would not stop the reviewer of the bead, who can record the
+head of the new pull request too. A maintainer re-points the link by hand,
+from their own terminal.
+
 The tests of a pull request run on the yard's machine, as whoever runs the
 yard, in no sandbox: a fork's code runs as the operator, after a reviewer has
 read it. That is the accepted cost of a CI that is free, and a wall around the

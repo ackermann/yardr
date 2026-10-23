@@ -3,6 +3,9 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -371,6 +374,127 @@ func TestLinkMove(t *testing.T) {
 	if got := links(t, s, "web-2"); len(got) != 1 || got[0] != "tracks "+linA {
 		t.Fatalf("a refused move changed the tracker: %v", got)
 	}
+}
+
+// prFlow is a pr bead's flow as the contributors pack has it, as far as a
+// link needs: a pull request from outside waits in triage for a maintainer, and
+// past it the yard tests and merges what its tracks link names.
+const prFlow = `
+triage -> review on accepted | closed on dropped
+review -> ciwait on done | closed on dropped
+ciwait -> merged
+closed terminal
+merged terminal
+`
+
+// The tracks link of a pr bead past triage is the pull request the yard
+// fetches, tests and merges, so a bead's agent may neither add nor remove it,
+// on any pr bead and on the one it works too, whatever actor the command names:
+// a remove and an add reach the end state of a move, which is Admin. A person
+// may, as may anyone before triage ends. A relates link of such a bead steers
+// no runner, unless it takes the tracks link's place, and the tracks link of a
+// bead of another type is anyone's. A refusal names the bead and its stage and
+// changes nothing.
+func TestLinkTracksOfAPullRequestAreNoAgentsPastTriage(t *testing.T) {
+	t.Parallel()
+	s, ctx := trainDepot(t)
+	putFlow(t, s, "web", "pr", prFlow)
+	if err := s.PutGroup(ctx, store.Group{Name: "pr-reviewers", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	pr := func(n int) string { return fmt.Sprintf("https://github.com/acme/webapp/pull/%d", n) }
+	for _, nb := range []store.NewBead{
+		{ID: "web-own", Title: "read by the agent", Stage: "review", Links: []store.NewLink{tracks(pr(1))}},
+		{ID: "web-read", Title: "read by another", Stage: "review", Links: []store.NewLink{tracks(pr(2))}},
+		{ID: "web-bare", Title: "tracks nothing", Stage: "review"},
+		{ID: "web-judged", Title: "waits for a maintainer", Stage: "triage", Links: []store.NewLink{tracks(pr(3))}},
+	} {
+		nb.Type, nb.Depot = "pr", "web"
+		if _, err := s.CreateBead(ctx, nb, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := func(bead string, kinds ...string) {
+		t.Helper()
+		if got := links(t, s, bead); !slices.Equal(got, kinds) {
+			t.Fatalf("links of %s = %v, want %v", bead, got, kinds)
+		}
+	}
+
+	// A person re-points the link of a bead in review, by hand, and back. This
+	// comes first: over the socket every call of this process is the pane's once
+	// the session below is running.
+	for _, swap := range [][2]int{{2, 5}, {5, 2}} {
+		if err := s.RemoveLink(ctx, "web-read", pr(swap[0]), "mckean"); err != nil {
+			t.Fatalf("a person's removal of the tracks link of a pr bead in review: %v", err)
+		}
+		if _, err := s.AddLink(ctx, "web-read", tracks(pr(swap[1])), "mckean"); err != nil {
+			t.Fatalf("a person's tracks link for a pr bead in review: %v", err)
+		}
+	}
+	want("web-read", "tracks "+pr(2))
+
+	// This test process is the shell of the tab of the agent that reads web-own.
+	owner, err := s.Claim(ctx, "web-own", "pr-reviewers", "review", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const by = "web-own-review"
+	if err := s.MarkRunning(ctx, owner.ID, paneShell(t, by)); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, os.Getpid())
+
+	// Past triage the agent is refused, on another pr bead and on its own,
+	// whatever actor it names.
+	h := head(t, s)
+	hand := func(bead string) []string {
+		return []string{bead + " is a pr bead past triage (in review)", "yardr link rm " + bead, "yardr link add " + bead, "yardr bead note " + bead}
+	}
+	_, err = s.AddLink(pane, "web-read", tracks(pr(6)), "mckean")
+	refused(t, s, "a tracks link for another pr bead", err, h, append(hand("web-read"), "may not add a tracks link to "+pr(6))...)
+	err = s.RemoveLink(pane, "web-read", pr(2), "mckean")
+	refused(t, s, "the tracks link of another pr bead", err, h, append(hand("web-read"), "may not remove its tracks link to "+pr(2))...)
+	_, err = s.AddLink(pane, "web-read", relates(pr(2)), by)
+	refused(t, s, "a relates link in the place of the tracks link", err, h, append(hand("web-read"), "may not put a relates link in place of its tracks link to "+pr(2))...)
+	_, err = s.AddLink(pane, "web-bare", tracks(pr(9)), by)
+	refused(t, s, "a tracks link for a pr bead that tracks nothing", err, h, append(hand("web-bare"), "may not add a tracks link to "+pr(9))...)
+	_, err = s.AddLink(pane, "web-own", tracks(pr(6)), by)
+	refused(t, s, "a tracks link for the pr bead it works", err, h, append(hand("web-own"), "may not add a tracks link to "+pr(6))...)
+	err = s.RemoveLink(pane, "web-own", pr(1), by)
+	refused(t, s, "the tracks link of the pr bead it works", err, h, append(hand("web-own"), "may not remove its tracks link to "+pr(1))...)
+	want("web-read", "tracks "+pr(2))
+	want("web-own", "tracks "+pr(1))
+	want("web-bare")
+
+	// Before triage ends the same calls are an agent's.
+	if err := s.RemoveLink(pane, "web-judged", pr(3), by); err != nil {
+		t.Fatalf("the agent's removal of the tracks link of a pr bead in triage: %v", err)
+	}
+	if _, err := s.AddLink(pane, "web-judged", tracks(pr(4)), by); err != nil {
+		t.Fatalf("the agent's tracks link for a pr bead in triage: %v", err)
+	}
+	want("web-judged", "tracks "+pr(4))
+
+	// A relates link of a pr bead past triage, to another issue, is anyone's.
+	if _, err := s.AddLink(pane, "web-read", relates(pr(7)), by); err != nil {
+		t.Fatalf("the agent's relates link for a pr bead in review: %v", err)
+	}
+	want("web-read", "tracks "+pr(2), "relates "+pr(7))
+	if err := s.RemoveLink(pane, "web-read", pr(7), by); err != nil {
+		t.Fatalf("the agent's removal of a relates link of a pr bead in review: %v", err)
+	}
+	want("web-read", "tracks "+pr(2))
+
+	// So is the tracks link of a bead of another type.
+	if _, err := s.AddLink(pane, "web-1", tracks(pr(8)), by); err != nil {
+		t.Fatalf("the agent's tracks link for a task: %v", err)
+	}
+	want("web-1", "tracks "+pr(8))
+	if err := s.RemoveLink(pane, "web-1", pr(8), by); err != nil {
+		t.Fatalf("the agent's removal of the tracks link of a task: %v", err)
+	}
+	want("web-1")
 }
 
 // A bead is created with its links, and a link made from the URL takes the
