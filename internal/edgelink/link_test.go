@@ -162,6 +162,36 @@ func send(t *testing.T, l *standin.EdgeLink, f standin.EdgeFrame) {
 	}
 }
 
+// deliverAcrossRedial delivers frame's request on l, or on the link the yard
+// dials after l when l dies first, and returns the answer with the link that
+// served it. A link the test wants to deliver on can die under a loaded
+// machine through no silence of its own: with DeadAfter in the hundreds of
+// milliseconds, one scheduling stall of that length leaves its pongs unheard
+// and the yard dials again. The frame is built anew on each link, since it
+// is signed over the link's own session. A deliver that fails on a link that
+// is still alive is the test's failure, not a flap.
+func deliverAcrossRedial(t *testing.T, y *linked, l *standin.EdgeLink, frame func(*standin.EdgeLink) standin.EdgeFrame) (standin.EdgeAnswer, *standin.EdgeLink) {
+	t.Helper()
+	var f standin.EdgeFrame
+	for outlived := 0; outlived < 4; outlived++ {
+		f = frame(l)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		a, err := l.Deliver(ctx, f)
+		cancel()
+		if err == nil {
+			return a, l
+		}
+		select {
+		case <-l.Done():
+			l = y.next(t)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("frame %s (seq %d) to %s was not answered: %v", f.ID, f.Seq, f.Path, err)
+		}
+	}
+	t.Fatalf("frame to %s was not answered: four links in a row died under the deliver", f.Path)
+	return standin.EdgeAnswer{}, nil
+}
+
 func hook(name string) (string, http.Header, []byte) {
 	h := http.Header{}
 	h.Set("X-Hub-Signature-256", "sha256=abc")
@@ -389,10 +419,34 @@ func TestLinkDialsAgainAfterASilentSocket(t *testing.T) {
 				t.Errorf("down as %+v, want %q", down, DownPings)
 			}
 			second := y.next(t)
-			if a := deliver(t, second, second.Frame(http.MethodGet, "/hooks/back", nil, nil, false)); a.Status != http.StatusAccepted {
+			// The deliver rides a redial of its own when a loaded machine kills
+			// the new link first: its pongs go unheard through no silence.
+			a, _ := deliverAcrossRedial(t, y, second, func(l *standin.EdgeLink) standin.EdgeFrame {
+				return l.Frame(http.MethodGet, "/hooks/back", nil, nil, false)
+			})
+			if a.Status != http.StatusAccepted {
 				t.Errorf("the new link answered %+v", a)
 			}
 			if s := y.until(t, func(s State) bool { return s.Up }); s.Reconnects() != 1 {
+				t.Errorf("up again as %+v", s)
+			}
+
+			// A deliberate second silence pins the redial path the loaded
+			// deliver above must tolerate when its link dies first.
+			second.Silence()
+			if down := y.until(t, func(s State) bool { return !s.Up }); down.Reason != DownPings {
+				t.Errorf("down as %+v, want %q", down, DownPings)
+			}
+			a, served := deliverAcrossRedial(t, y, second, func(l *standin.EdgeLink) standin.EdgeFrame {
+				return l.Frame(http.MethodGet, "/hooks/back", nil, nil, false)
+			})
+			if served == second {
+				t.Error("the deliver was answered on the dead link itself, not on the redial")
+			}
+			if a.Status != http.StatusAccepted {
+				t.Errorf("the redial answered %+v", a)
+			}
+			if s := y.until(t, func(s State) bool { return s.Up }); s.Reconnects() != 2 {
 				t.Errorf("up again as %+v", s)
 			}
 		})
