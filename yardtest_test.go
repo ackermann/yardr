@@ -949,11 +949,18 @@ echo "ran ${YARDR_TEST_RPC:+rpc }$1"
 `
 
 // A yardr that writes down every call, answers bead list with
-// YARDR_FAKE_LIST and bead show with YARDR_FAKE_SHOW, and mints m-filed
-// for bead create, keeping the body it was given: the gate files a repeat
-// flake through it.
+// YARDR_FAKE_LIST and bead show with YARDR_FAKE_SHOW, mints m-filed for bead
+// create, keeping the body it was given, and keeps each bead note as a line:
+// the bead's id, a space, the text it was given. The gate files a repeat
+// flake through it, or notes the open bead that stands for it. The call
+// YARDR_FAKE_REFUSE names ("bead list", "bead note", "bead create") fails, as
+// with the yard down.
 const fakeYardr = `#!/bin/sh
 echo "$*" >>"$FAKE/yardr-calls"
+if [ -n "$YARDR_FAKE_REFUSE" ] && [ "$1 $2" = "$YARDR_FAKE_REFUSE" ]; then
+  echo "the yard is down" >&2
+  exit 1
+fi
 if [ "$1 $2" = "bead list" ]; then
   printf '%s' "$YARDR_FAKE_LIST"
 elif [ "$1 $2" = "bead show" ]; then
@@ -961,6 +968,9 @@ elif [ "$1 $2" = "bead show" ]; then
 elif [ "$1 $2" = "bead create" ]; then
   cat >"$FAKE/yardr-body"
   echo "m-filed"
+elif [ "$1 $2" = "bead note" ]; then
+  printf '%s %s\n' "$3" "$(cat)" >>"$FAKE/yardr-notes"
+  echo "note 1 on $3"
 fi
 `
 
@@ -1167,15 +1177,17 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // lines. The plain run does the same as a landing. A run whose log reports a
 // data race is never run again: the step fails, naming packages whose output
 // reported the race. A test the flaky log already names is filed as a
-// backlog P3 Flaky bead carrying its lines, unless an open bead already
-// carries the title; a test that flaked in 3 different changes in 7 days
-// fails the step instead of passing on its rerun, a change being the beads the
-// log line's beads= field names (the bead of the session that ran the gate,
-// else the beads a train's integration gives, YARDR_TEST_BEADS), and the
-// line's short sha where it has none, so the same change again, at whatever
-// commit, is no more of a strike (the filing counts lines, and files a repeat
-// at the second). Where the yardr CLI is not there the log line stays the
-// record.
+// backlog P3 Flaky bead carrying its lines. A test and its subtests fail
+// together and share one bead, so where an open bead already stands for them
+// it is noted with the run's log line instead, and a strike that names a
+// test with its subtests files or notes once. A test that flaked in 3
+// different changes in 7 days fails the step instead of passing on its
+// rerun, a change being the beads the log line's beads= field names (the bead
+// of the session that ran the gate, else the beads a train's integration
+// gives, YARDR_TEST_BEADS), and the line's short sha where it has none, so
+// the same change again, at whatever commit, is no more of a strike (the
+// filing counts lines, and files a repeat at the second). Where the yardr CLI
+// is not there the log line stays the record.
 //
 // The rerun's output replaces the first run's, so the log line keeps what the
 // first run printed for each failed test, behind a separator: the test's
@@ -1184,6 +1196,11 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // backslash and an n, and 20 blocks to a line. The printed line stays short.
 // Only the part before the separator says which tests flaked: a line without
 // it, as the log held before the separator existed, is all of it.
+//
+// A row is a whole run of the script, and the rows run one after another, 2 to
+// 3 s apiece: the root package has little room under R1's 60 s (yardr-fvkm).
+// A case for flakyopen or flakyfile goes in
+// TestYardTestKeepsTheFailingLinesOfAFlake, which runs the functions alone.
 func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	t.Parallel()
 	const pkg = "m.test/m"
@@ -1214,6 +1231,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		"--- FAIL: TestX/done (10.38s)" + eol + "    x_test.go:674: open /tmp/b: no such file or directory",
 		"--- FAIL: TestY (0.01s)" + eol + "    y_test.go:5: boom",
 	}, sep)
+	// What an earlier strike named when it had the same tests: the head of a
+	// log line, for the seeded sightings of a run that fails nestedFail.
+	nestedPatternFail := strings.ReplaceAll(nestedFail, "TestY", "Test[X]")
+	nestedPatternKept := strings.ReplaceAll(nestedKept, "TestY", "Test[X]")
+	familyHead := "TestX TestX/done TestX/mail Test[X] (" + pkg + ") passed on rerun"
 	// A sighting of another test, whose kept lines mention TestX.
 	mentions := "TestOther (m.test/m) passed on rerun" + sep + "--- FAIL: TestOther (0.30s)" + eol + "    x_test.go:9: waiting for TestX to start"
 	// A package that failed with no test to name (a timeout): there is
@@ -1226,7 +1248,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	running := "test: running the failed packages again: " + pkg
 	norace := "test: not running the failed packages again: DATA RACE in " + pkg
 	title := "Flaky: " + test + " (" + pkg + ")"
-	other := "m-1 Something else\n"
+	listHeader := "ID                 TRAIN  PRI  TYPE    STAGE    STATUS  GROUP           DEPOT         TITLE\n"
+	listRow := func(id, title string) string {
+		return fmt.Sprintf("%-18s %-6s %-4s %-7s %-8s %-7s %-15s %-13s %s\n", id, "", "P3", "task", "backlog", "open", "-", "yardr", title)
+	}
+	other := listHeader + listRow("m-1", "Something else")
 	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}
 	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race -p=3 ./...",
 		"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
@@ -1264,7 +1290,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		kept     string          // what the log line keeps behind the separator: the bare FAIL line when line is empty
 		noTests  bool            // the failure names no test, so the flaky line names the package and the log line keeps nothing
 		seedAs   string          // the text of each seeded sighting after its sha: the short head when empty
-		unlisted bool            // the run sees no repeat, so it lists no beads
+		notes    []string        // "<bead> <test>" for each open bead the run notes with its log line, in order: the test whose pass found it
 		foreign  string          // one more seeded line, which names the test only behind its separator
 	}{
 		{name: "plain: passes on rerun", times: "1", ok: true, calls: plain, steps: plainSteps},
@@ -1291,22 +1317,24 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		{name: "plain: a repeat flake files into its bead's depot, and the bead's runs at three commits are one change", times: "1", ok: true, calls: plain, steps: plainSteps,
 			env: []string{"YARDR_BEAD=x"}, beads: "x", seed: []time.Duration{24 * time.Hour, 36 * time.Hour},
 			seedShas: []string{"a1b2c3d4", "e5f6a7b8"}, seedBead: []string{"y", "x"}, yardr: true, list: other, show: "  depot m\n", create: true, depot: "m"},
-		{name: "plain: an open Flaky bead files nothing, and three lines on one commit do not strike", times: "1", ok: true, calls: plain, steps: plainSteps,
-			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
+		// An open bead for the test is noted with the run's line, not filed
+		// again, whether the strike below then fails the step or not.
+		{name: "plain: an open Flaky bead is noted once, and three lines on one commit do not strike", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other + listRow("m-2", title), notes: []string{"m-2 " + test}},
 		// Four lines, three changes: a line with no bead (written before the
 		// field, counted by its sha), a bead on two lines, and the run's own
-		// bead. The step fails, naming three.
+		// bead. The step fails, naming three, after the open bead is noted.
 		{name: "plain: a third change in 7 days fails the step", times: "1", ok: false, calls: plain, steps: plainSteps,
 			env: []string{"YARDR_BEAD=z"}, beads: "z", seed: []time.Duration{24 * time.Hour, 36 * time.Hour, 48 * time.Hour},
 			seedShas: []string{"a1b2c3d4", "e5f6a7b8", "c9d0e1f2"}, seedBead: []string{"", "x", "x"},
-			yardr: true, list: other + "m-2 " + title + "\n", show: "  depot m\n", strike: true},
+			yardr: true, list: other + listRow("m-2", title), show: "  depot m\n", strike: true, notes: []string{"m-2 " + test}},
 		{name: "plain: an old repeat still files", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{30 * 24 * time.Hour}, yardr: true, list: other, create: true},
 		// Old, on commits of their own: with the window dropped these would
 		// be three commits with the run's.
 		{name: "plain: old sightings do not strike", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{8 * 24 * time.Hour, 9 * 24 * time.Hour}, seedShas: []string{"a1b2c3d4", "e5f6a7b8"},
-			yardr: true, list: other + "m-2 " + title + "\n"},
+			yardr: true, list: other + listRow("m-2", title), notes: []string{"m-2 " + test}},
 		{name: "plain: without the yardr CLI a repeat only logs", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{24 * time.Hour}, barePath: true},
 		// The rerun's output replaces the first run's, so the log line keeps
@@ -1316,16 +1344,27 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			line: nestedFail, tests: "TestX TestX/done TestX/mail TestY", kept: nestedKept},
 		{name: "plain: a failure with no test keeps the short line", times: "1", ok: true, calls: plain, steps: plainSteps,
 			line: timeoutFail, noTests: true},
-		// A repeat files the lines whole, the kept ones with them. Only the
-		// part before the separator names the tests that flaked: a test that
-		// another test's kept lines mention has no sighting of its own, which
-		// would file it and strike it.
-		{name: "plain: a repeat flake files the kept lines too", times: "1", ok: true, calls: plain, steps: plainSteps,
+		// A test and its subtests fail together and share one bead. A strike
+		// that names a test with two subtests, and another test, files one
+		// bead for the three, with the lines whole and the kept ones with
+		// them, or notes the open one once, and the other test's beside it.
+		// The strikes are each test's own: the second case is a third commit
+		// in 7 days for all four, and the step fails naming each.
+		{name: "plain: a repeat of a test and its subtests files one bead with the kept lines too", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: nestedFail, tests: "TestX TestX/done TestX/mail TestY", kept: nestedKept,
 			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true,
-			seedAs:  "TestX (m.test/m) passed on rerun" + sep + "--- FAIL: TestX (0.30s)" + eol + "    x_test.go:9: an older boom",
+			seedAs:  "TestX TestX/done TestX/mail (m.test/m) passed on rerun" + sep + "--- FAIL: TestX (0.30s)" + eol + "    x_test.go:9: an older boom",
 			foreign: mentions},
+		{name: "plain: bracket characters in another test name stay literal across families", times: "1", ok: false, calls: plain, steps: plainSteps,
+			line: nestedPatternFail, tests: "TestX TestX/done TestX/mail Test[X]", kept: nestedPatternKept,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, seedShas: []string{"a1b2c3d4", "e5f6a7b8"},
+			yardr: true, list: other + listRow("m-2", title) + listRow("m-3", "Flaky: Test[X] ("+pkg+")"),
+			seedAs: familyHead, notes: []string{"m-2 TestX", "m-3 Test[X]"}, strike: true},
+		// Only the part before the separator names the tests that flaked: a
+		// test that another test's kept lines mention has no sighting of its
+		// own, which would file it and strike it.
 		{name: "plain: a test named only in another's kept lines is no sighting", times: "1", ok: true, calls: plain, steps: plainSteps,
-			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other, unlisted: true,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other,
 			seedAs: mentions},
 		// Landings without a comparable base (CI's shape): the socket
 		// suites run whole, ungated, so these cases exercise the leg
@@ -1439,7 +1478,10 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			// The case's own variables come last, so a landing's nowhere
 			// base wins over the commit below. The bead and depot of the
 			// run this test is in are cleared first: the script files a
-			// repeat into them, and the test's own would leak in.
+			// repeat into them, and the test's own would leak in. The
+			// locale is C: the script sorts test names with sort, whose
+			// order for a name with brackets differs by locale, and the
+			// rows pin the order it lists and notes them in.
 			line := c.line
 			if line == "" {
 				line = "--- FAIL: " + testName + " (0.00s)\nFAIL\nFAIL\t" + pkg + " 0.123s"
@@ -1450,6 +1492,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				pathEnv = "PATH=" + fake + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
 			}
 			cmd.Env = append(env, pathEnv,
+				"LC_ALL=C",
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
 				"YARDR_BEAD=", "YARDR_DEPOT=",
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+line, "YARDR_RACE_HELD=1")
@@ -1562,8 +1605,10 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					}
 				}
 				if c.strike {
-					if want := "test: " + testName + " flaked on 3 changes in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
-						t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
+					for _, name := range strings.Fields(names) {
+						if want := "test: " + name + " flaked on 3 changes in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
+							t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
+						}
 					}
 					if !strings.Contains(out, "test: FAILED: "+failedStep+"\n") {
 						t.Errorf("a striking step is not followed by a failure summary")
@@ -1599,21 +1644,62 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			// lines of the log, and the filed line the minted id.
 			ycalls, _ := os.ReadFile(filepath.Join(fake, "yardr-calls"))
 			var created string
-			lists, shows := 0, 0
+			var noteCalls []string
+			creates, lists, shows := 0, 0, 0
 			for _, call := range strings.Split(strings.TrimSpace(string(ycalls)), "\n") {
 				switch {
 				case strings.HasPrefix(call, "bead create "):
 					created = call
+					creates++
 				case call == "bead list":
 					lists++
 				case strings.HasPrefix(call, "bead show "):
 					shows++
+				case strings.HasPrefix(call, "bead note "):
+					noteCalls = append(noteCalls, call)
 				case call != "":
 					t.Errorf("the stub was run for %q", call)
 				}
 			}
-			if (created != "") != c.create {
-				t.Errorf("the run filed the flake: %v, want %v", created != "", c.create)
+			// One bead for a test and its subtests, however many of their
+			// names the strike carries.
+			wantCreates := 0
+			if c.create {
+				wantCreates = 1
+			}
+			if creates != wantCreates {
+				t.Errorf("the run filed %d beads, want %d", creates, wantCreates)
+			}
+			// An open bead that stands for the test is noted with the line
+			// the run added to the log, whole, on stdin, and nothing is filed.
+			// The stub keeps each note as the bead's id and the text.
+			var wantCalls, wantNotes []string
+			for _, n := range c.notes {
+				id, _, _ := strings.Cut(n, " ")
+				wantCalls = append(wantCalls, "bead note "+id+" -")
+				if len(logged) > 0 {
+					wantNotes = append(wantNotes, id+" "+logged[len(logged)-1])
+				}
+			}
+			if !slices.Equal(noteCalls, wantCalls) {
+				t.Errorf("the run noted:\n%s\nwant:\n%s", strings.Join(noteCalls, "\n"), strings.Join(wantCalls, "\n"))
+			}
+			recorded, _ := os.ReadFile(filepath.Join(fake, "yardr-notes"))
+			var gotNotes []string
+			if s := strings.TrimSpace(string(recorded)); s != "" {
+				gotNotes = strings.Split(s, "\n")
+			}
+			if !slices.Equal(gotNotes, wantNotes) {
+				t.Errorf("the notes written are:\n%s\nwant the run's own log line, whole, on each:\n%s", strings.Join(gotNotes, "\n"), strings.Join(wantNotes, "\n"))
+			}
+			for _, n := range c.notes {
+				id, noted, _ := strings.Cut(n, " ")
+				if want := "test: noted " + id + ": Flaky: " + noted + " (" + pkg + ")\n"; !strings.Contains(out, want) {
+					t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
+				}
+			}
+			if len(c.notes) == 0 && strings.Contains(out, "test: noted") {
+				t.Errorf("the output notes a bead where none was to be noted")
 			}
 			if c.create {
 				for _, want := range []string{caseTitle, "--stage backlog -p 3 -b -"} {
@@ -1637,7 +1723,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					t.Errorf("the filed body has %d lines, want the %d sightings", len(carried), len(c.seed)+1)
 				}
 				for _, line := range carried {
-					if !strings.Contains(line, testName+" ("+pkg+")") || !strings.Contains(line, "passed on rerun") {
+					if !strings.Contains(line, " ("+pkg+") passed on rerun") {
 						t.Errorf("the filed body line %q, want the test's log line", line)
 					}
 				}
@@ -1655,11 +1741,12 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				t.Errorf("the output files a bead where none was to be filed")
 			}
 			if c.yardr {
-				// Every repeat consults the open beads once; only a case
-				// whose bead names a depot asks the CLI for it.
-				wantLists := 1
-				if c.unlisted {
-					wantLists = 0
+				// Every pass that files or notes consults the open beads once,
+				// a pass a test and its subtests share; only a case whose bead
+				// names a depot asks the CLI for it.
+				wantLists := len(c.notes)
+				if c.create {
+					wantLists++
 				}
 				if lists != wantLists {
 					t.Errorf("the run listed beads %d times, want %d", lists, wantLists)
@@ -1695,37 +1782,45 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 }
 
 // What the flaky log line keeps of the first run (flakyfails), which of its
-// lines name a test (flakylines), the beads it says it tested (flakybeads)
-// and in how many changes a test flaked in the last 7 days (flakychanges),
-// through the script's own functions, cut out of it and run on output as go
-// prints it: a shell and an awk or a perl a case, where a gate run costs
-// seconds. TestYardTestRerunsFailedPackagesOnce pins that the gate writes and
-// reads them. A block is a test's `--- FAIL:` line and the lines indented
-// deeper than it, so a subtest has a block of its own and its parent's holds
-// it; output between reports ends a block; a panic's line, which go prints
-// unindented after the FAIL line, joins the blocks it follows; a block keeps 6
-// lines of 200 characters and a line 20 blocks; control characters are
+// lines name a test (flakylines), the beads it says it tested (flakybeads),
+// in how many changes a test flaked in the last 7 days (flakychanges),
+// which open bead stands for a test (flakyopen) and what a repeat does with
+// it (flakyfile), through the script's own functions, cut out of it and run
+// on output as go prints it and on a listing as yardr prints it: a shell and
+// an awk or a perl a case, where a gate run costs seconds.
+// TestYardTestRerunsFailedPackagesOnce pins that the gate writes and reads
+// them. A block is a test's `--- FAIL:` line and the lines indented deeper
+// than it, so a subtest has a block of its own and its parent's holds it;
+// output between reports ends a block; a panic's line, which go prints
+// unindented after the FAIL line, joins the blocks it follows; a block keeps
+// 6 lines of 200 characters and a line 20 blocks; control characters are
 // dropped. Only the head of a log line, before the separator, names the tests
 // that flaked and the beads it tested. A change is the set of beads a line's
 // last field names, in any order, whatever commits it was tested at, and a
 // line with no field is a change of its sha: the same one on many lines is
 // one change, and only lines in the last 7 days count, whichever change they
-// are of.
+// are of. The bead that stands for a test is its own, else its top-level
+// test's, else any other subtest's of that one, in the packages its title
+// names; with one open the repeat notes it with the run's line, with none it
+// files, and a yard that refuses a call only warns.
 func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(yardTest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The functions as the script has them, from the separator to the
-	// filing: a script the cuts no longer follow fails the test, telling
+	// The functions as the script has them, from the separator to the run's
+	// test line: a script the cuts no longer follow fails the test, telling
 	// its editor to move the probe with it.
 	_, fns, ok := strings.Cut(string(b), "\nflaky_sep=")
 	if ok {
-		fns, _, ok = strings.Cut("flaky_sep="+fns, "\n# flakyfile files a bead")
+		fns, _, ok = strings.Cut("flaky_sep="+fns, "\n# summary prints the run's test line")
 	}
-	if !ok || !strings.Contains(fns, "\nflakyfails() {") || !strings.Contains(fns, "\nflakylines() {") || !strings.Contains(fns, "\nflakybeads() {") || !strings.Contains(fns, "\nflakychanges() {") {
-		t.Fatalf("cannot cut flakyfails, flakylines, flakybeads and flakychanges out of %s: move the probe with the script", yardTest)
+	for _, fn := range []string{"flakyfails", "flakylines", "flakybeads", "flakychanges", "flakyopen", "flakyfile"} {
+		ok = ok && strings.Contains(fns, "\n"+fn+"() {")
+	}
+	if !ok {
+		t.Fatalf("cannot cut flakyfails, flakylines, flakybeads, flakychanges, flakyopen and flakyfile out of %s: move the probe with the script", yardTest)
 	}
 	dir := t.TempDir()
 	probe := filepath.Join(dir, "probe.sh")
@@ -1963,6 +2058,153 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			}
 			if got := run(t, in, "flakychanges", c.test); got != c.want {
 				t.Errorf("flakychanges %s printed %q, want %q for:\n%s", c.test, got, c.want, in)
+			}
+		})
+	}
+
+	// The open beads as `yardr bead list` prints them: a header, and a line a
+	// bead, its title the last column, after a train that is blank for most.
+	const pkg = "m.test/m"
+	const header = "ID                 TRAIN  PRI  TYPE    STAGE    STATUS  GROUP           DEPOT         TITLE"
+	bead := func(id, title string) string {
+		return fmt.Sprintf("%-18s %-6s %-4s %-7s %-8s %-7s %-15s %-13s %s", id, "", "P3", "task", "backlog", "open", "-", "yardr", title)
+	}
+	flaky := func(id, name, pkgs string) string { return bead(id, "Flaky: "+name+" ("+pkgs+")") }
+	other := bead("m-1", "Something else")
+	listing := func(lines []string) string { return header + "\n" + strings.Join(lines, "\n") + "\n" }
+
+	// The bead that stands for a test, from the listing on stdin: the test's
+	// own, else its top-level test's, else any other subtest's of that one,
+	// the first of a kind in the order the listing prints them, and only of
+	// the packages the test's title names. Names are data, not patterns.
+	for _, c := range []struct {
+		name, test, pkgs string
+		list             []string
+		want             string // the id printed: empty for none
+	}{
+		{"the test's own bead", "TestX", pkg, []string{other, flaky("m-2", "TestX", pkg)}, "m-2"},
+		{"a subtest finds its parent's bead", "TestX/a", pkg, []string{other, flaky("m-2", "TestX", pkg)}, "m-2"},
+		{"a subtest finds a sibling's bead", "TestX/a", pkg, []string{other, flaky("m-2", "TestX/b", pkg)}, "m-2"},
+		{"a parent finds a subtest's bead", "TestX", pkg, []string{other, flaky("m-2", "TestX/b", pkg)}, "m-2"},
+		{"a deeper subtest finds a bead of its path", "TestX/a/deep", pkg, []string{flaky("m-2", "TestX/a", pkg)}, "m-2"},
+		{"its own bead before its parent's and a sibling's", "TestX/a", pkg,
+			[]string{flaky("m-1", "TestX/b", pkg), flaky("m-2", "TestX", pkg), flaky("m-3", "TestX/a", pkg)}, "m-3"},
+		{"its parent's bead before a sibling's", "TestX/a", pkg,
+			[]string{flaky("m-1", "TestX/b", pkg), flaky("m-2", "TestX", pkg)}, "m-2"},
+		{"the parent's before a deeper sibling's", "TestX/a/deep", pkg,
+			[]string{flaky("m-1", "TestX/a", pkg), flaky("m-2", "TestX", pkg)}, "m-2"},
+		{"the first of a kind in the listing", "TestX/a", pkg,
+			[]string{flaky("m-1", "TestX/c", pkg), flaky("m-2", "TestX/b", pkg)}, "m-1"},
+		{"another package", "TestX", pkg, []string{flaky("m-2", "TestX", "m.test/other")}, ""},
+		{"a title with two packages is the same two", "TestX", "m.test/a m.test/b", []string{flaky("m-2", "TestX", "m.test/a m.test/b")}, "m-2"},
+		{"two packages are not one", "TestX", "m.test/a m.test/b", []string{flaky("m-2", "TestX", "m.test/a")}, ""},
+		{"one package is not two", "TestX", "m.test/a", []string{flaky("m-2", "TestX", "m.test/a m.test/b")}, ""},
+		{"a longer name is another test", "TestX", pkg, []string{flaky("m-2", "TestXY", pkg), flaky("m-3", "TestX2/a", pkg)}, ""},
+		{"a shorter name is another test", "TestXY", pkg, []string{flaky("m-2", "TestX", pkg), flaky("m-3", "TestX/a", pkg)}, ""},
+		{"a name with a glob character is data", "TestG*", pkg, []string{flaky("m-2", "TestGa", pkg), flaky("m-3", "TestG*", pkg)}, "m-3"},
+		{"a pattern is no name", "Test*", pkg, []string{flaky("m-2", "TestA", pkg)}, ""},
+		// A sibling's bead is listed first: a name read as an escape sequence
+		// finds that one, not its own.
+		{"a name with a backslash is data", `TestX/a\b`, pkg, []string{flaky("m-1", "TestX/other", pkg), flaky("m-2", `TestX/a\b`, pkg)}, "m-2"},
+		{"a title that is no test's", "TestX", pkg, []string{bead("m-2", "Flaky: the push tests ("+pkg+")")}, ""},
+		{"Flaky text elsewhere in a title is no Flaky bead", "TestX", pkg, []string{bead("m-2", "Something Flaky: TestX ("+pkg+")")}, ""},
+		{"a Flaky title with a suffix is not exact", "TestX", pkg, []string{flaky("m-2", "TestX", pkg) + " old"}, ""},
+		// A title with a line break in it makes a line of the listing that
+		// starts anywhere: it is no bead's id when it could be an option.
+		{"a first field that is no id", "TestX", pkg, []string{"--help " + "Flaky: TestX (" + pkg + ")", flaky("m-2", "TestX/a", pkg)}, "m-2"},
+		{"an id with dots and hyphens", "TestX", pkg, []string{flaky("yardr.dev-q1m7", "TestX", pkg)}, "yardr.dev-q1m7"},
+		{"a title whose packages do not follow the name", "TestX", pkg, []string{bead("m-2", "Flaky: TestX see ("+pkg+")")}, ""},
+		{"no Flaky bead", "TestX", pkg, []string{other}, ""},
+		{"no bead", "TestX", pkg, nil, ""},
+	} {
+		t.Run("opens: "+c.name, func(t *testing.T) {
+			cmd := exec.Command("sh", probe, "flakyopen", c.test, c.pkgs)
+			cmd.Stdin = strings.NewReader(listing(c.list))
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			out, err := cmd.Output()
+			if err != nil || stderr.Len() > 0 {
+				t.Fatalf("flakyopen: %v\n%s", err, stderr.String())
+			}
+			if got := strings.TrimSuffix(string(out), "\n"); got != c.want {
+				t.Errorf("flakyopen %s printed %q, want %q for:\n%s", c.test, got, c.want, listing(c.list))
+			}
+		})
+	}
+
+	// What a repeat does with it (flakyfile), against a stub yardr that writes
+	// its calls down. The stub is written once, since the first run of a new
+	// executable costs a scan of its own. With a bead open that stands for the
+	// test, the run's line is noted on it, whole. With none, the bead is filed
+	// with the test's lines of the log. A yard that refuses a call is warned
+	// of and the step goes on, so the function runs under sh -e, as the step
+	// does, and must return 0.
+	stub := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stub, "yardr"), []byte(fakeYardr), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const line = "2026-10-23 12:00:00 abc1234 TestX TestX/a (m.test/m) passed on rerun | --- FAIL: TestX (0.00s)" + eol + "    x_test.go:3: boom"
+	const flakyLog = "2026-10-22 12:00:00 abc1234 TestX (m.test/m) passed on rerun\n" + line + "\n"
+	const create = "bead create Flaky: TestX (m.test/m) --stage backlog -p 3 -b -"
+	const filed = "test: filed m-filed: Flaky: TestX (m.test/m)\n"
+	for _, c := range []struct {
+		name, test string
+		list       []string
+		refuse     string // the call the stub refuses
+		depot      string
+		calls      []string // what the stub was run as, in order
+		note       string   // what it kept as a note: the bead, a space, the text
+		body       string   // what it kept as a filing's body
+		out, warn  string   // stdout and stderr
+	}{
+		{name: "an open bead for the test is noted with the run's line", test: "TestX", list: []string{other, flaky("m-2", "TestX", pkg)},
+			calls: []string{"bead list", "bead note m-2 -"}, note: "m-2 " + line, out: "test: noted m-2: Flaky: TestX (m.test/m)\n"},
+		{name: "a subtest is noted on its parent's bead", test: "TestX/a", list: []string{other, flaky("m-2", "TestX", pkg)},
+			calls: []string{"bead list", "bead note m-2 -"}, note: "m-2 " + line, out: "test: noted m-2: Flaky: TestX/a (m.test/m)\n"},
+		{name: "a subtest is noted on a sibling's bead", test: "TestX/a", list: []string{other, flaky("m-2", "TestX/b", pkg)},
+			calls: []string{"bead list", "bead note m-2 -"}, note: "m-2 " + line, out: "test: noted m-2: Flaky: TestX/a (m.test/m)\n"},
+		{name: "with none open the test's lines of the log are filed", test: "TestX", list: []string{other},
+			calls: []string{"bead list", create}, body: flakyLog, out: filed},
+		{name: "a bead of another package is no bead for the test", test: "TestX", list: []string{other, flaky("m-2", "TestX", "m.test/other")},
+			calls: []string{"bead list", create}, body: flakyLog, out: filed},
+		{name: "a filing names the depot", test: "TestX", depot: "m", list: []string{other},
+			calls: []string{"bead list", "bead create Flaky: TestX (m.test/m) --depot m --stage backlog -p 3 -b -"}, body: flakyLog, out: filed},
+		{name: "a refused list warns and files nothing", test: "TestX", list: []string{flaky("m-2", "TestX", pkg)}, refuse: "bead list",
+			calls: []string{"bead list"}, warn: "test: warning: cannot list beads to file the repeat flake TestX: the yard is down\n"},
+		{name: "a refused note warns and files nothing", test: "TestX", list: []string{flaky("m-2", "TestX", pkg)}, refuse: "bead note",
+			calls: []string{"bead list", "bead note m-2 -"}, warn: "test: warning: cannot note the repeat flake TestX on m-2: the yard is down\n"},
+		{name: "a refused filing warns", test: "TestX", list: []string{other}, refuse: "bead create",
+			calls: []string{"bead list", create}, warn: "test: warning: cannot file the repeat flake TestX: the yard is down\n"},
+	} {
+		t.Run("repeat: "+c.name, func(t *testing.T) {
+			fake := t.TempDir()
+			logf := filepath.Join(fake, "flaky.log")
+			if err := os.WriteFile(logf, []byte(flakyLog), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-e", probe, "flakyfile", c.test, pkg, logf, c.depot, line)
+			// Only the stub and the system on PATH: no real yardr to reach.
+			cmd.Env = []string{"PATH=" + stub + ":/usr/bin:/bin", "FAKE=" + fake, "YARDR_FAKE_LIST=" + listing(c.list), "YARDR_FAKE_REFUSE=" + c.refuse}
+			var stdout, stderr strings.Builder
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Run(); err != nil {
+				t.Errorf("flakyfile returned %v, which fails the step\n%s", err, stderr.String())
+			}
+			if stdout.String() != c.out || stderr.String() != c.warn {
+				t.Errorf("flakyfile printed %q and warned %q, want %q and %q", stdout.String(), stderr.String(), c.out, c.warn)
+			}
+			read := func(name string) string {
+				b, _ := os.ReadFile(filepath.Join(fake, name))
+				return string(b)
+			}
+			if got, want := strings.TrimSpace(read("yardr-calls")), strings.Join(c.calls, "\n"); got != want {
+				t.Errorf("yardr was run as:\n%s\nwant:\n%s", got, want)
+			}
+			if got := strings.TrimSuffix(read("yardr-notes"), "\n"); got != c.note {
+				t.Errorf("the note kept is %q, want %q", got, c.note)
+			}
+			if got := read("yardr-body"); got != c.body {
+				t.Errorf("the filing's body is %q, want %q", got, c.body)
 			}
 		})
 	}
