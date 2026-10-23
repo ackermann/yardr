@@ -1605,11 +1605,13 @@ write, all or nothing:
 - A `folded` event on the carrier names the members, the points, the stage it
   starts in and `hand`.
 
-The members must be open and unclaimed, of one depot and one flow, and this
-yard's own: a bead that came from another yard and has not gone back, or is
-away at one, is refused. A bead's agent cannot fold, since its pane may not
-make the call; a person or a crew member can. A fold of one bead is refused,
-since its carrier would be that bead with a worse title.
+The members must be open, not worked by a session, of one depot and one
+flow, and this yard's own: a bead that came from another yard and has not
+gone back, or is away at one, is refused. A bead a manual group holds is not
+worked by a session, since its claim is a person's turn and nothing runs. It
+is folded, and the fold ends the claim. A bead's agent cannot fold, since its
+pane may not make the call; a person or a crew member can. A fold of one bead
+is refused, since its carrier would be that bead with a worse title.
 
 The carrier starts in `--to`. Without it, it starts where its members wait:
 in the stage they all wait in, or, when that stage is a siding (a stage worked

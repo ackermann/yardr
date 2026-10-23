@@ -69,11 +69,12 @@ type FoldWatcher struct {
 // opts.To that holds each of them as a part, whatever each tracked, blocked
 // and was watched for moved to it, a folded edge from it to each that records
 // that, and each of them closed "folded into <carrier>". It is all or
-// nothing. A
-// member that is closed, claimed or another yard's, members of two depots or
-// of two flows, and a caller in the pane of a bead's agent (which may close
-// only its own bead) are refused before anything is made, and a fold that
-// fails after it leaves nothing behind.
+// nothing. A member that is closed, worked by a session or another yard's,
+// members of two depots or of two flows, and a caller in the pane of a bead's
+// agent (which may close only its own bead) are refused before anything is
+// made, and a fold that fails after it leaves nothing behind. A manual group's
+// claim is a person's turn, not a session at work, so a member it holds is
+// folded and the close ends the claim.
 //
 // What git must read is read here, before the write: the repository flows
 // for the flow of every member (the carrier is governed by the oldest's, and
@@ -360,9 +361,11 @@ func (w *wtx) foldBlocks(carrier, member *beadRow, moved *FoldMoved, look *until
 
 // checkFoldable refuses a member a fold cannot take, saying why: a bead the
 // caller may not close (checkCloseOwn, since a fold closes it), one already
-// closed, one a session has claimed (taking it would end that session's
-// work), and one of another yard's, which closing returns to its yard as
-// refused, or takes back from it.
+// closed, one a session works (taking it would end that session's work), and
+// one of another yard's, which closing returns to its yard as refused, or
+// takes back from it. A manual group's claim is a person's turn with nothing
+// running, not a session at work, so the bead is taken and the close ends the
+// claim, as it does for any bead.
 func (w *wtx) checkFoldable(ctx context.Context, m *beadRow) error {
 	if err := w.checkCloseOwn(ctx, m); err != nil {
 		return fmt.Errorf("a fold closes its members: %w", err)
@@ -370,8 +373,8 @@ func (w *wtx) checkFoldable(ctx context.Context, m *beadRow) error {
 	switch {
 	case m.Status == "closed":
 		return fmt.Errorf("bead %s is closed: a fold takes open beads", m.ID)
-	case m.Group != nil: // as Claim has it: a claim sets a group and a session together
-		return fmt.Errorf("bead %s is claimed: a fold takes beads no session has", m.ID)
+	case m.Group != nil && !heldManually(w.Tx, m): // as Claim has it: a claim sets a group and a session together
+		return fmt.Errorf("bead %s is claimed by a session working it: a fold takes beads no session works", m.ID)
 	}
 	b := m.Bead
 	if err := withPeer(w.Tx, &b); err != nil {
@@ -384,6 +387,19 @@ func (w *wtx) checkFoldable(ctx context.Context, m *beadRow) error {
 		return fmt.Errorf("bead %s is away at another yard: a fold takes beads that are here", m.ID)
 	}
 	return nil
+}
+
+// heldManually reports whether the session that holds m is a manual group's
+// claim (Session.Manual), a person's turn with nothing running. A claim whose
+// session the store does not hold or cannot read is not known to be one, so
+// it answers false and the fold refuses the bead.
+func heldManually(tx *bolt.Tx, m *beadRow) bool {
+	if m.Session == nil {
+		return false
+	}
+	var sess Session
+	ok, err := get(tx, bSessions, *m.Session, &sess)
+	return err == nil && ok && sess.Manual()
 }
 
 // checkFoldDepot refuses members of more than one depot, naming each one's.

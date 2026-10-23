@@ -315,6 +315,63 @@ func foldClaim(t *testing.T, s *Store, b Bead) *Session {
 	return sess
 }
 
+// foldManualHold has a manual group hold each of beads, as the daemon has a
+// group of that runner hold the beads of its stage: claimed, then running
+// with the handle the manual runner leaves, since nothing runs in the claim.
+// The group takes fifty, as the yard's backlog does; foldYard's desk, which
+// the watcher rows use, takes one.
+func foldManualHold(t *testing.T, s *Store, beads ...Bead) []*Session {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, Group{Name: "backlog", Runner: "manual", Limit: 50}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	var held []*Session
+	for _, b := range beads {
+		sess, err := s.Claim(ctx, b.ID, "backlog", b.Stage, "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkRunning(ctx, sess.ID, map[string]any{"manual": true}); err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, sess)
+	}
+	return held
+}
+
+// foldSpoilSession leaves the record of the session sess as raw says: gone when
+// raw is nil, else those bytes, which the store may not be able to read. The
+// record is put back when the row ends, so that no row after it finds a
+// session it cannot list.
+func foldSpoilSession(t *testing.T, s *Store, sess *Session, raw []byte) {
+	t.Helper()
+	var whole []byte
+	err := s.read(func(tx *bolt.Tx) error {
+		whole = slices.Clone(tx.Bucket(bSessions).Get([]byte(sess.ID)))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func(rec []byte) error {
+		return s.write(func(w *wtx) error {
+			if rec == nil {
+				return w.Bucket(bSessions).Delete([]byte(sess.ID))
+			}
+			return w.Bucket(bSessions).Put([]byte(sess.ID), rec)
+		})
+	}
+	if err := set(raw); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := set(whole); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
 // foldPane makes this test process the pane of a session of b, as MarkRunning
 // takes a herdr tab's shell: a call made with WithCaller(ctx, os.Getpid()) is
 // then that of b's agent.
@@ -376,6 +433,9 @@ func TestFoldBeads(t *testing.T) {
 		return *b
 	}
 	var y Bead
+	// held are the sessions a manual group holds a row's members by, for that
+	// row's check to read (the rows run in turn).
+	var held []*Session
 	pinned := func(title, flow string) NewBead {
 		return NewBead{Title: title, Metadata: map[string]any{"flow": flow}}
 	}
@@ -1200,6 +1260,69 @@ func TestFoldBeads(t *testing.T) {
 			name: "a claimed member is refused", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{bead("a"), bead("b")},
 			prepare: func(t *testing.T, s *Store, made []Bead) { foldClaim(t, s, made[1]) },
+			wantErr: "is claimed",
+		},
+		{
+			// A manual group claims the beads of its stage up to its limit, and
+			// the fold's main use is on those. Its claim is a person's turn,
+			// with nothing running to end.
+			name: "members a manual group holds are folded, and the fold ends their claims", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) { held = foldManualHold(t, s, made...) },
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "carrier stage", got.Stage, "ready")
+				if got.Group != nil || got.Session != nil {
+					t.Errorf("the carrier is held by group %v, session %v; want it free to route", got.Group, got.Session)
+				}
+				foldWantEdges(t, s, got.ID, DepFolded, got.ID+" -> "+made[0].ID, got.ID+" -> "+made[1].ID)
+				for _, m := range made {
+					b, err := s.GetBead(ctx, m.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					reason := ""
+					if b.CloseReason != nil {
+						reason = *b.CloseReason
+					}
+					foldWant(t, m.ID+" status", b.Status, "closed")
+					foldWant(t, m.ID+" close reason", reason, "folded into "+got.ID)
+					if b.Group != nil || b.Session != nil {
+						t.Errorf("%s is closed and still held by group %v, session %v", m.ID, b.Group, b.Session)
+					}
+				}
+				// The close ended the claims, so the group has its places back.
+				foldWant(t, "claims held", len(held), len(made))
+				for _, h := range held {
+					sess, err := s.GetSession(ctx, h.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					foldWant(t, "session "+h.ID+" state", sess.State, "done")
+					if sess.EndedAt == nil {
+						t.Errorf("session %s has no end", h.ID)
+					}
+				}
+			},
+		},
+		{
+			// A claim sets a group and a session together, so a bead that names
+			// a session the store lacks is in a state nothing makes. If it ever
+			// is, the fold does not guess that nothing runs in the claim.
+			name: "a member claimed by a session the store lacks is refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				foldSpoilSession(t, s, foldManualHold(t, s, made[1])[0], nil)
+			},
+			wantErr: "is claimed",
+		},
+		{
+			// The record decodes as a manual claim up to its bad field, then
+			// fails. The fold goes by what reads whole.
+			name: "a member claimed by a session the store cannot read is refused", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{bead("a"), bead("b")},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				foldSpoilSession(t, s, foldManualHold(t, s, made[1])[0], []byte(`{"runner":"manual","state":1}`))
+			},
 			wantErr: "is claimed",
 		},
 		{

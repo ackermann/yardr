@@ -34,10 +34,12 @@ fold_after or fold_max), in the stage the siding leads to first; beads in
 different stages need --to. --title replaces the title the carrier gets,
 "<depot> bundle: <title>; <title>".
 
-The beads must be open, unclaimed, and of one depot and one flow, and none
-may have come from another yard or be away at one. A fold is all or nothing:
-a bead it cannot take leaves everything as it was. --json prints the carrier,
-with the beads it was made of as members and what they weigh as points.`,
+The beads must be open, not worked by a session, and of one depot and one
+flow, and none may have come from another yard or be away at one. A manual
+group's claim is a person's turn, not a session at work, so a bead it holds
+is folded and the fold ends the claim. A fold is all or nothing: a bead it
+cannot take leaves everything as it was. --json prints the carrier, with the
+beads it was made of as members and what they weigh as points.`,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return fmt.Errorf("a fold takes two beads or more: a carrier of one would be that bead with a worse title")
