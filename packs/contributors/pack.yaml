@@ -117,15 +117,23 @@ sources:
       # skips the maintainer. association is GitHub's author_association as
       # the github source's normalize writes it, in lowercase, and a where
       # compares exactly: OWNER and MEMBER here would match no pull request.
-      - { where: "event=pull_request action=opened action=ready_for_review association=owner association=member", bead: { type: pr, stage: review } }
+      #
+      # A reopened pull request (action=reopened) is judged by the same lines
+      # as when it was opened. The close that ended its bead (see says, below)
+      # left no open bead for the thread, so this makes the next one. It
+      # starts clean. Nothing of the old bead's review or tests carries over,
+      # because they were of a head the pull request may no longer have.
+      # sender is whoever reopened it, just as it is whoever marked a pull
+      # request ready for review.
+      - { where: "event=pull_request action=opened action=ready_for_review action=reopened association=owner association=member", bead: { type: pr, stage: review } }
       # A bot's pull request skips the maintainer too: the dependency bumps of
       # the repository's tooling are the bulk of them, and the reviewer after
       # this stage reads what a maintainer would. sender is GitHub's kind of
       # what acted (user, bot or organization), never a login, so no line can
       # name one bot: every bot's pull request goes to review, and a human
       # from outside keeps the hold.
-      - { where: "event=pull_request action=opened action=ready_for_review sender=bot", bead: { type: pr, stage: review } }
-      - { where: "event=pull_request action=opened action=ready_for_review", bead: { type: pr, stage: triage } }
+      - { where: "event=pull_request action=opened action=ready_for_review action=reopened sender=bot", bead: { type: pr, stage: review } }
+      - { where: "event=pull_request action=opened action=ready_for_review action=reopened", bead: { type: pr, stage: triage } }
       - { where: "event=issues action=opened", bead: { type: issue, stage: triage } }
 
     # SAYS: an event reports an outcome to the bead that tracks its thread,

@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -598,21 +600,132 @@ func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
 	}
 }
 
+// A pull request closed unmerged and then reopened has a bead again. The
+// close ended the old one (TestContributorsClosedPullRequestEndsItsBead), so no
+// open bead tracks the thread, and the lines that judged the pull request when
+// it was opened make the next. The new bead starts clean, with no label, no
+// note and none of the heads a merge is decided on, because what was read and
+// tested before was of a head the pull request may no longer have. The old bead
+// is as the close left it except for its link, which it hands on and keeps as
+// one that only relates. The close is still in the log, and a daemon that
+// starts again reads it without ending the new bead.
+func TestContributorsReopenedPullRequestStartsAFreshBead(t *testing.T) {
+	t.Parallel()
+	r := newContributorsYard(t)
+	ctx := context.Background()
+	const url = "https://github.com/acme/yardr/pull/61"
+	bot := prEvent(61, "dependabot[bot]", "Bot")
+
+	// A bot's bump, read, passed by the yard's CI and said yes to. It sits in
+	// approved with everything a merge is decided on.
+	r.deliverJSON(t, "pull_request", "pull_request_opened", bot)
+	old := r.madeIn(t, 61, "review")
+	r.reviewerSays(t, old.ID, true)
+	r.ciSays(t, old.ID, true)
+	_, err := r.api.UpdateBead(ctx, old.ID, store.BeadPatch{Metadata: map[string]any{
+		"reviewed_head": fixtureSHA, "merge_head": fixtureSHA}}, store.Expect{}, "me")
+	must(t, err)
+	r.pass(t)
+
+	r.deliverJSON(t, "pull_request", "pull_request_closed_unmerged", bot)
+	r.pass(t)
+	ended := r.bead(t, old.ID)
+	endedNotes, err := r.api.Notes(ctx, old.ID)
+	must(t, err)
+	if ended.Stage != "closed" || ended.Status != "closed" || !slices.Contains(ended.Labels, "merge-ok") || len(endedNotes) == 0 {
+		t.Fatalf("%s after the close: %s (%s) with labels %v and %d notes, want it closed with what it had",
+			old.ID, ended.Stage, ended.Status, ended.Labels, len(endedNotes))
+	}
+	for _, k := range []string{"reviewed_head", "ci_head", "merge_head"} {
+		if ended.Metadata[k] != fixtureSHA {
+			t.Fatalf("%s after the close has %s %v, want %s", old.ID, k, ended.Metadata[k], fixtureSHA)
+		}
+	}
+
+	// Reopened, at a head that moved while it was closed.
+	r.deliverJSON(t, "pull_request", "pull_request_reopened", bot, atHead(movedSHA))
+	r.pass(t)
+	fresh := r.made(t, url)
+	if fresh.ID == old.ID || fresh.Type != "pr" || fresh.Stage != "review" || fresh.Status != "open" {
+		t.Fatalf("tracking %s: %s (%s, %s, %s) beside %s, want a new open pr in review", url, fresh.ID, fresh.Type, fresh.Stage, fresh.Status, old.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 || open[0].ID != fresh.ID {
+		t.Fatalf("open beads %v (%v), want %s alone", open, err, fresh.ID)
+	}
+	if _, relates := r.tracking(t, url); !slices.Equal(relates, []string{old.ID}) {
+		t.Fatalf("beads relating to %s: %v, want the closed %s", url, relates, old.ID)
+	}
+	freshNotes, err := r.api.Notes(ctx, fresh.ID)
+	must(t, err)
+	if len(fresh.Labels) != 0 || len(freshNotes) != 0 || !slices.Equal(slices.Sorted(maps.Keys(fresh.Metadata)), []string{"hook_seq"}) {
+		t.Fatalf("%s starts with labels %v, metadata %v and %d notes, want none but the event that made it", fresh.ID, fresh.Labels, fresh.Metadata, len(freshNotes))
+	}
+	wantRules(t, r.rules(t, fresh.ID), "pull_request made "+fresh.ID)
+
+	// The old bead is as the close left it, and the reopen logged nothing on it.
+	after := r.bead(t, old.ID)
+	afterNotes, err := r.api.Notes(ctx, old.ID)
+	must(t, err)
+	if after.Stage != ended.Stage || after.Status != ended.Status || !slices.Equal(after.Labels, ended.Labels) ||
+		!reflect.DeepEqual(after.Metadata, ended.Metadata) || !reflect.DeepEqual(afterNotes, endedNotes) {
+		t.Fatalf("%s changed when the pull request was reopened: %+v with notes %v, was %+v with notes %v", old.ID, after, afterNotes, ended, endedNotes)
+	}
+	wantRules(t, r.rules(t, old.ID), "pull_request made "+old.ID, "dropped approved -> closed")
+
+	// A daemon that starts again reads the log from the start, the close
+	// among it, and makes and moves nothing.
+	again := &dispatch.Dispatcher{Store: r.api, Runners: r.d.Runners, PRHead: r.d.PRHead, CI: r.d.CI, DepotRepo: r.d.DepotRepo}
+	must(t, again.Reconcile(ctx))
+	if b := r.made(t, url); b.ID != fresh.ID || b.Stage != "review" || b.Status != "open" {
+		t.Fatalf("after a restart %s tracks %s: %s (%s), want %s open in review", url, b.ID, b.Stage, b.Status, fresh.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 {
+		t.Fatalf("open beads after a restart: %d (%v), want one", len(open), err)
+	}
+}
+
 // Who skips the maintainer, through the normalizing a yard does: the pull
 // request of an owner or a member of the repository, as GitHub spells their
 // association (OWNER, MEMBER) and the source's normalize lowercases it, and a
 // bot's go to review; a human's from outside waits in triage. The pack's
 // table is matched with fields typed by hand in packs_test.go, which cannot
-// see whether the line is spelled as normalize writes it.
+// see whether the line is spelled as normalize writes it. Closed and reopened,
+// each is judged by the same lines, and sender is whoever reopened it, so a
+// person who reopens a bot's pull request leaves it to the maintainer.
 func TestContributorsWhoSkipTriage(t *testing.T) {
 	t.Parallel()
 	r := newContributorsYard(t)
-	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(31, "someone", "User"), authorIs("NONE"))
-	r.madeIn(t, 31, "triage")
-	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(32, "renovate[bot]", "Bot"))
-	r.madeIn(t, 32, "review")
-	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(33, "a-member", "User"), authorIs("MEMBER"))
-	r.madeIn(t, 33, "review")
-	r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(34, "the-owner", "User"), authorIs("OWNER"))
-	r.madeIn(t, 34, "review")
+	for _, c := range []struct {
+		number                   int
+		login, kind, association string
+		opened, reopened         string
+		reopenedBy               string // a person other than its author who reopens it
+	}{
+		{31, "someone", "User", "NONE", "triage", "triage", ""},
+		{32, "renovate[bot]", "Bot", "", "review", "review", ""},
+		{33, "a-member", "User", "MEMBER", "review", "review", ""},
+		{34, "the-owner", "User", "OWNER", "review", "review", ""},
+		{35, "renovate[bot]", "Bot", "", "review", "triage", "a-maintainer"},
+	} {
+		author := []func(map[string]any){prEvent(c.number, c.login, c.kind)}
+		if c.association != "" {
+			author = append(author, authorIs(c.association))
+		}
+		r.deliverJSON(t, "pull_request", "pull_request_opened", author...)
+		first := r.madeIn(t, c.number, c.opened)
+
+		r.deliverJSON(t, "pull_request", "pull_request_closed_unmerged", author...)
+		r.pass(t)
+		if got := r.bead(t, first.ID); got.Status != "closed" {
+			t.Fatalf("pull request %d closed: %s is %s in %s, want it closed", c.number, first.ID, got.Status, got.Stage)
+		}
+		reopen := author
+		if c.reopenedBy != "" {
+			reopen = append(slices.Clone(author), pushedBy(c.reopenedBy, "User"))
+		}
+		r.deliverJSON(t, "pull_request", "pull_request_reopened", reopen...)
+		if again := r.madeIn(t, c.number, c.reopened); again.ID == first.ID {
+			t.Fatalf("pull request %d reopened: %s is still its bead", c.number, again.ID)
+		}
+	}
 }

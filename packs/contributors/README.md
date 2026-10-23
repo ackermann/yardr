@@ -39,7 +39,7 @@ who is trusted. yardr knows three verbs and none of the choices:
 
 | verb | direction | here |
 |---|---|---|
-| `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
+| `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened, marked ready or reopened: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
 | `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. Merged: `merged`. Closed: `dropped`. Both in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own, reported by a script |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
@@ -55,6 +55,14 @@ anywhere, and the label `accepted` sends it on.
 that sends it to `review` is `sender=bot`: `sender` is the kind GitHub types
 what acted as (user, bot or organization) and never a login, so no line can
 name Dependabot alone. A human from outside keeps the hold.
+
+**A reopened pull request gets a new bead.** A close ends its bead, so no
+open bead tracks the thread when someone reopens it, and the same lines of
+`makes` judge it. `sender` is then whoever reopened it, so a person who
+reopens a bot's pull request leaves it in `triage`. The new bead starts with
+none of the old one's notes, labels or heads (`reviewed_head`, `ci_head`,
+`merge_head`), and the old bead stays closed with a link to the thread that
+only relates.
 
 **`merge-ok` is the reviewer's to give for one kind of pull request.** A
 bump of Go modules from a bot, whose title opens `build(deps)` and whose

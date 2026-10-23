@@ -1057,9 +1057,9 @@ func TestContributorsPack(t *testing.T) {
 		makes = append(makes, m.String())
 	}
 	if want := []string{
-		"action=opened action=ready_for_review association=member association=owner event=pull_request -> pr:review",
-		"action=opened action=ready_for_review event=pull_request sender=bot -> pr:review",
-		"action=opened action=ready_for_review event=pull_request -> pr:triage",
+		"action=opened action=ready_for_review action=reopened association=member association=owner event=pull_request -> pr:review",
+		"action=opened action=ready_for_review action=reopened event=pull_request sender=bot -> pr:review",
+		"action=opened action=ready_for_review action=reopened event=pull_request -> pr:triage",
 		"action=opened event=issues -> issue:triage",
 	}; !slices.Equal(makes, want) {
 		t.Errorf("makes:\n%s\nwant:\n%s", strings.Join(makes, "\n"), strings.Join(want, "\n"))
@@ -1084,6 +1084,14 @@ func TestContributorsPack(t *testing.T) {
 		{"pull_request", "opened", "bot", "none", "pr:review"},
 		{"pull_request", "ready_for_review", "bot", "contributor", "pr:review"},
 		{"pull_request", "opened", "organization", "none", "pr:triage"},
+		// A reopened pull request is judged by the same lines. sender is
+		// whoever reopened it, not its author, so a person who reopens a bot's
+		// pull request is a user here and leaves it to the maintainer.
+		{"pull_request", "reopened", "user", "none", "pr:triage"},
+		{"pull_request", "reopened", "user", "member", "pr:review"},
+		{"pull_request", "reopened", "user", "owner", "pr:review"},
+		{"pull_request", "reopened", "bot", "none", "pr:review"},
+		{"pull_request", "reopened", "organization", "none", "pr:triage"},
 		{"pull_request", "synchronize", "bot", "none", ""},
 		{"issues", "opened", "bot", "none", "issue:triage"},
 		{"issues", "opened", "user", "none", "issue:triage"},

@@ -1515,7 +1515,7 @@ yardr knows the verbs alone:
 
 | verb | direction | in this pack |
 |---|---|---|
-| `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened or marked ready a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
+| `makes` | source -> yard: an event makes a bead for a thread no open bead tracks | an issue opened makes an `issue` bead in `triage`; a pull request opened, marked ready or reopened a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository (`association=`) or a bot (`sender=bot`: a kind, never a login, so every bot) |
 | `says` | source -> bead: an event reports an outcome to the bead that tracks its thread | the label `accepted` says `accepted`; new commits on a pull request say `pushed` in `contributor`, and in `review` and `ciwait` `pushed` when a bot pushed and `changes` when a person did; a merge says `merged`, a close `dropped`, in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own |
 | `hears` | bead -> source: a stage of the bead sets a status on the thread | an issue is closed when its bead reaches `merged` or `closed`, a pull request when its bead reaches `closed` |
 
@@ -1524,6 +1524,12 @@ yardr knows the verbs alone:
   before anything of a pull request is run anywhere. Which stage a bead
   starts in is a line of `makes`: a trusted author's pull request starts in
   `review`, and a copy of the pack may trust more authors, or all.
+- **A reopened pull request gets a new bead.** Its close ended the old
+  bead, so no open bead tracks the thread, and the lines of `makes` judge it
+  again. `sender` is then whoever reopened it, so a person who reopens a bot's
+  pull request leaves it in `triage`. The new bead starts with none of the old
+  one's notes, labels or heads (`reviewed_head`, `ci_head`, `merge_head`), and
+  the old bead stays closed with a link to the thread that only relates.
 - **`merge-ok` is the reviewer's to give for one kind of pull request.** A
   bump of Go modules from a bot (title opening `build(deps)`, diff changing
   `go.mod` or `go.sum` and nothing else) gets the label from the reviewer
