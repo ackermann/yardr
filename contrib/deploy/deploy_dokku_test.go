@@ -98,7 +98,8 @@ live terminal
 // Dokku's heading, apps:create makes one, and apps:destroy with --force
 // removes one. With $FAKE_SSH/nodokku the host refuses every dokku command
 // and takes pushes only, with $FAKE_SSH/nocreate it makes no app, and with
-// $FAKE_SSH/nodestroy it refuses to remove one.
+// $FAKE_SSH/nodestroy it refuses to remove one. With $FAKE_SSH/signal it ends
+// git with SIGTERM before it serves the push.
 const fakeSSH = `#!/bin/sh
 printf '%s\n' "$*" >>"$FAKE_SSH/calls"
 for a; do [ "$a" != -G ] || exit 0; done
@@ -141,7 +142,24 @@ git-receive-pack*) ;;
   exit
   ;;
 esac
-[ ! -e "$FAKE_SSH/signal" ] || kill -TERM $PPID
+if [ -e "$FAKE_SSH/signal" ]; then
+  # The signal is for git. When GIT_SSH_COMMAND carries options, git runs it
+  # through sh -c: bash execs the command in place, so $PPID is git, but dash
+  # keeps the sh, and a TERM to that leaves git alive to report a failed push.
+  # So walk up to the process called git (ps pads its numbers with blanks, and
+  # names a process by its path on macOS). With none in reach the TERM goes to
+  # $PPID, as it always did.
+  target=$PPID
+  p=$PPID
+  for _ in 1 2 3; do
+    [ -n "$p" ] && [ "$p" != 1 ] || break
+    case $(ps -o comm= -p "$p" | tr -d ' ') in
+    git | */git) target=$p; break ;;
+    esac
+    p=$(ps -o ppid= -p "$p" | tr -d ' ')
+  done
+  kill -TERM "$target"
+fi
 cd "$FAKE_SSH/host" && exec sh -c "$*"
 `
 
