@@ -310,7 +310,9 @@ func TestYardTestSaysItsBase(t *testing.T) {
 // whatever changed, and says so in its first line and its testing line
 // (docs/testing.md R4); a landing tests it without -race only when nothing
 // compiled changed (no .go file, no embedded file, no deletion), which its
-// first line and testing line both say, and with it otherwise.
+// first line and testing line both say, and with it otherwise. Every row builds
+// its own fixture directory, so the rows run in parallel: the root package
+// has little room under R1's 60 s (yardr-2t2m).
 func TestYardTestSelects(t *testing.T) {
 	t.Parallel()
 	script, rows := yardTestRows(t)
@@ -318,8 +320,12 @@ func TestYardTestSelects(t *testing.T) {
 		t.Skip("no go in PATH")
 	}
 	const pre = "test: "
-	dir := t.TempDir()
-	write := func(name, text string) {
+	// In the row tables below, sincePH and shortPH stand for the row's own
+	// base: every row builds its own fixture, so its base commit differs
+	// from every other's, and the row fills its own in before it compares.
+	const sincePH = "\x00since\x00"
+	const shortPH = "\x00short\x00"
+	writeFile := func(t *testing.T, dir, name, text string) {
 		t.Helper()
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -329,77 +335,98 @@ func TestYardTestSelects(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", "module m.test/m\n\ngo 1.21\n")
-	for _, row := range rows {
-		for _, pkg := range row.pkgs {
-			write(pkg+"/p.go", "package p\n")
-			write(pkg+"/p_test.go", "package p\n")
-		}
+	// selectsFixture is one row's copy of the module the script runs
+	// against: its own directory and base commit, and the words the script
+	// prints for them. Every row builds its own, so the rows run in
+	// parallel; nothing of it is shared.
+	type selectsFixture struct {
+		dir   string
+		base  string
+		short string
+		since string
 	}
-	// One socket suite imports internal/rpc, as the four do in the
-	// repository: touching rpc selects store as an importer, while nothing
-	// imports internal/cli.
-	write("internal/store/p.go", "package p\n\nimport _ \"m.test/m/internal/rpc\"\n")
-	write("internal/rpc/p.go", "package p\n")
-	// internal/web stands alone: touching it selects web itself, and the
-	// gate runs the socket leg for a selection that holds it.
-	write("internal/web/p.go", "package p\n")
-	// A package that embeds a file, one that imports it, and one alone.
-	write("emb/p.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n")
-	write("emb/a.txt", "a\n")
-	write("top/p.go", "package top\n\nimport _ \"m.test/m/emb\"\n")
-	// One that embeds a glob below its directory, as internal/web does its
-	// templates, and one that imports it. A page that leaves the glob is no
-	// error for go list, as emb's file would be: the package embeds one page
-	// fewer, and only the deleted-file rule can tell.
-	write("globemb/p.go", "package globemb\n\nimport \"embed\"\n\n//go:embed pages/*.md\nvar Pages embed.FS\n")
-	write("globemb/pages/a.md", "a\n")
-	write("globemb/pages/b.md", "b\n")
-	write("globtop/p.go", "package globtop\n\nimport _ \"m.test/m/globemb\"\n")
-	// One that embeds a glob beside its Go file, as docs does its pages, and
-	// one that imports it. The rule has to tell a page that leaves from a
-	// neighbour the glob never embedded (notes.txt, yardr-56xw). A name under
-	// all: embeds its hidden files too, and one without does not: kept/ and
-	// dropped/ each hold one.
-	write("mdemb/p.go", "package mdemb\n\nimport \"embed\"\n\n//go:embed *.md all:kept dropped\nvar Pages embed.FS\n")
-	write("mdemb/a.md", "a\n")
-	write("mdemb/b.md", "b\n")
-	write("mdemb/notes.txt", "notes\n")
-	write("mdemb/kept/x.txt", "x\n")
-	write("mdemb/kept/.hidden", "hidden\n")
-	write("mdemb/dropped/y.txt", "y\n")
-	write("mdemb/dropped/.hidden", "hidden\n")
-	write("mdtop/p.go", "package mdtop\n\nimport _ \"m.test/m/mdemb\"\n")
-	// One whose pattern the rule does not read: ? is a glob it leaves alone.
-	write("qemb/p.go", "package qemb\n\nimport \"embed\"\n\n//go:embed v?.txt\nvar V embed.FS\n")
-	write("qemb/v1.txt", "v\n")
-	write("qemb/other.txt", "other\n")
-	write("alone/p.go", "package p\n")
-	// A package one case's change deletes, while the script still rows
-	// it, as base's copy does at a landing.
-	write("fakepkg/p.go", "package p\n\nvar Existing int\n")
-	write("docs/web.md", "web\n")
-	// As packs does: it embeds starter, which the table rows to
-	// internal/pack and internal/cli, and one package imports it.
-	write("packs/p.go", "package p\n\nimport \"embed\"\n\n//go:embed starter\nvar FS embed.FS\n")
-	write("packs/starter/pack.yaml", "pack\n")
-	write("packs/starter/roles/reviewer.md", "reviewer\n")
-	write("packtop/p.go", "package packtop\n\nimport _ \"m.test/m/packs\"\n")
-	gitT(t, dir, "init", "-q", "-b", "main")
-	gitT(t, dir, "add", "-A")
-	gitT(t, dir, "commit", "-q", "-m", "base")
-	base := gitT(t, dir, "rev-parse", "HEAD")
-	short := gitT(t, dir, "rev-parse", "--short", "HEAD")
-
-	since := " since " + base + " (YARDR_BASE), from " + short
+	// newFixture builds the module the rows run the script against: the
+	// table's packages and nothing in them, the socket suites' shape, and
+	// the embedding and rowed-directory cases the rows change. It reads
+	// the shared table rows, which no row writes.
+	newFixture := func(t *testing.T) selectsFixture {
+		t.Helper()
+		dir := t.TempDir()
+		write := func(name, text string) {
+			t.Helper()
+			writeFile(t, dir, name, text)
+		}
+		write("go.mod", "module m.test/m\n\ngo 1.21\n")
+		for _, row := range rows {
+			for _, pkg := range row.pkgs {
+				write(pkg+"/p.go", "package p\n")
+				write(pkg+"/p_test.go", "package p\n")
+			}
+		}
+		// One socket suite imports internal/rpc, as the four do in the
+		// repository: touching rpc selects store as an importer, while nothing
+		// imports internal/cli.
+		write("internal/store/p.go", "package p\n\nimport _ \"m.test/m/internal/rpc\"\n")
+		write("internal/rpc/p.go", "package p\n")
+		// internal/web stands alone: touching it selects web itself, and the
+		// gate runs the socket leg for a selection that holds it.
+		write("internal/web/p.go", "package p\n")
+		// A package that embeds a file, one that imports it, and one alone.
+		write("emb/p.go", "package emb\n\nimport _ \"embed\"\n\n//go:embed a.txt\nvar A string\n")
+		write("emb/a.txt", "a\n")
+		write("top/p.go", "package top\n\nimport _ \"m.test/m/emb\"\n")
+		// One that embeds a glob below its directory, as internal/web does its
+		// templates, and one that imports it. A page that leaves the glob is no
+		// error for go list, as emb's file would be: the package embeds one page
+		// fewer, and only the deleted-file rule can tell.
+		write("globemb/p.go", "package globemb\n\nimport \"embed\"\n\n//go:embed pages/*.md\nvar Pages embed.FS\n")
+		write("globemb/pages/a.md", "a\n")
+		write("globemb/pages/b.md", "b\n")
+		write("globtop/p.go", "package globtop\n\nimport _ \"m.test/m/globemb\"\n")
+		// One that embeds a glob beside its Go file, as docs does its pages, and
+		// one that imports it. The rule has to tell a page that leaves from a
+		// neighbour the glob never embedded (notes.txt, yardr-56xw). A name under
+		// all: embeds its hidden files too, and one without does not: kept/ and
+		// dropped/ each hold one.
+		write("mdemb/p.go", "package mdemb\n\nimport \"embed\"\n\n//go:embed *.md all:kept dropped\nvar Pages embed.FS\n")
+		write("mdemb/a.md", "a\n")
+		write("mdemb/b.md", "b\n")
+		write("mdemb/notes.txt", "notes\n")
+		write("mdemb/kept/x.txt", "x\n")
+		write("mdemb/kept/.hidden", "hidden\n")
+		write("mdemb/dropped/y.txt", "y\n")
+		write("mdemb/dropped/.hidden", "hidden\n")
+		write("mdtop/p.go", "package mdtop\n\nimport _ \"m.test/m/mdemb\"\n")
+		// One whose pattern the rule does not read: ? is a glob it leaves alone.
+		write("qemb/p.go", "package qemb\n\nimport \"embed\"\n\n//go:embed v?.txt\nvar V embed.FS\n")
+		write("qemb/v1.txt", "v\n")
+		write("qemb/other.txt", "other\n")
+		write("alone/p.go", "package p\n")
+		// A package one case's change deletes, while the script still rows
+		// it, as base's copy does at a landing.
+		write("fakepkg/p.go", "package p\n\nvar Existing int\n")
+		write("docs/web.md", "web\n")
+		// As packs does: it embeds starter, which the table rows to
+		// internal/pack and internal/cli, and one package imports it.
+		write("packs/p.go", "package p\n\nimport \"embed\"\n\n//go:embed starter\nvar FS embed.FS\n")
+		write("packs/starter/pack.yaml", "pack\n")
+		write("packs/starter/roles/reviewer.md", "reviewer\n")
+		write("packtop/p.go", "package packtop\n\nimport _ \"m.test/m/packs\"\n")
+		gitT(t, dir, "init", "-q", "-b", "main")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "base")
+		base := gitT(t, dir, "rev-parse", "HEAD")
+		short := gitT(t, dir, "rev-parse", "--short", "HEAD")
+		return selectsFixture{dir: dir, base: base, short: short, since: " since " + base + " (YARDR_BASE), from " + short}
+	}
 	// The script's plan for a branch that changed these files, deleted them
 	// (a name after "-") or moved them (a name "from -> to", done by git mv,
 	// which git reports as a rename unless asked not to): its first line, and
 	// the rest.
-	planned := func(t *testing.T, script string, env []string, changed ...string) (first, rest string, err error) {
+	planned := func(t *testing.T, fx selectsFixture, script string, env []string, changed ...string) (first, rest string, err error) {
 		t.Helper()
-		gitT(t, dir, "reset", "-q", "--hard", base)
-		gitT(t, dir, "clean", "-qfd")
+		gitT(t, fx.dir, "reset", "-q", "--hard", fx.base)
+		gitT(t, fx.dir, "clean", "-qfd")
 		for _, name := range changed {
 			text := "changed\n"
 			if strings.HasSuffix(name, ".go") {
@@ -409,22 +436,22 @@ func TestYardTestSelects(t *testing.T) {
 				text = "module m.test/m\n\ngo 1.21\n\n// changed\n"
 			}
 			if gone, ok := strings.CutPrefix(name, "-"); ok {
-				if err := os.Remove(filepath.Join(dir, gone)); err != nil {
+				if err := os.Remove(filepath.Join(fx.dir, gone)); err != nil {
 					t.Fatal(err)
 				}
 			} else if from, to, ok := strings.Cut(name, " -> "); ok {
-				if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, to)), 0o755); err != nil {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(fx.dir, to)), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				gitT(t, dir, "mv", from, to)
+				gitT(t, fx.dir, "mv", from, to)
 			} else {
-				write(name, text)
+				writeFile(t, fx.dir, name, text)
 			}
 		}
-		gitT(t, dir, "add", "-A")
+		gitT(t, fx.dir, "add", "-A")
 		cmd := exec.Command("sh", "-c", script)
-		cmd.Dir = dir
-		cmd.Env = append(append(scriptEnv(), "YARDR_TEST_PLAN=1", "YARDR_BASE="+base), env...)
+		cmd.Dir = fx.dir
+		cmd.Env = append(append(scriptEnv(), "YARDR_TEST_PLAN=1", "YARDR_BASE="+fx.base), env...)
 		b, err := cmd.CombinedOutput()
 		first, rest, _ = strings.Cut(strings.TrimSpace(string(b)), "\n")
 		return first, rest, err
@@ -434,12 +461,12 @@ func TestYardTestSelects(t *testing.T) {
 	const unraced = ": testing without -race, no race lock"
 	// A plain run's plan: its first line says what it was compared with and,
 	// when there is something to test, that it tests without -race and why.
-	plan := func(t *testing.T, script string, nothing bool, changed ...string) (string, error) {
+	plan := func(t *testing.T, fx selectsFixture, script string, nothing bool, changed ...string) (string, error) {
 		t.Helper()
-		first, out, err := planned(t, script, nil, changed...)
-		want := "test: what changed" + since + plainWhy
+		first, out, err := planned(t, fx, script, nil, changed...)
+		want := "test: what changed" + fx.since + plainWhy
 		if nothing {
-			want = "test: what changed" + since
+			want = "test: what changed" + fx.since
 		}
 		if first != want {
 			t.Errorf("first line %q, want %q", first, want)
@@ -516,7 +543,7 @@ func TestYardTestSelects(t *testing.T) {
 			testedNoRace + " m.test/m"}},
 		{"what no test reads", []string{".github/a.yml", ".github/b.yml"}, []string{
 			pre + ".github/a.yml and 1 more under .github/ changed: no test reads it",
-			pre + "no package changed since " + short + "; no tests to run"}},
+			pre + "no package changed since " + shortPH + "; no tests to run"}},
 		// AGENTS.md is the map of the repository for agents, and CLAUDE.md
 		// imports it: no test reads either. A change to them alone tests
 		// nothing, and the change that adds a package, which the depot's rule
@@ -525,7 +552,7 @@ func TestYardTestSelects(t *testing.T) {
 		{"the map for agents", []string{"AGENTS.md", "CLAUDE.md"}, []string{
 			pre + "AGENTS.md changed: no test reads it",
 			pre + "CLAUDE.md changed: no test reads it",
-			pre + "no package changed since " + short + "; no tests to run"}},
+			pre + "no package changed since " + shortPH + "; no tests to run"}},
 		{"a new package and the map that lists it", []string{"AGENTS.md", "newpkg/p.go"}, []string{
 			pre + "AGENTS.md changed: no test reads it",
 			testedNoRace + " m.test/m/newpkg"}},
@@ -549,15 +576,18 @@ func TestYardTestSelects(t *testing.T) {
 		{"go.mod", []string{"go.mod", "docs/web.md"}, []string{
 			pre + "go.mod or go.sum changed; testing every package"}},
 		{"nothing", nil, []string{
-			pre + "no package changed since " + short + "; no tests to run"}},
+			pre + "no package changed since " + shortPH + "; no tests to run"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t)
 			// A plain run is never raced, and says so in its first line and
 			// its testing line, unless it has nothing to test: then it makes
 			// no claim about how.
 			nothing := slices.ContainsFunc(c.want, func(line string) bool { return strings.HasPrefix(line, pre+"no package changed") })
-			out, err := plan(t, script, nothing, c.changed...)
-			if want := strings.Join(c.want, "\n"); err != nil || out != want {
+			out, err := plan(t, fx, script, nothing, c.changed...)
+			want := strings.ReplaceAll(strings.Join(c.want, "\n"), shortPH, fx.short)
+			if err != nil || out != want {
 				t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
 			}
 		})
@@ -584,11 +614,11 @@ func TestYardTestSelects(t *testing.T) {
 		rest    []string
 	}{
 		{"a landing of one design document", []string{"docs/design/2026-10-12-a.md"},
-			landing + "nothing compiled changed" + since + unraced, []string{
+			landing + "nothing compiled changed" + sincePH + unraced, []string{
 				pre + "docs/design/2026-10-12-a.md changed: read by the tests of .",
 				testedNoRace + " m.test/m"}},
 		{"a landing of the starter pack and what no test reads", []string{"packs/starter/roles/builder.md", ".github/a.yml"},
-			landing + "packs/starter/roles/builder.md, which a package embeds, changed" + since + selectionSuffix, []string{
+			landing + "packs/starter/roles/builder.md, which a package embeds, changed" + sincePH + selectionSuffix, []string{
 				skipSocket,
 				pre + "packs/starter/roles/builder.md changed: read by the tests of internal/pack internal/cli",
 				pre + ".github/a.yml changed: no test reads it",
@@ -596,69 +626,73 @@ func TestYardTestSelects(t *testing.T) {
 		// Nothing to test, so no claim about how: the first line says only what
 		// compiled.
 		{"a landing of what no test reads", []string{".github/a.yml"},
-			landing + "nothing compiled changed" + since, []string{
+			landing + "nothing compiled changed" + sincePH, []string{
 				pre + ".github/a.yml changed: no test reads it",
-				pre + "no package changed since " + short + "; no tests to run"}},
+				pre + "no package changed since " + shortPH + "; no tests to run"}},
 		{"a landing of a go file", []string{"docs/web.md", "alone/p.go"},
-			landing + "alone/p.go changed" + since + selectionSuffix, []string{
+			landing + "alone/p.go changed" + sincePH + selectionSuffix, []string{
 				skipSocket,
 				pre + "docs/web.md changed: read by the tests of .",
 				tested + " m.test/m m.test/m/alone m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard"}},
 		{"a landing of a test file", []string{"alone/p_test.go"},
-			landing + "alone/p_test.go changed" + since + selectionSuffix, []string{
+			landing + "alone/p_test.go changed" + sincePH + selectionSuffix, []string{
 				skipSocket,
 				tested + " m.test/m/alone m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard"}},
 		{"a landing of go.mod", []string{"go.mod", "docs/web.md"},
-			landing + "go.mod changed" + since + wholeSuffix, []string{runSocketAll}},
+			landing + "go.mod changed" + sincePH + wholeSuffix, []string{runSocketAll}},
 		{"a landing of go.sum", []string{"go.sum"},
-			landing + "go.sum changed" + since + wholeSuffix, []string{runSocketAll}},
+			landing + "go.sum changed" + sincePH + wholeSuffix, []string{runSocketAll}},
 		{"a landing of an embedded file", []string{"docs/web.md", "emb/a.txt"},
-			landing + "emb/a.txt, which a package embeds, changed" + since + selectionSuffix, []string{
+			landing + "emb/a.txt, which a package embeds, changed" + sincePH + selectionSuffix, []string{
 				skipSocket,
 				pre + "docs/web.md changed: read by the tests of .",
 				tested + " m.test/m m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/emb m.test/m/top"}},
 		{"a landing of a file no row knows", []string{"docs/web.md", "contrib/x.txt"},
-			landing + "contrib/x.txt, which is read by no known package, changed" + since + wholeSuffix, []string{runSocketAll}},
+			landing + "contrib/x.txt, which is read by no known package, changed" + sincePH + wholeSuffix, []string{runSocketAll}},
 		// What embedded a file that is gone cannot be asked any more.
 		{"a landing that deletes a file", []string{"-docs/web.md"},
-			landing + "docs/web.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+			landing + "docs/web.md was deleted" + sincePH + wholeSuffix, []string{skipSocket}},
 		// A move deletes the old path too, and what embedded it cannot be
 		// asked any more. It used to read as one new file: nothing compiled.
 		{"a landing that moves a file out of an embedded glob", []string{"globemb/pages/b.md -> docs/design/b.md"},
-			landing + "globemb/pages/b.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+			landing + "globemb/pages/b.md was deleted" + sincePH + wholeSuffix, []string{skipSocket}},
 		// The whole suite either way. What tells a page that is known from a file
 		// nobody reads is the socket line, which goes by the plain selection: the
 		// package and its importer hold none of the four suites, where a file the
 		// plain run cannot place selects everything.
 		{"a landing that deletes a page of a glob beside the package's Go file", []string{"-mdemb/a.md"},
-			landing + "mdemb/a.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+			landing + "mdemb/a.md was deleted" + sincePH + wholeSuffix, []string{skipSocket}},
 		{"a landing that moves a page out of a glob beside the package's Go file", []string{"mdemb/b.md -> docs/design/b.md"},
-			landing + "mdemb/b.md was deleted" + since + wholeSuffix, []string{skipSocket}},
+			landing + "mdemb/b.md was deleted" + sincePH + wholeSuffix, []string{skipSocket}},
 		{"a landing of nothing", nil,
-			landing + "nothing changed" + since + wholeSuffix, []string{skipSocket}},
+			landing + "nothing changed" + sincePH + wholeSuffix, []string{skipSocket}},
 		// A Go change runs the selection plus the six while its plain
 		// selection excludes the socket suites: the gate skips the leg.
 		// A change to internal/rpc selects store as an importer: the
 		// gate runs the leg, still on the plain selection alone.
 		{"a landing touching internal/cli skips the socket suites", []string{"internal/cli/p.go"},
-			landing + "internal/cli/p.go changed" + since + selectionSuffix, []string{
+			landing + "internal/cli/p.go changed" + sincePH + selectionSuffix, []string{
 				skipSocket,
 				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/cli"}},
 		{"a landing touching internal/rpc runs the socket suites", []string{"internal/rpc/p.go"},
-			landing + "internal/rpc/p.go changed" + since + selectionSuffix, []string{
+			landing + "internal/rpc/p.go changed" + sincePH + selectionSuffix, []string{
 				runSocketStore,
 				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/rpc m.test/m/internal/store"}},
 		{"a landing touching internal/web runs the socket suites", []string{"internal/web/p.go"},
-			landing + "internal/web/p.go changed" + since + selectionSuffix, []string{
+			landing + "internal/web/p.go changed" + sincePH + selectionSuffix, []string{
 				runSocketWeb,
 				tested + " m.test/m/contrib/assembly m.test/m/contrib/deploy m.test/m/contrib/isolated-yard m.test/m/contrib/peer m.test/m/contrib/release m.test/m/contrib/server-yard m.test/m/internal/web"}},
 		{"a landing of an unknown file runs the socket suites", []string{"contrib/x.txt"},
-			landing + "contrib/x.txt, which is read by no known package, changed" + since + wholeSuffix, []string{runSocketAll}},
+			landing + "contrib/x.txt, which is read by no known package, changed" + sincePH + wholeSuffix, []string{runSocketAll}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			first, rest, err := planned(t, script, []string{"YARDR_LANDING=1"}, c.changed...)
-			if want := strings.Join(c.rest, "\n"); err != nil || first != c.first || rest != want {
-				t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, c.first, want)
+			t.Parallel()
+			fx := newFixture(t)
+			first, rest, err := planned(t, fx, script, []string{"YARDR_LANDING=1"}, c.changed...)
+			firstWant := strings.ReplaceAll(c.first, sincePH, fx.since)
+			want := strings.ReplaceAll(strings.Join(c.rest, "\n"), shortPH, fx.short)
+			if err != nil || first != firstWant || rest != want {
+				t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, firstWant, want)
 			}
 			// A landing that changed code, or whose change cannot be selected,
 			// is raced; only a landing of nothing compiled tests without -race.
@@ -687,28 +721,30 @@ func TestYardTestSelects(t *testing.T) {
 		steps   []string
 	}{
 		{"a plain run of the docs runs without -race", nil, []string{"docs/api.md", "docs/design/2026-10-12-a.md"},
-			pre + "what changed" + since + plainWhy,
+			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m m.test/m/internal/rpc"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m m.test/m/internal/rpc"}},
 		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, []string{"docs/design/2026-10-12-a.md"},
-			landing + "nothing compiled changed" + since + unraced,
+			landing + "nothing compiled changed" + sincePH + unraced,
 			[]string{"vet ./...", "build ./...", "test m.test/m"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m"}},
 		// A landing races compiled code; a plain run does not.
 		{"a plain run of a go file runs without -race", nil, []string{"alone/p.go"},
-			pre + "what changed" + since + plainWhy,
+			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m/alone"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m/alone"}},
 		{"a plain run of a file no row knows tests every package without -race", nil, []string{"contrib/x.txt"},
-			pre + "what changed" + since + plainWhy,
+			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}},
 		{"a plain run of go.mod tests every package without -race", nil, []string{"go.mod"},
-			pre + "what changed" + since + plainWhy,
+			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
 			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t)
 			realGo, err := exec.LookPath("go")
 			if err != nil {
 				t.Fatal(err)
@@ -724,8 +760,9 @@ func TestYardTestSelects(t *testing.T) {
 			}
 			env := append([]string{"YARDR_TEST_PLAN=", "HOME=" + home, "REAL_HOME=" + os.Getenv("HOME"), "FAKE=" + fake, "REAL_GO=" + realGo,
 				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.env...)
-			first, rest, err := planned(t, script, env, c.changed...)
-			if err != nil || first != c.first {
+			first, rest, err := planned(t, fx, script, env, c.changed...)
+			firstWant := strings.ReplaceAll(c.first, sincePH, fx.since)
+			if err != nil || first != firstWant {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
 			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
@@ -794,6 +831,8 @@ func TestYardTestSelects(t *testing.T) {
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			fx := newFixture(t)
 			realGo, err := exec.LookPath("go")
 			if err != nil {
 				t.Fatal(err)
@@ -807,9 +846,9 @@ func TestYardTestSelects(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			first, rest, err := planned(t, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
+			first, rest, err := planned(t, fx, script, append([]string{"YARDR_LANDING=1", "YARDR_TEST_PLAN=", "YARDR_RACE_HELD=1", "FAKE=" + fake, "REAL_GO=" + realGo,
 				"PATH=" + fake + string(os.PathListSeparator) + os.Getenv("PATH")}, c.load...), c.changed)
-			if err != nil || first != landing+c.reason+since+c.suffix {
+			if err != nil || first != landing+c.reason+fx.since+c.suffix {
 				t.Errorf("err %v, output:\n%s\n%s", err, first, rest)
 			}
 			if !strings.Contains(rest, c.line+"\n") {
@@ -851,8 +890,10 @@ func TestYardTestSelects(t *testing.T) {
 	// reads the table in its selection, ahead of its first line as a landing's
 	// does, so the complaint is all it says.
 	t.Run("a stale row", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t)
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
-		first, rest, err := planned(t, stale, nil, "docs/web.md")
+		first, rest, err := planned(t, fx, stale, nil, "docs/web.md")
 		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || first != want || rest != "" {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
@@ -862,8 +903,10 @@ func TestYardTestSelects(t *testing.T) {
 	// the base, whose row still names the directory. A row for a
 	// directory in neither stays a failure.
 	t.Run("a row for a directory the change deletes", func(t *testing.T) {
+		t.Parallel()
+		fx := newFixture(t)
 		deleted := strings.Replace(script, "\nreads='\n", "\nreads='\nfakepkg/ fakepkg .\n", 1)
-		out, err := plan(t, deleted, false, "-fakepkg/p.go")
+		out, err := plan(t, fx, deleted, false, "-fakepkg/p.go")
 		if want := strings.Join([]string{
 			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
 			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
@@ -874,15 +917,15 @@ func TestYardTestSelects(t *testing.T) {
 		// The landing that failed for yardr-d860: base's copy, over a
 		// change that deletes a rowed directory, is the whole suite,
 		// not a stale row.
-		first, rest, err := planned(t, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go")
-		if want := landing + "fakepkg/p.go was deleted" + since + wholeSuffix; err != nil || first != want || rest != skipSocket {
+		first, rest, err := planned(t, fx, deleted, []string{"YARDR_LANDING=1"}, "-fakepkg/p.go")
+		if want := landing + "fakepkg/p.go was deleted" + fx.since + wholeSuffix; err != nil || first != want || rest != skipSocket {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
 		}
 		// A directory move is the deletion of its files and the addition of
 		// the new ones, not a rename: git's rename detection used to hide the
 		// deletion, which let a landing reach pick() with the base's row
 		// still naming fakepkg/ instead of taking the whole-suite path.
-		out, err = plan(t, deleted, false, "fakepkg/p.go -> moved/p.go")
+		out, err = plan(t, fx, deleted, false, "fakepkg/p.go -> moved/p.go")
 		if want := strings.Join([]string{
 			pre + "the row for fakepkg/ in " + yardTest + " names fakepkg, which this change deletes: skipping the row",
 			pre + "fakepkg/p.go changed: read by the tests of fakepkg .",
@@ -890,12 +933,12 @@ func TestYardTestSelects(t *testing.T) {
 		}, "\n"); err != nil || out != want {
 			t.Errorf("err %v, output:\n%s\nwant:\n%s", err, out, want)
 		}
-		first, rest, err = planned(t, deleted, []string{"YARDR_LANDING=1"}, "fakepkg/p.go -> moved/p.go")
-		if want := landing + "fakepkg/p.go was deleted" + since + wholeSuffix; err != nil || first != want || rest != skipSocket {
+		first, rest, err = planned(t, fx, deleted, []string{"YARDR_LANDING=1"}, "fakepkg/p.go -> moved/p.go")
+		if want := landing + "fakepkg/p.go was deleted" + fx.since + wholeSuffix; err != nil || first != want || rest != skipSocket {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s\n%s", err, first, rest, want, skipSocket)
 		}
 		stale := strings.Replace(deleted, "\nreads='\n", "\nreads='\nnowhere/ nowhere\n", 1)
-		first, rest, err = planned(t, stale, nil, "-fakepkg/p.go")
+		first, rest, err = planned(t, fx, stale, nil, "-fakepkg/p.go")
 		if want := pre + "the row for nowhere/ in " + yardTest + " names nowhere, which is no package here"; err == nil || first != want || rest != "" {
 			t.Errorf("err %v, output:\n%s\n%s\nwant:\n%s", err, first, rest, want)
 		}
