@@ -1363,6 +1363,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		seedShas []string        // the short sha of each prior sighting, in order: the run's own for those not named
 		seedBead []string        // the beads field of each prior sighting, in order: none for those not named
 		beads    string          // the beads field the run's own line carries: none when empty
+		load     string          // the load words the run's own line ends with: the pinned load when empty
 		yardr    bool            // a stub yardr is on PATH, answering list and show
 		list     string          // what the stub's bead list prints
 		show     string          // what the stub's bead show prints
@@ -1443,6 +1444,19 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			line: fatalNoFrameFail, noTests: true, kept: fatalNoFrameKept},
 		{name: "plain: a TestMain that exits keeps its last lines under a package-only head", times: "1", ok: true, calls: plain, steps: plainSteps,
 			line: testMainFail, noTests: true, kept: "about to die"},
+		// The run's own line ends with the load the gate measured as it
+		// wrote the line: a quiet load and a loaded one in the same form,
+		// "load unknown" where the readings are no numbers. The filed body
+		// and the note carry the line whole, words with it.
+		{name: "plain: the flaky log line ends with a quiet load, and the filed body carries it", times: "1", ok: true, calls: plain, steps: plainSteps,
+			env: []string{"YARDR_TEST_LOADAVG=0.7", "YARDR_TEST_CORES=8"}, load: "load 0.7 on 8 cores",
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
+		{name: "plain: the flaky log line ends with a load past the cores, and the note carries it", times: "1", ok: true, calls: plain, steps: plainSteps,
+			env: []string{"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"}, load: "load 72.4 on 10 cores",
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other + listRow("m-2", title), notes: []string{"m-2 " + test}},
+		{name: "plain: the flaky log line ends with load unknown when the readings are no numbers", times: "1", ok: true, calls: plain, steps: plainSteps,
+			env: []string{"YARDR_TEST_LOADAVG=bogus", "YARDR_TEST_CORES=10"}, load: "load unknown",
+			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
 		// A test and its subtests fail together and share one bead. A strike
 		// that names a test with two subtests, and another test, files one
 		// bead for the three, with the lines whole and the kept ones with
@@ -1494,6 +1508,16 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			}
 			flaky := "test: flaky: " + head
 			caseTitle := "Flaky: " + testName + " (" + pkg + ")"
+			// The load words the run's own line ends with: the quiet load
+			// the script's environment pins, the loaded one the landing
+			// rows pin, or the case's own.
+			load := "load 1.5 on 10 cores"
+			if slices.Contains(c.env, "YARDR_LANDING=1") {
+				load = "load 25.3 on 10 cores"
+			}
+			if c.load != "" {
+				load = c.load
+			}
 			// The step a failure summary names: a landing's is raced, a plain
 			// run's is not.
 			failedStep := "go test ./..."
@@ -1686,8 +1710,10 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				}
 				// The run's own line is the last: the date, the head the
 				// printed line repeats, and, behind the separator, what the
-				// first run printed for each failed test. A failure that
-				// names no test keeps none, and its line is the short one.
+				// first run printed for each failed test, and last the load
+				// the gate measured as it wrote the line. A failure that
+				// names no test keeps none, and its line is the short one
+				// with the load after it.
 				if len(logged) > 0 {
 					kept := c.kept
 					if c.line == "" {
@@ -1700,6 +1726,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					if kept != "" {
 						want += sep + kept
 					}
+					want += " " + load
 					if last := logged[len(logged)-1]; len(last) < len("2006-01-02 15:04:05 ") || last[len("2006-01-02 15:04:05 "):] != want {
 						t.Errorf("the run's flaky log line is %q, want the date and then %q", last, want)
 					}
@@ -1792,6 +1819,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if !slices.Equal(gotNotes, wantNotes) {
 				t.Errorf("the notes written are:\n%s\nwant the run's own log line, whole, on each:\n%s", strings.Join(gotNotes, "\n"), strings.Join(wantNotes, "\n"))
 			}
+			for _, note := range gotNotes {
+				if !strings.HasSuffix(note, " "+load) {
+					t.Errorf("the note written is %q, want it to end with the load %q", note, load)
+				}
+			}
 			for _, n := range c.notes {
 				id, noted, _ := strings.Cut(n, " ")
 				if want := "test: noted " + id + ": Flaky: " + noted + " (" + pkg + ")\n"; !strings.Contains(out, want) {
@@ -1833,6 +1865,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				named := slices.DeleteFunc(slices.Clone(logged), func(line string) bool { return c.foreign != "" && strings.HasSuffix(line, c.foreign) })
 				if !slices.Equal(carried, named) {
 					t.Errorf("the filed body is:\n%s\nwant the flaky log's lines that name the test:\n%s", strings.Join(carried, "\n"), strings.Join(named, "\n"))
+				}
+				if len(carried) > 0 {
+					if last := carried[len(carried)-1]; !strings.HasSuffix(last, " "+load) {
+						t.Errorf("the filed body's last line is %q, want it to end with the load %q", last, load)
+					}
 				}
 				if want := "test: filed m-filed: " + caseTitle + "\n"; !strings.Contains(out, want) {
 					t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
@@ -3879,10 +3916,10 @@ func TestYardTestRaceQueueView(t *testing.T) {
 
 // yardTestProbe pulls the budget checks out of .yardr/test: the two
 // allow-lists, the two functions that judge them, and what they call (took,
-// runlogged, the load samples), sizewaits, which reads the same load for
-// the race leg's wait factor, and gatepar and legflag, which turn it into
-// the race leg's -p. The probe runs them as the script has them,
-// so a case over it fails when the gate would. It also returns the
+// runlogged, machineload and loadedmachine), sizewaits, which reads the
+// same load for the race leg's wait factor, and gatepar and legflag, which
+// turn it into the race leg's -p. The probe runs them as the script has
+// them, so a case over it fails when the gate would. It also returns the
 // allow-listed directories and how many distinct sleep sites the table
 // holds. A script the cuts no longer follow fails the test, telling its
 // editor to move the probe with it.
@@ -3908,6 +3945,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	took := cut("\ntook() {", "}\n")
 	runlogfn := cut("\nrunlogged() {", "}\n")
 	over := cut("\nover60='\n", "\n'\n")
+	machinefn := cut("\nmachineload() {\n", "\n}\n")
 	loadfn := cut("\nloadedmachine() {\n", "\n}\n")
 	sizefn := cut("\nsizewaits() {\n", "\n}\n")
 	eitherfn := cut("\nloadedeither() {\n", "\n}\n")
@@ -3917,7 +3955,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
 	markfn := cut("\nnomarkers() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -3951,7 +3989,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + markfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + markfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,

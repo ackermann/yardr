@@ -192,7 +192,9 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # first run printed for each failed test (flakyfails), behind a separator:
 # a failure with no FAIL line keeps its timeout's panic and running tests,
 # its fatal error's or panic's line and the dump's head, else its first
-# output lines. The printed line stays short because whoever ran the gate
+# output lines. The line ends with the load the gate measured as it wrote
+# it (machineload), so a reader can tell a strike on a quiet machine from
+# one under load. The printed line stays short because whoever ran the gate
 # watched the failure, and the log line is what is left of it for whoever
 # did not (a landing, a session that has ended). A test the log already names
 # is filed as a backlog P3 `Flaky: <Test> (<pkg>)` carrying its lines. A test and its
@@ -833,16 +835,19 @@ again() {
               # The same line in the log the repo owns: date, short sha, and
               # the names the printed line carries, then the beads the run
               # tested (flakybeads) when it can say, then the failing lines
-              # kept above. It is not committed. A run that cannot write it
-              # still passes: the line above stays the record. printf, not
-              # echo: the kept lines have backslashes, which some shells'
-              # echo reads. The line is also what a repeat notes on the
-              # open bead that stands for the test.
+              # kept above, then the load the gate measured as it wrote the
+              # line, so a reader can tell a strike on a quiet machine from
+              # one under load without a second source. It is not committed.
+              # A run that cannot write it still passes: the line above stays
+              # the record. printf, not echo: the kept lines have backslashes,
+              # which some shells' echo reads. The line is also what a repeat
+              # notes on the open bead that stands for the test.
               flakylog=
               if common=$(git rev-parse --git-common-dir 2>/dev/null); then
                 flakylog="$common/yardr-flaky.log"
                 beads=$(flakybeads || true)
-                flakyline="$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky${beads:+ beads=$beads}${fails:+$flaky_sep$fails}"
+                loadwords=$(machineload) || loadwords="load unknown"
+                flakyline="$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky${beads:+ beads=$beads}${fails:+$flaky_sep$fails} $loadwords"
                 printf '%s\n' "$flakyline" >>"$flakylog" || true
               fi
               # A test the log names more than once flaked before: file it,
@@ -1307,19 +1312,17 @@ summary() {
 over60='
 contrib/isolated-yard yardr-n9ss TestYardShapes (the yard-shape matrix) walks three yards, 35-50 s beside one another, and runs only where YARDR_QUIET_RUN is set, which is the quiet run (docs/testing.md R6); the package is 18 s without it. No bead brings it under: it is an acceptance test, not a slow unit test
 '
-# loadedmachine prints the machine's one-minute load average and core count,
-# as "load <avg> on <cores> cores", when the machine is too loaded for a
-# timing verdict: the average past the core count. The race lock holds off
-# the other gate legs, not every test on the machine, so the budget's alone
-# re-run can be loaded too (yardr-wq5h: release and web over budget alone
-# beside a Go test and a cargo test). It reads /proc/loadavg and nproc
-# where the system keeps them, sysctl's vm.loadavg and hw.ncpu elsewhere,
-# as the machine source's limits command does
+# machineload prints the machine's one-minute load average and core count,
+# as "load <avg> on <cores> cores", whatever they are: the flaky log line
+# ends with what it says, so a reader can tell a strike on a quiet machine
+# from one under load without a second source. It reads /proc/loadavg and
+# nproc where the system keeps them, sysctl's vm.loadavg and hw.ncpu
+# elsewhere, as the machine source's limits command does
 # (contrib/machine-limits/machine/limits). YARDR_TEST_LOADAVG and
 # YARDR_TEST_CORES override the readings, for the gate's own tests. Where
 # nothing answers, or the readings are no numbers, it prints nothing and
-# fails: unknown load never passes a package.
-loadedmachine() {
+# fails, and the caller says "load unknown" in its place.
+machineload() {
   if [ -n "$YARDR_TEST_LOADAVG$YARDR_TEST_CORES" ]; then
     avg=$YARDR_TEST_LOADAVG
     cores=$YARDR_TEST_CORES
@@ -1332,8 +1335,19 @@ loadedmachine() {
   fi
   case "$avg" in ''|*[!0-9.]*|.*|*.*.*|*.) return 1;; esac
   case "$cores" in ''|*[!0-9.]*|.*|*.*.*|*.) return 1;; esac
-  awk -v a="$avg" -v c="$cores" 'BEGIN { exit !(a > c && c > 0) }' || return 1
   echo "load $avg on $cores cores"
+}
+# loadedmachine prints what machineload says when the machine is too loaded
+# for a timing verdict: the average past the core count. The race lock holds
+# off the other gate legs, not every test on the machine, so the budget's
+# alone re-run can be loaded too (yardr-wq5h: release and web over budget
+# alone beside a Go test and a cargo test). Where the machine is quiet, or
+# its load unknown, it prints nothing and fails: unknown load never passes
+# a package.
+loadedmachine() {
+  line=$(machineload) || return 1
+  printf '%s\n' "$line" | awk '{ exit !(($2 > $4) && ($4 > 0)) }' || return 1
+  echo "$line"
 }
 # sizewaits sizes the race leg's waits to this machine: it sets under, the
 # command the leg's go test runs behind, to env with YARDR_TEST_LOAD, and says

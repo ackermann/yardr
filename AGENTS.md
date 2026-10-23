@@ -177,9 +177,12 @@ it lists every exported name with its comment, faster than grepping.
   `--- FAIL:` line keeps its timeout's panic line and running tests, its
   fatal error's or panic's line and the dump's head, else its first output
   lines, and a timeout names its running tests, a fatal error or panic its
-  crashing test, in the head, striking and filing as failures do. The filed
-  bead or the note carries the whole line. Only the part before the ` | `
-  names the tests that flaked and the beads the run was of. A hand reading old
+  crashing test, in the head, striking and filing as failures do. The line
+  ends with the load the gate measured as it wrote it (`load <avg> on
+  <cores> cores`, or `load unknown`), so a strike on a quiet machine reads
+  apart from one under load. The filed bead or the note carries the whole
+  line. Only the part before the ` | ` names the tests that flaked and the
+  beads the run was of. A hand reading old
   lines files or notes the same way -- a repeat, or a failure that accuses
   the product (a race report, a product assertion, a wrong result rather
   than a timeout); otherwise the log line is the record, named in the
