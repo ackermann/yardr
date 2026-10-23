@@ -1,0 +1,36 @@
+{
+  "source": "github",
+  "type": "check_suite",
+  "action": "completed",
+  "actor": {
+    "id": "jane-doe",
+    "name": "jane-doe"
+  },
+  "thread": {},
+  "mentions": [],
+  "text": "GitHub Actions cancelled",
+  "url": "https://github.com/acme/yardr/commit/4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+  "fields": {
+    "action": [
+      "completed"
+    ],
+    "conclusion": [
+      "cancelled"
+    ],
+    "event": [
+      "check_suite"
+    ],
+    "head_sha": [
+      "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b"
+    ],
+    "repo": [
+      "acme/yardr"
+    ],
+    "sender": [
+      "user"
+    ],
+    "workflow": [
+      "GitHub Actions"
+    ]
+  }
+}

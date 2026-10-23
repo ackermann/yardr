@@ -721,11 +721,15 @@ The envelope's `type` is the GitHub event and `action` the body's action:
 | `pull_request_review` | `submitted` (`state` `approved`, `changes_requested`, `commented`) | the pull request | the review's body |
 | `issue_comment` | `created`, `edited`, `deleted` (on a pull request or an issue) | the pull request or issue | the comment |
 | `issues` | `opened`, `closed`, `edited`, … | the issue | its description |
-| `workflow_run`, `check_suite` | `completed` (`conclusion` `success`, `failure`, `cancelled`, …) | the pull request GitHub lists for the run, if any | `<workflow> <conclusion> on <branch>` |
+| `workflow_run`, `check_suite` | `completed` (`conclusion` `success`, `failure`, `cancelled`, …) | the pull request GitHub lists for the run, else its branch (none for a fork's) | `<workflow> <conclusion> on <branch>` |
 
 A thread is `<owner>/<repo>#<number>`; so is the entity whose mentions are
 diffed for a description, while a comment's is `issuecomment-<id>` and a
 review's `pullrequestreview-<id>`, as GitHub's own URL fragments name them.
+A run that belongs to no pull request is on the thread of its branch instead,
+`<owner>/<repo>@<branch>` at the branch's page, which is no issue or pull
+request: nothing can be said or set in it, but a bead can track it
+([integrations.md](integrations.md#github-where-it-differs)).
 Logins are lowercased in `actor.id`, `assignee`
 and `mentions`, so a crew member's github identity is its login in lowercase.
 `@org/team` mentions, email addresses and mentions in code are not mentions.

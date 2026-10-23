@@ -408,9 +408,16 @@ func TestGitHubPackCIKeepsTheTokenOutOfArguments(t *testing.T) {
 
 // githubGoldenBodies are the GitHub webhook bodies the adapter's tests
 // have: the envelopes the pack's normalize prints for them are the
-// goldens.
+// goldens. A run that belongs to no pull request has the thread of its
+// branch (workflow_run_failure, check_suite_main), unless the branch is a
+// fork's, which is no branch of the repository (workflow_run_fork, and
+// check_suite_fork, whose head branch GitHub leaves empty). The branch's
+// URL escapes what a branch's name may hold that a URL does not
+// (workflow_run_odd_branch).
 var githubGoldenBodies = []string{
 	"check_suite_cancelled.json",
+	"check_suite_fork.json",
+	"check_suite_main.json",
 	"issue_comment_issue.json",
 	"issue_comment_pr.json",
 	"issues_closed.json",
@@ -429,6 +436,8 @@ var githubGoldenBodies = []string{
 	"pull_request_synchronize.json",
 	"push.json",
 	"workflow_run_failure.json",
+	"workflow_run_fork.json",
+	"workflow_run_odd_branch.json",
 	"workflow_run_success.json",
 }
 

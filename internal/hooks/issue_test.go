@@ -78,6 +78,30 @@ func TestGitHubPackLinkFixedForm(t *testing.T) {
 	if thread, err := (Declared{D: gh}).IssueThread(fixed); err != nil || thread != "acme/webapp#7" {
 		t.Errorf("IssueThread(%q) = %q, %v; want acme/webapp#7", fixed, thread, err)
 	}
+	// A thread is an issue or pull request when the link shape reads its
+	// URL. One with no URL, and a source with no link shape to read it by,
+	// are taken to be: nothing says they are not.
+	noShape := *gh
+	noShape.Link = nil
+	for _, c := range []struct {
+		d    *source.Declaration
+		raw  string
+		want bool
+	}{
+		{gh, fixed, true},
+		{gh, "https://github.com/acme/webapp/pull/7", true},
+		{gh, "https://github.com/acme/webapp/pull/7/files", true},
+		{gh, "https://github.com/acme/webapp/tree/main", false},
+		{gh, "https://github.com/acme/webapp/tree/yard/yard-sv6b", false},
+		{gh, "https://github.com/acme/webapp", false},
+		{gh, "", true},
+		{&noShape, "https://github.com/acme/webapp/tree/main", true},
+		{nil, "https://github.com/acme/webapp/tree/main", true},
+	} {
+		if got := NamesIssue("github", c.d, c.raw); got != c.want {
+			t.Errorf("NamesIssue(%q) = %v, want %v", c.raw, got, c.want)
+		}
+	}
 }
 
 // githubPackDecl is the GitHub source as packs/github declares it.
@@ -375,5 +399,34 @@ func TestDeliveryThreadIsItsIssue(t *testing.T) {
 	}
 	if got, err := IssueIn(env.Source, env.Thread.URL+"#issuecomment-99", gh); err != nil || got != env.Thread.URL {
 		t.Fatalf("github thread %q: %q, %v", env.Thread.URL, got, err)
+	}
+	if !NamesIssue(env.Source, gh, env.Thread.URL) {
+		t.Errorf("the thread of an issue, %q, is no issue", env.Thread.URL)
+	}
+
+	// The thread of a run for no pull request is its branch's, at a URL the
+	// link shape does not read: no issue, so nothing is said or set in it.
+	// A run for a pull request has its number alone, and is one.
+	for _, c := range []struct {
+		body       string
+		thread     string
+		namesIssue bool
+	}{
+		{"workflow_run_failure", "acme/yardr@yard/yard-sv6b", false},
+		{"check_suite_main", "acme/yardr@main", false},
+		{"workflow_run_success", "acme/yardr#17", true},
+	} {
+		raw, err := os.ReadFile("testdata/github/" + c.body + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		event := strings.Join(strings.Split(c.body, "_")[:2], "_")
+		run, err := (Declared{D: gh, Home: home}).Normalize(http.Header{"X-Github-Event": {event}}, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.Thread.ID != c.thread || NamesIssue(run.Source, gh, run.Thread.URL) != c.namesIssue {
+			t.Errorf("%s: thread %+v, NamesIssue %v; want %q, %v", c.body, run.Thread, !c.namesIssue, c.thread, c.namesIssue)
+		}
 	}
 }

@@ -109,7 +109,7 @@ type Adapter interface {
 | `source` | the source's name |
 | `type`, `action` | what happened to what: `issue` `create`, `comment` `update` in Linear; the event and its action in GitHub (`issue_comment` `created`) |
 | `actor` | who did it: `id` and `name`. The id is what an identity is matched against |
-| `thread` | what the delivery belongs to, as `id`, `title`, `url`: the issue a comment is on, or the issue itself. Empty for what belongs to nothing (a CI run on no pull request, a `token` message) |
+| `thread` | what the delivery belongs to, as `id`, `title`, `url`: the issue a comment is on, or the issue itself. Empty for what belongs to nothing (a `token` message). GitHub gives a CI run on no pull request the thread of its branch, which is no issue (see GitHub) |
 | `mentions` | the ids or keys of the people the text mentions |
 | `assignee`, `delegate` | who the issue is assigned to, and (Linear) the agent it is handed to while a person stays the assignee |
 | `text` | the start of the delivery's own words, whitespace collapsed, at most 500 characters |
@@ -1373,7 +1373,9 @@ events:
 - **Runs count for the head only.** A run's result moves the bead it is
   about when the run is on the pull request's head: the `head_sha` the
   last `head_from` event carried, or, with none, the head the `pr`
-  command reads live. Each key stands alone: the lists without the
+  command reads live. A bead that tracks a thread which is no pull
+  request, the branch of a run for none, has no head: every run on its
+  thread counts. Each key stands alone: the lists without the
   commands, and either command without the other.
 - **The commands run as thread commands do**: a list, run without a
   shell, one JSON object on stdin, one on stdout, exit 0, at most 64 KB,
@@ -2016,6 +2018,10 @@ The same steps as Linear, with these differences:
   reopened by a map, and a pull request is never touched.
 - **Links** are to issues and to pull requests. A map sets the status of
   an issue only: for a tracked pull request the move is skipped (`failed`).
+  So is the move for a link to a thread that is neither, the branch a
+  bead made for a failed run tracks (below): at once, with nothing sent
+  to GitHub, as `thread_state_skipped` with `names no issue`. Nor can
+  `yardr reply` answer in it or `yardr thread state` set its status.
 - **Where keys** are the pack's `hook.keys`: besides the common ones,
   `number`, `state`,
   `merged`, `conclusion`, `workflow`, `head_branch`, `head_sha`, `head_repo`,
@@ -2067,6 +2073,18 @@ The same steps as Linear, with these differences:
   `hook_rule` event. What the yard
   did itself, and what happened before the hook was last saved, makes
   nothing.
+- **A CI run on a branch** that belongs to no pull request has the thread of
+  the branch, `<owner>/<repo>@<branch>`, at `<repository URL>/tree/<branch>`:
+  the same thread and URL for every run of the branch, so a line makes one
+  bead of the failed runs of a branch, `--makes "event=workflow_run
+  conclusion=failure head_branch=main -> task:new"`. The next failed run
+  finds the bead while it is open and makes none, and the run after its
+  close makes the next. The bead is titled `CI on <owner>/<repo>@<branch>`
+  and its body ends with the run's own page, not the branch's. A table's
+  `says` line for the run moves the bead without the pull request's head
+  being asked, as the branch has none. A run on a fork's branch is on no
+  thread of the repository, whatever the branch is called, and makes
+  nothing; a run for a pull request keeps the pull request's thread.
 - **A thread** is `<owner>/<repo>#<number>`, and `yardr thread open github
   --in <owner>/<repo>` names a repository where Linear names a team.
 

@@ -140,6 +140,25 @@ func PullParts(source string, d *source.Declaration, raw string) (repo, number s
 	return "", ""
 }
 
+// NamesIssue reports whether raw, the URL of a delivery's thread, is an issue
+// or pull request of the source's: one its link shape reads. A thread with no
+// URL, and a source that declares no link shape, are taken to be: nothing
+// says they are not. A thread that is not has no comments to answer in and no
+// status to set; the branch a CI run on no pull request belongs to is one.
+func NamesIssue(source string, d *source.Declaration, raw string) bool {
+	dec, ok := declared(source, d, "", "")
+	return !ok || dec.namesIssue(raw)
+}
+
+// namesIssue is NamesIssue for the declared source d.
+func (d Declared) namesIssue(raw string) bool {
+	if raw == "" || d.D.Link == nil {
+		return true
+	}
+	_, err := d.IssueThread(raw)
+	return err == nil
+}
+
 // Issue is the source and the fixed form of the issue raw names: the
 // source is told by the URL's host, a builtin one before a declared one
 // with the same host. Two URLs are of the same issue exactly when their

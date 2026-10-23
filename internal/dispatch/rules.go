@@ -388,15 +388,19 @@ func beadWord(b *store.Bead) string {
 
 // said reports the outcome line names for the bead, on an event about its
 // thread, the pull request pr when it is one. A run's result counts for the
-// pull request's head only. decl is the yard's declared source of the
-// event's source, nil for a builtin one, and h the hook that recorded it.
+// pull request's head only; a thread that is no pull request (the branch a
+// bead made for a failed run tracks) has no head, and every run on it is its
+// own. decl is the yard's declared source of the event's source, nil for a
+// builtin one, and h the hook that recorded it.
 func (d *Dispatcher) said(ctx context.Context, ev ruleEvent, bead *store.Bead, pr prBinding, line *store.Say, decl *source.Declaration, h *store.Hook) *ruleResult {
 	if ev.run {
 		if ev.sha == "" {
 			return ignored("no head_sha")
 		}
-		if r, ok := d.onHead(ctx, ev, bead, pr, decl, h); !ok {
-			return r
+		if hooks.NamesIssue(ev.source, decl, pr.url) {
+			if r, ok := d.onHead(ctx, ev, bead, pr, decl, h); !ok {
+				return r
+			}
 		}
 	}
 	return d.report(ctx, bead, h, line, ev.data)

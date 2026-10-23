@@ -436,6 +436,10 @@ func TestThreadStateRefusals(t *testing.T) {
 	acme := record(hooks.Envelope{Source: "acme", Type: "comment", Action: "create", Actor: hooks.Party{ID: "u-jane"},
 		Thread: hooks.Thread{ID: "ACME-1"}, Message: "c1"})
 	token := record(hooks.Envelope{Source: "token", Type: "backup", Actor: hooks.Party{ID: "cron"}, Thread: hooks.Thread{ID: "nightly"}})
+	// A CI run on no pull request is on its branch's thread, which the
+	// pack's link shape does not read as an issue or pull request.
+	branch := record(hooks.Envelope{Source: "github", Type: "workflow_run", Action: "completed", Actor: hooks.Party{ID: "yardmaster-bot"},
+		Thread: hooks.Thread{ID: "Acme/webapp@main", Title: "CI on Acme/webapp@main", URL: "https://github.com/Acme/webapp/tree/main"}})
 	if err := st.FollowThread(ctx, "yardmaster", "acme", "Acme/webapp#7", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -478,6 +482,9 @@ func TestThreadStateRefusals(t *testing.T) {
 	refused(`"closed" is no state: want started, review, done`, "Acme/webapp#7", "closed")
 	refused("yardr cannot set the status of a thread in token (it can in acme, github)", "--source", "token", "nightly", "done")
 	refused("which yardr cannot answer in", token, "done")
+	refused("event "+branch+" is on a thread that is no issue or pull request, so it has no status to set", branch, "done")
+	refused("thread Acme/webapp@main is on a thread that is no issue or pull request, so it has no status to set", "Acme/webapp@main", "done")
+	refused("thread Acme/webapp@main is on a thread that is no issue or pull request, so it has no status to set", "--source", "github", "Acme/webapp@main", "done")
 	refused(`--source "slack": one of`, "--source", "slack", "C1", "done")
 	refused("is a mail event, not a hook delivery", strconv.FormatUint(mail, 10), "done")
 	refused("event 99999", "99999", "done")

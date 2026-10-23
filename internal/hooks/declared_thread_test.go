@@ -442,6 +442,36 @@ func TestDeclaredReplyParent(t *testing.T) {
 	if _, err := ad.Thread(ctx, odd, "tok"); err == nil {
 		t.Error("thread off a thread: no error")
 	}
+
+	// A thread whose URL the link shape does not read is no issue (the
+	// branch a CI run on no pull request belongs to): it has no comments to
+	// answer in, and no command is run to find out. One whose URL the shape
+	// reads is answered in.
+	ran := func(cmd string) int {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(dir, cmd+".stdin"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Count(string(raw), "\n")
+	}
+	replies, listed := ran("reply"), reads()
+	branch := hooks.Envelope{Source: "acme", Type: "ping", Thread: hooks.Thread{ID: "ops@main", URL: "https://acme.test/tree/main"}}
+	_, errReply := ad.Reply(ctx, branch, "", "x", "k9", "tok")
+	_, errPosted := ad.Posted(ctx, branch, "k9", "tok")
+	_, errRead := ad.Thread(ctx, branch, "tok")
+	for what, err := range map[string]error{"reply": errReply, "posted": errPosted, "thread": errRead} {
+		if err == nil || !strings.Contains(err.Error(), "is on a thread that is no issue or pull request") {
+			t.Errorf("%s on a branch's thread: %v", what, err)
+		}
+	}
+	if ran("reply") != replies || reads() != listed {
+		t.Error("a command ran for a thread that is no issue")
+	}
+	named := hooks.Envelope{Source: "acme", Type: "issue", Thread: hooks.Thread{ID: "issue-1", URL: "https://acme.test/issue/ACME-1/a-slug"}}
+	if _, err := ad.Reply(ctx, named, "", "x", "k10", "tok"); err != nil {
+		t.Errorf("a thread whose URL names an issue: %v", err)
+	}
 }
 
 // Thread lists the thread's messages oldest first, whatever order the

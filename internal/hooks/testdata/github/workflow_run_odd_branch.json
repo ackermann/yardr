@@ -1,0 +1,26 @@
+{
+ "action": "completed",
+ "workflow_run": {
+  "id": 5,
+  "name": "ci",
+  "display_title": "PR flow: open, review and land trains",
+  "run_number": 41,
+  "status": "completed",
+  "conclusion": "failure",
+  "head_branch": "fix/a#1 !*'()b%c",
+  "head_sha": "4f2c9e1a7b3d5e6f8091a2b3c4d5e6f708192a3b",
+  "head_repository": {
+   "full_name": "acme/yardr"
+  },
+  "html_url": "https://github.com/acme/yardr/actions/runs/5",
+  "pull_requests": []
+ },
+ "repository": {
+  "full_name": "acme/yardr",
+  "html_url": "https://github.com/acme/yardr"
+ },
+ "sender": {
+  "login": "jane-doe",
+  "type": "User"
+ }
+}

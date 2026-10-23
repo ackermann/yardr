@@ -470,8 +470,9 @@ func TestIssueMoveAddsALabel(t *testing.T) {
 }
 
 // A word the source has no status for is skipped at once, with nothing
-// sent; a state asked of a pull request fails in the script, which reads
-// as the source failing, so the move waits and is tried again.
+// sent, and so is a link that names no issue or pull request (a branch); a
+// state asked of a pull request fails in the script, which reads as the
+// source failing, so the move waits and is tried again.
 func TestIssueMoveRefusedForGood(t *testing.T) {
 	t.Parallel()
 	y := newIssueYard(t)
@@ -491,6 +492,24 @@ func TestIssueMoveRefusedForGood(t *testing.T) {
 		t.Fatalf("skipped %+v", e)
 	}
 	want(t, "requests for review", y.asked.Load(), int64(0))
+	// A link that names no issue or pull request is skipped at once too,
+	// whatever id a delivery gave its thread: the branch a CI run on no pull
+	// request belongs to has no status, and the thread command could not read
+	// it, so it would be tried again until it was given up.
+	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-b", Title: "yard-b", Depot: "yard", Stage: "backlog",
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "github", URL: "https://github.com/acme/webapp/tree/main",
+			Thread: "acme/webapp@main"}}}, "me")
+	must(t, err)
+	y.to(t, "yard-b", "new")
+	y.to(t, "yard-b", "review")
+	y.to(t, "yard-b", "merged")
+	want(t, "events", y.said(t, "yard-b"), []string{"review skipped: failed", "done skipped: failed"})
+	e = y.skipped(t, "yard-b")
+	if detail, _ := e.Data["detail"].(string); e.Data["state"] != "done" || !strings.Contains(detail, "names no issue") || e.Data["attempts"] != nil {
+		t.Fatalf("skipped %+v", e)
+	}
+	want(t, "requests for the branch", y.asked.Load(), int64(0))
+	want(t, "moves left", len(y.pending(t)), 0)
 	// A state asked of a pull request fails in the script, which the
 	// daemon cannot tell from the source failing: the move waits and is
 	// tried again, with nothing set.

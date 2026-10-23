@@ -148,9 +148,13 @@ outcome, `bead advance`, the move into an end stage that closes it, or
 `bead create` straight into the stage with `--tracks`. It must have a
 `tracks` link to an issue of the hook's source at that moment; a `relates`
 link moves nothing, and a link added to a bead that already sits in a stage
-counts from its next stage on. A bead sent back into the stage it is in
-(`open -> open on failed`) entered nothing. A bead that tracks a Linear and
-a GitHub issue moves both, each through its source's hook.
+counts from its next stage on. A `tracks` link to a thread that is no issue
+or pull request moves nothing either: a bead made for a failed CI run on a
+branch tracks the branch
+([integrations.md](integrations.md#github-where-it-differs)), and each of its
+stages is skipped, as `thread_state_skipped` says. A bead sent back into the
+stage it is in (`open -> open on failed`) entered nothing. A bead that tracks
+a Linear and a GitHub issue moves both, each through its source's hook.
 
 **As the crew member.** The call is made with the credential in the `--as`
 crew member's `env_file` and so appears in the source under its name. It is
@@ -183,7 +187,7 @@ the hook had still to do, and `hook_removed` says how many.
 | event | when | data |
 |---|---|---|
 | `thread_state` | the issue was moved, or labeled | `hook`, `crew` (acted as), `source`, `url`, `thread`, `title`, `stage` (entered), `state` (the word), `status` (set; `labeled <name>` for a label), `was` (none for a label), `instead` (`started`, when review had no status of its own), `cause` (the seq of the bead's event) |
-| `thread_state_skipped` | it was not | the same without `was` and `instead`, `status` being the one found, and `reason` with `detail` in words: `no_grant` (the crew member lacks `set_state` for the source, or is gone), `already_past` (for a label: the issue has it), `failed` (the source failed for good: given up after `attempts` tries, or something no retry changes, such as a pull request) |
+| `thread_state_skipped` | it was not | the same without `was` and `instead`, `status` being the one found, and `reason` with `detail` in words: `no_grant` (the crew member lacks `set_state` for the source, or is gone), `already_past` (for a label: the issue has it), `failed` (the source failed for good: given up after `attempts` tries, or something no retry changes, such as a pull request, or a link to a thread that is neither an issue nor a pull request, which is skipped at once with nothing sent) |
 
 **No echo.** The source reports the change by webhook. That delivery does
 not reach the crew member acted as: its actor is the crew member's identity in the

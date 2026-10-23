@@ -83,7 +83,7 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 	must(t, err)
 	_, err = y.api.CreateBead(ctx, store.NewBead{ID: "yard-9", Title: "nine", Depot: "yard", Stage: "backlog",
 		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "acme",
-			URL: "https://acme.test/issue/ACME-1", Thread: "ACME-1"}}}, "me")
+			URL: "https://acme.test/issue/ACME-1", Thread: "issue-1"}}}, "me")
 	must(t, err)
 
 	y.to(t, "yard-9", "new")
@@ -91,7 +91,9 @@ func TestIssueMoveDeclaredSource(t *testing.T) {
 	must(t, err)
 	var in map[string]any
 	must(t, json.Unmarshal([]byte(strings.TrimRight(string(raw), "\n")), &in))
-	if in["thread"] != "ACME-1" || in["state"] != "started" || in["forward"] != true || len(in) != 3 {
+	// The id a delivery gave the thread is the one it is moved by, not the one
+	// the link's URL reads as.
+	if in["thread"] != "issue-1" || in["state"] != "started" || in["forward"] != true || len(in) != 3 {
 		t.Fatalf("state stdin = %v", in)
 	}
 	token, err := os.ReadFile(filepath.Join(dir, "state.token"))

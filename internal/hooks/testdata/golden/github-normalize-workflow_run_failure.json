@@ -6,7 +6,11 @@
     "id": "jane-doe",
     "name": "jane-doe"
   },
-  "thread": {},
+  "thread": {
+    "id": "acme/yardr@yard/yard-sv6b",
+    "title": "CI on acme/yardr@yard/yard-sv6b",
+    "url": "https://github.com/acme/yardr/tree/yard/yard-sv6b"
+  },
   "mentions": [],
   "text": "ci failure on yard/yard-sv6b",
   "url": "https://github.com/acme/yardr/actions/runs/5",

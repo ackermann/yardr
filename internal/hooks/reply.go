@@ -246,10 +246,16 @@ func (d Declared) Credential(context.Context) (string, error) {
 }
 
 // declaredThread is the thread of the delivery env: its thread's id, or why
-// a reply has no comments to answer in.
-func declaredThread(source string, env Envelope) (string, error) {
+// a reply has no comments to answer in. A thread whose URL the source's
+// link shape does not read is no issue or pull request (the branch a CI run
+// on no pull request belongs to): it is there to find its bead by, and the
+// thread commands cannot read it.
+func declaredThread(d Declared, env Envelope) (string, error) {
 	if env.Thread.ID == "" || (env.Type == "comment" && env.Thread.ID == env.Message) {
-		return "", fmt.Errorf("this %s %s is not on a thread, so it has no comments to answer in", source, env.Type)
+		return "", fmt.Errorf("this %s %s is not on a thread, so it has no comments to answer in", d.D.Name, env.Type)
+	}
+	if !d.namesIssue(env.Thread.URL) {
+		return "", fmt.Errorf("this %s %s is on a thread that is no issue or pull request, so it has no comments to answer in", d.D.Name, env.Type)
 	}
 	return env.Thread.ID, nil
 }
@@ -274,7 +280,7 @@ func (d Declared) ReplyFiles(ctx context.Context, env Envelope, to, body, key st
 }
 
 func (d Declared) reply(ctx context.Context, env Envelope, to, body, key string, files []string, cred string) (Message, error) {
-	thread, err := declaredThread(d.D.Name, env)
+	thread, err := declaredThread(d, env)
 	if err != nil {
 		return Message{}, err
 	}
@@ -355,7 +361,7 @@ func (d Declared) replyParent(ctx context.Context, env Envelope, to, cred string
 // A retry asks before it posts, so an attempt whose answer was lost is not
 // posted twice.
 func (d Declared) Posted(ctx context.Context, env Envelope, key, cred string) (*Message, error) {
-	thread, err := declaredThread(d.D.Name, env)
+	thread, err := declaredThread(d, env)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +390,7 @@ func (d Declared) Posted(ctx context.Context, env Envelope, key, cred string) (*
 // thread.read: in {thread}, out {messages: [...]}, each a Message as it
 // marshals.
 func (d Declared) Thread(ctx context.Context, env Envelope, cred string) ([]Message, error) {
-	thread, err := declaredThread(d.D.Name, env)
+	thread, err := declaredThread(d, env)
 	if err != nil {
 		return nil, err
 	}

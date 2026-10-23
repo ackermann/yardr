@@ -252,6 +252,102 @@ func TestOneThreadMakesOneBead(t *testing.T) {
 	wantRules(t, r.rules(t, b.ID), "pull_request made "+b.ID)
 }
 
+const (
+	branchMain = "https://github.com/acme/yardr/tree/main"
+	runsOfCI   = "https://github.com/acme/yardr/actions/runs/"
+)
+
+// failedRun delivers fixture, a run that failed for no pull request, as the
+// run with the number run on branch.
+func (r *ghDepot) failedRun(t *testing.T, fixture, branch, run string) {
+	t.Helper()
+	r.deliverAs(t, "gh", "workflow_run", fixture, func(s string) string {
+		s = strings.ReplaceAll(s, "yard/yard-sv6b", branch)
+		return strings.ReplaceAll(s, "runs/5", "runs/"+run)
+	})
+}
+
+// A run that failed on the repository's own branch for no pull request has
+// the thread of the branch, the same for every run of it, so a line that
+// makes a bead of the failed runs of main makes one while none tracks the
+// branch, a later run finds it and makes none, and one after it was closed
+// makes the next. The bead's body ends with the run's own page, not the
+// branch's, and what the table says of a run takes effect on it without a
+// pull request's head being asked. A run on another branch, and a run on a
+// fork's branch of the same name (which is no branch of this repository),
+// make nothing.
+func TestFailedRunsOnABranchMakeOneBeadWhileItIsOpen(t *testing.T) {
+	t.Parallel()
+	r := newMakingDepot(t, "event=workflow_run conclusion=failure head_branch=main -> task:new")
+	ctx := context.Background()
+	h, err := r.api.GetHook(ctx, "gh")
+	must(t, err)
+	h.Says = append(h.Says, says(t, "event=workflow_run conclusion=failure head_branch=main type=task stage=new -> done: failed again")...)
+	_, err = r.api.PutHook(ctx, *h, "me")
+	must(t, err)
+
+	// What belongs to no thread of the repository's makes nothing, and says
+	// nothing of why.
+	r.failedRun(t, "workflow_run_failure", "feature", "4")
+	r.failedRun(t, "workflow_run_fork", "main", "3")
+	r.pass(t)
+	if tracks, _ := r.tracking(t, branchMain); len(tracks) != 0 {
+		t.Fatalf("%v made of a run on a fork's branch of the same name", tracks)
+	}
+	if all, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(all) != 0 {
+		t.Fatalf("beads after a run on another branch and a fork's: %d (%v), want none", len(all), err)
+	}
+	wantRules(t, r.beadless(t))
+
+	r.failedRun(t, "workflow_run_failure", "main", "5")
+	r.pass(t)
+	first := r.made(t, branchMain)
+	if first.Type != "task" || first.Stage != "new" || first.Status != "open" || first.Title != "CI on acme/yardr@main" {
+		t.Fatalf("made %s: type %s in %s (%s), title %q", first.ID, first.Type, first.Stage, first.Status, first.Title)
+	}
+	if want := "ci failure on main\n\n" + runsOfCI + "5"; first.Body != want {
+		t.Fatalf("made %s: body %q, want %q", first.ID, first.Body, want)
+	}
+	links, err := r.api.IssueLinks(ctx, branchMain)
+	must(t, err)
+	if len(links) != 1 || links[0].Kind != store.LinkTracks || links[0].Source != "github" || links[0].Thread != "acme/yardr@main" {
+		t.Fatalf("links to the branch: %+v, want the one tracks link", links)
+	}
+	wantRules(t, r.rules(t, first.ID), "workflow_run made "+first.ID)
+
+	// The next failed run is the open bead's: it makes none, and the line
+	// for the bead's stage moves it, with no ask of a pull request's head.
+	r.failedRun(t, "workflow_run_failure", "main", "6")
+	r.pass(t)
+	if again := r.made(t, branchMain); again.ID != first.ID || again.Stage != "review" {
+		t.Fatalf("after a second failed run: %s in %s, want %s in review", again.ID, again.Stage, first.ID)
+	}
+	wantRules(t, r.rules(t, first.ID), "workflow_run made "+first.ID, "done new -> review")
+	if all, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(all) != 1 {
+		t.Fatalf("beads after a second failed run: %d (%v), want the one", len(all), err)
+	}
+
+	// Once closed it stands in no one's way: the run after its close makes
+	// the next, which takes the link, and the first keeps a relates link. A
+	// daemon that starts again makes nothing of the runs from before.
+	_, err = r.api.CloseBead(ctx, first.ID, "fixed", store.Expect{}, "me")
+	must(t, err)
+	fresh := &dispatch.Dispatcher{Store: r.api, Runners: r.d.Runners, PRHead: r.d.PRHead, CI: r.d.CI, DepotRepo: r.d.DepotRepo}
+	must(t, fresh.Reconcile(ctx))
+	if b := r.made(t, branchMain); b.ID != first.ID {
+		t.Fatalf("a restart made %s of a run from before %s was closed", b.ID, first.ID)
+	}
+	r.failedRun(t, "workflow_run_failure", "main", "7")
+	r.pass(t)
+	second := r.made(t, branchMain)
+	if second.ID == first.ID || second.Status != "open" || second.Stage != "new" || !strings.HasSuffix(second.Body, runsOfCI+"7") {
+		t.Fatalf("after a run following the close: %s (%s, %s) %q, want a new open bead in new for run 7", second.ID, second.Status, second.Stage, second.Body)
+	}
+	if _, relates := r.tracking(t, branchMain); len(relates) != 1 || relates[0] != first.ID {
+		t.Fatalf("beads relating to the branch: %v, want the closed %s", relates, first.ID)
+	}
+}
+
 // The write that makes the bead is the one that looks whether a bead
 // tracks the thread: where one came to meanwhile, nothing is made.
 func TestMakeIsRefusedOfATrackedThread(t *testing.T) {

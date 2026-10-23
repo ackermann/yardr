@@ -20,7 +20,26 @@ import (
 // whose source its participation gives.
 func stateThread(ctx context.Context, st store.API, home, name, source, arg string) (string, string, error) {
 	if source != "" {
-		return source, arg, checkSource(ctx, st, source)
+		if err := checkSource(ctx, st, source); err != nil {
+			return "", "", err
+		}
+		ps, err := st.Threads(ctx, name)
+		if err != nil {
+			return "", "", err
+		}
+		for _, p := range ps {
+			if p.Source == source && p.Thread == arg {
+				issue, err := stateThreadNamesIssue(ctx, st, source, p.URL)
+				if err != nil {
+					return "", "", err
+				}
+				if !issue {
+					return "", "", fmt.Errorf("thread %s is on a thread that is no issue or pull request, so it has no status to set", printable(arg))
+				}
+				break
+			}
+		}
+		return source, arg, nil
 	}
 	if _, err := strconv.ParseUint(arg, 10, 64); err == nil {
 		_, env, _, err := hookEvent(ctx, st, home, arg)
@@ -30,6 +49,16 @@ func stateThread(ctx context.Context, st store.API, home, name, source, arg stri
 		if env.Thread.ID == "" {
 			return "", "", fmt.Errorf("event %s names no thread", arg)
 		}
+		// A thread the source's link shape does not read is no issue or pull
+		// request (the branch a CI run on no pull request belongs to): it has
+		// no status to set.
+		issue, err := stateThreadNamesIssue(ctx, st, env.Source, env.Thread.URL)
+		if err != nil {
+			return "", "", err
+		}
+		if !issue {
+			return "", "", fmt.Errorf("event %s is on a thread that is no issue or pull request, so it has no status to set", arg)
+		}
 		return env.Source, env.Thread.ID, nil
 	}
 	ps, err := st.Threads(ctx, name)
@@ -37,19 +66,40 @@ func stateThread(ctx context.Context, st store.API, home, name, source, arg stri
 		return "", "", err
 	}
 	var in []string
-	for _, p := range ps {
+	var match *store.Participation
+	for i := range ps {
+		p := &ps[i]
 		if p.Thread == arg {
 			in = append(in, p.Source)
+			match = p
 		}
 	}
 	switch len(in) {
 	case 1:
+		issue, err := stateThreadNamesIssue(ctx, st, match.Source, match.URL)
+		if err != nil {
+			return "", "", err
+		}
+		if !issue {
+			return "", "", fmt.Errorf("thread %s is on a thread that is no issue or pull request, so it has no status to set", printable(arg))
+		}
 		return in[0], arg, nil
 	case 0:
 		return "", "", fmt.Errorf("crew member %s takes no part in a thread %s, and sets the status only of a thread it takes part in (yardr thread follow %s --source <source> %s makes it a participant; yardr thread list %s shows its threads)",
 			name, printable(arg), name, printable(arg), name)
 	}
 	return "", "", fmt.Errorf("crew member %s takes part in a thread %s in %s: say which with --source", name, printable(arg), strings.Join(in, " and "))
+}
+
+// stateThreadNamesIssue reports whether the source's link shape reads a
+// participant thread's URL as an issue or pull request. A missing URL or
+// link shape keeps the existing rule that nothing says the thread is not one.
+func stateThreadNamesIssue(ctx context.Context, st store.API, source, url string) (bool, error) {
+	d, _, err := declaredSource(ctx, st, source)
+	if err != nil {
+		return false, err
+	}
+	return hooks.NamesIssue(source, d, url), nil
 }
 
 func (a *app) threadStateCmd() *cobra.Command {

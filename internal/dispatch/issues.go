@@ -96,12 +96,19 @@ func (d *Dispatcher) issueMove(ctx context.Context, m store.IssueMove) {
 		skip(store.SkipNoGrant, why, hooks.Forwarded{})
 		return
 	}
-	thread := m.Thread
-	if thread == "" {
-		if thread, err = f.IssueThread(m.URL); err != nil {
-			skip(store.SkipFailed, err.Error(), hooks.Forwarded{})
-			return
-		}
+	// The link must name an issue or a pull request, whatever id a delivery
+	// gave its thread: a thread that is neither (the branch a CI run on no
+	// pull request belongs to, which a makes line tracks) has no status to
+	// move, and the thread command could not read it. It is skipped here, at
+	// once, rather than tried again until it is given up.
+	thread, err := f.IssueThread(m.URL)
+	if err != nil {
+		skip(store.SkipFailed, err.Error(), hooks.Forwarded{})
+		return
+	}
+	// The id a delivery gave the thread is the one it is known by there.
+	if m.Thread != "" {
+		thread = m.Thread
 	}
 	cred, err := d.credential(ctx, m.As, m.Source, decl, f)
 	if err != nil {
