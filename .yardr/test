@@ -151,8 +151,9 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # landing, a session that has ended). A test the log already names is filed
 # as a backlog P3 `Flaky: <Test> (<pkg>)` carrying its lines, unless an open
 # bead already carries the title; where the yardr CLI is not there (CI, a
-# fork) the log line stays the record. A test that flaked 3 times in 7 days
-# fails the step instead of passing on its rerun. AGENTS.md says what a hand
+# fork) the log line stays the record. A test that flaked on 3 different
+# commits in 7 days fails the step instead of passing on its rerun (a commit
+# is the line's short sha: see flakycommits). AGENTS.md says what a hand
 # reading old lines files.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
@@ -777,9 +778,10 @@ again() {
                 printf '%s\n' "$(date '+%F %T') $(git rev-parse --short HEAD 2>/dev/null) $flaky${fails:+$flaky_sep$fails}" >>"$flakylog" || true
               fi
               # A test the log names more than once flaked before: file it,
-              # and fail the step when it flaked twice before in the last 7
-              # days. Filing wants the yard's CLI, which CI and forks have
-              # not; the strike counts the log alone, so it holds there too.
+              # and fail the step when it has flaked on 3 different commits in
+              # the last 7 days, this one included. Filing wants the yard's
+              # CLI, which CI and forks have not; the strike counts the log
+              # alone, so it holds there too.
               # A filing the yard refuses warns, never fails the step: the
               # gate must not fail because the yard is down. The depot is
               # the session's (an exec session's own, else its bead's);
@@ -808,13 +810,9 @@ again() {
                     [ -n "$pkg" ] || pkg=$pkgs_line
                     flakyfile "Flaky: $t ($pkg)" "$t" "$flakylog" "$depot"
                   fi
-                  recent=$(flakylines "$t" "$flakylog" | perl -MTime::Piece -ne '
-                    BEGIN { $cut = (localtime(time - 7 * 86400))->strftime("%F %T"); $n = 0 }
-                    $n++ if /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} / && substr($_, 0, 19) ge $cut;
-                    END { print "$n\n" }
-                  ' 2>/dev/null || echo 0)
+                  recent=$(flakycommits "$t" "$flakylog")
                   if [ "${recent:-0}" -ge 3 ]; then
-                    echo "test: $t flaked $recent times in 7 days; see the Flaky: bead" >&2
+                    echo "test: $t flaked on $recent commits in 7 days; see the Flaky: bead" >&2
                     strike=1
                   fi
                 done
@@ -952,6 +950,26 @@ flakylines() {
     }
     index(head, ENVIRON["FLAKY_TEST"]) { print }
   ' "$2"
+}
+# flakycommits prints on how many different commits a test ($1) flaked in the
+# last 7 days, by the flaky log ($2): the distinct short shas, third in a
+# line's head after the date and the time, of the lines flakylines prints
+# that are that recent. A commit run again is one sighting however often it
+# flaked: the log is every worktree's, so a builder's runs add lines as a
+# landing's do, and counting lines struck a test that flaked in one landing
+# and in two runs of one builder (23 Oct 2026, yardr-myez). A builder
+# iterating on uncommitted work runs at the same HEAD and so counts once. The
+# landing tests the branch as it will land, rebased onto a base that moved
+# and squashed where the group says so, so a change's landing is usually a
+# commit of its own. A line with no sha (git could not name HEAD) counts once
+# with the others that lack one. 0 when no line counts, and where perl is not
+# there.
+flakycommits() {
+  flakylines "$1" "$2" | perl -MTime::Piece -ne '
+    BEGIN { $cut = (localtime(time - 7 * 86400))->strftime("%F %T"); $n = 0 }
+    $n++ if /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} (\S*) / && substr($_, 0, 19) ge $cut && !$seen{$1}++;
+    END { print "$n\n" }
+  ' 2>/dev/null || echo 0
 }
 # flakyfile files a bead for a test ($2) that flaked again: a backlog P3
 # titled $1, carrying the test's lines of the flaky log ($3). An open

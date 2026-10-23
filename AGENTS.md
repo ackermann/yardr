@@ -148,7 +148,9 @@ it lists every exported name with its comment, faster than grepping.
   git common dir, which the repo owns and every worktree shares, files a
   backlog P3 `Flaky: <Test> (<pkg>)` when the test is already named in the
   log (deduped by title; skipped where the yardr CLI is not there), and
-  fails the step when the test flaked 3 times in 7 days. The rerun's
+  fails the step when the test flaked on 3 different commits (short
+  shas) in 7 days: a commit run again is one, and a landing, which is
+  rebased and squashed, is usually one more for its change. The rerun's
   output replaces the first run's, so the log line also keeps what the
   first run printed for each failed test, behind ` | `: its `--- FAIL:`
   line and the lines under it (6 lines of 200 characters at most for a

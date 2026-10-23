@@ -1114,9 +1114,11 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // data race is never run again: the step fails, naming packages whose output
 // reported the race. A test the flaky log already names is filed as a
 // backlog P3 Flaky bead carrying its lines, unless an open bead already
-// carries the title; a test that flaked 3 times in 7 days fails the step
-// instead of passing on its rerun. Where the yardr CLI is not there the
-// log line stays the record.
+// carries the title; a test that flaked on 3 different commits in 7 days
+// fails the step instead of passing on its rerun, a commit being the log
+// line's short sha, so the same commit again is no more of a strike (the
+// filing counts lines, and files a repeat at the second). Where the yardr
+// CLI is not there the log line stays the record.
 //
 // The rerun's output replaces the first run's, so the log line keeps what the
 // first run printed for each failed test, behind a separator: the test's
@@ -1188,6 +1190,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		racePkgs string          // packages whose output includes the race warning
 		raced    bool            // the failure reports a race, so there is no rerun
 		seed     []time.Duration // ages of the flaky log's prior sightings
+		seedShas []string        // the short sha of each prior sighting, in order: the run's own for those not named
 		yardr    bool            // a stub yardr is on PATH, answering list and show
 		list     string          // what the stub's bead list prints
 		show     string          // what the stub's bead show prints
@@ -1207,24 +1210,32 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		// A repeat files through the stub: without a depot where the
 		// session names none, into YARDR_DEPOT where it does, else into
 		// its bead's depot. An open bead carrying the title files
-		// nothing; a third sighting in 7 days fails the step. Sightings
-		// of any age file, but only recent ones strike.
-		{name: "plain: a repeat flake files a bead", times: "1", ok: true, calls: plain, steps: plainSteps,
-			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
+		// nothing; a third commit in 7 days fails the step, a second does
+		// not. Sightings of any age file, but only recent ones strike, and
+		// only on commits of their own: the seeds are at the run's commit
+		// unless they name another, so three lines on one commit file a
+		// repeat and do not strike.
+		{name: "plain: a repeat flake on a second commit files a bead", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour}, seedShas: []string{"a1b2c3d4"}, yardr: true, list: other, create: true},
 		{name: "plain: test name glob characters stay literal", testName: "TestX*", glob: true, times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true},
 		{name: "plain: a repeat flake files into YARDR_DEPOT", times: "1", ok: true, calls: plain, steps: plainSteps,
 			env: []string{"YARDR_DEPOT=m"}, seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, create: true, depot: "m"},
 		{name: "plain: a repeat flake files into its bead's depot", times: "1", ok: true, calls: plain, steps: plainSteps,
 			env: []string{"YARDR_BEAD=x"}, seed: []time.Duration{24 * time.Hour}, yardr: true, list: other, show: "  depot m\n", create: true, depot: "m"},
-		{name: "plain: an open Flaky bead files nothing", times: "1", ok: true, calls: plain, steps: plainSteps,
-			seed: []time.Duration{24 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
-		{name: "plain: a third strike in 7 days fails the step", times: "1", ok: false, calls: plain, steps: plainSteps,
-			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n", strike: true},
+		{name: "plain: an open Flaky bead files nothing, and three lines on one commit do not strike", times: "1", ok: true, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
+		// Four lines, three commits: the step fails, naming three.
+		{name: "plain: a third commit in 7 days fails the step", times: "1", ok: false, calls: plain, steps: plainSteps,
+			seed: []time.Duration{24 * time.Hour, 36 * time.Hour, 48 * time.Hour}, seedShas: []string{"a1b2c3d4", "a1b2c3d4", "e5f6a7b8"},
+			yardr: true, list: other + "m-2 " + title + "\n", strike: true},
 		{name: "plain: an old repeat still files", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{30 * 24 * time.Hour}, yardr: true, list: other, create: true},
+		// Old, on commits of their own: with the window dropped these would
+		// be three commits with the run's.
 		{name: "plain: old sightings do not strike", times: "1", ok: true, calls: plain, steps: plainSteps,
-			seed: []time.Duration{8 * 24 * time.Hour, 9 * 24 * time.Hour}, yardr: true, list: other + "m-2 " + title + "\n"},
+			seed: []time.Duration{8 * 24 * time.Hour, 9 * 24 * time.Hour}, seedShas: []string{"a1b2c3d4", "e5f6a7b8"},
+			yardr: true, list: other + "m-2 " + title + "\n"},
 		{name: "plain: without the yardr CLI a repeat only logs", times: "1", ok: true, calls: plain, steps: plainSteps,
 			seed: []time.Duration{24 * time.Hour}, barePath: true},
 		// The rerun's output replaces the first run's, so the log line keeps
@@ -1317,12 +1328,15 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				common = filepath.Join(dir, common)
 			}
 			flakyLog := filepath.Join(common, "yardr-flaky.log")
-			// Prior sightings, at the short sha the run appends under, so
-			// the log's lines all read as the gate's own. Without a text of
-			// their own they are the short lines the log held before the
-			// separator existed.
+			sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
+			// The sha each line of the log carries, in file order: the run's
+			// own is the last.
+			var lineShas []string
+			// Prior sightings, at the short sha the run appends under unless
+			// the case names another, so the log's lines all read as the
+			// gate's own. Without a text of their own they are the short
+			// lines the log held before the separator existed.
 			if len(c.seed) > 0 {
-				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
 				seedText := testName + " (" + pkg + ") passed on rerun"
 				if c.seedAs != "" {
 					seedText = c.seedAs
@@ -1330,14 +1344,21 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				var seeds []string
 				if c.foreign != "" {
 					seeds = append(seeds, time.Now().Add(-time.Hour).Format("2006-01-02 15:04:05")+" "+sha+" "+c.foreign)
+					lineShas = append(lineShas, sha)
 				}
-				for _, age := range c.seed {
-					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+sha+" "+seedText)
+				for i, age := range c.seed {
+					at := sha
+					if i < len(c.seedShas) {
+						at = c.seedShas[i]
+					}
+					seeds = append(seeds, time.Now().Add(-age).Format("2006-01-02 15:04:05")+" "+at+" "+seedText)
+					lineShas = append(lineShas, at)
 				}
 				if err := os.WriteFile(flakyLog, []byte(strings.Join(seeds, "\n")+"\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
+			lineShas = append(lineShas, sha)
 			cmd := exec.Command("sh", "-c", string(script))
 			cmd.Dir = dir
 			// The case's own variables come last, so a landing's nowhere
@@ -1425,14 +1446,17 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				if len(logged) != n+priors {
 					t.Errorf("the flaky log has %d lines, want one per printed flaky line (%d) plus the %d priors", len(logged), n, priors)
 				}
-				sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
 				dated := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} `)
-				wants := []string{sha, pkg, testName}
+				wants := []string{pkg, testName}
 				if c.noTests {
-					wants = []string{sha, pkg}
+					wants = []string{pkg}
 				}
-				for _, line := range logged {
-					for _, want := range wants {
+				for i, line := range logged {
+					lineWants := wants
+					if i < len(lineShas) {
+						lineWants = append(slices.Clone(wants), lineShas[i])
+					}
+					for _, want := range lineWants {
 						if !strings.Contains(line, want) {
 							t.Errorf("flaky log line %q, want it to carry %q", line, want)
 						}
@@ -1459,7 +1483,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 					}
 				}
 				if c.strike {
-					if want := "test: " + testName + " flaked 3 times in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
+					if want := "test: " + testName + " flaked on 3 commits in 7 days; see the Flaky: bead\n"; !strings.Contains(out, want) {
 						t.Errorf("the output has no %q line", strings.TrimSuffix(want, "\n"))
 					}
 					if !strings.Contains(out, "test: FAILED: "+failedStep+"\n") {
@@ -1591,17 +1615,20 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	}
 }
 
-// What the flaky log line keeps of the first run (flakyfails) and which of its
-// lines name a test (flakylines), through the script's own functions, cut out
-// of it and run on output as go prints it: a shell and an awk a case, where a
-// gate run costs seconds. TestYardTestRerunsFailedPackagesOnce pins that the
-// gate writes and reads them. A block is a test's `--- FAIL:` line and the
-// lines indented deeper than it, so a subtest has a block of its own and its
-// parent's holds it; output between reports ends a block; a panic's line,
-// which go prints unindented after the FAIL line, joins the blocks it follows;
-// a block keeps 6 lines of 200 characters and a line 20 blocks; control
-// characters are dropped. Only the head of a log line, before the separator,
-// names the tests that flaked.
+// What the flaky log line keeps of the first run (flakyfails), which of its
+// lines name a test (flakylines) and on how many commits a test flaked in the
+// last 7 days (flakycommits), through the script's own functions, cut out of
+// it and run on output as go prints it: a shell and an awk or a perl a case,
+// where a gate run costs seconds. TestYardTestRerunsFailedPackagesOnce pins
+// that the gate writes and reads them. A block is a test's `--- FAIL:` line
+// and the lines indented deeper than it, so a subtest has a block of its own
+// and its parent's holds it; output between reports ends a block; a panic's
+// line, which go prints unindented after the FAIL line, joins the blocks it
+// follows; a block keeps 6 lines of 200 characters and a line 20 blocks;
+// control characters are dropped. Only the head of a log line, before the
+// separator, names the tests that flaked. A commit is a line's short sha: the
+// same one on many lines is one commit, and only lines in the last 7 days
+// count, whichever commit they are on.
 func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile(yardTest)
@@ -1615,8 +1642,8 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	if ok {
 		fns, _, ok = strings.Cut("flaky_sep="+fns, "\n# flakyfile files a bead")
 	}
-	if !ok || !strings.Contains(fns, "\nflakyfails() {") || !strings.Contains(fns, "\nflakylines() {") {
-		t.Fatalf("cannot cut flakyfails and flakylines out of %s: move the probe with the script", yardTest)
+	if !ok || !strings.Contains(fns, "\nflakyfails() {") || !strings.Contains(fns, "\nflakylines() {") || !strings.Contains(fns, "\nflakycommits() {") {
+		t.Fatalf("cannot cut flakyfails, flakylines and flakycommits out of %s: move the probe with the script", yardTest)
 	}
 	dir := t.TempDir()
 	probe := filepath.Join(dir, "probe.sh")
@@ -1746,6 +1773,49 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			}
 			if got := run(t, log, "flakylines", c.test); got != strings.Join(want, "\n") {
 				t.Errorf("flakylines %s printed:\n%s\nwant:\n%s", c.test, got, strings.Join(want, "\n"))
+			}
+		})
+	}
+
+	// On how many commits a test flaked in the last 7 days. The lines are
+	// aged from now, dated as the gate dates them (local time), a day or more
+	// from the 7-day mark: a change of clock moves that mark by an hour.
+	const day = 24 * time.Hour
+	const shaA, shaB, shaC, shaD = "a1b2c3d4", "e5f6a7b8", "c9d0e1f2", "0a1b2c3d"
+	const headA = "TestA (m.test/a) passed on rerun"
+	at := func(age time.Duration, sha, head string) string {
+		return time.Now().Add(-age).Format("2006-01-02 15:04:05") + " " + sha + " " + head
+	}
+	for _, c := range []struct {
+		name  string
+		lines []string
+		test  string
+		want  string
+	}{
+		{"one commit on many lines", []string{at(time.Hour, shaA, headA), at(2*time.Hour, shaA, headA), at(3*day, shaA, headA)}, "TestA", "1"},
+		{"three commits", []string{at(day, shaA, headA), at(2*day, shaB, headA), at(3*day, shaC, headA)}, "TestA", "3"},
+		{"a commit on two lines among others", []string{at(day, shaA, headA), at(2*day, shaA, headA), at(3*day, shaB, headA), at(4*day, shaC, headA)}, "TestA", "3"},
+		{"only the last 7 days", []string{at(9*day, shaD, headA), at(8*day, shaC, headA), at(2*day, shaB, headA), at(day, shaA, headA)}, "TestA", "2"},
+		// A line before the window is no sighting of its commit, so it does
+		// not take the commit from a later line inside it.
+		{"a commit before the window and in it", []string{at(8*day, shaA, headA), at(day, shaA, headA)}, "TestA", "1"},
+		{"a name only in another test's kept lines", []string{
+			at(day, shaA, "TestC (m.test/a) passed on rerun"+sep+"--- FAIL: TestC (0.00s)"+eol+"    c_test.go:1: waiting for TestA to start"),
+			at(2*day, shaB, headA)}, "TestA", "1"},
+		{"a longer name is another test", []string{at(day, shaA, "TestAB (m.test/a) passed on rerun"), at(2*day, shaB, headA)}, "TestA", "1"},
+		// What the gate writes when git cannot name HEAD: the sha is empty.
+		{"lines with no sha count once", []string{at(day, "", headA), at(2*day, "", headA), at(3*day, shaA, headA)}, "TestA", "2"},
+		{"a line with no date is skipped", []string{"x TestA flaked on some day", at(day, shaA, headA)}, "TestA", "1"},
+		{"a test the log lacks", []string{at(day, shaA, headA)}, "TestZ", "0"},
+		{"an empty log", nil, "TestA", "0"},
+	} {
+		t.Run("commits: "+c.name, func(t *testing.T) {
+			in := strings.Join(c.lines, "\n")
+			if in != "" {
+				in += "\n"
+			}
+			if got := run(t, in, "flakycommits", c.test); got != c.want {
+				t.Errorf("flakycommits %s printed %q, want %q for:\n%s", c.test, got, c.want, in)
 			}
 		})
 	}
