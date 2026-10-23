@@ -40,7 +40,7 @@ who is trusted. yardr knows three verbs and none of the choices:
 | verb | direction | here |
 |---|---|---|
 | `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened, marked ready or reopened: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
-| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. Merged: `merged`. Closed: `dropped`. Both in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own, reported by a script |
+| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. Merged: `merged`. Closed: `dropped`: for a pull request in `triage`, `review`, `ciwait`, `contributor`, `approved` and `decide`, for an issue in `triage`, `backlog`, `new`, `review`, `approved` and `decide`. No event of GitHub's CI says anything: the pull request's CI is the yard's own, reported by a script |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
 **Triage is the pack's advice, not a rule of yardr.** The stage a bead
@@ -152,6 +152,19 @@ crew member (`yardmaster`): the pack's own mapping, not a stranger's word. An
 agent that read the pull request still cannot move a bead out of a stage of
 people by naming them. A bead the yard holds is moved by no event, so one held
 in `ciwait` because its pull request was found over is advanced by hand.
+
+**A close ends an issue's bead.** When the issue is closed on GitHub,
+`dropped` moves its bead to `closed`: from `triage`, and as well from
+`backlog`, `new`, `review`, `approved` and `decide`. The close is the
+decision, made by someone who may close that repository's issues, and the
+bead would otherwise stay open on one that is over, with a builder still
+working it. A `question` sends the bead to `decide` to wait for a member of
+`decisions`, and a close meanwhile ends it there, without the answer.
+Whatever worked the bead stops with it: the builder's, the reviewer's and
+the assembly's sessions end. The move out of a stage of people (`backlog`,
+`decide`) is made as the hook's `as` crew member (`yardmaster`): the pack's
+own mapping, not a stranger's word. A bead the yard holds is moved by no
+event.
 
 ## What the import asks
 

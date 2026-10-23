@@ -18,15 +18,20 @@ kind: git
 flows:
   # An issue from outside: a maintainer looks first. Accepted, it is a bead
   # like any other, on the starter flow's stages from backlog on.
+  #
+  # A close on GitHub is the decision, made by someone who may close that
+  # repository's issues, and ends the bead wherever it waits: every open
+  # stage has an edge for dropped, or a close past triage would find no
+  # edge and a builder might keep working a bead for a closed issue.
   issue:
     type: issue
     stages:
       triage:   { group: maintainers, file: flows/issue/triage.md, outcomes: { accepted: backlog, dropped: closed }, manual: [backlog, closed] }
-      backlog:  { group: backlog,     manual: [new, decide] }
-      new:      { group: builders,    outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers,   outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: assembly,    outcomes: { done: merged, failed: new, question: decide } }
-      decide:   { group: decisions,   manual: [backlog, new] }
+      backlog:  { group: backlog,     outcomes: { dropped: closed }, manual: [new, decide] }
+      new:      { group: builders,    outcomes: { done: review, question: decide, dropped: closed }, manual: [backlog] }
+      review:   { group: reviewers,   outcomes: { done: approved, changes: new, question: decide, dropped: closed } }
+      approved: { group: assembly,    outcomes: { done: merged, failed: new, question: decide, dropped: closed } }
+      decide:   { group: decisions,   outcomes: { dropped: closed }, manual: [backlog, new] }
       merged:   { end: true }
       closed:   { end: true }
 
@@ -145,7 +150,11 @@ sources:
     # about a pull request from one about a train, whichever pack came first.
     says:
       - { where: "event=issues action=labeled label=accepted type=issue", outcome: accepted }
-      - { where: "event=issues action=closed type=issue", outcome: dropped }
+      # A close ends the bead in any stage that holds an open one. The
+      # stages are named so that the yard's own close when a bead is
+      # merged (hears issue, below) finds the bead already terminal and
+      # is refused quietly, as a close for a bead past deciding is.
+      - { where: "event=issues action=closed stage=triage stage=backlog stage=new stage=review stage=approved stage=decide type=issue", outcome: dropped }
       - { where: "event=pull_request action=labeled label=accepted type=pr", outcome: accepted }
       - { where: "event=pull_request action=synchronize stage=contributor type=pr", outcome: pushed, note: "new commits on the PR" }
       # A bot's push while the pull request is read or waits on CI starts the

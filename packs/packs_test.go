@@ -1119,7 +1119,7 @@ func TestContributorsPack(t *testing.T) {
 		"action=synchronize event=pull_request stage=ciwait type=pr -> changes: the PR changed while waiting on CI",
 		"action=closed event=pull_request merged=true type=pr -> merged",
 		"action=closed event=pull_request merged=false type=pr -> dropped",
-		"action=closed event=issues type=issue -> dropped",
+		"action=closed event=issues stage=approved stage=backlog stage=decide stage=new stage=review stage=triage type=issue -> dropped",
 	} {
 		if !says[want] {
 			t.Errorf("says lacks %q: %v", want, says)
@@ -1208,6 +1208,34 @@ func TestContributorsPack(t *testing.T) {
 			if outcome != c.outcome || to != c.to {
 				t.Errorf("a pull request closed (merged=%s) in stage %s says %q and leads to %q, want %q and %q", c.merged, stage, outcome, to, c.outcome, c.to)
 			}
+		}
+	}
+	// The end of the issue, by the stage its bead is in and the stage the
+	// outcome leads to. The line names the stages that hold an open bead,
+	// and the flow leads the close out of each of them to closed, or the
+	// bead would stay open on an issue that is over. In a terminal stage
+	// no line matches, so the yard's own close when a bead is merged finds
+	// the bead already terminal and is refused quietly.
+	var issueFlow store.Flow
+	for _, f := range p.Flows {
+		if f.Name == "issue" {
+			issueFlow = f.StoreFlow("issue")
+		}
+	}
+	closedIssue := map[string]any{"type": "issues", "action": "closed", "fields": map[string][]string{"event": {"issues"}, "action": {"closed"}}}
+	for _, stage := range []string{"triage", "backlog", "new", "review", "approved", "decide"} {
+		var outcome, to string
+		if say := hook.Said(closedIssue, stage, "issue"); say != nil {
+			outcome = say.Outcome
+			to, _ = issueFlow.Resolve(stage, say.Outcome)
+		}
+		if outcome != "dropped" || to != "closed" {
+			t.Errorf("a closed issue in stage %s says %q and leads to %q, want dropped and closed", stage, outcome, to)
+		}
+	}
+	for _, stage := range []string{"merged", "closed"} {
+		if say := hook.Said(closedIssue, stage, "issue"); say != nil {
+			t.Errorf("a closed issue in stage %s says %q, want no line to match", stage, say.Outcome)
 		}
 	}
 	if want := map[string]string{"issue:new": "started", "issue:merged": "done", "issue:closed": "done", "pr:closed": "done"}; !reflect.DeepEqual(gh.Map, want) {

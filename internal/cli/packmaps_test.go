@@ -275,7 +275,7 @@ func TestPackCheckShowsTheLinesItAddsAndDrops(t *testing.T) {
 	}
 	for _, want := range []string{
 		"  would add the says line \"action=closed event=pull_request merged=true type=pr -> merged\" to hook github\n",
-		"  would add the says line \"action=closed event=issues type=issue -> dropped\" to hook github\n",
+		"  would add the says line \"action=closed event=issues stage=approved stage=backlog stage=decide stage=new stage=review stage=triage type=issue -> dropped\" to hook github\n",
 		"  would add the makes line \"action=opened event=issues -> issue:triage\" to hook github\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -313,7 +313,7 @@ func TestPackCheckShowsTheLinesItAddsAndDrops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const gone = `      - { where: "event=issues action=closed type=issue", outcome: dropped }` + "\n"
+	const gone = `      - { where: "event=issues action=closed stage=triage stage=backlog stage=new stage=review stage=approved stage=decide type=issue", outcome: dropped }` + "\n"
 	if !strings.Contains(string(text), gone) {
 		t.Fatalf("pack.yaml lacks %q", gone)
 	}
@@ -323,7 +323,7 @@ func TestPackCheckShowsTheLinesItAddsAndDrops(t *testing.T) {
 	if out, err = run(t, a.packCmd(), append([]string{"check", dir}, check...)...); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if want := "  would drop the says line \"action=closed event=issues type=issue -> dropped\" from hook github: the pack set it at its last import and no longer gives it\n"; !strings.Contains(out, want) ||
+	if want := "  would drop the says line \"action=closed event=issues stage=approved stage=backlog stage=decide stage=new stage=review stage=triage type=issue -> dropped\" from hook github: the pack set it at its last import and no longer gives it\n"; !strings.Contains(out, want) ||
 		strings.Count(out, "would drop") != 1 || strings.Contains(out, "would add") {
 		t.Fatalf("pack check of the pack without the line:\n%s", out)
 	}
