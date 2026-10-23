@@ -1,4 +1,4 @@
-# The depot's flow, written by yardr depot init. yardr reads it from the base
+# The depot's flow, kept in this repository. yardr reads it from the base
 # branch; see docs/flows.md.
 #
 # The three ways back to new (changes from review, changes from review-security,
