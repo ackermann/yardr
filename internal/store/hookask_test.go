@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode"
 
 	"yardr.dev/yardr/internal/source"
 )
@@ -154,6 +155,44 @@ hook:
 	}
 	if got := hookSays(d); strings.Contains(got, "separated by") || strings.Contains(got, "HMAC key") {
 		t.Errorf("a declaration with no list and no key: the card says:\n%s", got)
+	}
+	// A single prefix is a word of the declaration's like the list's and the
+	// key's, which the card always quotes. This one is quoted where "=" or ","
+	// is in it, and most prefixes end in "=".
+	if got := hookSays(d); !strings.Contains(got, `as hex past the prefix "v0="`) {
+		t.Errorf("a single prefix: the card says:\n%s", got)
+	}
+	// The reader takes the literal text around the placeholders, a prefix and
+	// a dot path as written, so a declaration's author can put a newline and
+	// an escape into each. The card quotes them, so the sentence itself holds
+	// none of it and shows it spelled out.
+	hostile, err := source.Parse("chat.yaml", []byte(`name: chat
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: "v0:{timestamp}:{body}\n\x1b[2K"
+    signature: { header: Chat-Signature, encoding: hex, prefix: "v0=\n\x1b[2K" }
+    delivery: { body: "id\n\x1b[2K" }
+    timestamp: { body: "sent\n\x1b[2K", unit: s, window: 5m }
+  bodies: repeat
+  normalize: [chat/normalize]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = hookSays(hostile)
+	if i := strings.IndexFunc(got, unicode.IsControl); i >= 0 {
+		t.Errorf("a hostile declaration: the card holds a control character at byte %d:\n%q", i, got)
+	}
+	for _, want := range []string{
+		`HMAC-SHA256 over "v0:{timestamp}:{body}\n\x1b[2K" (scheme hmac-sha256, signed: "v0:{timestamp}:{body}\n\x1b[2K")`,
+		`as hex past the prefix "v0=\n\x1b[2K"`,
+		`a delivery is named by "id\n\x1b[2K" in its body`,
+		`its time arrives at "sent\n\x1b[2K", in s within 5m`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("a hostile declaration: the card says:\n%q\nwant %s", got, want)
+		}
 	}
 }
 

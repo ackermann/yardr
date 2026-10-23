@@ -597,15 +597,27 @@ func hookSays(d *source.Declaration) string {
 	if v.Scheme == source.HookSecret {
 		verified = fmt.Sprintf("deliveries are verified by the header %s holding the hook's secret itself (scheme secret)", v.Signature.Header)
 	} else {
+		// The prefix and the template are the declaration's own text, and the
+		// reader takes any literal text in them, a newline and an escape
+		// too. They are quoted as the file's other values are, so the
+		// sentence holds no control character (the hook-add card is stored
+		// as built, with no filter over it) and shows what the author wrote,
+		// where a filter would only drop it. The yard's own "none" and "the
+		// body" stay bare.
 		prefix := v.Signature.Prefix
 		if prefix == "" {
 			prefix = "none"
+		} else {
+			prefix = displaySourceValue(prefix)
 		}
 		// What the signature covers is the declaration's own word: the
 		// body alone, or a template over timestamp and body together.
 		signed, over := v.Signed, v.Signed
 		if signed == "" || signed == source.HookSigned {
 			signed, over = source.HookSigned, "the body"
+		} else {
+			signed = displaySourceValue(signed)
+			over = signed
 		}
 		arrives := fmt.Sprintf("as %s past the prefix %s", v.Signature.Encoding, prefix)
 		if sep := v.Signature.List; sep != "" {
@@ -628,18 +640,23 @@ func hookSays(d *source.Declaration) string {
 			verified += fmt.Sprintf("; the HMAC key is %s, read as %s (not the secret's own bytes)", from, k.Encoding)
 		}
 	}
+	// A dot path into the body is any text with something between its dots,
+	// so it is quoted like the prefix; a header name is held to letters,
+	// digits and hyphens by the reader and prints as it is.
 	named := "it sends no delivery id"
 	switch {
 	case v.Delivery.Header != "":
 		named = fmt.Sprintf("a delivery is named by the header %s", v.Delivery.Header)
 	case v.Delivery.Body != "":
-		named = fmt.Sprintf("a delivery is named by %s in its body", v.Delivery.Body)
+		named = fmt.Sprintf("a delivery is named by %s in its body", displaySourceValue(v.Delivery.Body))
 	}
 	timed := "it sends no timestamp"
 	if v.Timestamp != nil {
 		where := v.Timestamp.Body
 		if where == "" {
 			where = "the header " + v.Timestamp.Header
+		} else {
+			where = displaySourceValue(where)
 		}
 		timed = fmt.Sprintf("its time arrives at %s, in %s within %s of the yard's clock", where, v.Timestamp.Unit, v.Timestamp.Window)
 	}
