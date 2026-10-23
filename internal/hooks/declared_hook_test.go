@@ -957,6 +957,137 @@ func TestDeclaredVerifyKey(t *testing.T) {
 	}
 }
 
+// The hash of the HMAC is the declaration's: algorithm names sha256, sha1 or
+// sha512, a declaration that says nothing is sha256, and a delivery verifies
+// under the hash its declaration names and under no other, whatever prefix
+// the sender puts before the signature. The vectors are published ones, so
+// the hashes are checked against something other than the code that makes
+// them: RFC 2202 test case 2 (HMAC-SHA1) and RFC 4231 test case 2
+// (HMAC-SHA-256 and HMAC-SHA-512) sign "what do ya want for nothing?" with
+// the key "Jefe", and each digest below was checked here with
+//
+//	printf '%s' 'what do ya want for nothing?' | openssl dgst -sha1 -hmac Jefe
+//
+// (and -sha256, -sha512).
+func TestDeclaredVerifyAlgorithm(t *testing.T) {
+	const (
+		jefe, data = "Jefe", "what do ya want for nothing?"
+		sha1Sum    = "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79"
+		sha256Sum  = "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+		sha512Sum  = "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737"
+	)
+	const mismatch, malformed = "does not match", "missing or malformed"
+	decl := func(verify string) hooks.Declared {
+		t.Helper()
+		d, err := source.Parse("q.yaml", []byte("name: q\nhook:\n  verify:\n"+verify+"  bodies: unique\n  normalize: [normalize]\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hooks.Declared{D: d}
+	}
+	check := func(ad hooks.Declared, header, sig, key, body string) (string, error) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, "/hooks/q", strings.NewReader(body))
+		req.Header.Set(header, sig)
+		return ad.Verify(req, []byte(body), []byte(key), time.Now())
+	}
+	for _, tc := range []struct {
+		name      string
+		algorithm string // verify.algorithm, "" to leave it out
+		prefix    string // verify.signature.prefix, "" for none
+		sig       string // the header, as the sender sends it
+		key       string // "": the vector's
+		body      string // "": the vector's
+		fails     string // "": verified; else what the refusal says
+	}{
+		{name: "sha256 left out", sig: sha256Sum},
+		{name: "sha256", algorithm: "sha256", sig: sha256Sum},
+		{name: "sha1", algorithm: "sha1", sig: sha1Sum},
+		{name: "sha512", algorithm: "sha512", sig: sha512Sum},
+		{name: "sha1 behind its prefix", algorithm: "sha1", prefix: "sha1=", sig: "sha1=" + sha1Sum},
+		{name: "sha256, a wrong key", sig: sha256Sum, key: "Jeff", fails: mismatch},
+		{name: "sha1, a wrong key", algorithm: "sha1", sig: sha1Sum, key: "Jeff", fails: mismatch},
+		{name: "sha512, a wrong key", algorithm: "sha512", sig: sha512Sum, key: "Jeff", fails: mismatch},
+		{name: "sha1, a changed body", algorithm: "sha1", sig: sha1Sum, body: data + "?", fails: mismatch},
+		{name: "sha512, a changed body", algorithm: "sha512", sig: sha512Sum, body: data + "?", fails: mismatch},
+		// Each hash is its own: the right key and body, signed with another.
+		{name: "sha256 left out, a sha1 signature", sig: sha1Sum, fails: mismatch},
+		{name: "sha256, a sha512 signature", algorithm: "sha256", sig: sha512Sum, fails: mismatch},
+		{name: "sha1, a sha256 signature", algorithm: "sha1", sig: sha256Sum, fails: mismatch},
+		{name: "sha512, a sha1 signature", algorithm: "sha512", sig: sha1Sum, fails: mismatch},
+		// A prefix is text the signature is cut past and picks nothing: a
+		// sender who names a weaker hash there is checked with the declared one.
+		{name: "sha256 behind sha256=, a sha1 signature behind sha1=", prefix: "sha256=", sig: "sha1=" + sha1Sum, fails: malformed},
+		{name: "sha256 behind sha256=, a sha1 signature behind sha256=", prefix: "sha256=", sig: "sha256=" + sha1Sum, fails: mismatch},
+		{name: "sha1 behind sha1=, a sha256 signature behind sha1=", algorithm: "sha1", prefix: "sha1=", sig: "sha1=" + sha256Sum, fails: mismatch},
+		{name: "sha1 behind sha1=, a sha256 signature behind sha256=", algorithm: "sha1", prefix: "sha1=", sig: "sha256=" + sha256Sum, fails: malformed},
+		{name: "sha256 behind sha1=, a sha1 signature behind sha1=", algorithm: "sha256", prefix: "sha1=", sig: "sha1=" + sha1Sum, fails: mismatch},
+	} {
+		signature := "{ header: Q-Sig, encoding: hex }"
+		if tc.prefix != "" {
+			signature = "{ header: Q-Sig, encoding: hex, prefix: \"" + tc.prefix + "\" }"
+		}
+		verify := "    scheme: hmac-sha256\n    signed: body\n    signature: " + signature + "\n    delivery: { header: Q-Delivery }\n"
+		if tc.algorithm != "" {
+			verify += "    algorithm: " + tc.algorithm + "\n"
+		}
+		key, body := tc.key, tc.body
+		if key == "" {
+			key = jefe
+		}
+		if body == "" {
+			body = data
+		}
+		_, err := check(decl(verify), "Q-Sig", tc.sig, key, body)
+		switch {
+		case tc.fails == "" && err != nil:
+			t.Errorf("%s: %v", tc.name, err)
+		case tc.fails != "" && (!errors.Is(err, hooks.ErrUnauthorized) || !strings.Contains(err.Error(), tc.fails)):
+			t.Errorf("%s: err = %v, want unauthorized, %q", tc.name, err, tc.fails)
+		}
+	}
+
+	// The reader cannot make a declaration whose hash this yard has no
+	// constructor for, so one built by hand verifies nothing: not even a
+	// signature that would verify with the default hash.
+	ad := decl("    scheme: hmac-sha256\n    signed: body\n    signature: { header: Q-Sig, encoding: hex }\n    delivery: { header: Q-Delivery }\n")
+	ad.D.Hook.Verify.Algorithm = "md5"
+	if _, err := check(ad, "Q-Sig", sha256Sum, jefe, data); !errors.Is(err, hooks.ErrUnauthorized) || !strings.Contains(err.Error(), `"md5" is not a hash this yard checks`) {
+		t.Errorf("a hash with no constructor: err = %v, want unauthorized, a name the yard does not check", err)
+	}
+
+	// Intercom signs its notifications X-Hub-Signature: sha1=<hex>, the
+	// HMAC-SHA1 of "the body of the JSON request" under the app's
+	// client_secret, and the notification's id is the body's id
+	// (developers.intercom.com/docs/references/webhooks/webhook-models,
+	// "Signed notifications"). The page publishes no key, so the signature
+	// in its sample cannot be checked: this body is a compacted copy of the
+	// sample, and the digests are made with
+	//
+	//	printf '%s' "$body" | openssl dgst -sha1 -hmac ic_client_secret_example
+	//
+	// (and -sha256, for the signature of another hash).
+	const (
+		clientSecret = "ic_client_secret_example"
+		notification = `{"type":"notification_event","id":"notif_78c122d0-23ba-11e4-9464-79b01267cc2e","topic":"contact.user.created","app_id":"a86dr8yl","data":{"type":"notification_event_data","item":{"type":"user","id":"530370b477ad7120001d","user_id":"25","name":"Joe Example","unsubscribed_from_emails":false,"custom_attributes":{}}}}`
+		notifSHA1    = "bfa75cf091345ee52ee9d2076d870a518e0923a1"
+		notifSHA256  = "8f35b2689c43add6d39c309a237a90da771aadf388055067d3e1807fb48d35ab"
+	)
+	bell := decl("    scheme: hmac-sha256\n    algorithm: sha1\n    signed: body\n    signature: { header: X-Hub-Signature, encoding: hex, prefix: \"sha1=\" }\n    delivery: { body: id }\n")
+	if id, err := check(bell, "X-Hub-Signature", "sha1="+notifSHA1, clientSecret, notification); err != nil || id != "notif_78c122d0-23ba-11e4-9464-79b01267cc2e" {
+		t.Errorf("a signed notification: delivery %q, err %v", id, err)
+	}
+	for _, tc := range []struct{ name, sig, key, fails string }{
+		{"a wrong client secret", "sha1=" + notifSHA1, "another-secret", mismatch},
+		{"the HMAC-SHA256 of the body behind sha1=", "sha1=" + notifSHA256, clientSecret, mismatch},
+		{"no prefix", notifSHA1, clientSecret, malformed},
+	} {
+		if _, err := check(bell, "X-Hub-Signature", tc.sig, tc.key, notification); !errors.Is(err, hooks.ErrUnauthorized) || !strings.Contains(err.Error(), tc.fails) {
+			t.Errorf("%s: err = %v, want unauthorized, %q", tc.name, err, tc.fails)
+		}
+	}
+}
+
 // Standard Webhooks (standardwebhooks.com) is data under hmac-sha256: the
 // delivery id, the timestamp and the body signed together, the signatures
 // in base64 behind v1, side by side, and a secret that is whsec_ and a key

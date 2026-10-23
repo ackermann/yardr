@@ -376,9 +376,10 @@ hook's --secret-file verified as the file says.
     normalize: [service/normalize]
 
 verify is data, checked by the core: with scheme hmac-sha256 the
-HMAC-SHA256 of what signed names (the word body for the raw body, or a
+HMAC of what signed names (the word body for the raw body, or a
 template over {timestamp}, {body} and {delivery}:
-"v0:{timestamp}:{body}") with the hook's secret, in hex or base64, past
+"v0:{timestamp}:{body}") with the hook's secret, made with SHA-256 unless
+algorithm says sha1 or sha512 (algorithm: sha1), in hex or base64, past
 the prefix (prefix: "sha256=", or none). signature.list is the separator
 of the several signatures a service may send in one header (list: " "),
 any one of which may match; key says the secret writes the key, not the
@@ -400,7 +401,8 @@ events' fields may carry, which a subscription's --where may then name
 beside type, action, team, project, repo and label. Such a file needs no
 base and no calls, and with neither has no credential, check or notify
 either. Refused: a scheme that is neither hmac-sha256 nor secret,
-signed, encoding, prefix, list or key with scheme secret, a signed
+signed, algorithm, encoding, prefix, list or key with scheme secret, an
+algorithm that is none of sha256, sha1 and sha512, a signed
 template with a missing or repeated {body} or {timestamp}, a repeated
 {delivery}, an unknown placeholder, or {delivery} with no delivery in a
 header, signed: body with the timestamp in a header, an encoding that is
@@ -1647,9 +1649,10 @@ func limitsLine(d *source.Declaration) string {
 // declaration may sign a template over the timestamp and the delivery id
 // beside it. The line then says how the signature arrives (encoding,
 // prefix, and the separator where one header carries several) and the key
-// it is made with where the secret writes one. The ask card says the same
-// in full (hookSays in the store); a knob added to hook.verify is named in
-// both.
+// it is made with where the secret writes one. The HMAC is named by its
+// hash, which the scheme's name does not say where algorithm picks another
+// than SHA-256. The ask card says the same in full (hookSays in the store);
+// a knob added to hook.verify is named in both.
 func verifyLine(d *source.Declaration) string {
 	v := d.Hook.Verify
 	if v.Scheme == source.HookSecret {
@@ -1677,7 +1680,7 @@ func verifyLine(d *source.Declaration) string {
 	} else if v.Signature.Prefix != "" {
 		arrives += fmt.Sprintf(" past the prefix %q", v.Signature.Prefix)
 	}
-	line := fmt.Sprintf("hook.verify: hmac-sha256 over %s, the signature in the header %s %s", over, v.Signature.Header, arrives)
+	line := fmt.Sprintf("hook.verify: hmac-%s over %s, the signature in the header %s %s", v.Hash(), over, v.Signature.Header, arrives)
 	// A key the secret writes is not the secret's own bytes.
 	if k := v.Key; k != nil {
 		from := "the whole secret"

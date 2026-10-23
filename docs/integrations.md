@@ -90,7 +90,8 @@ type Adapter interface {
 - `Verify` proves the delivery came from the service, from the request's
   headers, the raw body and the hook's secret, and returns the service's id
   of the delivery (`""` when it has none). A declared source is verified
-  from what its file says under `hook.verify`: HMAC-SHA256 of the body,
+  from what its file says under `hook.verify`: an HMAC (SHA-256, or the
+  SHA-1 or SHA-512 that `algorithm` names) of the body,
   or of a template over its timestamp, its delivery id and its body, in
   the header it names (`Linear-Signature`, `X-Hub-Signature-256`), and
   after it the timestamp where it says one is; Linear's signed
@@ -1052,7 +1053,8 @@ hook:
 ```
 
 - **Verify** stays data, checked by the core. With `hmac-sha256` it is the
-  HMAC-SHA256 of what `signed` names with the hook's secret, in the
+  HMAC of what `signed` names with the hook's secret, made with SHA-256
+  unless `algorithm` says another hash, in the
   header `signature` names, past its `prefix` (`prefix: "sha256="`, as
   GitHub sends, or none). The signature is hex or base64 as `encoding`
   says, in the standard alphabet with its padding. `signed: body` is the
@@ -1070,7 +1072,28 @@ hook:
   once. It reads `{delivery}` from a header only, so an id in the body
   refuses it when the file is added. With `secret` the header holds the
   secret itself, compared as it arrives, in constant time; `signed`,
-  `encoding`, `prefix`, `list` and `key` do not apply to it.
+  `algorithm`, `encoding`, `prefix`, `list` and `key` do not apply to it.
+
+  The scheme keeps the name `hmac-sha256` for every hash: `algorithm` says
+  which hash the HMAC is made with, `sha256` (what a file that leaves it
+  out gets), `sha1` or `sha512`, in lower case. Intercom signs a
+  notification `X-Hub-Signature: sha1=<hex>`, the HMAC-SHA1 of the body
+  under the app's client secret, and the notification's own id is in its
+  body:
+
+  ```yaml
+  hook:
+    verify:
+      scheme: hmac-sha256
+      algorithm: sha1
+      signed: body
+      signature: { header: X-Hub-Signature, encoding: hex, prefix: "sha1=" }
+      delivery: { body: id }
+  ```
+
+  The hash is the file's and never the request's. A prefix is text the
+  signature is cut past and picks nothing, so a delivery that arrives as
+  `sha1=…` at a file that says `sha256` is checked as SHA-256 and refused.
 
   A service that signs with more than one secret at a time, so it can
   replace one without a gap in which deliveries fail, sends the signatures
@@ -1187,9 +1210,11 @@ hook:
   with a scheme other than `secret`, and a required parameter nothing
   fills.
 - **Refused when the file is added**: a scheme that is neither
-  `hmac-sha256` nor `secret`, `signed`, `encoding`, `prefix`, `list` or
-  `key` with scheme `secret`, a signed template with a missing or repeated
-  `{body}` or `{timestamp}`, a repeated `{delivery}`, an unknown
+  `hmac-sha256` nor `secret`, `signed`, `algorithm`, `encoding`, `prefix`,
+  `list` or `key` with scheme `secret`, an `algorithm` that is none of
+  `sha256`, `sha1` and `sha512` (or is no string), a signed template with
+  a missing or repeated `{body}` or `{timestamp}`, a repeated
+  `{delivery}`, an unknown
   placeholder, one naming `{timestamp}` with no `timestamp` key, or one
   naming `{delivery}` where the delivery id is in the body, a challenge
   with a missing `body`, `value` or `answer` or one that is no dot path
@@ -2481,12 +2506,21 @@ a design.
    credential's file, not which user is told through it. Its plan is
    the nearest thing to a check of a whole integration, and it exists only
    for a source a pack names.
-3. **A signature that is no HMAC-SHA256 over the body is Go code inside
-   yardr.** A new service is a pack outside the core: a declaration,
-   scripts and setup notes, and no release. What is still an adapter of
-   its own is `token`, yardr's own source. But a service that signs
-   another way, or not at all, wants a new `hook.verify` scheme, which is
-   a change to `internal/hooks` and a release.
+3. **Three ways a service signs are Go code inside yardr.** A new
+   service is a pack outside the core, a declaration, scripts and setup
+   notes and no release, when it signs the body (or a template over the
+   timestamp, the delivery id and the body) with an HMAC over SHA-256,
+   SHA-1 or SHA-512, or sends the secret itself in a header. What is still
+   an adapter of its own is `token`, yardr's own source. A service that
+   signs another way wants a new `hook.verify` scheme or key, which is a
+   change to `internal/hooks` and a release. The ways met so far:
+   - a public-key signature, as Discord's Ed25519 over the timestamp and
+     the body;
+   - a signed string that holds the request's URL or its form fields,
+     beside the body or instead of it, as Twilio's, Trello's and
+     Mandrill's HMAC-SHA1 do;
+   - a timestamp carried inside the signature header, as Stripe's and
+     Calendly's `t=…,v1=…`.
 4. **A user is told through a declared source only, and only by one HTTPS
    request.** No compiled adapter tells a user, and nothing that is not a
    JSON request does (a desktop notification, SMTP). What is told is fixed:

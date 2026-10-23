@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"math"
 	"net/http"
@@ -126,6 +129,17 @@ func edgeReceived(ctx context.Context) (time.Time, bool) {
 	return at, ok
 }
 
+// hookHashes is the hash of each algorithm hook.verify can name, by the name
+// the reader takes: the HMAC of scheme hmac-sha256 is made with the
+// declaration's hash and never one the request names, so a signature that
+// arrives behind a prefix such as "sha1=" is checked as the declaration says
+// and not as the prefix does. The reader refuses any other name.
+var hookHashes = map[string]func() hash.Hash{
+	source.HookSHA1:   sha1.New,
+	source.HookSHA256: sha256.New,
+	source.HookSHA512: sha512.New,
+}
+
 // Declared is the adapter for a declared source: one adapter in Go for
 // every declared source, built from its declaration. Verify checks the
 // delivery as hook.verify says, without running anything: the signing
@@ -157,6 +171,12 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 			return "", unauthorized("bad or missing %s", v.Signature.Header)
 		}
 	} else {
+		newHash, ok := hookHashes[v.Hash()]
+		if !ok {
+			// The reader refuses any other name, so only a declaration built
+			// by hand has one; it verifies nothing rather than something else.
+			return "", unauthorized("the hook's verify.algorithm %q is not a hash this yard checks", v.Algorithm)
+		}
 		key, ok := hmacKey(v.Key, secret)
 		if !ok {
 			return "", unauthorized("the hook's secret is not a key as verify.key writes it")
@@ -165,7 +185,7 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 		if len(sigs) == 0 {
 			return "", unauthorized("missing or malformed %s", v.Signature.Header)
 		}
-		mac := hmac.New(sha256.New, key)
+		mac := hmac.New(newHash, key)
 		mac.Write(signedData(v, r, body))
 		want := mac.Sum(nil)
 		// Each entry's decoded bytes are compared with hmac.Equal, in

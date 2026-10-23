@@ -864,6 +864,18 @@ func TestSourceShowHookVerify(t *testing.T) {
 		{"a key written in another encoding than the signature, and one entry", plain + `    signature: { header: X-Sig-256, encoding: hex }
     key: { prefix: "k_", encoding: base64 }
 `, `hook.verify: hmac-sha256 over the body, the signature in the header X-Sig-256 as hex; the HMAC key is what follows the prefix "k_" in the secret, read as base64`},
+		// The HMAC is named by its hash. One over SHA-256 reads as it always
+		// did, whether the declaration says sha256 or nothing.
+		{"sha1 behind a prefix", plain + `    algorithm: sha1
+    signature: { header: X-Hub-Signature, encoding: hex, prefix: "sha1=" }
+`, `hook.verify: hmac-sha1 over the body, the signature in the header X-Hub-Signature as hex past the prefix "sha1="`},
+		{"sha512 in base64 with a key the secret writes", plain + `    algorithm: sha512
+    signature: { header: X-Sig-512, encoding: base64 }
+    key: { prefix: "k_", encoding: base64 }
+`, `hook.verify: hmac-sha512 over the body, the signature in the header X-Sig-512 as base64; the HMAC key is what follows the prefix "k_" in the secret, read as base64`},
+		{"sha256 said outright", plain + `    algorithm: sha256
+    signature: { header: X-Sig-256, encoding: hex, prefix: "sha256=" }
+`, `hook.verify: hmac-sha256 over the body, the signature in the header X-Sig-256 as hex past the prefix "sha256="`},
 	} {
 		name := fmt.Sprintf("hook%d", i)
 		if _, err := st.PutSource(context.Background(), name+".yaml", decl(name, tc.verify), "jo"); err != nil {

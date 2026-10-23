@@ -26,8 +26,9 @@ var bodiesKinds = []string{BodiesUnique, BodiesUniquePerHook, BodiesRepeat}
 
 // The ways the core verifies a delivery of a declared source.
 const (
-	// HookScheme is a scheme of hook.verify: HMAC-SHA256 over what
-	// signed names.
+	// HookScheme is a scheme of hook.verify: an HMAC over what signed
+	// names, made with SHA-256 or the hash algorithm names. It keeps its
+	// name for every hash: a rename would break every pack for nothing.
 	HookScheme = "hmac-sha256"
 	// HookSecret is a scheme of hook.verify: the header holds the hook's
 	// secret itself, compared as it arrives.
@@ -44,9 +45,22 @@ const (
 	HookBase64 = "base64"
 )
 
+// The hashes the HMAC of scheme hmac-sha256 may be made with, as
+// hook.verify.algorithm names them. SHA-256 is the one a declaration has
+// when it names none.
+const (
+	HookSHA1   = "sha1"
+	HookSHA256 = "sha256"
+	HookSHA512 = "sha512"
+)
+
 // hookSchemes are the values hook.verify.scheme takes, in the order the
 // reader names them.
 var hookSchemes = []string{HookScheme, HookSecret}
+
+// hookAlgorithms are the values hook.verify.algorithm takes, in the order
+// the reader names them. internal/hooks holds the hash of each.
+var hookAlgorithms = []string{HookSHA256, HookSHA1, HookSHA512}
 
 // hookEncodings are the values an encoding takes, in the order the reader
 // names them.
@@ -146,6 +160,12 @@ type HookVerify struct {
 	// past the prefix ("sha256=", or none); with scheme secret it is the
 	// header the secret arrives in, compared as it is.
 	Signature HookSignature `json:"signature"`
+	// Algorithm is the hash the HMAC is made with: sha256, sha1 or sha512,
+	// "" for a service that signs with sha256 and says nothing (Hash reads
+	// the two alike). It is the declaration's alone and never the request's:
+	// a prefix such as "sha1=" is text the signature is cut past, so a
+	// sender cannot pick a weaker hash. For hmac-sha256 alone.
+	Algorithm string `json:"algorithm,omitempty"`
 	// Key says the hook's secret is not the HMAC key itself but writes it:
 	// behind a prefix, in hex or base64. Nil for a service whose secret
 	// is the key's own bytes. For hmac-sha256 alone.
@@ -162,6 +182,16 @@ type HookVerify struct {
 	// service that sends none, whose deliveries cannot be told from a replay
 	// by age.
 	Timestamp *HookTimestamp `json:"timestamp,omitempty"`
+}
+
+// Hash is the name of the hash the HMAC is made with: Algorithm, or
+// HookSHA256 where it is left out. Everything that names or makes the hash
+// goes through it, so that "" and "sha256" stay one hash.
+func (v HookVerify) Hash() string {
+	if v.Algorithm == "" {
+		return HookSHA256
+	}
+	return v.Algorithm
 }
 
 // HookSignature is where a delivery's signature arrives.
@@ -348,15 +378,15 @@ func (r *reader) hookRegister(e entry) *HookRegister {
 }
 
 // hookVerify reads how the core proves a delivery came from the source:
-// HMAC-SHA256 over the body, or the secret itself in a header. Signed, key,
-// and the signature's encoding, prefix and list are for the signature
-// alone; the delivery id is in a header or in the body, and a service that
-// sends none says no delivery with scheme secret. It reports whether a
-// delivery was named, for the bodies check in hook.
+// an HMAC over the body, or the secret itself in a header. Signed,
+// algorithm, key, and the signature's encoding, prefix and list are for the
+// signature alone; the delivery id is in a header or in the body, and a
+// service that sends none says no delivery with scheme secret. It reports
+// whether a delivery was named, for the bodies check in hook.
 func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 	v := HookVerify{}
-	var scheme, signed, signature, key, delivery *entry
-	for _, f := range r.entries(e.v, e.path, "scheme", "signed", "signature", "key", "delivery", "timestamp") {
+	var scheme, signed, signature, algorithm, key, delivery *entry
+	for _, f := range r.entries(e.v, e.path, "scheme", "signed", "signature", "algorithm", "key", "delivery", "timestamp") {
 		switch f.key {
 		case "scheme":
 			scheme = &f
@@ -369,6 +399,8 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 			signed = &f
 		case "signature":
 			signature = &f
+		case "algorithm":
+			algorithm = &f
 		case "key":
 			key = &f
 		case "delivery":
@@ -405,6 +437,15 @@ func (r *reader) hookVerify(e entry) (HookVerify, bool) {
 		}
 	} else {
 		v.Signature = r.hookSignature(*signature, secret)
+	}
+	if algorithm != nil {
+		if secret {
+			r.errf(algorithm.v, algorithm.path, "is for scheme %s: with %s the header holds the secret itself", HookScheme, HookSecret)
+		} else if s, ok := r.str(algorithm.v, algorithm.path); ok && !slices.Contains(hookAlgorithms, s) {
+			r.errf(algorithm.v, algorithm.path, "%q: want %s", s, strings.Join(hookAlgorithms, ", "))
+		} else if ok {
+			v.Algorithm = s
+		}
 	}
 	if key != nil {
 		if secret {

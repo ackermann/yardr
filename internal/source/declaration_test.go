@@ -1324,6 +1324,35 @@ hook:
 	}
 }
 
+// A service that signs with an HMAC over another hash than SHA-256 says so
+// in algorithm, beside the prefix and the encoding the signature arrives
+// in: sha1 behind "sha1=", in hex, over the body, with the delivery's id in
+// the body is the shape of Intercom's X-Hub-Signature. A declaration that
+// names no algorithm, or sha256, is SHA-256's, and Hash reads both alike.
+func TestParseHookAlgorithm(t *testing.T) {
+	for _, tc := range []struct{ algorithm, written, hash string }{
+		{"", "", HookSHA256},
+		{"sha256", "sha256", HookSHA256},
+		{"sha1", "sha1", HookSHA1},
+		{"sha512", "sha512", HookSHA512},
+	} {
+		text := "name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n" +
+			"    signature: { header: X-Hub-Signature, encoding: hex, prefix: \"sha1=\" }\n    delivery: { body: id }\n"
+		if tc.algorithm != "" {
+			text += "    algorithm: " + tc.algorithm + "\n"
+		}
+		d, err := Parse("q.yaml", []byte(text+"  bodies: repeat\n  normalize: [normalize]\n"))
+		if err != nil {
+			t.Fatalf("algorithm %q: %v", tc.algorithm, err)
+		}
+		v := d.Hook.Verify
+		if v.Algorithm != tc.written || v.Hash() != tc.hash || v.Scheme != HookScheme ||
+			v.Signature != (HookSignature{Header: "X-Hub-Signature", Encoding: HookHex, Prefix: "sha1="}) {
+			t.Errorf("algorithm %q: verify = %+v, hash %q, want written %q, hash %q", tc.algorithm, v, v.Hash(), tc.written, tc.hash)
+		}
+	}
+}
+
 // A hook verified by the secret itself in a header: signed, encoding and
 // prefix do not apply, delivery is optional, and where the service sends
 // its id of the delivery in the body, the declaration names the dot path.
@@ -1493,6 +1522,10 @@ func TestParseHookRefusals(t *testing.T) {
 		"a verify key it does not have":       {hooked(verify + "    key: { prefix: \"whsec_\", encoding: base64, algorithm: sha1 }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key.algorithm: unknown key (known here: prefix, encoding)"},
 		"a key that is no mapping":            {hooked(verify + "    key: base64\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key: want a mapping"},
 		"a secret with a key":                 {hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret }\n    key: { prefix: \"whsec_\", encoding: base64 }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.key: is for scheme hmac-sha256"},
+		"an algorithm that is none":           {hooked(verify + "    algorithm: md5\n  bodies: unique\n  normalize: [normalize]\n"), `hook.verify.algorithm: "md5": want sha256, sha1, sha512`},
+		"an algorithm in upper case":          {hooked(verify + "    algorithm: SHA1\n  bodies: unique\n  normalize: [normalize]\n"), `hook.verify.algorithm: "SHA1": want sha256, sha1, sha512`},
+		"an algorithm that is no string":      {hooked(verify + "    algorithm: 256\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.algorithm: want a string, got int 256"},
+		"a secret with an algorithm":          {hooked("  verify:\n    scheme: secret\n    signature: { header: S-Secret }\n    algorithm: sha1\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.algorithm: is for scheme hmac-sha256"},
 		"a timestamp in both":                 {hooked(verify + "    timestamp: { body: ts, header: S-Ts, unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "a timestamp is in the body or in a header, not both"},
 		"a timestamp in neither":              {hooked(verify + "    timestamp: { unit: ms, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.body: missing: where the timestamp arrives"},
 		"a timestamp with no unit":            {hooked(verify + "    timestamp: { body: ts, window: 1m }\n  bodies: unique\n  normalize: [normalize]\n"), "hook.verify.timestamp.unit: missing: ms or s"},
@@ -1538,6 +1571,17 @@ func TestParseHookRefusals(t *testing.T) {
 	var errs Errors
 	if !errors.As(err, &errs) || len(errs) != 1 {
 		t.Fatalf("errors = %v, want one", err)
+	}
+	// An algorithm that is none is the one error, and so is one with scheme
+	// secret: the second is not also a name to check.
+	for name, withAlgorithm := range map[string]string{
+		"none":   "  verify:\n    scheme: hmac-sha256\n    signed: body\n    algorithm: md5\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n",
+		"secret": "  verify:\n    scheme: secret\n    algorithm: md5\n    signature: { header: S-Secret }\n",
+	} {
+		_, err = Parse("f", []byte(hooked(withAlgorithm+"  bodies: unique\n  normalize: [normalize]\n")))
+		if !errors.As(err, &errs) || len(errs) != 1 {
+			t.Fatalf("algorithm %s: errors = %v, want one", name, err)
+		}
 	}
 	// Bodies that repeat with no delivery under scheme secret are the one
 	// error: no delivery is only refused then.

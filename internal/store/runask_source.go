@@ -629,7 +629,15 @@ func hookSays(d *source.Declaration) string {
 			}
 			arrives = fmt.Sprintf("as %s, one or more separated by %q, each %s, any one of them passing", v.Signature.Encoding, sep, each)
 		}
-		verified = fmt.Sprintf("deliveries are verified by HMAC-SHA256 over %s (scheme hmac-sha256, signed: %s), the signature in the header %s %s", over, signed, v.Signature.Header, arrives)
+		// The hash is named as the sentence's HMAC and, where the declaration
+		// picks another than the default SHA-256, among its own words, which
+		// the operator approves with it. Left out and written as sha256 read
+		// alike: they are one hash.
+		hashed, words := strings.ToUpper(v.Hash()), "scheme "+source.HookScheme
+		if v.Hash() != source.HookSHA256 {
+			words += ", algorithm: " + v.Hash()
+		}
+		verified = fmt.Sprintf("deliveries are verified by HMAC-%s over %s (%s, signed: %s), the signature in the header %s %s", hashed, over, words, signed, v.Signature.Header, arrives)
 		// A key the secret writes is not the secret's own bytes, which
 		// the operator approves as well.
 		if k := v.Key; k != nil {

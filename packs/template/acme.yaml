@@ -47,14 +47,16 @@ hook:
   # Adapter.Verify stays data, checked by the core: the signing secret is
   # handed to no command, and an unverified body reaches none. With scheme
   # secret the header holds the secret itself, compared as it arrives,
-  # and signed, encoding, prefix, list, key and the timestamp do not
-  # apply; delivery is then left out where the service sends none.
+  # and signed, algorithm, encoding, prefix, list, key and the timestamp
+  # do not apply; delivery is then left out where the service sends none.
   verify:
     scheme: hmac-sha256
     signed: body
     # Where the service signs more than the body, signed is a template
     # over {timestamp}, {body} and {delivery} ("{delivery}.{timestamp}.{body}",
     # the id from the delivery header below). encoding is hex or base64.
+    # The HMAC is over SHA-256; algorithm: sha1 (or sha512) says it is over
+    # that hash, as a service that signs "sha1=<hex>" does.
     # list: " " says the header holds several signatures at that separator,
     # each past prefix, any one of them passing. key: { prefix: "whsec_",
     # encoding: base64 } says the secret writes the key, not its bytes.

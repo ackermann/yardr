@@ -156,6 +156,30 @@ hook:
 	if got := hookSays(d); strings.Contains(got, "separated by") || strings.Contains(got, "HMAC key") {
 		t.Errorf("a declaration with no list and no key: the card says:\n%s", got)
 	}
+	// The hash is the sentence's HMAC and, where the declaration picks another
+	// than SHA-256, among the words it quotes of the declaration, which the
+	// operator approves with them. A declaration that says sha256 outright
+	// reads exactly as one that says nothing: they are one hash.
+	said := hookSays(d)
+	for _, tc := range []struct{ algorithm, want string }{
+		{"sha1", "HMAC-SHA1 over the body (scheme hmac-sha256, algorithm: sha1, signed: body)"},
+		{"sha512", "HMAC-SHA512 over the body (scheme hmac-sha256, algorithm: sha512, signed: body)"},
+	} {
+		other, err := source.Parse("chat.yaml", []byte(strings.Replace(decl("body", inBody), "    signed: body\n", "    signed: body\n    algorithm: "+tc.algorithm+"\n", 1)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := hookSays(other); !strings.Contains(got, tc.want) || strings.Contains(got, "SHA256") {
+			t.Errorf("algorithm %s: the card says:\n%s\nwant %q and no SHA256", tc.algorithm, got, tc.want)
+		}
+	}
+	explicit, err := source.Parse("chat.yaml", []byte(strings.Replace(decl("body", inBody), "    signed: body\n", "    signed: body\n    algorithm: sha256\n", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hookSays(explicit); got != said || strings.Contains(got, "algorithm") {
+		t.Errorf("algorithm sha256: the card says:\n%s\nwant the card of a declaration that says nothing:\n%s", got, said)
+	}
 	// A single prefix is a word of the declaration's like the list's and the
 	// key's, which the card always quotes. This one is quoted where "=" or ","
 	// is in it, and most prefixes end in "=".
