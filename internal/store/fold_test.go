@@ -1215,6 +1215,57 @@ func TestFoldBeads(t *testing.T) {
 			},
 			wantErr: "bead plain-ta: child of two trains, plain-tt5 and plain-tt6; remove one parent edge",
 		},
+		{
+			// The filing's repro: T is a train whose child has closed, so
+			// nothing blocks it, and X is an ordinary task. The fold refuses
+			// T itself: the carrier would be a hollow bead of type train with
+			// no children while the train's children keep pointing at the
+			// closed T.
+			name: "a member that is a train is refused, naming it", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-tm1", Title: "train", Type: TypeTrain}, {ID: "plain-tm2", Title: "x"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				c := outside(t, s, NewBead{ID: "plain-tm3", Title: "child", Depot: "plain"})
+				if err := s.AddDep(ctx, made[0].ID, c.ID, DepParent, "", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.CloseBead(ctx, c.ID, "landed", Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				if holders, err := s.OpenBlockers(ctx, made[0].ID); err != nil || len(holders) != 0 {
+					t.Fatalf("%s is held by %v, %v before the fold; want none, its child closed", made[0].ID, holders, err)
+				}
+			},
+			wantErr: "bead plain-tm1 is a train: a fold takes no train",
+		},
+		{
+			// A train beside the fold, with its child closed as in the
+			// filing, holds no member: tasks fold as before.
+			name: "a task fold beside a train is unaffected", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-tm4", Title: "a"}, {ID: "plain-tm5", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				c := outside(t, s, NewBead{ID: "plain-tm6", Title: "child", Depot: "plain"})
+				underTrain(t, s, "plain-tt7", c)
+				if _, err := s.CloseBead(ctx, c.ID, "landed", Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "type", got.Type, "task")
+			},
+		},
+		{
+			// A train with an open child is held by it, so the fold refuses
+			// the train as blocked, before it is refused as a train.
+			name: "a train with an open child is refused as blocked, not as a train", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-tm7", Title: "train", Type: TypeTrain}, {ID: "plain-tm8", Title: "x"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				c := outside(t, s, NewBead{ID: "plain-tm9", Title: "child", Depot: "plain"})
+				if err := s.AddDep(ctx, made[0].ID, c.ID, DepParent, "", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "bead plain-tm7 is blocked by plain-tm9: a fold takes beads nothing blocks",
+		},
 		func() foldRow {
 			var origin, found, other Bead
 			return foldRow{
