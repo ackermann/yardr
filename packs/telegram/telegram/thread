@@ -23,13 +23,13 @@ send_message() { # one text to the chat, by sendMessage; prints the message's id
     -H 'Content-Type: application/json' \
     -d "$(jq -n -c --arg c "$thread" --arg t "$text" '{chat_id: $c, text: $t}')") || {
     code=$?
-    desc=$(jq -r '.description // empty' <<<"$out" 2>/dev/null)
+    desc=$(describe "$out")
     echo "sendMessage to chat $thread failed${desc:+: $desc} (curl exit $code)" >&2
     return 1
   }
   jq -e .ok >/dev/null <<<"$out" 2>/dev/null || {
-    desc=$(jq -r '.description // "sendMessage failed"' <<<"$out" 2>/dev/null || echo "sendMessage failed")
-    echo "$desc" >&2
+    desc=$(describe "$out")
+    echo "${desc:-sendMessage failed}" >&2
     return 1
   }
   mid=$(jq -r '(.result.message_id // "") | tostring' <<<"$out" 2>/dev/null) && [ -n "$mid" ] || {

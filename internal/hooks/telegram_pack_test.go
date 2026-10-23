@@ -413,6 +413,7 @@ func TestTelegramPackThread(t *testing.T) {
 	ad, _ := telegramDecl(t)
 	var gotPath string
 	var gotBody map[string]any
+	const cred = "bot-token-for-test"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
@@ -423,12 +424,24 @@ func TestTelegramPackThread(t *testing.T) {
 			_, _ = io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: chat not found"}`)
 			return
 		}
+		// A refusal in the service's own hostile words — a newline, an
+		// escape, non-ASCII, and the token and chat echoed back — by 400
+		// for the curl-fail path and by 200 with ok false for the not-ok
+		// path.
+		if gotBody["chat_id"] == "7" || gotBody["chat_id"] == "8" {
+			chat, _ := gotBody["chat_id"].(string)
+			if chat == "7" {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 400,
+				"description": "Bad Request: " + cred + " " + chat + " \x1b[31mred caf\u00e9\x07\x7f…\nsecond line"})
+			return
+		}
 		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":4242,"chat":{"id":123456789},"text":"hi"}}`)
 	}))
 	defer srv.Close()
 	ad.D.Base = srv.URL
 	ctx := context.Background()
-	const cred = "bot-token-for-test"
 	env := hooks.Envelope{Source: "telegram", Type: "message", Thread: hooks.Thread{ID: "123456789", Title: "Christopher"}}
 	m, err := ad.Reply(ctx, env, "", "the shed lands Monday", "key-1", cred)
 	if err != nil {
@@ -460,6 +473,33 @@ func TestTelegramPackThread(t *testing.T) {
 	bad := hooks.Envelope{Source: "telegram", Type: "message", Thread: hooks.Thread{ID: "0"}}
 	if _, err := ad.Reply(ctx, bad, "", "hello?", "key-3", cred); err == nil || !strings.Contains(err.Error(), "chat not found") {
 		t.Errorf("a refused chat: %v", err)
+	}
+	// What the service says is outside the yard: the hostile refusal
+	// reaches the error with the token, the controls and the newline
+	// taken out and its words kept, on both error paths. By 400 the
+	// error keeps its sendMessage wording, which names the chat; by 200
+	// with ok false it is the bare description, one line with neither
+	// the token nor the chat in it. The command's stderr lines join with
+	// " | ", so its absence means one line. The non-ASCII rides along so
+	// the filter meets it; the assertions pin only the ASCII the filter
+	// keeps on every tr.
+	hostile := hooks.Envelope{Source: "telegram", Type: "message", Thread: hooks.Thread{ID: "7"}}
+	if _, err := ad.Reply(ctx, hostile, "", "hello?", "key-6", cred); err == nil ||
+		!strings.Contains(err.Error(), "sendMessage to chat 7 failed: Bad Request:") ||
+		!strings.Contains(err.Error(), "[31mred caf") || !strings.Contains(err.Error(), "second line") ||
+		strings.Contains(err.Error(), cred) ||
+		strings.Contains(err.Error(), "\x1b") || strings.Contains(err.Error(), "\x07") ||
+		strings.Contains(err.Error(), "\x7f") {
+		t.Errorf("a hostile refusal by 400: %v", err)
+	}
+	quiet := hooks.Envelope{Source: "telegram", Type: "message", Thread: hooks.Thread{ID: "8"}}
+	if _, err := ad.Reply(ctx, quiet, "", "hello?", "key-7", cred); err == nil ||
+		!strings.Contains(err.Error(), "Bad Request:") ||
+		!strings.Contains(err.Error(), "[31mred caf") || !strings.Contains(err.Error(), "second line") ||
+		strings.Contains(err.Error(), cred) || strings.Contains(err.Error(), "8") ||
+		strings.Contains(err.Error(), "\x1b") || strings.Contains(err.Error(), "\x07") ||
+		strings.Contains(err.Error(), "\x7f") || strings.Contains(err.Error(), " | ") {
+		t.Errorf("a hostile refusal by 200 with ok false: %v", err)
 	}
 	if _, err := ad.Reply(ctx, env, "9", "hello?", "key-4", cred); err == nil || !strings.Contains(err.Error(), "is not on") {
 		t.Errorf("a reply under --to: %v", err)
