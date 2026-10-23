@@ -1440,11 +1440,14 @@ func TestDoctorTry(t *testing.T) {
 
 // loginShellStub is a stand-in login shell: it takes what yardr gives a
 // login shell (-l -c <command>), writes that it ran to the file called, and
-// runs the command on a PATH with dir in front, as a profile adds one.
+// runs the command on a PATH of dir alone, the directory a profile adds.
+// None of the machine's own directories is on it: a harness installed in
+// /usr/bin would be found in every case, those where the login shell is to
+// find nothing too.
 func loginShellStub(t *testing.T, called, dir, before string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "loginsh")
-	body := "#!/bin/sh\necho \"$*\" >>" + called + "\n[ \"$1\" = -l ] && [ \"$2\" = -c ] || exit 9\n" + before + "\nPATH=" + dir + ":/usr/bin:/bin\neval \"$3\"\n"
+	body := "#!/bin/sh\necho \"$*\" >>" + called + "\n[ \"$1\" = -l ] && [ \"$2\" = -c ] || exit 9\n" + before + "\nPATH=" + dir + "\neval \"$3\"\n"
 	scripttest.Write(t, path, body)
 	return path
 }

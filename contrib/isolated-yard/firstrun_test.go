@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -91,6 +92,16 @@ func TestFirstRunWithStdinClosed(t *testing.T) {
 	d := bare(t)
 	home := filepath.Join(d, "y")
 
+	// The yard is made on the stand-in, kind claude. The system directories
+	// on D/e's PATH can hold a harness of the machine's own (kilo in
+	// /usr/bin, where one is installed), which doctor lists as well and the
+	// yard cannot keep out. So one is put in D/bin, and the run is of a
+	// machine with one wherever it is.
+	const harness = "claude"
+	if err := os.WriteFile(filepath.Join(d, "bin", "kilo"), []byte("#!/bin/sh\necho kilo 1.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	// No yard yet: doctor says so and creates none, and every command that
 	// needs one is refused with exit 2.
 	var doc struct {
@@ -103,14 +114,14 @@ func TestFirstRunWithStdinClosed(t *testing.T) {
 		} `json:"machine"`
 	}
 	drive(t, d, &doc, "doctor")
-	harness := ""
+	found := map[string]bool{}
 	for _, m := range doc.Machine {
 		if m.Harness != "" && m.Found {
-			harness = m.Harness
+			found[m.Harness] = true
 		}
 	}
-	if doc.Home != home || doc.Yard || harness != "claude" {
-		t.Fatalf("doctor on no yard: %+v (harness found: %q)", doc, harness)
+	if doc.Home != home || doc.Yard || !found[harness] || !found["kilo"] {
+		t.Fatalf("doctor on no yard: %+v (harnesses found: %v, want %s and kilo)", doc, found, harness)
 	}
 	var no refusal
 	if code := drive(t, d, &no, "setup"); code != 2 || no.Error == "" {

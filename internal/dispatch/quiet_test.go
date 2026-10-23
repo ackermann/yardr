@@ -608,8 +608,10 @@ func TestQuietExecRunAgainstARedBase(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	git("init", "-b", "main")
+	// printf makes the tabs of go test's FAIL line: sh's echo does only in
+	// dash and macOS's sh, and prints a backslash and a t in bash and busybox.
 	must(t, os.WriteFile(filepath.Join(repo, "check.sh"),
-		[]byte("echo '--- FAIL: TestPaint (0.1s)'\necho 'FAIL\\tyardr.dev/fixture/bad\\t0.1s'\nexit 1\n"), 0o755))
+		[]byte("echo '--- FAIL: TestPaint (0.1s)'\nprintf 'FAIL\\tyardr.dev/fixture/bad\\t0.1s\\n'\nexit 1\n"), 0o755))
 	git("add", "check.sh")
 	git("commit", "-m", "a red base")
 	red := git("rev-parse", "HEAD")

@@ -137,7 +137,10 @@ func TestPushoverPackTell(t *testing.T) {
 	// The picture arrives as the attachment, its bytes the file's own, with
 	// a name and a type the service requires: a file the yard keeps is
 	// called by its hash, which names nothing, so the name is made of its
-	// type. One that no type is known of goes as the bytes it is.
+	// type. One that no type is known of goes as the bytes it is: here noise
+	// with a NUL in it, which file does not take for text. Words after a
+	// PNG's signature are data to file 5.46 and older and text/plain to
+	// 5.47, which reads a ^Z as text.
 	for _, c := range []struct {
 		data        []byte
 		name, ctype string
@@ -145,7 +148,7 @@ func TestPushoverPackTell(t *testing.T) {
 		{png, "photo.png", "image/png"},
 		{fromHex(t, packJPEG), "photo.jpg", "image/jpeg"},
 		{fromHex(t, packGIF), "photo.gif", "image/gif"},
-		{[]byte("\x89PNG\r\n\x1a\nthe shed from the lane"), "photo", "application/octet-stream"},
+		{[]byte("\x00\x01\x02\x03 the shed from the lane \xfe\xff"), "photo", "application/octet-stream"},
 	} {
 		got, err := p.tell(base, packToken, in("mail from jo", "the shed lands Monday", c.data))
 		if err != nil || fmt.Sprint(got) != "map[status:200]" {
