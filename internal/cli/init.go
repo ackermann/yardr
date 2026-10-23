@@ -461,6 +461,10 @@ type initOptions struct {
 	// About what they should know about them: the operator_style and
 	// operator_note settings. "" stores neither: only the form has a default.
 	Style, About string
+	// Pin is the digest (--sha256) of the default pack that the yardmaster's
+	// role may be installed from, as pack check prints it; "" pins nothing,
+	// and the form gives none.
+	Pin digestFlag
 	// Start starts the daemon in the background after the yard is created
 	// and waits for the yardmaster's session, up to Wait (0 is yardmasterWait).
 	Start bool
@@ -590,7 +594,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 		res.OldRoles = old
 	}
 	if !yardmasterKept {
-		if err := yardmasterRole(ctx, st, cfg.Home, o.Yardmaster, part != nil, res); err != nil {
+		if err := yardmasterRole(ctx, st, cfg.Home, o.Yardmaster, o.Pin, part != nil, res); err != nil {
 			return nil, err
 		}
 	}
@@ -739,14 +743,27 @@ func yardPack(ctx context.Context, st store.API) (string, error) {
 // may have it: a yard that is set up has no prompt changed by init. unfinished
 // says the home is an init's that was cut short, and the file then that
 // run's, naming whoever it was told: it is written again.
-func yardmasterRole(ctx context.Context, st store.API, home, yardmaster string, unfinished bool, res *initResult) error {
+//
+// A default pack at a URL is read by no one in a script, so a pin ties the
+// role to the pack that was: the pack is held to its digest before anything
+// of it is installed, and the role installed is the bytes that digest named
+// (pack.InstallRole reads them as the pack first read them, not afresh).
+func yardmasterRole(ctx context.Context, st store.API, home, yardmaster string, pin digestFlag, unfinished bool, res *initResult) error {
 	arg, err := yardPack(ctx, st)
 	if err != nil {
 		return err
 	}
+	ofDefault := func(err error) error {
+		return fmt.Errorf("the yard's default pack, %s (yardr settings get %s): %w", arg, defaultPackSetting, err)
+	}
 	p, err := resolvePack(ctx, st, arg, "")
 	if err != nil {
-		return fmt.Errorf("the yard's default pack, %s (yardr settings get %s): %w", arg, defaultPackSetting, err)
+		return ofDefault(err)
+	}
+	if pin != "" {
+		if err := p.CheckDigest(string(pin)); err != nil {
+			return ofDefault(err)
+		}
 	}
 	res.Pack, res.Roles = p.Name, config.At(home).PackRoles(p.Name)
 	if !slices.ContainsFunc(p.Crew, func(r pack.CrewMember) bool { return r.Name == packYardmaster }) {
@@ -1101,7 +1118,10 @@ and reviewers get their roles beside it when the depot is set up (yardr
 depot init). A default pack with no crew member called yardmaster gets the
 yard none. Init again on a yard that has its yardmaster reads no pack and
 writes no role: a role installed from a pack is changed in the pack and
-brought to the yard by yardr pack apply, which shows the change first.
+brought to the yard by yardr pack apply, which shows the change first. A
+script that sets the yard up from a default pack at a URL gives --sha256
+<digest>, as yardr pack check prints it for that pack, and init then refuses
+any other pack, naming both digests, before it writes anything.
 
 <home>/roles/, which init wrote before a yard had a default pack, is no
 longer written. A yard that has it keeps it: a group whose prompt is
@@ -1226,6 +1246,7 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Style, "style", "", "how agents should work with you: "+strings.Join(styleKeys(), ", ")+
 		" (default: none; a set-up yard keeps its operator_style setting)")
 	cmd.Flags().StringVar(&o.About, "about", "", "one line agents should know about you (a set-up yard keeps its operator_note setting)")
+	cmd.Flags().Var(&o.Pin, "sha256", "install the yardmaster's role only from the default pack whose digest this is, the last line of pack check's plan (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is written. A yard that has its yardmaster reads no pack and checks nothing")
 	return cmd
 }
 

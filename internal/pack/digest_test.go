@@ -102,16 +102,27 @@ func TestDigestIsOfEveryFileThePackNames(t *testing.T) {
 			}
 
 			// The pin is the digest in any of the forms pack check and a
-			// shell give it.
+			// shell give it. A pack read without a plan (yardr init's
+			// default pack) is held to it as the plan is, in the same words.
+			p := load(t, writePack(t, c.files))
 			for _, pin := range []string{want.Digest, strings.ToUpper(want.Digest), "sha256:" + want.Digest} {
 				if err := want.CheckDigest(pin); err != nil {
 					t.Errorf("the pin %s was refused: %v", pin, err)
+				}
+				if err := p.CheckDigest(pin); err != nil {
+					t.Errorf("the pin %s was refused for the pack read alone: %v", pin, err)
 				}
 			}
 			wrong := strings.Repeat("0", 64)
 			err := want.CheckDigest(wrong)
 			if err == nil || !strings.Contains(err.Error(), "sha256:"+wrong) || !strings.Contains(err.Error(), "sha256:"+want.Digest) || !strings.Contains(err.Error(), "nothing was changed") {
 				t.Errorf("a wrong pin: %v, want an error naming both digests", err)
+			}
+			if alone := p.CheckDigest(wrong); err == nil || alone == nil || alone.Error() != err.Error() {
+				t.Errorf("a wrong pin for the pack read alone: %v, want the plan's words: %v", alone, err)
+			}
+			if err := p.CheckDigest(want.Digest[1:]); err == nil || !strings.Contains(err.Error(), "not a digest") {
+				t.Errorf("a pin of 63 digits for the pack read alone: %v, want an error saying it is not a digest", err)
 			}
 		})
 	}

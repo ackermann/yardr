@@ -359,12 +359,14 @@ pack's and not the plan's, so it is the same for any depot and any answers,
 and for the pack read from a directory or from a URL. `yardr pack apply
 <pack> --sha256 <digest>`, and `yardr depot init --pack <pack> --sha256
 <digest>`, refuse a pack whose digest is another, naming both, before they
-ask anything or write anything. The digest may be in upper case and may keep
-the `sha256:` that `pack check` prints; anything else is a flag error. It is
-the digest of the bytes the plan was made from, which a pack keeps from the
-first read of each file, and so of the bytes the import installs. The pin
-holds for the one command: the record of an import does not keep it, and a
-later `pack apply <name>` takes none unless it is given one.
+ask anything or write anything. So does `yardr init --sha256 <digest>` for
+the yard's default pack, before it installs the yardmaster's role from it.
+The digest may be in upper case and may keep the `sha256:` that `pack check`
+prints; anything else is a flag error. It is the digest of the bytes the
+plan was made from, which a pack keeps from the first read of each file, and
+so of the bytes the import installs, and of the role `yardr init` installs.
+The pin holds for the one command: the record of an import does not keep it,
+and a later `pack apply <name>` takes none unless it is given one.
 
 A bare word is never tried as a directory, so what `starter` means does not
 depend on where the command is run: in a directory that holds `starter/` it

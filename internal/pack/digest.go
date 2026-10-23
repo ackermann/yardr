@@ -114,13 +114,31 @@ func ParseDigest(s string) (string, error) {
 // given), and the error names both digests. A caller that holds the plan to
 // it before it asks anything or writes anything installs nothing of a pack
 // that is not the one that was read.
-func (p *Plan) CheckDigest(want string) error {
+func (p *Plan) CheckDigest(want string) error { return checkDigest(p.Pack, want, p.Digest) }
+
+// CheckDigest holds a pack that is read without a plan of it to want, as the
+// plan's holds a plan: yardr init installs the yardmaster's role from the
+// default pack and makes none. The digest is the same, of the same bytes
+// (digest reads through reads), and InstallRole reads the role through them
+// too, so a pack that passes installs the role the pin names and not a
+// second answer of the server it came from.
+func (p *Pack) CheckDigest(want string) error {
+	have, err := p.digest()
+	if err != nil {
+		return err
+	}
+	return checkDigest(p.Name, want, have)
+}
+
+// checkDigest refuses the pack called name, whose digest is have, unless
+// want, in any form ParseDigest takes, is it.
+func checkDigest(name, want, have string) error {
 	pin, err := ParseDigest(want)
 	if err != nil {
 		return fmt.Errorf("%q: %w", want, err)
 	}
-	if p.Digest != pin {
-		return fmt.Errorf("pack %s is not the one pinned: the pin is sha256:%s, the pack read has sha256:%s; nothing was changed", p.Pack, pin, p.Digest)
+	if have != pin {
+		return fmt.Errorf("pack %s is not the one pinned: the pin is sha256:%s, the pack read has sha256:%s; nothing was changed", name, pin, have)
 	}
 	return nil
 }

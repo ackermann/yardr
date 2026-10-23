@@ -677,7 +677,7 @@ nothing. Without a terminal it prints how to initialize and exits 2.
 `yardr server`, `yardr init`, `yardr daemon`, `yardr settings` and
 `yardr help` never ask.
 
-`yardr init [--harness <kind>] [--yardmaster <name>] [--dir <path>] [--model <m>] [--operator <name>] [--style <choice>] [--about <text>] [--start [--wait <duration>]]`
+`yardr init [--harness <kind>] [--yardmaster <name>] [--dir <path>] [--model <m>] [--operator <name>] [--style <choice>] [--about <text>] [--sha256 <digest>] [--start [--wait <duration>]]`
 does the same without the form, for scripts and tests; `--harness` is required
 to create a yard, and nothing is started unless `--start` says so. Either way
 yardr:
@@ -692,9 +692,13 @@ yardr:
    name", `--operator`, default the login name, or `operator` where there is
    none), and where it says `{{yardmaster}}`, the yardmaster's. The other
    roles of the pack are installed when a depot is set up from it
-   ([below](#seeding-a-depot-yardr-depot-init)). A default pack with no crew
-   member called `yardmaster` gets the yard none: init says so, and step 3
-   adds nothing;
+   ([below](#seeding-a-depot-yardr-depot-init)). `--sha256 <digest>`, the
+   digest `yardr pack check` prints for the pack, installs the role only from
+   the pack with that digest and refuses another, naming both, before
+   anything is written ([Pinning a pack](packs.md#naming-a-pack)); init again
+   on a yard that has its yardmaster reads no pack and checks nothing. A
+   default pack with no crew member called `yardmaster` gets the yard none:
+   init says so, and step 3 adds nothing;
 2. sets `operator` to the operator's name and `yardmaster` to the
    yardmaster's, `hearer` to the yardmaster's too unless one is stored
    already, and `operator_style` and `operator_note` when they were said

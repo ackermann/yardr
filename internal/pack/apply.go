@@ -777,6 +777,10 @@ func install(op *FileOp, text []byte) error {
 // file already there is kept unless replace says it is nobody's yet and may
 // be written again. The path is "" when the pack has no such crew member or
 // gives it no role, and wrote is false when the file already read so.
+//
+// The role is read as the pack first read it (read), not fetched again: a
+// pack held to a digest (CheckDigest) installs the bytes the digest named,
+// where a pack at a URL answers every GET afresh.
 func InstallRole(p *Pack, home, member, takes, operator string, replace bool) (path string, wrote bool, err error) {
 	i := slices.IndexFunc(p.Crew, func(r CrewMember) bool { return r.Name == member })
 	if i < 0 || p.Crew[i].Role == "" {
@@ -790,7 +794,7 @@ func InstallRole(p *Pack, home, member, takes, operator string, replace bool) (p
 	fill[member] = takes
 	// Last, as in a plan (planner.names).
 	fill[Operator] = operator
-	text, err := fs.ReadFile(p.fsys, rel)
+	text, err := p.read(rel)
 	if err != nil {
 		return "", false, err
 	}
