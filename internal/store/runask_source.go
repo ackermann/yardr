@@ -612,7 +612,8 @@ func hookSays(d *source.Declaration) string {
 		}
 		// What the signature covers is the declaration's own word: the
 		// body alone, or a template over timestamp and body together.
-		signed, over := v.Signed, v.Signed
+		signed := v.Signed
+		var over string
 		if signed == "" || signed == source.HookSigned {
 			signed, over = source.HookSigned, "the body"
 		} else {
