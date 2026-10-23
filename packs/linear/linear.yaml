@@ -44,6 +44,8 @@ hook:
     delivery:  { header: Linear-Delivery }
     timestamp: { body: webhookTimestamp, unit: ms, window: 1m }
   bodies: unique
+  # Linear's deliveries follow issue activity, not a rhythm, so silence is never quiet.
+  untimed: true
 
   # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
   # envelope. The core sets source and delivery itself.

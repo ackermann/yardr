@@ -59,6 +59,8 @@ hook:
     delivery:  { body: event_id }
     timestamp: { header: X-Slack-Request-Timestamp, unit: s, window: 5m }
   bodies: repeat
+  # Slack's deliveries follow chat activity, not a rhythm, so silence is never quiet.
+  untimed: true
 
   # The url_verification handshake is answered by the receiver after
   # verification, before normalize: a verified body whose type is

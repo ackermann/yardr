@@ -124,13 +124,14 @@ func TestQuietGaps(t *testing.T) {
 
 // QuietGaps leaves out a hook whose source hears a person's chat back (a
 // hear key matched by address, as telegram's): hours of silence are no
-// break there. A hook of a machine source (linear hears by identity) is
-// judged by its gap as before.
+// break there. A hook of a timed source (the generic webhook's hook, the
+// one timed hook among the embedded packs) is judged by its gap as
+// before.
 func TestQuietGapsSkipsChatHook(t *testing.T) {
 	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	for _, name := range []string{"telegram", "linear"} {
+	for _, name := range []string{"telegram", "webhook"} {
 		raw, err := packs.FS.ReadFile(name + "/" + name + ".yaml")
 		if err != nil {
 			t.Fatal(err)
@@ -155,8 +156,8 @@ func TestQuietGapsSkipsChatHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(quiet) != 1 || quiet["linear"] != time.Hour {
-		t.Fatalf("seven hours later: quiet = %v, want linear with the floor", quiet)
+	if len(quiet) != 1 || quiet["webhook"] != time.Hour {
+		t.Fatalf("seven hours later: quiet = %v, want webhook with the floor", quiet)
 	}
 }
 
@@ -164,13 +165,13 @@ func TestQuietGapsSkipsChatHook(t *testing.T) {
 // a rhythm (the hook's untimed key, as github's): a day of silence after
 // one delivery is no break there. A hook of the same source whose last
 // delivery was refused is left out as before, through LastRefused; a chat
-// source is still left out without the key; and a source without the key
-// is timed as before.
+// source is still left out without the key; and a source with neither the
+// key nor a chat hear, as the generic webhook's, is timed as before.
 func TestQuietGapsSkipsUntimedHook(t *testing.T) {
 	t.Parallel()
 	s, own := storetest.NewOwned(t)
 	ctx := context.Background()
-	for _, name := range []string{"github", "telegram", "linear"} {
+	for _, name := range []string{"github", "telegram", "webhook"} {
 		raw, err := packs.FS.ReadFile(name + "/" + name + ".yaml")
 		if err != nil {
 			t.Fatal(err)
@@ -183,7 +184,7 @@ func TestQuietGapsSkipsUntimedHook(t *testing.T) {
 		{Name: "gh", Source: "github", SecretFile: "/x"},
 		{Name: "ghref", Source: "github", SecretFile: "/x"},
 		{Name: "telegram", Source: "telegram", SecretFile: "/x"},
-		{Name: "linear", Source: "linear", SecretFile: "/x"},
+		{Name: "webhook", Source: "webhook", SecretFile: "/x"},
 	} {
 		if _, err := s.PutHook(ctx, h, "me"); err != nil {
 			t.Fatal(err)
@@ -203,8 +204,8 @@ func TestQuietGapsSkipsUntimedHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(quiet) != 1 || quiet["linear"] != time.Hour {
-		t.Fatalf("a day later: quiet = %v, want linear with the floor", quiet)
+	if len(quiet) != 1 || quiet["webhook"] != time.Hour {
+		t.Fatalf("a day later: quiet = %v, want webhook with the floor", quiet)
 	}
 	for _, h := range hs {
 		if h.Name == "ghref" && !h.LastRefused() {

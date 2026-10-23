@@ -873,8 +873,9 @@ all. A hook that used to deliver and has delivered nothing for longer than
 its usual gap is quiet: the webhook is off at the source, or cannot reach
 this yard. The gap is the hook's own history: the median interval between
 its accepted deliveries over the last week, times three, with a floor of an
-hour. That timing suits a source whose deliveries come steadily, as
-linear's. A hook whose source's deliveries follow events, not a rhythm
+hour. No embedded pack's hook is timed today except the generic webhook
+pack's; that timing suits a hook a service sends on a schedule. A hook
+whose source's deliveries follow events, not a rhythm
 (its declaration says `hook.untimed`, as github's) is never quiet by
 silence: after a push, an idle hour says nothing, since nothing was sent.
 A hook that hears a person's chat back (its source's declaration hears by

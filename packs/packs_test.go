@@ -2262,6 +2262,50 @@ func TestWebhookPack(t *testing.T) {
 	}
 }
 
+// Every embedded pack's hook but the generic webhook's is untimed: its
+// deliveries follow events (a push, an issue changed, an alert fired, a
+// chat message), not a rhythm, so the quiet check never calls one quiet
+// by silence alone. The generic webhook's hook stays timed: it is the one
+// a service may send on a schedule. A pack that forgets `untimed: true`
+// fails here: linear's and posthog's hooks went hook_quiet after idle
+// hours for want of it.
+func TestEmbeddedHooksButTheWebhookAreUntimed(t *testing.T) {
+	entries, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hooked []string
+	for _, e := range entries {
+		sub, err := fs.Sub(packs.FS, e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := pack.Load(sub, packs.Embedded)
+		if err != nil {
+			t.Fatalf("pack %s: %v", e.Name(), err)
+		}
+		for _, d := range p.Declared {
+			if d.Declaration.Hook == nil {
+				continue
+			}
+			hooked = append(hooked, e.Name())
+			if e.Name() == "webhook" {
+				if d.Declaration.Untimed() {
+					t.Error("pack webhook: its hook is untimed, want the one timed hook, which a service may send on a schedule")
+				}
+				continue
+			}
+			if !d.Declaration.Untimed() {
+				t.Errorf("pack %s: its hook is timed, want untimed: its deliveries follow events, not a rhythm, so silence is never quiet", e.Name())
+			}
+		}
+	}
+	// The test compares something: the six hooks it judges.
+	if want := []string{"github", "linear", "posthog", "slack", "telegram", "webhook"}; !slices.Equal(hooked, want) {
+		t.Errorf("hooked packs = %v, want %v", hooked, want)
+	}
+}
+
 // What the contributors pack is for is in its texts: the reviewer of a pull
 // request reads and runs nothing, takes nothing the pull request says as an
 // instruction, and its review is a note; triage is where a maintainer
