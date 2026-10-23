@@ -40,12 +40,15 @@ func (f *packFlags) register(c *cobra.Command, verb string) {
 	c.Flags().BoolVar(&f.opts.PackRoles, "pack-roles", false, "set the pack's roles everywhere: the default now, needed only to undo an earlier --depot-roles")
 	c.MarkFlagsMutuallyExclusive("depot-roles", "pack-roles")
 	// No MarkFlagRequired: the pack is read first, and a pack of kind
-	// source refuses --depot while any other requires it (checkDepot).
+	// source refuses --depot, a pack that names a depot's own requires it,
+	// and a yard-wide pack takes check without it (checkDepot).
 }
 
 // checkDepot holds --depot to the pack: a pack of kind source is imported
-// into the yard, and refuses it; any other is imported into a depot, and
-// requires it.
+// into the yard, and refuses it; a pack that names a depot's own (flows,
+// groups, crew) is imported into a depot, and requires it; a yard-wide
+// pack, sources lines alone, is planned without one too, its lines waiting
+// for the depot.
 func checkDepot(p *pack.Pack, depot string) error {
 	if p.Kind == pack.KindSource {
 		if depot != "" {
@@ -53,7 +56,7 @@ func checkDepot(p *pack.Pack, depot string) error {
 		}
 		return nil
 	}
-	if depot == "" {
+	if depot == "" && !p.YardWide() {
 		return errors.New(`required flag(s) "depot" not set`)
 	}
 	return nil
@@ -453,7 +456,10 @@ It declares a source yardr has no Go for, with the commands the yard runs
 for it; the plan names each command, its file and the file's sha256. What a
 stage means in such a source is a pack for a depot's to say
 (sources.<name>: hears): until the yard has the source, an import of that
-pack skips the lines and says so, and the next apply sets them.
+pack skips the lines and says so, and the next apply sets them. A pack with
+no flows, groups or crew (sources lines alone) is checked without --depot
+too: the plan says what the lines would set on the yard's hooks, and each
+line waits for the depot, whose flow it is held to once one is named.
 
 It exits 1 on a pack that is not valid, naming every mistake by file, line
 and key, and on a plan an import would refuse (open beads in a stage the
@@ -792,6 +798,12 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 	st, cfg, p, err := a.openPack(w, warn, ctx, arg, &f.packFlags, nil, fits == nil)
 	if err != nil {
 		return nil, err
+	}
+	// An import goes into a depot and is recorded there, so apply takes
+	// --depot for every pack but kind source; check alone plans a
+	// yard-wide pack without one.
+	if fits == nil && f.opts.Depot == "" && p.Kind != pack.KindSource {
+		return nil, errors.New(`required flag(s) "depot" not set`)
 	}
 	if fits != nil {
 		if err := fits(p); err != nil {
@@ -1795,7 +1807,11 @@ func printPlan(w io.Writer, p *pack.Plan, answers pack.Answers, open, calls map[
 	if p.Kind != "" {
 		kind = "kind " + p.Kind
 	}
-	fmt.Fprintf(w, "pack %s (%s), %s, into %s\n", p.Pack, p.Dir, kind, inDepot(p.Depot))
+	into := inDepot(p.Depot)
+	if p.Kind != pack.KindSource && p.Depot == "" {
+		into = "no depot (--depot <depot> plans the import)"
+	}
+	fmt.Fprintf(w, "pack %s (%s), %s, into %s\n", p.Pack, p.Dir, kind, into)
 	if p.Kind != pack.KindSource {
 		fmt.Fprintf(w, "its roles and scripts would be copied to %s\n", p.Install)
 	}

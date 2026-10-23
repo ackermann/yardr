@@ -47,13 +47,21 @@ of type `design` is a document an agent drafts, another argues against and
 a person decides on, before anything is built
 ([The design pack](#the-design-pack)).
 
-A fifth, [`packs/linear`](../packs/linear), named `linear`, is for no
+[`packs/ci-red`](../packs/ci-red), named `ci-red`, turns a failed CI run
+on a git depot's base into one task bead: a run that fails on the base
+branch for no pull request makes the bead, a second failed run while it is
+open finds it and makes none, and the run after its close makes the next.
+It carries no flow, only the line that makes the bead, which is held to
+the flow the depot follows, and is imported beside the pack the depot
+follows.
+
+A sixth, [`packs/linear`](../packs/linear), named `linear`, is for no
 depot: it is Linear itself as an integration, imported into the yard. It
 declares the source `linear`, with the commands that verify and
 read Linear's webhooks and that reply, open a thread and set a status in
 one ([An integration pack](#an-integration-pack-kind-source)).
 
-A sixth, [`packs/github`](../packs/github), named `github`, is for no
+A seventh, [`packs/github`](../packs/github), named `github`, is for no
 depot either: it is GitHub itself as an integration, imported into the
 yard. It declares the source `github`, with the commands that verify and
 read GitHub's webhooks and that reply, open a thread and set a status in
@@ -102,6 +110,7 @@ setup notes for the person whose website it is.
 | `dir` | a dir depot's own work | `default`, and `train` for trains | of a dir depot |
 | `contributors` | issues and pull requests from outside, in a git depot | `issue` and `pr`, each for its type | of none: `yardr pack apply contributors --depot <depot>` |
 | `design` | designs in a git depot: a document drafted, critiqued and decided before anything is built | `design`, for its type | of none: `yardr pack apply design --depot <depot>` |
+| `ci-red` | a failed CI run on a git depot's base, as one task bead | none: held to the depot's flow | of none: `yardr pack apply ci-red --depot <depot>` |
 | `website` | a git depot's website, deployed to its own Void platform after landing | `default`, past the deploy to `live` | of none: `yardr pack apply website --depot <depot>` |
 | `linear` | Linear itself, in the yard | none: `kind: source` | of none: `yardr pack apply linear` |
 | `github` | GitHub itself, in the yard | none: `kind: source` | of none: `yardr pack apply github` |
@@ -321,16 +330,20 @@ packs/mine/pack.yaml:7: flows.default.stages.decide.group: no group deciders is 
 - under `sources`: a source yardr has built in that it cannot set a status
   in (`token`); `hears` without `as`; `as` with neither `hears` nor a
   table; neither a map nor a table; `as` naming no crew member of the pack;
-  a bead type no flow of the pack is for; a stage that flow lacks; a word
-  that is not `started`, `review`, `done` or `label:<name>`. Every name is
-  read, and held to the yard's source when the plan is made: a word the
-  source has no status for is refused there, as `yardr hook add --map`
-  refuses it ([Stage maps](#how-a-pack-maps-to-the-yard)).
+  in a pack with flows, a bead type no flow of the pack is for, or a stage
+  that flow lacks; a word that is not `started`, `review`, `done` or
+  `label:<name>`. Every name is read, and held to the yard's source when
+  the plan is made: a word the source has no status for is refused there,
+  as `yardr hook add --map` refuses it
+  ([Stage maps](#how-a-pack-maps-to-the-yard)).
 
 Which flow a type's stages are held to: the flow with that `type:`, else a
 flow a depot could follow, since a depot's flow governs every type that has
 none of its own. A pack with several such flows may name a stage any of
-them has.
+them has. A pack may carry `sources` alone, with no flows, for the depot's
+own flow, as `ci-red` does: its lines are held to the flow the depot
+follows when the plan is made, and refused there when that flow lacks the
+stage; `pack check` without `--depot` says each waits for the depot.
 
 ## Naming a pack
 
@@ -342,7 +355,7 @@ value (a directory there is absolute). It is one of:
 |---|---|
 | with a path separator: `packs/starter`, `./mine`, `~/packs/team` (also `.` and `..`) | the pack's directory |
 | a URL ending in /: `https://yardr.dev/packs/starter/` | the pack's directory on a web server: pack.yaml and the files it names, fetched when the command runs |
-| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`, `webhook`, `website`) |
+| a bare word: `starter`, `team` | a name: of a pack this yard has imported (`yardr pack list`), read again from where that import recorded it; else of a pack in the binary (`starter`, `dir`, `contributors`, `design`, `ci-red`, `linear`, `github`, `google-mail`, `google-drive`, `google-docs`, `google-calendar`, `telegram`, `pushover`, `slack`, `posthog`, `webhook`, `website`) |
 
 Each time yardr reads a file of a URL pack, it makes one GET; planning and
 applying can read the same file separately. Plain `http://` is refused unless
@@ -400,7 +413,9 @@ Its first line names the pack, where it was read from, the kind it declares
 and where it goes (`pack starter (/…/packs/starter), kind git, into depot
 web`; `of no kind` for a pack without the key; `pack linear (embedded in
 yardr …), kind source, into the yard`). A pack of kind `source` is checked
-without `--depot`, which is refused for it, and any other with it. Then it
+without `--depot`, which is refused for it, and any other with it, except
+a pack with no flows, groups or crew, which is checked without it too, its
+lines waiting for the depot. Then it
 prints what an import would do, object by object, and writes nothing,
 neither to the store nor under the home:
 

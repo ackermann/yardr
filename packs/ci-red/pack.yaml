@@ -1,0 +1,28 @@
+# ci-red pack for yardr: a failed CI run on the depot's base, as a bead. A
+# run that fails on the base branch makes one task bead, as a person watching
+# the runs would file it, and the bead is worked as the depot's own beads
+# are, on the flow the depot follows: this pack carries no flow, only the
+# line that makes the bead.
+# Like the starter pack it names no agent product, model, depot, person or
+# secret: the import asks nothing, and they stay in the yard. The format is
+# the starter's (packs/starter/pack.yaml, docs/packs.md).
+
+name: ci-red
+api: 1
+
+# The kind of depot the pack is for: a CI run is a repository's, on a base
+# branch.
+kind: git
+
+# MAKES: a run that failed on the base branch for no pull request makes one
+# task bead. The run's thread is the branch's, the same for every run of it,
+# so a second failed run while the bead is open finds it and makes none
+# (logged as hook_rule with ignored), and the run after its close makes the
+# next. head_branch is the base's name: a depot whose base is not main edits
+# the line before applying. The bead's body ends with the run's own page,
+# where the builder reads the failing job's log
+# (gh run view <id> --log-failed).
+sources:
+  github:
+    makes:
+      - { where: "event=workflow_run conclusion=failure head_branch=main", bead: { type: task, stage: new } }

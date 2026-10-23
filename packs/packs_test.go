@@ -22,7 +22,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the sixteen yardr carries. A file the
+// is the name it is found by, and they are the seventeen yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -56,8 +56,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook", packs.Website}) {
-		t.Errorf("embedded packs = %v, want contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram, webhook and website", names)
+	if !slices.Equal(names, []string{packs.CiRed, packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook", packs.Website}) {
+		t.Errorf("embedded packs = %v, want ci-red, contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram, webhook and website", names)
 	}
 }
 
@@ -549,6 +549,34 @@ func TestDesignPack(t *testing.T) {
 		if string(got) != string(want) {
 			t.Errorf("packs/design/%s differs from packs/starter/%s: change both", name, name)
 		}
+	}
+}
+
+// The ci-red pack is one makes line, for the depot's own flow: a run that
+// failed on the base branch makes one task bead in new. It has no flows,
+// groups or crew, so a depot follows what it followed and the line is held
+// to that flow when the plan is made.
+func TestCiRedPack(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, packs.CiRed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := pack.Load(sub, packs.Embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Kind != "git" || len(p.Flows) != 0 || len(p.Groups) != 0 || len(p.Crew) != 0 {
+		t.Fatalf("kind %q, flows = %+v, groups = %+v, crew = %+v, want a git pack with none", p.Kind, p.Flows, p.Groups, p.Crew)
+	}
+	if !p.YardWide() || len(p.Sources) != 1 {
+		t.Fatalf("yard wide = %v, sources = %+v", p.YardWide(), p.Sources)
+	}
+	m := p.Sources[0]
+	if m.Source != "github" || m.As != "" || len(m.Map) != 0 || len(m.Says) != 0 || len(m.Makes) != 1 {
+		t.Fatalf("source = %+v, want github with the one makes line", m)
+	}
+	if got := store.MakeLines(m.Makes); !slices.Equal(got, []string{"conclusion=failure event=workflow_run head_branch=main -> task:new"}) {
+		t.Fatalf("makes = %v", got)
 	}
 }
 

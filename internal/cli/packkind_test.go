@@ -95,7 +95,35 @@ func TestPackCheckSourcePackNeedsNoDepot(t *testing.T) {
 	}
 }
 
-// A pack of kind source refuses --depot, and any other pack requires it.
+// A pack with no flows, groups or crew is checked without --depot: the plan
+// says what its lines would set on the yard's hooks, and each waits for the
+// depot, whose flow it is held to once one is named. apply still takes
+// --depot for it: an import goes into a depot and is recorded there.
+func TestPackCheckYardWidePackNeedsNoDepot(t *testing.T) {
+	t.Parallel()
+	a := openApp(t, "github")
+	out, err := run(t, a.packCmd(), "check", "ci-red")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"pack ci-red (embedded in yardr ",
+		", kind git, into no depot (--depot <depot> plans the import)\n",
+		"\nwhat the events of source github say of a bead, and make\n  the pack makes conclusion=failure event=workflow_run head_branch=main -> task:new\n",
+		"  would be set on hook github, which has none\n",
+		"the makes line \"conclusion=failure event=workflow_run head_branch=main -> task:new\" waits for the depot: its stage is held to the flow the depot follows\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack check lacks %q:\n%s", want, out)
+		}
+	}
+	if out, err := run(t, a.packCmd(), "apply", "ci-red", "--yes"); err == nil || !strings.Contains(err.Error(), `required flag(s) "depot" not set`) {
+		t.Errorf("apply without --depot: %v\n%s", err, out)
+	}
+}
+
+// A pack of kind source refuses --depot, and a pack that names a depot's
+// own requires it.
 func TestPackCheckHoldsDepotToThePack(t *testing.T) {
 	t.Parallel()
 	a := packApp(t)

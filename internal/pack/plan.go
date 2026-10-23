@@ -680,11 +680,22 @@ type planner struct {
 	rolesErr  error
 }
 
+// YardWide reports whether the pack names nothing of a depot's own: no
+// flows, groups or crew, only sources lines and declared sources for the
+// yard's hooks. check plans such a pack without --depot, its lines waiting
+// for the depot; anything more is planned for a depot.
+func (p *Pack) YardWide() bool {
+	return len(p.Flows) == 0 && len(p.Groups) == 0 && len(p.Crew) == 0
+}
+
 // Build plans the import of p. It only reads: the store, the pack and the
 // files under the yard's home.
 func Build(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error) {
 	if p.Kind == KindSource {
 		return buildSource(ctx, st, p, o)
+	}
+	if o.Depot == "" {
+		return buildWithoutDepot(ctx, st, p, o)
 	}
 	depot, err := st.GetDepot(ctx, o.Depot)
 	if err != nil {
@@ -779,6 +790,50 @@ func buildSource(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, 
 	}
 	if err := b.dropped(); err != nil {
 		return nil, err
+	}
+	if b.plan.Digest, err = p.digest(); err != nil {
+		return nil, err
+	}
+	b.plan.Programs = p.programs()
+	return b.plan, nil
+}
+
+// buildWithoutDepot plans the yard-wide parts of a pack that names nothing
+// of a depot's own (YardWide): its sources lines on the yard's hooks, each
+// waiting for the depot, and its declared sources. Anything more takes the
+// depot it goes into.
+func buildWithoutDepot(ctx context.Context, st store.API, p *Pack, o Options) (*Plan, error) {
+	if !p.YardWide() {
+		return nil, fmt.Errorf("pack %s names a depot's own (flows, groups, crew): plan it with --depot <depot>", p.Name)
+	}
+	if o.Flow != "" {
+		return nil, fmt.Errorf("pack %s has no flow (--flow %s)", p.Name, o.Flow)
+	}
+	b := &planner{ctx: ctx, st: st, p: p, o: o, plan: &Plan{
+		Pack: p.Name, Dir: p.Dir, Kind: p.Kind, src: p.fsys, Home: o.Home, Install: config.At(o.Home).Pack(p.Name), StageFiles: config.At(o.Home).Flows(), Setup: p.SetupText, SetupFile: p.Setup,
+		Groups: map[string]string{}, Crew: map[string]string{}, Fill: map[string]string{},
+		Objects: []Object{}, Questions: []Question{}, Governs: []Governs{}, Sources: []SourceNeeds{}, OpenThreads: []OpenThreads{}, Maps: []MapPlan{}, Optional: []OptionalSource{}, Declared: []DeclaredPlan{}, Calls: []Calls{}, Expose: []Expose{}, Notes: []string{}, Refused: []string{},
+	}}
+	var err error
+	if b.all, err = st.Packs(ctx); err != nil {
+		return nil, err
+	}
+	for name := range o.Crew {
+		return nil, fmt.Errorf("--crew %s=%s: the pack has no crew member %s", name, o.Crew[name], name)
+	}
+	for name := range o.Groups {
+		return nil, fmt.Errorf("--group %s=%s: the pack has no group %s", name, o.Groups[name], name)
+	}
+	for _, step := range []func() error{
+		b.maps,
+		b.optional,
+		b.declared,
+		b.calls,
+		b.dropped,
+	} {
+		if err := step(); err != nil {
+			return nil, err
+		}
 	}
 	if b.plan.Digest, err = p.digest(); err != nil {
 		return nil, err

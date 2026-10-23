@@ -25,6 +25,60 @@ const smallSources = small + `sources:
       task: { new: started, review: review, merged: done }
 `
 
+// flowlessSources is a pack with no flows, groups or crew, carrying sources
+// lines alone for the depot's own flow, as ci-red does.
+const flowlessSources = `name: flowless
+kind: git
+sources:
+  github:
+    makes:
+      - { where: "event=workflow_run conclusion=failure head_branch=main", bead: { type: task, stage: new } }
+    says:
+      - { where: "event=workflow_run conclusion=success", outcome: done }
+`
+
+// A pack with no flows at all carries sources lines for the depot's own
+// flow: they load instead of being refused, and the plan holds them to the
+// flow the depot follows. A pack that has flows but none for the type is
+// still refused (TestStageMapRefusals).
+func TestSourcesWithoutFlowsLoad(t *testing.T) {
+	p := load(t, writePack(t, map[string]string{"pack.yaml": flowlessSources}))
+	if !p.YardWide() || len(p.Sources) != 1 {
+		t.Fatalf("yard wide = %v, sources = %+v", p.YardWide(), p.Sources)
+	}
+	m := p.Sources[0]
+	if m.Source != "github" || len(m.Makes) != 1 || len(m.Says) != 1 {
+		t.Fatalf("source = %+v", m)
+	}
+	if m.Makes[0].Type != "task" || m.Makes[0].Stage != "new" {
+		t.Fatalf("makes = %+v", m.Makes)
+	}
+	if m.Says[0].Outcome != "done" {
+		t.Fatalf("says = %+v", m.Says)
+	}
+	// hears with as loads too, naming a crew member of the pack's, which
+	// hears no stages of a flow the pack has none of.
+	heard := load(t, writePack(t, map[string]string{"pack.yaml": `name: flowless-hears
+kind: git
+crew:
+  yardmaster:
+    hears:
+      events: [held]
+      done: true
+sources:
+  github:
+    as: yardmaster
+    hears:
+      task: { new: started }
+`}))
+	if heard.YardWide() {
+		t.Fatalf("a pack with a crew member is yard-wide: %+v", heard.Sources)
+	}
+	if len(heard.Sources) != 1 || !maps.Equal(heard.Sources[0].Map, map[string]string{"task:new": "started"}) {
+		t.Fatalf("sources = %+v", heard.Sources)
+	}
+}
+
 // The starter pack carries the block for linear, and every stage it names
 // is one of the flow a task follows.
 func TestStarterCarriesTheLinearStageMap(t *testing.T) {
@@ -129,6 +183,7 @@ func TestStageMapRefusals(t *testing.T) {
 		{name: "a make in a stage the flow lacks", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task, stage: triage } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "flow default: no stage triage a bead can be made in (stages: decide, new, review)", line: 29},
 		{name: "a make in a stage that ends the flow", pairs: []string{"merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: task, stage: merged } }\n"}, key: "sources.github.makes[0].bead.stage", msg: "no stage merged a bead can be made in", line: 29},
 		{name: "a make of a type no flow is for", pairs: []string{"  default:\n", "  default:\n    type: train\n", "      task: { new", "      train: { new", "merged: done }\n", "merged: done }\n  github:\n    makes:\n      - { where: \"event=issues\", bead: { type: issue, stage: new } }\n"}, key: "sources.github.makes[0].bead.type", msg: "no flow of this pack is for beads of type issue", line: 30},
+		{name: "a says line of a type no flow is for", pairs: []string{"  default:\n", "  default:\n    type: train\n", "      task: { new", "      train: { new", "merged: done }\n", "merged: done }\n  github:\n    says:\n      - { where: \"event=issues type=issue\", outcome: done }\n"}, key: "sources.github.says[0].outcome", msg: "no flow of this pack is for beads of type issue", line: 30},
 		{name: "type given twice", pairs: []string{"merged: done }\n", "merged: done }\n      task: { new: done }\n"}, key: "sources.linear.hears.task", msg: "given twice", line: 27},
 	}
 	for _, c := range cases {
@@ -232,6 +287,100 @@ func mapObjects(p *pack.Plan) []string {
 		}
 	}
 	return out
+}
+
+// A pack with no flows has its lines held to the flow the depot follows
+// when the plan is made: a line that flow lacks the stage or the outcome
+// for refuses the plan, in the same words the reader refuses a pack's own
+// lines. A line for a type no flow governs is left to the store, which
+// judges it when an event arrives.
+func TestSourcesWithoutFlowsAreHeldToTheDepotsFlow(t *testing.T) {
+	const line = "new -> review on done | decide on question\nreview -> merged on done\ndecide -> new\nmerged terminal\n"
+	const open = "open -> shut on done\nshut terminal\n"
+	const heard = `name: flowless-hears
+kind: git
+crew:
+  yardmaster:
+    hears:
+      events: [held]
+      done: true
+sources:
+  github:
+    as: yardmaster
+    hears:
+      task: { STAGE: started }
+`
+	cases := []struct {
+		name, yaml, flow string
+		want             []string // refused substrings; none: the plan is not refused
+	}{
+		{name: "a make in a stage the flow has", yaml: flowlessSources, flow: line},
+		{name: "a make in a stage the flow lacks", yaml: flowlessSources, flow: open,
+			want: []string{"sources.github.makes[0]: no bead of type task could be made there: flow line: no stage new a bead can be made in (stages: open)"}},
+		{name: "a make where no flow governs", yaml: flowlessSources},
+		{name: "a says line the flow routes", yaml: flowlessSources, flow: line},
+		{name: "a says outcome no stage has", yaml: strings.Replace(flowlessSources, "outcome: done", "outcome: landed", 1), flow: line,
+			want: []string{"sources.github.says[0]: no bead of depot web could take it: flow line: no stage has an outcome landed, so the flow would refuse it every time"}},
+		{name: "a hears stage the flow has", yaml: strings.Replace(heard, "STAGE", "new", 1), flow: line},
+		{name: "a hears stage the flow lacks", yaml: strings.Replace(heard, "STAGE", "approved", 1), flow: line,
+			want: []string{"sources.github.hears.task.approved: flow line has no stage approved (stages: new, review, decide, merged)"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st, o := yard(t)
+			if c.flow != "" {
+				f, err := store.ParseFlow(c.flow)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.Name = "line"
+				if _, err := st.PutFlow(ctx, *f, "me"); err != nil {
+					t.Fatal(err)
+				}
+				if err := st.SetFlowPointer(ctx, "web", "", "line", "me"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p := load(t, writePack(t, map[string]string{"pack.yaml": c.yaml}))
+			plan := build(t, st, p, o)
+			if len(c.want) == 0 {
+				if len(plan.Refused) != 0 {
+					t.Fatalf("refused = %v, want none", plan.Refused)
+				}
+				return
+			}
+			for _, w := range c.want {
+				if !slices.ContainsFunc(plan.Refused, func(r string) bool { return strings.Contains(r, w) }) {
+					t.Fatalf("refused = %v, want one with %q", plan.Refused, w)
+				}
+			}
+		})
+	}
+}
+
+// check without --depot plans a pack with no flows, groups or crew: the
+// lines it would set on the yard's hooks, each waiting for the depot, whose
+// flow they are held to once one is named. Anything more takes the depot.
+func TestSourcesWithoutFlowsWaitForTheDepot(t *testing.T) {
+	st, o := yard(t)
+	o.Depot = ""
+	p := load(t, writePack(t, map[string]string{"pack.yaml": flowlessSources}))
+	plan := build(t, st, p, o)
+	if len(plan.Refused) != 0 {
+		t.Fatalf("refused = %v", plan.Refused)
+	}
+	for _, want := range []string{
+		`the makes line "conclusion=failure event=workflow_run head_branch=main -> task:new" waits for the depot`,
+		`the says line "conclusion=success event=workflow_run -> done" waits for the depot`,
+	} {
+		if !slices.ContainsFunc(plan.Notes, func(n string) bool { return strings.Contains(n, want) }) {
+			t.Fatalf("notes = %v, want one with %q", plan.Notes, want)
+		}
+	}
+	// A pack that names a depot's own is planned for a depot, never without.
+	if _, err := pack.Build(ctx, st, load(t, starter), o); err == nil || !strings.Contains(err.Error(), "plan it with --depot <depot>") {
+		t.Fatalf("Build without a depot = %v, want it refused", err)
+	}
 }
 
 // A flow pack names a source it does not carry. Into a yard without one

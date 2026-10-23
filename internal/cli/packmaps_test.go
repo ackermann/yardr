@@ -117,6 +117,83 @@ func TestPackApplySetsTheStageMapOnTheYardsHook(t *testing.T) {
 	}
 }
 
+// Importing ci-red into a depot on the starter flow sets its makes line on
+// the yard's github hook, beside the lines there: a failed run on main then
+// makes one task bead in new. check plans the one line and refuses nothing.
+func TestPackApplySetsTheMakesLineOnTheYardsHook(t *testing.T) {
+	t.Parallel()
+	a := openApp(t, "github")
+	ctx := context.Background()
+	applyStarter(t, a)
+
+	out, err := run(t, a.packCmd(), "check", "ci-red", "--depot", "web")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	const line = "conclusion=failure event=workflow_run head_branch=main -> task:new"
+	for _, want := range []string{
+		"\nwhat the events of source github say of a bead, and make\n  the pack makes " + line + "\n",
+		"  would be set on hook github, which has none\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack check lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "an import would be refused") {
+		t.Errorf("pack check refuses the line:\n%s", out)
+	}
+
+	out, err = run(t, a.packCmd(), "apply", "ci-red", "--depot", "web", "--yes")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"\napplied pack ci-red to depot web: ",
+		"\nhook github's events now make a bead for a thread none tracks:\n  " + line + "\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pack apply lacks %q:\n%s", want, out)
+		}
+	}
+	h, err := a.st.GetHook(ctx, "github")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := store.MakeLines(h.Makes); !slices.Equal(got, []string{line}) {
+		t.Fatalf("the hook makes %v, want the pack's line", got)
+	}
+	if len(h.Says) == 0 {
+		t.Fatalf("the import took the starter's says lines off the hook: %+v", h)
+	}
+}
+
+// The same pack checked against a depot whose flow lacks new is refused at
+// plan time, in the same words the reader refuses a pack's own line.
+func TestPackCheckRefusesAMakesLineTheDepotsFlowLacks(t *testing.T) {
+	t.Parallel()
+	a := openApp(t, "github")
+	ctx := context.Background()
+	f, err := store.ParseFlow("open -> shut on done\nshut terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Name = "line"
+	if _, err := a.st.PutFlow(ctx, *f, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.st.SetFlowPointer(ctx, "web", "", "line", "me"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.packCmd(), "check", "ci-red", "--depot", "web")
+	if err == nil {
+		t.Fatalf("pack check passed:\n%s", out)
+	}
+	const want = "sources.github.makes[0]: no bead of type task could be made there: flow line: no stage new a bead can be made in (stages: open)"
+	if !strings.Contains(out, want) {
+		t.Errorf("pack check lacks %q:\n%s", want, out)
+	}
+}
+
 // A yard without a hook of the source: the import goes through, makes no
 // hook and says which to add. After yardr hook add, the next apply sets the
 // map on it.

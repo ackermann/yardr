@@ -22,11 +22,26 @@ import (
 // pack's and the operator's (merged). A says outcome is reported as the
 // hook's as when it has one, so a table whose outcomes cross a stage of
 // people wants the pack's as; a make needs the hook alone, as no crew member
-// acts when an event makes a bead.
+// acts when an event makes a bead. A pack with no flows of its own had its
+// lines held to nothing when it was read: they are held here, to the flows
+// that govern the depot's beads (holdLines), or wait for the depot where the
+// plan names none (waitLines).
 func (b *planner) maps() error {
 	const ok, missing = "ok", "missing"
 	if len(b.p.Sources) == 0 {
 		return nil
+	}
+	// The flows a pack with no flows of its own holds its lines to: the
+	// depot's own, and one per governed type. Where the depot's flows
+	// cannot be read, the flows step said so already, and the lines go
+	// unchecked: the store judges them when an event arrives.
+	var gov []Flow
+	if len(b.p.Flows) == 0 && b.o.Depot != "" {
+		if rfs, err := b.st.DepotFlows(b.ctx, b.o.Depot); err == nil {
+			for _, rf := range rfs {
+				gov = append(gov, depotFlow(rf.Type, *rf.Flow))
+			}
+		}
 	}
 	hs, err := b.st.Hooks(b.ctx)
 	if err != nil {
@@ -43,6 +58,13 @@ func (b *planner) maps() error {
 		}
 		if len(of) > 0 {
 			mp.Hook = of[0].Name
+		}
+		if len(b.p.Flows) == 0 {
+			if b.o.Depot == "" {
+				b.waitLines(sm)
+			} else {
+				b.holdLines(sm, gov)
+			}
 		}
 		// The yard's source of the name, in Go or declared: without one
 		// the lines are skipped, and the next apply sets them once it is
@@ -160,6 +182,80 @@ func (b *planner) maps() error {
 		b.plan.Maps = append(b.plan.Maps, mp)
 	}
 	return nil
+}
+
+// depotFlow is the flow that governs the depot's beads of type typ as a
+// pack flow, so the lines of a pack with no flows of its own are held to it
+// with the same checks the reader holds a pack's lines to its flows. A
+// stage's outcomes are the store's, which already say done where a single
+// way out offers it, as stageOutcomes does for a pack's.
+func depotFlow(typ string, f store.Flow) Flow {
+	out := Flow{Name: f.Name, Type: typ}
+	for _, s := range f.Stages {
+		out.Stages = append(out.Stages, Stage{Name: s, Outcomes: f.OutcomesFrom(s), End: f.IsTerminal(s)})
+	}
+	return out
+}
+
+// holdLines holds the source's lines to the flows that govern the depot's
+// beads, gov, for a pack with no flows of its own. A line for a type none
+// governs is left to the store, which judges it when an event arrives; a
+// line the governing flow lacks the stage or the outcome for refuses the
+// plan, in the same words the reader refuses a pack's own lines.
+func (b *planner) holdLines(sm StageMap, gov []Flow) {
+	for i, m := range sm.Makes {
+		flows := flowsFor(gov, m.Type)
+		if len(flows) == 0 {
+			continue
+		}
+		if err := unmade(m, flows); err != nil {
+			b.plan.Refused = append(b.plan.Refused, fmt.Sprintf("sources.%s.makes[%d]: %v", sm.Source, i, err))
+		}
+	}
+	for i, say := range sm.Says {
+		check := say
+		if named, ok := say.Where[store.SayType]; ok {
+			var kept []string
+			for _, typ := range store.WhereValues(named) {
+				if len(flowsFor(gov, typ)) > 0 {
+					kept = append(kept, typ)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			check.Where = maps.Clone(say.Where)
+			check.Where[store.SayType] = store.JoinWhere(kept)
+		}
+		if err := unrouted(check, gov); err != nil {
+			b.plan.Refused = append(b.plan.Refused, fmt.Sprintf("sources.%s.says[%d]: no bead of depot %s could take it: %v, so the flow would refuse it every time", sm.Source, i, b.o.Depot, err))
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(sm.Map)) {
+		typ, stage, _ := strings.Cut(k, ":")
+		flows := flowsFor(gov, typ)
+		if len(flows) == 0 {
+			continue
+		}
+		if !hasStage(flows, stage) {
+			b.plan.Refused = append(b.plan.Refused, fmt.Sprintf("sources.%s.hears.%s.%s: %s stage %s (stages: %s)", sm.Source, typ, stage, lacking(flows), stage, strings.Join(stageNames(flows), ", ")))
+		}
+	}
+}
+
+// waitLines notes that the source's lines wait for the depot: with no depot
+// named no flow governs them yet, and each is held to the flow the depot
+// follows once one is.
+func (b *planner) waitLines(sm StageMap) {
+	for _, l := range store.SayLines(sm.Says) {
+		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the says line %q waits for the depot: its outcome is held to the flow the depot follows", l))
+	}
+	for _, l := range store.MakeLines(sm.Makes) {
+		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the makes line %q waits for the depot: its stage is held to the flow the depot follows", l))
+	}
+	for _, l := range MapLines(sm.Map) {
+		b.plan.Notes = append(b.plan.Notes, fmt.Sprintf("the hears line %q waits for the depot: its stage is held to the flow the depot follows", l))
+	}
 }
 
 // ownDrops are the hook's says and makes lines the import takes off: the

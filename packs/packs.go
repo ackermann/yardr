@@ -16,9 +16,10 @@ import (
 // git depot too, beside the flow the depot follows: what comes to its
 // repository from outside, an issue or a pull request, as a bead. design is
 // beside the depot's flow too: the lane a bead of type design takes, from a
-// drafted document to a decision. website is for a git depot too, instead
-// of the starter: its line with a deploy stage after landing, for a website
-// on the user's own Void platform. Of kind
+// drafted document to a decision. ci-red is beside the depot's flow too:
+// a failed CI run on the base branch, as a bead. website is for a git depot
+// too, instead of the starter: its line with a deploy stage after landing,
+// for a website on the user's own Void platform. Of kind
 // source, for the yard itself: linear, github, PostHog and Google, each
 // service's declaration (linear's and github's with the commands they
 // name; PostHog's with its hook's normalize; Google's as four packs,
@@ -28,7 +29,7 @@ import (
 // commands, and webhook, one declaration for every service that POSTs to
 // a URL or takes one (Zapier, Make, n8n), whose credential is that URL.
 //
-//go:embed starter dir contributors design linear github google-mail google-drive google-docs google-calendar pushover telegram slack posthog webhook website
+//go:embed starter dir contributors design ci-red linear github google-mail google-drive google-docs google-calendar pushover telegram slack posthog webhook website
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is
@@ -50,6 +51,12 @@ const Contributors = "contributors"
 // default either: it has one flow, for the type design, and is imported
 // beside the pack the depot follows for its own work.
 const Design = "design"
+
+// CiRed is the embedded pack for a git depot's failed CI runs. It is no
+// depot's default either: it has no flow, only the line that makes a bead
+// of a failed run on the base branch, and is imported beside the pack the
+// depot follows for its own work.
+const CiRed = "ci-red"
 
 // Website is the embedded pack for a git depot's website. It is no depot's
 // default either: it is imported instead of the starter, whose line it

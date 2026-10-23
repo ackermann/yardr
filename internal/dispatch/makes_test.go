@@ -3,12 +3,15 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/packs"
 )
 
 // contributorMakes is a table of what makes a bead under contributorFlow:
@@ -414,6 +417,40 @@ func TestFailedRunsOnABranchMakeOneBeadWhileItIsOpen(t *testing.T) {
 	}
 	if _, relates := r.tracking(t, branchMain); len(relates) != 1 || relates[0] != first.ID {
 		t.Fatalf("beads relating to the branch: %v, want the closed %s", relates, first.ID)
+	}
+}
+
+// The ci-red pack's line, on a depot's hook, makes one task bead in new of
+// the failed runs of main: the first failed run makes it, titled for the
+// branch, and the next finds it and makes none. The rest of the line's
+// behavior is TestFailedRunsOnABranchMakeOneBeadWhileItIsOpen's.
+func TestCiRedPackLineMakesOneBeadOfFailedRuns(t *testing.T) {
+	t.Parallel()
+	sub, err := fs.Sub(packs.FS, packs.CiRed)
+	must(t, err)
+	p, err := pack.Load(sub, packs.Embedded)
+	must(t, err)
+	if len(p.Sources) != 1 || len(p.Sources[0].Makes) != 1 {
+		t.Fatalf("ci-red sources = %+v, want the one makes line", p.Sources)
+	}
+	r := newMakingDepot(t, store.MakeLines(p.Sources[0].Makes)...)
+	ctx := context.Background()
+	r.failedRun(t, "workflow_run_failure", "main", "5")
+	r.pass(t)
+	first := r.made(t, branchMain)
+	if first.Type != "task" || first.Stage != "new" || first.Status != "open" || first.Title != "CI on acme/yardr@main" {
+		t.Fatalf("made %s: type %s in %s (%s), title %q", first.ID, first.Type, first.Stage, first.Status, first.Title)
+	}
+	if want := "ci failure on main\n\n" + runsOfCI + "5"; first.Body != want {
+		t.Fatalf("made %s: body %q, want %q", first.ID, first.Body, want)
+	}
+	r.failedRun(t, "workflow_run_failure", "main", "6")
+	r.pass(t)
+	if again := r.made(t, branchMain); again.ID != first.ID {
+		t.Fatalf("a second failed run made %s beside %s", again.ID, first.ID)
+	}
+	if all, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(all) != 1 {
+		t.Fatalf("beads after a second failed run: %d (%v), want the one", len(all), err)
 	}
 }
 

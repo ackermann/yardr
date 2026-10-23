@@ -1042,7 +1042,9 @@ func (r *reader) commandFiles(n *yaml.Node, key, rel string, decl *source.Declar
 // have, from an integration pack, and the import skips the lines while it
 // has none. What only the source can judge, a status it has and the keys
 // its events carry, is asked when the plan is made; what the pack judges,
-// the crew member, the flows' stages and the outcomes, is asked here.
+// the crew member, the flows' stages and the outcomes, is asked here, except
+// in a pack with no flows, whose lines are held to the flow the depot
+// follows when the plan is made.
 func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 	m = StageMap{Source: e.key, Map: map[string]string{}}
 	_, builtin := hooks.Adapters[e.key]
@@ -1089,12 +1091,17 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 			}
 			for _, t := range types {
 				flows := flowsFor(p.Flows, t.key)
-				if len(flows) == 0 {
+				// A pack with no flows at all composes beside the flow the
+				// depot follows: its lines are held to that flow when the
+				// plan is made, and not refused here. A pack that has
+				// flows but none for the type is still refused.
+				held := len(p.Flows) == 0
+				if len(flows) == 0 && !held {
 					r.errf(t.k, t.path, "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a depot follows", t.key, t.key)
 					continue
 				}
 				for _, s := range r.entries(t.v, t.path) {
-					if !hasStage(flows, s.key) {
+					if !held && !hasStage(flows, s.key) {
 						r.errf(s.k, s.path, "%s stage %s (stages: %s)", lacking(flows), s.key, strings.Join(stageNames(flows), ", "))
 						continue
 					}
@@ -1144,7 +1151,8 @@ func (r *reader) source(e entry, p *Pack) (m StageMap, ok bool) {
 // A line is also refused when no flow of the pack could take its outcome in
 // the stage it names: the bead an event is about is the one that tracks its
 // thread, of any type, else the train of its branch, so every flow is asked,
-// and the refusal says of each why not.
+// and the refusal says of each why not. In a pack with no flows the line is
+// held to the flow the depot follows instead, when the plan is made.
 func (r *reader) says(k entry, source string, p *Pack, builtin bool) []store.Say {
 	if k.v.Kind != yaml.SequenceNode {
 		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=pull_request action=closed merged=true\", outcome: merged }), got %s", describe(k.v))
@@ -1200,13 +1208,14 @@ func (r *reader) says(k entry, source string, p *Pack, builtin bool) []store.Say
 				continue
 			}
 		}
-		if len(p.Flows) == 0 {
-			r.errf(n, path, "this pack has no flow, so no bead of it could take the outcome")
-			continue
-		}
-		if err := unrouted(say, p.Flows); err != nil {
-			r.errf(n, join(path, "outcome"), "no bead of this pack could take it: %v, so the flow would refuse it every time", err)
-			continue
+		// A pack with no flows at all composes beside the flow the
+		// depot follows: the line is held to that flow when the plan
+		// is made, and not refused here.
+		if len(p.Flows) > 0 {
+			if err := unrouted(say, p.Flows); err != nil {
+				r.errf(n, join(path, "outcome"), "no bead of this pack could take it: %v, so the flow would refuse it every time", err)
+				continue
+			}
 		}
 		out = append(out, say)
 	}
@@ -1221,7 +1230,8 @@ func (r *reader) says(k entry, source string, p *Pack, builtin bool) []store.Say
 // would refuse it (store.Hook's Makes); any other name is held to the
 // yard's source when the plan is made. A line is also refused when the flow
 // of the pack that beads of the type follow has no such stage a bead can be
-// made in.
+// made in; in a pack with no flows the line is held to the flow the depot
+// follows instead, when the plan is made.
 func (r *reader) makes(k entry, source string, p *Pack, builtin bool) []store.Make {
 	if k.v.Kind != yaml.SequenceNode {
 		r.errf(k.v, k.path, "want a list of lines ({ where: \"event=issues action=opened\", bead: { type: issue, stage: triage } }), got %s", describe(k.v))
@@ -1302,26 +1312,44 @@ func (r *reader) makes(k entry, source string, p *Pack, builtin bool) []store.Ma
 			}
 		}
 		flows := flowsFor(p.Flows, m.Type)
-		if len(flows) == 0 {
+		// A pack with no flows at all composes beside the flow the
+		// depot follows: the line is held to that flow when the plan
+		// is made, and not refused here. A pack that has flows but
+		// none for the type is still refused.
+		held := len(p.Flows) == 0
+		if len(flows) == 0 && !held {
 			r.errf(n, join(path, "bead.type"), "no flow of this pack is for beads of type %s: it has no flow with type: %s and none a depot follows", m.Type, m.Type)
 			continue
 		}
-		var why []string
-		for _, f := range flows {
-			err := m.Unstaged(slices.Sorted(maps.Keys(stageOutcomes(f))))
-			if err == nil {
-				why = nil
-				break
+		if !held {
+			if err := unmade(m, flows); err != nil {
+				r.errf(n, join(path, "bead.stage"), "%v", err)
+				continue
 			}
-			why = append(why, fmt.Sprintf("flow %s: %v", f.Name, err))
-		}
-		if why != nil {
-			r.errf(n, join(path, "bead.stage"), "no bead of type %s could be made there: %s", m.Type, strings.Join(why, "; "))
-			continue
 		}
 		out = append(out, m)
 	}
 	return out
+}
+
+// unmade says why no bead of the line's type could be made in its stage
+// under any of flows, nil when one could: some flow has the stage, and it
+// is not one that ends the flow. The refusal says of each why not. The
+// planner calls it too, on the flows that govern the depot's beads, so a
+// pack with no flows of its own is refused there in the same words.
+func unmade(m store.Make, flows []Flow) error {
+	var why []string
+	for _, f := range flows {
+		err := m.Unstaged(slices.Sorted(maps.Keys(stageOutcomes(f))))
+		if err == nil {
+			return nil
+		}
+		why = append(why, fmt.Sprintf("flow %s: %v", f.Name, err))
+	}
+	if why == nil {
+		return nil
+	}
+	return fmt.Errorf("no bead of type %s could be made there: %s", m.Type, strings.Join(why, "; "))
 }
 
 // unrouted says why no bead could take the line's outcome under any of
