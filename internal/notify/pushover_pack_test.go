@@ -197,6 +197,9 @@ func TestPushoverPackTell(t *testing.T) {
 	if _, err := p.tell(base, packToken, in("", "", png)); err == nil || !strings.Contains(err.Error(), "neither a title nor a text") {
 		t.Fatalf("no words: %v", err)
 	}
+	if svc.Asked() != asked {
+		t.Fatal("a tell with no words was sent all the same")
+	}
 
 	// The most the service takes goes, to the byte; one byte more is refused
 	// with its size before anything is sent.
