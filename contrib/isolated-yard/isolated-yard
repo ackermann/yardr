@@ -221,7 +221,13 @@ down() {
   fi
   # Go's module cache (and other tools' caches) deliberately make files and
   # directories read-only. Make the tree removable before deleting the yard.
-  chmod -R u+w "$d"
+  # Another remover may be at the tree already (the yard's watchdog and a
+  # test's cleanup each run down, and a slow one meets the other here): chmod
+  # then fails on a directory that is gone, or on a file that goes while it
+  # walks. That is no failure of this down, and a chmod that fails for a
+  # reason of its own shows in rm, which refuses what it cannot remove. The
+  # check below still looks for what the yard left running (yardr-b6x7).
+  chmod -R u+w "$d" || true
   rm -rf "$d"
   removed=$d
   # With the directory gone only the home tells: anything started while the

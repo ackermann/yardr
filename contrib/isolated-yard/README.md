@@ -334,5 +334,11 @@ stand-in agents are found so too). The `down` it runs gets `/dev/null` as its
 stdin: with the watchdog's, `down` and every program it starts would hold that
 file open, and `pids` would list them as the yard's own.
 
+A `down` can meet another remover of the same yard: the watchdog's, and the
+cleanup of a test that gave up waiting for it. The one that finds D gone, or
+going, when it comes to remove it goes on to its last check, which still
+looks for what the yard left running. One that starts after D is gone says
+`no yard at D` and exits 2, which the cleanups of the tests let pass.
+
 `watchdog_test.go` tests the watchdog with owners that have ended, and with an
 `alive` that answers as told: nothing in it kills a test binary.

@@ -114,12 +114,14 @@ func up(t *testing.T) string {
 // downAtEnd takes the yard in d down when the test ends, should the test
 // fail before its own `down`. It goes by the script, which goes by the
 // yard's directory: a pid the test read earlier may be someone else's by
-// then.
+// then. The yard's watchdog may remove it between the look and the script's
+// start, which the script answers with "no yard at" (status 2): the yard is
+// gone, as the cleanup wanted, so that answer and no other is let pass.
 func downAtEnd(t *testing.T, d string) {
 	t.Helper()
 	t.Cleanup(func() {
 		if _, err := os.Stat(d); err == nil {
-			if out, err := script(t, "down", d); err != nil {
+			if out, err := script(t, "down", d); err != nil && !strings.Contains(out, "isolated-yard: no yard at "+d) {
 				t.Errorf("cleanup: isolated-yard down %s: %v\n%s", d, err, out)
 			}
 		}
@@ -457,6 +459,81 @@ func TestDownRefusesWhenPsFails(t *testing.T) {
 	}
 }
 
+// yardr-b6x7: two removers can meet in one yard, the watchdog's down and the
+// cleanup of a test that gave up waiting for it, and the later one must not
+// fail for what the other did. chmod is where it finds the yard gone or going,
+// so the chmod on its PATH stands for the other remover, as far along as each
+// case says. Timing cannot pin this (the other remover is a few milliseconds
+// ahead or it is not), so each case fixes how far ahead it is. A failure that
+// is no one's race stays one: in the third case rm refuses as well. The yard
+// is a stub, the mark and a D/e: all down does with it is look for its
+// processes and remove it.
+func TestDownMeetsAnotherRemover(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		// The bodies of the chmod and rm stubs ($3 is the yard, as in chmod
+		// -R u+w D); an empty rm is the real one. gone is a yard that is
+		// removed before down begins.
+		chmod, rm string
+		gone      bool
+		status    int
+		out       string // with the yard for its %s
+		removed   bool
+	}{
+		{name: "the yard is gone when chmod runs", chmod: `/bin/rm -rf "$3"; echo "chmod: $3: No such file or directory" >&2; exit 1`,
+			status: 0, out: "stopped and removed %s", removed: true},
+		{name: "a file goes while chmod walks", chmod: `echo "chmod: $3/m46: No such file or directory" >&2; exit 1`,
+			status: 0, out: "stopped and removed %s", removed: true},
+		{name: "chmod fails and rm refuses with the yard there", chmod: `echo "chmod: $3: Operation not permitted" >&2; exit 1`, rm: `echo "rm: $3: Permission denied" >&2; exit 1`,
+			status: 1, out: "Permission denied"},
+		// What downAtEnd lets pass, and no other answer.
+		{name: "the yard is gone before down begins", gone: true,
+			status: 2, out: "isolated-yard: no yard at %s", removed: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			d, err := os.MkdirTemp("/tmp", "iy.")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(d) })
+			bin := t.TempDir()
+			files := map[string]string{
+				filepath.Join(d, ".isolated-yard"): d + "\n",
+				filepath.Join(d, "e"):              "#!/bin/sh\nexit 0\n",
+			}
+			for name, body := range map[string]string{"chmod": c.chmod, "rm": c.rm} {
+				if body != "" {
+					files[filepath.Join(bin, name)] = "#!/bin/sh\n" + body + "\n"
+				}
+			}
+			for path, body := range files {
+				if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if c.gone {
+				os.RemoveAll(d)
+			}
+
+			cmd := exec.Command(scriptPath(t), "down", d)
+			cmd.Env = append(slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "PATH=") }),
+				"PATH="+bin+":"+os.Getenv("PATH"))
+			out, _ := cmd.CombinedOutput()
+			if got := cmd.ProcessState.ExitCode(); got != c.status {
+				t.Errorf("down exited %d, want %d:\n%s", got, c.status, out)
+			}
+			if want := strings.Replace(c.out, "%s", d, 1); !strings.Contains(string(out), want) {
+				t.Errorf("down printed:\n%s\nwant %q", out, want)
+			}
+			if _, err := os.Stat(d); os.IsNotExist(err) != c.removed {
+				t.Errorf("after down, %s: %v; want it removed: %v", d, err, c.removed)
+			}
+		})
+	}
+}
+
 // yardr-jd3w: a version probe (`claude --version`, what yardr doctor runs)
 // and a one-shot call (`claude -p`, what yardr doctor --try runs) start no
 // agent, so `down` leaves those starts out of what it reports: a trial's
@@ -551,13 +628,17 @@ func startSleeper(t *testing.T, home, owner string) int {
 }
 
 // ownerGoneFuse gives a loaded test process time to start its one-second
-// watch and run down; it keeps a broken watch from leaving the sleeper's
-// five-minute cap behind. watchdogStartFuse is longer because the first run
-// of a program built a moment ago can wait behind the machine's other first
-// runs. watchdogRunFuse bounds the status test, which intentionally retries
-// after two one-second answers.
+// watch and run a full down (herdr stop, the daemon's and the server's
+// stops, the sweeps with their five-second waits, the removal) while the
+// landing's other suites keep the machine busy. 15 s did not always cover
+// it, and a test that gives up with the watchdog's down still running leaves
+// its cleanup to race that down (yardr-b6x7). It still keeps a broken watch
+// from leaving the sleeper's five-minute cap behind. watchdogStartFuse is a
+// minute for another reason: the first run of a program built a moment ago
+// can wait behind the machine's other first runs. watchdogRunFuse bounds the
+// status test, which intentionally retries after two one-second answers.
 const (
-	ownerGoneFuse     = 15 * time.Second
+	ownerGoneFuse     = time.Minute
 	watchdogStartFuse = time.Minute
 	watchdogRunFuse   = time.Minute
 )
