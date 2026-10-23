@@ -28,8 +28,9 @@ func TestHarnessListAndShow(t *testing.T) {
 		return out
 	}
 	out := ask(0, "harness", "list")
-	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, background work, reported model, trust dialog,",
-		"codex     Codex        v1    pane marks, error lines, reported model, trust dialog, unattended flags, model flag, flags always passed,",
+	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, background work, reported model, context use, token count, trust dialog, onboarding screens answered, unattended flags,",
+		"codex     Codex        v1    pane marks, error lines, reported model, token count, trust dialog, unattended flags, model flag, flags always passed,",
+		"muse      Muse Code    v1    pane marks, error lines, login screen, background work, reported model, token count, trust dialog, unattended flags,",
 		"kimi      Kimi         v1    pane marks, error lines, dialogs told of, hints, trust dialog, trust environment, unattended flags,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
 		"No file, so started as herdr starts it and nothing more known: gemini, cursor,")
@@ -50,7 +51,11 @@ func TestHarnessListAndShow(t *testing.T) {
 		"one shot:   exec --skip-git-repo-check <prompt>", `permission "approve for me": --approve-for-me  (automatic review`,
 		"~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl: payload.model of the first line of type turn_context",
 		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)",
-		"Models it offers", "gpt-6-luna (GPT-6 Luna), recommended for a yardmaster", "gpt-6-astra (GPT-6 Astra)")
+		"Models it offers", "gpt-6-luna (GPT-6 Luna), recommended for a yardmaster", "gpt-6-astra (GPT-6 Astra)",
+		"Tokens a session used, counted once it has stopped\n  ~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl\n",
+		"  1. the last line whose payload.type is token_count that has numbers at payload.info.total_token_usage\n",
+		"     counts: input input_tokens (includes the cache read), output output_tokens, cache read cached_input_tokens, cache write cache_write_input_tokens\n",
+		"     time:   from timestamp, RFC 3339 when a string or Unix time in seconds\n")
 	wantText(t, ask(0, "harness", "show", "kimi"), "trust: yardr answers its folder-trust dialog",
 		"trust environment (automatic only): KIMI_CODE_TRUST_WORKSPACE",
 		"after the box's edge: │", "a message it took:    ✨",
@@ -60,8 +65,13 @@ func TestHarnessListAndShow(t *testing.T) {
 		"What it adds to a hint of yardr's",
 		"reset (a prompt at a usage limit's reset that it has not taken): Kimi asks what to do with a session that sat idle,")
 	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") || strings.Contains(out, "adds to a hint") ||
-		strings.Contains(out, "Login screen") || strings.Contains(out, "Background work") {
-		t.Errorf("show codex lists dialogs, hints, a login screen or background work, and its file has none:\n%s", out)
+		strings.Contains(out, "Login screen") || strings.Contains(out, "Background work") ||
+		strings.Contains(out, "The context its agent holds") || strings.Contains(out, "First-start screens") {
+		t.Errorf("show codex lists dialogs, hints, a login screen, background work, a context use or first-start screens, and its file has none:\n%s", out)
+	}
+	if out := ask(0, "harness", "show", "kimi"); strings.Contains(out, "The context its agent holds") ||
+		strings.Contains(out, "Tokens a session used") || strings.Contains(out, "First-start screens") {
+		t.Errorf("show kimi lists a context use, a token count or first-start screens, and its file has none:\n%s", out)
 	}
 	wantText(t, ask(0, "harness", "show", "claude"), "trust: yardr answers its folder-trust dialog",
 		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
@@ -70,6 +80,23 @@ func TestHarnessListAndShow(t *testing.T) {
 		`   · \d+ shells? still running$`,
 		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
 		`auto_mode_setup  ^Teach auto mode about your environment\?`)
+	// Claude's file names a context, two entries of usage and two onboarding
+	// screens: each is printed in the order the file has it, with what yardr
+	// does with it.
+	wantText(t, ask(0, "harness", "show", "claude"),
+		"The context its agent holds: a crew member is asked for a handoff at its --context-handoff percent of the window\n"+
+			"  ~/.claude (or $CLAUDE_CONFIG_DIR)/projects/*/{session}.jsonl: input_tokens + cache_read_input_tokens + cache_creation_input_tokens at message.usage of the last line of type assistant that has any of them\n",
+		"Tokens a session used, counted once it has stopped: the first entry that finds a line is the reading\n"+
+			"  ~/.claude (or $CLAUDE_CONFIG_DIR)/projects/*/{session}.jsonl\n"+
+			"  1. the last line of type cost-state that has numbers at modelUsage.* (the * adds up every key there)\n"+
+			"     counts: input inputTokens, output outputTokens, cache read cacheReadInputTokens, cache write cacheCreationInputTokens\n"+
+			"     time:   none of its own, so a count that stops at a time leaves it out\n"+
+			"  2. every line of type assistant that has numbers at message.usage, the last for each message.id, added up (partial: it reads short of what the session used)\n"+
+			"     counts: input input_tokens, output output_tokens, cache read cache_read_input_tokens, cache write cache_creation_input_tokens\n"+
+			"     time:   from timestamp, RFC 3339 when a string or Unix time in seconds\n",
+		"First-start screens, drawn in a fresh home before any login or input: yardr answers each once, in turn\n"+
+			`  "Choose the text style": the cursor ❯ is moved onto "✔ Dark mode", then Enter`+"\n"+
+			`  "Security notes:": Enter, once "Press Enter to continue…" shows`+"\n")
 	var shown agents.Harness
 	showJSON := ask(0, "harness", "show", "kimi", "--json")
 	if err := json.Unmarshal([]byte(showJSON), &shown); err != nil ||
@@ -95,7 +122,10 @@ func TestHarnessListAndShow(t *testing.T) {
 		"Login screen, drawn in place of its input: told of at once (nudge_held), never typed into",
 		"  ^(Log in with browser|Set an API key)", "  ^↓↑ to select · Esc to quit",
 		"other   ^model failed:",
-		"muse-spark-1.3-contributor (Spark 1.3 Contributor), recommended for a yardmaster", "muse-wonder-1.0 (Wonder 1.0)")
+		"muse-spark-1.3-contributor (Spark 1.3 Contributor), recommended for a yardmaster", "muse-wonder-1.0 (Wonder 1.0)",
+		"  1. every line whose payload.event.kind is goal_usage_attribution that has numbers at payload.event.record.quantity, added up\n",
+		"     counts: input input_tokens (includes the cache read), output output_tokens, cache read cached_tokens, cache write none (reads as 0)\n",
+		"     time:   from recorded_at, RFC 3339 when a string or Unix time in microseconds\n")
 	wantText(t, ask(0, "harness", "show", "kiro"), "kiro  Kiro, by AWS  (harnesses/kiro.yaml, version 1)",
 		"get it: curl -fsSL https://cli.kiro.dev/install | bash (https://kiro.dev/cli)",
 		"trust: yardr answers no dialog of it", "input begins with:    ›", "a message it took:    no mark known",
@@ -126,6 +156,75 @@ func TestHarnessListAndShow(t *testing.T) {
 	shown = agents.Harness{}
 	if err := json.Unmarshal([]byte(ask(0, "harness", "show", "kimi", "--json")), &shown); err != nil || shown.Fetch != nil {
 		t.Fatalf("show kimi --json: %v, fetch %+v", err, shown.Fetch)
+	}
+
+	// The text says everything the file says (docs/groups.md): each top-level
+	// key --json prints for a kind has its words in the text. A key the
+	// files gain later and the text has no section for fails here, naming
+	// the key, so no key goes unprinted as context, usage and onboarding did
+	// (yardr-x394).
+	said := map[string]string{
+		"kind": "(harnesses/", "version": ", version ", "label": "(harnesses/", "provider": ", by ",
+		"aliases": "also asked for as: ", "install": "get it: ", "fetch": "on a Mac without a terminal: version ",
+		"trust": "trust: yardr answers", "marks": "Marks its pane is read by", "flags": "Flags\n",
+		"offers": "Models it offers", "model": "The model its agent reports", "context": "The context its agent holds",
+		"usage": "Tokens a session used", "errors": "Error lines it stops on", "dialogs": "Dialogs it draws",
+		"login": "Login screen", "login_recipe": "Login led by a program", "login_env": "API key it runs with",
+		"api_key": "Use-this-API-key dialog", "onboarding": "First-start screens", "background": "Background work",
+		"hints": "What it adds to a hint",
+	}
+	for _, h := range agents.Harnesses {
+		var keys map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(ask(0, "harness", "show", h.Kind, "--json")), &keys); err != nil {
+			t.Fatalf("show %s --json: %v", h.Kind, err)
+		}
+		text := ask(0, "harness", "show", h.Kind)
+		for key := range keys {
+			if words, ok := said[key]; !ok {
+				t.Errorf("show %s --json prints %q and the text has no section for it: print one in printHarness, then add its words to said", h.Kind, key)
+			} else if !strings.Contains(text, words) {
+				t.Errorf("show %s --json prints %q and the text lacks %q:\n%s", h.Kind, key, words, text)
+			}
+		}
+	}
+
+	// A synthetic file covers shapes the embedded harnesses do not: an
+	// explicit context token list and type key, usage times in milliseconds
+	// and seconds, an entry with no type, and multiple accepted answers.
+	h := agents.Harness{
+		Kind: "synthetic", Label: "Synthetic", Version: 1,
+		Model:   &agents.ModelSource{Home: ".syn", Glob: "s/{session}.jsonl", Field: "model"},
+		Context: &agents.ContextSource{Type: "turn", TypeField: "kind", Usage: "info", Tokens: []string{"prompt", "cached"}},
+		Usage: []agents.UsageSource{
+			{Usage: "totals", Input: "in", At: "at", AtUnit: "ms"},
+			{Type: "done", Usage: "totals", Read: "sum", Output: "out", At: "at", AtUnit: "s"},
+		},
+		Onboarding: []agents.Trust{{Dialog: "Pick one", Answers: []string{"Yes", "Sure"}, Cursor: ">"}},
+	}
+	var synthetic bytes.Buffer
+	printHarness(&synthetic, h, true)
+	wantText(t, synthetic.String(),
+		"The context its agent holds: a crew member is asked for a handoff at its --context-handoff percent of the window\n"+
+			"  ~/.syn/s/{session}.jsonl: prompt + cached at info of the last line whose kind is turn that has any of them\n",
+		"Tokens a session used, counted once it has stopped: the first entry that finds a line is the reading\n"+
+			"  ~/.syn/s/{session}.jsonl\n"+
+			"  1. the last line that has numbers at totals\n"+
+			"     counts: input in, output none (reads as 0), cache read none (reads as 0), cache write none (reads as 0)\n"+
+			"     time:   from at, RFC 3339 when a string or Unix time in milliseconds\n"+
+			"  2. every line of type done that has numbers at totals, added up\n"+
+			"     counts: input none (reads as 0), output out, cache read none (reads as 0), cache write none (reads as 0)\n"+
+			"     time:   from at, RFC 3339 when a string or Unix time in seconds\n",
+		"First-start screens, drawn in a fresh home before any login or input: yardr answers each once, in turn\n"+
+			`  "Pick one": the cursor > is moved onto "Yes" or "Sure", then Enter`+"\n")
+
+	// A file with none of the three prints none of their headings.
+	h.Context, h.Usage, h.Onboarding = nil, nil, nil
+	synthetic.Reset()
+	printHarness(&synthetic, h, true)
+	for _, heading := range []string{"The context its agent holds", "Tokens a session used", "First-start screens"} {
+		if strings.Contains(synthetic.String(), heading) {
+			t.Errorf("a file with no context, usage or onboarding prints %q:\n%s", heading, synthetic.String())
+		}
 	}
 
 	wantText(t, ask(0, "harness", "show", "cursor"), "cursor: no harness file in this build of yardr.")

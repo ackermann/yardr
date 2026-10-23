@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,9 +25,10 @@ file per kind, built into yardr: the marks its pane is read by, the error
 lines it stops on, the questions and the login screen it draws in place of
 its input, what it adds to a hint of yardr's, the flags yardr starts it
 with or offers, the models it suggests a person pick, where the model its
-agent reports is read, whether yardr answers its folder-trust dialog, the
-login command a program can lead its login by, and the API key it runs
-with. list and show print the
+agent reports is read, where the context it holds and the tokens it used
+are read, whether yardr answers its folder-trust dialog and its
+first-start screens, the login command a program can lead its login by,
+and the API key it runs with. list and show print the
 files this build of yardr runs on;
 login leads a kind's login for a program.
 
@@ -87,8 +89,11 @@ func harnessKnown(h agents.Harness) []string {
 	add(len(h.Background) > 0, "background work")
 	add(h.Hints != (agents.Hints{}), "hints")
 	add(h.Model != nil, "reported model")
+	add(h.Context != nil, "context use")
+	add(len(h.Usage) > 0, "token count")
 	add(h.Trust != nil, "trust dialog")
 	add(h.Trust != nil && len(h.Trust.Env) > 0, "trust environment")
+	add(len(h.Onboarding) > 0, "onboarding screens answered")
 	add(len(h.Flags.Unattended) > 0, "unattended flags")
 	add(h.Flags.Model != "", "model flag")
 	add(len(h.Flags.Always) > 0, "flags always passed")
@@ -112,6 +117,78 @@ func envKeys(env []string) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// sessionFiles names where a kind's agent keeps the session files that its
+// model, context use and tokens are read from: the directory (moved by the
+// variable the file names, if it names one) and the glob that finds the
+// session's file in it.
+func sessionFiles(m *agents.ModelSource) string {
+	dir := "~/" + m.Home
+	if m.HomeEnv != "" {
+		dir += " (or $" + m.HomeEnv + ")"
+	}
+	return dir + "/" + m.Glob
+}
+
+// lineOf names a line of a session file by its type: any line for no type,
+// and by the key typeField where the type is not under "type".
+func lineOf(typ, typeField string) string {
+	switch {
+	case typ == "":
+		return "line"
+	case typeField != "" && typeField != "type":
+		return "line whose " + typeField + " is " + typ
+	}
+	return "line of type " + typ
+}
+
+// atUnits are the words for the units a usage entry's at_unit names.
+var atUnits = map[string]string{"s": "seconds", "ms": "milliseconds", "us": "microseconds"}
+
+// usageEntry says what one entry of a kind's usage reads: in lines, which
+// lines of the session file it takes and how they add up; in counts, the
+// field each of the four counts is read from, and in at, where a line's time
+// is. A count the entry names no field for reads as 0, and an entry that
+// names no time for its lines is left out of a count that stops at a time
+// (usageEntries in internal/runner/usage.go).
+func usageEntry(u agents.UsageSource) (lines, counts, at string) {
+	numbers := " that has numbers at " + u.Usage
+	if slices.Contains(strings.Split(u.Usage, "."), "*") {
+		numbers += " (the * adds up every key there)"
+	}
+	line := lineOf(u.Type, u.TypeField)
+	switch {
+	case u.Read == "sum" && u.Key != "":
+		lines = "every " + line + numbers + ", the last for each " + u.Key + ", added up"
+	case u.Read == "sum":
+		lines = "every " + line + numbers + ", added up"
+	default:
+		lines = "the last " + line + numbers
+	}
+	if u.Partial {
+		lines += " (partial: it reads short of what the session used)"
+	}
+	count := func(label, field string) string {
+		if field == "" {
+			return label + " none (reads as 0)"
+		}
+		return label + " " + field
+	}
+	input := count("input", u.Input)
+	if u.CacheInInput {
+		input += " (includes the cache read)"
+	}
+	counts = strings.Join([]string{input, count("output", u.Output), count("cache read", u.CacheRead), count("cache write", u.CacheWrite)}, ", ")
+	switch {
+	case u.At == "":
+		at = "none of its own, so a count that stops at a time leaves it out"
+	case u.AtUnit != "":
+		at = "from " + u.At + ", RFC 3339 when a string or Unix time in " + atUnits[u.AtUnit]
+	default:
+		at = "from " + u.At + ", RFC 3339 when a string or Unix time in seconds"
+	}
+	return lines, counts, at
 }
 
 // printHarness prints h as yardr harness show does; has is whether its kind
@@ -207,18 +284,30 @@ func printHarness(w io.Writer, h agents.Harness, has bool) {
 	if m := h.Model; m == nil {
 		fmt.Fprintln(w, "  no source known: nothing is recorded and nothing compared")
 	} else {
-		dir := "~/" + m.Home
-		if m.HomeEnv != "" {
-			dir += " (or $" + m.HomeEnv + ")"
+		fmt.Fprintf(w, "  %s: %s of the first %s that names one\n", sessionFiles(m), m.Field, lineOf(m.Type, m.TypeField))
+	}
+	// The loader refuses a context or usage with no model source, so the
+	// file they are read from is the model's.
+	if c := h.Context; c != nil {
+		tokens := c.Tokens
+		if len(tokens) == 0 {
+			tokens = agents.DefaultContextTokens
 		}
-		line := "first line"
-		if m.Type != "" {
-			line = "first line of type " + m.Type
-			if m.TypeField != "" && m.TypeField != "type" {
-				line = "first line whose " + m.TypeField + " is " + m.Type
-			}
+		fmt.Fprintln(w, "\nThe context its agent holds: a crew member is asked for a handoff at its --context-handoff percent of the window")
+		fmt.Fprintf(w, "  %s: %s at %s of the last %s that has any of them\n",
+			sessionFiles(h.Model), strings.Join(tokens, " + "), c.Usage, lineOf(c.Type, c.TypeField))
+	}
+	if len(h.Usage) > 0 {
+		head := "\nTokens a session used, counted once it has stopped"
+		if len(h.Usage) > 1 {
+			head += ": the first entry that finds a line is the reading"
 		}
-		fmt.Fprintf(w, "  %s/%s: %s of the %s that names one\n", dir, m.Glob, m.Field, line)
+		fmt.Fprintln(w, head)
+		fmt.Fprintf(w, "  %s\n", sessionFiles(h.Model))
+		for i, u := range h.Usage {
+			lines, counts, at := usageEntry(u)
+			fmt.Fprintf(w, "  %d. %s\n     counts: %s\n     time:   %s\n", i+1, lines, counts, at)
+		}
 	}
 	fmt.Fprintln(w, "\nError lines it stops on, in the order they are tried")
 	if len(h.Errors) == 0 {
@@ -263,6 +352,21 @@ func printHarness(w io.Writer, h agents.Harness, has bool) {
 	}
 	if k := h.ApiKey; k != nil {
 		fmt.Fprintf(w, "\nUse-this-API-key dialog, drawn with no login: yardr answers %q with %s\n", k.Dialog, strings.Join(k.Answers, ", "))
+	}
+	if len(h.Onboarding) > 0 {
+		fmt.Fprintln(w, "\nFirst-start screens, drawn in a fresh home before any login or input: yardr answers each once, in turn")
+		for _, o := range h.Onboarding {
+			shown := make([]string, len(o.Answers))
+			for i, a := range o.Answers {
+				shown[i] = fmt.Sprintf("%q", a)
+			}
+			answers := strings.Join(shown, " or ")
+			if o.Cursor == "" {
+				fmt.Fprintf(w, "  %q: Enter, once %s shows\n", o.Dialog, answers)
+			} else {
+				fmt.Fprintf(w, "  %q: the cursor %s is moved onto %s, then Enter\n", o.Dialog, o.Cursor, answers)
+			}
+		}
 	}
 	if len(h.Background) > 0 {
 		fmt.Fprintln(w, "\nBackground work of its agent, drawn around its input: not idle to the idle limit while it shows")
