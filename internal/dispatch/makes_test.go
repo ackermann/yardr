@@ -227,6 +227,75 @@ func TestClosedBeadDoesNotStopANewOne(t *testing.T) {
 	if b := r.made(t, issue23); b.ID != second.ID {
 		t.Fatalf("a restart made %s beside %s", b.ID, second.ID)
 	}
+	t.Run("close and reopen before one pass", testReopenedIssueInOnePassStartsAFreshBead)
+	t.Run("manual reclose uses its own time", testManualRecloseAfterEventCloseUsesCloseTime)
+}
+
+// An issue closed and reopened before the pass that reads either has a
+// bead again, as when a pass runs between the two (above): the close ends
+// the old bead, and the reopen, later in the log, makes the next.
+func testReopenedIssueInOnePassStartsAFreshBead(t *testing.T) {
+	t.Helper()
+	r := newMakingDepot(t, contributorMakes...)
+	ctx := context.Background()
+	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
+	r.pass(t)
+	first := r.made(t, issue23)
+
+	r.deliverAs(t, "gh", "issues", "issues_closed", nil)
+	r.deliverAs(t, "gh", "issues", "issues_opened", func(s string) string {
+		return strings.Replace(s, `"action": "opened"`, `"action": "reopened"`, 1)
+	})
+	r.pass(t)
+
+	if got := r.bead(t, first.ID); got.Status != "closed" || got.Stage != "closed" {
+		t.Fatalf("%s after the close: %s in %s, want it closed", first.ID, got.Status, got.Stage)
+	}
+	second := r.made(t, issue23)
+	if second.ID == first.ID || second.Status != "open" || second.Stage != "triage" {
+		t.Fatalf("after the issue was closed and opened again in one pass: %s (%s, %s), want a new open bead in triage", second.ID, second.Status, second.Stage)
+	}
+	if _, relates := r.tracking(t, issue23); len(relates) != 1 || relates[0] != first.ID {
+		t.Fatalf("beads relating to %s: %v, want the closed %s", issue23, relates, first.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 || open[0].ID != second.ID {
+		t.Fatalf("open beads %v (%v), want %s alone", open, err, second.ID)
+	}
+}
+
+// A hand close after reopening a stream-closed bead is judged by its time,
+// not the seq of the older close, when the dispatcher reads a queued event.
+func testManualRecloseAfterEventCloseUsesCloseTime(t *testing.T) {
+	t.Helper()
+	r := newMakingDepot(t, contributorMakes...)
+	ctx := context.Background()
+	r.deliverAs(t, "gh", "issues", "issues_opened", nil)
+	r.pass(t)
+	bead := r.made(t, issue23)
+
+	r.deliverAs(t, "gh", "issues", "issues_closed", nil)
+	r.pass(t)
+	if r.bead(t, bead.ID).Metadata["close_seq"] == nil {
+		t.Fatalf("%s has no close_seq after the stream close", bead.ID)
+	}
+	_, err := r.api.Reopen(ctx, bead.ID, store.Expect{}, "me")
+	must(t, err)
+	if got := r.bead(t, bead.ID).Metadata["close_seq"]; got != nil {
+		t.Fatalf("%s retained close_seq after reopen: %v", bead.ID, got)
+	}
+	r.deliverAs(t, "gh", "issues", "issues_opened", func(s string) string {
+		return strings.Replace(s, `"action": "opened"`, `"action": "reopened"`, 1)
+	})
+	_, err = r.api.CloseBead(ctx, bead.ID, "not ours", store.Expect{}, "me")
+	must(t, err)
+	r.pass(t)
+
+	if got := r.made(t, issue23); got.ID != bead.ID || got.Status != "closed" {
+		t.Fatalf("after the queued reopen: tracking bead is %s (%s), want closed %s only", got.ID, got.Status, bead.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 0 {
+		t.Fatalf("open beads after the hand close: %d (%v), want none", len(open), err)
+	}
 }
 
 // A draft pull request that is marked ready comes as two events the line

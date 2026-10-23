@@ -149,10 +149,12 @@ func (d *Dispatcher) makesFrom(ctx context.Context, hook string) (uint64, error)
 }
 
 // closedSince reports whether a bead that tracks ev's thread was closed
-// after ev: the event was that bead's. A thread whose links cannot be read
-// is taken to be one, so that nothing is made on what is not known. decl
-// is the yard's declared source of the event's source, nil for a builtin
-// one.
+// after ev: the event was that bead's. A bead an event's move closed is
+// judged by seq, since the pass runs after whatever it reads; a bead
+// closed by hand, which carries no close_seq, by time. A thread whose
+// links cannot be read is taken to be one, so that nothing is made on what
+// is not known. decl is the yard's declared source of the event's source,
+// nil for a builtin one.
 func (d *Dispatcher) closedSince(ctx context.Context, ev ruleEvent, decl *source.Declaration) bool {
 	for _, url := range []string{ev.threadURL, hooks.ThreadAlias(ev.source, decl, ev.threadURL)} {
 		if url == "" {
@@ -172,7 +174,17 @@ func (d *Dispatcher) closedSince(ctx context.Context, ev ruleEvent, decl *source
 				d.Log.Warn("hook event: reading the tracking bead", "bead", l.Bead, "err", err)
 				return true
 			}
-			if b.ClosedAt != nil && !ev.at.After(*b.ClosedAt) {
+			if b.ClosedAt == nil {
+				continue
+			}
+			if seq := metaSeq(b.Metadata[metaCloseSeq]); seq != 0 {
+				// Ended by a stream event, which ran after ev was recorded
+				// whenever the pass read both: an event at or before it was
+				// that bead's.
+				if ev.seq <= seq {
+					return true
+				}
+			} else if !ev.at.After(*b.ClosedAt) {
 				return true
 			}
 		}

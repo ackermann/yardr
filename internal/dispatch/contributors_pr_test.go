@@ -682,6 +682,68 @@ func TestContributorsReopenedPullRequestStartsAFreshBead(t *testing.T) {
 	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 {
 		t.Fatalf("open beads after a restart: %d (%v), want one", len(open), err)
 	}
+	t.Run("close and reopen before one pass", testContributorsReopenedPullRequestInOnePassStartsAFreshBead)
+}
+
+// A pull request closed and reopened before the pass that reads either has
+// a bead again, as when a pass runs between the two events (above): the
+// close ends the old bead, and the reopen, later in the log, makes the
+// next, which starts clean. Judging the reopen against when the pass ran
+// would take it for an event from before the close and make nothing.
+func testContributorsReopenedPullRequestInOnePassStartsAFreshBead(t *testing.T) {
+	t.Helper()
+	r := newContributorsYard(t)
+	ctx := context.Background()
+	const url = "https://github.com/acme/yardr/pull/62"
+	bot := prEvent(62, "dependabot[bot]", "Bot")
+
+	r.deliverJSON(t, "pull_request", "pull_request_opened", bot)
+	old := r.madeIn(t, 62, "review")
+
+	// Closed and reopened while the dispatcher is busy or down: one pass
+	// reads both.
+	r.deliverJSON(t, "pull_request", "pull_request_closed_unmerged", bot)
+	r.deliverJSON(t, "pull_request", "pull_request_reopened", bot)
+	r.pass(t)
+
+	ended := r.bead(t, old.ID)
+	if ended.Stage != "closed" || ended.Status != "closed" {
+		t.Fatalf("%s after the close: %s (%s), want it closed", old.ID, ended.Stage, ended.Status)
+	}
+	fresh := r.made(t, url)
+	if fresh.ID == old.ID || fresh.Type != "pr" || fresh.Stage != "review" || fresh.Status != "open" {
+		t.Fatalf("tracking %s: %s (%s, %s, %s) beside %s, want a new open pr in review", url, fresh.ID, fresh.Type, fresh.Stage, fresh.Status, old.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 || open[0].ID != fresh.ID {
+		t.Fatalf("open beads %v (%v), want %s alone", open, err, fresh.ID)
+	}
+	if _, relates := r.tracking(t, url); !slices.Equal(relates, []string{old.ID}) {
+		t.Fatalf("beads relating to %s: %v, want the closed %s", url, relates, old.ID)
+	}
+	freshNotes, err := r.api.Notes(ctx, fresh.ID)
+	must(t, err)
+	if len(fresh.Labels) != 0 || len(freshNotes) != 0 || !slices.Equal(slices.Sorted(maps.Keys(fresh.Metadata)), []string{"hook_seq"}) {
+		t.Fatalf("%s starts with labels %v, metadata %v and %d notes, want none but the event that made it", fresh.ID, fresh.Labels, fresh.Metadata, len(freshNotes))
+	}
+	wantRules(t, r.rules(t, fresh.ID), "pull_request made "+fresh.ID)
+
+	// The reopen logged nothing on the old bead, and the close recorded
+	// its seq there, which the reopen was judged against.
+	wantRules(t, r.rules(t, old.ID), "pull_request made "+old.ID, "dropped review -> closed")
+	if ended.Metadata["close_seq"] == nil {
+		t.Fatalf("%s carries no close_seq after its event closed it: %v", old.ID, ended.Metadata)
+	}
+
+	// A daemon that starts again reads the log from the start, the close
+	// among it, and makes and moves nothing.
+	again := &dispatch.Dispatcher{Store: r.api, Runners: r.d.Runners, PRHead: r.d.PRHead, CI: r.d.CI, DepotRepo: r.d.DepotRepo}
+	must(t, again.Reconcile(ctx))
+	if b := r.made(t, url); b.ID != fresh.ID || b.Stage != "review" || b.Status != "open" {
+		t.Fatalf("after a restart %s tracks %s: %s (%s), want %s open in review", url, b.ID, b.Stage, b.Status, fresh.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 {
+		t.Fatalf("open beads after a restart: %d (%v), want one", len(open), err)
+	}
 }
 
 // Who skips the maintainer, through the normalizing a yard does: the pull

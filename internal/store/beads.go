@@ -2289,6 +2289,9 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 				return "", nil, err
 			}
 			b.Status, b.CloseReason, b.ClosedAt = "open", nil, nil
+			// A dispatcher close cursor belongs to the close being reopened;
+			// a later hand close must use its own time, not that old event seq.
+			delete(b.Metadata, "close_seq")
 			b.StayStart = now()
 			b.StayClaimAt, b.StayClaimGroup, b.StayClaimSession = nil, "", ""
 			b.Visited = AppendVisited(b.Visited, b.Stage)

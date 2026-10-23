@@ -59,6 +59,10 @@ import (
 const (
 	// metaHookSeq is the seq of the last hook event judged for the bead.
 	metaHookSeq = "hook_seq"
+	// metaCloseSeq is the seq of the hook event whose move closed the
+	// bead, which a later event about its thread is judged against
+	// (makes.go). A bead closed by hand carries none.
+	metaCloseSeq = "close_seq"
 	// metaPRHead is the head commit of the train's pull request as the last
 	// pull_request (or review) event for it gave it: what CI must have run
 	// on for its conclusion to count.
@@ -364,6 +368,12 @@ func (d *Dispatcher) hookEvent(ctx context.Context, ev ruleEvent, pass *hookPass
 		d.logSaid(ctx, bead, h.Name, ev.data, line, *res, map[string]any{"sha": ev.sha, "seq": ev.seq})
 	}
 	meta := map[string]any{metaHookSeq: ev.seq}
+	if res != nil && res.closed {
+		// The move returned the bead closed: record its seq, so a later
+		// event about the thread is judged against the close, not when
+		// this pass ran.
+		meta[metaCloseSeq] = ev.seq
+	}
 	if head && ev.sha != "" && elsewhere == "" {
 		meta[metaPRHead] = ev.sha
 	}
@@ -424,7 +434,7 @@ func (d *Dispatcher) report(ctx context.Context, bead *store.Bead, h *store.Hook
 	if err != nil {
 		return &ruleResult{refused: err.Error()}
 	}
-	return did("%s -> %s", bead.Stage, moved.Stage)
+	return &ruleResult{action: fmt.Sprintf("%s -> %s", bead.Stage, moved.Stage), closed: moved.Status == "closed"}
 }
 
 // sayNote is the note a move made for an event adds: the line's own words
@@ -559,6 +569,7 @@ func metaString(v any) string {
 type ruleResult struct {
 	action, refused, ignored string
 	err                      error
+	closed                   bool // the event's successful move closed the bead
 }
 
 func did(format string, args ...any) *ruleResult {
