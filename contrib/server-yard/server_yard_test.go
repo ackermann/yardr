@@ -7,13 +7,17 @@
 // answer what a setup asks), the harness, systemctl, loginctl and, on
 // macOS, launchctl, with HOME, XDG_CONFIG_HOME and YARDR_HOME in a temp
 // dir. The systemctl and launchctl stand-ins model the manager starting a
-// unit: herdr's server and the daemon really start; the web view's unit is
-// only marked, since starting it would bind 127.0.0.1:8791.
+// unit: herdr's server and the daemon really start (the daemon late, or
+// not at all, where a test says so); the web view's unit is only marked,
+// since starting it would bind 127.0.0.1:8791.
 package serveryard
 
 import (
+	"bufio"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -151,6 +155,15 @@ func (y *yard) run(t *testing.T, args ...string) (string, error) {
 // nothing the script starts may read.
 func (y *yard) runWith(t *testing.T, env []string, args ...string) (string, error) {
 	t.Helper()
+	return y.runSaying(t, env, "", nil, args...)
+}
+
+// runSaying is runWith, and when the script prints a line holding say it
+// calls then, once: a test that must act on what the script is doing, not on
+// how long it has taken, as when the daemon the script waits for is held
+// back until the script says it is waiting.
+func (y *yard) runSaying(t *testing.T, env []string, say string, then func(), args ...string) (string, error) {
+	t.Helper()
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -158,8 +171,30 @@ func (y *yard) runWith(t *testing.T, env []string, args ...string) (string, erro
 	cmd := exec.Command(filepath.Join(root, "contrib/server-yard/server-yard"), args...)
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader("y\n")
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	cmd.Stdout, cmd.Stderr = w, w // one pipe, as CombinedOutput has
+	err = cmd.Start()
+	w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	for br := bufio.NewReader(r); ; {
+		line, err := br.ReadString('\n')
+		out.WriteString(line)
+		if then != nil && strings.Contains(line, say) {
+			then()
+			then = nil
+		}
+		if err != nil {
+			break
+		}
+	}
+	return out.String(), cmd.Wait()
 }
 
 // cli runs the yard's yardr with args.
@@ -272,6 +307,35 @@ func (y *yard) told(t *testing.T, marks map[string]int) []string {
 	return told
 }
 
+// holdDaemon has the stand-in managers hold the daemon back once they have
+// loaded its unit, as a manager does that returns before its process runs:
+// the daemon starts when releaseDaemon is called, and never if it is not.
+// Which manager loads the unit depends on the system the test runs on
+// (systemctl on Linux, launchctl on macOS, where yardr writes launchd
+// agents), so both are told and the one that is called reads it.
+func (y *yard) holdDaemon(t *testing.T) {
+	t.Helper()
+	for _, who := range []string{"systemctl", "launchctl"} {
+		if err := os.WriteFile(filepath.Join(y.state, who, "start-hold"), []byte("the test holds the daemon back\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// releaseDaemon lets a daemon held back by holdDaemon start. It renames the
+// hold to start-released, which is what the stand-ins start the daemon for:
+// a hold that only goes, as it does when the yard's directory is removed at
+// the end of a test, starts none.
+func (y *yard) releaseDaemon(t *testing.T) {
+	t.Helper()
+	for _, who := range []string{"systemctl", "launchctl"} {
+		dir := filepath.Join(y.state, who)
+		if err := os.Rename(filepath.Join(dir, "start-hold"), filepath.Join(dir, "start-released")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // serviceFile is the daemon's or the web view's service file, as yardr
 // wrote it on this system.
 func (y *yard) serviceFile(t *testing.T, kind string) string {
@@ -366,9 +430,11 @@ var notAmongTheNine = []string{"ALL_PROXY=socks5://proxy.example:1080", "CURL_CA
 // TestServerYardSetsUpAYard runs the script once: herdr's unit is written
 // and its server runs, linger is on, the yard is created with its
 // yardmaster up, the daemon and the web view are installed as login
-// services, and doctor ends the run with no fault. The box is behind an
-// egress proxy, so the unit carries the PATH and the nine variables of the
-// script's environment, and a run in which one has changed writes it again.
+// services, and doctor ends the run with no fault, though the manager
+// starts the daemon only after its install has returned. The box is behind
+// an egress proxy, so the unit carries the PATH and the nine variables of
+// the script's environment, and a run in which one has changed writes it
+// again.
 func TestServerYardSetsUpAYard(t *testing.T) {
 	y := build(t)
 	var egress, egressLines []string
@@ -377,7 +443,13 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 		egressLines = append(egressLines, v.line)
 	}
 	proxied := withEnv(y.env, slices.Concat(egress, notAmongTheNine)...)
-	out, err := y.runWith(t, proxied, "--harness", "claude", "--operator", "jo")
+	// A manager returns from loading a unit before the process runs. The
+	// daemon the service starts is not up until the script says it is
+	// waiting for it, so that a script that asked doctor at once would find
+	// none, however fast or slow the machine is.
+	y.holdDaemon(t)
+	out, err := y.runSaying(t, proxied, "waiting for the daemon to come up", func() { y.releaseDaemon(t) },
+		"--harness", "claude", "--operator", "jo")
 	if err != nil {
 		t.Fatalf("server-yard: %v\n%s", err, out)
 	}
@@ -419,7 +491,9 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 	mustContain(t, string(agents), "kind=claude")
 
 	// The daemon install stopped the daemon init started, and the
-	// stand-in manager started the service's own, which doctor sees.
+	// stand-in manager started the service's own, late: the script waited
+	// for it, so doctor sees it.
+	mustContain(t, out, "waiting for the daemon to come up")
 	stopped := regexp.MustCompile(`\(pid ([0-9]+)\) is stopped`).FindStringSubmatch(out)
 	if stopped == nil {
 		t.Fatalf("daemon install stopped no daemon:\n%s", out)
@@ -607,9 +681,11 @@ func withEnv(env []string, set ...string) []string {
 // taken, as three of them could not be on the Debian server of the README's
 // run: the programs are in ~/.local/bin and the shell has no profile (ssh
 // host cmd), the account has no systemd user session (sudo -u), and linger is
-// refused (a server without polkit lets only root turn it on). Each stops
-// the script with exit status 1 and the way on, the first two before it
-// writes anything and the last before it creates the yard.
+// refused (a server without polkit lets only root turn it on); and where a
+// step is taken and does not hold, a daemon that its service manager loads
+// and never starts. Each stops the script with exit status 1 and the way on
+// and before doctor, the first two before it writes anything, the third
+// before it creates the yard and the last after.
 func TestServerYardStopsWithTheWayOn(t *testing.T) {
 	y := build(t)
 	unit := filepath.Join(y.config, "systemd", "user", "herdr.service")
@@ -620,12 +696,29 @@ func TestServerYardStopsWithTheWayOn(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The daemon wait's bound is checked before the script looks at the
+	// machine or writes anything. Exercise bad values in this same stop-path
+	// test; none should get as far as a service manager.
+	for _, bound := range []string{"soon", "5m", "-1", "1.5", "999999999999999999999999999999"} {
+		env := withEnv(y.env, "SERVER_YARD_DAEMON_WAIT="+bound)
+		out, err := y.runWith(t, env, "--harness", "claude", "--operator", "jo")
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 2 {
+			t.Errorf("bound %q: the script ended %v; want exit status 2\n%s", bound, err, out)
+		}
+		mustContain(t, out, "SERVER_YARD_DAEMON_WAIT must be a whole number of seconds from 0 to 999999999")
+		if len(y.calls(t, "systemctl")) != 0 || len(y.calls(t, "loginctl")) != 0 {
+			t.Errorf("bound %q: the script reached a service manager\n%s", bound, out)
+		}
+	}
 	noSession := filepath.Join(y.state, "systemctl", "no-session")
+	denied := filepath.Join(y.state, "loginctl", "denied")
 	cases := []struct {
 		name  string
 		setup func(t *testing.T) []string // the environment the script runs in
 		say   []string
 		wrote bool // herdr's unit is written before the script stops
+		yard  bool // the yard is created, and a daemon started, before it stops
 	}{
 		{
 			name: "programs in ~/.local/bin, a shell without a profile",
@@ -658,11 +751,27 @@ func TestServerYardStopsWithTheWayOn(t *testing.T) {
 				if err := os.Remove(noSession); err != nil {
 					t.Fatal(err)
 				}
-				touch(t, filepath.Join(y.state, "loginctl", "denied"))
+				touch(t, denied)
 				return y.env
 			},
 			say:   []string{"could not turn linger on for sy-test: as root, loginctl enable-linger sy-test, then run this again"},
 			wrote: true,
+		},
+		{
+			// The service loads and the daemon never runs, as for a unit whose
+			// process fails at once: the script says so after the bound, which
+			// two seconds shortens from a minute, and does not go on to doctor.
+			name: "a daemon the manager never starts",
+			setup: func(t *testing.T) []string {
+				if err := os.Remove(denied); err != nil {
+					t.Fatal(err)
+				}
+				y.holdDaemon(t)
+				return withEnv(y.env, "SERVER_YARD_DAEMON_WAIT=2")
+			},
+			say:   []string{"waiting for the daemon to come up (up to 2 s)", "the daemon did not come up in 2 s", "daemon   not running", "see <home>/daemon.log"},
+			wrote: true,
+			yard:  true,
 		},
 	}
 	for _, c := range cases {
@@ -673,11 +782,14 @@ func TestServerYardStopsWithTheWayOn(t *testing.T) {
 			t.Errorf("%s: the script ended %v; want exit status 1\n%s", c.name, err, out)
 		}
 		mustContain(t, out, c.say...)
+		if strings.Contains(out, "what is still missing") {
+			t.Errorf("%s: the script went on to doctor\n%s", c.name, out)
+		}
 		if _, err := os.Stat(unit); (err == nil) != c.wrote {
 			t.Errorf("%s: herdr.service written is %v, want %v\n%s", c.name, err == nil, c.wrote, out)
 		}
-		if _, err := os.Stat(filepath.Join(y.yardhome, "daemon.lock")); err == nil {
-			t.Errorf("%s: a daemon started, so the yard was created\n%s", c.name, out)
+		if _, err := os.Stat(filepath.Join(y.yardhome, "daemon.lock")); (err == nil) != c.yard {
+			t.Errorf("%s: a daemon started is %v, want %v\n%s", c.name, err == nil, c.yard, out)
 		}
 	}
 }
@@ -761,5 +873,121 @@ func TestFakeHerdrStopsWithItsOwner(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the stand-in kept running after its owner ended")
+	}
+}
+
+// waitFor polls cond until it holds. The minute is a fuse against a stand-in
+// that never gets there, not the measurement: the first run of a script
+// written a moment ago queues behind the machine's other first runs.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(time.Minute); !cond(); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+}
+
+// A stand-in manager that holds the daemon back starts it for a release and
+// for nothing else. The end of a test removes the yard's directory, which
+// unlinks start-hold a moment before the state dir it lies in; a daemon
+// started in that moment runs in a home that is being removed, and leaves
+// the home behind. So the hold going is not the release: the test renames it
+// to start-released (releaseDaemon), and a hold that only goes starts
+// nothing. The stand-ins run by themselves here, with a yardr that records
+// that it was started, since a yard's teardown cannot be made to hit that
+// moment on demand.
+func TestAHeldDaemonStartsOnlyForARelease(t *testing.T) {
+	t.Parallel()
+	fakes, err := filepath.Abs("fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := []struct {
+		name, stateVar string
+		load           []string // the call that loads the daemon's unit
+	}{
+		{"systemctl", "SYSTEMCTL_STATE", []string{"--user", "enable", "--now", "yardr-daemon-x.service"}},
+		{"launchctl", "LAUNCHCTL_STATE", []string{"bootstrap", "gui/501", "/x/dev.yardr.daemon.x.plist"}},
+	}
+	cases := []struct {
+		name   string
+		held   bool
+		lift   func(state string) error // what the test does to the hold, once the stand-in waits on it
+		starts bool
+	}{
+		{"no hold", false, nil, true},
+		{"released", true, func(state string) error {
+			return os.Rename(filepath.Join(state, "start-hold"), filepath.Join(state, "start-released"))
+		}, true},
+		{"only gone", true, func(state string) error { return os.Remove(filepath.Join(state, "start-hold")) }, false},
+	}
+	for _, k := range kinds {
+		for _, c := range cases {
+			t.Run(k.name+"/"+c.name, func(t *testing.T) {
+				t.Parallel()
+				dir := t.TempDir()
+				bin, state, started := filepath.Join(dir, "bin"), filepath.Join(dir, "state"), filepath.Join(dir, "started")
+				for _, d := range []string{bin, state} {
+					if err := os.MkdirAll(d, 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(bin, "yardr"), []byte("#!/bin/sh\necho \"$*\" >>\"$STARTED\"\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if c.held {
+					if err := os.WriteFile(filepath.Join(state, "start-hold"), nil, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				// The call returns at once and leaves the wait running; a
+				// stand-in that kept the call's pipes would hold it for the
+				// length of the wait. The wait, and the daemon it starts in
+				// its place, hold the pipe given to the call as file 3 until
+				// they end, so end-of-file on it is the moment when whether
+				// the daemon started can be said: a stand-in that said it
+				// would not, and then did, is caught.
+				r, w, err := os.Pipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Close()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, filepath.Join(fakes, k.name), k.load...)
+				cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", k.stateVar + "=" + state, "STARTED=" + started}
+				cmd.ExtraFiles = []*os.File{w}
+				out, err := cmd.CombinedOutput()
+				w.Close()
+				if err != nil {
+					t.Fatalf("%s %v: %v\n%s", k.name, k.load, err, out)
+				}
+				// The hold is lifted once the stand-in waits on it: lifted
+				// before its first look, it would be no hold at all.
+				if c.held {
+					waitFor(t, "the stand-in to hold the daemon back", func() bool {
+						b, _ := os.ReadFile(filepath.Join(state, "daemon.log"))
+						return strings.Contains(string(b), "held back")
+					})
+					if err := c.lift(state); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := r.SetReadDeadline(time.Now().Add(time.Minute)); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := io.Copy(io.Discard, r); err != nil {
+					t.Fatalf("the stand-in left a process running: %v", err)
+				}
+				if _, err := os.Stat(started); (err == nil) != c.starts {
+					t.Errorf("the daemon started is %v, want %v", err == nil, c.starts)
+				}
+				if !c.starts {
+					log, _ := os.ReadFile(filepath.Join(state, "daemon.log"))
+					mustContain(t, string(log), "is not started")
+				}
+			})
+		}
 	}
 }

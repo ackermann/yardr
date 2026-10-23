@@ -13,9 +13,37 @@ bootstrap)
   mkdir -p "$LAUNCHCTL_STATE/loaded"
   touch "$LAUNCHCTL_STATE/loaded/${name%.plist}"
   # As the manager would: the daemon really starts, detached. The web
-  # view's agent is only marked: starting it would bind 127.0.0.1:8791.
+  # view's agent is only marked: starting it would bind 127.0.0.1:8791. A
+  # manager returns before its process runs: while a file start-hold is in
+  # the state dir the daemon is not up yet, and starts when the test renames
+  # the file to start-released (a test that never does has a job that never
+  # starts).
   case "$name" in
-  dev.yardr.daemon.*) yardr daemon >>"$LAUNCHCTL_STATE/daemon.log" 2>&1 & ;;
+  dev.yardr.daemon.*)
+    # The redirection is the subshell's own, so that the pipes of the caller
+    # are not held open while it waits: the call must return at once. The
+    # hold ending is not the release: removing the state dir at the end of a
+    # test unlinks start-hold a moment before the dir, and a daemon started in
+    # that moment runs in a home that is being removed and leaves it behind.
+    # So the daemon starts only for a start-released, which is what the test
+    # renames the hold to, and the wait ends without one with the state dir or
+    # after a minute (a test that was killed).
+    (
+      if [ -f "$LAUNCHCTL_STATE/start-hold" ]; then
+        echo "fake launchctl: the daemon is held back until start-released"
+        i=0
+        while [ -f "$LAUNCHCTL_STATE/start-hold" ] && [ "$i" -lt 600 ]; do
+          i=$((i + 1))
+          sleep 0.1
+        done
+        [ -f "$LAUNCHCTL_STATE/start-released" ] || {
+          echo "fake launchctl: the hold ended without start-released; the daemon is not started"
+          exit 0
+        }
+      fi
+      exec yardr daemon
+    ) >>"$LAUNCHCTL_STATE/daemon.log" 2>&1 &
+    ;;
   esac
   ;;
 print)

@@ -24,6 +24,13 @@
 # status: 0 when doctor names no fault, 1 when it still lacks something
 # (on a fresh machine, the harness login).
 #
+# Doctor is asked once the daemon the service manager started holds its
+# lock: systemd returns from starting a unit before its process runs, and
+# on a slow machine doctor, asked at once, would find no daemon. The script
+# looks once a second, for up to SERVER_YARD_DAEMON_WAIT seconds (60 when
+# unset). A daemon that is not up by then is a failure, not a missing piece
+# like the login: the run ends there with exit status 1, naming the daemon.
+#
 # A second run with the same flags changes nothing: each step looks at what
 # is there first and says "already" where there is nothing to do. A changed
 # PATH, or proxy or CA variable, is written into herdr's unit again; it
@@ -57,6 +64,20 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$harness" ] && [ -n "$operator" ] || usage
+# The wait below compares this value as a shell integer. Keep it in the
+# signed range every POSIX shell supports, or an oversized number could make
+# the comparison fail on every poll.
+daemon_wait=${SERVER_YARD_DAEMON_WAIT:-60}
+case $daemon_wait in
+*[!0-9]*)
+  echo "server-yard: SERVER_YARD_DAEMON_WAIT must be a whole number of seconds from 0 to 999999999" >&2
+  exit 2
+  ;;
+esac
+if [ "${#daemon_wait}" -gt 9 ]; then
+  echo "server-yard: SERVER_YARD_DAEMON_WAIT must be a whole number of seconds from 0 to 999999999" >&2
+  exit 2
+fi
 : "${HOME:?HOME is not set}"
 user=${USER:-$(id -un)}
 
@@ -211,6 +232,12 @@ else
   exit 1
 fi
 
+# daemon_up is whether a daemon holds the yard's lock, as yardr daemon status
+# says; doctor judges the same lock.
+daemon_up() {
+  yardr daemon status 2>/dev/null | grep -q "^daemon  *running (pid "
+}
+
 # The yard, started. Without the harness login the yardmaster does not come
 # up, and that is the operator's next step, not the script's failure: what
 # matters here is the yard and its daemon, which starts the yardmaster once
@@ -230,7 +257,7 @@ fi
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
-  if yardr daemon status 2>/dev/null | grep -q "^daemon  *running (pid "; then
+  if daemon_up; then
     echo "server-yard: init --start did not see the yardmaster come up; going on: the daemon starts it once the harness is logged in"
   else
     echo "server-yard: init --start failed and no daemon runs; see above and <home>/daemon.log" >&2
@@ -250,6 +277,25 @@ if yardr web status 2>/dev/null | grep "^service " | grep -q "installed and load
 else
   yardr web install
 fi
+
+# The install returns when the manager has loaded the unit, not when the
+# daemon holds its lock: systemd returns from starting a unit before its
+# process runs. Doctor, asked at once, can find no daemon where one is a
+# moment from up, so wait for the effect, bounded.
+i=0
+until daemon_up; do
+  if [ "$i" -ge "$daemon_wait" ]; then
+    echo "server-yard: the daemon did not come up in $daemon_wait s" >&2
+    yardr daemon status 2>&1 | sed 's/^/server-yard: /' >&2 || true
+    echo "server-yard: see <home>/daemon.log and journalctl --user -u 'yardr-daemon-*'; SERVER_YARD_DAEMON_WAIT=<seconds> waits longer" >&2
+    exit 1
+  fi
+  if [ "$i" -eq 0 ]; then
+    echo "server-yard: waiting for the daemon to come up (up to $daemon_wait s)"
+  fi
+  i=$((i + 1))
+  sleep 1
+done
 
 # The last word is doctor's: what this machine still lacks, and the exit
 # status with it.

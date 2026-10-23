@@ -20,7 +20,8 @@ On a machine that has yardr, herdr, git and a harness on PATH it:
    nobody logged in;
 3. creates the yard and starts it
    (`yardr init --harness <kind> --operator <name> --start`);
-4. installs the daemon and the web view as login services;
+4. installs the daemon and the web view as login services, and waits for
+   the daemon the service manager starts;
 5. ends with `yardr doctor`.
 
 Behind an egress proxy the unit carries the variables yardr hands on
@@ -49,8 +50,8 @@ script that goes on without the harness login cannot wait for. `yardr doctor
 --try` is that call, for when the login is there.
 
 Where a step cannot be taken it stops with exit status 1 and says what to
-do, the first two before it writes anything and the last before it creates the
-yard:
+do, the first two before it writes anything, the third before it creates the
+yard and the last after, before doctor:
 
 - a program is not on PATH: the ones that are in `~/.local/bin`, which a
   shell without a profile (`ssh host server-yard`) lacks, are named apart,
@@ -58,7 +59,14 @@ yard:
 - `systemctl --user` reaches no session of the account (`sudo -u` and `su`
   without a dash give none);
 - linger is refused to the account (a server without polkit lets only root
-  turn it on): `loginctl enable-linger <account>` as root, and the run again.
+  turn it on): `loginctl enable-linger <account>` as root, and the run again;
+- the daemon is not up a minute after its install (`SERVER_YARD_DAEMON_WAIT`,
+  a whole number of seconds from 0 to 999999999, changes the minute): the run
+  says so, with what `yardr daemon
+  status` says and where to look (`<home>/daemon.log`, `journalctl --user -u
+  'yardr-daemon-*'`). A daemon that does not come up is a failure, not a
+  missing piece like the login, so the run ends there and does not go on to
+  doctor.
 
 The harness login is the operator's step, in the yardmaster's pane once the
 yard exists (`herdr agent attach <yard>-yardmaster`), and the script does
@@ -66,7 +74,11 @@ not wait for it: when `init --start` does not see the yardmaster come up,
 the script goes on — the daemon starts it once the login is there. The last
 word is doctor's, and so is the exit status: 0 when doctor names no fault,
 1 when it still lacks something (on a fresh machine, the harness login: see
-the run below).
+the run below). Doctor is asked once the daemon holds its lock: systemd
+returns from starting the daemon's unit before the process runs, and on a
+slow machine doctor, asked at once, found no daemon and the run ended 1 for
+one that came up a moment later. The script looks once a second and says when
+it waits.
 
 A second run with the same flags changes nothing: each step looks first and
 says `already:` where there is nothing to do. `--wait <duration>` is how
@@ -219,20 +231,27 @@ have none.
 ## The test and its stand-ins
 
 `server_yard_test.go` runs the script three times over: once with a harness
-that answers, where the yardmaster comes up and doctor is clean, and the run
-after changes nothing (the unit files byte for byte, no manager told, the
-daemon and the server the same processes, no agent started) and `yardr init`
-was given a closed stdin; once with a harness that refuses every prompt, as
-one without its login does, where the script goes on to the services and
-doctor all the same; and once for each place it stops with the way on (the
-programs only in `~/.local/bin`, no systemd session, linger refused). The
+that answers, where the yardmaster comes up and doctor is clean, though the
+manager holds the daemon back until the script says it is waiting for it (so
+that a script that asked doctor at once fails on any machine, not only a
+loaded one), and the run after changes nothing (the unit files byte for byte,
+no manager told, the daemon and the server the same processes, no agent
+started) and `yardr init` was given a closed stdin; once with a harness that
+refuses every prompt, as one without its login does, where the script goes on
+to the services and doctor all the same; and once for each place it stops with
+the way on (the programs only in `~/.local/bin`, no systemd session, linger
+refused, a daemon that never starts, with the wait cut to two seconds). The
 first is run behind a proxy: the unit's Environment lines are the PATH and
 each of the nine variables, spelled out in the test, with none for two
 settings that are not among them; the unit is mode 0600; and a run in which
 one variable has changed and one is gone, which finds the unit 0644 as an
 earlier script left it, writes it again as 0600 and tells systemd, and
 nothing else. The second has none of them in its environment, and its unit
-holds the PATH alone, also mode 0600.
+holds the PATH alone, also mode 0600. A bound for the wait that is no number
+is refused before anything else. A last test runs the stand-in managers alone,
+with a `yardr` that only records that it ran: the daemon they hold back starts
+for a release and when there is no hold, and does not start when the hold only
+goes.
 
 The test binary names itself to the servers its yards start (`TestMain`,
 `storetest.NameTestBinary`: `YARDR_TEST_OWNER`, and `YARDR_TEST_HOME_CHECK`
@@ -268,7 +287,16 @@ caller's environment:
   web view's unit is only marked: starting
   it would bind 127.0.0.1:8791. A file `no-session` in systemctl's state
   dir makes every call fail as for an account with no session, a file
-  `denied` in loginctl's refuses `enable-linger`.
+  `denied` in loginctl's refuses `enable-linger`. A file `start-hold` in
+  the state dir of systemctl or launchctl keeps the daemon from starting
+  while it is there, as a manager returns before its process runs: the test
+  renames it to `start-released` when the script says it waits, and that
+  starts the daemon. A hold that only goes starts none: removing a yard's
+  directory unlinks the hold a moment before the directory, and a daemon
+  started then would run in a home that is being removed and leave it
+  behind. A hold the test never lifts is a daemon that never starts, and one
+  a killed binary left, which runs no cleanup, is waited on for up to a
+  minute and then given up without starting anything.
 - `launchctl`: the same for the test on macOS, where yardr writes
   launchd agents.
 
