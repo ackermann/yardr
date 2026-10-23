@@ -153,9 +153,13 @@ operator. With --as <user> the login is that user's own, led for the group
 that carries it (yardr user add --login, yardr user login): the code its
 sign-in page shows is the person's to read, so it is asked of them, where
 --to then defaults, or of the operator for them, and they give it. It takes
-no --env, no --for-user and no --for-crew, and is refused when no login
-waits under the reference at the giving. The yardmaster asks one per input
-need of a login it relays.
+no --env, no --for-user and no --for-crew. At the giving it is refused when
+no login waits under the reference, and when the login that waits is
+another user's than the one the ask is for (the --as user, else the
+operator): the yard records whose login each wait is when its leader
+registers it, from the group the leader was given, and a giving it refuses
+leaves the wait waiting. The yardmaster asks one per input need of a login
+it relays.
 
 --secret-hook <hook> --source <source> asks the operator for the signing
 secret of the hook <hook> of the declared source <source>: the value the

@@ -538,29 +538,62 @@ func (heldStore) Close(context.Context) error { return nil }
 
 // A login led with --group runs the login command and the proving call with
 // the group's env joined, over the process's own: both land in the folder
-// the group's env names, and what was put in is still printed nowhere.
+// the group's env names. Its input wait is the user's login_for names; an
+// ask of the operator is refused without ending the wait, and the user's
+// giving reaches the login. What was put in is printed nowhere.
 func TestHarnessLoginGroupLandsInGroupFolder(t *testing.T) {
 	st := storetest.New(t)
 	ctx := context.Background()
+	if err := st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "hal", "op"); err != nil {
+		t.Fatal(err)
+	}
 	login := t.TempDir()
 	env := filepath.Join(t.TempDir(), "hal.env")
 	if err := os.WriteFile(env, []byte("CLAUDE_CONFIG_DIR="+login+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.PutGroup(ctx, store.Group{Name: "hal-builders", Runner: "herdr",
-		Config: map[string]any{"kind": "claude", "env_file": env}}, "me"); err != nil {
+		Config: map[string]any{"kind": "claude", "login_for": "hal", "env_file": env}}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "Sign hal in"}, "yardmaster")
+	if err != nil {
 		t.Fatal(err)
 	}
 	// An ambient folder the group's env must win over. It stays on the
 	// process, where the ambient account is read from.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "me"}, loginStandInGroup,
+	l := leadStandInAs(t, &app{st: heldStore{st}, actor: "op"}, loginStandInGroup,
 		"harness", "login", "claude", "--group", "hal-builders", "--json")
 	l.need("choose")
 	l.answer(`{"choose":"Claude subscription"}`)
 	l.need("open_url")
-	l.need("input")
-	l.answer(`{"input":"good#s1"}`)
+	input := l.need("input")
+	ref, _ := input["login"].(string)
+	if ref == "" {
+		t.Fatal("the input need names no wait")
+	}
+	ask := func(to, as string) uint64 {
+		t.Helper()
+		seq, err := st.AddAsk(ctx, b.ID, store.Ask{Question: "The code the sign-in page showed", To: to,
+			Context: []string{"The login waits for what the sign-in page showed."},
+			Secret:  &store.AskSecret{Login: ref, As: as}}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return seq
+	}
+	_, err = st.GiveSecret(ctx, b.ID, ask("op", ""), map[string]string{"INPUT": "wrong#s2"}, "op", true)
+	if err == nil || !strings.Contains(err.Error(), "is for op's login, and the login waiting under "+ref+" is hal's") ||
+		strings.Contains(err.Error(), "wrong#s2") {
+		t.Fatalf("the operator's code for hal's login: %v", err)
+	}
+	if _, err := st.GiveSecret(ctx, b.ID, ask("hal", "hal"), map[string]string{"INPUT": "good#s1"}, "hal", true); err != nil {
+		t.Fatalf("hal's code for hal's login: %v", err)
+	}
 	l.need("confirm")
 	l.answer(`{"confirm":true}`)
 	done := l.next()
@@ -574,8 +607,8 @@ func TestHarnessLoginGroupLandsInGroupFolder(t *testing.T) {
 	if got, want := l.wrote("envseen"), login+"\n"+login+"\n"; got != want {
 		t.Errorf("the folders the login command and the proving call saw: %q, want both %q", got, login)
 	}
-	if strings.Contains(l.printed.String(), "good#s1") {
-		t.Errorf("what was put in is printed:\n%s", l.printed.String())
+	if p := l.printed.String(); strings.Contains(p, "wrong#s2") || strings.Contains(p, "good#s1") {
+		t.Errorf("a code is printed:\n%s", p)
 	}
 }
 
@@ -778,7 +811,7 @@ func TestHarnessLoginStdinAnswerLeavesTheWait(t *testing.T) {
 	for {
 		ended, stop := context.WithCancel(context.Background())
 		stop()
-		_, err := st.LoginWait(ended, login)
+		_, err := st.LoginWait(ended, login, "")
 		if errors.Is(err, context.Canceled) {
 			break
 		}

@@ -633,9 +633,11 @@ func (w *wtx) askedUserSecret(d *source.Declaration, user string, env []string, 
 // An ask for a waiting login's input (AskSecret.Login) is handed to the
 // login that waits under its reference (LoginWait) and goes to no file: the
 // answer note holds the names and never the value, as any giving does, and
-// is refused when no login waits under it. Giving is the operator's, as a
-// source's is (maySource); for a user's own login (AskSecret.As) it is that
-// user's or the operator's for them (mayTell), as for their own credential.
+// is refused when no login waits under it, or when the login that waits is
+// another user's than the ask is for (giveLogin). Giving is the operator's,
+// as a source's is (maySource); for a user's own login (AskSecret.As) it is
+// that user's or the operator's for them (mayTell), as for their own
+// credential.
 //
 // Giving again is allowed while the ask is neither declined nor taken
 // back, as a newer pick replaces an older one: each giving is a note with
@@ -694,10 +696,11 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 	if err != nil {
 		return err
 	}
-	sec, err := givable(row.ID, notes, ask, values, now())
+	asked, err := givable(row.ID, notes, ask, values, now())
 	if err != nil {
 		return err
 	}
+	sec := asked.Secret
 	// Before the note is put: an agent's giving writes nothing, not even
 	// what the transaction would take back.
 	if sec.Harness != "" {
@@ -734,7 +737,7 @@ func (w *wtx) giveSecret(ctx context.Context, s *Store, home, id string, ask uin
 		return w.giveHarnessKey(ctx, home, row, ask, sec, values, actor, k)
 	}
 	if sec.Login != "" {
-		return w.giveLogin(s, row, ask, sec, values, actor, lg)
+		return w.giveLogin(s, row, ask, sec, asked.To, values, actor, lg)
 	}
 	var src Source
 	if ok, err := get(w.Tx, bSources, sec.Source, &src); err != nil {
@@ -993,10 +996,14 @@ func (w *wtx) giveHarnessKey(ctx context.Context, home string, row *beadRow, ask
 
 // giveLogin is giveSecret for an ask for a waiting login's input: the value
 // is handed to the login that waits under sec's reference and the answer
-// note holds the names, to no file. The handing runs once per call: a batch
-// rerun finds lg set and writes the note only. No refusal repeats a value
-// that was sent.
-func (w *wtx) giveLogin(s *Store, row *beadRow, ask uint64, sec *AskSecret, values map[string]string, actor string, lg *loginSent) error {
+// note holds the names, to no file. The login must be the one of the user the
+// ask is for: the user whose own login it is (sec.As), else the one it is
+// addressed to (to), the operator by askedLogin. The reference alone ties a
+// wait to nobody, so a wait that is another user's is refused here and left
+// waiting for the ask that is its own. The handing runs once per call: a
+// batch rerun finds lg set and writes the note only. No refusal repeats a
+// value that was sent.
+func (w *wtx) giveLogin(s *Store, row *beadRow, ask uint64, sec *AskSecret, to string, values map[string]string, actor string, lg *loginSent) error {
 	if !lg.sent {
 		for _, n := range sec.Env {
 			if err := loginValueError(ask, n, values[n]); err != nil {
@@ -1004,8 +1011,18 @@ func (w *wtx) giveLogin(s *Store, row *beadRow, ask uint64, sec *AskSecret, valu
 			}
 		}
 		// givable held the names to the ask's: the one value is the one's.
-		if !s.handLogin(sec.Login, values[sec.Env[0]]) {
+		forUser := or(sec.As, to)
+		owner, waits, handed := s.handLogin(sec.Login, forUser, values[sec.Env[0]])
+		switch {
+		case !waits:
 			return fmt.Errorf("ask %d names the waiting login %s, and no login waits under it: the login ended, or its wait ran out, and its next input need names the reference to ask for", ask, sec.Login)
+		case !handed:
+			// Only a yard that names no operator has a wait with no owner.
+			whose := owner + "'s"
+			if owner == "" {
+				whose = "nobody's, because this yard names no operator (yardr settings set operator <name>)"
+			}
+			return fmt.Errorf("ask %d is for %s's login, and the login waiting under %s is %s: a code is handed to the login of the user it is for, and that login keeps waiting for the ask that is its own", ask, forUser, sec.Login, whose)
 		}
 		lg.sent, lg.id, lg.given = true, sec.Login, slices.Clone(sec.Env)
 	}
@@ -1018,11 +1035,12 @@ func (w *wtx) giveLogin(s *Store, row *beadRow, ask uint64, sec *AskSecret, valu
 }
 
 // givable decides whether values may be given to the ask seq among notes,
-// the notes of the bead id, at the time at, and answers the secret it asks
-// for. The names of values are held to the ask's here and to the source's
-// declaration by keySource or keyUser; the values are the writer's to check
-// (config.WriteEnvFile, loginValueError for a waiting login).
-func givable(id string, notes []Note, seq uint64, values map[string]string, at time.Time) (*AskSecret, error) {
+// the notes of the bead id, at the time at, and answers the ask, whose Secret
+// is what it asks for and whose To is who it is asked of. The names of values
+// are held to the ask's here and to the source's declaration by keySource or
+// keyUser; the values are the writer's to check (config.WriteEnvFile,
+// loginValueError for a waiting login).
+func givable(id string, notes []Note, seq uint64, values map[string]string, at time.Time) (*Ask, error) {
 	var r *ResolvedAsk
 	resolved := ResolveAsks(notes, at)
 	for i := range resolved {
@@ -1057,5 +1075,5 @@ func givable(id string, notes []Note, seq uint64, values map[string]string, at t
 			return nil, fmt.Errorf("ask %d asks for %s: %s was not given", seq, sec.Names(), n)
 		}
 	}
-	return sec, nil
+	return &r.Ask, nil
 }

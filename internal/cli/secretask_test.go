@@ -443,7 +443,7 @@ func TestBeadAskAndAnswerALoginInput(t *testing.T) {
 	waited := make(chan string, 1)
 	go func() {
 		for {
-			value, err := st.LoginWait(context.Background(), "claude-a1b2c3d4")
+			value, err := st.LoginWait(context.Background(), "claude-a1b2c3d4", "")
 			if err == nil {
 				waited <- value
 				return
@@ -458,7 +458,7 @@ func TestBeadAskAndAnswerALoginInput(t *testing.T) {
 	for {
 		probe, leave := context.WithCancel(context.Background())
 		leave()
-		_, err := st.LoginWait(probe, "claude-a1b2c3d4")
+		_, err := st.LoginWait(probe, "claude-a1b2c3d4", "")
 		if err != nil && strings.Contains(err.Error(), "already waits") {
 			break
 		}

@@ -697,7 +697,10 @@ func (d *Dispatcher) startLeader(ctx context.Context, l *harnessLead) error {
 
 // leadLoginProcess runs this yardr's `harness login <kind> --json` as a
 // child of the daemon, with the daemon's environment: it finds the yard's
-// store as the daemon does, and registers its inputs' waits there.
+// store as the daemon does, and registers its inputs' waits there. It names
+// no --group, so the login is the machine's own and the yard registers each
+// wait as the operator's; askInput asks the operator for the input, the one
+// user GiveSecret hands it to.
 func leadLoginProcess(ctx context.Context, kind string) (*LoginLeader, error) {
 	self, err := os.Executable()
 	if err != nil {

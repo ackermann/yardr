@@ -550,7 +550,7 @@ func (a *app) signIn(c *cobra.Command, st store.API, user, group, bead string) (
 	defer endLead()
 	led := make(chan error, 1)
 	go func() {
-		err := leadLogin(leadCtx, h, path, answersIn, needsOut, env, st)
+		err := leadLogin(leadCtx, h, path, answersIn, needsOut, env, group, st)
 		// Nothing reads the answers of a login that has ended: a write still
 		// waiting for the leader to take it is let go.
 		answersIn.Close()

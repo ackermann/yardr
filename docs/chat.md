@@ -368,7 +368,11 @@ handed to the login and kept nowhere, to no note and no file, and a giving
 with no login waiting under it is refused naming that. With `--as <user>`
 the login is that user's own (`yardr user add --login` leads it for them),
 the line reads `for <user>'s waiting login <login>`, and the code its
-sign-in page shows is theirs to give, or the operator's for them. One more kind is a
+sign-in page shows is theirs to give, or the operator's for them. A login
+waits as the user whose login it is (the one the group it is led for
+carries, or the operator's for a login led with no group), and a giving is
+refused, and the login left waiting, when the ask is for another user's
+login: `--as <user>`, else the operator. One more kind is a
 hook's signing secret: `--secret-hook <hook> --source <source>` asks for the
 value the service signs its webhooks with. Its line reads `a secret: the
 signing secret for the hook <hook> (POST /hooks/<hook>), for the source

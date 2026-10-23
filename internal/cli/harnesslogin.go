@@ -130,7 +130,10 @@ The answers are read from stdin, one JSON object a line. Where the yard
 runs, an input also waits under the reference its need names as login: a
 secret ask naming it (yardr bead ask --secret-login) answers the input the
 same way, for a person with no stdin to the leader, and the value is handed
-to the login and kept nowhere. The harness opens
+to the login and kept nowhere. The wait is the login of the user the
+--group carries (its login_for), or the operator's without one, and an ask
+for another user's login is refused when it is given (--as <user> asks for
+a person's own). The harness opens
 the sign-in page itself where it can, and a login made there ends the run
 with no input given. Once the login command has ended well, confirm asks
 whether to make the one real call yardr doctor --try makes, for this kind
@@ -213,7 +216,7 @@ operator the way the machine's own login does.`,
 					}
 				}
 			}
-			return leadLogin(c.Context(), h, path, a.stdin, c.OutOrStdout(), env, loginSt)
+			return leadLogin(c.Context(), h, path, a.stdin, c.OutOrStdout(), env, group, loginSt)
 		},
 	}
 	cmd.Flags().StringVar(&group, "group", "", "lead the login with the group's env, so it lands in that group's folder")
@@ -250,11 +253,13 @@ func newLoginID(kind string) string {
 //
 // With st, each input also waits in the yard under the reference its need
 // names: a secret ask naming it answers the input as a stdin answer does,
-// for a person with no stdin to the leader. An input answered on stdin
-// leaves its wait, and one answered through the yard leaves stdin's; an
+// for a person with no stdin to the leader. The wait is registered for group
+// ("" for the machine's own login), and the yard says whose login that is: an
+// ask of any other user is refused when it is given. An input answered on
+// stdin leaves its wait, and one answered through the yard leaves stdin's; an
 // input neither answers within loginInputTimeout ends the login. With none
 // the login is led on stdin alone.
-func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer, env []string, st store.API) error {
+func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader, out io.Writer, env []string, group string, st store.API) error {
 	r := h.LoginRecipe
 	enc := json.NewEncoder(out)
 	// An address is printed as it is, not with its & written as \u0026.
@@ -393,7 +398,7 @@ func leadLogin(ctx context.Context, h agents.Harness, path string, in io.Reader,
 			readyCtx, stopReady := context.WithCancel(waitCtx)
 			waiting, leave = id, func() { stopReady(); stopWait() }
 			go func() {
-				value, err := st.LoginWait(waitCtx, id)
+				value, err := st.LoginWait(waitCtx, id, group)
 				select {
 				case given <- loginSecretResult{id: id, value: value, err: err}:
 				case <-over:

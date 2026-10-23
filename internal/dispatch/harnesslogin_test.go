@@ -84,7 +84,7 @@ func (l *standInLeader) play(ctx context.Context, kind string, fail bool, out io
 	defer stop()
 	value := make(chan string, 1)
 	go func() {
-		if v, err := l.s.LoginWait(waitCtx, id); err == nil {
+		if v, err := l.s.LoginWait(waitCtx, id, ""); err == nil {
 			value <- v
 		}
 	}()

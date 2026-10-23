@@ -30,7 +30,7 @@ func TestLoginWaitReadyWaitsForRegistration(t *testing.T) {
 	ready := make(chan error, 1)
 	go func() { ready <- y.LoginWaitReady(ctx, "claude-ready") }()
 	waiting := make(chan error, 1)
-	go func() { _, err := y.LoginWait(ctx, "claude-ready"); waiting <- err }()
+	go func() { _, err := y.LoginWait(ctx, "claude-ready", ""); waiting <- err }()
 	if err := <-ready; err != nil {
 		t.Fatalf("the registration: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestLoginWaitOnlyFromTheYardmastersPane(t *testing.T) {
 	pane := WithCaller(y.ctx, me)
 	refused, stop := context.WithTimeout(pane, 2*time.Second)
 	defer stop()
-	if _, err := y.LoginWait(refused, "claude-phish"); err == nil || !strings.Contains(err.Error(), "this is the crew member scout") {
+	if _, err := y.LoginWait(refused, "claude-phish", ""); err == nil || !strings.Contains(err.Error(), "this is the crew member scout") {
 		t.Fatalf("LoginWait from scout's pane = %v", err)
 	}
 	if err := y.CrewStopped(y.ctx, "scout", "test"); err != nil {
@@ -74,7 +74,7 @@ func TestLoginWaitOnlyFromTheYardmastersPane(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(pane, 50*time.Millisecond)
 	defer cancel()
-	if _, err := y.LoginWait(ctx, "claude-led"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := y.LoginWait(ctx, "claude-led", ""); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("LoginWait from the yardmaster's pane = %v, want it to wait", err)
 	}
 }
@@ -190,15 +190,16 @@ func TestLoginAskRefusals(t *testing.T) {
 	}
 }
 
-// waitFor starts a wait for ref on y and answers what it is handed: the
+// waitFor starts a wait for ref on y, as a leader led for group registers it
+// ("" for the machine's own login), and answers what it is handed: the
 // test's stand-in for a leader. A wait refused as a duplicate tries again:
 // a probe below may hold the reference for the moment it checks.
-func waitFor(t *testing.T, y *askYard, ref string) <-chan string {
+func waitFor(t *testing.T, y *askYard, ref, group string) <-chan string {
 	t.Helper()
 	waited := make(chan string, 1)
 	go func() {
 		for {
-			value, err := y.LoginWait(context.Background(), ref)
+			value, err := y.LoginWait(context.Background(), ref, group)
 			if err == nil {
 				waited <- value
 				return
@@ -237,7 +238,7 @@ func TestGiveLoginHandsToTheWaiter(t *testing.T) {
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-a1b2c3d4"), "yardmaster")
 	const value = "code-handed-to-the-login"
-	waited := waitFor(t, y, "claude-a1b2c3d4")
+	waited := waitFor(t, y, "claude-a1b2c3d4", "")
 	keyed := giveLogin(t, y, seq, value, "mckean")
 	if keyed.Login != "claude-a1b2c3d4" || keyed.File != "" || strings.Join(keyed.Given, ",") != "INPUT" {
 		t.Fatalf("keyed = %+v", keyed)
@@ -327,7 +328,7 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 	// A wait that ended: its context ran out.
 	ended, stop := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { _, err := y.LoginWait(ended, "claude-ended"); done <- err }()
+	go func() { _, err := y.LoginWait(ended, "claude-ended", ""); done <- err }()
 	stop()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("the ended wait = %v", err)
@@ -339,7 +340,7 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 	}
 	// A wait another giving took: the second giving finds none.
 	seq = y.ask(t, loginAsk("claude-once"), "yardmaster")
-	waited := waitFor(t, y, "claude-once")
+	waited := waitFor(t, y, "claude-once", "")
 	giveLogin(t, y, seq, "code-3", "mckean")
 	if got := <-waited; got != "code-3" {
 		t.Fatalf("the waiter was handed %q", got)
@@ -354,8 +355,9 @@ func TestGiveLoginRefusesWhenNoneWaits(t *testing.T) {
 }
 
 // A login input takes exactly the name asked, a value that is one line with
-// nothing at its ends, and the operator: each refusal repeats no value, and
-// a refused value leaves the wait for the good one.
+// nothing at its ends, the operator, and a wait that is the login of the user
+// it is asked of: each refusal repeats no value, and a refused value leaves
+// the wait for the good one.
 func TestGiveLoginRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
@@ -387,7 +389,7 @@ func TestGiveLoginRefusals(t *testing.T) {
 	if n := len(answerNotes(t, y)); n != 0 {
 		t.Fatalf("%d answer notes, want none", n)
 	}
-	waited := waitFor(t, y, "claude-picky")
+	waited := waitFor(t, y, "claude-picky", "")
 	giveLogin(t, y, seq, "good-code", "mckean")
 	if got := <-waited; got != "good-code" {
 		t.Fatalf("the waiter was handed %q", got)
@@ -402,12 +404,179 @@ func TestGiveLoginRefusals(t *testing.T) {
 		!strings.Contains(err.Error(), "this is bob") || strings.Contains(err.Error(), "s3cret-for-bob") {
 		t.Fatalf("another user giving ada's code: %v", err)
 	}
-	waited = waitFor(t, y, "claude-ada")
-	if keyed := giveLogin(t, y, seq, "ada-code", "ada"); keyed.Login != "claude-ada" {
-		t.Fatalf("keyed = %+v", keyed)
+	// A wait is its user's, whoever gives: the reference ties it to nobody,
+	// so an ask of another user that names it is refused at the giving and
+	// leaves it waiting for the ask that is its own. ada's login is led for
+	// her group; claude-op is the machine's, the operator's.
+	loginGroup(t, y, "ada-builders", "ada")
+	waited = waitFor(t, y, "claude-ada", "ada-builders")
+	forOp := waitFor(t, y, "claude-op", "")
+	forAdaViaOp := waitFor(t, y, "claude-ada-via-op", "ada-builders")
+	for _, ref := range []string{"claude-ada", "claude-op", "claude-ada-via-op"} {
+		waitingOwner(t, y, ref)
 	}
-	if got := <-waited; got != "ada-code" {
-		t.Fatalf("the waiter was handed %q", got)
+	answered := len(answerNotes(t, y))
+	for _, c := range []struct {
+		name   string
+		to, as string
+		ref    string
+		actor  string
+		want   string
+	}{
+		// The finding's reproduction: an ask of the victim names a wait that
+		// is the operator's.
+		{"ada, asked for the operator's login", "ada", "ada", "claude-op", "ada",
+			"is for ada's login, and the login waiting under claude-op is mckean's"},
+		{"the operator, asked for ada's login", "mckean", "", "claude-ada", "mckean",
+			"is for mckean's login, and the login waiting under claude-ada is ada's"},
+		// Whose login it is is the As, not who the ask is addressed to.
+		{"the operator, asked for ada's code, naming the operator's wait", "mckean", "ada", "claude-op", "mckean",
+			"is for ada's login, and the login waiting under claude-op is mckean's"},
+	} {
+		a := loginAsk(c.ref)
+		a.To, a.Secret.As = c.to, c.as
+		bad := y.ask(t, a, "yardmaster")
+		_, err := y.GiveSecret(y.ctx, y.bead, bad, map[string]string{"INPUT": "s3cret-for-the-other"}, c.actor, true)
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), "s3cret-for-the-other") {
+			t.Errorf("%s: err = %v, want %q and no value", c.name, err, c.want)
+		}
+	}
+	// Nothing was handed or written, and each wait is still there: the ask
+	// that is its user's finds it.
+	if n := len(answerNotes(t, y)); n != answered {
+		t.Fatalf("the refusals wrote %d answer notes", n-answered)
+	}
+	for name, ch := range map[string]<-chan string{"ada's": waited, "the operator's": forOp, "ada's, for the operator": forAdaViaOp} {
+		select {
+		case got := <-ch:
+			t.Fatalf("%s wait was handed %q by a refused giving", name, got)
+		default:
+		}
+	}
+	// ada gives her own code, and the operator gives the machine's, and
+	// ada's too for her: the ask is addressed to the operator, and it is
+	// ada's login it is for.
+	viaOp := loginAsk("claude-ada-via-op")
+	viaOp.To, viaOp.Secret.As = "mckean", "ada"
+	for _, c := range []struct {
+		ask   uint64
+		ref   string
+		actor string
+		ch    <-chan string
+		code  string
+	}{
+		{seq, "claude-ada", "ada", waited, "ada-code"},
+		{y.ask(t, loginAsk("claude-op"), "yardmaster"), "claude-op", "mckean", forOp, "op-code"},
+		{y.ask(t, viaOp, "yardmaster"), "claude-ada-via-op", "mckean", forAdaViaOp, "via-op-code"},
+	} {
+		if keyed := giveLogin(t, y, c.ask, c.code, c.actor); keyed.Login != c.ref {
+			t.Fatalf("keyed = %+v", keyed)
+		}
+		if got := <-c.ch; got != c.code {
+			t.Fatalf("the waiter of %s was handed %q", c.ref, got)
+		}
+	}
+}
+
+// loginGroup puts a group of the herdr runner that carries the login of the
+// user loginFor, as yardr user add --login makes one.
+func loginGroup(t *testing.T, y *askYard, name, loginFor string) {
+	t.Helper()
+	g := Group{Name: name, Runner: "herdr", Config: map[string]any{"kind": "claude"}}
+	if loginFor != "" {
+		g.Config["login_for"] = loginFor
+	}
+	if err := y.PutGroup(y.ctx, g, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitingOwner waits until the wait under ref has registered, and answers
+// the user it recorded as the one whose login it is.
+func waitingOwner(t *testing.T, y *askYard, ref string) string {
+	t.Helper()
+	ready, stop := context.WithTimeout(y.ctx, 10*time.Second)
+	defer stop()
+	if err := y.LoginWaitReady(ready, ref); err != nil {
+		t.Fatalf("the wait under %s never registered: %v", ref, err)
+	}
+	y.logins.mu.Lock()
+	defer y.logins.mu.Unlock()
+	return y.logins.waits[ref].owner
+}
+
+// A wait is registered for the user whose login it is, as the server
+// resolves it from the group the leader names: the one a session on the
+// group burns, which is the operator's for a login led for no group and for
+// a group that declares none. A group the yard does not have is refused and
+// registers nothing, where it would otherwise read as the operator's. Where
+// the yard names nobody the wait is still registered, so that a login led on
+// stdin alone is not stopped, and it is handed nothing.
+func TestLoginWaitRecordsItsOwner(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := secretYard(t)
+	loginGroup(t, y, "plain-builders", "")
+	loginGroup(t, y, "mckean-builders", "mckean")
+	loginGroup(t, y, "ada-builders", "ada")
+	wait := func(ref, group string) (owner string) {
+		t.Helper()
+		ctx, stop := context.WithCancel(y.ctx)
+		done := make(chan error, 1)
+		go func() { _, err := y.LoginWait(ctx, ref, group); done <- err }()
+		owner = waitingOwner(t, y, ref)
+		stop()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("the wait under %s = %v", ref, err)
+		}
+		return owner
+	}
+	for i, c := range []struct{ group, owner string }{
+		{"", "mckean"},
+		{"plain-builders", "mckean"},
+		{"mckean-builders", "mckean"},
+		{"ada-builders", "ada"},
+	} {
+		if got := wait("claude-owner-"+itoa(uint64(i)), c.group); got != c.owner {
+			t.Errorf("a login led for group %q is %q's, want %q's", c.group, got, c.owner)
+		}
+	}
+
+	// Refused at once: a wait that registered would wait until its context
+	// ended, which the bound makes a failure and not a hang.
+	ghost, stopGhost := context.WithTimeout(y.ctx, 10*time.Second)
+	defer stopGhost()
+	_, err := y.LoginWait(ghost, "claude-ghost", "ghost-builders")
+	if !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "group ghost-builders") {
+		t.Fatalf("a wait for a group there is none of = %v", err)
+	}
+	y.logins.mu.Lock()
+	registered := len(y.logins.waits)
+	y.logins.mu.Unlock()
+	if registered != 0 {
+		t.Fatalf("%d waits registered after the refusal and the ended waits, want none", registered)
+	}
+
+	// No operator named: nobody's wait, which no giving reaches. mckean still
+	// holds the role, so they may be asked, and the refusal says why.
+	if err := y.SetSetting(y.ctx, OperatorSetting, "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	ctx, stop := context.WithCancel(y.ctx)
+	defer stop()
+	go func() { _, _ = y.LoginWait(ctx, "claude-nobody", "") }()
+	if got := waitingOwner(t, y, "claude-nobody"); got != "" {
+		t.Fatalf("with no operator named the wait is %q's", got)
+	}
+	seq := y.ask(t, loginAsk("claude-nobody"), "yardmaster")
+	_, err = y.GiveSecret(y.ctx, y.bead, seq, map[string]string{"INPUT": "s3cret-for-nobody"}, "mckean", true)
+	if err == nil || !strings.Contains(err.Error(), "is for mckean's login, and the login waiting under claude-nobody is nobody's, because this yard names no operator") ||
+		strings.Contains(err.Error(), "s3cret-for-nobody") {
+		t.Fatalf("a giving for a wait of nobody's: %v", err)
+	}
+	for _, asked := range []string{"", "mckean", "ada"} {
+		if _, waits, handed := y.handLogin("claude-nobody", asked, "s3cret"); !waits || handed {
+			t.Errorf("a wait of nobody's, asked of %q: waits %v, handed %v", asked, waits, handed)
+		}
 	}
 }
 
@@ -421,7 +590,7 @@ func TestLoginWaitRefusesADuplicate(t *testing.T) {
 	first := make(chan error, 1)
 	go func() {
 		for {
-			_, err := y.LoginWait(ended, "claude-twice")
+			_, err := y.LoginWait(ended, "claude-twice", "")
 			// A probe may hold the reference for the moment it checks.
 			if err == nil || !strings.Contains(err.Error(), "already waits") {
 				first <- err
@@ -437,7 +606,7 @@ func TestLoginWaitRefusesADuplicate(t *testing.T) {
 	for {
 		probe, leave := context.WithCancel(context.Background())
 		leave()
-		_, err := y.LoginWait(probe, "claude-twice")
+		_, err := y.LoginWait(probe, "claude-twice", "")
 		if err != nil && strings.Contains(err.Error(), "already waits") {
 			break
 		}
@@ -459,14 +628,14 @@ func TestGiveLoginRunTwice(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := secretYard(t)
 	seq := y.ask(t, loginAsk("claude-twice-run"), "yardmaster")
-	waited := waitFor(t, y, "claude-twice-run")
+	waited := waitFor(t, y, "claude-twice-run", "")
 	// The wait registers in its own goroutine: the runs below start once
 	// a probe is refused as a duplicate.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		probe, leave := context.WithCancel(context.Background())
 		leave()
-		_, err := y.LoginWait(probe, "claude-twice-run")
+		_, err := y.LoginWait(probe, "claude-twice-run", "")
 		if err != nil && strings.Contains(err.Error(), "already waits") {
 			break
 		}

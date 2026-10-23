@@ -190,8 +190,8 @@ func (c *Client) TakeBackAsk(ctx context.Context, id string, ask uint64, reason,
 func (c *Client) GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string, weighed bool) (*store.SourceKeyed, error) {
 	return callV[*store.SourceKeyed](c, ctx, "GiveSecret", id, ask, values, actor, weighed)
 }
-func (c *Client) LoginWait(ctx context.Context, id string) (string, error) {
-	return callV[string](c, ctx, "LoginWait", id)
+func (c *Client) LoginWait(ctx context.Context, id, group string) (string, error) {
+	return callV[string](c, ctx, "LoginWait", id, group)
 }
 func (c *Client) LoginWaitReady(ctx context.Context, id string) error {
 	return c.call(ctx, "LoginWaitReady", nil, id)
