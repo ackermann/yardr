@@ -27,7 +27,8 @@ carries each that the environment making the yard has, so the yard's server
 and daemon stop within a few seconds of that binary's end, however it ended (a
 kill or a timeout runs no cleanup). A yard made by hand has neither, and its
 `D/e` carries neither. The herdr server of an `up` yard and the stand-in
-agents in its panes do not look for the owner: only `down` stops them.
+agents in its panes do not look for the owner; the yard's watchdog does (see
+"When the test binary is killed", below).
 `D/h/.profile` sets `PATH` to the same directories, so the
 yard's login shell, which yardr asks for a program its PATH lacks (`yardr
 doctor`, and `yardr up` for herdr), finds nothing of the machine's own: a
@@ -303,4 +304,35 @@ away: see "yardr's own state" in
 `down_test.go` tests the two cases and the refusals with bare yards, that
 processes of other yards outlive a `down`, and the comparison itself
 (`isolated-yard match <home>`, which reads `<pid> <environment>` lines) with
-homes that hold `.`, `[`, `*`, `+` and spaces.
+homes that hold `.`, `[`, `*`, `+` and spaces. The sleepers it starts as
+processes of other yards end with the test binary that named them too.
+
+## When the test binary is killed
+
+A Go test binary that is killed, or timed out, runs none of its cleanups, so
+nothing calls `down`. The servers and daemons of its yards stop themselves
+(they look for the binary that named them). The herdr server and the stand-in
+agents do not, so `up` and `bare` start a watchdog for each yard
+(`isolated-yard watchdog D`, its output in `D/watchdog.log`), through `D/e`,
+which hands it the name. Once a second it asks `D/bin/alive` (`alive/main.go`),
+which goes by the pid and the start time, as the servers do. When the binary
+is gone it runs `down D`: everything in the yard stops and D is removed, a few
+seconds after the end. Only status 1 of `alive` (gone) and its status 2
+(`YARDR_TEST_OWNER` missing or malformed: a handoff that broke takes the yard
+down, where it would otherwise leak) do that. Any other status (a signal, a
+failed start) says nothing about the binary and is looked at again a second
+later. A yard made by hand has no owner: its watchdog says so in its log and
+ends at once.
+
+The watchdog is a process of the yard like the stand-ins: a normal `down`
+stops it with the rest, and it ends by itself if D is removed by other means.
+macOS's `ps` shows no environment for the system's own binaries, a `/bin/sh`
+among them, so `down` cannot find the shell by the yard's home as it finds the
+stand-ins. The watchdog is started with `D/bin/alive` as its stdin instead,
+and `lsof` finds what has a file of `D/bin` open (the herdr server and the
+stand-in agents are found so too). The `down` it runs gets `/dev/null` as its
+stdin: with the watchdog's, `down` and every program it starts would hold that
+file open, and `pids` would list them as the yard's own.
+
+`watchdog_test.go` tests the watchdog with owners that have ended, and with an
+`alive` that answers as told: nothing in it kills a test binary.

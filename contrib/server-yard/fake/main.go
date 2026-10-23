@@ -4,11 +4,14 @@
 // HERDR_FAKE_STATE (calls.log, the pane, agents.log, server.pid); the API
 // socket is HERDR_SOCKET_PATH. With HERDR_FAKE_STATE/logged-out present, a
 // prompt is refused as herdr refuses one for an agent at a login screen,
-// and no session comes up.
+// and no session comes up. The server stops with the test binary that named
+// itself to the yard in YARDR_TEST_OWNER, as yardr's own server does (see
+// stopWithOwner).
 package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -17,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 var state = os.Getenv("HERDR_FAKE_STATE")
@@ -110,6 +115,25 @@ func server(sock string) {
 	}
 }
 
+// stopWithOwner ends the process when the test binary that named itself to
+// the yard is gone (config.TestOwner). The stand-in service managers start
+// this server, so no cleanup of the test reaches it but the one a killed
+// binary never runs: without the watch a SIGKILL or a timeout leaves it
+// running for good, with init for its parent. The yard's own server and
+// daemon watch the same name for the same reason. A server started by hand
+// has no owner and no watch.
+func stopWithOwner() {
+	pid, start, ok := config.TestOwner()
+	if !ok {
+		return
+	}
+	go func() {
+		<-config.WatchOwner(context.Background(), time.Second, pid, start)
+		fmt.Fprintln(os.Stderr, "fake herdr: the test that started this server is gone; stopping")
+		os.Exit(0)
+	}()
+}
+
 func main() {
 	args := os.Args[1:]
 	logCall(args)
@@ -131,6 +155,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "fake herdr: HERDR_SOCKET_PATH is not set")
 			os.Exit(2)
 		}
+		stopWithOwner()
 		server(sock)
 	case "status":
 		// Up is a socket that answers: dial it, as the server's own

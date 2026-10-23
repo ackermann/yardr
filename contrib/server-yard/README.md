@@ -239,9 +239,13 @@ The test binary names itself to the servers its yards start (`TestMain`,
 for how often they look), and each yard's environment hands both on to the
 script, and through the stand-in managers to the server and the daemon, which
 stop within a few seconds of the binary's end. A run killed by its timeout
-runs no cleanup, so that is what ends them. The herdr stand-in does not look
-for the name: its process and the yard's directory stay until the test's
-cleanup.
+runs no cleanup, so that is what ends them. The herdr stand-in looks for the
+name too (`fake/main.go`) and exits, with status 0, within a few seconds of
+the binary's end; the yard's directory stays until the test's cleanup, so a
+killed binary leaves it in `/tmp`. What the script itself started can outlive
+the binary a little: a `yardr init --start` whose server stopped under it keeps
+retrying its next call for up to 30 seconds (`rpc.ReplaceRetry`, there for a
+server that replaces itself), and ends then.
 
 `fake/` holds what the script is run against, with `HOME`,
 `XDG_CONFIG_HOME` and `YARDR_HOME` in a temp dir and nothing else of the
@@ -253,7 +257,8 @@ caller's environment:
   with one canned agent that is always working. With a file `logged-out`
   in its state dir a prompt is refused as herdr refuses one for an agent
   at a login screen. Every call goes to `calls.log`, every start to
-  `agents.log`.
+  `agents.log`. Its server ends when the test binary named in
+  `YARDR_TEST_OWNER` does.
 - `claude`: answers its version flag, and a one-shot call with `ok`,
   or with a login failure under `logged-out`.
 - `systemctl`, `loginctl`: units and linger as files, every call logged.

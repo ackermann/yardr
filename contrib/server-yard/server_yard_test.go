@@ -13,6 +13,8 @@ package serveryard
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +29,7 @@ import (
 
 	"yardr.dev/yardr/contrib/server-yard/managers"
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/storetest"
 )
 
@@ -53,6 +56,16 @@ type yard struct {
 	env      []string
 }
 
+// goBuild builds the package pkg of the repository at root into out.
+func goBuild(t *testing.T, root, out, pkg string) {
+	t.Helper()
+	cmd := exec.Command("go", "build", "-o", out, pkg)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build %s: %v\n%s", pkg, err, out)
+	}
+}
+
 // build makes D: yardr from the tree, the fake herdr, the shell stand-ins,
 // and the directories the script writes to.
 func build(t *testing.T) *yard {
@@ -76,16 +89,8 @@ func build(t *testing.T) *yard {
 			t.Fatal(err)
 		}
 	}
-	goBuild := func(out, pkg string) {
-		t.Helper()
-		cmd := exec.Command("go", "build", "-o", out, pkg)
-		cmd.Dir = root
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("go build %s: %v\n%s", pkg, err, out)
-		}
-	}
-	goBuild(filepath.Join(y.bin, "yardr"), "yardr.dev/yardr")
-	goBuild(filepath.Join(y.bin, "herdr"), "yardr.dev/yardr/contrib/server-yard/fake")
+	goBuild(t, root, filepath.Join(y.bin, "yardr"), "yardr.dev/yardr")
+	goBuild(t, root, filepath.Join(y.bin, "herdr"), "yardr.dev/yardr/contrib/server-yard/fake")
 	b, err := os.ReadFile(filepath.Join(root, "contrib/server-yard/fake", "claude"))
 	if err != nil {
 		t.Fatal(err)
@@ -674,5 +679,87 @@ func TestServerYardStopsWithTheWayOn(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(y.yardhome, "daemon.lock")); err == nil {
 			t.Errorf("%s: a daemon started, so the yard was created\n%s", c.name, out)
 		}
+	}
+}
+
+// owner starts a process to stand for the test binary that a server is named
+// to, which no test can kill and survive. It returns the name as
+// NameTestBinary gives one (YARDR_TEST_OWNER's value: the pid and the start
+// time) and a function that ends the process.
+func owner(t *testing.T) (named string, end func()) {
+	t.Helper()
+	sleep := exec.Command("sleep", "60")
+	if err := sleep.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var start uint64
+	if st, err := peer.Describe(sleep.Process.Pid); err == nil {
+		start = st.Start
+	}
+	end = func() {
+		sleep.Process.Kill()
+		sleep.Wait()
+	}
+	t.Cleanup(end)
+	return fmt.Sprintf("%d %d", sleep.Process.Pid, start), end
+}
+
+// yardr-q4bk: the herdr stand-in is started by a stand-in service manager,
+// and only y.stop ends it, a Cleanup that a killed test binary never runs. So
+// it stops by itself with the owner it is named to, as the yard's server and
+// daemon do: it serves while the owner runs, and ends with status 0 once the
+// owner has ended. (That it keeps serving for the length of a test whose
+// owner lives is what TestServerYardSetsUpAYard needs of it throughout.)
+func TestFakeHerdrStopsWithItsOwner(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Short, since a unix socket path has a length limit.
+	dir, err := os.MkdirTemp("/tmp", "sy.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	herdr := filepath.Join(dir, "herdr")
+	goBuild(t, root, herdr, "yardr.dev/yardr/contrib/server-yard/fake")
+	named, end := owner(t)
+	sock := filepath.Join(dir, "herdr.sock")
+	cmd := exec.Command(herdr, "server")
+	cmd.Env = append([]string{"HERDR_FAKE_STATE=" + dir, "HERDR_SOCKET_PATH=" + sock}, config.Env(config.TestOwnerEnv, named)...)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill() }) // after the wait below has reaped it, a no-op
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	// Up: it answers on its socket. The minute is a fuse: the first run of a
+	// program built a moment ago queues behind the machine's other first runs.
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(50 * time.Millisecond) {
+		c, err := net.DialTimeout("unix", sock, time.Second)
+		if err == nil {
+			c.Close()
+			break
+		}
+		select {
+		case err := <-exited:
+			t.Fatalf("the stand-in ended before it served: %v", err)
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the stand-in did not serve on %s: %v", sock, err)
+		}
+	}
+
+	end()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("the stand-in ended with %v after its owner ended, want status 0", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stand-in kept running after its owner ended")
 	}
 }

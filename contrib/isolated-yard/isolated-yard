@@ -8,6 +8,9 @@
 #   isolated-yard down D        stops everything in it by pid and removes D
 #   isolated-yard bare          the yard without a herdr server: prints D
 #   isolated-yard pids D        prints the pids down would stop, stops none
+#   isolated-yard watchdog D    waits for the test binary that named itself to
+#                               D to end, then runs down (started by up and
+#                               bare, below; a test may run it by hand)
 #
 # A bare yard is for what starts no agent (a server, a daemon, the CLI): no
 # herdr is on its PATH, so nothing in it can open a pane. It ends with `down`
@@ -25,6 +28,9 @@
 #     The one other thing of the caller's it keeps is the name of a test
 #     binary, YARDR_TEST_OWNER and YARDR_TEST_HOME_CHECK, when the environment
 #     that made the yard has them: the yard's servers then stop with the binary.
+#     A watchdog that `up` and `bare` start for the yard goes by the same
+#     name: when that binary is gone it runs `down`, which stops the herdr
+#     server and the stand-in agents too, since they look for no owner.
 #   - D/h/.profile sets PATH back to the same directories: what yardr asks
 #     the yard's login shell for (a program its PATH lacks) is not found in
 #     the machine's own directories, which the system's profile adds. A trial
@@ -231,6 +237,49 @@ down() {
   echo "stopped and removed $d"
 }
 
+# watchdog takes the yard in $1 down when the test binary that named itself to
+# it is gone. A binary that is killed, or timed out, runs none of its cleanups,
+# and the yardr servers of its yards stop by themselves (they look for the
+# name) but the herdr server and the stand-in agents do not. So build starts
+# one of these for every yard, and it does what the cleanup would: the script's
+# own `down`, exec'd, so the stops, the sweep and the removal of D stay in one
+# place.
+#
+# The name is the one D/e hands every command of the yard. A yard made by hand
+# has none: its watchdog says so and ends. Otherwise it asks alive, a Go
+# program that goes by the pid and the start time as the servers do (a pid
+# alone is the next process's once it is reused), once a second. Only its 1
+# (gone) and 2 (no usable name: a broken handoff takes the yard down, where
+# the yard would leak) end the wait. Any other status is a signal or a fork
+# that failed, which says nothing about the binary and must not take down a
+# yard in use. The watchdog ends too when the yard does.
+#
+# It is a process of the yard, as the stand-ins are: down stops it with the
+# rest. For that it keeps the home D/e gave it (see the scrub below), and a
+# down that it execs goes through the scrub and is none of the yard's.
+watchdog() {
+  d=$1
+  if [ -z "${YARDR_TEST_OWNER:-}" ]; then
+    echo "isolated-yard: no test binary named this yard (YARDR_TEST_OWNER is not set); nothing to watch"
+    return 0
+  fi
+  while [ -f "$d/.isolated-yard" ]; do
+    status=0
+    "$d/bin/alive" || status=$?
+    case "$status" in
+    1 | 2)
+      echo "isolated-yard: the test binary that named $d is gone (alive said $status); taking the yard down"
+      # Not with the stdin of the watchdog, a file of D/bin (see build): down
+      # and everything it starts would hold it open, and pids would list them
+      # as the yard's own.
+      exec "$0" down "$d" </dev/null
+      ;;
+    esac
+    sleep 1
+  done
+  echo "isolated-yard: no yard at $d any more; nothing to watch"
+}
+
 # build makes the yard's directory d: yardr from the current directory, the
 # stand-in agent, the wrapper D/e.
 build() {
@@ -240,6 +289,7 @@ build() {
   printf '%s\n' "$d" >"$d/.isolated-yard"
   go build -o "$d/bin/yardr" .
   (cd "$src/fake" && go build -o "$d/bin/claude" .)
+  (cd "$src/alive" && go build -o "$d/bin/alive" .)
   # The login shell of the yard (SHELL=/bin/sh, HOME=$d/h) finds what D/e
   # finds and no more. yardr asks it for a program PATH lacks (yardr doctor,
   # and yardr up for herdr, which it then starts with that shell's PATH), and
@@ -279,6 +329,15 @@ exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
   TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8$cfarg$testarg "\$@"
 WRAP
   chmod +x "$d/e"
+  # The watchdog runs through D/e, which gives it the name (see watchdog), and
+  # is started last, since it may take the yard down at once. Its output goes
+  # to a file of the yard: the process outlives this script, and a pipe it held
+  # would keep the caller of the script waiting. Its stdin is D/bin/alive, so
+  # that down finds it: macOS's ps shows no environment for a /bin/sh, so this
+  # shell cannot be found by the yard's home as the stand-ins are, but lsof
+  # finds whatever has a file of D/bin open (pids), and the shell and what it
+  # starts keep this one open as long as they live.
+  "$d/e" "$src/$(basename "$0")" watchdog "$d" <"$d/bin/alive" >>"$d/watchdog.log" 2>&1 &
 }
 
 bare() {
@@ -361,8 +420,10 @@ CONF
 
 # A caller inside a yard (D/e isolated-yard down D) has the yard's home in
 # its environment and would hand it to everything this script starts, which
-# down would then take for processes of the yard.
-if [ -n "${YARDR_HOME:-}" ]; then
+# down would then take for processes of the yard. The watchdog is the one
+# command meant to be a process of the yard (see there): it keeps the home,
+# which is how down finds it where ps shows the environment.
+if [ -n "${YARDR_HOME:-}" ] && [ "${1:-}" != watchdog ]; then
   exec env -u YARDR_HOME "$0" "$@"
 fi
 
@@ -373,5 +434,7 @@ down) [ $# -eq 2 ] || usage; down "$2" ;;
 # For tests and for looking before a down; neither signals anything.
 pids) [ $# -eq 2 ] || usage; pids "$2" ;;
 match) [ $# -eq 2 ] || usage; match_home "$2" ;;
+# Started by build; a test may run one by hand.
+watchdog) [ $# -eq 2 ] || usage; watchdog "$2" ;;
 *) usage ;;
 esac

@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/storetest"
 )
 
@@ -491,12 +492,22 @@ func TestDownLeavesProbesOutOfTheStandInCount(t *testing.T) {
 	}
 }
 
-// As a sleeper (see there) the test binary only waits to be stopped.
-// Otherwise it names itself to the servers its yards start: D/e hands the
-// name on (isolated-yard's build), so a run killed before its cleanups
-// leaves no server or daemon of a yard behind.
+// As a sleeper (see there) the test binary only waits to be stopped, by its
+// owner's end too if it has one. Otherwise it names itself to the servers its
+// yards start: D/e hands the name on (isolated-yard's build), so a run killed
+// before its cleanups leaves no server or daemon of a yard behind.
 func TestMain(m *testing.M) {
 	if os.Getenv("ISOLATED_TEST_SLEEPER") != "" {
+		// A sleeper stands for a process of another yard, which no down of
+		// this binary's yards stops. The binary that started it runs no
+		// cleanup when it is killed, so a sleeper with an owner goes with it,
+		// as a server does; the five minutes are the cap of one with none.
+		if pid, start, ok := config.TestOwner(); ok {
+			go func() {
+				<-config.WatchOwner(context.Background(), time.Second, pid, start)
+				os.Exit(0)
+			}()
+		}
 		time.Sleep(5 * time.Minute)
 		return
 	}
@@ -507,8 +518,15 @@ func TestMain(m *testing.M) {
 // sleeper starts a process with the given YARDR_HOME that does nothing, and
 // ends it with the test. It is this test binary, not sleep(1): macOS's ps
 // shows no environment for the system's own binaries, so down does not see
-// one of those by its home.
+// one of those by its home. It is named to this binary, so it ends with it.
 func sleeper(t *testing.T, home string) int {
+	t.Helper()
+	return startSleeper(t, home, config.Getenv(config.TestOwnerEnv))
+}
+
+// startSleeper is sleeper named to the owner, YARDR_TEST_OWNER's value, or to
+// none for "".
+func startSleeper(t *testing.T, home, owner string) int {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
@@ -516,6 +534,9 @@ func sleeper(t *testing.T, home string) int {
 	}
 	cmd := exec.Command(exe)
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "ISOLATED_TEST_SLEEPER=1", "YARDR_HOME=" + home}
+	if owner != "" {
+		cmd.Env = append(cmd.Env, config.Env(config.TestOwnerEnv, owner)...)
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -527,6 +548,50 @@ func sleeper(t *testing.T, home string) int {
 		cmd.Process.Kill() // the wait above reaps it
 	})
 	return cmd.Process.Pid
+}
+
+// ownerGoneFuse gives a loaded test process time to start its one-second
+// watch and run down; it keeps a broken watch from leaving the sleeper's
+// five-minute cap behind. watchdogStartFuse is longer because the first run
+// of a program built a moment ago can wait behind the machine's other first
+// runs. watchdogRunFuse bounds the status test, which intentionally retries
+// after two one-second answers.
+const (
+	ownerGoneFuse     = 15 * time.Second
+	watchdogStartFuse = time.Minute
+	watchdogRunFuse   = time.Minute
+)
+
+// deadOwner is the name of a test binary that has ended, as NameTestBinary
+// gives one (YARDR_TEST_OWNER's value: the pid and the start time): a sleep,
+// described while it ran, then killed and reaped. Its pid may be another
+// process's by now, which the start time is there to tell.
+func deadOwner(t *testing.T) string {
+	t.Helper()
+	sleep := exec.Command("sleep", "60")
+	if err := sleep.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var start uint64
+	if st, err := peer.Describe(sleep.Process.Pid); err == nil {
+		start = st.Start
+	}
+	sleep.Process.Kill()
+	sleep.Wait()
+	return strconv.Itoa(sleep.Process.Pid) + " " + strconv.FormatUint(start, 10)
+}
+
+// yardr-q4bk: a sleeper named to a binary that is gone ends by itself, at the
+// next look of its watch, where a test binary killed before its cleanups left
+// it waiting for its five minutes. Another test pins the other half: the
+// sleepers of TestDownLeavesTheProcessesOfOtherYards, named to this binary,
+// are still running when its down is over.
+func TestSleeperEndsWhenItsOwnerIsGone(t *testing.T) {
+	t.Parallel()
+	pid := startSleeper(t, filepath.Join(t.TempDir(), "home"), deadOwner(t))
+	if !waitFor(ownerGoneFuse, func() bool { return !running(pid) }) {
+		t.Errorf("the sleeper (pid %d) is still running", pid)
+	}
 }
 
 // yardr-6gyb: down on Linux stopped the processes of every yard on the
@@ -628,5 +693,16 @@ func TestWrapperEnvironment(t *testing.T) {
 	}))
 	if got := in(t, hand, "env"); strings.Contains(got, "YARDR_TEST_") {
 		t.Errorf("D/e of a yard made without a name for a test binary hands one on:\n%s", got)
+	}
+	// Such a yard has no binary to watch for: its watchdog says so and ends at
+	// once, and the yard is as it was before yards had a watchdog.
+	if !waitFor(watchdogStartFuse, func() bool {
+		log, _ := os.ReadFile(filepath.Join(hand, "watchdog.log"))
+		return strings.Contains(string(log), "no test binary named this yard")
+	}) {
+		t.Error("the watchdog of the yard made by hand did not say it has nothing to watch")
+	}
+	if !waitFor(ownerGoneFuse, func() bool { return len(watchdogsOf(t, hand)) == 0 }) {
+		t.Error("the watchdog of the yard made by hand is still running")
 	}
 }
