@@ -85,9 +85,7 @@ A group's `prompt` is read when a session starts:
 - an absolute path is read as is;
 - a role, `roles/<name>.md` or bare `<name>.md`, is looked up in order:
   1. the depot's `.yardr/roles/<name>.md`;
-  2. the depot's `roles/<name>.md`, the older place: still read, with a
-     warning (once per file) in the daemon's log to move it;
-  3. the yard's home, `~/.yardr/roles/<name>.md` (`--home`, `YARDR_HOME`).
+  2. the yard's home, `~/.yardr/roles/<name>.md` (`--home`, `YARDR_HOME`).
 - any other relative path is looked up in the depot's working tree, then in
   the home.
 

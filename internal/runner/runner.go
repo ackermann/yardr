@@ -24,7 +24,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -455,11 +454,11 @@ func unavailable(err error) string {
 //
 // A role, prompt=roles/<name>.md or bare <name>.md, is looked up where roles
 // live, in order: the depot's own .yardr/roles/<name>.md (a depot's repo says how
-// it is worked, next to .yardr/flows), the depot's
-// roles/<name>.md (the older place, still read, with a warning), then the
-// yard's home, ~/.yardr/roles/<name>.md: the generic roles `yardr init`
-// installed there before a yard's roles came from a pack, which a yard that
-// has them still works from.
+// it is worked, next to .yardr/flows), then the yard's home,
+// ~/.yardr/roles/<name>.md: the generic roles `yardr init` installed there
+// before a yard's roles came from a pack, which a yard that has them still
+// works from. A roles/ at the top of the depot is not read: the home's copy
+// serves, as it does for a depot with no roles.
 //
 // A depot's roles are read from the tip of the depot's base and from nowhere
 // else in the depot, so a bead cannot rewrite the prompt of the
@@ -472,10 +471,7 @@ func unavailable(err error) string {
 // Any other relative path is looked up in the depot's working tree, then in
 // the home.
 func readPrompt(p string, depot *store.Depot, home string) ([]byte, error) {
-	text, src, err := lookPrompt(p, depot, home)
-	if err == nil && src.Kind == PromptDepot && strings.HasPrefix(src.Path, "roles") {
-		warnDepotRootRole(depot, src.Path)
-	}
+	text, _, err := lookPrompt(p, depot, home)
 	return text, err
 }
 
@@ -533,15 +529,14 @@ func lookPrompt(p string, depot *store.Depot, home string) ([]byte, PromptSource
 	}
 	var tried []string
 	if depot != nil && depot.Path != "" {
-		for _, rel := range []string{filepath.Join(".yardr", "roles", name), filepath.Join("roles", name)} {
-			text, where, sha, err := depotfile.ReadDepotFile(depot, rel)
-			if err == nil {
-				return text, PromptSource{Kind: PromptDepot, Path: rel, Commit: sha}, nil
-			} else if !errors.Is(err, fs.ErrNotExist) {
-				return nil, PromptSource{}, err
-			}
-			tried = append(tried, where)
+		rel := filepath.Join(".yardr", "roles", name)
+		text, where, sha, err := depotfile.ReadDepotFile(depot, rel)
+		if err == nil {
+			return text, PromptSource{Kind: PromptDepot, Path: rel, Commit: sha}, nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, PromptSource{}, err
 		}
+		tried = append(tried, where)
 	}
 	if home != "" {
 		path := filepath.Join(config.At(home).Roles(), name)
@@ -592,24 +587,6 @@ func findPlain(p string, depot *store.Depot, home string) ([]byte, PromptSource,
 		return text, PromptSource{Kind: PromptFile, Path: p}, err
 	}
 	return nil, PromptSource{}, fmt.Errorf("%s not found (looked in %s)", p, strings.Join(tried, ", "))
-}
-
-// warnedDepotRoots holds the depot-root roles already warned about, so a
-// group's every session does not repeat it.
-var warnedDepotRoots sync.Map
-
-// warn reports a deprecated depot-root role; tests replace it.
-var warn = func(msg string, args ...any) { slog.Warn(msg, args...) }
-
-// warnDepotRootRole says, once per file, that a depot keeps a role at the
-// repo's root, the older place, rather than in .yardr/roles/.
-func warnDepotRootRole(depot *store.Depot, rel string) {
-	key := filepath.Join(depot.Path, rel)
-	if _, done := warnedDepotRoots.LoadOrStore(key, true); done {
-		return
-	}
-	warn("role prompt at the depot's root is deprecated; move it to .yardr/roles/",
-		"depot", depot.Name, "file", key, "to", filepath.Join(depot.Path, ".yardr", "roles", filepath.Base(rel)))
 }
 
 func depotPath(depot *store.Depot) string {

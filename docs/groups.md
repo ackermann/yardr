@@ -1265,7 +1265,7 @@ the pack's installed role, `~/.yardr/packs/<pack>/roles/builder.md`, read as
 is. `--set prompt=roles/builder.md` reads the depot's own
 `.yardr/roles/builder.md` as it is on the depot's base branch (a bead cannot
 change its own reviewer's prompt), else `~/.yardr/roles/builder.md` in a
-yard that has it from an earlier yardr. The order and the older depot-root `roles/` are in
+yard that has it from an earlier yardr. The order is in
 [configuration.md](configuration.md#role-prompts).
 
 ### Role file or stage file

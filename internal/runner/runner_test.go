@@ -535,10 +535,10 @@ func TestBriefFindsPromptInHome(t *testing.T) {
 	if err != nil || !strings.Contains(b, "Home reviewer.") {
 		t.Fatalf("brief from home = %v\n%s", err, b)
 	}
-	if err := os.MkdirAll(filepath.Join(depot, "roles"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(depot, ".yardr", "roles"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(depot, "roles", "reviewer.md"), []byte("Depot reviewer."), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(depot, ".yardr", "roles", "reviewer.md"), []byte("Depot reviewer."), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if b, err = Brief(job, "a", "", home, nil); err != nil || !strings.Contains(b, "Depot reviewer.") || strings.Contains(b, "Home reviewer.") {
@@ -552,23 +552,18 @@ func TestBriefFindsPromptInHome(t *testing.T) {
 	}
 	job.Group.Config["prompt"] = "roles/missing.md"
 	_, err = Brief(job, "a", "", home, nil)
-	if err == nil || !strings.Contains(err.Error(), filepath.Join(depot, "roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(depot, ".yardr/roles/missing.md")) || !strings.Contains(err.Error(), filepath.Join(home, "roles/missing.md")) {
 		t.Fatalf("missing prompt error should name both places: %v", err)
 	}
 }
 
 // A role prompt resolves in order: the depot's .yardr/roles/ as on its base,
-// the depot's root roles/ as on its base (deprecated, warned about once), the
-// home's roles/. The depot's working tree and current branch never count: a
+// the home's roles/. The depot's working tree and current branch never count: a
 // role not on the base yet is not the depot's, so neither a bead's branch nor
 // an uncommitted file in the checkout can change what agents are told.
 func TestBriefRoleResolution(t *testing.T) {
-	// Serial: replaces the warn function.
+	t.Parallel()
 	depot, home := seedRepo(t), t.TempDir()
-	var warned []string
-	old := warn
-	warn = func(msg string, args ...any) { warned = append(warned, fmt.Sprint(append([]any{msg}, args...)...)) }
-	t.Cleanup(func() { warn = old })
 	gitT := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", depot}, args...)...)
@@ -608,25 +603,19 @@ func TestBriefRoleResolution(t *testing.T) {
 	// Home fallback: the depot has no roles.
 	expect("Home reviewer.")
 
-	// Compat: the depot's root roles/. Uncommitted it is not the depot's yet
-	// (the home still serves); committed on the base it is, and the base's
-	// copy is what counts over an edit in the working tree.
-	write(depot, "roles/reviewer.md", "Root reviewer, uncommitted.")
-	expect("Home reviewer.")
-	write(depot, "roles/reviewer.md", "Root reviewer.")
+	// A roles/ at the top of the depot is no place for a role, even committed
+	// on the base: the home still serves. It stays committed through the rest
+	// of the test, where it must not compete with .yardr/roles/ either.
+	write(depot, "roles/reviewer.md", "Top-level reviewer.")
 	gitT("add", "roles")
-	gitT("commit", "-q", "-m", "root roles")
-	write(depot, "roles/reviewer.md", "Root reviewer, edited.")
-	expect("Root reviewer.")
-	if len(warned) != 1 || !strings.Contains(warned[0], "deprecated") || !strings.Contains(warned[0], filepath.Join(depot, "roles", "reviewer.md")) {
-		t.Fatalf("want one deprecation warning, got %q", warned)
-	}
+	gitT("commit", "-q", "-m", "roles at the top")
+	expect("Home reviewer.")
 
 	// .yardr/roles/ wins once on the base, whatever branch the checkout is
 	// on and whatever its working tree holds; uncommitted it changes
 	// nothing.
 	write(depot, ".yardr/roles/reviewer.md", "Depot reviewer, uncommitted.")
-	expect("Root reviewer.")
+	expect("Home reviewer.")
 	write(depot, ".yardr/roles/reviewer.md", "Depot reviewer.")
 	gitT("add", ".yardr")
 	gitT("commit", "-q", "-m", "depot roles")
@@ -639,14 +628,13 @@ func TestBriefRoleResolution(t *testing.T) {
 	}
 	expect("Depot reviewer.")
 
-	// Missing everywhere: the error names each place looked, the depot's
-	// two as on the base.
+	// Missing everywhere: the error names each place looked, the depot's as
+	// on the base and then the home's, and no other.
 	job.Group.Config["prompt"] = "roles/missing.md"
 	_, err := Brief(job, "a", "", home, nil)
-	for _, p := range []string{"main:.yardr/roles/missing.md", "main:roles/missing.md", filepath.Join(home, "roles/missing.md")} {
-		if err == nil || !strings.Contains(err.Error(), p) {
-			t.Fatalf("missing prompt error should name %s: %v", p, err)
-		}
+	want := "group web/reviewers prompt: roles/missing.md not found (looked in main:.yardr/roles/missing.md, " + filepath.Join(home, "roles/missing.md") + ")"
+	if err == nil || err.Error() != want {
+		t.Fatalf("missing prompt error = %v, want %q", err, want)
 	}
 
 	// A prompt that is not a role is read from the depot's working tree.
