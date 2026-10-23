@@ -24,6 +24,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	_ "yardr.dev/yardr/internal/storetest" // the tests' stores do not wait for the disk
 	"yardr.dev/yardr/internal/version"
@@ -893,7 +894,7 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 		// environment has each of them, blank, when a session runs it
 		// (config.BlankServerSettings), whichever this test sets.
 		switch {
-		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), IsEgressVar(k), config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv), config.IsVar(k, config.ServerSettings...):
+		case k == "PATH", k == "HOME", config.IsVar(k, "HOME"), source.IsEgressVar(k), config.IsVar(k, config.TestOwnerEnv, config.TestHomeCheckEnv), config.IsVar(k, config.ServerSettings...):
 		case k == "PWD", k == "OLDPWD", k == "SHLVL", k == "_": // the shell's own
 		default:
 			t.Errorf("server got %s", kv)

@@ -34,9 +34,11 @@ func mintApp(t *testing.T, repos ...string) (*httptest.Server, *standin.Server, 
 	return srv, src, key
 }
 
-// mint runs the script with stdin and YARDR_SOURCE_BASE, in the environment
-// the core runs a mint_command with: PATH, HOME and the base, and nothing
-// else of the yard's.
+// mint runs the script with stdin and YARDR_SOURCE_BASE, in an environment
+// of PATH, HOME and the base alone. The core hands a mint_command more
+// (USER, LOGNAME and the proxy and CA variables of its process); a test
+// leaves them out, since curl sends a call to the stand-in on loopback to a
+// proxy that the box has set.
 func mint(t *testing.T, stdin, base string) (string, string, error) {
 	t.Helper()
 	cmd := exec.Command("./github-mint")

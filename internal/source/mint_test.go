@@ -148,6 +148,9 @@ func mintRuns(t *testing.T, dir string) int {
 func TestMintRunsAndCaches(t *testing.T) {
 	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
 	t.Cleanup(SetMintClock(func() time.Time { return now }))
+	t.Setenv("YARDR_SESSION", "not-for-a-mint")
+	t.Setenv("OTHER_SERVICE_TOKEN", "not-for-a-mint")
+	setEgress(t)
 	dir := t.TempDir()
 	script := mintScript(t, dir, "2026-10-11T13:00:00Z")
 	d := mintDecl(t)
@@ -171,8 +174,23 @@ func TestMintRunsAndCaches(t *testing.T) {
 	if raw, _ := os.ReadFile(filepath.Join(dir, "base.1")); string(raw) != "https://crm.example.com/api/v2" {
 		t.Fatalf("YARDR_SOURCE_BASE = %q", raw)
 	}
-	if raw, _ := os.ReadFile(filepath.Join(dir, "env.1")); strings.Contains(string(raw), "CRM_APP_ID") || strings.Contains(string(raw), "tok-for") {
+	raw, _ = os.ReadFile(filepath.Join(dir, "env.1"))
+	if strings.Contains(string(raw), "CRM_APP_ID") || strings.Contains(string(raw), "tok-for") {
 		t.Fatalf("the command's environment holds the credential:\n%s", raw)
+	}
+	// It got the proxy and CA variables of the process that asked, which a
+	// mint behind a company's proxy needs to reach its service, and none of
+	// the yard's: not the session's identity, not a credential, not a proxy
+	// setting that is not among the nine.
+	for _, kv := range egressEnviron {
+		if !strings.Contains("\n"+string(raw), "\n"+kv+"\n") {
+			t.Errorf("the command's environment lacks %q:\n%s", kv, raw)
+		}
+	}
+	for _, not := range []string{"not-for-a-mint", "ALL_PROXY=", "CURL_CA_BUNDLE="} {
+		if strings.Contains(string(raw), not) {
+			t.Errorf("the command's environment holds %q:\n%s", not, raw)
+		}
 	}
 
 	// Within the token's life nothing is asked again: the same scope uses

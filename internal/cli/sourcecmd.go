@@ -338,8 +338,11 @@ source add copies it under ~/.yardr/sources/<name>/ (the relative path
 kept, mode 0700) and the command runs from there, source show lists it with
 its sha256, and source rm removes the directory; an absolute program is the
 operator's own and is not copied. A command's environment is PATH, HOME,
-the variable credential.env names and YARDR_SOURCE_BASE, the declaration's
-base: nothing else of the yard's environment. The core hands the command
+USER, LOGNAME, the proxy and CA variables the process that runs it has
+(HTTPS_PROXY, HTTP_PROXY, NO_PROXY, their lower-case forms, SSL_CERT_FILE,
+SSL_CERT_DIR, NODE_EXTRA_CA_CERTS), the variable credential.env names and
+YARDR_SOURCE_BASE, the declaration's base: nothing else of the yard's
+environment. The core hands the command
 the credential's value: the caller's own. Refused: a command that is no
 list of strings or has no program, a thread.open without thread.place, a
 thread.state without thread.states, a state that is none of started,
@@ -1004,7 +1007,8 @@ token, where the declaration names a mint (credential.mint): one line, split
 on spaces without a shell (quote it for arguments), the program absolute or
 on PATH. Name the program by its whole path: the daemon's PATH need not be
 your shell's. It is run without a shell, with {inputs, scope} on stdin, and
-answers {token, expires_at}; its environment is PATH, HOME and
+answers {token, expires_at}; its environment is PATH, HOME, USER, LOGNAME,
+the proxy and CA variables the process that runs it has, and
 YARDR_SOURCE_BASE, and nothing else of the yard's. The store keeps the line
 to be shown, as a crew member's env_command is, so it holds no secret. A
 program that is not there is refused here, as is a declaration that names no

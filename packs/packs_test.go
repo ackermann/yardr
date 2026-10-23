@@ -15,6 +15,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	_ "yardr.dev/yardr/internal/storetest" // nothing of the box's proxy reaches the packs' scripts the tests run
 	"yardr.dev/yardr/packs"
 
 	"go.yaml.in/yaml/v3"

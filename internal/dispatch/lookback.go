@@ -15,10 +15,11 @@ import (
 // reads the pull request live, for the head no event has told, and the ci
 // command reads the CI state of one commit of it. Both run as a thread
 // command does: one JSON object on stdin, one on stdout, with the
-// credential under the variable credential.env names and
-// YARDR_SOURCE_BASE, and nothing else of the yard. Both run with the
-// hook's as crew member's credential, read as for a move (issues.go):
-// nothing ambient is tried.
+// credential under the variable credential.env names, the proxy and CA
+// variables the process that runs them has, and YARDR_SOURCE_BASE, with
+// nothing else of the yard. Both use the hook's as crew member's
+// credential, resolved as for a move (issues.go), and do not try an ambient
+// credential.
 
 // lookbackHead is the head commit of the pull request q names, read live
 // through the source's pr command. Without the declaration, or the
@@ -119,8 +120,9 @@ func (d *Dispatcher) lookbackCredential(ctx context.Context, h *store.Hook, decl
 
 // lookbackRun runs the look-back command argv (key, e.g. "events.ci") of
 // decl: in is the JSON object on its stdin, and it is handed the
-// credential cred under the variable credential.env names, with
-// YARDR_SOURCE_BASE from the declaration and nothing else of the yard.
+// credential cred under the variable credential.env names, the proxy and CA
+// variables the process that runs it has, YARDR_SOURCE_BASE from the
+// declaration, and nothing else of the yard.
 // read says in the caller's words what the answer lacks.
 func (d *Dispatcher) lookbackRun(ctx context.Context, key string, argv []string, decl *source.Declaration, cred string, in map[string]any, read func(out []byte) error) error {
 	full := slices.Clone(argv)

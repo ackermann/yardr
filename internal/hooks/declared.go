@@ -543,8 +543,9 @@ func (d Declared) Normalize(h http.Header, body []byte) (*Envelope, error) {
 
 // runThread runs the thread command argv (key, e.g. "thread.reply") of d:
 // in is the JSON object on its stdin, and it is handed the credential's
-// value cred under the variable credential.env names, with
-// YARDR_SOURCE_BASE from the declaration and nothing else of the yard.
+// value cred under the variable credential.env names, the proxy and CA
+// variables the process that runs it has, YARDR_SOURCE_BASE from the
+// declaration, and nothing else of the yard.
 // cred is what the core was called with: the adapter looks nothing up
 // itself. read says in the caller's words what the answer lacks.
 func (d Declared) runThread(ctx context.Context, key string, argv []string, in map[string]any, cred string, read func(out []byte) error) error {

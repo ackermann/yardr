@@ -17,7 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/runner"
-	"yardr.dev/yardr/internal/server"
+	"yardr.dev/yardr/internal/source"
 )
 
 // yardr up --login is yardr up that stays: what it starts is started again
@@ -132,7 +132,7 @@ func herdrUnit(environ []string, bin string) (*unit, error) {
 		env = append(env, "XDG_CONFIG_HOME="+dir)
 	}
 	for _, kv := range environ {
-		if k, _, _ := strings.Cut(kv, "="); server.IsEgressVar(k) {
+		if k, _, _ := strings.Cut(kv, "="); source.IsEgressVar(k) {
 			env = append(env, kv)
 		}
 	}

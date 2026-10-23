@@ -765,10 +765,12 @@ yardr source rm pushover
   the operator sets the command that turns their values into a token
   (`yardr source set <name> mint_command=<program> [args...]`), run with
   `{inputs, scope}` on stdin for a `{token, expires_at}`. Its environment
-  is `PATH`, `HOME`, `USER` and `LOGNAME`, and `YARDR_SOURCE_BASE`, the
+  is `PATH`, `HOME`, `USER` and `LOGNAME`, the proxy and CA variables
+  ([below](#commands-a-file-names)), and `YARDR_SOURCE_BASE`, the
   declaration's `base`: a helper that reads the user's keyring looks it
-  up by user name, and nothing else of the yard's environment reaches it.
-  `USER` and `LOGNAME` are the asking process's own, each empty one taken
+  up by user name, a mint behind a company's egress proxy reaches its
+  service through it, and nothing else of the yard's environment reaches
+  it. `USER` and `LOGNAME` are the asking process's own, each empty one taken
   from the system's user for the process instead, so a mint from the
   server (which starts with neither) runs under the same name as one from
   the command line. The token is handed to each call under
@@ -991,12 +993,21 @@ link:                                 # the source's issues as a bead's link
   source check` says of each command whether its program is there and can
   be run; it runs none.
 - **What a command is handed** is its environment: `PATH`, `HOME`, `USER`
-  and `LOGNAME`, the variable `credential.env` names and
-  `YARDR_SOURCE_BASE`, the declaration's `base` — so a test can point the
-  command at a stand-in. `USER` and `LOGNAME` are the asking process's
-  own, each empty one taken from the system's user for the process
-  instead, as a mint's are. Nothing else of the yard's environment
-  reaches a command. The core
+  and `LOGNAME`, the proxy and CA variables, the variable `credential.env`
+  names and `YARDR_SOURCE_BASE`, the declaration's `base` — so a test can
+  point the command at a stand-in. `USER` and `LOGNAME` are the asking
+  process's own, each empty one taken from the system's user for the
+  process instead, as a mint's are. The proxy and CA variables are the
+  nine of [Behind an egress
+  proxy](configuration.md#behind-an-egress-proxy) (`HTTPS_PROXY`,
+  `HTTP_PROXY`, `NO_PROXY`, their lower-case forms, `SSL_CERT_FILE`,
+  `SSL_CERT_DIR` and `NODE_EXTRA_CA_CERTS`) as the process that runs the
+  command has them: one it has not set is not set for the command, and
+  one it has set and empty goes on empty. So a command that calls its
+  service with curl reaches it through a company's proxy, as the yard's
+  own calls do. Nothing else of the yard's environment reaches a command
+  (the limits command is the exception: it runs in the environment of the
+  process that asks, whole). The core
   decides which credential a command gets and hands the value in: today the
   caller's own — what the calling process's environment holds for `yardr
   reply` and `yardr thread`, what the crew member's `env_file` sets for a
@@ -1146,8 +1157,10 @@ hook:
   30 seconds. Its stdin is `{"headers": {...}, "body": ...}`: the
   delivery's headers, each with its values, and the body as JSON, or as
   text when it is none. Its stdout is the envelope, as `Envelope`
-  marshals. It is handed no credential: its environment is `PATH`, `HOME`,
-  `USER` and `LOGNAME`, and `YARDR_SOURCE_BASE` alone. The core sets
+  marshals. It is handed no credential of the source's: its environment is
+  `PATH`, `HOME`, `USER` and `LOGNAME`, the proxy and CA variables (a
+  proxy's address may hold a password of its own), and `YARDR_SOURCE_BASE`
+  alone ([what a command is handed](#commands-a-file-names)). The core sets
   `source` and `delivery`
   itself and refuses an envelope without `type`. It derives the envelope's
   `train` from its `head_branch` when the branch is a yardr train branch

@@ -215,7 +215,9 @@ func commandUser() (name, login string) {
 }
 
 // mint runs argv and reads its {token, expires_at}. Its environment is an
-// allow-list: PATH, HOME, USER and LOGNAME, and YARDR_SOURCE_BASE, the
+// allow-list: PATH, HOME, USER and LOGNAME, the proxy and CA variables
+// (egressEnv), without which a mint behind a company's egress proxy cannot
+// reach the service it mints from, and YARDR_SOURCE_BASE, the
 // declaration's base, so the command speaks to the same service the call
 // goes to; the inputs reach it on stdin alone. USER and LOGNAME are the
 // asking user's name, from the asking process or, where it has none,
@@ -230,6 +232,7 @@ func mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]
 	in := map[string]any{"inputs": inputs, "scope": scope}
 	name, login := commandUser()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + name, "LOGNAME=" + login}
+	env = append(env, egressEnv()...)
 	env = append(env, config.Env("SOURCE_BASE", d.Base)...)
 	what := "mint_command " + strings.Join(argv, " ")
 	var t mintedToken

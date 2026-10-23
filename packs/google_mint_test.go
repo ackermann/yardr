@@ -165,9 +165,10 @@ func (f *fakeToken) firstType() string {
 	return f.types[0]
 }
 
-// mint runs the script with stdin, in the environment the core runs a
-// mint_command with (PATH, HOME and nothing else of the yard's), plus
-// the endpoint and the fake's steering. Extra steering goes in env.
+// mint runs the script with stdin in an isolated pack-test environment,
+// plus the endpoint and the fake's steering. The core also passes through
+// the proxy and CA variables when it runs a mint_command. Extra steering
+// goes in env.
 func mint(t *testing.T, stdin, endpoint string, env ...string) (string, string, error) {
 	t.Helper()
 	return mintHome(t, t.TempDir(), stdin, endpoint, env...)

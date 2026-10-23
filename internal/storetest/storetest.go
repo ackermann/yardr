@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -32,6 +34,21 @@ import (
 func init() {
 	if config.Getenv(store.NoSyncEnv) == "" {
 		os.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	}
+}
+
+// A test's commands call stand-ins on 127.0.0.1, and a source's command
+// starts with the proxy and CA variables of the process that runs it
+// (source.IsEgressVar). Go's clients never send a loopback call to a proxy;
+// curl, which the packs' scripts run, does unless NO_PROXY names the address,
+// so on a box with a proxy those scripts failed with "Failed to connect to
+// proxy". A test binary that imports this package therefore sees none of the
+// box's, and a test that wants one sets it with t.Setenv.
+func init() {
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); source.IsEgressVar(k) {
+			os.Unsetenv(k)
+		}
 	}
 }
 

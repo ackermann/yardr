@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -122,9 +123,34 @@ func TestRunTimeout(t *testing.T) {
 	}
 }
 
-// A command sees PATH, HOME, USER, LOGNAME, the variable credential.env
-// names and YARDR_SOURCE_BASE, and nothing else of the yard's
-// environment.
+// egressEnviron are the proxy and CA variables of a box behind a company's
+// egress proxy, each spelled out: a list taken from the code would pass
+// whatever the code says. The lower-case forms are there because curl, and
+// git with it, read them and not the upper-case http_proxy.
+var egressEnviron = []string{"HTTPS_PROXY=http://proxy.corp:3128", "https_proxy=http://proxy.corp:3128",
+	"HTTP_PROXY=http://proxy.corp:3128", "http_proxy=http://proxy.corp:3128",
+	"NO_PROXY=localhost,.corp", "no_proxy=localhost,.corp",
+	"SSL_CERT_FILE=/etc/corp/ca.pem", "SSL_CERT_DIR=/etc/corp/certs", "NODE_EXTRA_CA_CERTS=/etc/corp/ca.pem"}
+
+// notEgress are two that look like those and are not among the nine: a
+// proxy and a CA bundle yardr was not asked to hand on.
+var notEgress = []string{"ALL_PROXY=socks5://proxy.corp:1080", "CURL_CA_BUNDLE=/etc/corp/ca.pem"}
+
+// setEgress gives the test's process the environment of a box behind a
+// company's proxy, the nine and the two that are not among them.
+func setEgress(t *testing.T) {
+	t.Helper()
+	for _, kv := range slices.Concat(egressEnviron, notEgress) {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
+}
+
+// A command sees PATH, HOME, USER, LOGNAME, the proxy and CA variables of
+// the process that runs it, the variable credential.env names and
+// YARDR_SOURCE_BASE, and nothing else of the yard's environment: not a
+// credential, not the session's identity, not a proxy setting that is not
+// among the nine.
 func TestRunEnv(t *testing.T) {
 	d, err := Parse("lin.yaml", []byte("name: lin\nbase: https://api.linear.app\ncredential: { env: LINEAR_API_KEY }\n"+
 		"calls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n"))
@@ -133,39 +159,67 @@ func TestRunEnv(t *testing.T) {
 	}
 	t.Setenv("YARDR_SESSION", "not-for-a-command")
 	t.Setenv("LINEAR_API_KEY", "not-this-one")
+	t.Setenv("OTHER_SERVICE_TOKEN", "not-for-a-command")
 	t.Setenv("USER", "command-user")
 	t.Setenv("LOGNAME", "command-login")
+	setEgress(t)
 	seen := filepath.Join(t.TempDir(), "seen")
 	p := standIn(t, `env >`+seen+`; echo '{}'`)
-	env := d.CommandEnv("the-token")
-	if err := Run(context.Background(), "command thread.open ("+p+" open)", []string{p, "open"}, nil, env, t.TempDir(), 0, nil); err != nil {
-		t.Fatal(err)
+	// sees runs the command under the environment d gives it now, and reads
+	// what it printed of its own: one entry to a line.
+	sees := func() (string, map[string]bool) {
+		t.Helper()
+		env := d.CommandEnv("the-token")
+		if err := Run(context.Background(), "command thread.open ("+p+" open)", []string{p, "open"}, nil, env, t.TempDir(), 0, nil); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := os.ReadFile(seen)
+		have := map[string]bool{}
+		for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			have[l] = true
+		}
+		return string(out), have
 	}
-	out, _ := os.ReadFile(seen)
-	have := map[string]bool{}
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		have[l] = true
-	}
-	for _, want := range []string{
+	out, have := sees()
+	for _, want := range slices.Concat([]string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"USER=command-user",
 		"LOGNAME=command-login",
 		"LINEAR_API_KEY=the-token",
 		"YARDR_SOURCE_BASE=https://api.linear.app",
-	} {
+	}, egressEnviron) {
 		if !have[want] {
 			t.Errorf("the command's environment lacks %q:\n%s", want, out)
 		}
 		delete(have, want)
 	}
 	// What is left is the script's own: the yard's environment reached the
-	// command as these six and nothing else.
+	// command as these and nothing else.
 	for left := range have {
 		if name, _, _ := strings.Cut(left, "="); name == "_" || name == "PWD" || name == "SHLVL" || name == "OLDPWD" {
 			continue
 		}
 		t.Errorf("the command sees more than its own: %q", left)
+	}
+
+	// A box with no proxy gives a command none, and a variable set and empty
+	// goes on empty, as the server's does: what the process has is what the
+	// command gets, and nothing is made up.
+	for _, kv := range egressEnviron {
+		k, _, _ := strings.Cut(kv, "=")
+		os.Unsetenv(k)
+	}
+	t.Setenv("http_proxy", "")
+	out, have = sees()
+	if !have["http_proxy="] {
+		t.Errorf("a variable set and empty was not handed on empty:\n%s", out)
+	}
+	for _, kv := range egressEnviron {
+		k, _, _ := strings.Cut(kv, "=")
+		if k != "http_proxy" && strings.Contains("\n"+out, "\n"+k+"=") {
+			t.Errorf("%s is not set, and the command has it:\n%s", k, out)
+		}
 	}
 }
 

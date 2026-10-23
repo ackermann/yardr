@@ -1505,7 +1505,7 @@ Environment variables yardr reads:
 | `YARDR_UPGRADE_RESTORE` | `true` or `false`, read by `yardr upgrade`; set, it is used instead of the `upgrade_restore` setting ([upgrade.md](upgrade.md#rollback)) |
 | `YARDR_LINEAR_API`, `YARDR_GITHUB_API` | where `yardr reply`, `yardr thread open` and `yardr thread state` send their calls, read by the command that makes them, and where the daemon sends a hook's issue moves ([links.md](links.md#a-beads-stage-moves-the-issue)), read when it starts (default: Linear's GraphQL endpoint, `https://api.github.com`) |
 | `YARDR_EVENT_RETENTION`, `YARDR_HOOK_PAYLOAD_RETENTION`, `YARDR_INBOX_RETENTION` | how long the daemon and `yardr store prune` keep events, ended sessions and webhook bodies, and how long an unread inbox event holds the log back ([below](#retention-keeping-yarddb-bounded)) |
-| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, their lower-case forms, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS` | the standard proxy and CA variables, which the yard's own calls and its agents read. yardr sets none of them and hands on the ones its starter has, to the server, the daemon, the web view and herdr's server ([below](#behind-an-egress-proxy)) |
+| `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, their lower-case forms, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS` | the standard proxy and CA variables, which the yard's own calls and its agents read. yardr sets none of them and hands on the ones its starter has, to the server, the daemon, the web view and herdr's server, and from the server and the daemon to a source's commands ([below](#behind-an-egress-proxy)) |
 | `YARDR_PPROF` | measuring: a path; the server serves Go's `net/http/pprof` on a unix socket there (mode 0600) for as long as it runs, read where the server starts. `curl --unix-socket <path> 'http://x/debug/pprof/profile?seconds=60'` is a CPU profile of a minute. Unset, nothing listens |
 | `YARDR_TEST_RPC` | tests: run the store suites through the unix-socket client |
 | `YARDR_STORE_NOSYNC` | tests: `1` opens `yard.db` without syncing each commit to the disk, which is most of a test run's time on macOS. The test suites set it for their throwaway yards (`0` keeps the sync). Never set it for a yard you keep: its store can be lost when the machine goes down |
@@ -1526,7 +1526,7 @@ no proxy auto-config (PAC) file and keeps no proxy credential in a secret.
 | variable | what it does |
 |---|---|
 | `HTTPS_PROXY`, `HTTP_PROXY` | name the proxy for https and for http requests. Go's clients read either case and prefer the upper. curl, and git with it, read the lower case, and for `http_proxy` only that |
-| `NO_PROXY` | names the hosts reached without the proxy: the box's own name, a JWKS URL inside the company, a peer yard on the LAN. Go never sends a request to `localhost` or a loopback address through a proxy |
+| `NO_PROXY` | names the hosts reached without the proxy: the box's own name, a JWKS URL inside the company, a peer yard on the LAN. Go never sends a request to `localhost` or a loopback address through a proxy. curl, which a source's commands run, does, so a command that calls a service on this box needs its address named here |
 | `SSL_CERT_FILE`, `SSL_CERT_DIR` | name the roots that Go (on Linux, not on macOS) and OpenSSL trust, for a company CA that is not in the system's store |
 | `NODE_EXTRA_CA_CERTS` | names a file of extra roots for a harness that runs on Node, as claude does. Node does not read the system's store |
 
@@ -1534,9 +1534,9 @@ no proxy auto-config (PAC) file and keeps no proxy credential in a secret.
 starter has it, beside the upper-case ones.
 
 The calls that need them go out from the server and the daemon (a source's
-calls, a peer yard), from the web view (the JWKS URL of its JWT mode), from
-the telemetry export, and from each agent's pane (its model, its git
-remotes). Each part takes them from the environment it starts in:
+calls and commands, a peer yard), from the web view (the JWKS URL of its JWT
+mode), from the telemetry export, and from each agent's pane (its model, its
+git remotes). Each part takes them from the environment it starts in:
 
 | part | gets them from |
 |---|---|
@@ -1556,10 +1556,14 @@ daemon install` and `yardr web install` again. For herdr, `yardr down
 server that runs keeps its old values until `herdr server stop`, which ends
 its panes, and the next start.
 
-A source's commands, a mint command among them, get nothing of the yard's
-environment but `PATH`, `HOME`, `USER`, `LOGNAME`, their credential and
-`YARDR_SOURCE_BASE` ([integrations.md](integrations.md#a-declared-source)),
-so none of these variables reaches them.
+A source's commands, a mint command among them, get the nine variables as the
+process that runs them has them (one it has not set is not set for the
+command), beside `PATH`, `HOME`, `USER`, `LOGNAME`, their credential and
+`YARDR_SOURCE_BASE`, and nothing else of the yard's environment
+([integrations.md](integrations.md#commands-a-file-names)). A command that
+calls its service with curl, as a mint does, goes through the proxy as the
+yard's own calls do. The limits command is the exception: it runs in the
+environment of the process that asks, whole, which has them already.
 
 A proxy address can hold a password, as in `http://user:secret@proxy:3128`.
 yardr treats the address like any other value. It writes it into the service
@@ -1567,8 +1571,10 @@ files, which are mode 0600 (the unit `contrib/server-yard/server-yard` saves
 for herdr is too), and `yardr daemon install` prints the address with the
 password as `xxxxx`, in the text and in `--json`. The password is still in
 the files and in the environment of what they start, which for herdr's
-server is every agent's pane. Prefer a proxy that lets the box through by its
-address.
+server is every agent's pane. From the server and the daemon it goes on into
+the environment of a source's commands, a pack's own among them, where the
+command and whatever it starts can read it. Prefer a proxy that lets the box
+through by its address.
 
 ### Retention: keeping `yard.db` bounded
 

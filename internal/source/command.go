@@ -84,13 +84,14 @@ func oneObject(what string, out []byte) error {
 
 // CommandEnv is the whole environment a command of d runs with: PATH,
 // HOME, USER and LOGNAME as the process that asks has them (each empty
-// user name the OS's own name for the process's uid instead), the
-// credential's value under the name credential.env gives (read by the
-// caller from the env file of whoever acts, as a call reads it; "" for
-// none) and YARDR_SOURCE_BASE, the declaration's base, so a test can
-// point the command at a stand-in. Nothing else of the yard's
-// environment reaches a command, and no credential that is the address
-// (credential.url): a call goes there and no command needs where.
+// user name the OS's own name for the process's uid instead), the proxy
+// and CA variables that process has (egressEnv), the credential's value
+// under the name credential.env gives (read by the caller from the env
+// file of whoever acts, as a call reads it; "" for none) and
+// YARDR_SOURCE_BASE, the declaration's base, so a test can point the
+// command at a stand-in. Nothing else of the yard's environment reaches a
+// command, and no credential that is the address (credential.url): a call
+// goes there and no command needs where.
 func (d *Declaration) CommandEnv(credential string) []string {
 	return d.CommandEnvOf(Read, credential)
 }
@@ -100,6 +101,9 @@ func (d *Declaration) CommandEnv(credential string) []string {
 func (d *Declaration) CommandEnvOf(kind, credential string) []string {
 	name, login := commandUser()
 	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "USER=" + name, "LOGNAME=" + login}
+	// Ahead of the credential and the base: exec keeps the last of a name
+	// given twice, so on a clash the declaration's own wins.
+	env = append(env, egressEnv()...)
 	if d.Credential != nil && !d.Credential.URL && credential != "" {
 		env = append(env, d.Credential.EnvOf(kind)+"="+credential)
 	}

@@ -21,8 +21,10 @@ import (
 // standinGoogle puts a gws and a curl on PATH that answer as the real
 // ones do for what google-mint runs: gws's login for op@example.com and
 // its refresh credentials, and the token endpoint's access token. The
-// mint's environment is PATH and HOME and no more, so a stand-in on
-// PATH is how a test keeps it from Google.
+// mint's environment is a short list (PATH, HOME, USER, LOGNAME, the base
+// and the proxy and CA variables of the process, of which a test binary has
+// none: internal/storetest drops them) and names no endpoint, so a stand-in
+// on PATH is how a test keeps it from Google.
 func standinGoogle(t *testing.T) {
 	t.Helper()
 	bin := t.TempDir()
