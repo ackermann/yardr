@@ -441,12 +441,15 @@ key only the sessions on the operator's login start again. A `login_led` event o
 One login is led per harness at a time: the machine's login of a harness
 is that of every crew member running it. Mail while a login is open asks
 nothing more. A login that ends without one (the leader's input waits
-ten minutes, the whole login fifteen; a declined ask) takes its open ask
-back with why, and the next one is asked only when the crew member is
-next sent mail. The first ask has no limit: a daemon that starts again
-finds it on the session's handle (`harness_login_ask`) and waits on it.
-While it is open, the crew member's line says the yard leads its login
-and waits for the operator at its asks; `Crew` says it as `login_led`.
+ten minutes, the whole login fifteen; a declined ask; the session it was
+asked for leaving the login screen by other means, as when the operator
+logs the harness in by hand and starts the session again) takes its open
+ask back with why, and the next one is asked only when a session of that
+harness at its login screen is next sent mail. The first ask has no
+limit: a daemon that starts again finds it on the session's handle
+(`harness_login_ask`) and waits on it. While it is open, the crew
+member's line says the yard leads its login and waits for the operator at
+its asks; `Crew` says it as `login_led`.
 
 A crew member whose env points its harness at a login folder of its own
 (`CLAUDE_CONFIG_DIR` in an env file) is not logged in by the yard's

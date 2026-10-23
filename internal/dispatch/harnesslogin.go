@@ -59,7 +59,8 @@ import (
 //
 // One login is led per kind at a time: the machine's login of a kind is
 // every crew member's of that kind. A login that ends without one (the
-// leader's own timeouts, a decline) takes its open ask back and is offered
+// leader's own timeouts, a decline, the session it was asked for leaving
+// the login screen by other means) takes its open ask back and is offered
 // again on the next held nudge, mail that came after it ended, never on
 // every pass.
 
@@ -143,6 +144,15 @@ func (s loginSeat) key() string {
 		return "crew:" + s.member
 	}
 	return "crew:" + s.member + ":" + s.user
+}
+
+// who names the seat as the operator reads it in the asks: the crew member,
+// and the user of a conversation.
+func (s loginSeat) who() string {
+	if s.user == "" {
+		return s.member
+	}
+	return s.member + " (for " + s.user + ")"
 }
 
 // loginRest is a kind whose led login ended without one: it is offered
@@ -247,7 +257,7 @@ func (d *Dispatcher) harnessLogins(ctx context.Context, rs []store.CrewMember) {
 		for _, member := range l.switched {
 			carried["member:"+member] = true
 		}
-		d.carryLead(ctx, l)
+		d.carryLead(ctx, l, rs)
 	}
 	settings, err := d.Store.Settings(ctx)
 	if err != nil {
@@ -340,6 +350,20 @@ func (d *Dispatcher) leadOf(seat loginSeat) *harnessLead {
 	return nil
 }
 
+// stillAtLogin reports whether any session l is led for still sits at its
+// harness's login screen in rs: the one its first ask was made for, or a
+// session of a crew member its pick switched, which the login starts again
+// whatever their screens read (loggedIn). Where none does, nobody waits on
+// the login any more: the session was logged in by other means and started
+// again, or went some other way.
+func (l *harnessLead) stillAtLogin(rs []store.CrewMember) bool {
+	// Only which sessions sit matters here, not their kinds, which are all
+	// the yard's default (the second argument) can change.
+	return slices.ContainsFunc(seatsAtLogin(rs, ""), func(s loginSeat) bool {
+		return s.key() == l.seat.key() || slices.Contains(l.switched, s.member)
+	})
+}
+
 // askMark is the HarnessLoginAskKey mark of the seat's session in rs.
 func askMark(rs []store.CrewMember, seat loginSeat) map[string]any {
 	for _, r := range rs {
@@ -419,10 +443,7 @@ func (d *Dispatcher) offerLogin(ctx context.Context, seat loginSeat, operator st
 	}
 	delete(d.status, key)
 	h, _ := agents.Lookup(seat.kind)
-	who := seat.member
-	if seat.user != "" {
-		who += " (for " + seat.user + ")"
-	}
+	who := seat.who()
 	shown := h.Label
 	if shown == "" {
 		shown = seat.kind
@@ -497,8 +518,21 @@ func (d *Dispatcher) markLeadAsk(ctx context.Context, seat loginSeat, l *harness
 }
 
 // carryLead takes l as far as it goes on this pass: an answer to the ask
-// it waits on, what its leader printed, and its end.
-func (d *Dispatcher) carryLead(ctx context.Context, l *harnessLead) {
+// it waits on, what its leader printed, and its end. rs is the crew as the
+// pass read it.
+func (d *Dispatcher) carryLead(ctx context.Context, l *harnessLead, rs []store.CrewMember) {
+	// A lead whose seats have left the login screen by other means (the
+	// operator logged the harness in by hand and started the session again,
+	// or logged in in its pane, or a person's sign-in did) ends with its ask
+	// taken back. Or the card would stand for ever: nothing else ends a lead
+	// whose ask nobody answers, and while it stands no other session at the
+	// kind's screen is asked about (leadOf). It is looked at before the ask,
+	// so an answer given meanwhile starts no leader for a login nothing
+	// waits on.
+	if !l.stillAtLogin(rs) {
+		d.endLead(ctx, l, l.seat.who()+" no longer sits at its harness's login screen")
+		return
+	}
 	if l.ask != 0 {
 		state, cur := d.askState(ctx, l.seat.journal, l.ask)
 		switch {
@@ -988,6 +1022,6 @@ func (d *Dispatcher) endLead(ctx context.Context, l *harnessLead, why string) {
 	d.loginRests[l.kind] = loginRest{head: head}
 	_ = d.Store.LogDispatch(ctx, l.seat.journal, "login_led", actor, map[string]any{
 		"crew": l.seat.member, "kind": l.kind, "step": "failed",
-		"reason": fmt.Sprintf("the login of %s ended without one: %s. The yard asks again when %s is next sent mail", l.kind, why, l.seat.member)})
+		"reason": fmt.Sprintf("the login of %s ended without one: %s. The yard asks again when a %s session at its login screen is next sent mail", l.kind, why, l.kind)})
 	d.Log.Warn("a led login ended without one", "kind", l.kind, "why", why)
 }

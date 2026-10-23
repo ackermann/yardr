@@ -493,6 +493,145 @@ func TestLedLoginThatEndsIsOfferedOnNextMail(t *testing.T) {
 	}
 }
 
+// A card whose seat left the login screen by other means is taken back with
+// its lead, so it does not stand for ever and the next seat of the kind is
+// asked about. The operator logged the harness in by hand, in a terminal of
+// their own or in the yardmaster's pane: nothing waits on the card, and
+// answering it would lead a whole login (a page to sign in on, a code, a
+// check that costs a model call) for a session that is not at the screen.
+// While it stood, scout, of the same kind and at its screen, was asked about
+// nothing: one login is led per kind. As after any login that ends without
+// one, the kind is asked about again once a session at its screen has mail.
+func TestLedLoginWhoseSeatLeftTheScreenIsTakenBack(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name string
+		// leave is what takes the yardmaster off the screen once its pane
+		// shows none: it starts again, or its agent is seen working.
+		leave func(t *testing.T, s store.API, f *crewRunner, agent string)
+	}{
+		{"it is started again", func(t *testing.T, s store.API, _ *crewRunner, _ string) {
+			must(t, s.RequestRestartFor(context.Background(), "yardmaster", "", "logged in by hand", "", "op"))
+		}},
+		{"its agent works past it", func(_ *testing.T, _ store.API, f *crewRunner, agent string) {
+			f.set(agent, "working")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			s, f, d, l := loginSetup(t)
+			ctx := context.Background()
+			passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+			stale := openAsks(t, s)[0]
+			yardmaster, err := s.GetCrew(ctx, "yardmaster")
+			must(t, err)
+
+			// Scout sits at its screen on a pane of its own, so the
+			// yardmaster's can leave the screen while scout's stays.
+			g := &crewRunner{status: map[string]string{}, login: f.login, input: f.input}
+			d.Runners["fake2"] = g
+			_, err = s.PutCrew(ctx, store.CrewMember{Name: "scout", Runner: "fake2", Enabled: true,
+				Config: map[string]any{"kind": "claude"}}, "op")
+			must(t, err)
+			passUntil(t, d, "scout at its login screen", func() bool {
+				r, err := s.GetCrew(ctx, "scout")
+				return err == nil && r.Live() && r.Handle[dispatch.HarnessLoginKey] != nil
+			})
+			scout, err := s.GetCrew(ctx, "scout")
+			must(t, err)
+			for range 3 {
+				must(t, d.Reconcile(ctx))
+			}
+			if a := openAsksOn(t, s, scout.Journal); len(a) != 0 {
+				t.Fatalf("scout is asked about %d logins while the yardmaster's card stands, want none", len(a))
+			}
+
+			f.mu.Lock()
+			f.login, f.input = "", ""
+			f.mu.Unlock()
+			c.leave(t, s, f, yardmaster.Handle["agent"].(string))
+			passUntil(t, d, "the card taken back", func() bool { return len(openAsks(t, s)) == 0 })
+			notes, err := s.Notes(ctx, yardmaster.Journal)
+			must(t, err)
+			for _, a := range store.ResolveAsks(notes, time.Now()) {
+				if a.Note.Seq != stale.Note.Seq {
+					continue
+				}
+				if a.State != store.AskTakenBack || a.Current == nil ||
+					!strings.Contains(a.Current.Answer.Words, "yardmaster no longer sits at its harness's login screen") {
+					t.Errorf("the card is %v, taken back for %+v, want it taken back with why", a.State, a.Current)
+				}
+			}
+			if err := s.AnswerAsk(ctx, yardmaster.Journal, stale.Note.Seq, 1, "", "op", false); err == nil {
+				t.Errorf("the card taken back was answered")
+			}
+			// The yard no longer says it leads a login for the yardmaster,
+			// whether its session is a new one or the one that went on.
+			r, err := s.GetCrew(ctx, "yardmaster")
+			must(t, err)
+			if r.LoginLed || r.LoginScreen {
+				t.Errorf("Crew says login_screen %v and login_led %v of the yardmaster, want neither", r.LoginScreen, r.LoginLed)
+			}
+
+			// The kind is rested as any login that ends without one leaves
+			// it: scout is asked about nothing until it has mail, and then
+			// about a login of its own.
+			for range 3 {
+				must(t, d.Reconcile(ctx))
+			}
+			if a := openAsksOn(t, s, scout.Journal); len(a) != 0 {
+				t.Fatalf("scout is asked about %d logins before it has mail, want none", len(a))
+			}
+			must(t, s.Mail(ctx, "scout", "hello?", "op"))
+			passUntil(t, d, "scout's own card", func() bool { return len(openAsksOn(t, s, scout.Journal)) == 1 })
+			if q := openAsksOn(t, s, scout.Journal)[0].Ask.Question; !strings.HasPrefix(q, "scout is not logged in") {
+				t.Errorf("scout's card asks %q", q)
+			}
+			if a := openAsks(t, s); len(a) != 0 || l.count() != 0 {
+				t.Errorf("%d cards stand for the yardmaster and %d leaders ran, want none of either", len(a), l.count())
+			}
+		})
+	}
+}
+
+// An answer that comes as the seat leaves the screen starts no leader: the
+// lead looks at its seat before it reads the ask, so a pick made after the
+// operator logged in by hand leads no login nothing waits on. The pass that
+// starts the yardmaster again still reads the old session at the screen, and
+// the next pass reads the new one.
+func TestLedLoginAnsweredAsItsSeatLeftStartsNoLeader(t *testing.T) {
+	t.Parallel()
+	s, f, d, l := loginSetup(t)
+	ctx := context.Background()
+	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+	card := openAsks(t, s)[0]
+	yardmaster, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+
+	f.mu.Lock()
+	f.login, f.input = "", ""
+	f.mu.Unlock()
+	must(t, s.RequestRestartFor(ctx, "yardmaster", "", "logged in by hand", "", "op"))
+	passUntil(t, d, "the yardmaster started again", func() bool {
+		r, err := s.GetCrew(ctx, "yardmaster")
+		return err == nil && r.Live() && r.Handle["agent"] != yardmaster.Handle["agent"]
+	})
+	must(t, s.AnswerAsk(ctx, yardmaster.Journal, card.Note.Seq, 1, "", "op", false))
+	passUntil(t, d, "the login's end told", func() bool {
+		_, ev := kindCount(t, s, yardmaster.Journal, "login_led")
+		return ev.Data["step"] == "failed"
+	})
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
+	if n := l.count(); n != 0 {
+		t.Errorf("%d leaders started for a login nothing waits on", n)
+	}
+	if a := openAsks(t, s); len(a) != 0 {
+		t.Errorf("%d asks open after the login ended, want none: %+v", len(a), a[0].Ask)
+	}
+}
+
 // A daemon that starts again finds the first ask on the handle and waits
 // on it: no second ask. One answered while no daemon ran is acted on.
 func TestLedLoginAskOutlivesTheDaemon(t *testing.T) {
