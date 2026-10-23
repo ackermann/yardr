@@ -369,8 +369,9 @@ func (w *wtx) foldBlocks(carrier, member *beadRow, moved *FoldMoved, look *until
 // caller may not close (checkCloseOwn, since a fold closes it), one already
 // closed, one a session works (taking it would end that session's work), one
 // of another yard's, which closing returns to its yard as refused, or takes
-// back from it, one that is a child of a train, one an open bead blocks now
-// and one that is a train. A manual group's claim is a person's turn with
+// back from it, one that is a child of a train, one an open bead blocks, in
+// its stage or another, and one that is a train. A manual group's claim is
+// a person's turn with
 // nothing running, not a session at work, so the bead is taken and the close
 // ends the claim, as it
 // does for any bead.
@@ -392,12 +393,15 @@ func (w *wtx) foldBlocks(carrier, member *beadRow, moved *FoldMoved, look *until
 // member stays on the member, which the fold closes: the carrier would route
 // and build with that blocker still open. The siding design leaves such a
 // bead where it waits (docs/design/2026-10-22-yardr-9x0n-siding.md, 3.5),
-// and a fold by hand takes the same rule, by the gate ready reads
-// (openBlockers), so what bead show calls blocked is what is refused. An edge
-// that holds the member only at another stage, or that its blocker has
-// released, holds nothing now and is not looked at. A blocker that is a
-// member too (folding holds the members' UUIDs) closes in the same write and
-// only orders parts of one bundle, so it does not refuse.
+// and a fold by hand takes the same rule, widened to the carrier's whole
+// future (unreleasedBlockers): an edge that holds the member only at
+// another stage refuses too, since the carrier would pass that stage with
+// the blocker open, and only an edge its blocker has released holds
+// nothing and is not looked at. The refusal names the blocker and, where
+// the edge holds at another stage, that stage, so it says what bead show,
+// which answers whether the member can move now, does not. A blocker that
+// is a member too (folding holds the members' UUIDs) closes in the same
+// write and only orders parts of one bundle, so it does not refuse.
 //
 // A train is refused after what blocks it, so that a train an open child
 // holds is refused as blocked. The carrier would take the oldest member's
@@ -439,13 +443,19 @@ func (w *wtx) checkFoldable(ctx context.Context, m *beadRow, folding map[string]
 	}
 	h := handlesIn(w.Tx)
 	var blockers []string
-	for _, u := range openBlockers(w.Tx, &m.Bead, look) {
-		if !folding[u] {
-			blockers = append(blockers, h.of(u))
+	for _, d := range unreleasedBlockers(w.Tx, &m.Bead, look) {
+		if folding[d.From] {
+			continue
 		}
+		name := h.of(d.From)
+		if d.At != "" && d.At != m.Stage {
+			name += " at " + d.At
+		}
+		blockers = append(blockers, name)
 	}
 	if len(blockers) > 0 {
-		// Several edges from one blocker hold as one.
+		// One entry per blocker and stage: several edges that hold the
+		// member the same way name one.
 		slices.Sort(blockers)
 		return fmt.Errorf("bead %s is blocked by %s: a fold takes beads nothing blocks, since its carrier is made without a member's blockers and would be ready while they are open",
 			m.ID, strings.Join(slices.Compact(blockers), ", "))

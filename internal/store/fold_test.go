@@ -1073,11 +1073,29 @@ func TestFoldBeads(t *testing.T) {
 			},
 		},
 		{
+			// The member skip covers a future hold too: the blocker closes
+			// in the same write, so what would order the parts at another
+			// stage orders one bundle and refuses nothing.
+			name: "members joined by an edge at another stage are folded with it", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-hj", Title: "a"}, {ID: "plain-hk", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				if err := s.AddDep(ctx, made[1].ID, made[0].ID, DepBlocks, "approved", "", "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "stage", got.Stage, "ready")
+				if holders, err := s.OpenBlockers(ctx, got.ID); err != nil || len(holders) != 0 {
+					t.Errorf("the carrier is held by %v, %v; want none", holders, err)
+				}
+			},
+		},
+		{
 			// a stands in new, so an edge that holds it at approved holds
-			// nothing now: it is the gate's own reading, which bead show
-			// prints as blocked by, and the fold's. The edge ends in the
-			// closed member; the carrier does not inherit it.
-			name: "an edge that holds a member only at another stage holds nothing now, and does not refuse", depot: "plain", opts: FoldOptions{To: "ready"},
+			// nothing now: ready and bead show say nothing blocks it. The
+			// fold refuses it all the same, naming the blocker and the
+			// stage, since the carrier would pass approved with x open.
+			name: "an edge that holds a member only at another stage refuses, naming the blocker and the stage", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{{ID: "plain-ha", Title: "a"}, {ID: "plain-hb", Title: "b"}},
 			prepare: func(t *testing.T, s *Store, made []Bead) {
 				x := outside(t, s, NewBead{ID: "plain-hv", Title: "x", Depot: "plain"})
@@ -1088,10 +1106,7 @@ func TestFoldBeads(t *testing.T) {
 					t.Fatalf("%s is held by %v, %v before the fold; want none, standing short of approved", made[0].ID, holders, err)
 				}
 			},
-			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
-				foldWant(t, "stage", got.Stage, "ready")
-				foldWantEdges(t, s, got.ID, DepBlocks)
-			},
+			wantErr: "bead plain-ha is blocked by plain-hv at approved: a fold takes beads nothing blocks",
 		},
 		{
 			// The release is the repository flow's to say (x stands in new,

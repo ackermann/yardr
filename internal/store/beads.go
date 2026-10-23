@@ -920,6 +920,28 @@ func openBlockers(tx *bolt.Tx, b *Bead, look *untilLooks) []string {
 	return out
 }
 
+// unreleasedBlockers lists the incoming blocks edges into b whose blocker is
+// unreleased (open and, for an until edge, short of that stage along done),
+// whatever stage the edge names: what holds b now, plus what will hold it
+// when it reaches another stage. A fold is refused by these, not by
+// openBlockers: the carrier passes through the member's whole future, so a
+// hold at a stage the member is not in yet binds the fold now, even though
+// ready and bead show, which answer whether b can move now, correctly say
+// nothing blocks it. A blocker bead that is gone holds nothing, as in holds.
+func unreleasedBlockers(tx *bolt.Tx, b *Bead, look *untilLooks) []depRow {
+	var out []depRow
+	for _, d := range edges(tx, bDepTo, b.UUID, DepBlocks) {
+		var blocker beadRow
+		if ok, _ := get(tx, bBeads, d.From, &blocker); !ok {
+			continue
+		}
+		if !released(tx, &blocker, d.Until, look) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // holds reports whether blocks edge d into b holds it now: the edge names
 // no stage, or b is in the stage it names, and its blocker is unreleased.
 // A blocker bead that is gone holds nothing.

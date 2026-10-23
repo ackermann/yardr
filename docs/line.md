@@ -1616,9 +1616,10 @@ fold re-points what a member blocks and not what blocks it, so the carrier
 would be ready while the blocker is open. Fold it once the blocker closes,
 leave it out, or take the edge off with `yardr dep rm` when the order no
 longer matters. A blocker folded with it does not refuse, since it closes in
-the same fold. An edge that holds a bead only at another stage (`--at`), or
-that its blocker has released (`--until`), holds nothing now: the fold does
-not refuse it, and the carrier does not inherit it. A bead that is a child of
+the same fold. An edge that holds a bead only at another stage (`--at`)
+refuses too, naming the blocker and the stage, since the carrier would pass
+that stage with the blocker still open; only an edge its blocker has released
+(`--until`) holds nothing and is not refused. A bead that is a child of
 a train (`yardr bead show` says `train`) is refused too, naming the train: the
 carrier is a new bead outside it, so it would branch from and land on the
 depot's base and not the train's branch. It could not build on what the
