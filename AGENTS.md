@@ -153,24 +153,28 @@ it lists every exported name with its comment, faster than grepping.
   `runtime.Caller` is then its import path: a test finds a repo file from
   its package directory (`../../packs/starter`) or through `packs.FS`.
 - A `test: flaky:` line files itself: the gate appends one line per flaky
-  line -- date, short sha, packages, tests -- to `yardr-flaky.log` in the
-  git common dir, which the repo owns and every worktree shares, files a
-  backlog P3 `Flaky: <Test> (<pkg>)` when the test is already named in the
-  log (deduped by title; skipped where the yardr CLI is not there), and
-  fails the step when the test flaked on 3 different commits (short
-  shas) in 7 days: a commit run again is one, and a landing, which is
-  rebased and squashed, is usually one more for its change. The rerun's
-  output replaces the first run's, so the log line also keeps what the
-  first run printed for each failed test, behind ` | `: its `--- FAIL:`
-  line and the lines under it (6 lines of 200 characters at most for a
-  test, 20 tests at most, a literal `\n` between lines), and the filed
-  bead carries the whole line. Only the part before the ` | ` names the
-  tests that flaked. A hand reading old lines files the same way -- a
-  repeat, or a failure that accuses the product (a race report, a
-  product assertion, a wrong result rather than a timeout); otherwise
-  the log line is the record, named in the handover note. A race fails
-  the step without a retry, and a package that fails twice fails as
-  before.
+  line -- date, short sha, packages, tests, then `beads=<ids>` where the
+  run is of a bead -- to `yardr-flaky.log` in the git common dir, which
+  the repo owns and every worktree shares, files a backlog P3
+  `Flaky: <Test> (<pkg>)` when the test is already named in the log
+  (deduped by title; skipped where the yardr CLI is not there), and fails
+  the step when the test flaked in 3 different changes in 7 days. A change
+  is the set of beads a line names, whatever commits it was tested at:
+  `YARDR_TEST_BEADS` (integrate-train gives a train's tests its children,
+  since their `YARDR_BEAD` is the train) else `YARDR_BEAD`, so a builder's
+  runs, a reviewer's and the landing's, which is rebased and squashed, are
+  one. A line with no beads (written before the field, or by CI, the quiet
+  run or a hand) is a change of its short sha. The rerun's output replaces
+  the first run's, so the log line also keeps what the first run printed
+  for each failed test, behind ` | `: its `--- FAIL:` line and the lines
+  under it (6 lines of 200 characters at most for a test, 20 tests at
+  most, a literal `\n` between lines), and the filed bead carries the
+  whole line. Only the part before the ` | ` names the tests that flaked
+  and the beads the run was of. A hand reading old lines files the same
+  way -- a repeat, or a failure that accuses the product (a race report, a
+  product assertion, a wrong result rather than a timeout); otherwise the
+  log line is the record, named in the handover note. A race fails the
+  step without a retry, and a package that fails twice fails as before.
 - `gofmt` and `go vet` are clean on every change; the module builds with
   the Go in `go.mod`.
 

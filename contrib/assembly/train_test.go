@@ -138,7 +138,10 @@ func (y *yard) ready(id string) bool {
 }
 
 func TestTrainEndToEnd(t *testing.T) {
-	y := newTrainYardCLI(t, "test ! -e RED")
+	// The test command records the bead it runs for and the beads it is told
+	// it tests, which the depot's gate reads for its flaky log.
+	record := filepath.Join(t.TempDir(), "runs")
+	y := newTrainYardCLI(t, `test ! -e RED && echo "$YARDR_BEAD ${YARDR_TEST_BEADS-unset}" >>`+shellQuote(record))
 	if y.ready("r-e") {
 		t.Fatal("the train is ready while its children are open")
 	}
@@ -206,6 +209,98 @@ func TestTrainEndToEnd(t *testing.T) {
 	}
 	if pushed := y.git(y.repo, "ls-remote", "origin", "refs/heads/main"); !strings.HasPrefix(pushed, train) {
 		t.Fatalf("origin main is %q, want %s", pushed, train)
+	}
+
+	// A child's landing is of its own bead and says nothing more. The train's
+	// integration names the train in YARDR_BEAD, which is no change of its own,
+	// and its children in YARDR_TEST_BEADS, sorted. The train's landing by
+	// merge-local is the fourth run; what it says is not pinned here.
+	runs, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSpace(string(runs)), "\n")
+	// The lookup is jq's: a machine without it tells the integration no beads,
+	// which TestIntegrateTrainTellsTheTestCommandItsBeads pins.
+	integrated := "r-e r-1,r-2"
+	if _, err := exec.LookPath("jq"); err != nil {
+		integrated = "r-e "
+	}
+	if want := []string{"r-1 unset", "r-2 unset", integrated}; len(got) != 4 || !slices.Equal(got[:3], want) || !strings.HasPrefix(got[3], "r-e ") {
+		t.Fatalf("the test command ran for %q, want the children's landings, the train's integration told %q, and the train's landing", got, integrated)
+	}
+}
+
+// integrate-train tells the test command which beads it tests, where the
+// command's YARDR_BEAD names the train: the train's children, sorted and once
+// each, or none when it cannot name them (a train without any, or yardr not
+// answering), as a variable that is set and empty, so that the depot's
+// command, which keeps a flaky test's sightings by change, does not take the
+// train for one. The run is the direct one of integrate_train_watcher_test.go
+// with a yardr that answers for the train; TestTrainEndToEnd has the real
+// yardr.
+func TestIntegrateTrainTellsTheTestCommandItsBeads(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		train string // what the stub's bead show prints, empty for a stub that fails
+		want  string // what the test command made of its YARDR_BEAD and YARDR_TEST_BEADS
+		said  string // what the log says of it, if anything
+		jq    bool   // the lookup is jq's: the row wants it on the machine
+	}{
+		{"the children, sorted and once each", `{"id":"r-1","children":["r-2","r-10","r-1","r-2"]}`, "r-1 r-1,r-10,r-2", "", true},
+		{"a train with no children", `{"id":"r-1"}`, "r-1 ", "", true},
+		{"yardr not answering", "", "r-1 ", "could not read the children of r-1", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := exec.LookPath("jq"); c.jq && err != nil {
+				t.Skip("jq is not installed")
+			}
+			record := filepath.Join(t.TempDir(), "run")
+			w := newIntegrateTrainWatcherRun(t, `echo "$YARDR_BEAD ${YARDR_TEST_BEADS-unset}" >`+shellQuote(record), "1779", 0)
+			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1779") })
+			// bead show --json is how integrate-train reads the children;
+			// everything else is the report it ends with, whose note is its
+			// input.
+			stub := filepath.Join(filepath.Dir(w.tmp), "yardr-stub")
+			text := "#!/bin/sh\ncase \"$*\" in\n\"bead show r-1 --json\") [ -n \"$FAKE_TRAIN\" ] || exit 1; printf '%s\\n' \"$FAKE_TRAIN\" ;;\n*) cat >/dev/null 2>&1 ;;\nesac\n"
+			if err := os.WriteFile(stub, []byte(text), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			w.env = append(w.env, "YARDR_BIN="+stub, "FAKE_TRAIN="+c.train)
+			// Into a file, not a pipe, as the runs in watcher_test.go: see there.
+			log, err := os.Create(filepath.Join(t.TempDir(), "out"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := w.cmd()
+			cmd.Stdout, cmd.Stderr = log, log
+			err = cmd.Run()
+			log.Close()
+			b, _ := os.ReadFile(log.Name())
+			out := string(b)
+			if err != nil || !strings.Contains(out, "== r-1 done") {
+				t.Fatalf("integrate-train: %v\n%s", err, out)
+			}
+			awaitNoWatcherSleepers(t, w.record, "1779")
+			ran, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatalf("the test command did not run: %v\n%s", err, out)
+			}
+			if got := strings.TrimSuffix(string(ran), "\n"); got != c.want {
+				t.Errorf("the test command saw %q, want %q\n%s", got, c.want, out)
+			}
+			if c.said != "" && !strings.Contains(out, c.said) {
+				t.Errorf("the log lacks %q:\n%s", c.said, out)
+			}
+			if c.said == "" && strings.Contains(out, "could not read the children") {
+				t.Errorf("the log says the children could not be read:\n%s", out)
+			}
+			if !strings.Contains(out, "with YARDR_LANDING=1 and YARDR_TEST_BEADS="+strings.TrimPrefix(c.want, "r-1 ")) {
+				t.Errorf("the log does not say which beads the tests were told:\n%s", out)
+			}
+		})
 	}
 }
 

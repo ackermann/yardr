@@ -1182,7 +1182,8 @@ path with that setup:
    The integrator fetches the base when it is a remote's, rebases
    `yard/<train>` onto the depot's base in the train's worktree, runs the
    depot's test command on it with `YARDR_LANDING=1` (a script named by its
-   path is the copy main has),
+   path is the copy main has) and `YARDR_TEST_BEADS` (the train's children:
+   the command's `YARDR_BEAD` is the train),
    pushes the rebased branch when `YARDR_PUSH` is set (replacing the remote
    branch only when everything on it was in what it rebased, or in a
    recorded old tip; step 5), and reports `done`, to review. A red run

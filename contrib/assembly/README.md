@@ -112,7 +112,12 @@ the depot's test command on it, with `YARDR_LANDING=1` and from the base's
 copy where the command is a file the base has, as merge-local does, and for
 at most `YARDR_TEST_TIMEOUT` seconds besides what it waited for the race lock
 (a run killed at the deadline is red); a depot
-with no test command goes to review untested. Green pushes the rebased branch when `YARDR_PUSH` is set
+with no test command goes to review untested. The command's `YARDR_BEAD` is
+the train, which is no change of its own, so the run also sets
+`YARDR_TEST_BEADS` to the train's children, sorted and joined by commas (set
+and empty when `yardr bead show --json` and `jq` cannot name them): depot
+yardr's command keeps it in its flaky log, to count a flaky test once per
+change. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
 rebased, or in a tip a note on the train records as `old tip: <sha>`, which
 its own conflict note and the merger's note both do: the merger rebases

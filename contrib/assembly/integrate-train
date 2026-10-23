@@ -24,16 +24,17 @@
 #
 # It fetches the base when it is a remote's, rebases the train branch onto
 # the base, runs the depot's test command on the result, with
-# YARDR_LANDING=1, and reports done (-> review). A red run reports failed
-# (-> open) with the commit and the end of the output, after adding a child
-# to fix it, which carries the same: the child blocks the train, so it is
-# not integrated again until the fix has landed on its branch. A rebase that
-# conflicts reports conflict (-> merge), as merge-local does for a bead: the
-# mergers rebase the branch and send the train back to open, where it is
-# integrated again. A test command that says it could not run (exit 2), or a
-# branch it cannot work on, is held for a human; a run ended by a signal is
-# run once more, and held if one ends it again. A depot with no test command
-# goes to review untested, and the note says so.
+# YARDR_LANDING=1 and YARDR_TEST_BEADS (the train's children, which the run
+# tests, where YARDR_BEAD names the train), and reports done (-> review). A
+# red run reports failed (-> open) with the commit and the end of the output,
+# after adding a child to fix it, which carries the same: the child blocks
+# the train, so it is not integrated again until the fix has landed on its
+# branch. A rebase that conflicts reports conflict (-> merge), as merge-local
+# does for a bead: the mergers rebase the branch and send the train back to
+# open, where it is integrated again. A test command that says it could not
+# run (exit 2), or a branch it cannot work on, is held for a human; a run
+# ended by a signal is run once more, and held if one ends it again. A depot
+# with no test command goes to review untested, and the note says so.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
 # failed session, and three of those hold the bead.
@@ -208,6 +209,24 @@ fi
 # deadline is not this: it is a red run.
 TEST=${YARDR_TEST:-}
 LIMIT=${YARDR_TEST_TIMEOUT:-1800}
+# The beads the tests are of, which the test command is told in
+# YARDR_TEST_BEADS: set before the run, below.
+BEADS=
+# trainbeads prints the train's children, sorted and joined by commas, for
+# YARDR_TEST_BEADS. The test command runs with YARDR_BEAD set to the train, and
+# a command that records which change a run tested (depot yardr's gate does,
+# to count a flaky test once per change) would take the train for a change of
+# its own, apart from the children it is made of. Nothing is printed when the
+# children cannot be read (yardr or jq failing) or there are none, and the
+# variable is then set and empty: it tells that command there is nothing to
+# name, where an unset one would send it back to YARDR_BEAD, the train.
+trainbeads() {
+  if json=$("$Y" bead show "$TRAIN" --json 2>/dev/null) && kids=$(printf '%s' "$json" | jq -r '.children[]?' 2>/dev/null); then
+    printf '%s\n' "$kids" | LC_ALL=C sort -u | paste -sd, -
+  else
+    echo "== could not read the children of $TRAIN (yardr and jq must answer); the tests are told no beads" >&2
+  fi
+}
 # --- closefds: the same text in merge-local, integrate-train, pr-ci, deploy-dokku and deploy-void (a test holds them equal) ---
 # closefds closes every descriptor above 2 that the subshell it is called in
 # inherited, so that what the subshell starts holds none the landing did not
@@ -268,7 +287,7 @@ runtest() {
   fi
   (
     cd "$WT" || exit 2
-    export YARDR_LANDING=1
+    export YARDR_LANDING=1 YARDR_TEST_BEADS="$BEADS"
     # The test command starts with no descriptor above 2 that the run did
     # not give it, or does not start, as merge-local's does for a landing.
     closefds "the tests"
@@ -364,7 +383,8 @@ else
   else
     WHAT="the command $TEST"
   fi
-  echo "== the tests on $BR at $at: $WHAT, with YARDR_LANDING=1"
+  BEADS=$(trainbeads)
+  echo "== the tests on $BR at $at: $WHAT, with YARDR_LANDING=1 and YARDR_TEST_BEADS=$BEADS"
   runtest
   if [ "$rc" -gt 128 ] && [ -z "$late" ]; then
     now=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
