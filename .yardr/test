@@ -1652,6 +1652,7 @@ docs/pushover.md               internal/cli
 docs/integrations.md           internal/cli packs
 docs/groups.md                 internal/agents
 docs/api.md                    internal/rpc
+docs/pack-api.md               internal/cli
 docs/packs.md                  packs
 docs/flows/                    internal/flowdraw internal/cli
 docs/                          .

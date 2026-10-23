@@ -249,39 +249,52 @@ rise of the API number.
 **A bead** is what `bead show` and `bead create` print, and the `bead` of
 `prime`:
 
+<!-- bead: made by the test of internal/cli from what the stable commands answer, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/cli -run TestPackAPIDoc writes it again -->
 | field | type | |
 |---|---|---|
 | `id` | string | the bead's handle |
-| `title` | string | |
-| `body` | string, absent when empty | |
-| `type` | string | |
+| `title` | string |  |
+| `body` | string, may be absent | absent when empty |
+| `type` | string |  |
 | `stage` | string | the stage the bead is in |
 | `status` | string | `open` or `closed` |
 | `priority` | number | 0 is the highest |
-| `depot` | string, absent when it has none | |
-| `labels` | array of string | |
-| `metadata` | object, absent when empty | what `bead update --meta` writes |
+| `depot` | string, may be absent | absent when it has none |
+| `labels` | array of string |  |
+| `metadata` | object, may be absent | what `bead update --meta` writes; absent when empty |
+<!-- /bead -->
 
 **`prime --bead <id> --json`** also has `next`, where the bead may go from
 its stage:
 
+<!-- prime-next: made by the test of internal/cli from what the stable commands answer, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/cli -run TestPackAPIDoc writes it again -->
 | field | type | |
 |---|---|---|
 | `next.stage` | string | the bead's stage |
 | `next.stages` | array of string | the stages it may be moved to, empty for a bead no flow governs, which may go to any |
 | `next.outcomes[].name` | string | an outcome `bead done --outcome` takes, absent when the flow leaves the stage to explicit moves |
 | `next.outcomes[].goes` | string | the stage reporting it takes the bead to now, which a limit on rounds can change from the flow's edge |
+<!-- /prime-next -->
 
 **`link list <id> --json`** prints an array, one entry for each link:
 
+<!-- links: made by the test of internal/cli from what the stable commands answer, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/cli -run TestPackAPIDoc writes it again -->
 | field | type | |
 |---|---|---|
 | `kind` | string | `tracks` or `relates`. A bead of another yard that this one is at, was at or came from is listed too, with the kind `at`, `was at` or `from`, and is no issue |
 | `source` | string | the outside source, and `peer` for a bead of another yard |
 | `url` | string | the issue in its one form, and for a bead of another yard its handle there |
+<!-- /links -->
 
 **`settings get <key>`** prints the value alone and nothing else, and exits
-3 for a setting that is not set. With `--json` it prints `key` and `value`.
+3 for a setting that is not set. With `--json` it prints:
+
+<!-- settings-get: made by the test of internal/cli from what the stable commands answer, not by hand; YARDR_UPDATE_GOLDEN=1 go test ./internal/cli -run TestPackAPIDoc writes it again -->
+| field | type | |
+|---|---|---|
+| `key` | string | the setting |
+| `value` | string | the value the yard goes by |
+<!-- /settings-get -->
 
 **`call --json`** prints the service's answer alone, shaped as the call's
 declaration says. A script calls a source under the grants the operator gave
