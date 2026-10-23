@@ -931,7 +931,8 @@ the fold took from that bead: the stage it stood in, the issues it tracked,
 the beads it blocked and who watched it (`yardr dep list --json` shows it as
 `moved`). An edge made by hand would say a bead was folded that never was.
 `yardr dep rm` refuses it too: only folding and unfolding change which beads
-belong to a carrier.
+belong to a carrier. `yardr bead show` says "folded into" on the one and
+"folded from" on the other ([Folding beads](#folding-beads)).
 
 A bead's agent can add edges and cannot take a `blocks` edge away. From an
 agent's session pane `yardr dep add` works, and the security stage uses it to
@@ -1552,6 +1553,69 @@ refuses `--approve` and `--request-changes` from the login that opened the
 PR, which is the operator's, the same login the reviewer's `gh` uses: on
 its own PR the reviewer posts a `--comment` with the verdict in the note's
 first line, and the yard learns the verdict from `yardr bead done`.
+
+## Folding beads
+
+Small changes to one depot are built and reviewed better as one bead than
+as one bead each: one builder session, one review, one landing. `yardr bead
+fold` makes that bead by hand, as the shaper and the yardmaster did by
+retitling one bead and closing the others:
+
+```sh
+$ yardr bead fold yardr-ab12 yardr-cd34 yardr-ef56
+yardr-k9p2 folded from yardr-ab12, yardr-cd34, yardr-ef56 (3 points, size:medium difficulty:1), in ready
+```
+
+The new bead is the **carrier** and each bead it was made of a **member**.
+The line names the members in the order given, then what they weigh, the
+`size:` and `difficulty:` the carrier got, and the stage it starts in;
+`--json` prints the carrier with `members` and `points`. The fold is one
+write, all or nothing:
+
+- The carrier's body holds each member's body as a part, in the order given
+  (`## Part 1: <title> (<id>)`), and ends in a `## The bundle` section: it is
+  done when every part's done-when holds and the depot's test command is
+  green, each part its own commit starting with the part's bead id. Its title
+  is `<depot> bundle: <title>; <title>`, cut on a word at 100 characters with
+  `(+n more)`; `--title` replaces it.
+- It takes the highest priority of the members, the oldest member's
+  originator, their type when they share one (else the oldest's) and their
+  flow. It carries their labels but `size:` and `difficulty:`, which it gets
+  of its own: `difficulty:` the highest of theirs, `size:` from what they
+  weigh, a small bead 1 point, a medium one 2, a large one 4 and one with no
+  size 2. One point is small, two to four medium, five or more large.
+- Each member is closed "folded into <carrier>", behind a `folded` edge from
+  the carrier ([Dependencies](#dependencies)), and its open stage asks are
+  taken back. What it tracked moves to the carrier, the beads it blocked are
+  blocked by the carrier with the stages the edges named, and whoever
+  watched it watches the carrier. A bead tracks one issue per source, so a
+  second issue of a source the carrier tracks is linked to it instead. A
+  member's notes and files stay on it: a note on the carrier says how many
+  notes each holds and which files, to be read with `yardr bead show
+  <member>`, and names the issues no bead tracks now.
+- A `folded` event on the carrier names the members, the points, the stage it
+  starts in and `hand`.
+
+The members must be open and unclaimed, of one depot and one flow, and this
+yard's own: a bead that came from another yard and has not gone back, or is
+away at one, is refused. A bead's agent cannot fold, since its pane may not
+make the call; a person or a crew member can. A fold of one bead is refused,
+since its carrier would be that bead with a worse title.
+
+The carrier starts in `--to`. Without it, it starts where its members wait:
+in the stage they all wait in, or, when that stage is a siding (a stage worked
+by a manual group that sets `fold`), in the first stage its flow leads to
+from the siding, since a siding is where beads wait to be folded and not
+where the fold waits. Members in different stages have no stage to start
+in, and the command asks for `--to <stage>`.
+
+`yardr bead show` says where a bead stands in a fold, under the lines for
+where it was found from: `folded into <carrier> <title>` on a member, and
+`folded from <member> <title>` on a carrier, a line for each, with `(closed)`
+after a bead that is. `--json` has both as `folded_into` and `folded_from`,
+lists of `{id, title, status}` that are there and empty when there is
+nothing to list. A bead is folded into more than one carrier only if it was
+reopened and folded again, and show names each.
 
 ## The yard as the CI of a pull request
 

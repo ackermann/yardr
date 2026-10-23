@@ -1296,7 +1296,7 @@ func TestPrintBeadFlowMarksAHeldBeadAndItsLateStage(t *testing.T) {
 		ETA:  &eta.ETA{Line: "eta usual 2m–5m (new ~3m)"},
 		Late: &eta.Late{Line: "late: new has run 9m, usually 5m at most"},
 	}
-	if err := (&app{}).printBeadFlow(&buf, b, "", nil, nil, nil, nil, nil, nil, nil, est); err != nil {
+	if err := (&app{}).printBeadFlow(&buf, b, "", nil, nil, nil, nil, nil, nil, nil, nil, est); err != nil {
 		t.Fatal(err)
 	}
 	want := "yd-1  the shed\n  type task · stage new · open · P0 · HELD\n  eta usual 2m–5m (new ~3m)\n  late: new has run 9m, usually 5m at most\n"

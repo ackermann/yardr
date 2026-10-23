@@ -102,7 +102,7 @@ func writerAskLine(w store.WriterAsk) string {
 }
 
 func (a *app) printBead(w io.Writer, b *store.Bead) error {
-	return a.printBeadFlow(w, b, "", nil, nil, nil, nil, nil, nil, nil, nil)
+	return a.printBeadFlow(w, b, "", nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
@@ -119,14 +119,15 @@ func printLinks(w io.Writer, ls []store.Link) {
 // flow does not resolve, is shown in its place rather than hide the bead.
 // fam, when given, adds where the bead stands among trains, and links the
 // outside issues it is linked to; disc, when given, the bead it was found
-// from and the beads found from it; holding, when given, the blocks edges
-// holding it, with the stages they name. test, when given, is the test
+// from and the beads found from it; folds, when given, the carrier it was
+// folded into and the beads folded into it; holding, when given, the blocks
+// edges holding it, with the stages they name. test, when given, is the test
 // command of the bead's depot, for whoever is about to work the bead (prime).
 // routed, when given, is why the bead went to its group or what it waits
 // for, where the route had a choice to make. waited, when given, is the
 // group it waits for behind a full group. est, when given, is the
 // bead's ETA and late mark, each printed when it has anything to say.
-func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, links ...store.Link) error {
+func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, folds *beadFolds, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, links ...store.Link) error {
 	return a.out(w, b, func(w io.Writer) {
 		// The title, the body and the reason it closed are a writer's
 		// words, and stand in the output its notes stand in. The title
@@ -162,6 +163,7 @@ func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store
 		if disc != nil {
 			printDiscovery(w, disc)
 		}
+		printFolds(w, folds)
 		printBlockedBy(w, holding)
 		printLinks(w, links)
 		if b.Group != nil {
@@ -406,9 +408,10 @@ func (a *app) beadCmd() *cobra.Command {
 	hold := a.newBeadHoldCmd(&rev)
 	unhold := a.newBeadUnholdCmd(&rev)
 	release := a.newBeadReleaseCmd(&rev)
+	fold := a.newBeadFoldCmd()
 
 	revFlag(update, done, advance, closeCmd, reopen, hold, unhold, release)
-	cmd.AddCommand(create, show, history, list, update, note, ask, answer, done, advance, closeCmd, reopen, hold, unhold, release)
+	cmd.AddCommand(create, show, history, list, update, note, ask, answer, done, advance, closeCmd, reopen, hold, unhold, release, fold)
 	cmd.AddCommand(a.watchCmds()...)
 	return cmd
 }
@@ -450,6 +453,10 @@ same as the eta and late objects, absent likewise.`,
 				links = append(rows, links...)
 			}
 			disc, err := st.Discovery(c.Context(), b.ID)
+			if err != nil {
+				return err
+			}
+			folds, err := foldsOf(c.Context(), st, b)
 			if err != nil {
 				return err
 			}
@@ -502,6 +509,12 @@ same as the eta and late objects, absent likewise.`,
 					Train string       `json:"train,omitempty"`
 					Links []store.Link `json:"links"`
 					Notes []store.Note `json:"notes"`
+					// FoldedInto and FoldedFrom are the carriers the bead was
+					// folded into and the beads folded into it (bead fold),
+					// each there, empty when there is nothing to list, as
+					// the discovery lists are.
+					FoldedInto []store.BeadRef `json:"folded_into"`
+					FoldedFrom []store.BeadRef `json:"folded_from"`
 					// Routing is why the bead went to its group, or what it
 					// waits for (yardr route add --help).
 					Routing *beadRouting `json:"routing,omitempty"`
@@ -509,10 +522,10 @@ same as the eta and late objects, absent likewise.`,
 					// there is nothing to say.
 					ETA  *eta.ETA  `json:"eta,omitempty"`
 					Late *eta.Late `json:"late,omitempty"`
-				}{b, fam, disc, train, links, notes, routed, etaObj, lateObj}, nil)
+				}{b, fam, disc, train, links, notes, folds.Into, folds.From, routed, etaObj, lateObj}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			if err := a.printBeadFlow(c.OutOrStdout(), b, "", next, err, fam, disc, holding, routed, waited, est, links...); err != nil {
+			if err := a.printBeadFlow(c.OutOrStdout(), b, "", next, err, fam, disc, folds, holding, routed, waited, est, links...); err != nil {
 				return err
 			}
 			// An author from another yard says whose word the note is, as
@@ -959,7 +972,7 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 			}
 			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
-				_ = a.printBeadFlow(w, b, test, next, flowErr, fam, disc, nil, nil, nil, est)
+				_ = a.printBeadFlow(w, b, test, next, flowErr, fam, disc, nil, nil, nil, nil, est)
 				if pullHead != "" {
 					fmt.Fprintf(w, "\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
 				}
