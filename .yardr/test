@@ -1605,7 +1605,7 @@ since="since $base ($said), from $(git rev-parse --short "$from")"
 # README and docs/ name it.
 reads='
 packs/starter/                 internal/pack internal/cli
-packs/design/                  contrib/assembly
+packs/design/                  contrib/assembly internal/pack
 packs/contributors/            contrib/assembly internal/pack internal/cli
 packs/dir/                     internal/pack
 packs/linear/                  internal/hooks internal/dispatch

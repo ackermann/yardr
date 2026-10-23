@@ -217,14 +217,15 @@ BEADS=
 # a command that records which change a run tested (depot yardr's gate does,
 # to count a flaky test once per change) would take the train for a change of
 # its own, apart from the children it is made of. Nothing is printed when the
-# children cannot be read (yardr or jq failing) or there are none, and the
+# children cannot be read (yardr not answering) or there are none, and the
 # variable is then set and empty: it tells that command there is nothing to
 # name, where an unset one would send it back to YARDR_BEAD, the train.
 trainbeads() {
-  if json=$("$Y" bead show "$TRAIN" --json 2>/dev/null) && kids=$(printf '%s' "$json" | jq -r '.children[]?' 2>/dev/null); then
+  if json=$("$Y" bead show "$TRAIN" --json 2>/dev/null) &&
+      kids=$(printf '%s' "$json" | sed -n '/^  "children": \[/,/^  \]/p' | sed -n -e 's/^    "\([^"]*\)",$/\1/p' -e 's/^    "\([^"]*\)"$/\1/p'); then
     printf '%s\n' "$kids" | LC_ALL=C sort -u | paste -sd, -
   else
-    echo "== could not read the children of $TRAIN (yardr and jq must answer); the tests are told no beads" >&2
+    echo "== could not read the children of $TRAIN (yardr must answer); the tests are told no beads" >&2
   fi
 }
 # --- closefds: the same text in merge-local, integrate-train, pr-ci, deploy-dokku and deploy-void (a test holds them equal) ---

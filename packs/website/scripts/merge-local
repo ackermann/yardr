@@ -58,7 +58,11 @@
 # run for the wagon, the landing run where the base moves; depot yardr's
 # is the selection plus the six black-box suites). The train is
 # tested and reviewed as a whole before the depot's base moves. See
-# docs/line.md, "Wagons".
+# docs/line.md, "Wagons". A train's landing tells the command the train's
+# children in YARDR_TEST_BEADS, sorted and joined by commas (set and empty
+# when they cannot be read); any other landing unsets it, so a command
+# that records which change a run tested takes the train for none of its
+# own.
 #
 # The log says how many seconds the rebase, the tests, the push and the
 # install took, in one line before the outcome's own, and the note of a
@@ -633,6 +637,27 @@ closefds() {
   exit 2
 }
 # --- end of closefds ---
+# The beads the tests are of, which the test command is told in
+# YARDR_TEST_BEADS when a train lands: set before the run, below.
+BEADS=
+# trainbeads prints the train's children, sorted and joined by commas, for
+# YARDR_TEST_BEADS. The test command runs with YARDR_BEAD set to the train,
+# and a command that records which change a run tested (depot yardr's gate
+# does, to count a flaky test once per change) would take the train for a
+# change of its own, apart from the children it is made of. Nothing is
+# printed when the children cannot be read (yardr not answering) or there
+# are none, and the variable is then set and empty: it tells that command
+# there is nothing to name, where an unset one would send it back to
+# YARDR_BEAD, the train. Parsed with sed, in the has_outcome idiom above:
+# no jq, which is not promised where this script runs.
+trainbeads() {
+  if json=$("$Y" bead show "$BEAD" --json 2>/dev/null) &&
+      kids=$(printf '%s' "$json" | sed -n '/^  "children": \[/,/^  \]/p' | sed -n -e 's/^    "\([^"]*\)",$/\1/p' -e 's/^    "\([^"]*\)"$/\1/p'); then
+    printf '%s\n' "$kids" | LC_ALL=C sort -u | paste -sd, -
+  else
+    echo "== could not read the children of $BEAD (yardr must answer); the tests are told no beads" >&2
+  fi
+}
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
 # in $lines, and $late set when it ran past $LIMIT seconds besides what it
@@ -661,9 +686,19 @@ runtest() {
     git -C "$REPO" show "refs/heads/$BASE:$TEST" >"$copy" || hold "cannot read $TEST from $BASE"
   fi
   t0=$(date +%s)
+  # The beads the tests are of, for YARDR_TEST_BEADS below: a train lands
+  # as its children, which are read once here (runtest runs twice only
+  # after a signal kill, and the lookup is idempotent); anything else is
+  # told no beads.
+  if [ "${YARDR_TYPE:-}" = train ]; then
+    BEADS=$(trainbeads)
+  else
+    BEADS=
+  fi
   (
     cd "$WT" || exit 2
     if [ -n "$LANDING" ]; then export YARDR_LANDING=1; else unset YARDR_LANDING; fi
+    if [ "${YARDR_TYPE:-}" = train ]; then export YARDR_TEST_BEADS="$BEADS"; else unset YARDR_TEST_BEADS; fi
     # The test command starts with no descriptor above 2 that the landing
     # did not give it, or does not start.
     closefds "$RUN"

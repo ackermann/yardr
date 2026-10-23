@@ -39,7 +39,11 @@ from `yardr depot add --test`) in the worktree, on exactly what will land,
 with `YARDR_LANDING=1` set: for depot yardr that run is the selection
 plus the six black-box suites, the whole suite running on a quiet
 machine instead (docs/line.md, "The landing run, and the whole suite
-on a quiet machine"); what it means is the depot command's own. Red
+on a quiet machine"); what it means is the depot command's own. Where the
+bead is a train the run also sets `YARDR_TEST_BEADS` to the train's
+children, sorted and joined by commas (set and empty when they cannot be
+read, unset for any other bead): depot yardr's command keeps it in its
+flaky log, to count a flaky test once per change. Red
 reports `failed` (back to `new`, or `open`
 for a train), and a command that says it could not run (exit 2) holds the
 bead; one that exits 2 for a failing test, as make does, is wrapped
@@ -115,7 +119,7 @@ at most `YARDR_TEST_TIMEOUT` seconds besides what it waited for the race lock
 with no test command goes to review untested. The command's `YARDR_BEAD` is
 the train, which is no change of its own, so the run also sets
 `YARDR_TEST_BEADS` to the train's children, sorted and joined by commas (set
-and empty when `yardr bead show --json` and `jq` cannot name them): depot
+and empty when `yardr bead show --json` cannot name them): depot
 yardr's command keeps it in its flaky log, to count a flaky test once per
 change. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it

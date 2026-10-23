@@ -25,6 +25,10 @@ const starter = "../../packs/starter"
 // requests, whose github lines share the starter's hook.
 const contributors = "../../packs/contributors"
 
+// design is the pack for a question of direction, drafted as a document
+// and landed by the same script as the starter's beads.
+const design = "../../packs/design"
+
 // website is the starter's line with a deploy stage, for a website on the
 // user's own Void platform; these tests hold its deploy script to the
 // reference one.
@@ -517,25 +521,28 @@ func TestNoPackFile(t *testing.T) {
 	}
 }
 
-// The starter's merge-local is a copy of the reference assembly
+// Every pack's merge-local is a copy of the reference assembly
 // (contrib/assembly/merge-local), which a yard set up by hand installs from
-// there: a change to either must be made to both. An embedded file has no
-// mode, so that it is executable in the source is held here.
-func TestStarterMergeLocalIsTheReferenceAssembly(t *testing.T) {
-	got, err := os.ReadFile(filepath.Join(starter, "scripts", "merge-local"))
-	if err != nil {
-		t.Fatal(err)
-	}
+// there: a change to one must be made to all five. An embedded file has no
+// mode, so that each is executable in the source is held here.
+func TestPackMergeLocalsAreTheReferenceAssembly(t *testing.T) {
 	want, err := os.ReadFile("../../contrib/assembly/merge-local")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != string(want) {
-		t.Error("packs/starter/scripts/merge-local differs from contrib/assembly/merge-local: change both")
-	}
-	info, err := os.Stat(filepath.Join(starter, "scripts", "merge-local"))
-	if err != nil || info.Mode().Perm()&0o111 == 0 {
-		t.Errorf("packs/starter/scripts/merge-local must be executable: %v", err)
+	for _, p := range []string{starter, design, contributors, website} {
+		path := filepath.Join(p, "scripts", "merge-local")
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("%s differs from contrib/assembly/merge-local: change all five", path)
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("%s must be executable: %v", path, err)
+		}
 	}
 }
 

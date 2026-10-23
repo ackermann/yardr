@@ -213,21 +213,17 @@ func TestTrainEndToEnd(t *testing.T) {
 
 	// A child's landing is of its own bead and says nothing more. The train's
 	// integration names the train in YARDR_BEAD, which is no change of its own,
-	// and its children in YARDR_TEST_BEADS, sorted. The train's landing by
-	// merge-local is the fourth run; what it says is not pinned here.
+	// and its children in YARDR_TEST_BEADS, sorted; the train's landing by
+	// merge-local is the fourth run, told the same children.
 	runs, err := os.ReadFile(record)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Split(strings.TrimSpace(string(runs)), "\n")
-	// The lookup is jq's: a machine without it tells the integration no beads,
-	// which TestIntegrateTrainTellsTheTestCommandItsBeads pins.
-	integrated := "r-e r-1,r-2"
-	if _, err := exec.LookPath("jq"); err != nil {
-		integrated = "r-e "
-	}
-	if want := []string{"r-1 unset", "r-2 unset", integrated}; len(got) != 4 || !slices.Equal(got[:3], want) || !strings.HasPrefix(got[3], "r-e ") {
-		t.Fatalf("the test command ran for %q, want the children's landings, the train's integration told %q, and the train's landing", got, integrated)
+	// Both train runs read the same children with sed, so their attribution
+	// does not depend on jq being installed on the yard.
+	if want := []string{"r-1 unset", "r-2 unset", "r-e r-1,r-2", "r-e r-1,r-2"}; !slices.Equal(got, want) {
+		t.Fatalf("the test command ran for %q, want the children's landings and both train runs to name r-1,r-2", got)
 	}
 }
 
@@ -246,23 +242,19 @@ func TestIntegrateTrainTellsTheTestCommandItsBeads(t *testing.T) {
 		train string // what the stub's bead show prints, empty for a stub that fails
 		want  string // what the test command made of its YARDR_BEAD and YARDR_TEST_BEADS
 		said  string // what the log says of it, if anything
-		jq    bool   // the lookup is jq's: the row wants it on the machine
 	}{
-		{"the children, sorted and once each", `{"id":"r-1","children":["r-2","r-10","r-1","r-2"]}`, "r-1 r-1,r-10,r-2", "", true},
-		{"a train with no children", `{"id":"r-1"}`, "r-1 ", "", true},
-		{"yardr not answering", "", "r-1 ", "could not read the children of r-1", false},
+		{"the children, sorted and once each", "{\n  \"id\": \"r-1\",\n  \"children\": [\n    \"r-2\",\n    \"r-10\",\n    \"r-1\",\n    \"r-2\"\n  ]\n}", "r-1 r-1,r-10,r-2", ""},
+		{"a train with no children", "{\n  \"id\": \"r-1\"\n}", "r-1 ", ""},
+		{"yardr not answering", "", "r-1 ", "could not read the children of r-1"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := exec.LookPath("jq"); c.jq && err != nil {
-				t.Skip("jq is not installed")
-			}
 			record := filepath.Join(t.TempDir(), "run")
 			w := newIntegrateTrainWatcherRun(t, `echo "$YARDR_BEAD ${YARDR_TEST_BEADS-unset}" >`+shellQuote(record), "1779", 0)
 			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1779") })
 			// bead show --json is how integrate-train reads the children;
 			// everything else is the report it ends with, whose note is its
-			// input.
+			// input. The children lookup is sed's and needs no jq.
 			stub := filepath.Join(filepath.Dir(w.tmp), "yardr-stub")
 			text := "#!/bin/sh\ncase \"$*\" in\n\"bead show r-1 --json\") [ -n \"$FAKE_TRAIN\" ] || exit 1; printf '%s\\n' \"$FAKE_TRAIN\" ;;\n*) cat >/dev/null 2>&1 ;;\nesac\n"
 			if err := os.WriteFile(stub, []byte(text), 0o755); err != nil {
@@ -299,6 +291,79 @@ func TestIntegrateTrainTellsTheTestCommandItsBeads(t *testing.T) {
 			}
 			if !strings.Contains(out, "with YARDR_LANDING=1 and YARDR_TEST_BEADS="+strings.TrimPrefix(c.want, "r-1 ")) {
 				t.Errorf("the log does not say which beads the tests were told:\n%s", out)
+			}
+		})
+	}
+}
+
+// merge-local tells the test command which beads it tests when it lands a
+// train: the train's children, sorted and once each, or none when it cannot
+// name them (a train without any, or yardr not answering), as a variable
+// that is set and empty, as integrate-train does above. The lookup is sed's
+// over bead show --json, not jq's: only sh, git and yardr are promised
+// where merge-local runs. Any other landing unsets the variable, so no
+// value it inherited leaks into what the depot's command records. The run
+// is the direct one of watcher_test.go with a yardr that answers for the
+// train; TestTrainEndToEnd has the real yardr.
+func TestMergeLocalTellsTheTestCommandItsBeads(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name  string
+		train string // what the stub's bead show prints, empty for a stub that fails
+		typ   string // YARDR_TYPE the run is given
+		leak  string // YARDR_TEST_BEADS the run inherits, empty for none
+		want  string // what the test command made of its YARDR_BEAD and YARDR_TEST_BEADS
+		said  string // what the log says of it, if anything
+	}{
+		{"the children, sorted and once each", "{\n  \"id\": \"r-1\",\n  \"children\": [\n    \"r-2\",\n    \"r-10\",\n    \"r-1\",\n    \"r-2\"\n  ]\n}", "train", "", "r-1 r-1,r-10,r-2", ""},
+		{"a train with no children", "{\n  \"id\": \"r-1\"\n}", "train", "", "r-1 ", ""},
+		{"yardr not answering", "", "train", "", "r-1 ", "could not read the children of r-1"},
+		{"a bead told no beads, whatever it inherited", "", "task", "r-9", "r-1 unset", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			record := filepath.Join(t.TempDir(), "run")
+			w := newWatcherRun(t, `echo "$YARDR_BEAD ${YARDR_TEST_BEADS-unset}" >`+shellQuote(record), "1783", 0)
+			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1783") })
+			// bead show --json is how merge-local reads the children;
+			// everything else is the report it ends with, whose note is its
+			// input.
+			stub := filepath.Join(filepath.Dir(w.tmp), "yardr-stub")
+			text := "#!/bin/sh\ncase \"$*\" in\n\"bead show r-1 --json\") [ -n \"$FAKE_TRAIN\" ] || exit 1; printf '%s\\n' \"$FAKE_TRAIN\" ;;\n*) cat >/dev/null 2>&1 ;;\nesac\n"
+			if err := os.WriteFile(stub, []byte(text), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			w.env = append(w.env, "YARDR_BIN="+stub, "FAKE_TRAIN="+c.train, "YARDR_TYPE="+c.typ)
+			if c.leak != "" {
+				w.env = append(w.env, "YARDR_TEST_BEADS="+c.leak)
+			}
+			// Into a file, not a pipe, as the runs in watcher_test.go: see there.
+			log, err := os.Create(filepath.Join(t.TempDir(), "out"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := w.cmd()
+			cmd.Stdout, cmd.Stderr = log, log
+			err = cmd.Run()
+			log.Close()
+			b, _ := os.ReadFile(log.Name())
+			out := string(b)
+			if err != nil || !strings.Contains(out, "== landed r-1 on main at ") {
+				t.Fatalf("merge-local: %v\n%s", err, out)
+			}
+			awaitNoWatcherSleepers(t, w.record, "1783")
+			ran, err := os.ReadFile(record)
+			if err != nil {
+				t.Fatalf("the test command did not run: %v\n%s", err, out)
+			}
+			if got := strings.TrimSuffix(string(ran), "\n"); got != c.want {
+				t.Errorf("the test command saw %q, want %q\n%s", got, c.want, out)
+			}
+			if c.said != "" && !strings.Contains(out, c.said) {
+				t.Errorf("the log lacks %q:\n%s", c.said, out)
+			}
+			if c.said == "" && strings.Contains(out, "could not read the children") {
+				t.Errorf("the log says the children could not be read:\n%s", out)
 			}
 		})
 	}
