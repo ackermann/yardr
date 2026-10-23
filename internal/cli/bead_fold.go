@@ -35,13 +35,16 @@ different stages need --to. --title replaces the title the carrier gets,
 "<depot> bundle: <title>; <title>".
 
 The beads must be open, not worked by a session, and of one depot and one
-flow, and none may have come from another yard, be away at one, or be blocked
-by an open bead that is not folded with it: the carrier is made without its
-members' blockers, so it would be ready while they are open. A manual group's
-claim is a person's turn, not a session at work, so a bead it holds is folded
-and the fold ends the claim. A fold is all or nothing: a bead it cannot take
-leaves everything as it was. --json prints the carrier, with the beads it was
-made of as members and what they weigh as points.`,
+flow, and none may have come from another yard, be away at one, be a child of
+a train, or be blocked by an open bead that is not folded with it. The carrier
+is made without its members' blockers, so it would be ready while they are
+open, and outside their train, so it would land on the depot's base and not
+the train's branch: take a bead off its train first (dep rm <train> <bead> -k
+parent) and put the carrier on it after (dep add <train> <carrier> -k parent).
+A manual group's claim is a person's turn, not a session at work, so a bead it
+holds is folded and the fold ends the claim. A fold is all or nothing: a bead
+it cannot take leaves everything as it was. --json prints the carrier, with
+the beads it was made of as members and what they weigh as points.`,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) < 2 {
 				return fmt.Errorf("a fold takes two beads or more: a carrier of one would be that bead with a worse title")

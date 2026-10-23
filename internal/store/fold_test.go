@@ -433,6 +433,18 @@ func TestFoldBeads(t *testing.T) {
 		return *b
 	}
 	var y Bead
+	// underTrain makes the train id and gives it each of children, as dep add
+	// -k parent does: a parent edge, and the child's blocks edge to the train.
+	underTrain := func(t *testing.T, s *Store, id string, children ...Bead) Bead {
+		t.Helper()
+		train := outside(t, s, NewBead{ID: id, Title: "train " + id, Type: TypeTrain, Depot: "plain"})
+		for _, c := range children {
+			if err := s.AddDep(ctx, train.ID, c.ID, DepParent, "", "", "mckean"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return train
+	}
 	// held are the sessions a manual group holds a row's members by, for that
 	// row's check to read (the rows run in turn).
 	var held []*Session
@@ -1100,6 +1112,108 @@ func TestFoldBeads(t *testing.T) {
 			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
 				foldWant(t, "stage", got.Stage, "ready")
 			},
+		},
+		{
+			// The filing's repro: a and b are children of a train, and a carrier
+			// made of them is no child, so it would branch from and land on the
+			// depot's base while the train waits on it by a blocks edge alone.
+			name: "a member that is a child of a train is refused, naming the train", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-t1", Title: "a"}, {ID: "plain-t2", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				underTrain(t, s, "plain-tt1", made...)
+			},
+			wantErr: "bead plain-t1 is a child of train plain-tt1: a fold takes beads no train holds",
+		},
+		{
+			// The refusal names the commands that get past it, and the carrier
+			// those leave is the train's child, as a bead made for it would be.
+			// The second member is refused after the first is off the train, so
+			// every member is looked at, not the first alone.
+			name: "a member taken off its train is folded, and the carrier put on the train is its child", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-t3", Title: "a"}, {ID: "plain-t4", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				y = underTrain(t, s, "plain-tt2", made...)
+				for _, m := range made {
+					_, err := s.FoldBeads(ctx, []string{made[0].ID, made[1].ID}, FoldOptions{To: "ready"}, "mckean")
+					if rm := "yardr dep rm " + y.ID + " " + m.ID + " -k parent"; err == nil || !strings.Contains(err.Error(), rm) {
+						t.Fatalf("fold with %s still on its train: %v, want the way out %q", m.ID, err, rm)
+					}
+					if err := s.RemoveDep(ctx, y.ID, m.ID, DepParent, "", "", "mckean"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				if err := s.AddDep(ctx, y.ID, got.ID, DepParent, "", "", "mckean"); err != nil {
+					t.Fatalf("dep add %s %s -k parent: %v", y.ID, got.ID, err)
+				}
+				f, err := s.Family(ctx, got.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				foldWant(t, "train of the carrier", f.Train, y.ID)
+				foldWant(t, "base of the carrier", f.Base, Branch(y.ID))
+				foldWantEdges(t, s, y.ID, DepParent, y.ID+" -> "+got.ID)
+				foldWantEdges(t, s, y.ID, DepBlocks, got.ID+" -> "+y.ID)
+				if holders, err := s.OpenBlockers(ctx, y.ID); err != nil || !slices.Equal(holders, []string{got.ID}) {
+					t.Errorf("the train is held by %v, %v; want the carrier %s", holders, err, got.ID)
+				}
+			},
+		},
+		{
+			// A closed train has landed or was dropped, and its open child has
+			// its branch for a base still (Family), so the way out is the same.
+			name: "a child of a closed train is refused too", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-t5", Title: "a"}, {ID: "plain-t6", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				train := underTrain(t, s, "plain-tt3", made[1])
+				if _, err := s.CloseBead(ctx, train.ID, "dropped", Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "bead plain-t6 is a child of train plain-tt3: a fold takes beads no train holds",
+		},
+		{
+			// Only a parent edge from a bead of type train makes a child (one
+			// imported from beads makes none, nor one left when the parent's type
+			// changed): such a bead lands on the depot's base, so the carrier
+			// leaves it nowhere it was not.
+			name: "a parent edge from a bead that is no train does not refuse", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-t7", Title: "a"}, {ID: "plain-t8", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				parent := underTrain(t, s, "plain-tt4", made...)
+				task := "task"
+				if _, err := s.UpdateBead(ctx, parent.ID, BeadPatch{Type: &task}, Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				for _, m := range made {
+					if f, err := s.Family(ctx, m.ID); err != nil || f.Train != "" || f.Base != "main" {
+						t.Fatalf("%s is %+v, %v before the fold; want no train, the depot's base", m.ID, f, err)
+					}
+				}
+			},
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				foldWant(t, "stage", got.Stage, "ready")
+			},
+		},
+		{
+			// bad_train: a type changed to train after the bead had a train.
+			// The fold takes it for the train's child that it is, in the words
+			// that name both trains.
+			name: "a child of two trains is refused, naming both", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: []NewBead{{ID: "plain-t9", Title: "a"}, {ID: "plain-ta", Title: "b"}},
+			prepare: func(t *testing.T, s *Store, made []Bead) {
+				first := underTrain(t, s, "plain-tt5", made[1])
+				task, train := "task", TypeTrain
+				if _, err := s.UpdateBead(ctx, first.ID, BeadPatch{Type: &task}, Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+				underTrain(t, s, "plain-tt6", made[1])
+				if _, err := s.UpdateBead(ctx, first.ID, BeadPatch{Type: &train}, Expect{}, "mckean"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: "bead plain-ta: child of two trains, plain-tt5 and plain-tt6; remove one parent edge",
 		},
 		func() foldRow {
 			var origin, found, other Bead

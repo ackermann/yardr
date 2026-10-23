@@ -1617,10 +1617,19 @@ leave it out, or take the edge off with `yardr dep rm` when the order no
 longer matters. A blocker folded with it does not refuse, since it closes in
 the same fold. An edge that holds a bead only at another stage (`--at`), or
 that its blocker has released (`--until`), holds nothing now: the fold does
-not refuse it, and the carrier does not inherit it. A bead's agent cannot
-fold, since its pane may not make the call; a person or a crew member can. A
-fold of one bead is refused, since its carrier would be that bead with a
-worse title.
+not refuse it, and the carrier does not inherit it. A bead that is a child of
+a train (`yardr bead show` says `train`) is refused too, naming the train: the
+carrier is a new bead outside it, so it would branch from and land on the
+depot's base and not the train's branch. It could not build on what the
+train's other children landed there, and its work would reach main alone,
+ahead of the train's own run and reviews. Take the bead off the train with
+`yardr dep rm <train> <bead> -k parent` (which takes its blocks edge to the
+train too), fold, and put the carrier on the train with `yardr dep add <train>
+<carrier> -k parent`. Only a parent edge from a bead of type `train` makes a
+child, and a closed train does not change it: the bead's base is its branch
+still. A bead's agent cannot fold, since its pane may not make the call; a
+person or a crew member can. A fold of one bead is refused, since its carrier
+would be that bead with a worse title.
 
 The carrier starts in `--to`. Without it, it starts where its members wait:
 in the stage they all wait in, or, when that stage is a siding (a stage worked

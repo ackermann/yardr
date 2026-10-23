@@ -69,13 +69,13 @@ type FoldWatcher struct {
 // opts.To that holds each of them as a part, whatever each tracked, blocked
 // and was watched for moved to it, a folded edge from it to each that records
 // that, and each of them closed "folded into <carrier>". It is all or
-// nothing. A member that is closed, worked by a session, another yard's or
-// blocked by an open bead that is not folded with it (checkFoldable), members
-// of two depots or of two flows, and a caller in the pane of a bead's agent
-// (which may close only its own bead) are refused before anything is made, and
-// a fold that fails after it leaves nothing behind. A manual group's claim is a
-// person's turn, not a session at work, so a member it holds is folded and the
-// close ends the claim.
+// nothing. A member that is closed, worked by a session, another yard's,
+// a train's child or blocked by an open bead that is not folded with it
+// (checkFoldable), members of two depots or of two flows, and a caller in the
+// pane of a bead's agent (which may close only its own bead) are refused
+// before anything is made, and a fold that fails after it leaves nothing
+// behind. A manual group's claim is a person's turn, not a session at work, so
+// a member it holds is folded and the close ends the claim.
 //
 // What git must read is read here, before the write: the repository flows
 // for the flow of every member (the carrier is governed by the oldest's, and
@@ -369,9 +369,23 @@ func (w *wtx) foldBlocks(carrier, member *beadRow, moved *FoldMoved, look *until
 // caller may not close (checkCloseOwn, since a fold closes it), one already
 // closed, one a session works (taking it would end that session's work), one
 // of another yard's, which closing returns to its yard as refused, or takes
-// back from it, and one an open bead blocks now. A manual group's claim is a
-// person's turn with nothing running, not a session at work, so the bead is
-// taken and the close ends the claim, as it does for any bead.
+// back from it, one that is a child of a train and one an open bead blocks
+// now. A manual group's claim is a person's turn with nothing running, not a
+// session at work, so the bead is taken and the close ends the claim, as it
+// does for any bead.
+//
+// A train holds its child as a blocker holds a bead, and a fold leaves it on
+// the member as it leaves the blocker: Train is derived from the parent edge,
+// which stays on the closed member, so the carrier is a new bead outside the
+// train. It would branch from and land on the depot's base and not the train's
+// branch: it could not build on what the train's other children landed there,
+// and its work would reach main alone, ahead of the train's own run and
+// reviews, which is the one landing a train is for. So the fold refuses such a
+// bead, naming the train, and the person or crew member who folds takes it off
+// the train first and puts the carrier on it after (dep rm, dep add). Only a
+// parent edge from a bead of type train counts (parentTrain), as for Family,
+// and a closed train's child is refused as well: its base is the train's
+// branch still.
 //
 // A fold re-points what a member blocks to the carrier, but what blocks the
 // member stays on the member, which the fold closes: the carrier would route
@@ -404,6 +418,16 @@ func (w *wtx) checkFoldable(ctx context.Context, m *beadRow, folding map[string]
 	}
 	if p := b.Away(); p != nil && p.ReturnedAt == nil {
 		return fmt.Errorf("bead %s is away at another yard: a fold takes beads that are here", m.ID)
+	}
+	train, err := parentTrain(w.Tx, m.UUID)
+	if err != nil {
+		// A child of two trains, which only a type changed to train later
+		// makes: it is a train's child twice over, and the error names both.
+		return fmt.Errorf("bead %s: %w", m.ID, err)
+	}
+	if train != nil {
+		return fmt.Errorf("bead %s is a child of train %s: a fold takes beads no train holds, since its carrier is made outside the train and would branch from and land on the depot's base, not the train's branch. Take the bead off the train first (yardr dep rm %s %s -k parent) and put the carrier on it after (yardr dep add %s <carrier> -k parent)",
+			m.ID, train.ID, train.ID, m.ID, train.ID)
 	}
 	h := handlesIn(w.Tx)
 	var blockers []string
