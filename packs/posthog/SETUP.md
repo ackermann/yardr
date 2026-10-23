@@ -116,8 +116,53 @@ in PostHog's pages.
      nothing else: the yard hears a new issue, not a reopened or
      spiking one.
 
-   Create & Enable, then Test function: the hook answers 200, which
-   proves the URL and the secret.
+   Create & Enable. Then prove the issue path before a real issue
+   arrives: on the destination's page open Testing (Start testing)
+   and replace the `event` object in the globals editor with an
+   issue-created event, leaving the rest of the globals as shown:
+
+   ```json
+   {
+     "uuid": "<a fresh uuid>",
+     "event": "$error_tracking_issue_created",
+     "distinct_id": "<a fresh uuid>",
+     "timestamp": "2026-10-23T12:00:00.000000+00:00",
+     "properties": {
+       "name": "PostHog destination test issue",
+       "description": "Sent from the destination's Testing panel; not a real issue.",
+       "exception_props": {
+         "$session_id": "<a fresh uuid>"
+       }
+     }
+   }
+   ```
+
+   Make each uuid fresh (`uuidgen`): the delivery id is the event's
+   uuid, so a second run with the same one is kept as a retry of
+   the first. Leave Make real HTTP requests on, and Test function:
+   the destination POSTs the pasted event through the JSON body
+   above, the hook answers 200, and a subscription with `--where
+   type=error_issue` hears it, with the session and its replay link
+   in its fields. It arrives as a genuine error_issue event — that
+   is the point — marked as a test only by its name and
+   description. If the panel reports the function was skipped, the
+   pasted event did not match the destination's filters. A bare
+   Test function without the paste proves only the URL and the
+   secret: its example event is a `$pageview`, which the yard
+   records as type `event`.
+
+   The panel posts whatever globals the editor holds, and the test
+   run delivers them when they match the destination's filters,
+   with a real fetch while mocking is off (checked against PostHog
+   at f1c6477, 23 Oct 2026:
+   frontend/src/scenes/hog-functions/configuration/HogFunctionTest.tsx
+   and hogFunctionTestLogic.tsx, whose test form defaults
+   mock_async_functions to false; nodejs/src/cdp/cdp-api.ts,
+   postFunctionInvocation and buildHogExecutorAsyncOptions;
+   products/cdp/backend/api/hog_function.py, which names the
+   globals "Mock global variables available during test
+   invocation"; posthog.com/docs/cdp/destinations/
+   customizing-destinations for the `{event}` template).
 8. **Hear new issues, and file beads for them.** A subscription hears
    them in an inbox:
    ```sh

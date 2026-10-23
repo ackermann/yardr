@@ -135,40 +135,57 @@ func TestPostHogPackNormalize(t *testing.T) {
 	}
 }
 
-// The envelope for the recorded issue-created body that carries a
-// session: the triggering exception's $session_id, which the
-// destination's {event} renders under exception_props (the issue-created
-// workflow puts the exception's properties there), becomes the session
-// field, and the replay link beside the project. The issue's own id,
-// name, description and URL are as without one.
+// The envelope for issue-created bodies that carry a session: the
+// triggering exception's $session_id, which the destination's {event}
+// renders under exception_props (the issue-created workflow puts the
+// exception's properties there), becomes the session field, and the
+// replay link beside the project. This holds both a recorded issue and
+// the event the setup asks the operator to paste into PostHog's Testing
+// globals editor. Their issue id, name, description and URL follow the
+// same normalization path.
 func TestPostHogPackNormalizeSession(t *testing.T) {
 	ad := posthogDecl(t)
 	may := append(append([]string{}, store.WhereKeys...), ad.D.Hook.Keys...)
-	const id = "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e"
-	const session = "019f7c3b-4d5e-7a1b-8c2d-9e0f1a2b3c4d"
-	const url = "https://us.posthog.com/project/48291/error-tracking/" + id
-	const replay = "https://us.posthog.com/project/48291/replay/" + session
-	want := hooks.Envelope{Source: "posthog", Type: "error_issue", Action: "created",
-		Thread:   hooks.Thread{ID: id, Title: "TypeError: Cannot read properties of undefined", URL: url},
-		Mentions: []string{}, Text: "TypeError: Cannot read properties of undefined (reading 'id')",
-		URL: url, Entity: id, Fields: map[string][]string{"project": {"48291"}, "session": {session}, "replay": {replay}}}
-	got, err := ad.Normalize(nil, fixture(t, "posthog_issue_created_with_session.json"))
-	if err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	if !reflect.DeepEqual(got, &want) {
-		wantRaw, _ := json.MarshalIndent(want, "", "  ")
-		gotRaw, _ := json.MarshalIndent(got, "", "  ")
-		t.Fatalf("got %s\nwant %s", gotRaw, wantRaw)
-	}
-	for k := range got.Fields {
-		found := false
-		for _, k2 := range may {
-			found = found || k == k2
-		}
-		if !found {
-			t.Errorf("field %q is in neither hook.keys nor store.WhereKeys", k)
-		}
+	for _, tc := range []struct {
+		name, fixture, id, session, title, text string
+	}{
+		{
+			name: "recorded issue", fixture: "posthog_issue_created_with_session.json",
+			id: "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e", session: "019f7c3b-4d5e-7a1b-8c2d-9e0f1a2b3c4d",
+			title: "TypeError: Cannot read properties of undefined", text: "TypeError: Cannot read properties of undefined (reading 'id')",
+		},
+		{
+			name: "destination test globals", fixture: "posthog_destination_test.json",
+			id: "019f8d01-aaaa-7bbb-8ccc-abcabcabcabc", session: "019f8d01-dddd-7eee-8fff-defdefdefdef",
+			title: "PostHog destination test issue", text: "Sent from the destination's Testing panel; not a real issue.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			url := "https://us.posthog.com/project/48291/error-tracking/" + tc.id
+			replay := "https://us.posthog.com/project/48291/replay/" + tc.session
+			want := hooks.Envelope{Source: "posthog", Type: "error_issue", Action: "created",
+				Thread:   hooks.Thread{ID: tc.id, Title: tc.title, URL: url},
+				Mentions: []string{}, Text: tc.text,
+				URL: url, Entity: tc.id, Fields: map[string][]string{"project": {"48291"}, "session": {tc.session}, "replay": {replay}}}
+			got, err := ad.Normalize(nil, fixture(t, tc.fixture))
+			if err != nil {
+				t.Fatalf("normalize: %v", err)
+			}
+			if !reflect.DeepEqual(got, &want) {
+				wantRaw, _ := json.MarshalIndent(want, "", "  ")
+				gotRaw, _ := json.MarshalIndent(got, "", "  ")
+				t.Fatalf("got %s\nwant %s", gotRaw, wantRaw)
+			}
+			for k := range got.Fields {
+				found := false
+				for _, k2 := range may {
+					found = found || k == k2
+				}
+				if !found {
+					t.Errorf("field %q is in neither hook.keys nor store.WhereKeys", k)
+				}
+			}
+		})
 	}
 }
 
