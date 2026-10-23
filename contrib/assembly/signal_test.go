@@ -9,6 +9,7 @@ package assembly
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -230,6 +231,95 @@ func TestMergeLocalTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
 	notes := y.notes()
 	if !strings.Contains(notes, "the tests failed") || !strings.Contains(notes, "ran past their deadline of 2s and were killed") {
 		t.Fatalf("the deadline past its wait is not reported as a red run:\n%s", notes)
+	}
+}
+
+// A race leg the gate throttled with -p runs slower by design, so the
+// deadline follows it: cores over -p, floored at 1, times LIMIT. With
+// -p=2 on 10 cores and LIMIT 2 the deadline is 10: a run of 4 lands, a
+// run of 30 is killed with the scaled deadline in the notes, and without
+// the line the run of 4 is killed at the plain 2.
+func TestMergeLocalTestsDeadlineFollowsParThrottle(t *testing.T) {
+	throttle := `echo "test: go test -p=2 (load 40 on 10 cores)"; `
+	for _, tc := range []struct {
+		name  string
+		test  string
+		stage string
+		want  []string
+		avoid string
+	}{
+		{"scaled", throttle + `sleep 4`, "merged", nil, "ran past their deadline"},
+		{"scaled past the deadline is red", throttle + `sleep 30`, "new",
+			[]string{"the tests failed", "ran past their deadline of 2s and were killed", "deadline 2 s x 5 for -p=2 on 10 cores"}, ""},
+		{"without the line the deadline is plain", `sleep 4`, "new",
+			[]string{"the tests failed", "ran past their deadline of 2s and were killed"}, "deadline 2 s x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			y := newYard(t)
+			tip := y.commit(y.wt, "b.txt", "bead\n")
+			ran := filepath.Join(y.home, "ran")
+			y.tests(`echo run >> ` + ran + `; ` + tc.test)
+			y.opts = "YARDR_TEST_TIMEOUT=2"
+
+			y.assembly()
+
+			b := y.bead()
+			if b.Stage != tc.stage || b.Hold {
+				t.Fatalf("bead %s hold=%v, want %s", b.Stage, b.Hold, tc.stage)
+			}
+			if n := runs(t, ran); n != 1 {
+				t.Fatalf("the tests ran %d times, want 1", n)
+			}
+			notes := y.notes()
+			for _, want := range tc.want {
+				if !strings.Contains(notes, want) {
+					t.Fatalf("notes lack %q:\n%s", want, notes)
+				}
+			}
+			if tc.avoid != "" && strings.Contains(notes, tc.avoid) {
+				t.Fatalf("notes hold %q, want none:\n%s", tc.avoid, notes)
+			}
+			if tc.stage == "merged" {
+				if b.Status != "closed" {
+					t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
+				}
+				if main := y.git(y.repo, "rev-parse", "main"); main != tip {
+					t.Fatalf("main %s, want the tested commit %s", main, tip)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeLocalTimeoutThrottleUsesDecimalLimit(t *testing.T) {
+	script := readFile(t, "merge-local")
+	start := strings.Index(script, "      case \"$fact\" in")
+	if start < 0 {
+		t.Fatal("merge-local has no throttle factor check")
+	}
+	end := strings.Index(script[start:], "      extra=$((waited - credited + extension - parred))")
+	if end < 0 {
+		t.Fatal("merge-local has no extension calculation")
+	}
+	calculation := script[start : start+end]
+	for _, tc := range []struct {
+		limit string
+		want  string
+	}{
+		{limit: "08", want: "32"},
+		{limit: "000", want: "0"},
+		{limit: "invalid", want: "0"},
+	} {
+		t.Run(tc.limit, func(t *testing.T) {
+			cmd := exec.Command("sh", "-c", "LIMIT="+tc.limit+"; fact=5\n"+calculation+"printf '%s\\n' \"$extension\"")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("timeout scaling failed for LIMIT=%s: %v\n%s", tc.limit, err, out)
+			}
+			if got := strings.TrimSpace(string(out)); got != tc.want {
+				t.Fatalf("LIMIT=%s scaled to %s, want %s", tc.limit, got, tc.want)
+			}
+		})
 	}
 }
 

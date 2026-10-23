@@ -720,6 +720,7 @@ runtest() {
     # `test: waited N s` line when it acquires the lock; account for the
     # elapsed active wait too, since it may outlast LIMIT.
     credited=0
+    parred=0
     wait_for=$LIMIT
     while :; do
       sleep "$wait_for" &
@@ -732,11 +733,44 @@ runtest() {
         END { if (active != "") total += now-active; print total+0 }
       ' "$log" 2>/dev/null)
       case "$waited" in ''|*[!0-9]*) waited=0 ;; esac
-      extra=$((waited - credited))
+      # A race leg the gate throttled with -p runs slower by design, so the
+      # deadline follows it: cores over -p, floored at 1, times LIMIT. The
+      # gate says the throttle in one line; without it the factor is 1 and
+      # nothing changes. Normalize the decimal timeout before shell
+      # arithmetic, which otherwise treats a value such as 08 as octal.
+      # A nonnumeric LIMIT holds the factor at 1 so the fuse remains active.
+      throttle=$(awk '
+        /^test: go test -p=[0-9]+ [(]load [0-9.]+ on [0-9]+ cores[)]$/ {
+          p = $4; sub(/^-p=/, "", p); c = $8
+          if (p > 0 && c > 0) { f = int(c / p); if (f < 1) f = 1; fact = f; par = p; cores = c }
+        }
+        END { if (fact != "") print fact":"par":"cores }
+      ' "$log" 2>/dev/null)
+      fact=${throttle%%:*}
+      parcores=${throttle#*:}
+      par=${parcores%%:*}
+      cores=${parcores#*:}
+      case "$fact" in ''|*[!0-9]*) fact=1 ;; esac
+      case "$LIMIT" in
+        ''|*[!0-9]*) fact=1; limitnum=0 ;;
+        *)
+          limitnum=$LIMIT
+          while [ "${limitnum#0}" != "$limitnum" ]; do limitnum=${limitnum#0}; done
+          [ -n "$limitnum" ] || limitnum=0
+          ;;
+      esac
+      extension=0
+      [ "$fact" -gt 1 ] && extension=$(((fact - 1) * limitnum))
+      extra=$((waited - credited + extension - parred))
       if [ "$extra" -le 0 ]; then
         break
       fi
+      # Past the break the deadline grew: say so once, in the run's log.
+      if [ "$parred" -eq 0 ] && [ "$fact" -gt 1 ]; then
+        echo "deadline $LIMIT s x $fact for -p=$par on $cores cores" >>"$log"
+      fi
       credited=$waited
+      parred=$extension
       wait_for=$extra
     done
     echo late >"$latefile"
