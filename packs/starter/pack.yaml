@@ -16,7 +16,9 @@ kind: git
 #   group:   who works the stage (declared below)
 #   file:    the stage file: what the stage is for, what must be true to leave
 #            it and when each outcome applies, shown to whoever works a bead there
-#   outcomes: outcome reported -> next stage
+#   outcomes: outcome reported -> next stage. An outcome that sends a bead back
+#            may be a mapping { to, max, then }: it takes the bead back to `to`
+#            for `max` rounds, and after that sends it to `then` (docs/packs.md)
 #   manual:  stages a person or a crew member may move the bead to by hand
 #   end:     the bead closes here
 #
@@ -26,14 +28,25 @@ kind: git
 # done-safe for a diff that touches one. The pack ships no list, since the
 # paths are the depot's, and without one done-safe is taken as it stands. See
 # the README.
+#
+# The default flow's three ways back to new (changes from review, changes from
+# review-security, failed from the assembly) are limited to 3 rounds. The count
+# is the stage's, whichever of the three sent the bead back, so a failed landing
+# counts beside a reviewer's changes; the fourth goes to decide, where a person
+# reads its note. Three is past where a builder fixes a review note or a red
+# landing, and a bead that comes back more often usually needs a person's look at
+# the bead or the gate. A yard that wants another number changes max here, or in
+# the flow it keeps (yardr flow set). The train has no limit: its rounds back
+# to open come from the events of a pull request and from rebases, and a
+# number for them is for the yard that runs trains to choose.
 flows:
   default:
     stages:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: new, question: decide } }
-      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
+      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
+      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: { to: new, max: 3, then: decide }, question: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 

@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 )
 
 // outcomeFlow is the yard flow from the yard-qexg bead: agents report an
@@ -114,6 +117,38 @@ func TestParseFlowOutcomes(t *testing.T) {
 	}
 	if raw, err = json.Marshal(kept); err != nil || !strings.Contains(string(raw), `"max":3,"then":"c"`) {
 		t.Fatalf("limited flow as json = %s, %v", raw, err)
+	}
+	// This yard's own flow, as the repository carries it, limits each of its
+	// three ways back to new to 3 rounds, as the starter pack does, and
+	// writes them in a flow file's words, which yardr flow show prints. The
+	// stage file of each stage says where a round past the limit goes.
+	repoFlow := storetest.RepoFlow(t, "default")
+	text, err := os.ReadFile(repoFlow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := putNamed(t, s, "own", string(text))
+	for stage, outcome := range map[string]string{"review": "changes", "review-security": "changes", "approved": "failed"} {
+		lim, err := own.Outcome(stage, outcome)
+		if err != nil || lim.To != "new" || lim.Max != 3 || lim.Then != "decide" {
+			t.Errorf("this yard's flow, %s %s = %+v, %v; want back to new, max 3, then decide", stage, outcome, lim, err)
+		}
+		file, err := os.ReadFile(filepath.Join(strings.TrimSuffix(repoFlow, ".flow"), stage+".md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "past the limit goes to `" + lim.Then + "`"; !strings.Contains(strings.Join(strings.Fields(string(file)), " "), want) {
+			t.Errorf("the stage file of %s does not say %q", stage, want)
+		}
+	}
+	for _, line := range []string{
+		"review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question\n",
+		"review-security -> approved on done | new on changes max 3 then decide | decide on question\n",
+		"approved -> merged on done | new on failed max 3 then decide | decide on question\n",
+	} {
+		if !strings.Contains(own.String(), line) {
+			t.Errorf("this yard's flow lacks the line %q:\n%s", line, own)
+		}
 	}
 
 	for _, bad := range []string{

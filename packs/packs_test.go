@@ -2,6 +2,7 @@ package packs_test
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
 	"os"
 	"reflect"
@@ -324,6 +325,50 @@ func TestStageFilesFitTheFlowMap(t *testing.T) {
 	}
 }
 
+// A stage that can send a bead back with a limit on rounds says in its stage
+// file where a round past the limit goes, so whoever sends the bead back knows
+// it will reach a person and writes the note for them. The stage files are
+// compared with the flows of every pack, so a limit added to a pack without
+// the sentence fails here, and so does a `then` the file does not name.
+func TestStageFilesSayWhereARoundPastTheLimitGoes(t *testing.T) {
+	entries, err := fs.ReadDir(packs.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := packFiles(t)
+	limited := 0
+	for _, e := range entries {
+		sub, err := fs.Sub(packs.FS, e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := pack.Load(sub, packs.Embedded)
+		if err != nil {
+			t.Fatalf("pack %s: %v", e.Name(), err)
+		}
+		for _, f := range p.Flows {
+			for _, s := range f.Stages {
+				for _, o := range s.Outcomes {
+					if o.Max == 0 {
+						continue
+					}
+					limited++
+					// The words are compared with the file's line breaks folded.
+					body := strings.Join(strings.Fields(files[e.Name()+"/"+s.File]), " ")
+					if want := "past the limit goes to `" + o.Then + "`"; !strings.Contains(body, want) {
+						t.Errorf("packs/%s/%s: its outcome %s is limited to %d rounds, then %s, and the stage file does not say %q", e.Name(), s.File, o.Name, o.Max, o.Then, want)
+					}
+				}
+			}
+		}
+	}
+	// The starter's three ways back to new and the design pack's two ways back
+	// to draft: a pack that gains one raises this number with its sentence.
+	if limited != 5 {
+		t.Errorf("%d limited outcomes in the packs, want the starter's 3 and the design pack's 2", limited)
+	}
+}
+
 // What is about working in a directory is said in the dir pack alone: the
 // two packs hold no paragraph in common that names one, so a depot's kind
 // never has two texts to keep the same. The starter's builder and reviewer
@@ -412,10 +457,11 @@ func TestContributorsCarriesTheStartersRoles(t *testing.T) {
 // The design pack is one flow, for the type design alone, so the pack
 // leaves the depot's own flow as it is: a document is drafted, argued
 // against, decided by a person and landed, and a critique may send it back
-// to its writer. Its agents and what lands are the starter's groups by the
-// starter's names, so beside the starter it makes no group; it gives them
-// no limit, so the depot's stay; and its crew member carries no role, so
-// the yardmaster keeps its own.
+// to its writer, twice, and a failed landing three times, after which a
+// bead goes to decide. Its agents and what lands are the starter's groups by
+// the starter's names, so beside the starter it makes no group; it gives
+// them no limit, so the depot's stay; and its crew member carries no role,
+// so the yardmaster keeps its own.
 func TestDesignPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, packs.Design)
 	if err != nil {
@@ -433,6 +479,9 @@ func TestDesignPack(t *testing.T) {
 		line := s.Name + " (" + s.Group + ")"
 		for _, o := range s.Outcomes {
 			line += " " + o.Name + ":" + o.To
+			if o.Max > 0 {
+				line += fmt.Sprintf("(max %d then %s)", o.Max, o.Then)
+			}
 		}
 		if len(s.Manual) > 0 {
 			line += " -> " + strings.Join(s.Manual, ",")
@@ -446,11 +495,22 @@ func TestDesignPack(t *testing.T) {
 		"backlog (backlog) -> draft,decide",
 		"draft (builders) done:critique question:decide -> backlog",
 		"decide (decisions) -> approved,draft,backlog",
-		"critique (reviewers) done:decide changes:draft",
-		"approved (assembly) done:merged failed:draft question:decide",
+		"critique (reviewers) done:decide changes:draft(max 2 then decide)",
+		"approved (assembly) done:merged failed:draft(max 3 then decide) question:decide",
 		"merged ()",
 	}; !slices.Equal(edges, want) {
 		t.Errorf("flow design:\n%s\nwant:\n%s", strings.Join(edges, "\n"), strings.Join(want, "\n"))
+	}
+	// The flow a yard keeps from it says the limits in a flow file's words.
+	kept := p.Flows[0].StoreFlow("design.design")
+	words := kept.String()
+	for _, want := range []string{
+		"critique -> decide on done | draft on changes max 2 then decide\n",
+		"approved -> merged on done | draft on failed max 3 then decide | decide on question\n",
+	} {
+		if !strings.Contains(words, want) {
+			t.Errorf("the design flow lacks the line %q:\n%s", want, words)
+		}
 	}
 	for _, g := range p.Groups {
 		if g.Limit != 0 {

@@ -109,6 +109,17 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	if g, err := st.GetGroup(ctx, "web-assembly"); err != nil || g.Config["cmd"] != "YARDR_LAND=squash "+filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local") {
 		t.Fatalf("web-assembly = %+v, %v", g, err)
 	}
+	// The yard keeps the flow with the limits on the rounds back to new, one
+	// for each way back: the import carries them as the pack writes them.
+	kept, err := st.GetFlow(ctx, "starter.default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for stage, outcome := range map[string]string{"review": "changes", "review-security": "changes", "approved": "failed"} {
+		if lim, err := kept.Outcome(stage, outcome); err != nil || lim.To != "new" || lim.Max != 3 || lim.Then != "decide" {
+			t.Errorf("stored flow, %s %s = %+v, %v; want back to new, max 3, then decide", stage, outcome, lim, err)
+		}
+	}
 	boss, err := st.GetCrew(ctx, "boss")
 	if err != nil || !slices.Equal(boss.On, []string{store.KindAttention}) || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
 		t.Fatalf("boss = %+v, %v", boss, err)
@@ -369,8 +380,8 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	}
 	// The pack drops the second review, and the group that works it.
 	edit(t, dir,
-		"outcomes: { done: review-security, done-safe: approved, changes: new, question: decide }", "outcomes: { done: approved, changes: new, question: decide }",
-		"      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }\n", "",
+		"outcomes: { done: review-security, done-safe: approved, changes: { to: new, max: 3, then: decide }, question: decide }", "outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide }",
+		"      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }\n", "",
 		"outcomes: { done: review-security, changes: open, question: decide }", "outcomes: { done: approved, changes: open, question: decide }",
 		"      review-security: { group: security-reviewers, outcomes: { done: approved, changes: open, question: decide } }\n", "",
 		"  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }\n", "",

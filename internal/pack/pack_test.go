@@ -93,15 +93,31 @@ func TestStarterPackLoads(t *testing.T) {
 	if want := []string{"backlog", "new", "review", "review-security", "approved", "decide", "merged"}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("stages = %v, want the file's order %v", stages, want)
 	}
+	// The three ways back to new, one from each stage that can send a bead
+	// back, are limited to 3 rounds, after which a bead goes to decide.
 	review := f.Stages[2]
-	if want := []store.Outcome{{Name: "done", To: "review-security"}, {Name: "done-safe", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
+	if want := []store.Outcome{{Name: "done", To: "review-security"}, {Name: "done-safe", To: "approved"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
 		t.Fatalf("review outcomes = %v, want the file's order %v", review.Outcomes, want)
 	}
 	// The second review is another group's, which runs the first's agent
 	// unless the import binds it.
 	second := f.Stages[3]
-	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new"}, {Name: "question", To: "decide"}}; second.Group != "security-reviewers" || !reflect.DeepEqual(second.Outcomes, want) {
+	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; second.Group != "security-reviewers" || !reflect.DeepEqual(second.Outcomes, want) {
 		t.Fatalf("review-security = %+v, want the group security-reviewers and the outcomes %v", second, want)
+	}
+	landing := f.Stages[4]
+	if want := []store.Outcome{{Name: "done", To: "merged"}, {Name: "failed", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; landing.Group != "assembly" || !reflect.DeepEqual(landing.Outcomes, want) {
+		t.Fatalf("approved = %+v, want the group assembly and the outcomes %v", landing, want)
+	}
+	// The train has no default limit: its rounds back to open come from a
+	// pull request's events and from rebases, and the yard that runs trains
+	// is the one to pick a number for them.
+	for _, s := range p.Flows[1].Stages {
+		for _, o := range s.Outcomes {
+			if o.Max != 0 || o.Then != "" {
+				t.Errorf("train stage %s outcome %s carries a limit (max %d then %s), and the train has none by default", s.Name, o.Name, o.Max, o.Then)
+			}
+		}
 	}
 	if g := p.Groups[2]; g.Name != "security-reviewers" || g.Agent != "roles/review-security.md" || g.BindsAs != "reviewers" {
 		t.Fatalf("group %+v, want security-reviewers with the review-security role, bound as reviewers", g)
@@ -149,7 +165,8 @@ func TestStarterPackLoads(t *testing.T) {
 }
 
 // The starter's flow, as the store would keep it, is the flow yardr depot
-// init writes: the same rules, written in the pack's format.
+// init writes: the same rules, written in the pack's format, and the limits
+// on the rounds back to new in the words a flow file has them.
 func TestStarterFlowIsTheDepotInitFlow(t *testing.T) {
 	p, err := pack.LoadDir(starter)
 	if err != nil {
@@ -158,9 +175,9 @@ func TestStarterFlowIsTheDepotInitFlow(t *testing.T) {
 	got := p.Flows[0].StoreFlow("x")
 	want := `backlog -> new | decide
 new -> review on done | decide on question | backlog
-review -> review-security on done | approved on done-safe | new on changes | decide on question
-review-security -> approved on done | new on changes | decide on question
-approved -> merged on done | new on failed | decide on question
+review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question
+review-security -> approved on done | new on changes max 3 then decide | decide on question
+approved -> merged on done | new on failed max 3 then decide | decide on question
 decide -> backlog | new
 merged terminal
 `

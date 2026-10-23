@@ -49,10 +49,12 @@ Outcomes:
 - `changes`, it needs the builder: the change opens something it must not
   and closing it is more than a small fix. The note gives the finding
   concretely: the caller, what they can do, and the line that lets them.
-  The bead goes back to `new`, and through `review` again. If the notes
-  show the bead has already come back from a review twice, do not send it
-  back a third time: note why and `yardr bead hold <id>` so the yardmaster
-  looks at it.
+  The bead goes back to `new`, and through `review` again. The flow limits
+  the rounds back to `new` (`yardr flow show` writes a limit as
+  `max 3 then decide`): a further round past the limit goes to `decide`,
+  where a person reads your note. If the notes show the bead has already
+  come back from a review twice, do not send it back a third time: note why
+  and `yardr bead hold <id>` so the yardmaster looks at it.
 - `question`, what it opens is a choice only Christopher can make (a new
   listener, a check loosened on purpose, a new caller of something that was
   the operator's): the note has the question and the options, and the bead

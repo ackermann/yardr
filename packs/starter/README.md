@@ -120,3 +120,30 @@ To start:
 Listing `.yardr/**` too puts a change to the list itself through both reviews.
 [docs/flows.md](../../docs/flows.md#done-safe-and-the-security-paths) has the
 rules.
+
+## Limits on rounds
+
+A bead goes round a loop when review sends it back to `new`, the builder fixes
+it and review sends it back again. The default flow limits its three ways back
+to `new` (`changes` from `review`, `changes` from `review-security` and
+`failed` from `approved`) to 3 rounds. The fourth goes to `decide` instead, and
+the bead waits there for a person, who reads the note that asked for it.
+
+The count is the stage's, whichever way the bead came back: a failed landing
+and a reviewer's changes add to one count for `new`, so a bead that failed to
+land twice has one round left. It starts again at zero when a limit has sent
+the bead to `decide`. Three is past where a builder fixes a review note or a
+red landing, and a bead that keeps coming back usually needs a person to look
+at the bead or at the gate.
+
+The train flow has no limit. Its rounds back to `open` come from the events of
+a pull request and from rebases, and the yard that runs trains is the one to
+choose a number for them.
+
+The limits are `max` and `then` on the outcomes in `pack.yaml`, and
+`yardr flow show` prints them as `max 3 then decide`. A yard that wants other
+numbers changes them in its copy of the pack, or in the flow it keeps
+(`yardr flow set`). Importing the pack again gives a yard these limits, and
+`yardr pack check` shows them as a change to the flow first.
+[docs/flows.md](../../docs/flows.md#a-limit-on-rounds) says how rounds are
+counted and what the move to `then` writes to the log.

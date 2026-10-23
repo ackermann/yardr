@@ -20,7 +20,10 @@ Outcomes:
 - `failed`: the tests are red on what would land, or the branch no longer
   applies on the base (a rebase that conflicts: this flow has no `merge`
   stage). The note carries the end of the tests' output or the conflicting
-  files, and the bead goes back to `new`.
+  files, and the bead goes back to `new`. Where the flow limits the rounds
+  back to `new` (`yardr flow show` writes a limit as `max 3 then decide`), a
+  further round past the limit goes to `decide`, where a person reads the
+  note.
 - `question`: landing it needs a person's decision; the note has the question
   and the options, and the bead goes to `decide`.
 

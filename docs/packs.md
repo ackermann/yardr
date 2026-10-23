@@ -132,9 +132,9 @@ flows:
     stages:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: new, question: decide } }
-      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: new, question: decide } }
-      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: new, question: decide } }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
+      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
+      approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: { to: new, max: 3, then: decide }, question: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }
       merged:   { end: true }
 
@@ -229,6 +229,13 @@ outcome with no limit stays a plain stage name.
 
 `yardr pack check` shows a limit that was added, changed or dropped as a change
 to that stage in the flow, and `yardr pack export` writes the mapping back.
+
+The packs that ship with yardr carry limits. The starter's default flow limits
+its three ways back to `new` (`changes` from `review` and from `review-security`,
+`failed` from `approved`) to 3 rounds, then `decide`; the design pack limits
+`changes` from `critique` to 2 rounds and `failed` from `approved` to 3, both
+back to `draft`, then `decide`. The starter's train flow has none. Importing
+either pack again gives a yard its limits.
 
 **Paths.** A role, script or stage file is always relative to the pack's
 directory, so a pack works wherever it is cloned. An absolute path, a path

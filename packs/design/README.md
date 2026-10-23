@@ -32,8 +32,8 @@ format and how a pack maps to a yard are in
 backlog -> draft | decide
 draft -> critique on done | decide on question | backlog
 decide -> approved | draft | backlog
-critique -> decide on done | draft on changes
-approved -> merged on done | draft on failed | decide on question
+critique -> decide on done | draft on changes max 2 then decide
+approved -> merged on done | draft on failed max 3 then decide | decide on question
 merged terminal
 ```
 
@@ -41,12 +41,30 @@ merged terminal
 |---|---|---|
 | `backlog` | `backlog`, people | the bead waits until its question is clear enough to draft from |
 | `draft` | `builders` | an agent writes `docs/design/<date>-<bead>-<name>.md` on the bead's branch: what exists, the smallest proposal, the open questions, the beads it would become |
-| `critique` | `reviewers` | another agent checks the document's claims in the code and its proposal against the repository's principles, and changes nothing. `changes` sends it back to `draft`; from the third round on the stage file has it go on to a person |
+| `critique` | `reviewers` | another agent checks the document's claims in the code and its proposal against the repository's principles, and changes nothing. `changes` sends it back to `draft`, twice at most ([below](#limits-on-rounds)); from the third critique on the stage file has it go on to a person |
 | `decide` | `decisions`, people | a person reads the document and both notes, answers the open questions, and moves the bead to `approved`, back to `draft`, or to `backlog` |
-| `approved` | `assembly` | the document lands on the depot's base, after the depot's test command |
+| `approved` | `assembly` | the document lands on the depot's base, after the depot's test command. `failed` sends it back to `draft`, three times at most ([below](#limits-on-rounds)) |
 
 A design bead is made as any bead, with its type: `yardr bead create
 "<question>" --depot <depot> --type design`. It starts in `backlog`.
+
+## Limits on rounds
+
+The two ways back to `draft` are limited: `changes` from `critique` to 2 rounds
+and `failed` from `approved` to 3. A further round goes to `decide` instead,
+where a person reads the note that asked for it. The count is the stage's,
+whichever way the bead came back, so a failed landing counts beside a
+critique's `changes`: a design that failed to land once reaches the limit of 2
+a round earlier. Two rounds is the pattern the flow is written for (draft,
+critique, redraft, critique), and the person in `decide` reads every design
+anyway, so a design that arrives there a round early costs little.
+
+`yardr flow show` prints the limits as `max 2 then decide` and
+`max 3 then decide`. A yard that wants other numbers changes them in its copy
+of the pack, or in the flow it keeps (`yardr flow set`). Importing the pack
+again gives a yard these limits, and `yardr pack check` shows them as a change
+to the flow first. [docs/flows.md](../../docs/flows.md#a-limit-on-rounds) says
+how rounds are counted and what the move to `then` writes to the log.
 
 ## What it needs to be there already
 

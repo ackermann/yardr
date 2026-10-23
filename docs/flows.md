@@ -353,6 +353,18 @@ put in any stage but its flow's first. A refusal leaves the count and the
 stage as they were, and a stage ask answered with a pick that fires a limited
 outcome redirects the bead the same way.
 
+The packs that ship with yardr carry limits ([packs.md](packs.md#packyaml)).
+The starter pack's default flow limits its three ways back to `new` (`changes`
+from `review` and from `review-security`, `failed` from `approved`) to 3 rounds,
+counted together, and sends the fourth to `decide`. The design pack's flow
+limits `changes` from `critique` to 2 rounds and `failed` from `approved` to 3,
+both back to `draft`, then `decide`. The train flow has none. A yard that has the
+flow gets the limits when it imports the pack again (`yardr pack check` shows
+the change first), and a flow in a depot's repository has them when its file
+does: depot yardr's own,
+[`.yardr/flows/default.flow`](../.yardr/flows/default.flow), carries the
+starter's three.
+
 ### done-safe and the security paths
 
 A flow may offer a way past a stage that only some beads need. Depot yardr's
@@ -790,12 +802,16 @@ no store pointer overrides it. It governs every bead that is not a train
 backlog -> shape | new | decide
 shape -> new on done | decide on question | backlog
 new -> review on done | decide on question | backlog
-review -> review-security on done | approved on done-safe | new on changes | decide on question
-review-security -> approved on done | new on changes | decide on question
-approved -> merged on done | new on failed | decide on question
+review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question
+review-security -> approved on done | new on changes max 3 then decide | decide on question
+approved -> merged on done | new on failed max 3 then decide | decide on question
 decide -> backlog | new
 merged terminal
 ```
+
+The `flow show` snapshot above predates the limits: the file's three ways back
+to `new` now carry `max 3 then decide`, as the [starter pack's](#a-limit-on-rounds)
+do.
 
 | stage | group | runner |
 |---|---|---|

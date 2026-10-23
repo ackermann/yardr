@@ -38,9 +38,12 @@ Outcomes:
   That file is the paths alone; the rest of the list is your judgment.
 - `changes`, it needs the builder: the design is wrong, the bead was misread,
   or a large part is missing. The note gives concrete, actionable findings,
-  and the bead goes back to `new`. If the notes show the bead has already
-  come back from review twice, do not send it back a third time: note why and
-  `yardr bead hold <id>` so the yardmaster looks at it.
+  and the bead goes back to `new`. The flow limits the rounds back to `new`
+  (`yardr flow show` writes a limit as `max 3 then decide`): a further round
+  past the limit goes to `decide`, where a person reads your note. If the
+  notes show the bead has already come back from review twice, do not send it
+  back a third time: note why and `yardr bead hold <id>` so the yardmaster
+  looks at it.
 - `question`, it needs a decision only Christopher can make: the note has the
   question and the options, and the bead goes to `decide`.
 

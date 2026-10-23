@@ -8,4 +8,6 @@ If the decision's answers are in a note and not in the document, that is as
 intended: the document is the proposal as it was decided on, and the note
 says what was decided. `failed` sends it back to `draft` when it does not
 land (a conflict, a test that fails); `question` to `decide` when something
-in it should not be on the base.
+in it should not be on the base. The flow limits the rounds back to `draft`
+(`yardr flow show` writes the limit as `max 3 then decide`): a further round
+past the limit goes to `decide`, where a person reads the note.

@@ -110,15 +110,16 @@ func TestExportRoundTrip(t *testing.T) {
 	if _, err := st.AddRoute(ctx, store.Route{Stage: "review", Depot: &depot, Group: "web-testers", Priority: 9}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	// A limit on rounds, set by hand: review's changes go to decide after
-	// three rounds back to new (decide is also where its question goes), and
-	// review-security's to backlog after two, a stage nothing else of
-	// review-security leads to.
+	// A limit on rounds, changed by hand: the starter sends review-security's
+	// changes to decide after three rounds back to new (decide is also where
+	// its question goes), and here they go to backlog after two, a stage
+	// nothing else of review-security leads to. The starter's other limits,
+	// review's changes and the assembly's failed, are the ones it brought.
 	flow, err := st.GetFlow(ctx, "starter.default")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for stage, lim := range map[string]store.Outcome{"review": {Max: 3, Then: "decide"}, "review-security": {Max: 2, Then: "backlog"}} {
+	for stage, lim := range map[string]store.Outcome{"review-security": {Max: 2, Then: "backlog"}} {
 		i := slices.IndexFunc(flow.Outcomes[stage], func(o store.Outcome) bool { return o.Name == "changes" })
 		flow.Outcomes[stage][i].Max, flow.Outcomes[stage][i].Then = lim.Max, lim.Then
 	}
@@ -166,7 +167,8 @@ func TestExportRoundTrip(t *testing.T) {
 	for _, want := range []string{
 		"changes: {to: new, max: 3, then: decide}, question: decide}",
 		"outcomes: {done: approved, changes: {to: new, max: 2, then: backlog}, question: decide}",
-		"outcomes: {done: merged, failed: new, question: decide}",
+		"outcomes: {done: merged, failed: {to: new, max: 3, then: decide}, question: decide}",
+		"outcomes: {done: review, question: decide}",
 	} {
 		if !strings.Contains(packYAML, want) {
 			t.Errorf("pack.yaml lacks %q:\n%s", want, packYAML)

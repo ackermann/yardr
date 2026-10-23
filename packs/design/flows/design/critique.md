@@ -39,7 +39,9 @@ critique. The second time, check that each item of the earlier note was
 answered and send back only for one that was not and still breaks the
 proposal, or for such an error the changes brought in. From the third time
 on do not send it back: leave as `done`, and list what you still find wrong
-for the operator to weigh.
+for the operator to weigh. The flow limits the rounds back to `draft` as
+well (`yardr flow show` writes the limit as `max 2 then decide`): a further
+round past the limit goes to `decide`, where a person reads your note.
 
 What moves by itself is not an error: the stage of another bead, a commit
 id, a count that changed because something landed while the writer worked.
