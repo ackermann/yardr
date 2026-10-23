@@ -97,6 +97,10 @@ func TestMain(m *testing.M) {
 	if err := build.Run(); err != nil {
 		panic("building yardr: " + err.Error())
 	}
+	mktempRecorder = filepath.Join(dir, "mktemp-recorder")
+	if err := writeMktempRecorder(mktempRecorder); err != nil {
+		panic(err)
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.RemoveAll(nowhere)
@@ -128,7 +132,8 @@ type yard struct {
 // ends. The scripts still drive the built yardr, which connects over the
 // socket as it would to a server; what this skips is a server process per
 // test, with its start, boot and stop, which is the fixture's slowest
-// work under load.
+// work under load. The reports a script makes pass through the yard's
+// reportWatch on the way (stop_test.go).
 func serveYard(t *testing.T, home string) {
 	t.Helper()
 	cfg := &config.Config{Home: home}
@@ -143,7 +148,10 @@ func serveYard(t *testing.T, home string) {
 		ln.Close()
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: rpc.Handler(st, nil), ConnContext: rpc.ConnContext}
+	watch := &reportWatch{}
+	reportWatches.Store(home, watch)
+	t.Cleanup(func() { reportWatches.Delete(home) })
+	srv := &http.Server{Handler: watch.handler(rpc.Handler(st, nil)), ConnContext: rpc.ConnContext}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 }
@@ -372,18 +380,34 @@ func (y *yard) exec(script, group, id string) {
 	}
 	logPath := filepath.Join(y.home, group+".log")
 	cmd := script
+	// What the script makes is noted by a mktemp that stands first on its PATH
+	// (stop_test.go): the yard's watch looks at it when the script reports, and
+	// it is looked at once more when the script is gone.
+	bin := filepath.Join(y.t.TempDir(), "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		y.t.Fatal(err)
+	}
+	made := recordMktemp(y.t, bin)
+	watch, _ := reportWatches.Load(y.home)
+	if w, ok := watch.(*reportWatch); ok {
+		w.arm(made)
+	}
 	if y.push != "" {
 		cmd = "YARDR_PUSH=" + y.push + " " + script
 	}
 	if y.opts != "" {
 		cmd = y.opts + " " + cmd
 	}
-	// The script finds this test's fake gh, if it has one, by its command
-	// line: the environment is every test's.
+	// The recording mktemp is first on the script's PATH, and this test's fake
+	// gh after it, if it has one: the script finds the fake gh by its command
+	// line, as the environment is every test's.
+	path := bin
 	if state, ok := fakeGhs.Load(y.t); ok {
 		stateDir := state.(string)
-		cmd = "PATH=" + shellQuote(filepath.Join(stateDir, "bin")) + ":$PATH FAKE_GH=" + shellQuote(stateDir) + " " + cmd
+		path += ":" + filepath.Join(stateDir, "bin")
+		cmd = "FAKE_GH=" + shellQuote(stateDir) + " " + cmd
 	}
+	cmd = "PATH=" + shellQuote(path) + ":$PATH " + cmd
 	// The runner hands its own environment on: git's identity (TestMain).
 	// YARDR_HOME and YARDR_BIN come from the runner itself.
 	e := &runner.Exec{Home: y.home, Bin: yardrBin}
@@ -425,6 +449,14 @@ func (y *yard) exec(script, group, id string) {
 	y.log = string(out)
 	y.t.Logf("%s log:\n%s", group, out)
 	_ = os.Remove(logPath)
+	// The daemon stops a script as soon as it has reported, so what the script
+	// made has to be gone by then, and not only when it exits (yardr-s41x).
+	if w, ok := watch.(*reportWatch); ok {
+		for _, l := range w.disarm() {
+			y.t.Errorf("%s: its call to the store came with files of its own still there: %s", filepath.Base(script), l)
+		}
+	}
+	assertNothingLeft(y.t, made)
 }
 
 // groupConfig is the exec group's config: its command and log, and the

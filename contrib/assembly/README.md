@@ -3,7 +3,11 @@
 Five shell scripts, each run as the `cmd` of an `exec` group with `--limit 1`
 (one bead at a time). They are how depot yard lands work; the flow they sit in
 is described in [docs/line.md](../../docs/line.md), sections 4 and
-Trains. Install them from `main`, not a checkout, so a branch cannot change
+Trains. The daemon stops a script as soon as it has reported, so each takes
+away what it made (the files of a test run, a directory to work in) and stops
+what it started (the test command and every process below it) before it
+reports; a script stopped sooner, by TERM or INT, does the same before it
+exits. Install them from `main`, not a checkout, so a branch cannot change
 how it is landed. The starter pack carries a copy of merge-local: a yard set
 up from it (`yardr setup`, `yardr depot init`) runs
 `~/.yardr/packs/starter/scripts/merge-local`, with no checkout of yardr

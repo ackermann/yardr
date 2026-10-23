@@ -60,10 +60,91 @@ PR=${YARDR_PR:-}
 TAIL=200
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') integrate $DEPOT $TRAIN ($BR onto $BASE)"
 
+# tree prints a process and everything below it, in one order every time.
+tree() {
+  ps -A -o pid= -o ppid= | awk -v root="$1" '
+    { parent[$1] = $2 }
+    END {
+      below[root] = 1
+      do { more = 0; for (p in parent) if (!(p in below) && (parent[p] in below)) { below[p] = 1; more = 1 } } while (more)
+      for (p in below) print p
+    }' | sort -n
+}
+# unwatched kills the timeout watcher and its sleep, after a run and on
+# every exit while one is in flight (the traps): a watcher left behind
+# sleeps out its $LIMIT holding the run's inherited files, among them once
+# the machine race lock (yardr-tsms). The sleep goes by the pid the watcher
+# wrote, in case the watcher died without killing it, and both kills are
+# silent: either may already be gone. What the file holds is signalled only
+# if it is a number with a non-zero digit: kill 0 signals this script's whole
+# process group, and kill reads 00 as 0 (yardr-0bd1).
+unwatched() {
+  [ -n "${watch:-}" ] || return 0
+  kill "$watch" 2>/dev/null
+  if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
+    nap=$(cat "$napfile" 2>/dev/null) || nap=
+    case "$nap" in ''|*[!0-9]*) ;; *[1-9]*) kill "$nap" 2>/dev/null ;; esac
+  fi
+  wait "$watch" 2>/dev/null
+  watch=
+}
+# cleanup removes the files the script made, whichever of them exist: when a
+# run is over and by bye.
+cleanup() {
+  unwatched
+  [ -z "${log:-}" ] || rm -f "$log"
+  [ -z "${latefile:-}" ] || rm -f "$latefile"
+  [ -z "${napfile:-}" ] || rm -f "$napfile"
+  [ -z "${copy:-}" ] || rm -f "$copy"
+  [ -z "${errf:-}" ] || rm -f "$errf"
+  return 0
+}
+# stoprun stops the command the script started, and every process below it. A
+# session can be stopped while its tests are still running; ending the script
+# alone would leave them running with nobody to read the result, in a worktree
+# that is removed once the train closes, and holding what they hold, the
+# machine race lock among it.
+stoprun() {
+  [ -n "${pid:-}" ] || return 0
+  seen=
+  while t=$(tree "$pid") && [ "$t" != "$seen" ]; do
+    # shellcheck disable=SC2086
+    kill -STOP $t 2>/dev/null
+    seen=$t
+  done
+  # shellcheck disable=SC2086
+  kill -KILL ${seen:-$pid} 2>/dev/null
+  wait "$pid" 2>/dev/null
+  pid=
+}
+# bye takes away everything the script started and made, whichever of it
+# exists. It is the first thing hold and report do, so that nothing is left to
+# do once the session ends (the daemon stops the script as soon as it has
+# reported), and the EXIT trap, for every other way out. TERM and INT are
+# ignored while it runs, so that a stop of the session that comes meanwhile
+# cannot leave it half done.
+bye() {
+  trap '' TERM INT
+  unwatched
+  stoprun
+  cleanup
+  return 0
+}
+# pid is only the test command this script starts, never a handle inherited
+# from the exec group's environment.
+unset pid
+pid=
+trap 'bye' EXIT
+# A signal that kills the script does not run its EXIT trap in every shell
+# (dash's does not), so TERM and INT exit, which does, as a shell would, 128+n.
+trap 'unwatched; exit 143' TERM
+trap 'unwatched; exit 130' INT
+
 # Reporting ends this session (the daemon stops the script), so it is
-# always the last thing done.
-hold() { echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "integrator: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
+# always the last thing done, and bye the first.
+hold() { bye; echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "integrator: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
 report() {
+  bye
   echo "== $TRAIN $1"
   printf '%s\n' "integrator: $2" | "$Y" bead "done" "$TRAIN" --outcome "$1" --note - && exit 0
   hold "could not report $1 (does the train's flow name it for its stage?): $2"
@@ -126,48 +207,6 @@ fi
 # deadline is not this: it is a red run.
 TEST=${YARDR_TEST:-}
 LIMIT=${YARDR_TEST_TIMEOUT:-1800}
-# tree prints a process and everything below it, in one order every time.
-tree() {
-  ps -A -o pid= -o ppid= | awk -v root="$1" '
-    { parent[$1] = $2 }
-    END {
-      below[root] = 1
-      do { more = 0; for (p in parent) if (!(p in below) && (parent[p] in below)) { below[p] = 1; more = 1 } } while (more)
-      for (p in below) print p
-    }' | sort -n
-}
-# unwatched kills the timeout watcher and its sleep, after a run and on
-# every exit while one is in flight (the traps): a watcher left behind
-# sleeps out its $LIMIT holding the run's inherited files, among them once
-# the machine race lock (yardr-tsms). The sleep goes by the pid the watcher
-# wrote, in case the watcher died without killing it, and both kills are
-# silent: either may already be gone. What the file holds is signalled only
-# if it is a number with a non-zero digit: kill 0 signals this script's whole
-# process group, and kill reads 00 as 0 (yardr-0bd1).
-unwatched() {
-  [ -n "${watch:-}" ] || return 0
-  kill "$watch" 2>/dev/null
-  if [ -n "${napfile:-}" ] && [ -s "$napfile" ]; then
-    nap=$(cat "$napfile" 2>/dev/null) || nap=
-    case "$nap" in ''|*[!0-9]*) ;; *[1-9]*) kill "$nap" 2>/dev/null ;; esac
-  fi
-  wait "$watch" 2>/dev/null
-  watch=
-}
-cleanup() {
-  unwatched
-  [ -z "${log:-}" ] || rm -f "$log"
-  [ -z "${latefile:-}" ] || rm -f "$latefile"
-  [ -z "${napfile:-}" ] || rm -f "$napfile"
-  [ -z "${copy:-}" ] || rm -f "$copy"
-  [ -z "${errf:-}" ] || rm -f "$errf"
-  return 0
-}
-trap 'cleanup' EXIT
-# A signal that kills the script does not run its EXIT trap, so TERM and
-# INT clean up first and then report as a shell would, 128+n.
-trap 'unwatched; exit 143' TERM
-trap 'unwatched; exit 130' INT
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
 # in $lines, and $late set when it ran past $LIMIT seconds besides what it
@@ -179,12 +218,12 @@ runtest() {
   # TMPDIR who sees the log's name can plant a symlink or a script at that
   # name with .late or .sh added before it is used (yardr-gb50).
   log=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || hold "cannot make a file for the tests' output"
-  napfile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { cleanup; hold "cannot make a file for the timeout watcher"; }
-  latefile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { cleanup; hold "cannot make a file for the timeout watcher"; }
+  napfile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || hold "cannot make a file for the timeout watcher"
+  latefile=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || hold "cannot make a file for the timeout watcher"
   copy=
   if [ "$WHAT" = "the base's copy of $TEST" ]; then
-    copy=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || { cleanup; hold "cannot make a file for the copy of $TEST"; }
-    git -C "$REPO" show "$BASE:$TEST" >"$copy" || { cleanup; hold "cannot read $TEST from $BASE"; }
+    copy=$(mktemp "${TMPDIR:-/tmp}/integrate-train.XXXXXX") || hold "cannot make a file for the copy of $TEST"
+    git -C "$REPO" show "$BASE:$TEST" >"$copy" || hold "cannot read $TEST from $BASE"
   fi
   (
     cd "$WT" || exit 2
@@ -264,6 +303,7 @@ runtest() {
   i=0
   while [ ! -s "$napfile" ] && [ "$i" -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
   wait "$pid" && rc=0 || rc=$?
+  pid=
   unwatched
   # A command that passed as its deadline came has passed. The marker is
   # empty until the watcher writes to it, so the deadline came if it holds
@@ -404,7 +444,7 @@ if [ -n "$PR" ]; then
     printf '\nTrain: %s\n' "$TRAIN"
   )
   # stderr apart, so a warning gh prints is not taken for the URL.
-  errf=$(mktemp) && trap 'cleanup' EXIT
+  errf=$(mktemp)
   prview() { (cd "$REPO" && gh pr view "$1" --json number,state,headRefName,headRepositoryOwner,headRepository 2>"$errf"); }
   url=$(printf '%s' "$train" | jq -r '.metadata.pr_url // empty')
   bound_num=$(printf '%s' "$train" | jq -r '.metadata.pr_number // empty')

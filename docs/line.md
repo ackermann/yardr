@@ -470,7 +470,11 @@ with what, is the script's. The script finishes by moving the bead, with a note:
 `yardr bead advance "$YARDR_BEAD" --to <stage> --note -`. A script that
 exits without advancing, closing or holding counts as a failed session, like
 an agent that gives up, and after 3 of those the bead is held. Advancing ends
-the session and the daemon stops the script, so it is the script's last step.
+the session and the daemon stops the script, so it is the script's last step,
+and the step before it is taking away what the script made and started: the
+files of a test run, a directory it works in, the test command and everything
+below it. A script stopped sooner, by TERM or INT, does the same before it
+exits.
 
 **merge-local.** For each bead it:
 

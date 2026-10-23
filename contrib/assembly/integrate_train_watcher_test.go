@@ -71,12 +71,18 @@ func assertWatcherNapFileMode(t *testing.T, dir string, pid int) string {
 }
 
 // When integrate-train itself is killed with TERM, its watcher and the
-// watcher's sleep go with it: the script reports 143, and no sleep it
-// started is left behind.
+// watcher's sleep go with it, and so does its test command with everything
+// that command started, before a file is taken away, as merge-local's does
+// (and a second stop of its whole process group cuts the removal of its files
+// short as little): the script reports 143, no sleep it started is left behind,
+// and nothing it made is.
 func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "testpid")
-	w := newIntegrateTrainWatcherRun(t, "sleep 60 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", 0)
+	w := newIntegrateTrainWatcherRun(t, "sleep 300 & echo $! >"+shellQuote(pidFile)+"; wait", "1789", 0)
+	bin := filepath.Join(filepath.Dir(w.record), "bin")
+	made := recordMktemp(t, bin)
+	arm, held, release := gateRm(t, bin)
 	t.Cleanup(func() {
 		if p, err := os.ReadFile(pidFile); err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(p))); err == nil {
@@ -91,17 +97,30 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	// file made by an ordinary redirection instead of mktemp.
 	cmd := exec.Command("sh", "-c", "umask 000; exec \"$1\"", "sh", w.script)
 	cmd.Dir, cmd.Env, cmd.ExtraFiles = w.tmp, w.env, w.extra
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	group := cmd.Process.Pid
+	t.Cleanup(func() { _ = syscall.Kill(-group, syscall.SIGKILL) })
 	// The await waited for the sleep's record file, which the fake sleep
 	// writes before it execs, so the recording is complete before the sleep
 	// is killed below.
 	nap, watcher := awaitWatcherSleep(t, cmd, w.tmp, w.record, "1789")
 	assertWatcherNapFileMode(t, w.tmp, nap)
+	child := awaitTestChild(t, pidFile)
+	touch(t, arm)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
+	// The script is taking its files away, and has stopped its test command
+	// first. The daemon's second stop, which reaches the rm too, finds it there.
+	awaitFile(t, held, "integrate-train never began to remove its files")
+	assertGone(t, child, "the test command's sleep")
+	if err := syscall.Kill(-group, syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	touch(t, release)
 	err := cmd.Wait()
 	code := 0
 	var exit *exec.ExitError
@@ -118,6 +137,7 @@ func TestIntegrateTrainKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 	}
 	awaitNoWatcherSleepers(t, w.record, "1789")
 	assertWatcherSleepFds(t, w.record, "1789")
+	assertNothingLeft(t, made)
 }
 
 // A local user of a shared TMPDIR can list it, see integrate-train's log by

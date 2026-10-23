@@ -48,15 +48,33 @@ WT=${YARDR_WORKTREE:-}
 PUSH=${YARDR_PUSH:-origin}
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') pr $TRAIN ($BR)"
 
+# bye takes away everything the script made, whichever of it exists. It is the
+# first thing hold and report do, so that nothing is left to do once the
+# session ends (the daemon stops the script as soon as it has reported), and
+# the EXIT trap, for every other way out. TERM and INT are ignored while it
+# runs, so that a stop of the session that comes meanwhile cannot leave it
+# half done.
+bye() {
+  trap '' TERM INT
+  [ -z "${errf:-}" ] || rm -f "$errf"
+  return 0
+}
+trap 'bye' EXIT
+# A signal that kills the script does not run its EXIT trap in every shell
+# (dash's does not), so TERM and INT exit, which does, as a shell would, 128+n.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
 # Reporting ends this session (the daemon stops the script), so it is
-# always the last thing done.
-hold() { echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "pr: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
+# always the last thing done, and bye the first.
+hold() { bye; echo "== hold $TRAIN: $1"; "$Y" bead note "$TRAIN" "pr: $1"; "$Y" bead hold "$TRAIN"; exit 0; }
 report() {
+  bye
   echo "== $TRAIN $1"
   printf '%s\n' "pr: $2" | "$Y" bead "done" "$TRAIN" --outcome "$1" --note - && exit 0
   hold "could not report $1 (does the train's flow name it for its stage?): $2"
 }
-errf=$(mktemp) && trap 'rm -f "$errf"' EXIT
+errf=$(mktemp)
 
 # Off unless switched on: a route that hands a train here by accident must
 # not push or touch a pull request. Held, not failed: failed would send the
