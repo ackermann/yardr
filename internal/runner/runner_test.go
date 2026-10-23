@@ -332,14 +332,20 @@ func TestBriefForATrainWithAPullRequest(t *testing.T) {
 	}
 }
 
-// The brief's CI snapshot is bounded: a declared command that hangs
-// leaves the checks unavailable rather than holding the session's start
-// up.
+// The brief's CI snapshot reads the pull request's head and its CI
+// through the source's commands, run with the source's selected base;
+// and it is bounded: a declared command that hangs leaves the checks
+// unavailable rather than holding the session's start up.
 func TestBriefPullRequestChecksTimeOut(t *testing.T) {
-	// Serial: shortens checksTimeout.
+	// Serial: stubs checksTimeout. A script's start alone is slow under
+	// load, so the answering commands run under a bound far longer than
+	// a person's (the doctor tests' shape); only the hanging command
+	// runs short, and it is asserted on the timeout alone, never on
+	// having run (yardr-kvd2).
 	bin := t.TempDir()
-	hang := filepath.Join(bin, "hang")
-	scripttest.Write(t, hang, "#!/bin/sh\nprintf '%s' \"$YARDR_SOURCE_BASE\" > selected-base\nexec sleep 30\n")
+	pr, ci := filepath.Join(bin, "pr"), filepath.Join(bin, "ci")
+	scripttest.Write(t, pr, "#!/bin/sh\nprintf '%s' \"$YARDR_SOURCE_BASE\" > selected-base\nprintf '{\"head\":\"abc1234\",\"base\":\"main\",\"state\":\"open\"}'\n")
+	scripttest.Write(t, ci, "#!/bin/sh\nprintf '{\"head\":\"abc1234\",\"base\":\"main\",\"state\":\"open\",\"required\":[\"build\"],\"checks\":[{\"name\":\"build\",\"status\":\"completed\",\"conclusion\":\"success\"}]}'\n")
 	st := storetest.New(t)
 	decl := `name: forge
 base: https://forge.test
@@ -358,8 +364,8 @@ link:
 events:
   runs: [build_finished]
   head_from: [merge_request]
-  pr: ["` + hang + `"]
-  ci: ["` + hang + `"]
+  pr: ["` + pr + `"]
+  ci: ["` + ci + `"]
 calls:
   ping: { kind: read, request: { method: GET, path: /me } }
 `
@@ -370,13 +376,27 @@ calls:
 		t.Fatal(err)
 	}
 	defer func(d time.Duration) { checksTimeout = d }(checksTimeout)
-	checksTimeout = 100 * time.Millisecond
-	start := time.Now()
+	checksTimeout = 30 * time.Second
 	home := t.TempDir()
 	read, got := prChecks(st, home, "https://forge.test/o/r/pull/7")
 	if base, err := os.ReadFile(filepath.Join(home, "selected-base")); err != nil || string(base) != "https://eu.forge.test" {
 		t.Errorf("the pr command received base %q, %v", base, err)
 	}
+	if read != "source forge's ci command" {
+		t.Errorf("prChecks read %q", read)
+	}
+	for _, want := range []string{"head abc1234 (open, onto main)", "required: build", "build: success"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prChecks snapshot missing %q:\n%s", want, got)
+		}
+	}
+	// The hanging command runs short, and is asserted on the timeout
+	// alone: under load the kill lands before the script has run.
+	scripttest.Write(t, pr, "#!/bin/sh\nexec sleep 30\n")
+	checksTimeout = 100 * time.Millisecond
+	start := time.Now()
+	home = t.TempDir()
+	read, got = prChecks(st, home, "https://forge.test/o/r/pull/7")
 	if read != "source forge's ci command" {
 		t.Errorf("prChecks read %q", read)
 	}
