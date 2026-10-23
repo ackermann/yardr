@@ -1840,6 +1840,10 @@ since="since $base ($said), from $(git rev-parse --short "$from")"
 # package, so a missing row costs time, not a fault found late; a row that
 # leaves a reader out is what lets one through. A - row is a promise that no
 # test reads the path: check before adding one.
+# Packages that import packs, in code or in tests, are already
+# selected through its embeds when an embedded pack file changes;
+# rows additionally cover readers that do not import it, and files
+# the embed skips (names beginning with . or _).
 # The . on the contrib rows is the root package, whose test reads every .go
 # file of the repository (main_test.go): a package the binary imports runs
 # it as an importer does, and contrib's programs are imported by nothing.
