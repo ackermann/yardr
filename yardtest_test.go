@@ -28,6 +28,11 @@ const yardTest = ".yardr/test"
 // landing's (docs/testing.md R4).
 const plainWhy = ": testing without -race (race runs at landing only, docs/testing.md R4)"
 
+// noYardHome is the YARDR_HOME a case's script gets: a fixed path under the
+// temp dir that no test creates, so a real yardr reached anyway reads no
+// yard and fails, and the script's filing only warns.
+var noYardHome = filepath.Join(os.TempDir(), "yardr-test-no-yard")
+
 type readsRow struct {
 	path string
 	pkgs []string // empty for a - row: no test reads the path
@@ -53,9 +58,12 @@ func gitT(t *testing.T, dir string, args ...string) string {
 // (YARDR_TEST_LOAD, which a case that checks what the script gives its go
 // would find there already), the beads a train's integration says its tests are
 // of (YARDR_TEST_BEADS, which a case that checks the beads a flaky log line
-// carries would find there already), and the quiet run's marks
+// carries would find there already), the quiet run's marks
 // (YARDR_R1_STRICT and YARDR_QUIET_RUN), which would otherwise change
-// strict-budget judging and enable quiet-run-only tests. It also reads a quiet
+// strict-budget judging and enable quiet-run-only tests, and the run's yard
+// (YARDR_HOME, YARDR_BEAD, YARDR_DEPOT, YARDR_ACTOR and YARDR_SESSION): a
+// case that runs the script files a flake through a stub yardr or through
+// none, never through the real CLI into the run's yard. It also reads a quiet
 // machine, a load of 1.5 on 10 cores, whatever the machine and the run: a
 // loaded one would give a landing's race leg a -p of its own (gatepar), and
 // the cases that run a landing assert the go commands it makes. A case sets
@@ -71,9 +79,9 @@ func scriptEnv() []string {
 func scriptEnvFrom(environ []string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
-		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "GOFLAGS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN", "YARDR_TEST_LOAD", "YARDR_TEST_BEADS"}, k)
+		return slices.Contains([]string{"YARDR_BASE", "YARDR_LANDING", "YARDR_TEST_PLAN", "YARDR_TEST_RPC", "GOOS", "GOFLAGS", "YARDR_RACE_HELD", "YARDR_R1_STRICT", "YARDR_QUIET_RUN", "YARDR_TEST_LOAD", "YARDR_TEST_BEADS", "YARDR_HOME", "YARDR_BEAD", "YARDR_DEPOT", "YARDR_ACTOR", "YARDR_SESSION"}, k)
 	})
-	return append(env, "YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10")
+	return append(env, "YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10", "YARDR_HOME="+noYardHome)
 }
 
 func yardTestRows(t *testing.T) (script string, rows []readsRow) {
@@ -4319,6 +4327,35 @@ func TestYardTestBudgets(t *testing.T) {
 		want := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"
 		if !strings.Contains(out, want+"\n") {
 			t.Errorf("output %q, want it to hold %q", out, want)
+		}
+	})
+
+	t.Run("the run's yard does not reach the script", func(t *testing.T) {
+		// A builder's session names its bead, depot and yard; none of
+		// those reach a case's script, and the home a real yardr reached
+		// anyway would read is a path that cannot be a yard (yardr-vvy2).
+		inheritedEnv := append(os.Environ(),
+			"YARDR_BEAD=m-1", "YARDR_DEPOT=m", "YARDR_HOME=/home/u/.yardr",
+			"YARDR_ACTOR=u", "YARDR_SESSION=s")
+		var home string
+		n := 0
+		for _, kv := range scriptEnvFrom(inheritedEnv) {
+			k, v, _ := strings.Cut(kv, "=")
+			switch k {
+			case "YARDR_BEAD", "YARDR_DEPOT", "YARDR_ACTOR", "YARDR_SESSION":
+				t.Fatalf("scriptEnv carries %q from the run", kv)
+			case "YARDR_HOME":
+				home, n = v, n+1
+			}
+		}
+		if n != 1 {
+			t.Fatalf("scriptEnv sets YARDR_HOME %d times, want once", n)
+		}
+		if home != noYardHome {
+			t.Errorf("scriptEnv sets YARDR_HOME=%q, want the unusable %q", home, noYardHome)
+		}
+		if _, err := os.Stat(home); !os.IsNotExist(err) {
+			t.Errorf("YARDR_HOME %q exists, want a path that cannot be a yard", home)
 		}
 	})
 
