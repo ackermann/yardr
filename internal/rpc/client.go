@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
@@ -109,6 +111,7 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 		return err
 	}
 	deadline := time.Now().Add(c.Retry)
+	owner, ownerStart, watched := config.TestOwner()
 	for {
 		err := c.callOnce(ctx, method, out, body)
 		var retry retryable
@@ -116,6 +119,14 @@ func (c *Client) call(ctx context.Context, method string, out any, args ...any) 
 			return err
 		}
 		if time.Now().After(deadline) {
+			return retry.err
+		}
+		// A call of a test's yard whose test binary is gone stops at
+		// once: no server replaces itself then, so waiting out the
+		// deadline only outlives the test (an init --start orphaned by
+		// a killed binary). A real yard names no owner, and keeps
+		// retrying as ever.
+		if watched && !peer.Alive(owner, ownerStart) {
 			return retry.err
 		}
 		select {

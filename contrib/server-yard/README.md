@@ -261,10 +261,7 @@ stop within a few seconds of the binary's end. A run killed by its timeout
 runs no cleanup, so that is what ends them. The herdr stand-in looks for the
 name too (`fake/main.go`) and exits, with status 0, within a few seconds of
 the binary's end; the yard's directory stays until the test's cleanup, so a
-killed binary leaves it in `/tmp`. What the script itself started can outlive
-the binary a little: a `yardr init --start` whose server stopped under it keeps
-retrying its next call for up to 30 seconds (`rpc.ReplaceRetry`, there for a
-server that replaces itself), and ends then.
+killed binary leaves it in `/tmp`.
 
 `fake/` holds what the script is run against, with `HOME`,
 `XDG_CONFIG_HOME` and `YARDR_HOME` in a temp dir and nothing else of the

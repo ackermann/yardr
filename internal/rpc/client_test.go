@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -15,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/version"
 )
@@ -138,6 +142,66 @@ func TestCallWaitsForAServerToListen(t *testing.T) {
 		t.Fatal("no server, yet the call succeeded")
 	} else if time.Since(start) > 2*time.Second {
 		t.Fatalf("gave up after %v; retry is meant to be brief", time.Since(start))
+	}
+}
+
+// A call of a test's yard stops retrying once the test binary is gone: no
+// server replaces itself then, so waiting out the deadline only outlives
+// the test (an init --start orphaned by a killed binary). While the owner
+// runs, the call retries to its deadline as ever.
+func TestCallStopsWhenItsTestOwnerIsGone(t *testing.T) {
+	self, err := peer.Describe(os.Getpid())
+	if err != nil {
+		t.Skipf("this system tells nothing of a process's start: %v", err)
+	}
+	// An owner that has ended: a sleep, described while it ran, then
+	// killed and reaped.
+	sleep := exec.Command("sleep", "60")
+	if err := sleep.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Do not leave a child behind if describing its start fails.
+	t.Cleanup(func() {
+		if sleep.ProcessState == nil {
+			_ = sleep.Process.Kill()
+			_ = sleep.Wait()
+		}
+	})
+	ended, err := peer.Describe(sleep.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sleep.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	sleep.Wait()
+
+	for _, c := range []struct {
+		name       string
+		owner      string
+		retry      time.Duration
+		wantPrompt bool // the call returns well before its deadline
+	}{
+		{"an owner that has ended", fmt.Sprintf("%d %d", sleep.Process.Pid, ended.Start), 5 * time.Second, true},
+		{"an owner that runs", fmt.Sprintf("%d %d", os.Getpid(), self.Start), 300 * time.Millisecond, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(config.Key(config.TestOwnerEnv), c.owner)
+			client := NewClient(socket(t)) // nothing listens
+			client.Retry = c.retry
+			start := time.Now()
+			_, err := client.Head(context.Background())
+			took := time.Since(start)
+			if err == nil {
+				t.Fatal("no server, yet the call succeeded")
+			}
+			if c.wantPrompt && took >= 2*time.Second {
+				t.Errorf("took %v with the owner gone; want it to stop at once, not at the %v deadline", took, c.retry)
+			}
+			if !c.wantPrompt && took < c.retry {
+				t.Errorf("took %v with the owner running; want it to retry to the %v deadline", took, c.retry)
+			}
+		})
 	}
 }
 
