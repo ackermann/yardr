@@ -638,6 +638,40 @@ that someone got going in its pane lifts the hold as well. `--set
 stall=off` turns the check off for a group. Only bead sessions are judged,
 not a crew member's.
 
+### What a session used
+
+The daemon counts the tokens each herdr session's agent used, from the agent's
+own session file, once the session has stopped
+([the design](design/2026-10-21-yardr-qbqq-session-tokens.md)). The file is
+found by the id of the agent's session, which herdr forgets with the agent's
+tab, so the daemon keeps it on the handle as `agent_session` as soon as herdr
+names one (for the session's first 15 minutes, as for the model, whether or
+not the agent ever reports a model) and asks once more as the session ends,
+before the tab is closed. A kind herdr names no id for (Muse today) has none.
+
+When the session has stopped, its handle holds a `count_due` (`stopped_at`)
+until the next pass reads the count and records it in one write: `usage` on the
+handle, which `yardr session list --all --json` shows, and one `session_usage`
+event on the bead with the `session`, `group`, `stage`, `kind` and `usage`. A
+count has `input` (as the harness reports it), `fresh_input` (the input that
+did not come from the cache), `output`, `cache_read`, `cache_write` and
+`read_at`. `partial: true` says the count falls short of the session. Claude
+Code writes its own total as it exits, a moment after the tab closes; the
+daemon waits ten minutes for it, then counts the lines the agent wrote along the
+way, and says `partial`. A session with no count has `missing` in its place:
+`no session id`, `no file`, `no usage line` or `kind declares no usage`. Each
+session that is counted ends with one or the other, once.
+
+A group with `keep: true` leaves the agent running, and what a person does in
+its pane afterwards is not the bead's. Such a session is counted up to two
+minutes after it ended (the call that moved the bead is recorded after the
+move), however late the daemon reads it, and the count says `kept: true`. The
+read waits for those two minutes to pass.
+
+A manual group's session is a person at work and an exec group's is a script:
+neither has an agent or a file, so neither is counted. Nor is a session that was
+stopped before the daemon began to count.
+
 ### A harness that stopped on an error
 
 `session_stalled` is about a session's first prompt. A harness can stop

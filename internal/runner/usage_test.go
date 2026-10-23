@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/dispatch"
 )
 
 // Usage reads what a session used from its agent's own session file, which the
@@ -143,7 +144,7 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 		usage    agents.Usage
 		partial  bool
 		missing  string // why no count is there, "" for a count
-		notYet   bool   // ErrUsageNotYet, for the caller to ask again
+		notYet   bool   // dispatch.ErrUsageNotYet, for the caller to ask again
 		fails    bool   // any other error, for the caller to try again too
 	}{
 		// Claude: the total Claude Code wrote as it exited is the reading,
@@ -213,12 +214,12 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 		u, partial, missing, err := h.Usage(ctx, c.handle, c.fallback)
 		switch {
 		case c.fails:
-			if err == nil || errors.Is(err, ErrUsageNotYet) {
+			if err == nil || errors.Is(err, dispatch.ErrUsageNotYet) {
 				t.Errorf("%s: read %+v, partial %v, missing %q, error %v; want an error", c.name, u, partial, missing, err)
 			}
 		case c.notYet:
-			if !errors.Is(err, ErrUsageNotYet) {
-				t.Errorf("%s: read %+v, partial %v, missing %q, error %v; want ErrUsageNotYet", c.name, u, partial, missing, err)
+			if !errors.Is(err, dispatch.ErrUsageNotYet) {
+				t.Errorf("%s: read %+v, partial %v, missing %q, error %v; want dispatch.ErrUsageNotYet", c.name, u, partial, missing, err)
 			}
 		case err != nil:
 			t.Errorf("%s: error %v", c.name, err)

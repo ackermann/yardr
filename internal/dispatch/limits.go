@@ -90,6 +90,7 @@ func (d *Dispatcher) limits(ctx context.Context, r Runner, s *store.Session, g s
 
 	// Before the limits, so the marks these leave on the handle are not lost
 	// to the one session_aged leaves below.
+	d.agentSession(ctx, r, s)
 	d.model(ctx, r, s, g)
 	switch st := d.status[s.ID]; st {
 	case "idle", "done":

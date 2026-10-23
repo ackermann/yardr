@@ -23,14 +23,54 @@ const (
 )
 
 // modelWindow is how long after a session's start its agent is asked for
-// its model. An agent that has not answered a prompt by then (one that
-// stalled, or waits on a human) is not asked on every pass for ever.
+// its model, and for the id of its session. An agent that has not answered
+// a prompt by then (one that stalled, or waits on a human) is not asked on
+// every pass for ever.
 const modelWindow = 15 * time.Minute
 
 // Modeler is implemented by runners whose agents report the model they run
 // ("" while not known yet, or for a kind that has no way to tell).
 type Modeler interface {
 	Model(ctx context.Context, handle map[string]any) (string, error)
+}
+
+// AgentSession is a handle key: the id of the session the session's agent
+// keeps in its own session file, which is how the file of what the agent
+// used is found once the session has ended. Kept on the handle, since
+// herdr names no agent whose tab is closed.
+const AgentSession = "agent_session"
+
+// SessionIDer is implemented by runners that tell the id of the session an
+// agent keeps in its own session file ("" while it names none yet, or for a
+// kind the runner can read no id for).
+type SessionIDer interface {
+	SessionID(ctx context.Context, handle map[string]any) (string, error)
+}
+
+// agentSession records, once per session, the id its agent keeps its session
+// under, as soon as the runner has one. The model check records the model
+// and nothing else, and only once a model was read; an agent that ended
+// before it answered, or whose kind names no model, would have no id left to
+// find its count by. So this does not wait for a model line, and does not
+// depend on what the model check finds. It asks for as long after the start
+// as the model check does (modelWindow), so a kind the runner reads no id
+// for is not asked on every pass for ever, and teardown asks once more
+// (see lastAgentSession). s.Handle is updated with what it stores.
+func (d *Dispatcher) agentSession(ctx context.Context, r Runner, s *store.Session) {
+	ider, ok := r.(SessionIDer)
+	if !ok || s.Handle[AgentSession] != nil || d.now().Sub(s.StartedAt) > modelWindow {
+		return
+	}
+	id, err := ider.SessionID(ctx, s.Handle)
+	if err != nil || id == "" {
+		return // none yet, or unreachable: asked again next pass
+	}
+	h := withHandle(s.Handle, AgentSession, id)
+	if err := d.Store.SetHandle(ctx, s.ID, h); err != nil {
+		d.Log.Warn("record agent session", "session", s.ID, "err", err)
+		return
+	}
+	s.Handle = h
 }
 
 // model records, once per session, the model s's agent reports next to the

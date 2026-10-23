@@ -812,11 +812,11 @@ func (d *Dispatcher) noteStart(ctx context.Context) {
 	}
 }
 
-// Reconcile performs one idempotent pass: reap dead sessions, tear down
-// finished ones, apply the hook rules to new hook events, read the CI of
-// trains in in-pr, move the issues beads track, tell users outside the yard
-// of what landed in their inboxes, route and start unowned ready beads, make
-// the copy of the store that is due.
+// Reconcile performs one idempotent pass: reap dead sessions, record the
+// tokens the stopped ones used, tear down finished ones, apply the hook rules
+// to new hook events, read the CI of trains in in-pr, move the issues beads
+// track, tell users outside the yard of what landed in their inboxes, route
+// and start unowned ready beads, make the copy of the store that is due.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
 	d.beginHomePass()
@@ -835,6 +835,11 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 
 	active, err := d.reap(ctx, byName)
 	if err != nil {
+		return err
+	}
+	// Before teardown: a session it stops is counted from the next pass on,
+	// once its agent has had the time between to write its last lines.
+	if err := d.usage(ctx, byName); err != nil {
 		return err
 	}
 	if err := d.teardown(ctx, byName); err != nil {
@@ -1158,7 +1163,10 @@ func (d *Dispatcher) forget(id string) {
 }
 
 // teardown stops runner resources for sessions that ended, unless the group
-// asks to keep them (config keep=true) for inspection.
+// asks to keep them (config keep=true) for inspection. On the way it marks the
+// count of a session whose agent is counted as due (markCountDue), having asked
+// the runner once more for the id of the agent's session while its tab is still
+// open (lastAgentSession).
 func (d *Dispatcher) teardown(ctx context.Context, groups map[string]store.Group) error {
 	ended, err := d.Store.Unstopped(ctx)
 	if err != nil {
@@ -1166,11 +1174,16 @@ func (d *Dispatcher) teardown(ctx context.Context, groups map[string]store.Group
 	}
 	for _, s := range ended {
 		g := groups[s.Group]
-		if r := d.runnerFor(s, groups); r != nil && g.Config["keep"] != true && len(s.Handle) > 0 {
+		r := d.runnerFor(s, groups)
+		id := d.lastAgentSession(ctx, r, s)
+		if r != nil && g.Config["keep"] != true && len(s.Handle) > 0 {
 			if err := r.Stop(ctx, s.Handle); err != nil {
 				d.Log.Warn("stop", "session", s.ID, "err", err)
 				continue
 			}
+		}
+		if err := d.markCountDue(ctx, r, s, g, id); err != nil {
+			return err
 		}
 		if err := d.Store.MarkStopped(ctx, s.ID); err != nil {
 			return err

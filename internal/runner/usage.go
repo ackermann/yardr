@@ -2,13 +2,18 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
 
 	"yardr.dev/yardr/internal/agents"
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
+)
+
+var (
+	_ dispatch.SessionIDer = (*Herdr)(nil)
+	_ dispatch.UsageReader = (*Herdr)(nil)
 )
 
 // Handle keys the dispatcher writes and Usage reads, as harnessKind is one the
@@ -19,9 +24,9 @@ import (
 // entry the time up to which the count reads, for a session whose agent was
 // left running.
 const (
-	agentSession = "agent_session"
+	agentSession = dispatch.AgentSession
 	countDue     = store.CountDue
-	countUntil   = "until"
+	countUntil   = dispatch.CountUntil
 )
 
 // The reasons a session's count is missing, as the record keeps them and the
@@ -33,12 +38,6 @@ const (
 	missingNoSource = "kind declares no usage"
 )
 
-// ErrUsageNotYet is what Usage answers while the first entry of a kind's usage
-// finds no line: the agent may not have written its total yet (Claude Code
-// writes its cost-state as the process exits, a moment after the tab closes).
-// The caller asks again.
-var ErrUsageNotYet = errors.New("the session file holds no usage line yet")
-
 // Usage is what the agent of handle's session used, read from its own session
 // file by the entries of its kind's usage (agents.UsageSource), once the
 // session has ended. The kind is the handle's own (harnessKind) and the file is
@@ -47,8 +46,8 @@ var ErrUsageNotYet = errors.New("the session file holds no usage line yet")
 //
 // The first entry is the harness's own total, and the ones after it are
 // fallbacks that fall short of it. Without fallback only the first is tried,
-// and a file with no line for it yet is ErrUsageNotYet, so the caller can
-// wait: the total may be written a moment after the session ended. With
+// and a file with no line for it yet is dispatch.ErrUsageNotYet, so the caller
+// can wait: the total may be written a moment after the session ended. With
 // fallback the first entry that finds a line is the reading, and a file that
 // has none for any entry is missing "no usage line". partial is that entry's
 // own: what it read falls short of what the session used.
@@ -63,8 +62,8 @@ var ErrUsageNotYet = errors.New("the session file holds no usage line yet")
 // still be coming until then.
 //
 // err is for what the caller tries again on a later pass: the file could not
-// be read, or ErrUsageNotYet. missing is for what it records: why no count is
-// there and none will come. Otherwise u is the count.
+// be read, or dispatch.ErrUsageNotYet. missing is for what it records: why no
+// count is there and none will come. Otherwise u is the count.
 func (h *Herdr) Usage(ctx context.Context, handle map[string]any, fallback bool) (u agents.Usage, partial bool, missing string, err error) {
 	if err := ctx.Err(); err != nil {
 		return agents.Usage{}, false, "", err
@@ -118,7 +117,7 @@ func (h *Herdr) Usage(ctx context.Context, handle map[string]any, fallback bool)
 		}
 	}
 	if !fallback {
-		return agents.Usage{}, false, "", ErrUsageNotYet
+		return agents.Usage{}, false, "", dispatch.ErrUsageNotYet
 	}
 	return agents.Usage{}, false, missingNoLine, nil
 }
