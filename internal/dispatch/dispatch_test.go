@@ -17,6 +17,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -29,6 +30,12 @@ func TestMain(m *testing.M) {
 	// (t.Setenv), which parallel tests cannot share; each says so.
 	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// The bound a source command gets (source.Timeout, 30 s) is read by every
+	// test that runs one, so it is set here once, as the environment is, and
+	// not by a test. A script's start alone took longer than the daemon's
+	// 10 s under load (see pushFuse), and 30 s is little margin over that:
+	// only a hang should cut a command here.
+	source.Timeout = pushFuse
 	code := m.Run()
 	scripttest.Remove()
 	os.Exit(code)

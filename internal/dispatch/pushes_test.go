@@ -76,6 +76,14 @@ type pushYard struct {
 	secrets []string
 }
 
+// pushFuse is how long a test yard lets one send from a pass take: a fuse
+// against a send that hangs, not a window its start must fit in. A pass sends
+// synchronously, so there is no effect to wait on. Under -race at load the
+// start of the image command, a script written a moment before, took longer
+// than the daemon's 10 s: the send was cut, the words went alone, and the test
+// failed on a file the command never lived to write (yardr-tfmr).
+const pushFuse = 2 * time.Minute
+
 func newPushYard(t *testing.T) *pushYard {
 	t.Helper()
 	ctx := context.Background()
@@ -120,7 +128,7 @@ func newPushYard(t *testing.T) *pushYard {
 	_, err = y.api.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "fake"}, "jo")
 	must(t, err)
 	y.d = &dispatch.Dispatcher{Store: y.api, Home: home, Runners: map[string]dispatch.Runner{"fake": &fakeRunner{dead: map[string]bool{}}},
-		Log: slog.New(slog.NewTextHandler(&y.log, nil))}
+		Log: slog.New(slog.NewTextHandler(&y.log, nil)), PushTimeout: pushFuse}
 	dispatch.SetClock(y.d, func() time.Time { return y.now })
 	t.Cleanup(func() { y.noSecrets(t) })
 	return y
@@ -391,7 +399,10 @@ func TestPushReady(t *testing.T) {
 
 // A source that answers 500 is asked again after the backoff, and the
 // message goes once; one that answers 400 is not asked again, and
-// push_failed says so without the address, the token or the text.
+// push_failed says so without the address, the token or the text. A send
+// is held to the Dispatcher's PushTimeout: one whose bound ran out before
+// the call asks nobody and is tried again after the backoff, and a
+// Dispatcher with none set holds it to 10 s.
 func TestPushTriedAgainOn500AndNotOn400(t *testing.T) {
 	t.Parallel()
 	y := newPushYard(t)
@@ -432,6 +443,21 @@ func TestPushTriedAgainOn500AndNotOn400(t *testing.T) {
 	if l := y.last(t); l.Reason != store.PushRefused || l.Status != 400 {
 		t.Fatalf("last push = %+v", l)
 	}
+
+	// A negative bound has run out before the call is made, on any machine.
+	y.status.Store(200)
+	y.d.PushTimeout = -time.Second
+	y.mail(t, "yardmaster", "a fourth")
+	y.now = time.Now()
+	y.pass(t, store.PushGrace+time.Second)
+	want(t, "asked under a bound that ran out", len(y.sent()), 3)
+	if l := y.last(t); l.Reason != store.PushRetry || l.RetryAt == nil {
+		t.Fatalf("last push = %+v", l)
+	}
+	y.d.PushTimeout = 0
+	y.pass(t, time.Minute)
+	want(t, "asked after the backoff", y.sent()[3:], []string{"mail from yardmaster | a fourth"})
+	want(t, "the bound with none set", y.d.PushTimeout, 10*time.Second)
 }
 
 // With the source down the inbox has everything at once, the push is tried
@@ -620,7 +646,10 @@ func testPushTellsMailImage(t *testing.T) {
 	gone := y.putBlob(t, pushPNG, "gone.png")
 	must(t, y.api.Mail(ctx, "ada", "another shed", "yardmaster", gone))
 	must(t, os.Remove(store.BlobPath(y.home, gone.Hash)))
-	y.pass(t, store.PushGrace+time.Second)
+	// From here on a push settles: the first send ran a script written a
+	// moment before, which under load can take longer than the grace, and the
+	// store stamps a mail with the time it is made, not the daemon's clock.
+	y.settle(t)
 	want(t, "told without the picture", y.sent(), []string{"mail from yardmaster | another shed"})
 	if sends := imageSends(t, dir); len(sends) != 1 {
 		t.Fatalf("the command ran %d times", len(sends))
@@ -632,7 +661,7 @@ func testPushTellsMailImage(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(dir, "ishow"), []byte("#!/bin/sh\necho 'PHOTO_INVALID_DIMENSIONS' >&2\nexit 1\n"), 0o755))
 	tall := y.putBlob(t, append(bytes.Clone(pushPNG), "-tall"...), "tall.png")
 	must(t, y.api.Mail(ctx, "ada", "a long page", "yardmaster", tall))
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	want(t, "told without the refused picture", y.sent(),
 		[]string{"mail from yardmaster | another shed", "mail from yardmaster | a long page"})
 	want(t, "left in the queue", len(y.queued(t)), 0)

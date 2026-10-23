@@ -101,8 +101,9 @@ func Send(ctx context.Context, st Store, home, user string, m Message) (*Sent, e
 // fallbackTimeout is the time the words alone get when the picture they
 // carried was not taken. It is a budget of their own, since the picture may
 // have used all of the caller's. The daemon, which sends the pictures, gives
-// a tell pushTimeout (internal/dispatch), 10 seconds too; this package
-// cannot name it, since dispatch imports this one.
+// a tell PushTimeout (the Dispatcher's, in internal/dispatch), 10 seconds
+// too by default; this package cannot name it, since dispatch imports this
+// one.
 const fallbackTimeout = 10 * time.Second
 
 // Through tells the user m through the source name, whichever their record

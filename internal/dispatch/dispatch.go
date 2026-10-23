@@ -186,6 +186,12 @@ type Dispatcher struct {
 	// a day). See issues.go.
 	IssueTries int
 
+	// PushTimeout bounds one send from a pass, which holds up routing while
+	// it waits (default 10s). A picture the source does not take leaves the
+	// words as much again (notify's fallbackTimeout), so a pass can wait
+	// twice this. See pushes.go.
+	PushTimeout time.Duration
+
 	// PeerKey is the file of the yard's key, with which requests to its
 	// peers are signed; PeerHTTP makes them (nil: http.DefaultClient).
 	// PeerTries is how often a message is posted to a peer before it is
@@ -452,6 +458,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.IssueTries == 0 {
 		d.IssueTries = 24
+	}
+	if d.PushTimeout == 0 {
+		d.PushTimeout = 10 * time.Second
 	}
 	if d.PeerTries == 0 {
 		d.PeerTries = 24
