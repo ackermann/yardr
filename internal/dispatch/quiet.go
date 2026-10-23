@@ -16,6 +16,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
 )
 
 // The whole suite when the yard is quiet (docs/testing.md R6): the landing no
@@ -576,6 +577,10 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	cmd.Env = append(config.WithoutServerSettings(os.Environ()), "YARDR_LANDING=1", "YARDR_BASE="+base, "YARDR_RACE_HELD=1", "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
+	// The tests start with nothing of the daemon's above stdio, as a
+	// landing's do (runner.Exec): this run is a landing's tests without the
+	// landing script that closes them.
+	version.CloseOnExecAboveStdio()
 	start := time.Now()
 	runErr := cmd.Run()
 	res := QuietResult{Commit: commit, Wall: time.Since(start), Load: load,

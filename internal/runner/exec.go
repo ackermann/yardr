@@ -19,6 +19,7 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/version"
 )
 
 // Exec runs config.cmd with sh -c, detached, logging to config.log or
@@ -125,6 +126,12 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 		withEnvFile(slices.Concat(Env(job, job.Group.Name), e.env(job, hookEnv)), withheld(job, secrets)))
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// The command starts with nothing of the daemon's above stdio: os/exec
+	// closes no descriptor in a child, and the ones the C library opened for
+	// the daemon carry no close-on-exec flag (yardr-b4ep). The scripts close
+	// what they inherit, but not every sh can (dash names no descriptor above
+	// 9), and some of what an exec group runs is no script of ours.
+	version.CloseOnExecAboveStdio()
 	if err := cmd.Start(); err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
 			return nil, dispatch.Runtime(err) // no shell: no bead can start

@@ -515,10 +515,15 @@ exits.
    more on the same commit, after a note with the first run's output, and
    what the second run says counts; ended by a signal again, the bead is
    held with both outputs. The script's own kill at its deadline
-   (`YARDR_TEST_TIMEOUT`, 1800 seconds) is not that: it is a red run. A
-   branch that moved while the tests ran (a commit pushed to it meanwhile)
-   reports `failed` the same way, with both commits in the note: nothing
-   the tests did not see lands;
+   (`YARDR_TEST_TIMEOUT`, 1800 seconds) is not that: it is a red run. The
+   tests start with no descriptor above 2 that the landing did not give them:
+   merge-local closes what it inherited, and where its `sh` cannot name one
+   above 9 (dash reads one digit as a redirection's number) it says which are
+   open and exits 2, so the bead is held, rather than start the tests with it.
+   The daemon keeps its own out of what it starts, so one that arrives is a
+   leak to find. A branch that moved while the tests ran (a commit pushed to
+   it meanwhile) reports `failed` the same way, with both commits in the
+   note: nothing the tests did not see lands;
 3. lands that commit, by its sha, by fast-forward only. Where the base is
    checked out it fast-forwards that checkout, only when it is clean; a
    dirty one is someone's work in progress, so the bead is held with a note

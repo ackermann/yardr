@@ -91,7 +91,9 @@ it lists every exported name with its comment, faster than grepping.
 - `storetest`: throwaway stores for tests; with `YARDR_TEST_RPC=1` they
   talk over a real unix socket.
 - `udiff`: one unified-diff rendering shared by history and ask cards.
-- `version`: build identity, and noticing when the binary was replaced.
+- `version`: build identity, noticing when the binary was replaced, and
+  keeping the daemon's own descriptors out of what it execs (self-replace,
+  an exec group's command, the quiet run).
 - `web`: the browser UI: server-rendered pages plus htmx; routes in
   `server.go`, CSS/JS in `assets/`.
 - `yardkey`: a yard's keypair, invites, and peer signatures; no

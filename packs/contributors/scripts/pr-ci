@@ -58,7 +58,8 @@
 #
 # Exit 1, or any other not named here, is a red run, the contributor's to fix.
 # Exit 2 is the command saying it could not run at all (a tool missing, a base
-# it cannot find), which no contributor can fix: held. An exit above 128 means
+# it cannot find; closefds says it too, for a descriptor above 9 that this sh
+# cannot close), which no contributor can fix: held. An exit above 128 means
 # the run was ended by a signal from outside, which says nothing about the pull
 # request: it is run once more, and held if a signal ends it again. The kill at
 # the deadline is not this: it is a red run.
@@ -357,6 +358,46 @@ else
 fi
 echo "== the tests on $url at $at: $WHAT"
 
+# --- closefds: the same text in merge-local, integrate-train, pr-ci, deploy-dokku and deploy-void (a test holds them equal) ---
+# closefds closes every descriptor above 2 that the subshell it is called in
+# inherited, so that what the subshell starts holds none the landing did not
+# give it: the daemon's leaked resolver sockets once reached the tests and
+# starved them (yardr-b4ep), and an orphaned sleep once held the machine race
+# lock (yardr-tsms).
+#
+# 3 to 9 are closed by name, which every sh reads. Above them /dev/fd is
+# enumerated, so that no number is missed; the loop has no redirection, since
+# the shell saves fd 2 above 10 for one and would close the save from under
+# itself. But dash reads one digit as a redirection's number: there
+# `exec 10>&-` is the command `10` with its output closed, and a special
+# builtin that fails ends the shell. A subshell asks first. An sh that cannot
+# name them leaves them open, and closefds returns 1 with their numbers in
+# $leftover; given the name of what the caller is about to start, it says so
+# and exits 2 instead, the code for a run that could not be made rather than
+# a failed one (the assembly scripts hold on it: no builder can fix it).
+# Nothing hands this script such a descriptor since the daemon marks its own
+# close-on-exec before it starts one, so one that arrives comes from a source
+# that has regressed, which is why it is refused and not skipped.
+closefds() {
+  exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
+  leftover=
+  highok=1
+  (eval 'exec 10>&-') >/dev/null 2>&1 || highok=
+  for path in /dev/fd/*; do
+    fd=${path##*/}
+    case "$fd" in ''|*[!0-9]*|?) continue ;; esac
+    if [ -n "$highok" ]; then
+      eval "exec $fd>&-"
+    elif [ -e "$path" ] || [ -L "$path" ]; then
+      leftover="$leftover $fd"
+    fi
+  done
+  [ -z "$leftover" ] && return 0
+  [ -n "${1:-}" ] || return 1
+  echo "${0##*/}: descriptors$leftover are open above 9 and this sh cannot close them; not starting $1 with them" >&2
+  exit 2
+}
+# --- end of closefds ---
 # runtest runs the test command in the checkout and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
 # in $lines, and $late set when it ran past $LIMIT seconds besides what it
@@ -384,32 +425,18 @@ runtest() {
     # which are for the token alone.
     unset GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY_FILE
     # The test command starts with no descriptor above 2 that the run did
-    # not give it: close every inherited one first, as merge-local's does
-    # for a landing (the daemon's leaked resolver sockets once reached the
-    # tests and starved them: yardr-b4ep). As the watcher's loop below:
-    # enumerate /dev/fd so this covers high descriptors too, with no
-    # redirection on the loop.
-    for path in /dev/fd/*; do
-      fd=${path##*/}
-      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
-      eval "exec $fd>&-"
-    done
+    # not give it, or does not start, as merge-local's does for a landing.
+    closefds "the tests"
     if [ -n "$copy" ]; then exec sh "$copy"; else exec sh -c "$TEST"; fi
   ) >"$log" 2>&1 </dev/null &
   pid=$!
   (
     nap=
     trap 'kill "$nap" 2>/dev/null; exit 0' TERM
-    # The sleep holds none of the run's inherited files: close every open
-    # fd above 2 first (an orphaned sleep once held the machine race lock).
-    # Enumerate /dev/fd so this covers high descriptors too. The loop has no
-    # redirection: the shell saves fd 2 above 10 for one, and would close the
-    # save from under itself; each path is one open fd name.
-    for path in /dev/fd/*; do
-      fd=${path##*/}
-      case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
-      eval "exec $fd>&-"
-    done
+    # The sleep holds none of the run's inherited files. What this sh cannot
+    # close stays open here, and the test command's start above refuses it,
+    # so a watcher left holding one belongs to a run that is already over.
+    closefds
     # The deadline counts only time not spent waiting for the race lock: a
     # run late in the queue would otherwise be killed with every test
     # green. Sleep $LIMIT, then sleep again for the waited seconds not yet

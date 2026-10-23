@@ -395,10 +395,73 @@ func creditLoop(t *testing.T, script string) string {
 // is none to source. A fix to one is made in all, as the copies of merge-local
 // are one script (TestMergeLocalCopiesIdentical): yardr-bywx fixed merge-local
 // alone, and a train late in the queue was killed with every test green.
-func TestCreditLoopsAreMergeLocals(t *testing.T) {
+func TestCopiedScriptBlocksStayEqual(t *testing.T) {
 	for _, script := range []string{"integrate-train", "pr-ci"} {
 		if want, got := creditLoop(t, "merge-local"), creditLoop(t, script); got != want {
 			t.Errorf("%s's credit loop differs from merge-local's: change all\nmerge-local:\n%s\n%s:\n%s", script, want, script, got)
+		}
+	}
+	want := markedBlock(t, "merge-local", closefdsOpen, closefdsClose)
+	for _, s := range closefdsScripts[1:] {
+		if got := markedBlock(t, s.path, closefdsOpen, closefdsClose); got != want {
+			t.Errorf("%s's closefds differs from merge-local's: change all\nmerge-local:\n%s\n%s:\n%s", s.path, want, s.path, got)
+		}
+	}
+}
+
+const (
+	closefdsOpen  = "# --- closefds: "
+	closefdsClose = "# --- end of closefds ---\n"
+)
+
+// closefdsScripts are the scripts that close what they inherited before they
+// start a command of the depot's or the operator's, merge-local first, and
+// whether their timeout watcher closes it for its sleep too.
+var closefdsScripts = []struct {
+	path    string
+	watcher bool
+}{
+	{"merge-local", true},
+	{"integrate-train", true},
+	{"pr-ci", true},
+	{"../deploy/deploy-dokku", false},
+	{"../deploy/deploy-void", false},
+}
+
+// Every command these scripts start from a subshell is started after
+// closefds, named for the refusal it may owe, and their watchers call it
+// bare, for the sleeps they start. merge-local's and integrate-train's runs
+// show that in the tests of their descriptors; this reads the rest, whose
+// fixtures (a pull request, a Void project) cost more than the line they would
+// pin.
+func TestCloseFdsComesBeforeEveryStart(t *testing.T) {
+	for _, s := range closefdsScripts {
+		lines := strings.Split(readFile(t, s.path), "\n")
+		starts, watchers := 0, 0
+		for i, line := range lines {
+			code := strings.TrimSpace(line)
+			if code == "closefds" {
+				watchers++
+			}
+			if strings.HasPrefix(code, "#") || !strings.Contains(code, "exec sh ") {
+				continue
+			}
+			starts++
+			prev := ""
+			for j := i - 1; j >= 0 && prev == ""; j-- {
+				if c := strings.TrimSpace(lines[j]); c != "" && !strings.HasPrefix(c, "#") {
+					prev = c
+				}
+			}
+			if !strings.HasPrefix(prev, `closefds "`) {
+				t.Errorf("%s: line %d starts a command (%s) after %q, not after closefds", s.path, i+1, code, prev)
+			}
+		}
+		if starts == 0 {
+			t.Errorf("%s starts no command by exec sh: has the start moved?", s.path)
+		}
+		if want := map[bool]int{true: 1, false: 0}[s.watcher]; watchers != want {
+			t.Errorf("%s calls closefds bare %d times, want %d (its watcher's)", s.path, watchers, want)
 		}
 	}
 }

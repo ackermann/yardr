@@ -16,7 +16,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -178,6 +177,7 @@ type yard struct {
 	script     string            // the deploy script the run tests, in this directory
 	bin        string            // first on the run's PATH: the stand-ins' directory
 	envFile    string            // the group's env_file, "" for none
+	plant      string            // redirections after the script in the group's cmd, which leave descriptors open for it
 }
 
 func newYard(t *testing.T) *yard {
@@ -314,6 +314,9 @@ func (y *yard) deploy(id string) {
 		cmd += " " + k + "=" + shellQuote(v)
 	}
 	cmd += " " + shellQuote(script) + " " + y.mode
+	if y.plant != "" {
+		cmd += " " + y.plant
+	}
 	e := &runner.Exec{Home: y.home, Bin: yardrBin}
 	ctx := context.Background()
 	st := rpc.NewClient((&config.Config{Home: y.home}).Socket())
@@ -905,22 +908,20 @@ func TestDeployAfterStepPassesGoesLive(t *testing.T) {
 }
 
 // The post-deploy step starts with no descriptor above 2 that the deploy
-// did not give it, as a landing's test command does not (yardr-b4ep): this
-// test holds files open without close-on-exec, as the daemon's leaked
-// resolver sockets once were, and the step lists its own descriptors and
-// probes every held one: only 0, 1 and 2 may show, beside ls's own
-// directory fd, and none of the held files may answer.
+// did not give it, as a landing's test command does not (yardr-b4ep): the
+// group's command leaves fds 7, 8 and 9 open for the script, as a parent that
+// does not close its own would (single digits, which every sh can name), and
+// the step lists its own descriptors and probes each of them: only 0, 1 and 2
+// may show, beside ls's own directory fd, and none of the three may answer.
+// What the daemon itself holds is swept before the script starts, which the
+// exec runner's test shows (TestExecStartsWithNoInheritedFile).
 func TestDeployAfterStepStartsWithNoInheritedFile(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.repo, "b.txt", "landed\n")
 	record := filepath.Join(t.TempDir(), "fds")
-	held := holdOpenWithoutCloexec(t, 3)
-	probes := make([]string, 0, len(held))
-	for _, fd := range held {
-		probes = append(probes, strconv.Itoa(fd))
-	}
+	y.plant = "7</dev/null 8</dev/null 9</dev/null"
 	y.opts["DOKKU_AFTER"] = "ls /dev/fd >" + shellQuote(record) +
-		`; for probe in ` + strings.Join(probes, " ") + `; do` +
+		`; for probe in 7 8 9; do` +
 		` [ -e /dev/fd/$probe ] || [ -L /dev/fd/$probe ] || continue;` +
 		` echo "leaked $probe" >>` + shellQuote(record) + `; done`
 
@@ -930,33 +931,6 @@ func TestDeployAfterStepStartsWithNoInheritedFile(t *testing.T) {
 		t.Fatalf("bead in %s, want live", b.Stage)
 	}
 	assertStepSeesNoInheritedFd(t, record)
-}
-
-// holdOpenWithoutCloexec opens n files and clears close-on-exec on them,
-// as libc leaves its own descriptors: every child started while they are
-// open inherits them, until the cleanup closes them. It returns their
-// descriptor numbers, for the step to probe.
-func holdOpenWithoutCloexec(t *testing.T, n int) []int {
-	t.Helper()
-	var files []*os.File
-	var held []int
-	for i := 0; i < n; i++ {
-		f, err := os.Open(os.DevNull)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_SETFD, 0); errno != 0 {
-			t.Fatal(errno)
-		}
-		files = append(files, f)
-		held = append(held, int(f.Fd()))
-	}
-	t.Cleanup(func() {
-		for _, f := range files {
-			f.Close()
-		}
-	})
-	return held
 }
 
 // assertStepSeesNoInheritedFd fails unless the record the post-deploy step

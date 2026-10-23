@@ -197,6 +197,47 @@ $out"
 # missing Node is seen at once.
 node_version() { node --version 2>/dev/null || echo "node is not on PATH"; }
 
+# --- closefds: the same text in merge-local, integrate-train, pr-ci, deploy-dokku and deploy-void (a test holds them equal) ---
+# closefds closes every descriptor above 2 that the subshell it is called in
+# inherited, so that what the subshell starts holds none the landing did not
+# give it: the daemon's leaked resolver sockets once reached the tests and
+# starved them (yardr-b4ep), and an orphaned sleep once held the machine race
+# lock (yardr-tsms).
+#
+# 3 to 9 are closed by name, which every sh reads. Above them /dev/fd is
+# enumerated, so that no number is missed; the loop has no redirection, since
+# the shell saves fd 2 above 10 for one and would close the save from under
+# itself. But dash reads one digit as a redirection's number: there
+# `exec 10>&-` is the command `10` with its output closed, and a special
+# builtin that fails ends the shell. A subshell asks first. An sh that cannot
+# name them leaves them open, and closefds returns 1 with their numbers in
+# $leftover; given the name of what the caller is about to start, it says so
+# and exits 2 instead, the code for a run that could not be made rather than
+# a failed one (the assembly scripts hold on it: no builder can fix it).
+# Nothing hands this script such a descriptor since the daemon marks its own
+# close-on-exec before it starts one, so one that arrives comes from a source
+# that has regressed, which is why it is refused and not skipped.
+closefds() {
+  exec 3>&- 4>&- 5>&- 6>&- 7>&- 8>&- 9>&-
+  leftover=
+  highok=1
+  (eval 'exec 10>&-') >/dev/null 2>&1 || highok=
+  for path in /dev/fd/*; do
+    fd=${path##*/}
+    case "$fd" in ''|*[!0-9]*|?) continue ;; esac
+    if [ -n "$highok" ]; then
+      eval "exec $fd>&-"
+    elif [ -e "$path" ] || [ -L "$path" ]; then
+      leftover="$leftover $fd"
+    fi
+  done
+  [ -z "$leftover" ] && return 0
+  [ -n "${1:-}" ] || return 1
+  echo "${0##*/}: descriptors$leftover are open above 9 and this sh cannot close them; not starting $1 with them" >&2
+  exit 2
+}
+# --- end of closefds ---
+
 git -C "$REPO" worktree add --detach "$tree" "$sha" >"$log" 2>&1 || {
   rc=$?
   said "the checkout's output"
@@ -228,15 +269,8 @@ t1=$(date +%s)
   # still reach it where this script got it from (see README.md beside it).
   unset VOID_TOKEN VOID_API_URL VOID_ACCESS_CREDENTIALS
   # The install starts with no descriptor above 2 that the deploy did not
-  # give it: close every inherited one first, as a landing's test command
-  # does (the daemon's leaked resolver sockets once reached the tests and
-  # starved them: yardr-b4ep). Enumerate /dev/fd so this covers high
-  # descriptors too, with no redirection on the loop.
-  for path in /dev/fd/*; do
-    fd=${path##*/}
-    case "$fd" in ''|*[!0-9]*|[012]) continue ;; esac
-    eval "exec $fd>&-"
-  done
+  # give it, or does not start, as a landing's test command does.
+  closefds "the install"
   exec sh -c "$INSTALL"
 ) >"$log" 2>&1 </dev/null && rc=0 || rc=$?
 secs=$(($(date +%s) - t1))

@@ -188,6 +188,47 @@ func TestExecLogsUnderTheHome(t *testing.T) {
 	}
 }
 
+// An exec group's command starts with no descriptor above 2 that the daemon
+// holds: os/exec closes none in a child, and the ones the C library opens for
+// the daemon (a socket the resolver keeps on macOS) carry no close-on-exec
+// flag (yardr-b4ep). This holds files open with the flag cleared, as libc
+// leaves its own, and the command probes every one and says which answer. A
+// script's own closing is no cover for it: not every sh can close what is
+// above 9 (closefds in contrib/assembly), and an exec group's command need
+// not be a script of ours.
+func TestExecStartsWithNoInheritedFile(t *testing.T) {
+	// Serial: it clears close-on-exec on files of the process, which the
+	// sweep of any other start would mark again before this one's.
+	ctx := context.Background()
+	record := filepath.Join(t.TempDir(), "fds")
+	var probes []string
+	for i := 0; i < 3; i++ {
+		f, err := os.Open(os.DevNull)
+		mustT(t, err)
+		t.Cleanup(func() { f.Close() })
+		if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_SETFD, 0); errno != 0 {
+			t.Fatal(errno)
+		}
+		probes = append(probes, strconv.Itoa(int(f.Fd())))
+	}
+	cmd := "for probe in " + strings.Join(probes, " ") + "; do" +
+		` [ -e /dev/fd/$probe ] || [ -L /dev/fd/$probe ] || continue; echo "leaked $probe"; done >` + record +
+		"; echo done >>" + record
+	e := &Exec{Home: filepath.Join(t.TempDir(), "home"), noReap: true}
+	h, err := e.Start(ctx, dispatch.Job{
+		Bead:    store.Bead{ID: "b-1"},
+		Session: store.Session{ID: "s-1"},
+		Group:   store.Group{Name: "tick", Runner: "exec", Config: map[string]any{"cmd": cmd}},
+	})
+	mustT(t, err)
+	pid, err := pidOf(h)
+	mustT(t, err)
+	_, _ = syscall.Wait4(pid, nil, 0, nil) // the probe has said what it saw
+	if got, err := os.ReadFile(record); err != nil || string(got) != "done\n" {
+		t.Errorf("the command held descriptors %s open, and the probe says %q (%v), want only done", strings.Join(probes, ", "), got, err)
+	}
+}
+
 // A stop signals only the session's own process group: the leader's pid
 // and start time must still match the handle. A pid that is gone, or that
 // another process has reused, is never signalled, and neither ESRCH nor

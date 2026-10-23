@@ -222,37 +222,43 @@ func TestIntegrateTrainWritesThroughNoPlantedSymlink(t *testing.T) {
 // did not give it, as a landing's does not (watcher_test.go): the run
 // inherits open files above 2 as a race run holds its lock, with the high
 // sentinel when the limit has room for one, and the command lists its own
-// descriptors and probes every inherited one, as that test's does.
+// descriptors and probes every inherited one, as that test's does, under every
+// sh the host has; where an sh cannot close what the run holds, the command is
+// not started at all.
 func TestIntegrateTrainTestCommandStartsWithNoInheritedFile(t *testing.T) {
 	t.Parallel()
-	record := filepath.Join(t.TempDir(), "fds")
-	hi := 0
-	if sentinel, ok := highSentinel(t); ok {
-		hi = sentinel
-	} else {
-		t.Logf("open-files limit too low for a high-fd sentinel: the run proves clean fds without it")
+	for _, row := range fdRuns() {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+			record := filepath.Join(t.TempDir(), "fds")
+			w := newIntegrateTrainWatcherRun(t, probeCommand(record), "1799", 0)
+			w.under(t, row.sh, row.high, row.sentinel(t))
+			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1799") })
+			// Into a file, not a pipe, as the runs in watcher_test.go: see there.
+			log, err := os.Create(filepath.Join(t.TempDir(), "out"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := w.cmd()
+			cmd.Stdout, cmd.Stderr = log, log
+			err = cmd.Run()
+			log.Close()
+			b, _ := os.ReadFile(log.Name())
+			out := string(b)
+			if err != nil {
+				t.Fatalf("integrate-train (ls /dev/fd): %v\n%s", err, out)
+			}
+			awaitNoWatcherSleepers(t, w.record, "1799")
+			if row.refused {
+				assertRefused(t, "integrate-train", out, record)
+				return
+			}
+			if !strings.Contains(out, "== r-1 done") {
+				t.Fatalf("integrate-train (ls /dev/fd) did not report done:\n%s", out)
+			}
+			assertNoInheritedFds(t, record)
+		})
 	}
-	w := newIntegrateTrainWatcherRun(t, probeCommand(record), "1799", hi)
-	t.Cleanup(func() { killWatcherSleepers(t, w.record, "1799") })
-	// Into a file, not a pipe, as the runs in watcher_test.go: see there.
-	log, err := os.Create(filepath.Join(t.TempDir(), "out"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := w.cmd()
-	cmd.Stdout, cmd.Stderr = log, log
-	err = cmd.Run()
-	log.Close()
-	b, _ := os.ReadFile(log.Name())
-	out := string(b)
-	if err != nil {
-		t.Fatalf("integrate-train (ls /dev/fd): %v\n%s", err, out)
-	}
-	if !strings.Contains(out, "== r-1 done") {
-		t.Fatalf("integrate-train (ls /dev/fd) did not report done:\n%s", out)
-	}
-	awaitNoWatcherSleepers(t, w.record, "1799")
-	assertNoInheritedFds(t, record)
 }
 
 // A pid file that holds zero must not make integrate-train signal its whole

@@ -93,7 +93,12 @@ func TestQuietCommandCancelsItsProcessGroup(t *testing.T) {
 	}
 }
 
-func TestExecQuietRunRemovesWorktreeAfterCancellation(t *testing.T) {
+// quietDepot is a repository whose base holds check.sh, the depot's test
+// command, with the script as its text. HOME is a directory of the test's own,
+// which the quiet run's race lock is under. It returns the depot and git in
+// its repository.
+func quietDepot(t *testing.T, script string) (store.Depot, func(args ...string) string) {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	repo := t.TempDir()
 	git := func(args ...string) string {
@@ -109,17 +114,22 @@ func TestExecQuietRunRemovesWorktreeAfterCancellation(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	git("init", "-b", "main")
-	ready := filepath.Join(t.TempDir(), "ready")
-	t.Setenv("READY", ready)
-	if err := os.WriteFile(filepath.Join(repo, "check.sh"), []byte("printf ready > \"$READY\"\nexec sleep 60\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "check.sh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	git("add", "check.sh")
-	git("commit", "-m", "a waiting base")
+	git("commit", "-m", "a base")
+	return store.Depot{Name: "fixture", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, git
+}
+
+func TestExecQuietRunRemovesWorktreeAfterCancellation(t *testing.T) {
+	ready := filepath.Join(t.TempDir(), "ready")
+	t.Setenv("READY", ready)
+	depot, git := quietDepot(t, "printf ready > \"$READY\"\nexec sleep 60\n")
+	repo := depot.Path
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	depot := store.Depot{Name: "fixture", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}
 	done := make(chan error, 1)
 	go func() {
 		_, err := (&Dispatcher{}).execQuietRun(ctx, depot)
@@ -161,5 +171,41 @@ func TestExecQuietRunRemovesWorktreeAfterCancellation(t *testing.T) {
 	}
 	if len(paths) != 1 || paths[0] != resolvedRepo {
 		t.Fatalf("worktrees after canceled run = %v, want only %s", paths, resolvedRepo)
+	}
+}
+
+// The quiet run's tests start with no descriptor above 2 that the daemon
+// holds, as a landing's do (the exec runner's test of it is
+// TestExecStartsWithNoInheritedFile in internal/runner): nothing sits between
+// the daemon and the depot's command here, as the landing script does for a
+// landing, so the run itself keeps them out. The test holds files open with
+// close-on-exec cleared, as libc leaves its own, and the depot's command
+// probes every one.
+func TestExecQuietRunStartsTestsWithNoInheritedFile(t *testing.T) {
+	// Serial: it sets HOME, and clears close-on-exec on files of the process,
+	// which the sweep of any other start would mark again before this one's.
+	record := filepath.Join(t.TempDir(), "fds")
+	var probes []string
+	for i := 0; i < 3; i++ {
+		f, err := os.Open(os.DevNull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { f.Close() })
+		if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_SETFD, 0); errno != 0 {
+			t.Fatal(errno)
+		}
+		probes = append(probes, strconv.Itoa(int(f.Fd())))
+	}
+	t.Setenv("RECORD", record)
+	depot, _ := quietDepot(t, "for probe in "+strings.Join(probes, " ")+"; do"+
+		` [ -e /dev/fd/$probe ] || [ -L /dev/fd/$probe ] || continue; echo "leaked $probe"; done >"$RECORD"`+"\n"+
+		`echo done >>"$RECORD"`+"\n")
+
+	if _, err := (&Dispatcher{}).execQuietRun(context.Background(), depot); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(record); err != nil || string(got) != "done\n" {
+		t.Errorf("the tests held descriptors %s open, and the probe says %q (%v), want only done", strings.Join(probes, ", "), got, err)
 	}
 }

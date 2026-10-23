@@ -13,7 +13,9 @@ package assembly
 // was started with. The run inherits open files above 2, as a race run
 // holds its lock: filler to fd 9, the lock stand-in at fd 10, and one high
 // sentinel under the process's own open-files limit, which the limit may
-// be too low for.
+// be too low for. Those above 9 only for an sh that can close them: dash
+// reads one digit as a redirection's number, so a run under it is given
+// the filler alone, and the scripts refuse the rest (see closefds).
 
 import (
 	"errors"
@@ -22,6 +24,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -39,6 +42,7 @@ type watcherRun struct {
 	env         []string
 	extra       []*os.File
 	test, limit string
+	shell       string // what runs the script, empty for its shebang's sh
 }
 
 func watcherGit(t *testing.T, dir string, args ...string) string {
@@ -77,6 +81,88 @@ func highSentinel(t *testing.T) (int, bool) {
 	return 512, true
 }
 
+// testShell is an sh the scripts run under in the tests of what they close.
+// The scripts say #!/bin/sh and a host's sh is whatever it is (bash on a Mac,
+// dash on Debian and Ubuntu, busybox on Alpine), so these tests also run them
+// under dash and bash where the host has them. The shells differ in what
+// closefds can do: dash reads one digit as a redirection's number and so
+// cannot close a descriptor above 9.
+type testShell struct {
+	name string // the subtest's; sh is the script run as the kernel runs it
+	path string // what runs the script, empty for the shebang's sh
+	high bool   // whether it names descriptors above 9
+}
+
+// testShells are the shells the host has, each once: its sh as the shebang
+// finds it, then dash and bash unless one is that same file. high is asked of
+// the shell as closefds asks it.
+var testShells = sync.OnceValue(func() []testShell {
+	var shells []testShell
+	seen := map[string]bool{}
+	for _, c := range []testShell{{name: "sh", path: "/bin/sh"}, {name: "dash", path: "dash"}, {name: "bash", path: "bash"}} {
+		found, err := exec.LookPath(c.path)
+		if err != nil {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(found)
+		if err != nil || seen[resolved] {
+			continue
+		}
+		seen[resolved] = true
+		c.high = exec.Command(found, "-c", "(eval 'exec 10>&-') >/dev/null 2>&1").Run() == nil
+		c.path = found
+		if c.name == "sh" {
+			c.path = ""
+		}
+		shells = append(shells, c)
+	}
+	return shells
+})
+
+// hostHigh says whether the sh the scripts' shebang finds names descriptors
+// above 9: it decides what a run that is not about the shell is given.
+func hostHigh() bool { return testShells()[0].high }
+
+// plantedFiles are the files a run inherits, as a parent that leaves them
+// open without close-on-exec hands them on: filler at fds 3 to 9, and with
+// high the lock stand-in at fd 10 and filler up to hi, the high sentinel.
+// ExtraFiles entry i is the child's fd 3+i, so the entries between are
+// filler too. One filler file serves for all of them: each entry is dup'd
+// onto its own fd.
+func plantedFiles(t *testing.T, dir string, high bool, hi int) []*os.File {
+	t.Helper()
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extra []*os.File
+	for i := 0; i < 7; i++ {
+		extra = append(extra, null)
+	}
+	if high {
+		lock, err := os.Create(filepath.Join(dir, "lock"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		extra = append(extra, lock)
+		if hi > 0 {
+			for len(extra) < hi-2 { // entry hi-3 becomes child fd hi
+				extra = append(extra, null)
+			}
+		}
+	}
+	t.Cleanup(func() {
+		closed := make(map[*os.File]bool)
+		for _, f := range extra {
+			if !closed[f] {
+				closed[f] = true
+				_ = f.Close()
+			}
+		}
+	})
+	return extra
+}
+
 func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	t.Helper()
 	dir := t.TempDir()
@@ -106,37 +192,9 @@ func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 		t.Fatal(err)
 	}
 	record := filepath.Join(dir, "sleep-record")
-	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in:
-	// ExtraFiles entry i is the child's fd 3+i, so the entries between
-	// are filler too, up to the high sentinel at hi. Reuse one filler
-	// file for all of them: each entry is dup'd onto its own fd.
-	null, err := os.Open(os.DevNull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var extra []*os.File
-	for i := 0; i < 7; i++ {
-		extra = append(extra, null)
-	}
-	lock, err := os.Create(filepath.Join(dir, "lock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	extra = append(extra, lock)
-	if hi > 0 {
-		for len(extra) < hi-2 { // entry hi-3 becomes child fd hi
-			extra = append(extra, null)
-		}
-	}
-	t.Cleanup(func() {
-		closed := make(map[*os.File]bool)
-		for _, f := range extra {
-			if !closed[f] {
-				closed[f] = true
-				_ = f.Close()
-			}
-		}
-	})
+	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in, where
+	// the sh can close them (plantedFiles).
+	extra := plantedFiles(t, dir, hostHigh(), hi)
 	script, err := filepath.Abs("merge-local")
 	if err != nil {
 		t.Fatal(err)
@@ -160,10 +218,22 @@ func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 // lock stand-in open beside it: the run's fds 3 to 10.
 func (w *watcherRun) cmd() *exec.Cmd {
 	cmd := exec.Command(w.script)
+	if w.shell != "" {
+		cmd = exec.Command(w.shell, w.script)
+	}
 	cmd.Dir = w.tmp
 	cmd.Env = w.env
 	cmd.ExtraFiles = w.extra
 	return cmd
+}
+
+// under runs the script under sh, given what plantedFiles makes of high and
+// hi: with high, descriptors above 9 for an sh that cannot close them, which
+// the script must then refuse to go on with (fdRun.refused).
+func (w *watcherRun) under(t *testing.T, sh testShell, high bool, hi int) {
+	t.Helper()
+	w.shell = sh.path
+	w.extra = plantedFiles(t, filepath.Dir(w.tmp), high, hi)
 }
 
 // watcherSleepers is this run's recorded timeout sleep, as pid and ppid.
@@ -502,37 +572,106 @@ func TestMergeLocalKilledWithTermLeavesNoSleepBehind(t *testing.T) {
 // open files above 2 as a race run holds its lock, with the high sentinel
 // when the limit has room for one, and the command lists its own
 // descriptors and probes every inherited one: only 0, 1 and 2 may show,
-// beside ls's own directory fd, and none of the run's files may answer.
+// beside ls's own directory fd, and none of the run's files may answer. It
+// does so under every sh the host has (fdRuns); and where an sh cannot close
+// what the run holds, the command is not started at all.
 func TestMergeLocalTestCommandStartsWithNoInheritedFile(t *testing.T) {
 	t.Parallel()
-	record := filepath.Join(t.TempDir(), "fds")
-	hi := 0
-	if sentinel, ok := highSentinel(t); ok {
-		hi = sentinel
-	} else {
+	for _, row := range fdRuns() {
+		t.Run(row.name, func(t *testing.T) {
+			t.Parallel()
+			record := filepath.Join(t.TempDir(), "fds")
+			w := newWatcherRun(t, probeCommand(record), "1799", 0)
+			w.under(t, row.sh, row.high, row.sentinel(t))
+			t.Cleanup(func() { killWatcherSleepers(t, w.record, "1799") })
+			// Into a file, not a pipe: an orphaned sleep would hold a pipe open
+			// past the run's own exit, and the wait below with it.
+			log, err := os.Create(filepath.Join(w.tmp, "out"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := w.cmd()
+			cmd.Stdout, cmd.Stderr = log, log
+			err = cmd.Run()
+			log.Close()
+			out, _ := os.ReadFile(log.Name())
+			if err != nil {
+				t.Fatalf("merge-local (ls /dev/fd): %v\n%s", err, out)
+			}
+			main, tip := watcherGit(t, w.repo, "rev-parse", "main"), watcherGit(t, w.wt, "rev-parse", "HEAD")
+			awaitNoWatcherSleepers(t, w.record, "1799")
+			if row.refused {
+				assertRefused(t, "merge-local", string(out), record)
+				if main == tip {
+					t.Fatalf("merge-local landed the branch though the tests were not started:\n%s", out)
+				}
+				return
+			}
+			if main != tip {
+				t.Fatalf("merge-local (ls /dev/fd): main %s is not the landed branch %s:\n%s", main, tip, out)
+			}
+			assertNoInheritedFds(t, record)
+		})
+	}
+}
+
+// fdRun is a row of the tests of what a script's test command inherits: a
+// shell the script runs under, whether the run is given descriptors above 9,
+// and whether the script must refuse to start the command, as it must where
+// the shell cannot close them.
+type fdRun struct {
+	name    string
+	sh      testShell
+	high    bool
+	refused bool
+}
+
+// fdRuns is a row for every shell the host has, given what it can close, and
+// for a shell that cannot close what is above 9 one more, given a descriptor
+// there all the same.
+func fdRuns() []fdRun {
+	var rows []fdRun
+	for _, sh := range testShells() {
+		rows = append(rows, fdRun{name: sh.name, sh: sh, high: sh.high})
+		if !sh.high {
+			rows = append(rows, fdRun{name: sh.name + " with fd 10 open", sh: sh, high: true, refused: true})
+		}
+	}
+	return rows
+}
+
+// sentinel is the high sentinel a run of this row is given: one under the
+// process's open-files limit when the limit has room for it, and the shell can
+// close it. A refused run is given the lock stand-in alone, so that the
+// descriptor the script names is the one the test expects.
+func (r fdRun) sentinel(t *testing.T) int {
+	t.Helper()
+	if !r.high || r.refused {
+		return 0
+	}
+	hi, ok := highSentinel(t)
+	if !ok {
 		t.Logf("open-files limit too low for a high-fd sentinel: the run proves clean fds without it")
 	}
-	w := newWatcherRun(t, probeCommand(record), "1799", hi)
-	t.Cleanup(func() { killWatcherSleepers(t, w.record, "1799") })
-	// Into a file, not a pipe: an orphaned sleep would hold a pipe open
-	// past the run's own exit, and the wait below with it.
-	log, err := os.Create(filepath.Join(w.tmp, "out"))
-	if err != nil {
-		t.Fatal(err)
+	return hi
+}
+
+// assertRefused fails unless a script held its bead without starting the test
+// command, and said which descriptor it could not close and why. The command
+// would have left record.
+func assertRefused(t *testing.T, script, out, record string) {
+	t.Helper()
+	for _, want := range []string{
+		"== hold r-1: ",
+		script + ": descriptors 10 are open above 9 and this sh cannot close them; not starting the tests with them",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("%s did not hold with %q:\n%s", script, want, out)
+		}
 	}
-	cmd := w.cmd()
-	cmd.Stdout, cmd.Stderr = log, log
-	err = cmd.Run()
-	log.Close()
-	out, _ := os.ReadFile(log.Name())
-	if err != nil {
-		t.Fatalf("merge-local (ls /dev/fd): %v\n%s", err, out)
+	if _, err := os.Stat(record); err == nil {
+		t.Fatalf("%s started the test command, which left %s", script, record)
 	}
-	if main, tip := watcherGit(t, w.repo, "rev-parse", "main"), watcherGit(t, w.wt, "rev-parse", "HEAD"); main != tip {
-		t.Fatalf("merge-local (ls /dev/fd): main %s is not the landed branch %s:\n%s", main, tip, out)
-	}
-	awaitNoWatcherSleepers(t, w.record, "1799")
-	assertNoInheritedFds(t, record)
 }
 
 // probeCommand is a test command that records its descriptors in record:
