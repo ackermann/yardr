@@ -1543,7 +1543,7 @@ remotes). Each part takes them from the environment it starts in:
 | the store's server | the command that started it, the way it takes its `PATH` |
 | the daemon | the environment of the command that starts it, apart from the `YARDR_*` that name the starter; as a login service, the shell `yardr daemon install` ran in |
 | the web view, the BDP server, the telemetry export | the server's way when started with `start`; the shell of the `install` for a login service |
-| herdr's server, and through it every agent's pane | the shell that ran `yardr up`, apart from `YARDR_*`; `yardr up --login` writes them into its service. A service saved by hand holds only what you put in it, so add each variable there ([install.md](install.md#a-service-file-of-your-own)). The one `contrib/server-yard/server-yard` writes holds the `PATH` alone, and the script writes it again when it runs a second time |
+| herdr's server, and through it every agent's pane | the shell that ran `yardr up`, apart from `YARDR_*`; `yardr up --login` writes them into its service. A service saved by hand holds only what you put in it, so add each variable there ([install.md](install.md#a-service-file-of-your-own)). The one `contrib/server-yard/server-yard` writes holds the `PATH` and the proxy and CA variables of the environment the script runs in, each as it has it (one set and empty too), and the script writes it again when it runs a second time with one changed |
 
 An `env_file` ([groups.md](groups.md)) can set any of them for the panes of
 one group alone.
@@ -1551,9 +1551,10 @@ one group alone.
 A service keeps the environment it was written with, and a running herdr
 server keeps the one it started with. After a variable changes, run `yardr
 daemon install` and `yardr web install` again. For herdr, `yardr down
---login` and `yardr up --login` write its service again. The server that
-runs keeps its old values until `herdr server stop`, which ends its panes,
-and the next start.
+--login` and `yardr up --login` write its service again, and so does
+`contrib/server-yard/server-yard`, run again, for the one it saves. The
+server that runs keeps its old values until `herdr server stop`, which ends
+its panes, and the next start.
 
 A source's commands, a mint command among them, get nothing of the yard's
 environment but `PATH`, `HOME`, `USER`, `LOGNAME`, their credential and
@@ -1562,11 +1563,12 @@ so none of these variables reaches them.
 
 A proxy address can hold a password, as in `http://user:secret@proxy:3128`.
 yardr treats the address like any other value. It writes it into the service
-files, which are mode 0600, and `yardr daemon install` prints the address
-with the password as `xxxxx`, in the text and in `--json`. The password is
-still in the files and in the environment of what they start, which for
-herdr's server is every agent's pane. Prefer a proxy that lets the box
-through by its address.
+files, which are mode 0600 (the unit `contrib/server-yard/server-yard` saves
+for herdr is too), and `yardr daemon install` prints the address with the
+password as `xxxxx`, in the text and in `--json`. The password is still in
+the files and in the environment of what they start, which for herdr's
+server is every agent's pane. Prefer a proxy that lets the box through by its
+address.
 
 ### Retention: keeping `yard.db` bounded
 

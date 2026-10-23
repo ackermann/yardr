@@ -1,13 +1,14 @@
 // Package serveryard tests the server-yard script: that one run sets a
-// yard up as the server steps of docs/install.md say, that a second
-// run changes nothing, and that where a step cannot be taken the script
-// stops with the way on. Each test builds yardr from the tree and runs the
-// script with stand-ins for herdr (fake/, a socket and a CLI that answer
-// what a setup asks), the harness, systemctl, loginctl and, on macOS,
-// launchctl, with HOME, XDG_CONFIG_HOME and YARDR_HOME in a temp dir. The
-// systemctl and launchctl stand-ins model the manager starting a unit:
-// herdr's server and the daemon really start; the web view's unit is only
-// marked, since starting it would bind 127.0.0.1:8791.
+// yard up as the server steps of docs/install.md say, that herdr's unit
+// carries the proxy and CA variables of the script's environment, that a
+// second run changes nothing, and that where a step cannot be taken the
+// script stops with the way on. Each test builds yardr from the tree and
+// runs the script with stand-ins for herdr (fake/, a socket and a CLI that
+// answer what a setup asks), the harness, systemctl, loginctl and, on
+// macOS, launchctl, with HOME, XDG_CONFIG_HOME and YARDR_HOME in a temp
+// dir. The systemctl and launchctl stand-ins model the manager starting a
+// unit: herdr's server and the daemon really start; the web view's unit is
+// only marked, since starting it would bind 127.0.0.1:8791.
 package serveryard
 
 import (
@@ -236,6 +237,36 @@ func (y *yard) calls(t *testing.T, who string) []string {
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
+// marks is how many calls each stand-in has logged, to tell what a run adds.
+func (y *yard) marks(t *testing.T) map[string]int {
+	t.Helper()
+	marks := map[string]int{}
+	for _, who := range []string{"systemctl", "loginctl", "launchctl", "herdr"} {
+		marks[who] = len(y.calls(t, who))
+	}
+	return marks
+}
+
+// told is what a run did to the service managers since marks, beyond asking:
+// their calls that are not a look at their state.
+func (y *yard) told(t *testing.T, marks map[string]int) []string {
+	t.Helper()
+	asks := map[string][]string{
+		"systemctl": {"systemctl --user is-enabled ", "systemctl --user show-environment"},
+		"loginctl":  {"loginctl show-user "},
+		"launchctl": {"launchctl print "},
+	}
+	var told []string
+	for _, who := range []string{"systemctl", "loginctl", "launchctl"} {
+		for _, line := range y.calls(t, who)[marks[who]:] {
+			if !slices.ContainsFunc(asks[who], func(p string) bool { return strings.HasPrefix(line, p) }) {
+				told = append(told, line)
+			}
+		}
+	}
+	return told
+}
+
 // serviceFile is the daemon's or the web view's service file, as yardr
 // wrote it on this system.
 func (y *yard) serviceFile(t *testing.T, kind string) string {
@@ -276,13 +307,72 @@ func mustContain(t *testing.T, out string, subs ...string) {
 	}
 }
 
+// mustHaveEnvironment checks that the Environment lines of unit are want, in
+// that order: the PATH, and the proxy and CA variables the script found.
+func mustHaveEnvironment(t *testing.T, unit []byte, want ...string) {
+	t.Helper()
+	var got []string
+	for _, line := range strings.Split(string(unit), "\n") {
+		if strings.HasPrefix(line, "Environment=") {
+			got = append(got, line)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("herdr.service holds these Environment lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// mustHaveMode checks the permission bits of path.
+func mustHaveMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != want {
+		t.Errorf("%s is mode %04o, want %04o", path, got, want)
+	}
+}
+
+// behindAProxy is the environment of a box behind an egress proxy:
+// the nine variables yardr hands on, each with the line herdr's unit holds
+// for it. Both are spelled out, since a list taken from the script would pass
+// whatever the script says. The lower-case forms are there because curl, and
+// git with it, read them and not the upper-case http_proxy. Three values are
+// there for what they ask of the quoting: a percent-encoded credential, which
+// systemd would read as a specifier, one that is set and empty, which goes on
+// as it is, and one with a space, a quote and a backslash.
+var behindAProxy = []struct{ env, line string }{
+	{"HTTPS_PROXY=http://user:p%40ss@proxy.example:3128", `Environment="HTTPS_PROXY=http://user:p%%40ss@proxy.example:3128"`},
+	{"https_proxy=http://user:p%40ss@proxy.example:3128", `Environment="https_proxy=http://user:p%%40ss@proxy.example:3128"`},
+	{"HTTP_PROXY=http://proxy.example:3128", `Environment="HTTP_PROXY=http://proxy.example:3128"`},
+	{"http_proxy=http://proxy.example:3128", `Environment="http_proxy=http://proxy.example:3128"`},
+	{"NO_PROXY=localhost,.example", `Environment="NO_PROXY=localhost,.example"`},
+	{"no_proxy=", `Environment="no_proxy="`},
+	{"SSL_CERT_FILE=/etc/example/ca.pem", `Environment="SSL_CERT_FILE=/etc/example/ca.pem"`},
+	{`SSL_CERT_DIR=/etc/example/ca "2026"\certs`, `Environment="SSL_CERT_DIR=/etc/example/ca \"2026\"\\certs"`},
+	{"NODE_EXTRA_CA_CERTS=/etc/example/ca.pem", `Environment="NODE_EXTRA_CA_CERTS=/etc/example/ca.pem"`},
+}
+
+// notAmongTheNine are settings of the same kind that yardr is not asked to
+// hand on, and the unit has no line for.
+var notAmongTheNine = []string{"ALL_PROXY=socks5://proxy.example:1080", "CURL_CA_BUNDLE=/etc/example/ca.pem"}
+
 // TestServerYardSetsUpAYard runs the script once: herdr's unit is written
 // and its server runs, linger is on, the yard is created with its
 // yardmaster up, the daemon and the web view are installed as login
-// services, and doctor ends the run with no fault.
+// services, and doctor ends the run with no fault. The box is behind an
+// egress proxy, so the unit carries the PATH and the nine variables of the
+// script's environment, and a run in which one has changed writes it again.
 func TestServerYardSetsUpAYard(t *testing.T) {
 	y := build(t)
-	out, err := y.run(t, "--harness", "claude", "--operator", "jo")
+	var egress, egressLines []string
+	for _, v := range behindAProxy {
+		egress = append(egress, v.env)
+		egressLines = append(egressLines, v.line)
+	}
+	proxied := withEnv(y.env, slices.Concat(egress, notAmongTheNine)...)
+	out, err := y.runWith(t, proxied, "--harness", "claude", "--operator", "jo")
 	if err != nil {
 		t.Fatalf("server-yard: %v\n%s", err, out)
 	}
@@ -295,6 +385,13 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 		`ExecStart="`+filepath.Join(y.bin, "herdr")+`" "server"`,
 		`Environment="PATH=`+y.path+`"`,
 		"Restart=on-failure", "WantedBy=default.target")
+	// The PATH, then each of the nine in the script's order, and no line
+	// for the settings that are not among them.
+	wantLines := slices.Concat([]string{`Environment="PATH=` + y.path + `"`}, egressLines)
+	mustHaveEnvironment(t, body, wantLines...)
+	// A proxy's address can hold a password, so the unit is as closed as the
+	// service files yardr writes.
+	mustHaveMode(t, unit, 0o600)
 	syscalls := strings.Join(y.calls(t, "systemctl"), "\n")
 	if i, j := strings.Index(syscalls, "daemon-reload"), strings.Index(syscalls, "enable --now herdr"); i < 0 || j < 0 || i > j {
 		t.Errorf("systemctl calls lack daemon-reload before enable --now herdr:\n%s", syscalls)
@@ -366,18 +463,16 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 		}
 	}
 
-	// A second run changes nothing: the files are byte for byte what
-	// they were, no agent starts, the daemon and the server are the same
-	// processes, and the managers are only asked, never told.
+	// A second run in the same environment changes nothing: the files are
+	// byte for byte what they were, the unit with its nine variables too, no
+	// agent starts, the daemon and the server are the same processes, and the
+	// managers are only asked, never told.
 	before := map[string]string{}
 	for _, f := range []string{unit, y.serviceFile(t, "daemon"), y.serviceFile(t, "web")} {
 		before[f] = string(mustRead(t, f))
 	}
-	marks := map[string]int{}
-	for _, who := range []string{"systemctl", "loginctl", "launchctl", "herdr"} {
-		marks[who] = len(y.calls(t, who))
-	}
-	again, err := y.run(t, "--harness", "claude", "--operator", "jo")
+	marks := y.marks(t)
+	again, err := y.runWith(t, proxied, "--harness", "claude", "--operator", "jo")
 	if err != nil {
 		t.Fatalf("second run: %v\n%s", err, again)
 	}
@@ -397,25 +492,56 @@ func TestServerYardSetsUpAYard(t *testing.T) {
 			t.Errorf("second run started an agent: %q", line)
 		}
 	}
-	probes := map[string][]string{
-		"systemctl": {"systemctl --user is-enabled ", "systemctl --user show-environment"},
-		"loginctl":  {"loginctl show-user "},
-		"launchctl": {"launchctl print "},
+	if got := y.told(t, marks); len(got) > 0 {
+		t.Errorf("second run told the managers %q", got)
 	}
-	for who, allowed := range probes {
-		for _, line := range y.calls(t, who)[marks[who]:] {
-			ok := false
-			for _, p := range allowed {
-				ok = ok || strings.HasPrefix(line, p)
-			}
-			if !ok {
-				t.Errorf("second run told %s: %q", who, line)
-			}
-		}
-	}
-	mustContain(t, again, "already:")
+	mustContain(t, again, "already:", "already: "+unit+" is written")
 	if got := strings.Count(string(mustRead(t, y.initLog)), "init: stdin is closed\n"); got != 2 {
 		t.Errorf("after two runs the shim saw %d inits with a closed stdin, want 2", got)
+	}
+
+	// An earlier script could have written the same unit while it was 0644.
+	// A same-environment run closes it without changing its contents or
+	// telling systemd to reload it.
+	if err := os.Chmod(unit, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marks = y.marks(t)
+	closed, err := y.runWith(t, proxied, "--harness", "claude", "--operator", "jo")
+	if err != nil {
+		t.Fatalf("same-environment run with an open unit: %v\n%s", err, closed)
+	}
+	mustContain(t, closed, "already: "+unit+" is written")
+	if got := string(mustRead(t, unit)); got != before[unit] {
+		t.Errorf("same-environment run changed the unit contents")
+	}
+	mustHaveMode(t, unit, 0o600)
+	if got := y.told(t, marks); len(got) > 0 {
+		t.Errorf("closing an unchanged unit told the managers %q", got)
+	}
+
+	// A changed variable is a changed PATH: the unit is not what the script
+	// would write now, so it is written again and systemd is told, and nothing
+	// else is. A variable the environment no longer has leaves the unit with
+	// its line. The unit is open when this run finds it, as an earlier script
+	// left it (0644), and is closed when it is written again.
+	changed := withEnv(proxied, "NO_PROXY=localhost,.example,.example.com", "SSL_CERT_DIR")
+	changedLines := slices.Clone(wantLines)
+	changedLines[slices.Index(changedLines, `Environment="NO_PROXY=localhost,.example"`)] = `Environment="NO_PROXY=localhost,.example,.example.com"`
+	changedLines = slices.DeleteFunc(changedLines, func(l string) bool { return strings.HasPrefix(l, `Environment="SSL_CERT_DIR=`) })
+	if err := os.Chmod(unit, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marks = y.marks(t)
+	third, err := y.runWith(t, changed, "--harness", "claude", "--operator", "jo")
+	if err != nil {
+		t.Fatalf("third run: %v\n%s", err, third)
+	}
+	mustContain(t, third, "wrote "+unit)
+	mustHaveEnvironment(t, mustRead(t, unit), changedLines...)
+	mustHaveMode(t, unit, 0o600)
+	if got := y.told(t, marks); !slices.Equal(got, []string{"systemctl --user daemon-reload"}) {
+		t.Errorf("a changed variable told the managers %q, want a daemon-reload alone", got)
 	}
 }
 
@@ -443,9 +569,12 @@ func TestServerYardWithoutTheHarnessLogin(t *testing.T) {
 	}
 	mustContain(t, out, "going on")
 	mustContain(t, strings.Join(y.calls(t, "herdr"), "\n"), "prompt refused (logged-out)")
-	if _, err := os.Stat(filepath.Join(y.config, "systemd", "user", "herdr.service")); err != nil {
-		t.Errorf("herdr.service: %v", err)
-	}
+	// None of the nine variables is in this environment, so the unit holds
+	// the PATH alone, as it did before it carried them, and is as closed as
+	// when it carries them.
+	unit := filepath.Join(y.config, "systemd", "user", "herdr.service")
+	mustHaveEnvironment(t, mustRead(t, unit), `Environment="PATH=`+y.path+`"`)
+	mustHaveMode(t, unit, 0o600)
 	mustRead(t, y.serviceFile(t, "daemon"))
 	mustRead(t, y.serviceFile(t, "web"))
 	mustContain(t, out, "The yard")
@@ -456,13 +585,15 @@ func TestServerYardWithoutTheHarnessLogin(t *testing.T) {
 }
 
 // withEnv is env with the KEY=value pairs in set in place of what env has
-// for those keys.
+// for those keys; a KEY alone takes that key out.
 func withEnv(env []string, set ...string) []string {
 	out := slices.Clone(env)
 	for _, kv := range set {
-		k, _, _ := strings.Cut(kv, "=")
+		k, _, has := strings.Cut(kv, "=")
 		out = slices.DeleteFunc(out, func(e string) bool { return strings.HasPrefix(e, k+"=") })
-		out = append(out, kv)
+		if has {
+			out = append(out, kv)
+		}
 	}
 	return out
 }

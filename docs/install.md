@@ -293,8 +293,9 @@ These are what `yardr up --login` writes too, with a first line that says
 so, the user's home as working directory and, on macOS, a log in
 `~/Library/Logs/` (`TestHerdrServiceFilesGolden` holds both). herdr's own
 documentation is what holds for its server. The unit is also what
-`contrib/server-yard/server-yard` writes (the two values quoted as systemd
-needs), and its test holds it.
+`contrib/server-yard/server-yard` writes (the values quoted as systemd
+needs, and the proxy and CA variables of its environment as below), and its
+test holds it.
 
 - The path of herdr is absolute in both: a service reads no profile, so
   `herdr` alone is not found. `command -v herdr` in your login shell
@@ -304,11 +305,14 @@ needs), and its test holds it.
   is minimal (`~/.local/bin`, where harnesses install themselves, is not
   in it). If a harness is then not found in a pane, the PATH is what to
   fix.
-- Behind a company's proxy the file holds the proxy and CA variables too,
+- Behind an egress proxy the file holds the proxy and CA variables too,
   as the PATH is held: an `Environment=` line each in the unit, a key each
   under `EnvironmentVariables` in the plist. `yardr up --login` writes the
-  ones its shell has. The agents' panes inherit them from herdr's server
-  ([configuration.md](configuration.md#behind-an-egress-proxy)).
+  ones its shell has, and `contrib/server-yard/server-yard` the ones its own
+  environment has. The agents' panes inherit them from herdr's server
+  ([configuration.md](configuration.md#behind-an-egress-proxy)). A proxy's
+  address can hold a password, so both write the file mode 0600; a file of
+  your own wants `chmod 600` too.
 - Both restart it on failure only: a `herdr update`, which replaces the
   binary, and `herdr server stop` are not fought, and a stopped server
   stays stopped until the next login.
@@ -355,6 +359,10 @@ Debian server). What follows is what it does, step by step.
    [A service file of your own](#a-service-file-of-your-own). Nothing
    starts an agent before it runs. (`yardr up --login` writes the same unit
    once there is a yard; here the server has to run before there is one.)
+   The unit the script writes carries what its environment had: the PATH
+   and, behind an egress proxy, the proxy and CA variables, which the
+   agents' panes inherit; it is mode 0600, as a proxy's address can hold a
+   password. By hand, put the ones your shell has in the unit.
 
 3. **Let your services run with nobody logged in:**
    `loginctl enable-linger "$USER"`. Without it a systemd user unit ends

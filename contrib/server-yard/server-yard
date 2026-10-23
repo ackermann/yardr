@@ -11,6 +11,12 @@
 # (yardr init --harness <kind> --operator <name> --start), installs the
 # daemon and the web view as login services, and ends with yardr doctor.
 #
+# herdr's unit carries the PATH of the shell the script runs in and, behind
+# an egress proxy, the proxy and CA variables that shell has: the
+# agents' panes inherit herdr's server's environment, and a pane without
+# them reaches no model. A proxy's address can hold a password, so the unit
+# is mode 0600, as the service files yardr writes are.
+#
 # The harness login is the operator's step, in the yardmaster's pane once
 # the yard exists; the script does not wait for it. When init --start does
 # not see the yardmaster come up, the script goes on: the daemon starts it
@@ -20,8 +26,9 @@
 #
 # A second run with the same flags changes nothing: each step looks at what
 # is there first and says "already" where there is nothing to do. A changed
-# PATH reaches the daemon's and the web view's services the way it always
-# does, by running `yardr daemon install` and `yardr web install` again
+# PATH, or proxy or CA variable, is written into herdr's unit again; it
+# reaches the daemon's and the web view's services the way it always does, by
+# running `yardr daemon install` and `yardr web install` again
 # (docs/install.md); the script does not reinstall what is loaded.
 set -eu
 
@@ -106,6 +113,23 @@ unit_cmd() {
   unit_escape "$1" | sed -e 's/\$/$$/g'
 }
 
+# unit_env is the unit's Environment lines: the PATH, then each proxy and CA
+# variable this environment has. They are the nine that yardr hands on to its
+# server and its login services, in the order of egressVars in
+# internal/server/server.go (docs/configuration.md, "Behind an egress
+# proxy"). One that is set and empty goes on as it is, as yardr hands it on,
+# and one that is not set gets no line, since the box may need none: printenv
+# tells them apart, and reads the environment the script was started with.
+unit_env() {
+  printf 'Environment="PATH=%s"\n' "$(unit_escape "$PATH")"
+  for name in HTTPS_PROXY https_proxy HTTP_PROXY http_proxy NO_PROXY no_proxy \
+    SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS; do
+    if value=$(printenv "$name"); then
+      printf 'Environment="%s=%s"\n' "$name" "$(unit_escape "$value")"
+    fi
+  done
+}
+
 # herdr's server as a systemd user unit: the unit of docs/install.md ("Keep
 # it running after a reboot"), with the values quoted as systemd needs.
 # Beside a server that already runs, the file is only enabled: it takes
@@ -120,18 +144,28 @@ Description=herdr server
 
 [Service]
 ExecStart="$(unit_cmd "$herdr_bin")" "server"
-Environment="PATH=$(unit_escape "$PATH")"
+$(unit_env)
 Restart=on-failure
 
 [Install]
 WantedBy=default.target
 UNIT
+# An earlier run may have written the same unit while it was still 0644.
+# Close an existing file before comparing it, even when its contents match.
+if [ -f "$unit" ]; then
+  chmod 600 "$unit"
+fi
 if [ -f "$unit" ] && cmp -s "$desired" "$unit"; then
   echo "server-yard: already: $unit is written"
 else
   mkdir -p "$unit_dir"
+  # The unit can hold the password of a proxy's address, so it is 0600 as the
+  # service files yardr writes are, and before anything goes into it: a
+  # redirect keeps the mode of a file that is there (one an earlier script left
+  # 0644) and gives a new one the umask's.
+  : >>"$unit"
+  chmod 600 "$unit"
   cat "$desired" >"$unit"
-  chmod 644 "$unit"
   echo "server-yard: wrote $unit"
   systemctl --user daemon-reload
 fi

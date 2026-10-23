@@ -14,14 +14,32 @@ a checkout has it as `contrib/server-yard/server-yard`.
 On a machine that has yardr, herdr, git and a harness on PATH it:
 
 1. writes herdr's server as a systemd user unit (`herdr.service`) and
-   enables it, with the PATH of the shell it runs in, which the agents'
-   panes inherit;
+   enables it, with the PATH of the shell it runs in and the proxy and CA
+   variables that shell has (below), which the agents' panes inherit;
 2. turns linger on, so the user's units run from boot to shutdown with
    nobody logged in;
 3. creates the yard and starts it
    (`yardr init --harness <kind> --operator <name> --start`);
 4. installs the daemon and the web view as login services;
 5. ends with `yardr doctor`.
+
+Behind an egress proxy the unit carries the variables yardr hands on
+to its server and its login services: `HTTPS_PROXY`, `HTTP_PROXY`,
+`NO_PROXY`, their lower-case forms, `SSL_CERT_FILE`, `SSL_CERT_DIR` and
+`NODE_EXTRA_CA_CERTS`
+([docs/configuration.md](../../docs/configuration.md#behind-an-egress-proxy)).
+Each one the script's environment has gets a line, one set and empty too, as
+yardr hands it on; one it has not gets none, and the script does not warn of
+it, since the box may need none. What the script starts after the unit takes
+them from the same environment: the yard's server, and the daemon and the
+web view as services. A shell without a profile (`ssh host server-yard`)
+lacks what a profile sets, these variables too: run the script from a login
+shell.
+
+A proxy's address can hold a password, so the unit is mode 0600, as the
+service files yardr writes are: the script closes it before it writes the
+variables in, and a unit an earlier script left 0644 is closed when the
+script runs again, even if its contents match.
 
 Run it as the yard's account (a regular user with a home and a shell), in a
 session of that account: by ssh or `sudo -iu <account>`. It asks nothing:
@@ -56,10 +74,19 @@ long the run waits for the yardmaster, as `yardr init --start` waits by
 default (two minutes) without it; on a machine with no login yet that wait
 can only run out, and `--wait 20s` shortens it.
 
-What it does not do: log the harness in; move a changed PATH into services
-that are loaded (`yardr daemon install` and `yardr web install` again do
-that, as docs/install.md says); run where there is no systemd user session.
-It writes one yard, the default home's.
+On a second run the unit is compared with the environment too: a run in
+which the PATH or one of those variables differs from the unit's writes it
+again, mode 0600 whatever it was, and tells systemd (`daemon-reload`), and
+nothing else. If the contents match but the unit is still 0644, the script
+closes it without reloading systemd.
+
+What it does not do: log the harness in; run where there is no systemd user
+session. Nor does it move a changed PATH or proxy variable into what is
+loaded or running: the daemon's and the web view's services (`yardr daemon
+install` and `yardr web install` again do that, as docs/install.md says) and
+a herdr server that runs, which keeps the environment it started with until
+it is stopped and started again, and stopping it ends its panes. It writes
+one yard, the default home's.
 
 ## A run on a fresh server
 
@@ -198,7 +225,14 @@ daemon and the server the same processes, no agent started) and `yardr init`
 was given a closed stdin; once with a harness that refuses every prompt, as
 one without its login does, where the script goes on to the services and
 doctor all the same; and once for each place it stops with the way on (the
-programs only in `~/.local/bin`, no systemd session, linger refused).
+programs only in `~/.local/bin`, no systemd session, linger refused). The
+first is run behind a proxy: the unit's Environment lines are the PATH and
+each of the nine variables, spelled out in the test, with none for two
+settings that are not among them; the unit is mode 0600; and a run in which
+one variable has changed and one is gone, which finds the unit 0644 as an
+earlier script left it, writes it again as 0600 and tells systemd, and
+nothing else. The second has none of them in its environment, and its unit
+holds the PATH alone, also mode 0600.
 
 The test binary names itself to the servers its yards start (`TestMain`,
 `storetest.NameTestBinary`: `YARDR_TEST_OWNER`, and `YARDR_TEST_HOME_CHECK`
@@ -224,7 +258,9 @@ caller's environment:
   or with a login failure under `logged-out`.
 - `systemctl`, `loginctl`: units and linger as files, every call logged.
   They model the manager starting a unit: herdr's server and the daemon
-  really start, detached. The web view's unit is only marked: starting
+  really start, detached, in the caller's environment and not the unit's, so
+  the test holds the unit's text and does not see what a pane receives. The
+  web view's unit is only marked: starting
   it would bind 127.0.0.1:8791. A file `no-session` in systemctl's state
   dir makes every call fail as for an account with no session, a file
   `denied` in loginctl's refuses `enable-linger`.
