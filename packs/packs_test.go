@@ -959,7 +959,9 @@ func TestContributorsPack(t *testing.T) {
 	}
 	// A reviewed pull request waits for CI before it is approved, and a
 	// verdict or a push sends it on or back: the edges of the pr flow. A
-	// bot's push leads from the read and from the wait back to review.
+	// bot's push leads from the read and from the wait back to review. The
+	// pull request's merge or close ends the bead in each stage a bead waits
+	// in while it is open, which only approved did.
 	var prFlow store.Flow
 	for _, f := range p.Flows {
 		if f.Name != "pr" {
@@ -968,23 +970,48 @@ func TestContributorsPack(t *testing.T) {
 		sf := f.StoreFlow("pr")
 		prFlow = sf
 		for _, e := range []struct{ stage, outcome, to string }{
+			{"triage", "accepted", "review"}, {"triage", "dropped", "closed"}, {"triage", "merged", "merged"},
 			{"review", "done", "ciwait"}, {"review", "changes", "contributor"}, {"review", "question", "decide"},
-			{"review", "pushed", "review"},
+			{"review", "pushed", "review"}, {"review", "merged", "merged"}, {"review", "dropped", "closed"},
 			{"ciwait", "done", "approved"}, {"ciwait", "changes", "contributor"}, {"ciwait", "pushed", "review"},
-			{"contributor", "pushed", "review"}, {"approved", "merged", "merged"},
+			{"ciwait", "merged", "merged"}, {"ciwait", "dropped", "closed"},
+			{"contributor", "pushed", "review"}, {"contributor", "merged", "merged"}, {"contributor", "dropped", "closed"},
+			{"approved", "merged", "merged"}, {"approved", "dropped", "closed"},
 		} {
 			if to, err := sf.Resolve(e.stage, e.outcome); err != nil || to != e.to {
 				t.Errorf("pr flow: %s on %s goes to %q (%v), want %s", e.stage, e.outcome, to, err, e.to)
 			}
 		}
-		if outs := sf.OutcomesFrom("ciwait"); len(outs) != 3 {
-			t.Errorf("pr flow: ciwait has the outcomes %v, want done, changes and pushed alone", outs)
+		var ciwait []string
+		for _, o := range sf.OutcomesFrom("ciwait") {
+			ciwait = append(ciwait, o.Name)
+		}
+		slices.Sort(ciwait)
+		if want := []string{"changes", "done", "dropped", "merged", "pushed"}; !slices.Equal(ciwait, want) {
+			t.Errorf("pr flow: ciwait has the outcomes %v, want %v alone", ciwait, want)
 		}
 		// A pull request pushed to after its run is sent back to be run
 		// again by hand, which no outcome does: merge-pr holds on a head the
 		// yard's CI has not passed on.
 		if !sf.Allows("approved", "ciwait") {
 			t.Errorf("pr flow: a bead in approved may not be moved to ciwait")
+		}
+	}
+	// A stage file says when each way out of its stage applies, in a bullet
+	// named for the outcome, the source's word among them (`pushed`, `merged`,
+	// `dropped`): the brief lists the outcomes with their commands, and the
+	// stage file is where a reader of the stage learns which are not theirs.
+	files := packFiles(t)
+	for _, f := range p.Flows {
+		for _, s := range f.Stages {
+			if s.File == "" {
+				continue
+			}
+			for _, o := range s.Outcomes {
+				if !strings.Contains(files["contributors/"+s.File], "\n- `"+o.Name+"`:") {
+					t.Errorf("%s: stage %s of flow %s has the outcome %s, and its stage file has no bullet for it", s.File, s.Name, f.Name, o.Name)
+				}
+			}
 		}
 	}
 	// No agent and no script of the yard works a stage a pull request's
@@ -1145,6 +1172,27 @@ func TestContributorsPack(t *testing.T) {
 		}
 		if outcome != c.outcome || to != c.to {
 			t.Errorf("a push by a %s in stage %s says %q and leads to %q, want %q and %q", c.sender, c.stage, outcome, to, c.outcome, c.to)
+		}
+	}
+	// The end of the pull request, by the stage its bead is in and the stage
+	// the outcome leads to. The two lines name no stage, so it is the flow
+	// that has to lead them out of each one a bead waits in while the pull
+	// request is open: with no edge the event has nowhere to go, and the
+	// bead stays after the pull request is over.
+	for _, stage := range []string{"triage", "review", "ciwait", "contributor", "approved"} {
+		for _, c := range []struct{ merged, outcome, to string }{
+			{"true", "merged", "merged"},
+			{"false", "dropped", "closed"},
+		} {
+			fields := map[string][]string{"event": {"pull_request"}, "action": {"closed"}, "merged": {c.merged}}
+			var outcome, to string
+			if say := hook.Said(map[string]any{"type": "pull_request", "action": "closed", "fields": fields}, stage, "pr"); say != nil {
+				outcome = say.Outcome
+				to, _ = prFlow.Resolve(stage, say.Outcome)
+			}
+			if outcome != c.outcome || to != c.to {
+				t.Errorf("a pull request closed (merged=%s) in stage %s says %q and leads to %q, want %q and %q", c.merged, stage, outcome, to, c.outcome, c.to)
+			}
 		}
 	}
 	if want := map[string]string{"issue:new": "started", "issue:merged": "done", "issue:closed": "done", "pr:closed": "done"}; !reflect.DeepEqual(gh.Map, want) {

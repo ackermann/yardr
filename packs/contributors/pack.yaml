@@ -38,22 +38,31 @@ flows:
   # Nothing of the yard pushes to the pull request, and nothing of it runs on
   # the yard's machine until a reviewer has read it, and then only the depot's
   # tests, in ciwait.
+  #
+  # What became of the pull request is the source's word, and it can come
+  # while its bead waits in triage, review, ciwait or contributor: a
+  # maintainer merges on GitHub without waiting for the yard, or the author
+  # closes it. Each of those stages has an edge for merged and for dropped, as
+  # approved does, or the bead would stay open on a pull request that is over.
   pr:
     type: pr
     stages:
-      triage:      { group: maintainers,  file: flows/pr/triage.md,   outcomes: { accepted: review, dropped: closed }, manual: [review, closed] }
+      triage:      { group: maintainers,  file: flows/pr/triage.md,   outcomes: { accepted: review, dropped: closed, merged: merged }, manual: [review, closed] }
       # pushed is the source's word, never the reviewer's: a bot pushed while
       # the pull request was read, so the bead stays and is read again, as a
       # new stay, at the new head (the says table has the line).
-      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide, pushed: review } }
+      review:      { group: pr-reviewers, file: flows/pr/review.md,   outcomes: { done: ciwait, changes: contributor, question: decide, pushed: review, merged: merged, dropped: closed } }
       # The yard's own CI: the depot's test command, run on the head the
       # reviewer read, by pr-ci, which says done or changes. Not the end of
       # review because the reviewer runs nothing, and the code runs only once
       # it has been read. A bot's push sends it back to review, to be read at
-      # the new head.
-      ciwait:      { group: pr-ci, file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review } }
-      # Waits for the pull request to change: nobody of the yard works it.
-      contributor: { group: outside,      outcomes: { pushed: review, dropped: closed } }
+      # the new head. A merge or a close ends the bead, and the script's
+      # report of a run that was of a pull request now over is refused, as
+      # after a push, since the bead has left the stage.
+      ciwait:      { group: pr-ci, file: flows/pr/ciwait.md, outcomes: { done: approved, changes: contributor, pushed: review, merged: merged, dropped: closed } }
+      # Waits for the pull request to change: nobody of the yard works it, and
+      # a maintainer can still merge it on GitHub.
+      contributor: { group: outside,      outcomes: { pushed: review, dropped: closed, merged: merged } }
       # Back to ciwait by hand when the head moved after its run: the yard
       # merges only a head its CI passed on.
       approved:    { group: maintainers,  file: flows/pr/approved.md, outcomes: { merged: merged, dropped: closed }, manual: [merged, closed, ciwait] }
@@ -142,6 +151,9 @@ sources:
       # request back, since the run is of a head it no longer has: a bot's to
       # review (the line above), a person's to its contributor.
       - { where: "event=pull_request action=synchronize stage=ciwait type=pr", outcome: changes, note: "the PR changed while waiting on CI" }
+      # The end of the pull request, wherever its bead waits: these name no
+      # stage, and the flow above leads them out of triage, review, ciwait,
+      # contributor and approved.
       - { where: "event=pull_request action=closed merged=true type=pr", outcome: merged }
       - { where: "event=pull_request action=closed merged=false type=pr", outcome: dropped }
 

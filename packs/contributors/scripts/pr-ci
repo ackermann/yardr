@@ -294,8 +294,9 @@ state=$(printf '%s' "$pr" | jq -r '.state // empty')
 head=$(printf '%s' "$pr" | jq -r '.headRefOid // empty')
 
 # A pull request that is not open has no head to answer for: it was merged or
-# closed while the bead waited, and no outcome of ciwait says so. A maintainer
-# sees it on GitHub and moves the bead.
+# closed while the bead waited. The source says so (merged, dropped, which
+# end the bead), but a run can find it over before the source has, and no
+# event moves a held bead. A maintainer sees it on GitHub and moves the bead.
 [ "$state" = OPEN ] ||
   hold "pull request $url is in state ${state:-unknown}, not OPEN, so there is no head to test. Not running anything."
 [ -n "$head" ] || hold "GitHub gave no head commit for $url; not running the tests."

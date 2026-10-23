@@ -36,6 +36,11 @@ and that nothing was run. Outcomes:
 - `pushed`: not the reviewer's to report. A bot pushed to the pull request
   while it was read, and the source says so: the session ends, and the bead
   stays here for a new one at the new head.
+- `merged`: not the reviewer's to report either. The pull request was merged
+  on GitHub while it was read, and the source says so: the session ends and
+  the bead goes to `merged`, with nothing left to review.
+- `dropped`: likewise, for a pull request closed unmerged. The bead goes to
+  `closed`.
 
 A bump of Go modules from a dependency bot is the one pull request the
 reviewer may mark `merge-ok` (`yardr bead update <id> --add-label merge-ok`),

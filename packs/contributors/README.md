@@ -40,7 +40,7 @@ who is trusted. yardr knows three verbs and none of the choices:
 | verb | direction | here |
 |---|---|---|
 | `makes` | an event makes a bead for a thread no open bead tracks | an issue opened: an `issue` bead in `triage`. A pull request opened or marked ready: a `pr` bead in `triage`, or in `review` when its author is an owner or a member of the repository, or a bot |
-| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. Merged: `merged`. Closed: `dropped`. No event of GitHub's CI says anything: the pull request's CI is the yard's own, reported by a script |
+| `says` | an event reports an outcome to the bead that tracks its thread | the label `accepted`: `accepted`. New commits on a pull request: `pushed` from `contributor`; from `review` and from `ciwait`, `pushed` when a bot pushed and `changes` when a person did. Merged: `merged`. Closed: `dropped`. Both in `triage`, `review`, `ciwait`, `contributor` and `approved`. No event of GitHub's CI says anything: the pull request's CI is the yard's own, reported by a script |
 | `hears` | a stage of the bead sets a status on the thread | an issue is closed when its bead is `merged` or `closed`, a pull request when its bead is `closed` |
 
 **Triage is the pack's advice, not a rule of yardr.** The stage a bead
@@ -129,11 +129,19 @@ members.** Nobody of the yard works a bead there: it waits for the pull
 request to change, and the next commits on it say `pushed`. In `yardr
 review` it shows where the pull request waits.
 
-**A merge moves the bead itself.** When the pull request is merged on
-GitHub, the `merged` outcome moves its bead out of `approved`, a stage of
-people, as the hook's `as` crew member (`yardmaster`): the pack's own
-mapping, not a stranger's word. An agent that read the pull request still
-cannot move a bead out of a stage of people by naming them.
+**A merge or a close moves the bead itself.** When the pull request is
+merged on GitHub, the `merged` outcome moves its bead to `merged`, and when it
+is closed unmerged `dropped` moves it to `closed`: from `approved`, and as
+well from `triage`, `review`, `ciwait` and `contributor`, since a maintainer
+can merge a pull request nobody of the yard has read and its author can close
+one under review, and the bead would otherwise wait in a stage for a pull
+request that is over. In `ciwait` the run is stopped and a report it still
+makes is refused, as after a push. The move out of a stage of people
+(`triage`, `contributor`, `approved`) is made as the hook's `as` crew member
+(`yardmaster`): the pack's own mapping, not a stranger's word. An agent that
+read the pull request still cannot move a bead out of a stage of people by
+naming them. A bead the yard holds is moved by no event, so one held in
+`ciwait` because its pull request was found over is advanced by hand.
 
 ## What the import asks
 

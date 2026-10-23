@@ -36,7 +36,8 @@ lets a reviewer have it. A maintainer who has read the head themselves may
 instead record it (`yardr bead update <id> --meta reviewed_head=<sha>`) and
 unhold the bead.
 
-The bead leaves on how the run went:
+The bead leaves on how the run went, or on what comes of the pull request
+meanwhile:
 
 - `done`: the tests passed on the head, and GitHub still says it is the
   head. The bead records that commit as `ci_head` and goes to `approved`;
@@ -52,6 +53,13 @@ The bead leaves on how the run went:
   rebase is the only push it makes, so the bead does not wait for another:
   it goes back to `review`, to be read at the new head, and waits here again
   after.
+- `merged`: not the script's to report either. The pull request was merged
+  on GitHub while the bead waited here or the tests ran, and the source says
+  so. The bead goes to `merged`, and the run is stopped with it: there is no
+  head left to answer for. A report the script still makes is refused, as it
+  is after a push, since the bead has left the stage.
+- `dropped`: likewise, for a pull request closed unmerged. The bead goes to
+  `closed`.
 
 A run that is no verdict on the pull request holds the bead instead, in
 this stage, with a note and no outcome: the tests could not run (they
@@ -59,4 +67,8 @@ exited 2, a tool is missing), a signal ended them twice, the depot has no
 test command, the fetch, GitHub or the App's token failed, the pull request
 is no longer open, or its head is not the one the reviewer read. That is
 the yard's to put right and not the contributor's: act on what the note
-says, then `yardr bead unhold <id>` runs the tests again.
+says, then `yardr bead unhold <id>` runs the tests again. A pull request
+that is no longer open is usually the source's to say first (`merged`,
+`dropped`), but a run can find it over before the source has, and no
+event moves a held bead: advance it by hand,
+`yardr bead advance <id> --to merged`, or `--to closed`.

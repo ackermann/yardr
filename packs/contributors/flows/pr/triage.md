@@ -21,10 +21,12 @@ What to look at, on GitHub and not in a checkout:
   other files CI runs, build and install scripts, hooks, lockfiles and new
   dependencies, binaries and generated files.
 
-The bead leaves on what the maintainer does on GitHub:
+The bead leaves on what comes of the pull request on GitHub:
 
 - `accepted`: the label `accepted` on the pull request. The bead goes to
   `review`.
+- `merged`: the pull request is merged on GitHub, without waiting for
+  the yard. The bead goes to `merged`; nothing of the yard read or ran it.
 - `dropped`: the pull request is closed unmerged. The bead goes to `closed`.
 
 Or by hand, with no label: `yardr bead advance <id> --to review`, or

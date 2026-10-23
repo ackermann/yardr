@@ -1684,6 +1684,14 @@ that still comes is refused. The script's own reads of the head, against
 `reviewed_head` when it starts and against the commit it tested at the end of
 the run, are for a push whose event has not come yet or never will.
 
+A merge or a close of the pull request ends the bead the same way, in this
+stage as in `triage`, `review` and `contributor`: the pack's lines say
+`merged` or `dropped`, the bead goes to `merged` or `closed`, the run is
+stopped and a report of it is refused. A run that finds the pull request
+over before the source has said so holds the bead (next paragraph), and no
+event moves a held bead: `yardr bead advance <id> --to merged`, or `--to
+closed`.
+
 Whatever is no verdict on the pull request holds the bead in `ciwait` with a
 note and reports nothing: no token, GitHub or the fetch refusing, a depot with
 no test command (a pull request is not called green untested), tests that

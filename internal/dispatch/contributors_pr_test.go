@@ -485,6 +485,111 @@ func TestContributorsBotPushStartsTheReadAgain(t *testing.T) {
 	}
 }
 
+// A pull request merged or closed on GitHub ends its bead wherever the bead
+// waits before approved: in triage, under review, in the wait for the yard's
+// CI and with the contributor. The pack's two lines name no stage, so a stage
+// without an edge for them left the event nowhere to go, and the bead open on
+// a pull request that was over. Where the bead is worked its session ends with
+// it: the reviewer's is stopped, and so is the yard's CI, whose report is then
+// refused as one from a stage the bead has left, as it is after a push.
+func TestContributorsClosedPullRequestEndsItsBead(t *testing.T) {
+	t.Parallel()
+	r := newContributorsYard(t)
+	r.reviewedBy(t, "pr-reviewers")
+	ctx := context.Background()
+	// Triage and contributor are stages of people, crossed as the hook's crew
+	// member: the maintainers' members include it, as an import's must for the
+	// label accepted to move a bead, and the contributor's group has none.
+	// Their runner starts nothing of the yard's, as the daemon's manual one.
+	r.d.Runners["manual"] = &fakeRunner{dead: map[string]bool{}}
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yardmaster"}}, "me"))
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "outside", Runner: "manual", Limit: 50}, "me"))
+	pr, everyone := "pr", store.OriginatorAny
+	for stage, group := range map[string]string{"triage": "maintainers", "contributor": "outside"} {
+		_, err := r.api.AddRoute(ctx, store.Route{Stage: stage, Type: &pr, Originator: &everyone, Group: group}, "me")
+		must(t, err)
+	}
+
+	// arrive makes the bead of a new pull request and takes it to stage as its
+	// events and reports would: a stranger's waits in triage, a bot's goes
+	// to the reader, whose verdict sends it on to the wait for CI, or back to
+	// its contributor.
+	number := 50
+	arrive := func(stage string) *store.Bead {
+		number++
+		if stage == "triage" {
+			r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(number, "someone", "User"), authorIs("NONE"))
+			return r.madeIn(t, number, "triage")
+		}
+		r.deliverJSON(t, "pull_request", "pull_request_opened", prEvent(number, "dependabot[bot]", "Bot"))
+		b := r.madeIn(t, number, "review")
+		switch stage {
+		case "ciwait":
+			r.reviewerSays(t, b.ID, false)
+		case "contributor":
+			_, err := r.api.Done(ctx, b.ID, "changes", "needs work", store.Expect{Stage: "review"}, "me")
+			must(t, err)
+		}
+		r.pass(t)
+		if st := r.stageOf(t, b.ID); st != stage {
+			t.Fatalf("%s in %s, want %s", b.ID, st, stage)
+		}
+		return b
+	}
+
+	// workedIn are the sessions of the yard that worked bead id in stage: the
+	// reader's, the yard's CI. Nobody of the yard works the stages of people.
+	workedIn := func(id, stage string) []string {
+		r.f.mu.Lock()
+		defer r.f.mu.Unlock()
+		var sessions []string
+		for _, j := range r.f.jobs {
+			if j.Bead.ID == id && j.Session.Stage == stage {
+				sessions = append(sessions, j.Session.ID)
+			}
+		}
+		return sessions
+	}
+
+	for _, stage := range []string{"triage", "review", "ciwait", "contributor"} {
+		for _, c := range []struct{ fixture, outcome, to string }{
+			{"pull_request_closed_merged", "merged", "merged"},
+			{"pull_request_closed_unmerged", "dropped", "closed"},
+		} {
+			b := arrive(stage)
+			worked := workedIn(b.ID, stage)
+			if people := stage == "triage" || stage == "contributor"; people != (len(worked) == 0) {
+				t.Fatalf("%s in %s worked by %v", b.ID, stage, worked)
+			}
+
+			r.deliverJSON(t, "pull_request", c.fixture, prEvent(number, "someone", "User"))
+			r.pass(t)
+			got := r.bead(t, b.ID)
+			if got.Stage != c.to || got.Status != "closed" {
+				t.Errorf("%s: a pull request %s (%s) left its bead in %s (%s), want %s closed", stage, c.outcome, c.fixture, got.Stage, got.Status, c.to)
+			}
+			wantRules(t, r.rules(t, b.ID), "pull_request made", c.outcome+" "+stage+" -> "+c.to)
+
+			// Whatever worked the stage is stopped, and the yard's CI cannot
+			// report a pass for a pull request that is over.
+			r.pass(t)
+			for _, s := range worked {
+				if !slices.Contains(r.stoppedSessions(), s) {
+					t.Errorf("%s: session %s of the old stay still runs: stopped %v", stage, s, r.stoppedSessions())
+				}
+			}
+			if stage == "ciwait" {
+				if _, err := r.api.Done(ctx, b.ID, "done", "the tests passed", store.Expect{Stage: "ciwait"}, "me"); err == nil {
+					t.Errorf("a report from ciwait on %s was taken after its pull request was %s", b.ID, c.outcome)
+				}
+				if got := r.bead(t, b.ID); got.Stage != c.to || got.Metadata["ci_head"] != nil {
+					t.Errorf("%s in %s with ci_head %v after a late report, want %s with none", b.ID, got.Stage, got.Metadata["ci_head"], c.to)
+				}
+			}
+		}
+	}
+}
+
 // Who skips the maintainer, through the normalizing a yard does: the pull
 // request of an owner or a member of the repository, as GitHub spells their
 // association (OWNER, MEMBER) and the source's normalize lowercases it, and a
