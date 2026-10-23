@@ -147,7 +147,9 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # A go test step that fails runs its failed packages (the FAIL<tab>pkg lines)
 # once more, alone, with the same flags; when they pass, the step passes, and
 # one line starting with `test: flaky:` names the tests that failed the first
-# time (the --- FAIL: names, with their packages). A package that fails twice
+# time (the --- FAIL: names, with their packages; with none, a timeout names
+# the running tests it caught, a fatal error or panic the test it crashed
+# in, and anything else the package alone). A package that fails twice
 # fails the step as before. The plain run does the same: a builder should not
 # be sent chasing a flake either. Seen on 14 Oct 2026 (yardr-2nss's landing):
 # three packages that fail only under load sent an approved change back to
@@ -161,10 +163,12 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # the git common dir, which the repo owns and every worktree shares. The
 # rerun's output replaces the first run's, so that line also keeps what the
 # first run printed for each failed test (flakyfails), behind a separator:
-# the printed line stays short because whoever ran the gate watched the
-# failure, and the log line is what is left of it for whoever did not (a
-# landing, a session that has ended). A test the log already names is filed
-# as a backlog P3 `Flaky: <Test> (<pkg>)` carrying its lines. A test and its
+# a failure with no FAIL line keeps its timeout's panic and running tests,
+# its fatal error's or panic's line and the dump's head, else its first
+# output lines. The printed line stays short because whoever ran the gate
+# watched the failure, and the log line is what is left of it for whoever
+# did not (a landing, a session that has ended). A test the log already names
+# is filed as a backlog P3 `Flaky: <Test> (<pkg>)` carrying its lines. A test and its
 # subtests fail together and share one bead, so where an open bead stands for
 # the test (its own, its top-level test's, or another subtest's of that
 # test), that bead is noted with the new log line and nothing is filed. Where
@@ -746,6 +750,13 @@ again() {
             fi
           else
             tests=$(sed -n 's/.*--- FAIL: \([^ ][^ ]*\).*/\1/p' "$log" | sort -u || true)
+            if [ -z "$tests" ]; then
+              # No test failed by name: a timeout names the tests it
+              # caught running, a fatal error or panic the test it
+              # crashed in, and anything else leaves the line to the
+              # package.
+              tests=$(flakystuck "$log" | sort -u || true)
+            fi
             tests_line=$(printf '%s\n' "$tests" | tr '\n' ' ' | sed 's/ $//' || true)
             # Each failed test's packages, read from this run's log before
             # the rerun replaces it: one "test pkg" line per package whose
@@ -951,8 +962,13 @@ flaky_sep=' | '
 # it follows. Whitespace-only lines, which go prints inside a multi-line
 # message, are skipped, and control characters other than a tab are dropped,
 # so that a terminal showing the log or a bead copied from it is not moved by
-# what a test printed. Empty when no test failed. It reads the first run's
-# log, which the rerun replaces.
+# what a test printed.
+# When no test failed by name, one block holds what the log says instead: a
+# timeout's panic line and its running tests, a fatal error's or panic's line
+# and the dump's head, else the first output lines (a TestMain that exits
+# prints only those), each capped like a block. Empty when the log holds
+# nothing but its ok and FAIL lines. It reads the first run's log, which the
+# rerun replaces.
 flakyfails() {
   awk -v sep="$flaky_sep" '
     function keep(b, s) {
@@ -962,6 +978,10 @@ flakyfails() {
       s = substr(s, (RLENGTH < lvl[b] ? RLENGTH : lvl[b]) + 1, 200)
       txt[b] = (cnt[b] ? txt[b] "\\n" : "") s
       cnt[b]++
+    }
+    function cap(s) {
+      sub(/[ \t\r]+$/, "", s)
+      return substr(s, 1, 200)
     }
     /^ +$/ { next }
     {
@@ -978,12 +998,114 @@ flakyfails() {
         keep(nb, $0)
         stack[++sp] = nb
       }
+      # The fallback, line by line: the first timeout with its panic and
+      # running entries, the first fatal error or panic with its line and
+      # dump head, and the first output lines. Whichever the log holds
+      # decides in the END, in that order, and only when no test failed.
+      if ($0 ~ /^panic: test timed out/ && !tseen) {
+        tseen = 1
+        tpanic = cap($0)
+      } else if (tseen && !tdone) {
+        if (!trun && $0 ~ /^[ \t]*running tests:[ \t]*$/) trun = 1
+        else if (trun && $0 ~ /^[ \t]+[^ \t]/) {
+          if (tn < 5) tent[++tn] = cap($0)
+        } else if (trun) {
+          trun = 0
+          tdone = 1
+        }
+      }
+      if (($0 ~ /^fatal error: / || ($0 ~ /^panic: / && $0 !~ /^panic: test timed out/)) && !cseen) {
+        cseen = 1
+        cpanic = cap($0)
+      } else if (cseen && cn < 5 && $0 != "" && $0 !~ /^[ \t]*$/ && $0 !~ /^(ok|FAIL|\?)[ \t]/ && $0 != "FAIL") {
+        cdump[++cn] = cap($0)
+      }
+      if (fn < 6 && $0 != "" && $0 !~ /^[ \t]*$/ && $0 !~ /^(ok|FAIL|\?)[ \t]/ && $0 != "FAIL") {
+        fline[++fn] = cap($0)
+      }
     }
     END {
-      for (k = 1; k <= nb; k++) out = out (k > 1 ? sep : "") txt[k]
-      if (nb) print out
+      if (nb) {
+        for (k = 1; k <= nb; k++) out = out (k > 1 ? sep : "") txt[k]
+        print out
+      } else if (tseen) {
+        out = tpanic
+        for (k = 1; k <= tn; k++) out = out "\\n" tent[k]
+        print out
+      } else if (cseen) {
+        out = cpanic
+        for (k = 1; k <= cn; k++) out = out "\\n" cdump[k]
+        print out
+      } else if (fn) {
+        out = fline[1]
+        for (k = 2; k <= fn; k++) out = out "\\n" fline[k]
+        print out
+      }
     }
   ' "$1" | tr -d '\001-\010\013-\037\177'
+}
+# flakystuck prints the tests a go test log ($1) names without a `--- FAIL:`
+# line, one a line: the running tests of a test timeout (go sorts them), else
+# the crashing test of a fatal error or a panic in a code goroutine, else
+# nothing. The crashing test is best-effort: the first frame of the first
+# goroutine that is not a testing or runtime frame (the runtime's own code
+# lives in runtime and internal/runtime), its base name, without the args,
+# the package path and the suffixes Go adds to nested closures, so a crash in
+# TestX.func1.1 names TestX. A timeout wins over a crash further down the log,
+# as the block flakyfails keeps does. Empty for a TestMain that exits, which
+# names no test anywhere.
+flakystuck() {
+  awk '
+    function base(sym) {
+      sub(/\(.*/, "", sym)
+      sub(/.*\//, "", sym)
+      sub(/^[^.]+\./, "", sym)
+      sub(/(\.func[0-9]+|\.[0-9])+$/, "", sym)
+      return sym
+    }
+    /^panic: test timed out/ { tseen = 1; next }
+    tseen && !tdone && /^[ \t]*running tests:[ \t]*$/ { trun = 1; next }
+    trun {
+      if ($0 ~ /^[ \t]+[^ \t]/) {
+        if (tn < 20) tent[++tn] = $1
+        next
+      }
+      trun = 0
+      tdone = 1
+    }
+    /^fatal error: / || (/^panic: / && $0 !~ /^panic: test timed out/) {
+      if (!cseen) cseen = 1
+      next
+    }
+    cseen && !cdone && /^goroutine / { ing = 1; next }
+    ing {
+      if ($0 == "" || $0 ~ /^(ok|FAIL|\?)[ \t]/ || $0 == "FAIL" || $0 ~ /^goroutine / || $0 ~ /^created by /) {
+        ing = 0
+        cdone = 1
+      } else if ($0 ~ /^[ \t]/) {
+        # The file line under a frame.
+      } else if ($0 ~ /^[A-Za-z_][^ \t]*\(/ && $0 !~ /^(testing|runtime)(\.|\/)/ && $0 !~ /^internal\/runtime\//) {
+        name = base($0)
+        ing = 0
+        cdone = 1
+      } else if ($0 ~ /^[A-Za-z_][^ \t]*\(/) {
+        # A testing or runtime frame above the crash.
+      } else if ($0 ~ /^\.\.\./) {
+        # Elided frames inside the stack.
+      } else {
+        ing = 0
+        cdone = 1
+      }
+      next
+    }
+    END {
+      if (tseen) {
+        for (k = 1; k <= tn; k++) print tent[k]
+      } else if (name != "") {
+        print name
+      }
+    }
+  ' "$1"
 }
 # flakylines prints the lines of the flaky log ($2) that name a test ($1),
 # in their head: behind the separator are the failing lines of the tests the

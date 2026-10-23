@@ -1193,9 +1193,13 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 // first run printed for each failed test, behind a separator: the test's
 // `--- FAIL:` line and the lines under it (a subtest has a block of its own,
 // its parent's holds it), at most 6 lines of 200 characters, joined by a
-// backslash and an n, and 20 blocks to a line. The printed line stays short.
-// Only the part before the separator says which tests flaked: a line without
-// it, as the log held before the separator existed, is all of it.
+// backslash and an n, and 20 blocks to a line. With no FAIL line, one block
+// keeps a timeout's panic line and running tests, a fatal error's or panic's
+// line and the dump's head, else the first output lines, and a timeout names
+// its running tests, a fatal error or panic its crashing test, in the head,
+// striking and filing as failures do. The printed line stays short. Only the
+// part before the separator says which tests flaked: a line without it, as
+// the log held before the separator existed, is all of it.
 //
 // A row is a whole run of the script, and the rows run one after another, 2 to
 // 3 s apiece: the root package has little room under R1's 60 s (yardr-fvkm).
@@ -1238,9 +1242,37 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	familyHead := "TestX TestX/done TestX/mail Test[X] (" + pkg + ") passed on rerun"
 	// A sighting of another test, whose kept lines mention TestX.
 	mentions := "TestOther (m.test/m) passed on rerun" + sep + "--- FAIL: TestOther (0.30s)" + eol + "    x_test.go:9: waiting for TestX to start"
-	// A package that failed with no test to name (a timeout): there is
-	// nothing to keep, and the line stays the short one.
-	timeoutFail := "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestX (10m0s)\n\nFAIL\t" + pkg + " 600.123s"
+	// A timeout, as go prints it: the panic line, the running tests
+	// double-tabbed under a tabbed header, a blank line, then the dump.
+	// The head names the running tests; the block keeps the panic line
+	// and the entries, not the dump.
+	timeoutFail := "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestX (10m0s)\n\t\tTestY (9m59s)\n\n" +
+		"goroutine 5 [running]:\ntesting.(*M).startAlarm.func1()\n\t/go/src/testing/testing.go:2959 +0x2c4\nFAIL\t" + pkg + " 600.123s"
+	timeoutKept := "panic: test timed out after 10m0s" + eol + "\t\tTestX (10m0s)" + eol + "\t\tTestY (9m59s)"
+	// A timeout that caught one test: its repeat files for the stuck test.
+	timeoutSingleFail := "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestX (10m0s)\n\n" +
+		"goroutine 5 [running]:\ntesting.(*M).startAlarm.func1()\n\t/go/src/testing/testing.go:2959 +0x2c4\nFAIL\t" + pkg + " 600.123s"
+	timeoutSingleKept := "panic: test timed out after 10m0s" + eol + "\t\tTestX (10m0s)"
+	// A fatal error, as go prints it: the dump's first frames are the
+	// runtime's own (internal/runtime on this go), then the test's
+	// closure, so the head names the test; the block keeps the fatal
+	// line and the dump's head.
+	fatalFail := "fatal error: concurrent map writes\n\ngoroutine 8 [running]:\ninternal/runtime/maps.fatal({0x1?, 0x0?})\n" +
+		"\t/go/src/runtime/panic.go:1195 +0x20\n" + pkg + ".TestX.func1()\n\tx_test.go:16 +0x60\n" +
+		"created by " + pkg + ".TestX in goroutine 4\n\tx_test.go:13 +0x48\nFAIL\t" + pkg + " 0.280s"
+	fatalKept := "fatal error: concurrent map writes" + eol + "goroutine 8 [running]:" + eol + "internal/runtime/maps.fatal({0x1?, 0x0?})" + eol +
+		"\t/go/src/runtime/panic.go:1195 +0x20" + eol + pkg + ".TestX.func1()" + eol + "\tx_test.go:16 +0x60"
+	// A fatal error whose first goroutine holds testing and runtime
+	// frames only: no test is named, so the head stays package-only,
+	// and the block still keeps the dump.
+	fatalNoFrameFail := "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [chan receive]:\nruntime.gopark()\n" +
+		"\t/go/src/runtime/proc.go:424 +0x12c\ntesting.tRunner()\n\t/go/src/testing/testing.go:2258 +0x3b8\nFAIL\t" + pkg + " 0.280s"
+	fatalNoFrameKept := "fatal error: all goroutines are asleep - deadlock!" + eol + "goroutine 1 [chan receive]:" + eol + "runtime.gopark()" + eol +
+		"\t/go/src/runtime/proc.go:424 +0x12c" + eol + "testing.tRunner()" + eol + "\t/go/src/testing/testing.go:2258 +0x3b8"
+	// A TestMain that exits after its last word: no test is named
+	// anywhere, so the head stays package-only, and the block keeps
+	// the first output lines.
+	testMainFail := "about to die\nFAIL\t" + pkg + " 0.219s\nFAIL"
 	raceFail := "WARNING: DATA RACE\n" + flakyFail
 	racePkg, ordinaryPkg := pkg+"/race", pkg+"/ordinary"
 	raceFailMixed := "WARNING: DATA RACE\n--- FAIL: TestRace (0.00s)\nFAIL\nFAIL\t" + racePkg + " 0.123s\n" +
@@ -1342,8 +1374,23 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		// printed line stays short.
 		{name: "plain: a subtest has a block of its own and its parent's holds it", times: "1", ok: true, calls: plain, steps: plainSteps,
 			line: nestedFail, tests: "TestX TestX/done TestX/mail TestY", kept: nestedKept},
-		{name: "plain: a failure with no test keeps the short line", times: "1", ok: true, calls: plain, steps: plainSteps,
-			line: timeoutFail, noTests: true},
+		// A failure with no `--- FAIL:` line keeps what the log says
+		// instead. A timeout names its running tests in the head, and a
+		// repeat files for the stuck test with the dump lines carried.
+		// A fatal error names its crashing test past the runtime's own
+		// frames, or nothing where there is no test frame. A TestMain
+		// that exits names no test, and keeps its last lines.
+		{name: "plain: a timeout names its running tests", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: timeoutFail, tests: "TestX TestY", kept: timeoutKept},
+		{name: "plain: a timeout's repeat files for the stuck test", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: timeoutSingleFail, kept: timeoutSingleKept,
+			seed: []time.Duration{24 * time.Hour}, seedShas: []string{"a1b2c3d4"}, yardr: true, list: other, create: true},
+		{name: "plain: a fatal error names its crashing test", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: fatalFail, kept: fatalKept},
+		{name: "plain: a fatal error with no test frame keeps the dump under a package-only head", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: fatalNoFrameFail, noTests: true, kept: fatalNoFrameKept},
+		{name: "plain: a TestMain that exits keeps its last lines under a package-only head", times: "1", ok: true, calls: plain, steps: plainSteps,
+			line: testMainFail, noTests: true, kept: "about to die"},
 		// A test and its subtests fail together and share one bead. A strike
 		// that names a test with two subtests, and another test, files one
 		// bead for the three, with the lines whole and the kept ones with
@@ -1781,21 +1828,26 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	}
 }
 
-// What the flaky log line keeps of the first run (flakyfails), which of its
-// lines name a test (flakylines), the beads it says it tested (flakybeads),
-// in how many changes a test flaked in the last 7 days (flakychanges),
-// which open bead stands for a test (flakyopen) and what a repeat does with
-// it (flakyfile), through the script's own functions, cut out of it and run
-// on output as go prints it and on a listing as yardr prints it: a shell and
-// an awk or a perl a case, where a gate run costs seconds.
+// What the flaky log line keeps of the first run (flakyfails), the tests a
+// failure names without a FAIL line (flakystuck), which of its lines name a
+// test (flakylines), the beads it says it tested (flakybeads), in how many
+// changes a test flaked in the last 7 days (flakychanges), which open bead
+// stands for a test (flakyopen) and what a repeat does with it (flakyfile),
+// through the script's own functions, cut out of it and run on output as go
+// prints it and on a listing as yardr prints it: a shell and an awk or a
+// perl a case, where a gate run costs seconds.
 // TestYardTestRerunsFailedPackagesOnce pins that the gate writes and reads
 // them. A block is a test's `--- FAIL:` line and the lines indented deeper
 // than it, so a subtest has a block of its own and its parent's holds it;
 // output between reports ends a block; a panic's line, which go prints
 // unindented after the FAIL line, joins the blocks it follows; a block keeps
 // 6 lines of 200 characters and a line 20 blocks; control characters are
-// dropped. Only the head of a log line, before the separator, names the tests
-// that flaked and the beads it tested. A change is the set of beads a line's
+// dropped. With no FAIL line, one block keeps a timeout's panic line and
+// running tests, a fatal error's or panic's line and the dump's head, else
+// the first output lines; a timeout names its running tests, a fatal error
+// or panic its crashing test past the runtime's frames. Only the head of a
+// log line, before the separator, names the tests that flaked and the beads
+// it tested. A change is the set of beads a line's
 // last field names, in any order, whatever commits it was tested at, and a
 // line with no field is a change of its sha: the same one on many lines is
 // one change, and only lines in the last 7 days count, whichever change they
@@ -1816,11 +1868,11 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	if ok {
 		fns, _, ok = strings.Cut("flaky_sep="+fns, "\n# summary prints the run's test line")
 	}
-	for _, fn := range []string{"flakyfails", "flakylines", "flakybeads", "flakychanges", "flakyopen", "flakyfile"} {
+	for _, fn := range []string{"flakyfails", "flakystuck", "flakylines", "flakybeads", "flakychanges", "flakyopen", "flakyfile"} {
 		ok = ok && strings.Contains(fns, "\n"+fn+"() {")
 	}
 	if !ok {
-		t.Fatalf("cannot cut flakyfails, flakylines, flakybeads, flakychanges, flakyopen and flakyfile out of %s: move the probe with the script", yardTest)
+		t.Fatalf("cannot cut flakyfails, flakystuck, flakylines, flakybeads, flakychanges, flakyopen and flakyfile out of %s: move the probe with the script", yardTest)
 	}
 	dir := t.TempDir()
 	probe := filepath.Join(dir, "probe.sh")
@@ -1910,12 +1962,82 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:3: output was --- FAIL: TestInner (0.00s)")}},
 		{"a test failing in two packages", "--- FAIL: TestA (0.00s)\n    a_test.go:1: in one\nFAIL\nFAIL\tm.test/one 0.1s\n--- FAIL: TestA (0.00s)\n    a_test.go:1: in two\nFAIL\nFAIL\tm.test/two 0.1s\n",
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:1: in one"), block("--- FAIL: TestA (0.00s)", "    a_test.go:1: in two")}},
-		{"no test failed", "ok  \tm.test/a\t0.1s\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\nFAIL\tm.test/b 600.1s\n", nil},
+		// A failure with no `--- FAIL:` line keeps one block of what the
+		// log says instead: a timeout's panic line and running entries
+		// (not the dump behind the blank line), a fatal error's or
+		// panic's line and the dump's head, else the first output lines.
+		{"a timeout keeps its panic line and running tests", "ok  \tm.test/a\t0.1s\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\t\tTestA/sub (10m0s)\n\ngoroutine 5 [running]:\ntesting.(*M).startAlarm.func1()\n\t/go/src/testing/testing.go:2959 +0x2c4\nFAIL\tm.test/b 600.1s\n",
+			[]string{block("panic: test timed out after 10m0s", "\t\tTestA (10m0s)", "\t\tTestA/sub (10m0s)")}},
+		{"a timeout keeps the panic line and five entries", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestT00 (10m0s)\n\t\tTestT01 (10m0s)\n\t\tTestT02 (10m0s)\n\t\tTestT03 (10m0s)\n\t\tTestT04 (10m0s)\n\t\tTestT05 (10m0s)\n\t\tTestT06 (10m0s)\n\nFAIL\tm.test/b 600.1s\n",
+			[]string{block("panic: test timed out after 10m0s", "\t\tTestT00 (10m0s)", "\t\tTestT01 (10m0s)", "\t\tTestT02 (10m0s)", "\t\tTestT03 (10m0s)", "\t\tTestT04 (10m0s)")}},
+		{"a fatal error keeps its line and the dump head", "=== RUN   TestA\n--- PASS: TestA (0.00s)\nfatal error: concurrent map writes\n\ngoroutine 8 [running]:\ninternal/runtime/maps.fatal({0x1?, 0x0?})\n\t/go/src/runtime/panic.go:1195 +0x20\nm.test/a.TestA.func1()\n\ta_test.go:16 +0x60\ncreated by m.test/a.TestA in goroutine 4\n\ta_test.go:13 +0x48\nFAIL\tm.test/a 0.1s\n",
+			[]string{block("fatal error: concurrent map writes", "goroutine 8 [running]:", "internal/runtime/maps.fatal({0x1?, 0x0?})", "\t/go/src/runtime/panic.go:1195 +0x20", "m.test/a.TestA.func1()", "\ta_test.go:16 +0x60")}},
+		{"a panic in a code goroutine keeps its line and the dump head", "panic: boom from a code goroutine\n\ngoroutine 5 [running]:\nm.test/a.TestA.func1()\n\ta_test.go:11 +0x38\ncreated by m.test/a.TestA in goroutine 4\n\ta_test.go:9 +0x24\nFAIL\tm.test/a 0.1s\n",
+			[]string{block("panic: boom from a code goroutine", "goroutine 5 [running]:", "m.test/a.TestA.func1()", "\ta_test.go:11 +0x38", "created by m.test/a.TestA in goroutine 4", "\ta_test.go:9 +0x24")}},
+		{"a TestMain that exits keeps its last lines", "about to die\nFAIL\tm.test/a 0.1s\nFAIL\n",
+			[]string{"about to die"}},
+		{"a silent TestMain keeps the exit status", "exit status 3\nFAIL\tm.test/a 0.1s\nFAIL\n",
+			[]string{"exit status 3"}},
+		// A failure report wins over a timeout behind it; a timeout wins
+		// over a fatal error in another package behind it.
+		{"a failure report wins over a timeout behind it", "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\nFAIL\nFAIL\tm.test/a 0.1s\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestB (10m0s)\n\nFAIL\tm.test/b 600.1s\n",
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
+		{"a timeout wins over a fatal error behind it", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\nFAIL\tm.test/a 600.1s\nfatal error: concurrent map writes\n\ngoroutine 8 [running]:\nFAIL\tm.test/b 0.1s\n",
+			[]string{block("panic: test timed out after 10m0s", "\t\tTestA (10m0s)")}},
+		{"a log of summaries only keeps nothing", "ok  \tm.test/a\t0.1s\nFAIL\nFAIL\tm.test/b 600.1s\n", nil},
 		{"an empty log", "", nil},
 	} {
 		t.Run("keeps: "+c.name, func(t *testing.T) {
 			if got, want := run(t, c.in, "flakyfails"), strings.Join(c.want, sep); got != want {
 				t.Errorf("flakyfails printed:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+
+	// The tests a failure names without a `--- FAIL:` line: the running
+	// tests of a timeout, else the crashing test of a fatal error or a
+	// panic in a code goroutine. The crashing test is the first frame of
+	// the first goroutine outside testing and the runtime, with the args,
+	// the package path and a closure suffix stripped; a created-by line
+	// and a second goroutine name nothing.
+	var stuckManyIn, stuckManyWant []string
+	for i := range 25 {
+		stuckManyIn = append(stuckManyIn, fmt.Sprintf("\t\tTestT%02d (10m0s)", i))
+		if i < 20 {
+			stuckManyWant = append(stuckManyWant, fmt.Sprintf("TestT%02d", i))
+		}
+	}
+	for _, c := range []struct {
+		name string
+		in   string
+		want []string // the names, in the order the log lists them
+	}{
+		{"a timeout names its running tests", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\t\tTestA/sub (10m0s)\n\nFAIL\tm.test/b 600.1s\n",
+			[]string{"TestA", "TestA/sub"}},
+		{"a timeout names twenty running tests", "panic: test timed out after 10m0s\n\trunning tests:\n" + strings.Join(stuckManyIn, "\n") + "\n\nFAIL\tm.test/b 600.1s\n",
+			stuckManyWant},
+		{"a fatal error names the test past the runtime frames", "fatal error: concurrent map writes\n\ngoroutine 8 [running]:\ninternal/runtime/maps.fatal({0x1?, 0x0?})\n\t/go/src/runtime/panic.go:1195 +0x20\nm.test/a.TestA.func1()\n\ta_test.go:16 +0x60\ncreated by m.test/a.TestA in goroutine 4\n\ta_test.go:13 +0x48\nFAIL\tm.test/a 0.1s\n",
+			[]string{"TestA"}},
+		{"a panic in a code goroutine names the test", "panic: boom\n\ngoroutine 5 [running]:\nm.test/a.TestA()\n\ta_test.go:11 +0x38\nFAIL\tm.test/a 0.1s\n",
+			[]string{"TestA"}},
+		{"a nested closure panic names its test", "panic: boom\n\ngoroutine 5 [running]:\nm.test/a.TestA.func1.1()\n\ta_test.go:11 +0x38\nFAIL\tm.test/a 0.1s\n",
+			[]string{"TestA"}},
+		// Elided frames inside the stack, and a testing frame above the
+		// crash, are passed over; only the first goroutine is read.
+		{"testing frames and elided frames are passed over", "panic: boom\n\ngoroutine 5 [running]:\nruntime.throw({0x1?, 0x0?})\n\t/go/src/runtime/panic.go:1077 +0x5d\ntesting.tRunner()\n\t/go/src/testing/testing.go:2258 +0x3b8\n...additional frames elided...\nm.test/a.TestA.func2()\n\ta_test.go:11 +0x38\n\nFAIL\tm.test/a 0.1s\n",
+			[]string{"TestA"}},
+		{"a second goroutine names nothing", "fatal error: concurrent map writes\n\ngoroutine 8 [running]:\nruntime.throw({0x1?, 0x0?})\n\t/go/src/runtime/panic.go:1077 +0x5d\ncreated by testing.(*T).Run in goroutine 1\n\t/go/src/testing/testing.go:2280 +0x3b8\n\ngoroutine 1 [chan receive]:\nm.test/a.TestA()\n\ta_test.go:11 +0x38\nFAIL\tm.test/a 0.1s\n",
+			nil},
+		{"runtime frames alone name nothing", "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [chan receive]:\nruntime.gopark()\n\t/go/src/runtime/proc.go:424 +0x12c\nFAIL\tm.test/a 0.1s\n",
+			nil},
+		{"a TestMain that exits names nothing", "about to die\nFAIL\tm.test/a 0.1s\nFAIL\n", nil},
+		{"a timeout wins over a fatal error behind it", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\nFAIL\tm.test/a 600.1s\nfatal error: concurrent map writes\n\ngoroutine 8 [running]:\nm.test/b.TestB()\n\tb_test.go:16 +0x60\nFAIL\tm.test/b 0.1s\n",
+			[]string{"TestA"}},
+		{"an empty log", "", nil},
+	} {
+		t.Run("stuck: "+c.name, func(t *testing.T) {
+			if got, want := run(t, c.in, "flakystuck"), strings.Join(c.want, "\n"); got != want {
+				t.Errorf("flakystuck printed:\n%s\nwant:\n%s", got, want)
 			}
 		})
 	}

@@ -173,9 +173,13 @@ it lists every exported name with its comment, faster than grepping.
   rerun's output replaces the first run's, so the log line also keeps what
   the first run printed for each failed test, behind ` | `: its `--- FAIL:`
   line and the lines under it (6 lines of 200 characters at most for a
-  test, 20 tests at most, a literal `\n` between lines), and the filed bead
-  or the note carries the whole line. Only the part before the ` | ` names
-  the tests that flaked and the beads the run was of. A hand reading old
+  test, 20 tests at most, a literal `\n` between lines); a failure with no
+  `--- FAIL:` line keeps its timeout's panic line and running tests, its
+  fatal error's or panic's line and the dump's head, else its first output
+  lines, and a timeout names its running tests, a fatal error or panic its
+  crashing test, in the head, striking and filing as failures do. The filed
+  bead or the note carries the whole line. Only the part before the ` | `
+  names the tests that flaked and the beads the run was of. A hand reading old
   lines files or notes the same way -- a repeat, or a failure that accuses
   the product (a race report, a product assertion, a wrong result rather
   than a timeout); otherwise the log line is the record, named in the
