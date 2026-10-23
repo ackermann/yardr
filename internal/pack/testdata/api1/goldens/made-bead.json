@@ -1,0 +1,9 @@
+{
+  "body": "an issue was created\n\nhttps://acme.example.com/acme/issue/ACME-1",
+  "link": {
+    "kind": "tracks",
+    "source": "acme",
+    "url": "https://acme.example.com/acme/issue/ACME-1"
+  },
+  "title": "An issue"
+}

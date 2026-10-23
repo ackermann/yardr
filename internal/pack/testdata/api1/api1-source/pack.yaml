@@ -1,0 +1,27 @@
+# acme as a pack of kind source, frozen for the pack API contract test
+# (internal/pack/contract_test.go): the declaration names every key such a
+# pack may bring, copied from packs/template, with two presets. This pack
+# is API 1's fixture: it never changes but for a new API number, which
+# adds api2/ beside api1/ and leaves this as it is. Its digest is pinned
+# in the test, so an edit shows as a changed constant in review.
+name: acme
+api: 1
+kind: source
+setup: SETUP.md
+
+sources:
+  acme:
+    declaration: acme.yaml
+
+# Suggested grants: named sets of the source's calls, printed numbered by
+# pack show. Suggesting grants nothing: the operator grants them, and
+# a terminal `pack apply` ignores them.
+presets:
+  read:
+    about: Who the credential acts as, and customers by id; write nothing
+    grants:
+      acme: [read]
+  write:
+    about: Read, and write a message to a customer
+    grants:
+      acme: [read, message]

@@ -1,0 +1,37 @@
+#!/bin/sh
+# The exec script of API 1's fixture, frozen for the pack API contract
+# test (internal/pack/contract_test.go). It writes the environment it
+# was started with and the result of each stable command but `call` (a
+# call needs a live credentialed source, which no fixture has; the test
+# says so) to $YARDR_HOME/contract.out. The test redacts that file to
+# the stable seams and compares it with its golden: every YARDR_*
+# variable the page calls stable, the JSON fields it lists, the exit
+# codes, and the {"error": ...} shape.
+out="$YARDR_HOME/contract.out"
+Y="$YARDR_BIN"
+{
+echo "== env =="
+env | grep '^YARDR_' | LC_ALL=C sort
+run() {
+  echo "== $* =="
+  "$@"
+  echo "exit=$?"
+}
+run "$Y" prime --bead "$YARDR_BEAD" --json
+run "$Y" bead show "$YARDR_BEAD" --json
+run "$Y" bead create "the fixture's second bead" -d web -s new -t task \
+  -b "made by the fixture script" --id api1-second \
+  --tracks https://acme.example.com/acme/issue/ACME-9 --json
+run "$Y" bead update api1-second --meta api1=kept
+run "$Y" bead note api1-second "the fixture's note"
+run "$Y" bead show api1-second --json
+run "$Y" link list api1-second --json
+run "$Y" bead advance api1-second --to backlog --note "to backlog"
+run "$Y" bead done api1-second
+run "$Y" bead hold api1-second
+run "$Y" bead close api1-second --reason "the fixture is done with it"
+run "$Y" bead show no-such-bead --json
+run "$Y" mail keeper "the fixture says hello"
+run "$Y" settings get operator
+run "$Y" settings get operator --json
+} >"$out"

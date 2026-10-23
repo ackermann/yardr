@@ -1,0 +1,18 @@
+{
+  "actor": "me",
+  "at": "<time>",
+  "bead": "api1-decide",
+  "data": {
+    "deliveries": {
+      "keeper": "all"
+    },
+    "depot": "web",
+    "originator": "me",
+    "stage": "decide",
+    "title": "a bead for decide",
+    "type": "task"
+  },
+  "id": "<id>",
+  "kind": "created",
+  "seq": "<seq>"
+}

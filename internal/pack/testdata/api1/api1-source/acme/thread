@@ -1,0 +1,37 @@
+#!/bin/sh
+# thread: what the yard does in the service's threads: reply, posted, read,
+# open, opened, state. One JSON object on stdin, one on stdout, as the
+# thread key of the declaration says. ACME_TOKEN (or what the source's
+# mint_command minted) and YARDR_SOURCE_BASE, the declaration's base, are
+# in the environment. The stub calls no service: each branch answers in
+# shape from its input. Needs jq.
+set -eu
+in=$(cat)
+
+case "$1" in
+reply) # in {thread, parent, body, key}  out {id, url}
+  printf '%s' "$in" | jq -c '{id: .key, url: ("https://acme.example.com/reply/" + .key)}' ;;
+
+posted) # in {thread, key}  out {id, url} or {} for none: a retry asks before
+  # it posts, so nothing is posted twice
+  printf '%s' "$in" | jq -c '{id: .key, url: ("https://acme.example.com/reply/" + .key)}' ;;
+
+read) # in {thread}  out {messages: [...]}
+  printf '%s' "$in" | jq -c '{messages: [{id: "m-1", parent: "", author: {id: "u-1", name: "Jane"},
+    at: "2026-10-14T00:00:00Z", body: "hello", url: "https://acme.example.com/acme/issue/acme-1#m-1"}]}' ;;
+
+open) # in {in, title, body, key, assignee?}  out {id, title, url}
+  printf '%s' "$in" | jq -c '{id: "acme-9", title: .title, url: "https://acme.example.com/acme/issue/acme-9"}' ;;
+
+opened) # in {in, key, since?}  out {id, title, url} or {} for none:
+  # posted's sibling for an open whose answer was lost
+  printf '%s' "$in" | jq -c '{id: "acme-9", title: "An issue", url: "https://acme.example.com/acme/issue/acme-9"}' ;;
+
+state) # in {thread, state, forward?}  out {status, moved, was?}: setting
+  # moves exactly, and only a thread already in the status is reported as
+  # not moved; a stage map's move calls with forward, which never moves
+  # backwards. was is the status a moved thread was in.
+  printf '%s' "$in" | jq -c '{status: .state, moved: true}' ;;
+
+*) echo "unknown: $1" >&2; exit 2 ;;
+esac

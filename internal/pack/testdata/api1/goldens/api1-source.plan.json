@@ -1,0 +1,163 @@
+{
+  "pack": "acme",
+  "dir": "<fixture>/api1-source",
+  "digest": "f350b4fd774adab6d0454d3127b0eb9532892046686578e9bb28ad13b2a45391",
+  "programs": [
+    "acme/ci",
+    "acme/normalize",
+    "acme/pr",
+    "acme/thread"
+  ],
+  "kind": "source",
+  "depot": "",
+  "depot_roles": false,
+  "groups": {},
+  "crew": {},
+  "fill": {},
+  "home": "<home>",
+  "install": "<home>/packs/acme",
+  "stage_files": "<home>/flows",
+  "objects": [
+    {
+      "kind": "source",
+      "name": "acme",
+      "action": "create",
+      "source": {
+        "name": "acme",
+        "from": "<fixture>/api1-source/acme.yaml",
+        "declaration": "# acme as a declared source: the skeleton a new source pack starts from.\n# Copy the pack's directory, rename acme to the service's name in the\n# files' names and text, and drop the keys the service does not need.\n# Every key a declaration in a pack of kind source may bring is here,\n# each with when it stays; what stays must read. A test holds the\n# skeleton to the reader: it copies this directory, renames it, and\n# applies the copy in a scratch yard.\n#\n# The name is acme: the skeleton's name for the service.\n#\n# A command is a list, run without a shell. A path that does not start\n# with / is a file beside this one, which `yardr source add` copies into\n# the yard.\nname: acme\n# What this source does, printed by `yardr source show`; rewrite for the\n# service this pack is for.\nabout: Issues and comments of the service. Hears its webhooks and speaks in its threads.\n\n# Drop this whole key when the source's calls and thread commands need no\n# authenticated credential. It names a variable, never a value.\n# The name of the variable, never the value. A command gets it in its\n# environment under this name, and gets no other variable of the yard.\n# hook.normalize is handed no credential at all.\ncredential:\n  env: ACME_TOKEN\n  header: \"Authorization: Bearer {credential}\"\n  # Drop update_env where one token does everything: it names the second\n  # variable of the env file, which the update calls are sent with\n  # instead, so the reads run on one that may only read. With it the env\n  # file sets both.\n  update_env: ACME_UPDATE_TOKEN\n  # Drop mint where the token does not expire: it names the variables\n  # that together select a minted credential, names only, beside the\n  # variable above, which the minted token is handed under. The command\n  # that turns their values into a token is the operator's, set with\n  # `yardr source set \u003cname\u003e mint_command=\u003cprogram\u003e [args...]`; no pack\n  # brings it. Where the env sets every mint name the token is minted;\n  # one of them alone is refused; otherwise the variable above is used\n  # as it is set.\n  mint: [ACME_APP_ID, ACME_APP_KEY_FILE]\n\n# ---- what it sends us ----------------------------------------------------\n# Drop the whole key where the service sends nothing in: without it the\n# source is no hook source, and no hook receives it.\n\nhook:\n  # Adapter.Verify stays data, checked by the core: the signing secret is\n  # handed to no command, and an unverified body reaches none. With scheme\n  # secret the header holds the secret itself, compared as it arrives,\n  # and signed, encoding, prefix, list, key and the timestamp do not\n  # apply; delivery is then left out where the service sends none.\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    # Where the service signs more than the body, signed is a template\n    # over {timestamp}, {body} and {delivery} (\"{delivery}.{timestamp}.{body}\",\n    # the id from the delivery header below). encoding is hex or base64.\n    # list: \" \" says the header holds several signatures at that separator,\n    # each past prefix, any one of them passing. key: { prefix: \"whsec_\",\n    # encoding: base64 } says the secret writes the key, not its bytes.\n    # docs/integrations.md has them whole, as Standard Webhooks signs.\n    signature: { header: X-Service-Signature, encoding: hex }\n    delivery:  { header: X-Service-Delivery }\n    # Drop the timestamp where the service signs none: without it a replay\n    # cannot be told by age, and the signed body drops it instead\n    # (bodies). In the body at the dot path, or in a header, in ms or s,\n    # within window of the yard's clock. One in a header is signed only by\n    # a template naming it (signed: \"v0:{timestamp}:{body}\"): signed: body\n    # beside it is refused, since nothing would sign the header.\n    timestamp: { body: sent_at, unit: ms, window: 1m }\n  # unique drops a body the source sent before, whichever hook it reached;\n  # unique-per-hook drops one the hook saw before, where one event's body\n  # goes to every webhook that asked for it; repeat takes a body again as\n  # a new delivery, told from its retry by the delivery id alone, so a\n  # delivery that names none is refused.\n  bodies: unique\n\n  # Adapter.Normalize. stdin {\"headers\":{…},\"body\":{…}}, stdout the\n  # envelope. The core sets source and delivery itself, truncates text,\n  # and derives the envelope's train from its head_branch, which the\n  # command leaves out; it refuses an envelope without type. The shapes\n  # are in docs/integrations.md.\n  normalize: [acme/normalize]\n\n  # The keys its events' fields may carry: a subscription's --where may\n  # name them beside type, action, team, project, repo and label. Drop a\n  # key the normalize command never sets; keep hear's field among them.\n  keys: [team, project, channel]\n\n# ---- what it sends about pull requests and CI ------------------------------\n# Drop the whole key where the service has no pull requests: without it\n# the dispatcher never asks. Each stands alone: the lists without the\n# commands, and either command without the other.\nevents:\n  runs: [build_finished]      # the types that are CI runs, whatever became of them\n  head_from: [merge_request]  # the types that tell the pull request's head\n  pr: [acme/pr]   # in  {repo, number, url}  out {head, base, state}\n  ci: [acme/ci]   # in  {repo, number, sha}  out {head, base, state, required, checks}\n\n# ---- what the yard does in its threads ------------------------------------\n# Drop the whole key where the yard never speaks in the service. One\n# command per thing, each handed its object on stdin and the credential\n# under ACME_TOKEN, with YARDR_SOURCE_BASE from base below. The shapes\n# are in docs/integrations.md.\n\nthread:\n  reply:  [acme/thread, reply]      # in  {thread, parent, body, key}      out {id, url}\n  posted: [acme/thread, posted]     # in  {thread, key}                    out {id, url} or {}\n  read:   [acme/thread, read]       # in  {thread}                         out {messages: [...]}\n  place:  team                        # what open's in names; drop with open\n  open:   [acme/thread, open]       # in  {in, title, body, key, assignee?} out {id, title, url}\n  assignee: id                        # the assignee open takes: a user's id (or key); drop with open\n  opened: [acme/thread, opened]     # in  {in, key, since?}                out {id, title, url} or {}\n  state:  [acme/thread, state]      # in  {thread, state, forward?}        out {status, moved, was?}\n  states: [started, review, done]     # the words it has a status for; drop with state\n  labels: true                        # and a label:\u003cname\u003e adds the label, to any thread\n\n# ---- who a crew member is in it -------------------------------------------\n# Drop the whole key where identity keys keep their case: without it a key\n# is kept as it was typed.\n\nidentity:\n  fold: lower\n\n# ---- its issues as a bead's link ------------------------------------------\n# Drop the whole key where the service has no issues to link: without it\n# the yard links nothing there. The host its issue URLs are on, what\n# reads an issue from a URL's path, and over the groups: the issue's one\n# fixed form, and the id a thread command takes for it.\n\nlink:\n  host: acme.example.com\n  issue: '^/([^/]+)/issue/([A-Z]+-[0-9]+)'\n  fixed: \"https://acme.example.com/{1}/issue/{2}\"\n  thread: \"{2}\"\n  # Drop fold where the service matches in exactly one case: with it the\n  # groups fold before the templates expand, so one spelling names the\n  # issue however it was typed.\n  fold: lower\n  # Drop pull and repos where the service has no pull requests: pull is\n  # the second shape, its own issue pattern with fixed and thread\n  # templates over the same groups in the same order, and repos is what a\n  # repository's path matches, as a depot's origin remote carries it past\n  # the host.\n  pull:\n    issue: '^/([^/]+)/pull/([0-9]+)'\n    fixed: \"https://acme.example.com/{1}/pull/{2}\"\n    thread: \"{1}#{2}\"\n  repos: '[^/]+/[^/]+'\n\n# ---- what an agent may ask of it, through `yardr call` --------------------\n# Drop check where no read call without parameters answers for the\n# credential: `yardr source check` then looks at the credential and sends\n# nothing. Drop idempotency where the service takes no key for it, or no\n# call updates.\n\n# Keep base with calls: every call's path is under it, and commands also\n# receive it as YARDR_SOURCE_BASE. Drop both where the source declares no\n# calls.\nbase: https://acme.example.com\ncheck: ping\nidempotency: Idempotency-Key\n# Each call is a separately grantable request. Keep the calls the service\n# can answer; drop this whole key where it has none (a source with no calls\n# may still send hooks or declare limits).\ncalls:\n  ping:\n    kind: read\n    about: Who the credential acts as.\n    request: { method: GET, path: /me }\n  customer:\n    kind: read\n    about: Look a customer up by id.\n    params:\n      id: { type: string, pattern: \"^[0-9]{1,12}$\", log: true }\n    request: { method: GET, path: \"/customers/{id}\" }\n    answer: { select: [id, name, plan] }\n  message:\n    kind: update\n    about: One message to one person.\n    params:\n      user:  { type: string, max: 64 }\n      title: { type: string, max: 250 }\n      text:  { type: string, max: 2000 }\n      link:  { type: string, max: 512, optional: true }\n    request: { method: POST, path: /messages, body: { to: \"{user}\", title: \"{title}\", text: \"{text}\", link: \"{link}\" } }\n\n# ---- telling a person through it ------------------------------------------\n# Drop the whole key where the service tells no person: without it no user\n# names the source. Which update call tells, and which of its parameters\n# take where the person is reached, a title, a text and a link.\n\nnotify:\n  call: message\n  address: { param: user, env: ACME_USER }   # the person's own address, read from the user's env file\n  title: title                               # the yard's value -\u003e the call's parameter\n  text: text\n  link: link\n\n# ---- which addresses are heard back ---------------------------------------\n# Drop the whole key where the source tells no person, or hears every\n# delivery back: without it every verified delivery is kept. With it a\n# delivery is kept only when its field holds an address a user's env file\n# sets, whatever the user is told through; from narrows whom it hears to\n# the operator, and is left out for every user whose env file sets the\n# address. subscribe names the filter a claim approval subscribes the\n# yard's hearer with beside the claimed address, as a subscription's\n# --where (subscribe: { type: message }); the claim sets field to the\n# address itself, so it is left out where the address alone is the\n# filter.\n\nhear:\n  field: channel\n  address: { env: ACME_USER }\n  from: operator\n",
+        "commands": [
+          {
+            "key": "thread.reply",
+            "program": "acme/thread",
+            "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+          },
+          {
+            "key": "thread.posted",
+            "program": "acme/thread",
+            "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+          },
+          {
+            "key": "thread.read",
+            "program": "acme/thread",
+            "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+          },
+          {
+            "key": "thread.open",
+            "program": "acme/thread",
+            "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+          },
+          {
+            "key": "thread.opened",
+            "program": "acme/thread",
+            "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+          },
+          {
+            "key": "thread.state",
+            "program": "acme/thread",
+            "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+          },
+          {
+            "key": "hook.normalize",
+            "program": "acme/normalize",
+            "sha256": "0771a7d174597eb72bf5c1a7ddd99ff8a575d6da9496bbeca4041f8c562ffc61"
+          },
+          {
+            "key": "events.pr",
+            "program": "acme/pr",
+            "sha256": "b467a97fce88cd5e63ff422a463511bae977886648e3191d699c6a89c1ae94a3"
+          },
+          {
+            "key": "events.ci",
+            "program": "acme/ci",
+            "sha256": "b38c0ae61d26006f35157bfe0425f10d3ffeb334b1dd1a165bb25c86db7141a7"
+          }
+        ]
+      }
+    }
+  ],
+  "questions": [],
+  "governs": [],
+  "sources": [],
+  "open_threads": [],
+  "maps": [],
+  "optional": [],
+  "declared": [
+    {
+      "source": "acme",
+      "file": "acme.yaml",
+      "base": "https://acme.example.com",
+      "calls": [
+        "ping (read)",
+        "customer (read)",
+        "message (update)"
+      ],
+      "commands": [
+        {
+          "key": "thread.reply",
+          "program": "acme/thread",
+          "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+        },
+        {
+          "key": "thread.posted",
+          "program": "acme/thread",
+          "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+        },
+        {
+          "key": "thread.read",
+          "program": "acme/thread",
+          "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+        },
+        {
+          "key": "thread.open",
+          "program": "acme/thread",
+          "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+        },
+        {
+          "key": "thread.opened",
+          "program": "acme/thread",
+          "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+        },
+        {
+          "key": "thread.state",
+          "program": "acme/thread",
+          "sha256": "bd54a4d7051fe439480de69eea35bfe291a22c1f356b1701bd269026801189cb"
+        },
+        {
+          "key": "hook.normalize",
+          "program": "acme/normalize",
+          "sha256": "0771a7d174597eb72bf5c1a7ddd99ff8a575d6da9496bbeca4041f8c562ffc61"
+        },
+        {
+          "key": "events.pr",
+          "program": "acme/pr",
+          "sha256": "b467a97fce88cd5e63ff422a463511bae977886648e3191d699c6a89c1ae94a3"
+        },
+        {
+          "key": "events.ci",
+          "program": "acme/ci",
+          "sha256": "b38c0ae61d26006f35157bfe0425f10d3ffeb334b1dd1a165bb25c86db7141a7"
+        }
+      ],
+      "action": "create",
+      "needs": [
+        {
+          "what": "env_file",
+          "status": "missing",
+          "detail": "no env_file is set for it, and a pack neither carries nor names one: yardr source key acme gives ACME_APP_ID and ACME_APP_KEY_FILE, or ACME_TOKEN and ACME_UPDATE_TOKEN, or yardr source set acme env_file=\u003cfile\u003e names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask \u003cbead\u003e \"\u003cquestion\u003e\" --secret acme --context \"\u003cwhere to get it\u003e\""
+        },
+        {
+          "what": "notify",
+          "status": "missing",
+          "detail": "it can tell a user outside the yard and no user names it. The import names none: yardr user key \u003cuser\u003e acme gives their ACME_USER, then yardr user set \u003cuser\u003e notify=acme"
+        }
+      ]
+    }
+  ],
+  "calls": [],
+  "expose": [],
+  "setup": "# Setting up acme\n\nThe pack wires the service into the yard as the declared source `acme`: its\nwebhooks are verified and read, and the yard replies, opens issues and sets\ntheir status through the commands the pack carries. What a stage means in\nthe service is a flow pack's to say, not this file's.\n\n1. **The webhook, in the service.** Make one with the URL\n   `https://\u003cpublic host\u003e/hooks/\u003chook name\u003e` — the path ends in the hook's\n   name, the one `yardr hook add` is given below — and tick the events for\n   issues and comments. The yard reads issue and comment deliveries only;\n   anything else it cannot use.\n2. **The hook and its secret.** The webhook's signing secret goes in a file,\n   mode 0600, which the hook names. A new file takes its mode from the\n   shell's umask, so narrow it first. The secret is never a command's\n   word: that line would stay in the shell's history. Each command below\n   is one thing to type, in a block of its own; run the second, type or\n   paste the secret blind and press Enter:\n   ```sh\n   umask 077\n   ```\n   ```sh\n   IFS= read -rs v \u0026\u0026 printf '%s' \"$v\" \u003e ~/.yardr/acme.secret; unset v\n   ```\n   ```sh\n   chmod 600 ~/.yardr/acme.secret\n   ```\n   ```sh\n   yardr hook add acme --source acme --secret-file ~/.yardr/acme.secret\n   # hook acme saved: POST /hooks/acme (acme)\n   ```\n   One hook serves every crew member.\n3. **The crew member's credential.** Two tokens in an env file of the crew\n   member's own, mode 0600, never in the store: one the reads are sent\n   with, one the updates are. A new file takes its mode from the shell's\n   umask, so narrow it first. Neither token is ever a command's word:\n   that line would stay in the shell's history. Each command below is one\n   thing to type, in a block of its own; run the second and the third,\n   typing or pasting each token blind and pressing Enter:\n   ```sh\n   umask 077\n   ```\n   ```sh\n   IFS= read -rs v \u0026\u0026 printf 'ACME_TOKEN=%s\\n' \"$v\" \u003e ~/.yardr/crew/\u003cname\u003e.env; unset v\n   ```\n   ```sh\n   IFS= read -rs v \u0026\u0026 printf 'ACME_UPDATE_TOKEN=%s\\n' \"$v\" \u003e\u003e ~/.yardr/crew/\u003cname\u003e.env; unset v\n   ```\n   ```sh\n   chmod 600 ~/.yardr/crew/\u003cname\u003e.env\n   ```\n   ```sh\n   yardr crew set \u003cname\u003e env_file=~/.yardr/crew/\u003cname\u003e.env\n   ```\n   Drop the third command where the declaration dropped `update_env`.\n   Restart the crew member after changing the file. Or the member speaks\n   with a minted credential: the two mint names beside the tokens' place,\n   and the operator's mint command, which turns their values into a\n   short-lived token, with the umask narrowed first as above. The id and\n   the key file's path are typed as usual: they are no secret, and the\n   key itself is never typed:\n   ```sh\n   umask 077\n   ```\n   ```sh\n   printf '%s\\n' 'ACME_APP_ID=\u003cid\u003e' 'ACME_APP_KEY_FILE=\u003ckey file\u003e' \u003e ~/.yardr/crew/\u003cname\u003e.env\n   chmod 600 ~/.yardr/crew/\u003cname\u003e.env\n   yardr crew set \u003cname\u003e env_file=~/.yardr/crew/\u003cname\u003e.env\n   yardr source set acme mint_command=\u003cprogram\u003e [args...]\n   # source acme: mint command \u003cprogram\u003e\n   ```\n   `yardr source check acme` looks the setup over — the source's own env\n   file, the mint, and that every command runs:\n   ```sh\n   yardr source set acme env_file=~/.yardr/crew/\u003cname\u003e.env\n   # source acme: ACME_TOKEN is set in /Users/me/.yardr/crew/\u003cname\u003e.env; for an update, ACME_UPDATE_TOKEN is set in /Users/me/.yardr/crew/\u003cname\u003e.env\n   yardr source check acme\n   # acme: credential: ACME_TOKEN is set in /Users/me/.yardr/crew/\u003cname\u003e.env\n   # acme: check call ping (GET /me): 200 in 12ms, 96 bytes\n   # acme: command thread.reply (acme/thread reply): can be run\n   # ...\n   ```\n   The source's file may name the crew member's where one member is all\n   the yard has; a yard with several keeps its own.\n4. **Its identity.** The id and the key of the user the token acts as,\n   looked up in the service by hand — both:\n   ```sh\n   yardr crew identity \u003cname\u003e --source acme --id \u003cuser id\u003e --key \u003chandle\u003e\n   ```\n   A key is kept lowercase, however it was typed. Drop `--id` where the\n   service tells the yard by the handle alone, and `--key` where it tells\n   it by the id alone.\n5. **The grants.** Opening issues and setting their status are the\n   operator's to grant:\n   ```sh\n   yardr crew set \u003cname\u003e open_threads=acme set_state=acme\n   ```\n6. **The stage map and the daemon's reads.** Which stage means which status\n   is set on the hook, with the crew member the yard acts as. Judging a\n   run against the pull request's head and reading CI as state run with\n   that member's credential too, read from the member's env file (step 3)\n   as for a move; nothing ambient is tried. `hook add` replaces the\n   definition, so the source and the secret file go again:\n   ```sh\n   yardr hook add acme --source acme --secret-file ~/.yardr/acme.secret --as \u003cname\u003e \\\n       --map task:new=started --map task:review=review --map task:merged=done \\\n       --says \"event=ci conclusion=success stage=in-pr -\u003e done\" \\\n       --says \"event=ci conclusion=failure stage=in-pr -\u003e changes\"\n   # hook acme saved: POST /hooks/acme (acme)\n   # moves tracked acme issues as \u003cname\u003e: task:merged=done task:new=started task:review=review\n   ```\n   A hook with an `event=ci` line and no `--as` is refused, as is one\n   whose source declares no `ci` command. A hook whose table has no\n   `event=ci` line may skip the `--as`: events still move beads, and only\n   the live reads need the member. The train's brief carries the same read\n   from the source's own env file (step 3), since the brief has no hook.\n7. **Test it.** As the crew member: open an issue, mention it from the\n   service, move it:\n   ```sh\n   yardr thread open acme --in \u003cteam\u003e \"Hello from the yard\" -b \"testing the wiring\"\n   # comment @\u003chandle\u003e on the issue in the service: it lands in the crew member's inbox as mentioned\n   yardr thread state \u003cthread id\u003e started\n   ```\n   `yardr thread list \u003cname\u003e` shows the thread's id.\n   To open an issue assigned to a person, give the yard's user their id in\n   the service once, then name them:\n   ```sh\n   yardr user identity \u003cuser\u003e --source acme --id \u003ctheir user id\u003e\n   yardr thread open acme --in \u003cteam\u003e --assign \u003cuser\u003e \"For you\"\n   ```\n",
+  "setup_file": "SETUP.md",
+  "notes": [],
+  "refused": []
+}

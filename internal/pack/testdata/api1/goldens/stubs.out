@@ -1,0 +1,20 @@
+== normalize {"headers":{},"body":{"action":"opened"}} ==
+{"type":"issue","action":"opened","actor":{"id":"u-1","name":"Jane"},"thread":{"id":"ACME-1","title":"An issue","url":"https://acme.example.com/acme/issue/ACME-1"},"mentions":[],"text":"an issue was created","fields":{"team":["acme"]}}
+== normalize {"headers":{},"body":{"action":"closed"}} ==
+{"type":"issue","action":"closed","actor":{"id":"u-1","name":"Jane"},"thread":{"id":"ACME-1","title":"An issue","url":"https://acme.example.com/acme/issue/ACME-1"},"mentions":[],"text":"an issue was created","fields":{"team":["acme"]}}
+== thread reply {"thread":"ACME-1","parent":"","body":"hi","key":"k-1"} ==
+{"id":"k-1","url":"https://acme.example.com/reply/k-1"}
+== thread posted {"thread":"ACME-1","key":"k-1"} ==
+{"id":"k-1","url":"https://acme.example.com/reply/k-1"}
+== thread read {"thread":"ACME-1"} ==
+{"messages":[{"id":"m-1","parent":"","author":{"id":"u-1","name":"Jane"},"at":"2026-10-14T00:00:00Z","body":"hello","url":"https://acme.example.com/acme/issue/acme-1#m-1"}]}
+== thread open {"in":"acme","title":"T","body":"B","key":"k-2"} ==
+{"id":"acme-9","title":"T","url":"https://acme.example.com/acme/issue/acme-9"}
+== thread opened {"in":"acme","key":"k-2"} ==
+{"id":"acme-9","title":"An issue","url":"https://acme.example.com/acme/issue/acme-9"}
+== thread state {"thread":"ACME-1","state":"started"} ==
+{"status":"started","moved":true}
+== pr {"repo":"acme/web","number":"7","url":""} ==
+{"head":"abc123","base":"main","state":"open"}
+== ci {"repo":"acme/web","number":"7","sha":"abc123"} ==
+{"head":"abc123","base":"main","state":"open","required":["build"],"checks":[{"name":"build","status":"completed","conclusion":"success","url":"https://acme.example.com/acme/web/checks/1"}]}

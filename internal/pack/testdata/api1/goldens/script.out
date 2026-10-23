@@ -1,0 +1,128 @@
+== env ==
+YARDR_ACTOR=web-assembly
+YARDR_BASE=main
+YARDR_BEAD=api1-standin
+YARDR_BIN=<bin>
+YARDR_BRANCH=yard/api1-standin
+YARDR_DEPOT=web
+YARDR_DEPOT_KIND=git
+YARDR_DEPOT_PATH=
+YARDR_FIXTURE=api1
+YARDR_GROUP=web-assembly
+YARDR_HOME=<home>
+YARDR_SESSION=<session>
+YARDR_STAGE=landed
+YARDR_TEST=sh .yardr/test
+YARDR_TRAIN=
+YARDR_TYPE=task
+YARDR_WORKTREE=<home>/worktrees/web/api1-standin
+== <bin> prime --bead api1-standin --json ==
+{
+  "bead": {
+    "depot": "web",
+    "id": "api1-standin",
+    "labels": [],
+    "priority": 0,
+    "stage": "landed",
+    "status": "open",
+    "title": "the fixture script's bead",
+    "type": "task"
+  },
+  "next": {
+    "outcomes": [
+      {
+        "goes": "merged",
+        "name": "done"
+      },
+      {
+        "goes": "new",
+        "name": "failed"
+      }
+    ],
+    "stage": "landed",
+    "stages": [
+      "merged",
+      "new",
+      "decide"
+    ]
+  }
+}
+exit=0
+== <bin> bead show api1-standin --json ==
+{
+  "depot": "web",
+  "id": "api1-standin",
+  "labels": [],
+  "priority": 0,
+  "stage": "landed",
+  "status": "open",
+  "title": "the fixture script's bead",
+  "type": "task"
+}
+exit=0
+== <bin> bead create the fixture's second bead -d web -s new -t task -b made by the fixture script --id api1-second --tracks https://acme.example.com/acme/issue/ACME-9 --json ==
+{
+  "body": "made by the fixture script",
+  "depot": "web",
+  "id": "api1-second",
+  "labels": [],
+  "priority": 2,
+  "stage": "new",
+  "status": "open",
+  "title": "the fixture's second bead",
+  "type": "task"
+}
+exit=0
+== <bin> bead update api1-second --meta api1=kept ==
+exit=0
+== <bin> bead note api1-second the fixture's note ==
+exit=0
+== <bin> bead show api1-second --json ==
+{
+  "body": "made by the fixture script",
+  "depot": "web",
+  "id": "api1-second",
+  "labels": [],
+  "metadata": {
+    "api1": "kept"
+  },
+  "priority": 2,
+  "stage": "new",
+  "status": "open",
+  "title": "the fixture's second bead",
+  "type": "task"
+}
+exit=0
+== <bin> link list api1-second --json ==
+[
+  {
+    "kind": "tracks",
+    "source": "acme",
+    "url": "https://acme.example.com/acme/issue/acme-9"
+  }
+]
+exit=0
+== <bin> bead advance api1-second --to backlog --note to backlog ==
+exit=0
+== <bin> bead done api1-second ==
+exit=0
+== <bin> bead hold api1-second ==
+exit=0
+== <bin> bead close api1-second --reason the fixture is done with it ==
+exit=0
+== <bin> bead show no-such-bead --json ==
+{
+  "error": "<error>"
+}
+exit=3
+== <bin> mail keeper the fixture says hello ==
+exit=0
+== <bin> settings get operator ==
+me
+exit=0
+== <bin> settings get operator --json ==
+{
+  "key": "operator",
+  "value": "me"
+}
+exit=0

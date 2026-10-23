@@ -1623,6 +1623,7 @@ packs/website/                 internal/pack
 internal/server/               internal/rpc
 internal/hooks/testdata/       internal/hooks internal/dispatch
 internal/cli/testdata/         internal/cli
+internal/pack/testdata/        internal/pack
 internal/store/testdata/       internal/store
 internal/web/assets/README.md  internal/web
 contrib/assembly/merge-local   internal/cli internal/pack

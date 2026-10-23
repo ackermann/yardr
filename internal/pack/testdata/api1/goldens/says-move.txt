@@ -1,0 +1,39 @@
+stage: review
+{
+  "actor": "yard",
+  "at": "<time>",
+  "bead": "<bead>",
+  "data": {
+    "action": "made <bead>",
+    "bead": "<bead>",
+    "depot": "web",
+    "event": "issue",
+    "hook": "acme",
+    "makes": "action=opened event=issue -> task:new@web",
+    "seq": "<seq>",
+    "stage": "new",
+    "thread": "https://acme.example.com/acme/issue/ACME-1"
+  },
+  "id": "<id>",
+  "kind": "hook_rule",
+  "seq": "<seq>"
+}
+{
+  "actor": "yard",
+  "at": "<time>",
+  "bead": "<bead>",
+  "data": {
+    "action": "new -> review",
+    "bead": "<bead>",
+    "event": "issue",
+    "hook": "acme",
+    "outcome": "done",
+    "says": "action=closed event=issue stage=new type=task -> done: The issue closed",
+    "seq": "<seq>",
+    "sha": "",
+    "stage": "new"
+  },
+  "id": "<id>",
+  "kind": "hook_rule",
+  "seq": "<seq>"
+}

@@ -1,0 +1,806 @@
+{
+  "pack": "api1-line",
+  "dir": "<fixture>/api1-line",
+  "digest": "bdc31685332e50662df6af343d1f488ddd643912c5b7a92285a3ff9176f746b6",
+  "programs": [
+    "scripts/contract"
+  ],
+  "kind": "git",
+  "depot": "web",
+  "flow": "default",
+  "depot_roles": false,
+  "groups": {
+    "assembly": "web-assembly",
+    "builders": "web-builders",
+    "keepers": "keepers",
+    "reviewers": "web-reviewers"
+  },
+  "crew": {
+    "keeper": "keeper"
+  },
+  "fill": {
+    "keeper": "keeper",
+    "operator": "me"
+  },
+  "home": "<home>",
+  "install": "<home>/packs/api1-line",
+  "stage_files": "<home>/flows",
+  "objects": [
+    {
+      "kind": "file",
+      "name": "roles/builder.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/roles/builder.md",
+        "to": "<home>/packs/api1-line/roles/builder.md",
+        "mode": "0644",
+        "sha256": "29d0ae185acfd3cd7fcae37fbc1c02f6c743dce79ce96e7a726a06a679f75dc9",
+        "fill": true
+      }
+    },
+    {
+      "kind": "file",
+      "name": "roles/keeper.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/roles/keeper.md",
+        "to": "<home>/packs/api1-line/roles/keeper.md",
+        "mode": "0644",
+        "sha256": "9a1f2c774b5490dcce1379e630bcb1e1b79df2d39686d9f0f2dc96fa36eac3f2",
+        "fill": true
+      }
+    },
+    {
+      "kind": "file",
+      "name": "roles/reviewer.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/roles/reviewer.md",
+        "to": "<home>/packs/api1-line/roles/reviewer.md",
+        "mode": "0644",
+        "sha256": "ea4c6ee14b47d4ecfa963412c4f7215cbeca16e82c67df8e22a4b93a1e725766",
+        "fill": true
+      }
+    },
+    {
+      "kind": "file",
+      "name": "scripts/contract",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/scripts/contract",
+        "to": "<home>/packs/api1-line/scripts/contract",
+        "mode": "0755",
+        "sha256": "98f8a9b4ff290eb6f9257591f3e030504902645dd19ef5ec45989cb6dac321b6"
+      }
+    },
+    {
+      "kind": "file",
+      "name": "flows/default/new.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/flows/default/new.md",
+        "to": "<home>/flows/api1-line.default/new.md",
+        "mode": "0644",
+        "sha256": "1584cf4dc60f3795864f55aabfbf4d8729b7089dbc73851186b25bf545797481",
+        "fill": true,
+        "flow": "api1-line.default",
+        "stage": "new"
+      }
+    },
+    {
+      "kind": "file",
+      "name": "flows/default/review.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/flows/default/review.md",
+        "to": "<home>/flows/api1-line.default/review.md",
+        "mode": "0644",
+        "sha256": "58a69a4966852d2af8e2e06dba972dab6e1833d435ea39934993023947d9da93",
+        "fill": true,
+        "flow": "api1-line.default",
+        "stage": "review"
+      }
+    },
+    {
+      "kind": "file",
+      "name": "flows/default/landed.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/flows/default/landed.md",
+        "to": "<home>/flows/api1-line.default/landed.md",
+        "mode": "0644",
+        "sha256": "0e253d1e45c2a6890e8c3b0139df63db07414ee10621091b15840c139358319b",
+        "fill": true,
+        "flow": "api1-line.default",
+        "stage": "landed"
+      }
+    },
+    {
+      "kind": "file",
+      "name": "flows/default/decide.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/flows/default/decide.md",
+        "to": "<home>/flows/api1-line.default/decide.md",
+        "mode": "0644",
+        "sha256": "b1b20df778b4f980edd4d09706fbab5a0bca3710197c4c621bb2cf79a209280b",
+        "fill": true,
+        "flow": "api1-line.default",
+        "stage": "decide"
+      }
+    },
+    {
+      "kind": "file",
+      "name": "flows/issue/triage.md",
+      "action": "create",
+      "file": {
+        "from": "<fixture>/api1-line/flows/issue/triage.md",
+        "to": "<home>/flows/api1-line.issue/triage.md",
+        "mode": "0644",
+        "sha256": "30f442da3156666a9a3b9056721f4d030b77b2759b87de10a6a5201889d276c5",
+        "fill": true,
+        "flow": "api1-line.issue",
+        "stage": "triage"
+      }
+    },
+    {
+      "kind": "group",
+      "name": "web-builders",
+      "action": "create",
+      "asks": [
+        "group.web-builders.kind",
+        "group.web-builders.model",
+        "group.web-builders.args"
+      ],
+      "group": {
+        "name": "web-builders",
+        "runner": "herdr",
+        "config": {
+          "prompt": "<home>/packs/api1-line/roles/builder.md"
+        },
+        "limit": 2
+      }
+    },
+    {
+      "kind": "group",
+      "name": "web-reviewers",
+      "action": "create",
+      "binds": "web-builders",
+      "group": {
+        "name": "web-reviewers",
+        "runner": "herdr",
+        "config": {
+          "prompt": "<home>/packs/api1-line/roles/reviewer.md"
+        },
+        "limit": 1
+      }
+    },
+    {
+      "kind": "group",
+      "name": "web-assembly",
+      "action": "create",
+      "env": [
+        "YARDR_FIXTURE=api1"
+      ],
+      "group": {
+        "name": "web-assembly",
+        "runner": "exec",
+        "config": {
+          "cmd": "YARDR_FIXTURE=api1 <home>/packs/api1-line/scripts/contract"
+        },
+        "limit": 1
+      }
+    },
+    {
+      "kind": "group",
+      "name": "keepers",
+      "action": "create",
+      "asks": [
+        "group.keepers.members"
+      ],
+      "group": {
+        "name": "keepers",
+        "runner": "manual",
+        "config": {},
+        "limit": 1
+      }
+    },
+    {
+      "kind": "flow",
+      "name": "api1-line.default",
+      "action": "create",
+      "flow": {
+        "name": "api1-line.default",
+        "stages": [
+          "backlog",
+          "new",
+          "review",
+          "landed",
+          "decide",
+          "merged"
+        ],
+        "transitions": {
+          "backlog": [
+            "new"
+          ],
+          "decide": [
+            "new",
+            "backlog"
+          ],
+          "landed": [
+            "merged",
+            "new",
+            "decide"
+          ],
+          "new": [
+            "review",
+            "decide",
+            "backlog"
+          ],
+          "review": [
+            "landed",
+            "new",
+            "decide"
+          ]
+        },
+        "terminal": [
+          "merged"
+        ],
+        "outcomes": {
+          "landed": [
+            {
+              "name": "done",
+              "to": "merged"
+            },
+            {
+              "name": "failed",
+              "to": "new",
+              "max": 2,
+              "then": "decide"
+            }
+          ],
+          "new": [
+            {
+              "name": "done",
+              "to": "review"
+            },
+            {
+              "name": "question",
+              "to": "decide"
+            }
+          ],
+          "review": [
+            {
+              "name": "done",
+              "to": "landed"
+            },
+            {
+              "name": "changes",
+              "to": "new",
+              "max": 2,
+              "then": "decide"
+            },
+            {
+              "name": "question",
+              "to": "decide"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "flow",
+      "name": "api1-line.issue",
+      "action": "create",
+      "flow": {
+        "name": "api1-line.issue",
+        "stages": [
+          "triage",
+          "kept",
+          "closed"
+        ],
+        "transitions": {
+          "kept": [
+            "closed"
+          ],
+          "triage": [
+            "kept",
+            "closed"
+          ]
+        },
+        "terminal": [
+          "closed"
+        ],
+        "outcomes": {
+          "kept": [
+            {
+              "name": "done",
+              "to": "closed"
+            }
+          ],
+          "triage": [
+            {
+              "name": "accepted",
+              "to": "kept"
+            },
+            {
+              "name": "dropped",
+              "to": "closed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "kind": "pointer",
+      "name": "depot web -\u003e api1-line.default",
+      "action": "create",
+      "pointer": {
+        "depot": "web",
+        "flow": "api1-line.default"
+      }
+    },
+    {
+      "kind": "pointer",
+      "name": "depot web type issue -\u003e api1-line.issue",
+      "action": "create",
+      "pointer": {
+        "depot": "web",
+        "type": "issue",
+        "flow": "api1-line.issue"
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage backlog -\u003e keepers",
+      "action": "create",
+      "route": {
+        "stage": "backlog",
+        "depot": "web",
+        "group": "keepers",
+        "originator": "any",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage new -\u003e web-builders",
+      "action": "create",
+      "route": {
+        "stage": "new",
+        "depot": "web",
+        "group": "web-builders",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage review -\u003e web-reviewers",
+      "action": "create",
+      "route": {
+        "stage": "review",
+        "depot": "web",
+        "group": "web-reviewers",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage landed -\u003e web-assembly",
+      "action": "create",
+      "route": {
+        "stage": "landed",
+        "depot": "web",
+        "group": "web-assembly",
+        "originator": "any",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage decide -\u003e keepers",
+      "action": "create",
+      "route": {
+        "stage": "decide",
+        "depot": "web",
+        "group": "keepers",
+        "originator": "any",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage triage type issue -\u003e keepers",
+      "action": "create",
+      "route": {
+        "stage": "triage",
+        "depot": "web",
+        "type": "issue",
+        "group": "keepers",
+        "originator": "any",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "route",
+      "name": "depot web stage kept type issue -\u003e web-builders",
+      "action": "create",
+      "route": {
+        "stage": "kept",
+        "depot": "web",
+        "type": "issue",
+        "group": "web-builders",
+        "priority": 0
+      }
+    },
+    {
+      "kind": "crew",
+      "name": "keeper",
+      "action": "change",
+      "changes": [
+        {
+          "field": "prompt",
+          "old": "",
+          "new": "<home>/packs/api1-line/roles/keeper.md"
+        },
+        {
+          "field": "on",
+          "old": null,
+          "new": [
+            "attention"
+          ]
+        }
+      ],
+      "crew": {
+        "pack": "keeper",
+        "crew": "keeper",
+        "prompt": "<home>/packs/api1-line/roles/keeper.md",
+        "on": [
+          "attention"
+        ]
+      }
+    },
+    {
+      "kind": "subscription",
+      "name": "keeper yardr all depot=web stage=decide",
+      "action": "create",
+      "subscription": {
+        "crew": "keeper",
+        "add": {
+          "source": "yardr",
+          "scope": "all",
+          "where": {
+            "depot": "web",
+            "stage": "decide"
+          }
+        }
+      }
+    },
+    {
+      "kind": "subscription",
+      "name": "keeper yardr all depot=web state=done",
+      "action": "create",
+      "subscription": {
+        "crew": "keeper",
+        "add": {
+          "source": "yardr",
+          "scope": "all",
+          "where": {
+            "depot": "web",
+            "state": "done"
+          }
+        }
+      }
+    },
+    {
+      "kind": "subscription",
+      "name": "keeper acme involved",
+      "action": "create",
+      "subscription": {
+        "crew": "keeper",
+        "add": {
+          "source": "acme",
+          "scope": "involved"
+        }
+      }
+    },
+    {
+      "kind": "map",
+      "name": "hook acme as keeper",
+      "action": "create",
+      "changes": [
+        {
+          "field": "as",
+          "old": "",
+          "new": "keeper"
+        },
+        {
+          "field": "map",
+          "old": "",
+          "new": "task:merged=done task:new=started task:review=review"
+        },
+        {
+          "field": "says",
+          "old": "",
+          "new": "action=closed event=issue stage=new type=task -\u003e done: The issue closed"
+        },
+        {
+          "field": "makes",
+          "old": "",
+          "new": "action=opened event=issue -\u003e task:new@web"
+        }
+      ],
+      "map": {
+        "hook": "acme",
+        "source": "acme",
+        "as": "keeper",
+        "map": {
+          "task:merged": "done",
+          "task:new": "started",
+          "task:review": "review"
+        },
+        "says": [
+          {
+            "where": {
+              "action": "closed",
+              "event": "issue",
+              "stage": "new",
+              "type": "task"
+            },
+            "outcome": "done",
+            "note": "The issue closed"
+          }
+        ],
+        "makes": [
+          {
+            "where": {
+              "action": "opened",
+              "event": "issue"
+            },
+            "type": "task",
+            "stage": "new",
+            "depot": "web"
+          }
+        ]
+      }
+    }
+  ],
+  "questions": [
+    {
+      "id": "group.web-builders.kind",
+      "object": "group web-builders",
+      "field": "kind",
+      "ask": "which agent runs group web-builders (claude, codex, ...)?"
+    },
+    {
+      "id": "group.web-builders.model",
+      "object": "group web-builders",
+      "field": "model",
+      "ask": "which model does group web-builders run (empty: the agent's own default)?"
+    },
+    {
+      "id": "group.web-builders.args",
+      "object": "group web-builders",
+      "field": "args",
+      "ask": "which permission arguments does group web-builders's agent run with (empty: none, and it stops at every permission prompt)?"
+    },
+    {
+      "id": "group.keepers.members",
+      "object": "group keepers",
+      "field": "members",
+      "ask": "who is in group keepers (actors who may move a bead out of its stages; empty: anyone)?"
+    }
+  ],
+  "governs": [
+    {
+      "flow": "api1-line.default",
+      "source": "store",
+      "now": "none",
+      "in_pack": true
+    },
+    {
+      "type": "issue",
+      "flow": "api1-line.issue",
+      "source": "store",
+      "now": "the depot's flow",
+      "in_pack": true
+    }
+  ],
+  "sources": [
+    {
+      "source": "acme",
+      "crew": "keeper",
+      "needs": [
+        {
+          "what": "hook",
+          "status": "ok",
+          "detail": "hook acme (POST /hooks/acme)"
+        },
+        {
+          "what": "secret_file",
+          "status": "missing",
+          "detail": "secret file /nonexistent/acme.secret: open /nonexistent/acme.secret: no such file or directory"
+        },
+        {
+          "what": "identity",
+          "status": "ok",
+          "detail": "crew member keeper has an identity in acme"
+        },
+        {
+          "what": "credential",
+          "status": "missing",
+          "detail": "ACME_APP_ID and ACME_APP_KEY_FILE, or ACME_TOKEN, in crew member keeper's env_file or from its env_command, to answer in acme: it has neither"
+        },
+        {
+          "what": "listener",
+          "status": "unknown",
+          "detail": "the server has not said what it takes webhooks on"
+        }
+      ]
+    }
+  ],
+  "open_threads": [
+    {
+      "pack": "keeper",
+      "crew": "keeper",
+      "wants": [
+        "acme"
+      ],
+      "has": [],
+      "lacks": [
+        {
+          "source": "acme",
+          "missing": [
+            {
+              "what": "credential",
+              "status": "missing",
+              "detail": "ACME_APP_ID and ACME_APP_KEY_FILE, or ACME_TOKEN, in crew member keeper's env_file or from its env_command, to answer in acme: it has neither"
+            }
+          ]
+        }
+      ],
+      "declined": [],
+      "asks": []
+    }
+  ],
+  "maps": [
+    {
+      "source": "acme",
+      "pack": "keeper",
+      "as": "keeper",
+      "map": {
+        "task:merged": "done",
+        "task:new": "started",
+        "task:review": "review"
+      },
+      "says": [
+        {
+          "where": {
+            "action": "closed",
+            "event": "issue",
+            "stage": "new",
+            "type": "task"
+          },
+          "outcome": "done",
+          "note": "The issue closed"
+        }
+      ],
+      "makes": [
+        {
+          "where": {
+            "action": "opened",
+            "event": "issue"
+          },
+          "type": "task",
+          "stage": "new",
+          "depot": "web"
+        }
+      ],
+      "hook": "acme",
+      "action": "create",
+      "needs": [
+        {
+          "what": "hook",
+          "status": "ok",
+          "detail": "hook acme"
+        },
+        {
+          "what": "identity",
+          "status": "ok",
+          "detail": "crew member keeper has an identity in acme"
+        },
+        {
+          "what": "set_state",
+          "status": "missing",
+          "detail": "crew member keeper may not set a status in acme, so no issue is moved. The import does not grant it: the operator allows it with yardr crew set keeper set_state=acme"
+        }
+      ]
+    }
+  ],
+  "optional": [],
+  "declared": [],
+  "calls": [
+    {
+      "pack": "builders",
+      "group": "web-builders",
+      "source": "acme",
+      "wants": [
+        "read"
+      ],
+      "updates": [],
+      "has": [],
+      "lacks": [
+        "read"
+      ],
+      "missing": [
+        {
+          "what": "env_file",
+          "status": "missing",
+          "detail": "no env_file is set for it, and a pack neither carries nor names one: yardr source key acme gives ACME_APP_ID and ACME_APP_KEY_FILE, or ACME_TOKEN and ACME_UPDATE_TOKEN, or yardr source set acme env_file=\u003cfile\u003e names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask \u003cbead\u003e \"\u003cquestion\u003e\" --secret acme --context \"\u003cwhere to get it\u003e\", then apply the pack again"
+        }
+      ],
+      "declined": [],
+      "asks": []
+    },
+    {
+      "pack": "reviewers",
+      "group": "web-reviewers",
+      "source": "acme",
+      "wants": [
+        "message"
+      ],
+      "updates": [
+        "message"
+      ],
+      "has": [],
+      "lacks": [
+        "message"
+      ],
+      "missing": [
+        {
+          "what": "env_file",
+          "status": "missing",
+          "detail": "no env_file is set for it, and a pack neither carries nor names one: yardr source key acme gives ACME_APP_ID and ACME_APP_KEY_FILE, or ACME_TOKEN and ACME_UPDATE_TOKEN, or yardr source set acme env_file=\u003cfile\u003e names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask \u003cbead\u003e \"\u003cquestion\u003e\" --secret acme --context \"\u003cwhere to get it\u003e\", then apply the pack again"
+        }
+      ],
+      "declined": [],
+      "asks": []
+    },
+    {
+      "pack": "keeper",
+      "crew": "keeper",
+      "source": "acme",
+      "wants": [
+        "customer"
+      ],
+      "updates": [],
+      "has": [],
+      "lacks": [
+        "customer"
+      ],
+      "missing": [
+        {
+          "what": "env_file",
+          "status": "missing",
+          "detail": "no env_file is set for it, and a pack neither carries nor names one: yardr source key acme gives ACME_APP_ID and ACME_APP_KEY_FILE, or ACME_TOKEN and ACME_UPDATE_TOKEN, or yardr source set acme env_file=\u003cfile\u003e names a file the operator keeps themselves; an agent asks from its pane: yardr bead ask \u003cbead\u003e \"\u003cquestion\u003e\" --secret acme --context \"\u003cwhere to get it\u003e\", then apply the pack again"
+        }
+      ],
+      "declined": [],
+      "asks": []
+    }
+  ],
+  "expose": [
+    {
+      "pack": "keeper",
+      "crew": "keeper",
+      "has": [],
+      "declined": [],
+      "asks": [],
+      "keys": {}
+    }
+  ],
+  "setup": "# Setting up api1-line\n\nThe fixture flow pack of pack API 1. It is applied after the api1-source\npack, which declares the acme source, and after a hook receives acme:\n\n```sh\nyardr pack apply api1-source\nyardr hook add acme --source acme --secret-file ~/.yardr/acme.secret\nyardr pack apply api1-line --depot web\n```\n\nThe import asks for the agents that run the builders and the assembly's\nscript runs as the yard's user. Nothing here is a secret.\n",
+  "setup_file": "SETUP.md",
+  "notes": [],
+  "refused": []
+}

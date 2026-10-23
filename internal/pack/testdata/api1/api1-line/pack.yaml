@@ -1,0 +1,60 @@
+# api1-line: the flow pack of API 1's fixture, frozen for the pack API
+# contract test (internal/pack/contract_test.go). It uses every stable
+# seam a pack of kind git may use: two flows (one with type:), every
+# stage key, an agent group with calls, an agent group that binds as it,
+# an exec group with env and a script, a people group, a crew member with
+# every key, and a source with as, hears, says and makes over the acme
+# source the api1-source pack declares. This pack never changes but for
+# a new API number, which adds api2/ beside api1/ and leaves this as it
+# is. Its digest is pinned in the test, so an edit shows as a changed
+# constant in review.
+name: api1-line
+api: 1
+kind: git
+setup: SETUP.md
+
+flows:
+  default:
+    stages:
+      backlog: { group: keepers,   manual: [new] }
+      new:     { group: builders,  file: flows/default/new.md,    outcomes: { done: review, question: decide }, manual: [backlog] }
+      review:  { group: reviewers, file: flows/default/review.md, outcomes: { done: landed, changes: { to: new, max: 2, then: decide }, question: decide } }
+      landed:  { group: assembly,  file: flows/default/landed.md, outcomes: { done: merged, failed: { to: new, max: 2, then: decide } } }
+      decide:  { group: keepers,   file: flows/default/decide.md, manual: [new, backlog] }
+      merged:  { end: true }
+
+  issue:
+    type: issue
+    stages:
+      triage: { group: keepers,  file: flows/issue/triage.md, outcomes: { accepted: kept, dropped: closed } }
+      kept:   { group: builders, outcomes: { done: closed } }
+      closed: { end: true }
+
+groups:
+  builders:  { agent: roles/builder.md,  limit: 2, calls: { acme: [read] } }
+  reviewers: { agent: roles/reviewer.md, limit: 1, binds_as: builders, calls: { acme: [message] } }
+  assembly:  { run: scripts/contract,    limit: 1, env: { YARDR_FIXTURE: api1 } }
+  keepers:   { people: true }
+
+crew:
+  keeper:
+    role: roles/keeper.md
+    hears:
+      events: [attention]
+      stages: [decide]
+      done: true
+    subscribe:
+      acme: involved
+    open_threads: [acme]
+    expose_to_peers: true
+    calls: { acme: [customer] }
+
+sources:
+  acme:
+    as: keeper
+    hears:
+      task: { new: started, review: review, merged: done }
+    makes:
+      - { where: "event=issue action=opened", bead: { type: task, stage: new, depot: web } }
+    says:
+      - { where: "event=issue action=closed stage=new type=task", outcome: done, note: "The issue closed" }

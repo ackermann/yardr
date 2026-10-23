@@ -1,0 +1,9 @@
+#!/bin/sh
+# pr: the pull request live: its head commit, base branch and state. One
+# JSON object on stdin, one on stdout, as the events key of the declaration
+# says: in {repo, number, url}, out {head, base, state}. The daemon reads it
+# when no event has told the pull request's head. ACME_TOKEN (or what the
+# source's mint_command minted) and YARDR_SOURCE_BASE, the declaration's
+# base, are in the environment. The stub calls no service: it answers in
+# shape. Needs jq.
+exec jq -c '{head: "abc123", base: "main", state: "open"}'
