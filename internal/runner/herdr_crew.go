@@ -217,9 +217,13 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 	// The environment goes over the socket, never on a command line (see
 	// call). The workspace is not focused: a crew member starts in the
 	// background, under the daemon, not in front of whoever is at herdr.
+	paneEnv := withEnvFile(env, secrets)
+	// Before the agent starts: a home directory's trust never sticks past
+	// the accept, so it is seeded first (see maybeSeedHomeTrust).
+	h.maybeSeedHomeTrust(r.Config, dir, paneEnv)
 	raw, err := h.call(ctx, "workspace.create", map[string]any{
 		"cwd": dir, "label": label, "focus": false,
-		"env": envMap(withEnvFile(env, secrets)),
+		"env": envMap(paneEnv),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("workspace for %s: %w", r.Name, err)

@@ -39,7 +39,9 @@ fetch:
 
 # Claude Code asks whether a folder is trusted the first time it is started
 # in it, and has no flag that skips the question: yardr answers it
-# (internal/runner/trust.go). The dialog is the start of its question, the
+# (internal/runner/trust.go). In its home the accept never sticks, so a crew
+# member's start seeds that trust first (same file). The dialog is the start
+# of its question, the
 # answer the one that accepts it, the cursor the mark of its selected
 # answer, as 2.1.288 prints them. The question's parenthetical tail wraps
 # wherever the pane wraps, so the whole question never sits on one row;

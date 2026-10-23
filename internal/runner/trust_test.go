@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -997,4 +998,237 @@ func TestOnboardingEntries(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A Claude session started in its own home never records the trust answer:
+// the accept is honoured for the session while the store keeps
+// hasTrustDialogAccepted false, so every start draws the dialog again
+// (probed live, yardr-88nb). yardr seeds the true itself before such a
+// start; a true written beforehand is honoured and kept.
+func TestSeedClaudeHomeTrust(t *testing.T) {
+	t.Parallel()
+	const dir = "/Users/ada"
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), ".claude.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	for _, c := range []struct {
+		name                string
+		body                string
+		wantSeeded, wantErr bool
+		wantUnchanged       bool
+		wantFragment        string
+	}{
+		{"already true writes nothing",
+			`{"numStartups": 3, "projects": {"/Users/ada": {"hasTrustDialogAccepted": true}}}`,
+			false, false, true, ""},
+		{"false becomes true",
+			`{"numStartups": 3, "projects": {"/Users/ada": {"hasTrustDialogAccepted": false, "lastVersionBase": "2.1.288"}, "/Users/ada/work": {"hasTrustDialogAccepted": true}}}`,
+			true, false, false, ""},
+		{"a missing entry is created",
+			`{"projects": {"/Users/ada/work": {"hasTrustDialogAccepted": true}}}`,
+			true, false, false, ""},
+		{"missing projects are created",
+			`{}`,
+			true, false, false, ""},
+		{"broken json is an error",
+			`{oops`,
+			false, true, true, ""},
+		{"trailing json is an error",
+			`{"projects": {}} {}`,
+			false, true, true, ""},
+		{"projects of the wrong shape are an error",
+			`{"projects": []}`,
+			false, true, true, ""},
+		{"an entry of the wrong shape is an error",
+			`{"projects": {"/Users/ada": false}}`,
+			false, true, true, ""},
+		{"large unrelated numbers stay exact",
+			`{"futureSetting": 9007199254740993, "projects": {"/Users/ada": {"hasTrustDialogAccepted": false}}}`,
+			true, false, false, `"futureSetting": 9007199254740993`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			path := write(t, c.body)
+			seeded, err := seedClaudeHomeTrust(path, dir)
+			if seeded != c.wantSeeded || (err != nil) != c.wantErr {
+				t.Fatalf("seedClaudeHomeTrust() = %v, %v, want %v, err %v", seeded, err, c.wantSeeded, c.wantErr)
+			}
+			body, ferr := os.ReadFile(path)
+			if ferr != nil {
+				t.Fatal(ferr)
+			}
+			if c.wantUnchanged && string(body) != c.body {
+				t.Fatalf("store rewritten, want it untouched:\n%s", body)
+			}
+			if c.wantFragment != "" && !strings.Contains(string(body), c.wantFragment) {
+				t.Fatalf("store lost exact JSON value %s:\n%s", c.wantFragment, body)
+			}
+			if c.wantErr || c.wantUnchanged {
+				return
+			}
+			var store struct {
+				NumStartups int `json:"numStartups"`
+				Projects    map[string]struct {
+					Trust   bool   `json:"hasTrustDialogAccepted"`
+					Version string `json:"lastVersionBase"`
+				} `json:"projects"`
+			}
+			if err := json.Unmarshal(body, &store); err != nil {
+				t.Fatalf("seeded store does not parse: %v", err)
+			}
+			if !store.Projects[dir].Trust {
+				t.Errorf("the entry for %s is not trusted:\n%s", dir, body)
+			}
+			if strings.Contains(c.body, "numStartups") && store.NumStartups != 3 {
+				t.Errorf("top-level keys not kept:\n%s", body)
+			}
+			if strings.Contains(c.body, "/Users/ada/work") && !store.Projects["/Users/ada/work"].Trust {
+				t.Errorf("a sibling entry not kept:\n%s", body)
+			}
+			if strings.Contains(c.body, "lastVersionBase") && store.Projects[dir].Version != "2.1.288" {
+				t.Errorf("the entry's other keys not kept:\n%s", body)
+			}
+		})
+	}
+	// A store that is not there is left alone: the harness writes it
+	// itself, and the next start seeds that one.
+	t.Run("a missing store is left alone", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), ".claude.json")
+		if seeded, err := seedClaudeHomeTrust(path, dir); seeded || err != nil {
+			t.Fatalf("seedClaudeHomeTrust() = %v, %v, want false, nil", seeded, err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("store created: %v", err)
+		}
+	})
+	// The seed keeps the file's mode.
+	t.Run("the mode is kept", func(t *testing.T) {
+		t.Parallel()
+		path := write(t, `{"projects": {"/Users/ada": {"hasTrustDialogAccepted": false}}}`)
+		if err := os.Chmod(path, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		if seeded, err := seedClaudeHomeTrust(path, dir); !seeded || err != nil {
+			t.Fatalf("seedClaudeHomeTrust() = %v, %v, want true, nil", seeded, err)
+		}
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
+			t.Fatalf("mode = %v, %v, want 0640", info.Mode(), err)
+		}
+	})
+}
+
+// The seed goes only to a Claude session starting in its own home with
+// automatic trust: anything else is left for the harness to record.
+func TestMaybeSeedHomeTrust(t *testing.T) {
+	// No t.Parallel: HOME is process-wide.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	key := realPath(home)
+	claude := map[string]any{"kind": "claude"}
+	write := func(dir, body string) string {
+		t.Helper()
+		path := filepath.Join(dir, ".claude.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	storeOf := func(path string) map[string]any {
+		t.Helper()
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var store map[string]any
+		if err := json.Unmarshal(body, &store); err != nil {
+			t.Fatalf("store does not parse: %v", err)
+		}
+		return store
+	}
+	trustOf := func(path, dir string) any {
+		t.Helper()
+		projects, _ := storeOf(path)["projects"].(map[string]any)
+		entry, _ := projects[dir].(map[string]any)
+		return entry["hasTrustDialogAccepted"]
+	}
+	h := &Herdr{}
+	t.Run("seeds the home dir", func(t *testing.T) {
+		path := write(home, `{"projects": {"`+key+`": {"hasTrustDialogAccepted": false}}}`)
+		h.maybeSeedHomeTrust(claude, home, nil)
+		if trustOf(path, key) != true {
+			t.Fatalf("the home dir is not trusted: %v", storeOf(path))
+		}
+		// Twice is once: the second start finds the true and writes nothing.
+		before, _ := os.ReadFile(path)
+		h.maybeSeedHomeTrust(claude, home, nil)
+		if after, _ := os.ReadFile(path); string(after) != string(before) {
+			t.Fatalf("the store rewritten although trusted:\n%s", after)
+		}
+	})
+	t.Run("kind defaults to claude", func(t *testing.T) {
+		path := write(home, `{"projects": {"`+key+`": {"hasTrustDialogAccepted": false}}}`)
+		h.maybeSeedHomeTrust(map[string]any{}, home, nil)
+		if trustOf(path, key) != true {
+			t.Fatalf("the home dir is not trusted: %v", storeOf(path))
+		}
+	})
+	for _, c := range []struct {
+		name string
+		cfg  map[string]any
+		env  []string
+	}{
+		{"another directory", claude, nil},
+		{"another kind", map[string]any{"kind": "kimi"}, nil},
+		{"trust=false", map[string]any{"kind": "claude", "trust": false}, nil},
+		{"a redirected config", claude, []string{"CLAUDE_CONFIG_DIR=" + t.TempDir()}},
+	} {
+		t.Run(c.name+" is left alone", func(t *testing.T) {
+			dir := home
+			if c.name == "another directory" {
+				dir = filepath.Join(home, "work")
+			}
+			body := `{"projects": {"` + key + `": {"hasTrustDialogAccepted": false}}}`
+			path := write(home, body)
+			h.maybeSeedHomeTrust(c.cfg, dir, c.env)
+			if after, _ := os.ReadFile(path); string(after) != body {
+				t.Fatalf("the store rewritten:\n%s", after)
+			}
+		})
+	}
+	t.Run("an empty redirect is no redirect", func(t *testing.T) {
+		path := write(home, `{"projects": {"`+key+`": {"hasTrustDialogAccepted": false}}}`)
+		h.maybeSeedHomeTrust(claude, home, []string{"CLAUDE_CONFIG_DIR="})
+		if trustOf(path, key) != true {
+			t.Fatalf("the home dir is not trusted: %v", storeOf(path))
+		}
+	})
+	t.Run("the session HOME wins", func(t *testing.T) {
+		other := t.TempDir()
+		otherKey := realPath(other)
+		otherStore := write(other, `{"projects": {"`+otherKey+`": {"hasTrustDialogAccepted": false}}}`)
+		homeBody := `{"projects": {"` + key + `": {"hasTrustDialogAccepted": false}}}`
+		homeStore := write(home, homeBody)
+		h.maybeSeedHomeTrust(claude, other, []string{"HOME=" + other})
+		if trustOf(otherStore, otherKey) != true {
+			t.Fatalf("the session home is not trusted: %v", storeOf(otherStore))
+		}
+		if after, _ := os.ReadFile(homeStore); string(after) != homeBody {
+			t.Fatalf("the wrong store rewritten:\n%s", after)
+		}
+	})
+	t.Run("a missing store is fine", func(t *testing.T) {
+		if err := os.Remove(filepath.Join(home, ".claude.json")); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		h.maybeSeedHomeTrust(claude, home, nil) // must not fail the start
+		if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
+			t.Fatalf("store created: %v", err)
+		}
+	})
 }

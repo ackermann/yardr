@@ -3,7 +3,11 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,6 +28,13 @@ import (
 // projects.<path>.hasTrustDialogAccepted into ~/.claude.json, an
 // undocumented file that every running Claude session rewrites under a lock
 // of its own; a second writer would race them.
+//
+// One directory is seed-only: the session's own home. An accept there is
+// honoured for the session but never written back, so every start draws the
+// dialog again, while a true written beforehand is honoured and kept (both
+// probed live, yardr-88nb). Before starting a crew member's Claude session
+// in its home, yardr writes the true itself (see maybeSeedHomeTrust), once:
+// later starts find it true and write nothing.
 //
 // A harness may also ask whether to use the API key in its session's
 // environment, on its first start with one set and no login. The key is
@@ -143,6 +154,132 @@ func (h *Herdr) answerStartup(ctx context.Context, pane string, trust, key *agen
 		}
 	}
 	return ""
+}
+
+// maybeSeedHomeTrust records dir as trusted in the Claude trust store before
+// a session starts in it, when dir is the home the session's harness will
+// see: the session's HOME entry when its environment sets one, else this
+// process's home, which is the harness's on a local yard (the pane inherits
+// it; yardr sets YARDR_HOME, not HOME). Any other directory is left for the
+// harness to record on the accept, as is a session whose config redirects
+// its store (CLAUDE_CONFIG_DIR moves .claude.json too, and which directory
+// is seed-only there was not probed). A store that is missing is left for
+// the harness to write, and one already true is left untouched, so in the
+// steady state this only reads. It never fails the start: at worst the
+// dialog draws and is answered as before.
+func (h *Herdr) maybeSeedHomeTrust(cfg map[string]any, dir string, sessionEnv []string) {
+	if agents.Kind(cfg) != "claude" || trustEntry(cfg) == nil {
+		return
+	}
+	home := ""
+	for _, e := range sessionEnv {
+		k, v, _ := strings.Cut(e, "=")
+		switch k {
+		case "HOME":
+			home = v
+		case "CLAUDE_CONFIG_DIR":
+			if v != "" {
+				return
+			}
+		}
+	}
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if home == "" || realPath(dir) != realPath(home) {
+		return
+	}
+	seeded, err := seedClaudeHomeTrust(filepath.Join(home, ".claude.json"), realPath(dir))
+	switch {
+	case err != nil:
+		if h.Log != nil {
+			h.Log.Warn("seed folder trust", "dir", dir, "err", err)
+		}
+	case seeded && h.Log != nil:
+		h.Log.Info("seeded folder trust", "dir", dir)
+	}
+}
+
+// seedClaudeHomeTrust sets projects.dir.hasTrustDialogAccepted in the Claude
+// trust store at storePath, creating the projects map or dir's entry when
+// missing, and reports whether it wrote. Every other key is kept as it was.
+// A store that is missing, or one already true, is left alone, byte for
+// byte: the write happens once, on the first seeded start, so the race with
+// a Claude session rewriting the file at the same moment is a one-time
+// event, and a side whose update is lost re-reads it on the next accept or
+// start. The write itself is atomic, a rename over the store.
+func seedClaudeHomeTrust(storePath, dir string) (bool, error) {
+	body, err := os.ReadFile(storePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %w", storePath, err)
+	}
+	var store map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&store); err != nil {
+		return false, fmt.Errorf("read %s: %w", storePath, err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return false, fmt.Errorf("read %s: multiple JSON values", storePath)
+		}
+		return false, fmt.Errorf("read %s: %w", storePath, err)
+	}
+	if store == nil {
+		store = map[string]any{}
+	}
+	projects, ok := store["projects"].(map[string]any)
+	if store["projects"] != nil && !ok {
+		return false, fmt.Errorf("read %s: projects is not an object", storePath)
+	}
+	if projects == nil {
+		projects = map[string]any{}
+		store["projects"] = projects
+	}
+	entry, ok := projects[dir].(map[string]any)
+	if projects[dir] != nil && !ok {
+		return false, fmt.Errorf("read %s: the entry for %s is not an object", storePath, dir)
+	}
+	if entry == nil {
+		entry = map[string]any{}
+		projects[dir] = entry
+	}
+	if entry["hasTrustDialogAccepted"] == true {
+		return false, nil
+	}
+	entry["hasTrustDialogAccepted"] = true
+	out, err := json.MarshalIndent(store, "", "  ")
+	if err != nil {
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	info, err := os.Stat(storePath)
+	if err != nil {
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(storePath), ".claude.json.yardr.*")
+	if err != nil {
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // a no-op after the rename
+	if err := tmp.Chmod(info.Mode()); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	if _, err := tmp.Write(out); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	if err := os.Rename(tmpName, storePath); err != nil {
+		return false, fmt.Errorf("write %s: %w", storePath, err)
+	}
+	return true, nil
 }
 
 // trustAnswer finds t on a pane's screen: found when the dialog is up,

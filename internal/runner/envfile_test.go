@@ -3,6 +3,7 @@ package runner
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -184,6 +185,53 @@ func TestStartCrewSetsTrustEnv(t *testing.T) {
 	env = envOf(apiCall(t, readCalls(t, calls), "workspace.create"))
 	if v, ok := env["KIMI_CODE_TRUST_WORKSPACE"]; !ok || v != "" {
 		t.Errorf("crew env_file bypassed trust=false: %v", env)
+	}
+
+	// A Claude crew member starting in the home its pane sees seeds the
+	// trust store before workspace.create.
+	home := t.TempDir()
+	key := realPath(home)
+	storePath := filepath.Join(home, ".claude.json")
+	body, err := json.Marshal(map[string]any{"projects": map[string]any{
+		key: map[string]any{"hasTrustDialogAccepted": false},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(storePath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	homeEnv := filepath.Join(t.TempDir(), "home.env")
+	if err := os.WriteFile(homeEnv, []byte("HOME="+home+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h, calls, _ = envHerdr(t, "")
+	h.YardHome = home
+	r = store.CrewMember{Name: "yardmaster", Dir: home,
+		Config: map[string]any{"kind": "claude", "env_file": homeEnv}}
+	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
+		t.Fatal(err)
+	}
+	var seeded map[string]any
+	if body, err := os.ReadFile(storePath); err != nil {
+		t.Fatal(err)
+	} else if err := json.Unmarshal(body, &seeded); err != nil {
+		t.Fatal(err)
+	}
+	projects, _ := seeded["projects"].(map[string]any)
+	entry, _ := projects[key].(map[string]any)
+	if entry["hasTrustDialogAccepted"] != true {
+		t.Fatalf("the home dir is not trusted: %v", seeded)
+	}
+	other := t.TempDir()
+	h, _, _ = envHerdr(t, "")
+	h.YardHome = home
+	r.Dir = other
+	if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(other, ".claude.json")); !os.IsNotExist(err) {
+		t.Fatalf("store created away from the home: %v", err)
 	}
 }
 
