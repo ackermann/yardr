@@ -104,15 +104,40 @@ func (w Window) OverTarget() bool {
 		float64(*w.Used)*100/float64(*w.Limit) > *w.TargetPercent
 }
 
-// UsedUp is the window an agent of the kind waits for: of those that are
-// used up the one that resets last, since the agent cannot work before it
-// opens. One whose reset is not known counts as the earliest: a time that
-// is known says more. nil when no window is used up.
+// UsedUp is the window that opens last of those that are used up: the one
+// that resets last, since an agent held by all of them cannot work before it
+// opens. One whose reset is not known counts as the earliest: a time that is
+// known says more. nil when no window is used up. It is what is shown of a
+// subscription; the window an agent that stopped waits for is UsedUpForStop's.
 func (r *Report) UsedUp() *Window {
+	return r.resetsLastOf(func(Window) bool { return true })
+}
+
+// UsedUpForStop is the window an agent that stopped on a usage limit waits
+// for. The yard does not know which model the agent runs, and a window that
+// counts for one model alone (Window.Model) can reset days after the
+// allowance every model shares: an agent of another model, stopped on that
+// allowance, would be told to wait for the days, and not be prompted at the
+// reset that frees it. So the windows with no model come first, the one of
+// them that resets last as UsedUp has it; a window of one model only when no
+// other is used up, and then the one of them that resets last. An agent of
+// that model, stopped on the shared window, stops again when it is prompted
+// at that reset and is told of its own window then. nil when no window is
+// used up.
+func (r *Report) UsedUpForStop() *Window {
+	if w := r.resetsLastOf(func(w Window) bool { return w.Model == "" }); w != nil {
+		return w
+	}
+	return r.UsedUp()
+}
+
+// resetsLastOf is the window that resets last of those that are used up and
+// that keep holds for; UsedUp says how a reset that is not known counts.
+func (r *Report) resetsLastOf(keep func(Window) bool) *Window {
 	var out *Window
 	for i := range r.Windows {
 		w := &r.Windows[i]
-		if !w.UsedUp() {
+		if !w.UsedUp() || !keep(*w) {
 			continue
 		}
 		if out == nil || w.ResetsAt != nil && (out.ResetsAt == nil || w.ResetsAt.After(*out.ResetsAt)) {

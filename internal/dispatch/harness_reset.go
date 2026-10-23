@@ -31,7 +31,8 @@ import (
 //     provider's word hours ago. A window still used up is told of again,
 //     as at the stop, with the later time: what the first event said no
 //     longer holds. A provider that gives no answer does not hold the
-//     prompt back; the time it gave has come.
+//     prompt back; the time it gave has come. Nor does a window that counts
+//     for one model alone while no other is used up (windowOpen).
 //   - Then the agent is prompted, when the usage limit still ends its pane,
 //     its input is empty and no first prompt is on its way: a session that
 //     has done nothing gets its first prompt again, as one at capacity
@@ -113,13 +114,19 @@ func resetLine(kind, window string) string {
 // is the one place
 // besides harnessLimits where the dispatcher runs the source's command, and
 // it is reached only at the wake of an agent that is about to be prompted.
+//
+// A window that counts for a single model holds nothing here. UsedUpForStop
+// gives one only when no window every model draws from is used up, and the
+// agent's model is not known: holding the agent for a window that may be
+// another model's, days off, would undo the choice made at the stop. An agent
+// of that model stops on it again when it is prompted, and is told of it then.
 func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string, env []string) bool {
 	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env)
 	if err != nil {
 		return ctx.Err() == nil
 	}
-	w := r.UsedUp()
-	return w == nil || w.ResetsAt != nil && !w.ResetsAt.After(d.now())
+	w := r.UsedUpForStop()
+	return w == nil || w.Model != "" || w.ResetsAt != nil && !w.ResetsAt.After(d.now())
 }
 
 // sessionWindowOpen is windowOpen for a session of g: the subscription

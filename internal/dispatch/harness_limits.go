@@ -159,8 +159,10 @@ func (d *Dispatcher) askSource(ctx context.Context, source string, age time.Dura
 // yard's source says of the subscription's limits, read under env: the
 // report (`limits`) and, when a window is used up, the one the agent waits
 // for (`window`) with when it resets (`resets_at`, when the provider
-// said). scope names whose login is read, as askLimits asks. It returns
-// that in words, to begin the event's hint, and the window, nil for none.
+// said). The agent's model is not known, so the window is UsedUpForStop's:
+// one that counts for a single model only when no other is used up. scope
+// names whose login is read, as askLimits asks. It returns that in words, to
+// begin the event's hint, and the window, nil for none.
 //
 // With no source for the subscription, or a provider that gave no answer,
 // the event is as it was, with why nothing is known in `limits_unknown`,
@@ -175,7 +177,7 @@ func (d *Dispatcher) harnessLimits(ctx context.Context, kind, provider string, e
 		return "", nil
 	}
 	data["limits"] = r
-	w = r.UsedUp()
+	w = r.UsedUpForStop()
 	if w == nil {
 		// The provider reads the login it was asked under and knows no
 		// model: the limit the harness hit is one it does not report.

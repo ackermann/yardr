@@ -597,14 +597,17 @@ they have no answer, and `source check` fails for them.
 - **What the yard reads from it itself** is when a window is used up
   (`used_percent` 100 or more, or `used` at a `limit` above 0) and when it
   is burned past its target, which `yardr limits` marks over target. Of
-  several that are used up, the one that resets last is the window an
-  agent waits for (`window` and `resets_at` in `--json`). It reads `model`
-  for one thing: a window that has one is a per-model window, which
-  `yardr limits` marks (`model Fable`) and which holds no group that names
-  no condition
-  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)).
-  It does not match a window's model to a group's: a condition that names
-  the window reads it for whichever group it is on.
+  several that are used up, `yardr limits` shows the one that resets last
+  as the window an agent waits for (`window` and `resets_at` in `--json`).
+  It reads `model` for two things: a window that has one is a per-model
+  window, which `yardr limits` marks (`model Fable`), which holds no group
+  that names no condition
+  ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)),
+  and which an agent that stopped on a usage limit is told it waits for
+  only when no other window is used up
+  ([groups.md](groups.md#a-usage-limit-says-its-window-and-when-it-resets)).
+  It does not match a window's model to a group's or an agent's: a
+  condition that names the window reads it for whichever group it is on.
 - **Anything else is no answer**: another exit status, nothing within the
   30 seconds, output that is not that object. The limits are then *not
   known*, with a reason in one line that ends with the last lines the
@@ -1627,8 +1630,9 @@ yardr call crm note id=4711 text="asked for a copy of the invoice"   # in a sess
   its provider is used up: a second way to an answer (a
   declared HTTPS call, an adapter in Go), limits by model (a window may say
   its model, which only keeps it from holding a group that names no
-  condition; no group is matched to the model of a window), the limits of an
-  account that is not the operator's.
+  condition and from being the window a stopped agent waits for while
+  another is used up; no group or agent is matched to the model of a
+  window), the limits of an account that is not the operator's.
 
 ## How one becomes part of a yard
 

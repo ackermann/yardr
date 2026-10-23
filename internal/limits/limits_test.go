@@ -437,11 +437,19 @@ func TestAskReadsWhatIsLeftOut(t *testing.T) {
 	}
 }
 
-// Of the windows that are used up, the one an agent waits for resets last;
-// a reset that is known says more than one that is not.
+// Of the windows that are used up, UsedUp is the one that resets last; a
+// reset that is known says more than one that is not. An agent that stopped
+// waits for the same where no window names a model, and otherwise for a window
+// every model draws from before one that counts for a single model.
 func TestUsedUpIsTheWindowThatResetsLast(t *testing.T) {
 	at := func(h int) *time.Time { t := time.Date(2026, 10, 7, h, 0, 0, 0, time.UTC); return &t }
-	full := 100.0
+	full, part := 100.0, 38.0
+	label := func(w *Window) string {
+		if w == nil {
+			return ""
+		}
+		return w.Label
+	}
 	r := &Report{Windows: []Window{
 		{Label: "unknown", UsedPercent: &full},
 		{Label: "5h", UsedPercent: &full, ResetsAt: at(2)},
@@ -451,19 +459,61 @@ func TestUsedUpIsTheWindowThatResetsLast(t *testing.T) {
 	if w := r.UsedUp(); w == nil || w.Label != "Weekly" {
 		t.Fatalf("UsedUp = %+v", w)
 	}
+	if w := r.UsedUpForStop(); w == nil || w.Label != "Weekly" {
+		t.Fatalf("UsedUpForStop = %+v, want the same where no window names a model", w)
+	}
 	r.Windows = r.Windows[:1]
 	if w := r.UsedUp(); w == nil || w.Label != "unknown" {
 		t.Fatalf("UsedUp = %+v", w)
 	}
-	// A window for one model alone is waited for as any other: the agent that
-	// stopped on it is the one that runs that model, and the window that
-	// resets last is the one it waits for.
-	r.Windows = []Window{
-		{Label: "Weekly", UsedPercent: &full, ResetsAt: at(9)},
-		{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(20)},
+	if w := r.UsedUpForStop(); w == nil || w.Label != "unknown" {
+		t.Fatalf("UsedUpForStop = %+v", w)
 	}
-	if w := r.UsedUp(); w == nil || w.Label != "Weekly Fable" {
-		t.Fatalf("UsedUp = %+v, want the per-model window that resets last", w)
+
+	// UsedUp shows a window for one model alone as it shows any other. The
+	// yard does not know which model an agent that stopped runs, and such a
+	// window resets days after the allowance every model shares, so the agent
+	// waits for a window with no model while one is used up, and for one
+	// window of a model only when it is the only kind used up.
+	for name, tc := range map[string]struct {
+		windows         []Window
+		usedUp, forStop string
+	}{
+		"a shared window beside a per-model one that resets days later": {[]Window{
+			{Label: "5h", UsedPercent: &full, ResetsAt: at(2)},
+			{Label: "Weekly", UsedPercent: &part, ResetsAt: at(9)},
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(20)},
+		}, "Weekly Fable", "5h"},
+		"the shared windows open": {[]Window{
+			{Label: "5h", UsedPercent: &part, ResetsAt: at(2)},
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(20)},
+		}, "Weekly Fable", "Weekly Fable"},
+		"two shared windows, the one that resets last": {[]Window{
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(20)},
+			{Label: "Weekly", UsedPercent: &full, ResetsAt: at(9)},
+			{Label: "5h", UsedPercent: &full, ResetsAt: at(2)},
+		}, "Weekly Fable", "Weekly"},
+		"a shared window that says no reset": {[]Window{
+			{Label: "5h", UsedPercent: &full},
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(20)},
+		}, "Weekly Fable", "5h"},
+		"two windows of models, none shared": {[]Window{
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &full, ResetsAt: at(9)},
+			{Label: "Weekly Opus", Model: "Opus", UsedPercent: &full, ResetsAt: at(20)},
+		}, "Weekly Opus", "Weekly Opus"},
+		"a window of a model that is not used up": {[]Window{
+			{Label: "5h", UsedPercent: &full, ResetsAt: at(2)},
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &part, ResetsAt: at(20)},
+		}, "5h", "5h"},
+		"nothing used up": {[]Window{
+			{Label: "5h", UsedPercent: &part, ResetsAt: at(2)},
+			{Label: "Weekly Fable", Model: "Fable", UsedPercent: &part, ResetsAt: at(20)},
+		}, "", ""},
+	} {
+		r := &Report{Windows: tc.windows}
+		if usedUp, forStop := label(r.UsedUp()), label(r.UsedUpForStop()); usedUp != tc.usedUp || forStop != tc.forStop {
+			t.Errorf("%s: UsedUp = %q and UsedUpForStop = %q, want %q and %q", name, usedUp, forStop, tc.usedUp, tc.forStop)
+		}
 	}
 }
 

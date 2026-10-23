@@ -271,6 +271,8 @@ func TestUsageLimitThatResetsLaterThanYardrWaitsFor(t *testing.T) {
 // At the wake the window is still used up, and the provider gives a later
 // reset: the agent is not prompted. The event is raised again with the new
 // time, since what the first said no longer holds, and yardr waits for that.
+// The shared-window case also checks that a per-model window does not hold
+// the prompt back after the window every model draws from has opened.
 func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 	t.Parallel()
 	s, r, d, b, p, now := resetYard(t, nil)
@@ -320,6 +322,101 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 	if h := handleOfBead(t, s2, b2); h["harness_reset_at"] != nil {
 		t.Fatalf("handle = %v, want no wait kept for a weekly window", h)
 	}
+
+	t.Run("shared window before a per-model window", func(t *testing.T) {
+		ctx := context.Background()
+		s, r, d, b, p, now := resetYard(t, nil)
+		told := func() []store.Event { t.Helper(); return eventKinds(t, s, b.ID, "session_harness_error") }
+		five, fable := now.Add(30*time.Minute), now.Add(72*time.Hour)
+		p.say(kimiFable(100, five, fable))
+		r.show("idle", kimiLimit)
+		must(t, d.Reconcile(ctx))
+		evs := told()
+		if len(evs) != 1 {
+			t.Fatalf("session_harness_error events = %v, want one at the stop", evs)
+		}
+		if hint, _ := evs[0].Data["hint"].(string); evs[0].Data["window"] != "5h" || evs[0].Data["resets_at"] != five.UTC().Format(time.RFC3339) ||
+			evs[0].Data["wakes_at"] != five.Add(time.Minute).UTC().Format(time.RFC3339) ||
+			!strings.HasPrefix(hint, "kimi's 5h window is used up and resets at 12:30 (in 30m); yardr asks again at 12:31 and prompts the agent when the window is open; ") {
+			t.Fatalf("data = %v, want the 5h window with its reset and the wake after it, not Weekly Fable", evs[0].Data)
+		}
+
+		// The provider is late: 5h is used up at the wake with a later reset,
+		// and that holds the prompt although Weekly Fable resets later still.
+		// It is told again as 5h, not as Weekly Fable.
+		later := five.Add(time.Hour)
+		p.say(kimiFable(100, later, fable))
+		*now = five.Add(time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		must(t, d.Reconcile(ctx))
+		evs = told()
+		if len(r.nudges) != 0 || len(evs) != 2 || evs[1].Data["window"] != "5h" || evs[1].Data["resets_at"] != later.UTC().Format(time.RFC3339) ||
+			evs[1].Data["wakes_at"] != later.Add(time.Minute).UTC().Format(time.RFC3339) {
+			t.Fatalf("typed %q, events = %v; want nothing typed and the 5h window told again with the later reset and wake", r.nudges, evs)
+		}
+
+		// 5h is open and Weekly Fable is not: the agent is prompted for the
+		// window it waited for.
+		p.say(kimiFable(0, later.Add(5*time.Hour), fable))
+		*now = later.Add(time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		must(t, d.Reconcile(ctx))
+		if len(r.nudges) != 1 || r.nudges[0] != resetLine {
+			t.Fatalf("typed %q, want the reset line once, with Weekly Fable still used up", r.nudges)
+		}
+
+		// A Fable session stops again on its own window, which is all that is
+		// used up now. It is told of Weekly Fable, with no wake for a reset
+		// three days off: one prompt, and it corrects itself.
+		r.show("idle", kimiLimit+"\n > "+resetLine+"\n"+kimiLimit)
+		*now = now.Add(2*time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		evs = told()
+		if len(evs) != 3 || evs[2].Data["window"] != "Weekly Fable" || evs[2].Data["resets_at"] != fable.UTC().Format(time.RFC3339) ||
+			evs[2].Data["wakes_at"] != nil || evs[2].Data["tries"] != float64(1) {
+			t.Fatalf("events = %v; want a third, for Weekly Fable with its reset, no wake, and one try", evs)
+		}
+		if h := handleOfBead(t, s, b); h["harness_reset_at"] != nil {
+			t.Fatalf("handle = %v, want no wait kept for a window days off", h)
+		}
+		*now = now.Add(7 * time.Hour)
+		must(t, d.Reconcile(ctx))
+		if len(r.nudges) != 1 || len(told()) != 3 {
+			t.Fatalf("typed %q, %d events; want nothing more for a window days off", r.nudges, len(told()))
+		}
+	})
+
+	t.Run("only a per-model window is used", func(t *testing.T) {
+		s, r, d, b, p, now := resetYard(t, nil)
+		fable := now.Add(2 * time.Hour)
+		p.say(kimiFable(0, now.Add(4*time.Hour), fable))
+		r.show("idle", kimiLimit)
+		must(t, d.Reconcile(context.Background()))
+		evs := eventKinds(t, s, b.ID, "session_harness_error")
+		if len(evs) != 1 || evs[0].Data["window"] != "Weekly Fable" || evs[0].Data["resets_at"] != fable.UTC().Format(time.RFC3339) ||
+			evs[0].Data["wakes_at"] != fable.Add(time.Minute).UTC().Format(time.RFC3339) {
+			t.Fatalf("session_harness_error = %v; want Weekly Fable with its reset and the wake after it", evs)
+		}
+		p.say(kimiOpen)
+		*now = fable.Add(time.Minute + time.Second)
+		must(t, d.Reconcile(context.Background()))
+		must(t, d.Reconcile(context.Background()))
+		if want := "yardr: the usage limit your harness stopped on (kimi, Weekly Fable window) has reset. Go on where you stopped."; len(r.nudges) != 1 || r.nudges[0] != want {
+			t.Fatalf("typed %q, want %q once", r.nudges, want)
+		}
+	})
+}
+
+// kimiFable is a report with a window for one model beside the shared ones, as
+// Claude's has: 5h at the given use and resetting at five, Weekly not used up,
+// and Weekly Fable, which counts for Fable alone, used up and resetting at
+// fable.
+func kimiFable(fivePercent float64, five, fable time.Time) string {
+	return fmt.Sprintf(`{"provider":"Kimi","windows":[`+
+		`{"label":"5h","used_percent":%v,"resets_at":%q},`+
+		`{"label":"Weekly","used_percent":38,"resets_at":%q},`+
+		`{"label":"Weekly Fable","model":"Fable","used_percent":100,"resets_at":%q}]}`,
+		fivePercent, five.Format(time.RFC3339), five.Add(80*time.Hour).Format(time.RFC3339), fable.Format(time.RFC3339))
 }
 
 // The agent is prompted and its harness answers with the limit again: two
