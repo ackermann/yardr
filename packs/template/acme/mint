@@ -1,0 +1,9 @@
+#!/bin/sh
+# mint: a token from the mint names' values. One JSON object on stdin,
+# one on stdout, as the credential key of the declaration says: in
+# {inputs, scope}, out {token, expires_at}. The core runs it where the
+# acting env sets every mint name, and hands the token to each call
+# under ACME_TOKEN, keeping it in memory alone. The stub calls no
+# service: it answers in shape from its inputs. Needs jq.
+exec jq -c '{token: ("minted-for-" + (.inputs.ACME_APP_ID // "acme")),
+  expires_at: "2030-01-01T00:00:00Z"}'

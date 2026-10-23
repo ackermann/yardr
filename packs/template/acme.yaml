@@ -31,13 +31,18 @@ credential:
   update_env: ACME_UPDATE_TOKEN
   # Drop mint where the token does not expire: it names the variables
   # that together select a minted credential, names only, beside the
-  # variable above, which the minted token is handed under. The command
-  # that turns their values into a token is the operator's, set with
-  # `yardr source set <name> mint_command=<program> [args...]`; no pack
-  # brings it. Where the env sets every mint name the token is minted;
-  # one of them alone is refused; otherwise the variable above is used
-  # as it is set.
+  # variable above, which the minted token is handed under. Where the
+  # env sets every mint name the token is minted; one of them alone is
+  # refused; otherwise the variable above is used as it is set.
   mint: [ACME_APP_ID, ACME_APP_KEY_FILE]
+  # The command that turns the mint names' values into a token: run with
+  # {inputs, scope} on stdin, answering {token, expires_at}. A
+  # declaration may bring it, a program beside this one that
+  # `yardr source add` copies into the yard; the operator's own, set with
+  # `yardr source set <name> mint_command=<program> [args...]`, wins
+  # over it. Drop it where the operator sets the mint command instead,
+  # or with mint above where the token does not expire.
+  mint_command: [acme/mint]
 
 # ---- what it sends us ----------------------------------------------------
 # Drop the whole key where the service sends nothing in: without it the

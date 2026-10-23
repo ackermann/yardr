@@ -120,7 +120,7 @@ func TestTemplateAppliesAsANewSourcePack(t *testing.T) {
 		decl.Events == nil {
 		t.Fatalf("the skeleton names every key: %+v", decl)
 	}
-	if decl.Credential.Env == "" || len(decl.Credential.Mint) == 0 {
+	if decl.Credential.Env == "" || len(decl.Credential.Mint) == 0 || len(decl.Credential.MintCommand) == 0 {
 		t.Fatalf("credential = %+v", decl.Credential)
 	}
 	if th := decl.Thread; len(th.Reply) == 0 || len(th.Posted) == 0 || len(th.Read) == 0 ||
@@ -156,7 +156,7 @@ func TestTemplateAppliesAsANewSourcePack(t *testing.T) {
 	if _, err := src.Declaration(); err != nil {
 		t.Fatalf("the added source does not read: %v", err)
 	}
-	for _, prog := range []string{"demo/normalize", "demo/thread", "demo/pr", "demo/ci"} {
+	for _, prog := range []string{"demo/normalize", "demo/thread", "demo/pr", "demo/ci", "demo/mint"} {
 		fi, err := os.Stat(filepath.Join(home, "sources", "demo", filepath.FromSlash(prog)))
 		if err != nil {
 			t.Fatalf("the copy of %s: %v", prog, err)
@@ -269,5 +269,8 @@ func TestTemplateStubsAnswerInShape(t *testing.T) {
 		if !ok || !hasStrings(check, "name", "status", "conclusion") {
 			t.Fatalf("ci check: %v", check)
 		}
+	}
+	if got := run("demo/mint", nil, `{"inputs":{"DEMO_APP_ID":"shaped","DEMO_APP_KEY_FILE":"/keys/shaped"},"scope":"demo/web"}`); !hasStrings(got, "token", "expires_at") {
+		t.Fatalf("mint: %v", got)
 	}
 }
