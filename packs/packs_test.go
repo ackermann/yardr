@@ -1088,7 +1088,7 @@ func TestContributorsPack(t *testing.T) {
 		"action=opened action=ready_for_review action=reopened association=member association=owner event=pull_request -> pr:review",
 		"action=opened action=ready_for_review action=reopened event=pull_request sender=bot -> pr:review",
 		"action=opened action=ready_for_review action=reopened event=pull_request -> pr:triage",
-		"action=opened event=issues -> issue:triage",
+		"action=opened action=reopened event=issues -> issue:triage",
 	}; !slices.Equal(makes, want) {
 		t.Errorf("makes:\n%s\nwant:\n%s", strings.Join(makes, "\n"), strings.Join(want, "\n"))
 	}
@@ -1124,6 +1124,9 @@ func TestContributorsPack(t *testing.T) {
 		{"issues", "opened", "bot", "none", "issue:triage"},
 		{"issues", "opened", "user", "none", "issue:triage"},
 		{"issues", "opened", "user", "owner", "issue:triage"},
+		// A reopened issue is judged by the same line, whoever reopens it.
+		{"issues", "reopened", "user", "none", "issue:triage"},
+		{"issues", "reopened", "bot", "none", "issue:triage"},
 	} {
 		fields := map[string][]string{"event": {c.event}, "action": {c.action}, "sender": {c.sender}, "association": {c.association}}
 		var got string

@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -199,5 +201,82 @@ func TestContributorsClosedIssueEndsItsBead(t *testing.T) {
 	}
 	if after := r.rules(t, landed.ID); !slices.Equal(after, before) {
 		t.Errorf("hook_rule events %q after a close at merged, want %q", after, before)
+	}
+}
+
+// An issue closed and then reopened has a bead again. The close ended the
+// old one (TestContributorsClosedIssueEndsItsBead), so no open bead tracks
+// the thread, and the line that judged the issue when it was opened makes
+// the next. The new bead starts clean, with no label and no note. The old
+// bead is as the close left it except for its link, which it hands on and
+// keeps as one that only relates. The close is still in the log, and a
+// daemon that starts again reads it without ending the new bead.
+func TestContributorsReopenedIssueStartsAFreshBead(t *testing.T) {
+	t.Parallel()
+	r := newContributorsIssueYard(t)
+	ctx := context.Background()
+	const number = 61
+	const url = "https://github.com/acme/yardr/issues/61"
+
+	r.deliverJSON(t, "issues", "issues_opened", issueEvent(number, "jane-doe", "User"))
+	r.pass(t)
+	old := r.made(t, url)
+	if old.Type != "issue" || old.Stage != "triage" || old.Status != "open" {
+		t.Fatalf("tracking %s: %s (%s, %s, %s), want a new open issue in triage", url, old.ID, old.Type, old.Stage, old.Status)
+	}
+	// What the old bead gathered before the close: a label and a note.
+	_, err := r.api.UpdateBead(ctx, old.ID, store.BeadPatch{AddLabels: []string{"bug"}}, store.Expect{}, "me")
+	must(t, err)
+	must(t, r.api.AddNote(ctx, old.ID, "seen, will look", "me"))
+
+	r.deliverJSON(t, "issues", "issues_closed", issueEvent(number, "mckean", "User"))
+	r.pass(t)
+	ended := r.bead(t, old.ID)
+	endedNotes, err := r.api.Notes(ctx, old.ID)
+	must(t, err)
+	if ended.Stage != "closed" || ended.Status != "closed" || !slices.Contains(ended.Labels, "bug") || len(endedNotes) == 0 {
+		t.Fatalf("%s after the close: %s (%s) with labels %v and %d notes, want it closed with what it had",
+			old.ID, ended.Stage, ended.Status, ended.Labels, len(endedNotes))
+	}
+
+	// Reopened: a new bead tracks the thread, and it alone is open.
+	r.deliverJSON(t, "issues", "issues_reopened", issueEvent(number, "jane-doe", "User"))
+	r.pass(t)
+	fresh := r.made(t, url)
+	if fresh.ID == old.ID || fresh.Type != "issue" || fresh.Stage != "triage" || fresh.Status != "open" {
+		t.Fatalf("tracking %s: %s (%s, %s, %s) beside %s, want a new open issue in triage", url, fresh.ID, fresh.Type, fresh.Stage, fresh.Status, old.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 || open[0].ID != fresh.ID {
+		t.Fatalf("open beads %v (%v), want %s alone", open, err, fresh.ID)
+	}
+	if _, relates := r.tracking(t, url); !slices.Equal(relates, []string{old.ID}) {
+		t.Fatalf("beads relating to %s: %v, want the closed %s", url, relates, old.ID)
+	}
+	freshNotes, err := r.api.Notes(ctx, fresh.ID)
+	must(t, err)
+	if len(fresh.Labels) != 0 || len(freshNotes) != 0 || !slices.Equal(slices.Sorted(maps.Keys(fresh.Metadata)), []string{"hook_seq"}) {
+		t.Fatalf("%s starts with labels %v, metadata %v and %d notes, want none but the event that made it", fresh.ID, fresh.Labels, fresh.Metadata, len(freshNotes))
+	}
+	wantRules(t, r.rules(t, fresh.ID), "issues made "+fresh.ID)
+
+	// The old bead is as the close left it, and the reopen logged nothing on it.
+	after := r.bead(t, old.ID)
+	afterNotes, err := r.api.Notes(ctx, old.ID)
+	must(t, err)
+	if after.Stage != ended.Stage || after.Status != ended.Status || !slices.Equal(after.Labels, ended.Labels) ||
+		!reflect.DeepEqual(after.Metadata, ended.Metadata) || !reflect.DeepEqual(afterNotes, endedNotes) {
+		t.Fatalf("%s changed when the issue was reopened: %+v with notes %v, was %+v with notes %v", old.ID, after, afterNotes, ended, endedNotes)
+	}
+	wantRules(t, r.rules(t, old.ID), "issues made "+old.ID, "dropped triage -> closed")
+
+	// A daemon that starts again reads the log from the start, the close
+	// among it, and makes and moves nothing.
+	again := &dispatch.Dispatcher{Store: r.api, Runners: r.d.Runners, PRHead: r.d.PRHead, CI: r.d.CI, DepotRepo: r.d.DepotRepo}
+	must(t, again.Reconcile(ctx))
+	if b := r.made(t, url); b.ID != fresh.ID || b.Stage != "triage" || b.Status != "open" {
+		t.Fatalf("after a restart %s tracks %s: %s (%s), want %s open in triage", url, b.ID, b.Stage, b.Status, fresh.ID)
+	}
+	if open, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(open) != 1 {
+		t.Fatalf("open beads after a restart: %d (%v), want one", len(open), err)
 	}
 }

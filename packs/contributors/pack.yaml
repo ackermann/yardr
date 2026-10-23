@@ -139,7 +139,11 @@ sources:
       # from outside keeps the hold.
       - { where: "event=pull_request action=opened action=ready_for_review action=reopened sender=bot", bead: { type: pr, stage: review } }
       - { where: "event=pull_request action=opened action=ready_for_review action=reopened", bead: { type: pr, stage: triage } }
-      - { where: "event=issues action=opened", bead: { type: issue, stage: triage } }
+      # A reopened issue (action=reopened) is judged by the same line as
+      # when it was opened. The close that ended its bead (see says, below)
+      # left no open bead for the thread, so this makes the next one. It
+      # starts clean.
+      - { where: "event=issues action=opened action=reopened", bead: { type: issue, stage: triage } }
 
     # SAYS: an event reports an outcome to the bead that tracks its thread,
     # and the flow above routes it. A label is an outcome like any other.

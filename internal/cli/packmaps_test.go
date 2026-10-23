@@ -353,7 +353,7 @@ func TestPackCheckShowsTheLinesItAddsAndDrops(t *testing.T) {
 	for _, want := range []string{
 		"  would add the says line \"action=closed event=pull_request merged=true type=pr -> merged\" to hook github\n",
 		"  would add the says line \"action=closed event=issues stage=approved stage=backlog stage=decide stage=new stage=review stage=triage type=issue -> dropped\" to hook github\n",
-		"  would add the makes line \"action=opened event=issues -> issue:triage\" to hook github\n",
+		"  would add the makes line \"action=opened action=reopened event=issues -> issue:triage\" to hook github\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("pack check lacks %q:\n%s", want, out)
