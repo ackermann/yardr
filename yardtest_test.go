@@ -3795,7 +3795,10 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	out := view()
 	want := []string{
 		`^test: race lock: held by holder-bead for 6 m \(/wt/holder\)$`,
-		`^test: race lock: 1st in line \(landing\): new-bead waiting 3\d s \(/wt/new\)$`,
+		// The age is measured at the view, after the ticket writes, the
+		// flock and the script's start, which take seconds on a loaded
+		// Mac: 30 s of slack, as the minute rows have.
+		`^test: race lock: 1st in line \(landing\): new-bead waiting [3-5]\d s \(/wt/new\)$`,
 		`^test: race lock: 2nd in line \(plain\): old-bead waiting 5 m \(/wt/old\)$`,
 		`^test: race lock: 3rd in line \(plain\): legacy-bead waiting 3 m \(/wt/legacy\)$`,
 		`^test: race lock: 4th in line \(plain\): pid ` + strconv.Itoa(self) + ` waiting 1 m \(\?\)$`,
