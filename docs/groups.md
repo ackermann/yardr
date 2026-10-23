@@ -1195,10 +1195,14 @@ depots served by one group (a yard default route) have a siding each, and a
 depot route can give a depot a group of its own with other numbers. A group
 that works two stages of a flow makes a siding of each, with its numbers.
 
-A siding does not fold by itself. `yardr bead fold` makes the carrier, and
-without `--to` starts it in the first stage the flow leads on to from the
-siding, so that `siding -> ready | backlog` has it wait at `ready` for a person
-and `siding -> new` builds it at once. `yardr flow show <depot>` says where
+A siding folds by itself: the dispatcher's pass folds it when its open
+beads reach `fold`, or `fold_after` past the latest bead to enter, and starts
+the carrier in the first stage the flow leads on to from the siding, so that
+`siding -> ready | backlog` has it wait at `ready` for a person and
+`siding -> new` builds it at once. Beads that cannot move count but stay,
+and are named in the fold; one bead ready alone moves on by itself, not
+folded. `yardr bead fold` folds by hand, and without `--to`
+starts the carrier in that same stage. `yardr flow show <depot>` says where
 each siding stands against its numbers ([flows.md](flows.md#a-siding)).
 
 ### Peer groups

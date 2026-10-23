@@ -327,6 +327,7 @@ var Access = map[string]Class{
 	"Timers":               Read,
 	"RemoveTimer":          Admin,
 	"FireTimers":           Admin,
+	"FoldSidings":          Admin,
 
 	// Who someone is in a source, what they follow, and speaking there as
 	// a crew member.

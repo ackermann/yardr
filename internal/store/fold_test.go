@@ -1806,7 +1806,7 @@ func TestFoldInOneWrite(t *testing.T) {
 			}
 			members = append(members, row)
 		}
-		if _, err := w.fold(ctx, reads, nil, members, FoldOptions{To: "ready"}, "hand", "mckean"); err != nil {
+		if _, err := w.fold(ctx, reads, nil, members, nil, FoldOptions{To: "ready"}, "hand", "mckean"); err != nil {
 			return err
 		}
 		return late

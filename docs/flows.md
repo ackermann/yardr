@@ -823,11 +823,12 @@ siding. The second is where the siding stands: the open beads in the stage
 that this flow governs, what they weigh in points, how many of them a fold
 would leave where they are, and when it folds, at the count or at the end of
 `fold_after` from the latest bead to enter, whichever comes first. A bead is
-**stuck** when it is held, claimed by a session that works it, blocked by an
-open bead, or has a question to a person open; a bead that a manual group
-holds, as it holds the beads of its stage up to its `--limit`, is not. The
-time is the clock alone for today and has its day otherwise, and is left out
-when nothing waits.
+**stuck** when it is held, claimed by a session that works it, another
+yard's, a train or a train's child, blocked by a bead that has not released
+it, in its stage or another, or has a question to a person open; a bead that
+a manual group holds, as it holds the beads of its stage up to its `--limit`,
+is not. The time is the clock alone for today and has its day otherwise, and
+is left out when nothing waits.
 
 A stage that no rule of the flow leaves, or a terminal one, has no stage for the
 carrier to go to. It has a `warning:` in place of the second line:

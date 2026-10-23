@@ -59,6 +59,9 @@ func (c *Client) FoldBeads(ctx context.Context, ids []string, opts store.FoldOpt
 func (c *Client) SidingBeads(ctx context.Context, ids []string) ([]store.SidingBead, error) {
 	return callV[[]store.SidingBead](c, ctx, "SidingBeads", ids)
 }
+func (c *Client) FoldSidings(ctx context.Context, at time.Time, beads []store.Bead, routes []store.Route) (*store.SidingPass, error) {
+	return callV[*store.SidingPass](c, ctx, "FoldSidings", at, beads, routes)
+}
 
 func (c *Client) AddDep(ctx context.Context, from, to, kind, at, until, actor string) error {
 	return c.call(ctx, "AddDep", nil, from, to, kind, at, until, actor)

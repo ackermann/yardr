@@ -11,6 +11,10 @@ import (
 // elapse without waiting for it.
 func SetClock(d *Dispatcher, clock func() time.Time) { d.clock = clock }
 
+// SidingDue is when the earliest siding that can fold is due, as of the
+// last pass; nil with none.
+func SidingDue(d *Dispatcher) *time.Time { return d.sidingDue }
+
 // NotTakenHint begins the hint for a prompt at a reset that an agent of a
 // kind did not take.
 var NotTakenHint = notTakenHint

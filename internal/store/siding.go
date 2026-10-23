@@ -73,8 +73,11 @@ type SidingBead struct {
 	// Points is what the bead adds to a fold, by its size: label.
 	Points int `json:"points"`
 	// Stuck says why a fold would leave the bead where it is: "held" (a
-	// person's word that it waits), "claimed" (a session works it), "blocked"
-	// (an open bead blocks it, and it would build before its blocker) or
+	// person's word that it waits), "claimed" (a session works it), "peer"
+	// (another yard's: sent here and not returned, or away there), "train"
+	// (a train, which lands by itself, or the child of one, which the
+	// carrier would leave behind), "blocked" (an unreleased bead blocks it,
+	// in its stage or another, and it would build before its blocker) or
 	// "asked" (a question to a person stands open on it, which a fold would
 	// strand). Empty for a bead a fold takes.
 	Stuck string `json:"stuck,omitempty"`
@@ -101,7 +104,7 @@ func (s *Store) SidingBeads(ctx context.Context, ids []string) ([]SidingBead, er
 				if err != nil {
 					return err
 				}
-				stuck, err := stuckBead(tx, row, look)
+				stuck, err := stuckBead(tx, row, look, now())
 				if err != nil {
 					return err
 				}
@@ -114,9 +117,14 @@ func (s *Store) SidingBeads(ctx context.Context, ids []string) ([]SidingBead, er
 }
 
 // stuckBead is why a fold would leave row where it is, in the order
-// SidingBead lists the reasons, or "" for a bead it takes. An ask the stage
+// SidingBead lists the reasons, or "" for a bead it takes. It is what a
+// fold takes, as checkFoldable has it, minus what only the caller decides
+// (whose pane it comes from) and what cannot be here (a closed bead):
+// anything it calls taken, a fold by the yard takes, so an automatic fold
+// is never refused wholesale for a member it counted. An ask the stage
 // itself put (Ask.Stage) is not a reason: closing the bead takes it back.
-func stuckBead(tx *bolt.Tx, row *beadRow, look *untilLooks) (string, error) {
+// at is when the pass runs, for an ask put aside that has run its hours.
+func stuckBead(tx *bolt.Tx, row *beadRow, look *untilLooks, at time.Time) (string, error) {
 	if row.Hold {
 		return "held", nil
 	}
@@ -132,14 +140,35 @@ func stuckBead(tx *bolt.Tx, row *beadRow, look *untilLooks) (string, error) {
 			return "claimed", nil
 		}
 	}
-	if len(openBlockers(tx, &row.Bead, look)) > 0 {
+	b := row.Bead
+	if err := withPeer(tx, &b); err != nil {
+		return "", err
+	}
+	if p := b.From(); p != nil && p.ReturnedAt == nil {
+		return "peer", nil
+	}
+	if p := b.Away(); p != nil && p.ReturnedAt == nil {
+		return "peer", nil
+	}
+	// A child of two trains, which only a type changed to train later
+	// makes, is a train's child twice over: it stays, as one does.
+	if train, err := parentTrain(tx, row.UUID); err != nil || train != nil {
+		return "train", nil
+	}
+	// Any unreleased edge, whatever stage it names, as checkFoldable has
+	// it: the carrier passes through the member's whole future, so a hold
+	// at a stage the member is not in yet binds the fold now.
+	if len(unreleasedBlockers(tx, &row.Bead, look)) > 0 {
 		return "blocked", nil
+	}
+	if row.Type == TypeTrain {
+		return "train", nil
 	}
 	notes, err := beadNotes(tx, row.UUID)
 	if err != nil {
 		return "", err
 	}
-	for _, r := range ResolveAsks(notes, now()) {
+	for _, r := range ResolveAsks(notes, at) {
 		if r.AskErr == nil && r.Ask.Stage == "" && (r.State == AskOpen || r.State == AskAside) {
 			return "asked", nil
 		}

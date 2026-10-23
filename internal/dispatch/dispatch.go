@@ -302,6 +302,10 @@ type Dispatcher struct {
 	// (see timers); nil with none.
 	timerDue *time.Time
 
+	// sidingDue is when the earliest siding that can fold is due, as of
+	// the last pass (see sidings); nil with none.
+	sidingDue *time.Time
+
 	// lookDue is when the dispatcher next has work due, as of the last pass;
 	// nil when nothing needs a pass before the regular interval.
 	// promptIdle is session (or "crew:<name>") -> when its agent was
@@ -716,6 +720,9 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 		if d.pushDue != nil && (next == nil || d.pushDue.Before(*next)) {
 			next = d.pushDue
 		}
+		if d.sidingDue != nil && (next == nil || d.sidingDue.Before(*next)) {
+			next = d.sidingDue
+		}
 		if next != nil {
 			timer = time.NewTimer(max(next.Sub(d.now()), time.Second))
 			due = timer.C
@@ -857,8 +864,13 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	}
 	// Before the crew, so one a timer is for is nudged in this pass.
 	d.timers(ctx)
-	// By the same clock, and before the crew for the same reason.
-	d.waits(ctx, byName)
+	// By the same clock, and before the crew for the same reason. The two
+	// share one listing of the open beads and the yard's routes.
+	beads, routes, operator, ok := d.passLists(ctx, byName)
+	if ok {
+		d.waits(ctx, byName, beads, routes, operator)
+		d.sidings(ctx, byName, beads, routes)
+	}
 	// By the same clock: a hook gone quiet tells the yardmaster once.
 	d.quietHooks(ctx)
 	// While the upgrade gate pauses dispatch the pass still reconciles,

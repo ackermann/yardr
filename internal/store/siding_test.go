@@ -134,6 +134,30 @@ func TestSidingBeads(t *testing.T) {
 		}
 	})
 
+	t.Run("a bead held only at another stage is blocked: the carrier would pass it", func(t *testing.T) {
+		blocker := newBead()
+		b := newBead()
+		must(s.AddDep(ctx, blocker.ID, b.ID, store.DepBlocks, "new", "", "me"))
+		if got := read(b).Stuck; got != "blocked" {
+			t.Errorf("stuck = %q, want blocked", got)
+		}
+	})
+
+	t.Run("a train's child and a train are the train's", func(t *testing.T) {
+		train, err := s.CreateBead(ctx, store.NewBead{Title: "train", Type: store.TypeTrain, Stage: "backlog"}, "me")
+		must(err)
+		wagon := newBead()
+		must(s.AddDep(ctx, train.ID, wagon.ID, store.DepParent, "", "", "me"))
+		if got := read(wagon).Stuck; got != "train" {
+			t.Errorf("child: stuck = %q, want train", got)
+		}
+		lone, err := s.CreateBead(ctx, store.NewBead{Title: "lone train", Type: store.TypeTrain, Stage: "siding"}, "me")
+		must(err)
+		if got := read(lone).Stuck; got != "train" {
+			t.Errorf("train: stuck = %q, want train", got)
+		}
+	})
+
 	t.Run("a question to a person is asked while it is open or put aside, not once answered", func(t *testing.T) {
 		b := newBead()
 		first, err := s.AddAsk(ctx, b.ID, ask, "yardmaster")
@@ -151,7 +175,7 @@ func TestSidingBeads(t *testing.T) {
 		}
 	})
 
-	t.Run("the first reason in the order held, claimed, blocked, asked is the one said", func(t *testing.T) {
+	t.Run("the first reason wins: held, claimed, peer, a train's child, blocked, a train, asked", func(t *testing.T) {
 		blocked := func() *store.Bead {
 			blocker := newBead()
 			b, err := s.CreateBead(ctx, store.NewBead{Title: "part", Stage: "siding", BlockedBy: []string{blocker.ID}}, "me")
@@ -193,6 +217,22 @@ func TestSidingBeads(t *testing.T) {
 		if got := read(both).Stuck; got != "blocked" {
 			t.Errorf("blocked and asked: stuck = %q, want blocked", got)
 		}
+
+		train, err := s.CreateBead(ctx, store.NewBead{Title: "train", Type: store.TypeTrain, Stage: "backlog"}, "me")
+		must(err)
+		wagon := blocked()
+		must(s.AddDep(ctx, train.ID, wagon.ID, store.DepParent, "", "", "me"))
+		asked(wagon)
+		if got := read(wagon).Stuck; got != "train" {
+			t.Errorf("a blocked and asked wagon: stuck = %q, want train", got)
+		}
+
+		lone, err := s.CreateBead(ctx, store.NewBead{Title: "lone train", Type: store.TypeTrain, Stage: "siding"}, "me")
+		must(err)
+		must(s.AddDep(ctx, newBead().ID, lone.ID, store.DepBlocks, "", "", "me"))
+		if got := read(lone).Stuck; got != "blocked" {
+			t.Errorf("a blocked train: stuck = %q, want blocked", got)
+		}
 	})
 
 	t.Run("the beads come back in the order asked, and one that is not a bead is an error", func(t *testing.T) {
@@ -206,6 +246,35 @@ func TestSidingBeads(t *testing.T) {
 		}
 		if got, err := s.SidingBeads(ctx, nil); err != nil || got == nil || len(got) != 0 {
 			t.Errorf("SidingBeads(nil) = %#v, %v; want an empty list", got, err)
+		}
+	})
+
+	t.Run("a bead from another yard is peer until it returns", func(t *testing.T) {
+		y := newBeadYard(t)
+		y.arrivals(t, "jo")
+		if got := y.take(t, beadMsg("b1", "web-k3f9", nil)); got[0].Refused != "" {
+			t.Fatalf("a bead with an intake was refused: %+v", got[0])
+		}
+		b := y.arrived(t)
+		read := func() store.SidingBead {
+			t.Helper()
+			got, err := y.api.SidingBeads(y.ctx, []string{b.ID})
+			if err != nil || len(got) != 1 {
+				t.Fatalf("SidingBeads(%s) = %+v, %v", b.ID, got, err)
+			}
+			return got[0]
+		}
+		if got := read().Stuck; got != "peer" {
+			t.Errorf("stuck = %q, want peer", got)
+		}
+		if _, err := y.api.Advance(y.ctx, b.ID, "build", store.Expect{}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.api.Done(y.ctx, b.ID, "failed", "not wanted", store.Expect{}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if got := read().Stuck; got != "" {
+			t.Errorf("returned bead stuck = %q, want taken", got)
 		}
 	})
 }

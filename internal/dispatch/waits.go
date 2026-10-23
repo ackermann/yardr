@@ -30,8 +30,9 @@ type stay struct {
 // longer than its manual group's wait in the stage it is in, by the
 // dispatcher's clock. The group is the one that holds the bead, else the
 // one its stage is routed to: a manual group at its limit leaves beads
-// waiting unclaimed. A group that sets no wait raises nothing.
-func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group) {
+// waiting unclaimed. A group that sets no wait raises nothing. beads and
+// routes are the pass's, listed once for waits and sidings together.
+func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group, beads []store.Bead, routes []store.Route, operator string) {
 	limits := map[string]time.Duration{}
 	for _, g := range groups {
 		if g.Runner != "manual" {
@@ -49,39 +50,14 @@ func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group) {
 		d.stays = nil
 		return
 	}
-	beads, err := d.Store.ListBeads(ctx, store.BeadFilter{})
-	if err != nil {
-		// The next pass tries again: a bead is told of late rather than not.
-		d.Log.Warn("waiting beads", "err", err)
-		return
-	}
-	var routes []store.Route
-	routed := false
-	operator := ""
 	now := d.now()
 	stays := map[string]stay{}
 	for _, b := range beads {
 		group := ""
 		if b.Group != nil {
 			group = *b.Group
-		} else {
-			if !routed {
-				if routes, err = d.Store.Routes(ctx); err != nil {
-					d.Log.Warn("waiting beads", "err", err)
-					return
-				}
-				SortRoutes(routes)
-				settings, err := d.Store.Settings(ctx)
-				if err != nil {
-					d.Log.Warn("waiting beads", "err", err)
-					return
-				}
-				operator = settings[store.OperatorSetting]
-				routed = true
-			}
-			if r := Match(routes, b, operator); r != nil {
-				group = r.Worker()
-			}
+		} else if r := Match(routes, b, operator); r != nil {
+			group = r.Worker()
 		}
 		// A bead younger than the wait has not been anywhere that long, and
 		// its log is not read to find out.

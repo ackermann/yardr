@@ -135,7 +135,7 @@ func (s *Store) FoldBeads(ctx context.Context, ids []string, opts FoldOptions, a
 			}
 			members[i] = row
 		}
-		row, err := w.fold(ctx, reads, look, members, opts, "hand", actor)
+		row, err := w.fold(ctx, reads, look, members, nil, opts, "hand", actor)
 		if err != nil {
 			return err
 		}
@@ -156,13 +156,15 @@ func (s *Store) FoldBeads(ctx context.Context, ids []string, opts FoldOptions, a
 // the member closes. The carrier gets a note on where the members' notes and
 // files are, and one folded event. reads are what readsFor read for the
 // oldest member, look how the gates are read: the members' own, which a
-// blocked member is refused by, and those the closes flip. trigger says what
-// folded them ("hand", or what made a siding ready) and is written into the
-// body.
+// blocked member is refused by, and those the closes flip. left names the
+// members' fellows the fold leaves where they are (a siding's ineligible
+// beads, oldest first, as members are); a hand fold leaves none. trigger
+// says what folded them ("hand", or what made a siding ready) and is
+// written into the body.
 //
 // Everything that can be refused is refused before the first thing is made,
 // and a failure after it rolls the whole write back.
-func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, members []*beadRow, opts FoldOptions, trigger, actor string) (*beadRow, error) {
+func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, members []*beadRow, left []string, opts FoldOptions, trigger, actor string) (*beadRow, error) {
 	if len(members) == 0 {
 		return nil, fmt.Errorf("a fold needs beads to fold")
 	}
@@ -285,8 +287,11 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 	if trigger != "hand" {
 		from = oldest.Stage
 	}
+	if left == nil {
+		left = []string{} // a hand fold leaves none, and the event carries a list either way
+	}
 	if err := w.event(carrier.UUID, "folded", author, map[string]any{
-		"members": ids, "left": []string{}, "from": from, "to": opts.To, "trigger": trigger, "points": foldPoints(members),
+		"members": ids, "left": left, "from": from, "to": opts.To, "trigger": trigger, "points": foldPoints(members),
 	}); err != nil {
 		return nil, err
 	}
