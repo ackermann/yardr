@@ -250,16 +250,18 @@ It needs herdr, as `up` does, and with the variable set it is red without it.
 `down D` stops a yard by its home, not by its binary. It stops every process
 whose `YARDR_HOME` is D or inside it, whichever yardr it runs and whoever
 started it, together with every process running a file of `D/bin` (the
-herdr server, the stand-in agents):
+herdr server, the stand-in agents) and every exec script its sessions run:
 
-1. the herdr server, by its own `server stop`;
-2. the daemon, then the server, by the pid each left in its home
+1. the exec scripts, each by process group, while the server answers with
+   their handles and the daemon proves them (see below);
+2. the herdr server, by its own `server stop`;
+3. the daemon, then the server, by the pid each left in its home
    (`daemon.lock`, `server.pid`), so the daemon ends its pass with its
    server still there. A pid from a file is signalled only when it is also
    one of the yard's: a file left by a process that died may name someone
    else's;
-3. everything still found, with TERM, then KILL after 5 seconds;
-4. it removes D, looks once more for a process whose home is in it, and
+4. everything still found, with TERM, then KILL after 5 seconds;
+5. it removes D, looks once more for a process whose home is in it, and
    exits 1 naming those it finds. If something survived KILL, D is kept and
    the exit status is 1 as well.
 
@@ -286,7 +288,11 @@ The processes are found by the environment they were started with:
 `ps axeww` on both Linux and macOS. Neither shows another user's processes,
 which an isolated yard does not have. macOS's `ps` also shows no environment
 for the system's own binaries (`/bin/sleep`, `/bin/sh`): one of those is
-found by its home only on Linux.
+found by its home only on Linux. An exec group's running script is one of
+those (`sh -c`, and what it runs): on macOS it is found by its session
+handle instead (`yardr session list --running`), each pid kept only while
+it is alive and its parent chain reaches the daemon, and stopped by process
+group, since `sh -c` may have forked.
 
 The home is compared as a string, the same way on both: `YARDR_HOME` equal
 to D or a path inside it. It is never made into a pattern, and `down` stops
@@ -303,8 +309,9 @@ temp home of your own) stops by itself within a minute of its home going
 away: see "yardr's own state" in
 [docs/configuration.md](../../docs/configuration.md#yardrs-own-state).
 
-`down_test.go` tests the two cases and the refusals with bare yards, that
-processes of other yards outlive a `down`, and the comparison itself
+`down_test.go` tests the cases above, an exec group's running script among
+them, and the refusals with bare yards, that processes of other yards
+outlive a `down`, and the comparison itself
 (`isolated-yard match <home>`, which reads `<pid> <environment>` lines) with
 homes that hold `.`, `[`, `*`, `+` and spaces. The sleepers it starts as
 processes of other yards end with the test binary that named them too.

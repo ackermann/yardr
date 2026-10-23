@@ -218,7 +218,8 @@ func down(t *testing.T, d string, pids ...int) {
 	}
 	for _, pid := range pids {
 		if running(pid) {
-			t.Errorf("pid %d outlived down:\n%s", pid, out)
+			state, _ := exec.Command("ps", "-o", "pid=,ppid=,pgid=,stat=,command=", "-p", strconv.Itoa(pid)).CombinedOutput()
+			t.Errorf("pid %d outlived down:\n%s\n%s", pid, out, state)
 		}
 	}
 }
@@ -303,6 +304,94 @@ func TestDownStopsAServerStartedFromAnotherBinary(t *testing.T) {
 		t.Fatal("no server before down")
 	}
 	down(t, d, server)
+}
+
+// execSessionFuse is how long the daemon gets to claim a bead and start
+// its exec script: a fuse against a hang, sized to the machine by waitFor.
+const execSessionFuse = time.Minute
+
+// yardr-1819: macOS's ps shows no environment for the system's own
+// binaries, so an exec group's running script that starts `sleep 600` is
+// found by neither the ps leg (no environment shown) nor the lsof leg
+// (it runs no file of D/bin): pids lists it from its session handle,
+// and down stops its process group, leaving none behind. On Linux the
+// ps leg sees the script, so the test passes there with or without the
+// fix; it guards the Mac.
+func TestDownStopsAnExecGroupsRunningScript(t *testing.T) {
+	d := bare(t)
+	in(t, d, "yardr", "init", "--harness", "claude", "--operator", "jo")
+	in(t, d, "yardr", "server", "start")
+	server := pidIn(t, filepath.Join(d, "y", "server.pid"))
+	cmd := `trap 'exit 0' TERM; sh -c 'trap "" TERM; echo $$ > "$YARDR_HOME/exec-child.pid"; exec sleep 600' & wait`
+	in(t, d, "yardr", "--actor", "jo", "group", "add", "sleepers", "--runner", "exec", "--set", "cmd="+strconv.Quote(cmd))
+	in(t, d, "yardr", "--actor", "jo", "route", "add", "--stage", "new", "--group", "sleepers")
+	bead := strings.TrimSpace(in(t, d, "yardr", "--actor", "jo", "bead", "create", "sleep a while"))
+	daemon := startDaemon(t, d)
+	// The daemon claims the bead and starts its script; its session
+	// names the script's pid, which is what pids must list.
+	var execPid int
+	if !waitFor(execSessionFuse, func() bool {
+		out, err := runIn(d, "yardr", "--actor", "jo", "session", "list", "--running", "--json")
+		if err != nil {
+			return false
+		}
+		var ss []struct {
+			Runner string         `json:"runner"`
+			Handle map[string]any `json:"handle"`
+		}
+		if json.Unmarshal([]byte(out), &ss) != nil {
+			return false
+		}
+		for _, s := range ss {
+			if s.Runner != "exec" {
+				continue
+			}
+			if pid, ok := s.Handle["pid"].(float64); ok && pid > 0 {
+				execPid = int(pid)
+				return true
+			}
+		}
+		return false
+	}) {
+		out, _ := runIn(d, "yardr", "--actor", "jo", "session", "list")
+		t.Fatalf("no running exec session for %s:\n%s", bead, out)
+	}
+	childPath := filepath.Join(d, "y", "exec-child.pid")
+	var childPid int
+	if !waitFor(execSessionFuse, func() bool {
+		b, err := os.ReadFile(childPath)
+		if err != nil {
+			return false
+		}
+		childPid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		return childPid > 0
+	}) {
+		t.Fatalf("exec script did not start its child (session pid %d)", execPid)
+	}
+	if !running(childPid) {
+		t.Fatalf("exec child %d did not stay running", childPid)
+	}
+	pgid, err := exec.Command("ps", "-o", "pgid=", "-p", strconv.Itoa(childPid)).Output()
+	if err != nil || strings.TrimSpace(string(pgid)) != strconv.Itoa(execPid) {
+		t.Fatalf("exec child %d has process group %q, want leader %d (err %v)", childPid, strings.TrimSpace(string(pgid)), execPid, err)
+	}
+	// The child ignores TERM, so down must retain the process group after its
+	// shell leader exits and send KILL to the same group.
+	t.Cleanup(func() {
+		for _, pid := range []int{execPid, childPid} {
+			if running(pid) {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
+		}
+	})
+	out, err := script(t, "pids", d)
+	if err != nil {
+		t.Fatalf("isolated-yard pids: %v\n%s", err, out)
+	}
+	if !slices.Contains(strings.Fields(out), strconv.Itoa(execPid)) {
+		t.Errorf("pids lacks the exec script %d:\n%s", execPid, out)
+	}
+	down(t, d, server, daemon, execPid, childPid)
 }
 
 // down stops processes by the directory it is given, so it takes none that
