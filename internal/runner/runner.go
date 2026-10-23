@@ -636,13 +636,36 @@ func writeNext(b *strings.Builder, id, stage string, next []dispatch.NextStage) 
 
 // writeOutcomes lists the outcomes the bead's stage offers, each with where
 // the flow sends the bead for it and the exact command, so agents report
-// how their work ended instead of choosing a stage.
+// how their work ended instead of choosing a stage. Where a round limit is in
+// play it names the stage the report will really take the bead to, and says
+// which round it is or that the rounds are used, so a reviewer whose changes
+// would reach a person can write the note for them.
 func writeOutcomes(b *strings.Builder, id, stage string, outcomes []dispatch.NextOutcome) {
 	fmt.Fprintf(b, "\n## Outcomes\n\n")
 	fmt.Fprintf(b, "Report how your work in `%s` ended; the flow moves the bead on. Add `--note \"...\"` to attach a note with the move.\n\n", stage)
 	for _, o := range outcomes {
 		cmd := store.DoneCommand(id, o.Outcome)
-		fmt.Fprintf(b, "- `%s` (to `%s`): %s\n  `%s`\n", o.Outcome, o.Stage, nextWhen(o.NextStage), cmd)
+		fmt.Fprintf(b, "- `%s` (to `%s`%s): %s\n  `%s`\n", o.Outcome, o.Stage, roundNote(o), nextWhen(o.NextStage), cmd)
+	}
+}
+
+// roundNote follows an outcome's destination in the brief with how its limit
+// stands: ", round 3 of 3" while the report would take the bead back to a
+// stage it has been in, ": the 3 rounds back to `new` are used" once the
+// limit has sent it elsewhere, and nothing for an outcome with no limit in
+// play.
+func roundNote(o dispatch.NextOutcome) string {
+	if o.Limit == nil {
+		return ""
+	}
+	note := o.Limit.RoundNote("`")
+	switch {
+	case note == "":
+		return ""
+	case o.Limit.Round > 0:
+		return ", " + note
+	default:
+		return ": " + note
 	}
 }
 

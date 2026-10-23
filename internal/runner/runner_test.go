@@ -939,6 +939,18 @@ func TestBriefListsOutcomes(t *testing.T) {
 			{Outcome: "done", NextStage: dispatch.NextStage{Stage: "review", Group: "reviewers", Runner: "herdr"}},
 			{Outcome: "question", NextStage: dispatch.NextStage{Stage: "decide", Group: "deciders", Runner: "manual"}},
 			{Outcome: "elsewhere", NextStage: dispatch.NextStage{Stage: "build", Group: "at-north", Runner: "peer", Peer: "north"}},
+			// A limited way back: the round it would be while the bead is
+			// within the limit; the stage the limit sends it to, and that the
+			// rounds are used, once they are.
+			{Outcome: "changes", NextStage: dispatch.NextStage{Stage: "new", Group: "builders", Runner: "herdr"},
+				Limit: &store.OutcomeNow{Outcome: store.Outcome{Name: "changes", To: "new", Max: 3, Then: "decide"}, Goes: "new", Used: 2, Round: 3}},
+			{Outcome: "failed", NextStage: dispatch.NextStage{Stage: "decide", Group: "deciders", Runner: "manual"},
+				Limit: &store.OutcomeNow{Outcome: store.Outcome{Name: "failed", To: "new", Max: 3, Then: "decide"}, Goes: "decide", Used: 3}},
+			{Outcome: "once", NextStage: dispatch.NextStage{Stage: "decide", Group: "deciders", Runner: "manual"},
+				Limit: &store.OutcomeNow{Outcome: store.Outcome{Name: "once", To: "new", Max: 1, Then: "decide"}, Goes: "decide", Used: 1}},
+			// A limit the bead has not met yet says nothing of it.
+			{Outcome: "first", NextStage: dispatch.NextStage{Stage: "build", Group: "builders", Runner: "herdr"},
+				Limit: &store.OutcomeNow{Outcome: store.Outcome{Name: "first", To: "build", Max: 2, Then: "decide"}, Goes: "build"}},
 		},
 	}
 	b, err := Brief(job, "a", "", "", nil)
@@ -955,6 +967,10 @@ func TestBriefListsOutcomes(t *testing.T) {
 		"  `yardr bead done web-3`\n",
 		"- `question` (to `decide`): a human in `deciders` picks it up",
 		"  `yardr bead done web-3 --outcome question`",
+		"- `changes` (to `new`, round 3 of 3): an agent in `builders` picks it up",
+		"- `failed` (to `decide`: the 3 rounds back to `new` are used): a human in `deciders` picks it up",
+		"- `once` (to `decide`: the 1 round back to `new` is used): a human in `deciders` picks it up",
+		"- `first` (to `build`): an agent in `builders` picks it up",
 	} {
 		if !strings.Contains(b, want) {
 			t.Errorf("brief missing %q:\n%s", want, b)

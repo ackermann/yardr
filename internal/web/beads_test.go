@@ -628,6 +628,85 @@ func TestBeadHTML(t *testing.T) {
 	}
 }
 
+// The bead's page says how far into a round limit it is, once it has gone
+// round, and where each way of ending its stage takes it now: the stage the
+// limit sends it to once the rounds are used, in JSON and on the page.
+func TestBeadPageSaysWhereARoundGoes(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	b, report := roundLoop(t, f, 3, "anna")
+	page := func() (web.BeadPage, string) {
+		t.Helper()
+		var got web.BeadPage
+		f.getJSON("/beads/"+b.ID, &got)
+		return got, f.get("/beads/" + b.ID).body
+	}
+	changes := func(got web.BeadPage) web.BeadOutcome {
+		t.Helper()
+		for _, o := range got.Outcomes {
+			if o.Name == "changes" {
+				return o
+			}
+		}
+		t.Fatalf("no changes among the outcomes %+v", got.Outcomes)
+		return web.BeadOutcome{}
+	}
+
+	// The first review has no rounds counted: no row, the first round named.
+	report("done")
+	got, html := page()
+	if len(got.RoundsLines) != 0 || strings.Contains(html, "<dt>rounds</dt>") {
+		t.Errorf("a bead on its first review shows rounds: %v", got.RoundsLines)
+	}
+	if o := changes(got); o.To != "new" || o.Note != "round 1 of 3" {
+		t.Errorf("changes on the first review = %+v, want new, round 1 of 3", o)
+	}
+
+	// Two rounds used: the next changes is round 3 and goes back to new.
+	for range 2 {
+		report("changes")
+		report("done")
+	}
+	got, html = page()
+	if want := []string{"new 2 of 3 (the next changes from review goes to new)"}; !reflect.DeepEqual(got.RoundsLines, want) {
+		t.Errorf("rounds lines = %v, want %v", got.RoundsLines, want)
+	}
+	if o := changes(got); o.To != "new" || o.Note != "round 3 of 3" {
+		t.Errorf("changes after two rounds = %+v, want new, round 3 of 3", o)
+	}
+	for _, want := range []string{
+		`<dt>rounds</dt><dd>new 2 of 3 (the next changes from review goes to new)</dd>`,
+		`changes <span class="faint">to new (round 3 of 3)</span>`,
+	} {
+		if !strings.Contains(squashLines(html), want) {
+			t.Errorf("the page lacks %s", want)
+		}
+	}
+
+	// All three used: the next changes goes to decide, and the page says so.
+	report("changes")
+	report("done")
+	got, html = page()
+	if want := []string{"new 3 of 3 (the next changes from review goes to decide)"}; !reflect.DeepEqual(got.RoundsLines, want) {
+		t.Errorf("rounds lines = %v, want %v", got.RoundsLines, want)
+	}
+	if o := changes(got); o.To != "decide" || o.Note != "the 3 rounds back to new are used" {
+		t.Errorf("changes at the limit = %+v, want decide, the rounds used", o)
+	}
+	for _, want := range []string{
+		`<dt>rounds</dt><dd>new 3 of 3 (the next changes from review goes to decide)</dd>`,
+		`changes <span class="faint">to decide (the 3 rounds back to new are used)</span>`,
+	} {
+		if !strings.Contains(squashLines(html), want) {
+			t.Errorf("the page lacks %s", want)
+		}
+	}
+	// The bead's own rounds are as the store has them.
+	if want := map[string]int{"new": 3, "review": 3}; !reflect.DeepEqual(got.Bead.Rounds, want) {
+		t.Errorf("bead rounds = %v, want %v", got.Bead.Rounds, want)
+	}
+}
+
 // A bead found from another names it, and the origin's page lists what it
 // led to, closed beads too.
 func TestBeadDiscoveredFrom(t *testing.T) {

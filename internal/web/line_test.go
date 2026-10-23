@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -121,10 +122,47 @@ func TestWaitsHeld(t *testing.T) {
 	}
 }
 
+// roundLoop makes a depot whose flow limits the way back from review to new
+// at max rounds and sends the next to decide, which a manual group of the
+// members works, and a bead in new; report reports an outcome for it.
+func roundLoop(t *testing.T, f *fixture, max int, members ...string) (b *store.Bead, report func(outcome string)) {
+	t.Helper()
+	ctx := context.Background()
+	must(t, f.st.PutDepot(ctx, store.Depot{Name: "loop", Base: "origin/main"}, "me"))
+	flow, err := store.ParseFlow(fmt.Sprintf("new -> review on done\nreview -> merged on done | new on changes max %d then decide | decide on question\ndecide -> new\nmerged terminal\n", max))
+	must(t, err)
+	flow.Name = "loop"
+	_, err = f.st.PutFlow(ctx, *flow, "me")
+	must(t, err)
+	must(t, f.st.SetFlowPointer(ctx, "loop", "", "loop", "me"))
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: members}, "me"))
+	routes, err := f.st.Routes(ctx)
+	must(t, err)
+	hasDecisionRoute := false
+	for _, route := range routes {
+		if route.Stage == "decide" && route.Worker() == "decisions" {
+			hasDecisionRoute = true
+			break
+		}
+	}
+	if !hasDecisionRoute {
+		_, err = f.st.AddRoute(ctx, store.Route{Stage: "decide", Group: "decisions"}, "me")
+		must(t, err)
+	}
+	b, err = f.st.CreateBead(ctx, store.NewBead{Title: "round and round", Stage: "new", Depot: "loop"}, "me")
+	must(t, err)
+	return b, func(outcome string) {
+		t.Helper()
+		_, err := f.st.Done(ctx, b.ID, outcome, "", store.Expect{}, "anna")
+		must(t, err)
+	}
+}
+
 // A bead in a stage routed to a manual group is parked for that group,
 // claimed or not: nothing went wrong with it, so it is listed apart from
-// what waits, and its claim is no session and no work in progress. One
-// routed to an agent's group is not listed at all.
+// what waits, and its claim is no session and no work in progress. A limit
+// that sends it there says why beside the wait. One routed to an agent's
+// group is not listed at all.
 func TestWaitsManual(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
@@ -196,13 +234,77 @@ func TestWaitsManual(t *testing.T) {
 			t.Errorf("the page has %q", not)
 		}
 	}
+
+	// A bead whose last move was a round limit sending it to the manual stage
+	// says why beside the wait. Once it is moved on, or comes to the stage
+	// another way, the line is gone.
+	b, report := roundLoop(t, f, 3, "anna", "ben")
+	manual := web.Reason{Kind: "manual", Text: "waits for decisions (anna, ben) in decide"}
+	row := func() web.Waiting {
+		t.Helper()
+		for _, w := range parked(lineJSON(t, f)) {
+			if w.Bead == b.ID {
+				return w
+			}
+		}
+		t.Fatalf("the line has no parked row for %s", b.ID)
+		return web.Waiting{}
+	}
+	// Three rounds back to new are allowed; the fourth changes is sent on.
+	report("done")
+	for range 3 {
+		report("changes")
+		report("done")
+	}
+	for _, w := range parked(lineJSON(t, f)) {
+		if w.Bead == b.ID {
+			t.Fatalf("in review, and the bead has a parked row: %+v", w)
+		}
+	}
+	report("changes")
+	sent := web.Reason{Kind: "manual", Text: "sent to decide after 3 rounds back to new (changes from review)"}
+	if got, want := row(), []web.Reason{manual, sent}; !reflect.DeepEqual(got.Why, want) {
+		t.Errorf("sent on by the limit\n got %+v\nwant %+v", got.Why, want)
+	}
+	if got := waiting(lineJSON(t, f)); len(got) != 0 {
+		t.Errorf("a bead in decide is a person's by design, and these wait: %+v", got)
+	}
+	text = squash(f.get("/line").body)
+	if part := `<p class="why">waits for decisions (anna, ben) in decide</p><p class="why">sent to decide after 3 rounds back to new (changes from review)</p>`; !strings.Contains(text, part) {
+		t.Errorf("/line lacks %q", part)
+	}
+
+	// A person sends it back, it goes round again and the limit sends it on a
+	// second time: the later move is the one the line explains.
+	_, err = f.st.Advance(ctx, b.ID, "new", store.Expect{}, "anna")
+	must(t, err)
+	report("done")
+	for range 3 {
+		report("changes")
+		report("done")
+	}
+	report("changes")
+	if got, want := row(), []web.Reason{manual, sent}; !reflect.DeepEqual(got.Why, want) {
+		t.Errorf("sent on a second time\n got %+v\nwant %+v", got.Why, want)
+	}
+
+	// A person moves it on and it asks a question to decide: it is in decide
+	// again, but the limit did not send it.
+	_, err = f.st.Advance(ctx, b.ID, "new", store.Expect{}, "anna")
+	must(t, err)
+	report("done")
+	report("question")
+	if got, want := row(), []web.Reason{manual}; !reflect.DeepEqual(got.Why, want) {
+		t.Errorf("in decide by a question\n got %+v\nwant %+v", got.Why, want)
+	}
 }
 
 // A bead parked in a manual stage whose every ask to the viewer is decided
 // leaves that viewer's home: its /line Parked row says the answer is in and
-// names who moves it next. Anyone else still counts it, with the old row,
-// as does a bead with an open ask, one never asked, one in a sole-member or
-// memberless group, and one the viewer answered but may not move.
+// names who moves it next. A round limit's reason stays beside it. Anyone
+// else still counts it, with the old row, as does a bead with an open ask,
+// one never asked, one in a sole-member or memberless group, and one the
+// viewer answered but may not move.
 func TestWaitsManualAnswered(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -353,6 +455,49 @@ func TestWaitsManualAnswered(t *testing.T) {
 	}
 	if got, want := parkedText("cid", cid, other.ID), "waits for decisions (anna, ben) in decide"; got != want {
 		t.Errorf("cid's parked row is %q, want %q", got, want)
+	}
+
+	// A round limit's reason is part of the manual wait. The person who
+	// answered the bead's ask still sees their answer and it remains out of
+	// their home; a one-round limit says "round" in the singular.
+	limited, report := roundLoop(t, f, 1, "anna", "ben")
+	report("done")
+	report("changes")
+	report("done")
+	report("changes")
+	ask := askTo("anna")
+	seq := askOn(t, f, limited.ID, ask)
+	must(t, f.st.AddAnswer(ctx, limited.ID, store.Answer{Ask: seq, Option: 1}, "anna"))
+	sent := web.Reason{Kind: "manual", Text: "sent to decide after 1 round back to new (changes from review)"}
+	found = false
+	for _, w := range parked(lineJSON(t, anna)) {
+		if w.Bead == limited.ID {
+			found = true
+			want := []web.Reason{{Kind: "manual", Text: "you answered; waits for decisions (ben) in decide"}, sent}
+			if !reflect.DeepEqual(w.Why, want) {
+				t.Errorf("anna's limited parked row\n got %+v\nwant %+v", w.Why, want)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("anna's parked rows have no limited bead %s", limited.ID)
+	}
+	annaHas := false
+	for _, w := range homeJSON(t, anna, "/").Attention {
+		annaHas = annaHas || w.Bead == limited.ID
+	}
+	if annaHas {
+		t.Error("anna answered the limited bead and it counts in her home")
+	}
+	benHas := false
+	for _, w := range homeJSON(t, ben, "/").Attention {
+		benHas = benHas || w.Bead == limited.ID
+	}
+	if !benHas {
+		t.Error("ben answered nothing and the limited bead is left out of his home")
+	}
+	if text := squash(anna.get("/line").body); !strings.Contains(text, `<p class="why">you answered; waits for decisions (ben) in decide</p><p class="why">sent to decide after 1 round back to new (changes from review)</p>`) {
+		t.Error("anna's /line page does not say why the answered bead waits")
 	}
 }
 

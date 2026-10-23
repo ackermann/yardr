@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -1302,5 +1303,140 @@ func TestPrintBeadFlowMarksAHeldBeadAndItsLateStage(t *testing.T) {
 	want := "yd-1  the shed\n  type task · stage new · open · P0 · HELD\n  eta usual 2m–5m (new ~3m)\n  late: new has run 9m, usually 5m at most\n"
 	if buf.String() != want {
 		t.Errorf("got  %q\nwant %q", buf.String(), want)
+	}
+}
+
+// A bead in a stage with a limited way back says how far into the limit it
+// is under its stage, in bead show and prime alike, once it has gone round;
+// and prime's outcomes name the stage a report will really take it to, with
+// the round it is, or that the rounds are used. A stage with no limited way
+// back says nothing, and the JSON keeps the bead's rounds as they were.
+func TestBeadShowAndPrimeSayWhereARoundGoes(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.PutDepot(ctx, store.Depot{Name: "yard", Base: "main"}, "me"))
+	f, err := store.ParseFlow("new -> review on done\nreview -> approved on done | new on changes max 3 then decide | decide on question\napproved -> merged\ndecide -> new\nmerged terminal\n")
+	must(err)
+	f.Name = "yard"
+	_, err = st.PutFlow(ctx, *f, "me")
+	must(err)
+	must(st.SetFlowPointer(ctx, "yard", "", "yard", "me"))
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "loop", Depot: "yard", Stage: "new"}, "me")
+	must(err)
+	a := &app{st: st, actor: "mckean"}
+	both := func(id string) (show, prime string) {
+		t.Helper()
+		show, err := run(t, a.beadCmd(), "show", id)
+		must(err)
+		prime, err = run(t, a.primeCmd(), "--bead", id)
+		must(err)
+		return show, prime
+	}
+	report := func(outcome string) {
+		t.Helper()
+		_, err := st.Done(ctx, b.ID, outcome, "", store.Expect{}, "me")
+		must(err)
+	}
+	// head is the stage line of a bead in review; the rounds line, when there
+	// is one, is the next.
+	const head = "  type task · stage review · open · P0\n"
+
+	// In new nothing limited leads back: no line, and the outcomes as before.
+	show, prime := both(b.ID)
+	for _, out := range []string{show, prime} {
+		if strings.Contains(out, "rounds") {
+			t.Errorf("a bead in new, with no limited way back:\n%s", out)
+		}
+	}
+	if !strings.Contains(prime, "  done         -> review       yardr bead done "+b.ID+"\n") {
+		t.Errorf("prime in new:\n%s", prime)
+	}
+
+	// The first review has no rounds counted: no line, but the outcome names
+	// the limit's first round.
+	report("done")
+	show, prime = both(b.ID)
+	for _, out := range []string{show, prime} {
+		if strings.Contains(out, "rounds new") {
+			t.Errorf("a bead on its first review shows a count:\n%s", out)
+		}
+	}
+	if !strings.Contains(prime, "  changes      -> new (round 1 of 3) yardr bead done "+b.ID+" --outcome changes\n") {
+		t.Errorf("prime on the first review:\n%s", prime)
+	}
+
+	// Two rounds used: 2 of 3, and the next changes still goes back to new, as
+	// round 3.
+	report("changes")
+	report("done")
+	report("changes")
+	report("done")
+	show, prime = both(b.ID)
+	for _, out := range []string{show, prime} {
+		if want := head + "  rounds new 2 of 3 (the next changes from review goes to new)\n"; !strings.Contains(out, want) {
+			t.Errorf("after two rounds, want %q under the stage:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(prime, "  changes      -> new (round 3 of 3) yardr bead done "+b.ID+" --outcome changes\n") {
+		t.Errorf("prime after two rounds:\n%s", prime)
+	}
+
+	// The third round is used: the next changes goes to decide, and prime
+	// names decide, not new.
+	report("changes")
+	report("done")
+	show, prime = both(b.ID)
+	for _, out := range []string{show, prime} {
+		if want := head + "  rounds new 3 of 3 (the next changes from review goes to decide)\n"; !strings.Contains(out, want) {
+			t.Errorf("after three rounds, want %q under the stage:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(prime, "  changes      -> decide (the 3 rounds back to new are used) yardr bead done "+b.ID+" --outcome changes\n") ||
+		!strings.Contains(prime, "  question     -> decide       yardr bead done "+b.ID+" --outcome question\n") {
+		t.Errorf("prime after three rounds:\n%s", prime)
+	}
+
+	// The JSON keeps the bead's rounds as they were, and says in prime where
+	// each outcome goes now.
+	a.json = true
+	defer func() { a.json = false }()
+	out, err := run(t, a.beadCmd(), "show", b.ID)
+	must(err)
+	var shown struct {
+		Rounds map[string]int `json:"rounds"`
+	}
+	must(json.Unmarshal([]byte(out), &shown))
+	if want := map[string]int{"new": 3, "review": 3}; !maps.Equal(shown.Rounds, want) {
+		t.Errorf("bead show --json rounds = %v, want %v", shown.Rounds, want)
+	}
+	out, err = run(t, a.primeCmd(), "--bead", b.ID)
+	must(err)
+	var primed struct {
+		Bead struct {
+			Rounds map[string]int `json:"rounds"`
+		} `json:"bead"`
+		Next struct {
+			Outcomes []store.OutcomeNow `json:"outcomes"`
+		} `json:"next"`
+	}
+	must(json.Unmarshal([]byte(out), &primed))
+	if !maps.Equal(primed.Bead.Rounds, shown.Rounds) {
+		t.Errorf("prime --json rounds = %v, want %v", primed.Bead.Rounds, shown.Rounds)
+	}
+	var changes store.OutcomeNow
+	for _, o := range primed.Next.Outcomes {
+		if o.Name == "changes" {
+			changes = o
+		}
+	}
+	if changes.To != "new" || changes.Goes != "decide" || changes.Used != 3 || changes.Max != 3 || changes.Then != "decide" {
+		t.Errorf("prime --json: changes = %+v, want new left for decide with 3 used of 3", changes)
 	}
 }

@@ -281,7 +281,9 @@ func TestDone(t *testing.T) {
 		t.Fatal(err)
 	}
 	next, err := s.NextStages(ctx, b.ID)
-	if err != nil || !slices.Equal(next.Outcomes, []store.Outcome{{Name: "done", To: "review"}, {Name: "question", To: "decide"}}) {
+	if err != nil || !slices.Equal(next.Outcomes, []store.OutcomeNow{
+		{Outcome: store.Outcome{Name: "done", To: "review"}, Goes: "review"},
+		{Outcome: store.Outcome{Name: "question", To: "decide"}, Goes: "decide"}}) {
 		t.Fatalf("next outcomes = %+v, %v", next, err)
 	}
 
@@ -458,8 +460,29 @@ merged terminal
 	if err != nil {
 		t.Fatal(err)
 	}
+	// nowOf is the outcome as NextStages reads it for the bead where it is.
+	nowOf := func(id, outcome string) store.OutcomeNow {
+		t.Helper()
+		next, err := s.NextStages(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range next.Outcomes {
+			if o.Name == outcome {
+				return o
+			}
+		}
+		t.Fatalf("%s has no outcome %s: %+v", id, outcome, next.Outcomes)
+		return store.OutcomeNow{}
+	}
+	// report makes the report, having asked NextStages where it would go:
+	// the one reading of the limit serves the move and what is shown, so the
+	// two agree at every step below, the redirects included.
 	report := func(id, outcome, stage string) *store.Bead {
 		t.Helper()
+		if goes := nowOf(id, outcome).Goes; goes != stage {
+			t.Fatalf("NextStages says %s on %s goes to %s; the move below is to %s", outcome, id, goes, stage)
+		}
 		got, err := s.Done(ctx, id, outcome, "", store.Expect{}, "me")
 		if err != nil || got.Stage != stage {
 			t.Fatalf("%s on %s = %+v, %v; want the bead in %s", outcome, id, got, err, stage)
@@ -522,10 +545,25 @@ merged terminal
 	}
 
 	// Critique's changes allows 2, and the count is 3: raised past it by
-	// the other edge. An equality test would compare 3 with 2, miss, and send
-	// the bead round again; "at least" redirects. The advanced event says why,
-	// draft's count is zero with its key, and the yard tells whoever hears
-	// attention, in the same write.
+	// the other edge. NextStages reads it as the move will: to decide instead
+	// of draft, the rounds used, no round to come, and says so in the words
+	// bead show and the brief use. An equality test would compare 3 with 2,
+	// miss, and send the bead round again; "at least" redirects. The advanced
+	// event says why, draft's count is zero with its key, and the yard tells
+	// whoever hears attention, in the same write.
+	changes := nowOf(d.ID, "changes")
+	if changes.To != "draft" || changes.Goes != "decide" || changes.Max != 2 || changes.Used != 3 || changes.Round != 0 {
+		t.Fatalf("changes at its limit reads %+v, want draft left for decide, 3 used of 2, no round", changes)
+	}
+	if note, line := changes.RoundNote("`"), changes.RoundsLine("critique"); note != "the 3 rounds back to `draft` are used" || line != "draft 3 of 2 (the next changes from critique goes to decide)" {
+		t.Fatalf("changes at its limit says %q and %q", note, line)
+	}
+	if done := nowOf(d.ID, "done"); done.Goes != "approved" || done.Used != 0 || done.Round != 0 || done.RoundNote("") != "" || done.RoundsLine("critique") != "" {
+		t.Fatalf("done, which has no limit, reads %+v", done)
+	}
+	if next, err := s.NextStages(ctx, d.ID); err != nil || !slices.Equal(next.RoundsLines(), []string{changes.RoundsLine("critique")}) {
+		t.Fatalf("rounds lines = %v, %v; want the one of changes", next.RoundsLines(), err)
+	}
 	got = report(d.ID, "changes", "decide")
 	if n, ok := got.Rounds["draft"]; !ok || n != 0 || got.Rounds["decide"] != 0 {
 		t.Fatalf("rounds after the redirect = %v, want draft at zero with its key", got.Rounds)
@@ -558,9 +596,17 @@ merged terminal
 	hand(d.ID, "draft")
 	draftRounds(0)
 	report(d.ID, "done", "critique")
+	// Back in draft at zero is a stage the bead has been in: the next changes
+	// is its round 1 of 2, and a count of zero is nothing to say of it.
+	if c := nowOf(d.ID, "changes"); c.Goes != "draft" || c.Used != 0 || c.Round != 1 || c.RoundNote("") != "round 1 of 2" || c.RoundsLine("critique") != "" {
+		t.Fatalf("changes with no rounds yet reads %+v (%q), want round 1 of 2 and no line", c, c.RoundNote(""))
+	}
 	report(d.ID, "changes", "draft")
 	draftRounds(1)
 	report(d.ID, "done", "critique")
+	if c := nowOf(d.ID, "changes"); c.Goes != "draft" || c.Used != 1 || c.Round != 2 || c.RoundNote("") != "round 2 of 2" || c.RoundsLine("critique") != "draft 1 of 2 (the next changes from critique goes to draft)" {
+		t.Fatalf("changes after one round reads %+v, want round 2 of 2", c)
+	}
 	report(d.ID, "question", "decide")
 	draftRounds(1)
 	hand(d.ID, "critique")
@@ -572,6 +618,17 @@ merged terminal
 	if move, _ := lastMove(d.ID, "decide"); move["rounds"] != float64(2) || move["max"] != float64(2) || move["instead_of"] != "draft" {
 		t.Fatalf("the redirect at exactly max: advanced event = %v, want rounds 2, max 2, instead_of draft", move)
 	}
+
+	// A bead made in critique has not been in draft: its first changes is the
+	// arrival there, not a round, whatever the limit.
+	first, err := s.CreateBead(ctx, store.NewBead{Title: "first", Depot: "yard", Type: "design", Stage: "critique"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := nowOf(first.ID, "changes"); c.Goes != "draft" || c.Used != 0 || c.Round != 0 || c.RoundNote("") != "" {
+		t.Fatalf("changes to a stage the bead has not been in reads %+v, want no round", c)
+	}
+	report(first.ID, "changes", "draft")
 
 	// A redirect is a move like any other: what refuses it leaves the count,
 	// the stage and the log as they were. Stage check is worked by a group
@@ -620,6 +677,9 @@ merged terminal
 	}
 	for _, step := range []struct{ outcome, stage string }{{"done", "test"}, {"again", "make"}, {"done", "test"}} {
 		report(c.ID, step.outcome, step.stage)
+	}
+	if o := nowOf(c.ID, "again"); o.Goes != "abandoned" || o.RoundNote("") != "the 1 round back to make is used" {
+		t.Fatalf("again at max 1 reads %+v (%q)", o, o.RoundNote(""))
 	}
 	got = report(c.ID, "again", "abandoned")
 	if got.Status != "closed" || got.CloseReason == nil || *got.CloseReason != "abandoned" {

@@ -151,13 +151,13 @@ func TestJobCarriesNextStages(t *testing.T) {
 	s, f, d := setup(t)
 	ctx := context.Background()
 	must(t, s.PutDepot(ctx, store.Depot{Name: "web", Path: "/tmp/web"}, "me"))
-	flow, err := store.ParseFlow("new -> review on done | backlog | dropped on abandoned\nreview -> merged\ndropped terminal\nmerged terminal\n")
+	flow, err := store.ParseFlow("new -> review on done | backlog | dropped on abandoned | new on retry max 2 then review\nreview -> merged\ndropped terminal\nmerged terminal\n")
 	must(t, err)
 	flow.Name = "web"
 	_, err = s.PutFlow(ctx, *flow, "me")
 	must(t, err)
 	must(t, s.SetFlowPointer(ctx, "web", "", "web", "me"))
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 2}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 3}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "manual"}, "me"))
 	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
@@ -171,6 +171,13 @@ func TestJobCarriesNextStages(t *testing.T) {
 	must(t, err)
 	free, err := s.CreateBead(ctx, store.NewBead{Title: "free"}, "me")
 	must(t, err)
+	// A bead that has used the rounds its retry allows before it is handed out.
+	retried, err := s.CreateBead(ctx, store.NewBead{Title: "retried", Depot: "web"}, "me")
+	must(t, err)
+	for range 2 {
+		_, err = s.Done(ctx, retried.ID, "retry", "", store.Expect{}, "me")
+		must(t, err)
+	}
 	must(t, d.Reconcile(ctx))
 
 	f.mu.Lock()
@@ -183,17 +190,27 @@ func TestJobCarriesNextStages(t *testing.T) {
 		{Stage: "review", Group: "reviewers", Runner: "manual"},
 		{Stage: "backlog"},
 		{Stage: "dropped", Terminal: true},
+		{Stage: "new", Group: "builders", Runner: "fake"},
 	}
 	if got := jobs[inFlow.ID].Next; !reflect.DeepEqual(got, want) {
 		t.Fatalf("next = %+v, want %+v", got, want)
 	}
-	// Outcomes carry the same view of where they lead.
+	// Outcomes carry the same view of where they lead, and for a limited one
+	// the round it would be.
+	retry := store.Outcome{Name: "retry", To: "new", Max: 2, Then: "review"}
 	wantOut := []dispatch.NextOutcome{
 		{Outcome: "done", NextStage: want[0]},
 		{Outcome: "abandoned", NextStage: want[2]},
+		{Outcome: "retry", NextStage: want[3], Limit: &store.OutcomeNow{Outcome: retry, Goes: "new", Round: 1}},
 	}
 	if got := jobs[inFlow.ID].Outcomes; !reflect.DeepEqual(got, wantOut) {
 		t.Fatalf("outcomes = %+v, want %+v", got, wantOut)
+	}
+	// Once the rounds are used the limit's stage is where it leads, and who
+	// picks it up is who works that stage, not the stage it would go back to.
+	wantOut[2] = dispatch.NextOutcome{Outcome: "retry", NextStage: want[0], Limit: &store.OutcomeNow{Outcome: retry, Goes: "review", Used: 2}}
+	if got := jobs[retried.ID].Outcomes; !reflect.DeepEqual(got, wantOut) {
+		t.Fatalf("outcomes of the bead whose rounds are used = %+v, want %+v", got, wantOut)
 	}
 	if j, ok := jobs[free.ID]; !ok || j.Next != nil || j.Outcomes != nil {
 		t.Fatalf("bead without a flow: started %v, next %+v, outcomes %+v", ok, j.Next, j.Outcomes)

@@ -367,6 +367,23 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 	if viewer == "" {
 		viewer = operator
 	}
+	// The latest redirect of each bead a round limit has sent on, from the
+	// log's index by kind: one read however many beads wait, where reading
+	// each parked bead's events would cost one apiece. A redirect older than
+	// the newest redirectEvents is not found, and its bead says nothing of it.
+	redirects := map[string]store.Event{}
+	if evs, err := s.st.EventsOfKind(ctx, store.RoundsReached, redirectEvents); err != nil {
+		if ctx.Err() != nil {
+			return nil, nil, err
+		}
+		s.log.Error("web: rounds reached", "err", err)
+	} else {
+		for _, e := range evs { // oldest first, so the latest of a bead wins
+			if e.Bead != nil {
+				redirects[*e.Bead] = e
+			}
+		}
+	}
 	rd := s.newReader(nil)
 	waits, parked = []Waiting{}, []Waiting{}
 	for _, b := range y.beads {
@@ -402,12 +419,17 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			// row names who moves it next. With no other member to name, a
 			// sole member still moves it themselves, and anyone else's row
 			// is unchanged.
+			answered := false
 			if len(g.Members) > 1 && slices.Contains(g.Members, viewer) && decided[b.ID] && len(asks[b.ID]) == 0 {
 				others := slices.DeleteFunc(slices.Clone(g.Members), func(m string) bool { return m == viewer })
-				text = "you answered; waits for " + g.Name + " (" + strings.Join(others, ", ") + ") in " + b.Stage
-				why = append(why, Reason{Kind: "manual", Text: text, Answered: true})
-			} else {
-				why = append(why, Reason{Kind: "manual", Text: text})
+				text, answered = "you answered; waits for "+g.Name+" ("+strings.Join(others, ", ")+") in "+b.Stage, true
+			}
+			why = append(why, Reason{Kind: "manual", Text: text, Answered: answered})
+			// A stage a round limit sent the bead to says so beside the wait,
+			// as a line of the same wait: the bead stays parked as any bead
+			// in that stage is.
+			if sent := rd.sentOn(ctx, b, redirects); sent != "" {
+				why = append(why, Reason{Kind: "manual", Text: sent, Answered: answered})
 			}
 		}
 		// An open ask to the acting user waits with the rest, fault first:
@@ -612,6 +634,51 @@ func gaveUpText(e store.Event) string {
 	}
 	if stage, _ := e.Data["stage"].(string); stage != "" {
 		out += " in " + stage
+	}
+	return out
+}
+
+// redirectEvents bounds the rounds_reached events waits reads to find which
+// beads stand where a round limit sent them.
+const redirectEvents = 200
+
+// sentOn says why b stands in the stage a round limit sent it to, from the
+// rounds_reached event of that redirect (redirects, the latest of each bead):
+// "sent to decide after 3 rounds back to new (changes from review)". It is ""
+// unless the redirect was the bead's last move: a bead moved on since, or
+// come to the stage another way, stands there for no limit's sake. The bead's
+// events are read only for a bead a redirect named this stage for.
+func (r *reader) sentOn(ctx context.Context, b store.Bead, redirects map[string]store.Event) string {
+	e, ok := redirects[b.ID]
+	if !ok || e.Data["then"] != b.Stage {
+		return ""
+	}
+	evs := r.eventsOf(ctx, b.ID)
+	for i := len(evs) - 1; i >= 0; i-- {
+		switch {
+		case evs[i].Seq == e.Seq:
+			return sentOnText(e)
+		case evs[i].Kind == "advanced" || evs[i].Kind == "reopened":
+			return ""
+		}
+	}
+	return ""
+}
+
+// sentOnText says a rounds_reached event in the yard's words. A field the
+// event lacks is left out of the sentence, as gaveUpText does.
+func sentOnText(e store.Event) string {
+	str := func(k string) string { s, _ := e.Data[k].(string); return s }
+	out := "sent to " + str("then")
+	if n, ok := number(e.Data["rounds"]); ok {
+		out += fmt.Sprintf(" after %d round", n)
+		if n != 1 {
+			out += "s"
+		}
+		out += " back to " + str("to")
+	}
+	if outcome, stage := str("outcome"), str("stage"); outcome != "" && stage != "" {
+		out += " (" + outcome + " from " + stage + ")"
 	}
 	return out
 }

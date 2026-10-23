@@ -366,6 +366,31 @@ file does: depot yardr's own,
 [`.yardr/flows/default.flow`](../.yardr/flows/default.flow), carries the
 starter's three.
 
+Where a limit is in play, the bead and whoever works it see it:
+
+- `yardr bead show` and `yardr prime` print a line under the stage for each
+  limited outcome of it whose stage has rounds counted, and nothing for a
+  stage without a limited way back or a bead that has not gone round:
+  `rounds new 2 of 3 (the next changes from review goes to new)`. It is the
+  stage's count over the outcome's `max`, and where the next report of the
+  outcome goes. Two rounds of three are used, so that report is still the
+  third and goes back to `new`; with three used it goes to `decide`.
+- `OUTCOMES:` in `yardr prime` and `## Outcomes` in an agent's brief name the
+  stage a report will really take the bead to, with the round it is while the
+  bead is within the limit (`changes (to new, round 3 of 3)`) and that the
+  rounds are used once they are (`changes (to decide: the 3 rounds back to new
+  are used)`), and the brief says who picks the bead up there. A reviewer whose
+  `changes` would reach a person can write the note for them.
+- `yardr prime --json` carries each outcome of the stage under `next.outcomes`
+  as the flow has it (`name`, `to`, `max`, `then`) and as it stands for the bead:
+  `goes`, the stage a report takes it to now; `used`, the rounds counted; and
+  `round`, which round the report would be. The bead's own `rounds` are as they
+  were. The web bead page shows the same, and says why a bead that a limit sent
+  to a stage people work waits there ([web.md](web.md#the-right-column)).
+
+The stage a report goes to is decided in one place, which the move and these
+displays both ask, so what is shown cannot differ from what happens.
+
 ### done-safe and the security paths
 
 A flow may offer a way past a stage that only some beads need. Depot yardr's

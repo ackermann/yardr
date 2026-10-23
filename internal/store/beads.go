@@ -1620,17 +1620,11 @@ func donePick(outcome string, safe *safeCheck) func(f *Flow, b *beadRow, data ma
 			return "", err
 		}
 		data["outcome"] = outcome
-		// At least Max, not exactly: two outcomes into one stage may carry
-		// different limits and both add to the stage's one count, so the
-		// higher limit's edge can raise it past a lower one's, and an
-		// equality would let the bead go round past that limit for as long
-		// as the count stays above it. Max is 1 or more, so a count that
-		// reaches it is one the stage has a key for: the bead has been there.
-		if rounds := b.Rounds[o.To]; o.Max > 0 && rounds >= o.Max {
-			data["rounds"], data["max"], data["instead_of"] = rounds, o.Max, o.To
-			return o.Then, nil
+		n := b.takes(o)
+		if n.Goes != o.To {
+			data["rounds"], data["max"], data["instead_of"] = n.Used, o.Max, o.To
 		}
-		return o.To, nil
+		return n.Goes, nil
 	}
 }
 

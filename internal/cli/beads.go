@@ -117,6 +117,8 @@ func printLinks(w io.Writer, ls []store.Link) {
 // where it comes from, when next is given.
 // printBeadFlow prints b with the flow governing it; flowErr, when the
 // flow does not resolve, is shown in its place rather than hide the bead.
+// With next it also says, under the stage, how far into a round limit the
+// bead is.
 // fam, when given, adds where the bead stands among trains, and links the
 // outside issues it is linked to; disc, when given, the bead it was found
 // from and the beads found from it; folds, when given, the carrier it was
@@ -143,6 +145,13 @@ func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store
 			fmt.Fprint(w, " · HELD")
 		}
 		fmt.Fprintln(w)
+		// How far into a round limit the bead is, right under its stage: the
+		// outcomes of the stage know, and a bead no limit touches has none.
+		if flowErr == nil {
+			for _, line := range next.RoundsLines() {
+				fmt.Fprintf(w, "  rounds %s\n", line)
+			}
+		}
 		if b.Depot != nil {
 			fmt.Fprintf(w, "  depot %s\n", *b.Depot)
 		}
@@ -996,8 +1005,14 @@ func (a *app) primeCmd() *cobra.Command {
 					fmt.Fprintln(w, "\nOUTCOMES: none until the flow is fixed; every move is refused")
 				} else if len(next.Outcomes) > 0 {
 					fmt.Fprintln(w, "\nOUTCOMES:")
+					// Where the report really takes the bead, with the round it
+					// is when a limit is in play, not the flow's own edge.
 					for _, o := range next.Outcomes {
-						fmt.Fprintf(w, "  %-12s -> %-12s %s\n", o.Name, o.To, doneCommand(b.ID, o.Name))
+						to := o.Goes
+						if note := o.RoundNote(""); note != "" {
+							to += " (" + note + ")"
+						}
+						fmt.Fprintf(w, "  %-12s -> %-12s %s\n", o.Name, to, doneCommand(b.ID, o.Name))
 					}
 				} else if next.Flow != nil {
 					line := strings.Join(next.Stages, ", ")

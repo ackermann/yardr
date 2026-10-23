@@ -113,7 +113,14 @@ type NextStage struct {
 // NextOutcome is one outcome the bead's stage offers and where it leads.
 type NextOutcome struct {
 	Outcome string
+	// NextStage is where reporting the outcome takes this bead now, with who
+	// picks it up there: the stage a limit sends it to once its rounds are
+	// used, not the flow's own edge.
 	NextStage
+	// Limit is the outcome as the bead's rounds stand for it, for an outcome
+	// that has a limit: which round reporting it would be, or that its rounds
+	// are used. Nil for one that has none.
+	Limit *store.OutcomeNow
 }
 
 // Runner starts and supervises whatever works a bead: an agent, a process,
@@ -1569,7 +1576,11 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 	}
 	var outcomes []NextOutcome
 	for _, o := range ns.Outcomes {
-		outcomes = append(outcomes, NextOutcome{Outcome: o.Name, NextStage: at(o.To)})
+		n := NextOutcome{Outcome: o.Name, NextStage: at(o.Goes)}
+		if o.Max > 0 {
+			n.Limit = &o
+		}
+		outcomes = append(outcomes, n)
 	}
 	// The map is drawn now, as the bead is handed out, so a bead sent back
 	// starts its new session with the path that brought it here.

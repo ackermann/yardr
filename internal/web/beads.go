@@ -635,6 +635,11 @@ type BeadPage struct {
 	Outcomes []BeadOutcome `json:"outcomes,omitempty"`
 	Next     []string      `json:"next,omitempty"`
 	Terminal []string      `json:"terminal,omitempty"`
+	// RoundsLines say how far into a round limit the bead is, one for each
+	// limited outcome of its stage whose stage has rounds counted, as `yardr
+	// bead show` prints them: "new 2 of 3 (the next changes from review goes
+	// to new)".
+	RoundsLines []string `json:"rounds_lines,omitempty"`
 	// Asks are the bead's open asks to the user the view acts as, oldest
 	// first, as the socket's Bead reads them: the page answers them with
 	// buttons. Empty without --as.
@@ -701,9 +706,15 @@ type BeadFlow struct {
 // BeadOutcome is one way work in the bead's stage can end, with the
 // command that reports it.
 type BeadOutcome struct {
-	Name    string `json:"name"`
+	Name string `json:"name"`
+	// To is where reporting the outcome takes this bead now: the stage a
+	// round limit sends it to once its rounds are used, not the flow's own
+	// edge.
 	To      string `json:"to"`
 	Command string `json:"command"`
+	// Note says which round the report would be ("round 3 of 3") or that the
+	// rounds are used, where a round limit is in play; absent otherwise.
+	Note string `json:"note,omitempty"`
 }
 
 // MoveAction is one way the view's user may send the bead on, as `yardr
@@ -795,8 +806,9 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 		}
 		for _, o := range next.Outcomes {
 			cmd := store.DoneCommand(b.ID, o.Name)
-			d.Outcomes = append(d.Outcomes, BeadOutcome{Name: o.Name, To: o.To, Command: cmd})
+			d.Outcomes = append(d.Outcomes, BeadOutcome{Name: o.Name, To: o.Goes, Command: cmd, Note: o.RoundNote("")})
 		}
+		d.RoundsLines = next.RoundsLines()
 	}
 	if as != "" {
 		// What the request's user may do with the bead, as `yardr review`

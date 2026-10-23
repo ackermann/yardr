@@ -1257,8 +1257,10 @@ type NextStages struct {
 	Stages   []string    `json:"stages"`             // allowed next stages (empty without a flow)
 	Terminal []string    `json:"terminal,omitempty"` // those of Stages that close the bead
 	// Outcomes are how work in the stage can end, for `yardr bead done`;
-	// empty when the flow leaves the stage to explicit moves.
-	Outcomes []Outcome `json:"outcomes,omitempty"`
+	// empty when the flow leaves the stage to explicit moves. Each is read for
+	// this bead: where reporting it takes the bead now, which a round limit
+	// can change from the flow's edge (OutcomeNow).
+	Outcomes []OutcomeNow `json:"outcomes,omitempty"`
 	// StageFile is a repository flow's definition of Stage, when it has
 	// one. A store flow's is a file in the yard's home, which the store
 	// does not read: whoever knows the home asks HomeStageFile.
@@ -1268,6 +1270,22 @@ type NextStages struct {
 	// stand. Empty when the entry put its asks, or the stage has no
 	// template. The bead still moves by hand.
 	TemplateError string `json:"template_error,omitempty"`
+}
+
+// RoundsLines are the lines OutcomeNow.RoundsLine says for the stage's
+// outcomes, in the order the flow gives them: one for each limited outcome
+// whose stage has rounds counted. Nil next, and a stage with none, say none.
+func (n *NextStages) RoundsLines() []string {
+	if n == nil {
+		return nil
+	}
+	var out []string
+	for _, o := range n.Outcomes {
+		if line := o.RoundsLine(n.Stage); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // NextStages reports the flow governing bead id, the stages it may be
@@ -1293,7 +1311,9 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 			return changedMeanwhile(err)
 		}
 		out.Flow, out.Source, out.Stages = f, src, f.Next(row.Stage)
-		out.Outcomes = f.OutcomesFrom(row.Stage)
+		for _, o := range f.OutcomesFrom(row.Stage) {
+			out.Outcomes = append(out.Outcomes, row.takes(o))
+		}
 		out.StageFile = stageFileOf(f, src, repo, row.Stage)
 		for _, st := range out.Stages {
 			if f.IsTerminal(st) {

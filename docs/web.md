@@ -1020,7 +1020,7 @@ every reason (`why`) that holds for it:
 | `held` | is on hold | `held by <actor>`, and as `note` the reason: the note that actor left right before, as in [the feed](#the-feed). When the bead's events hold a `gave_up` for the hold, the text names it instead: `gave up after 3 failures in new` |
 | `blocked` | has a running session that waits on a permission prompt or a question | `its session waits on a prompt: <agent>`, the agent's name in its runner, else the session's id |
 | `stranded` | sits in a stage its flow lacks (`yardr flow show <depot>`) | `stranded in <stage>, a stage flow <flow> lacks` |
-| `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>`, or `you answered; waits for <group> (<others>) in <stage>` where the reader is a member with another member left and has decided every ask to them on the bead |
+| `manual` | is in a stage of a manual group: the group that claimed it, else the one its stage is routed to | `waits for <group> (<members>) in <stage>`, or `you answered; waits for <group> (<others>) in <stage>` where the reader is a member with another member left and has decided every ask to them on the bead. A bead whose last move was a [round limit](flows.md#a-limit-on-rounds) sending it to that stage has a second `manual` reason after it: `sent to decide after 3 rounds back to new (changes from review)` |
 | `ask` | carries an open ask to the operator | the question, and as `note` its context lines |
 
 - A bead whose only reason is `manual` is in `parked`, every other one in
@@ -1360,8 +1360,12 @@ where that comes from, its base, its train, the bead it was discovered from;
 the open beads that block it; a train's children; the beads it led to; the
 body; the stage file of its stage (without its
 `summary:` line, in the page; whole in the JSON); the outcomes the
-stage offers, each with the command that reports it (the next stages, for a
-stage with no outcome); its edges; its board, the note pages in note order
+stage offers, each with the command that reports it and the stage it takes
+the bead to now, which a [round limit](flows.md#a-limit-on-rounds) can make
+another than the flow's own, with the round it is (the next stages, for a
+stage with no outcome); a `rounds` row for each limited outcome of the stage
+whose stage has rounds counted (`new 2 of 3 (the next changes from review
+goes to new)`); its edges; its board, the note pages in note order
 where there are any; its notes, the oldest first, each with
 its files below its words; the sessions that worked it; its
 history. A closed bead has a page too. An unknown id is a 404.
@@ -1485,6 +1489,12 @@ types into a page from a note trusts its author.
   cards carry their beads' too.
 - `flow` is absent for a bead no flow governs: it may move to any stage.
   `terminal` names those of `next` that close the bead.
+- `outcomes` name in `to` where reporting the outcome takes the bead now. Where
+  a [round limit](flows.md#a-limit-on-rounds) is in play, `note` says which round
+  the report would be (`round 3 of 3`) or that the rounds are used (`the 3
+  rounds back to new are used`), and `rounds_lines` are the rows the page shows,
+  one for each limited outcome whose stage has rounds counted. The bead's own
+  `rounds` are in `bead`, as the store has them.
 - `history` is every event of the bead the log still has, the oldest first,
   as `yardr bead history <id> --json` prints it: an entry of
   [the feed](#the-feed), none left out, and under an update that changed
