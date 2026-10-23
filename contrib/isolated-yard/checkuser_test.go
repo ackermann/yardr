@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+// sourcesFuse is how long startSources waits for the stand-in to take an
+// address: a fuse against a stand-in that never takes one, not a window its
+// start must fit in. The first run of a file written a moment ago waits behind
+// the first runs of the other new files on the machine, a few a second, and
+// beside a full race run the stand-in's took longer than the 20 s this once
+// was (yardr-fwcc).
+const sourcesFuse = 2 * time.Minute
+
 // startSources builds the sources stand-in into the yard and starts it,
 // returning the address it took. `down` stops it with the rest of the
 // yard, by its home.
@@ -55,8 +63,8 @@ func startSources(t *testing.T, d string) string {
 			if _, addr, found := strings.Cut(line, "a customer system (/crm/) on "); found {
 				return strings.TrimSpace(addr)
 			}
-		case <-time.After(20 * time.Second):
-			t.Fatal("the stand-in took no address in 20 s")
+		case <-time.After(sourcesFuse):
+			t.Fatalf("the stand-in took no address in %s", sourcesFuse)
 		}
 	}
 }
