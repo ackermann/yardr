@@ -64,7 +64,7 @@ It writes one yard, the default home's.
 ## A run on a fresh server
 
 Run on 22 October 2026 (yardr-zymt, for the team server of
-docs/design/2026-10-22-yardr-m06d-hosted-at-a-company.md 3.7), following
+docs/design/2026-10-22-yardr-m06d-team-server.md 3.7), following
 docs/install.md, "From a release archive" and "On a server".
 
 - **The machine**: Debian GNU/Linux 12.15 (bookworm), arm64, systemd 252: an
