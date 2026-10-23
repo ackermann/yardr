@@ -1635,6 +1635,33 @@ sleepbudget() {
   if [ -n "$out" ]; then printf '%s\n' "$out"; fi
   [ "$st" = 0 ] || exit 1
 }
+# nomarkers fails the run when a tracked file carries the redaction marker
+# (REDACTED in capitals inside square brackets): tool output redacts a word
+# that way, and the redaction was copied into files as text (yardr-k3a0).
+# Every run judges the whole tree, whatever was selected, so a docs-only or
+# packs-only landing cannot carry it past the gate. The marker is built from
+# two parts, so this step does not carry the literal it looks for. The match
+# is case-sensitive: the product's own lowercase markers stay green.
+nomarkers() {
+  t0=$(date +%s)
+  marker='[''REDACTED]'
+  out=
+  if hits=$(git grep -n -F "$marker" 2>/dev/null); then
+    out=$hits
+  else
+    grep_status=$?
+    if [ "$grep_status" -ne 1 ]; then
+      echo "test: redaction marker scan failed (git grep exited $grep_status)"
+      exit "$grep_status"
+    fi
+  fi
+  took "$t0" "redaction marker scan"
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out" | sed 's/^/test: /'
+    echo "test: a tracked file carries the redaction marker, which is tool output, not text to keep (yardr-k3a0)"
+    exit 1
+  fi
+}
 formatted() {
   t0=$(date +%s)
   out=$(gofmt -l .)
@@ -1737,6 +1764,7 @@ whole() {
   # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
   again env GOOS=linux go vet ./...
   sleepbudget
+  nomarkers
   if [ "$2" = selection ] && [ -n "$tmp" ]; then
     [ ! -s "$tmp/rows" ] || cat "$tmp/rows"
     pkgs=$(sort -u "$tmp/run")
@@ -1945,6 +1973,7 @@ built() {
   again go vet ./...
   again go build ./...
   sleepbudget
+  nomarkers
 }
 # No renames, here and in the two diffs below: a move is the deletion of the
 # old path and the addition of the new, and both are judged. git's rename

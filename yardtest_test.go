@@ -723,24 +723,24 @@ func TestYardTestSelects(t *testing.T) {
 		{"a plain run of the docs runs without -race", nil, []string{"docs/api.md", "docs/design/2026-10-12-a.md"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m m.test/m/internal/rpc"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m m.test/m/internal/rpc"}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m m.test/m/internal/rpc"}},
 		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, []string{"docs/design/2026-10-12-a.md"},
 			landing + "nothing compiled changed" + sincePH + unraced,
 			[]string{"vet ./...", "build ./...", "test m.test/m"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m"}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m"}},
 		// A landing races compiled code; a plain run does not.
 		{"a plain run of a go file runs without -race", nil, []string{"alone/p.go"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m/alone"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test m.test/m/alone"}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m/alone"}},
 		{"a plain run of a file no row knows tests every package without -race", nil, []string{"contrib/x.txt"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}},
 		{"a plain run of go.mod tests every package without -race", nil, []string{"go.mod"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -811,10 +811,10 @@ func TestYardTestSelects(t *testing.T) {
 	}{
 		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", selectionSuffix, skipSocket,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selCLI},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selCLI}, nil},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race " + selCLI}, nil},
 		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", selectionSuffix, runSocketStore,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race " + selRPC,
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race " + selRPC,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 		// A loaded machine, on the row that starts the socket leg: the selection's
 		// race leg takes the cores the load leaves it (gatepar), and the suites
@@ -822,12 +822,12 @@ func TestYardTestSelects(t *testing.T) {
 		// (yardr-fvkm), so this row replaces one instead of adding one.
 		{"a landing over internal/web starts the socket leg, and on a loaded machine runs its race leg with -p=2", "internal/web/p.go", "internal/web/p.go changed", selectionSuffix, runSocketWeb,
 			[]string{"vet ./...", "linux vet ./...", "test -race -p=2 " + selWEB, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race -p=2 " + selWEB,
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race -p=2 " + selWEB,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"YARDR_TEST_LOADAVG=40", "YARDR_TEST_CORES=10"}},
 		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", wholeSuffix, runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race ./...",
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -1183,8 +1183,8 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			// One line a step says how long it took, both runs of it where
 			// there were two: gofmt's, then go's in the order they ran.
-			// The sleep budget is timed too, after the build and before
-			// the tests.
+			// The sleep budget and the redaction marker scan are timed
+			// too, after the build and before the tests.
 			steps := []string{"gofmt -l ."}
 			for _, call := range slices.Compact(slices.Clone(c.calls)) {
 				call = "go " + call
@@ -1197,7 +1197,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			for i, step := range steps {
 				if strings.HasPrefix(step, "go test ") {
-					steps = slices.Insert(steps, i, "sleep budgets")
+					steps = slices.Insert(steps, i, "sleep budgets", "redaction marker scan")
 					break
 				}
 			}
@@ -1337,8 +1337,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		return fmt.Sprintf("%-18s %-6s %-4s %-7s %-8s %-7s %-15s %-13s %s\n", id, "", "P3", "task", "backlog", "open", "-", "yardr", title)
 	}
 	other := listHeader + listRow("m-1", "Something else")
-	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "go test ./..."}
-	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "go test -race -p=3 ./...",
+	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}
+	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race -p=3 ./...",
 		"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "test -race -p=3 " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./...", "test " + pkg}
@@ -3916,7 +3916,8 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
+	markfn := cut("\nnomarkers() {\n", "\n}\n")
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(loadfn, "load $avg on $cores cores") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -3950,7 +3951,7 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + markfn + "\n\"$@\"\n", overDirs, sites
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -4374,6 +4375,64 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 		if want := "test: " + strconv.Itoa(sleepSites) + " sleeps over 500 ms allow-listed"; !strings.Contains(out, want) {
 			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a tracked file carrying the redaction marker fails the marker check", func(t *testing.T) {
+		dir := t.TempDir()
+		gitT(t, dir, "init", "-q", "-b", "main")
+		// Built from parts, as the step builds it: the literal must not
+		// sit in this file, which the step judges too.
+		marker := "[" + "REDACTED]"
+		write(dir, "note.md", "sent as a token\nline two carries "+marker+" here\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "base")
+		out, code := run(dir, "nomarkers")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		if want := "test: note.md:2:line two carries " + marker + " here"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+		if !strings.Contains(out, "test: a tracked file carries the redaction marker") {
+			t.Errorf("output %q, want it to name the failure", out)
+		}
+	})
+
+	t.Run("the product's lowercase markers pass the marker check", func(t *testing.T) {
+		dir := t.TempDir()
+		gitT(t, dir, "init", "-q", "-b", "main")
+		write(dir, "login.go", "package p\n\n// [redacted] and [credential redacted] stay.\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "base")
+		out, code := run(dir, "nomarkers")
+		if code != 0 || strings.Contains(out, "carries the redaction marker") {
+			t.Errorf("exit %d, output %q, want exit 0 and no marker line", code, out)
+		}
+	})
+
+	t.Run("a failed marker scan fails the check", func(t *testing.T) {
+		// A real failure of git grep, not a stand-in for one: git dies on a
+		// GIT_DIR that is no repository, as it does where the run is no
+		// checkout. That needs no repository and no executable written
+		// first, whose first run is slow on a loaded machine. The status is
+		// git's, so the test names no number.
+		dir := t.TempDir()
+		out, code := runEnv(dir, []string{"GIT_DIR=" + filepath.Join(dir, "no-repository")}, "nomarkers")
+		if want := "test: redaction marker scan failed (git grep exited " + strconv.Itoa(code) + ")"; code == 0 || code == 1 || !strings.Contains(out, want) {
+			t.Errorf("exit %d, output %q, want git's failure status (not 0 or 1) and %q", code, out, want)
+		}
+	})
+
+	t.Run("an untracked file carrying the marker passes the marker check", func(t *testing.T) {
+		dir := t.TempDir()
+		gitT(t, dir, "init", "-q", "-b", "main")
+		gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
+		marker := "[" + "REDACTED]"
+		write(dir, "draft.md", "line one carries "+marker+" but is untracked\n")
+		out, code := run(dir, "nomarkers")
+		if code != 0 || strings.Contains(out, "carries the redaction marker") {
+			t.Errorf("exit %d, output %q, want exit 0 and no marker line", code, out)
 		}
 	})
 
