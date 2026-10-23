@@ -49,7 +49,7 @@ git push dokku main
 
 ### 2.5. What else a user would have
 
-Docker Compose on the yard's own machine is no host at all: files and a command, with no service, no credential and no grant. Coolify exposes a REST API (Bearer [REDACTED] under `/api/v1`, with deploy endpoints) and deploy webhooks. CapRover exposes an API with webhook deploys. Kamal deploys containers to the user's servers over ssh from a `deploy.yml` in the repository, with no server of its own. A hosted platform, Cloudflare or the like, builds on push to the base and needs nothing from the yard. The core must learn none of their names: an integration is a pack of kind `source` each (the bead quotes mckean, 11 Oct 2026: integrations are packs, never a trick in the core).
+Docker Compose on the yard's own machine is no host at all: files and a command, with no service, no credential and no grant. Coolify exposes a REST API (Bearer token under `/api/v1`, with deploy endpoints) and deploy webhooks. CapRover exposes an API with webhook deploys. Kamal deploys containers to the user's servers over ssh from a `deploy.yml` in the repository, with no server of its own. A hosted platform, Cloudflare or the like, builds on push to the base and needs nothing from the yard. The core must learn none of their names: an integration is a pack of kind `source` each (the bead quotes mckean, 11 Oct 2026: integrations are packs, never a trick in the core).
 
 ### 2.6. What this yard's depots do today
 

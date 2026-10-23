@@ -2,7 +2,7 @@
 # thread: what the yard does in a GitHub thread: reply, posted, read, open,
 # opened, state. One JSON object on stdin, one on stdout, as the thread key
 # of the declaration says. GITHUB_TOKEN (a personal token, or what the
-# source's mint_command minted, sent as a Bearer [REDACTED] and YARDR_SOURCE_BASE,
+# source's mint_command minted, sent as a Bearer token) and YARDR_SOURCE_BASE,
 # the declaration's base, are in the environment. Needs curl and jq.
 set -euo pipefail
 in=$(cat)

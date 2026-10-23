@@ -32,7 +32,7 @@ about: PostHog analytics and error tracking. Answers HogQL queries, lists error 
 
 # The name of the variable, never the value. A personal API key with the
 # scopes query:read, error_tracking:read, user:read, session_recording:read
-# and replay_scanner:read, sent as a Bearer [REDACTED] (posthog.com/docs/api/
+# and replay_scanner:read, sent as a Bearer token (posthog.com/docs/api/
 # personal-api-keys). hook.normalize is handed no credential at all.
 credential:
   env: POSTHOG_API_KEY

@@ -149,7 +149,7 @@ func (d Declared) Verify(r *http.Request, body, secret []byte, now time.Time) (s
 	v := d.D.Hook.Verify
 	if v.Scheme == source.HookSecret {
 		// The header holds the secret itself, compared as it arrives,
-		// in constant time, as the token adapter compares its Bearer [REDACTED]
+		// in constant time, as the token adapter compares its Bearer token.
 		// A missing header compares as "": it never equals the secret,
 		// which the receiver refused empty before this runs.
 		text := strings.TrimSpace(r.Header.Get(v.Signature.Header))

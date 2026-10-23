@@ -4,7 +4,7 @@
 # says: in {repo, number, url}, out {head, base, state}. The daemon reads
 # it when no event has told the pull request's head. GITHUB_TOKEN (a
 # personal token, or what the source's mint_command minted, sent as a
-# Bearer [REDACTED] and YARDR_SOURCE_BASE, the declaration's base, are in the
+# Bearer token) and YARDR_SOURCE_BASE, the declaration's base, are in the
 # environment. Needs curl and jq.
 set -euo pipefail
 in=$(cat)

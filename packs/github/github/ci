@@ -12,7 +12,7 @@
 # the tongue the core judges: completed or not, and a completed one
 # concluded success, neutral, skipped, failure, timed_out or
 # startup_failure. GITHUB_TOKEN (a personal token, or what the source's
-# mint_command minted, sent as a Bearer [REDACTED] and YARDR_SOURCE_BASE, the
+# mint_command minted, sent as a Bearer token) and YARDR_SOURCE_BASE, the
 # declaration's base, are in the environment. Needs curl and jq.
 set -euo pipefail
 in=$(cat)
