@@ -1690,6 +1690,13 @@ func TestSystemGitconfigClean(t *testing.T) {
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		// Warm the script once, to completion and unbounded: the first
+		// start of a never-run executable pays the machine's first-launch
+		// assessment, seconds under builder load, and the check below
+		// answers false past its deadline. A stopped start pays the
+		// whole assessment again next time, so this run must not go
+		// through the check's timeout; the result is ignored.
+		_ = exec.Command(path, "config", "--system", "--list").Run()
 		return path
 	}
 	for _, tc := range []struct {
