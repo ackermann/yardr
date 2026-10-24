@@ -233,9 +233,11 @@ type foreignOpen struct {
 // out, as a queue must stay answerable.
 //
 // A decided one is what this yard knows of it: the answer queued home,
-// which stands here from when it was given, or the asking yard's word
-// that the ask ended there (foreignAsk.Outcome), said in the row's words
-// under the state it ended in, since nothing else of it crossed.
+// which stands here from when it was given, the asking yard's word that
+// the ask ended there (foreignAsk.Outcome), said in the row's words under
+// the state it ended in, since nothing else of it crossed, or that yard's
+// word that it was put aside there, which stands among the decided with
+// its return until it comes back.
 func (s *Store) foreignAsks(name string, at time.Time) ([]foreignOpen, []decidedByAnswer, error) {
 	var out []foreignOpen
 	var decided []decidedByAnswer
@@ -259,6 +261,11 @@ func (s *Store) foreignAsks(name string, at time.Time) ([]foreignOpen, []decided
 				d.State = outcomeState(rec.Outcome).String()
 				d.Words = outcomeWords(rec.Outcome, p.Name)
 				decided = append(decided, decidedByAnswer{d: d, at: *rec.OutcomeAt})
+			case r.State == AskOpen && rec.asided(at):
+				d.State = AskAside.String()
+				d.Words = asideWords(p.Name, *rec.AsideUntil)
+				d.ReturnAt = rec.AsideUntil
+				decided = append(decided, decidedByAnswer{d: d, at: *rec.AsideAt})
 			case r.State == AskOpen:
 				out = append(out, foreignOpen{row: row, taken: rec.TakenAt})
 			default:
@@ -635,6 +642,10 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 					a.ReturnAt = &returnAt
 				}
 				a.PicksBefore = picksBefore(r)
+			} else if rec.asided(at) {
+				a.State = AskAside.String()
+				a.Words = asideWords(p.Name, *rec.AsideUntil)
+				a.ReturnAt = rec.AsideUntil
 			}
 		}
 		v.Asks = append(v.Asks, a)

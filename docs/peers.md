@@ -821,18 +821,21 @@ message of kind `ask` for each name the ask was copied to: a settle. It
 answers the copy (`re` is the copy's message id), names the bead and the
 ask's seq as an answer does, and says `settled: answered`, `settled:
 declined` or `settled: taken_back`. It carries nothing else: no text of
-anyone's, no pick, no name.
+anyone's, no pick, no name. A put-aside is told the same way, as `settled:
+aside` with the ask's return here (`return_at`): a question put aside in
+one yard stands aside in the others until the same time.
 
 - **What ends an ask** is a pick, words on an ask with no options, or a
   decline, given by hand here or sent home from another yard, or its
-  asker taking it back (`yardr bead ask --take-back`). Later ends
-  nothing and is not told: a question put aside here is still a question
-  there. A newer pick on an ask that has one is not told again.
+  asker taking it back (`yardr bead ask --take-back`). A put-aside ends
+  nothing: the ask still takes a pick afterwards, which settles the
+  copies then. A newer pick on an ask that has one is not told again.
 - **Who is told** is each name the ask was copied to, but for the one whose
   answer ended it, which knows. An answer from `mckean@airy` settles the
   ask at a third yard and sends airy nothing. The yard keeps where each
   open ask's copies went for this and for nothing else, and drops the
-  record with the answer that ends the ask. So a settle goes only where
+  record with the answer that ends the ask; an aside keeps it, since the
+  ask is not ended. So a settle goes only where
   the question went: none for an ask that was open before the grant, and
   none for a copy that was given up. A name whose reach was taken back
   since, and a link that carries `ask` out no more, are told nothing, as
@@ -845,12 +848,18 @@ anyone's, no pick, no name.
   refused before anything is queued:
   `ask 2600 on yardr-r6jh@mac takes no further answer: it was answered in mac's yard`.
   To change the pick, the person picks again in the yard the ask stands
-  in. The queue says `noted`, and nobody is mailed.
+  in. The queue says `noted`, and nobody is mailed. An aside moves it to
+  the person's decided as put aside instead, with `put aside in <peer>'s
+  yard until <when>`, and it comes back there at that time as a local
+  put-aside does. It still takes a pick, words or a decline there, which
+  land home as they do; what the person did with it there already stands
+  over the aside.
 - **A settle that fits no question** is dropped: one whose `re` is no
   foreign ask of that peer, or that names another bead or seq than that
   message carried. It is taken and not refused, so the yard that sent it
-  learns nothing of what the other holds. A `settled` that is neither word
-  is refused as `not_ask`. A settle counts toward the peer's hour beside
+  learns nothing of what the other holds. A `settled` that is none of the
+  four words is refused as `not_ask`, and so is an aside with no return.
+  A settle counts toward the peer's hour beside
   mail and asks, as an answer does.
 - **A settle given up tells nobody.** Nothing waits on it, and the ask is
   ended here whatever became of it. It is in the events as any message
@@ -860,7 +869,8 @@ anyone's, no pick, no name.
   build from before `taken_back` with that word: its copy stays open until
   a pick there is refused here as `ask_taken_back`, which that build reads
   as a refusal it does not know, and opens the question again with mail
-  from `yard`.
+  from `yard`. So does a yard on a build from before `aside` with that
+  word: its copy stays open, and a pick there lands here as the newer one.
 - **A pick that was on its way** when the settle arrived lands here as the
   newer pick, as any newer pick does, and the copy there is marked all the
   same. An ask the other yard answered first is not settled there by a

@@ -169,7 +169,7 @@ func (p *Push) openAsk(tx *bolt.Tx, at time.Time) (*OpenAsk, error) {
 			return nil, err
 		}
 		row := rec.row(peer)
-		if rec.resolved(row.Bead, row.Asker, at).State != AskOpen {
+		if rec.resolved(row.Bead, row.Asker, at).State != AskOpen || rec.asided(at) {
 			return nil, nil
 		}
 		return &row, nil

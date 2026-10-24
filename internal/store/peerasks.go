@@ -94,10 +94,11 @@ type peerAsk struct {
 //
 // Settled makes it a settle instead, which goes the other way: the asking
 // yard's word that the ask ended there, SettledAnswered, SettledDeclined or
-// SettledTakenBack, for a yard the ask stands in (settleCopies). It names the bead and
-// the seq as an answer does and carries nothing else: no text of anyone's,
-// no pick and no name. A build from before it reads it as an answer by
-// nobody and refuses it as no ask.
+// SettledTakenBack, or that it was put aside there, SettledAside, for a yard
+// the ask stands in (settleCopies). It names the bead and the seq as an
+// answer does and carries nothing else, but for an aside its return: no text
+// of anyone's, no pick and no name. A build from before it reads it as an
+// answer by nobody and refuses it as no ask.
 type peerAnswer struct {
 	V       int    `json:"v"`
 	To      string `json:"to"`
@@ -109,6 +110,9 @@ type peerAnswer struct {
 	Later   bool   `json:"later,omitempty"`
 	Decline bool   `json:"decline,omitempty"`
 	Settled string `json:"settled,omitempty"`
+	// ReturnAt is when an aside comes back, on a settle that says
+	// SettledAside; absent on any other settle.
+	ReturnAt *time.Time `json:"return_at,omitempty"`
 }
 
 // How a copied ask ended in the yard it was asked in, as a settle says it.
@@ -119,6 +123,10 @@ const (
 	// before it refuses the word as no ask, and the question stays open
 	// there until a late answer is refused.
 	SettledTakenBack = "taken_back"
+	// SettledAside is no end: the ask was put aside there, until ReturnAt,
+	// and still takes an answer afterwards. A build from before it refuses
+	// the word as no ask, and the question stays open there.
+	SettledAside = "aside"
 )
 
 // peerAskBead is one about-bead of a cross-yard ask, as carried: id,
@@ -167,7 +175,10 @@ type askCopy struct {
 // up is taken out again, which opens the question as it was. Outcome is
 // the asking yard's word that the ask ended there (askOutcomes), heard as
 // the refusal of a late answer or as a settle (takeSettle): it stands
-// over every answer, and the ask takes none after it.
+// over every answer, and the ask takes none after it. An aside is that
+// yard's word that it was put aside there instead, heard as a settle: it
+// stands only while the person's own answers leave the ask open, and the
+// ask still takes one.
 type foreignAsk struct {
 	Message string        `json:"message"`
 	Key     string        `json:"key"`
@@ -188,6 +199,18 @@ type foreignAsk struct {
 	Answers   []foreignAnswer `json:"answers,omitempty"`
 	Outcome   string          `json:"outcome,omitempty"`
 	OutcomeAt *time.Time      `json:"outcome_at,omitempty"`
+	// AsideAt is when the asking yard's word came that the ask was put
+	// aside there, AsideUntil when it comes back, as the settle carried
+	// it: until then the ask stands in the person's decided as put aside
+	// there. An end there clears both.
+	AsideAt    *time.Time `json:"aside_at,omitempty"`
+	AsideUntil *time.Time `json:"aside_until,omitempty"`
+}
+
+// asided reports whether the ask stands put aside by the asking yard's
+// word at the time at: told, and not come back yet.
+func (f foreignAsk) asided(at time.Time) bool {
+	return f.AsideAt != nil && f.AsideUntil != nil && at.Before(*f.AsideUntil)
 }
 
 // foreignAnswer is one answer to a foreign ask, as it was queued home: the
@@ -634,9 +657,11 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 //
 // by is the link the answer came over and name who gave it there, nil and
 // "" for an answer given in this yard: that name knows, and is told
-// nothing. Later ends nothing: a question put aside here is still a
-// question there. Neither does a newer pick on an ask that has one, which
-// was told when the first landed; the record of the copies went with it.
+// nothing. A put-aside is told as SettledAside with the ask's return here,
+// and keeps the copies' record: the ask is not ended, and the pick that
+// ends it settles the copies then. A newer pick on an ask that has one is
+// told nothing, which was told when the first landed; the record of the
+// copies went with it.
 //
 // An ask that is taken back (TakeBackAsk) is told the same way, as
 // SettledTakenBack, and to the yard of an ask addressed to <person>@<peer>
@@ -648,25 +673,32 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 // there. A settle waits on nothing, so one not sent, or given up
 // (askGivenUp), tells nobody.
 func (w *wtx) settleCopies(row *beadRow, ans Answer, by *Peer, name string) error {
-	if ans.Later {
-		return nil
-	}
 	key := join(row.UUID, seqKey(ans.Ask))
 	var copies []askCopy
 	if ok, err := get(w.Tx, bAskCopies, key, &copies); err != nil || !ok {
 		return err
 	}
-	if err := w.Bucket(bAskCopies).Delete([]byte(key)); err != nil {
-		return err
-	}
 	settled := SettledAnswered
+	var returnAt *time.Time
 	switch {
 	case ans.TakeBack:
 		settled = SettledTakenBack
 	case ans.Decline:
 		settled = SettledDeclined
+	case ans.Later:
+		settled = SettledAside
+		at, err := laterReturn(w.Tx, row, ans.Ask)
+		if err != nil {
+			return err
+		}
+		returnAt = &at
 	}
-	body, err := json.Marshal(peerAnswer{V: PeerAskVersion, Bead: row.ID, Seq: ans.Ask, Settled: settled})
+	if settled != SettledAside {
+		if err := w.Bucket(bAskCopies).Delete([]byte(key)); err != nil {
+			return err
+		}
+	}
+	body, err := json.Marshal(peerAnswer{V: PeerAskVersion, Bead: row.ID, Seq: ans.Ask, Settled: settled, ReturnAt: returnAt})
 	if err != nil {
 		return err
 	}
@@ -698,6 +730,39 @@ func (w *wtx) settleCopies(row *beadRow, ans Answer, by *Peer, name string) erro
 	return nil
 }
 
+// laterReturn is when the put-aside ask seq on the bead row comes back:
+// 24 hours after the Later answer that stands for it, as ResolveAsks
+// reads it. It is read from the stored notes, never from the clock, so
+// every yard is told the same time the ask carries here. The Later was
+// recorded in this write, so it is there.
+func laterReturn(tx *bolt.Tx, row *beadRow, seq uint64) (time.Time, error) {
+	notes, err := beadNotes(tx, row.UUID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	var latestSeq uint64
+	var at time.Time
+	for _, n := range notes {
+		if n.Kind != NoteAnswer {
+			continue
+		}
+		a, err := ParseAnswer(n)
+		if err != nil || a.Ask != seq || !a.Later {
+			continue
+		}
+		// Ask state follows note order, even if the machine's clock moved
+		// backwards between two put-aside answers.
+		if n.Seq > latestSeq {
+			latestSeq = n.Seq
+			at = n.At
+		}
+	}
+	if at.IsZero() {
+		return time.Time{}, fmt.Errorf("ask %d on bead %s has no put-aside answer", seq, row.ID)
+	}
+	return at.Add(LaterFor), nil
+}
+
 // uncopied takes the copy that message carried off the record of where
 // the ask seq on the bead uuid went: it was given up, so that yard has no
 // question to be told the end of.
@@ -721,11 +786,17 @@ func (w *wtx) uncopied(uuid string, seq uint64, message string) error {
 // takes no further answer. What the person did with it here stays under
 // it. Nobody is mailed: nothing of theirs failed.
 //
+// An aside is that yard's word that it was put aside there instead: the
+// foreign ask is marked with its return, so it stands in the person's
+// decided as put aside there until then, and still takes a pick, words or
+// a decline here, which land home as they do. One without its return is
+// refused as no ask.
+//
 // A settle for no foreign ask of p's, or for one that names another bead
 // or seq than the message it answers carried, is dropped, taken and not
 // refused: the yard that sent it waits on nothing, and is told nothing of
 // what this yard holds. So is one for an ask that is marked already. Only
-// a word that is neither end is refused, as no ask.
+// a word that is neither end nor aside is refused, as no ask.
 func (w *wtx) takeSettle(p *Peer, m PeerMessage, a peerAnswer) (string, error) {
 	outcome := ""
 	switch a.Settled {
@@ -735,6 +806,10 @@ func (w *wtx) takeSettle(p *Peer, m PeerMessage, a peerAnswer) (string, error) {
 		outcome = RefusedAskDeclined
 	case SettledTakenBack:
 		outcome = RefusedAskTakenBack
+	case SettledAside:
+		if a.ReturnAt == nil || a.ReturnAt.IsZero() {
+			return RefusedNotAsk, nil
+		}
 	default:
 		return RefusedNotAsk, nil
 	}
@@ -744,7 +819,12 @@ func (w *wtx) takeSettle(p *Peer, m PeerMessage, a peerAnswer) (string, error) {
 		return "", err
 	}
 	at := now()
-	rec.Outcome, rec.OutcomeAt = outcome, &at
+	if a.Settled == SettledAside {
+		rec.AsideAt, rec.AsideUntil = &at, a.ReturnAt
+	} else {
+		rec.Outcome, rec.OutcomeAt = outcome, &at
+		rec.AsideAt, rec.AsideUntil = nil, nil
+	}
 	if err := put(w.Tx, bPeerAsks, key, rec); err != nil {
 		return "", err
 	}
@@ -942,6 +1022,13 @@ func outcomeWords(outcome, peer string) string {
 	return "it is no longer asked in " + peer + "'s yard"
 }
 
+// asideWords says how a foreign ask stands put aside in the yard peer
+// until returnAt, by the settle that told it. The time reads as a local
+// aside's does where it is shown (ResolvedAsk's head).
+func asideWords(peer string, returnAt time.Time) string {
+	return "put aside in " + peer + "'s yard until " + returnAt.Local().Format("2006-01-02 15:04")
+}
+
 // askGivenUp tells of a message of kind ask that was given up, at
 // whichever end this yard is: the question's asker that it was not
 // delivered (askUndelivered), or the person whose answer did not land
@@ -1078,11 +1165,15 @@ func (w *wtx) answerGivenUp(m *PeerOut, reason string, refused bool) error {
 		} else {
 			text += fmt.Sprintf("%s was not reached in %d tries since %s: %s.", p.Name, m.Attempts, stamp(m.At), reason)
 		}
-		if r := rec.resolved(id, asker, now()); rec.Outcome != "" {
+		at := now()
+		if r := rec.resolved(id, asker, at); rec.Outcome != "" {
 			// A settle came while the answer was on its way.
 			text += " The question takes no answer all the same: " + outcomeWords(rec.Outcome, p.Name) + "."
-		} else if r.State == AskOpen {
+		} else if r.State == AskOpen && !rec.asided(at) {
 			text += " The question is open again."
+		} else if r.State == AskOpen {
+			// An aside came while the answer was on its way.
+			text += " The question stands " + asideWords(p.Name, *rec.AsideUntil) + "."
 		} else {
 			text += " The question stands as " + r.State.String() + ", by what you did with it before."
 		}

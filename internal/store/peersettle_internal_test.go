@@ -14,8 +14,10 @@ import (
 )
 
 // settles are the settles that wait for peer, each as "<settled> <bead>
-// <seq> re <the copy's message>". One that carries more than that fails
-// the test: a settle has no text of anyone's, no pick and no name.
+// <seq> re <the copy's message>", an aside with " return <when>" after it.
+// One that carries more than that fails the test: a settle has no text of
+// anyone's, no pick and no name, an aside but its return, which it must
+// carry.
 func (y *homeYard) settles(t *testing.T, peer string) []string {
 	t.Helper()
 	out, err := y.PeerOutbox(y.ctx, peer, 0)
@@ -31,10 +33,19 @@ func (y *homeYard) settles(t *testing.T, peer string) []string {
 		if a.Settled == "" || m.Failed != nil {
 			continue
 		}
-		if want := (peerAnswer{V: PeerAskVersion, Bead: a.Bead, Seq: a.Seq, Settled: a.Settled}); a != want || m.Re == "" {
+		if want := (peerAnswer{V: PeerAskVersion, Bead: a.Bead, Seq: a.Seq, Settled: a.Settled, ReturnAt: a.ReturnAt}); a != want || m.Re == "" {
 			t.Fatalf("a settle that says more than the end: %+v re %q", a, m.Re)
 		}
-		got = append(got, fmt.Sprintf("%s %s %d re %s", a.Settled, a.Bead, a.Seq, m.Re))
+		s := fmt.Sprintf("%s %s %d re %s", a.Settled, a.Bead, a.Seq, m.Re)
+		switch {
+		case a.Settled == SettledAside && a.ReturnAt == nil:
+			t.Fatalf("an aside settle with no return: %+v re %q", a, m.Re)
+		case a.Settled == SettledAside:
+			s += " return " + a.ReturnAt.UTC().Format(time.RFC3339)
+		case a.ReturnAt != nil:
+			t.Fatalf("a settle that carries a return: %+v re %q", a, m.Re)
+		}
+		got = append(got, s)
 	}
 	return got
 }
@@ -75,8 +86,10 @@ func twoReach(t *testing.T) *homeYard {
 
 // An answer that ends a copied ask in the home yard queues one settle for
 // each name it was copied to: a pick, words or a decline, by hand here.
-// Later queues none, and neither does a newer pick on an ask that was told
-// already. The settle names the bead and the seq, and answers the copy.
+// A put-aside queues an aside with the ask's return here and keeps the
+// copies' record, so the pick that ends it settles the copies then; a
+// newer pick on an ask that was told already queues nothing more. The
+// settle names the bead and the seq, and answers the copy.
 func TestAskSettledWhereCopied(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := twoReach(t)
@@ -86,14 +99,29 @@ func TestAskSettledWhereCopied(t *testing.T) {
 	if err := y.DeferAsk(y.ctx, bead, seq, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n)+len(s) != 0 {
-		t.Fatalf("Later was told across: %q, %q", n, s)
+	wantReturn := y.state(t, bead, seq).ReturnAt.UTC().Format(time.RFC3339)
+	wantN := []string{fmt.Sprintf("aside %s %d re %s return %s", bead, seq, north.ID, wantReturn)}
+	wantS := []string{fmt.Sprintf("aside %s %d re %s return %s", bead, seq, south.ID, wantReturn)}
+	if n, s := y.settles(t, "north"), y.settles(t, "south"); !slices.Equal(n, wantN) || !slices.Equal(s, wantS) {
+		t.Fatalf("after the put-aside: %q, %q", n, s)
+	}
+	// A later put-aside is the current one by note order, even if the
+	// machine clock moved backwards before it was written.
+	y.now = y.now.Add(-time.Hour)
+	if err := y.DeferAsk(y.ctx, bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	wantReturn = y.state(t, bead, seq).ReturnAt.UTC().Format(time.RFC3339)
+	wantN = append(wantN, fmt.Sprintf("aside %s %d re %s return %s", bead, seq, north.ID, wantReturn))
+	wantS = append(wantS, fmt.Sprintf("aside %s %d re %s return %s", bead, seq, south.ID, wantReturn))
+	if n, s := y.settles(t, "north"), y.settles(t, "south"); !slices.Equal(n, wantN) || !slices.Equal(s, wantS) {
+		t.Fatalf("after the second put-aside: %q, %q", n, s)
 	}
 	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "tonight", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
-	wantN := []string{fmt.Sprintf("answered %s %d re %s", bead, seq, north.ID)}
-	wantS := []string{fmt.Sprintf("answered %s %d re %s", bead, seq, south.ID)}
+	wantN = append(wantN, fmt.Sprintf("answered %s %d re %s", bead, seq, north.ID))
+	wantS = append(wantS, fmt.Sprintf("answered %s %d re %s", bead, seq, south.ID))
 	if n, s := y.settles(t, "north"), y.settles(t, "south"); !slices.Equal(n, wantN) || !slices.Equal(s, wantS) {
 		t.Fatalf("after the pick: %q, %q", n, s)
 	}
@@ -101,7 +129,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 	if err := y.AnswerAsk(y.ctx, bead, seq, 2, "", "jo", false); err != nil {
 		t.Fatal(err)
 	}
-	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n) != 1 || len(s) != 1 {
+	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n) != len(wantN) || len(s) != len(wantS) {
 		t.Fatalf("after a newer pick: %q, %q", n, s)
 	}
 
@@ -110,7 +138,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 	if err := y.DeclineAsk(y.ctx, bead2, seq, "not mine to decide", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if n := y.settles(t, "north"); len(n) != 2 || !strings.HasPrefix(n[1], fmt.Sprintf("declined %s %d re ", bead2, seq)) {
+	if n := y.settles(t, "north"); len(n) != 4 || !strings.HasPrefix(n[3], fmt.Sprintf("declined %s %d re ", bead2, seq)) {
 		t.Fatalf("after the decline: %q", n)
 	}
 	words := linksAsk()
@@ -119,7 +147,7 @@ func TestAskSettledWhereCopied(t *testing.T) {
 	if err := y.AnswerAsk(y.ctx, bead3, seq, 0, "move them on Friday", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
-	if s := y.settles(t, "south"); len(s) != 3 || !strings.HasPrefix(s[2], fmt.Sprintf("answered %s %d re ", bead3, seq)) {
+	if s := y.settles(t, "south"); len(s) != 5 || !strings.HasPrefix(s[4], fmt.Sprintf("answered %s %d re ", bead3, seq)) {
 		t.Fatalf("after the words: %q", s)
 	}
 }
@@ -140,18 +168,22 @@ func TestAskSettledFromThirdYard(t *testing.T) {
 		t.Fatalf("after north's pick: north %q, south %q", n, s)
 	}
 
-	// Later from there ends nothing, and its decline is a decline.
+	// Later from there puts south's copy aside too, and sends north
+	// nothing; its decline is a decline.
 	bead, seq = y.asked(t, linksAsk())
+	southCopy := y.copyOf(t, "south", seq)
 	if got := y.take(t, y.answer(peerAnswer{From: "mckean", Bead: bead, Seq: seq, Later: true})); got.Refused != "" {
 		t.Fatalf("north's Later = %+v", got)
 	}
-	if s := y.settles(t, "south"); len(s) != 1 {
-		t.Fatalf("after north's Later: %q", s)
+	wantReturn := y.state(t, bead, seq).ReturnAt.UTC().Format(time.RFC3339)
+	want := fmt.Sprintf("aside %s %d re %s return %s", bead, seq, southCopy.ID, wantReturn)
+	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n) != 0 || len(s) != 2 || s[1] != want {
+		t.Fatalf("after north's Later: north %q, south %q", n, s)
 	}
 	if got := y.take(t, y.answer(peerAnswer{From: "mckean", Bead: bead, Seq: seq, Decline: true, Words: "ask jo"})); got.Refused != "" {
 		t.Fatalf("north's decline = %+v", got)
 	}
-	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n) != 0 || len(s) != 2 || !strings.HasPrefix(s[1], "declined ") {
+	if n, s := y.settles(t, "north"), y.settles(t, "south"); len(n) != 0 || len(s) != 3 || !strings.HasPrefix(s[2], "declined ") {
 		t.Fatalf("after north's decline: north %q, south %q", n, s)
 	}
 }
@@ -255,6 +287,14 @@ func (y *homeYard) settle(re, bead string, seq uint64, settled string) PeerMessa
 	return PeerMessage{ID: fmt.Sprintf("set%d", y.n), Kind: PeerAsk, Re: re, Body: body}
 }
 
+// settleAside is an aside north sends for the ask it copied with the
+// message re, coming back at returnAt.
+func (y *homeYard) settleAside(re, bead string, seq uint64, returnAt time.Time) PeerMessage {
+	y.n++
+	body, _ := json.Marshal(peerAnswer{V: PeerAskVersion, Bead: bead, Seq: seq, Settled: SettledAside, ReturnAt: &returnAt})
+	return PeerMessage{ID: fmt.Sprintf("set%d", y.n), Kind: PeerAsk, Re: re, Body: body}
+}
+
 // The yard that takes a settle marks its foreign ask answered, declined or
 // taken back, with the words that say where, and refuses a later answer to it before
 // anything is queued. Nobody is mailed, and the queue says noted.
@@ -312,10 +352,73 @@ func TestSettleTaken(t *testing.T) {
 	}
 }
 
+// The yard that takes an aside marks its foreign ask put aside until the
+// return it carried, among the person's decided and on the foreign card,
+// and it comes back there at that time as a local put-aside does. It still
+// takes a pick afterwards, which stands here and is queued home. Nobody is
+// mailed.
+func TestSettleAsideTaken(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
+	y := newHomeYard(t)
+	y.foreign(t, "a1", linksAsk())
+	back := y.now.Add(LaterFor)
+	if got := y.take(t, y.settleAside("a1", "yd-links", 3, back)); got.Refused != "" || got.Duplicate {
+		t.Fatalf("the aside = %+v", got)
+	}
+	words := "put aside in north's yard until " + back.Local().Format("2006-01-02 15:04")
+	q := y.queue(t)
+	if len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].State != "put aside" ||
+		q.Decided[0].Words != words || q.Decided[0].ReturnAt == nil || !q.Decided[0].ReturnAt.Equal(back) {
+		t.Fatalf("the queue = %+v", q)
+	}
+	v, err := y.Bead(y.ctx, "yd-links@north")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Asks) != 1 || v.Asks[0].State != "put aside" || v.Asks[0].Words != words ||
+		v.Asks[0].ReturnAt == nil || !v.Asks[0].ReturnAt.Equal(back) {
+		t.Fatalf("the foreign card = %+v", v.Asks)
+	}
+	if mail := y.yardMail(t, "mckean"); len(mail) != 0 {
+		t.Fatalf("mail = %q", mail)
+	}
+	// A second aside moves the return.
+	later := back.Add(time.Hour)
+	if got := y.take(t, y.settleAside("a1", "yd-links", 3, later)); got.Refused != "" {
+		t.Fatalf("a second aside = %+v", got)
+	}
+	if q := y.queue(t); len(q.Decided) != 1 || q.Decided[0].ReturnAt == nil || !q.Decided[0].ReturnAt.Equal(later) {
+		t.Fatalf("after a second aside: %+v", q.Decided)
+	}
+	// Past its return the ask is open again; an end there clears the aside.
+	y.now = later.Add(time.Hour)
+	if q := y.queue(t); len(q.Open) != 1 || len(q.Decided) != 0 {
+		t.Fatalf("past its return: %+v", q)
+	}
+	y.now = back.Add(-time.Hour)
+	if err := y.AnswerAsk(y.ctx, "yd-links@north", 3, 2, "", "mckean", false); err != nil {
+		t.Fatalf("a pick after the aside = %v", err)
+	}
+	out, as := y.outbox(t)
+	if len(out) != 1 || len(as) != 1 || as[0].Settled != "" || as[0].Option != 2 {
+		t.Fatalf("the pick queued = %+v", as)
+	}
+	if q := y.queue(t); len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].State != "answered" || q.Decided[0].Option != 2 {
+		t.Fatalf("after the pick: %+v", q.Decided)
+	}
+	if got := y.take(t, y.settle("a1", "yd-links", 3, SettledAnswered)); got.Refused != "" {
+		t.Fatalf("the end after the aside = %+v", got)
+	}
+	if q := y.queue(t); len(q.Decided) != 1 || q.Decided[0].State != "answered" || q.Decided[0].Words != "it was answered in north's yard" {
+		t.Fatalf("after the end: %+v", q.Decided)
+	}
+}
+
 // A settle for no foreign ask of that peer is dropped: taken, so the yard
 // that sent it learns nothing of what this one holds, and changing
 // nothing. One that names another bead or seq than its message carried is
-// none either, and a word that is neither end is refused as no ask.
+// none either, a word that is neither end nor aside is refused as no ask,
+// and so is an aside with no return.
 func TestSettleForNoAskDropped(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
@@ -331,6 +434,12 @@ func TestSettleForNoAskDropped(t *testing.T) {
 	}
 	if got := y.take(t, y.settle("a1", "yd-links", 3, "maybe")); got.Refused != RefusedNotAsk {
 		t.Fatalf("a settle of no end = %+v", got)
+	}
+	if got := y.take(t, y.settle("a1", "yd-links", 3, SettledAside)); got.Refused != RefusedNotAsk {
+		t.Fatalf("an aside with no return = %+v", got)
+	}
+	if got := y.take(t, y.settleAside("a1", "yd-links", 3, time.Time{})); got.Refused != RefusedNotAsk {
+		t.Fatalf("an aside with a zero return = %+v", got)
 	}
 	if q := y.queue(t); len(q.Open) != 1 || len(q.Decided) != 0 {
 		t.Fatalf("the queue after settles for no ask: %+v", q)
@@ -486,6 +595,47 @@ func carry(t *testing.T, from, to *linked) []string {
 	return crossed
 }
 
+// linkCopy links a third yard to a as pair links b: an ask for mckean at
+// a is copied to it. It shares pair's clock, so its callers stay
+// sequential.
+func linkCopy(t *testing.T, a *linked, name string) *linked {
+	t.Helper()
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), name+".db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close(context.Background()) })
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), name+".key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddUser(ctx, "mckean", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	c := &linked{Store: s, name: name, key: yardkey.Public(k)}
+	for _, l := range [][2]*linked{{a, c}, {c, a}} {
+		if _, err := l[0].AddPeer(ctx, Peer{Name: l[1].name, Key: l[1].key}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := l[0].AllowPeer(ctx, l[1].name, PeerAllow{Send: []string{PeerAsk}, Receive: []string{PeerAsk}, Expose: []string{"mckean"}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	says := Says("v1")
+	says.Roster = []PeerRosterEntry{{Name: "mckean", Kind: RosterUser, Mail: true}}
+	if err := a.PeerHeard(ctx, name, c.key, says); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.AllowPeer(ctx, name, PeerAllow{Trust: map[string]string{"mckean": "mckean"}, Reach: map[string]string{"mckean": "mckean"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 // One ask, picked in each of two yards, in both orders, and with the two
 // picks crossing.
 //
@@ -622,6 +772,140 @@ func TestPickInEachYard(t *testing.T) {
 	}
 	if err := b.AnswerAsk(ctx, bead+"@a", seq, 1, "", "mckean", false); err == nil {
 		t.Fatal("a pick at b after the crossing settle was queued")
+	}
+}
+
+// A put-aside given at home puts the ask's copies aside in the linked
+// yards until the same time; a pick on one copy then lands home, and the
+// copies the aside kept are settled, but for the yard the pick came from.
+// A put-aside given on a copy lands home and puts the third yard's copy
+// aside the same way, sending the yard it came from nothing.
+func TestAsideAcrossThreeYards(t *testing.T) {
+	// Sequential: the package's fake clock (via pair).
+	ctx := context.Background()
+	a, b := pair(t)
+	c := linkCopy(t, a, "c")
+	ask := func() (string, uint64) {
+		t.Helper()
+		bead, err := a.CreateBead(ctx, NewBead{Title: "Move the links"}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		seq, err := a.AddAsk(ctx, bead.ID, linksAsk(), "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := carry(t, a, b); !slices.Equal(got, []string{"ask"}) {
+			t.Fatalf("the copy to b: %q", got)
+		}
+		if got := carry(t, a, c); !slices.Equal(got, []string{"ask"}) {
+			t.Fatalf("the copy to c: %q", got)
+		}
+		return bead.ID, seq
+	}
+	home := func(bead string, seq uint64) ResolvedAsk {
+		t.Helper()
+		notes, err := a.Notes(ctx, bead)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range ResolveAsks(notes, now()) {
+			if r.Note.Seq == seq {
+				return r
+			}
+		}
+		t.Fatalf("no ask %d on %s", seq, bead)
+		return ResolvedAsk{}
+	}
+	decided := func(y *linked, bead string) DecidedAsk {
+		t.Helper()
+		q, err := y.UserAsks(ctx, "mckean")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range q.Decided {
+			if d.Bead == bead+"@a" {
+				return d
+			}
+		}
+		t.Fatalf("%s has no decided row for %s@a: %+v", y.name, bead, q)
+		return DecidedAsk{}
+	}
+
+	// Put aside at home: both copies stand aside with the same return.
+	bead, seq := ask()
+	if err := a.DeferAsk(ctx, bead, seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	back := home(bead, seq).ReturnAt
+	if got := carry(t, a, b); !slices.Equal(got, []string{"settle"}) {
+		t.Fatalf("the aside to b: %q", got)
+	}
+	if got := carry(t, a, c); !slices.Equal(got, []string{"settle"}) {
+		t.Fatalf("the aside to c: %q", got)
+	}
+	for _, y := range []*linked{b, c} {
+		d := decided(y, bead)
+		if d.State != "put aside" || d.ReturnAt == nil || !d.ReturnAt.Equal(back) ||
+			!strings.HasPrefix(d.Words, "put aside in a's yard until ") {
+			t.Fatalf("at %s: %+v", y.name, d)
+		}
+	}
+	// A pick on b's copy lands home; c's copy is settled, b is told nothing.
+	if err := b.AnswerAsk(ctx, bead+"@a", seq, 2, "", "mckean", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := carry(t, b, a); !slices.Equal(got, []string{"answer"}) {
+		t.Fatalf("b's pick: %q", got)
+	}
+	if r := home(bead, seq); r.State != AskAnswered || r.Current.Answer.Option != 2 || r.Current.Note.Author != "mckean@b" {
+		t.Fatalf("at home after b's pick: %+v", r.Current)
+	}
+	if got := carry(t, a, c); !slices.Equal(got, []string{"settle"}) {
+		t.Fatalf("the settle to c: %q", got)
+	}
+	if got := carry(t, a, b); len(got) != 0 {
+		t.Fatalf("the yard that answered was told: %q", got)
+	}
+	if d := decided(c, bead); d.State != "answered" || d.Words != "it was answered in a's yard" {
+		t.Fatalf("at c after the settle: %+v", d)
+	}
+	if d := decided(b, bead); d.State != "answered" || d.Option != 2 {
+		t.Fatalf("at b after its pick: %+v", d)
+	}
+
+	// Put aside on b's copy: it lands home and puts c's copy aside with
+	// the same return, sending b nothing.
+	bead, seq = ask()
+	if err := b.DeferAsk(ctx, bead+"@a", seq, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if got := carry(t, b, a); !slices.Equal(got, []string{"answer"}) {
+		t.Fatalf("b's put-aside: %q", got)
+	}
+	if r := home(bead, seq); r.State != AskAside {
+		t.Fatalf("at home after b's put-aside: %v", r.State)
+	}
+	back = home(bead, seq).ReturnAt
+	if got := carry(t, a, c); !slices.Equal(got, []string{"settle"}) {
+		t.Fatalf("the aside to c: %q", got)
+	}
+	if got := carry(t, a, b); len(got) != 0 {
+		t.Fatalf("the yard it came from was told: %q", got)
+	}
+	if d := decided(c, bead); d.State != "put aside" || d.ReturnAt == nil || !d.ReturnAt.Equal(back) {
+		t.Fatalf("at c after the aside: %+v", d)
+	}
+	// And the copies' record stands still: the pick that ends the ask
+	// settles the copies then.
+	if err := a.AnswerAsk(ctx, bead, seq, 1, "", "mckean", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := carry(t, a, b); !slices.Equal(got, []string{"settle"}) {
+		t.Fatalf("the settle to b: %q", got)
+	}
+	if got := carry(t, a, c); !slices.Equal(got, []string{"settle"}) {
+		t.Fatalf("the settle to c: %q", got)
 	}
 }
 

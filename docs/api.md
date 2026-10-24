@@ -2892,9 +2892,9 @@ POST /call/UserAsks
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
-| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined or taken back; for a question another yard asked that ended there, how it ended; absent when there are none |
+| `decided[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined or taken back; for a question another yard asked that ended there, how it ended; for one put aside there, `put aside in <peer>'s yard until <when>`; absent when there are none |
 | `decided[].by` | string, may be absent | who took the ask back, its asker or the operator: it reads "taken back by `<by>`: `<words>`", and is no answer of the person. Absent on every other state, and on a question another yard took back, whose `words` say where |
-| `decided[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
+| `decided[].return_at` | time, may be absent | when a put-aside ask comes back, here or in the yard that asked it; absent otherwise |
 
 Read it again on every `noted` event: a question asked, answered, put aside, declined or taken back, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.
 
@@ -4266,9 +4266,9 @@ POST /call/Bead
 | `asks[].about[].stage` | string | the bead's stage |
 | `asks[].state` | string | `open`, `answered`, `put aside`, `declined` or `taken back`. One a client does not know is not open: it takes no answer |
 | `asks[].option` | number, may be absent | the picked option's number; absent until one is picked |
-| `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined or taken back; absent when there are none |
+| `asks[].words` | string, may be absent | what went with the pick, the words answer, or why the question is declined or taken back; on a question another yard asked, how it ended or stands put aside there; absent when there are none |
 | `asks[].by` | string, may be absent | who took the ask back, its asker or the operator; absent on every other state |
-| `asks[].return_at` | time, may be absent | when a put-aside ask comes back; absent otherwise |
+| `asks[].return_at` | time, may be absent | when a put-aside ask comes back, here or in the yard that asked it; absent otherwise |
 | `asks[].picks_before` | number, may be absent | how many picks there were before the current one, so a client can say "changed"; absent when there were none |
 | `asks[].weight` | array, may be absent | the card's weight as the yard weighed it when it wrote the card: one entry a class, each a way approving it widens what the yard does ([weighty cards](#weighty-cards)). Absent on a routine card |
 | `asks[].weight[].class` | string | `credential`, `as-user`, `outside`, `code`, `trust` or `reads`. A later build may add a class: draw one a client does not know as weighty, with its line |

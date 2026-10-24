@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -93,7 +94,8 @@ func TestPushQueuedWithAnAsk(t *testing.T) {
 
 // A question another yard asked is told by the yard that took it into the
 // person's queue, under the name this yard has for the link, until the
-// person deals with it here or the asking yard says it ended there.
+// person deals with it here or the asking yard puts it aside or ends it
+// there. A pending push is not unread while the copy stands aside.
 func TestPushQueuedWithAForeignAsk(t *testing.T) {
 	t.Parallel()
 	y := newPeerYard(t, "http://north.test")
@@ -132,13 +134,30 @@ func TestPushQueuedWithAForeignAsk(t *testing.T) {
 	if _, err := y.api.RenamePeer(y.ctx, "upnorth", "north", "jo"); err != nil {
 		t.Fatal(err)
 	}
+	returnAt := time.Now().UTC().Add(24 * time.Hour)
+	body, err := json.Marshal(struct {
+		V        int       `json:"v"`
+		Bead     string    `json:"bead"`
+		Seq      uint64    `json:"seq"`
+		Settled  string    `json:"settled"`
+		ReturnAt time.Time `json:"return_at"`
+	}{V: 1, Bead: "yd-links", Seq: 5, Settled: store.SettledAside, ReturnAt: returnAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := y.take(t, store.PeerMessage{ID: "s1", Kind: store.PeerAsk, Re: "a3", Body: body}); got[0].Refused != "" {
+		t.Fatalf("the aside = %+v", got)
+	}
+	if ps = pushesOf(t, y.api); len(ps) != 2 || !ps[0].Unread() || ps[1].Unread() {
+		t.Fatalf("while the foreign ask stands aside: %+v", ps)
+	}
 
 	// Picked here, the first is dealt with; the second ends in the yard
 	// that asked it.
 	if err := y.api.AnswerAsk(y.ctx, "yd-links@north", 3, 1, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
-	settle := store.PeerMessage{ID: "s1", Kind: store.PeerAsk, Re: "a3", Body: []byte(`{"v":1,"bead":"yd-links","seq":5,"settled":"answered"}`)}
+	settle := store.PeerMessage{ID: "s2", Kind: store.PeerAsk, Re: "a3", Body: []byte(`{"v":1,"bead":"yd-links","seq":5,"settled":"answered"}`)}
 	if got := y.take(t, settle); got[0].Refused != "" {
 		t.Fatalf("the settle = %+v", got)
 	}
