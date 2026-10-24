@@ -15,16 +15,18 @@ the README, and the licence (FSL-1.1-ALv2) as `LICENSE` and `NOTICE`.
 a file of the release beside the archives, not inside them: download it with
 the archive.
 
-**The archives need a login while the repository is private.** A release
-asset of a private repository is served only to an account that can read the
-repository, so a plain `curl` of its address gets a 404. `gh`, logged in as
-such an account (`gh auth login`), downloads it:
+Releases are public at yardr.dev: `https://yardr.dev/releases/<tag>/`
+holds the four archives, `checksums.txt` and its signature. The current tag
+is the `version` in `https://yardr.dev/releases/latest.json`, or the tag in
+the invite reply. (The archives name the version without the tag's leading
+`v`: tag `v1.2.3` is archive `yardr_1.2.3_…`.)
 
 ```sh
-version=1.2.3
+tag=v1.2.3                 # the current tag, from latest.json
+version=${tag#v}
 target=darwin_arm64        # or darwin_amd64, linux_amd64, linux_arm64
-gh release download "v$version" --repo yardr-dev/yardr \
-  --pattern "yardr_${version}_$target.tar.gz" --pattern checksums.txt
+curl -fSLO https://yardr.dev/releases/$tag/checksums.txt
+curl -fSLO https://yardr.dev/releases/$tag/yardr_${version}_$target.tar.gz
 
 # verify: the line for the archive must say OK
 shasum -a 256 --ignore-missing -c checksums.txt      # Linux: sha256sum --ignore-missing -c checksums.txt
@@ -44,10 +46,11 @@ the download is whole, not who made it. A release whose checksums were
 signed ([Signed checksums](#signed-checksums)) has `checksums.txt.minisig`
 beside them, a [minisign](https://jedisct1.github.io/minisign/) signature
 that shows who made them, to whoever has the release key's public half.
-Download it with the other two (`--pattern checksums.txt.minisig`) and
+Download it with the other two and
 verify it before the checksums are believed:
 
 ```sh
+curl -fSLO https://yardr.dev/releases/$tag/checksums.txt.minisig
 minisign -V -P RWSzUPGBbv7MDqH+nnbNmYdOm20UTkuk7eC5e6XuVtYRwZtaEZRlV/WB -m checksums.txt
 ```
 
@@ -71,8 +74,8 @@ A signed one prints `Authority=Developer ID Application: …` and
 the Go linker, exactly like a `go install`ed build (`Signature=adhoc`), and
 an unsigned amd64 binary carries no signature at all.
 
-What macOS does with an unsigned binary depends on how it arrived. `gh` and
-`curl` do not mark what they download, and the binary runs. A browser marks
+What macOS does with an unsigned binary depends on how it arrived. `curl`
+does not mark what it downloads, and the binary runs. A browser marks
 the archive as quarantined (`com.apple.quarantine`), and an unpacker can
 pass the mark on to `yardr` (Finder's does); Gatekeeper then refuses to run
 it, as software Apple cannot check. Clear the mark:

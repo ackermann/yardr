@@ -1,7 +1,7 @@
 #!/bin/sh
 # limits: the limits command of the machine source (../machine.yaml). It
-# answers the load, swap and disk of this machine as three limits windows,
-# on macOS and Linux, as one JSON object:
+# answers the load, swap, disk and memory of this machine as four limits
+# windows, on macOS and Linux, as one JSON object:
 #
 #   {"provider":"machine","windows":[
 #     {"label":"load","used_percent":41.2,"target_percent":80}, ...]}
@@ -9,16 +9,17 @@
 # load is the 1-minute load average over the core count, as a percent;
 # swap is used over total swap, or 0 where the machine has none; disk is
 # used over the volume that holds the current directory (the yard's home,
-# which the core runs this from). Each window carries its target, the
-# operator's --target or the default (load 80, swap 85, disk 90). The
-# windows never reset, so none carries resets_at.
+# which the core runs this from); mem is used RAM over total. Each window
+# carries its target, the operator's --target or the default (load 80,
+# swap 85, disk 90, mem 90). The windows never reset, so none carries
+# resets_at.
 set -u
 
 # JSON numbers use a dot regardless of the yard's locale.
 LC_ALL=C
 export LC_ALL
 
-load_target=80 swap_target=85 disk_target=90
+load_target=80 swap_target=85 disk_target=90 mem_target=90
 say() { echo "machine/limits: $*" >&2; }
 
 # num is a number yardr reads: digits with at most one dot, and neither
@@ -35,9 +36,9 @@ while [ $# -gt 0 ]; do
     shift
     arg=${1:-}
     case "$arg" in
-    load=* | swap=* | disk=*) : ;;
+    load=* | swap=* | disk=* | mem=*) : ;;
     *)
-      say "want --target load=N, swap=N or disk=N, got '${1:-nothing}'"
+      say "want --target load=N, swap=N, disk=N or mem=N, got '${1:-nothing}'"
       exit 1
       ;;
     esac
@@ -50,11 +51,12 @@ while [ $# -gt 0 ]; do
     load) load_target=$value ;;
     swap) swap_target=$value ;;
     disk) disk_target=$value ;;
+    mem) mem_target=$value ;;
     esac
     shift
     ;;
   *)
-    say "unknown argument $1 (want --target load=N, swap=N or disk=N)"
+    say "unknown argument $1 (want --target load=N, swap=N, disk=N or mem=N)"
     exit 1
     ;;
   esac
@@ -73,12 +75,23 @@ Darwin)
       return "none" }
     { print mb($3), mb($6) }')
   swap_total=${swap%% *} swap_used=${swap##* }
+  mem_total=$(sysctl -n hw.memsize)
+  # vm_stat's free and inactive pages, times the page size its first line
+  # names ("page size of 16384 bytes"), are the memory still available;
+  # each count ends in a dot.
+  mem_avail=$(vm_stat | awk '
+    /page size of/ { ps = $8 }
+    /^Pages free:/ { f = $3; sub(/\.$/, "", f) }
+    /^Pages inactive:/ { i = $3; sub(/\.$/, "", i) }
+    END { if (ps == "" || f == "" || i == "") print ""; else print (f + i) * ps }')
   ;;
 Linux)
   loadavg=$(awk '{ print $1 }' /proc/loadavg)
   cores=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo)
   swap=$(awk '/^SwapTotal:/ { t = $2 } /^SwapFree:/ { f = $2 } END { print t, t - f }' /proc/meminfo)
   swap_total=${swap%% *} swap_used=${swap##* }
+  mem=$(awk '/^MemTotal:/ { t = $2 } /^MemAvailable:/ { a = $2 } END { print t, a }' /proc/meminfo)
+  mem_total=${mem%% *} mem_avail=${mem##* }
   ;;
 *)
   say "$(uname) is neither macOS nor Linux"
@@ -96,16 +109,20 @@ case "$cores" in '' | *[!0-9]* | 0) say "no core count"; exit 1 ;; esac
 isnum "$swap_total" || { say "no swap numbers"; exit 1; }
 isnum "$swap_used" || { say "no swap numbers"; exit 1; }
 isnum "$disk" || { say "no used share for this directory's volume"; exit 1; }
+case "$mem_total" in '' | *[!0-9]* | 0) say "no memory total"; exit 1 ;; esac
+isnum "$mem_avail" || { say "no available memory"; exit 1; }
 
 # `load` would be the name, but gawk reserves it for its extension loader
 # and refuses it as a variable; loadavg runs under both awks.
 awk -v loadavg="$loadavg" -v cores="$cores" \
   -v stotal="$swap_total" -v sused="$swap_used" -v disk="$disk" \
-  -v tload="$load_target" -v tswap="$swap_target" -v tdisk="$disk_target" '
+  -v mtotal="$mem_total" -v mavail="$mem_avail" \
+  -v tload="$load_target" -v tswap="$swap_target" -v tdisk="$disk_target" -v tmem="$mem_target" '
   BEGIN {
     swap = (stotal > 0) ? sused * 100 / stotal : 0
     printf "{\"provider\":\"machine\",\"windows\":["
     printf "{\"label\":\"load\",\"used_percent\":%.1f,\"target_percent\":%.15g},", loadavg * 100 / cores, tload
     printf "{\"label\":\"swap\",\"used_percent\":%.1f,\"target_percent\":%.15g},", swap, tswap
-    printf "{\"label\":\"disk\",\"used_percent\":%.1f,\"target_percent\":%.15g}]}", disk, tdisk
+    printf "{\"label\":\"disk\",\"used_percent\":%.1f,\"target_percent\":%.15g},", disk, tdisk
+    printf "{\"label\":\"mem\",\"used_percent\":%.1f,\"target_percent\":%.15g}]}", (mtotal - mavail) * 100 / mtotal, tmem
   }'

@@ -497,7 +497,7 @@ yardr limits
 
 A source with no kinds answers for itself instead, and `yardr limits`
 lists it beside the providers, each with its windows. `machine` is one,
-whose command says the load, swap and disk of this machine
+whose command says the load, swap, disk and memory of this machine
 (`contrib/machine-limits`):
 
 ```sh
@@ -506,6 +506,7 @@ yardr limits machine
 #   load  12.5% used (target 80%)  reset not known
 #   swap  10% used (target 85%)     reset not known
 #   disk  40% used (target 90%)     reset not known
+#   mem   55% used (target 90%)     reset not known
 #   no window is used up
 ```
 
@@ -543,9 +544,9 @@ With no kinds the file is shorter, and the command takes no `{provider}`:
 
 ```yaml
 name: machine
-about: Load, swap and disk of this machine, as limits windows (contrib/machine-limits).
+about: Load, swap, disk and memory of this machine, as limits windows (contrib/machine-limits).
 limits:
-  command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90]
+  command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90, --target, mem=90]
 ```
 
 ```sh
@@ -557,8 +558,9 @@ yardr limits                   # its windows beside the providers'
 `load` is the 1-minute load average over the core count, as a percent (10
 cores at load 8 = 80); `swap` is used over total swap, or 0 where the
 machine has none; `disk` is used over the volume that holds the yard's
-home. Each carries its target, the `--target` the declaration sets (the
-script's defaults are the same). None resets. A route's condition names
+home; `mem` is used RAM over total, as a percent. Each carries its
+target, the `--target` the declaration sets (the script's defaults are
+the same). None resets. A route's condition names
 one as `machine.load<80`
 ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)).
 

@@ -1,6 +1,7 @@
 # yardr
 
 Your coding agents' changes, reviewed, tested and merged.
+Why it exists: [I made fire: the rise of the 0x human](https://yardr.dev/why).
 
 yardr carries each change through the review and tests your depot configures. The tests run on exactly what will merge, on your machine, with your logins.
 
@@ -28,18 +29,17 @@ A design or a change to yardr is judged by three things.
 A release archive needs no Go (darwin and linux, arm64 and amd64):
 
 ```sh
-gh release download --repo yardr-dev/yardr --pattern 'yardr_*_darwin_arm64.tar.gz' --pattern checksums.txt
+tag=v1.2.3; target=darwin_arm64  # current tag: version in https://yardr.dev/releases/latest.json, or the invite reply; target or darwin_amd64, linux_amd64, linux_arm64
+curl -fSL -O https://yardr.dev/releases/$tag/checksums.txt -O https://yardr.dev/releases/$tag/yardr_${tag#v}_$target.tar.gz
 shasum -a 256 --ignore-missing -c checksums.txt   # must say OK; Linux: sha256sum --ignore-missing -c checksums.txt
-tar -xzf yardr_*_darwin_arm64.tar.gz yardr
-mv yardr ~/.local/bin/                            # any directory on PATH
+tar -xzf yardr_${tag#v}_$target.tar.gz yardr && mv yardr ~/.local/bin/  # any directory on PATH
 ```
 
 From a checkout, with Go: `go install .`
 
-Either way yardr needs git, herdr and an agent harness (claude, codex, …) on
-PATH; `yardr doctor` says which are missing. [docs/install.md](docs/install.md)
-has the rest: the private repository, macOS and a downloaded binary, herdr's
-server, a server without a desktop, upgrading.
+Either way yardr needs git, herdr and an agent harness (claude, codex, …) on PATH;
+`yardr doctor` says which are missing. [docs/install.md](docs/install.md) has the rest:
+macOS and a downloaded binary, herdr's server, a server without a desktop, upgrading.
 
 ## Core concepts
 
