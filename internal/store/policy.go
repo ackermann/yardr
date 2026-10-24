@@ -130,12 +130,16 @@ const (
 
 	// The CLI-only gates, asked through May: what the operator did in the
 	// CLI before any write of the store's could refuse it (an edge
-	// connection, upgrade --from, timer list --all, uninstall --purge).
+	// connection, upgrade --from, timer list --all, uninstall --purge,
+	// source check --user).
 	ActConnectEdge      Action = "connect this yard to an edge"
 	ActDisconnectEdge   Action = "disconnect this yard from the edge"
 	ActNameUpgradeDepot Action = "name the depot to install from (--from)"
 	ActListAllTimers    Action = "list everyone's timers"
 	ActDeleteYardHome   Action = "delete the yard's home"
+	// The user's own, or the operator's for them, never an agent's
+	// pane, like the tell family's above: one rule below says so.
+	ActSourceCheckTell Action = "send a test message through a source"
 
 	// Seeing a bead: asked per bead by the reads (Bead, ListBeads,
 	// Arrivals, the listener's event stream), for the viewer they name.
@@ -245,8 +249,9 @@ func (s *Store) mayRead(ctx context.Context, actor string, act Action, obj Objec
 // May asks the store's policy whether actor may do act to obj, changing
 // nothing. It is on the API so a command whose gate is no write of the
 // store's — an edge connection, upgrade --from, timer list --all,
-// uninstall --purge — asks the same policy the writes ask, over the
-// socket like the writes, instead of deciding in the CLI.
+// uninstall --purge, source check --user — asks the same policy the
+// writes ask, over the socket like the writes, instead of deciding in
+// the CLI.
 func (s *Store) May(ctx context.Context, actor string, act Action, obj Object) error {
 	return s.mayRead(ctx, actor, act, obj)
 }
@@ -297,6 +302,7 @@ func init() {
 		ActTell:              mayTell,
 		ActAnswerLogin:       mayAnswerLogin,
 		ActIdentify:          mayIdentify,
+		ActSourceCheckTell:   maySourceCheckTell,
 		ActSubscribe:         maySubscribe,
 		ActSubscribeCrew:     maySubscribeCrew,
 		ActSubscribeGroup:    maySubscribeGroup,
@@ -684,6 +690,18 @@ func mayIdentify(ctx context.Context, tx *bolt.Tx, actor string, _ Action, obj O
 			why += ", or by " + ops.words()
 		}
 		return why + ": a thread assigned to them goes there"
+	})
+}
+
+// maySourceCheckTell is mayTell for yardr source check --user: one test
+// message through the source to the user Object.Name, which buzzes their
+// phone. Theirs to ask for, or the operator's for them, and never the
+// pane of an agent's or a crew member's. The words are the check's own,
+// kept from when the CLI refused it.
+func maySourceCheckTell(ctx context.Context, tx *bolt.Tx, actor string, _ Action, obj Object) error {
+	name := obj.Name
+	return mayStandFor(ctx, tx, name, actor, func(ops operators) string {
+		return "a test message to " + name + " is theirs to ask for, or " + ops.whose()
 	})
 }
 

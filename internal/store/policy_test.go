@@ -3,11 +3,13 @@ package store_test
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 
 	bolt "go.etcd.io/bbolt"
 
+	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -212,6 +214,47 @@ func TestMayAsksThePolicyForTheCLIGates(t *testing.T) {
 	}))
 	if err := api.May(ctx, "ada", store.ActConnectEdge, store.Object{Kind: store.KindYard}); err != nil {
 		t.Errorf("May(connect edge) for ada under a policy that lets her = %v", err)
+	}
+}
+
+// A test message through a source is the user's to ask for, or the
+// operator's for them: anyone else is refused in the check's own words,
+// and an agent by its pane, whatever name the command gives.
+func TestMaySourceCheckTellIsTheUsersAndTheOperators(t *testing.T) {
+	t.Parallel()
+	api, own := operatorYard(t)
+	ctx := context.Background()
+	obj := store.Object{Kind: store.KindUser, Name: "ada"}
+	const why = "a test message to ada is theirs to ask for, or the operator's (jo); "
+	for actor, want := range map[string]string{
+		"bob":        why + "this is bob",
+		"yardmaster": why + "yardmaster is a crew member",
+		"":           why + "this is nobody",
+	} {
+		if err := api.May(ctx, actor, store.ActSourceCheckTell, obj); err == nil || err.Error() != want {
+			t.Errorf("May(send a test message through a source) for %q = %v, want %q", actor, err, want)
+		}
+	}
+	for _, actor := range []string{"ada", "jo"} {
+		if err := api.May(ctx, actor, store.ActSourceCheckTell, obj); err != nil {
+			t.Errorf("May(send a test message through a source) for %s = %v, want nil", actor, err)
+		}
+	}
+
+	// From the yardmaster's pane, naming the user and then the operator.
+	me := os.Getpid()
+	ps, err := peer.Describe(me)
+	if err != nil {
+		t.Skipf("this process cannot be described: %v", err)
+	}
+	if err := api.CrewStarted(ctx, "yardmaster", map[string]any{"shell_pid": me, "shell_start": ps.Start}); err != nil {
+		t.Fatal(err)
+	}
+	pane := store.WithCaller(ctx, me)
+	for _, actor := range []string{"ada", "jo"} {
+		if err := own.May(pane, actor, store.ActSourceCheckTell, obj); err == nil || err.Error() != why+"this is the crew member yardmaster" {
+			t.Errorf("May(send a test message through a source) from the yardmaster's pane as %s = %v", actor, err)
+		}
 	}
 }
 

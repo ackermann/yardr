@@ -1608,12 +1608,9 @@ func (a *app) checkTells(w io.Writer, ctx context.Context, st store.API, name, u
 		return err
 	}
 	// The message buzzes a person's phone: theirs to ask for, or the
-	// operator's. Like maySpeakAs it is a line, not a wall: the command
-	// reads files its caller can read, and no store is asked.
-	if operator, is, err := a.operator(ctx, st); err != nil {
+	// operator's, in the store's own words before anything is sent.
+	if err := st.May(ctx, a.who(), store.ActSourceCheckTell, store.Object{Kind: store.KindUser, Name: u.Name}); err != nil {
 		return err
-	} else if !is && a.who() != u.Name {
-		return fmt.Errorf("a test message to %s is theirs to ask for, or %s; this is %s", u.Name, store.OperatorsWhose(strings.Split(operator, ", ")), a.who())
 	}
 	title, text := store.SourceCheckMessage(name, u.Name)
 	sent, err := notify.Through(ctx, st, a.home(), name, u, notify.Message{Title: title, Text: text})
