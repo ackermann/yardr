@@ -12,9 +12,9 @@ shared setup, said once in `yardr docs google`.
 
 1. **The gws login.** It needs the Drive scope,
    `https://www.googleapis.com/auth/drive`, else the calls come back
-   403. The shared login instructions in `yardr docs google` show how to
-   check and add the `drive` service while keeping the other applied
-   packs' scopes.
+   403. The shared login instructions in `yardr docs google` start
+   from a machine with no gws, and show how to check and add the
+   `drive` service while keeping the other applied packs' scopes.
 2. **The setup card.** One card carries the pack's whole setup: the
    pack, the account and the grants. Have a crew member ask for it,
    and approve it, in footplate or in `yardr chat` (`ctrl+o`); a

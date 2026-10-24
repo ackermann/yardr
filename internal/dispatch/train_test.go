@@ -234,10 +234,13 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 		must(t, d.Reconcile(ctx)) // the wait is logged once, not per pass
 		starts(i + 1)
-		skew = wait - time.Second
+		// Real time flows under the fake clock: the store stamps the
+		// returns in real time, so the margin must exceed a loaded
+		// box's round of ops, far below the 1-5m waits.
+		skew = wait - 30*time.Second
 		must(t, d.Reconcile(ctx))
 		starts(i + 1)
-		skew = wait + time.Second
+		skew = wait + 30*time.Second
 		must(t, d.Reconcile(ctx))
 		starts(i + 2)
 	}

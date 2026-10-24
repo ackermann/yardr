@@ -1042,7 +1042,8 @@ fi
 // step that failed of itself is not run again, and a log that reports a
 // race is not run again for the cache either. Both runs' output is
 // printed, and a step that failed for good is followed by the lines that
-// say what failed: a failing test's a second time. A landing runs the socket
+// say what failed: a failing test's report a third time, its own lines
+// under it the last. A landing runs the socket
 // suites beside the tests, whether those are green or not; each of the two
 // is run again by the same rule, either makes the run red, and the socket
 // step's output follows the whole of the other's. Every go it runs, each
@@ -1052,7 +1053,12 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	t.Parallel()
 	const notice = "the Go build cache lost a file under us; running again"
 	const failing = "--- FAIL: TestX (0.00s)"
+	const failingMsg = "--- FAIL: TestX (0.00s)\n    x_test.go:12: x"
+	const compileErr = "internal/foo/foo.go:10:2: undefined: x"
 	const raceLost = cacheLost + "\nWARNING: DATA RACE\n--- FAIL: TestX (0.00s)\nFAIL\nFAIL\tm.test/m 0.123s"
+	// Thirty failures are more than the summary holds: its which-lines
+	// and why-blocks together are capped at 60.
+	manyFails := strings.Repeat("--- FAIL: TestMany (0.00s)\n    many_test.go:1: boom\n", 30)
 	// The landing rows run at a load of 25.3 on 10 cores: the race leg has -p=3.
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./..."}
@@ -1074,9 +1080,18 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		{"build once", "build", "1", cacheLost, true,
 			[]string{plain[0], plain[1], plain[1], plain[2]}, 1, true, nil, ""},
 		{"test twice", "test", "2", cacheLost, false,
-			[]string{plain[0], plain[1], plain[2], plain[2]}, 2, true, nil, "test: FAILED: go test ./..."},
+			[]string{plain[0], plain[1], plain[2], plain[2]}, 3, true, nil, "test: FAILED: go test ./..."},
 		{"a failing test", "test", "1", failing, false,
-			plain, 2, false, nil, "test: FAILED: go test ./...\n" + failing},
+			plain, 3, false, nil, "test: FAILED: go test ./...\n" + failing},
+		// The summary carries the failure's own lines under its report:
+		// a test's message, a build error with no test in it, and never
+		// more than 60 lines over both.
+		{"a failing test's message", "test", "1", failingMsg, false,
+			plain, 2, false, nil, "test: FAILED: go test ./...\n" + failing + "\n" + failingMsg},
+		{"a failing build", "build", "1", compileErr, false,
+			[]string{plain[0], plain[1]}, 3, false, nil, "test: FAILED: go build ./...\n" + compileErr},
+		{"many failures are capped", "test", "1", manyFails, false,
+			plain, 1, false, nil, "test: FAILED: go test ./..."},
 		// No step fails: the caller's GOFLAGS are among what every go has.
 		{"the caller's GOFLAGS stay", "none", "0", "never printed", true,
 			plain, 0, false, []string{"GOFLAGS=-mod=mod"}, ""},
@@ -1086,7 +1101,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		{"landing: vet once", "vet", "1", cacheLost, true,
 			[]string{landing[0], landing[0], landing[1], landing[2], landing[3]}, 1, true, noBase, ""},
 		{"landing: a failing test", "test", "1", failing, false,
-			landing, 2, false, noBase, "test: FAILED: go test -race -p=3 ./...\n" + failing},
+			landing, 3, false, noBase, "test: FAILED: go test -race -p=3 ./...\n" + failing},
 		// The race leg run again for the lost file has the load factor too.
 		{"landing: the race leg once", "test", "1", cacheLost, true,
 			[]string{landing[0], landing[1], landing[2], landing[2], landing[3]}, 1, true, noBase, ""},
@@ -1097,11 +1112,11 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 		{"landing: a race with a lost cache file", "test", "1", raceLost, false,
 			landing, 1, false, noBase, "test: FAILED: go test -race -p=3 ./...\nWARNING: DATA RACE"},
 		{"landing: a failing socket test", "rpc", "1", failing, false,
-			landing, 2, false, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/\n" + failing},
+			landing, 3, false, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/\n" + failing},
 		{"landing: the socket step once", "rpc", "1", cacheLost, true,
 			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 1, true, noBase, ""},
 		{"landing: the socket step twice", "rpc", "2", cacheLost, false,
-			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 2, true, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
+			[]string{landing[0], landing[1], landing[2], landing[3], landing[3]}, 3, true, noBase, "test: FAILED: env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -1222,6 +1237,17 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			if strings.Contains(out, "test: FAILED") != (c.summed != "") || !strings.Contains(out, c.summed) {
 				t.Errorf("the output's summary of a failed step: want %q", c.summed)
+			}
+			if c.summed != "" {
+				// The summary holds at most 60 lines after its header,
+				// however many failures the log names.
+				rest := out[strings.Index(out, "test: FAILED:")+len("test: FAILED:"):]
+				if end := strings.Index(rest, "\ntest: "); end >= 0 {
+					rest = rest[:end]
+				}
+				if n := strings.Count(rest, "\n") - 1; n > 60 {
+					t.Errorf("the failed step's summary holds %d lines, want at most 60", n)
+				}
 			}
 			if t.Failed() {
 				t.Logf("output:\n%s", out)

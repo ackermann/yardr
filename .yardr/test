@@ -945,12 +945,17 @@ again() {
 }
 # failed prints the lines of a failed step's output that say what failed: a
 # failing test, package or build, a panic, a race, and what go vet and the
-# compiler say (file.go:line:col: message). At most 60, the first ones.
+# compiler say (file.go:line:col: message), then each failed test's own lines
+# under its report, so the summary says why and not only which. At most 60
+# lines over both, the first ones.
 failed() {
   f=$1
   shift
   echo "test: FAILED: $*"
-  grep -E -e '--- FAIL' -e '^FAIL' -e 'panic:' -e 'DATA RACE' -e '^[^[:space:]]+\.go:[0-9]+:[0-9]+:' "$f" | head -n 60 || true
+  {
+    grep -E -e '--- FAIL' -e '^FAIL' -e 'panic:' -e 'DATA RACE' -e '^[^[:space:]]+\.go:[0-9]+:[0-9]+:' "$f" || true
+    flakyfails --human "$f"
+  } | head -n 60 || true
 }
 # waitcount prints the race-lock seconds one step's log ($1) holds: the
 # `test: waited N s` lines its race legs printed, 0 when there are none.
@@ -1004,15 +1009,23 @@ flaky_sep=' | '
 # and the dump's head, else the first output lines (a TestMain that exits
 # prints only those), each capped like a block. Empty when the log holds
 # nothing but its ok and FAIL lines. It reads the first run's log, which the
-# rerun replaces.
+# rerun replaces. With --human the same blocks are rendered with real
+# newlines, for the FAILED summary failed prints; without it, the one-line
+# log form above.
 flakyfails() {
-  awk -v sep="$flaky_sep" '
+  human=0
+  if [ "$1" = "--human" ]; then human=1; shift; fi
+  awk -v sep="$flaky_sep" -v human="$human" '
+    BEGIN {
+      br = (human ? "\n" : "\\n")
+      if (human) sep = "\n"
+    }
     function keep(b, s) {
       if (cnt[b] >= 6) return
       sub(/[ \t\r]+$/, "", s)
       match(s, /^ */)
       s = substr(s, (RLENGTH < lvl[b] ? RLENGTH : lvl[b]) + 1, 200)
-      txt[b] = (cnt[b] ? txt[b] "\\n" : "") s
+      txt[b] = (cnt[b] ? txt[b] br : "") s
       cnt[b]++
     }
     function cap(s) {
@@ -1056,7 +1069,10 @@ flakyfails() {
       } else if (cseen && cn < 5 && $0 != "" && $0 !~ /^[ \t]*$/ && $0 !~ /^(ok|FAIL|\?)[ \t]/ && $0 != "FAIL") {
         cdump[++cn] = cap($0)
       }
-      if (fn < 6 && $0 != "" && $0 !~ /^[ \t]*$/ && $0 !~ /^(ok|FAIL|\?)[ \t]/ && $0 != "FAIL") {
+      # For a human the script status lines say nothing: the leg log
+      # holds them too, and the summary would repeat what the output
+      # already said.
+      if (fn < 6 && $0 != "" && $0 !~ /^[ \t]*$/ && $0 !~ /^(ok|FAIL|\?)[ \t]/ && $0 != "FAIL" && (!human || $0 !~ /^test: /)) {
         fline[++fn] = cap($0)
       }
     }
@@ -1066,15 +1082,15 @@ flakyfails() {
         print out
       } else if (tseen) {
         out = tpanic
-        for (k = 1; k <= tn; k++) out = out "\\n" tent[k]
+        for (k = 1; k <= tn; k++) out = out br tent[k]
         print out
       } else if (cseen) {
         out = cpanic
-        for (k = 1; k <= cn; k++) out = out "\\n" cdump[k]
+        for (k = 1; k <= cn; k++) out = out br cdump[k]
         print out
       } else if (fn) {
         out = fline[1]
-        for (k = 2; k <= fn; k++) out = out "\\n" fline[k]
+        for (k = 2; k <= fn; k++) out = out br fline[k]
         print out
       }
     }

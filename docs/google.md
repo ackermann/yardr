@@ -62,6 +62,49 @@ to be called as (step 3).
 
 ## Step 1. The gws login
 
+The four packs are optional: a yard without Google needs none of
+this. What follows starts from a machine with no gws.
+
+Install gws first, from Homebrew's `googleworkspace-cli` formula
+(where this machine's came from):
+
+```sh
+brew install googleworkspace-cli
+```
+
+Then configure the GCP project and OAuth client once for this machine's
+default gws config. `gws auth setup` needs the gcloud CLI installed and
+logged in with `gcloud auth login` (Application Default Credentials from
+`gcloud auth application-default login` do not authenticate gcloud's own
+commands). It uses gcloud's current project by default; pass
+`--project <id>` to choose another:
+
+```sh
+gws auth setup
+```
+
+Without gcloud it refuses outright. It walks through enabling the Gmail,
+Drive, Docs, Slides and Calendar APIs the four packs call, configuring
+the OAuth consent screen and client, and writes the client to
+`~/.config/gws/client_secret.json`.
+
+A second person's login, in `~/.config/gws-accounts/<account>`,
+needs its own client too: gws reads the client from the directory in
+force, and a login there without one is refused. Run setup for that
+directory as well, with its variable, before the login below. This is a
+separate config, so it needs setup even though the default config has
+already been set up:
+
+```sh
+GOOGLE_WORKSPACE_CLI_CONFIG_DIR="$HOME/.config/gws-accounts/ada@example.com" gws auth setup
+```
+
+If you skip setup for the second directory, gws refuses the login and
+names that directory's missing `client_secret.json`.
+
+Hosted yards will skip all of this: yardr-hosted-4dx0 brings a
+"Connect Google" button in the browser.
+
 The machine holds it: gws 0.22.5 at `/opt/homebrew/bin/gws`, its
 config in `~/.config/gws`. The account it is logged in as is what
 the yard's calls mint from:

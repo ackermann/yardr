@@ -333,14 +333,14 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 		// the column of the yard's own lines on the card. Check before
 		// trimming so a leading or trailing break is refused too.
 		if strings.Contains(line, "\n") {
-			return nil, fmt.Errorf("--context line %d holds a line break: a context line is one line", i+1)
+			return nil, fmt.Errorf("--context line %d holds a line break: a context line is one line: give each line its own --context", i+1)
 		}
 		if line = strings.TrimSpace(line); line != "" {
 			context = append(context, foldSpaces(line))
 		}
 	}
 	if len(context) == 0 {
-		return nil, fmt.Errorf("an ask needs --context: two to five lines of what it is about, at least one")
+		return nil, fmt.Errorf("an ask needs --context: two to five lines of what it is about, at least one (e.g. --context \"<first line>\" --context \"<second line>\")")
 	}
 	ask.Context = context
 	for i, o := range ask.Options {
