@@ -136,6 +136,128 @@ func TestPlanSidingAndReturnLines(t *testing.T) {
 	} else if labels[0][2] == labels[1][2] || labels[0][1] == labels[1][1] {
 		t.Errorf("return outcome labels share an x position: %v", labels)
 	}
+	t.Run("limited loops and redirects", limitedLoopAndRedirect)
+}
+
+// A limited loop's label reads its outcome and limit, and the redirect to
+// its Then is drawn as the edge to that stage with its own label, even
+// where another edge already leads there.
+func limitedLoopAndRedirect(t *testing.T) {
+	p := planOf(flow(t, "default", `backlog -> new | decide
+new -> review on done | decide on question | backlog
+review -> approved on done | new on changes max 3 then decide | decide on question
+approved -> merged on done | new on failed max 1 then decide | decide on question
+decide -> backlog | new
+merged terminal
+`))
+	for _, want := range []loop{
+		{from: "review", to: "new", outcomes: []string{"changes, 3 rounds"}},
+		{from: "approved", to: "new", outcomes: []string{"failed, 1 round"}},
+	} {
+		if !slices.ContainsFunc(p.loops, func(l loop) bool {
+			return l.from == want.from && l.to == want.to && slices.Equal(l.outcomes, want.outcomes)
+		}) {
+			t.Errorf("no loop %+v among %+v", want, p.loops)
+		}
+	}
+	// Each redirect is its own spur to decide, beside the question spur,
+	// solid: it carries an outcome's label, not a move by hand.
+	for _, want := range []spur{
+		{siding: "decide", stage: "review", in: true, outcomes: []string{"after 3"}},
+		{siding: "decide", stage: "approved", in: true, outcomes: []string{"after 1"}},
+	} {
+		if !slices.ContainsFunc(p.spurs, func(s spur) bool {
+			return s.siding == want.siding && s.stage == want.stage && s.in == want.in && slices.Equal(s.outcomes, want.outcomes)
+		}) {
+			t.Errorf("no spur %+v among %+v", want, p.spurs)
+		}
+	}
+	n := 0
+	for _, s := range p.spurs {
+		if s.siding == "decide" && s.stage == "review" && s.in {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d spurs from review to decide, want question's and the redirect's", n)
+	}
+
+	svg := string(SVG(Diagram{Flow: *flow(t, "default", `backlog -> new | decide
+new -> review on done | decide on question | backlog
+review -> approved on done | new on changes max 3 then decide | decide on question
+approved -> merged on done | new on failed max 1 then decide | decide on question
+decide -> backlog | new
+merged terminal
+`)}))
+	for _, want := range []string{
+		`>changes, 3 rounds</text>`, `>failed, 1 round</text>`,
+		`>after 3</text>`, `>after 1</text>`, `>question</text>`,
+	} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("the drawing lacks %s", want)
+		}
+	}
+	if n := strings.Count(svg, `>after 3</text>`); n != 1 {
+		t.Errorf("%d labels read after 3, want review's redirect alone", n)
+	}
+
+	// A Then on the line is a loop below the track, even where the heavy
+	// track already runs there for the way on.
+	q := planOf(flow(t, "way", "a -> b on done\nb -> c on done | a on changes max 2 then c\nc terminal\n"))
+	if want := []bool{true, true}; !slices.Equal(q.track, want) {
+		t.Errorf("track = %v, want %v", q.track, want)
+	}
+	for _, want := range []loop{
+		{from: "b", to: "a", outcomes: []string{"changes, 2 rounds"}},
+		{from: "b", to: "c", outcomes: []string{"after 2"}},
+	} {
+		if !slices.ContainsFunc(q.loops, func(l loop) bool {
+			return l.from == want.from && l.to == want.to && slices.Equal(l.outcomes, want.outcomes)
+		}) {
+			t.Errorf("no loop %+v among %+v", want, q.loops)
+		}
+	}
+
+	// A limited way on is drawn explicitly, not carried by the track, which
+	// has no label to say the limit.
+	r := planOf(flow(t, "carried", "a -> b on retry max 2 then c\nb -> c on done\nc terminal\n"))
+	if want := []bool{false, true}; !slices.Equal(r.track, want) {
+		t.Errorf("track = %v, want %v", r.track, want)
+	}
+	for _, want := range []loop{
+		{from: "a", to: "b", outcomes: []string{"retry, 2 rounds"}},
+		{from: "a", to: "c", outcomes: []string{"after 2"}},
+	} {
+		if !slices.ContainsFunc(r.loops, func(l loop) bool {
+			return l.from == want.from && l.to == want.to && slices.Equal(l.outcomes, want.outcomes)
+		}) {
+			t.Errorf("no loop %+v among %+v", want, r.loops)
+		}
+	}
+
+	// The limit stays visible when another outcome shares the way-on stage,
+	// whose heavy track would otherwise hide both outcome labels.
+	sharedWay := planOf(flow(t, "shared-way", `a -> b on done
+b -> c on done | c on retry max 2 then d
+c terminal
+d terminal
+`))
+	if want := []bool{true, false, false}; !slices.Equal(sharedWay.track, want) {
+		t.Errorf("shared way-on track = %v, want %v", sharedWay.track, want)
+	}
+	if !slices.ContainsFunc(sharedWay.loops, func(l loop) bool {
+		return l.from == "b" && l.to == "c" && slices.Equal(l.outcomes, []string{"done", "retry, 2 rounds"})
+	}) {
+		t.Errorf("shared way-on limit is not labeled in a loop: %+v", sharedWay.loops)
+	}
+	sharedSVG := string(SVG(Diagram{Flow: *flow(t, "shared-way", `a -> b on done
+b -> c on done | c on retry max 2 then d
+c terminal
+d terminal
+`)}))
+	if !strings.Contains(sharedSVG, `>done, retry, 2 rounds</text>`) {
+		t.Error("the shared way-on drawing lacks the limited outcome label")
+	}
 }
 
 // A flow without outcomes has a main path all the same, each stage's first

@@ -370,7 +370,7 @@ func SVG(d Diagram) []byte {
 		lo, hi := 0, 0
 		c.f(`<g class="siding" data-stage="%s">`, html.EscapeString(s))
 		n := 0
-		for _, sp := range p.spurs {
+		for si, sp := range p.spurs {
 			if sp.siding != s {
 				continue
 			}
@@ -381,10 +381,18 @@ func SVG(d Diagram) []byte {
 			}
 			var top int
 			if sp.in {
-				top = gap(i) - 6 - 10*j
+				// Spurs from one stage to one siding stand 60 apart, so a
+				// redirect's label clears the outcome's.
+				k := 0
+				for _, earlier := range p.spurs[:si] {
+					if earlier.siding == sp.siding && earlier.stage == sp.stage && earlier.in {
+						k++
+					}
+				}
+				top = gap(i) - 6 - 10*j - k*60
 				c.f(`<path class="%s" d="M%d %d L%d %d"/>`, class, top-12, ty, top, sy)
 				if len(sp.outcomes) > 0 {
-					c.text(gap(i)-22-10*j, ty-39-11*j, "small end", strings.Join(sp.outcomes, ", "))
+					c.text(gap(i)-22-10*j-k*60, ty-39-11*j, "small end", strings.Join(sp.outcomes, ", "))
 				}
 			} else {
 				top = gap(i-1) + 6 + 10*j
@@ -424,7 +432,7 @@ func SVG(d Diagram) []byte {
 		ax := gap(t.to-1) + 10
 		lo, hi := ax, ax
 		c.f(`<g class="loops" data-to="%s">`, html.EscapeString(p.line[t.to]))
-		for _, dr := range t.drops {
+		for di, dr := range t.drops {
 			class := "ln branch"
 			if len(dr.l.outcomes) == 0 {
 				class += " hand"
@@ -436,7 +444,15 @@ func SVG(d Diagram) []byte {
 			c.f(`<path class="%s" data-from="%s" d="M%d %d V%d L%d %d"/>`, class, html.EscapeString(dr.l.from), dr.x, ty, ly-6, dr.x+turn, ly)
 			lo, hi = min(lo, dr.x), max(hi, dr.x)
 			if len(dr.l.outcomes) > 0 {
-				c.text(dr.x-9, ly-4, "small end", strings.Join(dr.l.outcomes, ", "))
+				// Drops from one stage to one platform stand 8 apart; their
+				// labels stack, so a redirect's label clears the outcome's.
+				k := 0
+				for _, earlier := range t.drops[:di] {
+					if earlier.l.from == dr.l.from {
+						k++
+					}
+				}
+				c.text(dr.x-9, ly-4-k*12, "small end", strings.Join(dr.l.outcomes, ", "))
 			}
 		}
 		// The trunk, and its way up to the track, with an arrowhead.

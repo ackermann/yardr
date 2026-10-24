@@ -1,6 +1,7 @@
 package flowdraw
 
 import (
+	"fmt"
 	"slices"
 
 	"yardr.dev/yardr/internal/store"
@@ -23,9 +24,11 @@ type plan struct {
 	// the two only stand next to each other.
 	track []bool
 	// loops are the transitions between platforms the track does not carry,
-	// drawn below it: one per pair of stages.
+	// drawn below it: one per pair of stages, and one more per limited
+	// outcome that redirects there.
 	loops []loop
-	// spurs are the transitions into and out of a siding.
+	// spurs are the transitions into and out of a siding, with one more per
+	// redirect into it.
 	spurs []spur
 	// signals are the platforms that carry a signal.
 	signals []string
@@ -36,8 +39,9 @@ type plan struct {
 // itself, or forward past the next one.
 type loop struct {
 	from, to string
-	// outcomes are the outcomes that take it, in the flow's order; none for
-	// a move only made by hand.
+	// outcomes are the labels of the outcomes that take it, in the flow's
+	// order, each with its limit where it has one, or the redirect's label;
+	// none for a move only made by hand.
 	outcomes []string
 }
 
@@ -46,7 +50,8 @@ type loop struct {
 type spur struct {
 	siding, stage string
 	in            bool
-	outcomes      []string
+	// outcomes are the labels of the outcomes that take it, as a loop's.
+	outcomes []string
 }
 
 // Changes is the outcome a reviewer reports to send work back. A stage that
@@ -142,18 +147,43 @@ func planOf(f *store.Flow) plan {
 			p.signals = append(p.signals, s)
 		}
 		on, ok := way(f, s)
-		carried := ok && slices.Contains(path, s) && i+1 < len(p.line) && p.line[i+1] == on
+		// A limited outcome to the way-on stage is drawn explicitly below,
+		// with its limit, not carried by the track, which has no label to say
+		// it. Another outcome can share the way-on edge, so check them all.
+		limitedOn := slices.ContainsFunc(f.Outcomes[s], func(o store.Outcome) bool {
+			return o.To == on && o.Max > 0
+		})
+		carried := ok && slices.Contains(path, s) && i+1 < len(p.line) && p.line[i+1] == on && !limitedOn
 		if carried {
 			p.track[i] = true
 		}
 		for _, to := range targets(f, s) {
 			outs := outcomesTo(f, s, to)
+			// A stage only a limit sends the bead to is no bare edge: the
+			// redirect below draws it, with its label.
+			if len(outs) == 0 && len(redirectsTo(f, s, to)) > 0 {
+				continue
+			}
 			switch {
 			case carried && to == on:
 			case slices.Contains(p.sidings, to):
 				p.spurs = append(p.spurs, spur{siding: to, stage: s, in: true, outcomes: outs})
 			case at(to) >= 0:
 				p.loops = append(p.loops, loop{from: s, to: to, outcomes: outs})
+			}
+		}
+		// The redirects: one edge per limited outcome to its Then, even
+		// where another edge already leads there, with its own label.
+		for _, o := range f.Outcomes[s] {
+			if o.Max == 0 {
+				continue
+			}
+			label := redirectLabel(o.Max)
+			switch {
+			case slices.Contains(p.sidings, o.Then):
+				p.spurs = append(p.spurs, spur{siding: o.Then, stage: s, in: true, outcomes: []string{label}})
+			case at(o.Then) >= 0:
+				p.loops = append(p.loops, loop{from: s, to: o.Then, outcomes: []string{label}})
 			}
 		}
 	}
@@ -169,15 +199,47 @@ func planOf(f *store.Flow) plan {
 	return p
 }
 
-// outcomesTo names the outcomes that take a bead from one stage to another.
+// outcomesTo names the outcomes that take a bead from one stage to another,
+// each with its limit where it has one.
 func outcomesTo(f *store.Flow, from, to string) []string {
 	var names []string
 	for _, o := range f.Outcomes[from] {
 		if o.To == to {
-			names = append(names, o.Name)
+			names = append(names, outcomeLabel(o))
 		}
 	}
 	return names
+}
+
+// outcomeLabel is the outcome as a loop or spur label: its name, and where
+// it allows only so many rounds back, how many.
+func outcomeLabel(o store.Outcome) string {
+	if o.Max == 0 {
+		return o.Name
+	}
+	rounds := "rounds"
+	if o.Max == 1 {
+		rounds = "round"
+	}
+	return fmt.Sprintf("%s, %d %s", o.Name, o.Max, rounds)
+}
+
+// redirectsTo names the redirects that take a bead from one stage to another
+// once their rounds are used: one "after N" per limited outcome sent there.
+func redirectsTo(f *store.Flow, from, to string) []string {
+	var out []string
+	for _, o := range f.Outcomes[from] {
+		if o.Max > 0 && o.Then == to {
+			out = append(out, redirectLabel(o.Max))
+		}
+	}
+	return out
+}
+
+// redirectLabel is a redirect as a loop or spur label: after how many rounds
+// the outcome sends the bead on instead.
+func redirectLabel(max int) string {
+	return fmt.Sprintf("after %d", max)
 }
 
 // targets is the stages a stage leads to, each once: a flow file that names
