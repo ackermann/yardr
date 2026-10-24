@@ -43,6 +43,10 @@ type depotKind struct {
 	work, approve string
 	// ends is the stage a bead closes in.
 	ends string
+	// clear is whether the depot's flow holds a reviewed bead in clear
+	// for a person's yes before it lands. The matrix gives that yes by
+	// hand, as the operator does.
+	clear bool
 }
 
 // attempt is a command that a shape is refused, and how. code is the exit
@@ -77,6 +81,7 @@ var gitDepot = depotKind{
 	work:    `echo greeting > greeting.txt && git add greeting.txt && git commit -q -m "add a greeting"`,
 	approve: " --outcome done-safe",
 	ends:    "merged",
+	clear:   true,
 }
 
 var dirDepot = depotKind{
@@ -536,6 +541,26 @@ func stepEndToEnd(t *testing.T, y *yard) {
 	y.ok(t, &moved, "bead", "advance", y.bead, "--to", "new")
 	if moved.Stage != "new" {
 		t.Fatalf("bead advance: %+v", moved)
+	}
+	if k.clear {
+		// A reviewed bead waits in clear for a person's yes before it
+		// lands. Walk it as the operator does: wait for it there, then
+		// give done by hand, as jo. Closed or held is a failure, as
+		// below: the bead never closed without the yes.
+		var c beadState
+		if !waitFor(endToEndFuse, func() bool {
+			c = beadState{}
+			y.ok(t, &c, "bead", "show", y.bead)
+			return c.Stage == "clear" || c.Status == "closed" || c.Hold
+		}) || c.Hold || c.Status == "closed" {
+			y.dump(t)
+			t.Fatalf("bead %s: stage %s, status %s, held %v; want it in clear for the operator's yes", y.bead, c.Stage, c.Status, c.Hold)
+		}
+		var answered beadState
+		y.ok(t, &answered, "bead", "done", y.bead, "--outcome", "done")
+		if answered.Stage != "approved" {
+			t.Fatalf("bead done in clear: stage %s, want approved", answered.Stage)
+		}
 	}
 	var b beadState
 	if !waitFor(endToEndFuse, func() bool {
