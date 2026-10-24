@@ -38,8 +38,9 @@
 # back (outcome failed: new, or open for a train) with a
 # note that names the commit and carries the end of the output, as does a
 # branch that moved while the tests ran, and a test command that says it
-# could not run (exit 2), or anything it cannot land without touching a dirty
-# tree, is held. A run ended by a signal is run once more, and held if a
+# could not run (exit 2), or one red only for a flaky test's strike (exit
+# 3), or anything it cannot land without touching a dirty tree, is held. A
+# run ended by a signal is run once more, and held if a
 # signal ends it again. A depot with no test command lands untested, and the
 # note says so. It never forces and never pushes anything but a fast-forward.
 #
@@ -805,6 +806,13 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
+  # The flake beads a strike-only red names, for the hold note: the full
+  # log's noted/filed lines, or, when the run filed nothing (the yard
+  # refused it), the flaky and strike lines that name the tests.
+  flakes=$(grep -E '^test: (noted|filed) [^ ]+: Flaky:' "$log" || true)
+  if [ -z "$flakes" ]; then
+    flakes=$(grep -E -e '^test: flaky: ' -e ' flaked on [0-9][0-9]* changes in 7 days' "$log" || true)
+  fi
   cleanup
   log=
   latefile=
@@ -869,6 +877,10 @@ $out"
   0) ;;
   2) hold "$RUN could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
 $out" ;;
+  3) hold "$RUN were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
+$out${flakes:+
+$flakes}
+Nothing landed, and the branch is not at fault: fix the flaky test, then unhold to test it again." ;;
   *) back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
 $out" ;;
   esac

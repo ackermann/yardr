@@ -877,6 +877,35 @@ func TestMergeLocalTestsNotRunHolds(t *testing.T) {
 	}
 }
 
+// A test command red only for a flaky test's strike (exit 3) is no
+// builder's to fix either: the bead is held where it is, with a note
+// naming the flake bead, not sent back to new.
+func TestMergeLocalStrikeOnlyHolds(t *testing.T) {
+	y := newYard(t)
+	main := y.git(y.repo, "rev-parse", "main")
+	y.commit(y.wt, "b.txt", "bead\n")
+	y.tests("echo 'test: flaky: TestX (m.test/m) passed on rerun'; " +
+		"echo 'test: noted m-2: Flaky: TestX (m.test/m)'; " +
+		"echo 'test: TestX flaked on 3 changes in 7 days; see the Flaky: bead'; exit 3")
+
+	y.assembly()
+
+	b := y.bead()
+	if !b.Hold || b.Stage != "approved" {
+		t.Fatalf("bead %s hold=%v, want held in approved", b.Stage, b.Hold)
+	}
+	notes := y.notes()
+	for _, want := range []string{"red only for a flaky test's strike", "test: noted m-2: Flaky: TestX (m.test/m)",
+		"unhold to test it again"} {
+		if !strings.Contains(notes, want) {
+			t.Fatalf("note lacks %q:\n%s", want, notes)
+		}
+	}
+	if got := y.git(y.repo, "rev-parse", "main"); got != main {
+		t.Fatal("main moved without its tests")
+	}
+}
+
 func TestMergeLocalDirtyCheckoutHolds(t *testing.T) {
 	y := newYard(t)
 	main := y.git(y.repo, "rev-parse", "main")

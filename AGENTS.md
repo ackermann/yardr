@@ -158,7 +158,9 @@ it lists every exported name with its comment, faster than grepping.
   run is of a bead -- to `yardr-flaky.log` in the git common dir, which
   the repo owns and every worktree shares, files a backlog P3
   `Flaky: <Test> (<pkg>)` when the test is already named in the log, and fails
-  the step when the test flaked in 3 different changes in 7 days. A change
+  the step when the test flaked in 3 different changes in 7 days, with exit 3
+  when nothing else failed it, which the assembly holds on instead of sending
+  back. A change
   is the set of beads a line names, whatever commits it was tested at:
   `YARDR_TEST_BEADS` (integrate-train gives a train's tests its children,
   since their `YARDR_BEAD` is the train) else `YARDR_BEAD`, so a builder's

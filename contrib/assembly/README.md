@@ -46,7 +46,8 @@ read, unset for any other bead): depot yardr's command keeps it in its
 flaky log, to count a flaky test once per change. Red
 reports `failed` (back to `new`, or `open`
 for a train), and a command that says it could not run (exit 2) holds the
-bead; one that exits 2 for a failing test, as make does, is wrapped
+bead, as does one red only for a flaky test's strike (exit 3); one that
+exits 2 for a failing test, as make does, is wrapped
 (`--test 'make test || exit 1'`). Where the command is the path of a file
 the base has (`--test .yardr/test`), the base's copy of that file is what
 runs, with sh: a bead cannot change the script that judges it, and a change
@@ -133,8 +134,9 @@ note does, with the commit and what ran, and carry the last 200 lines of
 the output. A rebase conflict aborts the rebase, reports `conflict` to `merge`
 with the conflicting files and both tips, and leaves the branch for the
 mergers; after they report done, the train returns to `open` for integration.
-A test command that says it could not run (exit 2), or a branch it cannot
-work on (missing, dirty, nothing ahead of the base), holds the train. A run
+A test command that says it could not run (exit 2), or one red only for a
+flaky test's strike (exit 3), or a branch it cannot work on (missing,
+dirty, nothing ahead of the base), holds the train. A run
 ended by a signal is run once more, as in merge-local, and holds the train the second time.
 
 With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-train also opens a pull

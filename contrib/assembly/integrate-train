@@ -32,8 +32,9 @@
 # branch. A rebase that conflicts reports conflict (-> merge), as merge-local
 # does for a bead: the mergers rebase the branch and send the train back to
 # open, where it is integrated again. A test command that says it could not
-# run (exit 2), or a branch it cannot work on, is held for a human; a run
-# ended by a signal is run once more, and held if one ends it again. A depot
+# run (exit 2), or one red only for a flaky test's strike (exit 3), or a
+# branch it cannot work on, is held for a human; a run ended by a signal is
+# run once more, and held if one ends it again. A depot
 # with no test command goes to review untested, and the note says so.
 #
 # Every outcome ends in a report or a hold: exiting without one counts as a
@@ -396,6 +397,13 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
+  # The flake beads a strike-only red names, for the hold note: the full
+  # log's noted/filed lines, or, when the run filed nothing (the yard
+  # refused it), the flaky and strike lines that name the tests.
+  flakes=$(grep -E '^test: (noted|filed) [^ ]+: Flaky:' "$log" || true)
+  if [ -z "$flakes" ]; then
+    flakes=$(grep -E -e '^test: flaky: ' -e ' flaked on [0-9][0-9]* changes in 7 days' "$log" || true)
+  fi
   cleanup
   log=
   latefile=
@@ -443,6 +451,12 @@ $out"
   2)
     [ -n "$late" ] || hold "the tests could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
 $out"
+    ;;
+  3)
+    [ -n "$late" ] || hold "the tests were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
+$out${flakes:+
+$flakes}
+The branch is not at fault: fix the flaky test, then unhold to test it again."
     ;;
   esac
   if [ "$rc" != 0 ]; then

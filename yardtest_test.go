@@ -980,7 +980,10 @@ func wantLoads(t *testing.T, fake string, landing bool) {
 // down every call: the arguments, after "rpc" when the call has
 // YARDR_TEST_RPC and after the GOOS it was given, and in goflags, a line a
 // call, the GOFLAGS it had, and in loads, a line a call, the YARDR_TEST_LOAD
-// it had. gofmt finds nothing to format.
+// it had. FAKE_RPC_TIMES and FAKE_RPC_LINE fail the rpc step a case's own
+// number of times with a line of its own, beside the FAKE_STEP failure, so a
+// landing can strike in one leg and fail really in the other. gofmt finds
+// nothing to format.
 const fakeGo = `#!/bin/sh
 echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$*" >>"$FAKE/calls"
 echo "${YARDR_TEST_RPC:+rpc }${GOOS:+$GOOS }$* load=${YARDR_TEST_LOAD-unset}" >>"$FAKE/loads"
@@ -993,6 +996,15 @@ if [ "$step" = "$FAKE_STEP" ]; then
   echo "$n" >"$FAKE/n"
   if [ "$n" -le "$FAKE_TIMES" ]; then
     printf '%s\n' "$FAKE_LINE" >&2
+    exit 1
+  fi
+fi
+if [ "$step" = rpc ] && [ -n "$FAKE_RPC_TIMES" ]; then
+  n=$(cat "$FAKE/n-rpc" 2>/dev/null || echo 0)
+  n=$((n + 1))
+  echo "$n" >"$FAKE/n-rpc"
+  if [ "$n" -le "$FAKE_RPC_TIMES" ]; then
+    printf '%s\n' "$FAKE_RPC_LINE" >&2
     exit 1
   fi
 fi
@@ -1343,6 +1355,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "test -race -p=3 " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./...", "test " + pkg}
 	landingNoRetry := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
+	landingStrikeReal := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "test -race -p=3 " + pkg,
+		"rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/", "rpc test " + pkg}
 	// The load is pinned, so what the race leg is given is known: 25.3 on 10
 	// cores is a factor of 2.5 and a -p of 3, which the rerun of its failed
 	// packages keeps; the socket suites beside the leg stay go's default.
@@ -1353,6 +1367,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		glob     bool   // add a path that an accidental test-name glob would match
 		times    string // how often the test step fails: once (flaky) or twice
 		ok       bool
+		code     int    // expected exit status when !ok: 3 for strike-only, 1 otherwise; 0 means 3 when strike, else 1
+		rpcTimes string // how often the rpc step fails beside the test step: empty for green
+		rpcLine  string // the failure the rpc step fails with: the test step's line when empty
 		calls    []string
 		env      []string // variables of the script's environment beyond the base
 		steps    []string
@@ -1489,6 +1506,15 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			line: raceFail, racePkgs: pkg, raced: true},
 		{name: "landing: a race names only the racing package", times: "1", ok: false, calls: landingNoRetry, env: noBase, steps: landingSteps,
 			line: raceFailMixed, racePkgs: racePkg, raced: true},
+		// A strike-only landing exits 3, with a fail line naming 0 failed;
+		// a strike beside a real failure in the other leg exits 1.
+		{name: "landing: a strike-only run exits 3", times: "1", ok: false, calls: landing, env: noBase, steps: landingSteps,
+			seed: []time.Duration{24 * time.Hour, 48 * time.Hour}, seedShas: []string{"a1b2c3d4", "e5f6a7b8"},
+			yardr: true, list: other + listRow("m-2", title), strike: true, notes: []string{"m-2 " + test}},
+		{name: "landing: a strike beside a real failure exits 1", times: "1", ok: false, code: 1, calls: landingStrikeReal, env: noBase, steps: landingSteps,
+			rpcTimes: "2",
+			seed:     []time.Duration{24 * time.Hour, 48 * time.Hour}, seedShas: []string{"a1b2c3d4", "e5f6a7b8"},
+			yardr: true, list: other + listRow("m-2", title), strike: true, notes: []string{"m-2 " + test}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -1620,14 +1646,37 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
 				"YARDR_BEAD=", "YARDR_DEPOT=",
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+line, "YARDR_RACE_HELD=1")
+			if c.rpcTimes != "" {
+				rpcLine := c.rpcLine
+				if rpcLine == "" {
+					rpcLine = line
+				}
+				cmd.Env = append(cmd.Env, "FAKE_RPC_TIMES="+c.rpcTimes, "FAKE_RPC_LINE="+rpcLine)
+			}
 			if c.yardr {
 				cmd.Env = append(cmd.Env, "YARDR_FAKE_LIST="+c.list, "YARDR_FAKE_SHOW="+c.show)
 			}
 			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
 			out := string(b)
-			if (err == nil) != c.ok {
-				t.Errorf("err %v, want ok %v", err, c.ok)
+			wantCode := 0
+			if !c.ok {
+				wantCode = 1
+				if c.code != 0 {
+					wantCode = c.code
+				} else if c.strike {
+					wantCode = 3
+				}
+			}
+			code := 0
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				code = ee.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if code != wantCode {
+				t.Errorf("exit %d, want %d (ok %v)", code, wantCode, c.ok)
 			}
 			calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
 			var ran, beside []string
@@ -1907,6 +1956,19 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			}
 			if !slices.Equal(took, c.steps) {
 				t.Errorf("the steps the output times:\n%s\nwant:\n%s", strings.Join(took, "\n"), strings.Join(c.steps, "\n"))
+			}
+			// The test line: a strike-only run fails naming 0 failed, a
+			// real red naming its failed packages.
+			if !c.ok {
+				lines := strings.Split(strings.TrimSpace(out), "\n")
+				last := lines[len(lines)-1]
+				if wantCode == 3 {
+					if !strings.Contains(last, ": fail, ") || !strings.Contains(last, " 0 failed, ") {
+						t.Errorf("test line %q, want fail naming 0 failed", last)
+					}
+				} else if !strings.Contains(last, ": fail, ") || strings.Contains(last, " 0 failed, ") {
+					t.Errorf("test line %q, want fail naming its failed packages", last)
+				}
 			}
 			if t.Failed() {
 				t.Logf("output:\n%s", out)

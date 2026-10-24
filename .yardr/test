@@ -77,7 +77,9 @@
 #
 # A red run ends with the lines that say what failed, since a note carries
 # only the end of the output. Exit 2 is "could not run", which the assembly
-# holds a bead on instead of sending it back: the base is not there.
+# holds a bead on instead of sending it back: the base is not there. Exit 3
+# is red only for a flaky test's strike, which the assembly holds on too: no
+# builder can fix the landing's change for it.
 #
 # YARDR_TEST_PLAN=1 says what the run would test and stops: no gofmt, vet,
 # build or test. The test of this script runs it so (yardtest_test.go).
@@ -203,8 +205,9 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # test), that bead is noted with the new log line and nothing is filed. Where
 # the yardr CLI is not there (CI, a fork) the log line stays the record. A
 # test that flaked in 3 different changes in 7 days fails the step instead of
-# passing on its rerun (a change is the beads a line's beads= field names,
-# else the line's short sha: see flakybeads and flakychanges).
+# passing on its rerun, with exit 3 when nothing else failed it (a change is
+# the beads a line's beads= field names, else the line's short sha: see
+# flakybeads and flakychanges).
 # AGENTS.md says what a hand reading old lines files.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
@@ -911,7 +914,7 @@ again() {
                 done
                 set +f
                 if [ "$strike" = 1 ]; then
-                  rc=1
+                  rc=3
                 fi
               fi
             fi
@@ -921,10 +924,11 @@ again() {
     esac
   fi
   [ -n "$race_leg_child" ] || took "$t0" "$*"
-  # The package budget, after a green race leg: a leg whose tests failed
-  # is already red without it. The leg's command goes with, for the
-  # re-run's flags.
-  if [ "$rc" = 0 ] && [ "$race" = 1 ]; then
+  # The package budget, after a green or strike-only race leg: a leg whose
+  # tests failed is already red without it. A budget failure clears a
+  # strike to the 1 track: the run is red for more than the strike. The
+  # leg's command goes with, for the re-run's flags.
+  if { [ "$rc" = 0 ] || [ "$rc" = 3 ]; } && [ "$race" = 1 ]; then
     packagebudget "$acc" "$@" || rc=$?
   fi
   [ -n "$race_leg_child" ] || [ "$rc" = 0 ] || failed "$log" "$@"
@@ -1830,8 +1834,19 @@ whole() {
   rm -f "$beside" "$beside_counts"
   beside=
   beside_counts=
-  [ "$first" = 0 ] || exit "$first"
-  exit "$second"
+  # Really red when either leg is, else strike-only when either is, else
+  # green: a strike beside a real red is 1, red for more than the strike.
+  # Any non-zero but 3 is really red, and keeps its status.
+  if [ "$first" != 0 ] && [ "$first" != 3 ]; then
+    exit "$first"
+  fi
+  if [ "$second" != 0 ] && [ "$second" != 3 ]; then
+    exit "$second"
+  fi
+  if [ "$first" = 3 ] || [ "$second" = 3 ]; then
+    exit 3
+  fi
+  exit 0
 }
 # The lock holder re-enters the script here to run the race leg, its normal
 # failed-test retries, and packagebudget() under one hold. Keep the test
