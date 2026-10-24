@@ -84,7 +84,7 @@ func TestRunAskIsNotWrittenOrApprovedFromASessionsPane(t *testing.T) {
 		if want := "a command for the operator to approve is proposed by a crew member or a user of the yard; this is the session " + sess.ID + " of a bead's agent"; err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("AddAsk from a session's pane as %s = %v", actor, err)
 		}
-		_, err = s.ApproveAsk(pane, b.ID, seq, actor, false)
+		_, err = s.ApproveAsk(pane, b.ID, seq, actor, false, nil)
 		if want := "approving a command is the operator's (jo): the yard runs it as them; this is the session " + sess.ID + " of a bead's agent"; err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ApproveAsk from a session's pane as %s = %v", actor, err)
 		}
@@ -123,14 +123,14 @@ func TestRunAskIsNotApprovedFromACrewMembersPane(t *testing.T) {
 	}
 	const want = "approving a command is the operator's (jo): the yard runs it as them; this is the crew member yardmaster"
 	for _, actor := range []string{"jo", "yardmaster"} {
-		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ApproveAsk from the yardmaster's pane as %s = %v", actor, err)
 		}
 	}
 	if p, err := s.GetPeer(ctx, "airy"); err != nil || p.MailsAnHour() != store.PeerMailLimit {
 		t.Fatalf("the link = %+v, %v: a refused approval changed it", p, err)
 	}
-	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo", true); err != nil {
+	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo", true, nil); err != nil {
 		t.Fatalf("the operator, from no agent's pane: %v", err)
 	}
 	if p, err := s.GetPeer(ctx, "airy"); err != nil || p.MailsAnHour() != 300 {
@@ -162,14 +162,14 @@ func TestRunAskSubscribeIsNotApprovedFromACrewMembersPane(t *testing.T) {
 	}
 	const want = "approving this command is jo's, whom it was asked of: the yard runs it as them; this is the crew member yardmaster"
 	for _, actor := range []string{"jo", "yardmaster"} {
-		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ApproveAsk from the yardmaster's pane as %s = %v", actor, err)
 		}
 	}
 	if u, err := s.GetUser(ctx, "jo"); err != nil || len(u.Subscriptions) != 0 {
 		t.Fatalf("jo = %+v, %v: a refused approval subscribed them", u, err)
 	}
-	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo", false); err != nil {
+	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo", false, nil); err != nil {
 		t.Fatalf("jo, from no agent's pane: %v", err)
 	}
 	if u, err := s.GetUser(ctx, "jo"); err != nil || len(u.Subscriptions) != 1 {
@@ -201,14 +201,14 @@ func TestRunAskUserTellIsNotApprovedFromACrewMembersPane(t *testing.T) {
 	}
 	const want = "approving this command is jo's, whom it was asked of: the yard runs it as them; this is the crew member yardmaster"
 	for _, actor := range []string{"jo", "yardmaster"} {
-		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ApproveAsk from the yardmaster's pane as %s = %v", actor, err)
 		}
 	}
 	if u, err := s.GetUser(ctx, "jo"); err != nil || len(u.Tell) != 0 {
 		t.Fatalf("jo = %+v, %v: a refused approval set their tell", u, err)
 	}
-	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo", false); err != nil {
+	if _, err := s.ApproveAsk(ctx, b.ID, seq, "jo", false, nil); err != nil {
 		t.Fatalf("jo, from no agent's pane: %v", err)
 	}
 	if u, err := s.GetUser(ctx, "jo"); err != nil || strings.Join(u.Tell, ",") != "notifications,asks" {
@@ -244,7 +244,7 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	}
 	const want = "approving a command is the operator's (jo): the yard runs it as them; this is the crew member yardmaster"
 	for _, actor := range []string{"jo", "yardmaster"} {
-		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := s.ApproveAsk(pane, b.ID, seq, actor, false, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ApproveAsk from the starting yardmaster's pane as %s = %v", actor, err)
 		}
 	}
@@ -258,7 +258,7 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	if r, err := s.GetCrew(ctx, "yardmaster"); err != nil || r.Starting != nil {
 		t.Fatalf("the yardmaster = %+v, %v: a recorded start keeps no starting pane", r, err)
 	}
-	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo", false); err == nil || !strings.Contains(err.Error(), want) {
+	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo", false, nil); err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("ApproveAsk from the started yardmaster's pane as jo = %v", err)
 	}
 	// A start that failed after its agent ran, in a pane the daemon could
@@ -273,7 +273,7 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	if err := s.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo", false); err == nil || !strings.Contains(err.Error(), want) {
+	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo", false, nil); err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("ApproveAsk as jo from the pane a failed start left open = %v", err)
 	}
 	// A shell without a start time cannot be told from a later process
@@ -295,7 +295,7 @@ func TestRunAskIsNotApprovedFromAStartingCrewMembersPane(t *testing.T) {
 	if err := s.CrewStartFailed(ctx, "yardmaster", "herdr agent start: boom", 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo", true); err != nil {
+	if _, err := s.ApproveAsk(pane, b.ID, seq, "jo", true, nil); err != nil {
 		t.Fatalf("the operator, after the start failed and its pane was closed: %v", err)
 	}
 }
@@ -328,7 +328,7 @@ func TestRunAskIsNotApprovedFromAStartingSessionsPane(t *testing.T) {
 		t.Fatalf("the session = %+v, %v: want it still starting", got, err)
 	}
 	for _, actor := range []string{"jo", sess.ID} {
-		_, err := s.ApproveAsk(pane, b.ID, seq, actor, false)
+		_, err := s.ApproveAsk(pane, b.ID, seq, actor, false, nil)
 		if want := "approving a command is the operator's (jo): the yard runs it as them; this is the session " + sess.ID + " of a bead's agent"; err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("ApproveAsk from a starting session's pane as %s = %v", actor, err)
 		}

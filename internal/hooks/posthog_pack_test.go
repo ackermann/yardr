@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/hooks"
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
@@ -67,11 +68,12 @@ func posthogDecl(t *testing.T) hooks.Declared {
 
 // The pack declares what the setup needs: a hook verified by the secret
 // in its header, deduped by the event's own id, with the project, the
-// session and the replay link as its keys. No hear key: every verified
-// delivery is kept. No thread or link key: the yard writes nothing to
-// PostHog.
+// session and the replay link as its keys, and registered by the yard
+// itself on the hook card. No hear key: every verified delivery is
+// kept. No thread, link or notify key: the destination call is the one
+// thing the yard writes to PostHog.
 func TestPostHogPackDeclaration(t *testing.T) {
-	d, _, _ := posthogParse(t)
+	d, dir, _ := posthogParse(t)
 	if d.Name != "posthog" {
 		t.Fatalf("name = %q", d.Name)
 	}
@@ -94,11 +96,40 @@ func TestPostHogPackDeclaration(t *testing.T) {
 	if strings.Join(h.Keys, ",") != "project,session,replay" {
 		t.Errorf("keys = %q, want project,session,replay", h.Keys)
 	}
-	if h.Register != nil {
-		t.Errorf("register = %+v, want none: the operator puts the secret in the destination by hand", h.Register)
+	if h.Register == nil {
+		t.Fatal("the pack declares no register key: the yard registers the destination itself on the hook card")
+	}
+	if h.Register.Call != "destination" || h.Register.URL != "url" || h.Register.Secret != "secret" ||
+		len(h.Register.Ask) != 1 || h.Register.Ask[0] != "project" {
+		t.Errorf("register = %+v, want the destination call with url, secret and ask [project]", h.Register)
+	}
+	if ex := h.Register.Existing; ex == nil || ex.Call != "destinations" || ex.In != "results" || ex.Field != "inputs.url.value" {
+		t.Errorf("existing = %+v, want the destinations call with results and inputs.url.value", h.Register.Existing)
 	}
 	if d.Hear != nil || d.Thread != nil || d.Link != nil || d.Notify != nil {
-		t.Error("the pack declares a hear, thread, link or notify key: it reads PostHog and hears a new error issue, nothing else")
+		t.Error("the pack declares a hear, thread, link or notify key: it reads PostHog and hears a new error issue, and only its destination call writes")
+	}
+	var update []string
+	for _, c := range d.Calls {
+		if c.Kind == source.Update {
+			update = append(update, c.Name)
+		}
+	}
+	if strings.Join(update, ",") != "destination" {
+		t.Errorf("update calls = %q, want the destination alone", update)
+	}
+	p, err := pack.LoadDir(dir)
+	if err != nil {
+		t.Fatalf("the pack does not load: %v", err)
+	}
+	for _, pr := range p.Presets {
+		for _, g := range pr.Grants {
+			for _, call := range g.Calls {
+				if call == "destination" {
+					t.Errorf("preset %s grants the destination: only the hook card calls it", pr.Name)
+				}
+			}
+		}
 	}
 }
 

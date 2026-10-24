@@ -18,7 +18,7 @@ func TestCarryRecordClaimAndComplete(t *testing.T) {
 	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
 		t.Fatalf("an unapproved ask's record = %+v, %v", rec, err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := y.CarryOf(y.ctx, y.bead, seq)
@@ -66,7 +66,7 @@ func TestCarryResumeAndFail(t *testing.T) {
 	y, _ := runYard(t)
 	y.setPack(&fakePack{label: "embedded in yardr test1"})
 	seq := y.ask(t, packAsk(), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.ClaimCarry(y.ctx, "boot-one"); err != nil {

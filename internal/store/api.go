@@ -79,7 +79,7 @@ type API interface {
 	GiveSecret(ctx context.Context, id string, ask uint64, values map[string]string, actor string, weighed bool) (*SourceKeyed, error)
 	LoginWait(ctx context.Context, id, group string) (string, error)
 	LoginWaitReady(ctx context.Context, id string) error
-	ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool) (*AskApproved, error)
+	ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool, values map[string]string) (*AskApproved, error)
 	ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string, weighed bool) (*AskSetupApproved, error)
 
 	PutDepot(ctx context.Context, r Depot, actor string) error

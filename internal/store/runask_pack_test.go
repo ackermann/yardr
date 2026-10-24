@@ -117,7 +117,7 @@ func TestPackApplyAskStoresServerBytes(t *testing.T) {
 		!strings.Contains(strings.Join(q.Open[0].Run.Does, "\n"), "pack wired (embedded in yardr test1)") {
 		t.Fatalf("the queue's row = %+v, %v", q, err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestPackApplyAskStoresServerBytes(t *testing.T) {
 	if _, err := y.GetSource(y.ctx, "wired"); err == nil {
 		t.Fatalf("a pack approval applied the pack in its write: carrying out is the server's after it")
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "was approved already") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "was approved already") {
 		t.Fatalf("a second approval = %v", err)
 	}
 }
@@ -168,7 +168,7 @@ func TestPackApplyStaleBuild(t *testing.T) {
 	y.setPack(f)
 	seq := y.ask(t, packAsk(), "yardmaster")
 	f.label, f.build = "embedded in yardr two", "two"
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil || done.Result != "approved, to be carried out" {
 		t.Fatalf("a moved build: ApproveAsk = %+v, %v", done, err)
 	}
@@ -186,7 +186,7 @@ func TestPackApplyStaleBuild(t *testing.T) {
 	}
 	changed["wired/thread"] = "#!/bin/sh\n# thread, changed in the new build\n"
 	f.files = changed
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "whose pack differs") {
 		t.Fatalf("changed bytes: ApproveAsk = %v", err)
 	}
@@ -198,7 +198,7 @@ func TestPackApplyStaleBuild(t *testing.T) {
 	f.files = nil
 	seq3 := y.ask(t, packAsk(), "yardmaster")
 	f.label, f.build = "", ""
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "whose pack differs") {
 		t.Fatalf("a reading with no label: ApproveAsk = %v", err)
 	}
@@ -219,7 +219,7 @@ func TestPackApplyStaleBuild(t *testing.T) {
 	oldYard.setPack(oldPack)
 	oldSeq := oldYard.ask(t, packAsk(), "yardmaster")
 	oldPack.label, oldPack.build = "embedded in yardr two", "two"
-	if _, err := oldYard.ApproveAsk(oldYard.ctx, oldYard.bead, oldSeq, "mckean", false); err == nil ||
+	if _, err := oldYard.ApproveAsk(oldYard.ctx, oldYard.bead, oldSeq, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "was carded under an older yardr and this yard now runs yardr two, whose pack differs") ||
 		!strings.Contains(err.Error(), "Nothing ran. Decline it; it is asked again if it is still wanted.") {
 		t.Fatalf("an older card: ApproveAsk = %v", err)
@@ -411,14 +411,14 @@ func TestPackApplyCardsOrphanCopyDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("changed after the ask\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "extra.txt") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "extra.txt") {
 		t.Fatalf("a changed orphan copy: ApproveAsk = %v", err)
 	}
 	seq = y.ask(t, packAsk(), "yardmaster")
 	if err := os.WriteFile(filepath.Join(dir, "added-after-ask.txt"), []byte("also left by hand\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "added-after-ask.txt") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "added-after-ask.txt") {
 		t.Fatalf("an orphan copy added after the ask: ApproveAsk = %v", err)
 	}
 }
@@ -488,7 +488,7 @@ func TestPackApplyStaleCopy(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "wired", "thread"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "wired/thread") || !strings.Contains(err.Error(), "chmod") {
 		t.Fatalf("a chmod after the ask: ApproveAsk = %v", err)
 	}
@@ -500,7 +500,7 @@ func TestPackApplyStaleCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "wired", "normalize"), []byte("#!/bin/sh\n# changed by hand\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "wired/normalize") {
 		t.Fatalf("a changed copy after the ask: ApproveAsk = %v", err)
 	}
@@ -509,7 +509,7 @@ func TestPackApplyStaleCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "extra.txt"), []byte("changed by hand\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "extra.txt") {
 		t.Fatalf("a changed removed entry after the ask: ApproveAsk = %v", err)
 	}
@@ -555,7 +555,7 @@ func TestPackApplyReplacementCardsSymlinksWithoutFollowingThem(t *testing.T) {
 	if err := os.Symlink(other, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "outside.txt") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "outside.txt") {
 		t.Fatalf("a moved symbolic link: ApproveAsk = %v", err)
 	}
 }
@@ -597,10 +597,10 @@ func TestSourceRowsStaleWhenCopyChanges(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "wired", "thread"), []byte("#!/bin/sh\n# changed by hand\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil {
 		t.Fatalf("a source set approved over a changed copy")
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, gseq, "mckean", false); err == nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, gseq, "mckean", false, nil); err == nil {
 		t.Fatalf("a source grant approved over a changed copy")
 	}
 }
@@ -649,21 +649,21 @@ func TestPackApplyDepotCardAndStale(t *testing.T) {
 	if lines := strings.Join(got.Lines(), "\n"); !strings.Contains(lines, "-old role") || !strings.Contains(lines, "+new role") {
 		t.Errorf("the terminal card lacks the file's diff whole:\n%s", lines)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil || done.Result != "approved, to be carried out" {
 		t.Fatalf("the approval = %+v, %v", done, err)
 	}
 	// A plan that moves under a second ask stales its approval.
 	seq2 := y.ask(t, ask, "yardmaster")
 	plan.Objects[1].Changes[0].New = "herdr"
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false); err == nil || !strings.Contains(err.Error(), "the plan") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq2, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "the plan") {
 		t.Fatalf("a moved plan: ApproveAsk = %v", err)
 	}
 	// So does an env that moves: the card showed the other.
 	plan.Objects[1].Changes[0].New = "exec"
 	seq3 := y.ask(t, ask, "yardmaster")
 	plan.Objects[1].Env = []string{"YARDR_LAND=rebase"}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false); err == nil || !strings.Contains(err.Error(), "the object group builders") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq3, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "the object group builders") {
 		t.Fatalf("a moved env: ApproveAsk = %v", err)
 	}
 }
@@ -743,7 +743,7 @@ func TestPackApplyStaleSourceAdded(t *testing.T) {
 	if _, err := y.PutSource(y.ctx, "wired.yaml", wiredDecl, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "was not in the yard: it was added since") {
 		t.Fatalf("ApproveAsk = %v", err)
 	}

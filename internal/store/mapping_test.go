@@ -569,7 +569,7 @@ func TestMappingByRunAskEndsTheCard(t *testing.T) {
 	card := claimCard(t, y, "U999")
 	seq := y.ask(t, listAsk("mckean", `user identity ada --source talk --id U999`), "yardmaster")
 	wantCardOpen(t, y, card.Bead)
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	wantCardClosed(t, y, card.Bead, "U999 is ada in talk")

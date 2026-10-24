@@ -454,7 +454,7 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := y.st.ApproveAsk(ctx, "yd-crm", run, "jo", true); err != nil {
+			if _, err := y.st.ApproveAsk(ctx, "yd-crm", run, "jo", true, nil); err != nil {
 				t.Fatal(err)
 			}
 			if stored, err = y.st.Bead(ctx, "yd-crm"); err != nil {
@@ -722,7 +722,7 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := y.st.ApproveAsk(ctx, "yd-crm", run, "jo", true); err != nil {
+			if _, err := y.st.ApproveAsk(ctx, "yd-crm", run, "jo", true, nil); err != nil {
 				t.Fatal(err)
 			}
 			jos.run = run
@@ -799,7 +799,7 @@ func userRunAskTellsTypedValueAndPathToTheOperatorAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, seq := range []uint64{setting, source, limit} {
-		if _, err := y.st.ApproveAsk(ctx, "yd-crm", seq, "jo", true); err != nil {
+		if _, err := y.st.ApproveAsk(ctx, "yd-crm", seq, "jo", true, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

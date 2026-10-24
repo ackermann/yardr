@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -197,6 +198,7 @@ func (w *wtx) hookAddCard(argv []string, asking bool) (AskRun, error) {
 			Back:   runCommandLine([]string{"hook", "rm", name}),
 			BackBy: "only the operator",
 			Seen:   seenMap,
+			Ask:    slices.Clone(d.Hook.Register.Ask),
 		}, nil
 	}
 	does := []string{
@@ -234,21 +236,32 @@ func (w *wtx) hookPublicURL(name string) (string, error) {
 }
 
 // hookRegisterDoes is the card of a hook the yard registers itself:
-// the hook, that the yard makes its secret (none is typed), and that
-// it will call the register call at the source's base to register
-// the public URL. No secret stands in it: none is made yet.
+// the hook, that the yard makes its secret (none is typed), what the
+// approval gives in the clear where the register call asks for any,
+// that it will call the register call at the source's base to register
+// the public URL, and where the declaration names a check, that
+// approving again lists what stands first. No secret stands in it:
+// none is made yet.
 func (w *wtx) hookRegisterDoes(name, sourceName string, d *source.Declaration) ([]string, string, error) {
 	publicURL, err := w.hookPublicURL(name)
 	if err != nil {
 		return nil, "", err
 	}
 	call, _ := d.Call(d.Hook.Register.Call)
-	return []string{
+	does := []string{
 		fmt.Sprintf("it adds the hook %s: POST /hooks/%s takes deliveries from the source %s (%s).", name, name, sourceName, sourceHost(d)),
 		hookSays(d),
 		fmt.Sprintf("the yard makes the signing secret for %s and keeps it in %s (mode 0600); the hook names that file, and the value is in no note, event, answer or card. No secret is typed.", name, HookSecretFile(w.home, name)),
-		fmt.Sprintf("it will call %s at %s to register %s.", call.Request.Line(), d.Address(), publicURL),
-	}, publicURL, nil
+	}
+	if ask := d.Hook.Register.Ask; len(ask) > 0 {
+		does = append(does, fmt.Sprintf("the approval gives %s in the clear, which the yard sends to the register call with the URL and the secret.", andList(ask)))
+	}
+	does = append(does, fmt.Sprintf("it will call %s at %s to register %s.", call.Request.Line(), d.Address(), publicURL))
+	if ex := d.Hook.Register.Existing; ex != nil {
+		check, _ := d.Call(ex.Call)
+		does = append(does, fmt.Sprintf("approving again first lists what stands (%s at %s) and registers only what is missing.", check.Request.Line(), d.Address()))
+	}
+	return does, publicURL, nil
 }
 
 // hookAddStale says why the ask seq for hook add is approved no more:
@@ -393,7 +406,11 @@ func (s *Store) hookRegisterTarget(id string, seq uint64) (string, bool) {
 // hookRegisterJob is one phased registration between its writes: the
 // hook standing in the yard, and what the register call is made with.
 // Secret is the hook file's value: it goes to the service alone, in
-// the call's body, and to nothing the store keeps.
+// the call's body, and to nothing the store keeps. Values are what the
+// approval gave in the clear for the register call's asked parameters,
+// carried to the call and kept nowhere. Retry says the hook already
+// stands from this ask: an earlier approval's call may have committed
+// with its answer lost.
 type hookRegisterJob struct {
 	bead, asker string
 	ask         uint64
@@ -404,6 +421,8 @@ type hookRegisterJob struct {
 	d           *source.Declaration
 	publicURL   string
 	secret      string
+	values      map[string]string
+	retry       bool
 }
 
 // approveHookRegister is ApproveAsk for a hook the yard registers
@@ -412,11 +431,16 @@ type hookRegisterJob struct {
 // store write open, then the answer is recorded. A call that fails
 // leaves the hook in place and the ask open, saying the service's
 // answer, and approving again retries the call with the secret that
-// stands: the hook and its secret are made once.
-func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*AskApproved, error) {
+// stands: the hook and its secret are made once. The approval gives
+// the asked values again on a retry: they are carried to the call,
+// never stored. Where the declaration names a check, a retry makes it
+// before the register call and adopts a webhook already aimed at the
+// hook, so a call the service took but never answered is not made
+// twice; the first approval always registers.
+func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, actor string, weighed bool, values map[string]string) (*AskApproved, error) {
 	var job *hookRegisterJob
 	err := s.writeVia(ctx, func(w *wtx) (err error) {
-		job, err = w.prepareHookRegister(ctx, id, seq, actor, weighed)
+		job, err = w.prepareHookRegister(ctx, id, seq, actor, weighed, values)
 		return err
 	})
 	if err != nil {
@@ -427,6 +451,26 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 	// does: the declaration with the base setting in place of its own,
 	// so the credential, the mint and the request all go to one address.
 	job.d = job.d.WithBase(job.src.Base)
+	finish := func(result string) (*AskApproved, error) {
+		var out *AskApproved
+		if err := s.writeVia(ctx, func(w *wtx) error {
+			var err error
+			out, err = w.finishPhasedRun(ctx, id, seq, actor, job.asker, job.argv, job.does, result)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		return out, nil
+	}
+	if job.retry && reg.Existing != nil {
+		adopted, check, err := s.checkHookRegister(ctx, job)
+		if err != nil {
+			return nil, err
+		}
+		if adopted {
+			return finish(fmt.Sprintf("hook %s saved: POST /hooks/%s (%s); %s at %s already lists a webhook for %s, so %s was not called again", job.name, job.name, job.d.Name, check.Request.Line(), job.d.Address(), job.publicURL, reg.Call))
+		}
+	}
 	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Update)
 	if err != nil {
 		return nil, fmt.Errorf("hook %s is in place, but registering it failed: the register call %s was not made: %v. Approve again to retry", job.name, reg.Call, err)
@@ -434,6 +478,9 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 	params := map[string]string{reg.URL: job.publicURL}
 	if reg.Secret != "" {
 		params[reg.Secret] = job.secret
+	}
+	for _, name := range reg.Ask {
+		params[name] = job.values[name]
 	}
 	call, _ := job.d.Call(reg.Call)
 	res, err := source.Do(ctx, job.d, reg.Call, params, cred)
@@ -449,16 +496,101 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 		return nil, fmt.Errorf("hook %s is in place, but registering it failed: %s at %s to register %s was answered %d. Approve again to retry", job.name, call.Request.Line(), job.d.Address(), job.publicURL, res.Status)
 	}
 	result := fmt.Sprintf("hook %s saved: POST /hooks/%s (%s); registered with %s at %s to %s (%d)", job.name, job.name, job.d.Name, call.Request.Line(), job.d.Address(), job.publicURL, res.Status)
-	var out *AskApproved
-	err = s.writeVia(ctx, func(w *wtx) error {
-		var err error
-		out, err = w.finishPhasedRun(ctx, id, seq, actor, job.asker, job.argv, job.does, result)
-		return err
-	})
+	return finish(result)
+}
+
+// checkHookRegister is the retry's check before the register call: the
+// existing call lists what stands, and a webhook whose field already
+// carries the public URL is adopted, so the register call is not made
+// again. The check is sent the URL and the asked values, never the
+// secret. A check that fails, or answers no list, leaves the ask open,
+// as a failed registration does: registering blind would make the
+// second webhook the check is there to prevent.
+func (s *Store) checkHookRegister(ctx context.Context, job *hookRegisterJob) (bool, *source.Call, error) {
+	reg := job.d.Hook.Register
+	ex := reg.Existing
+	check, _ := job.d.Call(ex.Call)
+	cred, _, err := job.d.ReadCredential(ctx, job.src.EnvFile, job.d.MintArgv(s.home, job.src.MintCommand), source.Read)
 	if err != nil {
-		return nil, err
+		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: the check call %s was not made: %v. Approve again to retry", job.name, ex.Call, err)
 	}
-	return out, nil
+	params := map[string]string{}
+	for _, p := range check.Params {
+		switch {
+		case p.Name == reg.URL:
+			params[p.Name] = job.publicURL
+		case slices.Contains(reg.Ask, p.Name):
+			params[p.Name] = job.values[p.Name]
+		}
+	}
+	res, err := source.Do(ctx, job.d, ex.Call, params, cred)
+	if err != nil {
+		var failed *source.CallError
+		answer := err.Error()
+		if errors.As(err, &failed) && failed.Status != 0 {
+			answer = fmt.Sprintf("%s (the service answered %d)", answer, failed.Status)
+		}
+		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: %s at %s: %s. Approve again to retry", job.name, check.Request.Line(), job.d.Address(), answer)
+	}
+	if !res.OK() {
+		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: %s at %s was answered %d. Approve again to retry", job.name, check.Request.Line(), job.d.Address(), res.Status)
+	}
+	stands, err := hookStandsAt(res.Answer, ex.In, ex.Field, job.publicURL)
+	if err != nil {
+		return false, check, fmt.Errorf("hook %s is in place, but the check whether its webhook stands failed: %s at %s answered %v. Approve again to retry", job.name, check.Request.Line(), job.d.Address(), err)
+	}
+	return stands, check, nil
+}
+
+// hookStandsAt reports whether the check call's answer lists a webhook
+// already aimed at the hook: any of the list at in whose field holds
+// the public URL. The match is existential: an item that is no object,
+// or holds no text at the field, matches nothing. An answer without
+// the list is refused, so a retry registers nothing blind.
+func hookStandsAt(answer json.RawMessage, in, field, publicURL string) (bool, error) {
+	var root map[string]any
+	if err := json.Unmarshal(answer, &root); err != nil {
+		return false, fmt.Errorf("no JSON object")
+	}
+	at, ok := hookValueAt(root, in)
+	if !ok {
+		return false, fmt.Errorf("no list of webhooks at %s", in)
+	}
+	list, ok := at.([]any)
+	if !ok {
+		return false, fmt.Errorf("no list of webhooks at %s", in)
+	}
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		got, ok := hookValueAt(m, field)
+		if !ok {
+			continue
+		}
+		if s, ok := got.(string); ok && s == publicURL {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// hookValueAt is the value at the dot path in m; false when a step is
+// missing or is not an object.
+func hookValueAt(m map[string]any, path string) (any, bool) {
+	var at any = m
+	for _, seg := range strings.Split(path, ".") {
+		m, ok := at.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		at, ok = m[seg]
+		if !ok {
+			return nil, false
+		}
+	}
+	return at, true
 }
 
 // prepareHookRegister is the first write of approveHookRegister: as
@@ -466,7 +598,7 @@ func (s *Store) approveHookRegister(ctx context.Context, id string, seq uint64, 
 // secret where none stands and adds the hook. On a retry the hook
 // this ask made is its own: the secret that stands is kept, and the
 // card is read as it was written, without the hook in the way.
-func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*hookRegisterJob, error) {
+func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, actor string, weighed bool, values map[string]string) (*hookRegisterJob, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -593,12 +725,52 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 		secret = []byte(made)
 	}
 	reg := d.Hook.Register
+	// What the approval gives in the clear is held to the card: a
+	// name it asks for nothing of is a mistyped one, and a name it
+	// asks for wants a value. Both are refused before the hook is
+	// made and its secret written, so a refused approval stores
+	// nothing and the ask stays open.
+	for name := range values {
+		if !slices.Contains(reg.Ask, name) {
+			asked := "nothing"
+			if len(reg.Ask) > 0 {
+				asked = andList(reg.Ask)
+			}
+			return nil, fmt.Errorf("ask %d gives %s, which the card asks for nothing of (it asks for: %s). Nothing was registered", seq, name, asked)
+		}
+	}
+	for _, name := range reg.Ask {
+		if strings.TrimSpace(values[name]) == "" {
+			return nil, fmt.Errorf("ask %d asks for %s in the clear, and the approval gives no value for it: add --value %s=<value> to the approval. Nothing was registered", seq, name, name)
+		}
+	}
 	params := map[string]string{reg.URL: publicURL}
 	if reg.Secret != "" {
 		params[reg.Secret] = string(secret)
 	}
+	for _, name := range reg.Ask {
+		params[name] = values[name]
+	}
 	if err := source.ValidateCallParams(d, reg.Call, params); err != nil {
 		return nil, fmt.Errorf("hook %s: the register call parameters cannot be sent: %w. Nothing was registered", name, err)
+	}
+	// The check a retry makes is held the same way: what the approval
+	// gives fills the URL's and the asked parameters of it, and the
+	// secret is none of its.
+	if reg.Existing != nil {
+		check, _ := d.Call(reg.Existing.Call)
+		checkParams := map[string]string{}
+		for _, p := range check.Params {
+			switch {
+			case p.Name == reg.URL:
+				checkParams[p.Name] = publicURL
+			case slices.Contains(reg.Ask, p.Name):
+				checkParams[p.Name] = values[p.Name]
+			}
+		}
+		if err := source.ValidateCallParams(d, reg.Existing.Call, checkParams); err != nil {
+			return nil, fmt.Errorf("hook %s: the check call parameters cannot be sent: %w. Nothing was registered", name, err)
+		}
 	}
 	if writeSecret {
 		if _, _, err := writeHookSecret(w.home, name, string(secret)); err != nil {
@@ -611,7 +783,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 		}
 	}
 	return &hookRegisterJob{bead: row.ID, asker: r.Note.Author, ask: seq, argv: argv, does: was.Does,
-		name: name, src: src, d: d, publicURL: publicURL, secret: string(secret)}, nil
+		name: name, src: src, d: d, publicURL: publicURL, secret: string(secret), values: values, retry: had}, nil
 }
 
 // hookSecretAskBefore holds a hook approval to the newest earlier secret

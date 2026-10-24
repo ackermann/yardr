@@ -303,11 +303,20 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 	if _, err := y.as(t, "yardmaster", "answer", b.ID, "1", "--approve"); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's (jo)") {
 		t.Fatalf("the asker's own approval = %v", err)
 	}
-	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve", "--later"); err == nil || !strings.Contains(err.Error(), "--approve runs the command the ask holds and takes nothing else") {
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve", "--later"); err == nil || !strings.Contains(err.Error(), "--approve runs the command the ask holds, with --value alone beside it") {
 		t.Fatalf("--approve --later = %v", err)
 	}
 	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--words", "yes"); err == nil || !strings.Contains(err.Error(), "takes an approval, not words: yardr bead answer "+b.ID+" 1 --approve") {
 		t.Fatalf("words on a run ask = %v", err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve", "--value", "project"); err == nil || !strings.Contains(err.Error(), `--value "project": want <name>=<value>`) {
+		t.Fatalf("--value without a value = %v", err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--approve", "--value", "project=48291"); err == nil || !strings.Contains(err.Error(), "takes no values: its card asks for none") {
+		t.Fatalf("--value on a card that asks for none = %v", err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "1", "--value", "project=48291"); err == nil || !strings.Contains(err.Error(), "--value gives the values an approval carries, with --approve") {
+		t.Fatalf("--value without --approve = %v", err)
 	}
 	out, err = y.as(t, "jo", "answer", b.ID, "1", "--approve")
 	if err != nil {
@@ -568,7 +577,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				if description != "Import a pack into the yard: set the yard to what the pack says" {
 					t.Errorf("%s card description %q, want the yard wording for a kind-source pack", use, description)
 				}
-				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false)
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false, nil)
 				if err != nil || done.Result != "approved, to be carried out" {
 					t.Fatalf("%s approval = %+v, %v", use, done, err)
 				}
@@ -632,7 +641,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				if description != helpCmd.Short {
 					t.Errorf("%s card description %q, want the command help's %q", use, description, helpCmd.Short)
 				}
-				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false)
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false, nil)
 				if err != nil {
 					t.Fatalf("%s: %v", use, err)
 				}
@@ -726,7 +735,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			}
 			// Every row of the list is approved here, the weighty ones among
 			// them, as a person who has seen the weight would approve it.
-			done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", true)
+			done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", true, nil)
 			if err != nil {
 				t.Fatalf("%s: %v", use, err)
 			}

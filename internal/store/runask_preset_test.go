@@ -78,7 +78,7 @@ func TestRunAskPresetGrant(t *testing.T) {
 	}
 
 	writes := y.writes(t)
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
 		t.Fatalf("approving after read landed = %+v, %v", done, err)
 	}
@@ -171,7 +171,7 @@ func TestRunAskPresetGrantAfterGrantsLand(t *testing.T) {
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatalf("approving after read landed = %v", err)
 	}
 	if got, want := y.grants(t), []string{"crew member yardmaster: note,read"}; !slices.Equal(got, want) {
@@ -198,7 +198,7 @@ func TestRunAskPresetGrantStale(t *testing.T) {
 	y = presetYard(t, f)
 	seq = y.ask(t, listAsk("mckean", "source grant crm --preset standard --crew yardmaster"), "yardmaster")
 	f.label, f.build = "embedded in yardr test2", "test2"
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
 		t.Fatalf("approving past a rebuild = %+v, %v", done, err)
 	}
@@ -321,11 +321,11 @@ func TestRunAskPresetGrantAs(t *testing.T) {
 		!strings.Contains(err.Error(), "this command is ada's to approve alone, and nobody else's") {
 		t.Fatalf("asking the operator to a preset as grant = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
 		!strings.Contains(err.Error(), "approving this command is ada's alone") {
 		t.Fatalf("the operator approving a preset as grant = %v", err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", true, nil)
 	if err != nil || done.Result != "crew member yardmaster as ada may call crm: note (update), read" {
 		t.Fatalf("ada's approval = %+v, %v", done, err)
 	}

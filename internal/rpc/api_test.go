@@ -505,12 +505,13 @@ var apiCalls = []apiCall{
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to, and whose it is where `as` names a user; with `harness`, whose API key it is and when it takes effect. Show it as it is"},
 			{"asks[].concealed", "bool?", "whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
-			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
+			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`, with `--value <name>=<value>` where the card asks for values in the clear), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
 			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `\"\"` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
 			{"asks[].run.does", "array of string", "what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it"},
 			{"asks[].run.back", "string", "the command that takes the change back"},
 			{"asks[].run.back_by", "string?", "who may run `back`, in words that stand before \"can take it back\": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads \"anyone can take it back\""},
+			{"asks[].run.ask", "array of string?", "the names the approval gives values for in the clear, one field on the card each, in this order: a hook add the yard registers itself asks for its register call's asked parameters, and the approval carries them to the call. Absent on any other run ask"},
 			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; or the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
 			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
 			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
@@ -704,12 +705,13 @@ var apiOperatorCalls = []apiCall{
 	},
 	{
 		method: "ApproveAsk",
-		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
+		says:   "Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does, with `--value <name>=<value>` where the card asks for values in the clear (`run.ask`): a hook add the yard registers itself carries them to its register call with the URL and the secret, and keeps none; where the declaration names a check, a retry first lists what stands and adopts a webhook already aimed at the hook. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; values the card asks for nothing of, and a missing one where it asks for any; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.",
 		args: []field{
 			{"bead", "string", "the bead"},
 			{"ask", "number", "the ask note's seq"},
 			{"actor", "string", "who approves: the operator's name, or for a command that is a user's own the name of the one it was asked of"},
 			{"weighed", "bool", "`true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card is refused. A routine card takes it so"},
+			{"values", "object", "each name of `run.ask` to the value the person gave in the clear; left out where the card asks for none"},
 		},
 		requests: []string{`{"bead":"yd-crm","ask":%d,"actor":"jo","weighed":true}`},
 		fields: []field{
@@ -1261,7 +1263,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"north's yard was refused 4 mails in the last hour."},
 			Run:     &store.AskRun{Argv: []string{"peer allow north --mail-limit " + n}}})
 	}
-	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo", true)
+	_, err = st.ApproveAsk(ctx, crm.ID, more("100"), "jo", true, nil)
 	must(err)
 	apiRunAsk = more("300")
 	// And of a row whose change not anyone takes back, the same two.
@@ -1270,7 +1272,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 			Context: []string{"The import was refused its 61st call of the hour."},
 			Run:     &store.AskRun{Argv: []string{"source set crm calls_per_hour=" + n}}})
 	}
-	_, err = st.ApproveAsk(ctx, crm.ID, often("120"), "jo", true)
+	_, err = st.ApproveAsk(ctx, crm.ID, often("120"), "jo", true, nil)
 	must(err)
 	often("240")
 
@@ -1567,7 +1569,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.ApproveAsk(ctx, crm.ID, ask(crm.ID, store.Ask{Question: "May the builders write notes in the CRM?", To: "jo",
 		Context: []string{"The import leaves a note on each account it touches."},
-		Run:     &store.AskRun{Argv: []string{"source grant crm put --group builders"}}}), "jo", true)
+		Run:     &store.AskRun{Argv: []string{"source grant crm put --group builders"}}}), "jo", true, nil)
 	must(err)
 
 	// A hook delivery the yard kept and, once it had answered, fetched the
@@ -1580,7 +1582,27 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	must(st.RecordDeliveryFiles(ctx, apiDelivery, []store.BlobRef{{Hash: shed.Hash},
 		{Name: "shed-plans.pdf", Bytes: 1048576, NotTaken: "document of 1048576 bytes, over the yard's limit of 8192"}}))
+
+	// A hook add the yard registers itself, asking for the project's id
+	// in the clear, so that a run ask with asked values is among the
+	// doc's. Last again, for the seqs above.
+	_, err = st.PutSource(ctx, "bot.yaml", apiHookSource(), "jo")
+	must(err)
+	must(st.SetSetting(ctx, store.HookPublicURLSetting, "https://yard.example/hooks", "jo"))
+	ask(crm.ID, store.Ask{Question: "Hook the bot's messages up?", To: "jo",
+		Context: []string{"The bot's stream needs a hook to land in."},
+		Run:     &store.AskRun{Argv: []string{"hook", "add", "bot", "--source", "bot"}}})
 	return st, d.Token
+}
+
+// apiHookSource is the declaration of a source of the doc's yard whose
+// hook the yard registers itself, asking for the project's id in the
+// clear on the hook card.
+func apiHookSource() string {
+	return "name: bot\nbase: https://bot.example.com/api\n" +
+		"credential: { env: BOT_TOKEN, header: \"Authorization: Bearer {credential}\" }\n" +
+		"calls:\n  setwebhook: { kind: update, params: { url: {type: string, max: 2048}, secret_token: {type: string, max: 256}, project: {type: string, pattern: \"^[0-9]+$\", max: 20} }, request: { method: POST, path: /setWebhook, body: { url: \"{url}\", secret_token: \"{secret_token}\", project: \"{project}\" } } }\n" +
+		"hook:\n  verify: { scheme: secret, signature: { header: X-Test-Secret } }\n  bodies: unique\n  normalize: [bot/normalize]\n  keys: [chat]\n  register: { call: setwebhook, url: url, secret: secret_token, ask: [project] }\n"
 }
 
 // apiTakeBack is the ask TakeBackAsk takes back in the doc, by seq, as the
@@ -1955,6 +1977,7 @@ func TestCallByName(t *testing.T) {
 		// routine card takes, and a weighty one refuses with its words.
 		{"ApproveAsk", fmt.Sprintf(`["yd-crm", %d, "jo"]`, apiRunAsk), `"message":"ask ` + strconv.FormatUint(apiRunAsk, 10) + ` is weighty (trust): approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate"`},
 		{"ApproveAsk", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"jo"}`, apiRunAsk), `is weighty (trust): approve it where its weight is shown`},
+		{"ApproveAsk", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"jo","values":{"project":"48291"}}`, apiRunAsk), `takes no values: its card asks for none`},
 		{"ApproveAsk", fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"jo","weighed":"yes"}`, apiRunAsk), `argument \"weighed\": json: cannot unmarshal string into Go value of type bool`},
 	} {
 		if got := string(post(t, hc, c.method, c.body)); !strings.Contains(got, c.want) {
@@ -2060,6 +2083,12 @@ const exampleHome = "/home/jo/.yardr"
 
 var homeSources = regexp.MustCompile(`/[^" ]*/(sources|users|crew|harness)/`)
 
+// homeHookSecret stands a hook card's secret file under the example home:
+// the card names the hook's file by its path, which is under the yard's
+// temporary home when the test runs. It matches the secret file alone,
+// never a public hook URL, which holds a hook's name and no .secret.
+var homeHookSecret = regexp.MustCompile(`/[^" ]*/hooks/([^" ]*\.secret)`)
+
 // exampleKey stands for the start of a peer's key in the doc, where a run
 // ask's sentence names its peer by it: the key of the test's peer is made
 // anew on every run.
@@ -2082,7 +2111,7 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			if more := run.more[c.method][i]; more != nil {
 				reply = append(reply, member{"more", more})
 			}
-			out = append(out, fenced("", "POST /call/"+c.method, body, "", keyStart.ReplaceAllString(homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/$1/"), exampleKey))...)
+			out = append(out, fenced("", "POST /call/"+c.method, body, "", keyStart.ReplaceAllString(homeHookSecret.ReplaceAllString(homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/$1/"), exampleHome+"/hooks/$1"), exampleKey))...)
 		}
 		if len(c.fields) > 0 {
 			out = append(out, fieldTable("field of the result", c.fields)...)

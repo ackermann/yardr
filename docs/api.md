@@ -277,7 +277,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 151,
+  "seq": 154,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -305,7 +305,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 153,
+  "seq": 156,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -449,7 +449,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 154,
+  "seq": 157,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -1040,7 +1040,7 @@ POST /call/Head
 {}
 
 {
-  "result": 148
+  "result": 151
 }
 ```
 
@@ -1538,7 +1538,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 149,
+      "seq": 152,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1546,7 +1546,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 150,
+      "seq": 153,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1572,7 +1572,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 149,
+      "seq": 152,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1580,7 +1580,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 150,
+      "seq": 153,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1607,7 +1607,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 151,
+      "seq": 154,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -2262,6 +2262,28 @@ POST /call/UserAsks
           {
             "class": "credential",
             "line": "gives a credential or an address to the yard: ANTHROPIC_API_KEY, the API key Claude Code runs with, asked for crew member yardmaster; it is read by every Claude Code session that burns the operator's login (the crew, groups without login_for, the operator's conversations), from its next start"
+          }
+        ]
+      },
+      {
+        "bead": "yd-crm",
+        "bead_title": "Read the CRM",
+        "topic": "",
+        "ask": 59,
+        "question": "Hook the bot's messages up?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "run": {
+          "argv": ["hook", "add", "bot", "--source", "bot"],
+          "command": "yardr hook add bot --source bot",
+          "does": ["it adds the hook bot: POST /hooks/bot takes deliveries from the source bot (https://bot.example.com).", "what it sends in: deliveries are verified by the header X-Test-Secret holding the hook's secret itself (scheme secret); it sends no delivery id; it sends no timestamp; bodies are unique; the command [bot/normalize] turns a verified body into the envelope, handed no credential; its events may carry the fields chat; the yard registers its webhook with setwebhook (POST /setWebhook), filling url with the public URL and secret_token with the hook's secret.", "the yard makes the signing secret for bot and keeps it in /home/jo/.yardr/hooks/bot.secret (mode 0600); the hook names that file, and the value is in no note, event, answer or card. No secret is typed.", "the approval gives project in the clear, which the yard sends to the register call with the URL and the secret.", "it will call POST /setWebhook at https://bot.example.com/api to register https://yard.example/hooks/bot."],
+          "back": "yardr hook rm bot",
+          "back_by": "only the operator"
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: POST /hooks/bot takes deliveries from outside the yard for the source bot"
           }
         ]
       }
@@ -4169,6 +4191,30 @@ POST /call/Bead
             "line": "lets the yard change something outside it: group builders may call put of crm (an update)"
           }
         ]
+      },
+      {
+        "ask": 59,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Hook the bot's messages up?",
+        "context": ["The bot's stream needs a hook to land in."],
+        "options": [],
+        "state": "open",
+        "run": {
+          "argv": ["hook", "add", "bot", "--source", "bot"],
+          "command": "yardr hook add bot --source bot",
+          "does": ["it adds the hook bot: POST /hooks/bot takes deliveries from the source bot (https://bot.example.com).", "what it sends in: deliveries are verified by the header X-Test-Secret holding the hook's secret itself (scheme secret); it sends no delivery id; it sends no timestamp; bodies are unique; the command [bot/normalize] turns a verified body into the envelope, handed no credential; its events may carry the fields chat; the yard registers its webhook with setwebhook (POST /setWebhook), filling url with the public URL and secret_token with the hook's secret.", "the yard makes the signing secret for bot and keeps it in /home/jo/.yardr/hooks/bot.secret (mode 0600); the hook names that file, and the value is in no note, event, answer or card. No secret is typed.", "the approval gives project in the clear, which the yard sends to the register call with the URL and the secret.", "it will call POST /setWebhook at https://bot.example.com/api to register https://yard.example/hooks/bot."],
+          "back": "yardr hook rm bot",
+          "back_by": "only the operator",
+          "ask": ["project"]
+        },
+        "weight": [
+          {
+            "class": "trust",
+            "line": "widens who the yard listens to: POST /hooks/bot takes deliveries from outside the yard for the source bot"
+          }
+        ]
       }
     ],
     "rounds": {
@@ -4233,12 +4279,13 @@ POST /call/Bead
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to, and whose it is where `as` names a user; with `harness`, whose API key it is and when it takes effect. Show it as it is |
 | `asks[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask and until it is given |
-| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
+| `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`, with `--value <name>=<value>` where the card asks for values in the clear), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
 | `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `""` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
 | `asks[].run.does` | array of string | what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
 | `asks[].run.back` | string | the command that takes the change back |
 | `asks[].run.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads "anyone can take it back" |
+| `asks[].run.ask` | array of string, may be absent | the names the approval gives values for in the clear, one field on the card each, in this order: a hook add the yard registers itself asks for its register call's asked parameters, and the approval carries them to the call. Absent on any other run ask |
 | `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
 | `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
 | `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
@@ -4734,7 +4781,8 @@ setting names one of them, the one an ask with no `--to` goes to; any
 operator approves or answers it. In yardr's code the list is `OperatorCalls`, and
 it has five calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
-the command it holds, `ApproveSetup`, which approves a setup ask with
+the command it holds, carrying the approval's values to a hook's register
+call where the card asks for any, `ApproveSetup`, which approves a setup ask with
 the preset pick and the account together: typed, taken from a candidate, or
 kept as it stands, `SourceGrants`, which reads every grant of the
 yard's sources, the whole of who may call what, and `SessionScreen`,
@@ -4809,7 +4857,11 @@ What the yard runs is the command stored on the ask, `asks[].run.command`,
 and no argument of the call names or changes it. Show that command whole
 and the yard's sentences (`asks[].run.does`) directly above the control
 that approves, give that control a key no other card answers with, and
-never approve on Return alone.
+never approve on Return alone. Where the card asks for values in the
+clear (`asks[].run.ask`), draw one field a name, shown as typed: the
+approval sends them as `values`, and the yard sends them to the register
+call with the URL and the secret, and keeps none. A name the card asks
+for nothing of, and a missing one, refuse the approval.
 
 A value given with `GiveSecret` is the person's secret. Read it into a
 field that does not echo, send it in this call and in nothing else, and
@@ -5030,7 +5082,7 @@ The file and the store are two writes. When the yard wrote the file and could no
 
 ### `ApproveAsk`
 
-Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.
+Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command the ask holds, as the one who approves: `run.command`, whole, and nothing else. It is what `yardr bead answer --approve` does, with `--value <name>=<value>` where the card asks for values in the clear (`run.ask`): a hook add the yard registers itself carries them to its register call with the URL and the secret, and keeps none; where the declaration names a check, a retry first lists what stands and adopts a webhook already aimed at the hook. In one write the yard checks that it would write the same card now, makes the change under the command's own check, and records the answer, which holds `ran`. A refused approval changes nothing, records nothing and leaves the ask open. It is the operator's to approve: on the socket it is refused for anyone else and for a call that comes from the pane of an agent, whatever `actor` says, and on the listener it is there for a device of the operator and for no other caller. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved by the one it was asked of, that user or the operator, on the socket; a device of that user is not served the call. Refused too: an ask that proposes no command; one that was declined, taken back or approved already, since a command runs once for one ask; a `bead@peer`, since a command is approved in the yard that asked and never over a link; values the card asks for nothing of, and a missing one where it asks for any; and an ask whose card is from before the yard changed, where what the command names was replaced under its name or what it changes is no longer what `run.does` says. That one is declined, and asked again if it is still wanted. A weighty card ([weighty cards](#weighty-cards)) is refused unless the call says `weighed`; that refusal changes nothing and leaves the ask open, as it is. A routine card asks for no such word. The answer is then a `noted` event in the stream, and the change is the command's own event, which carries `approved` with the bead and the ask.
 
 | argument | type | |
 |---|---|---|
@@ -5038,6 +5090,7 @@ Approves a run ask (an ask of `Bead` with `run`), and the yard runs the command 
 | `ask` | number | the ask note's seq |
 | `actor` | string | who approves: the operator's name, or for a command that is a user's own the name of the one it was asked of |
 | `weighed` | bool | `true` once the person has seen the card's weight and passed the client's gate; left out, `false`, and a weighty card is refused. A routine card takes it so |
+| `values` | object | each name of `run.ask` to the value the person gave in the clear; left out where the card asks for none |
 
 ```
 POST /call/ApproveAsk

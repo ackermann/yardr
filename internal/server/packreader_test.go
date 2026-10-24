@@ -228,7 +228,7 @@ func TestPackApplyTelegramCard(t *testing.T) {
 			t.Errorf("the telegram card lacks %q:\n%s", want, joined)
 		}
 	}
-	done, err := st.ApproveAsk(ctx, b.ID, telegramSeq, "mckean", true)
+	done, err := st.ApproveAsk(ctx, b.ID, telegramSeq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

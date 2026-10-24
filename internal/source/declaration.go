@@ -765,8 +765,8 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 }
 
 // hookRegisterCheck holds a hook's register to the calls as read: the
-// call is there and is an update, its URL and secret parameters are
-// its own and take text, and nothing it requires is left unfilled.
+// call is there and is an update, its URL, secret and asked parameters
+// are its own and take text, and nothing it requires is left unfilled.
 // What would fail at every registration is refused here.
 func (r *reader) hookRegisterCheck(d *Declaration, hookE entry) {
 	reg := d.Hook.Register
@@ -808,10 +808,63 @@ func (r *reader) hookRegisterCheck(d *Declaration, hookE entry) {
 	}
 	param(reg.URL, join(base, "url"))
 	param(reg.Secret, join(base, "secret"))
+	for _, name := range reg.Ask {
+		p, ok := c.param(name)
+		switch {
+		case !ok:
+			r.errf(hookE.v, join(base, "ask"), "%s is no parameter of the call %s (it takes: %s)", name, c.Name, or(strings.Join(c.names(), ", "), "none"))
+		case fills[name] != "":
+			r.errf(hookE.v, join(base, "ask"), "the parameter %s is filled by %s already: the card asks for what the yard has not", name, fills[name])
+		case p.Optional:
+			r.errf(hookE.v, join(base, "ask"), "the parameter %s is optional: the card asks for a required parameter", name)
+		case p.Type != "string" || p.Pattern == "":
+			r.errf(hookE.v, join(base, "ask"), "the parameter %s is asked for in the clear: it is a string with a pattern, so the card takes an id and no free text", name)
+		case !c.usesParam(name):
+			r.errf(hookE.v, join(base, "ask"), "the call %s does not send parameter %s in its path, query or body", c.Name, name)
+		default:
+			fills[name] = join(base, "ask")
+		}
+	}
 	for _, p := range c.Params {
 		if !p.Optional && fills[p.Name] == "" {
-			r.errf(hookE.v, base, "the call %s needs the parameter %s, and nothing here fills it (url and secret are what the yard has)", c.Name, p.Name)
+			r.errf(hookE.v, base, "the call %s needs the parameter %s, and nothing here fills it (url and secret are what the yard has, and ask names the rest)", c.Name, p.Name)
 		}
+	}
+	if reg.Existing != nil {
+		r.hookExistingCheck(d, hookE, base)
+	}
+}
+
+// hookExistingCheck holds a register's check to the calls as read: the
+// call is there and is a read, and every parameter it requires is the
+// public URL's or one the card asks for, filled with the same values as
+// the register call. The secret is never sent with the check: a check
+// lists what stands, and takes no secret.
+func (r *reader) hookExistingCheck(d *Declaration, hookE entry, base string) {
+	reg := d.Hook.Register
+	ex := reg.Existing
+	base = join(base, "existing")
+	c, found := d.Call(ex.Call)
+	if ex.Call == "" {
+		return // hookExisting named the missing call
+	}
+	if !found {
+		r.errf(hookE.v, join(base, "call"), "%s is no call of this file", ex.Call)
+		return
+	}
+	if c.Kind != Read {
+		r.errf(hookE.v, join(base, "call"), "%s is an update: the check is a read call, made to list what stands", ex.Call)
+		return
+	}
+	if len(c.Build) > 0 {
+		r.errf(hookE.v, join(base, "call"), "%s names build: the check sends the request's template and runs no build command", ex.Call)
+		return
+	}
+	for _, p := range c.Params {
+		if p.Optional || p.Name == reg.URL || slices.Contains(reg.Ask, p.Name) {
+			continue
+		}
+		r.errf(hookE.v, base, "the call %s needs the parameter %s, and nothing here fills it (the check is sent the URL and the asked values, never the secret)", c.Name, p.Name)
 	}
 }
 

@@ -364,7 +364,7 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 		Context: []string{"The far yard's mail waits on its limit."},
 		Run:     &AskRun{Argv: []string{"peer", "allow", "airy", "--mail-limit", "300"}}}, "yardmaster")
 	for _, seq := range []uint64{setting, source, limit} {
-		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

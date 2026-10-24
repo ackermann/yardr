@@ -1211,21 +1211,36 @@ hook:
   `--where` and a pack's `says` may name them beside `type`, `action`,
   `team`, `project`, `repo` and `label`.
 - **Register** (`hook.register`) names the update call the yard makes
-  to tell the service where to send deliveries, and which of its
-  parameters take the webhook's public URL (`url`) and, with scheme
-  `secret`, the secret (`secret`): `register: { call: setwebhook, url:
-  url, secret: secret_token }`, any other parameter fixed in the call's
-  body or optional. With scheme `secret` the hook card needs no typed
-  secret: the yard makes one, keeps it in the hook's file, and on
-  approval calls the register call at the source's selected base to register
-  `hook_public_url` plus `/<hook name>` ([configuration.md](configuration.md#settings)).
-  A failed call leaves the hook in place and approving again retries.
-  With a signature the service makes (`hmac-sha256`) the typed secret
-  stays, and registering is a later bead. Refused: a register call
-  that is no call of the file or is a read, a `url` or `secret` that is
-  no string parameter of it, one the call does not send, a register key
-  with a scheme other than `secret`, and a required parameter nothing
-  fills.
+  to tell the service where to send deliveries, which of its parameters
+  take the webhook's public URL (`url`) and, with scheme `secret`, the
+  secret (`secret`), and which the hook card asks the operator for in
+  the clear (`ask`): `register: { call: destination, url: url, secret:
+  secret, ask: [project] }`, any other parameter fixed in the call's
+  body or optional. An asked parameter is a string with a pattern the
+  call sends, beside what the yard fills: the card shows a field a
+  name, and the approval carries the values to the call. With scheme
+  `secret` the hook card needs no typed secret: the yard makes one,
+  keeps it in the hook's file, and on approval calls the register call
+  at the source's selected base to register `hook_public_url` plus
+  `/<hook name>` ([configuration.md](configuration.md#settings)).
+  A failed call leaves the hook in place and approving again retries,
+  with the values given again. Where the register call is no second run
+  of itself, `existing` names the read call a retry makes first to list
+  what stands, the dot path to the list in its answer (`in`), and the
+  dot path in each listed webhook to the value compared with the public
+  URL (`field`): a webhook already aimed at the hook is adopted, and
+  the register call is not made again. The first approval always
+  registers. The check is sent the URL and the asked values, never the
+  secret. With a signature the service makes (`hmac-sha256`) the typed
+  secret stays, and registering is a later bead. Refused: a register
+  call that is no call of the file or is a read, a `url` or `secret`
+  that is no string parameter of it, one the call does not send, an
+  asked name that is no string parameter with a pattern of it, one the
+  yard fills already, or one the call does not send, a register key
+  with a scheme other than `secret`, a required parameter nothing
+  fills, and an `existing` check that is no read call of the file, that
+  names no list or field, or that needs a parameter beside the URL and
+  the asked ones.
 - **Refused when the file is added**: a scheme that is neither
   `hmac-sha256` nor `secret`, `signed`, `algorithm`, `encoding`, `prefix`,
   `list` or `key` with scheme `secret`, an `algorithm` that is none of

@@ -209,7 +209,7 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		if evs := eventsOfKind(t, y.st, "subscribed"); len(evs) != 0 {
 			t.Errorf("%d subscribed events", len(evs))
 		}
-		if _, err := y.st.ApproveAsk(ctx, "yd-crm", own, "sam", false); err != nil {
+		if _, err := y.st.ApproveAsk(ctx, "yd-crm", own, "sam", false, nil); err != nil {
 			t.Errorf("sam's approval on the socket: %v", err)
 		}
 	})
@@ -260,7 +260,7 @@ func TestUserApproveAskIsForTheOperatorsDeviceAlone(t *testing.T) {
 		for body, want := range map[string]string{
 			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"actor":"sam"}`, y.run): `this device calls as jo: \"actor\" is jo or left out`,
 			fmt.Sprintf(`["yd-crm", %d, "jo"]`, y.run):                     "takes them as a JSON object, by name",
-			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"run":"x"}`, y.run):     "ApproveAsk has none of that name (it takes bead, ask, actor, weighed)",
+			fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"run":"x"}`, y.run):     "ApproveAsk has none of that name (it takes bead, ask, actor, weighed, values)",
 		} {
 			if w := y.approve(onTheMachine, y.jo, strings.NewReader(body)); !strings.Contains(w.Body.String(), want) {
 				t.Errorf("%s is answered %s, want %s", body, w.Body, want)

@@ -101,6 +101,13 @@ type AskRun struct {
 	// --run typed in a terminal carries none, and its card is refused.
 	// No other row keeps it.
 	Value string `json:"value,omitempty"`
+	// Ask are the names the approval gives values for in the clear,
+	// one field on the card each, in this order: a hook add the yard
+	// registers itself asks for its register call's asked parameters.
+	// It is kept on the ask because the views render an ask from its
+	// note alone, as Carried is. No other row keeps it: askedRun
+	// throws a writer's Ask away with its Does and Seen.
+	Ask []string `json:"ask,omitempty"`
 }
 
 // AskPack is a pack apply ask's pack as the yard's server read it: its
@@ -284,6 +291,9 @@ type RunAsked struct {
 	// Pack is the pack a pack apply ask names, for a client to show
 	// the plan behind the card; absent on any other command.
 	Pack *AskPack `json:"pack,omitempty"`
+	// Ask are the names the approval gives values for in the clear,
+	// one field on the card each; absent on any other command.
+	Ask []string `json:"ask,omitempty"`
 }
 
 // proposed is the command of the ask a as a client shows it, nil for an
@@ -293,7 +303,8 @@ func (a Ask) proposed() *RunAsked {
 		return nil
 	}
 	return &RunAsked{Argv: a.Run.Argv, Command: a.Run.Command(), Description: a.Run.Description,
-		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack}
+		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack,
+		Ask: a.Run.Ask}
 }
 
 // RunArgvHeld reports whether the run command argv holds, as its asker typed
@@ -1234,7 +1245,11 @@ func (w *wtx) askedRun(ctx context.Context, run AskRun, to, actor string) (*AskR
 // refused, changes nothing and leaves the ask open (weighedRefusal). The
 // yard checks what the client says and no more; a routine card asks for no
 // such word.
-func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool) (*AskApproved, error) {
+//
+// values are what the approval gives in the clear for the names the card
+// asks for (AskRun.Ask): a hook add the yard registers itself carries
+// them to its register call. A card that asks for none takes none.
+func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool, values map[string]string) (*AskApproved, error) {
 	// A bead's handle never holds an "@" (validID).
 	if strings.Contains(id, "@") {
 		return nil, fmt.Errorf("ask %d on %s is a command of another yard's operator: it is approved in the yard that asked, never over a link", ask, id)
@@ -1244,7 +1259,7 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 		defer unlockAsk()
 		unlockHook := s.askLocks.lock(hookLockKey(name))
 		defer unlockHook()
-		return s.approveHookRegister(ctx, id, ask, actor, weighed)
+		return s.approveHookRegister(ctx, id, ask, actor, weighed, values)
 	}
 	if s.sourceCheckTarget(id, ask) {
 		unlockAsk := s.askLocks.lock(askLockKey(id, ask))
@@ -1259,7 +1274,7 @@ func (s *Store) ApproveAsk(ctx context.Context, id string, ask uint64, actor str
 	var out *AskApproved
 	err = s.writeVia(ctx, func(w *wtx) (err error) {
 		w.repos = repos
-		out, err = w.approveAsk(ctx, id, ask, actor, weighed)
+		out, err = w.approveAsk(ctx, id, ask, actor, weighed, values)
 		return err
 	})
 	if err != nil {
@@ -1295,7 +1310,7 @@ func (s *Store) approvalRepos(ctx context.Context, id string, seq uint64) (map[s
 // approveAsk is ApproveAsk inside the transaction. A batch may run it twice
 // for one call (write): it reads the yard's records anew each time and ends
 // the same.
-func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor string, weighed bool) (*AskApproved, error) {
+func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor string, weighed bool, values map[string]string) (*AskApproved, error) {
 	who, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 	if err != nil {
 		return nil, err
@@ -1331,6 +1346,12 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 		return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*r.Current))
 	case r.State == AskAnswered:
 		return nil, fmt.Errorf("ask %d was approved already, by %s: a command runs once for one ask", seq, r.Current.Note.Author)
+	}
+	// A hook the yard registers itself is approved in phases, before
+	// this write (approveHookRegister); every other row takes no
+	// values, so any are a mistyped name, refused before anything runs.
+	if len(values) > 0 {
+		return nil, fmt.Errorf("ask %d takes no values: its card asks for none", seq)
 	}
 	was := *r.Ask.Run
 	c, argv, err := parseRun(was.Argv)

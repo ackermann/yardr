@@ -205,8 +205,8 @@ func (c *Client) LoginWait(ctx context.Context, id, group string) (string, error
 func (c *Client) LoginWaitReady(ctx context.Context, id string) error {
 	return c.call(ctx, "LoginWaitReady", nil, id)
 }
-func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool) (*store.AskApproved, error) {
-	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor, weighed)
+func (c *Client) ApproveAsk(ctx context.Context, id string, ask uint64, actor string, weighed bool, values map[string]string) (*store.AskApproved, error) {
+	return callV[*store.AskApproved](c, ctx, "ApproveAsk", id, ask, actor, weighed, values)
 }
 func (c *Client) ApproveSetup(ctx context.Context, id string, ask uint64, option int, values map[string]string, account, actor string, weighed bool) (*store.AskSetupApproved, error) {
 	return callV[*store.AskSetupApproved](c, ctx, "ApproveSetup", id, ask, option, values, account, actor, weighed)

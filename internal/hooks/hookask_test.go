@@ -83,7 +83,7 @@ calls:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApproveAsk(ctx, b.ID, runSeq, "me", true); err != nil {
+	if _, err := st.ApproveAsk(ctx, b.ID, runSeq, "me", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	hook, err := st.GetHook(ctx, "linear")

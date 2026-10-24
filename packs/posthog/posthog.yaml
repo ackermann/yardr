@@ -1,9 +1,9 @@
 # PostHog as a declared source: what an agent may ask of it through
 # `yardr call` (a HogQL query, the error tracking issues, one issue, the
 # session recordings, one recording, a session's Replay Vision
-# observations), and what it sends in (a new error issue). Every call is a
-# read; the pack has no thread, notify or link key, so the yard writes
-# nothing to PostHog.
+# observations), and what it sends in (a new error issue). One call
+# writes: the destination, made once by the hook card; the pack has no
+# thread, notify or link key, so the yard writes nothing else to PostHog.
 #
 # Checked against PostHog's docs and source on 20 October 2026: the query
 # endpoint (posthog.com/docs/api/queries, and the generated query_create),
@@ -24,6 +24,27 @@
 # customizing-destinations) and the issue's and the replay's routes
 # (products/error_tracking/manifest.tsx, products/replay/manifest.tsx).
 #
+# The destination call beside them, checked on 23 October 2026 at
+# posthog/posthog f1c6477: the template's id and inputs (nodejs/src/cdp/
+# templates/_destinations/webhook/webhook.template.ts), the functions
+# endpoint, its create shape and its scope (products/cdp/backend/api/
+# hog_function.py, posthog/scopes.py), the inputs' {value} shape and the
+# filter shape (products/cdp/backend/validation.py), the issue-created
+# internal event (products/error_tracking/backend/temporal/lifecycle/
+# issue_created/activities.py) and the consumer that runs only internal
+# destinations for internal events (nodejs/src/cdp/consumers/
+# cdp-internal-event.consumer.ts, nodejs/src/cdp/schema/hogflow.ts).
+#
+# The register check beside it, checked on 24 October 2026 at the same
+# pin: the list with its type filter (HogFunctionFilterSet), the full
+# answers that carry the inputs (get_serializer_class), the search over
+# the name and the description (safely_get_queryset, posthog/helpers/
+# trigram_search.py: a literal match is exact, and exact is kept over
+# similar) and the read scope (scope_object_read_actions,
+# posthog/scopes.py), all in products/cdp/backend/api/hog_function.py
+# unless said. A read answers secrets masked (mask_config_secrets), so
+# the check matches the URL, never the secret.
+#
 # A command is a list, run without a shell. A path that does not start
 # with / is a file beside this one, which `yardr source add` copies into
 # the yard.
@@ -31,9 +52,12 @@ name: posthog
 about: PostHog analytics and error tracking. Answers HogQL queries, lists error issues and session recordings, reads a session's Replay Vision observations, hears a new error issue.
 
 # The name of the variable, never the value. A personal API key with the
-# scopes query:read, error_tracking:read, user:read, session_recording:read
-# and replay_scanner:read, sent as a Bearer token (posthog.com/docs/api/
-# personal-api-keys). hook.normalize is handed no credential at all.
+# scopes query:read, error_tracking:read, user:read, session_recording:read,
+# replay_scanner:read, hog_function:read and hog_function:write, sent as
+# a Bearer token (posthog.com/docs/api/personal-api-keys). The write scope is
+# for the destination call alone, which the hook card makes once, and the
+# read scope beside it for the check that lists what stands before a
+# retry registers again. hook.normalize is handed no credential at all.
 credential:
   env: POSTHOG_API_KEY
   header: "Authorization: Bearer {credential}"
@@ -56,6 +80,19 @@ hook:
   bodies: unique
   # PostHog's deliveries follow its alerts, not a rhythm, so silence is never quiet.
   untimed: true
+
+  # The yard registers the destination itself on the hook card: it makes
+  # the secret, asks for the project id in the clear, and POSTs the
+  # destination with the public URL and the secret in its secret headers.
+  # A retry first lists what stands and adopts the destination already
+  # aimed at the hook, so a call PostHog took but never answered is not
+  # made twice.
+  register:
+    call: destination
+    url: url
+    secret: secret
+    ask: [project]
+    existing: { call: destinations, in: results, field: inputs.url.value }
 
   # Adapter.Normalize. stdin {"headers":{…},"body":{…}}, stdout the
   # envelope. The core sets source and delivery itself.
@@ -85,6 +122,64 @@ bases:
   us: https://us.posthog.com
   eu: https://eu.posthog.com
 calls:
+  # The hook card's own call, granted to none: it makes the webhook
+  # destination the hook hears through, from the webhook template, as an
+  # internal destination (only those run for internal events), enabled,
+  # firing on the issue-created event alone, with the delivery's body the
+  # setup's {event, person, project} and the secret in its secret headers.
+  # The operator deletes the destination in PostHog when the hook goes.
+  destination:
+    kind: update
+    about: Make the webhook destination the hook hears through
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+      url: { type: string, max: 2048 }
+      secret: { type: string, max: 256 }
+      # The delivery's body, fixed by the file: PostHog's templating
+      # globals for the event, the person and the project. They are
+      # parameters only because a request body writes no literal {name}:
+      # each default is sent as it stands, and the hook card asks for
+      # none of them. project stays the global (normalize reads the URL
+      # it renders), not the project id above.
+      event_global: { type: string, default: "{event}" }
+      person_global: { type: string, default: "{person}" }
+      project_global: { type: string, default: "{project}" }
+    request:
+      method: POST
+      path: /api/projects/{project}/hog_functions/
+      body: {
+        name: "yardr",
+        description: "Sends new error issues to the yard's hook.",
+        type: "internal_destination",
+        template_id: "template-webhook",
+        enabled: true,
+        inputs: {
+          url: { value: "{url}" },
+          method: { value: "POST" },
+          body: { value: { event: "{event_global}", person: "{person_global}", project: "{project_global}" } },
+          secret_headers: { value: { X-Yardr-Secret: "{secret}" } },
+        },
+        filters: { source: "internal-events", events: [{ id: "$error_tracking_issue_created", type: "events" }] },
+      }
+  # The hook card's check before it registers again: the internal
+  # destinations named yardr, with their inputs, of which a retry adopts
+  # the one already aimed at the hook instead of making another. A list
+  # answers without inputs unless full is asked, and the search holds
+  # the answer to the name; the card matches the URL. A read, granted
+  # with the rest.
+  destinations:
+    kind: read
+    about: List the internal destinations named yardr, with their inputs
+    params:
+      project: { type: string, pattern: "^[0-9]+$", max: 20, log: true }
+    request:
+      method: GET
+      path: /api/projects/{project}/hog_functions/
+      query: { type: internal_destination, full: "true", search: yardr }
+    # The page's results, each with its inputs: what the check scans. A
+    # full destination carries its inputs' schema beside its inputs, and
+    # a handful run past the 64 KB a call otherwise returns.
+    answer: { select: [results], max: 262144 }
   query:
     kind: read
     about: Run a HogQL query, answered with its columns and rows

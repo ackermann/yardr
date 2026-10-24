@@ -2,7 +2,7 @@
 # and into no depot. What PostHog is: HogQL queries, error tracking
 # issues, session recordings and Replay Vision observations an agent reads
 # through `yardr call`, and the webhook that hears a new error issue.
-# Nothing here writes to PostHog.
+# One call writes: the destination, made once by the hook card.
 #
 #   yardr pack apply posthog
 #

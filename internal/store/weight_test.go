@@ -314,13 +314,13 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 	}
 	// The client's word that its person saw the weight is no stand-in for
 	// a card that never showed it: the refusal is the stale one still.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err == nil || !strings.Contains(err.Error(), "was written without its weight") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil || !strings.Contains(err.Error(), "was written without its weight") {
 		t.Fatalf("approving a card written without weight, with the word = %v", err)
 	}
 
 	// Written without weight, routine now: approved as before.
 	seq = y.askUnweighed(t, listAsk("mckean", "source set crm calls_per_hour=30"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err != nil {
 		t.Fatalf("approving a routine ask written without weight = %v", err)
 	}
 
@@ -351,7 +351,7 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 		t.Fatalf("the grant weighs %v", got)
 	}
 	want := "ask " + itoa(seq) + ` is weighty (outside): approve it where its weight is shown; a client sends "weighed": true once its person has passed its gate`
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || err.Error() != want {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || err.Error() != want {
 		t.Fatalf("approving a weighty card without the word = %v, want %q", err, want)
 	}
 	if got := y.grants(t); len(got) != 0 {
@@ -363,7 +363,7 @@ func TestWeightIsHeldAtApproval(t *testing.T) {
 	if answers := answerNotes(t, y); len(answers) != 1 {
 		t.Fatalf("a refused approval left answers %+v, want the one routine approval above", answers)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatalf("approving the same card with the word = %v", err)
 	}
 	if got := y.grants(t); len(got) != 1 {

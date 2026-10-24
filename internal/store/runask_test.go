@@ -290,7 +290,7 @@ func TestApproveAsk(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
 	seq := y.ask(t, runAsk("yardr peer allow --mail-limit 300 airy"), "yardmaster")
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestApproveAsk(t *testing.T) {
 
 	// A command runs once for one ask, and an approved ask takes no other
 	// answer.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "ask 1 was approved already, by mckean: a command runs once for one ask") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "ask 1 was approved already, by mckean: a command runs once for one ask") {
 		t.Fatalf("a second approval = %v", err)
 	}
 	for _, ans := range []Answer{{Ask: seq, Later: true}, {Ask: seq, Decline: true, Words: "no"}} {
@@ -408,7 +408,7 @@ func TestApproveAskRefusals(t *testing.T) {
 		{"no such bead", "yd-none", run, "mckean", "not found"},
 		{"a question of another yard", y.bead + "@airy", run, "mckean", "it is approved in the yard that asked, never over a link"},
 	} {
-		_, err := y.ApproveAsk(y.ctx, c.bead, c.ask, c.actor, false)
+		_, err := y.ApproveAsk(y.ctx, c.bead, c.ask, c.actor, false, nil)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: ApproveAsk = %v, want %q", c.name, err, c.want)
 		}
@@ -424,7 +424,7 @@ func TestApproveAskRefusals(t *testing.T) {
 	}
 	// In a yard that names no operator nobody approves.
 	y.noOperator(t, "mckean")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, run, "mckean", false); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's, and this yard has none") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, run, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "approving a command is the operator's, and this yard has none") {
 		t.Fatalf("an approval in a yard with no operator = %v", err)
 	}
 }
@@ -468,7 +468,7 @@ func TestRunAskTakesNoOtherAnswer(t *testing.T) {
 	if r := y.asked(t, seq); r.State != AskAside {
 		t.Fatalf("the ask put aside is %s", r.State)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatalf("approving an ask that was put aside: %v", err)
 	}
 	if got := y.limit(t); got != 300 {
@@ -507,7 +507,7 @@ func TestApproveAskRefusesWhenTheLimitChanged(t *testing.T) {
 			if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{MailLimit: c.to}, "mckean"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || err.Error() != c.want {
+			if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || err.Error() != c.want {
 				t.Fatalf("ApproveAsk = %v, want %q", err, c.want)
 			}
 			if got := y.limit(t); got != c.to {
@@ -560,7 +560,7 @@ func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
 	if card.Seen["peer airy"] == was.Seen["peer airy"] || was.Seen["peer airy"] != key {
 		t.Fatalf("seen = %v and %v, want the old key whole on the ask and another now", was.Seen, card.Seen)
 	}
-	_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	const want = "ask 1 was written when the link with airy was another: it was removed and made again since (the link there now was added "
 	if err == nil || !strings.HasPrefix(err.Error(), want) || !strings.HasSuffix(err.Error(), "). Nothing ran. Decline it; it is asked again if it is still wanted.") {
 		t.Fatalf("ApproveAsk = %v, want %q…", err, want)
@@ -575,7 +575,7 @@ func TestApproveAskRefusesAnotherLinkOfTheSameName(t *testing.T) {
 	if err := y.DeletePeer(y.ctx, "airy", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err == nil || !strings.Contains(err.Error(), "peer airy: not found") || !strings.Contains(err.Error(), "Nothing ran") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "peer airy: not found") || !strings.Contains(err.Error(), "Nothing ran") {
 		t.Fatalf("ApproveAsk of a link that is gone = %v", err)
 	}
 }
@@ -590,7 +590,7 @@ func TestApproveAskHoldsWhenSomethingElseChanged(t *testing.T) {
 	if _, err := y.AllowPeer(y.ctx, "airy", PeerAllow{Send: []string{PeerMail}, Receive: []string{PeerMail}, Expose: []string{"mckean"}}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	p, err := y.GetPeer(y.ctx, "airy")

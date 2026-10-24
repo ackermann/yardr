@@ -264,7 +264,7 @@ func TestHookAskSetup(t *testing.T) {
 
 	// The hook runs only with its secret standing: approving first
 	// refuses and makes nothing.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err == nil ||
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err == nil ||
 		!strings.Contains(err.Error(), "give its signing secret on the hook's secret card for linear first") {
 		t.Fatalf("approving before the giving = %v", err)
 	}
@@ -295,7 +295,7 @@ func TestHookAskSetup(t *testing.T) {
 		t.Fatalf("the given card:\n%s", lines)
 	}
 
-	done, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestHookAskNeedsItsAnsweredSecretCard(t *testing.T) {
 			t.Fatal(err)
 		}
 		seq := y.ask(t, hookRunAsk("hook add linear --source linear"), "yardmaster")
-		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err == nil ||
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil ||
 			!strings.Contains(err.Error(), "answered ask for source linear on this bead") {
 			t.Fatalf("approval with only a preexisting file = %v", err)
 		}
@@ -367,7 +367,7 @@ func TestHookAskNeedsItsAnsweredSecretCard(t *testing.T) {
 			t.Fatal(err)
 		}
 		runSeq := y.ask(t, hookRunAsk("hook add linear --source linear"), "yardmaster")
-		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err == nil ||
+		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err == nil ||
 			!strings.Contains(err.Error(), "answered ask for source linear on this bead") {
 			t.Fatalf("approval with a secret card for another source = %v", err)
 		}
@@ -384,7 +384,7 @@ func TestHookAskNeedsItsAnsweredSecretCard(t *testing.T) {
 			map[string]string{"LINEAR_SIGNING_SECRET": hookSecretValue}, "mckean", true); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err == nil ||
+		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err == nil ||
 			!strings.Contains(err.Error(), "answered ask for source linear on this bead") {
 			t.Fatalf("approval with a later secret ask = %v", err)
 		}
@@ -404,7 +404,7 @@ func TestHookAskDigitLeadingName(t *testing.T) {
 		t.Fatal(err)
 	}
 	runSeq := y.ask(t, hookRunAsk("hook add 3jira --source linear"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -607,7 +607,7 @@ func TestHookAskGenericSource(t *testing.T) {
 		map[string]string{"TRACKER_SIGNING_SECRET": hookSecretValue}, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	hook, err := y.GetHook(y.ctx, "tracker")
@@ -639,7 +639,7 @@ func TestHookAskAfterSourceAdd(t *testing.T) {
 	add := sourceAddAsk(carriedOf(t, trackerDecl, map[string]string{"tracker/normalize": "#!/bin/sh\ncat >/dev/null\n"}))
 	add.Run.Argv = []string{"source add tracker.yaml"}
 	addSeq := y.ask(t, add, "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, addSeq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, addSeq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	secretSeq := y.ask(t, hookSecretAsk("tracker", "tracker"), "yardmaster")
@@ -648,7 +648,7 @@ func TestHookAskAfterSourceAdd(t *testing.T) {
 		map[string]string{"TRACKER_SIGNING_SECRET": hookSecretValue}, "mckean", true); err != nil {
 		t.Fatal(err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +719,7 @@ func TestHookAskUnknown(t *testing.T) {
 	if does := strings.Join(runAsk.Ask.Run.Does, "\n"); !strings.Contains(does, "it stores --unknown unknown for an unmapped sender") {
 		t.Fatalf("the card says:\n%s\nwant the --unknown unknown sentence", does)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if hook, err := y.GetHook(y.ctx, "chatx"); err != nil || hook.Unknown != HookUnknownUnknown {
@@ -738,7 +738,7 @@ func TestHookAskUnknown(t *testing.T) {
 		if does := strings.Join(y.asked(t, runSeq).Ask.Run.Does, "\n"); !strings.Contains(does, "it stores --unknown "+c.stored) {
 			t.Fatalf("%s: the card says:\n%s\nwant --unknown %s", c.command, does, c.stored)
 		}
-		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true); err != nil {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, runSeq, "mckean", true, nil); err != nil {
 			t.Fatalf("%s: %v", c.command, err)
 		}
 		if hook, err := y.GetHook(y.ctx, "chatx"); err != nil || hook.Unknown != c.stored {
@@ -804,7 +804,7 @@ func TestHookAskUnknownRegisteredHook(t *testing.T) {
 	if does := strings.Join(y.asked(t, seq).Ask.Run.Does, "\n"); !strings.Contains(does, "it stores --unknown allow for an unmapped sender") {
 		t.Fatalf("the register card says:\n%s\nwant its unknown policy", does)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	hook, err := y.GetHook(y.ctx, "bot")

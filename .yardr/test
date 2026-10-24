@@ -1943,7 +1943,7 @@ packs/github/                  internal/hooks
 packs/slack/                   internal/hooks internal/store
 packs/telegram/                internal/hooks internal/store
 packs/pushover/                internal/notify internal/dispatch
-packs/posthog/                 internal/hooks
+packs/posthog/                 internal/hooks internal/store
 packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs
 packs/website/                 internal/pack

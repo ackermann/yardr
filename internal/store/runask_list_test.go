@@ -122,7 +122,7 @@ func (y *askYard) approved(t *testing.T, e Event, seq uint64) {
 // words every stale approval ends in, and the ask to be open still.
 func (y *askYard) refusedStale(t *testing.T, seq uint64, want string) {
 	t.Helper()
-	_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	_, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err == nil || !strings.Contains(err.Error(), want) || !strings.HasSuffix(err.Error(), nothingRan) {
 		t.Fatalf("ApproveAsk = %v, want %q and then %q", err, want, nothingRan)
 	}
@@ -190,7 +190,7 @@ func TestRunAskSourceLimit(t *testing.T) {
 	if _, err := y.SetSource(y.ctx, "crm", SourceUpdatesPerHour, "3", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestRunAskSourceLimit(t *testing.T) {
 		run.Back != "yardr source set crm updates_per_hour=3" {
 		t.Fatalf("the ask for updates stores %+v", run)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err != nil || y.source(t).UpdatesPerHour != 2 {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err != nil || y.source(t).UpdatesPerHour != 2 {
 		t.Fatalf("the approval = %v, the source %+v", err, y.source(t))
 	}
 }
@@ -379,7 +379,7 @@ func TestRunAskGrant(t *testing.T) {
 	}
 
 	writes := y.writes(t)
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestRunAskGrant(t *testing.T) {
 		", with the credential the yard holds for it, which changes something there. It is granted read (every read call) of crm now."; run.Does[0] != want {
 		t.Fatalf("the sentence of an update call = %q, want %q", run.Does[0], want)
 	}
-	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil || done.Result != "group builders may call crm: note (update), read" {
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err != nil || done.Result != "group builders may call crm: note (update), read" {
 		t.Fatalf("the approval = %+v, %v", done, err)
 	}
 	noteAsk, noteAt := seq, y.now
@@ -567,7 +567,7 @@ func TestRunAskGrantIsHeldToTheGrantee(t *testing.T) {
 	if _, err := y.GrantSource(y.ctx, "crm", "read", Grantee{Crew: "yardmaster"}, "", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
 		t.Fatalf("approving after read landed = %+v, %v", done, err)
 	}
@@ -586,10 +586,10 @@ func TestRunAskGrantAfterAnotherGrantLands(t *testing.T) {
 	y := listYard(t)
 	read := y.ask(t, listAsk("mckean", "source grant crm read --crew yardmaster"), "yardmaster")
 	note := y.ask(t, listAsk("mckean", "source grant crm note --crew yardmaster"), "yardmaster")
-	if done, err := y.ApproveAsk(y.ctx, y.bead, read, "mckean", false); err != nil || done.Result != "crew member yardmaster may call crm: read" {
+	if done, err := y.ApproveAsk(y.ctx, y.bead, read, "mckean", false, nil); err != nil || done.Result != "crew member yardmaster may call crm: read" {
 		t.Fatalf("approving read = %+v, %v", done, err)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, note, "mckean", true)
+	done, err := y.ApproveAsk(y.ctx, y.bead, note, "mckean", true, nil)
 	if err != nil || done.Result != "crew member yardmaster may call crm: note (update), read" {
 		t.Fatalf("approving note after read landed = %+v, %v", done, err)
 	}
@@ -797,14 +797,14 @@ func TestRunAskSubscribe(t *testing.T) {
 	}
 	const whose = "approving this command is mckean's, whom it was asked of: the yard runs it as them; "
 	for actor, want := range map[string]string{"yardmaster": whose + "yardmaster is a crew member", "ada": whose + "this is ada", "": whose + "this is nobody"} {
-		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor, false, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("an approval by %q = %v, want %q", actor, err, want)
 		}
 	}
 	if got := y.subs(t, "mckean"); len(got) != 0 {
 		t.Fatalf("refused approvals subscribed mckean to %v", got)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,10 +848,10 @@ func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
 		t.Fatalf("the card:\n%s", strings.Join(card, "\n"))
 	}
 	// The operator is not the one asked.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean", false); err == nil || !strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
 		t.Fatalf("the operator's approval of ada's ask = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada", false); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ := y.EventsOfKind(y.ctx, "subscribed", 10)
@@ -864,10 +864,10 @@ func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
 	}
 	// The operator, asked for another of ada's, approves it for them.
 	for_ := y.ask(t, listAsk("mckean", "subscribe ada yardr --where kind=held"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "ada", false); err == nil || !strings.Contains(err.Error(), "approving this command is mckean's, whom it was asked of") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "ada", false, nil); err == nil || !strings.Contains(err.Error(), "approving this command is mckean's, whom it was asked of") {
 		t.Fatalf("ada's approval of the operator's ask = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "mckean", false); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "mckean", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := y.subs(t, "ada"); !slices.Equal(got, []string{"yardr all state=done", "yardr all kind=held"}) {
@@ -882,7 +882,7 @@ func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
 	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserRole: RoleMember}, "bo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or an operator's for them, and mckean is neither now") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or an operator's for them, and mckean is neither now") {
 		t.Fatalf("an approval by a former operator = %v", err)
 	}
 	if got := y.subs(t, "ada"); len(got) != 2 {
@@ -895,7 +895,7 @@ func TestRunAskSubscribeIsTheUsersOrTheOperators(t *testing.T) {
 		t.Fatalf("an ask of another user in a yard with no operator = %v", err)
 	}
 	alone := y.ask(t, listAsk("ada", "subscribe ada yardr --where kind=closed"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, alone, "ada", false); err != nil || len(y.subs(t, "ada")) != 3 {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, alone, "ada", false, nil); err != nil || len(y.subs(t, "ada")) != 3 {
 		t.Fatalf("ada's own approval in a yard with no operator = %v, and ada subscribes to %v", err, y.subs(t, "ada"))
 	}
 }
@@ -1010,14 +1010,14 @@ func TestRunAskUserTell(t *testing.T) {
 	}
 	const whose = "approving this command is mckean's, whom it was asked of: the yard runs it as them; "
 	for actor, want := range map[string]string{"yardmaster": whose + "yardmaster is a crew member", "ada": whose + "this is ada", "": whose + "this is nobody"} {
-		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor, false); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, actor, false, nil); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("an approval by %q = %v, want %q", actor, err, want)
 		}
 	}
 	if got := y.tell(t, "mckean"); got != "" {
 		t.Fatalf("refused approvals set mckean's tell to %q", got)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1072,10 +1072,10 @@ func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
 		t.Fatalf("the card:\n%s", strings.Join(card, "\n"))
 	}
 	// The operator is not the one asked.
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean", false); err == nil || !strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "approving this command is ada's, whom it was asked of") {
 		t.Fatalf("the operator's approval of ada's ask = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada", false); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, own, "ada", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ := y.EventsOfKind(y.ctx, "user_set", 10)
@@ -1084,10 +1084,10 @@ func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
 	}
 	// The operator, asked for another of ada's, approves it for them.
 	for_ := y.ask(t, listAsk("mckean", "user set ada tell=mail,asks"), "yardmaster")
-	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "ada", false); err == nil || !strings.Contains(err.Error(), "approving this command is mckean's, whom it was asked of") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "ada", false, nil); err == nil || !strings.Contains(err.Error(), "approving this command is mckean's, whom it was asked of") {
 		t.Fatalf("ada's approval of the operator's ask = %v", err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "mckean", false); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, for_, "mckean", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ = y.EventsOfKind(y.ctx, "user_set", 10)
@@ -1104,7 +1104,7 @@ func TestRunAskUserTellIsTheUsersOrTheOperators(t *testing.T) {
 	if _, err := y.SetUser(y.ctx, "mckean", map[string]string{UserRole: RoleMember}, "bo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or an operator's for them, and mckean is neither now") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, late, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "this command is ada's own to approve, or an operator's for them, and mckean is neither now") {
 		t.Fatalf("an approval by a former operator = %v", err)
 	}
 	if got := y.tell(t, "ada"); got != "mail,asks" {
@@ -1157,7 +1157,7 @@ func TestRunAskUserTellIsHeldToWhereTheUserIsTold(t *testing.T) {
 	if err := y.DeleteUser(y.ctx, "ada", "mckean"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, gone, "mckean", false); err == nil || !strings.Contains(err.Error(), "and ada is none. Nothing ran.") {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, gone, "mckean", false, nil); err == nil || !strings.Contains(err.Error(), "and ada is none. Nothing ran.") {
 		t.Fatalf("an approval for a user who is gone = %v", err)
 	}
 }
@@ -1191,7 +1191,7 @@ func TestRunAskUserTellDropsWhatWaited(t *testing.T) {
 	if got := waiting(); !slices.Equal(got, []string{"ada " + PushMail, "ada " + PushAsk}) {
 		t.Fatalf("before the approval, what waits is %v", got)
 	}
-	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", false); err != nil {
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "ada", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := waiting(); slices.Contains(got, "ada "+PushMail) {
@@ -1337,7 +1337,7 @@ func TestRunAskHookPublicURL(t *testing.T) {
 	if run.Back != `yardr settings set hook_public_url ""` || run.BackBy != "only the operator" {
 		t.Fatalf("the take-back is %q by %q", run.Back, run.BackBy)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1733,7 +1733,7 @@ func TestRunAskCrewIdentity(t *testing.T) {
 	if len(run.Seen["crew yardmaster"]) != 64 || len(run.Seen["source crm"]) != 64 {
 		t.Fatalf("the ask keeps seen %q, want SHA-256 hashes of the crew member and the source", run.Seen)
 	}
-	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1835,7 +1835,7 @@ identity:
 	if want := "folding carries keys lowercase, so YardMaster is stored as yardmaster."; !slices.Contains(run.Does, want) {
 		t.Fatalf("the card says %q, want it to hold %q", run.Does, want)
 	}
-	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false); err != nil {
+	if done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err != nil {
 		t.Fatal(err)
 	} else if done.Result != "crew member yardmaster is yardmaster in folding" {
 		t.Fatalf("the approval ran %q", done.Result)

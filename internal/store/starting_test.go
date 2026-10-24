@@ -143,7 +143,7 @@ func TestRunAskIsNotWrittenOrApprovedWhileItsSessionIsStarting(t *testing.T) {
 	if _, err := api.AddAsk(call, b.ID, mailLimitAsk(), "jo"); err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("AddAsk from a starting session as jo = %v", err)
 	}
-	if _, err := api.ApproveAsk(call, b.ID, seq, "jo", false); err == nil || !strings.Contains(err.Error(), want) {
+	if _, err := api.ApproveAsk(call, b.ID, seq, "jo", false, nil); err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("ApproveAsk from a starting session as jo = %v", err)
 	}
 	me := os.Getpid()
@@ -158,7 +158,7 @@ func TestRunAskIsNotWrittenOrApprovedWhileItsSessionIsStarting(t *testing.T) {
 	if _, err := api.AddAsk(call, b.ID, mailLimitAsk(), "jo"); err == nil || !strings.Contains(err.Error(), whose) {
 		t.Errorf("AddAsk from the running session's pane as jo = %v", err)
 	}
-	if _, err := api.ApproveAsk(call, b.ID, seq, "jo", false); err == nil || !strings.Contains(err.Error(), whose) {
+	if _, err := api.ApproveAsk(call, b.ID, seq, "jo", false, nil); err == nil || !strings.Contains(err.Error(), whose) {
 		t.Errorf("ApproveAsk from the running session's pane as jo = %v", err)
 	}
 	if notes, err := api.Notes(ctx, b.ID); err != nil || len(notes) != 1 {

@@ -112,10 +112,11 @@ func (h *Hook) RegistersSecret() bool {
 }
 
 // HookRegister is how the yard registers a hook with the service: the
-// update call it makes, and which of that call's parameters take the
+// update call it makes, which of that call's parameters take the
 // webhook's public URL and, with scheme secret, the secret the yard
-// makes. Any other parameter of the call is fixed in its body or
-// optional, as the file says.
+// makes, and which the hook card asks the operator for in the clear.
+// Any other parameter of the call is fixed in its body or optional,
+// as the file says.
 type HookRegister struct {
 	Call string `json:"call"`
 	// URL is the parameter that takes the webhook's public URL
@@ -124,6 +125,33 @@ type HookRegister struct {
 	// Secret is the parameter that takes the hook's secret, with
 	// scheme secret; "" for a call that takes none.
 	Secret string `json:"secret,omitempty"`
+	// Ask are the call's parameters the hook card asks the
+	// operator for in the clear, in this order, and the approval
+	// carries to the call: a project's id, never a secret.
+	Ask []string `json:"ask,omitempty"`
+	// Existing is how a retry tells a webhook that stands already
+	// from one to register, nil for a call that is its own second
+	// run. The first approval always registers; a retry makes the
+	// check call first and adopts a webhook already aimed at the
+	// hook, so a call the service took but never answered is not
+	// made twice.
+	Existing *HookExisting `json:"existing,omitempty"`
+}
+
+// HookExisting is the check a retry makes before the register call:
+// the read call that lists what stands, the dot path to the list in
+// its answer, and the dot path in each listed webhook to the value
+// compared with the public URL.
+type HookExisting struct {
+	// Call is the read call that lists what stands, sent the public
+	// URL and the asked values, never the secret.
+	Call string `json:"call"`
+	// In is the dot path to the list of webhooks in the check
+	// call's answer (results).
+	In string `json:"in"`
+	// Field is the dot path in each listed webhook to the value
+	// compared with the public URL (inputs.url.value).
+	Field string `json:"field"`
 }
 
 // HookChallenge is a service's verification handshake, as data: a
@@ -339,15 +367,17 @@ func (r *reader) hook(e entry) *Hook {
 	return h
 }
 
-// hookRegister reads how the yard registers a hook: the call it makes
-// and which of its parameters take the public URL and the secret. That
-// the call is there and is an update, and that the parameters are its
-// own, is checked with the calls read (hookRegisterCheck in
-// declaration.go), since hook may stand before calls in the file.
+// hookRegister reads how the yard registers a hook: the call it makes,
+// which of its parameters take the public URL and the secret, which
+// the hook card asks the operator for, and how a retry tells what
+// stands already. That the calls are there and are an update and a
+// read, and that the parameters are their own, is checked with the
+// calls read (hookRegisterCheck in declaration.go), since hook may
+// stand before calls in the file.
 func (r *reader) hookRegister(e entry) *HookRegister {
 	reg := &HookRegister{}
 	var call, urlParam *entry
-	for _, f := range r.entries(e.v, e.path, "call", "url", "secret") {
+	for _, f := range r.entries(e.v, e.path, "call", "url", "secret", "ask", "existing") {
 		switch f.key {
 		case "call":
 			call = &f
@@ -363,6 +393,10 @@ func (r *reader) hookRegister(e entry) *HookRegister {
 			if s, ok := r.str(f.v, f.path); ok {
 				reg.Secret = s
 			}
+		case "ask":
+			reg.Ask = r.strs(f.v, f.path)
+		case "existing":
+			reg.Existing = r.hookExisting(f)
 		}
 	}
 	if e.v.Kind != yaml.MappingNode {
@@ -375,6 +409,55 @@ func (r *reader) hookRegister(e entry) *HookRegister {
 		r.errf(e.v, join(e.path, "url"), "missing: the parameter that takes the webhook's public URL")
 	}
 	return reg
+}
+
+// hookExisting reads how a retry tells a webhook that stands already:
+// the read call that lists what stands, the dot path to the list in
+// its answer, and the dot path in each listed webhook to the value
+// compared with the public URL.
+func (r *reader) hookExisting(e entry) *HookExisting {
+	ex := &HookExisting{}
+	var call, in, field *entry
+	for _, f := range r.entries(e.v, e.path, "call", "in", "field") {
+		switch f.key {
+		case "call":
+			call = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				ex.Call = s
+			}
+		case "in":
+			in = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				if !hookPath(s) {
+					r.errf(f.v, f.path, "%q: a dot path to the list of webhooks in the answer (results)", s)
+				} else {
+					ex.In = s
+				}
+			}
+		case "field":
+			field = &f
+			if s, ok := r.str(f.v, f.path); ok {
+				if !hookPath(s) {
+					r.errf(f.v, f.path, "%q: a dot path in each listed webhook to the value compared with the public URL (inputs.url.value)", s)
+				} else {
+					ex.Field = s
+				}
+			}
+		}
+	}
+	if e.v.Kind != yaml.MappingNode {
+		return ex
+	}
+	if call == nil {
+		r.errf(e.v, join(e.path, "call"), "missing: the read call that lists what stands")
+	}
+	if in == nil {
+		r.errf(e.v, join(e.path, "in"), "missing: the dot path to the list of webhooks in the answer (results)")
+	}
+	if field == nil {
+		r.errf(e.v, join(e.path, "field"), "missing: the dot path in each listed webhook to the value compared with the public URL (inputs.url.value)")
+	}
+	return ex
 }
 
 // hookVerify reads how the core proves a delivery came from the source:

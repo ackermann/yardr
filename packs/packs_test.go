@@ -1895,10 +1895,10 @@ func TestSlackPack(t *testing.T) {
 // The posthog pack is PostHog as an integration: of kind source, one
 // declared source with the read calls an agent makes of it (a HogQL
 // query, the error issues, one issue, the session recordings, one
-// recording, a session's Replay Vision observations) and the hook key
-// that hears a new error issue. The source is named posthog. Nothing of
-// it writes: every call is a read, and it has no thread, notify or link
-// key.
+// recording, a session's Replay Vision observations, the destinations
+// the register check scans) and the hook key that hears a new error
+// issue. The source is named posthog. One call writes: the destination
+// the hook card makes; it has no thread, notify or link key.
 func TestPostHogPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, "posthog")
 	if err != nil {
@@ -2058,6 +2058,79 @@ func TestPostHogPack(t *testing.T) {
 	if !reflect.DeepEqual(obs.Answer.Select, []string{"count", "next", "results"}) {
 		t.Fatalf("observations select = %+v", obs.Answer.Select)
 	}
+	// The destination call makes the webhook destination the hook hears
+	// through, from the webhook template as an internal destination,
+	// enabled, firing on the issue-created event alone. The hook card
+	// calls it once, with the public URL, the secret it made and the
+	// asked project; the body's globals stay the file's.
+	dst, ok := d.Call("destination")
+	if !ok || dst.Kind != source.Update || dst.Request.Method != "POST" || dst.Request.Path != "/api/projects/{project}/hog_functions/" {
+		t.Fatalf("destination call = %+v", dst)
+	}
+	project(dst)
+	dp := params(dst)
+	if u, ok := dp["url"]; !ok || u.Type != "string" || u.Max != 2048 || u.Optional {
+		t.Fatalf("destination url = %+v, want a required string of at most 2048", u)
+	}
+	if sc, ok := dp["secret"]; !ok || sc.Type != "string" || sc.Max != 256 || sc.Optional {
+		t.Fatalf("destination secret = %+v, want a required string of at most 256", sc)
+	}
+	for name, glob := range map[string]string{"event_global": "{event}", "person_global": "{person}", "project_global": "{project}"} {
+		if g, ok := dp[name]; !ok || g.Type != "string" || string(g.Default) != `"`+glob+`"` || !g.Optional {
+			t.Fatalf("destination %s = %+v, want the %s global fixed by the file", name, g, glob)
+		}
+	}
+	dbody, _ := dst.Request.Body.(map[string]any)
+	if dbody["name"] != "yardr" || dbody["type"] != "internal_destination" ||
+		dbody["template_id"] != "template-webhook" || dbody["enabled"] != true {
+		t.Fatalf("destination body = %v", dst.Request.Body)
+	}
+	dinputs, _ := dbody["inputs"].(map[string]any)
+	dvalue := func(key string) any {
+		m, _ := dinputs[key].(map[string]any)
+		return m["value"]
+	}
+	if dvalue("url") != "{url}" || dvalue("method") != "POST" {
+		t.Fatalf("destination inputs = %v", dinputs)
+	}
+	dmsg, _ := dvalue("body").(map[string]any)
+	if dmsg["event"] != "{event_global}" || dmsg["person"] != "{person_global}" || dmsg["project"] != "{project_global}" {
+		t.Fatalf("destination body input = %v", dvalue("body"))
+	}
+	dsecret, _ := dvalue("secret_headers").(map[string]any)
+	if dsecret["X-Yardr-Secret"] != "{secret}" {
+		t.Fatalf("destination secret headers = %v", dvalue("secret_headers"))
+	}
+	dfilters, _ := dbody["filters"].(map[string]any)
+	devents, _ := dfilters["events"].([]any)
+	if dfilters["source"] != "internal-events" || len(devents) != 1 {
+		t.Fatalf("destination filters = %v", dfilters)
+	}
+	devent, _ := devents[0].(map[string]any)
+	if devent["id"] != "$error_tracking_issue_created" || devent["type"] != "events" {
+		t.Fatalf("destination event = %v", devent)
+	}
+	// The destinations call lists the internal destinations named
+	// yardr, with their inputs: the register check's own call, which
+	// a retry scans for the public URL before it registers again.
+	dl, ok := d.Call("destinations")
+	if !ok || dl.Kind != source.Read || dl.Request.Method != "GET" || dl.Request.Path != "/api/projects/{project}/hog_functions/" {
+		t.Fatalf("destinations call = %+v", dl)
+	}
+	project(dl)
+	if len(dl.Params) != 1 {
+		t.Fatalf("destinations params = %+v, want the project alone", dl.Params)
+	}
+	var sent []string
+	for _, kv := range dl.Request.Query {
+		sent = append(sent, kv.Key+"="+kv.Value)
+	}
+	if !slices.Equal(sent, []string{"type=internal_destination", "full=true", "search=yardr"}) {
+		t.Fatalf("destinations query = %q", sent)
+	}
+	if !reflect.DeepEqual(dl.Answer.Select, []string{"results"}) || dl.Answer.Max != 262144 {
+		t.Fatalf("destinations answer = %+v, want the results selected within 256 KiB", dl.Answer)
+	}
 	// The check call reads who the key acts as, a read without
 	// parameters, as a check must be.
 	if d.Check != "whoami" {
@@ -2075,18 +2148,26 @@ func TestPostHogPack(t *testing.T) {
 	}
 	// The hook is verified by the secret in its header, compared as it
 	// arrives, and a repeated delivery is told by the event's own id.
+	// The yard registers it itself on the hook card, asking for the
+	// project in the clear.
 	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret ||
 		h.Verify.Signature.Header != "X-Yardr-Secret" || h.Verify.Delivery.Body != "event.uuid" ||
 		h.Bodies != source.BodiesUnique || !reflect.DeepEqual(h.Keys, []string{"project", "session", "replay"}) ||
-		!reflect.DeepEqual(h.Normalize, []string{"posthog/normalize"}) || h.Register != nil {
+		!reflect.DeepEqual(h.Normalize, []string{"posthog/normalize"}) {
 		t.Fatalf("hook = %+v", d.Hook)
+	}
+	if r := d.Hook.Register; r == nil || r.Call != "destination" || r.URL != "url" || r.Secret != "secret" ||
+		!slices.Equal(r.Ask, []string{"project"}) || r.Existing == nil || r.Existing.Call != "destinations" ||
+		r.Existing.In != "results" || r.Existing.Field != "inputs.url.value" {
+		t.Fatalf("register = %+v, want the destination call with url, secret, ask [project] and the destinations check", r)
 	}
 	// Its setup notes: the key and its scopes, the project id, the apply,
 	// the key given to the yard by a command or on a card, the grant and
-	// the test calls, the hook's secret made by the operator, the
-	// destination in PostHog with its body and header, and hearing new
-	// issues in an inbox or as beads. The secret is generated into its
-	// file, never typed as a command's word.
+	// the test calls, the hook's destination made by the card with the
+	// asked project, the fallback with the secret made by the operator
+	// and the destination in PostHog with its body and header, and
+	// hearing new issues in an inbox or as beads. The secret is generated
+	// into its file, never typed as a command's word.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -2097,10 +2178,12 @@ func TestPostHogPack(t *testing.T) {
 		"user:read",
 		"session_recording:read",
 		"replay_scanner:read",
+		"hog_function:read",
+		"hog_function:write",
 		"POSTHOG_API_KEY",
 		"Project ID",
 		"yardr pack apply posthog\n",
-		"7 calls under https://us.posthog.com",
+		"9 calls under https://us.posthog.com",
 		"~/.yardr/sources/posthog.env",
 		"yardr source key posthog ",
 		"--secret posthog --context",
@@ -2121,13 +2204,19 @@ func TestPostHogPack(t *testing.T) {
 		"reading what it wrote costs nothing here",
 		"never asks PostHog to run one",
 		"carry the session and its replay link beside the",
+		"hook_public_url",
+		"--run \"hook add posthog --source posthog\"",
+		"--approve --value project=<id>",
+		"destination in error tracking's alerting settings too",
 		"umask 077",
 		"openssl rand -base64 32 | tr '+/' '-_' | tr -d '=' > ~/.yardr/posthog.secret",
 		"chmod 600 ~/.yardr/posthog.secret",
 		"yardr hook add posthog --source posthog --secret-file ~/.yardr/posthog.secret\n",
+		"Go back to traditional editor",
+		"HTTP Webhook on issue created",
 		"https://<public host>/hooks/posthog",
 		`{"event": "{event}", "person": "{person}", "project": "{project}"}`,
-		"**Headers**",
+		"**Secret headers**",
 		"X-Yardr-Secret",
 		"$error_tracking_issue_created",
 		"yardr subscribe <hearer> posthog --scope all --where type=error_issue",

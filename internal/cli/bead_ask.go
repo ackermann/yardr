@@ -784,6 +784,7 @@ func (a *app) newBeadAnswerCmd() *cobra.Command {
 	var ansWords, ansDecline, ansAccount string
 
 	var ansLater, ansSecret, ansApprove bool
+	var ansValue []string
 	answer := &cobra.Command{
 		Use:   "answer <id> <ask> [<n> [words]]",
 		Short: "Answer an ask: pick an option, answer with words, give a secret, approve a command, put it aside, or decline it",
@@ -801,6 +802,7 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> <n> --account <source>   pick a setup ask's preset, taking a listed account
   yardr bead answer <id> <ask> <n>                 pick a drift card's preset, keeping the standing account
   yardr bead answer <id> <ask> --approve           approve the command a run ask proposes
+  yardr bead answer <id> <ask> --approve --value <name>=<value>   approve it giving the values the card asks for
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
 the ask's options as shown, "You decide" last.
@@ -874,6 +876,13 @@ that takes the change back and who may run it: anyone, but for a source's
 limits (the operator) and a user's subscription (the user or the
 operator).
 
+A card that asks for values in the clear (a hook add the yard registers
+itself, whose register call wants the project's id) is approved with
+--value <name>=<value>, repeatable, one for each name the card shows:
+the yard sends them to the register call with the URL and the secret,
+and keeps none. A name the card asks for nothing of, and a missing one,
+refuse the approval and nothing runs.
+
 A weighty card is one whose approval widens what reaches outside the yard,
 whose word or credential counts as a person's, or what runs inside it; its
 WEIGHTY lines say how, and every secret ask and every setup ask is one. The
@@ -921,7 +930,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				return fmt.Errorf("--secret types the account and --account takes a listed one: one of the two")
 			}
 			if ansAccount != "" {
-				if len(args) != 3 || ansWords != "" || ansLater || declined {
+				if len(args) != 3 || ansWords != "" || ansLater || declined || len(ansValue) > 0 {
 					return fmt.Errorf("--account takes a candidate of a setup ask with its preset pick: yardr bead answer %s %d <n> --account <source>", id, askSeq)
 				}
 				n, pickErr := strconv.Atoi(args[2])
@@ -931,9 +940,9 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 				return a.approveSetupAccount(c, st, id, askSeq, n, ansAccount)
 			}
 			if ansSecret {
-				if len(args) > 2 || ansWords != "" || ansLater || declined {
+				if len(args) > 2 || ansWords != "" || ansLater || declined || len(ansValue) > 0 {
 					// A pick with --secret settles a setup ask alone.
-					if len(args) == 3 && ansWords == "" && !ansLater && !declined {
+					if len(args) == 3 && ansWords == "" && !ansLater && !declined && len(ansValue) == 0 {
 						if n, pickErr := strconv.Atoi(args[2]); pickErr == nil && n >= 1 {
 							return a.approveSetup(c, st, id, askSeq, n)
 						}
@@ -947,13 +956,21 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 			}
 			if ansApprove {
 				if len(args) > 2 || ansWords != "" || ansLater || declined {
-					return fmt.Errorf("--approve runs the command the ask holds and takes nothing else")
+					return fmt.Errorf("--approve runs the command the ask holds, with --value alone beside it")
+				}
+				values := map[string]string{}
+				for _, kv := range ansValue {
+					name, value, ok := strings.Cut(kv, "=")
+					if !ok || name == "" || value == "" {
+						return fmt.Errorf("--value %q: want <name>=<value>, one the card asks for", kv)
+					}
+					values[name] = value
 				}
 				weighed, err := a.gate(c, st, id, askSeq, "approve", "--approve")
 				if err != nil {
 					return err
 				}
-				done, err := st.ApproveAsk(c.Context(), id, askSeq, a.who(), weighed)
+				done, err := st.ApproveAsk(c.Context(), id, askSeq, a.who(), weighed, values)
 				if err != nil {
 					return err
 				}
@@ -965,6 +982,9 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 					}
 					fmt.Fprintf(w, "%s approved it, and the yard ran it:\n%s\n", a.who(), done.Result)
 				})
+			}
+			if len(ansValue) > 0 {
+				return fmt.Errorf("--value gives the values an approval carries, with --approve")
 			}
 			ans := store.Answer{Ask: askSeq}
 			if len(args) >= 3 {
@@ -1030,6 +1050,7 @@ options go as mail to the asker instead (yardr mail <asker>@<peer>).`,
 	answer.Flags().BoolVar(&ansLater, "later", false, "put the ask aside for 24 hours, or until the asker's next note on the bead")
 	answer.Flags().StringVar(&ansDecline, "decline", "", "end the ask with no option picked: why you will not decide it (\"\" on a secret ask, which takes no words)")
 	answer.Flags().BoolVar(&ansApprove, "approve", false, "approve the command a run ask proposes: the yard runs it as you, exactly as the card shows it")
+	answer.Flags().StringArrayVar(&ansValue, "value", nil, "with --approve: <name>=<value> the approval gives in the clear, one the card asks for (repeatable)")
 	answer.Flags().BoolVar(&ansSecret, "secret", false, "give the secret a secret ask asks for: typed unseen at a terminal, after its card's gate")
 	answer.Flags().StringVar(&ansAccount, "account", "", "with a preset pick on a setup ask: take this listed candidate's account instead of typing one")
 	return answer

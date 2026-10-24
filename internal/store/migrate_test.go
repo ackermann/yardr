@@ -2262,7 +2262,7 @@ func TestSchema28GrantsGainGiven(t *testing.T) {
 		seq, err := s.AddAsk(ctx, bead.ID, store.Ask{Question: "May it?", To: "jo", Context: []string{"the import."},
 			Run: &store.AskRun{Argv: []string{command}}}, "yardmaster")
 		must(err)
-		_, err = s.ApproveAsk(ctx, bead.ID, seq, "jo", true)
+		_, err = s.ApproveAsk(ctx, bead.ID, seq, "jo", true, nil)
 		must(err)
 		return seq
 	}

@@ -106,7 +106,7 @@ var Calls = map[string][]string{
 // a secret among it, so it is the operator's to read and no one else's.
 var OperatorCalls = map[string][]string{
 	"GiveSecret":    {"bead", "ask", "values", "actor", "weighed"},
-	"ApproveAsk":    {"bead", "ask", "actor", "weighed"},
+	"ApproveAsk":    {"bead", "ask", "actor", "weighed", "values"},
 	"ApproveSetup":  {"bead", "ask", "option", "values", "account", "actor", "weighed"},
 	"SourceGrants":  {"source"},
 	"SessionScreen": {"session"},
