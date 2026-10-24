@@ -115,7 +115,7 @@ func TestYardsSayWhomTheyExpose(t *testing.T) {
 			t.Fatalf("mail to %s, whom b exposes = %v", to, err)
 		}
 	}
-	box, err := b.api.UserInbox(ctx, "mckean", 0)
+	box, err := b.api.UserInbox(ctx, "mckean", 0, "mckean")
 	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "scout@a" || box.Mail[0].Text != "for mckean" || box.Mail[0].Read {
 		t.Fatalf("mckean's inbox = %+v, %v", box, err)
 	}

@@ -93,7 +93,7 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 		t.Fatalf("a note has a commit: %+v", noted)
 	}
 	// It is no mail, to nobody: not in ada's mail, not in the log as mail.
-	if box, err := s.UserInbox(ctx, "ada", 0); err != nil || len(box.Mail) != 0 || box.Unread != 0 {
+	if box, err := s.UserInbox(ctx, "ada", 0, "ada"); err != nil || len(box.Mail) != 0 || box.Unread != 0 {
 		t.Fatalf("ada's mail = %+v, %v", box, err)
 	}
 	evs, err := s.EventsSince(ctx, head, 0)
@@ -369,7 +369,7 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 	note("n3")
 	counts := func() string {
 		t.Helper()
-		box, err := s.UserInbox(ctx, "ada", 0)
+		box, err := s.UserInbox(ctx, "ada", 0, "ada")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -399,8 +399,8 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 	}
 
 	// All the mail, which lies after every notification but the last.
-	box, _ := s.UserInbox(ctx, "ada", 0)
-	if err := s.AckUserInbox(ctx, "ada", box.Last); err != nil {
+	box, _ := s.UserInbox(ctx, "ada", 0, "ada")
+	if err := s.AckUserInbox(ctx, "ada", box.Last, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if got := counts(); got != "mail 0 notifications 1" {

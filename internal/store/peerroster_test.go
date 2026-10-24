@@ -202,7 +202,7 @@ func TestPeerMailToTheExposed(t *testing.T) {
 	if got := take(mail("m1", "ada", "yardmaster", "the build is green")); got != "" {
 		t.Fatalf("mail to an exposed user = %q", got)
 	}
-	box, err := y.api.UserInbox(y.ctx, "ada", 0)
+	box, err := y.api.UserInbox(y.ctx, "ada", 0, "ada")
 	if err != nil || box.Unread != 1 || len(box.Mail) != 1 || box.Mail[0].From != "yardmaster@north" || box.Mail[0].To != "ada" || box.Mail[0].Text != "the build is green" {
 		t.Fatalf("ada's inbox = %+v, %v", box, err)
 	}

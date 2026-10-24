@@ -146,6 +146,11 @@ func northAsk() Ask {
 func TestPeerAnswerLands(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
+	// The pick by hand below is the operator's: the ask is another
+	// yard's person's to answer, and nobody else's here.
+	if err := y.SetSetting(y.ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
 	bead, seq := y.asked(t, northAsk())
 
 	pick := y.answer(peerAnswer{From: "mckean", Bead: bead, Seq: seq, Option: 1, Words: "tonight"})
@@ -200,6 +205,11 @@ func TestPeerAnswerLands(t *testing.T) {
 func TestPeerAnswerLaterDeclineWords(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
+	// The pick by hand below is the operator's: the ask is another
+	// yard's person's to answer, and nobody else's here.
+	if err := y.SetSetting(y.ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
 	bead, seq := y.asked(t, northAsk())
 
 	if got := y.take(t, y.answer(peerAnswer{From: "mckean", Bead: bead, Seq: seq, Later: true})); got.Refused != "" {
@@ -734,6 +744,11 @@ func TestForeignAnswerRefusedByPull(t *testing.T) {
 func TestPeerAskUndelivered(t *testing.T) {
 	// Sequential: the package's fake clock (via newHomeYard).
 	y := newHomeYard(t)
+	// The answer by hand below is the operator's: the ask is another
+	// yard's person's to answer, and nobody else's here.
+	if err := y.SetSetting(y.ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
 	bead, seq := y.asked(t, northAsk())
 	out, _ := y.outbox(t)
 	if err := y.PeerRefused(y.ctx, "north", out[0].Seq, "peer north: refused by the peer: "+PeerRefusal("north", PeerAsk, RefusedNotExposed)); err != nil {

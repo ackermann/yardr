@@ -87,6 +87,9 @@ func TestUserCommands(t *testing.T) {
 		len(views) != 2 || views[0].Name != "ada" || views[0].Operator || views[1].Name != "jo" || !views[1].Operator {
 		t.Fatalf("list --json = %+v, %v", views, err)
 	}
+	if views[0].UnreadHidden || !views[1].UnreadHidden {
+		t.Fatalf("list as a member hides %+v, want only another user's unread hidden", views)
+	}
 
 	// A crew member's session, another user and a bead's agent: none of them
 	// says who is a party of the yard.
@@ -112,6 +115,12 @@ func TestUserCommands(t *testing.T) {
 	}
 	if out := mustAs(t, st, "jo", "user", "show", "jo"); !strings.Contains(out, "the yard's operator") || !strings.Contains(out, "inbox: nothing unread") {
 		t.Fatalf("show jo:\n%s", out)
+	}
+	if out := mustAs(t, st, "ada", "user", "show", "jo"); !strings.Contains(out, "inbox: another user's, not shown") {
+		t.Fatalf("show jo as a member:\n%s", out)
+	}
+	if out := mustAs(t, st, "ada", "user", "show", "ada"); !strings.Contains(out, "inbox: 1 unread from yardmaster") {
+		t.Fatalf("show ada as ada:\n%s", out)
 	}
 	if _, err := as(t, st, "jo", "user", "show", "nobody"); exitCode(err) != 3 {
 		t.Fatalf("show of no user: %v", err)
@@ -203,7 +212,7 @@ func TestMailAUser(t *testing.T) {
 	}
 
 	// --ack through the first of two, then the rest.
-	mailBox, err := st.UserInbox(context.Background(), "jo", 0)
+	mailBox, err := st.UserInbox(context.Background(), "jo", 0, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +226,7 @@ func TestMailAUser(t *testing.T) {
 	if unread < 0 || read < unread {
 		t.Fatalf("unread is not first:\n%s", out)
 	}
-	mailBox, err = st.UserInbox(context.Background(), "jo", 1)
+	mailBox, err = st.UserInbox(context.Background(), "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +345,7 @@ func TestMailWith(t *testing.T) {
 	}
 	mustAs(t, st, "yardmaster", "inbox", "-n", "1", "--ack", fmt.Sprint(crewBox.Events[0].Seq))
 	env["YARDR_CREW"] = ""
-	mailBox, err := st.UserInbox(context.Background(), "jo", 1)
+	mailBox, err := st.UserInbox(context.Background(), "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +470,7 @@ func TestUnreadMailIsSaid(t *testing.T) {
 		t.Fatalf("reading wrote to the store: head %d, was %d", after, before)
 	}
 
-	mailBox, err := st.UserInbox(ctx, "jo", 1)
+	mailBox, err := st.UserInbox(ctx, "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

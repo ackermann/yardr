@@ -77,7 +77,7 @@ func TestInboxReadsAnswers(t *testing.T) {
 	}
 
 	if _, err := run(t, yard.beadCmd(), "ask", id, "Or this?", "--context", "why.",
-		"--option", "Yes: it happens"); err != nil {
+		"--option", "Yes: it happens", "--to", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run(t, me.beadCmd(), "answer", id, "7", "2"); err != nil {

@@ -118,11 +118,11 @@ func TestTrustedNameIsOneHistoryAcrossYards(t *testing.T) {
 	}
 
 	// Unread for mckean at home is the one mail written to them there.
-	box, err := home.api.UserInbox(ctx, "mckean", 0)
+	box, err := home.api.UserInbox(ctx, "mckean", 0, "mckean")
 	if err != nil || box.Unread != 1 || box.Last != all[3].Seq || len(box.Mail) != 1 {
 		t.Fatalf("mckean's inbox at home = %+v, %v", box, err)
 	}
-	must(home.api.AckUserInbox(ctx, "mckean", all[4].Seq))
+	must(home.api.AckUserInbox(ctx, "mckean", all[4].Seq, "mckean"))
 	if read := home.events(t, "mail_read"); len(read) != 1 || read[0].Data["reader"] != "mckean" {
 		t.Fatalf("mail_read = %+v", read)
 	}

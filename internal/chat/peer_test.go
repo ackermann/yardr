@@ -300,7 +300,7 @@ func TestTrustedNameIsTheUsersConversation(t *testing.T) {
 	if out, err := st.PeerOutbox(ctx, "north", 0); err != nil || len(out) != 0 {
 		t.Fatalf("the outbox for north = %+v, %v", out, err)
 	}
-	box, err := st.UserInbox(ctx, "mckean", 5)
+	box, err := st.UserInbox(ctx, "mckean", 5, "mckean")
 	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != me || box.Mail[0].Text != "which yard are you at?" {
 		t.Fatalf("mckean's inbox = %+v, %v", box, err)
 	}
@@ -402,7 +402,7 @@ func TestAnswerReachesWhoWroteLast(t *testing.T) {
 		Trust: map[string]string{"mckean": "mckean"}})
 	local := func() []store.Letter {
 		t.Helper()
-		box, err := st.UserInbox(ctx, "mckean", 0)
+		box, err := st.UserInbox(ctx, "mckean", 0, "mckean")
 		must(t, err)
 		return box.Mail
 	}
@@ -450,7 +450,7 @@ func TestAnswerReachesWhoWroteLast(t *testing.T) {
 	if n := carry(t, own, "north", key, north, "yard", yardKey); n != 1 {
 		t.Fatalf("this yard handed over %d messages", n)
 	}
-	box, err := north.UserInbox(ctx, "mckean", 0)
+	box, err := north.UserInbox(ctx, "mckean", 0, "mckean")
 	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "ada@yard" || box.Mail[0].Text != "works" {
 		t.Fatalf("mckean's inbox at north = %+v, %v", box, err)
 	}
@@ -519,7 +519,7 @@ func TestNoAnswerBeforeTheConversationIsRead(t *testing.T) {
 	v.typed("works")
 	v.key(tea.KeyEnter)
 	v.shows("the conversation with mckean is still being read", "> works")
-	if box, err := st.UserInbox(ctx, "mckean", 0); err != nil || len(box.Mail) != 0 {
+	if box, err := st.UserInbox(ctx, "mckean", 0, "mckean"); err != nil || len(box.Mail) != 0 {
 		t.Fatalf("mckean's inbox in this yard = %+v, %v", box, err)
 	}
 	// Read, it goes to the one who wrote.
@@ -528,7 +528,7 @@ func TestNoAnswerBeforeTheConversationIsRead(t *testing.T) {
 	if out, err := st.PeerOutbox(ctx, "north", 0); err != nil || len(out) != 1 {
 		t.Fatalf("the outbox for north = %+v, %v", out, err)
 	}
-	if box, err := st.UserInbox(ctx, "mckean", 0); err != nil || len(box.Mail) != 0 {
+	if box, err := st.UserInbox(ctx, "mckean", 0, "mckean"); err != nil || len(box.Mail) != 0 {
 		t.Fatalf("mckean's inbox in this yard = %+v, %v", box, err)
 	}
 }

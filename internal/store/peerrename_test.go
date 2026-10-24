@@ -263,7 +263,7 @@ func TestPeerRenameUserInbox(t *testing.T) {
 	if got, err := y.own.PeerReceive(y.ctx, "up", y.key, []store.PeerMessage{mail("m2", "ada", "mckean", "after rename")}); err != nil || got[0].Refused != "" {
 		t.Fatalf("mail to ada after rename = %+v, %v", got, err)
 	}
-	box, err := y.api.UserInbox(y.ctx, "ada", 0)
+	box, err := y.api.UserInbox(y.ctx, "ada", 0, "ada")
 	if err != nil || box.Unread != 2 || !slices.Equal(box.From, []string{"mckean@up"}) || len(box.Mail) != 2 || box.Mail[0].From != "mckean@up" || box.Mail[1].From != "mckean@up" {
 		t.Fatalf("ada's inbox after north was renamed up = %+v, %v", box, err)
 	}

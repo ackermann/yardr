@@ -3,11 +3,13 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"strings"
 	"testing"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // unreadableTrusts is a store whose links cannot be read: Peers fails,
@@ -79,9 +81,21 @@ func TestReviewMarksForeignNoteWhenTrustsUnreadable(t *testing.T) {
 func TestAskConfirmationMarksForeignAnswerWhenTrustsUnreadable(t *testing.T) {
 	t.Parallel()
 	st, ctx := waitingYard(t)
+	// The answer below is a's jo's, on an ask put to them: only the
+	// addressee answers.
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddPeer(ctx, store.Peer{Name: "a", Key: yardkey.Public(key)}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AllowPeer(ctx, "a", store.PeerAllow{Send: []string{store.PeerAsk}}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	seq, err := st.AddAsk(ctx, "yard-1", store.Ask{
 		Question: "Move the links now?",
-		To:       "me",
+		To:       "jo@a",
 		Context:  []string{"64 links still point at the old source."},
 		Options:  []store.AskOption{{Label: "Move them now", Consequence: "all 64 links move tonight"}},
 	}, "me")

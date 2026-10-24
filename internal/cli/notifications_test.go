@@ -218,7 +218,7 @@ func TestUserInboxParts(t *testing.T) {
 	if err := st.Mail(ctx, "jo", "still there?", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	mailBox, err := st.UserInbox(ctx, "jo", 1)
+	mailBox, err := st.UserInbox(ctx, "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 	if after, _ := st.Head(ctx); after != before {
 		t.Fatalf("reading wrote to the store: head %d, was %d", after, before)
 	}
-	if show := mustAs(t, st, "ada", "user", "show", "jo"); !strings.Contains(show, "  inbox: 3 unread from yardmaster, ada\n  2 notifications unread\n") {
+	if show := mustAs(t, st, "jo", "user", "show", "jo"); !strings.Contains(show, "  inbox: 3 unread from yardmaster, ada\n  2 notifications unread\n") {
 		t.Fatalf("user show:\n%s", show)
 	}
 	// Another user's, and a crew member's, say nothing of jo's.
@@ -287,7 +287,7 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 	if bare := mustAs(t, st, "jo"); !strings.HasSuffix(bare, "\nMail for jo: 3 unread from yardmaster, ada (yardr inbox).\n") {
 		t.Fatalf("bare yardr after the notifications were read:\n%s", bare)
 	}
-	mailBox, err := st.UserInbox(ctx, "jo", 1)
+	mailBox, err := st.UserInbox(ctx, "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

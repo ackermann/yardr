@@ -72,12 +72,12 @@ func TestReplyToLocalMail(t *testing.T) {
 	if err != nil || out != "mail sent to jo\n" {
 		t.Fatalf("reply = %q, %v", out, err)
 	}
-	jo, err := st.UserInbox(ctx, "jo", 10)
+	jo, err := st.UserInbox(ctx, "jo", 10, "jo")
 	if err != nil || jo.Unread != 1 || len(jo.Mail) != 1 ||
 		jo.Mail[0].Text != "Friday; I'll post here when it lands." || jo.Mail[0].From != "yardmaster" {
 		t.Fatalf("jo's inbox = %+v, %v", jo, err)
 	}
-	ada, err := st.UserInbox(ctx, "ada", 10)
+	ada, err := st.UserInbox(ctx, "ada", 10, "ada")
 	if err != nil || ada.Unread != 0 {
 		t.Fatalf("ada's inbox = %+v, %v", ada, err)
 	}
@@ -93,7 +93,7 @@ func TestReplyToLocalMail(t *testing.T) {
 		res["crew"] != "yardmaster" || res["sent"] != "ok" || fmt.Sprint(res["seq"]) != seq {
 		t.Fatalf("json reply = %q, %v", out, err)
 	}
-	jo, _ = st.UserInbox(ctx, "jo", 10)
+	jo, _ = st.UserInbox(ctx, "jo", 10, "jo")
 	if jo.Unread != 2 {
 		t.Fatalf("jo's inbox after the second reply = %+v", jo)
 	}
@@ -116,7 +116,7 @@ func TestReplyLongMail(t *testing.T) {
 	if err != nil || out != "3 mails sent to jo\n" {
 		t.Fatalf("reply = %q, %v", out, err)
 	}
-	jo, err := st.UserInbox(ctx, "jo", 10)
+	jo, err := st.UserInbox(ctx, "jo", 10, "jo")
 	if err != nil || jo.Unread != 3 {
 		t.Fatalf("jo's inbox = %+v, %v", jo, err)
 	}
@@ -195,7 +195,7 @@ func TestReplyToPeerMail(t *testing.T) {
 	}
 	// Nothing for a local user: ada has no mail, and the only new mail
 	// event is the queued one for the peer.
-	ada, err := south.st.UserInbox(ctx, "ada", 10)
+	ada, err := south.st.UserInbox(ctx, "ada", 10, "ada")
 	if err != nil || ada.Unread != 0 {
 		t.Fatalf("ada's inbox = %+v, %v", ada, err)
 	}

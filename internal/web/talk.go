@@ -135,7 +135,7 @@ func (s *Server) handleTalk(w http.ResponseWriter, r *http.Request) {
 	}
 	// Whose unread mail the user has, for the peers' marks: the letters
 	// are not needed here.
-	box, err := s.st.UserInbox(ctx, as, 1)
+	box, err := s.st.UserInbox(ctx, as, 1, as)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -348,7 +348,7 @@ func (s *Server) talkAgain(w http.ResponseWriter, r *http.Request, with, text, w
 		s.fail(w, r, err)
 		return
 	}
-	box, err := s.st.UserInbox(ctx, as, 1)
+	box, err := s.st.UserInbox(ctx, as, 1, as)
 	if err != nil {
 		s.fail(w, r, err)
 		return

@@ -1066,12 +1066,48 @@ func (rd *readers) letter(e Event) (Letter, error) {
 	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Reactions: reactions, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: EventFiles(e)}, nil
 }
 
+// mayReadInbox refuses to read or acknowledge the inbox of the user name
+// to anyone but them and an operator: actor is who reads. From a
+// session's or a crew member's pane the reader is the pane's (paneAuthor)
+// before the rule is read, so a pane can never read another's inbox by
+// naming them; from anywhere else it is the caller's word, as every
+// actor-taking call is (a line against mistakes, not a wall). Left out,
+// the reader is the user: a client from before the call took an actor
+// reads its own inbox as it did. It returns that resolved reader so an
+// acknowledgement records who acted, including the pane's author. does is
+// what is refused.
+func mayReadInbox(ctx context.Context, tx *bolt.Tx, name, actor, does string) (string, error) {
+	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
+	if err != nil {
+		return "", err
+	}
+	if resolved == "" {
+		resolved = name
+	}
+	if resolved == name {
+		return resolved, nil
+	}
+	operator, this, err := notOperator(ctx, tx, resolved)
+	if err != nil {
+		return "", err
+	}
+	if this == "" {
+		return resolved, nil
+	}
+	return "", fmt.Errorf("only %s or %s may %s %s's inbox; this is %s", name, operator, does, name, this)
+}
+
 // UserInbox returns the mail to the user name: all that is unread counted,
-// and up to limit shown (0 shows all), the unread first.
-func (s *Store) UserInbox(ctx context.Context, name string, limit int) (*Mailbox, error) {
+// and up to limit shown (0 shows all), the unread first. Only the user
+// reads it, and an operator any user's (mayReadInbox); actor is who reads,
+// and left out is the user.
+func (s *Store) UserInbox(ctx context.Context, name string, limit int, actor string) (*Mailbox, error) {
 	box := &Mailbox{Mail: []Letter{}, From: []string{}}
 	err := s.read(func(tx *bolt.Tx) error {
 		if _, err := getUser(tx, name); err != nil {
+			return err
+		}
+		if _, err := mayReadInbox(ctx, tx, name, actor, "read"); err != nil {
 			return err
 		}
 		rd := &readers{tx: tx}
@@ -1120,10 +1156,16 @@ func (s *Store) UserInbox(ctx context.Context, name string, limit int) (*Mailbox
 	return box, nil
 }
 
-// AckUserInbox marks the user's mail read through seq.
-func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64) error {
+// AckUserInbox marks the user's mail read through seq. Only the user
+// acknowledges it, and an operator any user's (mayReadInbox); actor is who
+// does, and left out is the user.
+func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64, actor string) error {
 	return s.writeVia(ctx, func(w *wtx) error {
 		u, err := getUser(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		by, err := mayReadInbox(ctx, w.Tx, name, actor, "acknowledge")
 		if err != nil {
 			return err
 		}
@@ -1132,16 +1174,16 @@ func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64) e
 		if err := put(w.Tx, bUsers, name, u); err != nil {
 			return err
 		}
-		return w.mailRead(name, was, u.Cursor)
+		return w.mailRead(name, by, was, u.Cursor)
 	})
 }
 
-// mailRead logs that name, a crew member or a user, acknowledged its inbox
-// from after was through seq, when mail is in between: the event mail_read
-// with the reader and how far. It is what tells a view that follows the
-// stream that mail it shows as sent has been read; an acknowledgement
-// that passes no mail is not an event.
-func (w *wtx) mailRead(name string, was, through uint64) error {
+// mailRead logs that by acknowledged name's inbox from after was through
+// seq, when mail is in between: the event mail_read names the inbox in
+// reader and the person who acknowledged it as its actor. It is what tells
+// a view that follows the stream that mail it shows as sent has been read;
+// an acknowledgement that passes no mail is not an event.
+func (w *wtx) mailRead(name, by string, was, through uint64) error {
 	read := false
 	for _, k := range mailKeys(w.Tx, name, was) {
 		if binary.BigEndian.Uint64([]byte(k)) > through {
@@ -1158,7 +1200,7 @@ func (w *wtx) mailRead(name string, was, through uint64) error {
 	if !read {
 		return nil
 	}
-	return w.event("", "mail_read", name, map[string]any{"reader": name, "through": through})
+	return w.event("", "mail_read", by, map[string]any{"reader": name, "through": through})
 }
 
 // crewMailRead is mailRead for one crew session's slice. A positional ack

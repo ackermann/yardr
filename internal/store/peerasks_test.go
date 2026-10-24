@@ -562,7 +562,7 @@ func TestPeerRmDropsForeignAsks(t *testing.T) {
 		"ada": {"The linked yard north was removed. 1 question from it was dropped:",
 			`"Publish the docs?" on yd-docs@north from clerk@north`},
 	} {
-		box, err := y.api.UserInbox(y.ctx, user, 0)
+		box, err := y.api.UserInbox(y.ctx, user, 0, user)
 		if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" {
 			t.Fatalf("%s's inbox = %+v, %v", user, box, err)
 		}

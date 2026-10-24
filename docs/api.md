@@ -1308,16 +1308,17 @@ The reply carries the link whole, as `curl` shows it: `reach` ([a user's asks ar
 
 ### `UserInbox`
 
-The mail to a user: the unread, oldest first, then the read, newest first.
+The mail to a user: the unread, oldest first, then the read, newest first. Only the user reads their inbox, and an operator reads any user's.
 
 | argument | type | |
 |---|---|---|
 | `name` | string | the user |
 | `limit` | number | at most this many letters, the unread first; `0` is all |
+| `actor` | string | who reads: the user's name, or an operator's; left out, the user |
 
 ```
 POST /call/UserInbox
-{"name":"jo","limit":10}
+{"name":"jo","limit":10,"actor":"jo"}
 
 {
   "result": {
@@ -1671,16 +1672,17 @@ The letters go by what the link said of the name when the mail was logged: a gra
 
 ### `AckUserInbox`
 
-Marks the user's mail read through a seq. It answers nothing; when mail was in between it is a `mail_read` event in the stream.
+Marks the user's mail read through a seq. It answers nothing; when mail was in between it is a `mail_read` event in the stream. Only the user acknowledges their inbox, and an operator any user's.
 
 | argument | type | |
 |---|---|---|
 | `name` | string | the user |
 | `through` | number | the seq of the newest letter shown |
+| `actor` | string | who acknowledges: the user's name, or an operator's; left out, the user |
 
 ```
 POST /call/AckUserInbox
-{"name":"jo","through":51}
+{"name":"jo","through":51,"actor":"jo"}
 
 {}
 ```

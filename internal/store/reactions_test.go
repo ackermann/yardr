@@ -51,7 +51,7 @@ func TestReact(t *testing.T) {
 		t.Fatalf("after jo's 👍 = %+v", got)
 	}
 	// The inbox holds the same letter.
-	box, err := s.UserInbox(ctx, "jo", 0)
+	box, err := s.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil || len(box.Mail) != 1 || len(box.Mail[0].Reactions) != 1 ||
 		box.Mail[0].Reactions[0] != (store.Reaction{From: "jo", Emoji: "👍"}) {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
@@ -142,7 +142,7 @@ func TestReactRefused(t *testing.T) {
 	if _, err := s.FireTimers(ctx, time.Now().Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	box, err := s.UserInbox(ctx, "jo", 0)
+	box, err := s.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +237,7 @@ func TestReactionInbox(t *testing.T) {
 		t.Fatalf("the reaction is %q: %+v", emoji, found)
 	}
 	// Nothing reaches the user's inbox: the mail alone, unread once.
-	box, err := s.UserInbox(ctx, "jo", 0)
+	box, err := s.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil || box.Unread != 1 || len(box.Mail) != 1 {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}
@@ -248,7 +248,7 @@ func TestReactionInbox(t *testing.T) {
 	if page, _ := s.Inbox(ctx, "yardmaster", 0); page.Total != 1 {
 		t.Fatalf("the yardmaster's own reaction is in its inbox: %+v", page.Events)
 	}
-	if box, _ := s.UserInbox(ctx, "jo", 0); box.Unread != 1 {
+	if box, _ := s.UserInbox(ctx, "jo", 0, "jo"); box.Unread != 1 {
 		t.Fatalf("jo's inbox = %+v", box)
 	}
 	// A clear tells no inbox either.

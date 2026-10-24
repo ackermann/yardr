@@ -61,7 +61,7 @@ func TestUserSet(t *testing.T) {
 		t.Fatalf("the user, for themselves: %+v, %v", u, err)
 	}
 	// Reading the inbox rewrites the record, and keeps them.
-	if err := st.AckUserInbox(ctx, "ada", 1<<40); err != nil {
+	if err := st.AckUserInbox(ctx, "ada", 1<<40, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if u, _ = st.GetUser(ctx, "ada"); u.Notify != "pushover" || u.EnvFile == "" {

@@ -350,7 +350,7 @@ func TestMailPeerAsUser(t *testing.T) {
 	if got := y.conversation(t, "ada", "nobody@north"); !slices.Equal(got, []string{"ada>nobody@north failed: hello nobody"}) {
 		t.Fatalf("the conversation with one north does not expose = %q", got)
 	}
-	box, err := y.api.UserInbox(y.ctx, "ada", 0)
+	box, err := y.api.UserInbox(y.ctx, "ada", 0, "ada")
 	if err != nil || len(box.Mail) != 2 || !slices.Equal(box.From, []string{"yard", "yardmaster@north"}) {
 		t.Fatalf("ada's inbox = %+v, %v", box, err)
 	}

@@ -202,7 +202,7 @@ func TestPeerMailLimitIsToldAndSet(t *testing.T) {
 		receive("hidden", "hi")
 		receive("nobody", "hi")
 	}
-	if box, err := s.UserInbox(ctx, "ada", 0); err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" || !strings.Contains(box.Mail[0].Text, "; 38 so far.") {
+	if box, err := s.UserInbox(ctx, "ada", 0, "ada"); err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" || !strings.Contains(box.Mail[0].Text, "; 38 so far.") {
 		t.Fatalf("ada's inbox = %+v, %v", box, err)
 	}
 	if got := len(told("hidden")) + len(told("nobody")); got != 0 {
@@ -414,7 +414,7 @@ func TestPeerMailLimitReachesSender(t *testing.T) {
 	if err != nil || !kept.Equal(until) {
 		t.Fatalf("the mail event keeps until = %v, %v; want %s", back[0].Data["until"], err, until)
 	}
-	if box, err := a.UserInbox(ctx, "mckean", 0); err != nil || len(box.Mail) != 1 || box.Mail[0].Text != text {
+	if box, err := a.UserInbox(ctx, "mckean", 0, "mckean"); err != nil || len(box.Mail) != 1 || box.Mail[0].Text != text {
 		t.Fatalf("mckean's inbox = %+v, %v", box, err)
 	}
 }

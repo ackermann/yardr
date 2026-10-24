@@ -42,8 +42,8 @@ type Store interface {
 	Head(ctx context.Context) (uint64, error)
 	Crew(ctx context.Context) ([]store.CrewMember, error)
 	GetUser(ctx context.Context, name string) (*store.User, error)
-	UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error)
-	AckUserInbox(ctx context.Context, name string, through uint64) error
+	UserInbox(ctx context.Context, name string, limit int, actor string) (*store.Mailbox, error)
+	AckUserInbox(ctx context.Context, name string, through uint64, actor string) error
 	Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]store.Letter, bool, error)
 	Mail(ctx context.Context, to, text, actor string, files ...store.BlobFile) error
 	Peers(ctx context.Context) ([]store.Peer, error)
@@ -135,12 +135,12 @@ func Load(ctx context.Context, st Store, me string) (*State, error) {
 	s.Cursor, s.NotificationCursor = u.Cursor, u.NotificationCursor
 	// The count first, then that many: a user's inbox lists the unread
 	// before the read, and the read are not wanted here.
-	box, err := st.UserInbox(ctx, me, 1)
+	box, err := st.UserInbox(ctx, me, 1, me)
 	if err != nil {
 		return nil, err
 	}
 	if box.Unread > 1 {
-		if box, err = st.UserInbox(ctx, me, box.Unread); err != nil {
+		if box, err = st.UserInbox(ctx, me, box.Unread, me); err != nil {
 			return nil, err
 		}
 	}
@@ -885,7 +885,7 @@ func (m *Model) ack() tea.Cmd {
 	m.asked = through
 	st, ctx, me := m.st, m.ctx, m.opt.Me
 	return func() tea.Msg {
-		return ackedMsg{through: through, err: st.AckUserInbox(ctx, me, through)}
+		return ackedMsg{through: through, err: st.AckUserInbox(ctx, me, through, me)}
 	}
 }
 

@@ -288,14 +288,14 @@ func TestPushNotForWhatWasRead(t *testing.T) {
 	ctx := context.Background()
 	y.mail(t, "yardmaster", "one")
 	y.mail(t, "yardmaster", "two")
-	box, err := y.api.UserInbox(ctx, "ada", 0)
+	box, err := y.api.UserInbox(ctx, "ada", 0, "ada")
 	must(t, err)
-	must(t, y.api.AckUserInbox(ctx, "ada", box.Mail[0].Seq))
+	must(t, y.api.AckUserInbox(ctx, "ada", box.Mail[0].Seq, "ada"))
 	y.pass(t, store.PushGrace+time.Second)
 	want(t, "told of the unread one alone", y.sent(), []string{"mail from yardmaster | two"})
 
 	y.mail(t, "yardmaster", "three")
-	must(t, y.api.AckUserInbox(ctx, "ada", 1<<40))
+	must(t, y.api.AckUserInbox(ctx, "ada", 1<<40, "ada"))
 	y.pass(t, time.Hour)
 	want(t, "told of what was read", len(y.sent()), 1)
 	want(t, "left in the queue", len(y.queued(t)), 0)
@@ -470,7 +470,7 @@ func TestPushWhileTheSourceIsDown(t *testing.T) {
 	y.srv.Close()
 	y.mail(t, "yardmaster", "one")
 	y.mail(t, "yardmaster", "two")
-	box, err := y.api.UserInbox(ctx, "ada", 0)
+	box, err := y.api.UserInbox(ctx, "ada", 0, "ada")
 	must(t, err)
 	want(t, "unread in the inbox", box.Unread, 2)
 
@@ -494,7 +494,7 @@ func TestPushWhileTheSourceIsDown(t *testing.T) {
 		!strings.Contains(fails[0], "gave up after") {
 		t.Fatalf("push_failed = %s", fails)
 	}
-	if box, err = y.api.UserInbox(ctx, "ada", 0); err != nil || box.Unread != 2 {
+	if box, err = y.api.UserInbox(ctx, "ada", 0, "ada"); err != nil || box.Unread != 2 {
 		t.Fatalf("the inbox afterwards: %+v, %v", box, err)
 	}
 
@@ -561,7 +561,7 @@ func TestPushToAUserWhoIsNotSetUp(t *testing.T) {
 	if n := strings.Count(y.log.String(), "user not told"); n != 1 {
 		t.Fatalf("the daemon said it %d times:\n%s", n, y.log.String())
 	}
-	box, err := y.api.UserInbox(context.Background(), "ada", 0)
+	box, err := y.api.UserInbox(context.Background(), "ada", 0, "ada")
 	if err != nil || box.Unread != 2 {
 		t.Fatalf("the inbox: %+v, %v", box, err)
 	}

@@ -101,7 +101,7 @@ login. yardr user rm takes what this made, and leaves the login folder.`,
 			if err != nil {
 				return err
 			}
-			views, err := userViews(c.Context(), st, "")
+			views, err := userViews(c.Context(), st, "", a.who())
 			if err != nil {
 				return err
 			}
@@ -125,7 +125,11 @@ login. yardr user rm takes what this made, and leaves the login folder.`,
 					if v.Asked {
 						role += " (asked)"
 					}
-					rows = append(rows, []string{v.Name, role, fmt.Sprint(v.Unread), or(v.Told, "-")})
+					unread := fmt.Sprint(v.Unread)
+					if v.UnreadHidden {
+						unread = "-"
+					}
+					rows = append(rows, []string{v.Name, role, unread, or(v.Told, "-")})
 				}
 				table(w, "NAME\tROLE\tUNREAD\tTOLD", rows)
 				printPeerParties(w, store.PeerParties(ps))
@@ -145,7 +149,7 @@ everything either way.`,
 			if err != nil {
 				return err
 			}
-			views, err := userViews(c.Context(), st, args[0])
+			views, err := userViews(c.Context(), st, args[0], a.who())
 			if err != nil {
 				return err
 			}
@@ -174,9 +178,12 @@ everything either way.`,
 					fmt.Fprint(w, "  an operator")
 				}
 				fmt.Fprintf(w, "\n  added %s by %s\n", v.CreatedAt.Local().Format("2006-01-02 15:04"), v.CreatedBy)
-				if v.Unread == 0 {
+				switch {
+				case v.UnreadHidden:
+					fmt.Fprintln(w, "  inbox: another user's, not shown")
+				case v.Unread == 0:
 					fmt.Fprintln(w, "  inbox: nothing unread")
-				} else {
+				default:
 					fmt.Fprintf(w, "  inbox: %d unread from %s\n", v.Unread, strings.Join(v.From, ", "))
 				}
 				if v.Notifications > 0 {
@@ -501,6 +508,10 @@ type userView struct {
 	Asked    bool     `json:"asked"`
 	Unread   int      `json:"unread"`
 	From     []string `json:"unread_from"`
+	// UnreadHidden is whether the unread mail is hidden: another user's,
+	// read by nobody but them and an operator. Unread is then 0 and From
+	// empty, and say nothing.
+	UnreadHidden bool `json:"unread_hidden,omitempty"`
 	// Timers are the live timers that tell the user or that they set; only
 	// yardr user show reads them.
 	Timers []store.Timer `json:"timers,omitempty"`
@@ -517,8 +528,10 @@ type userView struct {
 	Devices []store.Device `json:"devices,omitempty"`
 }
 
-// userViews reads the user name, or all of them for "".
-func userViews(ctx context.Context, st store.API, name string) ([]userView, error) {
+// userViews reads the user name, or all of them for "", as actor reads
+// them: another user's unread mail is hidden from anyone but an operator,
+// since only its user reads it.
+func userViews(ctx context.Context, st store.API, name, actor string) ([]userView, error) {
 	var users []store.User
 	if name == "" {
 		var err error
@@ -536,13 +549,26 @@ func userViews(ctx context.Context, st store.API, name string) ([]userView, erro
 	if err != nil {
 		return nil, err
 	}
+	op := false
+	if me, err := st.GetUser(ctx, actor); err == nil {
+		op = me.IsOperator()
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
 	out := []userView{}
 	for _, u := range users {
-		box, err := st.UserInbox(ctx, u.Name, 1)
+		v := userView{User: u, Operator: u.IsOperator(), Asked: u.Name == all[store.OperatorSetting]}
+		if u.Name != actor && !op {
+			v.UnreadHidden = true
+			out = append(out, v)
+			continue
+		}
+		box, err := st.UserInbox(ctx, u.Name, 1, actor)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, userView{User: u, Operator: u.IsOperator(), Asked: u.Name == all[store.OperatorSetting], Unread: box.Unread, From: box.From})
+		v.Unread, v.From = box.Unread, box.From
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -662,7 +688,7 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 	var box userBox
 	var err error
 	if mail {
-		if box.Mailbox, err = st.UserInbox(ctx, name, limit); err != nil {
+		if box.Mailbox, err = st.UserInbox(ctx, name, limit, a.who()); err != nil {
 			return err
 		}
 	}
@@ -706,11 +732,11 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 			// Past the newest unread the seq cannot go: a future
 			// seq must not pre-acknowledge mail not yet written.
 			if t := min(through, box.Last); t > 0 {
-				if err := st.AckUserInbox(ctx, name, t); err != nil {
+				if err := st.AckUserInbox(ctx, name, t, a.who()); err != nil {
 					return err
 				}
 			}
-			after, err := st.UserInbox(ctx, name, 1)
+			after, err := st.UserInbox(ctx, name, 1, a.who())
 			if err != nil {
 				return err
 			}
@@ -923,7 +949,7 @@ func (a *app) readMail(ctx context.Context, st store.API) (*mailState, error) {
 	if err != nil || u == nil {
 		return nil, err
 	}
-	box, err := st.UserInbox(ctx, u.Name, 1)
+	box, err := st.UserInbox(ctx, u.Name, 1, a.who())
 	if err != nil {
 		return nil, err
 	}

@@ -170,7 +170,7 @@ func TestTimerToAUserIsMail(t *testing.T) {
 		t.Fatalf("timer = %+v", tm)
 	}
 	y.tick(10 * time.Minute)
-	box, err := y.UserInbox(ctx, "jo", 0)
+	box, err := y.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil || box.Unread != 1 {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}
@@ -191,7 +191,7 @@ func TestTimerToAUserIsMail(t *testing.T) {
 	// A user's own timer is mail from themselves.
 	y.add("ada", NewTimer{Reason: "stand-up", Due: y.in(time.Hour)})
 	y.tick(time.Hour)
-	if box, _ := y.UserInbox(ctx, "ada", 0); box.Unread != 1 || box.Mail[0].From != "ada" {
+	if box, _ := y.UserInbox(ctx, "ada", 0, "ada"); box.Unread != 1 || box.Mail[0].From != "ada" {
 		t.Fatalf("ada's inbox = %+v", box)
 	}
 }
@@ -406,7 +406,7 @@ func TestTimerUnlessDropsOnClose(t *testing.T) {
 		t.Fatalf("why = %q", why)
 	}
 	y.tick(time.Hour)
-	if box, _ := y.UserInbox(ctx, "jo", 0); box.Unread != 0 {
+	if box, _ := y.UserInbox(ctx, "jo", 0, "jo"); box.Unread != 0 {
 		t.Fatalf("jo was told of a dropped timer: %+v", box.Mail)
 	}
 	if k := y.kinds(); k["timer"] != 0 {
@@ -451,14 +451,14 @@ func TestTimerUnlessStage(t *testing.T) {
 			if why := y.dropped(); why != c.why {
 				t.Fatalf("why = %q, want %q", why, c.why)
 			}
-			if box, _ := y.UserInbox(context.Background(), "jo", 0); box.Unread != 0 {
+			if box, _ := y.UserInbox(context.Background(), "jo", 0, "jo"); box.Unread != 0 {
 				t.Fatalf("jo was told: %+v", box.Mail)
 			}
 		})
 	}
 	t.Run("still short of it", func(t *testing.T) {
 		y := stuck(t, func(y *timerYard) { y.advance("web-1", "backlog") })
-		box, _ := y.UserInbox(context.Background(), "jo", 0)
+		box, _ := y.UserInbox(context.Background(), "jo", 0, "jo")
 		if box.Unread != 1 || !strings.HasSuffix(box.Mail[0].Text, "by yardmaster). web-1 is still in backlog; this timer waited for it to reach review.") {
 			t.Fatalf("mail = %+v", box.Mail)
 		}

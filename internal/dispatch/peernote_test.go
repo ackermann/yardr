@@ -464,7 +464,7 @@ func TestPeerBeadNoteOfNoSuchBead(t *testing.T) {
 	if notes := b.notes(t, theirs.ID); slices.ContainsFunc(notes, func(n store.Note) bool { return n.Author == "jo@a" }) {
 		t.Fatalf("a note was written on a bead that ended: %+v", notes)
 	}
-	inbox, err := a.api.UserInbox(ctx, "jo", 0)
+	inbox, err := a.api.UserInbox(ctx, "jo", 0, "jo")
 	must(t, err)
 	told := slices.DeleteFunc(inbox.Mail, func(l store.Letter) bool { return l.From != "yard" })
 	if len(told) != 1 || !strings.Contains(told[0].Text, "on b's bead for "+mine.ID+" was not delivered: ") || strings.Contains(told[0].Text, "Too late") {
@@ -630,7 +630,7 @@ func TestPeerBeadNoteWithoutTheWord(t *testing.T) {
 	if notes := b.notes(t, theirs.ID); len(notes) != 0 {
 		t.Fatalf("b wrote a note its link does not carry: %+v", notes)
 	}
-	inbox, err := a.api.UserInbox(ctx, "jo", 0)
+	inbox, err := a.api.UserInbox(ctx, "jo", 0, "jo")
 	must(t, err)
 	if told := slices.DeleteFunc(inbox.Mail, func(l store.Letter) bool { return l.From != "yard" }); len(told) != 1 {
 		t.Fatalf("what jo was told = %+v", inbox.Mail)

@@ -306,7 +306,7 @@ func TestUserCallsNameTheirParty(t *testing.T) {
 			if arg != "name" && arg != "actor" || notAParty[method] == arg {
 				continue
 			}
-			if selfArg[method] != arg {
+			if !slices.Contains(selfArg[method], arg) {
 				t.Errorf("%s takes %q and selfArg does not hold it to the caller", method, arg)
 			}
 			if m, _ := api.MethodByName(method); m.Type.In(i+1).Kind() != reflect.String {
@@ -314,9 +314,11 @@ func TestUserCallsNameTheirParty(t *testing.T) {
 			}
 		}
 	}
-	for method, arg := range selfArg {
-		if !slices.Contains(calls[method], arg) {
-			t.Errorf("selfArg names %q of %s, which Calls does not have", arg, method)
+	for method, args := range selfArg {
+		for _, arg := range args {
+			if !slices.Contains(calls[method], arg) {
+				t.Errorf("selfArg names %q of %s, which Calls does not have", arg, method)
+			}
 		}
 	}
 	if !slices.Equal(Calls["Conversation"], []string{"a", "b", "after", "limit", "before"}) {
@@ -346,6 +348,8 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		{"UserInbox", `{"name":null,"limit":1}`, `"text":"for jo"`},
 		{"UserInbox", `{"name":""}`, `"text":"for jo"`},
 		{"UserInbox", `{"name":"jo"}`, `"text":"for jo"`},
+		{"UserInbox", `{"actor":"jo"}`, `"text":"for jo"`},
+		{"UserInbox", `{"name":"jo","actor":""}`, `"text":"for jo"`},
 		{"GetUser", `{}`, `"name":"jo"`},
 		{"UserAsks", `{}`, `"open":`},
 		{"UserNotifications", `{}`, `"notifications":`},
@@ -357,6 +361,8 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		{"UserAsks", `{"name":"sam"}`, `this device calls as jo`},
 		{"UserNotifications", `{"name":"sam"}`, `this device calls as jo`},
 		{"AckUserInbox", fmt.Sprintf(`{"name":"sam","through":%d}`, head), `this device calls as jo`},
+		{"UserInbox", `{"name":"jo","actor":"sam"}`, `this device calls as jo: \"actor\" is jo or left out, not sam`},
+		{"AckUserInbox", fmt.Sprintf(`{"through":%d,"actor":"sam"}`, head), `this device calls as jo: \"actor\" is jo or left out, not sam`},
 		{"AckUserNotifications", fmt.Sprintf(`{"name":"sam","through":%d}`, head), `this device calls as jo`},
 		{"Mail", `{"to":"sam","text":"as the yardmaster","actor":"yardmaster"}`, `this device calls as jo: \"actor\" is jo or left out, not yardmaster`},
 		{"MailPeer", `{"to":"clerk","peer":"north","text":"hello","actor":"sam"}`, `this device calls as jo`},
@@ -379,7 +385,7 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 	if now, _ := st.Head(ctx); now != head {
 		t.Errorf("the refused calls wrote %d events", now-head)
 	}
-	if box, _ := st.UserInbox(ctx, "sam", 0); box.Unread != 1 {
+	if box, _ := st.UserInbox(ctx, "sam", 0, "sam"); box.Unread != 1 {
 		t.Errorf("sam has %d unread, want the 1 a device of jo could not acknowledge", box.Unread)
 	}
 
@@ -397,7 +403,7 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 	if last := mail[len(mail)-1]; last.Actor != "jo" || last.Data["to"] != "yardmaster" {
 		t.Errorf("the mail is %+v, want jo's to the yardmaster", last)
 	}
-	if box, _ := st.UserInbox(ctx, "jo", 0); box.Unread != 0 {
+	if box, _ := st.UserInbox(ctx, "jo", 0, "jo"); box.Unread != 0 {
 		t.Errorf("jo has %d unread after the device acknowledged", box.Unread)
 	}
 }

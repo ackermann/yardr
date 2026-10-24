@@ -290,7 +290,7 @@ func TestMailArrives(t *testing.T) {
 	if v.cursor() != newest || v.m.Unread("recorder") != 0 {
 		t.Fatalf("after opening it: cursor %d, the newest mail %d, unread %d", v.cursor(), newest, v.m.Unread("recorder"))
 	}
-	box, err := st.UserInbox(ctx, me, 1)
+	box, err := st.UserInbox(ctx, me, 1, me)
 	if err != nil || box.Unread != 0 {
 		t.Fatalf("the store has %d unread, %v", box.Unread, err)
 	}
@@ -365,7 +365,7 @@ func TestUnreadElsewhere(t *testing.T) {
 	must(t, st.Mail(ctx, me, "lunch?", "grace"))
 	v.stream()
 	v.shows("recorder idle (1)", "1 unread from grace, no crew member: yardr inbox")
-	must(t, st.AckUserInbox(ctx, me, head(t, st)))
+	must(t, st.AckUserInbox(ctx, me, head(t, st), me))
 	v.stream()
 	v.hides("(1)", "unread from grace")
 }

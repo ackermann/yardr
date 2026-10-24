@@ -1032,29 +1032,29 @@ func (u *UserServer) Run(ctx context.Context) {
 }
 
 // selfArg is, for each call that names whose inbox or queue it reads or
-// who writes, the argument that does: over the network it is the caller.
+// who writes, the arguments that do: over the network each is the caller.
 // Conversation names two parties and is checked by itself (asUser).
-var selfArg = map[string]string{
-	"GetUser":              "name",
-	"UserInbox":            "name",
-	"AckUserInbox":         "name",
-	"UserNotifications":    "name",
-	"AckUserNotifications": "name",
-	"UserAsks":             "name",
-	"Mail":                 "actor",
-	"MailPeer":             "actor",
-	"React":                "actor",
-	"AnswerAsk":            "actor",
-	"DeferAsk":             "actor",
-	"DeclineAsk":           "actor",
-	"TakeBackAsk":          "actor",
-	"AddNote":              "actor",
-	"GiveSecret":           "actor",
-	"ApproveAsk":           "actor",
-	"ApproveSetup":         "actor",
+var selfArg = map[string][]string{
+	"GetUser":              {"name"},
+	"UserInbox":            {"name", "actor"},
+	"AckUserInbox":         {"name", "actor"},
+	"UserNotifications":    {"name"},
+	"AckUserNotifications": {"name"},
+	"UserAsks":             {"name"},
+	"Mail":                 {"actor"},
+	"MailPeer":             {"actor"},
+	"React":                {"actor"},
+	"AnswerAsk":            {"actor"},
+	"DeferAsk":             {"actor"},
+	"DeclineAsk":           {"actor"},
+	"TakeBackAsk":          {"actor"},
+	"AddNote":              {"actor"},
+	"GiveSecret":           {"actor"},
+	"ApproveAsk":           {"actor"},
+	"ApproveSetup":         {"actor"},
 }
 
-// asUser is the arguments body of the call method as user makes it: the
+// asUser is the arguments body of the call method as user makes it: each
 // argument that says whose inbox is read or who writes is filled in with
 // user when it is left out, and refused when it names anyone else; one side
 // of a Conversation is user. The arguments are an object, by name: the
@@ -1079,7 +1079,7 @@ func asUser(method string, body []byte, user string) (json.RawMessage, error) {
 		}
 		return name, json.Unmarshal(raw, &name) == nil
 	}
-	if arg := selfArg[method]; arg != "" {
+	for _, arg := range selfArg[method] {
 		switch name, ok := self(arg); {
 		case !ok:
 		case name == "":

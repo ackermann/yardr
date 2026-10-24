@@ -40,7 +40,7 @@ func TestPassFiresTimers(t *testing.T) {
 	// alone.
 	now = now.Add(10 * time.Minute)
 	must(t, d.Reconcile(ctx))
-	box, err := s.UserInbox(ctx, "jo", 0)
+	box, err := s.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil || box.Unread != 1 || box.Mail[0].From != "yardmaster" || !strings.HasPrefix(box.Mail[0].Text, "timer: web-1 is stuck") {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}

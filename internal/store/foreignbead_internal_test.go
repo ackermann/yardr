@@ -3,9 +3,12 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // takeAsk takes the question a brings from north under the message id.
@@ -201,12 +204,25 @@ func TestAddNoteForeignRefused(t *testing.T) {
 func TestLinesMarked(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := decisionYard(t)
+	// The answers below are north's mckean's, on asks put to them: only
+	// the addressee answers.
+	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.Store.AddPeer(y.ctx, Peer{Name: "north", Key: yardkey.Public(k)}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.Store.AllowPeer(y.ctx, "north", PeerAllow{Send: []string{PeerAsk}}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
 	links := y.makeBead(t, NewBead{Title: "Move the links"})
-	picked := y.askOn(t, links, linksAsk(), "yardmaster")
+	across := func(a Ask) Ask { a.To = "mckean@north"; return a }
+	picked := y.askOn(t, links, across(linksAsk()), "yardmaster")
 	y.answerOn(t, links, Answer{Ask: picked, Option: 1, Words: "tonight"}, "mckean@north")
-	worded := y.askOn(t, links, wordsAsk("mckean"), "yardmaster")
+	worded := y.askOn(t, links, wordsAsk("mckean@north"), "yardmaster")
 	y.answerOn(t, links, Answer{Ask: worded, Words: "warmly"}, "mckean@north")
-	refused := y.askOn(t, links, linksAsk(), "yardmaster")
+	refused := y.askOn(t, links, across(linksAsk()), "yardmaster")
 	y.answerOn(t, links, Answer{Ask: refused, Words: "not mine", Decline: true}, "mckean@north")
 
 	notes, err := y.Notes(y.ctx, links)
@@ -236,7 +252,7 @@ func TestLinesMarked(t *testing.T) {
 		t.Errorf("trusted decline reads:\n%s", text)
 	}
 	// The asker and the address are this yard's own words.
-	if text := strings.Join(resolved[0].LinesMarked(map[string]string{}), "\n"); !strings.Contains(text, "to mckean · asked by yardmaster") {
+	if text := strings.Join(resolved[0].LinesMarked(map[string]string{}), "\n"); !strings.Contains(text, "to mckean@north · asked by yardmaster") {
 		t.Errorf("head reads:\n%s", text)
 	}
 

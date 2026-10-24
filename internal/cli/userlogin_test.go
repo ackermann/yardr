@@ -315,7 +315,7 @@ func TestUserAddWithALogin(t *testing.T) {
 	if got := readFile(t, filepath.Join(dir, "calls")); got != "-p "+tryPrompt+"\n" {
 		t.Errorf("the one real call that proves the login: %q", got)
 	}
-	box, err := st.UserInbox(ctx, "ada", 10)
+	box, err := st.UserInbox(ctx, "ada", 10, "ada")
 	if err != nil || len(box.Mail) != 1 || !strings.Contains(box.Mail[0].Text, loginPage) || strings.Contains(box.Mail[0].Text, "good#s1") {
 		t.Errorf("ada's mail: %+v, %v", box, err)
 	}

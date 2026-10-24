@@ -93,7 +93,7 @@ func TestPushQueuedWithTheInbox(t *testing.T) {
 	}
 
 	// Read is by the part's own cursor.
-	if err := st.AckUserInbox(ctx, "ada", ps[0].Seq); err != nil {
+	if err := st.AckUserInbox(ctx, "ada", ps[0].Seq, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if ps = pushesOf(t, st); ps[0].Unread() || !ps[1].Unread() || !ps[2].Unread() {

@@ -537,11 +537,11 @@ func (c *Client) DevicePairOpen(ctx context.Context, user, name, actor string) (
 func (c *Client) DevicePairClose(ctx context.Context, actor string) (*store.DevicePairing, error) {
 	return callV[*store.DevicePairing](c, ctx, "DevicePairClose", actor)
 }
-func (c *Client) UserInbox(ctx context.Context, name string, limit int) (*store.Mailbox, error) {
-	return callV[*store.Mailbox](c, ctx, "UserInbox", name, limit)
+func (c *Client) UserInbox(ctx context.Context, name string, limit int, actor string) (*store.Mailbox, error) {
+	return callV[*store.Mailbox](c, ctx, "UserInbox", name, limit, actor)
 }
-func (c *Client) AckUserInbox(ctx context.Context, name string, through uint64) error {
-	return c.call(ctx, "AckUserInbox", nil, name, through)
+func (c *Client) AckUserInbox(ctx context.Context, name string, through uint64, actor string) error {
+	return c.call(ctx, "AckUserInbox", nil, name, through, actor)
 }
 func (c *Client) UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error) {
 	return callV[*store.NotificationPage](c, ctx, "UserNotifications", name, limit)

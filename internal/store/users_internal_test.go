@@ -73,7 +73,7 @@ func TestOperatorUserOfAnOlderYard(t *testing.T) {
 		if again, _ := s.Head(ctx); again != head {
 			t.Fatalf("the second open wrote: head %d, was %d", again, head)
 		}
-		if box, err := s.UserInbox(ctx, "jo", 0); err != nil || box.Unread != 1 {
+		if box, err := s.UserInbox(ctx, "jo", 0, "jo"); err != nil || box.Unread != 1 {
 			t.Fatalf("inbox after reopening = %+v, %v", box, err)
 		}
 	})

@@ -251,11 +251,11 @@ func TestUserInbox(t *testing.T) {
 	if err := s.Mail(ctx, "nobody", "hi", "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("mail to nobody = %v", err)
 	}
-	if _, err := s.UserInbox(ctx, "yardmaster", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserInbox(ctx, "yardmaster", 0, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a crew member read as a user = %v", err)
 	}
 
-	box, err := s.UserInbox(ctx, "jo", 0)
+	box, err := s.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestUserInbox(t *testing.T) {
 		box.Unread != 3 || strings.Join(box.From, ",") != "yardmaster,clerk" || box.Last != box.Mail[2].Seq {
 		t.Fatalf("jo's inbox = %s (%+v)", got, box)
 	}
-	if ada, _ := s.UserInbox(ctx, "ada", 0); letters(ada.Mail) != "yardmaster>ada for ada unread" {
+	if ada, _ := s.UserInbox(ctx, "ada", 0, "ada"); letters(ada.Mail) != "yardmaster>ada for ada unread" {
 		t.Fatalf("ada's inbox = %s", letters(ada.Mail))
 	}
 	for _, r := range []string{"yardmaster", "clerk"} {
@@ -274,29 +274,61 @@ func TestUserInbox(t *testing.T) {
 
 	// Acknowledged through the second: the unread come first, then the
 	// read, newest first. The limit counts all that is shown.
-	if err := s.AckUserInbox(ctx, "jo", box.Mail[1].Seq); err != nil {
+	if err := s.AckUserInbox(ctx, "jo", box.Mail[1].Seq, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	box, _ = s.UserInbox(ctx, "jo", 0)
+	box, _ = s.UserInbox(ctx, "jo", 0, "jo")
 	if got := letters(box.Mail); got != "yardmaster>jo three unread | clerk>jo two read | yardmaster>jo one read" ||
 		box.Unread != 1 || strings.Join(box.From, ",") != "yardmaster" {
 		t.Fatalf("after the ack = %s (%+v)", got, box)
 	}
-	if two, _ := s.UserInbox(ctx, "jo", 2); letters(two.Mail) != "yardmaster>jo three unread | clerk>jo two read" || two.Unread != 1 {
+	if two, _ := s.UserInbox(ctx, "jo", 2, "jo"); letters(two.Mail) != "yardmaster>jo three unread | clerk>jo two read" || two.Unread != 1 {
 		t.Fatalf("limit 2 = %s", letters(two.Mail))
 	}
-	if ada, _ := s.UserInbox(ctx, "ada", 0); ada.Unread != 1 {
+	if ada, _ := s.UserInbox(ctx, "ada", 0, "ada"); ada.Unread != 1 {
 		t.Fatalf("jo's ack read ada's mail: %+v", ada)
 	}
 	// An ack never moves back.
-	if err := s.AckUserInbox(ctx, "jo", 1); err != nil {
+	if err := s.AckUserInbox(ctx, "jo", 1, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if box, _ = s.UserInbox(ctx, "jo", 0); box.Unread != 1 {
+	if box, _ = s.UserInbox(ctx, "jo", 0, "jo"); box.Unread != 1 {
 		t.Fatalf("an older ack unread mail: %+v", box)
 	}
-	if err := s.AckUserInbox(ctx, "nobody", 9); !errors.Is(err, store.ErrNotFound) {
+	if err := s.AckUserInbox(ctx, "nobody", 9, "nobody"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("ack of no user = %v", err)
+	}
+
+	// Another user's inbox is theirs and the operator's alone to read and
+	// acknowledge. Left out, the reader is the user.
+	if _, err := s.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, actor string
+		ok          bool
+	}{
+		{"jo", "jo", true},
+		{"ada", "ada", true},
+		{"ada", "jo", true},
+		{"ada", "", true},
+		{"jo", "ada", false},
+		{"ada", "clerk", false},
+	} {
+		if _, err := s.UserInbox(ctx, c.name, 0, c.actor); (err == nil) != c.ok {
+			t.Errorf("UserInbox(%s) by %q = %v", c.name, c.actor, err)
+		}
+		if err := s.AckUserInbox(ctx, c.name, 1, c.actor); (err == nil) != c.ok {
+			t.Errorf("AckUserInbox(%s) by %q = %v", c.name, c.actor, err)
+		}
+	}
+	if _, err := s.UserInbox(ctx, "ada", 0, "clerk"); err == nil ||
+		err.Error() != "only ada or the operator (jo) may read ada's inbox; this is clerk" {
+		t.Errorf("another user's inbox by a crew member = %v", err)
+	}
+	if err := s.AckUserInbox(ctx, "jo", 1, "ada"); err == nil ||
+		err.Error() != "only jo or the operator (jo) may acknowledge jo's inbox; this is ada" {
+		t.Errorf("another user's ack by a member = %v", err)
 	}
 }
 
@@ -344,7 +376,7 @@ func TestConversation(t *testing.T) {
 	if err := s.AckInbox(ctx, "yardmaster", conv[0].Seq); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AckUserInbox(ctx, "jo", conv[3].Seq); err != nil {
+	if err := s.AckUserInbox(ctx, "jo", conv[3].Seq, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	conv, _, _ = s.Conversation(ctx, "jo", "yardmaster", 0, 0, 0)
@@ -378,7 +410,7 @@ func TestUserNameReused(t *testing.T) {
 	if _, err := s.AddUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if box, _ := s.UserInbox(ctx, "ada", 0); box.Unread != 0 {
+	if box, _ := s.UserInbox(ctx, "ada", 0, "ada"); box.Unread != 0 {
 		t.Fatalf("the second ada has the first's unread mail: %+v", box)
 	}
 	if err := s.DeleteUser(ctx, "ada", "jo"); err != nil {
@@ -428,7 +460,7 @@ func TestMailReadIsAnEvent(t *testing.T) {
 	if err := s.AckInbox(ctx, "yardmaster", at); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AckUserInbox(ctx, "ada", at); err != nil {
+	if err := s.AckUserInbox(ctx, "ada", at, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if evs := kindsAfter(t, s, at); len(evs) != 0 {
@@ -461,17 +493,35 @@ func TestMailReadIsAnEvent(t *testing.T) {
 	}
 	mail = head()
 	// An ack short of the mail passes none.
-	if err := s.AckUserInbox(ctx, "ada", mail-1); err != nil {
+	if err := s.AckUserInbox(ctx, "ada", mail-1, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if evs := kindsAfter(t, s, mail); len(evs) != 0 {
 		t.Fatalf("an ack short of the mail logged %+v", evs)
 	}
-	if err := s.AckUserInbox(ctx, "ada", mail); err != nil {
+	if err := s.AckUserInbox(ctx, "ada", mail, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if evs := kindsAfter(t, s, mail); len(evs) != 1 || evs[0].Kind != "mail_read" || evs[0].Data["reader"] != "ada" {
+	if evs := kindsAfter(t, s, mail); len(evs) != 1 || evs[0].Kind != "mail_read" ||
+		evs[0].Actor != "ada" || evs[0].Data["reader"] != "ada" {
 		t.Fatalf("after the user's ack: %+v", evs)
+	}
+	if _, err := s.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Mail(ctx, "ada", "another question", "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	mail = head()
+	if err := s.AckUserInbox(ctx, "ada", mail, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if evs := kindsAfter(t, s, mail); len(evs) != 1 || evs[0].Kind != "mail_read" ||
+		evs[0].Actor != "jo" || evs[0].Data["reader"] != "ada" {
+		t.Fatalf("after the operator acknowledged ada's inbox: %+v", evs)
 	}
 }
 

@@ -385,7 +385,7 @@ func TestWriterIsToldOfARefusedPage(t *testing.T) {
 	south.post(t, toNorth)
 
 	const why = "refused by the peer: its link does not carry file in"
-	box, err := south.api.UserInbox(ctx, "jo", 0)
+	box, err := south.api.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" ||
 		!strings.HasPrefix(box.Mail[0].Text, "the page of your mail to yardmaster@north of ") || !strings.HasSuffix(box.Mail[0].Text, " was not taken: "+why) {
 		t.Fatalf("jo's mail = %+v, %v", box, err)
@@ -430,7 +430,7 @@ func TestWriterIsToldOfARefusedPage(t *testing.T) {
 	if line := store.FilesLine(home, files); line != "1 image, 1 page: "+north.own.BlobPath(image.Hash)+"; not taken: "+over {
 		t.Fatalf("the file line = %q", line)
 	}
-	box, err = south.api.UserInbox(ctx, "jo", 0)
+	box, err = south.api.UserInbox(ctx, "jo", 0, "jo")
 	if err != nil || len(box.Mail) != 2 {
 		t.Fatalf("jo's mail = %+v, %v", box, err)
 	}
@@ -832,7 +832,7 @@ func TestWriterIsToldOfARefusedImage(t *testing.T) {
 			if len(failed) != 1 || failed[0].Data["kind"] != "file" || failed[0].Data["hash"] != ref.Hash || failed[0].Data["mail"] != sent[0].Data["id"] {
 				t.Fatalf("south's peer_message_failed = %+v", failed)
 			}
-			box, err := south.api.UserInbox(ctx, "jo", 0)
+			box, err := south.api.UserInbox(ctx, "jo", 0, "jo")
 			if err != nil || len(box.Mail) != 1 || box.Mail[0].From != "yard" ||
 				!strings.HasPrefix(box.Mail[0].Text, "the image of your mail to yardmaster@north of ") || !strings.HasSuffix(box.Mail[0].Text, " was not taken: "+why) {
 				t.Fatalf("jo's mail = %+v, %v", box, err)
@@ -856,7 +856,7 @@ func TestWriterIsToldOfARefusedImage(t *testing.T) {
 			if err != nil || len(talk) != 2 || talk[0].Files[0].NotTaken != why || talk[1].Delivery != store.MailSent || talk[1].Files[0] != *ref {
 				t.Fatalf("south's conversation after the second mail = %+v, %v", talk, err)
 			}
-			if box, _ := south.api.UserInbox(ctx, "jo", 0); len(box.Mail) != 1 {
+			if box, _ := south.api.UserInbox(ctx, "jo", 0, "jo"); len(box.Mail) != 1 {
 				t.Fatalf("jo was mailed again: %+v", box.Mail)
 			}
 		})

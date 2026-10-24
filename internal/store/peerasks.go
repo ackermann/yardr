@@ -591,7 +591,14 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 		if reason != "" {
 			break
 		}
-		why, err := answerable(row.ID, notes, ans, now())
+		// The answerer was checked above, against To and the reach
+		// grant: the yard records the solicited answer as the
+		// addressee's.
+		ops, err := operatorsIn(w.Tx)
+		if err != nil {
+			return "", err
+		}
+		why, err := answerable(row.ID, notes, ans, now(), ask.To, ops)
 		if err != nil {
 			if reason = why; reason == "" {
 				reason = RefusedNotAsk
@@ -966,7 +973,14 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 			return fmt.Errorf("ask %d has options: words for the asker go as mail, yardr mail %s \"...\", and leave the ask open; pick one with yardr bead answer %s %d <n>",
 				ans.Ask, asker, id, ans.Ask)
 		}
-		if _, err := answerable(id, rec.notes(id, asker), ans, now()); err != nil {
+		// The answerer was checked above, against rec.To: the ask as
+		// the notes carry it is addressed across, so it answers as
+		// that addressee.
+		ops, err := operatorsIn(w.Tx)
+		if err != nil {
+			return err
+		}
+		if _, err := answerable(id, rec.notes(id, asker), ans, now(), rec.Ask.To, ops); err != nil {
 			return err
 		}
 		if !p.carries(PeerAsk, false) {

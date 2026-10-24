@@ -160,7 +160,7 @@ func TestPeerBeadReadOfNoSuchBead(t *testing.T) {
 	if out := slices.DeleteFunc(b.waiting(t, "a"), func(m store.PeerOut) bool { return m.Kind != store.PeerBeadRead }); len(out) != 0 {
 		t.Fatalf("b answered a read of a bead that ended: %+v", out)
 	}
-	inbox, err := a.api.UserInbox(ctx, "jo", 0)
+	inbox, err := a.api.UserInbox(ctx, "jo", 0, "jo")
 	must(t, err)
 	told := slices.DeleteFunc(inbox.Mail, func(l store.Letter) bool { return l.From != "yard" })
 	if len(told) != 1 || !strings.Contains(told[0].Text, "your read of "+mine.ID+" at b of ") || !strings.Contains(told[0].Text, "was not answered: ") {

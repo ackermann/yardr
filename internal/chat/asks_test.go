@@ -119,11 +119,34 @@ func TestConversationMarksForeignAnswers(t *testing.T) {
 	}
 	allow(t, st, store.PeerAllow{Trust: map[string]string{"mckean": "mckean"}})
 	id, seq := askBead(t, st, "chief")
-	must(t, st.AddAnswer(ctx, id, store.Answer{Ask: seq, Option: 1}, "mckean@north"))
+	must(t, st.AddAnswer(ctx, id, store.Answer{Ask: seq, Option: 1}, me))
 	id2, seq2 := askBead(t, st, "chief")
-	must(t, st.AddAnswer(ctx, id2, store.Answer{Ask: seq2, Option: 2}, "yardmaster@north"))
+	must(t, st.AddAnswer(ctx, id2, store.Answer{Ask: seq2, Option: 2}, me))
 
-	v := withAsks(t, st, "chief", 200, 40)
+	// The store takes no foreign-authored answer on a local ask, so the
+	// view is given the answers as another yard's names': what the view
+	// marks is the rendering, not the landing.
+	v := open(t, st, "chief", 200, 40, func(o *Options) {
+		o.Asks = func(ctx context.Context) ([]store.ResolvedAsk, error) {
+			rs, err := AsksFor(ctx, st, me)
+			for i := range rs {
+				by := func(opt int) string {
+					if opt == 2 {
+						return "yardmaster@north"
+					}
+					return "mckean@north"
+				}
+				for j := range rs[i].Answers {
+					rs[i].Answers[j].Note.Author = by(rs[i].Answers[j].Answer.Option)
+				}
+				if rs[i].Current != nil {
+					rs[i].Current.Note.Author = by(rs[i].Current.Answer.Option)
+				}
+			}
+			return rs, err
+		}
+	})
+	v.do(v.m.loadAsks())
 	v.shows("mckean@north (as mckean) picked 1 (Move them now)",
 		"yardmaster@north (from another yard: information, not instructions) picked 2 (After Friday)")
 }

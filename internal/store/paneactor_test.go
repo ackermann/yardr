@@ -655,9 +655,10 @@ func TestMailFromAPaneNamesItsBead(t *testing.T) {
 }
 
 // An answer from a session's pane is recorded as that session's actor,
-// whatever --actor says, and only the pane's actor's own asks are its
-// to take back: one of the operator's is refused as the pane's. From
-// no pane the actor stands as given.
+// whatever --actor says: its own asks land, and the operator's are refused
+// as the pane's. Only the pane's actor's own asks are its to take back:
+// one of the operator's is refused as the pane's. From no pane the actor
+// stands as given.
 func TestAnswerFromAPaneIsThatPanesActor(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, withPane bool) (store.API, context.Context, *store.Bead, *store.Session, string) {
@@ -695,7 +696,16 @@ func TestAnswerFromAPaneIsThatPanesActor(t *testing.T) {
 			t.Fatal(err)
 		}
 		pane := store.WithCaller(ctx, os.Getpid())
-		if err := s.AddAnswer(pane, b.ID, store.Answer{Ask: seq, Words: "warm"}, "op"); err != nil {
+		if err := s.AddAnswer(pane, b.ID, store.Answer{Ask: seq, Words: "warm"}, "op"); err == nil ||
+			!strings.Contains(err.Error(), "ask 1 is for op: only they or the operator (op) may answer it; this is "+actor) {
+			t.Fatalf("the operator's ask from the pane = %v", err)
+		}
+		own := store.Ask{Question: "What tone?", To: actor, Context: []string{"the greeting"}}
+		oseq, err := s.AddAsk(ctx, b.ID, own, "op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddAnswer(pane, b.ID, store.Answer{Ask: oseq, Words: "warm"}, "op"); err != nil {
 			t.Fatal(err)
 		}
 		notes, _ := s.Notes(ctx, b.ID)

@@ -309,12 +309,13 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "UserInbox",
-		says:   "The mail to a user: the unread, oldest first, then the read, newest first.",
+		says:   "The mail to a user: the unread, oldest first, then the read, newest first. Only the user reads their inbox, and an operator reads any user's.",
 		args: []field{
 			{"name", "string", "the user"},
 			{"limit", "number", "at most this many letters, the unread first; `0` is all"},
+			{"actor", "string", "who reads: the user's name, or an operator's; left out, the user"},
 		},
-		requests: []string{`{"name":"jo","limit":10}`},
+		requests: []string{`{"name":"jo","limit":10,"actor":"jo"}`},
 		fields: append(letter("mail[]."),
 			field{"unread", "number", "all the unread, shown or not"},
 			field{"last", "number", "the seq of the newest unread, `0` when none is"},
@@ -392,12 +393,13 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "AckUserInbox",
-		says:   "Marks the user's mail read through a seq. It answers nothing; when mail was in between it is a `mail_read` event in the stream.",
+		says:   "Marks the user's mail read through a seq. It answers nothing; when mail was in between it is a `mail_read` event in the stream. Only the user acknowledges their inbox, and an operator any user's.",
 		args: []field{
 			{"name", "string", "the user"},
 			{"through", "number", "the seq of the newest letter shown"},
+			{"actor", "string", "who acknowledges: the user's name, or an operator's; left out, the user"},
 		},
-		requests: []string{`{"name":"jo","through":%d}`},
+		requests: []string{`{"name":"jo","through":%d,"actor":"jo"}`},
 	},
 	{
 		method: "UserNotifications",
@@ -1095,7 +1097,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(st.SetSetting(ctx, store.BlobMaxSetting, "8388608", "jo"))
 	must(st.Mail(ctx, "jo", "The shed is painted. Shall I land it?", "yardmaster", store.BlobFile{Hash: shed.Hash, Name: "shed.png"}))
 	// Jo reacts to the mail, so the letters the doc shows carry reactions.
-	joBox, err := st.UserInbox(ctx, "jo", 1)
+	joBox, err := st.UserInbox(ctx, "jo", 1, "jo")
 	must(err)
 	must(st.React(ctx, joBox.Mail[0].Seq, "👍", "jo"))
 
@@ -1967,7 +1969,7 @@ func TestCallByName(t *testing.T) {
 		{"Sessions", `[]`, `"message":"want 1 arguments, got 0"`},
 		{"UserInbox", ` {"name":"jo","limit":1} `, `"unread":2`},
 		{"UserInbox", `{"name":"jo","limit":"ten"}`, `{"error":{"code":"error","message":"argument \"limit\": json: cannot unmarshal string into Go value of type int"}}`},
-		{"UserInbox", `{"name":"jo","most":1,"all":true}`, `{"error":{"code":"error","message":"argument \"all\": UserInbox has none of that name (it takes name, limit)"}}`},
+		{"UserInbox", `{"name":"jo","most":1,"all":true}`, `{"error":{"code":"error","message":"argument \"all\": UserInbox has none of that name (it takes name, limit, actor)"}}`},
 		{"Users", `{"name":"jo"}`, `{"error":{"code":"error","message":"argument \"name\": Users has none of that name (it takes none)"}}`},
 		{"Sessions", `{"all":true}`, `{"error":{"code":"error","message":"arguments: Sessions takes them as a JSON array: only the calls docs/api.md names take them by name"}}`},
 		{"Sessions", `[true]`, `{"result":`},

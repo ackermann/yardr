@@ -684,6 +684,13 @@ func (s *Store) AskNew(ctx context.Context, nb NewBead, ask Ask, actor string) (
 // by actor: a pick of one of the ask's options with any words, words
 // alone on an ask with no options, Later, or Decline with why.
 //
+// A plain ask takes its answer only from whom it was put to or an
+// operator; anyone else's is refused naming the addressee. A run, secret
+// or setup ask takes Later and a decline from anyone here, and its settling
+// answer through its own approval alone; a mapping ask takes Later from
+// anyone and a decline from whom it was put to; a stage ask takes every
+// answer from its members alone (below).
+//
 // A declined ask and an ask answered with words take no further answer; a
 // picked ask takes only a newer pick, which supersedes for display. Words
 // alone on an ask with options are refused: they go as a plain note and
@@ -784,7 +791,11 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		if err != nil {
 			return err
 		}
-		if _, err := answerable(row.ID, notes, ans, now()); err != nil {
+		ops, err := operatorsIn(w.Tx)
+		if err != nil {
+			return err
+		}
+		if _, err := answerable(row.ID, notes, ans, now(), actor, ops); err != nil {
 			return err
 		}
 		outcome, _, err := w.stageAnswer(ctx, row, notes, ans, actor, repo, home)
@@ -943,15 +954,16 @@ func answerShape(id string, ans *Answer) error {
 	return nil
 }
 
-// answerable decides whether ans may be recorded on the ask it names among
-// notes, the notes of the bead id, at the time at: the one set of rules for
-// an answer written here, one queued home to another yard, and one another
-// yard sent home. With the refusal it answers what the other yard is told
-// of one that came from there: RefusedNoSuchAsk for an ask that is none,
-// RefusedAskDeclined, RefusedAskAnswered and RefusedAskTakenBack for one
-// that takes no further answer, RefusedNotAsk for a decline without its
-// words, "" for an answer that does not fit the ask.
-func answerable(id string, notes []Note, ans Answer, at time.Time) (string, error) {
+// answerable decides whether ans, by actor, may be recorded on the ask it
+// names among notes, the notes of the bead id, at the time at: the one set
+// of rules for an answer written here, one queued home to another yard, and
+// one another yard sent home. ops are the yard's operators. With the
+// refusal it answers what the other yard is told of one that came from
+// there: RefusedNoSuchAsk for an ask that is none, RefusedAskDeclined,
+// RefusedAskAnswered and RefusedAskTakenBack for one that takes no further
+// answer, RefusedNotAsk for a decline without its words, "" for an answer
+// that does not fit the ask.
+func answerable(id string, notes []Note, ans Answer, at time.Time, actor string, ops operators) (string, error) {
 	var askNote *Note
 	for i := range notes {
 		if notes[i].Seq == ans.Ask {
@@ -967,6 +979,16 @@ func answerable(id string, notes []Note, ans Answer, at time.Time) (string, erro
 	ask, err := ParseAsk(*askNote)
 	if err != nil {
 		return RefusedNoSuchAsk, err
+	}
+	// Whose before what and what state it is in: a plain ask is its
+	// addressee's or an operator's to answer, and nobody else is told
+	// whether it would otherwise land. A stage ask answers to its
+	// members (stageAnswer); a run, secret or setup ask to its own
+	// approval, with Later and a decline anyone's here; a mapping ask
+	// to whom it was put to (answerMapping), with Later anyone's.
+	if ask.Stage == "" && ask.Secret == nil && ask.Run == nil && ask.Setup == nil && ask.Identity == nil &&
+		actor != ask.To && !ops.is(actor) {
+		return "", fmt.Errorf("ask %d is for %s: only they or %s may answer it; this is %s", ans.Ask, ask.To, ops.words(), or(actor, "nobody"))
 	}
 	switch {
 	// First, and without what was sent: the words may be the secret, typed

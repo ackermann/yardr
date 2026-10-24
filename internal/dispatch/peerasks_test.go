@@ -193,6 +193,9 @@ func TestPeerAskPickedInBothYards(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	mac, airy := askYards(t, newClock(), true)
+	// The picks by hand below are the operator's: the asks are airy's
+	// person's to answer, and nobody else's on mac.
+	must(t, mac.api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
 
 	// airy's pick is on its way while mac picks by hand: it lands after,
 	// so it stands.
@@ -271,6 +274,9 @@ func TestPeerAskLinkDown(t *testing.T) {
 	clock := newClock()
 	mac, airy := askYards(t, clock, true)
 	mac.d.PeerTries, airy.d.PeerTries = 3, 3
+	// The answer by hand below is the operator's: the ask is airy's
+	// person's to answer, and nobody else's on mac.
+	must(t, mac.api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
 
 	bead, seq := mac.question(t, airy, "Move them now", "After Friday")
 	mac.down.Store(true)

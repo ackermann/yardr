@@ -143,12 +143,12 @@ func TestTrustedNamesMailIsNotInTheUsersInbox(t *testing.T) {
 	if err != nil || len(all) != 3 {
 		t.Fatalf("the conversation = %s, %v", history(all), err)
 	}
-	box, err := y.api.UserInbox(y.ctx, "jo", 0)
+	box, err := y.api.UserInbox(y.ctx, "jo", 0, "jo")
 	if err != nil || box.Unread != 0 || len(box.Mail) != 0 || box.Last != 0 {
 		t.Fatalf("jo's inbox = %+v, %v", box, err)
 	}
 	was, _ := y.api.GetUser(y.ctx, "jo")
-	if err := y.api.AckUserInbox(y.ctx, "jo", all[2].Seq); err != nil {
+	if err := y.api.AckUserInbox(y.ctx, "jo", all[2].Seq, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if read := peerEvents(t, y.api, "mail_read"); len(read) != 0 {
@@ -158,7 +158,7 @@ func TestTrustedNamesMailIsNotInTheUsersInbox(t *testing.T) {
 	if err := y.api.Mail(y.ctx, "jo", "four", "clerk"); err != nil {
 		t.Fatal(err)
 	}
-	box, _ = y.api.UserInbox(y.ctx, "jo", 0)
+	box, _ = y.api.UserInbox(y.ctx, "jo", 0, "jo")
 	all, _, _ = y.api.Conversation(y.ctx, "jo", "clerk", 0, 0, 0)
 	if box.Unread != 1 || box.Last != all[3].Seq || all[3].Read || was.Cursor >= all[3].Seq {
 		t.Fatalf("jo's inbox = %+v, the conversation %+v", box, all)

@@ -32,12 +32,12 @@ func TestUserCursorOfAnOlderStore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	box, err := s.UserInbox(ctx, "ada", 0)
+	box, err := s.UserInbox(ctx, "ada", 0, "ada")
 	if err != nil || box.Unread != 3 {
 		t.Fatalf("inbox = %+v, %v", box, err)
 	}
 	read := box.Mail[1].Seq
-	if err := s.AckUserInbox(ctx, "ada", read); err != nil {
+	if err := s.AckUserInbox(ctx, "ada", read, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	// As a build before notifications left it: the user's record with its
@@ -70,7 +70,7 @@ func TestUserCursorOfAnOlderStore(t *testing.T) {
 	if err != nil || u.Cursor != read || u.NotificationCursor != read {
 		t.Fatalf("migrated user = %+v, %v; want both cursors at %d", u, err, read)
 	}
-	if box, _ := s.UserInbox(ctx, "ada", 0); box.Unread != 1 {
+	if box, _ := s.UserInbox(ctx, "ada", 0, "ada"); box.Unread != 1 {
 		t.Fatalf("mail after the migration: %d unread; want 1", box.Unread)
 	}
 	// The parts are apart from here on: a notification arrives unread, and
@@ -82,7 +82,7 @@ func TestUserCursorOfAnOlderStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	head, _ := s.Head(ctx)
-	if err := s.AckUserInbox(ctx, "ada", head); err != nil {
+	if err := s.AckUserInbox(ctx, "ada", head, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if page, err := s.UserNotifications(ctx, "ada", 0); err != nil || page.Unread != 1 {

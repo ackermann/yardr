@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -387,6 +388,45 @@ func TestAnswerDecline(t *testing.T) {
 		if err := y.AddAnswer(y.ctx, y.bead, ans, "mckean"); err == nil || !strings.Contains(err.Error(), "declined") {
 			t.Fatalf("an answer after decline went through: %+v, err = %v", ans, err)
 		}
+	}
+}
+
+// A plain ask is its addressee's or an operator's to answer: another
+// member, a crew member and nobody are refused naming the addressee, and a
+// refusal writes nothing. The operator's newer pick supersedes the
+// addressee's.
+func TestAnswerIsTheAddresseesAndTheOperators(t *testing.T) {
+	// Sequential: the package's fake clock (via newHomeYard).
+	y := reachYard(t)
+	bead, seq := y.asked(t, linksAsk())
+	for _, c := range []struct {
+		who string
+		ans Answer
+	}{
+		{"ada", Answer{Ask: seq, Option: 1}},
+		{"ada", Answer{Ask: seq, Later: true}},
+		{"ada", Answer{Ask: seq, Words: "no", Decline: true}},
+		{"clerk", Answer{Ask: seq, Option: 1}},
+		{"", Answer{Ask: seq, Option: 1}},
+	} {
+		want := fmt.Sprintf("ask %d is for mckean: only they or the operator (jo) may answer it; this is %s", seq, or(c.who, "nobody"))
+		if err := y.AddAnswer(y.ctx, bead, c.ans, c.who); err == nil || err.Error() != want {
+			t.Errorf("%+v by %q = %v, want %q", c.ans, c.who, err, want)
+		}
+	}
+	if r := y.state(t, bead, seq); r.State != AskOpen || len(r.Answers) != 0 {
+		t.Fatalf("a refused answer wrote: %v, %+v", r.State, r.Answers)
+	}
+	if err := y.AnswerAsk(y.ctx, bead, seq, 1, "", "mckean", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.AnswerAsk(y.ctx, bead, seq, 2, "", "jo", false); err != nil {
+		t.Fatal(err)
+	}
+	r := y.state(t, bead, seq)
+	if r.State != AskAnswered || len(r.Answers) != 2 ||
+		r.Answers[0].Note.Author != "mckean" || r.Current.Note.Author != "jo" || r.Current.Answer.Option != 2 {
+		t.Fatalf("after the addressee and the operator answered: %+v", r)
 	}
 }
 

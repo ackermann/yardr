@@ -222,7 +222,9 @@ func TestAnswerOrphanAskerDeliversToStageSubscribers(t *testing.T) {
 func TestAnswerOwnAskDeliversNothing(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := answerYard(t)
-	seq := y.ask(t, linksAsk(), "yardmaster")
+	own := linksAsk()
+	own.To = "yardmaster"
+	seq := y.ask(t, own, "yardmaster")
 	y.answer(t, Answer{Ask: seq, Option: 1}, "yardmaster")
 	e := lastAnswer(t, y)
 	if got := Reason(e, "yardmaster"); got != "" {

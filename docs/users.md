@@ -76,6 +76,14 @@ what reads the role, so an approval waits on none of them in particular.
 `yardr user list` shows each user's role, and `yardr user show` says which
 user the setting names.
 
+**An ask is answered only by whom it was put to.** A plain ask has one
+addressee (`--to`), and the store takes its answer only from them or an
+operator; anyone else's is refused, naming the addressee. Run asks keep
+their own rule — any operator approves one, whoever of them it was put
+to — and a stage ask is its members' to answer
+([chat.md](chat.md#questions-for-you)). An operator reads and acknowledges
+any user's inbox ([below](#the-inbox)); a member reads only their own.
+
 `yardr user set <user> role=operator` or `role=member` is an operator's to
 type, at the shell. Nobody sets their own role, and no run ask proposes
 one. The yard refuses to make a member of, or to remove, its last operator:
@@ -336,6 +344,14 @@ under its heading with its unread count:
 Each part lists its unread, oldest first, then the latest read, the newest
 of them first, marked `(read)`; `-n` bounds how many in each. `--mail` and
 `--notifications` show one part.
+
+**Only the user reads their inbox**, and only they acknowledge it: anyone
+else's read or ack is refused, naming the user. An operator reads and
+acknowledges any user's. So `yardr user list` shows another user's unread
+count as `-` to anyone but an operator, and `yardr user show <name>` of
+another user says the inbox is not shown. Over the network a device reads
+as its user ([api.md](api.md#over-the-network)); on the socket the reader
+is the call's `actor`, taken at its word like every actor.
 
 ```
 Mail: nothing unread; the latest read:
@@ -1041,14 +1057,15 @@ to `mckean@airy`, in the order written. The yardmaster reads the same with
 `--json`, [`Conversation`](api.md#conversation) and [`yardr
 chat`](chat.md#a-name-trusted-as-a-user-of-this-yard) have the same letters.
 
-**Read** means acknowledged by the receiver, with `yardr inbox --ack <seq>`: a
-user's own, for the mail part of [the inbox](#the-inbox), or a crew member's,
-whose acknowledgement covers its whole inbox through the seq named.
-Mail to a party that has since been removed counts as unread.
-An acknowledgement that passes mail is an event, `mail_read` (with `reader`
-and `through`), so a view that follows the stream learns of it. One that
-passes a user's notifications is `notifications_read`, with the same two
-fields.
+**Read** means acknowledged in the receiver's inbox with
+`yardr inbox --ack <seq>`. A user or an operator may acknowledge a user's
+inbox; a crew member acknowledges their own. A crew member's acknowledgement
+covers its whole inbox through the seq named. Mail to a party that has since
+been removed counts as unread. An acknowledgement that passes mail is an event,
+`mail_read` (with `reader` and `through`): `reader` names the inbox whose
+cursor moved, and the event actor names who acknowledged it. A view that
+follows the stream learns of it. One that passes a user's notifications is
+`notifications_read`, with the same two fields.
 
 [`yardr chat`](chat.md) is this exchange as a view in the terminal, with a
 line to type.

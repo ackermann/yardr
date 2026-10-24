@@ -1032,8 +1032,9 @@ stream can use them:
   the event, as on every `crew_` one: a login made in the pane ends `not
   logged in` with it.
 - `mail_read`, with `reader` and `through`: a crew member or a user
-  acknowledged its inbox through that seq, and mail was among what it
-  acknowledged.
+  acknowledged its inbox through that seq, or an operator acknowledged a
+  user's inbox. `reader` names the inbox whose cursor moved; the event actor
+  names who acknowledged it. Mail was among what it acknowledged.
 
 The `yard` row follows two more things in the stream. An event that became
 a notification names whom it told in its data, `notified` (user to reason),

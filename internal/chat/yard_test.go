@@ -113,7 +113,7 @@ func TestYardRow(t *testing.T) {
 		t.Fatalf("opening the row acknowledged through %d, want %d (unread %d)", v.noteCursor(), newest, v.m.Notifications())
 	}
 	// The mail is another part of the inbox: still unread, there and here.
-	if box, err := st.UserInbox(ctx, me, 1); err != nil || box.Unread != 1 || v.cursor() != 0 || v.m.Unread("recorder") != 1 {
+	if box, err := st.UserInbox(ctx, me, 1, me); err != nil || box.Unread != 1 || v.cursor() != 0 || v.m.Unread("recorder") != 1 {
 		t.Fatalf("opening the yard's row read mail: %d unread in the store, cursor %d, %v", box.Unread, v.cursor(), err)
 	}
 	if got := v.row(YardRow); got != "> yard" {

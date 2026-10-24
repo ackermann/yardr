@@ -119,7 +119,7 @@ func TestPeerMailFromTheTrusted(t *testing.T) {
 			t.Errorf("mail %d speaks as %q, is from %q, as = %v; want %+v", i, store.SpeaksAs(e), store.MailFrom(e), e.Data["as"], want)
 		}
 	}
-	box, err := y.api.UserInbox(y.ctx, "ada", 0)
+	box, err := y.api.UserInbox(y.ctx, "ada", 0, "ada")
 	if err != nil || len(box.Mail) != 2 || box.Mail[0].From != "mckean@north" || box.Mail[0].As != "jo" || box.Mail[1].As != "" {
 		t.Fatalf("ada's inbox = %+v, %v", box, err)
 	}
@@ -171,7 +171,7 @@ func TestTrustGoesWithItsEnds(t *testing.T) {
 	if got, err := y.own.PeerReceive(y.ctx, "north", y.key, []store.PeerMessage{mail("m1", "ada", "mckean", "hi")}); err != nil || got[0].Refused != "" {
 		t.Fatalf("PeerReceive = %+v, %v", got, err)
 	}
-	if box, _ := y.api.UserInbox(y.ctx, "ada", 0); len(box.Mail) != 1 || box.Mail[0].As != "" {
+	if box, _ := y.api.UserInbox(y.ctx, "ada", 0, "ada"); len(box.Mail) != 1 || box.Mail[0].As != "" {
 		t.Fatalf("mail to the ada of now = %+v", box.Mail)
 	}
 

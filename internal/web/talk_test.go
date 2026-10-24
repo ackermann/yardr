@@ -558,7 +558,7 @@ func TestTalkPerson(t *testing.T) {
 	if len(letters) != 3 {
 		t.Fatalf("conversation = %+v, want three letters", letters)
 	}
-	must(f.st.AckUserInbox(ctx, "amy", letters[0].Seq))
+	must(f.st.AckUserInbox(ctx, "amy", letters[0].Seq, "amy"))
 
 	r := f.get("/talk?with=amy")
 	if r.status != 200 {

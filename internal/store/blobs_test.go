@@ -274,7 +274,7 @@ func TestEventFiles(t *testing.T) {
 			}
 		}
 	}
-	box, err := api.UserInbox(ctx, "ada", 0)
+	box, err := api.UserInbox(ctx, "ada", 0, "ada")
 	if err != nil || len(box.Mail) != 2 {
 		t.Fatalf("inbox = %+v, %v", box, err)
 	}
@@ -1108,7 +1108,7 @@ func TestMailAndNoteRefuseBadNames(t *testing.T) {
 			t.Errorf("mail to a peer with %q = %v", name, err)
 		}
 	}
-	if box, err := api.UserInbox(ctx, "ada", 0); err != nil || len(box.Mail) != 0 {
+	if box, err := api.UserInbox(ctx, "ada", 0, "ada"); err != nil || len(box.Mail) != 0 {
 		t.Errorf("what was refused was sent: %+v, %v", box, err)
 	}
 	if notes, err := api.Notes(ctx, b.ID); err != nil || len(notes) != 0 {
@@ -1122,7 +1122,7 @@ func TestMailAndNoteRefuseBadNames(t *testing.T) {
 	if err := api.Mail(ctx, "ada", "", "jo", store.BlobFile{Hash: pdf.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	box, err := api.UserInbox(ctx, "ada", 0)
+	box, err := api.UserInbox(ctx, "ada", 0, "ada")
 	if err != nil || len(box.Mail) != 2 {
 		t.Fatalf("ada's inbox = %+v, %v", box, err)
 	}
