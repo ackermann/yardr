@@ -102,7 +102,7 @@ func writerAskLine(w store.WriterAsk) string {
 }
 
 func (a *app) printBead(w io.Writer, b *store.Bead) error {
-	return a.printBeadFlow(w, b, "", nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	return a.printBeadFlow(w, b, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // printLinks adds the outside issues a bead is linked to (yardr link) to
@@ -129,7 +129,9 @@ func printLinks(w io.Writer, ls []store.Link) {
 // for, where the route had a choice to make. waited, when given, is the
 // group it waits for behind a full group. est, when given, is the
 // bead's ETA and late mark, each printed when it has anything to say.
-func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, folds *beadFolds, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, links ...store.Link) error {
+// toks, when given, is what the bead's agent sessions used, printed after
+// labels.
+func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store.NextStages, flowErr error, fam *store.Family, disc *store.Discovery, folds *beadFolds, holding []store.Dep, routed *beadRouting, waited *groupWait, est *eta.Result, toks *beadTokens, links ...store.Link) error {
 	return a.out(w, b, func(w io.Writer) {
 		// The title, the body and the reason it closed are a writer's
 		// words, and stand in the output its notes stand in. The title
@@ -189,6 +191,9 @@ func (a *app) printBeadFlow(w io.Writer, b *store.Bead, test string, next *store
 		}
 		if len(b.Labels) > 0 {
 			fmt.Fprintf(w, "  labels %s\n", strings.Join(b.Labels, ", "))
+		}
+		if toks != nil {
+			fmt.Fprintf(w, "  %s\n", toks.line())
 		}
 		if est != nil {
 			if est.ETA != nil {
@@ -431,7 +436,15 @@ func (a *app) newBeadShowCmd() *cobra.Command {
 		Use:   "show <id>",
 		Short: "Show a bead",
 		Long: `Show a bead: its header, routing, labels and notes, and, when there
-is anything to say, its ETA and its late mark.
+is anything to say, its tokens, its ETA and its late mark.
+
+The tokens line is what the bead's agent sessions used: new tokens
+(fresh input, cache writes and output) and cache reads over the
+sessions with a count, then one entry per session in the order they
+started. A total with a partial, missing or still unread session
+takes ≥, and its entry says which: the count with partial, the reason
+with missing, or PENDING. --json carries the same as the tokens
+object. A bead with no agent session has neither.
 
 The eta line is the bead's arrival as a usual range from what its
 stages ahead cost the groups that work them (docs/line.md), and the
@@ -496,6 +509,11 @@ same as the eta and late objects, absent likewise.`,
 			if err != nil {
 				return err
 			}
+			sessions, err := st.ListSessions(c.Context(), store.SessionFilter{Bead: b.ID, All: true})
+			if err != nil {
+				return err
+			}
+			toks := summarizeBeadTokens(sessions)
 			if a.json {
 				// The bead's own fields stay at the top level, so readers of
 				// bead show --json (its revision) are unaffected. Bead and
@@ -532,10 +550,13 @@ same as the eta and late objects, absent likewise.`,
 					// there is nothing to say.
 					ETA  *eta.ETA  `json:"eta,omitempty"`
 					Late *eta.Late `json:"late,omitempty"`
-				}{b, fam, disc, train, links, notes, folds.Into, folds.From, routed, etaObj, lateObj}, nil)
+					// Tokens is what the bead's agent sessions used,
+					// absent when none ran.
+					Tokens *beadTokens `json:"tokens,omitempty"`
+				}{b, fam, disc, train, links, notes, folds.Into, folds.From, routed, etaObj, lateObj, toks}, nil)
 			}
 			next, err := st.NextStages(c.Context(), b.ID)
-			if err := a.printBeadFlow(c.OutOrStdout(), b, "", next, err, fam, disc, folds, holding, routed, waited, est, links...); err != nil {
+			if err := a.printBeadFlow(c.OutOrStdout(), b, "", next, err, fam, disc, folds, holding, routed, waited, est, toks, links...); err != nil {
 				return err
 			}
 			// An author from another yard says whose word the note is, as
@@ -982,7 +1003,7 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 			}
 			return a.out(c.OutOrStdout(), v, func(w io.Writer) {
-				_ = a.printBeadFlow(w, b, test, next, flowErr, fam, disc, nil, nil, nil, nil, est)
+				_ = a.printBeadFlow(w, b, test, next, flowErr, fam, disc, nil, nil, nil, nil, est, nil)
 				if pullHead != "" {
 					fmt.Fprintf(w, "\nWORKTREE: the head of the pull request %s at %s, detached (fetched when the session started)\n", pull, pullHead)
 				}
