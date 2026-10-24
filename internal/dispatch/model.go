@@ -22,16 +22,19 @@ const (
 	ModelReported = "model_reported"
 )
 
-// modelWindow is how long after a session's start its agent is asked for
+// ModelWindow is how long after a session's start its agent is asked for
 // its model, and for the id of its session. An agent that has not answered
 // a prompt by then (one that stalled, or waits on a human) is not asked on
-// every pass for ever.
-const modelWindow = 15 * time.Minute
+// every pass for ever. It is also how late after the start a session file
+// found by its worktree may have started (the runner's match).
+const ModelWindow = 15 * time.Minute
 
 // Modeler is implemented by runners whose agents report the model they run
 // ("" while not known yet, or for a kind that has no way to tell).
+// startedAt is when the session started, by which a session found by its
+// worktree, rather than by an id, is matched to its file.
 type Modeler interface {
-	Model(ctx context.Context, handle map[string]any) (string, error)
+	Model(ctx context.Context, handle map[string]any, startedAt time.Time) (string, error)
 }
 
 // AgentSession is a handle key: the id of the session the session's agent
@@ -43,20 +46,21 @@ const AgentSession = store.HandleAgentSession
 
 // SessionIDer is implemented by runners that tell the id of the session an
 // agent keeps in its own session file ("" while it names none yet, or for a
-// kind the runner can read no id for).
+// kind the runner can read no id for). startedAt is when the session
+// started, by which a session found by its worktree is matched to its file.
 type SessionIDer interface {
-	SessionID(ctx context.Context, handle map[string]any) (string, error)
+	SessionID(ctx context.Context, handle map[string]any, startedAt time.Time) (string, error)
 }
 
 // askAgentSession is the id r names for the agent of handle, "" when the handle
 // has one already (nothing to ask), when r names none yet or can name none, and
 // when it cannot be reached: the caller asks again later, if it does at all.
-func askAgentSession(ctx context.Context, r Runner, handle map[string]any) string {
+func askAgentSession(ctx context.Context, r Runner, handle map[string]any, startedAt time.Time) string {
 	ider, ok := r.(SessionIDer)
 	if !ok || handle[AgentSession] != nil {
 		return ""
 	}
-	id, err := ider.SessionID(ctx, handle)
+	id, err := ider.SessionID(ctx, handle, startedAt)
 	if err != nil {
 		return ""
 	}
@@ -69,14 +73,14 @@ func askAgentSession(ctx context.Context, r Runner, handle map[string]any) strin
 // before it answered, or whose kind names no model, would have no id left to
 // find its count by. So this does not wait for a model line, and does not
 // depend on what the model check finds. It asks for as long after the start
-// as the model check does (modelWindow), so a kind the runner reads no id
+// as the model check does (ModelWindow), so a kind the runner reads no id
 // for is not asked on every pass for ever, and teardown asks once more
 // (see lastAgentSession). s.Handle is updated with what it stores.
 func (d *Dispatcher) agentSession(ctx context.Context, r Runner, s *store.Session) {
-	if d.now().Sub(s.StartedAt) > modelWindow {
+	if d.now().Sub(s.StartedAt) > ModelWindow {
 		return
 	}
-	id := askAgentSession(ctx, r, s.Handle)
+	id := askAgentSession(ctx, r, s.Handle, s.StartedAt)
 	if id == "" {
 		return // none yet, or unreachable: asked again next pass
 	}
@@ -95,10 +99,10 @@ func (d *Dispatcher) agentSession(ctx context.Context, r Runner, s *store.Sessio
 func (d *Dispatcher) model(ctx context.Context, r Runner, s *store.Session, g store.Group) {
 	m, ok := r.(Modeler)
 	if !ok || s.Handle[ModelReported] != nil || s.Handle[store.PendingPrompt] != nil ||
-		d.now().Sub(s.StartedAt) > modelWindow {
+		d.now().Sub(s.StartedAt) > ModelWindow {
 		return
 	}
-	reported, err := m.Model(ctx, s.Handle)
+	reported, err := m.Model(ctx, s.Handle, s.StartedAt)
 	if err != nil || reported == "" {
 		return // not answered yet, or unreachable: asked again next pass
 	}

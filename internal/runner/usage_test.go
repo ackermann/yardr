@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,35 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 	recordedAt := func(us int64) string { return time.UnixMicro(us).UTC().Format(time.RFC3339Nano) }
 	write(filepath.Join(muse, "sessions", "2026", "10", "21", "m1", "session.jsonl"), museLines...)
 
+	// Two Muse sessions in one worktree, as yardr-58xw's were, and two of
+	// another worktree that share one session's window. Every file opens
+	// with the retained_frame wrapper, whose nested time is not the file's
+	// start; the metadata names the worktree and starts the file.
+	wtU, wtQ2 := "/work/wt-u", "/work/wt-q2"
+	claimU := time.Date(2026, 10, 21, 18, 46, 13, 0, time.UTC)
+	claimU2 := time.Date(2026, 10, 21, 19, 36, 32, 0, time.UTC)
+	claimQ2 := time.Date(2026, 10, 21, 18, 45, 0, 0, time.UTC)
+	usageRecord := func(at time.Time, input, output, cached int) string {
+		return fmt.Sprintf(`{"recorded_at":%d,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"input_tokens":%d,"output_tokens":%d,"cached_tokens":%d}}}}}`, at.UnixMicro(), input, output, cached)
+	}
+	museUsage := func(id, wt string, start time.Time, records ...string) {
+		t.Helper()
+		us := start.UnixMicro()
+		lines := append([]string{
+			fmt.Sprintf(`{"retained_frame":"session_permission_transaction","children":[{"child_index":0,"record_json":"{\"sequence\":1,\"recorded_at\":%d}"}]}`, us-56000),
+			fmt.Sprintf(`{"sequence":3,"recorded_at":%d,"payload_type":"runtime.session.metadata","payload":{"record":{"workspace_root":%q}}}`, us, wt),
+		}, records...)
+		write(filepath.Join(muse, "sessions", "2026", "10", "21", id, "session.jsonl"), lines...)
+	}
+	uaStart := claimU.Add(4 * time.Second)
+	museUsage("ua", wtU, uaStart,
+		usageRecord(uaStart.Add(time.Minute), 1000, 50, 400),
+		usageRecord(uaStart.Add(2*time.Minute), 2000, 60, 1500))
+	ubStart := claimU2.Add(3 * time.Second)
+	museUsage("ub", wtU, ubStart, usageRecord(ubStart.Add(time.Minute), 500, 25, 100))
+	museUsage("uq1", wtQ2, time.Date(2026, 10, 21, 18, 50, 0, 0, time.UTC), usageRecord(claimQ2.Add(6*time.Minute), 700, 7, 70))
+	museUsage("uq2", wtQ2, time.Date(2026, 10, 21, 18, 55, 0, 0, time.UTC), usageRecord(claimQ2.Add(11*time.Minute), 800, 8, 80))
+
 	h := &Herdr{AgentHomes: map[string]string{"claude": claude, "codex": codex, "muse": muse}}
 	handle := func(kind, id, until string) map[string]any {
 		hd := map[string]any{"kind": kind, "agent_session": id}
@@ -129,17 +159,29 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 		allRecords    = agents.Usage{Input: 27979 + 36689 + 15467 + 44852, FreshInput: 27979 + (36689 - 27633) + 15467 + (44852 - 44273), Output: 111 + 182 + 461 + 89, CacheRead: 27633 + 44273}
 		throughSecond = agents.Usage{Input: 27979 + 36689, FreshInput: 27979 + (36689 - 27633), Output: 111 + 182, CacheRead: 27633}
 		firstOnly     = agents.Usage{Input: 27979, FreshInput: 27979, Output: 111}
+		uaSum         = agents.Usage{Input: 3000, FreshInput: 1100, Output: 110, CacheRead: 1900}
+		uaFirst       = agents.Usage{Input: 1000, FreshInput: 600, Output: 50, CacheRead: 400}
+		ubSum         = agents.Usage{Input: 500, FreshInput: 400, Output: 25, CacheRead: 100}
 	)
 	// The words the record keeps and the report prints.
 	const (
-		noID     = "no session id"
-		noFile   = "no file"
-		noLine   = "no usage line"
-		noSource = "kind declares no usage"
+		noID      = "no session id"
+		noFile    = "no file"
+		noLine    = "no usage line"
+		noSource  = "kind declares no usage"
+		ambiguous = "ambiguous match"
 	)
+	matchHandle := func(wt, until string) map[string]any {
+		hd := map[string]any{"kind": "muse", "worktree": wt}
+		if until != "" {
+			hd["count_due"] = map[string]any{"stopped_at": "2026-10-21T19:00:00Z", "until": until}
+		}
+		return hd
+	}
 	for _, c := range []struct {
 		name     string
 		handle   map[string]any
+		started  time.Time
 		fallback bool
 		usage    agents.Usage
 		partial  bool
@@ -173,6 +215,21 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 
 		// Muse: the sum of the records of its main agent and its side sessions.
 		{name: "muse records", handle: handle("muse", "m1", ""), usage: allRecords},
+
+		// With no id kept, a Muse session is matched by its worktree: the
+		// one file that qualifies reads as a kept id would, with the same
+		// cutoff rules, and a kept id still wins over the match.
+		{name: "muse matched by worktree", handle: matchHandle(wtU, ""), started: claimU, usage: uaSum},
+		{name: "muse matched, the second session's file", handle: matchHandle(wtU, ""), started: claimU2, usage: ubSum},
+		{name: "muse matched file read up to until", handle: matchHandle(wtU, uaStart.Add(time.Minute).UTC().Format(time.RFC3339Nano)), started: claimU, usage: uaFirst},
+		{name: "muse kept id over the match", handle: map[string]any{"kind": "muse", "agent_session": "ua", "worktree": wtQ2}, started: claimQ2, usage: uaSum},
+		// Two qualifying files read missing, never the earliest; none, or
+		// no worktree to match by, reads as a kind without a match does.
+		{name: "muse ambiguous match", handle: matchHandle(wtQ2, ""), started: claimQ2, missing: ambiguous},
+		{name: "muse ambiguous, fallback allowed", handle: matchHandle(wtQ2, ""), started: claimQ2, fallback: true, missing: ambiguous},
+		{name: "muse no file in the window", handle: matchHandle(wtU, ""), started: time.Date(2026, 10, 21, 20, 0, 0, 0, time.UTC), missing: noID},
+		{name: "muse no file for the worktree", handle: matchHandle("/nowhere", ""), started: claimU, missing: noID},
+		{name: "muse no worktree and no id", handle: map[string]any{"kind": "muse"}, started: claimU, missing: noID},
 
 		// An agent left running is counted up to a time: lines at or before
 		// it, the line at it included, and none after it.
@@ -211,7 +268,7 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 		{name: "no kind", handle: map[string]any{"agent_session": "c1"}, missing: noSource},
 		{name: "unknown kind", handle: handle("nosuch", "c1", ""), missing: noSource},
 	} {
-		u, partial, missing, err := h.Usage(ctx, c.handle, c.fallback)
+		u, partial, missing, err := h.Usage(ctx, c.handle, c.started, c.fallback)
 		switch {
 		case c.fails:
 			if err == nil || errors.Is(err, dispatch.ErrUsageNotYet) {
@@ -231,7 +288,7 @@ func TestHerdrUsageReadsTheSessionsCount(t *testing.T) {
 	// A context that is done reads nothing.
 	done, cancel := context.WithCancel(ctx)
 	cancel()
-	if _, _, _, err := h.Usage(done, handle("claude", "c1", ""), false); !errors.Is(err, context.Canceled) {
+	if _, _, _, err := h.Usage(done, handle("claude", "c1", ""), time.Time{}, false); !errors.Is(err, context.Canceled) {
 		t.Errorf("a canceled context: error %v", err)
 	}
 }

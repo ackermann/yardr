@@ -421,7 +421,7 @@ func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, s *memberSess
 
 // crewAgentSession records the id the runner names for the agent of the live
 // crew session s on its handle, as agentSession does for a bead's session:
-// within modelWindow of the start, so a kind the runner names no id for is not
+// within ModelWindow of the start, so a kind the runner names no id for is not
 // asked on every pass for ever. With last it asks past the window too, as
 // the session is stopped and while its agent's tab is open (lastAgentSession):
 // a crew session lives for a day, and an agent that was slow to start its own
@@ -429,10 +429,17 @@ func (d *Dispatcher) closeLeft(ctx context.Context, runner Runner, s *memberSess
 // copies the id off the handle, which does not outlive it (store.CrewUncounted).
 // s.st.Handle is updated with what it stores.
 func (d *Dispatcher) crewAgentSession(ctx context.Context, r Runner, s *memberSession, last bool) {
-	if !s.st.Live() || !last && (s.st.StartedAt == nil || d.now().Sub(*s.st.StartedAt) > modelWindow) {
+	if !s.st.Live() || !last && (s.st.StartedAt == nil || d.now().Sub(*s.st.StartedAt) > ModelWindow) {
 		return
 	}
-	id := askAgentSession(ctx, r, s.st.Handle)
+	// A crew handle carries no worktree, so the match the start is for has
+	// nothing to match; the zero start of a session that never started one
+	// is never read.
+	var started time.Time
+	if s.st.StartedAt != nil {
+		started = *s.st.StartedAt
+	}
+	id := askAgentSession(ctx, r, s.st.Handle, started)
 	if id == "" {
 		return // none yet, or unreachable: asked again next pass
 	}
@@ -474,7 +481,14 @@ func (d *Dispatcher) crewSessionUsage(ctx context.Context, r UsageReader, name, 
 		// kind that herdr names no id for has none to count.
 		handle := map[string]any{store.HandleKind: due.Kind, AgentSession: due.AgentSession}
 		said := "usage:crew:" + name + ":" + user + ":" + due.AgentSession
-		rec := d.countRecord(ctx, r, handle, due.StoppedAt, said, "crew", name, "user", user)
+		// The handle is gone, and with it what a match by worktree would go
+		// by, so the start is never read; a session that never started one
+		// passes the zero time.
+		var started time.Time
+		if due.StartedAt != nil {
+			started = *due.StartedAt
+		}
+		rec := d.countRecord(ctx, r, handle, started, due.StoppedAt, said, "crew", name, "user", user)
 		if rec == nil {
 			continue
 		}

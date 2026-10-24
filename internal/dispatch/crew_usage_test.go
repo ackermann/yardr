@@ -36,7 +36,7 @@ func (c *crewCountRunner) StartCrew(ctx context.Context, r store.CrewMember, use
 	return h, err
 }
 
-func (c *crewCountRunner) SessionID(_ context.Context, h map[string]any) (string, error) {
+func (c *crewCountRunner) SessionID(_ context.Context, h map[string]any, _ time.Time) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.asked++
@@ -47,8 +47,8 @@ func (c *crewCountRunner) SessionID(_ context.Context, h map[string]any) (string
 	return agentID(agent), nil
 }
 
-func (c *crewCountRunner) Usage(ctx context.Context, h map[string]any, fallback bool) (agents.Usage, bool, string, error) {
-	return c.reader.Usage(ctx, h, fallback)
+func (c *crewCountRunner) Usage(ctx context.Context, h map[string]any, startedAt time.Time, fallback bool) (agents.Usage, bool, string, error) {
+	return c.reader.Usage(ctx, h, startedAt, fallback)
 }
 
 // crewCountDispatcher is a dispatcher over s, and a replacement for one when the

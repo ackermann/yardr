@@ -608,6 +608,12 @@ func TestLoadRefuses(t *testing.T) {
 		"usage, cache in input of none":       {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i, cache_in_input: true}]\n", "usage: entry 1: cache_in_input names no cache_read"},
 		"usage, cache in input without input": {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, cache_read: c, cache_in_input: true}]\n", "usage: entry 1: cache_in_input names no input"},
 		"usage, the second entry is wrong":    {"claude.yaml", "version: 1\nlabel: x\n" + model + "usage: [{usage: u, input: i}, {usage: u}]\n", "usage: entry 2:"},
+		"workspace, no field":                 {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 's/{session}/f.jsonl', field: m, workspace: {type: t, at: at}}\n", "workspace: field is needed"},
+		"workspace, no at":                    {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 's/{session}/f.jsonl', field: m, workspace: {type: t, field: f}}\n", "workspace: at is needed"},
+		"workspace, an unknown at_unit":       {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 's/{session}/f.jsonl', field: m, workspace: {field: f, at: t, at_unit: ns}}\n", `workspace: at_unit "ns" is none of s, ms, us`},
+		"workspace, a field not known":        {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 's/{session}/f.jsonl', field: m, workspace: {field: f, at: t, when: x}}\n", "field when not found"},
+		"workspace, {session} inside a word":  {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: '{session}.jsonl', field: m, workspace: {field: f, at: t}}\n", "workspace: glob"},
+		"workspace, {session} twice":          {"claude.yaml", "version: 1\nlabel: x\nmodel: {home: .x, glob: 's/{session}/{session}/f.jsonl', field: m, workspace: {field: f, at: t}}\n", "workspace: glob"},
 	} {
 		if _, err := load(t, map[string]string{c.file: c.body}); err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), c.file) {
 			t.Errorf("%s: %v, want %q and the file's name", name, err, c.want)
@@ -683,6 +689,80 @@ func TestModelIn(t *testing.T) {
 	}
 	if got, want := muse.Model.Pattern("/h", "x1"), "/h/sessions/*/*/*/x1/session.jsonl"; got != want {
 		t.Errorf("pattern %q, want %q", got, want)
+	}
+}
+
+// A line of a session file holds its worktree towards the worktree match,
+// when it is of the workspace type and names one, and its own time,
+// whatever its type. The lines are trimmed from a real Muse file (1.4.12):
+// its first is a retained_frame wrapper with no time of its own, its
+// second the metadata that names the worktree. Only muse declares a
+// workspace; a kind without one reads nothing.
+func TestWorkspaceIn(t *testing.T) {
+	claude, _ := Lookup("claude")
+	codex, _ := Lookup("codex")
+	muse, _ := Lookup("muse")
+	if muse.Model.Workspace == nil {
+		t.Fatal("muse declares no workspace")
+	}
+	if claude.Model.Workspace != nil || codex.Model.Workspace != nil {
+		t.Fatal("only muse matches its sessions by worktree")
+	}
+	at := time.Date(2026, 10, 21, 18, 46, 17, 253217000, time.UTC)
+	any := &ModelSource{Workspace: &WorkspaceSource{Field: "ws", At: "at"}}
+	for _, c := range []struct {
+		src       *ModelSource
+		line      string
+		workspace string
+		when      time.Time
+		ok        bool
+	}{
+		{muse.Model, `{"sequence":3,"recorded_at":1792608377253217,"payload_type":"runtime.session.metadata","payload":{"record":{"workspace_root":"/work/w"}}}`, "/work/w", at, true},
+		{muse.Model, `{"sequence":3,"recorded_at":1792608377253217,"payload_type":"runtime.session.metadata","payload":{"record":{"workspace_root":"/elsewhere"}}}`, "/elsewhere", at, true},
+		{muse.Model, `{"sequence":3,"payload_type":"runtime.session.metadata","payload":{"record":{"workspace_root":"/work/w"}}}`, "/work/w", time.Time{}, true},
+		{muse.Model, `{"sequence":62,"recorded_at":1792608377253217,"payload":{"event":{"kind":"goal_usage_attribution"}}}`, "", at, true},
+		{muse.Model, `{"payload_type":"run.model.configured","payload":{"record":{"model_id":"muse-spark-1.3"}}}`, "", time.Time{}, false},
+		{muse.Model, `{"type":"runtime.session.metadata","recorded_at":1792608377253217,"payload":{"record":{"workspace_root":"/work/w"}}}`, "", at, true},
+		{muse.Model, `{"payload_type":"runtime.session.metadata","payload":{"record":{"workspace_root":7}}}`, "", time.Time{}, false},
+		{muse.Model, `{"retained_frame":"session_permission_transaction","children":[{"child_index":0,"record_json":"{\"sequence\":1,\"recorded_at\":1792608377191311}"}]}`, "", time.Time{}, false},
+		{muse.Model, `{"payload_type":"runtime.session.metadata`, "", time.Time{}, false},
+		{muse.Model, ``, "", time.Time{}, false},
+		{claude.Model, `{"type":"assistant","timestamp":"2026-10-21T18:46:17Z"}`, "", time.Time{}, false},
+		{any, `{"type":"anything","ws":"/work/w","at":"2026-10-21T18:46:17.253217Z"}`, "/work/w", at, true},
+		{any, `{"ws":"/work/w"}`, "/work/w", time.Time{}, true},
+		{any, `{"at":"2026-10-21T18:46:17.253217Z"}`, "", at, true},
+	} {
+		got, ok := c.src.WorkspaceIn([]byte(c.line))
+		if got.Workspace != c.workspace || !got.At.Equal(c.when) || ok != c.ok {
+			t.Errorf("%s in %.80q: %+v, %v; want {%q %v}, %v", c.src.Field, c.line, got, ok, c.workspace, c.when, c.ok)
+		}
+	}
+}
+
+// A matched file names its session in the segment where the glob has
+// {session}. A path outside the harness's own directory, one with not the
+// glob's segments, and a glob that holds {session} inside a longer word,
+// as codex's does, name none.
+func TestSessionIn(t *testing.T) {
+	muse, _ := Lookup("muse")
+	codex, _ := Lookup("codex")
+	for _, c := range []struct {
+		src       *ModelSource
+		dir, path string
+		want      string
+		ok        bool
+	}{
+		{muse.Model, "/h", "/h/sessions/2026/10/21/abc/session.jsonl", "abc", true},
+		{muse.Model, "/h", "/h/sessions/2026/10/21/abc/def/session.jsonl", "", false},
+		{muse.Model, "/h", "/h/sessions/2026/10/21/session.jsonl", "", false},
+		{muse.Model, "/h", "/h", "", false},
+		{muse.Model, "/h", "/other/sessions/2026/10/21/abc/session.jsonl", "", false},
+		{muse.Model, "/h", "/h/../sessions/2026/10/21/abc/session.jsonl", "", false},
+		{codex.Model, "/h", "/h/sessions/2026/10/21/rollout-2026-10-21T20-10-45-x1.jsonl", "", false},
+	} {
+		if got, ok := c.src.SessionIn(c.dir, c.path); got != c.want || ok != c.ok {
+			t.Errorf("%s in %s under %s: %q, %v; want %q, %v", c.src.Glob, c.path, c.dir, got, ok, c.want, c.ok)
+		}
 	}
 }
 

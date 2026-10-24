@@ -49,7 +49,7 @@ func (c *countRunner) Start(ctx context.Context, j dispatch.Job) (map[string]any
 	return h, err
 }
 
-func (c *countRunner) SessionID(_ context.Context, h map[string]any) (string, error) {
+func (c *countRunner) SessionID(_ context.Context, h map[string]any, _ time.Time) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.asked++
@@ -74,14 +74,14 @@ func (c *countRunner) Stop(ctx context.Context, h map[string]any) error {
 	return c.fakeRunner.Stop(ctx, h)
 }
 
-func (c *countRunner) Usage(ctx context.Context, h map[string]any, fallback bool) (agents.Usage, bool, string, error) {
+func (c *countRunner) Usage(ctx context.Context, h map[string]any, startedAt time.Time, fallback bool) (agents.Usage, bool, string, error) {
 	c.mu.Lock()
 	err := c.usageErr
 	c.mu.Unlock()
 	if err != nil {
 		return agents.Usage{}, false, "", err
 	}
-	return c.reader.Usage(ctx, h, fallback)
+	return c.reader.Usage(ctx, h, startedAt, fallback)
 }
 
 // set changes what the runtime does under the lock the dispatcher's calls take.
@@ -102,6 +102,9 @@ func (c *countRunner) write(t *testing.T, session string, lines ...string) {
 	path := filepath.Join(c.home, "projects", "p", id+".jsonl")
 	if c.kind == "codex" {
 		path = filepath.Join(c.home, "sessions", "2026", "10", "22", "rollout-2026-10-22T10-00-00-"+id+".jsonl")
+	}
+	if c.kind == "muse" {
+		path = filepath.Join(c.home, "sessions", "2026", "10", "24", id, "session.jsonl")
 	}
 	must(t, os.MkdirAll(filepath.Dir(path), 0o700))
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -128,6 +131,26 @@ func claudeMessage(at time.Time, id string, input, output, read, write int) stri
 func claudeTotal(input, output, read, write int) string {
 	return fmt.Sprintf(`{"type":"cost-state","modelUsage":{"claude-opus-5-5":{"inputTokens":%d,"outputTokens":%d,"cacheReadInputTokens":%d,"cacheCreationInputTokens":%d}}}`,
 		input, output, read, write)
+}
+
+// museMeta is what muse writes first for a session: a retained_frame wrapper
+// with no time of its own, then the metadata that names the worktree.
+func museMeta(wt string, at time.Time) []string {
+	us := at.UnixMicro()
+	return []string{
+		fmt.Sprintf(`{"retained_frame":"session_permission_transaction","children":[{"child_index":0,"record_json":"{\"sequence\":1,\"recorded_at\":%d}"}]}`, us-56000),
+		fmt.Sprintf(`{"sequence":3,"recorded_at":%d,"payload_type":"runtime.session.metadata","payload":{"record":{"workspace_root":%q}}}`, us, wt),
+	}
+}
+
+// museConfigured is the line that names the model the run was started with.
+func museConfigured(model string, at time.Time) string {
+	return fmt.Sprintf(`{"recorded_at":%d,"payload_type":"run.model.configured","payload":{"record":{"model_id":%q}}}`, at.UnixMicro(), model)
+}
+
+// museUsage is the line muse writes after a call, with its tokens.
+func museUsage(at time.Time, input, output, cached int) string {
+	return fmt.Sprintf(`{"recorded_at":%d,"payload":{"event":{"kind":"goal_usage_attribution","record":{"usage_family":"provider","quantity":{"input_tokens":%d,"output_tokens":%d,"cached_tokens":%d}}}}}`, at.UnixMicro(), input, output, cached)
 }
 
 // countDispatcher is a dispatcher over s, and a replacement for one when the
@@ -385,32 +408,82 @@ func TestTotalNotYetWrittenIsWaitedForOnTheDispatchersClock(t *testing.T) {
 	}
 }
 
-// A session whose agent the runtime named no id for logs one session_usage
-// that says so, on the first pass after its stop, and no further one.
-func TestSessionWithoutAnIDIsCountedMissing(t *testing.T) {
+// matchRunner is a countRunner whose runtime names no id for its agents, as
+// herdr names none for Muse panes: the id and the model come from the real
+// runner's worktree match over the session files the test writes. The handle
+// carries no agent key, so the match goes by the handle's kind and asks the
+// runtime nothing.
+type matchRunner struct {
+	*countRunner
+}
+
+func (m *matchRunner) SessionID(ctx context.Context, h map[string]any, startedAt time.Time) (string, error) {
+	return m.reader.SessionID(ctx, h, startedAt)
+}
+
+func (m *matchRunner) Model(ctx context.Context, h map[string]any, startedAt time.Time) (string, error) {
+	return m.reader.Model(ctx, h, startedAt)
+}
+
+// A session the runtime names no id for is matched by its worktree when one
+// file qualifies, and counted missing when none does. A matched session's
+// id and model are recorded while it runs, then its count is read by that id.
+func TestSessionWithoutAnIDIsMatchedOrMissing(t *testing.T) {
 	t.Parallel()
-	s, r, d := countSetup(t, "muse", nil, 1)
-	r.noID = true
-	b := newBead(t, s, "x")
-	passes(t, d, 2)
-	session := sessionOf(t, s, b.ID)
-	if h := sessionHandle(t, s, b.ID); h[dispatch.AgentSession] != nil {
-		t.Fatalf("handle = %v", h)
-	}
-	endSession(t, s, b.ID)
-	passes(t, d, 1) // torn down
-	if got := recorded(t, s, b.ID); len(got) != 0 {
-		t.Fatalf("session_usage in the pass that stopped it: %v", got)
-	}
-	if got := uncounted(t, s); len(got) != 1 || got[0] != session {
-		t.Fatalf("Uncounted = %v, want the session", got)
-	}
-	passes(t, d, 1)
-	want := map[string]map[string]any{session: {"missing": "no session id"}}
-	wantRecorded(t, s, b.ID, want)
-	passes(t, d, 2)
-	passes(t, countDispatcher(s, r), 2)
-	wantRecorded(t, s, b.ID, want)
+	t.Run("no qualifying file", func(t *testing.T) {
+		t.Parallel()
+		s, r, d := countSetup(t, "muse", nil, 1)
+		r.noID = true
+		b := newBead(t, s, "x")
+		passes(t, d, 2)
+		session := sessionOf(t, s, b.ID)
+		if h := sessionHandle(t, s, b.ID); h[dispatch.AgentSession] != nil {
+			t.Fatalf("handle = %v", h)
+		}
+		endSession(t, s, b.ID)
+		passes(t, d, 1) // torn down
+		if got := recorded(t, s, b.ID); len(got) != 0 {
+			t.Fatalf("session_usage in the pass that stopped it: %v", got)
+		}
+		if got := uncounted(t, s); len(got) != 1 || got[0] != session {
+			t.Fatalf("Uncounted = %v, want the session", got)
+		}
+		passes(t, d, 1)
+		want := map[string]map[string]any{session: {"missing": "no session id"}}
+		wantRecorded(t, s, b.ID, want)
+		passes(t, d, 2)
+		passes(t, countDispatcher(s, r), 2)
+		wantRecorded(t, s, b.ID, want)
+	})
+	t.Run("worktree match", func(t *testing.T) {
+		t.Parallel()
+		s, r, _ := countSetup(t, "muse", nil, 1)
+		m := &matchRunner{r}
+		d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": m}}
+		ctx := context.Background()
+		b := newBead(t, s, "x")
+		passes(t, d, 1) // start
+		session := sessionOf(t, s, b.ID)
+		wt := t.TempDir()
+		h := maps.Clone(sessionHandle(t, s, b.ID))
+		h["worktree"] = wt // the herdr runner's handle says where the bead is worked
+		must(t, s.SetHandle(ctx, session, h))
+		started := getSession(t, s, session).StartedAt
+		r.write(t, session, append(museMeta(wt, started.Add(4*time.Second)),
+			museConfigured("muse-wonder-1.0", started.Add(5*time.Second)),
+			museUsage(started.Add(time.Minute), 3000, 110, 1900))...)
+		passes(t, d, 1)
+		if h := sessionHandle(t, s, b.ID); h[dispatch.AgentSession] != agentID(session) || h[dispatch.ModelReported] != "muse-wonder-1.0" {
+			t.Fatalf("handle = %v, want the matched id and model", h)
+		}
+		endSession(t, s, b.ID)
+		passes(t, d, 1) // torn down, its count due
+		if got := recorded(t, s, b.ID); len(got) != 0 {
+			t.Fatalf("session_usage in the pass that stopped it: %v", got)
+		}
+		passes(t, d, 1)
+		wantRecorded(t, s, b.ID, map[string]map[string]any{session: counts(3000, 1100, 110, 1900, 0)})
+	})
 }
 
 // Only the herdr runner reads a count; a manual group's session is a person

@@ -32,17 +32,22 @@ const (
 // The reasons a session's count is missing, as the record keeps them and the
 // route report prints them.
 const (
-	missingNoID     = "no session id"
-	missingNoFile   = "no file"
-	missingNoLine   = "no usage line"
-	missingNoSource = "kind declares no usage"
+	missingNoID      = "no session id"
+	missingNoFile    = "no file"
+	missingNoLine    = "no usage line"
+	missingNoSource  = "kind declares no usage"
+	missingAmbiguous = "ambiguous match"
 )
 
 // Usage is what the agent of handle's session used, read from its own session
 // file by the entries of its kind's usage (agents.UsageSource), once the
 // session has ended. The kind is the handle's own (harnessKind) and the file is
 // named by the session id the dispatcher kept on it (agent_session): herdr is
-// not asked, since it no longer knows an agent whose tab is closed.
+// not asked, since it no longer knows an agent whose tab is closed. With no id
+// kept, a kind that declares a workspace is matched by its worktree instead
+// (matchWorkspace): the one file that qualifies is read as a kept id would
+// be, two or more read missing "ambiguous match", and none reads missing
+// "no session id", as a kind without a match does.
 //
 // The first entry is the harness's own total, and the ones after it are
 // fallbacks that fall short of it. Without fallback only the first is tried,
@@ -64,7 +69,7 @@ const (
 // err is for what the caller tries again on a later pass: the file could not
 // be read, or dispatch.ErrUsageNotYet. missing is for what it records: why no
 // count is there and none will come. Otherwise u is the count.
-func (h *Herdr) Usage(ctx context.Context, handle map[string]any, fallback bool) (u agents.Usage, partial bool, missing string, err error) {
+func (h *Herdr) Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u agents.Usage, partial bool, missing string, err error) {
 	if err := ctx.Err(); err != nil {
 		return agents.Usage{}, false, "", err
 	}
@@ -75,7 +80,18 @@ func (h *Herdr) Usage(ctx context.Context, handle map[string]any, fallback bool)
 	}
 	id, _ := handle[agentSession].(string)
 	if !plainSessionID(id) {
-		return agents.Usage{}, false, missingNoID, nil
+		worktree, _ := handle["worktree"].(string)
+		matched, ambiguous, err := h.matchWorkspace(kind, worktree, startedAt)
+		if err != nil {
+			return agents.Usage{}, false, "", err
+		}
+		switch {
+		case ambiguous:
+			return agents.Usage{}, false, missingAmbiguous, nil
+		case matched == "":
+			return agents.Usage{}, false, missingNoID, nil
+		}
+		id = matched
 	}
 	until, kept, err := countUntilIn(handle)
 	if err != nil {

@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
@@ -17,7 +18,7 @@ type modelRunner struct {
 	asked int
 }
 
-func (m *modelRunner) Model(context.Context, map[string]any) (string, error) {
+func (m *modelRunner) Model(context.Context, map[string]any, time.Time) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.asked++

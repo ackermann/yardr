@@ -341,6 +341,85 @@ type ModelSource struct {
 	// file names none. Muse's lines name theirs "payload_type".
 	TypeField string `yaml:"type_field" json:"type_field,omitempty"`
 	Field     string `yaml:"field" json:"field"`
+	// Workspace finds the session file of a session the runtime reports
+	// no id for (herdr names none for Muse panes): the file whose
+	// workspace line names the session's worktree. nil when the file
+	// names none, and the kind's sessions are found by id alone.
+	Workspace *WorkspaceSource `yaml:"workspace" json:"workspace,omitempty"`
+}
+
+// WorkspaceSource is how the session file of a session with no reported id
+// is found: by the worktree the session works in. A file qualifies when one
+// of its lines is of Type (any line, for no Type) and names the worktree at
+// Field, a path of keys joined by dots, and when the file's start, the time
+// of its first line with one that reads, falls in the session's window. At
+// is the path to a line's own time, read as a UsageSource's is: a string as
+// RFC 3339, a number as Unix time in AtUnit ("s", "ms" or "us"; "s" when
+// none is named). The type is read with the model source's own TypeField:
+// the workspace line is a line of the same file.
+type WorkspaceSource struct {
+	Type   string `yaml:"type" json:"type,omitempty"`
+	Field  string `yaml:"field" json:"field"`
+	At     string `yaml:"at" json:"at"`
+	AtUnit string `yaml:"at_unit" json:"at_unit,omitempty"`
+}
+
+// WorkspaceLine is what one line of a session file holds towards finding
+// the file by its worktree: the worktree the line works in, when the line
+// is of the workspace type and names one, and when the line was written,
+// whatever its type. A line with neither reads as ok == false.
+type WorkspaceLine struct {
+	Workspace string
+	At        time.Time
+}
+
+// WorkspaceIn is what one line of a session file holds towards finding the
+// file by its worktree (WorkspaceLine). ok is false when the source names
+// no workspace, and when the line names no worktree and has no time that
+// reads.
+func (s ModelSource) WorkspaceIn(line []byte) (WorkspaceLine, bool) {
+	var v map[string]any
+	if s.Workspace == nil || json.Unmarshal(line, &v) != nil {
+		return WorkspaceLine{}, false
+	}
+	var l WorkspaceLine
+	key := s.TypeField
+	if key == "" {
+		key = "type"
+	}
+	if t, _ := v[key].(string); s.Workspace.Type == "" || t == s.Workspace.Type {
+		l.Workspace, _ = valueAt(v, s.Workspace.Field).(string)
+	}
+	l.At = atTime(v, s.Workspace.At, s.Workspace.AtUnit)
+	return l, l.Workspace != "" || !l.At.IsZero()
+}
+
+// SessionIn is the session id the path of a matched file holds: the segment
+// where Glob has {session}, when path is a file the glob matched with
+// {session} read as *. dir is the harness's own directory the pattern was
+// read under. ok is false when path is not under dir, has not the glob's
+// segments, or the glob holds {session} inside a longer segment, which
+// names no id this way.
+func (s ModelSource) SessionIn(dir, path string) (id string, ok bool) {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	segs := strings.Split(rel, "/")
+	want := strings.Split(s.Glob, "/")
+	if len(segs) != len(want) {
+		return "", false
+	}
+	for i, w := range want {
+		if w == sessionID {
+			return segs[i], true
+		}
+	}
+	return "", false
 }
 
 // sessionID is where a ModelSource's Glob takes the session id.
@@ -536,15 +615,22 @@ func (s UsageSource) UsageIn(line []byte) (UsageLine, bool) {
 // timeIn is the time of the line v by the source's At: the zero time when it
 // names none or the line's does not read.
 func (s UsageSource) timeIn(v map[string]any) time.Time {
-	if s.At == "" {
+	return atTime(v, s.At, s.AtUnit)
+}
+
+// atTime is the time v holds at the path at: a string reads as RFC 3339, a
+// number as Unix time in the unit atUnit names. The zero time when at names
+// none or the line's does not read.
+func atTime(v map[string]any, at, unitName string) time.Time {
+	if at == "" {
 		return time.Time{}
 	}
-	switch at := valueAt(v, s.At).(type) {
+	switch at := valueAt(v, at).(type) {
 	case string:
 		t, _ := time.Parse(time.RFC3339, at)
 		return t.UTC()
 	case float64:
-		unit, ok := atUnit(s.AtUnit)
+		unit, ok := atUnit(unitName)
 		if !ok {
 			return time.Time{}
 		}
@@ -971,6 +1057,30 @@ func (h *Harness) check() error {
 	for i, u := range h.Usage {
 		if err := u.check(); err != nil {
 			return fmt.Errorf("usage: entry %d: %w", i+1, err)
+		}
+	}
+	if h.Model != nil && h.Model.Workspace != nil {
+		w := h.Model.Workspace
+		switch {
+		case w.Field == "":
+			return fmt.Errorf("workspace: field is needed, the path to the worktree its lines hold")
+		case w.At == "":
+			return fmt.Errorf("workspace: at is needed, the path to the time its lines were written")
+		}
+		if _, ok := atUnit(w.AtUnit); !ok {
+			return fmt.Errorf("workspace: at_unit %q is none of s, ms, us", w.AtUnit)
+		}
+		whole := 0
+		for _, seg := range strings.Split(h.Model.Glob, "/") {
+			if strings.Contains(seg, sessionID) {
+				if seg != sessionID {
+					return fmt.Errorf("workspace: glob %q holds %s inside a longer segment, so a matched file names no session", h.Model.Glob, sessionID)
+				}
+				whole++
+			}
+		}
+		if whole != 1 {
+			return fmt.Errorf("workspace: glob %q must hold %s as one whole segment, so a matched file names its session", h.Model.Glob, sessionID)
 		}
 	}
 	if len(h.Offers) > 0 {

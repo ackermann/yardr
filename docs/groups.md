@@ -611,7 +611,7 @@ own session file, found by the session id herdr reports for the pane:
 |---|---|
 | `claude` | `~/.claude/projects/<dir>/<session id>.jsonl` (or under `CLAUDE_CONFIG_DIR`): the `model` of the first assistant message, which is what the API answered with |
 | `codex` | `~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<session id>.jsonl` (or under `CODEX_HOME`): the `model` of the first `turn_context` |
-| `muse` | `~/.local/share/muse/sessions/<y>/<m>/<d>/<session id>/session.jsonl`: the `model_id` of the first `run.model.configured` line, which is what the run was started or reconfigured with, not the startup metadata. herdr 0.9.0 reports no session id for Muse panes, so nothing is recorded for Muse until herdr learns its sessions |
+| `muse` | `~/.local/share/muse/sessions/<y>/<m>/<d>/<session id>/session.jsonl`: the `model_id` of the first `run.model.configured` line, which is what the run was started or reconfigured with, not the startup metadata. herdr 0.9.0 reports no session id for Muse panes, so the file is found by the session's worktree instead; a session whose worktree matches two files records nothing rather than the wrong one |
 | any other | none known: nothing is recorded and nothing compared |
 
 The daemon must run as the user whose agents these are, on their machine,
@@ -660,7 +660,9 @@ found by the id of the agent's session, which herdr forgets with the agent's
 tab, so the daemon keeps it on the handle as `agent_session` as soon as herdr
 names one (for the session's first 15 minutes, as for the model, whether or
 not the agent ever reports a model) and asks once more as the session ends,
-before the tab is closed. A kind herdr names no id for (Muse today) has none.
+before the tab is closed. A Muse session herdr names no id for is found by
+its worktree instead: the file whose metadata names the worktree and which
+started within the session's first 15 minutes.
 
 When the session has stopped, its handle holds a `count_due` (`stopped_at`)
 until the next pass reads the count and records it in one write: `usage` on the
@@ -672,8 +674,9 @@ did not come from the cache), `output`, `cache_read`, `cache_write` and
 Code writes its own total as it exits, a moment after the tab closes; the
 daemon waits ten minutes for it, then counts the lines the agent wrote along the
 way, and says `partial`. A session with no count has `missing` in its place:
-`no session id`, `no file`, `no usage line` or `kind declares no usage`. Each
-session that is counted ends with one or the other, once.
+`no session id`, `no file`, `no usage line`, `kind declares no usage`, or
+`ambiguous match` when two files of the worktree qualify and neither is
+guessed. Each session that is counted ends with one or the other, once.
 
 A group with `keep: true` leaves the agent running, and what a person does in
 its pane afterwards is not the bead's. Such a session is counted up to two
@@ -1363,7 +1366,7 @@ built into the binary and read once when yardr starts:
 | `marks` | `input`, `message`, `edge`: what its pane is read by ([herdr setup](#herdr-setup)); `placeholder`: the input's hint when it holds nothing, which reads empty, for a harness that draws one in no faint style ([Kiro](#kiro)'s is gray); `error`: the marks taken off a line before it is read for an error | the herdr runner; the daemon |
 | `flags` | `model` (selects the model), `unattended` (what `yardr init` gives the yardmaster and the forms preselect), `version` (prints its version and exits), `one_shot` (answers one prompt and exits: `yardr doctor --try`), `always` (added first to every agent of the kind, before the group's own: [Codex](#codex)'s `--no-daemon` and its update check off, [Kiro](#kiro)'s `chat` subcommand), `permissions` (named flag sets, each with `label`, `args`, `description`). `{socket}` in an argument, a preset's or a group's own `args`, is the path of the yard's socket, put in by the runner when the agent starts: for a kind whose sandbox denies unix sockets and can be told of one to let through (the `read only` presets). `{workdir}` is the directory the session works in (a bead's worktree, a crew member's directory), put in the same way: for a sandbox that is told what to deny by an absolute path (Claude Code's `read only`) | `yardr init`, `group add`, `pack apply`, `doctor`; the herdr runner |
 | `offers` | the models to pick from: each a `model` id the kind's `--model` flag takes, a `label` a person reads, and what it is `recommended` for (`yardmaster` on the one frontier model a yardmaster should run on). A suggestion, not a check: `init --model` takes any id, whether the file names it or not. Claude Code, Codex, Kimi, Muse and Kiro name one each; a kind with none suggests no model | `yardr harness show`, `yardr doctor --json`, for a program that offers them |
-| `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it; `type_field` names the key that holds the type when it is not `type`) | the daemon |
+| `model` | where the model an agent reports is read ([Models](#models)): `home` and `home_env` (the harness's own directory), `glob` (the session file, `{session}` being the id herdr reports), `type` and `field` (which line, and where in it; `type_field` names the key that holds the type when it is not `type`), and `workspace` (how the file of a session herdr reports no id for is found instead: `type` and `field` name the line that holds the worktree, `at` the line's own time as `usage` reads it; Muse has one) | the daemon |
 | `context` | where the context an agent holds is read, in the session file `model` finds ([Rotation](crew.md#rotation)): `type` (which lines are read, all of them when none is named; `type_field` names the key that holds the type when it is not `type`), `usage` (a path of keys, joined by dots, to the object that holds the numbers) and `tokens` (the fields that add up to what the session holds; `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` when the file names none). The last line that has numbers at `usage` is the reading. Claude Code names one; a kind with none has no context rotation, the failsafe alone | the daemon, for an idle crew member |
 | `usage` | what a whole session used, in tokens, read from the session file `model` finds once the session has ended ([the design](design/2026-10-21-yardr-qbqq-session-tokens.md#33-how-a-harness-file-declares-it-question-3)): a list of entries, tried in order, and the first that finds a line is the reading. An entry names its lines as `context` does, with `type`, `type_field` and `usage` (`type_field` may be a path, and a `*` in `usage` takes every value of a map: Claude Code's `modelUsage.*` adds up every model it called). `read` says which lines count (`last`, the default, takes the last line with numbers; `sum` adds up every line), and `key`, a path to a string, makes `sum` take the last line for each value found there. `at` is the path to the line's own time, a string read as RFC 3339 or a number read as Unix time in the unit `at_unit` names (`s` by default, `ms` or `us`); a count that stops at a time cannot use an entry with no `at`. `input`, `output`, `cache_read` and `cache_write` each name the field that holds that count, and one with no field reads as 0. `cache_in_input` says `input` includes the cache reads, as Codex's and Muse's do, so they come off it to give the fresh input. `partial` says the entry falls short of what the session used, as a fallback does. Claude Code names two entries, Codex and Muse one each; a kind with none has no count | the herdr runner |
 | `errors` | the lines it stops on, each a `pattern` and a `reason` ([above](#a-harness-that-stopped-on-an-error)) | the daemon |

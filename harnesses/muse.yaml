@@ -84,14 +84,26 @@ offers:
 # live session reconfigured mid-run (01a12592) still shows its startup
 # model there while run.model.configured names the running one. `muse
 # --help` names no environment variable for the home, so there is no
-# home_env. herdr 0.9.0 reports no session id for Muse panes, so this
-# reads nothing until herdr learns its sessions.
+# home_env.
+#
+# herdr 0.9.0 reports no session id for Muse panes, so a Muse session is
+# found by its worktree instead (workspace): the file whose metadata line
+# names the session's worktree and whose start falls in the session's
+# window. The metadata line is the file's second: the first is a
+# retained_frame wrapper with no time of its own (all 578 files of 20-24
+# Oct 2026, Muse Code 1.4.11-1.4.12). When herdr reports a Muse id it takes
+# precedence and the match stays the fallback.
 model:
   home: .local/share/muse
   glob: sessions/*/*/*/{session}/session.jsonl
   type_field: payload_type
   type: run.model.configured
   field: payload.record.model_id
+  workspace:
+    type: runtime.session.metadata
+    field: payload.record.workspace_root
+    at: recorded_at
+    at_unit: us
 
 # What a session used, in tokens, read from the same file once the session has
 # ended (docs/design/2026-10-21-yardr-qbqq-session-tokens.md, section 3.3).
@@ -134,8 +146,8 @@ model:
 # recorded_at is Unix time in microseconds (1792616839253217 is 21:07:19.253217
 # UTC on 21 Oct 2026). The records carry no cache writes, and cache_write_tokens
 # is 0 in all 82,227 model_completed lines, so cache_write names no field.
-# Nothing finds this file for a pane yet (see the model above), so nothing
-# reads this entry yet.
+# The file is found by the session id herdr reports, or by the session's
+# worktree (see the model above).
 usage:
   - type_field: payload.event.kind
     type: goal_usage_attribution

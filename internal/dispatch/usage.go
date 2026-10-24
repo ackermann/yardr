@@ -51,9 +51,10 @@ var ErrUsageNotYet = errors.New("the session file holds no usage line yet")
 // "no file", …), which the record keeps. err is for what to try again on a
 // later pass: ErrUsageNotYet while fallback is false and the first reading
 // finds no line, or the file could not be read. fallback allows the readings
-// after the first.
+// after the first. startedAt is when the session started, by which a session
+// with no id that is found by its worktree is matched to its file.
 type UsageReader interface {
-	Usage(ctx context.Context, handle map[string]any, fallback bool) (u agents.Usage, partial bool, missing string, err error)
+	Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u agents.Usage, partial bool, missing string, err error)
 }
 
 // countable reports whether the ended session s has an agent whose count is to
@@ -75,7 +76,7 @@ func (d *Dispatcher) lastAgentSession(ctx context.Context, r Runner, s store.Ses
 	if !countable(r, s) {
 		return ""
 	}
-	return askAgentSession(ctx, r, s.Handle)
+	return askAgentSession(ctx, r, s.Handle, s.StartedAt)
 }
 
 // markCountDue marks the count of s, a session whose agent was just stopped,
@@ -135,7 +136,7 @@ func (d *Dispatcher) usage(ctx context.Context, groups map[string]store.Group) e
 func (d *Dispatcher) readUsage(ctx context.Context, r UsageReader, s store.Session) {
 	due, _ := s.Handle[store.CountDue].(map[string]any)
 	stopped, _ := handleTime(due, CountStoppedAt)
-	rec := d.countRecord(ctx, r, s.Handle, stopped, "usage:"+s.ID, "session", s.ID, "bead", s.Bead)
+	rec := d.countRecord(ctx, r, s.Handle, s.StartedAt, stopped, "usage:"+s.ID, "session", s.ID, "bead", s.Bead)
 	if rec == nil {
 		return
 	}
@@ -153,7 +154,7 @@ func (d *Dispatcher) readUsage(ctx context.Context, r UsageReader, s store.Sessi
 // has one; an unreadable file says nothing about the count, and is tried again
 // on the next pass. said keys what was told of a session that cannot be read,
 // and who names the session in the log.
-func (d *Dispatcher) countRecord(ctx context.Context, r UsageReader, handle map[string]any, stopped time.Time, said string, who ...any) map[string]any {
+func (d *Dispatcher) countRecord(ctx context.Context, r UsageReader, handle map[string]any, startedAt, stopped time.Time, said string, who ...any) map[string]any {
 	due, _ := handle[store.CountDue].(map[string]any)
 	until, kept := handleTime(due, CountUntil)
 	now := d.now()
@@ -162,7 +163,7 @@ func (d *Dispatcher) countRecord(ctx context.Context, r UsageReader, handle map[
 		return nil
 	}
 	fallbackAt := stopped.Add(usageWait)
-	got, partial, missing, err := r.Usage(ctx, handle, !now.Before(fallbackAt))
+	got, partial, missing, err := r.Usage(ctx, handle, startedAt, !now.Before(fallbackAt))
 	switch {
 	case errors.Is(err, ErrUsageNotYet):
 		if now.Before(fallbackAt) {
