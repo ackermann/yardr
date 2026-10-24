@@ -28,8 +28,8 @@ func (a *app) routeExplainCmd() *cobra.Command {
 		Long: `Say where a bead would go: the winner among its depot's effective
 routes, every route that matches in order with the ranking leg that
 placed it, the routes considered that do not match and why, the
-defaults the depot sets aside for the bead's stage, and the winning
-route's groups.
+defaults the depot sets aside for the bead's stage, the defaults that
+do not serve it for a missing group, and the winning route's groups.
 
 Each matching route after the first names the leg that placed it below
 the one above, the first of these on which the two differ: urgency (a
@@ -88,14 +88,16 @@ provider.`,
 // carries it: the bead's matching facts, every effective route that
 // matches in order with the leg that placed it, the winner's id, the
 // effective routes that do not match with why, the defaults the depot
-// sets aside for the bead's stage, and the winning route's groups.
+// sets aside for the bead's stage, the defaults that do not serve it for
+// a missing group, and the winning route's groups.
 type routeExplanation struct {
-	Bead        routeExplainBead   `json:"bead"`
-	Matches     []routeExplainHit  `json:"matches"`
-	Winner      *string            `json:"winner"`
-	NonMatching []routeExplainMiss `json:"non_matching"`
-	SetAside    []store.SetAside   `json:"set_aside"`
-	Quota       *routeExplainQuota `json:"quota"`
+	Bead        routeExplainBead      `json:"bead"`
+	Matches     []routeExplainHit     `json:"matches"`
+	Winner      *string               `json:"winner"`
+	NonMatching []routeExplainMiss    `json:"non_matching"`
+	SetAside    []store.SetAside      `json:"set_aside"`
+	Unserved    []store.UnservedRoute `json:"unserved"`
+	Quota       *routeExplainQuota    `json:"quota"`
 }
 
 // routeExplainBead is the bead's matching facts: what routing reads,
@@ -148,11 +150,12 @@ type routeExplainQuota struct {
 
 // explainBeadRouting explains b against the yard's routes: its depot's
 // effective routes in match order, each kept as a match or a miss, the
-// first match the winner, and the defaults its depot sets aside for its
-// stage. groups and def, the default_kind setting, say which of the winner's
-// groups start agents (store.Route.Gated).
+// first match the winner, the defaults its depot sets aside for its stage
+// and the defaults that do not serve it for a missing group. groups and
+// def, the default_kind setting, say which of the winner's groups start
+// agents (store.Route.Gated).
 func explainBeadRouting(b store.Bead, routes []store.Route, groups map[string]store.Group, def, operator string) routeExplanation {
-	eff := store.EffectiveRoutes(routes, b.Depot, operator)
+	eff := store.EffectiveRoutes(routes, b.Depot, operator, groups)
 	store.SortRoutes(eff)
 	exp := routeExplanation{
 		Bead: routeExplainBead{
@@ -162,7 +165,7 @@ func explainBeadRouting(b store.Bead, routes []store.Route, groups map[string]st
 			Originator: store.BeadOriginator(b, operator),
 			Pin:        store.PinnedFlow(&b),
 		},
-		Matches: []routeExplainHit{}, NonMatching: []routeExplainMiss{}, SetAside: []store.SetAside{},
+		Matches: []routeExplainHit{}, NonMatching: []routeExplainMiss{}, SetAside: []store.SetAside{}, Unserved: []store.UnservedRoute{},
 	}
 	for _, r := range eff {
 		mark := "default"
@@ -201,6 +204,11 @@ func explainBeadRouting(b store.Bead, routes []store.Route, groups map[string]st
 				exp.SetAside = append(exp.SetAside, s)
 			}
 		}
+		for _, u := range store.UnservedRoutes(routes, *b.Depot, operator, groups) {
+			if u.Route.Stage == b.Stage {
+				exp.Unserved = append(exp.Unserved, u)
+			}
+		}
 	}
 	return exp
 }
@@ -217,8 +225,9 @@ func effectiveScope(depot *string) string {
 
 // printRouteExplanation prints the explanation: the bead's matching
 // facts, the matches in order with the winner, the routes considered
-// that do not match, the defaults set aside for the bead's stage, and
-// the winning route's groups.
+// that do not match, the defaults set aside for the bead's stage, the
+// defaults that do not serve it for a missing group, and the winning
+// route's groups.
 func printRouteExplanation(w io.Writer, exp routeExplanation, operator string) {
 	fmt.Fprintln(w, explainBeadLine(exp.Bead, operator))
 	scope := effectiveScope(exp.Bead.Depot)
@@ -244,6 +253,7 @@ func printRouteExplanation(w io.Writer, exp routeExplanation, operator string) {
 		}
 	}
 	printExplainSetAside(w, exp, operator)
+	printExplainUnserved(w, exp)
 	if exp.Quota == nil {
 		return
 	}
@@ -323,6 +333,19 @@ func printExplainSetAside(w io.Writer, exp routeExplanation, operator string) {
 		for _, s := range aside {
 			fmt.Fprintln(w, "  "+setAsideLine(s, operator))
 		}
+	}
+}
+
+// printExplainUnserved names the defaults that do not serve the bead's
+// depot for the bead's stage for a missing group, in route list --depot's
+// words: nothing where all serve, and none where the bead names no depot,
+// whose defaults are untemplated alone.
+func printExplainUnserved(w io.Writer, exp routeExplanation) {
+	if exp.Bead.Depot == nil {
+		return
+	}
+	for _, u := range exp.Unserved {
+		fmt.Fprintln(w, unservedLine(u, *exp.Bead.Depot))
 	}
 }
 

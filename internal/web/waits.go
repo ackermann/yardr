@@ -319,7 +319,9 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		return nil, nil, err
 	}
 	manual := map[string]store.Group{}
+	byName := make(map[string]store.Group, len(groups))
 	for _, g := range groups {
+		byName[g.Name] = g
 		if g.Runner == "manual" {
 			manual[g.Name] = g
 		}
@@ -405,7 +407,7 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		group := ""
 		if b.Group != nil {
 			group = *b.Group
-		} else if r := store.MatchRoute(routes, b, operator); r != nil {
+		} else if r := store.MatchRoute(routes, b, operator, byName); r != nil {
 			group = r.Worker()
 		}
 		if g, ok := manual[group]; ok {

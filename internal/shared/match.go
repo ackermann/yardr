@@ -17,6 +17,20 @@ import (
 // for it.
 const OriginatorAny = "any"
 
+// DepotTemplate is the placeholder a yard default may use in a group name
+// for the depot whose beads it serves: "{depot}-assembly" reads as
+// "yardr-assembly" for depot yardr. An own route names no template, since
+// it knows its depot.
+const DepotTemplate = "{depot}"
+
+// IsTemplatedGroup reports whether name uses the depot template.
+func IsTemplatedGroup(name string) bool { return strings.Contains(name, DepotTemplate) }
+
+// ResolveGroup is name with the depot template replaced by depot.
+func ResolveGroup(name, depot string) string {
+	return strings.ReplaceAll(name, DepotTemplate, depot)
+}
+
 // A Route is the match fields of a route: what matching reads. Both
 // store.Route and eta.Route adapt to it at the boundary; neither moves
 // here, the store's being persisted.

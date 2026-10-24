@@ -102,12 +102,14 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 	pass := &SidingPass{}
 	var operator string
 	sidingByGroup := map[string]Siding{}
+	byName := map[string]Group{}
 	err := s.read(func(tx *bolt.Tx) error {
 		var err error
 		if operator, err = operatorIn(tx); err != nil {
 			return err
 		}
 		return each(tx, bGroups, "", func(_ []byte, g *Group) error {
+			byName[g.Name] = *g
 			if si, ok := SidingOf(*g); ok {
 				sidingByGroup[g.Name] = si
 			}
@@ -122,7 +124,7 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 	}
 	var cands []Bead
 	for _, b := range beads {
-		r := MatchRoute(routes, b, operator)
+		r := MatchRoute(routes, b, operator, byName)
 		if r == nil {
 			continue
 		}
@@ -200,7 +202,7 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 				continue // no flow governs it: no next stage to fold to
 			}
 			// The stage may have changed since the lists were read.
-			r := MatchRoute(routes, row.Bead, operator)
+			r := MatchRoute(routes, row.Bead, operator, byName)
 			if r == nil {
 				continue
 			}
@@ -318,6 +320,13 @@ func (s *Store) foldOrRefuseSiding(ctx context.Context, at time.Time, key siding
 		if err != nil {
 			return err
 		}
+		byName := map[string]Group{}
+		if err := each(w.Tx, bGroups, "", func(_ []byte, o *Group) error {
+			byName[o.Name] = *o
+			return nil
+		}); err != nil {
+			return err
+		}
 		g := new(Group)
 		ok, err := get(w.Tx, bGroups, key.group, g)
 		if err != nil {
@@ -340,7 +349,7 @@ func (s *Store) foldOrRefuseSiding(ctx context.Context, at time.Time, key siding
 			if sidingDepot(row.Depot) != key.depot || row.Stage != key.stage {
 				continue
 			}
-			r := MatchRoute(routes, row.Bead, operator)
+			r := MatchRoute(routes, row.Bead, operator, byName)
 			if r == nil || r.Worker() != key.group {
 				continue
 			}

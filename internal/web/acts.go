@@ -37,10 +37,14 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 	if err != nil {
 		return nil, err
 	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
 	name := ""
 	if b.Group != nil {
 		name = *b.Group
-	} else if r := store.MatchRoute(routes, *b, operator); r != nil {
+	} else if r := store.MatchRoute(routes, *b, operator, byName); r != nil {
 		name = r.Worker()
 	}
 	i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == name })

@@ -344,8 +344,16 @@ func (e *exporter) routes() error {
 	if err != nil {
 		return err
 	}
+	listed, err := e.st.Groups(e.ctx)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]store.Group, len(listed))
+	for _, g := range listed {
+		byName[g.Name] = g
+	}
 	depotName := e.depot.Name
-	routes := store.EffectiveRoutes(all, &depotName, settings[store.OperatorSetting])
+	routes := store.EffectiveRoutes(all, &depotName, settings[store.OperatorSetting], byName)
 	store.SortRoutes(routes)
 	// The types with a flow of their own: a route for one is that flow's.
 	own := map[string]bool{}

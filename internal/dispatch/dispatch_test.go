@@ -464,17 +464,17 @@ func TestMatchOrder(t *testing.T) {
 	}
 	dispatch.SortRoutes(rs)
 	b := store.Bead{Stage: "new", Type: "bug", Depot: &web}
-	if r := dispatch.Match(rs, b, ""); r.Group != "urgent" {
+	if r := dispatch.Match(rs, b, "", nil); r.Group != "urgent" {
 		t.Fatalf("urgency should win, got %s", r.Group)
 	}
 	rs = rs[1:] // drop urgent (sorted first)
-	if r := dispatch.Match(rs, b, ""); r.Group != "webbugs" {
+	if r := dispatch.Match(rs, b, "", nil); r.Group != "webbugs" {
 		t.Fatalf("most specific should win, got %s", r.Group)
 	}
-	if r := dispatch.Match(rs, store.Bead{Stage: "new", Type: "task"}, ""); r.Group != "any" {
+	if r := dispatch.Match(rs, store.Bead{Stage: "new", Type: "task"}, "", nil); r.Group != "any" {
 		t.Fatalf("fallback should match, got %s", r.Group)
 	}
-	if r := dispatch.Match(rs, store.Bead{Stage: "other"}, ""); r != nil {
+	if r := dispatch.Match(rs, store.Bead{Stage: "other"}, "", nil); r != nil {
 		t.Fatalf("wrong stage matched %s", r.Group)
 	}
 }
@@ -715,6 +715,43 @@ func TestGroupRmReleasesClaimedBeadsToTheNewRoute(t *testing.T) {
 	}
 	if fails, _ := s.FailureCount(ctx, b.ID, "approved"); fails != 0 {
 		t.Fatalf("group rm counted as %d failure(s)", fails)
+	}
+}
+
+// A bead claims through a templated default to its depot's resolved group,
+// and the claimed event names that group and the route; a depot without the
+// group claims nothing.
+func TestClaimThroughTemplatedDefaultNamesResolvedGroup(t *testing.T) {
+	t.Parallel()
+	s, f, d := setup(t)
+	ctx := context.Background()
+	for _, depot := range []string{"web", "other", "third"} {
+		must(t, s.PutDepot(ctx, store.Depot{Name: depot}, "me"))
+	}
+	must(t, s.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "fake"}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "other-assembly", Runner: "fake"}, "me"))
+	r, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "{depot}-assembly"}, "me")
+	must(t, err)
+	web, _ := s.CreateBead(ctx, store.NewBead{Title: "web lands", Depot: "web", Stage: "approved"}, "me")
+	other, _ := s.CreateBead(ctx, store.NewBead{Title: "other lands", Depot: "other", Stage: "approved"}, "me")
+	third, _ := s.CreateBead(ctx, store.NewBead{Title: "third waits", Depot: "third", Stage: "approved"}, "me")
+	must(t, d.Reconcile(ctx))
+	for _, tc := range []struct {
+		bead, group string
+	}{
+		{web.ID, "web-assembly"},
+		{other.ID, "other-assembly"},
+	} {
+		group, data := claimedBy(t, s, tc.bead)
+		if group != tc.group || data["group"] != tc.group || data["route"] != r.ID {
+			t.Errorf("bead %s claimed by %q with %v, want %s by route %s", tc.bead, group, data, tc.group, r.ID)
+		}
+	}
+	if group, _ := claimedBy(t, s, third.ID); group != "" {
+		t.Errorf("bead %s claimed by %q, want nobody: no group third-assembly", third.ID, group)
+	}
+	if got := f.starts(); len(got) != 2 {
+		t.Errorf("starts = %v, want the two beads with groups", got)
 	}
 }
 

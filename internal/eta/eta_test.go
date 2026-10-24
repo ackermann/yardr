@@ -110,6 +110,21 @@ func TestEstimateLine(t *testing.T) {
 	if r.ETA.Samples != 42 {
 		t.Fatalf("samples: %d", r.ETA.Samples)
 	}
+
+	// A templated route may end in wait. The marker is not a group that
+	// needs to exist, and the ETA should use the resolved first group.
+	depot := "web"
+	templated := testBead("yardr-aa11", "new")
+	templated.Depot = &depot
+	resolved := Estimate(templated, nil,
+		[]Route{{Stage: "new", Groups: []string{"{depot}-builders", "wait"}}},
+		[]Group{{Name: "web-builders", Runner: "herdr"}},
+		cellMap(map[string]Cell{"web-builders\x00difficulty:2\x00new": clocked(time.Hour, 2*time.Hour)}),
+		Queue{}, testNow, "")
+	if resolved == nil || resolved.ETA == nil || len(resolved.ETA.Stages) != 1 ||
+		resolved.ETA.Stages[0].Group != "web-builders" {
+		t.Fatalf("templated route ending in wait estimated as %+v, want web-builders", resolved)
+	}
 }
 
 func TestEstimateJSON(t *testing.T) {

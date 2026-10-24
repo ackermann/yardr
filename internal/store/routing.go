@@ -593,6 +593,51 @@ func (r Route) GroupList() string {
 	return strings.Join(parts, " else ")
 }
 
+// Templated reports whether the route names the depot template in any of
+// its groups: a yard default for per-depot groups, resolved where the
+// effective routes are computed.
+func (r Route) Templated() bool {
+	return slices.ContainsFunc(r.Groups(), func(g RouteGroup) bool {
+		return shared.IsTemplatedGroup(g.Name)
+	})
+}
+
+// ResolveForDepot is the route with the depot template replaced by depot
+// in every group it names: what the depot's effective set holds. A route
+// without a template is returned unchanged.
+func (r Route) ResolveForDepot(depot string) Route {
+	if !r.Templated() {
+		return r
+	}
+	out := r
+	out.Group = shared.ResolveGroup(r.Group, depot)
+	out.Else = slices.Clone(r.Else)
+	for i := range out.Else {
+		out.Else[i].Name = shared.ResolveGroup(out.Else[i].Name, depot)
+	}
+	return out
+}
+
+// missingGroups are the route's groups, resolved for depot, that are not
+// in groups: the names that keep the route from serving the depot. The
+// wait marker ends the route and is never missing.
+func (r Route) missingGroups(depot string, groups map[string]Group) []string {
+	var missing []string
+	for _, g := range r.Groups() {
+		if g.Name == RouteWait {
+			continue
+		}
+		name := g.Name
+		if shared.IsTemplatedGroup(name) {
+			name = shared.ResolveGroup(name, depot)
+		}
+		if _, ok := groups[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
 // QuotaLimit is one comparison of a condition: the window the provider
 // labels Label is less than Under percent used, or, where Target is set,
 // less than the window's target (the share of it that has passed, as the
@@ -1020,13 +1065,15 @@ func (s *Store) AddRoute(ctx context.Context, r Route, actor string) (*Route, er
 // sets, to what a route's groups must be: every group named exists and is
 // named once, wait ends the route and takes nothing after it, each
 // condition parses, and a chain or condition names only groups that start
-// agents (quotaGroupsOK). It returns the first group, whose runner says
-// whether a route without an originator takes every originator's
-// (AddRoute).
+// agents (quotaGroupsOK). A yard default may name the depot template in any
+// group; an own route may not, since it knows its depot. A template must
+// resolve to a group that exists for some depot of the yard, and each depot
+// where every group resolves is held to what a literal chain is. It returns
+// the first group, whose runner says whether a route without an originator
+// takes every originator's (AddRoute); for a templated first group that is
+// herdr where any depot it serves resolves to a group that starts agents.
 func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
-	var first Group
 	gs := r.Groups()
-	runners := make(map[string]string, len(gs))
 	for i, rg := range gs {
 		if rg.Name == RouteWait {
 			switch {
@@ -1039,16 +1086,9 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 			}
 			continue
 		}
-		var g Group
-		if ok, err := get(tx, bGroups, rg.Name, &g); err != nil {
-			return Group{}, err
-		} else if !ok {
-			return Group{}, fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
+		if shared.IsTemplatedGroup(rg.Name) && r.Depot != nil {
+			return Group{}, fmt.Errorf("group %s: an own route names no %s template, since it knows its depot", rg.Name, shared.DepotTemplate)
 		}
-		if i == 0 {
-			first = g
-		}
-		runners[rg.Name] = g.Runner
 		if slices.ContainsFunc(gs[:i], func(o RouteGroup) bool { return o.Name == rg.Name }) {
 			return Group{}, fmt.Errorf("group %s is named twice", rg.Name)
 		}
@@ -1058,10 +1098,126 @@ func checkRouteGroups(tx *bolt.Tx, r Route) (Group, error) {
 			}
 		}
 	}
-	if err := quotaGroupsOK(r, runners); err != nil {
+	if !r.Templated() {
+		var first Group
+		runners := make(map[string]string, len(gs))
+		for i, rg := range gs {
+			if rg.Name == RouteWait {
+				continue
+			}
+			var g Group
+			if ok, err := get(tx, bGroups, rg.Name, &g); err != nil {
+				return Group{}, err
+			} else if !ok {
+				return Group{}, fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
+			}
+			if i == 0 {
+				first = g
+			}
+			runners[rg.Name] = g.Runner
+		}
+		if err := quotaGroupsOK(r, runners); err != nil {
+			return Group{}, err
+		}
+		return first, nil
+	}
+	var depots []string
+	if err := each(tx, bDepots, "", func(_ []byte, d *Depot) error {
+		depots = append(depots, d.Name)
+		return nil
+	}); err != nil {
 		return Group{}, err
 	}
-	return first, nil
+	groups := map[string]Group{}
+	if err := each(tx, bGroups, "", func(_ []byte, g *Group) error {
+		groups[g.Name] = *g
+		return nil
+	}); err != nil {
+		return Group{}, err
+	}
+	for _, rg := range gs {
+		if rg.Name == RouteWait || !shared.IsTemplatedGroup(rg.Name) {
+			continue
+		}
+		resolves := false
+		for _, depot := range depots {
+			if _, ok := groups[shared.ResolveGroup(rg.Name, depot)]; ok {
+				resolves = true
+				break
+			}
+		}
+		if !resolves {
+			return Group{}, fmt.Errorf("group %s: no depot resolves it to a group that exists", rg.Name)
+		}
+	}
+	for _, rg := range gs {
+		if rg.Name == RouteWait || shared.IsTemplatedGroup(rg.Name) {
+			continue
+		}
+		if _, ok := groups[rg.Name]; !ok {
+			return Group{}, fmt.Errorf("group %s: %w", rg.Name, ErrNotFound)
+		}
+	}
+	var serving []string
+	for _, depot := range depots {
+		serves := true
+		for _, rg := range gs {
+			if rg.Name == RouteWait {
+				continue
+			}
+			name := rg.Name
+			if shared.IsTemplatedGroup(name) {
+				name = shared.ResolveGroup(name, depot)
+			}
+			if _, ok := groups[name]; !ok {
+				serves = false
+				break
+			}
+		}
+		if serves {
+			resolved := r.ResolveForDepot(depot)
+			seen := map[string]bool{}
+			for _, rg := range resolved.Groups() {
+				if rg.Name == RouteWait {
+					continue
+				}
+				if seen[rg.Name] {
+					return Group{}, fmt.Errorf("group %s is named twice after resolving %s for depot %s",
+						rg.Name, shared.DepotTemplate, depot)
+				}
+				seen[rg.Name] = true
+			}
+			serving = append(serving, depot)
+		}
+	}
+	if len(serving) == 0 {
+		return Group{}, fmt.Errorf("no depot has every group the route names")
+	}
+	if r.Quotaed() {
+		for _, depot := range serving {
+			resolved := r.ResolveForDepot(depot)
+			runners := make(map[string]string, len(gs))
+			for _, rg := range resolved.Groups() {
+				if rg.Name == RouteWait {
+					continue
+				}
+				runners[rg.Name] = groups[rg.Name].Runner
+			}
+			if err := quotaGroupsOK(resolved, runners); err != nil {
+				return Group{}, err
+			}
+		}
+	}
+	first := gs[0].Name
+	if !shared.IsTemplatedGroup(first) {
+		return groups[first], nil
+	}
+	for _, depot := range serving {
+		if groups[shared.ResolveGroup(first, depot)].Runner == "herdr" {
+			return Group{Runner: "herdr"}, nil
+		}
+	}
+	return groups[shared.ResolveGroup(first, serving[0])], nil
 }
 
 // RouteEdit is what SetRoute changes of a route: the first group (Group,
@@ -1306,31 +1462,84 @@ func checkLoginFor(tx *bolt.Tx, g *Group) error {
 // checkQuotaRoutes refuses saving g, a group that starts no agents, while a
 // route that names a further group or carries a condition names it and would
 // no longer carry it: AddRoute let that route in because the group started
-// agents, or was the one exec group it gates on a source.
+// agents, or was the one exec group it gates on a source. A templated default
+// names g where it resolves to g for some depot it serves.
 func checkQuotaRoutes(tx *bolt.Tx, g *Group) error {
+	var depots []string
+	if err := each(tx, bDepots, "", func(_ []byte, d *Depot) error {
+		depots = append(depots, d.Name)
+		return nil
+	}); err != nil {
+		return err
+	}
+	groups := map[string]Group{}
+	if err := each(tx, bGroups, "", func(_ []byte, o *Group) error {
+		groups[o.Name] = *o
+		return nil
+	}); err != nil {
+		return err
+	}
+	groups[g.Name] = *g
 	return each(tx, bRoutes, "", func(_ []byte, r *Route) error {
-		if !r.Quotaed() || !r.Names(g.Name) {
+		if !r.Quotaed() {
 			return nil
 		}
-		runners := map[string]string{}
-		for _, rg := range r.Groups() {
-			if rg.Name == RouteWait {
-				continue
+		if !r.Templated() {
+			if !r.Names(g.Name) {
+				return nil
 			}
-			if rg.Name == g.Name {
-				runners[rg.Name] = g.Runner
-				continue
+			runners := map[string]string{}
+			for _, rg := range r.Groups() {
+				if rg.Name == RouteWait {
+					continue
+				}
+				if rg.Name == g.Name {
+					runners[rg.Name] = g.Runner
+					continue
+				}
+				var o Group
+				if ok, err := get(tx, bGroups, rg.Name, &o); err != nil {
+					return err
+				} else if ok {
+					runners[rg.Name] = o.Runner
+				}
 			}
-			var o Group
-			if ok, err := get(tx, bGroups, rg.Name, &o); err != nil {
-				return err
-			} else if ok {
-				runners[rg.Name] = o.Runner
+			if err := quotaGroupsOK(*r, runners); err != nil {
+				return fmt.Errorf("group %s: route %s (%s, stage %s) names it with --else or a quota condition, and %s: it cannot become %s (yardr route rm %s first)",
+					g.Name, r.ID, r.GroupList(), r.Stage, err, g.Runner, r.ID)
 			}
+			return nil
 		}
-		if err := quotaGroupsOK(*r, runners); err != nil {
-			return fmt.Errorf("group %s: route %s (%s, stage %s) names it with --else or a quota condition, and %s: it cannot become %s (yardr route rm %s first)",
-				g.Name, r.ID, r.GroupList(), r.Stage, err, g.Runner, r.ID)
+		for _, depot := range depots {
+			resolved := r.ResolveForDepot(depot)
+			serves := true
+			names := false
+			for _, rg := range resolved.Groups() {
+				if rg.Name == RouteWait {
+					continue
+				}
+				if _, ok := groups[rg.Name]; !ok {
+					serves = false
+					break
+				}
+				if rg.Name == g.Name {
+					names = true
+				}
+			}
+			if !serves || !names {
+				continue
+			}
+			runners := map[string]string{}
+			for _, rg := range resolved.Groups() {
+				if rg.Name == RouteWait {
+					continue
+				}
+				runners[rg.Name] = groups[rg.Name].Runner
+			}
+			if err := quotaGroupsOK(resolved, runners); err != nil {
+				return fmt.Errorf("group %s: route %s (%s, stage %s) names it with --else or a quota condition, and %s: it cannot become %s (yardr route rm %s first)",
+					g.Name, r.ID, r.GroupList(), r.Stage, err, g.Runner, r.ID)
+			}
 		}
 		return nil
 	})
@@ -1512,15 +1721,68 @@ func (r Route) matchKey(operator string) shared.Key {
 }
 
 // EffectiveRoutes are the routes of the depot a bead names: its own routes
-// plus every yard default whose match key no own route states. An own
-// route therefore sets a default aside only for the beads it states, and
-// only in its depot; a depot that states no route for a key keeps the
-// default, and a bead with no depot (nil) has the defaults alone. A route
-// naming another depot is never in the set. The result keeps the order of
-// routes: MatchRoute ranks it, and a listing sorts it with SortRoutes.
-// The one implementation is shared's.
-func EffectiveRoutes(routes []Route, depot *string, operator string) []Route {
-	return shared.EffectiveRoutes(routes, viewRoute, depot, operator)
+// plus every yard default whose match key no own route states, with the
+// depot template resolved. An own route therefore sets a default aside
+// only for the beads it states, and only in its depot; a depot that states
+// no route for a key keeps the default, and a bead with no depot (nil) has
+// the defaults alone, without the templated ones, which resolve for a depot
+// alone. A route naming another depot is never in the set. A default whose
+// resolved group does not exist does not serve the depot, as if it were not
+// there (UnservedRoutes names those). groups are the yard's, by name; nil
+// keeps every route without a template, as before, and serves no templated
+// one. The result keeps the order of routes: MatchRoute ranks it, and a
+// listing sorts it with SortRoutes. The key filtering is shared's.
+func EffectiveRoutes(routes []Route, depot *string, operator string, groups map[string]Group) []Route {
+	keyed := shared.EffectiveRoutes(routes, viewRoute, depot, operator)
+	if depot == nil {
+		var out []Route
+		for _, r := range keyed {
+			if !r.Templated() {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	var out []Route
+	for _, r := range keyed {
+		if !r.Templated() {
+			out = append(out, r)
+			continue
+		}
+		if len(r.missingGroups(*depot, groups)) > 0 {
+			continue
+		}
+		out = append(out, r.ResolveForDepot(*depot))
+	}
+	return out
+}
+
+// UnservedRoute is a yard default that a depot's own routes do not set
+// aside but that does not serve the depot: its groups, resolved for the
+// depot, name Missing, which is not there.
+type UnservedRoute struct {
+	Route   Route    `json:"route"`
+	Missing []string `json:"missing"`
+}
+
+// UnservedRoutes are the yard defaults that do not serve depot because a
+// resolved group is missing: every default no own route of the depot sets
+// aside whose template resolves to a group that is not there, with those
+// names. A depot that states an own route for the default's key sets it
+// aside instead, so it is not named here. routes is the yard's routes in
+// any order; the result keeps their order.
+func UnservedRoutes(routes []Route, depot, operator string, groups map[string]Group) []UnservedRoute {
+	keyed := shared.EffectiveRoutes(routes, viewRoute, &depot, operator)
+	var out []UnservedRoute
+	for _, r := range keyed {
+		if r.Depot != nil || !r.Templated() {
+			continue
+		}
+		if missing := r.missingGroups(depot, groups); len(missing) > 0 {
+			out = append(out, UnservedRoute{Route: r, Missing: missing})
+		}
+	}
+	return out
 }
 
 // SetAside is a yard default a depot's own routes set aside there: the
@@ -1563,17 +1825,18 @@ func SetAsideRoutes(routes []Route, depot string, operator string) []SetAside {
 }
 
 // MatchRoute returns the first route that applies to b, in its depot's
-// effective routes (EffectiveRoutes) ranked as SortRoutes ranks. It reads
-// b's stage, type, depot, labels, priority and originator, and no flow: a
-// bead that pins a flow and one that follows its depot's pointer for the
-// same depot, type and stage take the same winner, and a label is what
-// separates them. Whoever asks for a bead it has only part of fills those
-// in; a bead that is no bead of the yard's (a view's stand-in for "a bead
-// of this depot") has no labels, no originator and DefaultPriority, as a
-// bead made without any, and reads as the operator's. routes is the yard's
-// routes in any order.
-func MatchRoute(routes []Route, b Bead, operator string) *Route {
-	eff := EffectiveRoutes(routes, b.Depot, operator)
+// effective routes (EffectiveRoutes) ranked as SortRoutes ranks, with the
+// depot template resolved. It reads b's stage, type, depot, labels,
+// priority and originator, and no flow: a bead that pins a flow and one
+// that follows its depot's pointer for the same depot, type and stage take
+// the same winner, and a label is what separates them. Whoever asks for a
+// bead it has only part of fills those in; a bead that is no bead of the
+// yard's (a view's stand-in for "a bead of this depot") has no labels, no
+// originator and DefaultPriority, as a bead made without any, and reads as
+// the operator's. routes is the yard's routes in any order, and groups its
+// groups by name, for the templated defaults (EffectiveRoutes).
+func MatchRoute(routes []Route, b Bead, operator string, groups map[string]Group) *Route {
+	eff := EffectiveRoutes(routes, b.Depot, operator, groups)
 	SortRoutes(eff)
 	return shared.Match(eff, viewRoute, viewBead(b), operator)
 }
@@ -1608,7 +1871,14 @@ func stageGroup(tx *bolt.Tx, b *beadRow) (*Group, error) {
 		if err != nil {
 			return nil, err
 		}
-		if r := MatchRoute(routes, b.Bead, operator); r != nil {
+		byName := map[string]Group{}
+		if err := each(tx, bGroups, "", func(_ []byte, g *Group) error {
+			byName[g.Name] = *g
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+		if r := MatchRoute(routes, b.Bead, operator, byName); r != nil {
 			name = r.Worker()
 		}
 	}

@@ -1294,7 +1294,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			continue
 		}
 		operator := settings[store.OperatorSetting]
-		r := Match(routes, b, operator)
+		r := Match(routes, b, operator, groups)
 		if r == nil {
 			d.reportOnce(ctx, b, "unrouted", fmt.Sprintf("no route for stage %q type %q originator %q", b.Stage, b.Type, store.BeadOriginator(b, operator)))
 			continue
@@ -1568,7 +1568,7 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 		n := NextStage{Stage: st, Terminal: ns.Flow.IsTerminal(st)}
 		moved := b
 		moved.Stage = st
-		if r := Match(routes, moved, operator); r != nil && !n.Terminal {
+		if r := Match(routes, moved, operator, groups); r != nil && !n.Terminal {
 			g := groups[r.Worker()]
 			n.Group, n.Runner, n.Peer, n.Else = r.Worker(), g.Runner, g.AtPeer(), r.Further()
 		}
@@ -1638,8 +1638,9 @@ func (d *Dispatcher) reportStranded(ctx context.Context, b store.Bead, sb store.
 // SortRoutes orders routes so the first match wins; see store.SortRoutes.
 func SortRoutes(rs []store.Route) { store.SortRoutes(rs) }
 
-// Match returns the first route (in SortRoutes order) that applies to b.
-// Operator is whose subscription a bead with no originator builds on.
-func Match(sorted []store.Route, b store.Bead, operator string) *store.Route {
-	return store.MatchRoute(sorted, b, operator)
+// Match returns the first route (in SortRoutes order) that applies to b,
+// with the depot template resolved. Operator is whose subscription a bead
+// with no originator builds on, and groups the yard's by name.
+func Match(sorted []store.Route, b store.Bead, operator string, groups map[string]store.Group) *store.Route {
+	return store.MatchRoute(sorted, b, operator, groups)
 }

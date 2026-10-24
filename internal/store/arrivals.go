@@ -129,7 +129,7 @@ func (s *Store) arrivalInputs(ctx context.Context, beads []Bead) ([]eta.ArrivalB
 		group := ""
 		if b.Group != nil {
 			group = *b.Group
-		} else if r := MatchRoute(routes, b, operator); r != nil {
+		} else if r := MatchRoute(routes, b, operator, byName); r != nil {
 			group = r.Worker()
 		}
 		if g, ok := byName[group]; ok && g.Runner == "manual" {

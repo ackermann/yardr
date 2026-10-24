@@ -335,7 +335,7 @@ func (d *Dispatcher) hookOriginator(ctx context.Context, ev ruleEvent, line *sto
 		return "", nil
 	}
 	SortRoutes(routes)
-	matched := Match(routes, store.Bead{Stage: line.Stage, Type: line.Type, Depot: &depot, Originator: linked}, operator)
+	matched := Match(routes, store.Bead{Stage: line.Stage, Type: line.Type, Depot: &depot, Originator: linked}, operator, byName)
 	if matched == nil || !store.IsPersonalRoute(*matched, byName, linked, operator) {
 		fallback := map[string]any{"linked_author": linked, "originator_rule": "no_personal_route"}
 		if matched != nil {

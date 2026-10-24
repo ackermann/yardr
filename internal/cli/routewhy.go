@@ -236,7 +236,7 @@ func (y *waitView) waitFor(b *store.Bead, routed *beadRouting) *groupWait {
 		store.NotWork[b.Type] || b.Type == store.TypeQuestion {
 		return nil
 	}
-	r := dispatch.Match(y.routes, *b, y.operator)
+	r := dispatch.Match(y.routes, *b, y.operator, y.groups)
 	if r == nil {
 		return nil
 	}

@@ -85,7 +85,7 @@ func TestRouteMatchesOriginator(t *testing.T) {
 		{"review", "", anyRoute.ID},
 	} {
 		b := store.Bead{Stage: tc.stage, Type: "task", Originator: tc.originator}
-		if got := store.MatchRoute(routes, b, "jo"); got == nil || got.ID != tc.want {
+		if got := store.MatchRoute(routes, b, "jo", nil); got == nil || got.ID != tc.want {
 			t.Errorf("stage %s originator %q took %+v, want %s", tc.stage, tc.originator, got, tc.want)
 		}
 	}
@@ -96,7 +96,7 @@ func TestRouteMatchesOriginator(t *testing.T) {
 		{ID: "z-hal", Stage: "new", Group: "hal-builders", Originator: &hal},
 	}
 	store.SortRoutes(anyFirst)
-	if got := store.MatchRoute(anyFirst, store.Bead{Stage: "new", Originator: "hal"}, "jo"); got == nil || got.ID != "z-hal" {
+	if got := store.MatchRoute(anyFirst, store.Bead{Stage: "new", Originator: "hal"}, "jo", nil); got == nil || got.ID != "z-hal" {
 		t.Fatalf("hal's bead took %+v, want named route before any", got)
 	}
 	// A general route of higher priority and greater specificity still
@@ -109,11 +109,11 @@ func TestRouteMatchesOriginator(t *testing.T) {
 	routes, _ = s.Routes(ctx)
 	store.SortRoutes(routes)
 	b := store.Bead{Stage: "new", Type: "task", Labels: []string{"difficulty:3"}, Originator: "hal"}
-	if got := store.MatchRoute(routes, b, "jo"); got == nil || got.ID != halRoute.ID {
+	if got := store.MatchRoute(routes, b, "jo", nil); got == nil || got.ID != halRoute.ID {
 		t.Fatalf("hal's labelled bead took %+v, want hal's route %s", got, halRoute.ID)
 	}
 	jb := store.Bead{Stage: "new", Type: "task", Labels: []string{"difficulty:3"}, Originator: "jo"}
-	if got := store.MatchRoute(routes, jb, "jo"); got == nil || got.Group != "builders" || got.Originator != nil {
+	if got := store.MatchRoute(routes, jb, "jo", nil); got == nil || got.Group != "builders" || got.Originator != nil {
 		t.Fatalf("jo's labelled bead took %+v, want the general operator route", got)
 	}
 }
@@ -238,7 +238,7 @@ func TestNonHerdrRoutesTakeEveryOriginator(t *testing.T) {
 		store.SortRoutes(routes)
 		for _, orig := range []string{"jo", "hal", ""} {
 			b := store.Bead{Stage: tc.stage, Type: "task", Originator: orig}
-			if got := store.MatchRoute(routes, b, "jo"); got == nil || got.ID != saved.ID {
+			if got := store.MatchRoute(routes, b, "jo", nil); got == nil || got.ID != saved.ID {
 				t.Errorf("%s route, originator %q took %+v, want the route to %s", tc.group, orig, got, tc.group)
 			}
 		}
@@ -293,7 +293,7 @@ func TestReadyBeadCarriesOriginator(t *testing.T) {
 			t.Fatalf("ready bead %s carries %q, the bead %q", whole.Title, rb.Originator, whole.Originator)
 		}
 		part := store.Bead{ID: rb.Bead, Stage: rb.Stage, Type: rb.Type, Depot: rb.Depot, Labels: rb.Labels, Priority: rb.Priority, Originator: rb.Originator}
-		a, b := store.MatchRoute(routes, part, "jo"), store.MatchRoute(routes, *whole, "jo")
+		a, b := store.MatchRoute(routes, part, "jo", nil), store.MatchRoute(routes, *whole, "jo", nil)
 		if a == nil || b == nil || a.ID != b.ID || a.ID != want[whole.Title] {
 			t.Errorf("bead %s: as a ready bead it takes %+v, whole %+v, want %s", whole.Title, a, b, want[whole.Title])
 		}

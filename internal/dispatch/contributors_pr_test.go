@@ -203,7 +203,7 @@ func (r *ghDepot) routedTo(t *testing.T, id string) string {
 	must(t, err)
 	dispatch.SortRoutes(routes)
 	b := r.bead(t, id)
-	if route := dispatch.Match(routes, *b, ""); route != nil {
+	if route := dispatch.Match(routes, *b, "", nil); route != nil {
 		return route.Group
 	}
 	return ""

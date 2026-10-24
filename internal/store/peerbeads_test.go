@@ -138,7 +138,7 @@ func TestPeerBeadArrives(t *testing.T) {
 	}
 	routes, _ := y.api.Routes(y.ctx)
 	store.SortRoutes(routes)
-	if r := store.MatchRoute(routes, *b, ""); r == nil || r.Group != "arrivals" {
+	if r := store.MatchRoute(routes, *b, "", nil); r == nil || r.Group != "arrivals" {
 		t.Fatalf("the bead that arrived is not routed to the group of its stage: %+v", routes)
 	}
 	p := b.Peer

@@ -167,6 +167,7 @@ type reader struct {
 	routes   []store.Route
 	manual   map[string]bool
 	runner   map[string]string
+	byName   map[string]store.Group
 	operator string
 	routed   bool
 }
@@ -300,7 +301,7 @@ func (r *reader) manualStage(ctx context.Context, bead, stage string) bool {
 	r.loadRoutes(ctx)
 	probe := *b
 	probe.Stage = stage
-	rt := store.MatchRoute(r.routes, probe, r.operator)
+	rt := store.MatchRoute(r.routes, probe, r.operator, r.byName)
 	return rt != nil && r.manual[rt.Worker()]
 }
 
@@ -313,6 +314,7 @@ func (r *reader) loadRoutes(ctx context.Context) {
 	r.routed = true
 	r.manual = map[string]bool{}
 	r.runner = map[string]string{}
+	r.byName = map[string]store.Group{}
 	if r.st == nil {
 		return
 	}
@@ -327,6 +329,7 @@ func (r *reader) loadRoutes(ctx context.Context) {
 		for _, g := range groups {
 			r.manual[g.Name] = g.Runner == "manual"
 			r.runner[g.Name] = g.Runner
+			r.byName[g.Name] = g
 		}
 	}
 }

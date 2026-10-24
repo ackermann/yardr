@@ -1216,7 +1216,7 @@ func routeNowLines(routes []store.Route, labels []string, operator string) []rou
 	for _, l := range labels {
 		probe := store.Bead{Stage: "new", Labels: []string{l}, Priority: store.DefaultPriority}
 		n := routeNow{Label: l, SetAside: []string{}}
-		if r := store.MatchRoute(routes, probe, operator); r != nil {
+		if r := store.MatchRoute(routes, probe, operator, nil); r != nil {
 			n.Route = &routeNowHop{ID: r.ID, Groups: r.GroupList()}
 			n.SetAside = append(n.SetAside, asideBy[r.ID]...)
 		}

@@ -111,7 +111,7 @@ func TestStarterLeavesBacklogAndDecideToYardDefaults(t *testing.T) {
 		t.Errorf("routes after the import: %d defaults, %d own, want 2 and 9 (all %d)", defaults, own, len(routes))
 	}
 	depot := "web"
-	if r := store.MatchRoute(routes, store.Bead{Stage: "backlog", Type: "task", Depot: &depot, Priority: store.DefaultPriority}, "me"); r == nil || r.ID != backlog.ID {
+	if r := store.MatchRoute(routes, store.Bead{Stage: "backlog", Type: "task", Depot: &depot, Priority: store.DefaultPriority}, "me", nil); r == nil || r.ID != backlog.ID {
 		t.Errorf("a backlog bead in web took %+v, want the yard default %s", r, backlog.ID)
 	}
 
@@ -156,10 +156,10 @@ func TestPackWritesOwnRouteWhereItsBindingDiffersFromTheDefault(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: other, Base: "main"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if r := store.MatchRoute(routes, store.Bead{Stage: "new", Type: "task", Depot: &web, Priority: store.DefaultPriority}, "me"); r == nil || r.Group != "web-builders" || r.Depot == nil {
+	if r := store.MatchRoute(routes, store.Bead{Stage: "new", Type: "task", Depot: &web, Priority: store.DefaultPriority}, "me", nil); r == nil || r.Group != "web-builders" || r.Depot == nil {
 		t.Errorf("a new bead in web took %+v, want its own route to web-builders", r)
 	}
-	if r := store.MatchRoute(routes, store.Bead{Stage: "new", Type: "task", Depot: &other, Priority: store.DefaultPriority}, "me"); r == nil || r.ID != def.ID {
+	if r := store.MatchRoute(routes, store.Bead{Stage: "new", Type: "task", Depot: &other, Priority: store.DefaultPriority}, "me", nil); r == nil || r.ID != def.ID {
 		t.Errorf("a new bead in another depot took %+v, want the yard default %s to spare", r, def.ID)
 	}
 }
@@ -196,7 +196,7 @@ func TestPackDoesNotLeavePeopleStageToOperatorOnlyDefault(t *testing.T) {
 	}
 	depot := "web"
 	bead := store.Bead{Stage: "decide", Type: "task", Depot: &depot, Originator: "another-user", Priority: store.DefaultPriority}
-	if r := store.MatchRoute(routes, bead, "me"); r == nil || r.Depot == nil || r.Group != "people" {
+	if r := store.MatchRoute(routes, bead, "me", nil); r == nil || r.Depot == nil || r.Group != "people" {
 		t.Errorf("a non-operator bead in decide took %+v, want the pack's own people route", r)
 	}
 }
@@ -379,7 +379,7 @@ groups:
 			t.Errorf("the import wrote a typed copy %s to %s over the plain route", r.ID, r.Group)
 		}
 	}
-	if r := store.MatchRoute(routes, store.Bead{Stage: "approved", Type: "train", Depot: &depot, Priority: store.DefaultPriority}, "me"); r == nil || r.ID != plain.ID {
+	if r := store.MatchRoute(routes, store.Bead{Stage: "approved", Type: "train", Depot: &depot, Priority: store.DefaultPriority}, "me", nil); r == nil || r.ID != plain.ID {
 		t.Errorf("a train bead in approved took %+v, want the plain route %s", r, plain.ID)
 	}
 }

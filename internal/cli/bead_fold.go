@@ -197,8 +197,12 @@ func inSiding(ctx context.Context, st store.API, members []store.Bead) (bool, er
 	if err != nil {
 		return false, err
 	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
 	for _, m := range members {
-		r := store.MatchRoute(routes, m, settings[store.OperatorSetting])
+		r := store.MatchRoute(routes, m, settings[store.OperatorSetting], byName)
 		if r == nil {
 			return false, nil
 		}

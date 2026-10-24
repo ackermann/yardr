@@ -234,7 +234,7 @@ func TestExportRoundTrip(t *testing.T) {
 	routes, _ = st2.Routes(ctx)
 	store.SortRoutes(routes)
 	site := "site"
-	if r := store.MatchRoute(routes, store.Bead{Stage: "review", Depot: &site, Priority: store.DefaultPriority}, ""); r == nil || r.Group != "site-testers" {
+	if r := store.MatchRoute(routes, store.Bead{Stage: "review", Depot: &site, Priority: store.DefaultPriority}, "", nil); r == nil || r.Group != "site-testers" {
 		t.Errorf("review in the second yard goes to %+v, want site-testers", r)
 	}
 	g, err := st2.GetGroup(ctx, "site-testers")

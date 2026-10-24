@@ -185,6 +185,14 @@ func (b *planner) routes(flows []Flow) error {
 		return err
 	}
 	operator := settings[store.OperatorSetting]
+	listed, err := b.st.Groups(b.ctx)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]store.Group, len(listed))
+	for _, g := range listed {
+		byName[g.Name] = g
+	}
 	// winner is what this depot's effective routes do with a plain bead
 	// of the stage (and the flow's type): no labels, the default bead
 	// priority, the operator's beads, as the flow view's probe bead is.
@@ -193,7 +201,7 @@ func (b *planner) routes(flows []Flow) error {
 	// EffectiveRoutes, so the plan, the dispatcher and every view agree.
 	winner := func(f Flow, s Stage) *store.Route {
 		depot := b.o.Depot
-		return store.MatchRoute(have, store.Bead{Stage: s.Name, Type: f.Type, Depot: &depot, Priority: store.DefaultPriority}, operator)
+		return store.MatchRoute(have, store.Bead{Stage: s.Name, Type: f.Type, Depot: &depot, Priority: store.DefaultPriority}, operator, byName)
 	}
 	taken := map[string]bool{}
 	// markTypedTaken hides the depot's existing typed routes for the stage

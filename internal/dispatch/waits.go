@@ -56,7 +56,7 @@ func (d *Dispatcher) waits(ctx context.Context, groups map[string]store.Group, b
 		group := ""
 		if b.Group != nil {
 			group = *b.Group
-		} else if r := Match(routes, b, operator); r != nil {
+		} else if r := Match(routes, b, operator, groups); r != nil {
 			group = r.Worker()
 		}
 		// A bead younger than the wait has not been anywhere that long, and

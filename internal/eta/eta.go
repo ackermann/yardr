@@ -208,10 +208,41 @@ func Estimate(b Bead, flow *Flow, routes []Route, groups []Group, cells Cells, q
 		byName[g.Name] = g
 	}
 	// primary is the group the routes would send a bead like b in stage
-	// to: the first of the matching route's groups.
+	// to: the first of the matching route's groups, with the depot template
+	// resolved. A default whose resolved group is missing serves no depot,
+	// as in the store's effective set.
 	primary := func(stage, typ string, depot *string, labels []string, priority int, originator string) (Group, bool) {
 		eff := shared.EffectiveRoutes(routes, viewRoute, depot, operator)
-		r := shared.Match(eff, viewRoute, shared.Bead{Stage: stage, Type: typ, Depot: depot,
+		var resolved []Route
+		for _, r := range eff {
+			if !slices.ContainsFunc(r.Groups, shared.IsTemplatedGroup) {
+				resolved = append(resolved, r)
+				continue
+			}
+			if depot == nil {
+				continue
+			}
+			serves := true
+			for _, g := range r.Groups {
+				if g == "wait" {
+					continue // wait ends the route; it is not a group to resolve.
+				}
+				if _, ok := byName[shared.ResolveGroup(g, *depot)]; !ok {
+					serves = false
+					break
+				}
+			}
+			if !serves {
+				continue
+			}
+			out := r
+			out.Groups = make([]string, len(r.Groups))
+			for i, g := range r.Groups {
+				out.Groups[i] = shared.ResolveGroup(g, *depot)
+			}
+			resolved = append(resolved, out)
+		}
+		r := shared.Match(resolved, viewRoute, shared.Bead{Stage: stage, Type: typ, Depot: depot,
 			Labels: labels, Priority: priority, Originator: originator}, operator)
 		if r == nil || len(r.Groups) == 0 {
 			return Group{}, false

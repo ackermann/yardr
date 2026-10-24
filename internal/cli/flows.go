@@ -620,6 +620,10 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 	if err != nil {
 		return nil, err
 	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
 	beads, err := st.ListBeads(ctx, store.BeadFilter{Depot: depot})
 	if err != nil {
 		return nil, err
@@ -657,7 +661,7 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 			// The probe names no originator, so it reads as the operator's.
 			probe := store.Bead{Stage: s, Type: or(rf.Type, "task"), Depot: &depot, Priority: store.DefaultPriority}
 			var siding *store.Siding
-			if r := dispatch.Match(routes, probe, operator); r != nil {
+			if r := dispatch.Match(routes, probe, operator, byName); r != nil {
 				sv.Group, sv.Else = r.Worker(), r.Further()
 				if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == sv.Group }); i >= 0 && groups[i].Runner == "manual" {
 					sv.Human, sv.Members = true, groups[i].Members

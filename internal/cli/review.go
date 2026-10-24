@@ -88,7 +88,7 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 	for _, b := range beads {
 		name := deref(b.Group)
 		if b.Group == nil {
-			r := store.MatchRoute(routes, b, operator)
+			r := store.MatchRoute(routes, b, operator, byName)
 			if r == nil {
 				continue
 			}

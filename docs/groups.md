@@ -213,6 +213,17 @@ no depot has the defaults alone. `yardr route list` prints the scope in
 the column `SCOPE`: the depot's name for its own routes, `default` for a
 yard default. The note is the column `NOTE`.
 
+A yard default may name its group with the depot template, first group or
+further group: `{depot}-assembly` reads as `web-assembly` for depot `web`,
+resolved where the effective routes are computed. A default whose resolved
+group does not exist does not serve that depot, as if it were not there, so
+a depot without `reports-assembly` keeps no route from a default to
+`{depot}-assembly`. An own route names no template, since it knows its
+depot. Adding a default whose template resolves to no depot's group is
+refused, and each depot where every group resolves is held to what a literal
+chain is. Deleting `web-assembly` leaves the default in place and stops it
+serving `web`; `group rm` says so.
+
 Of the routes that match a bead, in its depot's effective routes (its
 own routes plus the defaults none of them sets aside), the first in a
 named order takes it. The order compares what each route asks of a bead,
@@ -243,13 +254,15 @@ that order, the labels in the column `LABEL`, the bead priorities as
 `yardr route list --depot <depot>` lists that depot's effective routes
 in the same order, each marked `own` or `default`, with the defaults its
 own routes set aside named underneath, each with the own route that
-states its key. `yardr route explain <bead>` says where one bead would
+states its key, and the defaults that do not serve it for a missing group,
+each with the reason. `yardr route explain <bead>` says where one bead would
 go: the winner among its depot's effective routes, every route that
 matches in order with the ranking leg that placed it below the one
 above (`urgency`, `asked for by name`, `estimate`, `the rest`, `own
 before default`, `id`), the routes
 considered that do not match and why, the defaults the depot sets
-aside for the bead's stage with the own route that states each, and
+aside for the bead's stage with the own route that states each, the defaults
+that do not serve it for a missing group, and
 the winning route's groups in order. For a route with further groups
 or a condition, and for one whose group starts agents, the choice among
 them, or whether the group may start the bead, is made at the claim, from
@@ -480,7 +493,9 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   no condition: a route for a label asked for by name, or the P0 reserve,
   sends its beads where it says whatever the threshold is, for as long as
   no window of that group's provider is used up. Removing
-  a group removes every route that names it, further groups included.
+  a group removes every route that names it, further groups included,
+  except a templated default, which stays and stops serving the depots it
+  served through it.
 
 ## Routing by estimate and quota
 

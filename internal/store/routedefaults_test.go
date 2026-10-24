@@ -62,7 +62,15 @@ func winner(t *testing.T, s store.API, ctx context.Context, b store.Bead) *store
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store.MatchRoute(routes, b, "jo")
+	groups, err := s.Groups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	return store.MatchRoute(routes, b, "jo", byName)
 }
 
 // An own route with a default's key sets it aside for that depot alone:
@@ -86,13 +94,13 @@ func TestOwnRouteSetsDefaultAsideForItsDepotAlone(t *testing.T) {
 		}
 		return out
 	}
-	if eff := ids(store.EffectiveRoutes(routes, routePtr("web"), "jo")); !eff[own.ID] || eff[def.ID] {
+	if eff := ids(store.EffectiveRoutes(routes, routePtr("web"), "jo", nil)); !eff[own.ID] || eff[def.ID] {
 		t.Errorf("web's effective routes = %v, want its own %s without the default %s", eff, own.ID, def.ID)
 	}
-	if eff := ids(store.EffectiveRoutes(routes, routePtr("other"), "jo")); !eff[def.ID] || eff[own.ID] {
+	if eff := ids(store.EffectiveRoutes(routes, routePtr("other"), "jo", nil)); !eff[def.ID] || eff[own.ID] {
 		t.Errorf("other's effective routes = %v, want the default %s without web's own %s", eff, def.ID, own.ID)
 	}
-	if eff := ids(store.EffectiveRoutes(routes, nil, "jo")); !eff[def.ID] || eff[own.ID] {
+	if eff := ids(store.EffectiveRoutes(routes, nil, "jo", nil)); !eff[def.ID] || eff[own.ID] {
 		t.Errorf("a bead with no depot has effective routes %v, want the default alone", eff)
 	}
 	for depot, want := range map[string]string{"web": own.ID, "other": def.ID} {
@@ -121,7 +129,7 @@ func TestOwnRouteWithAnotherKeyLeavesTheDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := map[string]bool{}
-	for _, r := range store.EffectiveRoutes(routes, routePtr("web"), "jo") {
+	for _, r := range store.EffectiveRoutes(routes, routePtr("web"), "jo", nil) {
 		found[r.ID] = true
 	}
 	if !found[def.ID] || !found[own.ID] {
@@ -201,11 +209,11 @@ func TestOwnRouteRanksBeforeDefault(t *testing.T) {
 		t.Fatalf("sorted routes = %+v, want the own route first", routes)
 	}
 	bead := store.Bead{Stage: "new", Type: bug, Depot: routePtr("web"), Priority: store.DefaultPriority}
-	if got := store.MatchRoute(routes, bead, "jo"); got == nil || got.ID != "z-own" {
+	if got := store.MatchRoute(routes, bead, "jo", nil); got == nil || got.ID != "z-own" {
 		t.Errorf("the bead took %+v, want the own route", got)
 	}
 	away := store.Bead{Stage: "new", Type: bug, Depot: routePtr("other"), Priority: store.DefaultPriority}
-	if got := store.MatchRoute(routes, away, "jo"); got == nil || got.ID != "a-default" {
+	if got := store.MatchRoute(routes, away, "jo", nil); got == nil || got.ID != "a-default" {
 		t.Errorf("the bead in another depot took %+v, want the default", got)
 	}
 }
@@ -301,7 +309,7 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 		if err != nil || len(routes) != 2 {
 			t.Fatalf("routes = %+v, %v, want the default and the own route", routes, err)
 		}
-		if eff := store.EffectiveRoutes(routes, routePtr("web"), "jo"); len(eff) != 1 || eff[0].ID != own.ID {
+		if eff := store.EffectiveRoutes(routes, routePtr("web"), "jo", nil); len(eff) != 1 || eff[0].ID != own.ID {
 			t.Errorf("web's effective routes = %+v, want its own route alone", eff)
 		}
 	})
@@ -365,7 +373,7 @@ func TestDifferentLabelSetsDoNotCollideInMatchKey(t *testing.T) {
 		{ID: "own", Stage: "new", Depot: routePtr("web"), Group: "builders", Label: &second[0], AndLabels: second[1:]},
 	}
 	bead := store.Bead{Stage: "new", Type: "task", Depot: routePtr("web"), Labels: first, Priority: store.DefaultPriority}
-	if got := store.MatchRoute(routes, bead, "jo"); got == nil || got.ID != "default" {
+	if got := store.MatchRoute(routes, bead, "jo", nil); got == nil || got.ID != "default" {
 		t.Fatalf("a bead with the default's distinct label set took %+v, want the default", got)
 	}
 }
@@ -428,12 +436,12 @@ func TestSortRoutesRanksByTheNamedLegs(t *testing.T) {
 		{"two harness labels on one bead, by id", bead("api", 2, "task", "claude", "muse"), "4-claude", "5-muse", store.LegID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := store.MatchRoute(routes, tc.bead, "jo")
+			got := store.MatchRoute(routes, tc.bead, "jo", nil)
 			if got == nil || got.ID != tc.winner {
 				t.Fatalf("bead %+v took %+v, want %s", tc.bead, got, tc.winner)
 			}
 			var below *store.Route
-			for _, r := range store.EffectiveRoutes(routes, tc.bead.Depot, "jo") {
+			for _, r := range store.EffectiveRoutes(routes, tc.bead.Depot, "jo", nil) {
 				if r.ID == tc.below {
 					below = &r
 				}
@@ -536,9 +544,9 @@ func TestRouteMatchesAgreesWithMatchRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, b := range beads {
-		eff := store.EffectiveRoutes(routes, b.Depot, "jo")
+		eff := store.EffectiveRoutes(routes, b.Depot, "jo", nil)
 		store.SortRoutes(eff)
-		w := store.MatchRoute(routes, b, "jo")
+		w := store.MatchRoute(routes, b, "jo", nil)
 		if w == nil {
 			for _, r := range eff {
 				if r.Matches(b, "jo") {
@@ -562,6 +570,150 @@ func TestRouteMatchesAgreesWithMatchRoute(t *testing.T) {
 		}
 		if above {
 			t.Errorf("the winner %s is not in the effective set of %+v", w.ID, b)
+		}
+	}
+}
+
+// A yard default may name its group with the depot template: for depot web
+// "{depot}-assembly" reads as web-assembly. A depot without the resolved
+// group keeps no route, as if the default were not there, and a bead with
+// no depot has the untemplated defaults alone.
+func TestTemplatedDefaultResolvesPerDepot(t *testing.T) {
+	s, ctx := defaultsYard(t)
+	for _, g := range []store.Group{
+		{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "other-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+	} {
+		if err := s.PutGroup(ctx, g, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	def := mustRoute(t, s, ctx, store.Route{Stage: "approved", Group: "{depot}-assembly"})
+	routes, err := s.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := s.Groups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	for depot, want := range map[string]string{"web": "web-assembly", "other": "other-assembly"} {
+		eff := store.EffectiveRoutes(routes, routePtr(depot), "jo", byName)
+		if len(eff) != 1 || eff[0].ID != def.ID || eff[0].Worker() != want {
+			t.Errorf("%s's effective routes = %+v, want the default resolved to %s", depot, eff, want)
+		}
+		b := store.Bead{Stage: "approved", Type: "task", Depot: routePtr(depot), Priority: store.DefaultPriority}
+		if got := store.MatchRoute(routes, b, "jo", byName); got == nil || got.ID != def.ID || got.Worker() != want {
+			t.Errorf("an approved bead in %s took %+v, want the default to %s", depot, got, want)
+		}
+		if unserved := store.UnservedRoutes(routes, depot, "jo", byName); len(unserved) != 0 {
+			t.Errorf("unserved in %s = %+v, want none", depot, unserved)
+		}
+	}
+	if eff := store.EffectiveRoutes(routes, routePtr("yard"), "jo", byName); len(eff) != 0 {
+		t.Errorf("yard's effective routes = %+v, want none: no group yard-assembly", eff)
+	}
+	yardBead := store.Bead{Stage: "approved", Type: "task", Depot: routePtr("yard"), Priority: store.DefaultPriority}
+	if got := store.MatchRoute(routes, yardBead, "jo", byName); got != nil {
+		t.Errorf("an approved bead in yard took %+v, want nothing", got)
+	}
+	unserved := store.UnservedRoutes(routes, "yard", "jo", byName)
+	if len(unserved) != 1 || unserved[0].Route.ID != def.ID || len(unserved[0].Missing) != 1 || unserved[0].Missing[0] != "yard-assembly" {
+		t.Fatalf("unserved in yard = %+v, want the default missing yard-assembly", unserved)
+	}
+	if eff := store.EffectiveRoutes(routes, nil, "jo", byName); len(eff) != 0 {
+		t.Errorf("a bead with no depot has effective routes %+v, want none: the template resolves for a depot alone", eff)
+	}
+}
+
+// An own route names no depot template, since it knows its depot, through
+// add and through set; a default whose template resolves to no depot's
+// group is refused, as is one whose groups never all resolve together.
+func TestTemplatedGroupAddTimeRules(t *testing.T) {
+	s, ctx := defaultsYard(t)
+	if err := s.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "approved", Depot: routePtr("web"), Group: "{depot}-assembly"}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "an own route names no {depot} template") {
+		t.Errorf("an own route to a template: %v, want it refused as knowing its depot", err)
+	}
+	if _, err := s.AddRoute(ctx, store.Route{Stage: "approved", Group: "{depot}-ghost"}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "no depot resolves it to a group that exists") {
+		t.Errorf("a template no depot resolves: %v, want it refused", err)
+	}
+	plain := mustRoute(t, s, ctx, store.Route{Stage: "approved", Depot: routePtr("web"), Group: "builders"})
+	g := store.ParseRouteGroup("{depot}-assembly")
+	if _, err := s.SetRoute(ctx, plain.ID, store.RouteEdit{Group: &g}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "an own route names no {depot} template") {
+		t.Errorf("setting an own route to a template: %v, want it refused", err)
+	}
+	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers"})
+	ghost := store.ParseRouteGroup("{depot}-ghost")
+	if _, err := s.SetRoute(ctx, def.ID, store.RouteEdit{Group: &ghost}, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "no depot resolves it to a group that exists") {
+		t.Errorf("setting a default to an unresolving template: %v, want it refused", err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "other-spare", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// Each template resolves somewhere, but never together: web has the
+	// assembly group, other the spare one, so no depot has both.
+	r := store.Route{Stage: "build", Group: "{depot}-assembly", Else: []store.RouteGroup{{Name: "{depot}-spare"}}}
+	if _, err := s.AddRoute(ctx, r, "jo"); err == nil || !strings.Contains(err.Error(), "no depot has every group") {
+		t.Errorf("a chain no depot holds together: %v, want it refused", err)
+	}
+	duplicate := store.Route{Stage: "build", Group: "{depot}-assembly", Else: []store.RouteGroup{{Name: "web-assembly"}}}
+	if _, err := s.AddRoute(ctx, duplicate, "jo"); err == nil ||
+		!strings.Contains(err.Error(), "group web-assembly is named twice after resolving {depot} for depot web") {
+		t.Errorf("a chain that resolves to the same group twice: %v, want it refused", err)
+	}
+}
+
+// A templated default inside a quota chain resolves per depot, and each
+// depot where every group resolves is held to what a literal chain is:
+// only groups that start agents, or one exec group gated on a source.
+func TestTemplatedDefaultInAQuotaChain(t *testing.T) {
+	s, ctx := defaultsYard(t)
+	for _, g := range []store.Group{
+		{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "other-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "web-spare", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "other-spare", Runner: "manual", Members: []string{"jo"}},
+	} {
+		if err := s.PutGroup(ctx, g, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := store.Route{Stage: "build", Group: "{depot}-assembly", When: "Weekly<80",
+		Else: []store.RouteGroup{{Name: "{depot}-spare"}}}
+	if _, err := s.AddRoute(ctx, r, "jo"); err == nil || !strings.Contains(err.Error(), "other-spare") {
+		t.Fatalf("a chain resolving to a manual group in other: %v, want it refused naming other-spare", err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "other-spare", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	def := mustRoute(t, s, ctx, r)
+	routes, err := s.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := s.Groups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	for depot, want := range map[string]string{"web": "web-assembly@Weekly<80 else web-spare", "other": "other-assembly@Weekly<80 else other-spare"} {
+		eff := store.EffectiveRoutes(routes, routePtr(depot), "jo", byName)
+		if len(eff) != 1 || eff[0].ID != def.ID || eff[0].GroupList() != want {
+			t.Errorf("%s's effective chain = %+v, want %s", depot, eff, want)
 		}
 	}
 }

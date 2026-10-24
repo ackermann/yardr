@@ -259,7 +259,7 @@ func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
 				// for the default type, as `yardr flow show` does. The
 				// probe names no originator, so it reads as the operator's.
 				probe := Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name, Priority: DefaultPriority}
-				if r := MatchRoute(routes, probe, operator); r != nil {
+				if r := MatchRoute(routes, probe, operator, byGroup); r != nil {
 					fs.Group = r.Worker()
 					if g, ok := byGroup[fs.Group]; ok {
 						if g.Runner == "manual" {
@@ -365,7 +365,9 @@ func newestFirstBeads(bs []Bead) {
 // whose reasons are all manual is parked, so both light turn.
 func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, routes []Route, groups []Group, operator string, dependencyBlocked map[string]bool) (map[string]string, error) {
 	manualGroup := map[string]bool{}
+	byName := make(map[string]Group, len(groups))
 	for _, g := range groups {
+		byName[g.Name] = g
 		if g.Runner == "manual" {
 			manualGroup[g.Name] = true
 		}
@@ -428,7 +430,7 @@ func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, rou
 		group := ""
 		if b.Group != nil {
 			group = *b.Group
-		} else if r := MatchRoute(routes, b, operator); r != nil {
+		} else if r := MatchRoute(routes, b, operator, byName); r != nil {
 			group = r.Worker()
 		}
 		if manualGroup[group] || asked[b.ID] {

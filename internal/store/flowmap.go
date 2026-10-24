@@ -294,7 +294,14 @@ func stageWork(tx *bolt.Tx, sorted []Route, b Bead, stage string) (StageWork, er
 	if err != nil {
 		return groupWork(nil, stage), err
 	}
-	r := MatchRoute(sorted, b, operator)
+	byName := map[string]Group{}
+	if err := each(tx, bGroups, "", func(_ []byte, g *Group) error {
+		byName[g.Name] = *g
+		return nil
+	}); err != nil {
+		return groupWork(nil, stage), err
+	}
+	r := MatchRoute(sorted, b, operator, byName)
 	if r == nil {
 		return groupWork(nil, stage), nil
 	}

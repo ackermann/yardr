@@ -615,13 +615,62 @@ yardmaster):
 			if _, err := st.GetGroup(c.Context(), args[0]); err != nil {
 				return err
 			}
+			// A templated default that resolves to this group stays, and stops
+			// serving the depots it served through it: those are named beside
+			// what the removal releases.
+			routes, err := st.Routes(c.Context())
+			if err != nil {
+				return err
+			}
+			depots, err := st.Depots(c.Context())
+			if err != nil {
+				return err
+			}
+			settings, err := st.Settings(c.Context())
+			if err != nil {
+				return err
+			}
+			operator := settings[store.OperatorSetting]
+			listed, err := st.Groups(c.Context())
+			if err != nil {
+				return err
+			}
+			byName := make(map[string]store.Group, len(listed))
+			for _, g := range listed {
+				byName[g.Name] = g
+			}
+			byID := make(map[string]store.Route, len(routes))
+			for _, r := range routes {
+				byID[r.ID] = r
+			}
+			type stopped struct {
+				Route store.Route `json:"route"`
+				Depot string      `json:"depot"`
+			}
+			noLonger := []stopped{}
+			for _, d := range depots {
+				depot := d.Name
+				for _, r := range store.EffectiveRoutes(routes, &depot, operator, byName) {
+					orig, ok := byID[r.ID]
+					if !ok || !orig.Templated() {
+						continue
+					}
+					if r.Names(args[0]) {
+						noLonger = append(noLonger, stopped{Route: orig, Depot: depot})
+					}
+				}
+			}
 			n, err := st.DeleteGroup(c.Context(), args[0], a.who())
 			if err != nil {
 				return err
 			}
-			return a.out(c.OutOrStdout(), map[string]any{"group": args[0], "released": n}, func(w io.Writer) {
+			return a.out(c.OutOrStdout(), map[string]any{"group": args[0], "released": n, "unserved": noLonger}, func(w io.Writer) {
 				if n > 0 {
 					fmt.Fprintf(w, "deleted group %s; ended its %d live session(s) and released their beads for routing\n", args[0], n)
+				}
+				for _, s := range noLonger {
+					fmt.Fprintf(w, "default %s (%s -> %s) no longer serves %s: no group %s\n",
+						s.Route.ID, s.Route.Stage, s.Route.GroupList(), s.Depot, args[0])
 				}
 			})
 		},
@@ -936,14 +985,17 @@ exists. Without --depot a route is a yard default: it serves
 every depot that does not state its own route for the same beads (the
 same stage, type, labels, bead priority and originator); with --depot it
 is that depot's own, and sets a default aside only for those beads and
-only there. Of the routes that match a bead, in its depot's effective
-routes, the first in this order takes it, the first of these that differs
-deciding: urgency (a route with --bead-priority before one without, and
-the narrower threshold first: 0 before 1); asked for by name (more labels
-that are not estimates, as claude or airy); estimate (more labels that
-begin difficulty: or size:); the rest (the type, the depot and a named
-originator count one each); an own route before a yard default; the
-route id. A route that takes the same beads as one of the same scope
+only there. A default may name its group with the depot template, first
+group or further group: '{depot}-assembly' reads as 'web-assembly' for
+depot web, and a depot without the resolved group keeps no route from it.
+An own route names no template. Of the routes that match a bead, in its
+depot's effective routes, the first in this order takes it, the first of
+these that differs deciding: urgency (a route with --bead-priority before
+one without, and the narrower threshold first: 0 before 1); asked for by
+name (more labels that are not estimates, as claude or airy); estimate
+(more labels that begin difficulty: or size:); the rest (the type, the depot
+and a named originator count one each); an own route before a yard default;
+the route id. A route that takes the same beads as one of the same scope
 already standing is refused, naming it: the two would be ordered by id,
 which nobody chose. A --note says in words what the filters and the chain
 cannot: why this route is there. route list prints it.`,
@@ -955,7 +1007,8 @@ cannot: why this route is there. route list prints it.`,
   yardr route add --stage new --group 'builders@machine.load<80' --else wait
   yardr route add --stage new --label difficulty:3 --label size:large --group builders
   yardr route add --stage new --bead-priority 0 --group builders --note 'P0 reserve'
-  yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders`,
+  yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders
+  yardr route add --stage approved --group '{depot}-assembly'`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if r.Stage == "" || group == "" {
@@ -1016,7 +1069,8 @@ cannot: why this route is there. route list prints it.`,
 yard default), what each takes, its groups and its note.
 --depot <depot> lists that depot's effective routes instead: its own routes
 plus the defaults none of them sets aside, each marked own or default, with
-the defaults it sets aside named underneath.`,
+the defaults it sets aside and the defaults that do not serve it for a
+missing group named underneath.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -1049,11 +1103,23 @@ the defaults it sets aside named underneath.`,
 			if _, err := st.GetDepot(c.Context(), listDepot); err != nil {
 				return err
 			}
-			eff := store.EffectiveRoutes(rs, &listDepot, operator)
+			listed, err := st.Groups(c.Context())
+			if err != nil {
+				return err
+			}
+			byName := make(map[string]store.Group, len(listed))
+			for _, g := range listed {
+				byName[g.Name] = g
+			}
+			eff := store.EffectiveRoutes(rs, &listDepot, operator, byName)
 			dispatch.SortRoutes(eff)
 			aside := store.SetAsideRoutes(rs, listDepot, operator)
 			if aside == nil {
 				aside = []store.SetAside{}
+			}
+			unserved := store.UnservedRoutes(rs, listDepot, operator, byName)
+			if unserved == nil {
+				unserved = []store.UnservedRoute{}
 			}
 			marked := make([]markedRoute, 0, len(eff))
 			for _, r := range eff {
@@ -1063,13 +1129,14 @@ the defaults it sets aside named underneath.`,
 				}
 				marked = append(marked, markedRoute{Route: r, Effective: mark})
 			}
-			return a.out(c.OutOrStdout(), map[string]any{"routes": marked, "set_aside": aside}, func(w io.Writer) {
+			return a.out(c.OutOrStdout(), map[string]any{"routes": marked, "set_aside": aside, "unserved": unserved}, func(w io.Writer) {
 				rows := make([][]string, 0, len(marked))
 				for _, m := range marked {
 					rows = append(rows, routeRow(m.Route, m.Effective, operator))
 				}
 				table(w, "ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tGROUP\tNOTE", rows)
 				saySetAside(w, listDepot, aside, operator)
+				sayUnserved(w, listDepot, unserved)
 			})
 		},
 	}
@@ -1168,8 +1235,9 @@ func routeRow(r store.Route, mark, operator string) []string {
 		or(r.BeadPriorities(), "-"), or(orig, "-"), r.GroupList(), store.OneLine(r.Note)}
 }
 
-// markedRoute is a route of route list --depot as --json carries it: the
-// route as stored, plus whether it is the depot's own or a yard default.
+// markedRoute is a route from route list --depot's effective set, plus
+// whether it is the depot's own or a yard default. A templated default's
+// groups are resolved for the depot.
 type markedRoute struct {
 	store.Route
 	Effective string `json:"effective"`
@@ -1230,6 +1298,26 @@ func saySetAside(w io.Writer, depot string, aside []store.SetAside, operator str
 		for _, s := range aside {
 			fmt.Fprintln(w, setAsideLine(s, operator))
 		}
+	}
+}
+
+// unservedLine is a default that does not serve depot for a missing group,
+// as route list --depot and route explain name it: the default with its
+// template, and the resolved groups that are not there.
+func unservedLine(u store.UnservedRoute, depot string) string {
+	reason := "no group " + u.Missing[0]
+	if len(u.Missing) > 1 {
+		reason = "no groups " + strings.Join(u.Missing, ", ")
+	}
+	return fmt.Sprintf("default %s (%s -> %s) does not serve %s: %s",
+		u.Route.ID, u.Route.Stage, u.Route.GroupList(), depot, reason)
+}
+
+// sayUnserved names the defaults that do not serve depot for a missing
+// group, underneath route list --depot: nothing where all serve.
+func sayUnserved(w io.Writer, depot string, unserved []store.UnservedRoute) {
+	for _, u := range unserved {
+		fmt.Fprintln(w, unservedLine(u, depot))
 	}
 }
 

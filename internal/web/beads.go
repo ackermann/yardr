@@ -268,6 +268,10 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 	if err != nil {
 		return nil, err
 	}
+	byName := make(map[string]store.Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
 	sessions, err := s.st.Sessions(ctx, false)
 	if err != nil {
 		return nil, err
@@ -305,7 +309,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 				// for the default type, as `yardr flow show` does. The
 				// probe names no originator, so it reads as the operator's.
 				probe := store.Bead{Stage: st, Type: cmp.Or(rf.Type, "task"), Depot: &depot.Name, Priority: store.DefaultPriority}
-				if r := store.MatchRoute(routes, probe, operator); r != nil {
+				if r := store.MatchRoute(routes, probe, operator, byName); r != nil {
 					fs.Group, fs.Else = r.Worker(), r.Further()
 					if i := slices.IndexFunc(groups, func(g store.Group) bool { return g.Name == fs.Group }); i >= 0 && groups[i].Runner == "manual" {
 						fs.Human, fs.Members = true, groups[i].Members

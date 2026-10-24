@@ -89,7 +89,7 @@ func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
 		{1, []string{hard, "size:large"}, urgent},
 	} {
 		b := store.Bead{Stage: "new", Type: "task", Labels: tc.labels, Priority: tc.priority}
-		if got := store.MatchRoute(routes, b, ""); got == nil || got.ID != tc.want.ID {
+		if got := store.MatchRoute(routes, b, "", nil); got == nil || got.ID != tc.want.ID {
 			t.Errorf("a P%d bead with labels %v took %+v, want the route to %s (%s)", tc.priority, tc.labels, got, tc.want.Group, tc.want.ID)
 		}
 	}
@@ -121,7 +121,7 @@ func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
 			t.Fatal(err)
 		}
 		part := store.Bead{ID: over.Bead, Stage: over.Stage, Type: over.Type, Depot: over.Depot, Labels: over.Labels, Priority: over.Priority, Originator: over.Originator}
-		a, b := store.MatchRoute(routes, part, ""), store.MatchRoute(routes, *whole, "")
+		a, b := store.MatchRoute(routes, part, "", nil), store.MatchRoute(routes, *whole, "", nil)
 		if a == nil || b == nil || a.ID != b.ID || a.ID != want[whole.Title] {
 			t.Errorf("bead %s (P%d): as a ready bead it takes %+v, whole %+v, want %s", whole.Title, whole.Priority, a, b, want[whole.Title])
 		}

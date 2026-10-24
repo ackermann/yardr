@@ -177,11 +177,51 @@ func TestRouteListDepotShowsEffectiveRoutes(t *testing.T) {
 		!strings.Contains(err.Error(), "depot ghost: not found") {
 		t.Errorf("route list --depot ghost: %v, want it to fail as depot show does", err)
 	}
+
+	// A templated default resolves in the table where its group exists, and
+	// is named underneath where it does not serve the depot.
+	for _, g := range []store.Group{
+		{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "other-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tmpl := add("--stage", "approved", "--group", "{depot}-assembly")
+	out, err = run(t, a.routeCmd(), "list", "--depot", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, tmpl) || !strings.Contains(out, "web-assembly") {
+		t.Errorf("route list --depot web lacks the templated default resolved:\n%s", out)
+	}
+	if strings.Contains(out, "does not serve") {
+		t.Errorf("route list --depot web names an unserved default, want none:\n%s", out)
+	}
+	out, err = run(t, a.routeCmd(), "list", "--depot", "third")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "default " + tmpl + " (approved -> {depot}-assembly) does not serve third: no group third-assembly"; !strings.Contains(out, want) {
+		t.Errorf("route list --depot third lacks %q:\n%s", want, out)
+	}
+	var thirdTable []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "does not serve") {
+			break
+		}
+		thirdTable = append(thirdTable, line)
+	}
+	if strings.Contains(strings.Join(thirdTable, "\n"), tmpl) {
+		t.Errorf("route list --depot third tables the default it does not serve:\n%s", out)
+	}
 }
 
 // route list --depot --json carries each route as stored plus whether
-// it is the depot's own or a yard default, and the set-aside defaults
-// with the own route that sets each aside.
+// it is the depot's own or a yard default, the set-aside defaults with
+// the own route that sets each aside, and the defaults that do not serve
+// the depot with the groups they miss.
 func TestRouteListDepotJson(t *testing.T) {
 	t.Parallel()
 	a, st, _ := quotaCLI(t)
@@ -213,6 +253,7 @@ func TestRouteListDepotJson(t *testing.T) {
 			Route store.Route `json:"route"`
 			Own   store.Route `json:"own"`
 		} `json:"set_aside"`
+		Unserved []store.UnservedRoute `json:"unserved"`
 	}
 	if err := json.Unmarshal([]byte(out), &listed); err != nil {
 		t.Fatalf("route list --depot web --json = %s, %v", out, err)
@@ -223,6 +264,9 @@ func TestRouteListDepotJson(t *testing.T) {
 	}
 	if len(listed.SetAside) != 1 || listed.SetAside[0].Route.ID != def || listed.SetAside[0].Own.ID != own {
 		t.Errorf("set_aside = %+v, want the default %s set by %s", listed.SetAside, def, own)
+	}
+	if len(listed.Unserved) != 0 {
+		t.Errorf("unserved = %+v, want none", listed.Unserved)
 	}
 }
 

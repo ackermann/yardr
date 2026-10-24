@@ -110,7 +110,7 @@ func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := store.MatchRoute(routes, *b, "me"); w == nil || w.ID != reserve.ID {
+	if w := store.MatchRoute(routes, *b, "me", nil); w == nil || w.ID != reserve.ID {
 		t.Errorf("MatchRoute took %+v, want the explained winner %s", w, reserve.ID)
 	}
 }
@@ -252,6 +252,45 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 	if !strings.Contains(out, "  1. "+def.ID+"  default  new  -> a  WINNER\n") ||
 		!strings.Contains(out, "defaults set aside in other for this stage: none\n") {
 		t.Errorf("route explain %s does not keep the default:\n%s", there.ID, out)
+	}
+}
+
+// A templated default resolves in the winner's line where its group exists,
+// and is named with the reason where it does not serve the bead's depot.
+func TestRouteExplainNamesUnservedDefault(t *testing.T) {
+	t.Parallel()
+	a, st, ctx := explainYard(t)
+	if err := st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	def, err := st.AddRoute(ctx, store.Route{Stage: "approved", Group: "{depot}-assembly"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	here, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "approved", Priority: store.DefaultPriority}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, a.routeCmd(), "explain", here.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "  1. "+def.ID+"  default  approved  -> web-assembly  WINNER\n") {
+		t.Errorf("route explain %s does not resolve the winner:\n%s", here.ID, out)
+	}
+	if strings.Contains(out, "does not serve") {
+		t.Errorf("route explain %s names an unserved default, want none:\n%s", here.ID, out)
+	}
+	away, err := st.CreateBead(ctx, store.NewBead{Title: "y", Depot: "other", Stage: "approved", Priority: store.DefaultPriority}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.routeCmd(), "explain", away.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "default " + def.ID + " (approved -> {depot}-assembly) does not serve other: no group other-assembly"; !strings.Contains(out, want) {
+		t.Errorf("route explain %s lacks %q:\n%s", away.ID, want, out)
 	}
 }
 
@@ -638,7 +677,7 @@ func TestRouteExplainJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, b := range []*store.Bead{here, there} {
-		w := store.MatchRoute(routes, *b, "me")
+		w := store.MatchRoute(routes, *b, "me", nil)
 		if w == nil {
 			t.Fatalf("MatchRoute matches nothing for %s", b.ID)
 		}

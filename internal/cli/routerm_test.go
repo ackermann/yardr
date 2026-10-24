@@ -161,3 +161,54 @@ func TestRmRefusesWhatIsNotThere(t *testing.T) {
 		t.Fatalf("the second group rm = %v, want not found", err)
 	}
 }
+
+// Deleting a group a templated default resolves to leaves the default and
+// stops it serving that depot; group rm says so, and the depot's list names
+// the default as unserved.
+func TestGroupRmNamesStoppedTemplatedDefault(t *testing.T) {
+	t.Parallel()
+	a, st, _ := quotaCLI(t)
+	ctx := context.Background()
+	for _, depot := range []string{"web", "other"} {
+		if err := st.PutDepot(ctx, store.Depot{Name: depot}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, g := range []store.Group{
+		{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+		{Name: "other-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
+	} {
+		if err := st.PutGroup(ctx, g, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, err := run(t, a.routeCmd(), "add", "--stage", "approved", "--group", "{depot}-assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id = strings.TrimSpace(id)
+	out, err := run(t, a.groupCmd(), "rm", "web-assembly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "default " + id + " (approved -> {depot}-assembly) no longer serves web: no group web-assembly"; !strings.Contains(out, want) {
+		t.Errorf("group rm web-assembly lacks %q:\n%s", want, out)
+	}
+	if routes, err := st.Routes(ctx); err != nil || len(routes) != 1 || routes[0].ID != id {
+		t.Fatalf("routes after group rm = %+v, %v; want the templated default left", routes, err)
+	}
+	out, err = run(t, a.routeCmd(), "list", "--depot", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "default " + id + " (approved -> {depot}-assembly) does not serve web: no group web-assembly"; !strings.Contains(out, want) {
+		t.Errorf("route list --depot web lacks %q:\n%s", want, out)
+	}
+	out, err = run(t, a.routeCmd(), "list", "--depot", "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "does not serve") || !strings.Contains(out, "other-assembly") {
+		t.Errorf("route list --depot other lost its resolved default:\n%s", out)
+	}
+}
