@@ -62,9 +62,9 @@ func newContributorsYard(t *testing.T) *ghDepot {
 	depot := "yard"
 	_, err = r.api.AddRoute(ctx, store.Route{Stage: "ciwait", Type: &pr, Originator: &everyone, Group: "pr-ci"}, "me")
 	must(t, err)
-	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Type: &pr, Label: &merge, Originator: &everyone, Priority: 12, Group: "pr-merges"}, "me")
+	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Type: &pr, Label: &merge, Originator: &everyone, Group: "pr-merges"}, "me")
 	must(t, err)
-	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Type: &pr, Depot: &depot, Originator: &everyone, Priority: 11, Group: "decisions"}, "me")
+	_, err = r.api.AddRoute(ctx, store.Route{Stage: "approved", Type: &pr, Depot: &depot, Originator: &everyone, Group: "decisions"}, "me")
 	must(t, err)
 	r.d.DepotRepo = func(_ context.Context, q dispatch.DepotRepoQuery) (string, error) {
 		if q.Depot.Name == "yard" {

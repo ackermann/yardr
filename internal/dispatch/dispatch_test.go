@@ -455,17 +455,17 @@ func TestRunWakesOnChange(t *testing.T) {
 
 func TestMatchOrder(t *testing.T) {
 	t.Parallel()
-	bug, web := "bug", "web"
+	bug, web, p0 := "bug", "web", 0
 	rs := []store.Route{
 		{ID: "a", Stage: "new", Group: "any"},
 		{ID: "b", Stage: "new", Type: &bug, Group: "bugs"},
 		{ID: "c", Stage: "new", Type: &bug, Depot: &web, Group: "webbugs"},
-		{ID: "d", Stage: "new", Group: "urgent", Priority: 9},
+		{ID: "d", Stage: "new", BeadPriority: &p0, Group: "urgent"},
 	}
 	dispatch.SortRoutes(rs)
 	b := store.Bead{Stage: "new", Type: "bug", Depot: &web}
 	if r := dispatch.Match(rs, b, ""); r.Group != "urgent" {
-		t.Fatalf("priority should win, got %s", r.Group)
+		t.Fatalf("urgency should win, got %s", r.Group)
 	}
 	rs = rs[1:] // drop urgent (sorted first)
 	if r := dispatch.Match(rs, b, ""); r.Group != "webbugs" {
@@ -1108,7 +1108,7 @@ func TestRouteByBeadPriorityAndLabels(t *testing.T) {
 		{Stage: "new", Group: "general"},
 		{Stage: "new", Group: "general", Label: &hard},
 		{Stage: "new", Group: "heavy", Label: &hard, AndLabels: []string{"size:large"}},
-		{Stage: "new", Group: "reserve", BeadPriority: &one, Priority: 5},
+		{Stage: "new", Group: "reserve", BeadPriority: &one},
 	} {
 		_, err := s.AddRoute(ctx, r, "me")
 		must(t, err)

@@ -254,7 +254,6 @@ type RouteOp struct {
 	Type       string   `json:"type,omitempty"`
 	Group      string   `json:"group"`
 	Originator string   `json:"originator,omitempty"`
-	Priority   int      `json:"priority"`
 	Delete     []string `json:"delete,omitempty"`
 }
 

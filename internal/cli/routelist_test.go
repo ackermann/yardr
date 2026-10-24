@@ -11,7 +11,7 @@ import (
 
 // route add takes --note, and route list prints the scope and the note:
 // the SCOPE column names the depot's own routes and the yard defaults,
-// and the NOTE column carries what the priority and the chain cannot,
+// and the NOTE column carries what the filters and the chain cannot,
 // in words and in --json.
 func TestRouteAddTakesNoteAndListPrintsScopeAndNote(t *testing.T) {
 	t.Parallel()
@@ -20,12 +20,20 @@ func TestRouteAddTakesNoteAndListPrintsScopeAndNote(t *testing.T) {
 	if err := st.PutDepot(ctx, store.Depot{Name: "web"}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	_, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "spare", "--priority", "5")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --priority") {
+		t.Fatalf("route add --priority: %v, want an unknown flag", err)
+	}
 	def, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a",
 		"--note", "the plain line: whatever the week says")
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, err := run(t, a.routeCmd(), "add", "--stage", "new", "--depot", "web", "--group", "b", "--priority", "2")
+	_, err = run(t, a.routeCmd(), "add", "--stage", "new", "--group", "a", "--note", "standby")
+	if err == nil || !strings.Contains(err.Error(), "route "+strings.TrimSpace(def)+" already takes these beads as a yard default") {
+		t.Fatalf("a second route with the standing route's key: %v, want it refused naming %s", err, strings.TrimSpace(def))
+	}
+	own, err := run(t, a.routeCmd(), "add", "--stage", "new", "--depot", "web", "--group", "b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,9 +58,9 @@ func TestRouteAddTakesNoteAndListPrintsScopeAndNote(t *testing.T) {
 		rows = append(rows, strings.Join(strings.Fields(line), " "))
 	}
 	want := []string{
-		"ID SCOPE STAGE TYPE LABEL BEADS ORIGINATOR PRI GROUP NOTE",
-		own + " web new - - - - 2 b",
-		def + " default new - - - - 0 a the plain line: whatever the week says",
+		"ID SCOPE STAGE TYPE LABEL BEADS ORIGINATOR GROUP NOTE",
+		own + " web new - - - - b",
+		def + " default new - - - - a the plain line: whatever the week says",
 	}
 	if strings.Join(rows, "\n") != strings.Join(want, "\n") {
 		t.Errorf("route list =\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
@@ -102,8 +110,8 @@ func TestRouteListDepotShowsEffectiveRoutes(t *testing.T) {
 	plain := add("--stage", "new", "--group", "a")
 	typed := add("--stage", "new", "--type", "bug", "--group", "a")
 	review := add("--stage", "review", "--group", "people")
-	ownPlain := add("--stage", "new", "--depot", "web", "--group", "b", "--priority", "2")
-	ownTyped := add("--stage", "new", "--type", "bug", "--depot", "web", "--group", "b", "--priority", "1")
+	ownPlain := add("--stage", "new", "--depot", "web", "--group", "b")
+	ownTyped := add("--stage", "new", "--type", "bug", "--depot", "web", "--group", "b")
 
 	out, err := run(t, a.routeCmd(), "list", "--depot", "web")
 	if err != nil {
@@ -114,16 +122,17 @@ func TestRouteListDepotShowsEffectiveRoutes(t *testing.T) {
 	for _, line := range lines {
 		rows = append(rows, strings.Join(strings.Fields(line), " "))
 	}
-	// In match order: the own routes by priority, then the review
-	// default; the new defaults are set aside below the table.
+	// In match order: the typed own route before the plain one, which
+	// asks less of the rest, then the review default; the new defaults
+	// are set aside below the table.
 	want := []string{
-		"ID OWN/DEFAULT STAGE TYPE LABEL BEADS ORIGINATOR PRI GROUP NOTE",
-		ownPlain + " own new - - - me 2 b",
-		ownTyped + " own new bug - - me 1 b",
-		review + " default review - - - any 0 people",
+		"ID OWN/DEFAULT STAGE TYPE LABEL BEADS ORIGINATOR GROUP NOTE",
+		ownTyped + " own new bug - - me b",
+		ownPlain + " own new - - - me b",
+		review + " default review - - - any people",
 		"2 defaults set aside in web:",
-		"new (type bug, no label, the operator's beads) is stated by " + ownTyped + " to b at priority 1",
-		"new (no label, the operator's beads) is stated by " + ownPlain + " to b at priority 2",
+		"new (type bug, no label, the operator's beads) is stated by " + ownTyped + " to b",
+		"new (no label, the operator's beads) is stated by " + ownPlain + " to b",
 	}
 	if strings.Join(rows, "\n") != strings.Join(want, "\n") {
 		t.Errorf("route list --depot web =\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
@@ -139,7 +148,7 @@ func TestRouteListDepotShowsEffectiveRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "1 default set aside in other: new (no label, the operator's beads) is stated by " + solo + " to b at priority 0"; !strings.Contains(out, want) {
+	if want := "1 default set aside in other: new (no label, the operator's beads) is stated by " + solo + " to b"; !strings.Contains(out, want) {
 		t.Errorf("route list --depot other lacks %q:\n%s", want, out)
 	}
 	var table []string

@@ -548,19 +548,21 @@ var errBrokenTest = errors.New("unexpected end of JSON input")
 func TestTopicLabelsRouteExactly(t *testing.T) {
 	t.Parallel()
 	bead := Bead{ID: "yard-1", Stage: "review", Type: "task", Labels: []string{"topic:linear-out", "muse"}}
-	plain := Route{ID: "b", Stage: "review", Group: "reviewers", Priority: 1}
+	// Both ask for one label by name, so the id ranks them: the plain
+	// route first.
+	plain := Route{ID: "a", Stage: "review", Group: "reviewers"}
 	label := "muse"
 	plain.Label = &label
-	topic := Route{ID: "a", Stage: "review", Group: "linear", Priority: 0}
+	topic := Route{ID: "b", Stage: "review", Group: "linear"}
 	topicLabel := "topic:linear-out"
 	topic.Label = &topicLabel
 	routes := []Route{topic, plain}
 	SortRoutes(routes)
-	if got := MatchRoute(routes, bead, ""); got == nil || got.ID != "b" {
+	if got := MatchRoute(routes, bead, ""); got == nil || got.ID != "a" {
 		t.Fatalf("the plain label route lost to the topic one: %+v", got)
 	}
 	bead.Labels = []string{"topic:linear-out"}
-	if got := MatchRoute(routes, bead, ""); got == nil || got.ID != "a" {
+	if got := MatchRoute(routes, bead, ""); got == nil || got.ID != "b" {
 		t.Fatalf("the topic route matches only its own label: %+v", got)
 	}
 	bead.Labels = []string{"topic:muse"}

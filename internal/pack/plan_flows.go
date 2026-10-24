@@ -337,10 +337,11 @@ func (b *planner) routes(flows []Flow) error {
 			}
 			var changes []Diff
 			if len(old) > 0 {
-				// The priority is the yard's: the pack carries none.
-				op.Priority = old[0].Priority
-				if old[0].Group != op.Group {
-					changes = append(changes, Diff{"group", old[0].Group, op.Group})
+				// The first route to another group, whichever ranks first:
+				// two routes of the stage that ask as much are ranked by
+				// id, which says nothing of which one the pack replaces.
+				if i := slices.IndexFunc(old, func(r store.Route) bool { return r.Group != op.Group }); i >= 0 {
+					changes = append(changes, Diff{"group", old[i].Group, op.Group})
 				}
 				if len(old) > 1 {
 					changes = append(changes, Diff{"routes", fmt.Sprintf("%d for this stage", len(old)), "1"})
@@ -389,7 +390,7 @@ func (b *planner) routes(flows []Flow) error {
 			name += " originator " + *r.Originator
 		}
 		b.add(Object{Kind: "route", Name: name + " -> " + r.GroupList(), Action: NotInPack,
-			Route: &RouteOp{Stage: r.Stage, Depot: depot, Type: deref(r.Type), Group: r.Worker(), Priority: r.Priority}})
+			Route: &RouteOp{Stage: r.Stage, Depot: depot, Type: deref(r.Type), Group: r.Worker()}})
 	}
 	return nil
 }

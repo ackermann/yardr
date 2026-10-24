@@ -32,6 +32,12 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 35 has routes without a priority: they are ranked by a named
+// order of what they ask of a bead (migrateRoutePriority), and of two of one
+// scope and key from before the add refused them, the one that never won is
+// removed. A build before it never touches the rewritten routes:
+// checkSchema refuses a store newer than the build knows before any
+// migration or bucket write.
 // schemaVersion 34 has every notification of a user who is not the operator
 // remade from what its person is told of the event again
 // (migrateNotificationsHeld): rows written before the hold of old approval
@@ -212,7 +218,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 34
+const schemaVersion = 35
 
 var kSchema = []byte("schema")
 
@@ -369,6 +375,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 31, run: atVersion(migrateNotificationsTold)},
 		{version: 33, run: atVersion(migrateNotificationsTakebackHeld)},
 		{version: 34, run: atVersion(migrateNotificationsHeld)},
+		{version: 35, run: atVersion(migrateRoutePriority)},
 	}
 }
 

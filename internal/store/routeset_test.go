@@ -3,7 +3,6 @@ package store_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -41,22 +40,20 @@ func routeSetEvent(t *testing.T, s store.API, ctx context.Context) store.Event {
 }
 
 // route set changes where a route's beads go — the first group with its
-// condition, the further groups, the priority and the note — and keeps
+// condition, the further groups and the note — and keeps
 // which beads they are and the route's id, logging route_set with the
 // route as it was and as it is.
 func TestSetRouteRetunesWhereBeadsGoAndKeepsTheRest(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	typ, label := "task", "difficulty:3"
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Type: &typ, Depot: routePtr("web"),
-		Label: &label, Group: "builders", Else: []store.RouteGroup{{Name: "spare"}}, Priority: 1})
+		Label: &label, Group: "builders", Else: []store.RouteGroup{{Name: "spare"}}})
 
-	note := "P0/P1 reserve: strong group whatever the week says"
-	priority := 5
+	note := "hard work: strong group whatever the week says"
 	ch, err := s.SetRoute(ctx, saved.ID, store.RouteEdit{
-		Group:    &store.RouteGroup{Name: "spare", When: "Weekly<target+10"},
-		Else:     &[]store.RouteGroup{{Name: "builders"}},
-		Priority: &priority,
-		Note:     &note,
+		Group: &store.RouteGroup{Name: "spare", When: "Weekly<target+10"},
+		Else:  &[]store.RouteGroup{{Name: "builders"}},
+		Note:  &note,
 	}, "jo")
 	if err != nil {
 		t.Fatal(err)
@@ -64,11 +61,11 @@ func TestSetRouteRetunesWhereBeadsGoAndKeepsTheRest(t *testing.T) {
 	if ch.Is.ID != saved.ID {
 		t.Errorf("the set route's id = %s, want it kept as %s", ch.Is.ID, saved.ID)
 	}
-	if ch.Was.GroupList() != "builders else spare" || ch.Was.Priority != 1 || ch.Was.Note != "" {
-		t.Errorf("the route as it was = %+v, want builders else spare at priority 1 with no note", ch.Was)
+	if ch.Was.GroupList() != "builders else spare" || ch.Was.Note != "" {
+		t.Errorf("the route as it was = %+v, want builders else spare with no note", ch.Was)
 	}
-	if ch.Is.GroupList() != "spare@Weekly<target+10 else builders" || ch.Is.Priority != 5 || ch.Is.Note != note {
-		t.Errorf("the route as it is = %+v, want the new chain at priority 5 with the note", ch.Is)
+	if ch.Is.GroupList() != "spare@Weekly<target+10 else builders" || ch.Is.Note != note {
+		t.Errorf("the route as it is = %+v, want the new chain with the note", ch.Is)
 	}
 	for _, r := range []store.Route{ch.Was, ch.Is} {
 		if r.Stage != "new" || r.Type == nil || *r.Type != typ || r.Depot == nil || *r.Depot != "web" ||
@@ -83,7 +80,7 @@ func TestSetRouteRetunesWhereBeadsGoAndKeepsTheRest(t *testing.T) {
 	was, _ := e.Data["was"].(map[string]any)
 	is, _ := e.Data["is"].(map[string]any)
 	if was["group"] != "builders" || is["group"] != "spare" || is["note"] != note ||
-		fmt.Sprint(was["priority"]) != "1" || fmt.Sprint(is["priority"]) != "5" || is["depot"] != "web" {
+		was["priority"] != nil || is["priority"] != nil || is["depot"] != "web" {
 		t.Errorf("route_set = %+v, want the route as it was and as it is", e.Data)
 	}
 }
@@ -93,16 +90,14 @@ func TestSetRouteRetunesWhereBeadsGoAndKeepsTheRest(t *testing.T) {
 func TestSetRouteThatChangesNothingWritesNothing(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	note := "the line's own"
-	priority := 2
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"),
-		Group: "builders", Else: []store.RouteGroup{{Name: "spare"}}, Priority: priority, Note: note})
+		Group: "builders", Else: []store.RouteGroup{{Name: "spare"}}, Note: note})
 	else_ := []store.RouteGroup{{Name: "spare"}}
 
 	ch, err := s.SetRoute(ctx, saved.ID, store.RouteEdit{
-		Group:    &store.RouteGroup{Name: "builders"},
-		Else:     &else_,
-		Priority: &priority,
-		Note:     &note,
+		Group: &store.RouteGroup{Name: "builders"},
+		Else:  &else_,
+		Note:  &note,
 	}, "jo")
 	if err != nil {
 		t.Fatal(err)
@@ -115,59 +110,6 @@ func TestSetRouteThatChangesNothingWritesNothing(t *testing.T) {
 	}
 	if evs, err := s.EventsOfKind(ctx, "route_set", 50); err != nil || len(evs) != 0 {
 		t.Errorf("a set that changes nothing logged route_set: %+v, %v", evs, err)
-	}
-}
-
-// A set that would tie a route of the same scope already standing is
-// refused as an add is: the same check, naming the standing route, with
-// the guidance for a set — the priority alone, since a set never changes
-// the filters — and the retry as this set.
-func TestSetRouteRefusesATieAsAnAddDoes(t *testing.T) {
-	s, ctx := defaultsYard(t)
-	low := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
-	high := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "spare", Priority: 1})
-	zero := 0
-	if _, err := s.SetRoute(ctx, high.ID, store.RouteEdit{Priority: &zero}, "jo"); err == nil ||
-		!strings.Contains(err.Error(), "route "+low.ID+" already takes these beads as a yard default at priority 0") ||
-		!strings.Contains(err.Error(), "Change the route's priority") ||
-		strings.Contains(err.Error(), "filters") ||
-		!strings.Contains(err.Error(), "before retrying this set") {
-		t.Errorf("a set into a default's tie: %v", err)
-	}
-	ownLow := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
-	ownHigh := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "spare", Priority: 1})
-	if _, err := s.SetRoute(ctx, ownHigh.ID, store.RouteEdit{Priority: &zero}, "jo"); err == nil ||
-		!strings.Contains(err.Error(), "route "+ownLow.ID+" already takes these beads in depot web at priority 0") {
-		t.Errorf("a set into an own route's tie: %v", err)
-	}
-	same := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "builders"})
-	if _, err := s.SetRoute(ctx, same.ID, store.RouteEdit{Group: &store.RouteGroup{Name: "spare"}}, "jo"); err != nil {
-		t.Fatal(err)
-	}
-	// Now the same key, priority and chain as a standing route, reached
-	// by moving the priority: the same route, with and without its note.
-	twin := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "spare", Priority: 1})
-	if _, err := s.SetRoute(ctx, twin.ID, store.RouteEdit{Priority: &zero}, "jo"); err == nil ||
-		!strings.Contains(err.Error(), "the same route; no set is needed") {
-		t.Errorf("a set into the same route: %v", err)
-	}
-	other := "another line's"
-	noted := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "spare", Priority: 2, Note: other})
-	if _, err := s.SetRoute(ctx, noted.ID, store.RouteEdit{Priority: &zero}, "jo"); err == nil ||
-		!strings.Contains(err.Error(), "the same route's note differs") ||
-		!strings.Contains(err.Error(), "then retry this set") {
-		t.Errorf("a set into the same route's note: %v", err)
-	}
-	for _, id := range []string{high.ID, ownHigh.ID, twin.ID, noted.ID} {
-		routes, err := s.Routes(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, r := range routes {
-			if r.ID == id && r.Priority == 0 {
-				t.Errorf("a refused set moved route %s to priority 0: %+v", id, r)
-			}
-		}
 	}
 }
 
@@ -230,26 +172,24 @@ func TestSetRouteOnAnUnknownRoute(t *testing.T) {
 }
 
 // SetAsideRoutes names, for a depot, every yard default an own route
-// sets aside there with the own route that states its key: the
-// highest-ranked where several own routes state it. A depot that states
-// nothing sets nothing aside, and any other key leaves the default in
-// place.
+// sets aside there with the own route that states its key. A depot that
+// states nothing sets nothing aside, and any other key leaves the default
+// in place.
 func TestSetAsideRoutesNamesTheOwnRouteThatSetsEachAside(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	hard := "difficulty:3"
 	plain := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
-	labelled := mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Priority: 3, Group: "hard-builders"})
+	labelled := mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Group: "hard-builders"})
 	own := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "spare"})
-	shadow := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Priority: 1})
 
 	routes, err := s.Routes(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	aside := store.SetAsideRoutes(routes, "web", "jo")
-	if len(aside) != 1 || aside[0].Route.ID != plain.ID || aside[0].Own.ID != shadow.ID {
-		t.Errorf("web sets aside %+v, want the plain default %s set by the higher own route %s (not %s)",
-			aside, plain.ID, shadow.ID, own.ID)
+	if len(aside) != 1 || aside[0].Route.ID != plain.ID || aside[0].Own.ID != own.ID {
+		t.Errorf("web sets aside %+v, want the plain default %s set by the own route %s",
+			aside, plain.ID, own.ID)
 	}
 	for _, a := range aside {
 		if a.Route.ID == labelled.ID {

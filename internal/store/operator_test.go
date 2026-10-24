@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -287,14 +288,14 @@ func TestRouteRemoveIsTheOperatorsAndYardmasters(t *testing.T) {
 	if err := api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	// Each route stands at its own priority: they all take the same
-	// beads to the same group, which the tie refusal refuses at one
-	// priority, and removal is what is on trial here.
-	pri := 0
+	// Each route asks for a label of its own: two that take the same
+	// beads are refused as a tie, and removal is what is on trial here.
+	n := 0
 	add := func(group string) string {
 		t.Helper()
-		pri++
-		r, err := api.AddRoute(ctx, store.Route{Stage: "new", Group: group, Priority: pri}, "jo")
+		n++
+		label := fmt.Sprint("l", n)
+		r, err := api.AddRoute(ctx, store.Route{Stage: "new", Label: &label, Group: group}, "jo")
 		if err != nil {
 			t.Fatal(err)
 		}

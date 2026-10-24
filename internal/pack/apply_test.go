@@ -191,7 +191,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"ann"}}, "me"))
 	for stage, group := range map[string]string{"new": "web-builders", "approved": "web-assembly", "decide": "decisions"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 7}, "me")
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}, "me")
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -231,9 +231,6 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	stages := map[string]int{}
 	for _, r := range routes {
 		stages[r.Stage]++
-		if r.Type == nil && (r.Stage == "new" || r.Stage == "approved" || r.Stage == "decide") && r.Priority != 7 {
-			t.Errorf("route %s lost its priority: %+v", r.Stage, r)
-		}
 	}
 	if want := map[string]int{"backlog": 1, "new": 1, "review": 1, "review-security": 1, "clear": 1, "approved": 1, "decide": 1, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("routes per stage = %v, want %v", stages, want)

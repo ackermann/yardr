@@ -222,7 +222,7 @@ func TestStoreEstimateOriginatorRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	anyOriginator := OriginatorAny
-	if _, err := y.AddRoute(ctx, Route{Stage: "new", Group: "hal-builders", Originator: &anyOriginator, Priority: -1}, "jo"); err != nil {
+	if _, err := y.AddRoute(ctx, Route{Stage: "new", Group: "hal-builders", Originator: &anyOriginator}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// Ten passers claimed by hal-builders clock its cell, as the seeds

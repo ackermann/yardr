@@ -660,8 +660,7 @@ unchanged when it leads to the same group, else replaced. `yardr route
 add` mints a new id per call, so a replacement is an add and a delete of
 every route the depot had for the stage; two routes for one depot and
 stage never remain. A stage with no group clears the matching depot,
-stage and type routes, so its beads wait for a hand. The route's priority
-is kept when a stage has a group. Routes that ask something of the single
+stage and type routes, so its beads wait for a hand. Routes that ask something of the single
 bead (a label, a bead priority or a named originator), routes for stages
 the pack lacks, and a stage whose effective winner carries a quota
 condition or further groups, are left alone, of either scope, each listed
@@ -1887,7 +1886,7 @@ prune removes), under its kind:
 | `group` | the whole group as it would be stored, what the yard keeps included |
 | `flow` | the whole flow, its stages in order |
 | `pointer` | `depot`, `type`, `flow` |
-| `route` | `stage`, `depot`, `type`, `group`, `priority`, and `delete`: the ids of the routes it replaces |
+| `route` | `stage`, `depot`, `type`, `group`, and `delete`: the ids of the routes it replaces |
 | `crew` | `pack` (its name in the pack), `crew` (in the yard), `prompt`, `on`, and `restart` when it is running and the import changes its role or what it hears |
 | `subscription` | `crew`, `add`, and `remove` when a scope changes |
 | `map` | `hook`, `source`, `as`, `map`, `says` and `makes`: what the hook is set to. Only a map the import can set is an object; `maps` has every source |

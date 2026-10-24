@@ -643,7 +643,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/config` | the hub of the configuration pages: links to the six lists | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
-| `/routes` | the yard's routes in match order: each with its stage, filters, priority and group, or its groups in order with their quota conditions (`yardr route list`), live | `Routes` |
+| `/routes` | the yard's routes in match order: each with its stage, filters and group, or its groups in order with their quota conditions (`yardr route list`), live | `Routes` |
 | `/peers` | the yards this one is linked with: each with its URL, what the link carries and what waits for it (`yardr peer list`), live | `Peers` |
 | `/deps` | what waits on what: the edges with an open end, grouped by the blocked bead, each end with its title and stage, live | `Deps` |
 | `/deps?all=1` | the same page; its edges are every edge of the yard, the ones between closed beads too | `Deps` |

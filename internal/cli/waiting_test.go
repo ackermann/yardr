@@ -224,9 +224,10 @@ func TestReadyWaitingListsWhy(t *testing.T) {
 
 // ready --waiting names a ready bead behind a full group with the route
 // that matched it and the group's count and limit, after the dependency
-// holds; bead show says the same line of the bead. Tonight's case: the
-// bead matched an any-depot label route (priority 1) rather than its
-// depot's own (priority 0), and the label route's group was at its limit.
+// holds; bead show says the same line of the bead. The case: the bead
+// matched an any-depot estimate route rather than its depot's own plain
+// one, the estimate leg ranking it first, and the estimate route's group
+// was at its limit.
 func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
 	t.Parallel()
 	a, st, ran := quotaCLI(t)
@@ -246,7 +247,7 @@ func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
 	if _, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "muse-hosted"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	labeled, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &label, Group: "muse-builders", Priority: 1}, "me")
+	labeled, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &label, Group: "muse-builders"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +276,7 @@ func TestReadyWaitingNamesABeadBehindAFullGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "waits for muse-builders (1 of 1) by route " + labeled.ID + " (label difficulty:1, priority 1)"
+	want := "waits for muse-builders (1 of 1) by route " + labeled.ID + " (label difficulty:1)"
 	out, err := run(t, a.readyCmd(), "--waiting")
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +321,7 @@ func TestReadyWaitingNamesAPausedGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "waits for g (paused) by route " + r.ID + " (priority 0)"
+	want := "waits for g (paused) by route " + r.ID + ""
 	out, err := run(t, a.readyCmd(), "--waiting")
 	if err != nil {
 		t.Fatal(err)
@@ -368,7 +369,7 @@ func TestReadyWaitingShowsTheStoredQuotaInTheSameLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "waits for g (1 of 1) by route " + r.ID + " (priority 0); quota: g passed over (" + weeklyReason + ")"
+	want := "waits for g (1 of 1) by route " + r.ID + "; quota: g passed over (" + weeklyReason + ")"
 	out, err := run(t, a.readyCmd(), "--waiting")
 	if err != nil {
 		t.Fatal(err)

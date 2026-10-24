@@ -968,10 +968,10 @@ the table that the depot lacks are the ones
 | stage | group | runner |
 |---|---|---|
 | backlog | `backlog` | manual (the yardmaster adds children, then advances to open) |
-| open | none yet; `yardr-integrators` (route `--type train`, priority 10) | exec, limit 1, [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train) |
+| open | none yet; `yardr-integrators` (route `--type train`) | exec, limit 1, [`contrib/assembly/integrate-train`](../contrib/assembly/integrate-train) |
 | review | `yardr-reviewers` | as for any bead; the brief says it is a train and gives the range |
 | review-security | `yardr-security` | as for any bead; the second review reads the whole diff, every wagon, for security alone (there is no `done-safe` for a train) |
-| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`, priority 10): exec, limit 1, [`contrib/assembly/pr-train`](../contrib/assembly/pr-train) with `YARDR_PR=1` |
+| approved | `yardr-refinery` | merge-local, as for any bead; on the PR path `yardr-pr` (route `--type train`): exec, limit 1, [`contrib/assembly/pr-train`](../contrib/assembly/pr-train) with `YARDR_PR=1` |
 | in-pr | none yet; `decisions` (route `--type train`), PR path only | manual: the check "Is the PR merged?"; Done, or `yardr bead done <train>` by hand, means "merge it" (to `land`) |
 | land | none yet; `yardr-pr-merge` (route `--type train`), PR path only | exec, limit 1, [`contrib/assembly/pr-merge`](../contrib/assembly/pr-merge) with `YARDR_PR=1` |
 | merge | none yet; `mergers` | herdr, Claude Code, `prompt=roles/merger.md`, on branch `yard/<train>`; `done` goes back to `open`, where the integrator tests and pushes it again |

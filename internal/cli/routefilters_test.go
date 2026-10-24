@@ -36,7 +36,7 @@ func TestRouteAddTakesSeveralLabelsAndABeadPriority(t *testing.T) {
 		"plain":  {"--group", "a"},
 		"one":    {"--group", "a", "--label", "difficulty:3"},
 		"two":    {"--group", "b", "--label", "difficulty:3", "--label", "size:large"},
-		"urgent": {"--group", "people", "--bead-priority", "1", "--priority", "5"},
+		"urgent": {"--group", "people", "--bead-priority", "1"},
 	} {
 		// A command of its own each time, as each call of yardr is.
 		id, err := run(t, a.routeCmd(), append([]string{"add", "--stage", "new"}, args...)...)
@@ -79,23 +79,23 @@ func TestRouteAddTakesSeveralLabelsAndABeadPriority(t *testing.T) {
 		rows = append(rows, strings.Join(strings.Fields(line), " "))
 	}
 	want := []string{
-		"ID SCOPE STAGE TYPE LABEL BEADS ORIGINATOR PRI GROUP NOTE",
-		ids["urgent"] + " default new - - P0-P1 any 5 people",
-		ids["two"] + " default new - difficulty:3, size:large - - 0 b",
-		ids["one"] + " default new - difficulty:3 - - 0 a",
-		ids["plain"] + " default new - - - - 0 a",
+		"ID SCOPE STAGE TYPE LABEL BEADS ORIGINATOR GROUP NOTE",
+		ids["urgent"] + " default new - - P0-P1 any people",
+		ids["two"] + " default new - difficulty:3, size:large - - b",
+		ids["one"] + " default new - difficulty:3 - - a",
+		ids["plain"] + " default new - - - - a",
 	}
 	if strings.Join(rows, "\n") != strings.Join(want, "\n") {
 		t.Errorf("route list =\n%s\nwant\n%s", strings.Join(rows, "\n"), strings.Join(want, "\n"))
 	}
 	out, err = run(t, a.groupCmd(), "show", "b")
 	must(err)
-	if !strings.Contains(out, "route "+ids["two"]+": stage new · label difficulty:3, size:large · priority 0") {
+	if !strings.Contains(out, "route "+ids["two"]+": stage new · label difficulty:3, size:large") {
 		t.Errorf("group show b does not say the route's labels:\n%s", out)
 	}
 	out, err = run(t, a.groupCmd(), "show", "people")
 	must(err)
-	if !strings.Contains(out, "route "+ids["urgent"]+": stage new · beads P0-P1 · originator any · priority 5") {
+	if !strings.Contains(out, "route "+ids["urgent"]+": stage new · beads P0-P1 · originator any") {
 		t.Errorf("group show people does not say the route's bead priorities:\n%s", out)
 	}
 

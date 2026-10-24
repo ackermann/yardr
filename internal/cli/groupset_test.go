@@ -173,7 +173,7 @@ func TestGroupShow(t *testing.T) {
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--group", "agents", "--type", "bug")
 	out := mustAs(t, st, "jo", "group", "show", "agents")
 	for _, want := range []string{"agents  herdr · claude · opus · limit 2\n", "\n  api_token=(a value, not shown)\n  args=[\"--permission-mode\",\"auto\"]\n  kind=claude\n  model=opus\n",
-		": stage new · type bug · originator jo · priority "} {
+		": stage new · type bug · originator jo\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("group show has no %q:\n%s", want, out)
 		}

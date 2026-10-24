@@ -297,7 +297,7 @@ func TestPeerLandings(t *testing.T) {
 		t.Errorf("a flow whose peer outcomes all lead to agents or people: %+v", got)
 	}
 	// And a flow no peer works a stage of.
-	if got := store.PeerLandings(f, append([]store.Route{{ID: "0", Stage: "build", Group: "builders", Priority: 1}}, routes...), groups, "web", "", nil); len(got) != 0 {
+	if got := store.PeerLandings(f, append([]store.Route{{ID: "0", Stage: "build", Group: "builders"}}, routes...), groups, "web", "", nil); len(got) != 0 {
 		t.Errorf("a peer route nothing reaches: %+v", got)
 	}
 }
@@ -345,9 +345,6 @@ func TestPeerLandingsByRoute(t *testing.T) {
 		{"and so does a route for urgent beads", []store.Route{
 			{ID: "1", Stage: "build", BeadPriority: &urgent, Group: "builders"}, {ID: "2", Stage: "build", Group: "at-north"},
 			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, landing},
-		{"a route for any bead shadows a later one for urgent beads", []store.Route{
-			{ID: "1", Stage: "build", Group: "builders", Priority: 1}, {ID: "2", Stage: "build", BeadPriority: &urgent, Group: "at-north"},
-			{ID: "3", Stage: "approved", Group: "assembly"}}, "", nil, nil},
 		{"people look at the peer's urgent beads, the script may take its others", []store.Route{
 			{ID: "1", Stage: "build", Label: &remote, Group: "at-north"},
 			{ID: "3", Stage: "approved", BeadPriority: &urgent, Group: "humans"}, {ID: "4", Stage: "approved", Group: "assembly"}}, "", nil, landing},

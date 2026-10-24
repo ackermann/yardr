@@ -79,7 +79,7 @@ func TestTrainWaitsForItsChildren(t *testing.T) {
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	depot, train := "yard", store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators", Priority: 10}, "me")
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators"}, "me")
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Group: "builders"}, "me")
 	must(t, err)
@@ -146,7 +146,7 @@ func TestTrainConflictGoesToTheMergersAndBack(t *testing.T) {
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "mergers", Runner: "fake", Limit: 1}, "me"))
 	depot, train := "yard", store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators", Priority: 10}, "me")
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators"}, "me")
 	must(t, err)
 	_, err = s.AddRoute(ctx, store.Route{Stage: "merge", Group: "mergers"}, "me")
 	must(t, err)
@@ -197,7 +197,7 @@ func TestReturnToTheSameStageBacksOff(t *testing.T) {
 	must(t, s.SetFlowPointer(ctx, "yard", store.TypeTrain, "yard.train", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "yard-integrators", Runner: "fake", Limit: 1}, "me"))
 	depot, train := "yard", store.TypeTrain
-	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators", Priority: 10}, "me")
+	_, err = s.AddRoute(ctx, store.Route{Stage: "open", Type: &train, Depot: &depot, Group: "yard-integrators"}, "me")
 	must(t, err)
 	_, err = s.CreateBead(ctx, store.NewBead{ID: "yard-e", Title: "train", Type: store.TypeTrain, Depot: "yard", Stage: "open"}, "me")
 	must(t, err)

@@ -271,7 +271,6 @@ func (b *planner) gone(po store.PackObject) (*Object, error) {
 		for _, r := range routes {
 			if r.Stage == po.Stage && r.Depot != nil && *r.Depot == b.o.Depot && !r.ByBead() && deref(r.Type) == po.Type && !r.Quotaed() && r.Worker() == po.Group {
 				op.Delete = append(op.Delete, r.ID)
-				op.Priority = r.Priority
 			}
 		}
 		if len(op.Delete) == 0 {

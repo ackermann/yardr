@@ -53,23 +53,23 @@ func TestGroupsAndRoutesLogEvents(t *testing.T) {
 	}
 
 	typ, depot, label := "task", "yard", "urgent"
-	kept, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "people", Type: &typ, Depot: &depot, Label: &label, Priority: 2}, "jo")
+	kept, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "people", Type: &typ, Depot: &depot, Label: &label}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	e := last("route_added")
-	if e.Data["id"] != kept.ID || e.Data["stage"] != "new" || e.Data["group"] != "people" || e.Data["type"] != "task" || e.Data["depot"] != "yard" || e.Data["label"] != "urgent" || fmt.Sprint(e.Data["priority"]) != "2" {
+	if e.Data["id"] != kept.ID || e.Data["stage"] != "new" || e.Data["group"] != "people" || e.Data["type"] != "task" || e.Data["depot"] != "yard" || e.Data["label"] != "urgent" || e.Data["priority"] != nil {
 		t.Fatalf("route_added = %+v", e.Data)
 	}
 
-	gone, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "people", Type: &typ, Depot: &depot, Label: &label, Priority: 5}, "jo")
+	gone, err := s.AddRoute(ctx, store.Route{Stage: "review", Group: "people", Type: &typ, Depot: &depot, Label: &label}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.DeleteRoute(ctx, gone.ID, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if e := last("route_removed"); e.Data["id"] != gone.ID || e.Data["stage"] != "review" || e.Data["group"] != "people" || e.Data["type"] != "task" || e.Data["depot"] != "yard" || e.Data["label"] != "urgent" || fmt.Sprint(e.Data["priority"]) != "5" {
+	if e := last("route_removed"); e.Data["id"] != gone.ID || e.Data["stage"] != "review" || e.Data["group"] != "people" || e.Data["type"] != "task" || e.Data["depot"] != "yard" || e.Data["label"] != "urgent" || e.Data["priority"] != nil {
 		t.Fatalf("route_removed = %+v", e.Data)
 	}
 

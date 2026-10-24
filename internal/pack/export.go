@@ -388,9 +388,9 @@ func (e *exporter) routes() error {
 				partial = append(partial, takesSome)
 			}
 			// A filtered route only makes this stage partly routed when it
-			// precedes every route that matches the whole flow. A lower
-			// priority label or type route after a whole-flow route can never
-			// win MatchRoute, so it does not change what works the stage.
+			// precedes every route that matches the whole flow. A label or
+			// type route ranked after a whole-flow route can never win
+			// MatchRoute, so it does not change what works the stage.
 			some := false
 			for _, takesSome := range partial {
 				if !takesSome {

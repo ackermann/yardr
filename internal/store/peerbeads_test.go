@@ -310,7 +310,7 @@ func TestPeerArrive(t *testing.T) {
 
 	// Types routed apart: a bug to people, the rest to builders.
 	bug := "bug"
-	for _, r := range []store.Route{{Stage: "arrived", Type: &bug, Group: "anyone", Priority: 1}, {Stage: "arrived", Group: "builders"}} {
+	for _, r := range []store.Route{{Stage: "arrived", Type: &bug, Group: "anyone"}, {Stage: "arrived", Group: "builders"}} {
 		if _, err := y.api.AddRoute(y.ctx, r, "jo"); err != nil {
 			t.Fatal(err)
 		}

@@ -58,7 +58,7 @@ func TestRouteAddTakesOriginator(t *testing.T) {
 			row = strings.Join(strings.Fields(line), " ")
 		}
 	}
-	if want := id + " default new - - - hal 0 hal-builders"; row != want {
+	if want := id + " default new - - - hal hal-builders"; row != want {
 		t.Errorf("route list row = %q, want %q", row, want)
 	}
 	out, err = run(t, a.groupCmd(), "show", "hal-builders")
@@ -66,7 +66,7 @@ func TestRouteAddTakesOriginator(t *testing.T) {
 	if !strings.Contains(out, "login_for=hal") {
 		t.Errorf("group show does not print login_for:\n%s", out)
 	}
-	if !strings.Contains(out, "route "+id+": stage new · originator hal · priority 0") {
+	if !strings.Contains(out, "route "+id+": stage new · originator hal") {
 		t.Errorf("group show does not say the route's originator:\n%s", out)
 	}
 	// The flow's stage is who works the operator's beads: hal's route
@@ -142,7 +142,7 @@ func TestRouteWarnsOnPersonalGroupForOperatorBeads(t *testing.T) {
 		}
 	}
 	errs.Reset()
-	if _, err := routeErr(t, a, errs, "add", "--stage", "review", "--group", "ops", "--priority", "1"); err != nil {
+	if _, err := routeErr(t, a, errs, "add", "--stage", "review", "--type", "task", "--group", "ops"); err != nil {
 		t.Fatal(err)
 	}
 	if got := errs.String(); strings.Contains(got, "login_for=me") {

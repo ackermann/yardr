@@ -215,10 +215,11 @@ func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
 	if _, err := add("c"); err != nil {
 		t.Fatal(err)
 	}
-	// At another priority than the plain route to c: the two take the
-	// same beads, which the tie refusal now refuses at one priority,
-	// and the runner rule is what is on trial here.
-	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80", Priority: 1,
+	// For tasks alone beside the plain route to c: two routes that take
+	// the same beads are refused as a tie, and the runner rule is what is
+	// on trial here.
+	task := "task"
+	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Type: &task, Group: "a", When: "Weekly<80",
 		Else: []store.RouteGroup{{Name: "b"}}}, "jo")
 	if err != nil {
 		t.Fatal(err)

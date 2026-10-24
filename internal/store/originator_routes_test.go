@@ -101,7 +101,7 @@ func TestRouteMatchesOriginator(t *testing.T) {
 	}
 	// A general route of higher priority and greater specificity still
 	// takes none of another person's beads.
-	general, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders", Priority: 10, Label: str("difficulty:3")}, "jo")
+	general, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders", Label: str("difficulty:3")}, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

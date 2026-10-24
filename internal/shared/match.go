@@ -43,9 +43,8 @@ type Bead struct {
 
 // MatchesOriginator reports whether a route naming routeOriginator takes
 // beads for originator, whose subscription they build on. Any takes every
-// originator's; a route without one takes only the operator's, however
-// high its priority or specificity, so no general route swallows another
-// person's work. A bead without one reads as the operator's.
+// originator's; a route without one takes only the operator's, however it
+// ranks, so no general route swallows another person's work. A bead without one reads as the operator's.
 func MatchesOriginator(routeOriginator *string, originator, operator string) bool {
 	if originator == "" {
 		originator = operator
@@ -88,8 +87,8 @@ func Matches(r Route, b Bead, operator string) bool {
 // resolves it (unset is the operator, any is every originator, a name is
 // that user; a route that names the operator and one that names nobody
 // therefore state the same key while that user is operator). The depot
-// itself, the priority, the group chain and the note are left out: those
-// are what an override overrides.
+// itself, the group chain and the note are left out: those are what an
+// override overrides.
 type Key struct {
 	stage           string
 	typ             string

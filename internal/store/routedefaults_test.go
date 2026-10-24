@@ -72,7 +72,7 @@ func TestOwnRouteSetsDefaultAsideForItsDepotAlone(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	// The default has the higher priority, but an own route's key sets it
 	// aside regardless of the ranking each would have alone.
-	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers", Priority: 3})
+	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers"})
 	own := mustRoute(t, s, ctx, store.Route{Stage: "review", Depot: routePtr("web"), Group: "web-reviewers"})
 
 	routes, err := s.Routes(ctx)
@@ -113,7 +113,7 @@ func TestOwnRouteSetsDefaultAsideForItsDepotAlone(t *testing.T) {
 func TestOwnRouteWithAnotherKeyLeavesTheDefaults(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	hard := "difficulty:3"
-	def := mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Priority: 3, Group: "hard-builders"})
+	def := mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Group: "hard-builders"})
 	own := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
 
 	routes, err := s.Routes(ctx)
@@ -168,7 +168,7 @@ func TestPinnedFlowSharesTheRoute(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers"})
 	pinned := "pinned"
-	labelled := mustRoute(t, s, ctx, store.Route{Stage: "review", Depot: routePtr("web"), Label: &pinned, Priority: 5, Group: "web-reviewers"})
+	labelled := mustRoute(t, s, ctx, store.Route{Stage: "review", Depot: routePtr("web"), Label: &pinned, Group: "web-reviewers"})
 
 	plain := store.Bead{Stage: "review", Type: "task", Depot: routePtr("web"), Priority: store.DefaultPriority}
 	withPin := plain
@@ -186,24 +186,25 @@ func TestPinnedFlowSharesTheRoute(t *testing.T) {
 	}
 }
 
-// At one priority and as specific as each other, an own route is read
+// Asking as much on every leg before the scope, an own route is read
 // before a default, whatever their ids: the two state different keys, so
 // both stand in the depot's effective set and the scope leg places them.
+// The default's type and the own route's depot are one each of the rest.
 func TestOwnRouteRanksBeforeDefault(t *testing.T) {
-	hard := "difficulty:3"
+	bug := "bug"
 	routes := []store.Route{
-		{ID: "a-default", Stage: "new", Label: &hard, Group: "hard-builders"},
+		{ID: "a-default", Stage: "new", Type: &bug, Group: "bug-builders"},
 		{ID: "z-own", Stage: "new", Depot: routePtr("web"), Group: "builders"},
 	}
 	store.SortRoutes(routes)
 	if routes[0].ID != "z-own" {
 		t.Fatalf("sorted routes = %+v, want the own route first", routes)
 	}
-	bead := store.Bead{Stage: "new", Type: "task", Depot: routePtr("web"), Labels: []string{hard}, Priority: store.DefaultPriority}
+	bead := store.Bead{Stage: "new", Type: bug, Depot: routePtr("web"), Priority: store.DefaultPriority}
 	if got := store.MatchRoute(routes, bead, "jo"); got == nil || got.ID != "z-own" {
 		t.Errorf("the bead took %+v, want the own route", got)
 	}
-	away := store.Bead{Stage: "new", Type: "task", Depot: routePtr("other"), Labels: []string{hard}, Priority: store.DefaultPriority}
+	away := store.Bead{Stage: "new", Type: bug, Depot: routePtr("other"), Priority: store.DefaultPriority}
 	if got := store.MatchRoute(routes, away, "jo"); got == nil || got.ID != "a-default" {
 		t.Errorf("the bead in another depot took %+v, want the default", got)
 	}
@@ -211,17 +212,18 @@ func TestOwnRouteRanksBeforeDefault(t *testing.T) {
 
 // A route that exactly ties one of the same scope is refused, naming the
 // standing route, its beads and the fix; the same route again is refused
-// as the same route. Another scope, another key or another priority
-// stands.
+// as the same route. Another scope or another key stands, and no number
+// keeps a second route of one key beside the first: a record that still
+// carries the priority routes had is refused as any other.
 func TestAddRouteRefusesAnExactTie(t *testing.T) {
 	t.Run("own against own, another chain", func(t *testing.T) {
 		s, ctx := defaultsYard(t)
 		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
 		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "spare"}, "jo")
-		want := []string{"route " + first.ID + " already takes these beads in depot web at priority 0",
+		want := []string{"route " + first.ID + " already takes these beads in depot web",
 			"(new, any type, no label, any bead priority, the operator's beads) to builders",
-			"Two routes that take the same beads at the same priority are ordered by id, which nobody chose",
-			"yardr route rm " + first.ID}
+			"Two routes that take the same beads are ordered by id, which nobody chose",
+			"yardr route set " + first.ID, "yardr route rm " + first.ID}
 		if err == nil {
 			t.Fatalf("the tying route was added, want a refusal naming %q", want[0])
 		}
@@ -238,7 +240,7 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 		s, ctx := defaultsYard(t)
 		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
 		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "spare"}, "jo")
-		if err == nil || !strings.Contains(err.Error(), "route "+first.ID+" already takes these beads as a yard default at priority 0") {
+		if err == nil || !strings.Contains(err.Error(), "route "+first.ID+" already takes these beads as a yard default (") {
 			t.Fatalf("the tying default: %v, want it to name %s as a yard default", err, first.ID)
 		}
 	})
@@ -256,14 +258,14 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Note: "old note"})
 		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Note: "new note"}, "jo")
 		if err == nil || !strings.Contains(err.Error(), "the same route's note differs") ||
-			!strings.Contains(err.Error(), "yardr route rm "+first.ID) {
-			t.Fatalf("the changed note: %v, want a route replacement command naming %s", err, first.ID)
+			!strings.Contains(err.Error(), "yardr route set "+first.ID+" --note") {
+			t.Fatalf("the changed note: %v, want the set of the note naming %s", err, first.ID)
 		}
 	})
 	t.Run("a quota threshold is the chain, not the key", func(t *testing.T) {
 		s, ctx := defaultsYard(t)
-		// The yard's live duplicate: the same beads at the same priority,
-		// told apart only by the threshold they gate on.
+		// A duplicate a yard once had: the same beads, told apart only
+		// by the threshold they gate on.
 		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("yard"), Group: "builders",
 			When: "Weekly<target+10", Else: []store.RouteGroup{{Name: "spare"}}})
 		_, err := s.AddRoute(ctx, store.Route{Stage: "new", Depot: routePtr("yard"), Group: "builders",
@@ -303,11 +305,15 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 			t.Errorf("web's effective routes = %+v, want its own route alone", eff)
 		}
 	})
-	t.Run("another priority stands", func(t *testing.T) {
+	t.Run("a standby written with a priority is refused", func(t *testing.T) {
 		s, ctx := defaultsYard(t)
-		mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
-		if _, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "spare", Priority: -1}, "jo"); err != nil {
-			t.Fatalf("the same beads at a lower priority: %v, want it to stand as a standby", err)
+		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
+		var standby store.Route
+		if err := json.Unmarshal([]byte(`{"stage":"new","group":"spare","priority":-1,"note":"standby"}`), &standby); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AddRoute(ctx, standby, "jo"); err == nil || !strings.Contains(err.Error(), "route "+first.ID+" already takes these beads") {
+			t.Fatalf("the same beads at a lower priority: %v, want a tie naming %s", err, first.ID)
 		}
 	})
 }
@@ -364,32 +370,116 @@ func TestDifferentLabelSetsDoNotCollideInMatchKey(t *testing.T) {
 	}
 }
 
-// RankLeg names the first ranking leg on which two routes differ, in
-// SortRoutes order: priority, specificity, own-before-default, id. For
-// every pair of a mixed table in ranked order, the legs before the
-// named one tie and the named one differs; every leg is named by some
-// pair.
-func TestRankLegNamesTheFirstLegOnWhichRoutesDiffer(t *testing.T) {
-	beadPri := 1
-	hal := "hal"
+// SortRoutes ranks by a named order, the first leg on which two routes
+// differ deciding: urgency, asked for by name, estimate, the rest, own
+// before default, id. The fixture has the shapes of a yard's new stage: a
+// P0 reserve and a wider P0-P1 one, a default per harness label, the
+// estimate defaults, a typed default, a plain default and a depot's own
+// plain and harness routes. Each row is a bead, the route that takes it,
+// a route that also matches it and the leg that places the winner above
+// that one; outside the id row the loser has the lower id, so no leg
+// after the named one would pick the winner, and the named leg alone
+// decides. Every pair of the ranked fixture is then placed by the first
+// leg it differs on, and every leg places some pair.
+func TestSortRoutesRanksByTheNamedLegs(t *testing.T) {
+	p0, p1 := 0, 1
+	hal, any := "hal", store.OriginatorAny
+	labels := func(ls ...string) (*string, []string) { return &ls[0], ls[1:] }
+	route := func(id string, r store.Route) store.Route {
+		r.ID, r.Stage = id, "new"
+		if r.Originator == nil {
+			r.Originator = &any
+		}
+		return r
+	}
+	claude, _ := labels("claude")
+	muse, _ := labels("muse")
+	d3, _ := labels("difficulty:3")
+	d3l, large := labels("difficulty:3", "size:large")
 	routes := []store.Route{
-		{ID: "plain-default", Stage: "new", Group: "builders"},
-		{ID: "label-default", Stage: "new", Label: routePtr("hard"), Group: "builders"},
-		{ID: "typed-default", Stage: "new", Type: routePtr("bug"), Group: "builders"},
-		{ID: "pri-default", Stage: "new", Label: routePtr("hard"), Priority: 3, Group: "builders"},
-		{ID: "plain-own", Stage: "new", Depot: routePtr("web"), Group: "builders"},
-		{ID: "label-own", Stage: "new", Depot: routePtr("web"), Label: routePtr("hard"), Group: "builders"},
-		{ID: "exact-own", Stage: "new", Depot: routePtr("web"), Label: routePtr("hard"),
-			BeadPriority: &beadPri, Originator: &hal, Group: "builders"},
+		route("1-reserve-wide", store.Route{BeadPriority: &p1, Group: "wide-reserve"}),
+		route("2-plain", store.Route{Group: "builders", When: "Weekly<target+10", Else: []store.RouteGroup{{Name: "pool"}}}),
+		route("3-d3", store.Route{Label: d3, Group: "hard-builders"}),
+		route("4-claude", store.Route{Label: claude, Group: "named-builders"}),
+		route("5-muse", store.Route{Label: muse, Group: "pool"}),
+		route("6-bug", store.Route{Type: routePtr("bug"), Group: "bug-builders"}),
+		route("7-d3-large", store.Route{Label: d3l, AndLabels: large, Group: "heavy-builders"}),
+		route("8-reserve", store.Route{BeadPriority: &p0, Group: "reserve-builders"}),
+		route("90-web-muse", store.Route{Depot: routePtr("web"), Label: muse, Group: "web-pool"}),
+		route("91-web-plain", store.Route{Depot: routePtr("web"), Group: "web-builders"}),
+		route("92-hal", store.Route{Depot: routePtr("api"), Originator: &hal, Group: "hal-builders"}),
 	}
-	if got := store.RouteSpecificity(routes[6]); got != 4 {
-		t.Fatalf("the exact own route asks for %d, want 4: the depot, the label, the bead priority and the originator", got)
+	bead := func(depot string, pri int, typ string, ls ...string) store.Bead {
+		return store.Bead{Stage: "new", Type: typ, Depot: routePtr(depot), Labels: ls, Priority: pri}
 	}
-	any := store.OriginatorAny
-	unexact := routes[6]
-	unexact.Originator = &any
-	if got := store.RouteSpecificity(unexact); got != 3 {
-		t.Fatalf("the route with originator any asks for %d, want 3: any counts as none", got)
+	for _, tc := range []struct {
+		name          string
+		bead          store.Bead
+		winner, below string
+		leg           string
+	}{
+		{"the P0 reserve over a harness label", bead("api", 0, "task", "claude", "difficulty:3"), "8-reserve", "4-claude", store.LegUrgency},
+		{"the narrower threshold for a P0 bead", bead("api", 0, "task"), "8-reserve", "1-reserve-wide", store.LegUrgency},
+		{"a harness label over an estimate", bead("api", 2, "task", "claude", "difficulty:3"), "4-claude", "3-d3", store.LegByName},
+		{"two estimates over one", bead("api", 2, "task", "difficulty:3", "size:large"), "7-d3-large", "3-d3", store.LegEstimate},
+		{"a typed default over the plain one", bead("api", 2, "bug"), "6-bug", "2-plain", store.LegRest},
+		{"a depot's own harness route over the other harness's default", bead("web", 2, "task", "claude", "muse"), "90-web-muse", "4-claude", store.LegRest},
+		{"an own route over a default that asks as much", bead("web", 2, "bug"), "91-web-plain", "6-bug", store.LegOwnBeforeDefault},
+		{"two harness labels on one bead, by id", bead("api", 2, "task", "claude", "muse"), "4-claude", "5-muse", store.LegID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := store.MatchRoute(routes, tc.bead, "jo")
+			if got == nil || got.ID != tc.winner {
+				t.Fatalf("bead %+v took %+v, want %s", tc.bead, got, tc.winner)
+			}
+			var below *store.Route
+			for _, r := range store.EffectiveRoutes(routes, tc.bead.Depot, "jo") {
+				if r.ID == tc.below {
+					below = &r
+				}
+			}
+			if below == nil || !below.Matches(tc.bead, "jo") {
+				t.Fatalf("route %s does not match the bead in its depot: the row tests nothing", tc.below)
+			}
+			if leg := store.RankLeg(*got, *below); leg != tc.leg {
+				t.Errorf("RankLeg(%s, %s) = %q, want %q", got.ID, below.ID, leg, tc.leg)
+			}
+			if tc.leg != store.LegID && got.ID < below.ID {
+				t.Errorf("the winner %s has the lower id: the id would decide the row too", got.ID)
+			}
+		})
+	}
+	if n := store.RouteRest(routes[10]); n != 2 {
+		t.Errorf("the own route for hal asks %d of the rest, want 2: the depot and the originator", n)
+	}
+	if n := store.RouteRest(routes[5]); n != 1 {
+		t.Errorf("the typed default for any originator asks %d of the rest, want 1: any counts as none", n)
+	}
+	if n, e := store.RouteByName(routes[6]), store.RouteEstimates(routes[6]); n != 0 || e != 2 {
+		t.Errorf("difficulty:3 with size:large asks %d by name and %d estimates, want 0 and 2", n, e)
+	}
+	// A leg's verdict on a and b, in SortRoutes order: 1 where a comes
+	// first, 0 where they tie on it.
+	urgency := func(r store.Route) int {
+		if r.BeadPriority == nil {
+			return -1000
+		}
+		return -*r.BeadPriority
+	}
+	legs := []struct {
+		name string
+		key  func(store.Route) int
+	}{
+		{store.LegUrgency, urgency},
+		{store.LegByName, store.RouteByName},
+		{store.LegEstimate, store.RouteEstimates},
+		{store.LegRest, store.RouteRest},
+		{store.LegOwnBeforeDefault, func(r store.Route) int {
+			if r.Depot != nil {
+				return 1
+			}
+			return 0
+		}},
 	}
 	store.SortRoutes(routes)
 	seen := map[string]bool{}
@@ -398,29 +488,31 @@ func TestRankLegNamesTheFirstLegOnWhichRoutesDiffer(t *testing.T) {
 			a, b := routes[i], routes[j]
 			got := store.RankLeg(a, b)
 			seen[got] = true
-			priTies := a.Priority == b.Priority
-			specTies := store.RouteSpecificity(a) == store.RouteSpecificity(b)
-			scopeTies := (a.Depot == nil) == (b.Depot == nil)
-			var ok bool
-			switch got {
-			case store.LegPriority:
-				ok = !priTies
-			case store.LegSpecificity:
-				ok = priTies && !specTies
-			case store.LegOwnBeforeDefault:
-				ok = priTies && specTies && !scopeTies
-			case store.LegID:
-				ok = priTies && specTies && scopeTies && a.ID != b.ID
+			want := store.LegID
+			for _, l := range legs {
+				if ka, kb := l.key(a), l.key(b); ka != kb {
+					if ka < kb {
+						t.Errorf("%s ranks above %s, which comes first on %q", a.ID, b.ID, l.name)
+					}
+					want = l.name
+					break
+				}
 			}
-			if !ok {
-				t.Errorf("RankLeg(%s, %s) = %q, which the pair does not differ on first", a.ID, b.ID, got)
+			if want == store.LegID && a.ID > b.ID {
+				t.Errorf("%s ranks above %s on id", a.ID, b.ID)
+			}
+			if got != want {
+				t.Errorf("RankLeg(%s, %s) = %q, want %q: the first leg the pair differs on", a.ID, b.ID, got, want)
 			}
 		}
 	}
-	for _, leg := range []string{store.LegPriority, store.LegSpecificity, store.LegOwnBeforeDefault, store.LegID} {
-		if !seen[leg] {
-			t.Errorf("no pair is placed by %q", leg)
+	for _, l := range legs {
+		if !seen[l.name] {
+			t.Errorf("no pair is placed by %q", l.name)
 		}
+	}
+	if !seen[store.LegID] {
+		t.Errorf("no pair is placed by %q", store.LegID)
 	}
 }
 
@@ -431,8 +523,8 @@ func TestRouteMatchesAgreesWithMatchRoute(t *testing.T) {
 	s, ctx := defaultsYard(t)
 	hard := "hard"
 	mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
-	mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Group: "hard-builders", Priority: 3})
-	mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders", Priority: 1})
+	mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Group: "hard-builders"})
+	mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
 	beads := []store.Bead{
 		{Stage: "new", Type: "task", Depot: routePtr("web"), Priority: store.DefaultPriority},
 		{Stage: "new", Type: "task", Depot: routePtr("web"), Labels: []string{hard}, Priority: store.DefaultPriority},

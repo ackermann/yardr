@@ -32,33 +32,41 @@ func explainYard(t *testing.T) (*app, store.API, context.Context) {
 func explainStrp(s string) *string { return &s }
 
 // route explain names the winner and every matching route in order with
-// the leg that placed it below the one above — priority, specificity,
-// own before default, id — the routes considered that do not match and
-// why, and that no default is set aside for the stage.
+// the leg that placed it below the one above — urgency, asked for by
+// name, estimate, the rest, own before default, id — the routes
+// considered that do not match and why, and that no default is set aside
+// for the stage.
 func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 	t.Parallel()
 	a, st, ctx := explainYard(t)
-	fast, hard := "fast", "hard"
+	claude, muse, hard, large, bug := "claude", "muse", "difficulty:3", "size:large", "bug"
+	p0 := 0
 	add := func(r store.Route) *store.Route {
 		t.Helper()
+		r.Stage = "new"
 		saved, err := st.AddRoute(ctx, r, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
 		return saved
 	}
-	r1 := add(store.Route{Stage: "new", Label: &fast, AndLabels: []string{hard}, Priority: 5, Group: "a"})
-	r2 := add(store.Route{Stage: "new", Label: &fast, AndLabels: []string{hard}, Group: "a"})
-	r3 := add(store.Route{Stage: "new", Depot: explainStrp("web"), Group: "b"})
-	r4 := add(store.Route{Stage: "new", Label: &fast, Group: "b"})
-	bug := "bug"
-	r5 := add(store.Route{Stage: "new", Type: &bug, Group: "b"})
+	reserve := add(store.Route{BeadPriority: &p0, Group: "a"})
+	named := add(store.Route{Label: &claude, Group: "a"})
+	other := add(store.Route{Label: &muse, Group: "b"})
+	both := add(store.Route{Label: &hard, AndLabels: []string{large}, Group: "b"})
+	typedHard := add(store.Route{Type: &bug, Label: &hard, Group: "b"})
+	justHard := add(store.Route{Label: &hard, Group: "b"})
+	own := add(store.Route{Depot: explainStrp("web"), Group: "b"})
+	typed := add(store.Route{Type: &bug, Group: "b"})
 	ghost := "ghost"
-	r6 := add(store.Route{Stage: "new", Label: &ghost, Priority: 9, Group: "b"})
-	r7 := add(store.Route{Stage: "review", Group: "people"})
+	missed := add(store.Route{Label: &ghost, Group: "b"})
+	review, err := st.AddRoute(ctx, store.Route{Stage: "review", Group: "people"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Type: "bug",
-		Labels: []string{hard, fast}, Priority: store.DefaultPriority}, "me")
+		Labels: []string{claude, muse, hard, large}, Priority: 0}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,27 +75,28 @@ func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// r4 and r5 ask for as much at one priority in one scope: the id
-	// decides, whichever it mints.
-	fourth, fifth := r4, r5
-	if r5.ID < r4.ID {
-		fourth, fifth = r5, r4
-	}
-	fourthDesc, fifthDesc := "new, label fast, priority 0", "new, type bug, priority 0"
-	if fourth == r5 {
-		fourthDesc, fifthDesc = fifthDesc, fourthDesc
+	// The two harness labels ask as much in one scope: the id decides,
+	// whichever it mints.
+	second, third := named, other
+	secondDesc, thirdDesc, secondGroup, thirdGroup := "new, label claude", "new, label muse", "a", "b"
+	if other.ID < named.ID {
+		second, third = other, named
+		secondDesc, thirdDesc, secondGroup, thirdGroup = thirdDesc, secondDesc, thirdGroup, secondGroup
 	}
 	want := []string{
-		"bead " + b.ID + ": stage new, type bug, depot web, labels fast, hard, priority P2, originator me (the operator)",
+		"bead " + b.ID + ": stage new, type bug, depot web, labels claude, difficulty:3, muse, size:large, priority P0, originator me (the operator)",
 		"matches in web's effective routes, in order:",
-		"  1. " + r1.ID + "  default  new, labels fast, hard, priority 5  -> a  WINNER",
-		"  2. " + r2.ID + "  default  new, labels fast, hard, priority 0  -> a  (1 wins on priority: 5 over 0)",
-		"  3. " + r3.ID + "  own  new, depot web, priority 0  -> b  (2 wins on specificity: 2 over 1)",
-		"  4. " + fourth.ID + "  default  " + fourthDesc + "  -> b  (3 wins: own before default)",
-		"  5. " + fifth.ID + "  default  " + fifthDesc + "  -> b  (4 wins on id)",
+		"  1. " + reserve.ID + "  default  new, beads P0  -> a  WINNER",
+		"  2. " + second.ID + "  default  " + secondDesc + "  -> " + secondGroup + "  (below 1: urgency)",
+		"  3. " + third.ID + "  default  " + thirdDesc + "  -> " + thirdGroup + "  (below 2: id)",
+		"  4. " + both.ID + "  default  new, labels difficulty:3, size:large  -> b  (below 3: asked for by name)",
+		"  5. " + typedHard.ID + "  default  new, type bug, label difficulty:3  -> b  (below 4: estimate)",
+		"  6. " + justHard.ID + "  default  new, label difficulty:3  -> b  (below 5: the rest)",
+		"  7. " + own.ID + "  own  new, depot web  -> b  (below 6: estimate)",
+		"  8. " + typed.ID + "  default  new, type bug  -> b  (below 7: own before default)",
 		"considered and not matching:",
-		"  " + r6.ID + "  default  new, label ghost, priority 9: the bead does not have label ghost",
-		"  " + r7.ID + "  default  review, priority 0: the bead is in stage new",
+		"  " + missed.ID + "  default  new, label ghost: the bead does not have label ghost",
+		"  " + review.ID + "  default  review: the bead is in stage new",
 		"defaults set aside in web for this stage: none",
 		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
@@ -101,8 +110,8 @@ func TestRouteExplainNamesTheWinnerAndEveryLeg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := store.MatchRoute(routes, *b, "me"); w == nil || w.ID != r1.ID {
-		t.Errorf("MatchRoute took %+v, want the explained winner %s", w, r1.ID)
+	if w := store.MatchRoute(routes, *b, "me"); w == nil || w.ID != reserve.ID {
+		t.Errorf("MatchRoute took %+v, want the explained winner %s", w, reserve.ID)
 	}
 }
 
@@ -139,8 +148,8 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 	want := []string{
 		"bead " + pull.ID + ": stage review, type pr, depot web, no labels, priority P2, originator me (the operator)",
 		"matches in web's effective routes, in order:",
-		"  1. " + own.ID + "  own  review, type pr, depot web, priority 0  -> b  WINNER",
-		"  2. " + def.ID + "  default  review, priority 0  -> a  (1 wins on specificity: 2 over 0)",
+		"  1. " + own.ID + "  own  review, type pr, depot web  -> b  WINNER",
+		"  2. " + def.ID + "  default  review  -> a  (below 1: the rest)",
 		"considered and not matching: none",
 		"defaults set aside in web for this stage: none",
 		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
@@ -156,9 +165,9 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 	want = []string{
 		"bead " + plain.ID + ": stage review, type task, depot web, no labels, priority P2, originator me (the operator)",
 		"matches in web's effective routes, in order:",
-		"  1. " + def.ID + "  default  review, priority 0  -> a  WINNER",
+		"  1. " + def.ID + "  default  review  -> a  WINNER",
 		"considered and not matching:",
-		"  " + own.ID + "  own  review, type pr, depot web, priority 0: the bead is of type task",
+		"  " + own.ID + "  own  review, type pr, depot web: the bead is of type task",
 		"defaults set aside in web for this stage: none",
 		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
@@ -170,7 +179,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "  1. "+def.ID+"  default  review, priority 0  -> a  WINNER\n") ||
+	if !strings.Contains(out, "  1. "+def.ID+"  default  review  -> a  WINNER\n") ||
 		strings.Contains(out, own.ID) {
 		t.Errorf("route explain %s names %s where the depot has no own route:\n%s", away.ID, own.ID, out)
 	}
@@ -186,7 +195,7 @@ func TestRouteExplainTypedBeadTakesItsOwnRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "  1. "+people.ID+"  default  review, type bug, priority 0  -> people  WINNER\n") ||
+	if !strings.Contains(out, "  1. "+people.ID+"  default  review, type bug  -> people  WINNER\n") ||
 		!strings.HasSuffix(out, "quota: the winning route names one group with no condition; nothing to ask a provider for\n") {
 		t.Errorf("route explain %s =\n%s\nwant the route to people, with nothing to ask a provider for", manual.ID, out)
 	}
@@ -202,7 +211,7 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: explainStrp("web"), Group: "b", Priority: 2}, "me")
+	own, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: explainStrp("web"), Group: "b"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,9 +231,9 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 	want := []string{
 		"bead " + here.ID + ": stage new, type task, depot web, no labels, priority P2, originator me (the operator)",
 		"matches in web's effective routes, in order:",
-		"  1. " + own.ID + "  own  new, depot web, priority 2  -> b  WINNER",
+		"  1. " + own.ID + "  own  new, depot web  -> b  WINNER",
 		"considered and not matching: none",
-		"1 default set aside in web for this stage: new (no label, the operator's beads) is stated by " + own.ID + " to b at priority 2",
+		"1 default set aside in web for this stage: new (no label, the operator's beads) is stated by " + own.ID + " to b",
 		"quota: the winning route names b with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
@@ -240,7 +249,7 @@ func TestRouteExplainSetAsideDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "  1. "+def.ID+"  default  new, priority 0  -> a  WINNER\n") ||
+	if !strings.Contains(out, "  1. "+def.ID+"  default  new  -> a  WINNER\n") ||
 		!strings.Contains(out, "defaults set aside in other for this stage: none\n") {
 		t.Errorf("route explain %s does not keep the default:\n%s", there.ID, out)
 	}
@@ -280,7 +289,7 @@ func TestRouteExplainConditionedWinnerAndBeadShowAgrees(t *testing.T) {
 	want := []string{
 		"bead " + b.ID + ": stage new, type task, depot web, no labels, priority P2, originator me (the operator)",
 		"matches in web's effective routes, in order:",
-		"  1. " + r.ID + "  own  new, depot web, priority 0  -> a@Weekly<80 else b  WINNER",
+		"  1. " + r.ID + "  own  new, depot web  -> a@Weekly<80 else b  WINNER",
 		"considered and not matching: none",
 		"defaults set aside in web for this stage: none",
 		"quota: the winning route names a@Weekly<80 else b; the choice among these is made at the claim, from the windows then",
@@ -357,7 +366,7 @@ func TestRouteExplainAsksNoProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "  1. "+r.ID+"  default  new, priority 0  -> a@Weekly<80 else b  WINNER\n") {
+	if !strings.Contains(out, "  1. "+r.ID+"  default  new  -> a@Weekly<80 else b  WINNER\n") {
 		t.Errorf("route explain %s does not name the conditioned winner:\n%s", b.ID, out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "asked")); err == nil {
@@ -387,7 +396,7 @@ func TestRouteExplainPinChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	hard := "hard"
-	labelled, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &hard, Group: "b", Priority: 1}, "me")
+	labelled, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &hard, Group: "b"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +419,7 @@ func TestRouteExplainPinChangesNothing(t *testing.T) {
 		", pinned to flow other (routing reads no flow)") {
 		t.Fatalf("route explain %s does not name the pin:\n%s", pinned.ID, out)
 	}
-	if !strings.Contains(out, "  1. "+r.ID+"  default  new, priority 0  -> a  WINNER\n") {
+	if !strings.Contains(out, "  1. "+r.ID+"  default  new  -> a  WINNER\n") {
 		t.Errorf("route explain %s takes another winner than its twin's:\n%s", pinned.ID, out)
 	}
 	twin, err := run(t, a.routeCmd(), "explain", plain.ID)
@@ -422,7 +431,7 @@ func TestRouteExplainPinChangesNothing(t *testing.T) {
 	if strings.Join(lines[1:], "\n") != strings.Join(strings.Split(strings.TrimSuffix(twin, "\n"), "\n")[1:], "\n") {
 		t.Errorf("the pinned bead's answer differs from its twin's:\n%s\ntwin:\n%s", out, twin)
 	}
-	if !strings.Contains(out, "  "+labelled.ID+"  default  new, label hard, priority 1: the bead does not have label hard\n") {
+	if !strings.Contains(out, "  "+labelled.ID+"  default  new, label hard: the bead does not have label hard\n") {
 		t.Errorf("route explain %s does not miss the labelled route as its twin does:\n%s", pinned.ID, out)
 	}
 }
@@ -437,16 +446,16 @@ func TestRouteExplainBeadWithNoRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	ghost := "ghost"
-	r1, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &ghost, Group: "a", Priority: 3}, "me")
+	r1, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &ghost, Group: "a"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
 	urgent := 0
-	r3, err := st.AddRoute(ctx, store.Route{Stage: "new", BeadPriority: &urgent, Group: "a", Priority: 2}, "me")
+	r3, err := st.AddRoute(ctx, store.Route{Stage: "new", BeadPriority: &urgent, Group: "a"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
-	r4, err := st.AddRoute(ctx, store.Route{Stage: "new", Originator: explainStrp("hal"), Group: "a", Priority: 1}, "me")
+	r4, err := st.AddRoute(ctx, store.Route{Stage: "new", Originator: explainStrp("hal"), Group: "a"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,10 +476,10 @@ func TestRouteExplainBeadWithNoRoute(t *testing.T) {
 		"bead " + b.ID + ": stage new, type task, depot web, no labels, priority P2, originator me (the operator)",
 		"no route in web's effective routes matches: the bead is unrouted",
 		"considered and not matching:",
-		"  " + r1.ID + "  default  new, label ghost, priority 3: the bead does not have label ghost",
-		"  " + r3.ID + "  default  new, beads P0, priority 2: the bead is P2, less urgent than P0",
-		"  " + r4.ID + "  default  new, originator hal, priority 1: the bead is for me (the operator), not hal",
-		"  " + r2.ID + "  default  review, priority 0: the bead is in stage new",
+		"  " + r3.ID + "  default  new, beads P0: the bead is P2, less urgent than P0",
+		"  " + r1.ID + "  default  new, label ghost: the bead does not have label ghost",
+		"  " + r4.ID + "  default  new, originator hal: the bead is for me (the operator), not hal",
+		"  " + r2.ID + "  default  review: the bead is in stage new",
 		"defaults set aside in web for this stage: none",
 	}
 	if out != strings.Join(want, "\n")+"\n" {
@@ -507,7 +516,7 @@ func TestRouteExplainBeadWithNoDepot(t *testing.T) {
 	want := []string{
 		"bead " + b.ID + ": stage new, type task, no depot, no labels, priority P2, originator me (the operator)",
 		"matches in the yard defaults, in order:",
-		"  1. " + def.ID + "  default  new, priority 0  -> a  WINNER",
+		"  1. " + def.ID + "  default  new  -> a  WINNER",
 		"considered and not matching: none",
 		"defaults set aside: none (the bead names no depot)",
 		"quota: the winning route names a with no condition; it starts the bead at the claim unless a window of its provider is used up then, one for a single model aside",
@@ -526,7 +535,8 @@ func TestRouteExplainBeadWithNoDepot(t *testing.T) {
 func TestRouteExplainJSON(t *testing.T) {
 	t.Parallel()
 	a, st, ctx := explainYard(t)
-	r1, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a", Priority: 5}, "me")
+	task := "task"
+	r1, err := st.AddRoute(ctx, store.Route{Stage: "new", Type: &task, Group: "a"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +545,7 @@ func TestRouteExplainJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: explainStrp("web"), Group: "b", Priority: 2}, "me")
+	own, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: explainStrp("web"), Group: "b"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,22 +573,20 @@ func TestRouteExplainJSON(t *testing.T) {
 		exp.Bead.Originator != "me" || exp.Bead.Pin != "" {
 		t.Errorf("route explain --json bead = %+v, want %s's facts", exp.Bead, here.ID)
 	}
-	// The own route sets both defaults aside in web: it stands alone.
-	if exp.Winner == nil || *exp.Winner != own.ID || len(exp.Matches) != 1 || exp.Matches[0].ID != own.ID ||
-		exp.Matches[0].Effective != "own" || exp.Matches[0].Leg != nil {
-		t.Errorf("route explain --json matches = %+v, winner %v, want the own route alone",
+	// The own route sets the plain default aside in web, and asks as much
+	// as the typed one, which it comes before: its depot against the type.
+	if exp.Winner == nil || *exp.Winner != own.ID || len(exp.Matches) != 2 || exp.Matches[0].ID != own.ID ||
+		exp.Matches[0].Effective != "own" || exp.Matches[0].Leg != nil || exp.Matches[1].ID != r1.ID ||
+		exp.Matches[1].Effective != "default" || exp.Matches[1].Leg == nil ||
+		exp.Matches[1].Leg.Leg != store.LegOwnBeforeDefault || exp.Matches[1].Leg.Over != nil {
+		t.Errorf("route explain --json matches = %+v, winner %v, want the own route over the typed default",
 			exp.Matches, exp.Winner)
 	}
 	if len(exp.NonMatching) != 0 {
 		t.Errorf("route explain --json non_matching = %+v, want none", exp.NonMatching)
 	}
-	if len(exp.SetAside) != 2 {
-		t.Fatalf("route explain --json set_aside = %+v, want the two defaults", exp.SetAside)
-	}
-	for _, s := range exp.SetAside {
-		if s.Own.ID != own.ID {
-			t.Errorf("route explain --json set_aside setter = %s, want %s", s.Own.ID, own.ID)
-		}
+	if len(exp.SetAside) != 1 || exp.SetAside[0].Route.ID != r2.ID || exp.SetAside[0].Own.ID != own.ID {
+		t.Fatalf("route explain --json set_aside = %+v, want the plain default set aside by %s", exp.SetAside, own.ID)
 	}
 	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || exp.Quota.Groups[0].Name != "b" || !exp.Quota.ClaimTime {
 		t.Errorf("route explain --json quota = %+v, want the one group, which starts agents, decided at the claim", exp.Quota)
@@ -597,9 +605,9 @@ func TestRouteExplainJSON(t *testing.T) {
 			exp.Matches, exp.Winner)
 	}
 	leg := exp.Matches[1].Leg
-	if leg == nil || leg.Above != r1.ID || leg.Leg != store.LegPriority ||
-		len(leg.Over) != 2 || leg.Over[0] != 5 || leg.Over[1] != 0 {
-		t.Errorf("route explain --json leg = %+v, want priority 5 over 0 above %s", leg, r1.ID)
+	if leg == nil || leg.Above != r1.ID || leg.Leg != store.LegRest ||
+		len(leg.Over) != 2 || leg.Over[0] != 1 || leg.Over[1] != 0 {
+		t.Errorf("route explain --json leg = %+v, want the rest, 1 over 0, above %s", leg, r1.ID)
 	}
 	if exp.Quota == nil || len(exp.Quota.Groups) != 1 || !exp.Quota.ClaimTime {
 		t.Errorf("route explain --json quota = %+v, want the winner's one group, decided at the claim", exp.Quota)

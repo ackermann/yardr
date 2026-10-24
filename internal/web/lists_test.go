@@ -95,7 +95,7 @@ func TestLists(t *testing.T) {
 	line, bug := "line", "bug"
 	for _, r := range []store.Route{
 		{Stage: "new", Group: "builders"},
-		{Stage: "new", Depot: &line, Type: &bug, Group: "decisions", Priority: 5},
+		{Stage: "new", Depot: &line, Type: &bug, Group: "decisions"},
 	} {
 		_, err := f.st.AddRoute(ctx, r, "me")
 		must(t, err)
@@ -143,10 +143,10 @@ func TestLists(t *testing.T) {
 		!slices.Equal(groups.Groups[1].Members, []string{"jo"}) {
 		t.Errorf("groups: %+v", groups.Groups)
 	}
-	// The routes in match order: the higher priority first.
+	// The routes in match order: the one that asks more first.
 	var rs web.Routes
 	f.getJSON("/routes", &rs)
-	if len(rs.Routes) != 2 || rs.Routes[0].Group != "decisions" || rs.Routes[0].Priority != 5 || *rs.Routes[0].Type != "bug" {
+	if len(rs.Routes) != 2 || rs.Routes[0].Group != "decisions" || *rs.Routes[0].Type != "bug" {
 		t.Errorf("routes: %+v", rs.Routes)
 	}
 	var depots web.Depots
@@ -187,7 +187,7 @@ func TestConfigPages(t *testing.T) {
 	line, bug := "line", "bug"
 	plain, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
 	must(t, err)
-	narrow, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Depot: &line, Type: &bug, Label: &bug, Group: "decisions", Priority: 5}, "me")
+	narrow, err := f.st.AddRoute(ctx, store.Route{Stage: "new", Depot: &line, Type: &bug, Label: &bug, Group: "decisions"}, "me")
 	must(t, err)
 
 	depots := squash(f.get("/depots").body)
@@ -242,15 +242,14 @@ func TestConfigPages(t *testing.T) {
 	routes := squash(f.get("/routes").body)
 	for _, want := range []string{
 		// The wide table: one row per route, as the command prints them.
-		`<th>stage</th><th>type</th><th>depot</th><th>label</th><th>priority</th><th>group</th><th>id</th>`,
-		`<tr><td>new</td><td>bug</td><td>line</td><td>bug</td><td>5</td><td>decisions</td><td class="faint">` + narrow.ID + `</td></tr>`,
-		`<tr><td>new</td><td>-</td><td>-</td><td>-</td><td>0</td><td>builders</td><td class="faint">` + plain.ID + `</td></tr>`,
+		`<th>stage</th><th>type</th><th>depot</th><th>label</th><th>beads</th><th>group</th><th>id</th>`,
+		`<tr><td>new</td><td>bug</td><td>line</td><td>bug</td><td>-</td><td>decisions</td><td class="faint">` + narrow.ID + `</td></tr>`,
+		`<tr><td>new</td><td>-</td><td>-</td><td>-</td><td>-</td><td>builders</td><td class="faint">` + plain.ID + `</td></tr>`,
 		// The stacked cards below 700 px, the id quiet until opened.
 		`<h2>new → decisions</h2>`,
 		`<div><dt>type</dt><dd>bug</dd></div>`,
 		`<div><dt>depot</dt><dd>line</dd></div>`,
 		`<div><dt>label</dt><dd>bug</dd></div>`,
-		`<div><dt>priority</dt><dd>5</dd></div>`,
 		`<details class="route-id"><summary>id</summary>` + narrow.ID + `</details>`,
 		`<h2>new → builders</h2>`,
 		`<details class="route-id"><summary>id</summary>` + plain.ID + `</details>`,
@@ -259,6 +258,10 @@ func TestConfigPages(t *testing.T) {
 		if !strings.Contains(routes, want) {
 			t.Errorf("/routes lacks %s", want)
 		}
+	}
+	// Routes carry no priority, so neither view shows one.
+	if strings.Contains(routes, "<dt>priority</dt>") {
+		t.Errorf("/routes still names a priority")
 	}
 	// One table row per route, besides the header's.
 	if n := strings.Count(routes, "<tr><td>"); n != 2 {

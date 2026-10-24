@@ -13,7 +13,7 @@
   <section class="item routes-table">
     <table class="routes">
       <thead>
-        <tr><th>stage</th><th>type</th><th>depot</th><th>label</th><th>priority</th><th>group</th><th>id</th></tr>
+        <tr><th>stage</th><th>type</th><th>depot</th><th>label</th><th>beads</th><th>group</th><th>id</th></tr>
       </thead>
       <tbody>
         {{- range .Data.Routes}}
@@ -22,7 +22,7 @@
           <td>{{with .Type}}{{.}}{{else}}-{{end}}</td>
           <td>{{with .Depot}}{{.}}{{else}}-{{end}}</td>
           <td>{{with .Label}}{{.}}{{else}}-{{end}}</td>
-          <td>{{.Priority}}</td>
+          <td>{{with .BeadPriorities}}{{.}}{{else}}-{{end}}</td>
           <td>{{.GroupList}}</td>
           <td class="faint">{{.ID}}</td>
         </tr>
@@ -50,7 +50,6 @@
       {{- with .BeadPriorities}}
       <div><dt>beads</dt><dd>{{.}}</dd></div>
       {{- end}}
-      <div><dt>priority</dt><dd>{{.Priority}}</dd></div>
     </dl>
   </article>
   {{- end}}

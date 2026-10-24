@@ -28,7 +28,8 @@ plain words kept on purpose, because they name general machinery.
 | maintainer | a person of the yard who decides what of a contributor's work the project takes; the contributors pack's group `maintainers` |
 | flow | the stages a bead of some type goes through, and the moves allowed between them |
 | stage | one step of a flow: a status or column, in a tracker (in the starter flow: backlog, new, review, review-security, clear, approved, merged, decide) |
-| route | which group takes the beads of a stage; a route with no depot is a yard default, serving every depot that does not state its own route for the same beads |
+| route | which group takes the beads of a stage; a route with no depot is a yard default, serving every depot that does not state its own route for the same beads; of the routes that match a bead the first in a named order takes it: urgency, asked for by name, estimate, the rest, own before default, id ([groups.md](groups.md#which-beads-a-route-takes)) |
+| estimate | a bead label that says how hard or how large the bead is, one that begins `difficulty:` or `size:`; a route for one ranks after a route for a label asked for by name |
 | group | who works a stage: a pool of agents, a script, people, or another yard |
 | runner | how a group's work starts: `herdr` (an agent), `exec` (a command), `manual` (people), `peer` (another yard) |
 | session | one agent working one bead in one stage |

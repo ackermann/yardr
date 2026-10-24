@@ -13,7 +13,7 @@ by its events (`yardr events`) sees these changes and waits:
 |---|---|---|
 | `group_set` | `group add`, for a new group and for one it changes, `group set` when it changes something, and a pack's import of a group | `name`, `runner`, `limit`, and `members` when it has any; runner config is omitted |
 | `group_removed` | `group rm` | `name`, `routes`: the ids of the routes that went with it (they log no `route_removed`), `released`: how many beads it gave back |
-| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, `priority`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)); `note` where the route carries one |
+| `route_added` | `route add`, and a pack's import of a route | `id`, `stage`, `group`, and the filters it sets: `type`, `depot`, `label`, `bead_priority`; for a route that asks for more than one label `label` is the first and `labels` all of them ([below](#which-beads-a-route-takes)); for a route with further groups or a quota condition also `groups`: each group in order, `name` and its condition `when` ([below](#a-route-with-further-groups-and-quota-conditions)); `note` where the route carries one |
 | `route_removed` | `route rm` | the same fields, of the route as it was |
 | `route_set` | `route set` | `was`, `is`: the route's fields as `route_added` carries them, before and after |
 | `group_wait` | the dispatcher, when a bead cannot start with its route's group or groups because of a limit, runtime outage or model hold | `stage`, `route`, `groups` (`group`, `reason`), `reason`, `hint` |
@@ -84,12 +84,12 @@ exception, below:
 
 ```sh
 yardr route add --stage new --depot web --label difficulty:3 --label size:large --group heavy-builders
-yardr route add --stage new --depot web --bead-priority 1 --group builders --priority 5
+yardr route add --stage new --depot web --bead-priority 0 --group builders --note 'P0 reserve'
 yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders
 ```
 
 A route without `--originator` takes only the operator's beads, however
-high its priority or specificity: no general route swallows another
+it ranks: no general route swallows another
 person's work. A bead whose originator has no route waits as an unrouted
 bead does, with the one `unrouted` event naming whose beads have no route.
 Cross-originator use is opted into per route, visibly in the table:
@@ -163,8 +163,8 @@ made. Each is a command that stands on its own:
    `env_file` is not copied: it may hold the operator's key.
 5. **The routes**: for each route of the operator's that sends work to the
    builders first, `yardr route add --stage new --originator ada --group
-   ada-builders`, with the route's depot, type, labels, bead priority and
-   priority, and no condition and no `--else`, since a fallback would spend
+   ada-builders`, with the route's depot, type, labels and bead priority,
+   and no condition and no `--else`, since a fallback would spend
    someone else's login. The reviewers and the rest are not copied: a bead of
    theirs that reaches a stage with no route of theirs waits as an unrouted
    bead does, with the one `unrouted` event naming whose beads have no route.
@@ -214,16 +214,30 @@ the column `SCOPE`: the depot's name for its own routes, `default` for a
 yard default. The note is the column `NOTE`.
 
 Of the routes that match a bead, in its depot's effective routes (its
-own routes plus the defaults none of them sets aside), the one with the
-highest `--priority` takes it; among routes of one priority, the one
-that asks for more, where the type, the depot, the bead priority, each
-label and a named originator count as one (`any` counts as none). So a
-route for two labels is read before a route for one of them, and a bead
-with both goes to the first; an exact originator route beats an `any`
-route of the same priority. Routes that ask for as much are read with
-an own route before a default, then by route id. A route for urgent
-beads that is to win over a route for a label therefore needs a higher
-`--priority`, as in the example. `yardr route list` prints the routes in
+own routes plus the defaults none of them sets aside), the first in a
+named order takes it. The order compares what each route asks of a bead,
+and the first of these legs on which two routes differ decides:
+
+1. **Urgency**: a route with `--bead-priority` before one without, and of
+   two with one the narrower threshold: `--bead-priority 0` before
+   `--bead-priority 1` for a P0 bead. The P0 reserve in the example takes
+   a P0 bead whatever label it carries, a hotfix included.
+2. **Asked for by name**: more labels that are not estimate labels
+   (`claude`, `airy`, `brakeman-review`). Someone put such a label on the
+   bead to say who works it, and only urgency outranks it.
+3. **Estimate**: more estimate labels, the labels that begin `difficulty:`
+   or `size:` ([below](#routing-by-estimate-and-quota)). A route for
+   `difficulty:3` and `size:large` comes before a route for `difficulty:3`
+   alone.
+4. **The rest**: the type, the depot and a named originator count one
+   each (`any` counts as none), so an exact originator route beats an
+   `any` route that asks as much otherwise.
+5. An own route before a yard default.
+6. The route id.
+
+So a route for two labels is read before a route for one of them, and a
+bead with both goes to the first; a route for a label is read before one
+for a type alone. `yardr route list` prints the routes in
 that order, the labels in the column `LABEL`, the bead priorities as
 `P0-P1` in the column `BEADS` and the originator in `ORIGINATOR`.
 `yardr route list --depot <depot>` lists that depot's effective routes
@@ -232,7 +246,8 @@ own routes set aside named underneath, each with the own route that
 states its key. `yardr route explain <bead>` says where one bead would
 go: the winner among its depot's effective routes, every route that
 matches in order with the ranking leg that placed it below the one
-above (priority, specificity, own before default, id), the routes
+above (`urgency`, `asked for by name`, `estimate`, `the rest`, `own
+before default`, `id`), the routes
 considered that do not match and why, the defaults the depot sets
 aside for the bead's stage with the own route that states each, and
 the winning route's groups in order. For a route with further groups
@@ -243,18 +258,25 @@ the windows then; what a claim chose is in `bead show` and the
 no provider. A bead that pins a flow takes the same winner as its
 unpinned twin, and the pin is named beside the answer.
 
-Adding a route that states the same key at the same priority as a route
-of the same scope already standing (two defaults, or two own routes of
-one depot) is refused, naming the standing route: the two would be
-ordered by id, which nobody chose, and one of them would route nothing.
-The same key, priority and group chain is the same route, and is
-refused in the same words. A default and an own route of the same key
-never tie: the own route sets the default aside in its depot, which is
-the override working as meant. A standby route is added at a lower
-priority, where the list shows it ranked and harmless.
+Adding a route that states the same key as a route of the same scope
+already standing (two defaults, or two own routes of one depot) is
+refused, naming the standing route: the two would be ordered by id,
+which nobody chose, and one of them would route nothing. The same key
+and group chain is the same route, and is refused in the same words. A
+default and an own route of the same key never tie: the own route sets
+the default aside in its depot, which is the override working as meant.
+There is no standby route: a route that is not meant to win is removed,
+and a change of where the beads go is a `route set` of the standing one.
 
-The labels are yours: yardr gives none of them a meaning, and matches each
-exactly. A view that shows who works a stage of a flow (`yardr flow show`,
+The labels are yours, and each is matched exactly. yardr gives them no
+meaning but one: a label that begins `difficulty:` or `size:` is an
+estimate, which the ranking reads after a label asked for by name. A
+label named after a harness (`claude`, `muse`) sends its beads to groups
+of that harness; each depot says which of its pools does that work with
+an own route of the label's key, and a route that sends `muse` to a
+claude group makes the label mean two things. Two harness labels on one
+bead are resolved by the ranking, as any two labels are: `yardr route
+explain` names the leg that decided. A view that shows who works a stage of a flow (`yardr flow show`,
 the web view's flows) asks for a bead made with no label, no priority
 (P2) and no originator, so it names the group such a bead goes to — the
 operator's; what is said of a bead (`yardr bead show`, a brief's
@@ -265,14 +287,14 @@ originator, as the dispatcher reads them.
 
 `yardr route set <id>` changes where a route's beads go and keeps which
 beads they are: `--group` with its condition, the further groups with
-`--else`, `--priority` and `--note`. What is not named is kept, and the
+`--else`, and `--note`. What is not named is kept, and the
 route keeps its id, so events and bead show lines that cite it still name
 this route. `--else` replaces the further groups, so every one wanted is
 named; `--else ''` drops them, and `--note ''` drops the note. A set that
 changes nothing writes nothing and logs nothing; one that changes
 something logs `route_set` with the route as it was and as it is. A set
-that would tie a route of the same scope already standing is refused, as
-an add is. A bead claimed through the route keeps its group until its
+never ties another route: which beads a route takes is not changed
+here. A bead claimed through the route keeps its group until its
 session ends; the next claim takes the new chain. Anyone may set a route,
 as anyone may add one, and the write is recorded as the pane-resolved
 actor.
@@ -454,21 +476,22 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   it can still fill the window, and then the harness stops and
   [the existing path](#a-usage-limit-says-its-window-and-when-it-resets)
   takes over.
-- **To overrule it**, give a route of higher priority no condition: a
-  label's route sends its beads where the label says whatever the threshold
-  is, for as long as no window of that group's provider is used up. Removing
+- **To overrule it**, give the beads a route that ranks above it and has
+  no condition: a route for a label asked for by name, or the P0 reserve,
+  sends its beads where it says whatever the threshold is, for as long as
+  no window of that group's provider is used up. Removing
   a group removes every route that names it, further groups included.
 
 ## Routing by estimate and quota
 
 An estimate is what someone says of a bead before it is built: how large
 and how hard. It needs no new mechanism: it is two labels, and the routes
-above match them. The names are the operator's convention — yardr gives
-them no meaning — and the starting one is a prefix each, as a topic is
-(`topic:routing`): `difficulty:1`, `difficulty:2`, `difficulty:3`, and
-`size:small`, `size:medium`, `size:large`. Importance is the bead's
-priority, which exists: 0 is highest, 2 the default, matched with
-`--bead-priority`.
+above match them. The two prefixes are the yard's: a label that begins
+`difficulty:` or `size:` is an estimate, which the ranking reads after a
+label asked for by name, and which the ETA cells and bead folding read
+too: `difficulty:1`, `difficulty:2`, `difficulty:3`, and `size:small`,
+`size:medium`, `size:large`. Importance is the bead's priority, which
+exists: 0 is highest, 2 the default, matched with `--bead-priority`.
 
 Who writes it: whoever moves the bead out of `backlog`, by the rubric in
 [the yardmaster's role](../packs/starter/roles/yardmaster.md)
@@ -482,27 +505,30 @@ bead is instead of where it should go, so that the route and not the
 yardmaster decides the group, and the quota can change the answer.
 
 With the filters and conditions above, a depot's table for its build
-stage reads like this:
+stage reads like this, in the order the ranking reads it, with no number
+to keep in step:
 
 ```sh
+# the reserve: P0 goes to the strong group at any threshold, whatever its labels, until the week is used up
+yardr route add --stage new --depot web --bead-priority 0 --group heavy-builders --note 'P0 reserve'
 # asked for by hand: no condition, so no threshold; only a used-up window waits
-yardr route add --stage new --depot web --label heavy --group heavy-builders --priority 6
-# the reserve: P0 and P1 go to the strong group at any threshold, until the week is used up
-yardr route add --stage new --depot web --bead-priority 1 --group heavy-builders --priority 5
-# a large, hard bead needs more room in the window
+yardr route add --stage new --depot web --label heavy --group heavy-builders
+# a large, hard bead needs more room in the window: two estimates before one
 yardr route add --stage new --depot web --label difficulty:3 --label size:large \
-  --group 'heavy-builders@Weekly<60,5h<50' --priority 4
+  --group 'heavy-builders@Weekly<60,5h<50'
 # the heaviest: the strong group or wait
-yardr route add --stage new --depot web --label difficulty:3 --group 'heavy-builders@Weekly<80,5h<90' --priority 3
-yardr route add --stage new --depot web --label difficulty:2 --group builders --priority 3
+yardr route add --stage new --depot web --label difficulty:3 --group 'heavy-builders@Weekly<80,5h<90'
+yardr route add --stage new --depot web --label difficulty:2 --group builders
 yardr route add --stage new --depot web --label difficulty:1 \
-  --group 'cheap-builders@Weekly<80' --else 'spare-builders@Weekly<80' --else builders --priority 3
+  --group 'cheap-builders@Weekly<80' --else 'spare-builders@Weekly<80' --else builders
 # no estimate: the strong group, and builders when it is nearly used
 yardr route add --stage new --depot web --group 'heavy-builders@Weekly<80,5h<90' --else builders
 ```
 
-A bead with no estimate goes where an unlabelled bead goes: the last
-route, with no filter. Nothing is under-served, and the quota condition
+A P0 bead goes to the reserve whatever else it carries; a bead labelled
+`heavy` goes to the strong group whatever its estimate, since a label
+asked for by name ranks before an estimate. A bead with no estimate goes
+where an unlabelled bead goes: the last route, with no filter. Nothing is under-served, and the quota condition
 is what protects the week.
 
 What the events say of such a table is above: the `claimed` event names
@@ -1827,7 +1853,7 @@ second opinion on another model, reviews the beads labelled
 
 ```sh
 yardr group add brakeman-reviews --runner manual --members brakeman,yardmaster --limit 3
-yardr route add --stage review --depot yardr --label brakeman-review --priority 10 --group brakeman-reviews --originator any
+yardr route add --stage review --depot yardr --label brakeman-review --group brakeman-reviews --originator any
 yardr subscribe brakeman yardr --where stage=review --where label=brakeman-review
 yardr bead update <id> --add-label brakeman-review        # per bead, before it reaches review
 ```
@@ -1848,8 +1874,9 @@ What each piece is for:
   lying. `--limit 3` is how many beads the group holds at once; a fourth
   waits in review, unclaimed, until one leaves.
 - **The route** sends the depot's beads with the label to that group when
-  they are in `review`. `--priority 10` puts it before the depot's own route
-  for `review`, which has priority 0. A bead without the label matches only
+  they are in `review`. The label is asked for by name, so the route ranks
+  before the depot's own route for `review`, which asks for no label. A
+  bead without the label matches only
   that other route and goes to the depot's reviewers as before.
 - **The subscription** is what tells the crew member. A manual group does
   not nudge its members when a bead arrives: `--set notify=true` on the

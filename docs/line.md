@@ -371,7 +371,7 @@ every depot of this yard lands through one group
 is short may have an exec group of its own with the same script, so
 that it does not wait behind a long one: this yard did so for
 footplate on 12 Oct 2026 (`yardr group add footplate-assembly`, and a
-route for stage `approved`, depot footplate, priority 10).
+route for stage `approved`, depot footplate).
 
 ### What the tests do not catch
 
@@ -995,7 +995,7 @@ yardr-x7wf closes`, `footplate-xq35  waits until yardr-x7wf is in
 review`). A ready bead held only by its group is listed too, with the
 route that matched it and the group's count and limit
 (`footplate-xq35  new  waits for builders (2 of 2) by route k2abc
-(label difficulty:1, priority 1)`).
+(label difficulty:1)`).
 
 Both flags are for kind `blocks` only. `--at` names a stage of the
 target's own flow and `--until` a stage of the blocker's, and a stage
@@ -1553,7 +1553,7 @@ yardr depot flow yardr --type train yardr.train                  # the repo's .y
 yardr group add yardr-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-train' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr route add --stage open --type train --depot yardr --group yardr-integrators --priority 10 --originator any
+yardr route add --stage open --type train --depot yardr --group yardr-integrators --originator any
 ```
 
 Each install is the first-time step. Once a script is there, `yardr upgrade`
@@ -1575,7 +1575,7 @@ yardr group add yardr-pr --runner exec --limit 1 \
 yardr group add yardr-pr-merge --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin YARDR_PR=1 ~/.yardr/scripts/pr-merge' \
   --set log="$HOME/.yardr/logs/pr-merge.log"
-yardr route add --stage approved --type train --depot yardr --group yardr-pr --priority 10 --originator any
+yardr route add --stage approved --type train --depot yardr --group yardr-pr --originator any
 yardr group add decisions --runner manual --limit 50 --members mckean,yardmaster,yard   # yard: the daemon, for the hook rules
 yardr route add --stage in-pr --type train --depot yardr --group decisions --originator any
 yardr route add --stage land --type train --depot yardr --group yardr-pr-merge --originator any
@@ -1895,8 +1895,8 @@ yardr group add pr-merges --runner exec --limit 1 \
   --set cmd="$HOME/.yardr/scripts/merge-pr" \
   --set env_file="$HOME/.yardr/env/pr-merges.env" \
   --set log="$HOME/.yardr/logs/pr-merges.log"
-yardr route add --stage approved --type pr --label merge-ok --originator any --priority 12 \
-  --group pr-merges --note "the yard merges a pr bead marked merge-ok; outranks a depot's approved/pr to decisions at 11"
+yardr route add --stage approved --type pr --label merge-ok --originator any \
+  --group pr-merges --note "the yard merges a pr bead marked merge-ok; the label outranks a depot's approved/pr to decisions"
 ```
 
 The App needs Contents and Workflows read and write on the repositories (the
@@ -1905,7 +1905,8 @@ beside the Pull requests and Checks permissions the yard's other calls of
 GitHub use. Each depot with `pr` beads routes the others
 to a person, so the label alone moves a bead to merge-pr and nothing else
 does: `yardr route add --stage approved --type pr --depot <depot> --originator
-any --priority 11 --group decisions`. Without that route a depot's own
-assembly (the route for `approved`, no type, at 10) would run merge-local on a
+any --group decisions`, which its type ranks before the depot's plain
+route. Without that route a depot's own
+assembly (the route for `approved`, no type) would run merge-local on a
 pull request's bead. The script is refreshed by `yardr upgrade` from the
 checkout it builds, once installed ([upgrade.md](upgrade.md#the-scripts)).

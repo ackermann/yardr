@@ -131,7 +131,7 @@ func signedIn(t *testing.T, st store.API, user string, args ...string) (string, 
 }
 
 // routesFor are the routes that take user's beads, by stage, with their bead
-// priority and priority.
+// priority.
 func routesFor(t *testing.T, st store.API, user string) []string {
 	t.Helper()
 	rs, err := st.Routes(context.Background())
@@ -145,7 +145,7 @@ func routesFor(t *testing.T, st store.API, user string) []string {
 			if r.BeadPriority != nil {
 				p = "P" + strconv.Itoa(*r.BeadPriority)
 			}
-			out = append(out, r.Stage+" "+p+" pri "+strconv.Itoa(r.Priority)+" -> "+r.Group)
+			out = append(out, r.Stage+" "+p+" -> "+r.Group)
 		}
 	}
 	slices.Sort(out)
@@ -173,7 +173,7 @@ func TestUserAddWithALogin(t *testing.T) {
 	mustAs(t, st, "jo", "group", "add", "reviewers", "--runner", "herdr", "--set", "kind=claude")
 	mustAs(t, st, "jo", "group", "add", "bench", "--runner", "manual")
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--group", "builders")
-	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--bead-priority", "1", "--priority", "5", "--group", "builders")
+	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--bead-priority", "1", "--group", "builders")
 	mustAs(t, st, "jo", "route", "add", "--stage", "review", "--group", "reviewers")
 	operatorRoutes := func() int {
 		rs, err := st.Routes(ctx)
@@ -269,7 +269,7 @@ func TestUserAddWithALogin(t *testing.T) {
 		g.Config["model"] != "claude-sonnet-5-5" || g.Config["prompt"] != "roles/builder.md" {
 		t.Errorf("ada's group = %+v", g)
 	}
-	if got, want := strings.Join(routesFor(t, st, "ada"), "; "), "new P1 pri 5 -> ada-builders; new any pri 0 -> ada-builders"; got != want {
+	if got, want := strings.Join(routesFor(t, st, "ada"), "; "), "new P1 -> ada-builders; new any -> ada-builders"; got != want {
 		t.Errorf("ada's routes: %s\nwant %s", got, want)
 	}
 	if got := operatorRoutes(); got != before+2 {

@@ -12,8 +12,9 @@ import (
 
 // A route with two labels matches only a bead that has both and is read
 // before a route with one of them; a route with a bead priority matches
-// beads that urgent and no others; and a route with one label and no
-// priority is stored and logged as it always was.
+// beads that urgent and no others, and is read before both, urgency being
+// the first leg; and a route with one label and no bead priority is stored
+// and logged as it always was.
 func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
 	t.Parallel()
 	s, _ := quotaGroups(t)
@@ -69,22 +70,8 @@ func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
 		t.Fatalf("routes = %+v, %v", routes, err)
 	}
 	store.SortRoutes(routes)
-	if routes[0].ID != twoLabels.ID || routes[3].ID != anyBead.ID {
-		t.Fatalf("the route with two labels is not read first, or the one with no filter last: %+v", routes)
-	}
-	// Two routes with one filter each: the lower id is read first, as
-	// between any two routes that are as specific (docs/groups.md: routes
-	// that ask for as much are read "then by route id"). Minted ids carry
-	// no creation order, so the want is the first of the two in the
-	// sorted order, not the one added first.
-	tie := oneLabel
-	for _, r := range routes {
-		if r.ID == oneLabel.ID || r.ID == urgent.ID {
-			if r.ID == urgent.ID {
-				tie = urgent
-			}
-			break
-		}
+	if routes[0].ID != urgent.ID || routes[1].ID != twoLabels.ID || routes[3].ID != anyBead.ID {
+		t.Fatalf("the route by bead priority is not read first, the one with two labels second, or the one with no filter last: %+v", routes)
 	}
 	for _, tc := range []struct {
 		priority int
@@ -98,8 +85,8 @@ func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
 		{0, nil, urgent},
 		{1, nil, urgent},
 		{3, nil, anyBead},
-		{1, []string{hard}, tie},
-		{1, []string{hard, "size:large"}, twoLabels},
+		{1, []string{hard}, urgent},
+		{1, []string{hard, "size:large"}, urgent},
 	} {
 		b := store.Bead{Stage: "new", Type: "task", Labels: tc.labels, Priority: tc.priority}
 		if got := store.MatchRoute(routes, b, ""); got == nil || got.ID != tc.want.ID {
@@ -141,16 +128,16 @@ func TestRouteMatchesSeveralLabelsAndABeadsPriority(t *testing.T) {
 	}
 }
 
-// Two routes as specific as each other are read by route id, the lower
+// Two routes that ask as much on every leg are read by route id, the lower
 // first, whatever order they reach the sort in (docs/groups.md). The ids
 // are explicit, not minted, so the pin is deterministic.
 func TestSortRoutesReadsAnEquallySpecificTieByID(t *testing.T) {
 	t.Parallel()
-	label, prio := "difficulty:3", 1
-	labelled := store.Route{ID: "route-m", Group: "a", Label: &label}
-	urgent := store.Route{ID: "route-a", Group: "b", BeadPriority: &prio}
-	if store.RouteSpecificity(labelled) != store.RouteSpecificity(urgent) {
-		t.Fatalf("the routes are not as specific: %d against %d", store.RouteSpecificity(labelled), store.RouteSpecificity(urgent))
+	hard, large := "difficulty:3", "size:large"
+	labelled := store.Route{ID: "route-m", Group: "a", Label: &hard}
+	urgent := store.Route{ID: "route-a", Group: "b", Label: &large}
+	if leg := store.RankLeg(labelled, urgent); leg != store.LegID {
+		t.Fatalf("the routes differ on %q, not only on id", leg)
 	}
 	for _, in := range [][]store.Route{{labelled, urgent}, {urgent, labelled}} {
 		rs := append([]store.Route(nil), in...)

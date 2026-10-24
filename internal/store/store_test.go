@@ -498,7 +498,7 @@ func TestRoutesAndUpdate(t *testing.T) {
 	}
 	_ = s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "claude"}}, "me")
 	typ := "bug"
-	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "g", Priority: 3}, "me")
+	r, err := s.AddRoute(ctx, store.Route{Stage: "new", Type: &typ, Group: "g"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}

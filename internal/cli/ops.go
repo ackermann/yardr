@@ -713,7 +713,7 @@ yardmaster):
 							line += " · " + f.name + " " + f.v
 						}
 					}
-					fmt.Fprintf(w, "  route %s: %s · priority %d\n", r.ID, line, r.Priority)
+					fmt.Fprintf(w, "  route %s: %s\n", r.ID, line)
 				}
 				for _, gr := range mayCall {
 					fmt.Fprintf(w, "  calls %s%s: %s\n", gr.Source, asSuffix(gr), words(gr))
@@ -937,22 +937,24 @@ every depot that does not state its own route for the same beads (the
 same stage, type, labels, bead priority and originator); with --depot it
 is that depot's own, and sets a default aside only for those beads and
 only there. Of the routes that match a bead, in its depot's effective
-routes, the one with the highest --priority takes it, and among those
-the one that asks for more: each label counts, and a named originator
-counts as one. Where two routes ask for as much, an own route comes
-before a yard default, then the route id decides. A route that takes the
-same beads at the same priority as one of the same scope already
-standing is refused, naming it: the two would be ordered by id, which
-nobody chose. A --note says in words what the priority and the chain
-cannot: why this route ranks as it does. route list prints it.`,
+routes, the first in this order takes it, the first of these that differs
+deciding: urgency (a route with --bead-priority before one without, and
+the narrower threshold first: 0 before 1); asked for by name (more labels
+that are not estimates, as claude or airy); estimate (more labels that
+begin difficulty: or size:); the rest (the type, the depot and a named
+originator count one each); an own route before a yard default; the
+route id. A route that takes the same beads as one of the same scope
+already standing is refused, naming it: the two would be ordered by id,
+which nobody chose. A --note says in words what the filters and the chain
+cannot: why this route is there. route list prints it.`,
 		Example: `  yardr route add --stage new --group webapp/builders --depot webapp
   yardr route add --stage review --group webapp/reviewers
-  yardr route add --stage new --type video --group herald --priority 10
+  yardr route add --stage new --type video --group herald
   yardr route add --stage new --group 'builders@Weekly<80,5h<90' --else spare-builders
   yardr route add --stage new --group 'builders@Weekly<target+10' --else spare-builders
   yardr route add --stage new --group 'builders@machine.load<80' --else wait
   yardr route add --stage new --label difficulty:3 --label size:large --group builders
-  yardr route add --stage new --bead-priority 1 --group builders --priority 5
+  yardr route add --stage new --bead-priority 0 --group builders --note 'P0 reserve'
   yardr route add --stage new --depot web --originator mckean2 --group mckean2-builders`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
@@ -1005,14 +1007,13 @@ cannot: why this route ranks as it does. route list prints it.`,
 	f.StringArrayVarP(&labels, "label", "l", nil, "only beads with this label; repeatable, and the bead must have every one")
 	f.IntVar(&beadPriority, "bead-priority", 0, "only beads of this priority or more urgent: 1 is P0 and P1")
 	f.StringVar(&originator, "originator", "", "only beads for this user, or any for every originator's; unset: the operator's, or any when the first group starts no agents")
-	f.IntVarP(&r.Priority, "priority", "p", 0, "higher wins when several routes match")
-	f.StringVar(&r.Note, "note", "", "why this route ranks as it does, in words; route list prints it")
+	f.StringVar(&r.Note, "note", "", "why this route is there, in words; route list prints it")
 
 	var listDepot string
 	list := &cobra.Command{
 		Use: "list", Short: "List routes in match order", Args: cobra.NoArgs,
 		Long: `List the yard's routes in match order: the scope (the depot's own, or a
-yard default), what each takes, its priority, its groups and its note.
+yard default), what each takes, its groups and its note.
 --depot <depot> lists that depot's effective routes instead: its own routes
 plus the defaults none of them sets aside, each marked own or default, with
 the defaults it sets aside named underneath.`,
@@ -1041,7 +1042,7 @@ the defaults it sets aside named underneath.`,
 						}
 						rows = append(rows, routeRow(r, scope, operator))
 					}
-					table(w, "ID\tSCOPE\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
+					table(w, "ID\tSCOPE\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tGROUP\tNOTE", rows)
 				})
 			}
 			// As depot show fails for a depot that is not there.
@@ -1067,7 +1068,7 @@ the defaults it sets aside named underneath.`,
 				for _, m := range marked {
 					rows = append(rows, routeRow(m.Route, m.Effective, operator))
 				}
-				table(w, "ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tPRI\tGROUP\tNOTE", rows)
+				table(w, "ID\tOWN/DEFAULT\tSTAGE\tTYPE\tLABEL\tBEADS\tORIGINATOR\tGROUP\tNOTE", rows)
 				saySetAside(w, listDepot, aside, operator)
 			})
 		},
@@ -1157,14 +1158,14 @@ func routeByRef(routes []store.Route, ref string) (store.Route, error) {
 
 // routeRow is one route of route list: the mark first (the scope, or own
 // or default in a depot's effective list), then what the route takes, its
-// priority, its groups and its note.
+// groups and its note.
 func routeRow(r store.Route, mark, operator string) []string {
 	orig := operator
 	if r.Originator != nil {
 		orig = *r.Originator
 	}
 	return []string{r.ID, mark, r.Stage, deref(r.Type), or(r.LabelList(), "-"),
-		or(r.BeadPriorities(), "-"), or(orig, "-"), strconv.Itoa(r.Priority), r.GroupList(), store.OneLine(r.Note)}
+		or(r.BeadPriorities(), "-"), or(orig, "-"), r.GroupList(), store.OneLine(r.Note)}
 }
 
 // markedRoute is a route of route list --depot as --json carries it: the
@@ -1213,8 +1214,8 @@ func setAsideKey(r store.Route, operator string) string {
 // route that states its key, as route list --depot and route explain
 // name it.
 func setAsideLine(s store.SetAside, operator string) string {
-	return fmt.Sprintf("%s is stated by %s to %s at priority %d",
-		setAsideKey(s.Route, operator), s.Own.ID, s.Own.GroupList(), s.Own.Priority)
+	return fmt.Sprintf("%s is stated by %s to %s",
+		setAsideKey(s.Route, operator), s.Own.ID, s.Own.GroupList())
 }
 
 // saySetAside names the defaults the depot's own routes set aside,
@@ -1238,13 +1239,12 @@ func saySetAside(w io.Writer, depot string, aside []store.SetAside, operator str
 func (a *app) routeSetCmd() *cobra.Command {
 	var group, note string
 	var further []string
-	var priority int
 	cmd := &cobra.Command{
 		Use:   "set <id>",
 		Short: "Change where a route's beads go and keep the rest",
 		Long: `Changes where a route's beads go and keeps which beads they are:
---group with its quota condition, the further groups with --else,
---priority and --note. What is not named is kept, and the route keeps its
+--group with its quota condition, the further groups with --else, and
+--note. What is not named is kept, and the route keeps its
 id, so events and bead show lines that cite it still name this route.
 --else replaces the further groups, so name every one wanted; --else ''
 drops them, and --note '' drops the note. A set that changes nothing
@@ -1256,12 +1256,12 @@ route's identity, and are not changed here: restate them with yardr route
 rm <id> and yardr route add. A bead claimed through the route keeps its
 group until its session ends; the next claim takes the new chain.`,
 		Example: `  yardr route set 57h28dx9dx9cmydnrzj9 --group 'yardr-builders@Weekly<target' --else muse-builders
-  yardr route set 57h28dx9dx9cmydnrzj9 --priority 5 --note "P0/P1 reserve: strong group whatever the week says"`,
+  yardr route set 57h28dx9dx9cmydnrzj9 --note "P0 reserve: strong group whatever the week says"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			fl := c.Flags()
-			if !fl.Changed("group") && !fl.Changed("else") && !fl.Changed("priority") && !fl.Changed("note") {
-				return fmt.Errorf("nothing to set: give --group, --else, --priority or --note")
+			if !fl.Changed("group") && !fl.Changed("else") && !fl.Changed("note") {
+				return fmt.Errorf("nothing to set: give --group, --else or --note")
 			}
 			var e store.RouteEdit
 			if fl.Changed("group") {
@@ -1284,9 +1284,6 @@ group until its session ends; the next claim takes the new chain.`,
 					tail = append(tail, store.ParseRouteGroup(s))
 				}
 				e.Else = &tail
-			}
-			if fl.Changed("priority") {
-				e.Priority = &priority
 			}
 			if fl.Changed("note") {
 				e.Note = &note
@@ -1316,7 +1313,6 @@ group until its session ends; the next claim takes the new chain.`,
 	f := cmd.Flags()
 	f.StringVarP(&group, "group", "g", "", "the group to send to, with an optional quota condition: 'builders@Weekly<80'")
 	f.StringArrayVar(&further, "else", nil, "a further group, tried when the ones before it are passed over; replaces the further groups, so name every one wanted (--else '' drops them)")
-	f.IntVarP(&priority, "priority", "p", 0, "higher wins when several routes match")
 	f.StringVar(&note, "note", "", "why this route ranks as it does, in words (--note '' drops it)")
 	// The route's identity is no flag of route set, so naming one fails
 	// the parse before RunE: the failure carries the remove-and-add
@@ -1337,7 +1333,7 @@ group until its session ends; the next claim takes the new chain.`,
 }
 
 // routeChanges lists what a route set changed: the first group, the
-// further groups, the priority and the note, as groupChanges does for a
+// further groups and the note, as groupChanges does for a
 // group.
 func routeChanges(was, is store.Route) []defChange {
 	var out []defChange
@@ -1355,9 +1351,6 @@ func routeChanges(was, is store.Route) []defChange {
 	if wt, it := join(was.Groups()[1:]), join(is.Groups()[1:]); wt != it {
 		out = append(out, defChange{"--else", wt, it})
 	}
-	if was.Priority != is.Priority {
-		out = append(out, defChange{"--priority", strconv.Itoa(was.Priority), strconv.Itoa(is.Priority)})
-	}
 	if was.Note != is.Note {
 		out = append(out, defChange{"--note", store.OneLine(was.Note), store.OneLine(is.Note)})
 	}
@@ -1366,7 +1359,7 @@ func routeChanges(was, is store.Route) []defChange {
 
 // routeAddArgs are the words after `yardr route add` that make route r
 // again, in the order the docs write them: its stage, the filters it sets,
-// its groups with their conditions, its priority and its note. The
+// its groups with their conditions, and its note. The
 // originator is left to the caller, since restating a route is how one
 // changes it (route set does not): an add of this with the originator
 // wanted, then a remove of r. The words are as the shell takes them;
@@ -1389,9 +1382,6 @@ func routeAddArgs(r store.Route) []string {
 	args = append(args, "--group", groups[0].String())
 	for _, g := range groups[1:] {
 		args = append(args, "--else", g.String())
-	}
-	if r.Priority != 0 {
-		args = append(args, "--priority", strconv.Itoa(r.Priority))
 	}
 	if r.Note != "" {
 		args = append(args, "--note", r.Note)

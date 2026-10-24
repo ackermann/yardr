@@ -32,9 +32,11 @@ defaults the depot sets aside for the bead's stage, and the winning
 route's groups.
 
 Each matching route after the first names the leg that placed it below
-the one above: priority, specificity (how much the route asks for: the
-type, the depot, the bead priority, each label and a named originator
-count as one), own before default, or id.
+the one above, the first of these on which the two differ: urgency (a
+bead-priority filter, the narrower threshold first), asked for by name
+(more labels that are not estimates), estimate (more labels that begin
+difficulty: or size:), the rest (the type, the depot and a named
+originator count one each), own before default, or id.
 
 A bead with no depot is explained against the yard defaults. A bead
 that pins a flow is explained as its unpinned twin: routing reads the
@@ -120,7 +122,7 @@ type routeExplainHit struct {
 
 // routeExplainLeg is the ranking leg that placed a matching route below
 // the one above it: Above names that route, and Over its count and this
-// route's for the two counted legs.
+// route's for the counted legs (asked for by name, estimate, the rest).
 type routeExplainLeg struct {
 	Above string `json:"above"`
 	Leg   string `json:"leg"`
@@ -177,10 +179,12 @@ func explainBeadRouting(b store.Bead, routes []store.Route, groups map[string]st
 			above := exp.Matches[n-1].Route
 			leg := &routeExplainLeg{Above: above.ID, Leg: store.RankLeg(above, r)}
 			switch leg.Leg {
-			case store.LegPriority:
-				leg.Over = []int{above.Priority, r.Priority}
-			case store.LegSpecificity:
-				leg.Over = []int{store.RouteSpecificity(above), store.RouteSpecificity(r)}
+			case store.LegByName:
+				leg.Over = []int{store.RouteByName(above), store.RouteByName(r)}
+			case store.LegEstimate:
+				leg.Over = []int{store.RouteEstimates(above), store.RouteEstimates(r)}
+			case store.LegRest:
+				leg.Over = []int{store.RouteRest(above), store.RouteRest(r)}
 			}
 			hit.Leg = leg
 		}
@@ -228,7 +232,7 @@ func printRouteExplanation(w io.Writer, exp routeExplanation, operator string) {
 				fmt.Fprintln(w, s+"  WINNER")
 				continue
 			}
-			fmt.Fprintf(w, "%s  (%s)\n", s, explainLegText(i, m.Route, exp.Matches[i-1].Route, m.Leg))
+			fmt.Fprintf(w, "%s  (%s)\n", s, explainLegText(i, m.Leg))
 		}
 	}
 	if len(exp.NonMatching) == 0 {
@@ -284,31 +288,20 @@ func explainBeadLine(b routeExplainBead, operator string) string {
 }
 
 // explainRouteDesc is a route of the explanation as its line names it:
-// the stage, what of the bead matched in routeMatch's words, and the
-// priority.
+// the stage, and what of the bead matched in routeMatch's words.
 func explainRouteDesc(r store.Route) string {
 	desc := r.Stage
 	if m := routeMatch(r); m != "" {
 		desc += ", " + m
 	}
-	return fmt.Sprintf("%s, priority %d", desc, r.Priority)
+	return desc
 }
 
-// explainLegText is the leg that placed r below o, the route above it,
-// in words: which of the two counts for the counted legs, and the
-// neighbour's number. above is o's number in the matches.
-func explainLegText(above int, r, o store.Route, leg *routeExplainLeg) string {
-	switch leg.Leg {
-	case store.LegPriority:
-		return fmt.Sprintf("%d wins on priority: %d over %d", above, o.Priority, r.Priority)
-	case store.LegSpecificity:
-		return fmt.Sprintf("%d wins on specificity: %d over %d", above,
-			store.RouteSpecificity(o), store.RouteSpecificity(r))
-	case store.LegOwnBeforeDefault:
-		return fmt.Sprintf("%d wins: own before default", above)
-	default:
-		return fmt.Sprintf("%d wins on id", above)
-	}
+// explainLegText is the leg that placed a route below the one above it,
+// in words: the neighbour's number and the leg's name. above is that
+// neighbour's number in the matches.
+func explainLegText(above int, leg *routeExplainLeg) string {
+	return fmt.Sprintf("below %d: %s", above, leg.Leg)
 }
 
 // printExplainSetAside names the defaults the bead's depot sets aside

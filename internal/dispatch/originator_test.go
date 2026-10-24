@@ -25,7 +25,7 @@ func TestUnroutedNamesOriginator(t *testing.T) {
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "jo"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "hal-builders", Runner: "fake", Limit: 5}, "jo"))
 	jo, hal := "jo", "hal"
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders", Priority: 10, Originator: &jo}, "jo")
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders", Originator: &jo}, "jo")
 	must(t, err)
 	halBead, err := s.CreateBead(ctx, store.NewBead{Title: "hal's", For: "hal"}, "jo")
 	must(t, err)

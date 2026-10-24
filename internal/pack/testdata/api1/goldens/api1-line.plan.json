@@ -358,8 +358,7 @@
         "stage": "backlog",
         "depot": "web",
         "group": "keepers",
-        "originator": "any",
-        "priority": 0
+        "originator": "any"
       }
     },
     {
@@ -369,8 +368,7 @@
       "route": {
         "stage": "new",
         "depot": "web",
-        "group": "web-builders",
-        "priority": 0
+        "group": "web-builders"
       }
     },
     {
@@ -380,8 +378,7 @@
       "route": {
         "stage": "review",
         "depot": "web",
-        "group": "web-reviewers",
-        "priority": 0
+        "group": "web-reviewers"
       }
     },
     {
@@ -392,8 +389,7 @@
         "stage": "landed",
         "depot": "web",
         "group": "web-assembly",
-        "originator": "any",
-        "priority": 0
+        "originator": "any"
       }
     },
     {
@@ -404,8 +400,7 @@
         "stage": "decide",
         "depot": "web",
         "group": "keepers",
-        "originator": "any",
-        "priority": 0
+        "originator": "any"
       }
     },
     {
@@ -417,8 +412,7 @@
         "depot": "web",
         "type": "issue",
         "group": "keepers",
-        "originator": "any",
-        "priority": 0
+        "originator": "any"
       }
     },
     {
@@ -429,8 +423,7 @@
         "stage": "kept",
         "depot": "web",
         "type": "issue",
-        "group": "web-builders",
-        "priority": 0
+        "group": "web-builders"
       }
     },
     {

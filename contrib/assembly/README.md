@@ -256,7 +256,7 @@ yardr depot flow yardr --type train yardr.train                  # the repo's .y
 yardr group add yard-integrators --runner exec --limit 1 \
   --set cmd='YARDR_PUSH=origin ~/.yardr/scripts/integrate-train' \
   --set log="$HOME/.yardr/logs/integrator.log"
-yardr route add --stage open --type train --depot yard --group yard-integrators --priority 10 --originator any
+yardr route add --stage open --type train --depot yard --group yard-integrators --originator any
 ```
 
 The install is the first-time step: from then on `yardr upgrade` refreshes

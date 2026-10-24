@@ -106,9 +106,22 @@ func TestExportRoundTrip(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "web-testers", Runner: "herdr", Limit: 2, Config: map[string]any{"prompt": tester, "kind": "claude", "model": "opus"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	depot := "web"
-	if _, err := st.AddRoute(ctx, store.Route{Stage: "review", Depot: &depot, Group: "web-testers", Priority: 9}, "me"); err != nil {
+	// The import's route for review, retuned by hand to the testers.
+	routes, err := st.Routes(ctx)
+	if err != nil {
 		t.Fatal(err)
+	}
+	retuned := false
+	for _, r := range routes {
+		if r.Stage == "review" && r.Depot != nil && *r.Depot == "web" && r.Group == "web-reviewers" {
+			if _, err := st.SetRoute(ctx, r.ID, store.RouteEdit{Group: &store.RouteGroup{Name: "web-testers"}}, "me"); err != nil {
+				t.Fatal(err)
+			}
+			retuned = true
+		}
+	}
+	if !retuned {
+		t.Fatalf("no route of web sends review to web-reviewers: %+v", routes)
 	}
 	// A limit on rounds, changed by hand: the starter sends review-security's
 	// changes to decide after three rounds back to new (decide is also where
@@ -174,15 +187,10 @@ func TestExportRoundTrip(t *testing.T) {
 			t.Errorf("pack.yaml lacks %q:\n%s", want, packYAML)
 		}
 	}
-	// The added route has the higher priority, so it beats the reviewers'
-	// plain route, which serves both flows: it and its group are said,
-	// not dropped.
+	// The retuned route serves both flows, and no route leads to the
+	// reviewers.
 	if _, has := groups["reviewers"]; has || len(groups) != 6 {
 		t.Errorf("groups = %v, want the six a followed route leads to", groups)
-	}
-	if !leftHas(ex, "route depot web stage review -> web-reviewers", "another route of the stage") ||
-		!leftHas(ex, "group web-reviewers: not in the pack") {
-		t.Errorf("left out lacks the beaten route:\n%s", strings.Join(ex.Left, "\n"))
 	}
 	if !leftHas(ex, "group web-builders", "kind, model") || !leftHas(ex, "group backlog", "members") {
 		t.Errorf("left out lacks what the groups keep in the yard:\n%s", strings.Join(ex.Left, "\n"))
@@ -223,7 +231,7 @@ func TestExportRoundTrip(t *testing.T) {
 			t.Errorf("flow %d differs:\n%s\n---\n%s", i, a.String(), b.String())
 		}
 	}
-	routes, _ := st2.Routes(ctx)
+	routes, _ = st2.Routes(ctx)
 	store.SortRoutes(routes)
 	site := "site"
 	if r := store.MatchRoute(routes, store.Bead{Stage: "review", Depot: &site, Priority: store.DefaultPriority}, ""); r == nil || r.Group != "site-testers" {
@@ -477,8 +485,8 @@ func route(t *testing.T, st store.API, r store.Route) {
 // A stage gets the group that works it today only where that is one plain
 // route in the depot's effective set. An own route of a default's key sets
 // that default aside for this depot alone, so the own route works a stage
-// even under a higher-priority default of the same key, and a plain yard
-// default alone works its stage and is followed. A quotaed winner, and a
+// whichever was added first, and a plain yard default alone works its
+// stage and is followed. A quotaed winner, and a
 // filtered route that wins for only some beads before a whole-flow route,
 // leave the stage with no group, and every such route is listed with its
 // groups and why.
@@ -490,20 +498,19 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 	route(t, st, store.Route{Stage: "a", Group: "wide"})
 	// b: a yard default alone: the pack follows it.
 	route(t, st, store.Route{Stage: "b", Group: "wide"})
-	// c: a yard default of a higher priority is still set aside by the
-	// depot's own route of the same key.
+	// c: the same, the default added first.
+	route(t, st, store.Route{Stage: "c", Group: "wide"})
 	route(t, st, store.Route{Stage: "c", Depot: &depot, Group: "web-one"})
-	route(t, st, store.Route{Stage: "c", Group: "wide", Priority: 5})
 	// d: the depot's route has a further group.
 	route(t, st, store.Route{Stage: "d", Depot: &depot, Group: "web-one", Else: []store.RouteGroup{{Name: "other"}}})
 	// e: a route by label beside the plain one.
 	route(t, st, store.Route{Stage: "e", Depot: &depot, Group: "web-one"})
 	route(t, st, store.Route{Stage: "e", Depot: &depot, Label: &label, Group: "web-two"})
-	// f: a whole-flow route outranks filtered routes, so they cannot win.
+	// f: the depot's whole-flow route outranks a yard default by type,
+	// which asks as much (its type against the depot), so it cannot win.
 	typeTrain := "train"
-	route(t, st, store.Route{Stage: "f", Depot: &depot, Group: "web-one", Priority: 5})
-	route(t, st, store.Route{Stage: "f", Depot: &depot, Label: &label, Group: "web-two", Priority: 4})
-	route(t, st, store.Route{Stage: "f", Depot: &depot, Type: &typeTrain, Group: "web-two", Priority: 3})
+	route(t, st, store.Route{Stage: "f", Depot: &depot, Group: "web-one"})
+	route(t, st, store.Route{Stage: "f", Type: &typeTrain, Group: "web-two"})
 
 	ex, dir := export(t, st, "web", home, "")
 	p := load(t, dir)
@@ -525,8 +532,7 @@ func TestExportFollowsTheRouteThatWorksTheStage(t *testing.T) {
 		{"stage e of flow hand: no group in the pack", "only some of its beads"},
 		{"route depot web stage e label hard -> web-two", "label"},
 		{"route depot web stage e -> web-one", "another route of the stage"},
-		{"route depot web stage f label hard -> web-two", "label"},
-		{"route depot web stage f type train -> web-two", "type train"},
+		{"route yard default stage f type train -> web-two", "type train"},
 		{"group other: not in the pack"},
 		{"group web-two: not in the pack"},
 	} {

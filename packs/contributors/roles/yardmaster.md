@@ -219,10 +219,13 @@ What you do:
 
 When a bead is shaped well enough to leave `backlog`, estimate it: two
 labels, how hard and how large, and a third, what kind of change it is.
-The names are the operator's convention, not yardr's: yardr gives no label
-a meaning, and the depot's routes match them exactly to choose which group
-builds the bead. Importance is the bead's priority, which exists: 0 is
-highest, 2 the default.
+The `difficulty:` and `size:` prefixes are the yard's: a route for an
+estimate ranks after a route for a label asked for by name (a harness's,
+a peer's), and the depot's routes match each label exactly to choose
+which group builds the bead. The rubric and the `kind:` label are the
+operator's convention. Importance is the bead's priority, which exists:
+0 is highest, 2 the default, and a P0 bead goes to whatever route takes
+P0 beads before any label is read.
 
 The rubric, until the operator changes it:
 
@@ -253,7 +256,10 @@ none: nothing to see.
 labels are given one per `--add-label`, so two estimates in one flag are
 refused. Estimate what the bead is, not where
 it should go: the routes decide the group, and the quota can change their
-answer. A bead with no estimate goes where an unlabelled bead goes, to
+answer. Where an estimate goes is `yardr route list` (`yardr route
+explain <id>` for one bead), and nowhere else: keep no copy of it in your
+memory, and change your mind with `yardr route set <route> --group …
+--note "why"`. A bead with no estimate goes where an unlabelled bead goes, to
 the route with no label filter. When an estimate proves wrong, change the
 label (`--remove-label` the old one, `--add-label` the new); a bead its
 group already holds is routed again with `yardr bead release <id>`.

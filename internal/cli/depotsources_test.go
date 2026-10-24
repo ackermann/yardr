@@ -275,7 +275,7 @@ func TestDepotSourcesIncludesAllPotentialRouteGroups(t *testing.T) {
 	for _, r := range []store.Route{
 		// A label-specific route may win for beads that carry this label,
 		// even though the ordinary route also matches the review stage.
-		{Stage: "review", Depot: &depot, Label: &label, Group: "web-specialists", Priority: 10},
+		{Stage: "review", Depot: &depot, Label: &label, Group: "web-specialists"},
 		// Unscoped routes apply to beads in this depot too, including a stage
 		// outside the current flow.
 		{Stage: "review", Group: "yard-general"},

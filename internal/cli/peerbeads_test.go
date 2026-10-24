@@ -191,7 +191,7 @@ func TestPeerIntakeCommand(t *testing.T) {
 	}
 	// Types routed apart are said apart.
 	mustAs(t, st, "jo", "route", "add", "--stage", "arrived", "--group", "makers", "--label", "from-north")
-	mustAs(t, st, "jo", "route", "add", "--stage", "arrived", "--group", "lookers", "--type", "bug", "--priority", "5")
+	mustAs(t, st, "jo", "route", "add", "--stage", "arrived", "--group", "lookers", "--type", "bug", "--label", "from-north")
 	if out := mustAs(t, st, "jo", "peer", "show", "north"); !strings.Contains(out, "its beads arrive in the stage arrived, by their type: a task or a feature, which agents of the group makers work: WORK STARTS ON EACH UNSEEN, on the other yard's text; "+
 		"a bug, which people work: a member of the group lookers (jo) moves each on (yardr bead done) or closes it; at most 10 open, 0 now\n") ||
 		!strings.Contains(out, "nobody is told of a bead that waits there: yardr group set lookers wait=1d") {

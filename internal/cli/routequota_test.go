@@ -86,10 +86,10 @@ func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
 			plain = strings.Join(strings.Fields(line), " ")
 		}
 	}
-	if want := r.ID + " default new - - - - 0 a@Weekly<80,5h<90 else b"; row != want {
+	if want := r.ID + " default new - - - - a@Weekly<80,5h<90 else b"; row != want {
 		t.Errorf("route list row = %q, want %q", row, want)
 	}
-	if !strings.HasSuffix(plain, " default review - - - any 0 people") {
+	if !strings.HasSuffix(plain, " default review - - - any people") {
 		t.Errorf("a route with one group lists as %q, want its group alone", plain)
 	}
 	if out, err := run(t, a.groupCmd(), "show", "b"); err != nil || !strings.Contains(out, r.ID) {
@@ -188,7 +188,7 @@ func TestRouteAddTakesASourceConditionWaitAndOneExecGroup(t *testing.T) {
 		{[]string{"--group", "a@machine.load<80,Weekly<80", "--else", "b"}, "a@machine.load<80,Weekly<80 else b"},
 	} {
 		errs := captureStderr(t)
-		id, err := routeErr(t, a, errs, append([]string{"add", "--stage", "new", "--priority", strconv.Itoa(i + 1)}, tc.args...)...)
+		id, err := routeErr(t, a, errs, append([]string{"add", "--stage", "new", "--label", "case-" + strconv.Itoa(i+1)}, tc.args...)...)
 		if err != nil {
 			t.Fatalf("route add %v: %v", tc.args, err)
 		}

@@ -443,16 +443,16 @@ func TestDoctorNotesARouteNarrowedOnAGroupWithoutAgents(t *testing.T) {
 	}
 
 	// Noted: a user named on a route to a script or to people, with the
-	// route's filters, priority and note to restate; and a route moved from
+	// route's filters and note to restate; and a route moved from
 	// agents to a script, which still names nobody.
-	build := route("--stage", "build", "--group", "scripts", "--originator", "hal", "--label", "release", "--priority", "3", "--note", "hal's own release")
+	build := route("--stage", "build", "--group", "scripts", "--originator", "hal", "--label", "release", "--note", "hal's own release")
 	sign := route("--stage", "sign", "--group", "desk", "--originator", "hal")
 	land := route("--stage", "land", "--group", "agents")
 	mustAs(t, st, "jo", "route", "set", land, "--group", "scripts")
 	why := ", which starts no agents and bills no subscription, so narrowing it saves nothing and strands everyone else's beads at "
 	want := []string{
 		"route " + build + " (stage build, label release, originator hal) takes only hal's beads to exec group scripts" + why + "build unless another route takes them. " +
-			"Change it: " + y + " route add --stage build --label release --group scripts --priority 3 --note 'hal'\\''s own release' --originator any, then " + y + " route rm " + build,
+			"Change it: " + y + " route add --stage build --label release --group scripts --note 'hal'\\''s own release' --originator any, then " + y + " route rm " + build,
 		"route " + sign + " (stage sign, originator hal) takes only hal's beads to manual group desk" + why + "sign unless another route takes them. " +
 			"Change it: " + y + " route add --stage sign --group desk --originator any, then " + y + " route rm " + sign,
 		"route " + land + " (stage land) takes only the operator's beads to exec group scripts" + why + "land unless another route takes them. " +

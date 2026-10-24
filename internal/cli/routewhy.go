@@ -125,32 +125,30 @@ type groupWait struct {
 	Group  string
 	Active int
 	Limit  int
-	// Route matched the bead; Match is what of it matched, Priority the
-	// route's.
-	Route    string
-	Match    string
-	Priority int
+	// Route matched the bead; Match is what of it matched.
+	Route string
+	Match string
 	// Quota is the stored quota_wait's why, where one of this route and
 	// stage still holds the bead; "" otherwise.
 	Quota string
 }
 
 // line is the wait for a person: "waits for builders (2 of 2) by route
-// k2abc (label difficulty:1, priority 1)", or "(paused)" where the group's
-// limit is 0.
+// k2abc (label difficulty:1)", or "(paused)" where the group's limit is 0.
+// A route that sets no filter names nothing in brackets.
 func (w *groupWait) line() string {
 	if w == nil {
 		return ""
 	}
-	by := fmt.Sprintf("priority %d", w.Priority)
+	by := ""
 	if w.Match != "" {
-		by = w.Match + ", " + by
+		by = " (" + w.Match + ")"
 	}
 	slots := fmt.Sprintf("%d of %d", w.Active, w.Limit)
 	if w.Limit == 0 {
 		slots = "paused"
 	}
-	s := fmt.Sprintf("waits for %s (%s) by route %s (%s)",
+	s := fmt.Sprintf("waits for %s (%s) by route %s%s",
 		w.Group, slots, w.Route, by)
 	if w.Quota != "" {
 		s += "; quota: " + w.Quota
@@ -160,7 +158,7 @@ func (w *groupWait) line() string {
 
 // routeMatch is what of a bead r matched, as the group wait names it:
 // the filters the route sets, in route list's column order. A route that
-// sets none matches any bead of its stage, and names only its priority.
+// sets none matches any bead of its stage, and names nothing.
 func routeMatch(r store.Route) string {
 	var parts []string
 	if r.Type != nil {
@@ -254,7 +252,7 @@ func (y *waitView) waitFor(b *store.Bead, routed *beadRouting) *groupWait {
 		return nil
 	}
 	w := &groupWait{Group: g, Active: y.active[g], Limit: grp.Limit,
-		Route: r.ID, Match: routeMatch(*r), Priority: r.Priority}
+		Route: r.ID, Match: routeMatch(*r)}
 	// A quota the stored wait says holds it, from the stored event, never
 	// by asking the provider: only where it is of this route, in this
 	// stage as routingOf already holds.

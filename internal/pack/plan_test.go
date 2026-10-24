@@ -465,12 +465,12 @@ func TestYardSetUpByHand(t *testing.T) {
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}, "me"))
 	depot := "web"
 	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "review-security": "web-security-reviewers", "clear": "decisions", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3}, "me")
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}, "me")
 		must(err)
 	}
 	train := store.TypeTrain
 	for stage, group := range map[string]string{"backlog": "backlog", "open": "web-builders", "review": "web-reviewers", "review-security": "web-security-reviewers", "approved": "web-assembly", "in-pr": "decisions", "land": "web-assembly", "merge": "decisions", "decide": "decisions"} {
-		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Type: &train, Depot: &depot, Group: group, Priority: 3}, "me")
+		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Type: &train, Depot: &depot, Group: group}, "me")
 		must(err)
 	}
 	_, err := st.PutCrew(ctx, store.CrewMember{Name: "boss", Runner: "herdr", Dir: "/home/boss", MaxAge: "6h",
@@ -522,7 +522,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	if g := find(t, plan, "group", "backlog"); g.Action != pack.Unchanged || g.Group.Limit != 50 || !reflect.DeepEqual(g.Group.Members, []string{"ann", "boss"}) {
 		t.Fatalf("backlog = %+v %+v", g, g.Group)
 	}
-	if rt := find(t, plan, "route", "depot web stage new -> web-builders"); rt.Action != pack.Unchanged || rt.Route.Priority != 3 || len(rt.Route.Delete) != 0 {
+	if rt := find(t, plan, "route", "depot web stage new -> web-builders"); rt.Action != pack.Unchanged || len(rt.Route.Delete) != 0 {
 		t.Fatalf("route new = %+v %+v", rt, rt.Route)
 	}
 	res := find(t, plan, "crew", "boss")
@@ -659,7 +659,7 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 	if err := st.PutGroup(ctx, store.Group{Name: "others", Runner: "manual"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	extra, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "others", Priority: 9}, "me")
+	extra, err := st.AddRoute(ctx, store.Route{Stage: "new", Depot: &depot, Group: "others"}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
