@@ -35,8 +35,9 @@ func keyLabel(key string) string { return "ed25519:" + key }
 func (a *app) edgeCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "edge", Short: "The edge this yard is connected to, which takes its webhooks with no open port",
 		Long: `The edge is a service that stands in front of yards. It takes the webhooks
-senders post to https://<edge>/hooks/<handle>/<hook> and hands them to the
-yard connected under that handle, which still verifies each one itself. A
+senders post to https://<edge>/hooks/<account>/<yard>/<hook> and hands them
+to the yard connected under that account and name, which still verifies each
+one itself. A
 connected yard dials out, so it needs no open port and no tunnel of its own.
 
   yardr edge connect <url>    connect this yard: fetch the edge's key, show it,
@@ -55,10 +56,11 @@ Connecting sets the edge setting and hook_public_url (yardr settings).`}
 type edgeView struct {
 	Connected bool   `json:"connected"`
 	URL       string `json:"url,omitempty"`
-	// Key is the edge's key as this yard pinned it, and Handle what the edge
-	// calls this yard.
+	// Key is the edge's key as this yard pinned it, Handle the account's at
+	// the edge, and Name this yard's among its yards.
 	Key    string `json:"key,omitempty"`
 	Handle string `json:"handle,omitempty"`
+	Name   string `json:"name,omitempty"`
 	// HooksURL is where the edge takes this yard's webhooks, a hook's name
 	// after it. HookPublicURL is the setting as it is now, which is HooksURL
 	// unless it was changed after connecting, and Replaced the one connecting
@@ -102,7 +104,7 @@ func edgeLinkLine(s edgelink.State, known bool, yardr string) string {
 }
 
 func viewOf(e store.Edge, settings map[string]string) edgeView {
-	return edgeView{Connected: true, URL: e.URL, Key: e.Key, Handle: e.Handle, HooksURL: e.HooksURL(),
+	return edgeView{Connected: true, URL: e.URL, Key: e.Key, Handle: e.Handle, Name: e.Name, HooksURL: e.HooksURL(),
 		HookPublicURL: settings[store.HookPublicURLSetting], Replaced: e.HookPublicURL}
 }
 
@@ -118,7 +120,8 @@ func edgeOf(settings map[string]string) (store.Edge, bool, error) {
 }
 
 func (a *app) edgeConnectCmd() *cobra.Command {
-	return &cobra.Command{
+	var as string
+	cmd := &cobra.Command{
 		Use: "connect <url>", Short: "Connect this yard to an edge: fetch its key, show it, enrol by a code", Args: cobra.ExactArgs(1),
 		Long: `Connects this yard to the edge at <url>, such as https://my.yardr.dev, which
 then takes this yard's webhooks and hands them to it.
@@ -131,29 +134,35 @@ different machine behind the name, or a different key served later moves
 nothing. To check the key, compare it with the one published at
 ` + publishedKeyAt + `.
 
-Then the yard enrols. It sends its public key and its name, signed to the
-edge's key, and gets a code back. Open <url>/connect, sign in to your account
-there and enter the code. The page shows this yard's name and the start of
-its key before you approve it. You type and paste nothing on this machine:
-the yard's key is its credential, and every answer from the edge is checked
-against the pinned key.
+Then the yard enrols. It sends its public key and the name it proposes for
+itself at the edge, signed to the edge's key, and gets a code back. Open
+<url>/connect, sign in to your account there and enter the code. The page
+shows this yard's proposed name and the start of its key before you approve
+it, and you may change the name there; what the edge answers back is kept.
+You type and paste nothing on this machine: the yard's key is its credential,
+and every answer from the edge is checked against the pinned key. The
+proposal is the yard's own name, or --as <name> to choose another, in lower
+case letters, digits and '-'.
 
 Connecting sets the edge setting, and sets hook_public_url to
-<url>/hooks/<handle>, where the edge takes this yard's webhooks, so hooks
-print and register the right URL. A hook_public_url you had set is kept
+<url>/hooks/<account>/<yard>, where the edge takes this yard's webhooks, so
+hooks print and register the right URL. A hook_public_url you had set is kept
 inside the edge setting, and yardr edge disconnect puts it back.
 
 A yard connects to one edge at a time: run yardr edge disconnect before
 connecting again. Only the operator connects a yard. With --json the command
 prints two documents: the keys and the code at once, the result at the end.`,
-		Example: `  yardr edge connect https://my.yardr.dev`,
+		Example: `  yardr edge connect https://my.yardr.dev
+  yardr edge connect https://my.yardr.dev --as airy`,
 		RunE: func(c *cobra.Command, args []string) error {
-			return a.edgeConnect(c, args[0])
+			return a.edgeConnect(c, args[0], as)
 		},
 	}
+	cmd.Flags().StringVar(&as, "as", "", "the name this yard proposes for itself at the edge (default: the yard's own name)")
+	return cmd
 }
 
-func (a *app) edgeConnect(c *cobra.Command, address string) error {
+func (a *app) edgeConnect(c *cobra.Command, address, as string) error {
 	ctx := c.Context()
 	w, warn := c.OutOrStdout(), c.ErrOrStderr()
 	addr := strings.TrimRight(address, "/")
@@ -181,13 +190,22 @@ func (a *app) edgeConnect(c *cobra.Command, address string) error {
 	if was, connected, err := edgeOf(settings); err != nil {
 		return err
 	} else if connected {
-		return fmt.Errorf("this yard is already connected to %s as %s: run yardr edge disconnect first. "+
-			"The key it pinned stays the edge's until then; only a new connection pins another", was.URL, was.Handle)
+		return fmt.Errorf("this yard is already connected to %s as %s/%s: run yardr edge disconnect first. "+
+			"The key it pinned stays the edge's until then; only a new connection pins another", was.URL, was.Handle, was.Name)
 	}
+	// The name the yard proposes for itself at the edge: its own, or the
+	// operator's choice. The edge takes only its own rule, which the yard's
+	// own name may not meet.
+	asWasSet := c.Flags().Changed("as")
 	name := runner.YardName(cfg.Home, settings)
-	if !yardkey.ValidName(name) {
-		return fmt.Errorf("this yard's name %q is none the edge can be given: name it with %s settings set name <name>, in letters, digits, '.', '_', '-' and '/'",
-			name, yardrAt(cfg.Home))
+	if asWasSet {
+		name = as
+	}
+	if err := store.CheckEdgeName(name); err != nil {
+		if !asWasSet {
+			return fmt.Errorf("%w; this yard enrols under another name with --as <name>", err)
+		}
+		return fmt.Errorf("--as %w", err)
 	}
 
 	// Ctrl+C ends the wait for the approval: nothing is written until it
@@ -250,9 +268,9 @@ func (a *app) edgeConnect(c *cobra.Command, address string) error {
 		}
 	}
 	// What the edge answered is shown, and kept, only as the setting keeps
-	// it: a handle that is no path segment would make the hook address one
-	// that points somewhere else.
-	edge := store.Edge{URL: addr, Key: edgeKey, Handle: en.Handle}
+	// it: a handle or name that is no path segment would make the hook
+	// address one that points somewhere else.
+	edge := store.Edge{URL: addr, Key: edgeKey, Handle: en.Handle, Name: en.Name}
 	if err := store.CheckEdge(edge.String()); err != nil {
 		return fmt.Errorf("the edge approved this yard, and what it answered cannot be kept: %w; nothing was written", err)
 	}
@@ -260,7 +278,7 @@ func (a *app) edgeConnect(c *cobra.Command, address string) error {
 	if en.Email != "" {
 		by = "by " + en.Email + " "
 	}
-	a.progress(w, warn, "… approved %sas %s", by, en.Handle)
+	a.progress(w, warn, "… approved %sas %s/%s", by, en.Handle, en.Name)
 
 	// The setting as it is now, not as it was before the wait: a hand that
 	// set it meanwhile is the one connecting replaces. Keep it even when it
@@ -300,8 +318,9 @@ func (a *app) edgeStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use: "status", Short: "Say which edge this yard is connected to", Args: cobra.NoArgs,
 		Long: `Says which edge this yard is connected to: its address, the key this yard
-pinned, the handle the edge gave it, and where webhooks reach it through the
-edge. It reads what yardr edge connect wrote and does not call the edge.`,
+pinned, the account's handle and this yard's name at the edge, and where
+webhooks reach it through the edge. It reads what yardr edge connect wrote
+and does not call the edge.`,
 		RunE: func(c *cobra.Command, _ []string) error {
 			ctx := c.Context()
 			st, err := a.store(ctx)
@@ -330,7 +349,7 @@ edge. It reads what yardr edge connect wrote and does not call the edge.`,
 				view.Link = &s
 			}
 			return a.out(c.OutOrStdout(), view, func(w io.Writer) {
-				fmt.Fprintf(w, "edge      %s  (key %s, as handle %s)\n", view.URL, keyLabel(view.Key), view.Handle)
+				fmt.Fprintf(w, "edge      %s  (key %s, as %s/%s)\n", view.URL, keyLabel(view.Key), view.Handle, view.Name)
 				s, known := edgelink.State{}, view.Link != nil
 				if known {
 					s = *view.Link

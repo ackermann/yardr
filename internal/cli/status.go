@@ -105,6 +105,7 @@ type hookStatus struct {
 type edgeStatus struct {
 	URL    string `json:"url"`
 	Handle string `json:"handle"`
+	Name   string `json:"name"`
 	// Link is the link as the running server last said it is; absent while
 	// it has said nothing.
 	Link *edgelink.State `json:"link,omitempty"`
@@ -340,7 +341,7 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 		return nil, err
 	}
 	if e, connected, _ := store.EdgeOf(all); connected {
-		rep.Edge = &edgeStatus{URL: e.URL, Handle: e.Handle}
+		rep.Edge = &edgeStatus{URL: e.URL, Handle: e.Handle, Name: e.Name}
 		// Where a sender posts to, through the edge, when the yard's own
 		// listener gives no address.
 		if rep.Hooks != nil {
@@ -564,7 +565,7 @@ func (r *statusReport) parts() []statusPart {
 		if known {
 			s = *e.Link
 		}
-		parts = append(parts, statusPart{"edge", []string{e.URL + " as handle " + e.Handle, "link " + edgeLinkLine(s, known, yardr)}})
+		parts = append(parts, statusPart{"edge", []string{e.URL + " as " + e.Handle + "/" + e.Name, "link " + edgeLinkLine(s, known, yardr)}})
 	}
 
 	if len(r.Peers) > 0 {

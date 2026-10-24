@@ -902,7 +902,10 @@ It then calls as mckean until: yardr user device rm mckean phone
   device with the code. Without it, it is the listener's own address, which
   is right on one machine or one network, or the edge's when the yard's link
   is up and it listens nowhere; a listener on every address (`:8790`) needs
-  it. A yard with neither opens no pairing.
+  it. A yard with neither opens no pairing. Where the address is the edge's,
+  the device is also given this yard's name at the edge, printed as a `yard`
+  line beside the address, so it knows which of the account's yards it pairs
+  with.
 - **The device is added when the code is used**, as by the operator who
   opened the pairing, and is then a device as `device add` makes one: the
   store keeps the token's SHA-256, `device list` and `device rm` know it.
@@ -910,21 +913,26 @@ It then calls as mckean until: yardr user device rm mckean phone
   the yard has not, a second device of the name. If either becomes true
   while the pairing is open, the code is used and nothing is added.
 - **`--json`** prints `{"pairing", "user", "device", "code", "address",
-  "expires", "qr"}`, where `qr` is what the QR code holds, and draws
-  nothing.
+  "yard", "expires", "qr"}`, where `qr` is what the QR code holds, `yard`
+  this yard's name at the edge where the address is the edge's (absent
+  otherwise), and draws nothing.
 
 **What the QR code holds.** With `--qr` the command also draws a QR code in
 the terminal, for a phone to read in place of the address and the code
 being typed. It holds one line of text and nothing else:
 
 ```text
-<address>#<code>        https://mac.example.net#K7QM-2XPD
+<address>#<code>               https://mac.example.net#K7QM-2XPD
+<address>#<code>#<yard>        https://my.yardr.dev#K7QM-2XPD#airy
 ```
 
-`<address>` is the yard's address as the command prints it: `http://` or
-`https://`, a host, perhaps a port and a path, no query, no `#` of its own
-and no slash at its end. `<code>` is the code as it is printed, with its
-dash. A client splits the text at its last `#`. The QR code is of error
+The second is where the address is the edge's: the device reads which of
+the account's yards it pairs with from the text, and says so with each
+call. `<address>` is the yard's address as the command prints it: `http://`
+or `https://`, a host, perhaps a port and a path, no query, no `#` of its
+own and no slash at its end. `<code>` is the code as it is printed, with
+its dash. A client splits the text at its `#`s: the address, the code, and
+the yard's name at the edge where a third stands. The QR code is of error
 correction level M.
 
 **What a device does with them.** One request, without a credential:

@@ -27,9 +27,16 @@ import (
 // its token. Nobody types or pastes the token, and no command prints it.
 
 // pairQR is what the QR code of a device's pairing holds: the address the
-// device reaches the yard at, then '#', then the code. Nothing else is in
-// it, and an address has no '#' of its own (yardkey.CleanURL).
-func pairQR(address, code string) string { return address + "#" + code }
+// device reaches the yard at, then '#', then the code, and where the address
+// is the edge's, '#' and the yard's name at the edge beside them, so the
+// device knows which of the account's yards it pairs with. Nothing else is
+// in it, and an address has no '#' of its own (yardkey.CleanURL).
+func pairQR(address, code, yard string) string {
+	if yard == "" {
+		return address + "#" + code
+	}
+	return address + "#" + code + "#" + yard
+}
 
 // drawQR draws text as a QR code in the terminal's characters, two modules
 // to a line, inside the quiet zone a reader wants around it. With colour it
@@ -88,11 +95,15 @@ func linkAddr(cfg *config.Config, settings map[string]string) string {
 // devicePaired is what yardr user device pair prints of a pairing it
 // opened.
 type devicePaired struct {
-	Pairing string    `json:"pairing"`
-	User    string    `json:"user"`
-	Device  string    `json:"device"`
-	Code    string    `json:"code"`
-	Address string    `json:"address"`
+	Pairing string `json:"pairing"`
+	User    string `json:"user"`
+	Device  string `json:"device"`
+	Code    string `json:"code"`
+	Address string `json:"address"`
+	// Yard is this yard's name at the edge, where the address is the edge's
+	// (linkAddr): the device sends it back to say which of the account's
+	// yards it means. A pairing on the listener names none.
+	Yard    string    `json:"yard,omitempty"`
 	Expires time.Time `json:"expires"`
 	// QR is what a QR code of the pairing holds (pairQR).
 	QR string `json:"qr"`
@@ -114,9 +125,13 @@ the pairing. A yard has one such pairing open at a time; --end ends it.
 --url is the address the device reaches this yard at, which the device is
 given with the code; the default is the listener's own address, which is
 right on one machine or one network, or the edge's when the yard's link is
-up and it listens nowhere. A yard with neither opens no pairing. --qr also
+up and it listens nowhere. A yard with neither opens no pairing. Where the
+address is the edge's, the device is also given this yard's name at the
+edge, so it knows which of the account's yards it pairs with. --qr also
 draws a QR code that holds the address and the code, as <address>#<code>,
-and nothing else: a phone reads it in place of both being typed.
+and the yard's name beside them where the address is the edge's, as
+<address>#<code>#<yard>, and nothing else: a phone reads it in place of
+each being typed.
 
 The code is all a device needs, and whoever has it within those minutes gets
 the token: show it, and the QR code, to the device and to nobody else. What
@@ -186,7 +201,15 @@ a person.`,
 				return err
 			}
 			out := devicePaired{Pairing: opened.ID, User: opened.User, Device: opened.Device, Code: opened.Code,
-				Address: addr, Expires: opened.Expires, QR: pairQR(addr, opened.Code)}
+				Address: addr, Expires: opened.Expires}
+			// Where the device reaches this yard through the edge, whether
+			// by default or by --url, it is given this yard's name too: the
+			// edge holds several yards per account, and the device says
+			// which it means with each call.
+			if e, connected, err := store.EdgeOf(all); err == nil && connected && addr == e.URL {
+				out.Yard = e.Name
+			}
+			out.QR = pairQR(addr, opened.Code, out.Yard)
 			var picture string
 			if draw && !a.json {
 				if picture, err = drawQR(out.QR, term.IsTerminal(int(os.Stdout.Fd()))); err != nil {
@@ -196,9 +219,17 @@ a person.`,
 			}
 			yardr := yardrAt(cfg.Home)
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Fprintf(w, "Pairing is open for %s, until %s, for the device %s of %s. Give the device this yard's address and the code:\n\n"+
-					"  address  %s\n  code     %s\n\n",
-					short(pairing.TTL), out.Expires.Local().Format("15:04:05"), out.Device, out.User, out.Address, out.Code)
+				give := "this yard's address and the code"
+				if out.Yard != "" {
+					give = "this yard's address, its name at the edge and the code"
+				}
+				fmt.Fprintf(w, "Pairing is open for %s, until %s, for the device %s of %s. Give the device %s:\n\n"+
+					"  address  %s\n",
+					short(pairing.TTL), out.Expires.Local().Format("15:04:05"), out.Device, out.User, give, out.Address)
+				if out.Yard != "" {
+					fmt.Fprintf(w, "  yard     %s\n", out.Yard)
+				}
+				fmt.Fprintf(w, "  code     %s\n\n", out.Code)
 				if picture != "" {
 					fmt.Fprintf(w, "%s\n", picture)
 				}

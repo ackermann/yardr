@@ -16,9 +16,10 @@ import (
 // Edge is the edge of design yardr-hosted-050n as far as a yard calls it,
 // written from the design and not from the router, which is another
 // repository's: it serves the key it signs with at GET /edge/key, takes a
-// yard's enrolment at POST /edge/enrol (answering a code, and the handle once
-// a person has approved the yard), and drops a yard's row at POST
-// /edge/disconnect, and serves the link at GET /edge/link (edgelink.go). A
+// yard's enrolment at POST /edge/enrol (answering a code, and the account's
+// handle with the yard's name once a person has approved the yard), and
+// drops a yard's row at POST /edge/disconnect, and serves the link at GET
+// /edge/link (edgelink.go). A
 // request is checked as a peer's is, signed by the yard
 // whose key it names, to this edge's key, within yardkey.MaxSkew; every
 // answer is signed with the key the stand-in is told to sign with.
@@ -50,10 +51,14 @@ type EdgeBehaviour struct {
 	// yard has been answered with its handle.
 	Served, Signer, ServedAfterApproval ed25519.PrivateKey
 	// ApproveAfter is how many enrolling calls of a yard get a code before
-	// the person has approved it and a call is answered with its Handle and
-	// Email. A yard the edge knows already is approved at once: zero.
-	ApproveAfter  int
-	Handle, Email string
+	// the person has approved it and a call is answered with its Handle,
+	// Name and Email. A yard the edge knows already is approved at once:
+	// zero.
+	ApproveAfter int
+	// Handle is the account's, and Name the yard's among its yards. Name
+	// is the account's own until a test says otherwise: the yard named as
+	// its account, as an edge with one yard per account has it.
+	Handle, Name, Email string
 	// Now is the time a request is judged by; nil is the clock.
 	Now func() time.Time
 	// Refuse, when not zero, is the status every enrolling call is refused
@@ -92,7 +97,7 @@ func NewEdge() (*Edge, error) {
 		return nil, err
 	}
 	return &Edge{key: key, asked: map[string]int{},
-		b: EdgeBehaviour{Served: key, Signer: key, ApproveAfter: 1, Handle: "mckean", Email: "chris@mckean.co"}}, nil
+		b: EdgeBehaviour{Served: key, Signer: key, ApproveAfter: 1, Handle: "mckean", Name: "mckean", Email: "chris@mckean.co"}}, nil
 }
 
 // PublicKey is the edge's own key as yards write one.
@@ -191,7 +196,7 @@ func (e *Edge) enrol(w http.ResponseWriter, r *http.Request) {
 		e.mu.Lock()
 		e.state.Approved = true
 		e.mu.Unlock()
-		e.answer(w, r, http.StatusOK, map[string]string{"handle": b.Handle, "email": b.Email})
+		e.answer(w, r, http.StatusOK, map[string]string{"handle": b.Handle, "name": b.Name, "email": b.Email})
 	default:
 		e.answer(w, r, http.StatusOK, map[string]any{"code": "WQ4F-7K2M", "expires": time.Now().Add(10 * time.Minute)})
 	}

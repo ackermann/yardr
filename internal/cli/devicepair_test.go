@@ -37,7 +37,7 @@ func devicePairYard(t *testing.T) (st store.API, own *store.Store, addr string) 
 	return st, own, srv.URL
 }
 
-var devicePairShown = regexp.MustCompile(`(?m)^  address  (\S+)\n  code     ([0-9A-Z]{4}-[0-9A-Z]{4})$`)
+var devicePairShown = regexp.MustCompile(`(?m)^  address  (\S+)\n(?:  yard     (\S+)\n)?  code     ([0-9A-Z]{4}-[0-9A-Z]{4})$`)
 
 // redeemCode calls the yard at addr with the code, as a device does.
 func redeemCode(t *testing.T, addr, code string) (int, rpc.Paired) {
@@ -66,8 +66,8 @@ func TestDevicePairCommand(t *testing.T) {
 
 	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone")
 	m := devicePairShown.FindStringSubmatch(out)
-	if m == nil || m[1] != addr {
-		t.Fatalf("device pair shows no code at %s:\n%s", addr, out)
+	if m == nil || m[1] != addr || m[2] != "" {
+		t.Fatalf("device pair shows no code at %s, with no yard:\n%s", addr, out)
 	}
 	until := regexp.MustCompile(`^Pairing is open for 10 minutes, until (\d\d:\d\d:\d\d), for the device phone of jo\. Give the device this yard's address and the code:\n`).FindStringSubmatch(out)
 	if until == nil {
@@ -85,7 +85,7 @@ func TestDevicePairCommand(t *testing.T) {
 	}
 	refusedAs(t, st, "jo", "a pairing is open already, for the device phone of jo until "+until[1], "user", "device", "pair", "ada", "laptop")
 
-	status, got := redeemCode(t, m[1], m[2])
+	status, got := redeemCode(t, m[1], m[3])
 	if status != http.StatusOK || !deviceToken.MatchString(got.Token) || got.User != "jo" || got.Device != "phone" {
 		t.Fatalf("the code at the address = %d %+v", status, got)
 	}
@@ -94,7 +94,7 @@ func TestDevicePairCommand(t *testing.T) {
 	}
 	wantText(t, mustAs(t, st, "jo", "user", "device", "list"), "jo    phone   ", " from 100.64.0.7\n")
 	for _, args := range [][]string{{"user", "device", "list", "--json"}, {"user", "show", "jo", "--json"}, {"events", "--json"}} {
-		if out := mustAs(t, st, "jo", args...); strings.Contains(out, "yardr-dev-") || strings.Contains(out, m[2]) {
+		if out := mustAs(t, st, "jo", args...); strings.Contains(out, "yardr-dev-") || strings.Contains(out, m[3]) {
 			t.Fatalf("yardr %s says something of the token or the code:\n%s", strings.Join(args, " "), out)
 		}
 	}
@@ -104,7 +104,7 @@ func TestDevicePairCommand(t *testing.T) {
 	var opened devicePaired
 	out = mustAs(t, st, "jo", "user", "device", "pair", "ada", "laptop", "--url", "https://mac.example.net/", "--qr", "--json")
 	if err := json.Unmarshal([]byte(out), &opened); err != nil || opened.User != "ada" || opened.Device != "laptop" || opened.Pairing == "" ||
-		opened.Address != "https://mac.example.net" || opened.QR != "https://mac.example.net#"+opened.Code ||
+		opened.Address != "https://mac.example.net" || opened.Yard != "" || opened.QR != "https://mac.example.net#"+opened.Code ||
 		time.Until(opened.Expires) > pairing.TTL || time.Until(opened.Expires) < pairing.TTL-time.Minute || strings.Contains(out, "█") {
 		t.Fatalf("device pair --json: %+v, %v\n%s", opened, err, out)
 	}
@@ -142,11 +142,11 @@ func TestDevicePairQR(t *testing.T) {
 	st, _, _ := devicePairYard(t)
 	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone", "--url", "https://mac.example.net", "--qr")
 	m := devicePairShown.FindStringSubmatch(out)
-	if m == nil {
-		t.Fatalf("device pair --qr shows no code:\n%s", out)
+	if m == nil || m[2] != "" {
+		t.Fatalf("device pair --qr shows no code, with no yard:\n%s", out)
 	}
-	holds := m[1] + "#" + m[2]
-	if holds != pairQR("https://mac.example.net", m[2]) {
+	holds := m[1] + "#" + m[3]
+	if holds != pairQR("https://mac.example.net", m[3], "") {
 		t.Fatalf("the QR code holds %q", holds)
 	}
 	want, err := qr.Encode(holds, qr.M)
@@ -197,8 +197,9 @@ func TestDevicePairQR(t *testing.T) {
 }
 
 // A yard that listens nowhere but whose link to the edge is up opens a
-// pairing all the same: the default address is the edge's, and the device
-// redeems the code down the link. With the link down, no pairing.
+// pairing all the same: the default address is the edge's, beside this
+// yard's name at the edge, and the device redeems the code down the link.
+// With the link down, no pairing.
 func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	t.Parallel()
 	api, own := storetest.NewOwned(t)
@@ -234,8 +235,8 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 
 	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone")
 	m := devicePairShown.FindStringSubmatch(out)
-	if m == nil || m[1] != srv.URL {
-		t.Fatalf("device pair over the link shows no code at %s:\n%s", srv.URL, out)
+	if m == nil || m[1] != srv.URL || m[2] != "mckean" {
+		t.Fatalf("device pair over the link shows no code at %s, for the yard mckean:\n%s", srv.URL, out)
 	}
 	var link *standin.EdgeLink
 	select {
@@ -243,7 +244,7 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the yard's link never came up at the edge")
 	}
-	body, _ := json.Marshal(map[string]string{"code": m[2]})
+	body, _ := json.Marshal(map[string]string{"code": m[3]})
 	dctx, dcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer dcancel()
 	a, err := link.Deliver(dctx, link.Frame(http.MethodPost, rpc.PairPath, nil, body, false))
@@ -256,6 +257,15 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	}
 	if d, err := own.ResolveDevice(ctx, got.Token, "100.64.0.7"); err != nil || d == nil || d.User != "jo" || d.Name != "phone" {
 		t.Fatalf("the token the device was given resolves to %+v, %v", d, err)
+	}
+
+	// The payload carries the yard's name beside the edge's address, and
+	// the QR code holds both with the code.
+	var opened devicePaired
+	out = mustAs(t, st, "jo", "user", "device", "pair", "jo", "laptop", "--json")
+	if err := json.Unmarshal([]byte(out), &opened); err != nil || opened.Address != srv.URL || opened.Yard != "mckean" ||
+		opened.QR != srv.URL+"#"+opened.Code+"#mckean" {
+		t.Fatalf("device pair over the link --json: %+v, %v\n%s", opened, err, out)
 	}
 }
 

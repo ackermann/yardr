@@ -552,7 +552,7 @@ func optionalParts(ctx context.Context, cfg *config.Config, st store.API, uses [
 		hook.Notes = append(hook.Notes, fmt.Sprintf("the edge setting is not one this build reads, so the server keeps no link: %v; %s edge disconnect clears it", edgeErr, yardr))
 	} else if connected {
 		s, known := edgelink.ReadState(cfg)
-		hook.Notes = append(hook.Notes, fmt.Sprintf("the link to the edge %s, as handle %s: %s", e.URL, e.Handle, edgeLinkLine(s, known, yardr)))
+		hook.Notes = append(hook.Notes, fmt.Sprintf("the link to the edge %s, as %s/%s: %s", e.URL, e.Handle, e.Name, edgeLinkLine(s, known, yardr)))
 	}
 	packs, err := st.Packs(ctx)
 	if err != nil {

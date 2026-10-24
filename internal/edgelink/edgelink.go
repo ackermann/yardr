@@ -24,7 +24,10 @@
 //	                      the person and read as unknown if it is anything
 //	                      else) while no one has
 //	                      approved the yard at the edge's /connect page, and
-//	                      {"handle", "email"} once someone has. The yard
+//	                      {"handle", "name", "email"} once someone has: the
+//	                      account's handle, this yard's name among its yards
+//	                      (the person may have changed the proposal at the
+//	                      page), and who approved. The yard
 //	                      calls again, signed anew, until the second, and is
 //	                      answered the same code while its code is open.
 //	POST /edge/disconnect {}: the edge forgets the row that names the yard's
@@ -225,6 +228,7 @@ type answer struct {
 	Code    string          `json:"code"`
 	Expires json.RawMessage `json:"expires"`
 	Handle  string          `json:"handle"`
+	Name    string          `json:"name"`
 	Email   string          `json:"email"`
 	Refused string          `json:"refused"`
 }
@@ -242,13 +246,14 @@ func expiry(raw json.RawMessage) time.Time {
 
 // Enrolment is a yard's enrolment with the edge, as far as the edge has
 // taken it: Code is what the person types at the edge's /connect page,
-// until Expires (the zero time when the edge did not say); Handle, and Email
-// of whoever approved, once someone has. A yard the edge knows already is
-// answered with its handle at once.
+// until Expires (the zero time when the edge did not say); Handle, Name and
+// Email of whoever approved, once someone has. A yard the edge knows already
+// is answered with its handle and name at once.
 type Enrolment struct {
 	Code    string
 	Expires time.Time
 	Handle  string
+	Name    string
 	Email   string
 
 	c       *Client
@@ -289,7 +294,10 @@ func (e *Enrolment) ask(ctx context.Context) error {
 	}
 	switch {
 	case a.Handle != "":
-		e.Handle, e.Email = a.Handle, text(a.Email)
+		if a.Name == "" {
+			return errors.New("the edge's answer to the enrolment names the account but no yard")
+		}
+		e.Handle, e.Name, e.Email = a.Handle, a.Name, text(a.Email)
 	case a.Code != "":
 		// The person types the code as it is shown: one that a terminal
 		// would not show whole is no code.

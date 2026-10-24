@@ -121,19 +121,19 @@ func TestEdgeConnect(t *testing.T) {
 		"The edge's key: ed25519:"+edge.PublicKey()+"  (fetched over HTTPS from "+host+")",
 		"This yard's key: ed25519:"+yard,
 		"Open "+srv.URL+"/connect and enter the code  WQ4F-7K2M  (10 minutes)",
-		"… approved by chris@mckean.co as mckean",
-		"Connected: webhooks reach this yard at "+srv.URL+"/hooks/mckean/<hook>",
-		"hook_public_url set to "+srv.URL+"/hooks/mckean",
+		"… approved by chris@mckean.co as mckean/mckean",
+		"Connected: webhooks reach this yard at "+srv.URL+"/hooks/mckean/mckean/<hook>",
+		"hook_public_url set to "+srv.URL+"/hooks/mckean/mckean",
 		"The server opens the link to the edge now: yardr edge status says when it is up.")
 	if errs != "" || strings.Contains(out, "was ") {
 		t.Errorf("a connect that replaced nothing says more than that:\n%s\nstderr: %s", out, errs)
 	}
 
 	got := edgeSetting(t, st)
-	if want := (store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean"}); got != want {
+	if want := (store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", Name: "mckean"}); got != want {
 		t.Errorf("the edge setting = %+v, want %+v", got, want)
 	}
-	if hook := settingsOf(t, st)[store.HookPublicURLSetting]; hook != srv.URL+"/hooks/mckean" {
+	if hook := settingsOf(t, st)[store.HookPublicURLSetting]; hook != srv.URL+"/hooks/mckean/mckean" {
 		t.Errorf("hook_public_url = %q, want the edge's address for this yard", hook)
 	}
 	// The edge was asked as this yard, by the name it goes by, signed.
@@ -143,6 +143,81 @@ func TestEdgeConnect(t *testing.T) {
 	}
 	if state.KeyFetches != 1 {
 		t.Errorf("the edge's key was fetched %d times, want once", state.KeyFetches)
+	}
+	t.Run("as", edgeConnectAs)
+}
+
+// With --as the yard proposes the operator's choice for itself at the edge
+// instead of its own name: the proposal is sent with the enrolment, and what
+// the edge answers back — the account's handle and the yard's name — is kept,
+// with hook_public_url under both. A proposal the edge's rule refuses is
+// refused with the rule, before the edge is asked anything, as is a yard
+// whose own name the rule refuses, which --as rescues.
+func edgeConnectAs(t *testing.T) {
+	st, edge, srv := edgeYard(t)
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Name = "airy" })
+
+	out, _ := mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL, "--as", "airy")
+	edgeLines(t, out,
+		"… approved by chris@mckean.co as mckean/airy",
+		"Connected: webhooks reach this yard at "+srv.URL+"/hooks/mckean/airy/<hook>",
+		"hook_public_url set to "+srv.URL+"/hooks/mckean/airy")
+	if want := (store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", Name: "airy"}); edgeSetting(t, st) != want {
+		t.Errorf("the edge setting = %+v, want %+v", edgeSetting(t, st), want)
+	}
+	if hook := settingsOf(t, st)[store.HookPublicURLSetting]; hook != srv.URL+"/hooks/mckean/airy" {
+		t.Errorf("hook_public_url = %q, want it under the account and the yard", hook)
+	}
+	if enrols := edge.State().Enrols; len(enrols) == 0 || enrols[0].Name != "airy" {
+		t.Errorf("the edge was asked %+v, want the proposal airy", enrols)
+	}
+
+	// With --json the first document carries the proposal.
+	st, edge, srv = edgeYard(t)
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Name = "airy" })
+	out, _ = mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL, "--as", "airy", "--json")
+	var first map[string]any
+	var result edgeView
+	dec := json.NewDecoder(strings.NewReader(out))
+	if err := dec.Decode(&first); err != nil || first["name"] != "airy" {
+		t.Fatalf("first document = %v, %v; want the proposal airy", first, err)
+	}
+	if err := dec.Decode(&result); err != nil || result.Name != "airy" || result.Handle != "mckean" ||
+		result.HooksURL != srv.URL+"/hooks/mckean/airy" || result.HookPublicURL != srv.URL+"/hooks/mckean/airy" {
+		t.Fatalf("result = %+v, %v; want the account, yard and hook URL", result, err)
+	}
+
+	// A proposal the edge's rule refuses is refused with the rule, and the
+	// edge is asked nothing.
+	st, edge, srv = edgeYard(t)
+	nothing := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Errorf("a request was made to %s", r.URL)
+		return nil, errors.New("no network in this test")
+	})}
+	for _, as := range []string{"", "Airy", "a b", "a/b", "../x"} {
+		_, _, err := edgeAs(t, st, nothing, "jo", "edge", "connect", srv.URL, "--as", as)
+		if err == nil || !strings.Contains(err.Error(), "--as") || !strings.Contains(err.Error(), "lower case letters, digits and '-'") {
+			t.Errorf("edge connect --as %q = %v, want it refused with the rule", as, err)
+		}
+	}
+	if all := settingsOf(t, st); all[store.EdgeSetting] != "" || all[store.HookPublicURLSetting] != "" {
+		t.Errorf("settings written by a refused connect: %v", all)
+	}
+
+	// A yard whose own name the rule refuses is refused the same way, with
+	// --as to enrol under another.
+	mustAs(t, st, "jo", "settings", "set", "name", "South.HQ")
+	_, _, err := edgeAs(t, st, nothing, "jo", "edge", "connect", srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "lower case letters, digits and '-'") || !strings.Contains(err.Error(), "--as <name>") {
+		t.Errorf("edge connect for a yard the rule refuses = %v, want the rule and --as", err)
+	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Name = "south-hq" })
+	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL, "--as", "south-hq")
+	if got := edgeSetting(t, st); got.Name != "south-hq" {
+		t.Errorf("the edge setting = %+v, want the yard south-hq", got)
+	}
+	if enrols := edge.State().Enrols; len(enrols) == 0 || enrols[0].Name != "south-hq" {
+		t.Errorf("the edge was asked %+v, want the proposal south-hq", enrols)
 	}
 }
 
@@ -156,7 +231,7 @@ func TestEdgeDisconnectPutsBackAHookPublicURLSetByHand(t *testing.T) {
 
 	out, _ := mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
 	edgeLines(t, out,
-		"hook_public_url set to "+srv.URL+"/hooks/mckean",
+		"hook_public_url set to "+srv.URL+"/hooks/mckean/mckean",
 		"hook_public_url was https://hooks.example.net/hooks; restored on disconnect")
 	if got := edgeSetting(t, st).HookPublicURL; got != "https://hooks.example.net/hooks" {
 		t.Errorf("the edge setting keeps %q of the hook_public_url it replaced", got)
@@ -187,7 +262,7 @@ func TestEdgeDisconnectPutsBackAHookPublicURLSetByHand(t *testing.T) {
 func TestEdgeDisconnectRestoresMatchingHandSetHookPublicURL(t *testing.T) {
 	t.Parallel()
 	st, _, srv := edgeYard(t)
-	prior := srv.URL + "/hooks/mckean"
+	prior := srv.URL + "/hooks/mckean/mckean"
 	mustAs(t, st, "jo", "settings", "set", store.HookPublicURLSetting, prior)
 
 	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
@@ -233,12 +308,12 @@ func TestEdgeConnectAgainAfterDisconnect(t *testing.T) {
 	out, _ := mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
 	edgeLines(t, out,
 		"Open "+srv.URL+"/connect and enter the code  WQ4F-7K2M  (10 minutes)",
-		"… approved by chris@mckean.co as mckean")
-	want := store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean"}
+		"… approved by chris@mckean.co as mckean/mckean")
+	want := store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", Name: "mckean"}
 	if got := edgeSetting(t, st); got != want {
 		t.Errorf("the edge setting = %+v, want %+v", got, want)
 	}
-	if got := settingsOf(t, st)[store.HookPublicURLSetting]; got != srv.URL+"/hooks/mckean" {
+	if got := settingsOf(t, st)[store.HookPublicURLSetting]; got != srv.URL+"/hooks/mckean/mckean" {
 		t.Errorf("hook_public_url = %q, want the edge's address for this yard", got)
 	}
 }
@@ -286,7 +361,7 @@ func TestEdgeDisconnectWhenTheEdgeCannotBeTold(t *testing.T) {
 		t.Fatalf("disconnect with the edge gone: %v", err)
 	}
 	var left edgeLeft
-	if err := json.Unmarshal([]byte(out), &left); err != nil || left.Connected || left.EdgeTold || left.EdgeError == "" || left.Was == nil || left.Was.Handle != "mckean" {
+	if err := json.Unmarshal([]byte(out), &left); err != nil || left.Connected || left.EdgeTold || left.EdgeError == "" || left.Was == nil || left.Was.Handle != "mckean" || left.Was.Name != "mckean" {
 		t.Errorf("disconnect --json = %+v, %v\n%s", left, err, out)
 	}
 	if errs != "" {
@@ -415,7 +490,7 @@ func TestEdgeConnectPinsTheKeyItFetchedFirst(t *testing.T) {
 	// is connected, and connecting again is refused, so that the pin only
 	// moves with a new connection.
 	_, _, err = edgeAs(t, st, srv.Client(), "jo", "edge", "connect", srv.URL)
-	if err == nil || !strings.Contains(err.Error(), "this yard is already connected to "+srv.URL+" as mckean: run yardr edge disconnect first") {
+	if err == nil || !strings.Contains(err.Error(), "this yard is already connected to "+srv.URL+" as mckean/mckean: run yardr edge disconnect first") {
 		t.Errorf("edge connect to a yard that is connected = %v", err)
 	}
 	if got := edgeSetting(t, st).Key; got != edge.PublicKey() {
@@ -439,23 +514,28 @@ func TestEdgeConnectWhenTheEdgeRefusesOrKnowsTheYard(t *testing.T) {
 		t.Errorf("edge connect, refused = %v", err)
 	}
 
-	// A handle that is more than one segment of a path would point the hook
-	// address somewhere else.
+	// A handle or name that is more than one segment of a path would point
+	// the hook address somewhere else.
 	edge.Behave(func(b *standin.EdgeBehaviour) { b.Refuse, b.Handle, b.ApproveAfter = 0, "../x", 0 })
 	_, _, err = edgeAs(t, st, srv.Client(), "jo", "edge", "connect", srv.URL)
 	if err == nil || !strings.Contains(err.Error(), "what it answered cannot be kept") || !strings.Contains(err.Error(), "nothing was written") {
 		t.Errorf("edge connect, answered with a handle that is a path = %v", err)
 	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Handle, b.Name = "mckean", "../y" })
+	_, _, err = edgeAs(t, st, srv.Client(), "jo", "edge", "connect", srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "what it answered cannot be kept") || !strings.Contains(err.Error(), "nothing was written") {
+		t.Errorf("edge connect, answered with a name that is a path = %v", err)
+	}
 	if all := settingsOf(t, st); all[store.EdgeSetting] != "" || all[store.HookPublicURLSetting] != "" {
 		t.Errorf("settings written by a refused connect: %v", all)
 	}
 
-	edge.Behave(func(b *standin.EdgeBehaviour) { b.Handle = "mckean" })
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Handle, b.Name = "mckean", "mckean" })
 	out, _ := mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
 	if strings.Contains(out, "enter the code") {
 		t.Errorf("a yard the edge knows is asked for a code:\n%s", out)
 	}
-	edgeLines(t, out, "… approved by chris@mckean.co as mckean")
+	edgeLines(t, out, "… approved by chris@mckean.co as mckean/mckean")
 }
 
 // Only the operator connects a yard or disconnects it, and before the edge
@@ -481,7 +561,7 @@ func TestEdgeIsTheOperatorsOnly(t *testing.T) {
 		t.Error("a refused disconnect changed the yard or the edge")
 	}
 	// Reading is anyone's.
-	if out, _, err := edgeAs(t, st, srv.Client(), "yardmaster", "edge", "status"); err != nil || !strings.Contains(out, "as handle mckean") {
+	if out, _, err := edgeAs(t, st, srv.Client(), "yardmaster", "edge", "status"); err != nil || !strings.Contains(out, "as mckean/mckean") {
 		t.Errorf("edge status as the yardmaster = %q, %v", out, err)
 	}
 }
@@ -514,8 +594,8 @@ func TestEdgeConnectJSON(t *testing.T) {
 	if first["expires"] == nil {
 		t.Errorf("the first document has no expiry: %v", first)
 	}
-	want := edgeView{Connected: true, URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", HooksURL: srv.URL + "/hooks/mckean",
-		HookPublicURL: srv.URL + "/hooks/mckean", ApprovedBy: "chris@mckean.co"}
+	want := edgeView{Connected: true, URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", Name: "mckean", HooksURL: srv.URL + "/hooks/mckean/mckean",
+		HookPublicURL: srv.URL + "/hooks/mckean/mckean", ApprovedBy: "chris@mckean.co"}
 	if result != want {
 		t.Errorf("result = %+v, want %+v", result, want)
 	}
@@ -578,15 +658,15 @@ func TestEdgeStatus(t *testing.T) {
 	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
 	out, _ = mustEdge(t, st, nothing, "edge", "status")
 	edgeLines(t, out,
-		"edge      "+srv.URL+"  (key ed25519:"+edge.PublicKey()+", as handle mckean)",
-		"hooks     "+srv.URL+"/hooks/mckean/<hook>",
+		"edge      "+srv.URL+"  (key ed25519:"+edge.PublicKey()+", as mckean/mckean)",
+		"hooks     "+srv.URL+"/hooks/mckean/mckean/<hook>",
 		"          hook_public_url was https://hooks.example.net/hooks before connecting; yardr edge disconnect puts it back")
 	if strings.Contains(out, "note ") {
 		t.Errorf("status of a connected yard whose hook_public_url is the edge's has a note:\n%s", out)
 	}
 	out, _ = mustEdge(t, st, nothing, "edge", "status", "--json")
-	want := edgeView{Connected: true, URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", HooksURL: srv.URL + "/hooks/mckean",
-		HookPublicURL: srv.URL + "/hooks/mckean", Replaced: "https://hooks.example.net/hooks"}
+	want := edgeView{Connected: true, URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", Name: "mckean", HooksURL: srv.URL + "/hooks/mckean/mckean",
+		HookPublicURL: srv.URL + "/hooks/mckean/mckean", Replaced: "https://hooks.example.net/hooks"}
 	if err := json.Unmarshal([]byte(out), &view); err != nil || view != want {
 		t.Errorf("status --json = %+v, %v; want %+v", view, err, want)
 	}
@@ -692,10 +772,17 @@ func TestEdgeSettingIsCheckedAndAlone(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
 	key := yardkey.Public(func() ed25519.PrivateKey { _, k, _ := ed25519.GenerateKey(rand.Reader); return k }())
-	good := store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean"}
+	good := store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean", Name: "airy"}
 	mustAs(t, st, "jo", "settings", "set", store.EdgeSetting, good.String())
 	if got := edgeSetting(t, st); got != good {
 		t.Errorf("edge setting = %+v, want %+v", got, good)
+	}
+	// A value from before yards had names still loads, as named as its
+	// account.
+	old := store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean"}
+	mustAs(t, st, "jo", "settings", "set", store.EdgeSetting, old.String())
+	if got := edgeSetting(t, st); got.Name != "mckean" || got.HooksURL() != "https://my.yardr.dev/hooks/mckean/mckean" {
+		t.Errorf("edge setting of the old shape = %+v, want it named as its account", got)
 	}
 	for value, want := range map[string]string{
 		`not json`: "not what yardr edge connect writes",
@@ -703,6 +790,7 @@ func TestEdgeSettingIsCheckedAndAlone(t *testing.T) {
 		(store.Edge{URL: "https://my.yardr.dev/edge", Key: key, Handle: "mckean"}).String():                                       "the edge's origin alone",
 		(store.Edge{URL: "https://my.yardr.dev", Key: "short", Handle: "mckean"}).String():                                        "the edge's key",
 		(store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "Mc Kean"}).String():                                           "lower case letters, digits and '-'",
+		(store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean", Name: "Mc Kean"}).String():                           "lower case letters, digits and '-'",
 		(store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean", HookPublicURL: "http://hooks.example.net"}).String(): "the hook_public_url to put back",
 	} {
 		refusedAs(t, st, "jo", want, "settings", "set", store.EdgeSetting, value)

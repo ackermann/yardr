@@ -2,8 +2,9 @@
 
 The edge is the service at `https://my.yardr.dev` that stands in front of
 yards. A yard that is connected to it takes its webhooks through it: GitHub,
-Linear, Slack and the rest post to `https://my.yardr.dev/hooks/<handle>/<hook>`,
-and the edge hands each delivery to the yard connected under that handle. The
+Linear, Slack and the rest post to
+`https://my.yardr.dev/hooks/<account>/<yard>/<hook>`, and the edge hands each
+delivery to the yard connected under that account and name. The
 yard dials out, so a laptop on any network, with no open port and no tunnel of
 its own, is reachable for webhooks and for its devices' calls. What the edge
 hands over of a delivery is the sender's raw body and headers, and the yard
@@ -28,14 +29,14 @@ read the same on the edge's public notice,
 Only the operator connects a yard, and a yard connects to one edge at a time.
 
 ```text
-$ yardr edge connect https://my.yardr.dev
+$ yardr edge connect https://my.yardr.dev --as airy
 The edge's key: ed25519:9bR…T1  (fetched over HTTPS from my.yardr.dev; compare it with https://yardr.dev/edge)
 This yard's key: ed25519:Hk3…q9
 Open https://my.yardr.dev/connect and enter the code  WQ4F-7K2M
 Waiting for you to approve this yard there. Ctrl+C stops, and writes nothing.
-… approved by you@example.net as mckean
-Connected: webhooks reach this yard at https://my.yardr.dev/hooks/mckean/<hook>
-hook_public_url set to https://my.yardr.dev/hooks/mckean
+… approved by you@example.net as mckean/airy
+Connected: webhooks reach this yard at https://my.yardr.dev/hooks/mckean/airy/<hook>
+hook_public_url set to https://my.yardr.dev/hooks/mckean/airy
 The server opens the link to the edge now: yardr edge status says when it is up.
 ```
 
@@ -52,22 +53,32 @@ person who does not want to take the certificate's word compares the printed
 key with the one published at `https://yardr.dev/edge`, a page outside the
 edge's own hosting.
 
-**Then the yard enrols.** It sends its public key and its name, signed to the
-pinned key, and gets a code back. You sign in at `/connect` and enter the
-code, and the page shows the yard's name and the start of its key before you
-approve it. You type and paste nothing on this machine: the yard's key is its
-credential, and every answer from the edge is checked against the pinned key.
+**Then the yard enrols.** It sends its public key and the name it proposes
+for itself at the edge — the yard's own name, or `--as <name>` to choose
+another, in lower case letters, digits and `-` — signed to the pinned key,
+and gets a code back. You sign in at `/connect` and enter the code, and the
+page shows the proposed name and the start of the yard's key before you
+approve it, and you may change the name there; what the edge answers back,
+your account's handle and the yard's name, is what is kept. You type and
+paste nothing on this machine: the yard's key is its credential, and every
+answer from the edge is checked against the pinned key.
 Connecting takes the trial's invite, as a hosted yard does: an account whose
 email is not on the list is refused.
 
 **Connecting sets two settings.** The `edge` setting holds the edge's
-address, its pinned key, the handle, and the `hook_public_url` it replaced
+address, its pinned key, the account's handle and this yard's name, and the
+`hook_public_url` it replaced
 ([configuration.md](configuration.md#settings)). `hook_public_url` becomes
-`<url>/hooks/<handle>`, so `yardr hook add` and the packs that register their
-own webhooks print or register the right URL with no change. The running
-server dials at once; no restart. `yardr status` and `yardr doctor` show the
-link beside the listener's, and the server logs `edge_link_up` and
-`edge_link_down`, with why a link went down.
+`<url>/hooks/<account>/<yard>`, so `yardr hook add` and the packs that
+register their own webhooks print or register the right URL with no change.
+The running server dials at once; no restart. `yardr status` and `yardr
+doctor` show the link beside the listener's, and the server logs
+`edge_link_up` and `edge_link_down`, with why a link went down.
+
+The edge no longer accepts the previous one-segment webhook URL
+`/hooks/<handle>/<hook>`. A setting saved before yards had names reads its
+yard name as the account handle, so update `hook_public_url` and each
+registered webhook URL to `/hooks/<handle>/<handle>/<hook>`.
 
 **Disconnecting puts it back.** `yardr edge disconnect` asks the edge to drop
 its row for the yard, clears `edge`, and restores the `hook_public_url` from
@@ -109,10 +120,11 @@ through the same link ([below](#footplate-through-the-link)).
 A device of yours, such as footplate, the native window over a yard, reaches
 a connected yard through the same link, with no listener of the yard's own.
 `yardr user device pair <user> footplate` counts a link that is up as a
-listener and gives the edge's address with the code, so pairing is pairing
-by code as on the LAN: the device is given the address and the code, and
-asks once for its token
-([users.md](users.md#enrolled-by-a-code)).
+listener and gives the edge's address with the code, beside this yard's
+name at the edge, so pairing is pairing by code as on the LAN: the device
+is given the address, the yard's name and the code, and asks once for its
+token ([users.md](users.md#enrolled-by-a-code)). The device says which of
+the account's yards it means with each call, in `X-Edge-Yard`.
 
 Two gates, as for a hosted yard: the edge's (your account's session) and the
 yard's (the device's token). Every call but the stream waits up to 30
@@ -143,16 +155,17 @@ through the edge.
 | | hosted yard | connected yard |
 |---|---|---|
 | account, handle, sign-up | the edge's, by invite | the same |
-| webhook URL | `https://my.yardr.dev/hooks/<handle>/<hook>` | the same |
+| webhook URL | `https://my.yardr.dev/hooks/<account>/<yard>/<hook>` | the same |
 | how the edge reaches it | TCP to its container or droplet | the link the yard opened |
 | footplate | Kratos session plus device token, pairing by code | the same, through the link |
 | who runs it, upgrades, backs up | the service | the person |
 | invite list | yes, for the trial | yes, the same list |
 
-One account holds one yard for now, chosen once: connecting is refused while
-a hosted yard exists, and the other way round, until the old one is gone (a
-hosted yard is deleted by the operator on request; a connected one leaves
-with `yardr edge disconnect`).
+One account holds up to three yards in the trial, hosted and connected
+side by side, each under a name of its own; a hosted yard is named as its
+account. A fourth yard is refused, and so is a name the account already has
+a yard under. A connected yard leaves with `yardr edge disconnect`; a hosted
+yard is deleted by the operator on request.
 
 ## While the yard is away: the queue
 
@@ -189,9 +202,10 @@ flags.
 
 **Junk in the queue, accepted for the trial.** The bounds cap what a stranger
 can cost the edge, but not what they can cost one yard: while a yard is away,
-anyone who knows its handle can post junk to its hook URLs until its queue is
-full, and its real deliveries are then refused until the junk is delivered
-(and refused by the yard) or expires. That risk is accepted for the trial,
+anyone who knows its account and yard name can post junk to its hook URLs
+until its queue is full, and its real deliveries are then refused until the
+junk is delivered (and refused by the yard) or expires. That risk is accepted
+for the trial,
 with two guards: the [Cloudflare rule](#the-edges-operator-the-cloudflare-rule)
 below, which slows any one sender, and an event to the edge's operator, at
 the first refusal for a yard and then at most one an hour, through the

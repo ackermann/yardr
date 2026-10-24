@@ -70,15 +70,15 @@ func TestCheckHookPublicURLWords(t *testing.T) {
 	}
 }
 
-// The edge setting holds the address, the pinned key, the handle and what
-// hook_public_url was; it reads back as it was written, and nothing that
-// connecting would not have written is read.
+// The edge setting holds the address, the pinned key, the account's handle,
+// this yard's name and what hook_public_url was; it reads back as it was
+// written, and nothing that connecting would not have written is read.
 func TestEdgeValue(t *testing.T) {
 	t.Parallel()
 	key := edgeKey(t)
 	for _, e := range []store.Edge{
-		{URL: "https://my.yardr.dev", Key: key, Handle: "mckean"},
-		{URL: "http://127.0.0.1:8080", Key: key, Handle: "a1-b2", HookPublicURL: "https://hooks.example.net/hooks"},
+		{URL: "https://my.yardr.dev", Key: key, Handle: "mckean", Name: "airy"},
+		{URL: "http://127.0.0.1:8080", Key: key, Handle: "a1-b2", Name: "a1-b2", HookPublicURL: "https://hooks.example.net/hooks"},
 	} {
 		got, err := store.ParseEdge(e.String())
 		if err != nil || got != e {
@@ -88,9 +88,28 @@ func TestEdgeValue(t *testing.T) {
 			t.Errorf("CheckEdge(%s) = %v", e, err)
 		}
 	}
-	e := store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean"}
-	if got := e.HooksURL(); got != "https://my.yardr.dev/hooks/mckean" {
+	e := store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "mckean", Name: "airy"}
+	if got := e.HooksURL(); got != "https://my.yardr.dev/hooks/mckean/airy" {
 		t.Errorf("HooksURL = %q, want the address the edge takes this yard's webhooks at", got)
+	}
+	// A value written before yards had names holds none, and reads as named
+	// as its account.
+	old := store.Edge{URL: e.URL, Key: key, Handle: "mckean"}
+	if got, err := store.ParseEdge(old.String()); err != nil || got.Name != "mckean" ||
+		got.HooksURL() != "https://my.yardr.dev/hooks/mckean/mckean" {
+		t.Errorf("ParseEdge(%s) = %+v, %v; want it named as its account", old.String(), got, err)
+	}
+	// The name a yard proposes is the edge's own rule, one segment of a path
+	// in lower case, taken or refused with it.
+	for _, ok := range []string{"airy", "a", "a1-b2", strings.Repeat("a", 63)} {
+		if err := store.CheckEdgeName(ok); err != nil {
+			t.Errorf("CheckEdgeName(%q) = %v, want it taken", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "Airy", "a b", "a.b", "a/b", "../x", strings.Repeat("a", 64)} {
+		if err := store.CheckEdgeName(bad); err == nil || !strings.Contains(err.Error(), "lower case letters, digits and '-'") {
+			t.Errorf("CheckEdgeName(%q) = %v, want it refused with the rule", bad, err)
+		}
 	}
 	// What hook_public_url is set to while connected is a value that setting
 	// takes.
@@ -99,20 +118,23 @@ func TestEdgeValue(t *testing.T) {
 	}
 
 	for name, tc := range map[string]struct{ value, want string }{
-		"not JSON":        {`https://my.yardr.dev`, "not what yardr edge connect writes"},
-		"JSON of no edge": {`[]`, "not what yardr edge connect writes"},
-		"nothing":         {`{}`, "a public address"},
-		"null":            {`null`, "a public address"},
-		"junk after":      {e.String() + "x", "not what yardr edge connect writes"},
-		"plain http":      {store.Edge{URL: "http://my.yardr.dev", Key: key, Handle: "mckean"}.String(), "http is for a stand-in on this machine only"},
-		"a path":          {store.Edge{URL: "https://my.yardr.dev/x", Key: key, Handle: "mckean"}.String(), "the edge's origin alone"},
-		"a short key":     {store.Edge{URL: e.URL, Key: key[:10], Handle: "mckean"}.String(), "the edge's key"},
-		"no key":          {store.Edge{URL: e.URL, Handle: "mckean"}.String(), "the edge's key"},
-		"upper case":      {store.Edge{URL: e.URL, Key: key, Handle: "McKean"}.String(), "lower case letters, digits and '-'"},
-		"a path handle":   {store.Edge{URL: e.URL, Key: key, Handle: "../x"}.String(), "lower case letters, digits and '-'"},
-		"a dotted handle": {store.Edge{URL: e.URL, Key: key, Handle: "a.b"}.String(), "lower case letters, digits and '-'"},
-		"no handle":       {store.Edge{URL: e.URL, Key: key}.String(), "lower case letters, digits and '-'"},
-		"a long handle":   {store.Edge{URL: e.URL, Key: key, Handle: strings.Repeat("a", 64)}.String(), "lower case letters, digits and '-'"},
+		"not JSON":           {`https://my.yardr.dev`, "not what yardr edge connect writes"},
+		"JSON of no edge":    {`[]`, "not what yardr edge connect writes"},
+		"nothing":            {`{}`, "a public address"},
+		"null":               {`null`, "a public address"},
+		"junk after":         {e.String() + "x", "not what yardr edge connect writes"},
+		"plain http":         {store.Edge{URL: "http://my.yardr.dev", Key: key, Handle: "mckean"}.String(), "http is for a stand-in on this machine only"},
+		"a path":             {store.Edge{URL: "https://my.yardr.dev/x", Key: key, Handle: "mckean"}.String(), "the edge's origin alone"},
+		"a short key":        {store.Edge{URL: e.URL, Key: key[:10], Handle: "mckean"}.String(), "the edge's key"},
+		"no key":             {store.Edge{URL: e.URL, Handle: "mckean"}.String(), "the edge's key"},
+		"upper case":         {store.Edge{URL: e.URL, Key: key, Handle: "McKean"}.String(), "lower case letters, digits and '-'"},
+		"a path handle":      {store.Edge{URL: e.URL, Key: key, Handle: "../x"}.String(), "lower case letters, digits and '-'"},
+		"a dotted handle":    {store.Edge{URL: e.URL, Key: key, Handle: "a.b"}.String(), "lower case letters, digits and '-'"},
+		"no handle":          {store.Edge{URL: e.URL, Key: key}.String(), "lower case letters, digits and '-'"},
+		"a long handle":      {store.Edge{URL: e.URL, Key: key, Handle: strings.Repeat("a", 64)}.String(), "lower case letters, digits and '-'"},
+		"an upper-case name": {store.Edge{URL: e.URL, Key: key, Handle: "mckean", Name: "Airy"}.String(), "lower case letters, digits and '-'"},
+		"a dotted name":      {store.Edge{URL: e.URL, Key: key, Handle: "mckean", Name: "a.b"}.String(), "lower case letters, digits and '-'"},
+		"a long name":        {store.Edge{URL: e.URL, Key: key, Handle: "mckean", Name: strings.Repeat("a", 64)}.String(), "lower case letters, digits and '-'"},
 		"an http address to put back": {store.Edge{URL: e.URL, Key: key, Handle: "mckean", HookPublicURL: "http://hooks.example.net"}.String(),
 			"the hook_public_url to put back"},
 	} {

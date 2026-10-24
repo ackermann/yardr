@@ -69,7 +69,7 @@ func TestTheLinkIsShownWhereTheListenerIs(t *testing.T) {
 	if noAddress() {
 		t.Error("doctor speaks of the receiver's address on a yard whose hooks come through the edge")
 	}
-	r := &statusReport{Home: cfg.Home, Hooks: &hookStatus{Hooks: []hookEndpoint{{Name: "adhoc", Source: "token"}}}, Edge: &edgeStatus{URL: srv.URL, Handle: "mckean"}}
+	r := &statusReport{Home: cfg.Home, Hooks: &hookStatus{Hooks: []hookEndpoint{{Name: "adhoc", Source: "token"}}}, Edge: &edgeStatus{URL: srv.URL, Handle: "mckean", Name: "mckean"}}
 	if got := r.parts(); !slices.ContainsFunc(got, func(p statusPart) bool {
 		return p.name == "hooks" && p.lines[0] == "the server takes webhooks through the edge alone: it has no address of its own"
 	}) {
@@ -93,7 +93,7 @@ func TestTheLinkIsShownWhereTheListenerIs(t *testing.T) {
 		return ""
 	}
 	statusLines := func(s *edgelink.State) []string {
-		r := &statusReport{Home: cfg.Home, Edge: &edgeStatus{URL: srv.URL, Handle: "mckean", Link: s}}
+		r := &statusReport{Home: cfg.Home, Edge: &edgeStatus{URL: srv.URL, Handle: "mckean", Name: "mckean", Link: s}}
 		for _, p := range r.parts() {
 			if p.name == "edge" {
 				return p.lines
@@ -106,7 +106,7 @@ func TestTheLinkIsShownWhereTheListenerIs(t *testing.T) {
 	silent := "the server has not said how its link is: it dials the edge while it runs with the edge set"
 	out, _ := mustEdge(t, st, nothing, "edge", "status")
 	edgeLines(t, out, "link      "+silent)
-	if n := doctorNote(); n != "the link to the edge "+srv.URL+", as handle mckean: "+silent {
+	if n := doctorNote(); n != "the link to the edge "+srv.URL+", as mckean/mckean: "+silent {
 		t.Errorf("doctor before the server said = %q", n)
 	}
 
@@ -119,7 +119,7 @@ func TestTheLinkIsShownWhereTheListenerIs(t *testing.T) {
 	if n := doctorNote(); !strings.HasSuffix(n, ": "+upLine) {
 		t.Errorf("doctor with the link up = %q", n)
 	}
-	if got := statusLines(&up); len(got) != 2 || got[0] != srv.URL+" as handle mckean" || got[1] != "link "+upLine {
+	if got := statusLines(&up); len(got) != 2 || got[0] != srv.URL+" as mckean/mckean" || got[1] != "link "+upLine {
 		t.Errorf("status with the link up = %q", got)
 	}
 	out, _ = mustEdge(t, st, nothing, "edge", "status", "--json")

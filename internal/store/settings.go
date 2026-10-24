@@ -634,7 +634,7 @@ func CheckEdgeURL(v string) error {
 }
 
 // Edge is the value of the edge setting. It is one setting so that the key
-// an edge was pinned by, and the handle it gave this yard, cannot change
+// an edge was pinned by, and the names it gave this yard, cannot change
 // apart from the address they were got at.
 type Edge struct {
 	// URL is the edge's origin (CheckEdgeURL).
@@ -643,21 +643,34 @@ type Edge struct {
 	// when it connected. It is never taken from the edge again: a different
 	// key at the same address is a different edge.
 	Key string `json:"key"`
-	// Handle is what the edge calls this yard, which its hooks are reached
-	// under.
+	// Handle is the account's at the edge, and Name this yard's among its
+	// yards, which its hooks are reached under.
 	Handle string `json:"handle"`
+	Name   string `json:"name,omitempty"`
 	// HookPublicURL is the hook_public_url that connecting replaced, which
 	// disconnecting puts back; "" when there was none.
 	HookPublicURL string `json:"hook_public_url,omitempty"`
 }
 
-// edgeHandle is what an edge may call a yard: one segment of a path, in
-// lower case.
+// edgeHandle is what an edge may call an account or one of its yards: one
+// segment of a path, in lower case.
 var edgeHandle = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// edgeNameRule is the rule edgeHandle holds, as a refusal states it.
+const edgeNameRule = "lower case letters, digits and '-', which the edge's address takes as one segment of a path"
+
+// CheckEdgeName refuses a name the edge does not take for a yard: what
+// yardr edge connect --as proposes is validated with it before it is sent.
+func CheckEdgeName(name string) error {
+	if !edgeHandle.MatchString(name) {
+		return fmt.Errorf("name %q: %s", name, edgeNameRule)
+	}
+	return nil
+}
 
 // HooksURL is the address the edge takes this yard's webhooks at, which is
 // what hook_public_url is while connected: a hook's URL is it plus /<name>.
-func (e Edge) HooksURL() string { return e.URL + "/hooks/" + e.Handle }
+func (e Edge) HooksURL() string { return e.URL + "/hooks/" + e.Handle + "/" + e.Name }
 
 // String is the edge as the setting holds it.
 func (e Edge) String() string {
@@ -667,8 +680,10 @@ func (e Edge) String() string {
 
 // ParseEdge reads the value of the edge setting as String writes it, and
 // refuses one that holds what connecting would not have written: an address
-// that is no edge's, a key that is no yard's, a handle that is no path
-// segment, a hook_public_url that setting would not take.
+// that is no edge's, a key that is no yard's, a handle or name that is no
+// path segment, a hook_public_url that setting would not take. A value
+// written before yards had names holds no name, and reads as named as its
+// account, which is the yard an edge with one yard per account meant.
 func ParseEdge(v string) (Edge, error) {
 	var e Edge
 	if err := json.Unmarshal([]byte(v), &e); err != nil {
@@ -681,7 +696,12 @@ func ParseEdge(v string) (Edge, error) {
 		return Edge{}, fmt.Errorf("%s: the edge's key: %w", EdgeSetting, err)
 	}
 	if !edgeHandle.MatchString(e.Handle) {
-		return Edge{}, fmt.Errorf("%s: handle %q: lower case letters, digits and '-', which the edge's address takes as one segment of a path", EdgeSetting, e.Handle)
+		return Edge{}, fmt.Errorf("%s: handle %q: %s", EdgeSetting, e.Handle, edgeNameRule)
+	}
+	if e.Name == "" {
+		e.Name = e.Handle
+	} else if !edgeHandle.MatchString(e.Name) {
+		return Edge{}, fmt.Errorf("%s: name %q: %s", EdgeSetting, e.Name, edgeNameRule)
 	}
 	if e.HookPublicURL != "" {
 		if err := CheckHookPublicURL(e.HookPublicURL); err != nil {

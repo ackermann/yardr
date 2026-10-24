@@ -68,10 +68,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // A yard fetches the edge's key, enrols with a code, shows the code, asks
-// again until the person has approved it and is given its handle. Every
-// call is signed to the key that was fetched, and at its own moment: the
-// edge refuses a signature more than MaxSkew old, and the person has longer
-// than that to approve.
+// again until the person has approved it and is given its handle and name.
+// Every call is signed to the key that was fetched, and at its own moment:
+// the edge refuses a signature more than MaxSkew old, and the person has
+// longer than that to approve.
 func TestEnrolIsSignedToTheFetchedKeyAtEachCallsOwnMoment(t *testing.T) {
 	t.Parallel()
 	edge, srv := edgeAt(t)
@@ -88,14 +88,14 @@ func TestEnrolIsSignedToTheFetchedKeyAtEachCallsOwnMoment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if en.Code != "WQ4F-7K2M" || en.Handle != "" || time.Until(en.Expires) < 9*time.Minute {
-		t.Fatalf("after the first call: %+v, want the code and no handle", en)
+	if en.Code != "WQ4F-7K2M" || en.Handle != "" || en.Name != "" || time.Until(en.Expires) < 9*time.Minute {
+		t.Fatalf("after the first call: %+v, want the code and no handle or name", en)
 	}
 	if err := en.Wait(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if en.Handle != "mckean" || en.Email != "chris@mckean.co" {
-		t.Errorf("approved as %q by %q, want mckean by chris@mckean.co", en.Handle, en.Email)
+	if en.Handle != "mckean" || en.Name != "mckean" || en.Email != "chris@mckean.co" {
+		t.Errorf("approved as %q/%q by %q, want mckean/mckean by chris@mckean.co", en.Handle, en.Name, en.Email)
 	}
 	calls := edge.State().Enrols
 	if len(calls) != 4 {
@@ -149,16 +149,16 @@ func TestEnrolTakesACodeWhateverItsExpiryIs(t *testing.T) {
 	}
 }
 
-// A yard the edge knows already is answered with its handle at once, and has
-// nothing to wait for.
+// A yard the edge knows already is answered with its handle and name at
+// once, and has nothing to wait for.
 func TestEnrolAnsweredWithAHandleNeedsNoWait(t *testing.T) {
 	t.Parallel()
 	edge, srv := edgeAt(t)
-	edge.Behave(func(b *standin.EdgeBehaviour) { b.ApproveAfter = 0 })
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.ApproveAfter, b.Name = 0, "airy" })
 	c := &Client{URL: srv.URL, HTTP: srv.Client(), Poll: time.Millisecond}
 	en, err := c.Enrol(context.Background(), edge.PublicKey(), newKey(t), "laptop")
-	if err != nil || en.Handle != "mckean" || en.Code != "" {
-		t.Fatalf("Enrol = %+v, %v; want the handle and no code", en, err)
+	if err != nil || en.Handle != "mckean" || en.Name != "airy" || en.Code != "" {
+		t.Fatalf("Enrol = %+v, %v; want the handle and name and no code", en, err)
 	}
 	if err := en.Wait(context.Background()); err != nil || len(edge.State().Enrols) != 1 {
 		t.Errorf("Wait = %v after %d calls, want it to ask no more", err, len(edge.State().Enrols))
@@ -337,14 +337,15 @@ func TestEnrolRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 		srv  *httptest.Server
 		want string
 	}{
-		"a refusal":           {signed(http.StatusGone, map[string]string{"refused": "the code expired"}), "the edge refused this yard: the code expired (410)"},
-		"a control character": {signed(http.StatusForbidden, map[string]string{"refused": "no\x1b[2J\x07 thanks"}), "the edge refused this yard: no[2J thanks (403)"},
-		"no reason":           {signed(http.StatusForbidden, map[string]string{}), "the edge refused this yard (403)"},
-		"neither":             {signed(http.StatusOK, map[string]string{}), "holds neither a code nor a handle"},
-		"a code too long":     {signed(http.StatusOK, map[string]string{"code": strings.Repeat("X", maxText+1)}), "not text a person can type"},
-		"a code with escapes": {signed(http.StatusOK, map[string]string{"code": "AB\x1b[2JCD"}), "not text a person can type"},
-		"not an object":       {signed(http.StatusOK, []string{"code"}), "no JSON object"},
-		"a bad gateway":       {unsigned, "answered 502, not signed with the key this yard pinned"},
+		"a refusal":             {signed(http.StatusGone, map[string]string{"refused": "the code expired"}), "the edge refused this yard: the code expired (410)"},
+		"a control character":   {signed(http.StatusForbidden, map[string]string{"refused": "no\x1b[2J\x07 thanks"}), "the edge refused this yard: no[2J thanks (403)"},
+		"no reason":             {signed(http.StatusForbidden, map[string]string{}), "the edge refused this yard (403)"},
+		"neither":               {signed(http.StatusOK, map[string]string{}), "holds neither a code nor a handle"},
+		"a handle with no name": {signed(http.StatusOK, map[string]string{"handle": "mckean"}), "names the account but no yard"},
+		"a code too long":       {signed(http.StatusOK, map[string]string{"code": strings.Repeat("X", maxText+1)}), "not text a person can type"},
+		"a code with escapes":   {signed(http.StatusOK, map[string]string{"code": "AB\x1b[2JCD"}), "not text a person can type"},
+		"not an object":         {signed(http.StatusOK, []string{"code"}), "no JSON object"},
+		"a bad gateway":         {unsigned, "answered 502, not signed with the key this yard pinned"},
 	} {
 		c := &Client{URL: tc.srv.URL, HTTP: tc.srv.Client()}
 		_, err := c.Enrol(context.Background(), yardkey.Public(edgeKey), newKey(t), "laptop")

@@ -435,7 +435,7 @@ func TestHookAddNamesTheEdgeWhereTheLinkServesAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantText(t, out, "note: the hook is reached at https://my.yardr.dev/hooks/mckean/gh through the link to the edge")
+	wantText(t, out, "note: the hook is reached at https://my.yardr.dev/hooks/mckean/mckean/gh through the link to the edge")
 	if strings.Contains(out, "no address to take webhooks on") {
 		t.Errorf("hook add names the missing address too:\n%s", out)
 	}
