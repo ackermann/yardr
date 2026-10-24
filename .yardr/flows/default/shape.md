@@ -22,8 +22,11 @@ both estimate labels:
 
 Outcomes:
 
-- `done`: the above holds and the bead is `difficulty:1`. The bead goes to
-  `new`, to a builder as it stands.
+- `small`: the above holds and the bead is `difficulty:1` and `size:small`.
+  The bead goes to `siding`, to wait for company and be built and reviewed
+  with it as one.
+- `done`: the above holds and the bead is `difficulty:1` but not
+  `size:small`. The bead goes to `new`, to a builder as it stands.
 - `question`: the bead is `difficulty:2` or `3` and earns a person's read
   first, is a duplicate of another bead, or needs a decision only a person
   can make. The question is asked on the bead first, and the bead goes to

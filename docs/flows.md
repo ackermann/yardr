@@ -629,11 +629,13 @@ section, so a bead sent back says so in the first text its new session
 reads:
 
 ```
-FLOW default · 8 stages (context: your stage's file below says what you must do)
+FLOW default · 10 stages (context: your stage's file below says what you must do)
   backlog           people   New beads wait here, where `yardr bead create` puts them, until the yardmaster or a person picks…
   shape             agents   A shaper reads the bead and the code it names, and shapes it for a builder.
+  siding            people   Shaped small beads wait here for company, and leave folded into one bead.
 > new               agents   A builder implements the bead here, on branch `yard/<bead>` in the bead's own worktree.   <- you are here
   decide            people   A bead here waits for a person: Christopher decides.
+  ready             people   Folded carriers wait here for a person to send them to build.
   review            agents   The finished bead is reviewed against its goal; what the reviewer can fix is fixed, not sent back.
   review-security   agents   The reviewed bead is reviewed once more, for security alone, by another agent.
   approved          script   The assembly tests the bead and lands it on `main`, one bead at a time.
@@ -853,10 +855,12 @@ move:
 ```
 flow default (repo@2c2a589)
 STAGE            GROUP            MEMBERS            NEXT
-backlog          backlog          mckean,yardmaster  shape | new | decide
-shape            shapers          -                  new on done | decide on question | backlog
+backlog          backlog          mckean,yardmaster  shape | siding | new | decide
+shape            shapers          -                  siding on small | new on done | decide on question | backlog
+siding           siding           mckean,yardmaster  ready | backlog
 new              yardr-builders   -                  review on done | decide on question | backlog
 decide           decisions        mckean,yardmaster  backlog | new
+ready            ready            mckean,yardmaster  new | backlog
 review           yardr-reviewers  -                  review-security on done | approved on done-safe | new on changes | decide on question
 review-security  yardr-security   -                  approved on done | new on changes | decide on question
 approved         yardr-refinery   -                  merged on done | new on failed | decide on question
@@ -870,8 +874,10 @@ no store pointer overrides it. It governs every bead that is not a train
 
 ```
 # default.flow
-backlog -> shape | new | decide
-shape -> new on done | decide on question | backlog
+backlog -> shape | siding | new | decide
+shape -> siding on small | new on done | decide on question | backlog
+siding -> ready | backlog
+ready -> new | backlog
 new -> review on done | decide on question | backlog
 review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question
 review-security -> approved on done | new on changes max 3 then decide | decide on question
@@ -888,6 +894,8 @@ do.
 |---|---|---|
 | backlog | `backlog` | manual (Christopher and the yardmaster, who picks which beads go to `shape`) |
 | shape | `shapers` | herdr, Muse, limit 2, `prompt=roles/shaper.md` |
+| siding | `siding` | manual (Christopher and the yardmaster; `fold=4`, `fold_after=8h`, `fold_max=6`: the yard folds the waiting beads into one carrier by itself) |
+| ready | `ready` | manual (Christopher and the yardmaster, who sends each carrier to `new`) |
 | new | `yardr-builders` | herdr, Claude Code, limit 5, `prompt=roles/builder.md` |
 | review | `yardr-reviewers` | herdr, Codex, limit 3, `prompt=roles/reviewer.md` |
 | review-security | `yardr-security` | herdr, `prompt=roles/review-security.md`: the second review, for security alone ([line.md](line.md#then-once-more-for-security-alone)) |
@@ -899,9 +907,12 @@ shaper reads the bead and the code it names, rewrites the body in the yard's
 shape (goal, where to look, what to do, left out, done when) and estimates
 it, changing no code. The move from `backlog` to `shape` stays a person's
 or the yardmaster's pick, never a route. A bead shaped at `difficulty:1`
-goes to `new` on `done`; a heavier one, a duplicate, or one needing a
-decision only a person can make goes to `decide` on `question`, with the
-question asked on the bead first.
+and `size:small` goes to `siding` on `small`, to wait for company and leave
+folded with it; any other `difficulty:1` bead goes to `new` on `done`; a
+heavier one, a duplicate, or one needing a decision only a person can make
+goes to `decide` on `question`, with the question asked on the bead first.
+Beads in `siding` leave folded into one carrier, which waits in `ready` for
+a person to send it to `new`.
 
 The assembly lands an approved bead and advances it to `merged`, which
 closes it; a red run of the tests sends it back to `new`. The flow has no `merge`

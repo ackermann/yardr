@@ -1,7 +1,7 @@
 # Glossary: yardr's words
 
 Every word yardr uses for its own things, each with what it is. The first
-twelve are the yard's own, for what a person meets every day; the rest are
+sixteen are the yard's own, for what a person meets every day; the rest are
 plain words kept on purpose, because they name general machinery.
 
 | yardr | what it is |
@@ -11,6 +11,9 @@ plain words kept on purpose, because they name general machinery.
 | **bead** | one durable piece of work (an issue, in a tracker) |
 | **train** | a bead whose children land on its branch and reach the base as one, after one review of the whole |
 | **wagon** | a child of a train on the fast lane: built in parallel, a quick run of the tests, no review of its own |
+| **siding** | a stage where small shaped beads wait to leave as one bead, folded into a carrier when enough wait or long enough passes |
+| **carrier** | the one bead a fold makes from its members, holding each member's body as a part |
+| **fold** | making one carrier bead out of several beads, closing each member folded into it |
 | **question** | the type of the bead `yardr bead ask --new` makes for a question that is about no bead: it carries the ask and is nobody's to build, so nothing routes it and it is never reported unrouted; its asker closes it when the answer is on it |
 | **crew**, crew member | the always-on agents of the yard, tied to no bead |
 | **yardmaster** | the crew member that coordinates: shapes beads, keeps the line moving, answers people |

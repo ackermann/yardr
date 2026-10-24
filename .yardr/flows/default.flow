@@ -5,8 +5,10 @@
 # failed from the assembly) are limited to 3 rounds together, as the starter pack
 # has them: the fourth goes to decide, where a person reads its note. The train
 # flow (yardr.train.flow) has no limit.
-backlog -> shape | new | decide
-shape -> new on done | decide on question | backlog
+backlog -> shape | siding | new | decide
+shape -> siding on small | new on done | decide on question | backlog
+siding -> ready | backlog
+ready -> new | backlog
 new -> review on done | decide on question | backlog
 review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question
 review-security -> approved on done | new on changes max 3 then decide | decide on question

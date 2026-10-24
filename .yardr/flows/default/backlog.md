@@ -10,6 +10,8 @@ its blockers are closed.
 The stage has no outcomes; whoever picks the bead moves it:
 
 - to `shape`, by default: `yardr bead advance <id> --to shape`;
+- to `siding`, when the bead is shaped but small, worth bundling with
+  company (`yardr bead advance <id> --to siding`);
 - to `new`, when the bead is already specified well enough to build:
   `yardr bead advance <id> --to new`;
 - to `decide`, when what the bead should be is Christopher's to decide: the
