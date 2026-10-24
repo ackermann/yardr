@@ -258,6 +258,10 @@ A yard whose depots are all dir depots lands nothing: it has no landing step, it
 routes are `new and review`, and its last step reads `a first bead through to
 the flow's end`.
 
+Once a first merged bead is done, one line follows the steps: `Tell us it landed:
+mail yardmaster@yardr.dev with "landed"`. It is how the operator says the
+first bead landed; yardr sends nothing itself. Before that, no line.
+
 ### Optional
 
 What a yard runs without. Each line is `configured` or `not configured`,

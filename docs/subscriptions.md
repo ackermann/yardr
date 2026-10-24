@@ -919,7 +919,11 @@ bead: `quiet_started` carries `depot`, `base` and `landings` (how many
 landings owed it), and its end is `quiet_passed` or `quiet_failed`, each
 carrying `depot`, `base`, `commit`, `wall_s` and `load`; a failure also
 carries `packages`, the packages that failed, `tests`, the failing test
-names as the gate's flaky lines read them (capped), and `reason`.
+names as the gate's flaky lines read them (capped), `reason`, and
+`files`: one file per failing package, named `<package, slashes
+flattened>.log` and holding the package's output; a failure that names
+no package carries the end of the run's whole output as one file,
+`run.log`.
 `quiet_failed` is of the class [`attention`](#the-class-attention), so
 the yardmaster hears of a red base through its default `--on`. The
 three quiet-run events match a yardr subscription on kind alone, like

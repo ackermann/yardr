@@ -856,8 +856,13 @@ nothing else. What is not the same:
   stream sends it to a device that is no operator's, so a
   `workspace_kept` reads `session=s1` and not the worktree. A notification
   is written when its event is logged. Who is an operator is read then, and
-  in a yard with none everyone gets the held words. A notification written
-  by an earlier build keeps the words it had.
+  in a yard with none everyone gets the held words. Rows from earlier
+  builds were remade on upgrade: a yard row of a user who is no operator
+  is remade from what its person is told (schema 31, and again by schemas
+  33 and 34 as the hold learned more old sentences), an operator's rows
+  and hook rows (Source is the hook's) are left whole, and a row whose
+  event was pruned is remade bare, from its bead, kind, reason and title
+  alone.
 - **`Users`, `GetUser`, `Crew` and `GetCrew` tell the files and commands
   of the operator's configuration to a device of an operator alone**: a
   user's record has `env_file`, the file their address is read from, and

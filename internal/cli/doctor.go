@@ -1130,6 +1130,9 @@ func (r *doctorReport) print(w io.Writer) {
 	if len(r.Steps) > 0 {
 		fmt.Fprintln(w, "\nSetup")
 		printSteps(w, r.Steps)
+		if landedBead(r.Steps) {
+			fmt.Fprintln(w, `  Tell us it landed: mail yardmaster@yardr.dev with "landed".`)
+		}
 	} else if len(r.Skipped) > 0 {
 		fmt.Fprintf(w, "\nSetup\n  %-5s  skipped: %s\n", tagNote, skippedWhy)
 	}

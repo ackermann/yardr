@@ -1,5 +1,9 @@
 # yardr
 
+Your coding agents' changes, reviewed, tested and merged.
+
+yardr carries each change through the review and tests your depot configures. The tests run on exactly what will merge, on your machine, with your logins.
+
 Route beads of work to whoever works them. A **bead** is a durable unit of
 work. **Routes** send open, unblocked beads in a **stage** to a **group**; a
 group's **runner** starts the work (an agent in herdr, a shell command, or
@@ -68,8 +72,7 @@ server, a server without a desktop, upgrading.
   hooks receive from and calls go to. Not built in one by one: a new service
   is declared by one file.
 
-[docs/glossary.md](docs/glossary.md) has all of yardr's words, each with
-what it is.
+[docs/glossary.md](docs/glossary.md) has all of yardr's words, each with what it is.
 
 ## Quick start
 

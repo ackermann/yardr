@@ -136,6 +136,9 @@ func TestDoctorEmptyHome(t *testing.T) {
 	if strings.Contains(out, "The yard\n") || strings.Contains(out, "Optional") || strings.Contains(out, "Next step") {
 		t.Errorf("a home with no yard has no yard to report on:\n%s", out)
 	}
+	if strings.Contains(out, "Tell us it landed") {
+		t.Errorf("no merged bead, yet doctor says to tell us it landed:\n%s", out)
+	}
 	for _, f := range []string{"yard.db", "yard.sock", "server.pid", "daemon.lock"} {
 		if _, err := os.Stat(filepath.Join(home, f)); err == nil {
 			t.Errorf("doctor created %s", f)
@@ -340,6 +343,12 @@ func TestDoctorSetUpYard(t *testing.T) {
 	if _, err := st.Reopen(ctx, b.ID, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// A yard with a bead but none merged says nothing of telling us.
+	mid, _ := run(t, a().rootCmd(), "doctor")
+	wantText(t, mid, "todo   a first merged bead: ")
+	if strings.Contains(mid, "Tell us it landed") {
+		t.Errorf("no merged bead, yet doctor says to tell us it landed:\n%s", mid)
+	}
 	for _, stage := range []string{"new", "review", "approved", "merged"} {
 		if _, err := st.Advance(ctx, b.ID, stage, store.Expect{}, "me"); err != nil {
 			t.Fatalf("to %s: %v", stage, err)
@@ -367,6 +376,7 @@ func TestDoctorSetUpYard(t *testing.T) {
 		"done   a group or person that lands approved beads: web/mergers",
 		"done   routes for new, review and approved: new to web/builders, review to web/reviewers, approved to web/mergers",
 		"done   a first bead: "+b.ID, "done   a first merged bead: "+b.ID+" (merged)",
+		"Tell us it landed: mail yardmaster@yardr.dev with \"landed\".",
 		"Nothing the yard needs is missing.", "The setup is complete.")
 	if strings.Contains(out, "todo ") || strings.Contains(out, "FAULT") {
 		t.Errorf("a set-up yard lacks something:\n%s", out)
@@ -1059,6 +1069,13 @@ func TestSetupStepsDirDepot(t *testing.T) {
 	}
 	if !steps[1].Done || steps[4].Title != "routes for new and review" || steps[6].Title != "a first bead through to the flow's end" {
 		t.Fatalf("steps = %+v", steps)
+	}
+	// A dir depot's flow can finish, but no bead was landed.
+	steps[6].Done = true
+	var out strings.Builder
+	(&doctorReport{Steps: steps}).print(&out)
+	if strings.Contains(out.String(), "Tell us it landed") {
+		t.Fatalf("a dir depot landed nothing, yet doctor says to tell us it landed:\n%s", out.String())
 	}
 	// The steps of no yard are those of a yard with a repository to come.
 	if none := noSetup(); len(none) != 8 || none[4].Key != stepLanding || nextStep(none).Key != stepDepot {

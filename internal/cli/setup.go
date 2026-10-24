@@ -107,6 +107,21 @@ func nextStep(steps []setupStep) *setupStep {
 	return nil
 }
 
+// landedBead reports whether the steps hold a first merged bead in a yard
+// with a landing step. A dir depot can finish its flow, but it lands nothing.
+func landedBead(steps []setupStep) bool {
+	landing := false
+	for i := range steps {
+		if steps[i].Key == stepLanding {
+			landing = true
+		}
+		if steps[i].Key == stepMerged {
+			return landing && steps[i].Done
+		}
+	}
+	return false
+}
+
 func (s setupState) steps() []setupStep {
 	depot := "<depot>"
 	if len(s.depots) > 0 {
