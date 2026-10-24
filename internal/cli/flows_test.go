@@ -150,7 +150,7 @@ func TestFlowShowSiding(t *testing.T) {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}, "me")
 		must(err)
 	}
-	f, err := store.ParseFlow("backlog -> siding | triage | dead\nsiding -> ready | backlog\ntriage -> ready\nready -> new\nnew -> merged\nmerged terminal")
+	f, err := store.ParseFlow("backlog -> siding | triage | dead\nsiding -> ready | backlog\ntriage -> ready\nready -> new on done | backlog on question\nnew -> merged\nmerged terminal")
 	must(err)
 	f.Name = "code"
 	_, err = st.PutFlow(ctx, *f, "me")
@@ -229,6 +229,21 @@ func TestFlowShowSiding(t *testing.T) {
 	// any warning of the flow's own.
 	out, err := run(t, a.flowCmd(), "show", "yard")
 	must(err)
+	var backlog, ready string
+	for line := range strings.Lines(out) {
+		switch {
+		case strings.HasPrefix(line, "backlog"):
+			backlog = line
+		case strings.HasPrefix(line, "ready"):
+			ready = line
+		}
+	}
+	if !strings.Contains(backlog, "(back)") {
+		t.Errorf("backlog row = %q, want (back) in its NEXT", backlog)
+	}
+	if strings.Contains(ready, "(back)") {
+		t.Errorf("ready row = %q, want no (back)", ready)
+	}
 	_, lines, found := strings.Cut(out, "(terminal: closes the bead)\n")
 	if !found {
 		t.Fatalf("flow show printed no table:\n%s", out)

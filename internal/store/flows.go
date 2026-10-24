@@ -49,6 +49,10 @@ type Outcome struct {
 // what a stage with a single way out offers without naming it.
 const DefaultOutcome = "done"
 
+// questionOutcome is the outcome that asks a person: a bead it brings to a
+// stage may move back to the stage that asked (see askingStage).
+const questionOutcome = "question"
+
 // DoneCommand is the command that reports outcome for bead id, as the brief
 // lists it: without --outcome for done, with it for any other.
 func DoneCommand(id, outcome string) string {
@@ -301,6 +305,23 @@ func (f *Flow) Next(stage string) []string {
 
 // Allows reports whether a bead in from may move to to.
 func (f *Flow) Allows(from, to string) bool { return slices.Contains(f.Next(from), to) }
+
+// QuestionBack reports whether another stage sends beads to stage on its
+// question outcome: a bead there may move back to the stage that asked
+// (see askingStage), which flow show marks "(back)" in its NEXT.
+func (f *Flow) QuestionBack(stage string) bool {
+	for from, outs := range f.Outcomes {
+		if from == stage {
+			continue
+		}
+		for _, o := range outs {
+			if o.Name == questionOutcome && o.To == stage {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func (f *Flow) IsTerminal(stage string) bool { return slices.Contains(f.Terminal, stage) }
 
@@ -1270,6 +1291,9 @@ type NextStages struct {
 	// stand. Empty when the entry put its asks, or the stage has no
 	// template. The bead still moves by hand.
 	TemplateError string `json:"template_error,omitempty"`
+	// Back is the stage whose question brought the bead to Stage, allowed
+	// as an advance target alongside Stages; "" when none did (askerOf).
+	Back string `json:"back,omitempty"`
 }
 
 // RoundsLines are the lines OutcomeNow.RoundsLine says for the stage's
@@ -1320,6 +1344,14 @@ func (s *Store) NextStages(ctx context.Context, id string) (*NextStages, error) 
 				out.Terminal = append(out.Terminal, st)
 			}
 		}
+		if asker, err := askingStage(tx, row.UUID, row.Stage, f); err != nil {
+			return err
+		} else if asker != "" {
+			out.Back = asker
+			if !slices.Contains(out.Stages, asker) {
+				out.Stages = append(out.Stages, asker)
+			}
+		}
 		entry, err := latestStayEntry(tx, row.UUID)
 		if err != nil {
 			return err
@@ -1357,14 +1389,56 @@ func checkCreateStage(f *Flow, stage string) error {
 	return nil
 }
 
+// askingStage is the stage whose question brought the bead to its stay in
+// stage: the from of the stay's entry event when that is an advanced event
+// with the question outcome, kept only while the flow still holds that
+// stage's on-question edge into stage (a flow edit may have moved it,
+// leaving the history stale). Any other entry — created, reopened, a move
+// by hand — means no asker. The answered question returns the bead to its
+// asker without a stage in between (see checkAdvance).
+func askingStage(tx *bolt.Tx, uuid, stage string, f *Flow) (string, error) {
+	if f == nil {
+		return "", nil
+	}
+	entry, err := latestStayEntry(tx, uuid)
+	if err != nil || entry == 0 {
+		return "", err
+	}
+	var e Event
+	if ok, err := get(tx, bEvents, seqKey(entry), &e); err != nil || !ok {
+		return "", err
+	}
+	if e.Kind != "advanced" {
+		return "", nil
+	}
+	if outcome, _ := e.Data["outcome"].(string); outcome != questionOutcome {
+		return "", nil
+	}
+	from, _ := e.Data["from"].(string)
+	if from == "" || from == stage {
+		return "", nil
+	}
+	for _, o := range f.Outcomes[from] {
+		if o.Name == questionOutcome && o.To == stage {
+			return from, nil
+		}
+	}
+	return "", nil
+}
+
 // checkAdvance refuses a move the flow does not allow, naming the moves it
-// does.
-func checkAdvance(f *Flow, id, from, to string) error {
-	if f == nil || f.Allows(from, to) {
+// does. The asker — the stage whose question brought the bead here, "" when
+// none did — is allowed alongside them, and named after them.
+func checkAdvance(f *Flow, id, from, to, asker string) error {
+	if f == nil || f.Allows(from, to) || (asker != "" && to == asker) {
 		return nil
 	}
+	allowed := strings.Join(f.Next(from), ", ")
+	if asker != "" {
+		allowed += "; back to " + asker
+	}
 	return fmt.Errorf("bead %s: flow %s does not allow %s -> %s; allowed next: %s",
-		id, f.Name, from, to, strings.Join(f.Next(from), ", "))
+		id, f.Name, from, to, allowed)
 }
 
 // dedupeOrdered drops empty and repeated stages, keeping the first of each.

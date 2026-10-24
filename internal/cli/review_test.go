@@ -149,6 +149,7 @@ func TestReviewActions(t *testing.T) {
 	now := func(f *store.Flow, stage string) *store.NextStages {
 		next := &store.NextStages{Flow: f}
 		if f != nil {
+			next.Stages = f.Next(stage)
 			for _, o := range f.OutcomesFrom(stage) {
 				next.Outcomes = append(next.Outcomes, store.OutcomeNow{Outcome: o, Goes: o.To})
 			}
@@ -180,6 +181,39 @@ func TestReviewActions(t *testing.T) {
 	}
 	if got[0].Outcome != "done" || got[0].Label != "done: send back to backlog (note required)" {
 		t.Errorf("decide done action = %+v", got[0])
+	}
+
+	// A question adds its asker as a move for this bead. Returning to that
+	// stage already has the answer on the bead, so the move needs no new note.
+	questionFlow, err := store.ParseFlow("backlog -> new\nnew -> review\nreview -> approved on done | decide on question\napproved -> merged\ndecide -> backlog | new\nmerged terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	questionNext := now(questionFlow, "decide")
+	questionNext.Back = "review"
+	questionNext.Stages = append(questionNext.Stages, questionNext.Back)
+	got = reviewActions(store.Bead{Stage: "decide", Depot: &depot}, questionNext, routes)
+	want = append([]act{{actAdvance, "backlog", true, false}, {actAdvance, "new", true, false}, {actAdvance, "review", false, false}}, tail...)
+	if !slices.Equal(flat(got), want) {
+		t.Fatalf("question back actions = %+v, want %+v", flat(got), want)
+	}
+	if got[2].Label != "Return to review" {
+		t.Errorf("question back label = %q, want Return to review", got[2].Label)
+	}
+
+	// The same per-bead move is offered alongside outcomes, which otherwise
+	// remain the review form's choices instead of its bare flow edges.
+	decisionFlow, err := store.ParseFlow("backlog -> new\nnew -> review\nreview -> decide on question\ndecide -> backlog | new on done\nmerged terminal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionNext := now(decisionFlow, "decide")
+	decisionNext.Back = "review"
+	decisionNext.Stages = append(decisionNext.Stages, decisionNext.Back)
+	got = reviewActions(store.Bead{Stage: "decide", Depot: &depot}, decisionNext, routes)
+	want = append([]act{{actDone, "new", true, false}, {actAdvance, "review", false, false}}, tail...)
+	if !slices.Equal(flat(got), want) {
+		t.Fatalf("question back with outcomes = %+v, want %+v", flat(got), want)
 	}
 
 	// A stage with outcomes offers them, not its stages: a bare edge is

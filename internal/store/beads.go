@@ -1619,7 +1619,8 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 		safe = s.checkDoneSafe(ctx, id, DoneSafe)
 	}
 	b, err := s.advance(ctx, id, note, exp, actor, false, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
-		if err := checkAdvance(f, b.ID, b.Stage, stage); err != nil {
+		asker, _ := data["asker"].(string)
+		if err := checkAdvance(f, b.ID, b.Stage, stage, asker); err != nil {
 			return stage, err
 		}
 		if safe != nil && f != nil {
@@ -1944,6 +1945,14 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 		}
 		from = b.Stage
 		data := withGroup(b, map[string]any{"from": b.Stage})
+		// The asker travels on the event: the stay pick leaves may have
+		// been entered on a question, and the move it makes — a hand back
+		// to the asker, or onward — keeps that provenance.
+		if asker, err := askingStage(w.Tx, b.UUID, b.Stage, f); err != nil {
+			return "", nil, err
+		} else if asker != "" {
+			data["asker"] = asker
+		}
 		if stage, err = pick(f, b, data); err != nil {
 			return "", nil, refuse(RefusedNotAllowed, err)
 		}

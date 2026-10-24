@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -269,6 +270,125 @@ func TestOutcomesFrom(t *testing.T) {
 		if _, err := l.Outcome(stage, "failed"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Outcome(%s, failed) err = %v, want one saying %q", stage, err, want)
 		}
+	}
+}
+
+// questionBackFlow is the shape a question escapes by: review and new ask
+// decide, which otherwise exits to backlog and new alone.
+const questionBackFlow = `
+backlog -> new
+new -> review on done | decide on question | backlog
+review -> review-security on done | decide on question
+review-security -> merged on done | new on changes
+decide -> backlog | new
+merged terminal
+`
+
+// A bead a question brought to decide moves back to the stage that asked,
+// past the listed exits; one that arrived any other way keeps them alone.
+func testQuestionBack(t *testing.T, s store.API, ctx context.Context) {
+	t.Helper()
+	f := putFlow(t, s, "yard", "", questionBackFlow)
+	if !f.QuestionBack("decide") || f.QuestionBack("review") || f.QuestionBack("backlog") {
+		t.Fatalf("QuestionBack = decide %v review %v backlog %v, want true false false",
+			f.QuestionBack("decide"), f.QuestionBack("review"), f.QuestionBack("backlog"))
+	}
+	// review asks a question; the bead waits in decide with review to go
+	// back to.
+	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Done(ctx, b.ID, "question", "is this safe?", store.Expect{}, "reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.NextStages(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Back != "review" || !slices.Equal(next.Stages, []string{"backlog", "new", "review"}) {
+		t.Fatalf("next from decide = %+v, want the listed exits and back review", next)
+	}
+	// A stage that did not ask is refused, with the asker named.
+	_, err = s.Advance(ctx, b.ID, "review-security", store.Expect{}, "me")
+	if err == nil {
+		t.Fatal("decide -> review-security allowed")
+	}
+	for _, want := range []string{"decide -> review-security", "allowed next: backlog, new; back to review"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+	// The answer arrives on a note; the back-move succeeds, keeps the
+	// asker as provenance, and the resumed stage reads the answer.
+	if err := s.AddNote(ctx, b.ID, "yes: the flag is fenced", "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Advance(ctx, b.ID, "review", store.Expect{}, "yardmaster"); err != nil || got.Stage != "review" {
+		t.Fatalf("advance decide -> review = %+v, %v", got, err)
+	}
+	notes, err := s.Notes(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(notes, func(n store.Note) bool { return n.Text == "yes: the flag is fenced" }) {
+		t.Fatalf("notes after the back-move = %+v, want the answer", notes)
+	}
+	evs, err := s.Events(ctx, b.ID, 1)
+	if err != nil || len(evs) != 1 || evs[0].Kind != "advanced" || evs[0].Data["from"] != "decide" ||
+		evs[0].Data["to"] != "review" || evs[0].Data["asker"] != "review" {
+		t.Fatalf("last event = %+v, %v", evs, err)
+	}
+	next, err = s.NextStages(ctx, b.ID)
+	if err != nil || next.Back != "" {
+		t.Fatalf("next after returning to review = %+v, %v; want no asker", next, err)
+	}
+
+	// A flow edit that removes the question edge makes its old event stale.
+	stale, err := s.CreateBead(ctx, store.NewBead{Title: "stale", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Advance(ctx, stale.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Done(ctx, stale.ID, "question", "which path?", store.Expect{}, "reviewer"); err != nil {
+		t.Fatal(err)
+	}
+	withoutReviewQuestion := strings.Replace(questionBackFlow,
+		"review -> review-security on done | decide on question",
+		"review -> review-security on done", 1)
+	putFlow(t, s, "yard", "", withoutReviewQuestion)
+	next, err = s.NextStages(ctx, stale.ID)
+	if err != nil || next.Back != "" || !slices.Equal(next.Stages, []string{"backlog", "new"}) {
+		t.Fatalf("next after its question edge was removed = %+v, %v; want only listed exits", next, err)
+	}
+	if _, err := s.Advance(ctx, stale.ID, "review", store.Expect{}, "me"); err == nil || strings.Contains(err.Error(), "back to") {
+		t.Fatalf("stale decide -> review err = %v, want a plain refusal", err)
+	}
+
+	// A bead moved to decide by hand keeps the listed exits alone: no
+	// asker, and the refusal names none.
+	c, err := s.CreateBead(ctx, store.NewBead{Title: "y", Depot: "yard", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Advance(ctx, c.ID, "decide", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	next, err = s.NextStages(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Back != "" || !slices.Equal(next.Stages, []string{"backlog", "new"}) {
+		t.Fatalf("next from decide by hand = %+v, want the listed exits alone", next)
+	}
+	_, err = s.Advance(ctx, c.ID, "review", store.Expect{}, "me")
+	if err == nil || strings.Contains(err.Error(), "back to") {
+		t.Fatalf("decide -> review by hand err = %v, want a plain refusal", err)
 	}
 }
 
@@ -688,6 +808,7 @@ merged terminal
 	if evs, err = s.Events(ctx, c.ID, 3); err != nil || len(evs) != 3 || evs[0].Kind != "advanced" || evs[1].Kind != store.RoundsReached || evs[2].Kind != "closed" {
 		t.Fatalf("last events = %+v, %v; want advanced, %s, closed", evs, err, store.RoundsReached)
 	}
+	testQuestionBack(t, s, ctx)
 }
 
 // A bead no flow governs has no outcomes; the error says to advance.

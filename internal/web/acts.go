@@ -15,10 +15,11 @@ import (
 // moveActions is what the view's user may do with b, as `yardr review`
 // offers it: the outcomes its flow names for the stage, as they stand for
 // the bead (a round limit can send the report somewhere the flow's edge
-// does not name), else the stages it allows next. A bead that waits for no
-// manual group the user belongs to, or a closed one, offers none. next is
-// the bead's NextStages, read by the caller; a flow error leaves no move,
-// as review's queue does.
+// does not name), else the stages it allows for this bead. Returning to a
+// question's asker needs no new note because the answer is already on the
+// bead. A bead that waits for no manual group the user belongs to, or a
+// closed one, offers none. next is the bead's NextStages, read by the caller;
+// a flow error leaves no move, as review's queue does.
 func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.NextStages) ([]MoveAction, error) {
 	if b.Status != "open" {
 		return nil, nil
@@ -60,6 +61,8 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 		move := func(to string) MoveAction {
 			a := MoveAction{Kind: "advance", To: to, Terminal: f.IsTerminal(to)}
 			switch {
+			case next != nil && to == next.Back:
+				a.Label = "return to " + to
 			case a.Terminal:
 				a.Label = "finish as " + to + " (closes the bead)"
 			case here >= 0 && slices.Index(f.Stages, to) < here:
@@ -79,11 +82,20 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 				out = append(out, a)
 			}
 		} else {
-			for _, to := range f.Next(b.Stage) {
+			for _, to := range next.Stages {
 				a := move(to)
 				a.Label = strings.ToUpper(a.Label[:1]) + a.Label[1:]
 				out = append(out, a)
 			}
+		}
+		// A question can make a stage an additional move for this bead,
+		// even when the stage's flow lists outcomes instead of bare moves.
+		if next != nil && next.Back != "" && !slices.ContainsFunc(out, func(a MoveAction) bool {
+			return a.To == next.Back
+		}) {
+			a := move(next.Back)
+			a.Label = "Return to " + next.Back
+			out = append(out, a)
 		}
 	} else {
 		var stages []string

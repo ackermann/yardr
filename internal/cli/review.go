@@ -122,9 +122,10 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 // reviewActions is what a reviewer may do with b. Under a flow that names
 // outcomes for b's stage: those outcomes, as they stand for the bead: a
 // round limit can send the report somewhere the flow's edge does not name.
-// Under a flow without: each stage it allows next. Either way a stage
-// earlier in the flow sends the bead back and needs a note. Without a flow:
-// any stage a route uses. Then always open diff and skip.
+// Under a flow without: the stages it allows for this bead. Returning to a
+// question's asker needs no new note because the answer is already on the
+// bead. Other earlier stages need a note. Without a flow: any stage a route
+// uses. Then always open diff and skip.
 func reviewActions(b store.Bead, next *store.NextStages, routes []store.Route) []reviewAction {
 	var out []reviewAction
 	var f *store.Flow
@@ -138,6 +139,8 @@ func reviewActions(b store.Bead, next *store.NextStages, routes []store.Route) [
 		move := func(s string) reviewAction {
 			a := reviewAction{Kind: actAdvance, Stage: s, Terminal: f.IsTerminal(s)}
 			switch {
+			case next != nil && s == next.Back:
+				a.Label = "return to " + s
 			case a.Terminal:
 				a.Label = "finish as " + s + " (closes the bead)"
 			case here >= 0 && slices.Index(f.Stages, s) < here:
@@ -157,11 +160,20 @@ func reviewActions(b store.Bead, next *store.NextStages, routes []store.Route) [
 				out = append(out, a)
 			}
 		} else {
-			for _, s := range f.Next(b.Stage) {
+			for _, s := range next.Stages {
 				a := move(s)
 				a.Label = strings.ToUpper(a.Label[:1]) + a.Label[1:]
 				out = append(out, a)
 			}
+		}
+		// A question can make a stage an additional move for this bead,
+		// even when the stage's flow lists outcomes instead of bare moves.
+		if next != nil && next.Back != "" && !slices.ContainsFunc(out, func(a reviewAction) bool {
+			return a.Stage == next.Back
+		}) {
+			a := move(next.Back)
+			a.Label = "Return to " + next.Back
+			out = append(out, a)
 		}
 	} else {
 		var stages []string

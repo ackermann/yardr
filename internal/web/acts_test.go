@@ -282,6 +282,54 @@ func TestBeadMoveButtons(t *testing.T) {
 	} else if len(got.Moves) != 2 || got.Moves[0].Outcome != "done" || got.Moves[1].Outcome != "changes" || !got.Moves[1].NoteRequired {
 		t.Errorf("the moves: %+v", got.Moves)
 	}
+	// An answered question offers its asker as a move on the bead page. The
+	// answer is already in Notes, so returning needs no second note.
+	f6, _ := talkFixture(t, "jo")
+	ctx6 := context.Background()
+	b6, _ := actYard(t, f6, pickAsk())
+	must(t, f6.st.PutGroup(ctx6, store.Group{Name: "decisions", Runner: "manual", Members: []string{"jo"}}, "jo"))
+	question, err := store.ParseFlow("new -> review\nreview -> decide on question\ndecide -> backlog | new\nbacklog -> new")
+	must(t, err)
+	question.Name = "question"
+	_, err = f6.st.PutFlow(ctx6, *question, "jo")
+	must(t, err)
+	must(t, f6.st.SetFlowPointer(ctx6, "home", "", "question", "jo"))
+	_, err = f6.st.AddRoute(ctx6, store.Route{Stage: "decide", Group: "decisions"}, "jo")
+	must(t, err)
+	if _, err := f6.st.Advance(ctx6, b6.ID, "review", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f6.st.Done(ctx6, b6.ID, "question", "which route?", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, f6.st.AddNote(ctx6, b6.ID, "use the reviewed route", "jo"))
+	r = f6.get("/beads/" + b6.ID)
+	if want := `<button type="submit" name="to" value="review">Return to review</button>`; !strings.Contains(r.body, want) {
+		t.Errorf("the page lacks the asker move %q:\n%s", want, r.body)
+	}
+	b6, err = f6.st.GetBead(ctx6, b6.ID)
+	must(t, err)
+	r = f6.postForm("/beads/"+b6.ID, url.Values{"rev": {b6.Revision}, "to": {"review"}}, "Origin", f6.ts.URL)
+	if r.status != http.StatusSeeOther {
+		t.Fatalf("return to asker without another note: status %d\n%s", r.status, r.body)
+	}
+	b6, err = f6.st.GetBead(ctx6, b6.ID)
+	must(t, err)
+	if b6.Stage != "review" {
+		t.Fatalf("the asker move left the bead at %s", b6.Stage)
+	}
+	notes, err := f6.st.Notes(ctx6, b6.ID)
+	must(t, err)
+	answerFound := false
+	for _, note := range notes {
+		if note.Text == "use the reviewed route" {
+			answerFound = true
+		}
+	}
+	if !answerFound {
+		t.Fatal("the answer disappeared on the asker move")
+	}
+
 	// At a round limit the send-on button names where the report really
 	// goes: decide, with the rounds used.
 	f4, _ := talkFixture(t, "jo")

@@ -164,6 +164,10 @@ flow file or a pack with no yard.`,
 							next = "(terminal: closes the bead)"
 						case len(s.Next) == 0:
 							next = "(no transitions: any stage)"
+						case v.Flow.QuestionBack(s.Stage):
+							// A bead a question brought here may move back
+							// to the stage that asked, past the listed moves.
+							next += " (back)"
 						}
 						members := "-"
 						if s.Human {
