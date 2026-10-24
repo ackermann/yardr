@@ -173,6 +173,21 @@ redo the feature review:
    "review: <what>"). Then note and report as the stage says for
    a merge re-review.
 
+## A carrier with one bad part
+
+A bead whose body holds `## Part` sections is a carrier: one builder session
+built several small beads as one (`yardr bead show` says `folded from`).
+Review every part against its own done-when; when one part is wrong and the
+rest are good, take that part out instead of sending the whole carrier back:
+
+`yardr bead unfold <carrier> <part> --reason "<what is wrong with the part>"`
+
+The part reopens with its tracking, blocks and watchers restored, and the
+carrier's body records that it went. Then revert the part's commit: each part
+is its own commit starting with the part's bead id, so `git log` names it.
+Revert it on the branch and go on reviewing; when it cannot be reverted
+cleanly, report `changes` and name the commit the builder must take out.
+
 ## Train review
 
 If the bead is a train (the brief says so and lists its children), you review

@@ -1657,6 +1657,25 @@ lists of `{id, title, status}` that are there and empty when there is
 nothing to list. A bead is folded into more than one carrier only if it was
 reopened and folded again, and show names each.
 
+A reviewer who finds one part wrong and the rest good takes that part out
+instead of sending the whole carrier back:
+
+```sh
+$ yardr bead unfold yardr-k9p2 yardr-cd34 --reason "part 2 breaks the gate on linux"
+yardr-cd34 reopened in backlog, out of yardr-k9p2; revert its commit on yard/yardr-k9p2
+```
+
+The part reopens in `--to`, or in the flow's first stage without it, with the
+reason as a note, and what the fold moved from it comes back: the issues it
+tracked, the beads it blocked with the stages the edges named, and whoever
+watched it. A target two parts moved stays on the carrier until the last of
+them is out, so each part restores exactly what it moved. The folded edge is
+gone, the carrier's body gains the taken-out line under `## The bundle`, and
+an `unfolded` event is logged on it. Each part is its own commit starting with
+the part's bead id, so the reviewer reverts that commit on the carrier's
+branch and goes on reviewing. A bead that is not a member of the carrier is
+refused.
+
 ## The yard as the CI of a pull request
 
 GitHub Actions is off for the yard's repositories, and the yard is the CI of

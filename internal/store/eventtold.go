@@ -51,6 +51,7 @@ var eventDataTold = map[string][]string{
 	"unblocked":          {"blockers"},
 	"reblocked":          {"blockers"},
 	"folded":             {"members", "left", "from", "to", "trigger", "points"},
+	"unfolded":           {"member", "to", "reason"},
 	"fold_refused":       {"depot", "flow", "stage", "members", "points", "fold_max", "reason", "unreadable"},
 	"dep_added":          {"from", "kind"},
 	"dep_removed":        {"from", "kind"},

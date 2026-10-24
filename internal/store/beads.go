@@ -591,11 +591,8 @@ func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *b
 // checkAgentCreate refuses a bead's agent (beadAgent) a new bead b, of flow
 // f, that would skip what the flow puts first: a flow pin, which chooses a
 // flow of the agent's own (UpdateBead refuses it too), a merge permission,
-// CI verdict or review's head, or a stage past the flow's first that no
-// person the yard names looks at before work starts (StageWork.Seen). A bead
-// filed into its flow's first stage, or into one people work (decide), is
-// seen first; one filed into review or approved would land without the stages
-// before it.
+// CI verdict or review's head, or a stage past the flow's first
+// (checkAgentStage).
 func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage string) error {
 	sess, err := beadAgent(w.Tx, ctx)
 	if err != nil || sess == nil {
@@ -616,6 +613,20 @@ func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage strin
 	if pin := PinnedFlow(&b); pin != "" {
 		return fmt.Errorf("the session %s of a bead's agent may not pin a new bead's flow (metadata flow %s), whatever actor the command names; file it without, and the yard chooses its flow", sess.ID, pin)
 	}
+	return w.checkAgentStage(ctx, f, b, stage, "create a bead", "file it with --stage")
+}
+
+// checkAgentStage refuses a bead's agent (beadAgent) a bead b of flow f in a
+// stage past the flow's first that no person the yard names looks at before
+// work starts (StageWork.Seen). A bead opened in its flow's first stage, or
+// in one people work (decide), is seen first; one opened in review or
+// approved would land without the stages before it. How the bead opens names
+// the refusal: a bead created, or a part taken out.
+func (w *wtx) checkAgentStage(ctx context.Context, f *Flow, b Bead, stage, how, instead string) error {
+	sess, err := beadAgent(w.Tx, ctx)
+	if err != nil || sess == nil {
+		return err
+	}
 	first := firstStage(f)
 	if f == nil || stage == first {
 		return nil
@@ -628,7 +639,7 @@ func (w *wtx) checkAgentCreate(ctx context.Context, f *Flow, b Bead, stage strin
 	if err != nil || work.Seen() {
 		return err
 	}
-	return fmt.Errorf("stage %s: the session %s of a bead's agent may create a bead only in its flow's first stage %s or in a stage people work, whatever actor the command names; file it with --stage %s", stage, sess.ID, first, first)
+	return fmt.Errorf("stage %s: the session %s of a bead's agent may %s only in its flow's first stage %s or in a stage people work, whatever actor the command names; %s %s", stage, sess.ID, how, first, instead, first)
 }
 
 // insertBead gives a new bead its UUID, from its creation time and after

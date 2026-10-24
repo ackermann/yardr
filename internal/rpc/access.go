@@ -143,6 +143,7 @@ var Access = map[string]Class{
 	"SetHold":     Agent, // but not to lift a hold (store.SetHold)
 	"Release":     Agent,
 	"FoldBeads":   Admin, // the shaper's, the yardmaster's and a person's; no bead's agent folds (store.FoldBeads also asks checkCloseOwn of every member)
+	"Unfold":      Agent, // the members of its own carrier alone (store.Unfold)
 
 	"AddDep":            Agent,
 	"RemoveDep":         Agent, // but not a blocks edge (store.RemoveDep)

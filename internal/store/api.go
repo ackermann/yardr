@@ -26,6 +26,7 @@ type API interface {
 	SetHold(ctx context.Context, id string, hold bool, exp Expect, actor string) (*Bead, error)
 	Release(ctx context.Context, id, reason string, exp Expect, actor string) (*Bead, error)
 	FoldBeads(ctx context.Context, ids []string, opts FoldOptions, actor string) (*Bead, error)
+	Unfold(ctx context.Context, carrier, member, to, reason, actor string) (*Bead, error)
 	SidingBeads(ctx context.Context, ids []string) ([]SidingBead, error)
 	FoldSidings(ctx context.Context, at time.Time, beads []Bead, routes []Route) (*SidingPass, error)
 

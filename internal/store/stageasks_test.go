@@ -609,6 +609,47 @@ func TestStageAskCloseReopen(t *testing.T) {
 	if len(got) != 4 || got[2].State != store.AskOpen || got[2].Ask.Entry == first[0].Ask.Entry {
 		t.Fatalf("after reopen: %+v", got)
 	}
+
+	// Taking a part out enters its stage just as Reopen does. The fresh ask
+	// names the reopened event, before the reason note that Unfold adds.
+	other, err := s.CreateBead(ctx, store.NewBead{Title: "other", Depot: "web", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other, err = s.Advance(ctx, other.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	carrier, err := s.FoldBeads(ctx, []string{b.ID, other.ID}, store.FoldOptions{To: "review"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Unfold(ctx, carrier.ID, b.ID, "review", "split it out", "me"); err != nil {
+		t.Fatal(err)
+	}
+	got = stageAsks(t, s, b.ID)
+	evs, err := s.Events(ctx, b.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reopened uint64
+	for _, e := range evs {
+		if e.Kind == "reopened" {
+			reopened = max(reopened, e.Seq)
+		}
+	}
+	open := 0
+	for _, r := range got {
+		if r.State != store.AskOpen {
+			continue
+		}
+		open++
+		if r.Ask.Stage != "review" || r.Ask.Entry != reopened {
+			t.Errorf("unfold ask stage %q entry %d, want review entry %d", r.Ask.Stage, r.Ask.Entry, reopened)
+		}
+	}
+	if open != 2 {
+		t.Errorf("open asks after unfold = %d, want one for each reviewer; asks: %+v", open, got)
+	}
 }
 
 // A broken template puts no ask and logs one event naming the stage and the
