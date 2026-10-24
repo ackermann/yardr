@@ -62,6 +62,20 @@ func TestEventWithoutHeld(t *testing.T) {
 			map[string]any{"user": "ada"}, true},
 		{"no value for the record", store.Event{Kind: "user_removed", Data: map[string]any{"user": "ada", "login": nil}},
 			map[string]any{"user": "ada"}, true},
+		{"a marked takeback tells no sentence, though its kind lists one", store.Event{Kind: "noted", Data: map[string]any{"note": uint64(7),
+			"answer": `yard took back yd-4x1k ask 2 "code is not logged in: how should the yard log in its harness?": the login ended: harness login: exit status 1`, "answer_held": true}},
+			map[string]any{"note": uint64(7)}, true},
+		{"an old login takeback, unmarked", store.Event{Kind: "noted", Data: map[string]any{"note": uint64(7),
+			"answer": `yard took back yd-4x1k ask 2 "code is not logged in: how should the yard log in its harness?": the login ended: harness login: exit status 1`}},
+			map[string]any{"note": uint64(7)}, true},
+		{"an old takeback by a person, unmarked", store.Event{Kind: "noted", Data: map[string]any{"note": uint64(7),
+			"answer": `mckean took back yd-4x1k ask 3 "May the night shift cover the queue?": the night shift covers it`}},
+			map[string]any{"note": uint64(7),
+				"answer": `mckean took back yd-4x1k ask 3 "May the night shift cover the queue?": the night shift covers it`}, false},
+		{"an old pick whose words name the login's end", store.Event{Kind: "noted", Data: map[string]any{"note": uint64(7),
+			"answer": `mckean picked 1 (After Friday) on yd-4x1k ask 6 "when?": the login ended: friday works`}},
+			map[string]any{"note": uint64(7),
+				"answer": `mckean picked 1 (After Friday) on yd-4x1k ask 6 "when?": the login ended: friday works`}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			before := map[string]any{}

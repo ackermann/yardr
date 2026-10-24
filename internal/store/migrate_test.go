@@ -108,8 +108,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 31 {
-		t.Fatalf("a new store is stamped %d; want 31", got)
+	if got := schemaOf(t, fixture); got != 33 {
+		t.Fatalf("a new store is stamped %d; want 33", got)
 	}
 	want := indexKeys(t, fixture)
 	if len(want["inbox"]) != 2 || len(want["events_by_kind"]) == 0 {
@@ -169,8 +169,8 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 31 {
-				t.Fatalf("schema after Open = %d; want 31", got)
+			if got := schemaOf(t, path); got != 33 {
+				t.Fatalf("schema after Open = %d; want 33", got)
 			}
 			got := indexKeys(t, path)
 			for _, name := range indexBuckets {
@@ -178,7 +178,7 @@ func TestSchema2StoreMigratesTo3(t *testing.T) {
 					t.Errorf("%s after migration = %v\nwant %v", name, got[name], want[name])
 				}
 			}
-			if got := schemaOf(t, fixture); got != 31 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
+			if got := schemaOf(t, fixture); got != 33 || !slices.Equal(indexKeys(t, fixture)["inbox"], want["inbox"]) {
 				t.Fatal("the fixture changed; the migration ran on the copy")
 			}
 		})
@@ -299,8 +299,8 @@ func TestSchema8StoreRenamesTheMayorSetting(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 31 {
-				t.Fatalf("schema after Open = %d; want 31", got)
+			if got := schemaOf(t, path); got != 33 {
+				t.Fatalf("schema after Open = %d; want 33", got)
 			}
 			after := bucketDump(t, path, append(kept, "events", "settings")...)
 			renamed, heard := 0, 0
@@ -523,8 +523,8 @@ func TestSchema9StoreRenamesEpicsAndParts(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Fatalf("schema after Open = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema after Open = %d; want 33", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	for k, v := range after {
@@ -722,8 +722,8 @@ func TestSchema10StoreRenamesCars(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Fatalf("schema after Open = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema after Open = %d; want 33", got)
 	}
 	after := bucketDump(t, path, "events", "named_flows")
 	for k, v := range after {
@@ -943,8 +943,8 @@ func TestSchema10StoreRenamesResidents(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 31 {
-			t.Fatalf("%s: schema = %d; want 31", pass, got)
+		if got := schemaOf(t, path); got != 33 {
+			t.Fatalf("%s: schema = %d; want 33", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldEnv)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1122,8 +1122,8 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 31 {
-			t.Fatalf("%s: schema = %d; want 31", pass, got)
+		if got := schemaOf(t, path); got != 33 {
+			t.Fatalf("%s: schema = %d; want 33", pass, got)
 		}
 		now := bucketDump(t, path, append(kept, "events", "settings", "depots")...)
 		var added []string
@@ -1197,7 +1197,7 @@ func TestSchema18StoreDropsTheChecks(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 31 {
+	if now := bucketDump(t, fresh, "events", "depots", "settings"); !maps.Equal(was, now) || schemaOf(t, fresh) != 33 {
 		t.Fatalf("a store with no check changed, or is not stamped 26 (%d):\n was %v\n now %v", schemaOf(t, fresh), was, now)
 	}
 }
@@ -1385,8 +1385,8 @@ func TestSchema11StoreRenamesRigs(t *testing.T) {
 		}
 		must(s.Close(ctx))
 
-		if got := schemaOf(t, path); got != 31 {
-			t.Fatalf("%s: schema = %d; want 31", pass, got)
+		if got := schemaOf(t, path); got != 33 {
+			t.Fatalf("%s: schema = %d; want 33", pass, got)
 		}
 		if st, err := os.Lstat(filepath.Dir(oldClone)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("%s: the old directory is no link: %v, %v", pass, st, err)
@@ -1822,8 +1822,8 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, fixture); got != 31 {
-		t.Fatalf("a new store is stamped %d; want 31", got)
+	if got := schemaOf(t, fixture); got != 33 {
+		t.Fatalf("a new store is stamped %d; want 33", got)
 	}
 	for v := uint64(1); v < 23; v++ {
 		t.Run(fmt.Sprintf("schema %d", v), func(t *testing.T) {
@@ -1859,12 +1859,12 @@ func TestStoresStampedAtEachOldVersionOpen(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 31 {
-				t.Errorf("schema after Open at %d = %d; want 31", v, got)
+			if got := schemaOf(t, path); got != 33 {
+				t.Errorf("schema after Open at %d = %d; want 33", v, got)
 			}
 		})
 	}
-	if got := schemaOf(t, fixture); got != 31 {
+	if got := schemaOf(t, fixture); got != 33 {
 		t.Fatal("the fixture changed; the migrations ran on the copies")
 	}
 }
@@ -1962,8 +1962,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 			if err := s.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			if got := schemaOf(t, path); got != 31 {
-				t.Fatalf("%s: schema = %d; want 31", pass, got)
+			if got := schemaOf(t, path); got != 33 {
+				t.Fatalf("%s: schema = %d; want 33", pass, got)
 			}
 			if head != before {
 				t.Fatalf("%s logged %d events", pass, head-before)
@@ -1988,8 +1988,8 @@ func TestSchema22StoreGainsOriginators(t *testing.T) {
 		if err := s.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if got := schemaOf(t, path); got != 31 {
-			t.Fatalf("schema = %d; want 31", got)
+		if got := schemaOf(t, path); got != 33 {
+			t.Fatalf("schema = %d; want 33", got)
 		}
 	})
 }
@@ -2065,8 +2065,8 @@ func TestSchema25PeerGainsIntakes(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Fatalf("schema = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema = %d; want 33", got)
 	}
 }
 
@@ -2151,8 +2151,8 @@ func TestSchema26StoreGainsHearer(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if got := schemaOf(t, path); got != 31 {
-				t.Fatalf("schema after Open = %d; want 31", got)
+			if got := schemaOf(t, path); got != 33 {
+				t.Fatalf("schema after Open = %d; want 33", got)
 			}
 		})
 	}
@@ -2216,8 +2216,8 @@ func TestSchema27CrewRotationMoves6hTo24h(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Fatalf("schema after Open = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema after Open = %d; want 33", got)
 	}
 }
 
@@ -2377,8 +2377,8 @@ func TestSchema28GrantsGainGiven(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Fatalf("schema after Open = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema after Open = %d; want 33", got)
 	}
 }
 
@@ -2455,8 +2455,8 @@ func TestReleasedStoreOpensAndMigrates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Errorf("schema after Open = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Errorf("schema after Open = %d; want 33", got)
 	}
 	if got := schemaOf(t, "testdata/v0.9.0.db"); got != 19 {
 		t.Errorf("the fixture is stamped %d; the migrations ran on the copy", got)
@@ -2604,7 +2604,200 @@ func TestSchema30NotificationsRemadeTold(t *testing.T) {
 		}
 		must(s.Close(ctx))
 	}
-	if got := schemaOf(t, path); got != 31 {
-		t.Fatalf("schema after Open = %d; want 31", got)
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema after Open = %d; want 33", got)
+	}
+}
+
+// A store of schema 32, from before old login-takeback sentences were held,
+// has every non-operator notification remade from what its person is told of
+// the event: a kept takeback reads as the noted event without its sentence,
+// a person's takeback keeps its sentence, and a pruned-event row is bare. An
+// operator's rows stay whole, and the next start changes nothing.
+func TestSchema32NotificationsRemadeTakebackHeld(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "yard.db")
+	s, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(s.SetSetting(ctx, "default_kind", "claude", "op"))
+	_, err = s.AddUser(ctx, "op", "op")
+	must(err)
+	must(s.SetSetting(ctx, store.OperatorSetting, "op", "op"))
+	_, err = s.AddUser(ctx, "op2", "op")
+	must(err)
+	// A second operator, who is told what the takeback's actor is not told
+	// of their own act.
+	_, err = s.SetUser(ctx, "op2", map[string]string{store.UserRole: store.RoleOperator}, "op")
+	must(err)
+	_, err = s.AddUser(ctx, "ada", "op")
+	must(err)
+	bead, err := s.CreateBead(ctx, store.NewBead{Title: "work"}, "op")
+	must(err)
+	const tail = "/tmp/yardr-test/login: permission denied"
+	const covered = "the night shift covers it"
+	const gone = "/tmp/yardr-test/seat-login: permission denied"
+	loginWords := func(secret string) string {
+		return store.LoginEndedPrefix + "harness login: exit status 1: cannot write " + secret
+	}
+	login, err := s.AddAsk(ctx, bead.ID, store.Ask{Question: "code is not logged in: how should the yard log in its harness?", To: "op",
+		Context: []string{"The crew's harness sits at its login screen."}}, "yard")
+	must(err)
+	person, err := s.AddAsk(ctx, bead.ID, store.Ask{Question: "May the night shift cover the queue?", To: "op",
+		Context: []string{"The day shift ends at six tonight."}}, "ada")
+	must(err)
+	pruned, err := s.AddAsk(ctx, bead.ID, store.Ask{Question: "muse is not logged in: how should the yard log in its harness?", To: "op",
+		Context: []string{"The crew's other harness sits at its login screen."}}, "yard")
+	must(err)
+	// Subscribed after the asks: an ask is a noted event too, and the rows
+	// below are the takebacks' alone.
+	sub := store.Subscription{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"kind": "noted"}}
+	must(s.AddSubscription(ctx, "op2", sub, "op2"))
+	must(s.AddSubscription(ctx, "ada", sub, "ada"))
+	must(s.TakeBackAsk(ctx, bead.ID, login, loginWords(tail), "yard"))
+	// Taken back by the operator, who subscribes to nothing: a person is
+	// not told of what they did themselves, so ada taking it back would
+	// leave her without a row.
+	must(s.TakeBackAsk(ctx, bead.ID, person, covered, "op"))
+	must(s.TakeBackAsk(ctx, bead.ID, pruned, loginWords(gone), "yard"))
+	opPage, err := s.UserNotifications(ctx, "op2", 0)
+	must(err)
+	adaPage, err := s.UserNotifications(ctx, "ada", 0)
+	must(err)
+	if len(opPage.Notifications) != 3 || len(adaPage.Notifications) != 3 {
+		t.Fatalf("notifications = op2 %d, ada %d; want 3 each", len(opPage.Notifications), len(adaPage.Notifications))
+	}
+	whole := map[uint64]string{}
+	for _, n := range opPage.Notifications {
+		whole[n.Seq] = n.Text
+	}
+	keptHeld, keptTold, prunedSeq := adaPage.Notifications[0].Seq, adaPage.Notifications[1].Seq, adaPage.Notifications[2].Seq
+	if !strings.Contains(whole[keptHeld], tail) || !strings.Contains(whole[keptTold], covered) ||
+		!strings.Contains(whole[prunedSeq], gone) {
+		t.Fatalf("the operator's rows are %+v", whole)
+	}
+	told := map[uint64]string{}
+	for _, n := range adaPage.Notifications {
+		told[n.Seq] = n.Text
+	}
+	if strings.Contains(told[keptHeld], tail) || strings.Contains(told[prunedSeq], gone) {
+		t.Fatalf("a told row names the login's tail: %+v", told)
+	}
+	if !strings.Contains(told[keptTold], covered) {
+		t.Fatalf("the told row lost its sentence: %q", told[keptTold])
+	}
+	reason := adaPage.Notifications[2].Reason
+	must(s.Close(ctx))
+
+	// Age it: stamped 32, ada's rows whole as a build before the hold wrote
+	// them, every event unmarked as a build before the mark wrote it, and
+	// the third event pruned from the log.
+	db, err := bolt.Open(path, 0o600, nil)
+	must(err)
+	err = db.Update(func(tx *bolt.Tx) error {
+		if err := tx.Bucket([]byte("meta")).Put([]byte("schema"), binary.BigEndian.AppendUint64(nil, 32)); err != nil {
+			return err
+		}
+		notes := tx.Bucket([]byte("notifications"))
+		c := notes.Cursor()
+		for k, raw := c.First(); k != nil; k, raw = c.Next() {
+			user, _, _ := strings.Cut(string(k), "\x00")
+			if user != "ada" {
+				continue
+			}
+			var n store.Notification
+			if err := json.Unmarshal(raw, &n); err != nil {
+				return err
+			}
+			n.Text = whole[n.Seq]
+			rewritten, err := json.Marshal(n)
+			if err != nil {
+				return err
+			}
+			if err := notes.Put(k, rewritten); err != nil {
+				return err
+			}
+		}
+		events := tx.Bucket([]byte("events"))
+		ec := events.Cursor()
+		for k, raw := ec.First(); k != nil; k, raw = ec.Next() {
+			var e map[string]any
+			if err := json.Unmarshal(raw, &e); err != nil {
+				return err
+			}
+			if data, ok := e["data"].(map[string]any); ok {
+				delete(data, "answer_held")
+			}
+			rewritten, err := json.Marshal(e)
+			if err != nil {
+				return err
+			}
+			if err := events.Put(k, rewritten); err != nil {
+				return err
+			}
+		}
+		key := binary.BigEndian.AppendUint64(nil, prunedSeq)
+		if err := events.Delete(key); err != nil {
+			return err
+		}
+		return nil
+	})
+	db.Close()
+	must(err)
+
+	bare := bead.ID + ` noted (` + reason + `) on "work"`
+	for _, pass := range []string{"the upgrade", "the next start"} {
+		s, err = store.Open(path)
+		must(err)
+		opPage, err = s.UserNotifications(ctx, "op2", 0)
+		must(err)
+		adaPage, err = s.UserNotifications(ctx, "ada", 0)
+		must(err)
+		got := map[string]map[uint64]store.Notification{"op2": {}, "ada": {}}
+		for _, n := range opPage.Notifications {
+			got["op2"][n.Seq] = n
+		}
+		for _, n := range adaPage.Notifications {
+			got["ada"][n.Seq] = n
+		}
+		if n := got["ada"][keptHeld]; n.Text != told[keptHeld] {
+			t.Errorf("%s: ada's kept held row = %q, want the held text %q", pass, n.Text, told[keptHeld])
+		} else if strings.Contains(n.Text, tail) || !strings.Contains(n.Text, "noted") || !strings.Contains(n.Text, bead.ID) {
+			t.Errorf("%s: ada's kept held row = %q", pass, n.Text)
+		}
+		if n := got["ada"][keptHeld]; n.Title != "work" || n.Bead != bead.ID {
+			t.Errorf("%s: ada's kept held row is about %+v", pass, n)
+		}
+		if n := got["ada"][keptTold]; n.Text != told[keptTold] {
+			t.Errorf("%s: ada's kept told row = %q, want its sentence %q", pass, n.Text, told[keptTold])
+		} else if !strings.Contains(n.Text, covered) {
+			t.Errorf("%s: ada's kept told row lost its sentence: %q", pass, n.Text)
+		}
+		if n := got["op2"][keptHeld]; n.Text != whole[keptHeld] {
+			t.Errorf("%s: the operator's kept held row = %q, want it whole %q", pass, n.Text, whole[keptHeld])
+		}
+		if n := got["ada"][prunedSeq]; n.Text != bare {
+			t.Errorf("%s: ada's pruned row = %q, want the bare form %q", pass, n.Text, bare)
+		} else if strings.Contains(n.Text, gone) || strings.Contains(n.Text, " by ") {
+			t.Errorf("%s: ada's pruned row carries event data: %q", pass, n.Text)
+		}
+		if n := got["ada"][prunedSeq]; n.Title != "work" || n.Bead != bead.ID {
+			t.Errorf("%s: ada's pruned row is about %+v", pass, n)
+		}
+		if n := got["op2"][prunedSeq]; n.Text != whole[prunedSeq] {
+			t.Errorf("%s: the operator's pruned row = %q, want it whole %q", pass, n.Text, whole[prunedSeq])
+		}
+		must(s.Close(ctx))
+	}
+	if got := schemaOf(t, path); got != 33 {
+		t.Fatalf("schema after Open = %d; want 33", got)
 	}
 }

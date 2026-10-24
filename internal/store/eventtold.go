@@ -312,10 +312,12 @@ func EventDataTold(kind string) ([]string, bool) {
 // whose typed words carry a value or a path, or that took back a login ask
 // when the login ended, tells no sentence, though its kind lists one: the
 // sentence names the command whole (answerSentence), or carries the words of
-// the login's end, and the event carries the mark answerOf stored with it.
-// The event is copied, not changed: the store hands one event, and one map of
-// its data, to every stream. An event that has nothing to hold comes back as
-// it is.
+// the login's end. The event carries the mark answerOf stored with it, or,
+// written before the mark, the sentence itself is read for what the mark
+// would have said: a login takeback in the fixed wording reads as held
+// exactly as if it were marked (loginTakebackLine). The event is copied, not
+// changed: the store hands one event, and one map of its data, to every
+// stream. An event that has nothing to hold comes back as it is.
 func (e Event) WithoutHeld() (Event, bool) {
 	keys := eventDataTold[e.Kind]
 	if slices.Contains(keys, toldWhole) {
@@ -329,7 +331,17 @@ func (e Event) WithoutHeld() (Event, bool) {
 			break
 		}
 	}
-	if !held {
+	// A held answer holds the event on its own: an old takeback that told
+	// nobody carries no key but the listed ones, and would otherwise read
+	// whole. The mark itself is held with the sentence, as what no kind
+	// lists: it is what held the event, so the sentence is never told alone
+	// with it.
+	answerHeld := false
+	if line, ok := e.Data["answer"].(string); ok && line != "" {
+		marked, _ := e.Data["answer_held"].(bool)
+		answerHeld = marked || loginTakebackLine(line)
+	}
+	if !held && !answerHeld {
 		return e, false
 	}
 	data := make(map[string]any, len(e.Data))
@@ -342,13 +354,25 @@ func (e Event) WithoutHeld() (Event, bool) {
 			}
 		}
 	}
-	// The mark itself is held with the sentence, as what no kind lists: it
-	// is what held the event, so the sentence is never told alone with it.
-	if marked, _ := e.Data["answer_held"].(bool); marked {
+	if answerHeld {
 		delete(data, "answer")
 	}
 	e.Data = data
 	return e, true
+}
+
+// loginTakebackLine reports whether the answer sentence line is the taking
+// back of a login ask when the login ended: the fixed takeback wording
+// (answerSentence) with the yard's words for it (LoginEndedPrefix). An event
+// written before the mark carries no answer_held, so the sentence is read for
+// what the mark would have said; any other sentence — another takeback, a
+// pick, a decline — reads as told.
+func loginTakebackLine(line string) bool {
+	if _, _, ok := strings.Cut(line, " took back "); !ok {
+		return false
+	}
+	_, tail, ok := strings.Cut(line, ": "+LoginEndedPrefix)
+	return ok && tail != ""
 }
 
 // fieldsTold are the fields of the key that a row lists as key.field.
