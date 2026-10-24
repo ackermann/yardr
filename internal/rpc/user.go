@@ -316,23 +316,47 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 // agents read the whole card and result from the store, as they do the
 // operator's words. UserAsks holds the same back from the same devices
 // (userAsks), since the user an ask was put to need not be the operator now.
+// The yard's own words about a failed fetch or login are held likewise: a
+// note by the yard that a peer's branch could not be taken, or that a note
+// from another yard met a flow that does not read, reads as what happened,
+// that the bead is held, and that why is an operator's to read, and the
+// words of a login ask taken back when the login ended read as that the
+// login ended and that why is an operator's to read
+// (store.HeldYardNote, store.HeldYardWords). Any other note and any other
+// words read as they are.
 func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, error) {
 	v, err := u.st.Bead(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if !slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool {
+	cards := slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool {
 		return a.Run != nil || a.Setup != nil
-	}) {
+	})
+	yard := slices.ContainsFunc(v.Notes, func(n store.BeadNote) bool {
+		_, ok := store.HeldYardNote(n.Author, n.Text)
+		return ok
+	}) || slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool {
+		_, ok := store.HeldYardWords(a.By, a.Words)
+		return ok
+	})
+	if !cards && !yard {
 		return v, nil
 	}
 	if u.isOperator(ctx, userOf(ctx)) {
 		return v, nil
 	}
+	for i := range v.Notes {
+		if held, ok := store.HeldYardNote(v.Notes[i].Author, v.Notes[i].Text); ok {
+			v.Notes[i].Text = held
+		}
+	}
 	for i := range v.Asks {
 		a := &v.Asks[i]
 		a.Setup, a.Ran = withoutAccount(a.Setup, a.Ran)
 		a.Run, a.Ran = withoutRunWords(a.Run, a.Ran)
+		if held, ok := store.HeldYardWords(a.By, a.Words); ok {
+			a.Words = held
+		}
 	}
 	return v, nil
 }
@@ -351,9 +375,11 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 // after the move would give away what the operator set. What they read while
 // they were the operator is not taken back.
 //
-// Nothing else of the queue is held. A declined ask and the rest of each entry
-// read as the store has them, and the socket, the terminal, the agents and the
-// web view read the whole queue from the store.
+// Nothing else of the queue is held but the words of a login ask taken back
+// when the login ended, which read as Bead tells them
+// (store.HeldYardWords). A declined ask and the rest of each entry read as
+// the store has them, and the socket, the terminal, the agents and the web
+// view read the whole queue from the store.
 //
 // It reads the role whatever the queue holds, as bead does not: the queue
 // is built from the notes of every bead, and one user read is nothing
@@ -374,6 +400,9 @@ func (u *UserServer) userAsks(ctx context.Context, name string) (*store.AskQueue
 		d := &q.Decided[i]
 		d.Setup, d.Ran = withoutAccount(d.Setup, d.Ran)
 		d.Run, d.Ran = withoutRunWords(d.Run, d.Ran)
+		if held, ok := store.HeldYardWords(d.By, d.Words); ok {
+			d.Words = held
+		}
 	}
 	return q, nil
 }

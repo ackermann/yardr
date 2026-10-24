@@ -164,9 +164,10 @@ func (w *wtx) deliver(e *Event) error {
 	if ans := answerOf(w.Tx, row, e); ans != nil {
 		e.Data["answer"] = ans.line
 		// A sentence that names a command whose typed words carry a value or
-		// a path is marked, so the stream and the notifications hold it from
-		// anyone who is no operator (WithoutHeld); the mark itself is held
-		// with it, as what no kind lists.
+		// a path, or the words of a login ask taken back when the login ended,
+		// is marked, so the stream and the notifications hold it from anyone
+		// who is no operator (WithoutHeld); the mark itself is held with it,
+		// as what no kind lists.
 		if ans.held {
 			e.Data["answer_held"] = true
 		}
@@ -308,7 +309,7 @@ type answeredAsk struct {
 	session string // the crew session that asked, "" for the line's
 	stage   string // the ask's stage, "" for no stage ask
 	line    string
-	held    bool // the line names a command whose typed words carry a value or a path
+	held    bool // the line names a command whose typed words carry a value or a path, or the words of a login ask taken back when the login ended
 }
 
 // answerOf reads the answer the noted event e added, with its ask and the
@@ -365,8 +366,9 @@ func answerOf(tx *bolt.Tx, row *beadRow, e *Event) *answeredAsk {
 			}
 		}
 	}
+	_, wordsHeld := HeldYardWords(e.Actor, ans.Words)
 	return &answeredAsk{asker: askNote.Author, session: askNote.Session, stage: ask.Stage, line: answerSentence(e.Actor, row.ID, askNote.Author, ans.Ask, ask, ans, n, prev),
-		held: ans.Ran != nil && ask.Run != nil && RunArgvHeld(ask.Run.Argv)}
+		held: ans.Ran != nil && ask.Run != nil && RunArgvHeld(ask.Run.Argv) || ans.TakeBack && wordsHeld}
 }
 
 // answerSentence is an answer as one line of an inbox: who, which bead and

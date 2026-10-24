@@ -330,9 +330,11 @@ func TestBeadPicksBefore(t *testing.T) {
 // An approval of a run ask that sets a setting or adds a source marks its
 // noted event, so the stream and the notifications hold its sentence from
 // anyone who is no operator (WithoutHeld): the sentence names the command
-// whole, value or path with it. The event keeps the sentence whole, as the
-// asker's inbox reads it, and the operator's notification reads it too. An
-// approval of any other row is marked nothing, and its sentence is told.
+// whole, value or path with it. So does the taking back of a login ask when
+// the login ended, whose words carry the tail of the login command. The
+// event keeps the sentence whole, as the asker's inbox reads it, and the
+// operator's notification reads it too. An approval of any other row, and a
+// person's taking back, are marked nothing, and their sentences are told.
 func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
@@ -366,6 +368,18 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	const loginFile = "/tmp/yardr-test/login"
+	login := y.ask(t, Ask{Question: "code is not logged in: how should the yard log in its harness?", To: "mckean",
+		Context: []string{"The crew's harness sits at its login screen."}}, "yard")
+	if err := y.TakeBackAsk(y.ctx, y.bead, login, LoginEndedPrefix+"harness login: exit status 1: cannot write "+loginFile+": permission denied", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	const covered = "the night shift covers it"
+	person := y.ask(t, Ask{Question: "May the night shift cover the queue?", To: "mckean",
+		Context: []string{"The day shift ends at six tonight."}}, "yardmaster")
+	if err := y.TakeBackAsk(y.ctx, y.bead, person, covered, "mckean"); err != nil {
+		t.Fatal(err)
+	}
 	// answers are the noted events with an answer sentence naming want.
 	answers := func(want string) []Event {
 		t.Helper()
@@ -389,6 +403,8 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 		{setting, true, value},
 		{source, true, file},
 		{limit, false, "--mail-limit 300"},
+		{login, true, loginFile},
+		{person, false, covered},
 	} {
 		found := answers(tc.secret)
 		if len(found) != 1 {
@@ -429,6 +445,7 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 	}{
 		{value, "the setting's value"},
 		{file, "the source's path"},
+		{loginFile, "the login's file"},
 	} {
 		e := answers(tc.secret)[0]
 		if n := ops[e.Seq]; !strings.Contains(n.Text, tc.secret) {

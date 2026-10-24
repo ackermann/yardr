@@ -750,6 +750,7 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 		})
 	}
 	t.Run("typed values and paths", userRunAskTellsTypedValueAndPathToTheOperatorAlone)
+	t.Run("the yard's words about a failed fetch or login", userBeadTellsTheYardsWordsToTheOperatorAlone)
 }
 
 // runPhoneDecl is the declaration a source add run ask of the test carries:
@@ -965,6 +966,152 @@ func userRunAskTellsTypedValueAndPathToTheOperatorAlone(t *testing.T) {
 	for _, secret := range []string{value, file, "calls_per_hour=120"} {
 		if !strings.Contains(sent, secret) {
 			t.Errorf("sam's device is told no answer naming %q:\n%s", secret, sent)
+		}
+	}
+}
+
+// Bead tells the yard's own words about a failed fetch or login to a device
+// of the operator and to no other: a note by the yard that a peer's branch
+// could not be taken, or that a note from another yard met a flow that does
+// not read, reads as what happened, that the bead is held, and that why is
+// an operator's to read, and the words of a login ask taken back when the
+// login ended read as that the login ended and that why is an operator's to
+// read. Any other note and any other words read as they are, and UserAsks
+// reads the words as Bead does. The store keeps every note and words whole.
+func userBeadTellsTheYardsWordsToTheOperatorAlone(t *testing.T) {
+	ctx := context.Background()
+	y := newSecretYard(t)
+	const remote = "https://git.example.test/yardr.git"
+	const depot = "/tmp/yardr-test/depots/web"
+	const loginFile = "/tmp/yardr-test/login"
+	fetch := "The yard north returned this bead as done with its branch yard/yb-1 at abc1234, and this yard could not take the branch (2 tries): fetching yard/yb-1 from origin: git fetch: exit status 128: fatal: '" + remote + "' does not appear to be a git repository. The outcome is not applied before the branch is here, so the bead is held. yardr bead unhold yd-crm tries again; yardr bead advance yd-crm --to <stage> moves it on without the code."
+	flow := "A note came from the yard north (by jo@north) and this bead's flow does not read (depot web: resolving base origin/main in " + depot + ": no such file), so who looks at that yard's text first is not known: the bead is held. Read the note, mend the flow, and lift the hold with yardr bead unhold yd-crm."
+	const other = "The yard north returned its branch yard/n-1 at abc1234, which is yard/yd-crm here now."
+	const person = "Mended the flow; unhold when ready."
+	for _, note := range []struct {
+		text, author string
+	}{{fetch, "yard"}, {flow, "yard"}, {other, "yard"}, {person, "jo"}} {
+		if err := y.st.AddNote(ctx, "yd-crm", note.text, note.author); err != nil {
+			t.Fatal(err)
+		}
+	}
+	login, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "code is not logged in: how should the yard log in its harness?", To: "jo",
+		Context: []string{"The crew's harness sits at its login screen.", "Nothing starts until the yard leads its login."}}, "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginWords := store.LoginEndedPrefix + "harness login: exit status 1: cannot write " + loginFile + ": permission denied"
+	if err := y.st.TakeBackAsk(ctx, "yd-crm", login, loginWords, "yard"); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the night shift cover the queue?", To: "jo",
+		Context: []string{"The day shift ends at six tonight."}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const covered = "the night shift covers it"
+	if err := y.st.TakeBackAsk(ctx, "yd-crm", kept, covered, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	const fetchHeld = "A peer returned this bead with a branch this yard could not take, so the bead is held; why is an operator's to read."
+	const flowHeld = "A note came from another yard and this bead's flow does not read, so the bead is held; why is an operator's to read."
+	const wordsHeld = "the login ended; why is an operator's to read."
+	// told reads yd-crm as the device with the token has it, and fails
+	// unless the yard's three wordings read whole when listed and held when
+	// not, and any other note and words read whole either way. It answers
+	// the login's words as told, for the queue to read against.
+	told := func(who, token string, listed bool) string {
+		t.Helper()
+		v, raw := y.bead(t, token)
+		var texts []string
+		for _, n := range v.Notes {
+			texts = append(texts, n.Text)
+		}
+		for text, want := range map[string]bool{fetch: listed, flow: listed, fetchHeld: !listed, flowHeld: !listed, other: true, person: true} {
+			if slices.Contains(texts, text) != want {
+				t.Errorf("%s is told the note %q: %v, want %v", who, text, !want, want)
+			}
+		}
+		words := map[uint64]string{}
+		for _, a := range v.Asks {
+			words[a.Ask] = a.Words
+		}
+		want := loginWords
+		if !listed {
+			want = wordsHeld
+		}
+		if words[login] != want {
+			t.Errorf("%s is told the login's words %q, want %q", who, words[login], want)
+		}
+		if words[kept] != covered {
+			t.Errorf("%s is told the person's words %q, want %q", who, words[kept], covered)
+		}
+		for _, secret := range []string{remote, depot, loginFile} {
+			if strings.Contains(raw, secret) != listed {
+				t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
+			}
+		}
+		return words[login]
+	}
+	// queued reads jo's queue as jo's device has it, and fails unless the
+	// login's words read as Bead told the same device them.
+	queued := func(who string, listed bool, want string) {
+		t.Helper()
+		q, qraw := y.queue(t, y.jo)
+		decided := map[uint64]store.DecidedAsk{}
+		for _, d := range q.Decided {
+			decided[d.Ask] = d
+		}
+		if decided[login].Words != want {
+			t.Errorf("%s is told the login's words %q by UserAsks and %q by Bead", who, decided[login].Words, want)
+		}
+		if decided[kept].Words != covered {
+			t.Errorf("%s is told the person's words %q by UserAsks, want %q", who, decided[kept].Words, covered)
+		}
+		if strings.Contains(qraw, loginFile) != listed {
+			t.Errorf("%s is told %q in the queue: %v, want %v\n%s", who, loginFile, !listed, listed, qraw)
+		}
+	}
+	queued("jo's device", true, told("jo's device", y.jo, true))
+	told("sam's device", y.sam, false)
+	// The asks were put to jo, so sam's queue holds none of them.
+	if q, _ := y.queue(t, y.sam); len(q.Open) != 0 || len(q.Decided) != 0 {
+		t.Fatalf("sam's device is told the queue %+v, want none of jo's asks", q)
+	}
+	// The setting moves to sam and jo is made a member. The asks put to jo
+	// stay in jo's queue, and jo's device is no longer told the login's
+	// words, by either call.
+	if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	queued("jo's device, no longer the operator's", false, told("jo's device, no longer the operator's", y.jo, false))
+	// The store keeps every note and words whole, as the socket serves them.
+	stored, err := y.st.Bead(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	for _, n := range stored.Notes {
+		texts = append(texts, n.Text)
+	}
+	for _, text := range []string{fetch, flow, other, person} {
+		if !slices.Contains(texts, text) {
+			t.Errorf("the store tells no note %q", text)
+		}
+	}
+	for _, a := range stored.Asks {
+		switch a.Ask {
+		case login:
+			if a.Words != loginWords {
+				t.Errorf("the store tells the login's words %q, want %q", a.Words, loginWords)
+			}
+		case kept:
+			if a.Words != covered {
+				t.Errorf("the store tells the person's words %q, want %q", a.Words, covered)
+			}
 		}
 	}
 }

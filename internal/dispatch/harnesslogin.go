@@ -1055,7 +1055,7 @@ func (d *Dispatcher) endLead(ctx context.Context, l *harnessLead, why string) {
 	}
 	if l.ask != 0 {
 		if state, _ := d.askState(ctx, l.seat.journal, l.ask); state == store.AskOpen || state == store.AskAside {
-			_ = d.Store.TakeBackAsk(ctx, l.seat.journal, l.ask, "the login ended: "+why, actor)
+			_ = d.Store.TakeBackAsk(ctx, l.seat.journal, l.ask, store.LoginEndedPrefix+why, actor)
 		}
 	}
 	d.markLeadAsk(ctx, l.seat, nil)
