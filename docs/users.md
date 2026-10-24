@@ -716,8 +716,7 @@ told of the event. A device of an operator gets all of it whole.
 What a device can still read is text written about one thing that happened,
 as it was written. That is the command a run ask's asker typed, but for one
 that sets a setting or adds a source, whose value or path is the operator's
-alone; the file a setup card says a typed account will be
-written to; a note the yard wrote on a bead about what it did or what failed,
+alone; a note the yard wrote on a bead about what it did or what failed,
 such as a landing's line, which names the test command it ran, or a fetch
 that did not work; and the words of an error a call returns when the yard's
 own file operation failed, such as a depot it could not read. Rows from
