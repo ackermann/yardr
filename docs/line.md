@@ -339,6 +339,12 @@ is tested by the builder's own run alone: the assembly runs the copy
 plain run too, over those commits alone, so a fault in one of them that
 this run cannot see is the assembly's to find.
 
+A red quiet run is told as `quiet_failed`, with each failing package's
+output as a file; a run that names no failing package (a package over the
+60 s budget under the strict R1 verdict, a vet or build error) carries the
+end of its whole output as one file, `run.log`, so the verdict is there to
+read and the suite need not run again to find it (yardr-4yqd).
+
 The runs that race take one machine-wide lock at a time, and a landing
 goes first in its queue (yardr-0cw8). The queue is a ticket for each
 waiter in `~/.yardr/race.queue/`, named by its class, `0-` for a run with

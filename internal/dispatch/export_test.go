@@ -46,3 +46,11 @@ var QuietTests = quietTests
 
 // QuietOutputs slices a whole-suite output per failing package, by package.
 var QuietOutputs = quietOutputs
+
+// QuietRunOutputs is what a red run keeps of its output: the packages'
+// slices, or the whole output under QuietRunKey where none is named.
+var QuietRunOutputs = quietRunOutputs
+
+// QuietRunKey is the key a red run that names no package keeps its output
+// under.
+const QuietRunKey = quietRunKey

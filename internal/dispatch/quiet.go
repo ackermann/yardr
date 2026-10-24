@@ -54,7 +54,8 @@ import (
 // real runner) reports it: the base commit it tested, how long it took,
 // the load it started under, and, on a red run, the packages that failed,
 // the failing test names, capped, and each failing package's output, by
-// package. A passing run keeps nothing: Outputs is nil.
+// package. A red run that names no package keeps its whole output under
+// quietRunKey instead. A passing run keeps nothing: Outputs is nil.
 type QuietResult struct {
 	Commit   string
 	Wall     time.Duration
@@ -290,10 +291,13 @@ func (d *Dispatcher) runQuietDepot(ctx context.Context, depot store.Depot, since
 
 // quietFiles stores a red run's failing packages' output, each as a blob,
 // and answers the refs, as mail names the files it carries: one blob per
-// failing package, in the packages' order, named for the package. One past
-// the yard's blob cap is truncated to it, since PutBlob refuses over-cap
-// with nothing stored. A package with no output, or one the yard will not
-// keep, names nothing: the failure is told either way.
+// failing package, in the packages' order, named for the package. A red run
+// that names no package keeps one blob in their place, its whole output
+// named run.log. One past the yard's blob cap is truncated to it, since
+// PutBlob refuses over-cap with nothing stored: a package's output keeps its
+// start, the run's keeps its end, as its verdict comes last. A package with
+// no output, or one the yard will not keep, names nothing: the failure is
+// told either way.
 func (d *Dispatcher) quietFiles(ctx context.Context, depot store.Depot, res QuietResult) []store.BlobRef {
 	limit := int64(store.DefaultBlobMax)
 	if settings, err := d.Store.Settings(ctx); err == nil {
@@ -303,26 +307,36 @@ func (d *Dispatcher) quietFiles(ctx context.Context, depot store.Depot, res Quie
 			}
 		}
 	}
+	keys, truncate := res.Packages, quietTruncate
+	if len(keys) == 0 {
+		keys, truncate = []string{quietRunKey}, quietTruncateTail
+	}
 	var files []store.BlobRef
-	for _, pkg := range res.Packages {
-		out, ok := res.Outputs[pkg]
+	for _, key := range keys {
+		out, ok := res.Outputs[key]
 		if !ok || out == "" {
 			continue
 		}
-		ref, err := d.Store.PutBlob(ctx, quietTruncate([]byte(out), limit))
+		ref, err := d.Store.PutBlob(ctx, truncate([]byte(out), limit))
 		if err != nil {
-			d.Log.Warn("quiet run: keeping a failing package's output", "depot", depot.Name, "package", pkg, "err", err)
+			d.Log.Warn("quiet run: keeping a red run's output", "depot", depot.Name, "output", key, "err", err)
 			continue
 		}
-		ref.Name = quietFileName(pkg)
+		ref.Name = quietFileName(key)
 		files = append(files, *ref)
 	}
 	return files
 }
 
-// quietFileName is the name a red run's blob carries for the package: the
-// package with its slashes flattened, so it holds as a file's name, and a
-// .log suffix, so the inbox line reads which package each blob is.
+// quietRunKey is the key a red run that names no failing package keeps its
+// own output under in QuietResult.Outputs. Outputs holds the packages' keys
+// or this one, never both: quietFiles reads it only when no package is named.
+const quietRunKey = "run"
+
+// quietFileName is the name a red run's blob carries for the package (or for
+// the run, under quietRunKey): the package with its slashes flattened, so it
+// holds as a file's name, and a .log suffix, so the inbox line reads which
+// package each blob is.
 func quietFileName(pkg string) string {
 	flat := strings.ReplaceAll(strings.ReplaceAll(pkg, "/", "_"), "\\", "_")
 	return flat + ".log"
@@ -345,6 +359,24 @@ func quietTruncate(out []byte, limit int64) []byte {
 		keep = 0
 	}
 	return append(slices.Clone(out[:keep]), marker...)
+}
+
+// quietTruncateTail holds a red run's own output to the yard's blob cap, the
+// reverse of quietTruncate: what the file is for (a budget verdict, a vet or
+// build error, the test command's last words) comes last, so the end is what
+// it keeps, behind a marker naming the cap when that fits too. Under that
+// size the marker itself would make PutBlob refuse the output, so the
+// available end is kept instead.
+func quietTruncateTail(out []byte, limit int64) []byte {
+	if int64(len(out)) <= limit {
+		return out
+	}
+	marker := fmt.Sprintf("[truncated at %d bytes, the start is not kept]\n", limit)
+	if limit < int64(len(marker)) {
+		return slices.Clone(out[int64(len(out))-limit:])
+	}
+	keep := limit - int64(len(marker))
+	return append([]byte(marker), out[int64(len(out))-keep:]...)
 }
 
 var failPackage = regexp.MustCompile(`(?m)^FAIL[ \t]+(\S+)`)
@@ -438,6 +470,19 @@ func quietOutputs(out string) map[string]string {
 	}
 	flush()
 	return outputs
+}
+
+// quietRunOutputs is what a red run keeps of its output: each failing
+// package's (quietOutputs) or, where no FAIL line names a package, the whole
+// output under quietRunKey. A package over the 60 s budget under the strict
+// R1 verdict (YARDR_R1_STRICT) and a vet or build error fail a run with no
+// such line, and without its output the reader runs the whole suite again to
+// learn which it was.
+func quietRunOutputs(out string) map[string]string {
+	if outputs := quietOutputs(out); outputs != nil {
+		return outputs
+	}
+	return map[string]string{quietRunKey: out}
 }
 
 // quietLoad is the machine's one-minute load as the yard finds it, for a
@@ -586,7 +631,7 @@ func (d *Dispatcher) execQuietRun(ctx context.Context, depot store.Depot) (Quiet
 	res := QuietResult{Commit: commit, Wall: time.Since(start), Load: load,
 		Packages: quietPackages(out.String()), Tests: quietTests(out.String())}
 	if runErr != nil {
-		res.Outputs = quietOutputs(out.String())
+		res.Outputs = quietRunOutputs(out.String())
 		return res, fmt.Errorf("the whole suite failed on %s at %s: %w", base, commit, runErr)
 	}
 	return res, nil

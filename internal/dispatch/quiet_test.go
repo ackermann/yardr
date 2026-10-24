@@ -220,7 +220,9 @@ func TestQuietPackagesAndRelevance(t *testing.T) {
 // passing package's block is dropped, ok or not. A test's own two-word
 // "ok ..." line is no summary and stays in the failing block; a package
 // named twice keeps its first block; the run's own tail joins the last
-// failing block. Nothing failed, nothing kept.
+// failing block. Nothing failed, nothing kept. A red run that names no
+// package (a budget verdict fails it with no FAIL line) keeps its whole
+// output under the run key, and one that names packages keeps no run key.
 func TestQuietOutputsSlicesFailingPackages(t *testing.T) {
 	out := "=== RUN   TestMigrate\n" +
 		"ok done\n" +
@@ -244,6 +246,15 @@ func TestQuietOutputsSlicesFailingPackages(t *testing.T) {
 	}
 	if got := dispatch.QuietOutputs("ok  \tyardr.dev/yardr/internal/cli\t1.0s\n"); len(got) != 0 {
 		t.Fatalf("QuietOutputs of a passing run = %#v, want nothing kept", got)
+	}
+	if got := dispatch.QuietRunOutputs(out); !maps.Equal(got, want) {
+		t.Fatalf("QuietRunOutputs of a run with FAIL lines = %#v, want the packages' outputs and no run key", got)
+	}
+	verdict := "test: yardr.dev/yardr/internal/x took 70 s with -race, 65 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (6.4)\n" +
+		"exit status 1\n"
+	wantRun := map[string]string{dispatch.QuietRunKey: verdict}
+	if got := dispatch.QuietRunOutputs(verdict); !maps.Equal(got, wantRun) {
+		t.Fatalf("QuietRunOutputs of a run with no FAIL line = %#v, want its whole output under the run key %#v", got, wantRun)
 	}
 }
 
@@ -398,14 +409,17 @@ func TestQuietRunIsSingleFlight(t *testing.T) {
 // A red run is told as quiet_failed naming its packages, its failing
 // tests and its base commit, so the yard hears of a red base with no bead
 // to send back. Each failing package's output is kept as a blob and named
-// on the event, as mail names the files it carries.
+// on the event, as mail names the files it carries. A run that names
+// packages carries theirs alone: an output under the run key beside them is
+// not kept.
 func TestQuietRedRunNamesPackagesTestsAndCommit(t *testing.T) {
 	y := newQuietYard(t)
 	out := "--- FAIL: TestMigrate (1.20s)\nFAIL\tyardr.dev/yardr/internal/store\t1.3s\n"
 	y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
 		Packages: []string{"yardr.dev/yardr/internal/store"},
 		Tests:    []string{"TestMigrate", "TestPutBlob/huge"},
-		Outputs:  map[string]string{"yardr.dev/yardr/internal/store": out}}
+		Outputs: map[string]string{"yardr.dev/yardr/internal/store": out,
+			dispatch.QuietRunKey: "ok  \tyardr.dev/yardr/internal/cli\t1.0s\n" + out}}
 	y.err = errors.New("the whole suite failed")
 	ctx := context.Background()
 	y.land(t, "one")
@@ -432,18 +446,58 @@ func TestQuietRedRunNamesPackagesTestsAndCommit(t *testing.T) {
 	}
 }
 
+// A red run that names no failing package (a package over the 60 s budget
+// under the strict R1 verdict fails the run with no FAIL line) still
+// carries what it printed: one file, run.log, whose text ends with the
+// run's last lines, the verdict among them.
+func TestQuietRedRunWithNoFailingPackageKeepsTheRunsOutput(t *testing.T) {
+	y := newQuietYard(t)
+	verdict := "test: yardr.dev/yardr/internal/x took 70 s with -race, 65 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (6.4)\n"
+	closing := "test: sh .yardr/test @ abc1234: fail, 1 package over budget\n"
+	out := "ok  \tyardr.dev/yardr/internal/cli\t1.0s\n" + verdict + closing
+	y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
+		Outputs: map[string]string{dispatch.QuietRunKey: out}}
+	y.err = errors.New("the whole suite failed")
+	ctx := context.Background()
+	y.land(t, "one")
+	y.land(t, "two")
+	dispatch.QuietMaybe(y.d, ctx)
+	evs := waitQuiet(t, y.s, store.QuietFailed, 1)
+	if pkgs, _ := evs[0].Data["packages"].([]any); len(pkgs) != 0 {
+		t.Fatalf("quiet_failed packages = %v, want none named", evs[0].Data["packages"])
+	}
+	files := store.EventFiles(evs[0])
+	if len(files) != 1 || files[0].Name != "run.log" {
+		t.Fatalf("quiet_failed files = %+v, want the run's output named run.log", files)
+	}
+	got, err := os.ReadFile(y.own.BlobPath(files[0].Hash))
+	must(t, err)
+	if string(got) != out || !strings.HasSuffix(string(got), verdict+closing) {
+		t.Fatalf("the named blob = %q, want the run's output ending in its verdict and closing line", got)
+	}
+}
+
 // A failing package's output past the yard's blob cap is kept within it,
 // with a marker when the cap can hold one; a smaller cap keeps its prefix
-// so PutBlob still stores some output.
+// so PutBlob still stores some output. A red run's own output, kept when no
+// package is named, keeps its end instead of its start: its verdict comes
+// last.
 func TestQuietRedRunTruncatesOutputsPastTheBlobCap(t *testing.T) {
 	out := "--- FAIL: TestMigrate (1.20s)\n" + strings.Repeat("failing output\n", 40) + "FAIL\tyardr.dev/yardr/internal/store\t1.3s\n"
+	verdict := "test: yardr.dev/yardr/internal/x took 70 s with -race, 65 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (6.4)\n"
+	closing := "test: sh .yardr/test @ abc1234: fail, 1 package over budget\n"
+	runOut := strings.Repeat("ok  \tyardr.dev/yardr/internal/cli\t1.0s\n", 20) + verdict + closing
 	for _, tc := range []struct {
 		name       string
 		limit      int
+		run        bool // a red run that names no package
 		wantMarker bool
 	}{
 		{name: "marker fits", limit: 120, wantMarker: true},
 		{name: "marker does not fit", limit: 1},
+		{name: "run marker fits", limit: 240, run: true, wantMarker: true},
+		{name: "run marker does not fit", limit: 20, run: true},
+		{name: "run fits the cap", limit: len(runOut), run: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			y := newQuietYard(t)
@@ -453,6 +507,10 @@ func TestQuietRedRunTruncatesOutputsPastTheBlobCap(t *testing.T) {
 				Packages: []string{"yardr.dev/yardr/internal/store"},
 				Tests:    []string{"TestMigrate"},
 				Outputs:  map[string]string{"yardr.dev/yardr/internal/store": out}}
+			if tc.run {
+				y.res = dispatch.QuietResult{Commit: "red123", Wall: time.Second, Load: "2.00",
+					Outputs: map[string]string{dispatch.QuietRunKey: runOut}}
+			}
 			y.err = errors.New("the whole suite failed")
 			y.land(t, "one")
 			y.land(t, "two")
@@ -467,12 +525,23 @@ func TestQuietRedRunTruncatesOutputsPastTheBlobCap(t *testing.T) {
 			if len(got) > tc.limit {
 				t.Fatalf("the kept output is %d bytes, past the cap of %d", len(got), tc.limit)
 			}
-			if tc.wantMarker {
+			switch {
+			case tc.run && tc.wantMarker:
+				marker := fmt.Sprintf("[truncated at %d bytes, the start is not kept]\n", tc.limit)
+				kept, ok := strings.CutPrefix(string(got), marker)
+				if !ok || len(got) != tc.limit || !strings.HasSuffix(runOut, kept) || !strings.HasSuffix(kept, verdict+closing) {
+					t.Fatalf("the kept output = %q, want the marker, then the end of the run with its verdict and closing line", got)
+				}
+			case tc.run:
+				if string(got) != runOut[len(runOut)-tc.limit:] {
+					t.Fatalf("the kept output = %q, want the %d-byte end", got, tc.limit)
+				}
+			case tc.wantMarker:
 				marker := fmt.Sprintf("\n[truncated at %d bytes]\n", tc.limit)
 				if !strings.HasPrefix(string(got), "--- FAIL: TestMigrate") || !strings.HasSuffix(string(got), marker) {
 					t.Fatalf("the kept output = %q, want the head with the marker", got)
 				}
-			} else if string(got) != out[:tc.limit] {
+			case string(got) != out[:tc.limit]:
 				t.Fatalf("the kept output = %q, want the %d-byte prefix", got, tc.limit)
 			}
 		})
@@ -590,66 +659,99 @@ func TestQuietThresholdChangeRejudgesThroughEventStream(t *testing.T) {
 // check at its head commit. The run tests that commit in its own
 // worktree, and the yard is told it failed, with the package, the failing
 // tests, the commit and the failing output, kept as a blob and named on
-// the event.
+// the event. A check that fails with no FAIL line (a package over the R1
+// budget under the strict verdict) names no package, and the yard is
+// told its whole output as one blob, run.log.
 func TestQuietExecRunAgainstARedBase(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	ctx := context.Background()
-	repo := t.TempDir()
-	git := func(args ...string) string {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = repo
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
-	git("init", "-b", "main")
 	// printf makes the tabs of go test's FAIL line: sh's echo does only in
 	// dash and macOS's sh, and prints a backslash and a t in bash and busybox.
-	must(t, os.WriteFile(filepath.Join(repo, "check.sh"),
-		[]byte("echo '--- FAIL: TestPaint (0.1s)'\nprintf 'FAIL\\tyardr.dev/fixture/bad\\t0.1s\\n'\nexit 1\n"), 0o755))
-	git("add", "check.sh")
-	git("commit", "-m", "a red base")
-	red := git("rev-parse", "HEAD")
-	t.Logf("drill red commit %s", red)
+	over := "test: yardr.dev/fixture/slow took 70 s with -race, 65 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (6.4)"
+	for _, tc := range []struct {
+		name     string
+		script   string
+		packages []string
+		tests    []string
+		file     string
+		want     string
+	}{
+		{
+			name:     "a failing package",
+			script:   "echo '--- FAIL: TestPaint (0.1s)'\nprintf 'FAIL\\tyardr.dev/fixture/bad\\t0.1s\\n'\nexit 1\n",
+			packages: []string{"yardr.dev/fixture/bad"},
+			tests:    []string{"TestPaint"},
+			file:     "yardr.dev_fixture_bad.log",
+			want:     "--- FAIL: TestPaint (0.1s)\nFAIL\tyardr.dev/fixture/bad\t0.1s\n",
+		},
+		{
+			name:   "no failing package",
+			script: "printf 'ok  \\tyardr.dev/fixture/good\\t0.1s\\n'\necho '" + over + "'\nexit 1\n",
+			file:   "run.log",
+			want:   "ok  \tyardr.dev/fixture/good\t0.1s\n" + over + "\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			ctx := context.Background()
+			repo := t.TempDir()
+			git := func(args ...string) string {
+				t.Helper()
+				cmd := exec.Command("git", args...)
+				cmd.Dir = repo
+				cmd.Env = append(os.Environ(),
+					"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+				return strings.TrimSpace(string(out))
+			}
+			git("init", "-b", "main")
+			must(t, os.WriteFile(filepath.Join(repo, "check.sh"), []byte(tc.script), 0o755))
+			git("add", "check.sh")
+			git("commit", "-m", "a red base")
+			red := git("rev-parse", "HEAD")
+			t.Logf("drill red commit %s", red)
 
-	s, own := storetest.NewOwned(t)
-	must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, "me"))
-	must(t, s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
-	d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: t.TempDir()}
-	b, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprintf("landing %d", 1), Depot: "yard"}, "me")
-	must(t, err)
-	_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
-	must(t, err)
-	dispatch.QuietMaybe(d, ctx)
-	evs := waitQuiet(t, s, store.QuietFailed, 1)
-	if got := evs[0].Data["commit"]; got != red {
-		t.Fatalf("quiet_failed commit = %v, want the red base %s", got, red)
-	}
-	pkgs, _ := evs[0].Data["packages"].([]any)
-	if len(pkgs) != 1 || pkgs[0] != "yardr.dev/fixture/bad" {
-		t.Fatalf("quiet_failed packages = %v, want the fixture's failing package", evs[0].Data["packages"])
-	}
-	tests, _ := evs[0].Data["tests"].([]any)
-	if len(tests) != 1 || tests[0] != "TestPaint" {
-		t.Fatalf("quiet_failed tests = %v, want the fixture's failing test", evs[0].Data["tests"])
-	}
-	files := store.EventFiles(evs[0])
-	if len(files) != 1 || files[0].Name != "yardr.dev_fixture_bad.log" {
-		t.Fatalf("quiet_failed files = %+v, want the fixture's output named", files)
-	}
-	want := "--- FAIL: TestPaint (0.1s)\nFAIL\tyardr.dev/fixture/bad\t0.1s\n"
-	if got, err := os.ReadFile(own.BlobPath(files[0].Hash)); err != nil || string(got) != want {
-		t.Fatalf("the named blob = %q, %v, want the fixture's output", got, err)
-	}
-	// The depot's own checkout was never the worktree: it is still clean
-	// and on its base.
-	if out := git("status", "--porcelain"); out != "" {
-		t.Fatalf("depot checkout left dirty by the quiet run: %s", out)
+			s, own := storetest.NewOwned(t)
+			must(t, s.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Kind: store.DepotGit, Base: "main", Test: "check.sh"}, "me"))
+			must(t, s.SetSetting(ctx, store.QuietLandingsSetting, "1", "me"))
+			d := &dispatch.Dispatcher{Store: s, Log: slog.New(slog.DiscardHandler), Home: t.TempDir()}
+			b, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprintf("landing %d", 1), Depot: "yard"}, "me")
+			must(t, err)
+			_, err = s.Advance(ctx, b.ID, "merged", store.Expect{}, "me")
+			must(t, err)
+			dispatch.QuietMaybe(d, ctx)
+			evs := waitQuiet(t, s, store.QuietFailed, 1)
+			if got := evs[0].Data["commit"]; got != red {
+				t.Fatalf("quiet_failed commit = %v, want the red base %s", got, red)
+			}
+			names := func(v any) []string {
+				var out []string
+				list, _ := v.([]any)
+				for _, e := range list {
+					out = append(out, fmt.Sprint(e))
+				}
+				return out
+			}
+			if got := names(evs[0].Data["packages"]); !slices.Equal(got, tc.packages) {
+				t.Fatalf("quiet_failed packages = %v, want %v", got, tc.packages)
+			}
+			if got := names(evs[0].Data["tests"]); !slices.Equal(got, tc.tests) {
+				t.Fatalf("quiet_failed tests = %v, want %v", got, tc.tests)
+			}
+			files := store.EventFiles(evs[0])
+			if len(files) != 1 || files[0].Name != tc.file {
+				t.Fatalf("quiet_failed files = %+v, want the fixture's output named %s", files, tc.file)
+			}
+			if got, err := os.ReadFile(own.BlobPath(files[0].Hash)); err != nil || string(got) != tc.want {
+				t.Fatalf("the named blob = %q, %v, want the fixture's output %q", got, err, tc.want)
+			}
+			// The depot's own checkout was never the worktree: it is still
+			// clean and on its base.
+			if out := git("status", "--porcelain"); out != "" {
+				t.Fatalf("depot checkout left dirty by the quiet run: %s", out)
+			}
+		})
 	}
 }
 
