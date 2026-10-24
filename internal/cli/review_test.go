@@ -144,9 +144,21 @@ func TestReviewActions(t *testing.T) {
 	}
 	tail := []act{{kind: actDiff}, {kind: actSkip}}
 
+	// now wraps f for stage as the store reads it for a bead with no
+	// rounds in play: every outcome goes where the flow's edge names.
+	now := func(f *store.Flow, stage string) *store.NextStages {
+		next := &store.NextStages{Flow: f}
+		if f != nil {
+			for _, o := range f.OutcomesFrom(stage) {
+				next.Outcomes = append(next.Outcomes, store.OutcomeNow{Outcome: o, Goes: o.To})
+			}
+		}
+		return next
+	}
+
 	// Under a flow: its next stages; going back needs a note, a terminal
 	// stage closes the bead.
-	got := reviewActions(store.Bead{Stage: "approved", Depot: &depot}, f, routes)
+	got := reviewActions(store.Bead{Stage: "approved", Depot: &depot}, now(f, "approved"), routes)
 	want := append([]act{{actAdvance, "merged", false, true}, {actAdvance, "new", true, false}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("approved actions = %+v, want %+v", flat(got), want)
@@ -154,7 +166,7 @@ func TestReviewActions(t *testing.T) {
 	if !strings.Contains(got[1].Label, "Send back to new") || !strings.Contains(got[0].Label, "closes the bead") {
 		t.Errorf("labels = %q, %q", got[0].Label, got[1].Label)
 	}
-	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, f, routes)
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, now(f, "review"), routes)
 	want = append([]act{{actAdvance, "approved", false, false}, {actAdvance, "new", true, false}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("review actions = %+v, want %+v", flat(got), want)
@@ -162,7 +174,7 @@ func TestReviewActions(t *testing.T) {
 	// decide is written after backlog in the flow, so decide -> backlog is
 	// a move back too: the answer goes in the note. Its single way out is
 	// offered as the done outcome.
-	got = reviewActions(store.Bead{Stage: "decide", Depot: &depot}, f, routes)
+	got = reviewActions(store.Bead{Stage: "decide", Depot: &depot}, now(f, "decide"), routes)
 	if want := append([]act{{actDone, "backlog", true, false}}, tail...); !slices.Equal(flat(got), want) {
 		t.Fatalf("decide actions = %+v, want %+v", flat(got), want)
 	}
@@ -176,7 +188,7 @@ func TestReviewActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, of, routes)
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, now(of, "review"), routes)
 	want = append([]act{{actDone, "approved", false, false}, {actDone, "new", true, false}, {actDone, "decide", false, false}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("review outcome actions = %+v, want %+v", flat(got), want)
@@ -188,13 +200,56 @@ func TestReviewActions(t *testing.T) {
 	if wantL := []string{"done|done: move to approved", "changes|changes: send back to new (note required)", "question|question: move to decide"}; !slices.Equal(labels, wantL) {
 		t.Errorf("labels = %q, want %q", labels, wantL)
 	}
-	got = reviewActions(store.Bead{Stage: "approved", Depot: &depot}, of, routes)
+	got = reviewActions(store.Bead{Stage: "approved", Depot: &depot}, now(of, "approved"), routes)
 	if got[0].Kind != actDone || !got[0].Terminal || got[0].Label != "done: finish as merged (closes the bead)" {
 		t.Errorf("terminal outcome action = %+v", got[0])
 	}
 
+	// A round limit names where the report really goes: at the limit the
+	// outcome moves on instead, with the rounds used, and needs no note;
+	// below it the bead still goes back, with its round.
+	limited, err := store.ParseFlow("new -> review\nreview -> approved on done | new on changes max 1 then decide\napproved -> merged\ndecide -> new | review\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	atLimit := &store.NextStages{Flow: limited, Outcomes: []store.OutcomeNow{
+		{Outcome: store.Outcome{Name: "done", To: "approved"}, Goes: "approved"},
+		{Outcome: store.Outcome{Name: "changes", To: "new", Max: 1, Then: "decide"}, Goes: "decide", Used: 1},
+	}}
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, atLimit, routes)
+	want = append([]act{{actDone, "approved", false, false}, {actDone, "decide", false, false}}, tail...)
+	if !slices.Equal(flat(got), want) {
+		t.Fatalf("review at its limit = %+v, want %+v", flat(got), want)
+	}
+	if got[1].Outcome != "changes" || got[1].Label != "changes: move to decide (the 1 round back to new is used)" {
+		t.Errorf("limited changes action = %+v", got[1])
+	}
+	terminalRedirect := &store.NextStages{Flow: limited, Outcomes: []store.OutcomeNow{
+		{Outcome: store.Outcome{Name: "changes", To: "new", Max: 1, Then: "merged"}, Goes: "merged", Used: 1},
+	}}
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, terminalRedirect, routes)
+	want = append([]act{{actDone, "merged", false, true}}, tail...)
+	if !slices.Equal(flat(got), want) {
+		t.Fatalf("review with a terminal limit redirect = %+v, want %+v", flat(got), want)
+	}
+	if got[0].Outcome != "changes" || got[0].Label != "changes: finish as merged (closes the bead) (the 1 round back to new is used)" {
+		t.Errorf("terminal changes action = %+v", got[0])
+	}
+	below := &store.NextStages{Flow: limited, Outcomes: []store.OutcomeNow{
+		{Outcome: store.Outcome{Name: "done", To: "approved"}, Goes: "approved"},
+		{Outcome: store.Outcome{Name: "changes", To: "new", Max: 1, Then: "decide"}, Goes: "new", Round: 1},
+	}}
+	got = reviewActions(store.Bead{Stage: "review", Depot: &depot}, below, routes)
+	want = append([]act{{actDone, "approved", false, false}, {actDone, "new", true, false}}, tail...)
+	if !slices.Equal(flat(got), want) {
+		t.Fatalf("review below its limit = %+v, want %+v", flat(got), want)
+	}
+	if got[1].Label != "changes: send back to new (note required) (round 1 of 1)" {
+		t.Errorf("below-limit changes action = %+v", got[1])
+	}
+
 	// No flow: the stages routes use, other than the bead's own, once each.
-	got = reviewActions(store.Bead{Stage: "approved"}, nil, routes)
+	got = reviewActions(store.Bead{Stage: "approved"}, now(nil, "approved"), routes)
 	want = append([]act{{kind: actAdvance, stage: "decide"}, {kind: actAdvance, stage: "new"}}, tail...)
 	if !slices.Equal(flat(got), want) {
 		t.Fatalf("no-flow actions = %+v, want %+v", flat(got), want)

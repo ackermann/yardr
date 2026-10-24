@@ -13,10 +13,12 @@ import (
 )
 
 // moveActions is what the view's user may do with b, as `yardr review`
-// offers it: the outcomes its flow names for the stage, else the stages it
-// allows next. A bead that waits for no manual group the user belongs to,
-// or a closed one, offers none. next is the bead's NextStages, read by the
-// caller; a flow error leaves no move, as review's queue does.
+// offers it: the outcomes its flow names for the stage, as they stand for
+// the bead (a round limit can send the report somewhere the flow's edge
+// does not name), else the stages it allows next. A bead that waits for no
+// manual group the user belongs to, or a closed one, offers none. next is
+// the bead's NextStages, read by the caller; a flow error leaves no move,
+// as review's queue does.
 func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.NextStages) ([]MoveAction, error) {
 	if b.Status != "open" {
 		return nil, nil
@@ -63,10 +65,13 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 			}
 			return a
 		}
-		if outcomes := f.OutcomesFrom(b.Stage); len(outcomes) > 0 {
+		if outcomes := next.Outcomes; len(outcomes) > 0 {
 			for _, o := range outcomes {
-				a := move(o.To)
+				a := move(o.Goes)
 				a.Kind, a.Outcome, a.Label = "done", o.Name, o.Name+": "+a.Label
+				if note := o.RoundNote(""); note != "" {
+					a.Label += " (" + note + ")"
+				}
 				out = append(out, a)
 			}
 		} else {

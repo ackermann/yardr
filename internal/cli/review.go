@@ -105,7 +105,7 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 		if next, err := st.NextStages(ctx, b.ID); err != nil {
 			it.FlowError, it.Actions = err.Error(), lookActions()
 		} else {
-			it.Actions = reviewActions(b, next.Flow, routes)
+			it.Actions = reviewActions(b, next, routes)
 			it.TemplateError = next.TemplateError
 		}
 		items = append(items, it)
@@ -120,12 +120,18 @@ func reviewQueue(ctx context.Context, st store.API, actor string, only []string)
 }
 
 // reviewActions is what a reviewer may do with b. Under a flow that names
-// outcomes for b's stage: those outcomes. Under a flow without: each stage
-// it allows next. Either way a stage earlier in the flow sends the bead
-// back and needs a note. Without a flow: any stage a route uses. Then
-// always open diff and skip.
-func reviewActions(b store.Bead, f *store.Flow, routes []store.Route) []reviewAction {
+// outcomes for b's stage: those outcomes, as they stand for the bead: a
+// round limit can send the report somewhere the flow's edge does not name.
+// Under a flow without: each stage it allows next. Either way a stage
+// earlier in the flow sends the bead back and needs a note. Without a flow:
+// any stage a route uses. Then always open diff and skip.
+func reviewActions(b store.Bead, next *store.NextStages, routes []store.Route) []reviewAction {
 	var out []reviewAction
+	var f *store.Flow
+	var outcomes []store.OutcomeNow
+	if next != nil {
+		f, outcomes = next.Flow, next.Outcomes
+	}
 	if f != nil {
 		here := slices.Index(f.Stages, b.Stage)
 		// move describes going to s; its label starts lower-case to follow an outcome.
@@ -141,10 +147,13 @@ func reviewActions(b store.Bead, f *store.Flow, routes []store.Route) []reviewAc
 			}
 			return a
 		}
-		if outcomes := f.OutcomesFrom(b.Stage); len(outcomes) > 0 {
+		if len(outcomes) > 0 {
 			for _, o := range outcomes {
-				a := move(o.To)
+				a := move(o.Goes)
 				a.Kind, a.Outcome, a.Label = actDone, o.Name, o.Name+": "+a.Label
+				if note := o.RoundNote(""); note != "" {
+					a.Label += " (" + note + ")"
+				}
 				out = append(out, a)
 			}
 		} else {

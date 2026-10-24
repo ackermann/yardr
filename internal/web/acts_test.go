@@ -282,6 +282,61 @@ func TestBeadMoveButtons(t *testing.T) {
 	} else if len(got.Moves) != 2 || got.Moves[0].Outcome != "done" || got.Moves[1].Outcome != "changes" || !got.Moves[1].NoteRequired {
 		t.Errorf("the moves: %+v", got.Moves)
 	}
+	// At a round limit the send-on button names where the report really
+	// goes: decide, with the rounds used.
+	f4, _ := talkFixture(t, "jo")
+	ctx4 := context.Background()
+	must(t, func() error { _, err := f4.st.AddUser(ctx4, "jo", "jo"); return err }())
+	must(t, f4.st.PutDepot(ctx4, store.Depot{Name: "home", Base: "origin/main"}, "jo"))
+	must(t, f4.st.PutGroup(ctx4, store.Group{Name: "reviewers", Runner: "manual", Members: []string{"jo"}}, "jo"))
+	limited, err := store.ParseFlow("new -> review\nreview -> merged on done | new on changes max 1 then decide\ndecide -> new | review\nmerged terminal\n")
+	must(t, err)
+	limited.Name = "code"
+	_, err = f4.st.PutFlow(ctx4, *limited, "jo")
+	must(t, err)
+	must(t, f4.st.SetFlowPointer(ctx4, "home", "", "code", "jo"))
+	_, err = f4.st.AddRoute(ctx4, store.Route{Stage: "review", Group: "reviewers"}, "jo")
+	must(t, err)
+	b4, err := f4.st.CreateBead(ctx4, store.NewBead{Title: "a door", Stage: "new", Depot: "home"}, "jo")
+	must(t, err)
+	if _, err := f4.st.Advance(ctx4, b4.ID, "review", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f4.st.Done(ctx4, b4.ID, "changes", "once more", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f4.st.Advance(ctx4, b4.ID, "review", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	r = f4.get("/beads/" + b4.ID)
+	if want := `<button type="submit" name="outcome" value="changes">changes: move to decide (the 1 round back to new is used)</button>`; !strings.Contains(r.body, want) {
+		t.Errorf("the page lacks %q:\n%s", want, r.body)
+	}
+	terminal, err := store.ParseFlow("new -> review\nreview -> new on changes max 1 then merged\nmerged terminal\n")
+	must(t, err)
+	terminal.Name = "ending"
+	_, err = f4.st.PutFlow(ctx4, *terminal, "jo")
+	must(t, err)
+	must(t, f4.st.SetFlowPointer(ctx4, "home", "", "ending", "jo"))
+	b5, err := f4.st.CreateBead(ctx4, store.NewBead{Title: "a terminal return", Stage: "new", Depot: "home"}, "jo")
+	must(t, err)
+	if _, err := f4.st.Advance(ctx4, b5.ID, "review", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f4.st.Done(ctx4, b5.ID, "changes", "once more", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f4.st.Advance(ctx4, b5.ID, "review", store.Expect{}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	r = f4.get("/beads/"+b5.ID, "Accept", "application/json")
+	var terminalPage web.BeadPage
+	if err := json.Unmarshal([]byte(r.body), &terminalPage); err != nil {
+		t.Fatal("the terminal bead page is no JSON")
+	}
+	if len(terminalPage.Moves) != 1 || terminalPage.Moves[0].Outcome != "changes" || terminalPage.Moves[0].To != "merged" || !terminalPage.Moves[0].Terminal || terminalPage.Moves[0].NoteRequired || terminalPage.Moves[0].Label != "changes: finish as merged (closes the bead) (the 1 round back to new is used)" {
+		t.Errorf("terminal round redirect move = %+v", terminalPage.Moves)
+	}
 	// A bead that waits for another group offers no move.
 	f2, _ := talkFixture(t, "ada")
 	ctx2 := context.Background()
