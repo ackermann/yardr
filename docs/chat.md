@@ -277,7 +277,7 @@ ask 2990 is weighty (outside): type 2990 to approve it, anything else stops: 299
 It is friction against approving on reflex and no authentication: the
 terminal is the yard's own machine, and its shell is the operator's.
 Without a terminal (standard input is not one) the command declines before
-it reads anything, and says to approve the card in footplate on a Mac or in
+it reads anything, and says to approve the card in footplate, or in
 a terminal on the yard's machine. A script cannot walk through the gate, and
 no flag does. A routine card has no gate. The field that
 [types a secret](#typing-a-secret) keeps it too.

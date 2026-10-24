@@ -516,34 +516,78 @@ func TestGoogleMintLoginCommandQuoted(t *testing.T) {
 	}
 }
 
-// GWS_BIN names the gws, ahead of whatever is on PATH: the mint goes
-// through it, with ~/ expanded.
+// GWS_BIN names the gws ahead of PATH, and the common home install
+// directories are searched after PATH when GWS_BIN is unset.
 func TestGoogleMintGWSBin(t *testing.T) {
-	endpoint := &fakeToken{t: t}
-	srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
-	defer srv.Close()
-	home := t.TempDir()
-	bin := filepath.Join(home, "bin")
-	if err := os.Mkdir(bin, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "gws"), []byte(fakeGWS), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("./google-mail/google-mint")
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GOOGLE_TOKEN_ENDPOINT=" + srv.URL, "GWS_BIN=~/bin/gws"}
-	cmd.Stdin = strings.NewReader(stdinFor("op@example.com", ""))
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("mint: %v\n%s", err, stderr.String())
-	}
-	var o struct {
-		Token string `json:"token"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &o); err != nil || o.Token != fakeAccess {
-		t.Fatalf("answer = %q: %v", stdout.String(), err)
-	}
+	t.Run("explicit path", func(t *testing.T) {
+		endpoint := &fakeToken{t: t}
+		srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+		defer srv.Close()
+		home := t.TempDir()
+		bin := filepath.Join(home, "bin")
+		if err := os.Mkdir(bin, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, "gws"), []byte(fakeGWS), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("./google-mail/google-mint")
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GOOGLE_TOKEN_ENDPOINT=" + srv.URL, "GWS_BIN=~/bin/gws"}
+		cmd.Stdin = strings.NewReader(stdinFor("op@example.com", ""))
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("mint: %v\n%s", err, stderr.String())
+		}
+		var o struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &o); err != nil || o.Token != fakeAccess {
+			t.Fatalf("answer = %q: %v", stdout.String(), err)
+		}
+	})
+	t.Run("home install with no gws on PATH", func(t *testing.T) {
+		endpoint := &fakeToken{t: t}
+		srv := httptest.NewServer(http.HandlerFunc(endpoint.handler))
+		defer srv.Close()
+		home := t.TempDir()
+		localBin := filepath.Join(home, ".local", "bin")
+		if err := os.MkdirAll(localBin, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(localBin, "gws"), []byte(fakeGWS), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// The script's tools, but no gws: everything it runs besides gws,
+		// linked from the machine's own.
+		tools := t.TempDir()
+		for _, tool := range []string{"cat", "curl", "date", "grep", "head", "sed", "tail"} {
+			real, err := exec.LookPath(tool)
+			if err != nil {
+				t.Fatalf("no %s on PATH: %v", tool, err)
+			}
+			if err := os.Symlink(real, filepath.Join(tools, tool)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		cmd := exec.Command("./google-mail/google-mint")
+		cmd.Env = []string{"PATH=" + tools, "HOME=" + home, "GOOGLE_TOKEN_ENDPOINT=" + srv.URL}
+		cmd.Stdin = strings.NewReader(stdinFor("op@example.com", ""))
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("mint: %v\n%s", err, stderr.String())
+		}
+		if stderr.String() != "" {
+			t.Fatalf("stderr = %q", stderr.String())
+		}
+		var o struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &o); err != nil || o.Token != fakeAccess {
+			t.Fatalf("answer = %q: %v", stdout.String(), err)
+		}
+	})
 }
 
 // What goes wrong is said on stderr, with nothing of the answer on

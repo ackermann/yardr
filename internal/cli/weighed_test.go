@@ -87,7 +87,7 @@ func TestMappingPickIsGatedWhereItWritesAnIdentity(t *testing.T) {
 	in := strings.NewReader(seq(ask) + "\n")
 	_, _, err := gated(t, y, false, in, bead, seq(ask), pick("ada"))
 	want := "ask " + seq(ask) + " is weighty (as-user), and a command with no terminal to type its number at cannot pick it. " +
-		"Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer " + bead + " " + seq(ask) + " " + pick("ada") + " [words]"
+		"Approve it in footplate, or in a terminal on the yard's machine: yardr bead answer " + bead + " " + seq(ask) + " " + pick("ada") + " [words]"
 	if err == nil || err.Error() != want || in.Len() != 2 {
 		t.Fatalf("a pick that writes, with no terminal = %v (%d bytes of input left), want %q", err, in.Len(), want)
 	}

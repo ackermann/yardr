@@ -908,7 +908,7 @@ func TestAiquokkaFileOfTheDocs(t *testing.T) {
 	if err != nil || d.Limits == nil {
 		t.Fatalf("declaration = %+v, %v", d, err)
 	}
-	if argv, _ := d.Limits.Argv("kimi"); strings.Join(argv, " ") != "/Users/mckean/go/bin/aiquokka kimi --json" {
+	if argv, _ := d.Limits.Argv("kimi"); strings.Join(argv, " ") != "aiquokka kimi --json" {
 		t.Fatalf("the command for kimi = %q", argv)
 	}
 	a := &app{st: storetest.New(t), actor: "jo"}

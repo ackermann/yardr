@@ -106,7 +106,7 @@
              offers no giving: the card is given where the line names, and
              the form below keeps Later and Decline alone. */}}
       {{- if $a.Weight}}
-      <p>This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:</p>
+      <p>This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:</p>
       {{- end}}
       <p class="entry-note">Give it with <code>yardr bead answer {{$p.Bead.ID}} {{$a.Ask}} --secret</code>.</p>
       {{- end}}
@@ -124,7 +124,7 @@
              keeps the words with Later and Decline alone, and the pick is
              made where the line names, with the option's number. */}}
       {{- if and $a.Weight $a.Identity}}
-      <p>This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:</p>
+      <p>This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:</p>
       <p class="entry-note">Approve it with <code>yardr bead answer {{$p.Bead.ID}} {{$a.Ask}} &lt;n&gt;</code>.</p>
       {{- end}}
       {{- with $a.About}}

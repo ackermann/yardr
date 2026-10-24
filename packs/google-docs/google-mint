@@ -6,10 +6,10 @@
 # {inputs, scope} on stdin and reads {token, expires_at} on stdout.
 #
 # GOOGLE_ACCOUNT is the account's address, no secret. The refresh
-# credentials come from the local gws login for that account (gws
-# 0.22.5): the default login in ~/.config/gws where it is for that
-# account, else that account's own login in
-# ~/.config/gws-accounts/<account>, chosen by this script with
+# credentials come from the local gws login for that account: the
+# default login in ~/.config/gws where it is for that account, else
+# that account's own login in ~/.config/gws-accounts/<account>,
+# chosen by this script with
 # GOOGLE_WORKSPACE_CLI_CONFIG_DIR for the gws it starts alone. gws auth
 # status tells whose login one is, and gws auth export --unmasked prints
 # the client id, client secret and refresh token, which are exchanged at
@@ -18,9 +18,11 @@
 # exchange's body, and never printed, neither on stdout nor on stderr,
 # nor written anywhere.
 #
-# Needs gws and curl on PATH: GWS_BIN names another gws, else the one
-# on PATH, else /opt/homebrew/bin/gws. GOOGLE_TOKEN_ENDPOINT may name a
-# loopback HTTP endpoint for a test's stand-in. The scope is the call's;
+# Needs curl on PATH and gws: GWS_BIN names another gws, else the one on
+# PATH, else the first gws in the common install directories of both
+# platforms, the operator's own before the machine's.
+# GOOGLE_TOKEN_ENDPOINT may name a loopback HTTP endpoint for a test's
+# stand-in. The scope is the call's;
 # Google's token narrows by the gws grant, not by call, so it is read
 # and ignored.
 set -eu
@@ -34,10 +36,19 @@ if [ -n "${GWS_BIN:-}" ]; then
   GWS=$GWS_BIN
 elif command -v gws >/dev/null 2>&1; then
   GWS=gws
-elif [ -x /opt/homebrew/bin/gws ]; then
-  GWS=/opt/homebrew/bin/gws
 else
-  fail "needs gws on PATH (or GWS_BIN=/path/to/gws): the operator's gws login is what the token is minted from"
+  # A process started with a short PATH (the daemon's own) still finds
+  # the gws its operator installed: the directories gws's install
+  # methods use on either platform, the operator's own before the
+  # machine's.
+  GWS=
+  for dir in "${HOME:-}/.local/bin" "${HOME:-}/.cargo/bin" /opt/homebrew/bin /usr/local/bin; do
+    if [ -x "$dir/gws" ]; then
+      GWS=$dir/gws
+      break
+    fi
+  done
+  [ -n "$GWS" ] || fail "needs gws on PATH or in a common install directory (or GWS_BIN=/path/to/gws): the operator's gws login is what the token is minted from"
 fi
 
 input=$(cat)

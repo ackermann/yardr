@@ -108,7 +108,7 @@ func TestBeadAskSetupAndAnswer(t *testing.T) {
 		c.SetIn(in)
 		_, err := run(t, c, append([]string{"answer"}, tc.args...)...)
 		if err == nil || !strings.HasPrefix(err.Error(), "ask 1 is weighty (credential") ||
-			!strings.HasSuffix(err.Error(), "cannot approve it. Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer "+b.ID+" 1 "+tc.again) ||
+			!strings.HasSuffix(err.Error(), "cannot approve it. Approve it in footplate, or in a terminal on the yard's machine: yardr bead answer "+b.ID+" 1 "+tc.again) ||
 			in.Len() != len("CLIPHONE_ACCOUNT=1555\n") {
 			t.Fatalf("approving a setup with no terminal (%v) = %v (%d bytes of input left)", tc.args, err, in.Len())
 		}

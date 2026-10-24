@@ -65,9 +65,9 @@ yardr user key mckean pushover      # PUSHOVER_USER, your user key
 
 ```
 PUSHOVER_TOKEN for the source pushover (nothing is shown as you type):
-source pushover: PUSHOVER_TOKEN is set in /Users/mckean/.yardr/sources/pushover.env
+source pushover: PUSHOVER_TOKEN is set in ~/.yardr/sources/pushover.env
 PUSHOVER_USER for the source pushover (nothing is shown as you type):
-user mckean: PUSHOVER_USER is set in /Users/mckean/.yardr/users/mckean.env
+user mckean: PUSHOVER_USER is set in ~/.yardr/users/mckean.env
 next: yardr source check pushover --user mckean sends one test message
 ```
 

@@ -893,7 +893,7 @@ card's weight and asks for the ask's number typed back, before it reads a
 value, and goes on only when it is: friction against approving on reflex,
 and no authentication, since the terminal is the yard's own machine and its
 shell is the operator's. Without a terminal (standard input is not one) it
-declines, and says to approve the card in footplate on a Mac or in a
+declines, and says to approve the card in footplate, or in a
 terminal on the yard's machine. No flag gets round that: a gate that a
 script walks through is not a gate. A routine card has no gate.
 

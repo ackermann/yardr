@@ -1486,7 +1486,8 @@ A `kind=codex` agent is also started with
 that it stands beside a group's own `-c`), whatever the group's `args` and
 your `~/.codex/config.toml` say: Codex otherwise looks for a release of
 itself at start and upgrades in its own pane before it draws its screen
-(`brew upgrade --cask codex`, for minutes), and a session must not change
+(`brew upgrade --cask codex` on a Mac, its installer's upgrade elsewhere,
+for minutes), and a session must not change
 the machine's software. `yardr harness show codex` lists both flags as
 `always`. Upgrade Codex yourself, between sessions. A pane that shows
 something else than the harness's screen all the same is typed nothing: see
@@ -1734,7 +1735,8 @@ check the footer's model instead.
   started before yardr wrote that is covered from its next start.
 - **A harness that has not drawn its screen.** herdr can report an agent
   idle while its pane still shows something else: a Codex that upgrades
-  itself before it starts (`brew upgrade --cask codex`), a slow start. Keys
+  itself before it starts (`brew upgrade --cask codex` on a Mac, its
+  installer's upgrade elsewhere), a slow start. Keys
   typed then go to whatever runs there. So for a `claude`, `codex`, `kimi`,
   `muse` or `kiro` session, a pane that shows no line beginning with the kind's input mark is
   typed no first prompt, by `yardr` at the start (`prompt_look` is `no

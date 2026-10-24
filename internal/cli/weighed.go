@@ -72,7 +72,7 @@ func (a *app) weighed(c *cobra.Command, id string, seq uint64, weight []store.As
 	}
 	in := c.InOrStdin()
 	if !a.atTerminal(in) {
-		return false, fmt.Errorf("ask %d is %s, and a command with no terminal to type its number at cannot %s it. Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer %s %d %s",
+		return false, fmt.Errorf("ask %d is %s, and a command with no terminal to type its number at cannot %s it. Approve it in footplate, or in a terminal on the yard's machine: yardr bead answer %s %d %s",
 			seq, store.WeightWords(weight), act, id, seq, again)
 	}
 	// The prompt goes to the command's error stream, so what the command

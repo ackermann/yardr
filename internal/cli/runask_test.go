@@ -269,7 +269,7 @@ func TestBeadAskRunAndApprove(t *testing.T) {
 	in := strings.NewReader("1\n")
 	_, errOut, err := gated(t, y, false, in, b.ID, "1", "--approve")
 	wantGate := "ask 1 is weighty (trust), and a command with no terminal to type its number at cannot approve it. " +
-		"Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer " + b.ID + " 1 --approve"
+		"Approve it in footplate, or in a terminal on the yard's machine: yardr bead answer " + b.ID + " 1 --approve"
 	if err == nil || err.Error() != wantGate || in.Len() != 2 || errOut != "" {
 		t.Fatalf("weighty approval without a terminal = %v, input left %d, stderr %q", err, in.Len(), errOut)
 	}

@@ -4943,7 +4943,7 @@ default:
   back the same way, and then for the value.
 - **A client with no gate** sends none, and so cannot approve a weighty
   card: it says `this card is weighty and this window has no gate. Approve
-  it in footplate on a Mac, or in a terminal on the yard's machine:` with
+  it in footplate, or in a terminal on the yard's machine:` with
   the `yardr bead answer` line of the card, and leaves the card open.
   Nothing is declined for the person.
 

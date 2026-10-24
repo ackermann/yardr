@@ -136,6 +136,16 @@ it lists every exported name with its comment, faster than grepping.
   match with `errors.Is`.
 - Files are lowercase, one area per file; tests live beside the code as
   `*_test.go`.
+- A user doc, a pack's `SETUP.md`, a help text or a message the product
+  prints is read on any yard, on Linux or macOS: it carries no path,
+  version or fact of the machine it was written on (no `/Users/<name>`,
+  no `/opt/homebrew`, no "this machine's", no version seen in a shell);
+  an install step names the tool's own install page and gives both
+  platforms' commands where they differ, Homebrew as one way on macOS
+  and never the only way; sample output uses `~` and the placeholder
+  names the page declares; a bead id names a thing only in a design doc
+  or an example that is plainly an example, never a promise of future
+  work.
 - Fixtures: throwaway stores from `internal/storetest`, stand-in scripts
   from `internal/scripttest`; wait on the effect, not on wall time. A
   package whose tests start a real yardr names its test binary to the

@@ -402,7 +402,7 @@ func TestHomeNeedsWeightyMapping(t *testing.T) {
 	s := answerSection(t, f.get("/").body)
 	for _, want := range []string{
 		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
-		`This card is weighty and this window has no gate. Approve it in footplate on a Mac, or in a terminal on the yard's machine:`,
+		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,
 		`Approve it with <code>yardr bead answer ` + b.ID + ` ` + ask + ` &lt;n&gt;</code>`,
 		`<li><span>1. ada</span>`,
 		`<li><span>2. mckean</span>`,

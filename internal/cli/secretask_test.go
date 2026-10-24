@@ -184,7 +184,7 @@ func TestBeadAskAndAnswerASecret(t *testing.T) {
 	c := me.beadCmd()
 	c.SetIn(in)
 	wantNoTerminal := "ask 1 is weighty (credential), and a command with no terminal to type its number at cannot give it. " +
-		"Approve it in footplate on a Mac, or in a terminal on the yard's machine: yardr bead answer " + id + " 1 --secret"
+		"Approve it in footplate, or in a terminal on the yard's machine: yardr bead answer " + id + " 1 --secret"
 	if out, err := run(t, c, "answer", id, "1", "--secret"); err == nil || err.Error() != wantNoTerminal || in.Len() != len(lines) || out != "" {
 		t.Fatalf("a secret with no terminal = %q, %v (%d bytes of input left), want %q", out, err, in.Len(), wantNoTerminal)
 	}

@@ -1,7 +1,7 @@
 name: aiquokka
 about: Usage limits of the subscriptions the agents' CLIs are logged in to (github.com/McKean/aiquokka).
 limits:
-  command: [/Users/mckean/go/bin/aiquokka, "{provider}", --json]
+  command: [aiquokka, "{provider}", --json]
   kinds:              # harness kind -> the provider's own name for it
     claude: claude
     codex: codex

@@ -515,12 +515,14 @@ answers for, each with the provider's own name for it. Such a file needs no
 `base` and no `calls`. This one is whole, for
 [aiquokka](https://github.com/McKean/aiquokka), which reads the limits of
 Claude, Codex, Kimi and others from the logins their CLIs store:
+Put its executable beside the declaration file; `yardr source add` copies
+it into the yard's source directory.
 
 ```yaml
 name: aiquokka
 about: Usage limits of the subscriptions the agents' CLIs are logged in to (github.com/McKean/aiquokka).
 limits:
-  command: [/Users/mckean/go/bin/aiquokka, "{provider}", --json]
+  command: [aiquokka, "{provider}", --json]
   kinds:              # harness kind -> the provider's own name for it
     claude: claude
     codex: codex
