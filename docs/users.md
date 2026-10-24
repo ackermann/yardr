@@ -708,12 +708,15 @@ with the names it wrote and not the file they are in, and refuses a value the
 file cannot hold without naming the file. `Bead` and `UserAsks` tell a run
 ask as its asker typed it, without the yard's sentences about what it
 changes, the files it carries, the plan of a pack, or the result of its
-approval. A notification's text is made from what its person is told of the
-event. A device of an operator gets all of it whole.
+approval, except one that sets a setting or adds a source, whose typed words
+carry a value or a path: those words, and the sentence of its approval, are
+the operator's alone. A notification's text is made from what its person is
+told of the event. A device of an operator gets all of it whole.
 
 What a device can still read is text written about one thing that happened,
-as it was written. That is the command a run ask's asker typed, which can
-name a path or a value; the file a setup card says a typed account will be
+as it was written. That is the command a run ask's asker typed, but for one
+that sets a setting or adds a source, whose value or path is the operator's
+alone; the file a setup card says a typed account will be
 written to; a note the yard wrote on a bead about what it did or what failed,
 such as a landing's line, which names the test command it ran, or a fetch
 that did not work; and the words of an error a call returns when the yard's

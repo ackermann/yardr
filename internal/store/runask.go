@@ -296,6 +296,19 @@ func (a Ask) proposed() *RunAsked {
 		Does: a.Run.Does, Back: a.Run.Back, BackBy: a.Run.BackBy, Carried: a.Run.Carried, Pack: a.Run.Pack}
 }
 
+// RunArgvHeld reports whether the run command argv holds, as its asker typed
+// it, a value or a path: settings set, whose value is a setting's (the
+// operator's own words to the agents, the address hooks are registered at, or
+// what Settings withholds from a device), and source add, whose file is a
+// path on the yard's machine. Bead and UserAsks tell those words to a device
+// of the operator alone, and the sentence of an approval of one is marked for
+// WithoutHeld. Every other row's words are names and numbers the stream and
+// the calls tell every device already.
+func RunArgvHeld(argv []string) bool {
+	return len(argv) >= 2 && (slices.Equal(argv[:2], []string{"settings", "set"}) ||
+		slices.Equal(argv[:2], []string{"source", "add"}))
+}
+
 // AskApproved is what ApproveAsk did: the ask and who asked it, the command
 // as it ran with the yard's sentences for it, and what it printed.
 type AskApproved struct {

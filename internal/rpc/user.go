@@ -83,8 +83,9 @@ import (
 //     and not why (deliveryFiles), GiveSecret says which names a device's own
 //     giving wrote and not the file, and refuses a value the file cannot hold
 //     without naming it (giveSecret), a run ask is told as its asker typed it
-//     (withoutRunWords), and the rows of the notifications are made by the
-//     store from what their person is told of the event
+//     but for the typed words that carry a value or a path, which are the
+//     operator's alone (withoutRunWords), and the rows of the notifications
+//     are made by the store from what their person is told of the event
 //     (store.Event.WithoutHeld);
 //   - Users, GetUser, Crew and GetCrew tell the file a user's address is read
 //     from, and of a crew member the directory it runs in, the files and
@@ -308,7 +309,10 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 // as its asker typed it, and not as the yard wrote it up from its own records:
 // what the command changes and takes back, the files it carries, the plan of a
 // pack, and what it printed when approved, which name the files and the
-// settings it is about (withoutRunWords). The socket, the terminal and the
+// settings it is about (withoutRunWords). Where the typed words themselves
+// carry a value or a path, argv and command are told to the operator alone,
+// and the ask reads as its question and the command's help line. The socket,
+// the terminal and the
 // agents read the whole card and result from the store, as they do the
 // operator's words. UserAsks holds the same back from the same devices
 // (userAsks), since the user an ask was put to need not be the operator now.
@@ -403,7 +407,10 @@ func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAske
 // command files it carries, the plan of a pack with the paths and the diffs of
 // the files it writes, and what the command printed, which names them too: the
 // operator's configuration, and a path with words around it is still the path.
-// A pack ask keeps the pack's name and the depot it is for. The card and the
+// A pack ask keeps the pack's name and the depot it is for. Where the typed
+// words themselves carry a value or a path (store.RunArgvHeld), argv and
+// command are cut too, and an approval's argv with them: what the asker typed
+// is then the question and the command's help line. The card and the
 // result are copied, not changed, and an ask with no run comes back as it is.
 func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *store.AskRan) {
 	if run == nil {
@@ -411,6 +418,10 @@ func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *
 	}
 	bare := *run
 	bare.Does, bare.Back, bare.BackBy, bare.Carried = []string{}, "", "", nil
+	held := store.RunArgvHeld(run.Argv)
+	if held {
+		bare.Argv, bare.Command = []string{}, ""
+	}
 	if bare.Pack != nil {
 		pack := *bare.Pack
 		pack.Plan = nil
@@ -419,6 +430,9 @@ func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *
 	if ran != nil {
 		told := *ran
 		told.Result = ""
+		if held {
+			told.Argv = []string{}
+		}
 		ran = &told
 	}
 	return &bare, ran

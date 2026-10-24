@@ -831,8 +831,14 @@ nothing else. What is not the same:
   back, and is `""`. `ran.result` is what the command printed, and is `""`.
   `run.back_by`, `run.carried` (the declarations and command files a source
   brings) and `run.pack.plan` (the paths and the diffs of the files a pack
-  writes) are absent. A device of an operator is sent all of it, as the
-  socket is.
+  writes) are absent. Where the typed words themselves carry a value or a
+  path, they are the operator's alone: on a run ask that sets a setting or
+  adds a source, `run.argv` is `[]` and `run.command` is `""` to such a
+  device, and an approved ask's `ran.argv` is `[]`, the question and the
+  command's help line only. The sentence of an approval of such a row names
+  the command whole, so its `noted` event carries no `answer` to such a
+  device, and its notification reads as the event without its sentence. A
+  device of an operator is sent all of it, as the socket is.
 - **A notification's `text` is made from what its person is told of the
   event.** An operator's `UserNotifications` has the words of each event as
   the stream sends it to an operator. Any other user's has the words as the
@@ -2764,8 +2770,8 @@ POST /call/UserAsks
 | `open[].secret.line` | string | what the card says is asked for, in the yard's words |
 | `open[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret; absent (concealed) on any other ask |
 | `open[].run` | object, may be absent | the command a run ask proposes, as `Bead` says it; absent on any other ask |
-| `open[].run.argv` | array of string | the command in words, without the leading `yardr` |
-| `open[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
+| `open[].run.argv` | array of string | the command in words, without the leading `yardr`. On a run ask that sets a setting or adds a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole card |
+| `open[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it. On a run ask that sets a setting or adds a source, a device of the current operator is told it, whoever the ask was put to. Any other device is told `""`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole card |
 | `open[].run.does` | array of string | what the command changes, in the yard's words |
 | `open[].run.back` | string | the command that takes the change back |
 | `open[].run.back_by` | string, may be absent | who may run it, as `Bead` says it; absent where that is anyone |
@@ -2813,8 +2819,8 @@ POST /call/UserAsks
 | `decided[].secret.line` | string | what the card says is asked for, in the yard's words |
 | `decided[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret; absent (concealed) on any other ask |
 | `decided[].run` | object, may be absent | the command a run ask proposes, as `Bead` says it; absent on any other ask |
-| `decided[].run.argv` | array of string | the command in words, without the leading `yardr` |
-| `decided[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it |
+| `decided[].run.argv` | array of string | the command in words, without the leading `yardr`. On a run ask that sets a setting or adds a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole card |
+| `decided[].run.command` | string | the command whole, as it is typed in a terminal. Never shorten it. On a run ask that sets a setting or adds a source, a device of the current operator is told it, whoever the ask was put to. Any other device is told `""`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole card |
 | `decided[].run.does` | array of string | what the command changes, in the yard's words |
 | `decided[].run.back` | string | the command that takes the change back |
 | `decided[].run.back_by` | string, may be absent | who may run it, as `Bead` says it; absent where that is anyone |
@@ -2843,7 +2849,7 @@ POST /call/UserAsks
 | `decided[].setup.to[].crew` | string, may be absent | the crew member |
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask |
 | `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside |
-| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
+| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole result |
 | `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
@@ -4217,13 +4223,13 @@ POST /call/Bead
 | `asks[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask and until it is given |
 | `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
-| `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it |
-| `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead |
+| `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
+| `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `""` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
 | `asks[].run.does` | array of string | what the command changes and what is there now, in the yard's words, a sentence each, with what it names as the yard knows it |
 | `asks[].run.back` | string | the command that takes the change back |
 | `asks[].run.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads "anyone can take it back" |
 | `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
-| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name |
+| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
 | `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |

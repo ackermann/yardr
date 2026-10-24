@@ -308,9 +308,12 @@ func EventDataTold(kind string) ([]string, bool) {
 // whether anything may have been held: its data held to the keys its kind's row
 // lists and the keys every kind tells, and a key the row lists fields of held
 // to those fields (which counts as held even where the record has no other
-// field). A kind with no row tells no data. The event is copied, not changed:
-// the store hands one event, and one map of its data, to every stream. An event
-// that has nothing to hold comes back as it is.
+// field). A kind with no row tells no data. An answer that approved a command
+// whose typed words carry a value or a path tells no sentence, though its kind
+// lists one: the sentence names the command whole (answerSentence), and the
+// event carries the mark answerOf stored with it. The event is copied, not
+// changed: the store hands one event, and one map of its data, to every
+// stream. An event that has nothing to hold comes back as it is.
 func (e Event) WithoutHeld() (Event, bool) {
 	keys := eventDataTold[e.Kind]
 	if slices.Contains(keys, toldWhole) {
@@ -336,6 +339,11 @@ func (e Event) WithoutHeld() (Event, bool) {
 				data[k] = record
 			}
 		}
+	}
+	// The mark itself is held with the sentence, as what no kind lists: it
+	// is what held the event, so the sentence is never told alone with it.
+	if marked, _ := e.Data["answer_held"].(bool); marked {
+		delete(data, "answer")
 	}
 	e.Data = data
 	return e, true

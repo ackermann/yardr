@@ -266,6 +266,7 @@ func TestAnswerDeliversToUserAsker(t *testing.T) {
 			t.Errorf("the notification has no %q:\n%s", want, text)
 		}
 	}
+	t.Run("run ask typed value and path", testRunApprovalOfTypedValueAndPathMarksItsAnswer)
 }
 
 // Where a pick was replaced the ask reads its history: "picked 2 (was 1
@@ -323,5 +324,126 @@ func TestBeadPicksBefore(t *testing.T) {
 	}
 	if v.Asks[0].PicksBefore != 2 {
 		t.Fatalf("a twice-changed pick counts %+v", v.Asks)
+	}
+}
+
+// An approval of a run ask that sets a setting or adds a source marks its
+// noted event, so the stream and the notifications hold its sentence from
+// anyone who is no operator (WithoutHeld): the sentence names the command
+// whole, value or path with it. The event keeps the sentence whole, as the
+// asker's inbox reads it, and the operator's notification reads it too. An
+// approval of any other row is marked nothing, and its sentence is told.
+func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	// A second operator, who is told what the approval's actor is not told
+	// of their own act.
+	if _, err := y.AddUser(y.ctx, "op", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.SetUser(y.ctx, "op", map[string]string{UserRole: RoleOperator}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []string{"op", "ada"} {
+		if err := y.AddSubscription(y.ctx, user, Subscription{Source: SourceYardr, Scope: ScopeAll,
+			Where: map[string]string{"kind": "noted"}}, user); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const value = "early-shift"
+	const file = "phone.yaml"
+	setting := y.ask(t, Ask{Question: "May the yard's note change?", To: "mckean",
+		Context: []string{"The night shift ends at six now."},
+		Run:     &AskRun{Argv: []string{"settings", "set", "operator_note", value}}}, "yardmaster")
+	source := y.ask(t, Ask{Question: "May the phone source be added?", To: "mckean",
+		Context: []string{"The night shift wants its calls told by phone."},
+		Run:     &AskRun{Argv: []string{"source", "add", file}, Carried: carriedOf(t, phoneDecl, nil)}}, "yardmaster")
+	limit := y.ask(t, Ask{Question: "May airy send more mail?", To: "mckean",
+		Context: []string{"The far yard's mail waits on its limit."},
+		Run:     &AskRun{Argv: []string{"peer", "allow", "airy", "--mail-limit", "300"}}}, "yardmaster")
+	for _, seq := range []uint64{setting, source, limit} {
+		if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// answers are the noted events with an answer sentence naming want.
+	answers := func(want string) []Event {
+		t.Helper()
+		evs, err := y.Store.Events(y.ctx, y.bead, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []Event
+		for _, e := range evs {
+			if line, _ := e.Data["answer"].(string); line != "" && strings.Contains(line, want) {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		seq    uint64
+		marked bool
+		secret string
+	}{
+		{setting, true, value},
+		{source, true, file},
+		{limit, false, "--mail-limit 300"},
+	} {
+		found := answers(tc.secret)
+		if len(found) != 1 {
+			t.Fatalf("the answers naming %q = %d, want 1", tc.secret, len(found))
+		}
+		e := found[0]
+		if got, _ := e.Data["answer_held"].(bool); got != tc.marked {
+			t.Errorf("the answer of ask %d is marked %v, want %v", tc.seq, got, tc.marked)
+		}
+		told, held := e.WithoutHeld()
+		if !held {
+			t.Errorf("the answer of ask %d is told whole", tc.seq)
+		}
+		if _, ok := told.Data["answer"]; ok == tc.marked {
+			t.Errorf("the answer of ask %d is told: %v, want %v", tc.seq, ok, !tc.marked)
+		}
+		if _, ok := told.Data["answer_held"]; ok {
+			t.Errorf("the answer of ask %d tells its mark", tc.seq)
+		}
+	}
+	// rows are the notifications of user by event seq.
+	rows := func(user string) map[uint64]Notification {
+		t.Helper()
+		page, err := y.Store.UserNotifications(y.ctx, user, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[uint64]Notification{}
+		for _, n := range page.Notifications {
+			out[n.Seq] = n
+		}
+		return out
+	}
+	ops, others := rows("op"), rows("ada")
+	for _, tc := range []struct {
+		secret string
+		want   string
+	}{
+		{value, "the setting's value"},
+		{file, "the source's path"},
+	} {
+		e := answers(tc.secret)[0]
+		if n := ops[e.Seq]; !strings.Contains(n.Text, tc.secret) {
+			t.Errorf("the operator's notification reads %q, want %s", n.Text, tc.want)
+		}
+		n := others[e.Seq]
+		if strings.Contains(n.Text, tc.secret) {
+			t.Errorf("the member's notification reads %q", n.Text)
+		}
+		if !strings.Contains(n.Text, "noted") || !strings.Contains(n.Text, y.bead) {
+			t.Errorf("the member's notification reads %q, want the noted event without its sentence", n.Text)
+		}
+	}
+	e := answers("--mail-limit 300")[0]
+	if n := others[e.Seq]; !strings.Contains(n.Text, "--mail-limit 300") {
+		t.Errorf("the member's notification of the told row reads %q", n.Text)
 	}
 }

@@ -749,6 +749,224 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 			queued("jo's device, an operator's again", y.jo, "jo", jos, true)
 		})
 	}
+	t.Run("typed values and paths", userRunAskTellsTypedValueAndPathToTheOperatorAlone)
+}
+
+// runPhoneDecl is the declaration a source add run ask of the test carries:
+// commands-free, so the approval runs in its own write.
+const runPhoneDecl = `name: phone
+base: https://phone.example.com/v1
+credential: { env: PHONE_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
+
+// Bead and UserAsks tell the typed words of a run ask that sets a setting or
+// adds a source to a device of the operator and to no other, as they tell the
+// yard's words of every run ask (TestUserAsksTellsTheSetupToTheOperatorAlone):
+// to any other device the card reads with no argv and no command, and an
+// approved ask's ran with no argv, the question and the command's help line
+// only. A setting's value and a source's path as typed are the operator's
+// configuration, as a stored value and a file of the yard's are. Every other
+// row is told as its asker typed it, argv and command whole: names and numbers
+// the stream and the calls tell every device already. The stream tells the
+// approval's sentence likewise: a held row's noted event carries no answer to
+// such a device, and a told row's carries it whole. The store keeps every ask
+// and sentence whole.
+func userRunAskTellsTypedValueAndPathToTheOperatorAlone(t *testing.T) {
+	ctx := context.Background()
+	y := newSecretYard(t)
+	const value = "early-shift"
+	const file = "phone.yaml"
+	setting, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the yard's note change?", To: "jo",
+		Context: []string{"The night shift ends at six now."},
+		Run:     &store.AskRun{Argv: []string{"settings", "set", "operator_note", value}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the phone source be added?", To: "jo",
+		Context: []string{"The night shift wants its calls told by phone."},
+		Run: &store.AskRun{Argv: []string{"source", "add", file},
+			Carried: []store.AskSource{{Name: "phone", Text: runPhoneDecl}}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the CRM be called more often?", To: "jo",
+		Context: []string{"The import was refused its 61st call of the hour."},
+		Run:     &store.AskRun{Argv: []string{"source", "set", "crm", "calls_per_hour=120"}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, seq := range []uint64{setting, source, limit} {
+		if _, err := y.st.ApproveAsk(ctx, "yd-crm", seq, "jo", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// runs are the run cards of the view's asks, by ask.
+	runs := func(v store.BeadView) map[uint64]*store.RunAsked {
+		out := map[uint64]*store.RunAsked{}
+		for _, a := range v.Asks {
+			if a.Run != nil {
+				out[a.Ask] = a.Run
+			}
+		}
+		return out
+	}
+	// rans are what the view's approved run asks ran, by ask.
+	rans := func(v store.BeadView) map[uint64]*store.AskRan {
+		out := map[uint64]*store.AskRan{}
+		for _, a := range v.Asks {
+			if a.Run != nil && a.Ran != nil {
+				out[a.Ask] = a.Ran
+			}
+		}
+		return out
+	}
+	whole := map[uint64][]string{
+		setting: {"settings", "set", "operator_note", value},
+		source:  {"source", "add", file},
+		limit:   {"source", "set", "crm", "calls_per_hour=120"},
+	}
+	// told reads the view as the device with the token has it, and fails
+	// unless the held rows read with no typed words when listed is false and
+	// whole when true, and the told row reads whole either way. It answers
+	// the view's cards and results, for the queue to read against.
+	told := func(who, token string, listed bool) (map[uint64]*store.RunAsked, map[uint64]*store.AskRan) {
+		t.Helper()
+		v, raw := y.bead(t, token)
+		cards, results := runs(v), rans(v)
+		for seq, argv := range whole {
+			held := seq != limit && !listed
+			card, ran := cards[seq], results[seq]
+			if card == nil || ran == nil {
+				t.Fatalf("%s is told no run card and result for ask %d", who, seq)
+			}
+			if held && (len(card.Argv) != 0 || card.Command != "" || len(ran.Argv) != 0) {
+				t.Errorf("%s is told the typed words %+v %q and ran %+v of ask %d", who, card.Argv, card.Command, ran.Argv, seq)
+			}
+			if !held && (!slices.Equal(card.Argv, argv) || card.Command == "" || !slices.Equal(ran.Argv, argv)) {
+				t.Errorf("%s is told the typed words %+v %q and ran %+v of ask %d, want %+v", who, card.Argv, card.Command, ran.Argv, seq, argv)
+			}
+			if card.Description == "" {
+				t.Errorf("%s is told no help line for ask %d", who, seq)
+			}
+			if held && ran.Result != "" {
+				t.Errorf("%s is told the result %q of ask %d", who, ran.Result, seq)
+			}
+		}
+		// The value and the path are nowhere in the reply but where they are
+		// told; the told row's words are in every reply.
+		for secret, told := range map[string]bool{value: listed, file: listed, "calls_per_hour=120": true} {
+			if strings.Contains(raw, secret) != told {
+				t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !told, told, raw)
+			}
+		}
+		return cards, results
+	}
+	// queued reads the queue of the device's user as the device with the
+	// token has it, and fails unless it reads as Bead told the same device.
+	queued := func(who, token string, listed bool, cards map[uint64]*store.RunAsked, results map[uint64]*store.AskRan) {
+		t.Helper()
+		q, qraw := y.queue(t, token)
+		decided := map[uint64]store.DecidedAsk{}
+		for _, d := range q.Decided {
+			decided[d.Ask] = d
+		}
+		for seq, argv := range whole {
+			held := seq != limit && !listed
+			d := decided[seq]
+			if d.Run == nil || d.Ran == nil {
+				t.Fatalf("%s is told no run card and result for ask %d of the queue", who, seq)
+			}
+			if held && (len(d.Run.Argv) != 0 || d.Run.Command != "") {
+				t.Errorf("%s is told the typed words %+v %q of ask %d of the queue", who, d.Run.Argv, d.Run.Command, seq)
+			}
+			if !held && !slices.Equal(d.Run.Argv, argv) {
+				t.Errorf("%s is told the typed words %+v of ask %d of the queue, want %+v", who, d.Run.Argv, seq, argv)
+			}
+			if !reflect.DeepEqual(d.Run, cards[seq]) || !reflect.DeepEqual(d.Ran, results[seq]) {
+				t.Errorf("%s is told ask %d as %+v %+v by UserAsks and %+v %+v by Bead", who, seq, d.Run, d.Ran, cards[seq], results[seq])
+			}
+		}
+		for secret, told := range map[string]bool{value: listed, file: listed, "calls_per_hour=120": true} {
+			if strings.Contains(qraw, secret) != told {
+				t.Errorf("%s is told %q in the queue: %v, want %v\n%s", who, secret, !told, told, qraw)
+			}
+		}
+	}
+	joCards, joRans := told("jo's device", y.jo, true)
+	queued("jo's device", y.jo, true, joCards, joRans)
+	told("sam's device", y.sam, false)
+	// The asks were put to jo, so sam's queue holds none of them.
+	if q, _ := y.queue(t, y.sam); len(q.Open) != 0 || len(q.Decided) != 0 {
+		t.Fatalf("sam's device is told the queue %+v, want none of jo's asks", q)
+	}
+	// The setting moves to sam and jo is made a member. The asks put to jo
+	// stay in jo's queue, and jo's device is no longer told their typed
+	// words, by either call.
+	if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
+		t.Fatal(err)
+	}
+	joCards, joRans = told("jo's device, no longer the operator's", y.jo, false)
+	queued("jo's device, no longer the operator's", y.jo, false, joCards, joRans)
+	// The store keeps every ask whole, as the socket serves it.
+	stored, err := y.st.Bead(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for seq, argv := range whole {
+		if card := runs(*stored)[seq]; card == nil || !slices.Equal(card.Argv, argv) {
+			t.Errorf("the store tells the typed words %+v of ask %d, want %+v", card, seq, argv)
+		}
+	}
+	// The stream tells the approval's sentence of a held row to a device of
+	// the operator alone, and of a told row to every device.
+	base := listen(t, y.u, 0)
+	head, err := y.st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answers := func(token string) []string {
+		t.Helper()
+		lines, resp := follow(t, base, token, 0)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("the stream is answered %s", resp.Status)
+		}
+		var out []string
+		for {
+			line := next(t, lines)
+			if line == "" {
+				t.Fatalf("the stream ended before the head of the log, seq %d", head)
+			}
+			var e store.Event
+			if err := json.Unmarshal([]byte(line), &e); err != nil {
+				t.Fatalf("the stream sent %q: %v", line, err)
+			}
+			if e.Kind == "noted" {
+				if answer, _ := e.Data["answer"].(string); answer != "" {
+					out = append(out, answer)
+				}
+			}
+			if e.Seq >= head {
+				return out
+			}
+		}
+	}
+	sent := strings.Join(answers(y.jo), "\n")
+	for secret, told := range map[string]bool{value: false, file: false, "calls_per_hour=120": true} {
+		if strings.Contains(sent, secret) != told {
+			t.Errorf("jo's device is told %q in an answer: %v, want %v\n%s", secret, !told, told, sent)
+		}
+	}
+	sent = strings.Join(answers(y.sam), "\n")
+	for _, secret := range []string{value, file, "calls_per_hour=120"} {
+		if !strings.Contains(sent, secret) {
+			t.Errorf("sam's device is told no answer naming %q:\n%s", secret, sent)
+		}
+	}
 }
 
 // replayed is what the device with the token is sent of the log from its
