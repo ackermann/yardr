@@ -10,22 +10,15 @@ import (
 )
 
 // The keys of count_due (store.CountDue), the entry on a stopped session's
-// handle that says its agent's count of tokens is due: when the daemon stopped
-// the session, and, for one whose agent was left running (a group with keep),
-// the time up to which the count reads. The runner's Usage reads the second.
+// handle that says its agent's count of tokens is due, and how long past the
+// end of a kept session its agent's work still counts for it. The store names
+// them, with the entry it writes beside this package (MarkCountDue); the
+// runner's Usage reads them.
 const (
-	CountStoppedAt = "stopped_at"
-	CountUntil     = "until"
+	CountStoppedAt = store.CountStoppedAt
+	CountUntil     = store.CountUntil
+	keptGrace      = store.KeptGrace
 )
-
-// keptGrace is how long past the end of a session whose agent was left
-// running (a group with keep) the agent's work still counts for the session:
-// the call that moved the bead is recorded after the move, and an agent
-// finishes the turn it is in with a last answer (the last token line of a
-// review was written 67 ms after the yard saw its bead move). What a person
-// does in the kept pane after that is not the bead's, however late the count
-// is read.
-const keptGrace = 2 * time.Minute
 
 // usageWait is how long a stopped session's agent is given to write the
 // total it counts itself (Claude Code writes its cost-state as the process
@@ -57,14 +50,16 @@ type UsageReader interface {
 	Usage(ctx context.Context, handle map[string]any, startedAt time.Time, fallback bool) (u agents.Usage, partial bool, missing string, err error)
 }
 
-// countable reports whether the ended session s has an agent whose count is to
-// be read: its runner reads one (UsageReader) and started something (a
-// handle), as Stop is only called for a session that has. A session of a
-// runner that starts no agent is never due a count, so it logs no
-// session_usage and is never among those the report says it could not count.
-func countable(r Runner, s store.Session) bool {
+// Countable reports whether an ended session with handle h has an agent whose
+// count is to be read: its runner reads one (UsageReader) and started
+// something (a handle), as Stop is only called for a session that has. A
+// session of a runner that starts no agent is never due a count, so it logs
+// no session_usage and is never among those the report says it could not
+// count. The dispatcher asks it of a session it stops, and yardr down of one
+// it stops itself.
+func Countable(r Runner, h map[string]any) bool {
 	_, ok := r.(UsageReader)
-	return ok && len(s.Handle) > 0
+	return ok && len(h) > 0
 }
 
 // lastAgentSession is the id of the agent of the ended session s, asked of
@@ -73,7 +68,7 @@ func countable(r Runner, s store.Session) bool {
 // since the runtime knows no agent after. "" when the handle has the id
 // already, when the runner names none, or when s is not counted.
 func (d *Dispatcher) lastAgentSession(ctx context.Context, r Runner, s store.Session) string {
-	if !countable(r, s) {
+	if !Countable(r, s.Handle) {
 		return ""
 	}
 	return askAgentSession(ctx, r, s.Handle, s.StartedAt)
@@ -91,7 +86,7 @@ func (d *Dispatcher) lastAgentSession(ctx context.Context, r Runner, s store.Ses
 // reads up to, from the session's own end and not from the clock, so a pass
 // that is run again after a daemon died halfway writes the same cutoff.
 func (d *Dispatcher) markCountDue(ctx context.Context, r Runner, s store.Session, g store.Group, id string) error {
-	if !countable(r, s) {
+	if !Countable(r, s.Handle) {
 		return nil
 	}
 	now := d.now()

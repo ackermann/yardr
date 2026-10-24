@@ -1191,6 +1191,18 @@ func stopAgent(ctx context.Context, st store.API, runners map[string]dispatch.Ru
 		fail(err)
 		return
 	}
+	// The dispatcher leaves the count of a session it stops due; one down
+	// stops itself gets the same, so the next daemon counts it instead of
+	// never hearing of it. Record it before MarkStopped: if this write fails,
+	// the unstopped session is still in the dispatcher's teardown list. A
+	// session whose runner reads no count leaves none due, and one whose agent
+	// is already gone still marks: its transcript reads later.
+	if dispatch.Countable(runners[g.runner], g.handle) {
+		if err := st.MarkCountDue(ctx, g.session); err != nil {
+			fail(err)
+			return
+		}
+	}
 	// Its pane is closed: the next daemon has nothing of it to tear down.
 	if err := st.MarkStopped(ctx, g.session); err != nil {
 		fail(err)

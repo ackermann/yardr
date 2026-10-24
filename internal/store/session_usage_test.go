@@ -185,6 +185,115 @@ func TestRecordUsage(t *testing.T) {
 	}
 }
 
+// MarkCountDue leaves the count of a session yardr down stopped due, as the
+// dispatcher's teardown does for one it stops: count_due on the handle with
+// when it stopped, read by Uncounted, and, for a group that keeps its agents,
+// the time up to which the count reads. A session with no handle started no
+// agent and keeps none due; one that is not there is not found.
+func TestMarkCountDue(t *testing.T) {
+	t.Parallel()
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutGroup(ctx, store.Group{Name: "keep", Runner: "fake", Limit: 10, Config: map[string]any{"keep": true}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// session ends one of group's with handle, stopped as down leaves it.
+	session := func(title, group string, handle map[string]any) store.Session {
+		t.Helper()
+		b, err := s.CreateBead(ctx, store.NewBead{Title: title, Stage: "new"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := s.Claim(ctx, b.ID, group, "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetHandle(ctx, sess.ID, handle); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.EndSession(ctx, sess.ID, "aborted", "stopped by yardr down"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkStopped(ctx, sess.ID); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetSession(ctx, sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return *got
+	}
+	plain := session("plain", "g", map[string]any{"agent": "a1", "agent_session": "s1"})
+	kept := session("kept", "keep", map[string]any{"agent": "a2", "agent_session": "s2"})
+	bare := session("bare", "g", nil)
+
+	before := time.Now()
+	if err := s.MarkCountDue(ctx, plain.ID); err != nil {
+		t.Fatalf("MarkCountDue: %v", err)
+	}
+	if err := s.MarkCountDue(ctx, kept.ID); err != nil {
+		t.Fatalf("MarkCountDue of a kept session: %v", err)
+	}
+	if err := s.MarkCountDue(ctx, bare.ID); err != nil {
+		t.Fatalf("MarkCountDue of a session with no handle: %v", err)
+	}
+	after := time.Now()
+
+	due := func(id string) map[string]any {
+		t.Helper()
+		sess, err := s.GetSession(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _ := sess.Handle[store.CountDue].(map[string]any)
+		return out
+	}
+	d := due(plain.ID)
+	if len(d) != 1 {
+		t.Fatalf("count_due of a plain session = %v, want stopped_at alone", d)
+	}
+	at, _ := d[store.CountStoppedAt].(string)
+	stopped, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil || stopped.Before(before.Add(-time.Second)) || stopped.After(after.Add(time.Second)) {
+		t.Errorf("stopped_at = %q (%v), want a time of this test", at, err)
+	}
+	if got, err := s.GetSession(ctx, plain.ID); err != nil || got.Handle["agent_session"] != "s1" {
+		t.Errorf("handle after the call = %v, %v: want the rest of it kept", got.Handle, err)
+	}
+	k := due(kept.ID)
+	if len(k) != 2 {
+		t.Fatalf("count_due of a kept session = %v, want stopped_at and until", k)
+	}
+	untilAt, _ := k[store.CountUntil].(string)
+	until, err := time.Parse(time.RFC3339Nano, untilAt)
+	if err != nil || kept.EndedAt == nil || !until.Equal(kept.EndedAt.Add(2*time.Minute)) {
+		t.Errorf("until = %q (%v), want two minutes after the session ended (%v)", untilAt, err, kept.EndedAt)
+	}
+	if d := due(bare.ID); d != nil {
+		t.Errorf("count_due of a session with no handle = %v, want none", d)
+	}
+	uncounted, err := s.Uncounted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, sess := range uncounted {
+		ids = append(ids, sess.ID)
+	}
+	slices.Sort(ids)
+	want := []string{kept.ID, plain.ID}
+	slices.Sort(want)
+	if !slices.Equal(ids, want) {
+		t.Errorf("Uncounted = %v, want %v: the session with no handle is not due", ids, want)
+	}
+	if err := s.MarkCountDue(ctx, "no-such-session"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("MarkCountDue of a session that is not there = %v, want not found", err)
+	}
+}
+
 // A crew session that ended is listed in Uncounted by the write that ended it,
 // for the line session and a conversation's alike, and only when it ran an
 // agent: one with no handle has nothing to count. RecordCrewUsage then finishes

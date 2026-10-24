@@ -489,13 +489,27 @@ func TestSessionWithoutAnIDIsMatchedOrMissing(t *testing.T) {
 // Only the herdr runner reads a count; a manual group's session is a person
 // working the bead and an exec group's is a script, neither with an agent or
 // a transcript, so neither is due one: they log no session_usage and are never
-// listed as uncounted.
+// listed as uncounted. Nor is a session that started nothing (no handle) or
+// whose runner the yard no longer has: Countable, which the dispatcher and
+// yardr down both ask, says so.
 func TestSessionsWithoutAnAgentAreNotCounted(t *testing.T) {
 	t.Parallel()
 	for name, r := range map[string]dispatch.Runner{
 		"manual": &runner.Manual{}, "exec": &runner.Exec{}, "peer": &runner.Peer{}, "herdr": &runner.Herdr{}} {
 		if _, reads := r.(dispatch.UsageReader); reads != (name == "herdr") {
 			t.Errorf("the %s runner reads a count: %v", name, reads)
+		}
+		if got := dispatch.Countable(r, map[string]any{"agent": "a1"}); got != (name == "herdr") {
+			t.Errorf("Countable(%s runner, a started session) = %v", name, got)
+		}
+	}
+	for name, countable := range map[string]bool{
+		"no handle":    dispatch.Countable(&runner.Herdr{}, nil),
+		"empty handle": dispatch.Countable(&runner.Herdr{}, map[string]any{}),
+		"no runner":    dispatch.Countable(nil, map[string]any{"agent": "a1"}),
+	} {
+		if countable {
+			t.Errorf("Countable with %s = true", name)
 		}
 	}
 	cfg := map[string]map[string]any{"exec": {"cmd": "true"}}

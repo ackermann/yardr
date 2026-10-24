@@ -1763,6 +1763,25 @@ const (
 // and the store takes it off.
 const CountDue = "count_due"
 
+// The keys of count_due (CountDue): when the session stopped, and, for one
+// whose agent was left running (a group with keep), the time up to which the
+// count reads. Named here, with the entry, because the store writes them
+// (MarkCountDue) beside the dispatcher (markCountDue) and the runner reads
+// them; dispatch aliases them.
+const (
+	CountStoppedAt = "stopped_at"
+	CountUntil     = "until"
+)
+
+// KeptGrace is how long past the end of a session whose agent was left
+// running (a group with keep) the agent's work still counts for the session:
+// the call that moved the bead is recorded after the move, and an agent
+// finishes the turn it is in with a last answer (the last token line of a
+// review was written 67 ms after the yard saw its bead move). What a person
+// does in the kept pane after that is not the bead's, however late the count
+// is read.
+const KeptGrace = 2 * time.Minute
+
 // usageKey is the key of a session's handle that holds what its agent used,
 // as RecordUsage was given it.
 const usageKey = "usage"
@@ -2278,6 +2297,39 @@ func (s *Store) MarkStopped(ctx context.Context, sessionID string) error {
 	}
 	return s.changeSession(sessionID, func(_ *wtx, sess *Session) error {
 		sess.Stopped = true
+		return nil
+	})
+}
+
+// MarkCountDue marks the count of the session's agent as due, as the
+// dispatcher's teardown does for a session it stops: count_due goes on the
+// handle with when the session stopped, and, for one whose group keeps its
+// agents running, the time up to which the count reads. yardr down calls it
+// for a session it stopped itself, so the next daemon counts it instead of
+// never hearing of it. A session with no handle started no agent and is left
+// as it is. The daemon's alone (daemonOnly): what is due a count is the
+// daemon's to say, as what is stopped is.
+func (s *Store) MarkCountDue(ctx context.Context, sessionID string) error {
+	if err := s.daemonOnly(ctx, "MarkCountDue"); err != nil {
+		return err
+	}
+	return s.changeSession(sessionID, func(w *wtx, sess *Session) error {
+		if len(sess.Handle) == 0 {
+			return nil
+		}
+		now := now()
+		due := map[string]any{CountStoppedAt: now.UTC().Format(time.RFC3339Nano)}
+		var g Group
+		if ok, err := get(w.Tx, bGroups, sess.Group, &g); err != nil {
+			return err
+		} else if ok && g.Config["keep"] == true {
+			ended := now
+			if sess.EndedAt != nil {
+				ended = *sess.EndedAt
+			}
+			due[CountUntil] = ended.Add(KeptGrace).UTC().Format(time.RFC3339Nano)
+		}
+		sess.Handle[CountDue] = due
 		return nil
 	})
 }

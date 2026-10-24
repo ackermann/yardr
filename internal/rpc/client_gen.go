@@ -299,6 +299,9 @@ func (c *Client) EndSession(ctx context.Context, sessionID, state, reason string
 func (c *Client) MarkStopped(ctx context.Context, sessionID string) error {
 	return c.call(ctx, "MarkStopped", nil, sessionID)
 }
+func (c *Client) MarkCountDue(ctx context.Context, sessionID string) error {
+	return c.call(ctx, "MarkCountDue", nil, sessionID)
+}
 func (c *Client) SetHandle(ctx context.Context, sessionID string, handle map[string]any) error {
 	return c.call(ctx, "SetHandle", nil, sessionID, handle)
 }

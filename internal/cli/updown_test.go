@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
@@ -68,6 +69,25 @@ func (p *paneRunner) Stop(_ context.Context, h map[string]any) error {
 	p.stopped = append(p.stopped, agent)
 	delete(p.status, agent)
 	return nil
+}
+
+// countRunner is paneRunner as a runner that reads what an agent used: down
+// only asks whether it does, never for a count. It asks by a type assertion
+// (dispatch.Countable), so a Usage that fell out of step with the interface
+// would build and leave no count due; the assertion below makes it fail the
+// build instead.
+type countRunner struct{ *paneRunner }
+
+var _ dispatch.UsageReader = countRunner{}
+
+func (countRunner) Usage(context.Context, map[string]any, time.Time, bool) (agents.Usage, bool, string, error) {
+	return agents.Usage{}, false, "", nil
+}
+
+type failedCountDueStore struct{ store.API }
+
+func (failedCountDueStore) MarkCountDue(context.Context, string) error {
+	return errors.New("count unavailable")
 }
 
 func (p *paneRunner) Nudge(_ context.Context, h map[string]any, text string) error {
@@ -249,6 +269,128 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 	out, err = run(t, a(false).rootCmd(), "down")
 	if err != nil || !strings.Contains(out, "agents          none was running\n") || len(panes.stopped) != 3 {
 		t.Fatalf("a second down: %v, stopped %v\n%s", err, panes.stopped, out)
+	}
+
+	t.Run("count due", downLeavesACountDueForTheSessionsItStops)
+	t.Run("failed count write stays retryable", func(t *testing.T) {
+		ctx := context.Background()
+		_, st, panes, ids, _, _ := downYard(t, map[string]string{"yardmaster": "idle", "busy": "idle"}, "busy")
+		sessions, err := st.ListSessions(ctx, store.SessionFilter{All: true, Bead: ids["busy"]})
+		if err != nil || len(sessions) != 1 {
+			t.Fatalf("sessions = %v, %v, want one", sessions, err)
+		}
+		sess := sessions[0]
+		g := &yardAgent{Kind: "bead", Name: sess.Bead, runner: "herdr", session: sess.ID, handle: sess.Handle}
+		stopAgent(ctx, failedCountDueStore{st}, map[string]dispatch.Runner{"herdr": countRunner{panes}}, g, false, "yardr")
+		if g.Stopped || !strings.Contains(g.Error, "count unavailable") {
+			t.Fatalf("agent after count write failed: %+v, want the stop to report the error", g)
+		}
+		unstopped, err := st.Unstopped(ctx)
+		if err != nil || len(unstopped) != 1 || unstopped[0].ID != sess.ID {
+			t.Fatalf("unstopped after count write failed = %v, %v, want session %s for the dispatcher to retry", unstopped, err, sess.ID)
+		}
+	})
+}
+
+// A bead's session that down stops is left with its count due, as one the
+// dispatcher stops is: count_due on the handle, up to a cutoff for a group
+// that keeps its agents. An exec session is stopped with none due, and a
+// person's claim is left as it was.
+func downLeavesACountDueForTheSessionsItStops(t *testing.T) {
+	t.Helper()
+	_, st, panes, ids, a, _ := downYard(t, map[string]string{"yardmaster": "idle", "busy": "idle", "kept": "idle"}, "busy")
+	stub(t, &yardRunners, func(string, store.API) map[string]dispatch.Runner {
+		return map[string]dispatch.Runner{"herdr": countRunner{panes}}
+	})
+	ctx := context.Background()
+	if err := st.PutGroup(ctx, store.Group{Name: "keepers", Runner: "herdr", Limit: 9, Config: map[string]any{"keep": true}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	running := func(title, group string, handle map[string]any) string {
+		t.Helper()
+		b, err := st.CreateBead(ctx, store.NewBead{Title: title, Depot: "repo"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sess, err := st.Claim(ctx, b.ID, group, "new", "yard")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.MarkRunning(ctx, sess.ID, handle); err != nil {
+			t.Fatal(err)
+		}
+		return b.ID
+	}
+	kept := running("kept", "keepers", map[string]any{"agent": "kept", "tab": "kept:t1", "worktree": "/w/kept"})
+	if err := st.PutGroup(ctx, store.Group{Name: "sh", Runner: "exec", Limit: 9, Config: map[string]any{"cmd": "true"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	execBead := running("exec", "sh", map[string]any{"pid": 4242})
+	if err := st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 9}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	mine, err := st.CreateBead(ctx, store.NewBead{Title: "mine", Depot: "repo"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Claim(ctx, mine.ID, "people", mine.Stage, "yard"); err != nil {
+		t.Fatal(err)
+	}
+
+	if out, err := run(t, a(false).rootCmd(), "down", "--yes", "--handoff-wait", "0"); err != nil {
+		t.Fatalf("down: %v\n%s", err, out)
+	}
+	slices.Sort(panes.stopped)
+	if !slices.Equal(panes.stopped, []string{"busy", "kept", "yardmaster"}) {
+		t.Fatalf("stopped %v, want the two agents and the yardmaster", panes.stopped)
+	}
+	session := func(bead string) store.Session {
+		t.Helper()
+		ss, err := st.ListSessions(ctx, store.SessionFilter{All: true, Bead: bead})
+		if err != nil || len(ss) != 1 {
+			t.Fatalf("sessions of %s = %v, %v, want one", bead, ss, err)
+		}
+		return ss[0]
+	}
+	busy := session(ids["busy"])
+	due, _ := busy.Handle[store.CountDue].(map[string]any)
+	if !busy.Stopped || len(due) != 1 {
+		t.Fatalf("busy session = %+v, due %v: want stopped, with stopped_at alone", busy, due)
+	}
+	if at, _ := due[store.CountStoppedAt].(string); at == "" {
+		t.Errorf("count_due of a plain session = %v, want stopped_at", due)
+	} else if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
+		t.Errorf("stopped_at = %q, want a time: %v", at, err)
+	}
+	ks := session(kept)
+	kdue, _ := ks.Handle[store.CountDue].(map[string]any)
+	untilAt, _ := kdue[store.CountUntil].(string)
+	until, err := time.Parse(time.RFC3339Nano, untilAt)
+	if !ks.Stopped || err != nil || ks.EndedAt == nil || !until.Equal(ks.EndedAt.Add(2*time.Minute)) {
+		t.Fatalf("kept session = %+v, due %v: want stopped, with until two minutes after it ended (%v)", ks, kdue, err)
+	}
+	if s := session(execBead); !s.Stopped || s.Handle[store.CountDue] != nil {
+		t.Errorf("exec session = %+v: want stopped, with no count due", s)
+	}
+	if s := session(mine.ID); s.Stopped || s.Handle[store.CountDue] != nil {
+		t.Errorf("manual session = %+v: want it as it was, with no count due", s)
+	}
+	if b, _ := st.GetBead(ctx, mine.ID); b.Group == nil || *b.Group != "people" {
+		t.Errorf("manual claim after down: group %v, want people", b.Group)
+	}
+	uncounted, err := st.Uncounted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dueIDs []string
+	for _, s := range uncounted {
+		dueIDs = append(dueIDs, s.Bead)
+	}
+	slices.Sort(dueIDs)
+	want := []string{ids["busy"], kept}
+	slices.Sort(want)
+	if !slices.Equal(dueIDs, want) {
+		t.Errorf("Uncounted beads = %v, want %v", dueIDs, want)
 	}
 }
 

@@ -227,6 +227,7 @@ var Access = map[string]Class{
 	"MarkRunning":         Daemon,
 	"EndSession":          Daemon,
 	"MarkStopped":         Daemon,
+	"MarkCountDue":        Daemon,
 	"SetHandle":           Daemon,
 	"RecordUsage":         Daemon,
 	"MarkCleaned":         Daemon,

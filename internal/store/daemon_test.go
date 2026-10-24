@@ -100,12 +100,15 @@ func TestDaemonWritesRefusedToAnotherCaller(t *testing.T) {
 		"MarkStopped": func() error {
 			return s.MarkStopped(other, "no-such-session")
 		},
+		"MarkCountDue": func() error {
+			return s.MarkCountDue(other, "no-such-session")
+		},
 	}
 	for _, method := range []string{"Claim", "MarkRunning", "SetHandle", "RecordUsage", "MarkCleaned", "CrewStartingFor",
 		"CrewStartedFor", "CrewSettledFor", "CrewStatusFor", "SetCrewHandleFor",
 		"CrewGoneFor", "CrewLeftFor", "CrewStartFailedFor",
 		"MarkRotationAskedFor", "MarkContextAskedFor", "SetContextFor", "MarkNotifiedFor", "RecordCrewUsage",
-		"EndSession", "MarkStopped"} {
+		"EndSession", "MarkStopped", "MarkCountDue"} {
 		err := calls[method]()
 		if err == nil || err.Error() != method+" is the daemon's alone" {
 			t.Errorf("%s from another caller = %v, want %q", method, err, method+" is the daemon's alone")

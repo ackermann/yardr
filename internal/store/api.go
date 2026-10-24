@@ -113,6 +113,7 @@ type API interface {
 	MarkRunning(ctx context.Context, sessionID string, handle map[string]any) error
 	EndSession(ctx context.Context, sessionID, state, reason string) error
 	MarkStopped(ctx context.Context, sessionID string) error
+	MarkCountDue(ctx context.Context, sessionID string) error
 	SetHandle(ctx context.Context, sessionID string, handle map[string]any) error
 	RecordUsage(ctx context.Context, sessionID string, usage map[string]any) error
 	MarkCleaned(ctx context.Context, sessionID string) error
