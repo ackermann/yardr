@@ -512,12 +512,15 @@ and `yardr bead show` prints either as one line. And `yardr route
 report` reads the events back: for each group and estimate label, how
 many beads it built, how often review sent them back, how often review
 and the security review repaired them instead (REVIEW FIXED, SEC FIXED),
-how many sessions failed, and the median build; and BY HARNESS, one row
-per harness kind with its sessions, hours, median and stages. A wrong
-estimate goes to a weak group and comes back from review, as a wrong
-label does today; someone changes the label and the bead is routed again,
-and the report shows the pattern. Nothing changes a route from those
-numbers: a person reads them and edits the routes or the rubric.
+how many sessions failed, how long a bead waited ready and unclaimed
+(WAIT), and the median build; and BY HARNESS, one row per harness kind
+with its sessions, hours, median and stages. `--by depot` splits each
+group row per depot, so two pools of one worker are compared within one
+depot. A wrong estimate goes to a weak group and comes back from review,
+as a wrong label does today; someone changes the label and the bead is
+routed again, and the report shows the pattern. Nothing changes a route
+from those numbers: a person reads them and edits the routes or the
+rubric.
 
 The fix columns count the commits the review notes name new: a note of
 the `review` or the `review-security` stage — by its session's agent, or
@@ -528,10 +531,17 @@ time. A group's cell shows a stage's fixes when the group claimed the
 bead in a stage the bead reached before that one, so builders show both
 and a reviewer row reads 0.0 for its own stage. Under the first table,
 one line per difficulty names the best builder by sent back + repaired
-per bead; a group qualifies by claiming a bead outside the review stages
-(review, review-security, and design's critique, which is review work
-under another name), so reviewer groups never win. Two edges are
-accepted: a re-review note after a merge rebase
+per bead; a group qualifies by claiming ten beads at least outside the
+stages where no builder work happens (review, review-security, design's
+critique, which is review work under another name, and shape, where
+shapers work), so reviewer and shaping groups never win, and a label
+with no winner says too few beads to compare. Under the best lines, one
+now line per estimate label names the yard default a bead with the label
+matches today and the depots whose own routes set it aside. `--by depot`
+splits the rows only; best lines still compare each group across depots.
+The now lines show current routing, so `--stage`, `--since` and
+`--originator` do not change them. Two edges are accepted: a re-review
+note after a merge rebase
 may count range-diff SHAs as fixes, and a note by whoever moved another's
 bead out of review counts when it names new SHAs.
 

@@ -101,7 +101,11 @@ func reportFixture(t *testing.T) store.API {
 }
 
 // reportRows runs route report and returns its data rows by group,
-// originator and label.
+// originator and label, with the depot between group and originator
+// under --by depot. The row holds the fixed fields, then the wait and
+// the median build joined as one ("10m 25m"), then the four token
+// columns; both spans read "under a minute" or "3h 5m" as well as "41m",
+// so the middle is compared whole.
 func reportRows(t *testing.T, st store.API, args ...string) (first string, rows map[string][]string) {
 	t.Helper()
 	a := &app{st: st, actor: "me"}
@@ -113,27 +117,35 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 	if len(lines) < 2 {
 		t.Fatalf("route report %v printed %q, want a first line and a header", args, out)
 	}
-	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "AT", "LIMIT", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "MEDIAN", "BUILD", "TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING"}) {
-		t.Fatalf("route report %v header %q, want the at-limit and token columns beside sent back", args, lines[1])
+	byDepot := strings.Contains(lines[1], "DEPOT")
+	want := []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "AT", "LIMIT", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "WAIT", "MEDIAN", "BUILD", "TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING"}
+	if byDepot {
+		want = []string{"GROUP", "DEPOT", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "AT", "LIMIT", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "WAIT", "MEDIAN", "BUILD", "TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING"}
+	}
+	if h := strings.Fields(lines[1]); !slices.Equal(h, want) {
+		t.Fatalf("route report %v header %q, want the wait beside the median build", args, lines[1])
+	}
+	n := 3
+	if byDepot {
+		n = 4
 	}
 	rows = map[string][]string{}
 	for _, l := range lines[2:] {
 		if l == "BY HARNESS" {
 			break
 		}
-		if strings.HasPrefix(l, "best ") {
+		if strings.HasPrefix(l, "best ") || strings.HasPrefix(l, "now ") {
 			continue
 		}
 		f := strings.Fields(l)
-		if len(f) < 14 {
-			t.Fatalf("route report %v row %q, want 14 fields", args, l)
+		if len(f) < n+6+1+4 {
+			t.Fatalf("route report %v row %q, want the fixed fields, a middle and four token columns", args, l)
 		}
-		// The median sits between the fixed fields and the four
-		// token columns: it reads "under a minute" or "3h 5m" as
-		// well as "41m".
-		row := append(slices.Clone(f[:9]), strings.Join(f[9:len(f)-4], " "))
+		// The six per-bead values sit between the key and the
+		// middle; the four token columns close the row.
+		row := append(slices.Clone(f[:n+6]), strings.Join(f[n+6:len(f)-4], " "))
 		row = append(row, f[len(f)-4:]...)
-		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = row
+		rows[strings.Join(f[:n], "\x00")] = row
 	}
 	return lines[0], rows
 }
@@ -153,6 +165,23 @@ func reportBest(t *testing.T, st store.API, args ...string) []string {
 		}
 	}
 	return best
+}
+
+// reportNow runs route report and returns its now lines, in order.
+func reportNow(t *testing.T, st store.API, args ...string) []string {
+	t.Helper()
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.routeReportCmd(), args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var now []string
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		if strings.HasPrefix(l, "now ") {
+			now = append(now, l)
+		}
+	}
+	return now
 }
 
 // reportKinds runs route report --json and returns its BY HARNESS rows by kind.
@@ -219,8 +248,8 @@ func TestRouteReport(t *testing.T) {
 			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
 				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
-		if got[9] == "-" {
-			t.Errorf("row %q median %q, want a build duration", k, got[9])
+		if got[9] != "under a minute under a minute" {
+			t.Errorf("row %q middle %q, want the wait and the build, each under a minute", k, got[9])
 		}
 	}
 	if len(rows) != 5 {
@@ -275,8 +304,8 @@ func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
 	if row[3] != "1" || row[8] != "1" {
 		t.Errorf("row = beads %s failed %s, want 1 and 1", row[3], row[8])
 	}
-	if row[9] != "-" {
-		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[9])
+	if row[9] != "under a minute -" {
+		t.Errorf("middle = %q, want a wait under a minute and no build: the failed claim is not a build", row[9])
 	}
 }
 
@@ -366,13 +395,29 @@ func TestRouteReportFlags(t *testing.T) {
 		if f[6] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[7] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
 			t.Errorf("--json row %+v fixes differ from text row %v", r, f)
 		}
-		median := "-"
+		wait, median := "-", "-"
+		if r.MedianWait != nil {
+			wait = *r.MedianWait
+		}
 		if r.MedianBuild != nil {
 			median = *r.MedianBuild
 		}
-		if f[9] != median {
-			t.Errorf("--json row %+v median differs from text row %v", r, f)
+		if f[9] != wait+" "+median {
+			t.Errorf("--json row %+v wait and median differ from text row %v", r, f)
 		}
+		if r.Depot != "" {
+			t.Errorf("--json row %+v depot = %q, want empty without --by depot", r, r.Depot)
+		}
+		if r.MedianWait == nil {
+			t.Errorf("--json row %+v median_wait is null, want the built beads' wait", r)
+		}
+	}
+	if !strings.Contains(out, `"median_wait":`) || !strings.Contains(out, `"depot":`) || !strings.Contains(out, `"now":`) {
+		t.Errorf("--json lacks the wait, depot or now fields: %s", out)
+	}
+	// --by takes depot alone.
+	if _, err := run(t, a.routeReportCmd(), "--by", "group"); err == nil || !strings.Contains(err.Error(), "--by") {
+		t.Errorf("route report --by group err = %v, want a --by refusal", err)
 	}
 }
 
@@ -550,8 +595,17 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	if r.MedianBuild == nil || *r.MedianBuild != "25m" {
 		t.Errorf("median build = %v, want 25m", r.MedianBuild)
 	}
+	// Only the sent-back bead's second visit has an entry in the log,
+	// an hour before its reclaim; the claims without one leave no wait
+	// sample.
+	if r.MedianWait == nil || *r.MedianWait != "1h" {
+		t.Errorf("median wait = %v, want 1h", r.MedianWait)
+	}
 	if u := rep.Rows[0]; u.Group != "g" || u.Label != "-" || u.Beads != 1 || u.Failed != 0 {
 		t.Errorf("unlabelled row = %+v, want the one bead with no estimate label", u)
+	}
+	if u := rep.Rows[0]; u.MedianWait != nil {
+		t.Errorf("unlabelled wait = %v, want no sample: the claim has no entry in the log", u.MedianWait)
 	}
 
 	// A late failure report cannot undo a completed build, and a failure
@@ -622,6 +676,9 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	if r.Beads != 1 || r.SentBack != 1 {
 		t.Errorf("row after a send-back = %+v, want one bead sent back once", r)
 	}
+	if r.MedianWait == nil || *r.MedianWait != "1m" {
+		t.Errorf("wait after a send-back = %v, want 1m: the return's entry to its reclaim", r.MedianWait)
+	}
 
 	// No exit: no median, but the bead still counts.
 	rep = summarizeRouteEvents([]store.Event{
@@ -630,6 +687,9 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	r = rep.Rows[0]
 	if r.Beads != 1 || r.SentBack != 0 || r.MedianBuild != nil {
 		t.Errorf("row without an exit = %+v, want one bead and no median", r)
+	}
+	if r.MedianWait != nil {
+		t.Errorf("wait without an entry = %v, want no sample", r.MedianWait)
 	}
 
 	// --since keeps the recent claim and drops the old one; From still
@@ -673,12 +733,22 @@ func TestSummarizeRouteEvents(t *testing.T) {
 		ev(2, t0.Add(time.Minute), "yard-a", "advanced", map[string]any{"from": "new", "to": "review", "group": "g1"}),
 		claimed(3, t0.Add(2*time.Minute), "yard-a", "g2", "review", "s2"),
 		ev(4, t0.Add(3*time.Minute), "yard-a", "advanced", map[string]any{"from": "review", "to": "new", "group": "g2"}),
+		ev(5, t0.Add(4*time.Minute), "yard-a", "closed", map[string]any{"reason": "done"}),
 	}, beads, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"new": true, "review": true}}, nil)
 	if len(rep.Rows) != 2 || rep.Rows[0].SentBack != 1 || rep.Rows[1].SentBack != 0 {
 		t.Errorf("stage-specific send-back rows = %+v, want g1=1 and g2=0", rep.Rows)
 	}
 	if rep.Rows[1].MedianBuild == nil || *rep.Rows[1].MedianBuild != "1m" {
 		t.Errorf("review group build = %v, want 1m", rep.Rows[1].MedianBuild)
+	}
+	// The wait likewise belongs to the stage the group claimed: the
+	// review group's minute from the entry to its claim, and the new
+	// group's minute from the return to the close.
+	if rep.Rows[1].MedianWait == nil || *rep.Rows[1].MedianWait != "1m" {
+		t.Errorf("review group wait = %v, want 1m", rep.Rows[1].MedianWait)
+	}
+	if rep.Rows[0].MedianWait == nil || *rep.Rows[0].MedianWait != "1m" {
+		t.Errorf("new group wait = %v, want 1m", rep.Rows[0].MedianWait)
 	}
 	// AT LIMIT counts the closed beads a round limit sent on from a
 	// stage the row's group claimed the bead in. One bead counts once
@@ -717,6 +787,156 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	}
 	if r := rep.Rows[0]; r.Beads != 2 || r.AtLimit != 1 {
 		t.Errorf("at-limit row with --since = %+v, want 2 beads with the recent redirect alone counted", r)
+	}
+
+	// WAIT is the time a bead was ready and unclaimed. Held and
+	// blocked time is none of it; a failure adds its wait only when a
+	// reclaim follows in the same visit.
+	wbeads := map[string]store.Bead{}
+	for _, id := range []string{"yard-w1", "yard-w2", "yard-w3", "yard-w4", "yard-w5", "yard-w6", "yard-w7", "yard-w8"} {
+		wbeads[id] = store.Bead{ID: id, Status: "closed", Labels: []string{"difficulty:1"}}
+	}
+	wait := func(evs []store.Event, o routeReportOpts) routeReportRow {
+		t.Helper()
+		rep := summarizeRouteEvents(evs, wbeads, o, nil)
+		if len(rep.Rows) != 1 {
+			t.Fatalf("wait rows = %+v, want the one bead's row", rep.Rows)
+		}
+		return rep.Rows[0]
+	}
+	// Blocked 30 minutes of a 40-minute wait: WAIT is the 10 ready
+	// ones. The store logs the gate's reblocked beside the advance
+	// that entered the holding stage, and the unblocked when the last
+	// blocker closes.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w1", "backlog", "new"),
+		ev(2, t0, "yard-w1", "reblocked", map[string]any{"blockers": []string{"yard-z"}}),
+		ev(3, t0.Add(30*time.Minute), "yard-w1", "unblocked", map[string]any{"blockers": []string{"yard-z"}}),
+		claimed(4, t0.Add(40*time.Minute), "yard-w1", "g", "new", "s1"),
+		advanced(5, t0.Add(50*time.Minute), "yard-w1", "new", "review"),
+		ev(6, t0.Add(time.Hour), "yard-w1", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages})
+	if r.MedianWait == nil || *r.MedianWait != "10m" {
+		t.Errorf("wait past a block = %v, want 10m", r.MedianWait)
+	}
+	if r.MedianBuild == nil || *r.MedianBuild != "10m" {
+		t.Errorf("build past a block = %v, want 10m", r.MedianBuild)
+	}
+	// Held for an hour between two ready spells of 5 minutes: WAIT is
+	// 10, the held hour none of it.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w2", "backlog", "new"),
+		ev(2, t0.Add(5*time.Minute), "yard-w2", "held", nil),
+		ev(3, t0.Add(65*time.Minute), "yard-w2", "unheld", nil),
+		claimed(4, t0.Add(70*time.Minute), "yard-w2", "g", "new", "s1"),
+		advanced(5, t0.Add(80*time.Minute), "yard-w2", "new", "review"),
+		ev(6, t0.Add(90*time.Minute), "yard-w2", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages})
+	if r.MedianWait == nil || *r.MedianWait != "10m" {
+		t.Errorf("wait past a hold = %v, want 10m", r.MedianWait)
+	}
+	// A failed first session, re-claimed 7 minutes later: WAIT adds
+	// those 7 to the 10 before the first claim, and only the reclaim
+	// builds.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w3", "backlog", "new"),
+		claimed(2, t0.Add(10*time.Minute), "yard-w3", "g", "new", "s1"),
+		ev(3, t0.Add(12*time.Minute), "yard-w3", "session_failed", map[string]any{"session": "s1"}),
+		claimed(4, t0.Add(19*time.Minute), "yard-w3", "g", "new", "s2"),
+		advanced(5, t0.Add(30*time.Minute), "yard-w3", "new", "review"),
+		ev(6, t0.Add(time.Hour), "yard-w3", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages})
+	if r.MedianWait == nil || *r.MedianWait != "17m" {
+		t.Errorf("wait past a failure = %v, want 17m", r.MedianWait)
+	}
+	if r.Failed != 1 {
+		t.Errorf("failed past a failure = %d, want 1", r.Failed)
+	}
+	if r.MedianBuild == nil || *r.MedianBuild != "11m" {
+		t.Errorf("build past a failure = %v, want 11m", r.MedianBuild)
+	}
+	// A failure with no reclaim is no wait: the session may have kept
+	// working to the hand move, so only the 5 minutes before the first
+	// claim count, and nothing builds.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w4", "backlog", "new"),
+		claimed(2, t0.Add(5*time.Minute), "yard-w4", "g", "new", "s1"),
+		ev(3, t0.Add(6*time.Minute), "yard-w4", "session_stalled", map[string]any{"session": "s1"}),
+		advanced(4, t0.Add(20*time.Minute), "yard-w4", "new", "review"),
+		ev(5, t0.Add(30*time.Minute), "yard-w4", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages})
+	if r.MedianWait == nil || *r.MedianWait != "5m" {
+		t.Errorf("wait past an unreclaimed failure = %v, want 5m", r.MedianWait)
+	}
+	if r.Failed != 1 || r.MedianBuild != nil {
+		t.Errorf("unreclaimed failure row = %+v, want 1 failed and no build", r)
+	}
+	// A release ends the session and the bead is ready again: released
+	// at 15, re-claimed at 22, the 7 count without a failure.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w5", "backlog", "new"),
+		claimed(2, t0.Add(10*time.Minute), "yard-w5", "g", "new", "s1"),
+		ev(3, t0.Add(15*time.Minute), "yard-w5", "released", map[string]any{"reason": "route again"}),
+		claimed(4, t0.Add(22*time.Minute), "yard-w5", "g", "new", "s2"),
+		advanced(5, t0.Add(30*time.Minute), "yard-w5", "new", "review"),
+		ev(6, t0.Add(time.Hour), "yard-w5", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages})
+	if r.MedianWait == nil || *r.MedianWait != "17m" {
+		t.Errorf("wait past a release = %v, want 17m", r.MedianWait)
+	}
+	// --since clips the wait to the window: an hour's wait starting
+	// half an hour before it reads 30m.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w6", "backlog", "new"),
+		claimed(2, t0.Add(time.Hour), "yard-w6", "g", "new", "s1"),
+		advanced(3, t0.Add(70*time.Minute), "yard-w6", "new", "review"),
+		ev(4, t0.Add(80*time.Minute), "yard-w6", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(30 * time.Minute)})
+	if r.MedianWait == nil || *r.MedianWait != "30m" {
+		t.Errorf("wait with --since = %v, want 30m", r.MedianWait)
+	}
+	// Blocked holds across a move: the bead blocked in new is still
+	// blocked in review, where no reblocked is logged, until the gate
+	// opens there. Only the review wait belongs to the cell, the one
+	// stage the group claimed.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w7", "backlog", "new"),
+		ev(2, t0.Add(time.Minute), "yard-w7", "reblocked", map[string]any{"blockers": []string{"yard-z"}}),
+		advanced(3, t0.Add(10*time.Minute), "yard-w7", "new", "review"),
+		ev(4, t0.Add(20*time.Minute), "yard-w7", "unblocked", map[string]any{"blockers": []string{"yard-z"}}),
+		claimed(5, t0.Add(25*time.Minute), "yard-w7", "g", "review", "s1"),
+		advanced(6, t0.Add(35*time.Minute), "yard-w7", "review", "approved"),
+		ev(7, t0.Add(40*time.Minute), "yard-w7", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"new": true, "review": true}})
+	if r.MedianWait == nil || *r.MedianWait != "5m" {
+		t.Errorf("wait past a carried block = %v, want 5m", r.MedianWait)
+	}
+	// An unblocked with no reblocked in the log is no block: the bead
+	// reads as ready from its entry.
+	r = wait([]store.Event{
+		advanced(1, t0, "yard-w8", "backlog", "new"),
+		ev(2, t0.Add(5*time.Minute), "yard-w8", "unblocked", map[string]any{"blockers": []string{"yard-z"}}),
+		claimed(3, t0.Add(10*time.Minute), "yard-w8", "g", "new", "s1"),
+		advanced(4, t0.Add(20*time.Minute), "yard-w8", "new", "review"),
+		ev(5, t0.Add(30*time.Minute), "yard-w8", "closed", map[string]any{"reason": "done"}),
+	}, routeReportOpts{prefixes: prefixes, stages: stages})
+	if r.MedianWait == nil || *r.MedianWait != "10m" {
+		t.Errorf("wait past a lone unblocked = %v, want 10m", r.MedianWait)
+	}
+	// Reopening starts a new visit in the bead's existing stage. The
+	// closed hour is not part of the review group's wait.
+	wbeads["yard-w9"] = store.Bead{ID: "yard-w9", Status: "closed", Labels: []string{"difficulty:1"}}
+	r = wait([]store.Event{
+		ev(1, t0, "yard-w9", "created", map[string]any{"stage": "review"}),
+		claimed(2, t0, "yard-w9", "g", "review", "s1"),
+		ev(3, t0.Add(10*time.Minute), "yard-w9", "closed", nil),
+		ev(4, t0.Add(time.Hour), "yard-w9", "reopened", nil),
+		claimed(5, t0.Add(time.Hour+7*time.Minute), "yard-w9", "g", "review", "s2"),
+		advanced(6, t0.Add(time.Hour+8*time.Minute), "yard-w9", "review", "approved"),
+		ev(7, t0.Add(time.Hour+9*time.Minute), "yard-w9", "closed", nil),
+	}, routeReportOpts{prefixes: prefixes, stages: map[string]bool{"review": true}})
+	if r.MedianWait == nil || *r.MedianWait != "7m" {
+		t.Errorf("wait after reopening = %v, want 7m", r.MedianWait)
 	}
 
 	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil); rep.From != nil || len(rep.Rows) != 0 {
@@ -1384,8 +1604,9 @@ func TestFixSHAs(t *testing.T) {
 }
 
 // Under the first table, one line per difficulty names the builder with
-// the lowest sent back + repaired per bead, across originators; reviewer
-// groups never win, and a difficulty with no qualifying row stays silent.
+// the lowest sent back + repaired per bead, across originators and
+// depots; reviewer and shaping groups never win, a group needs ten beads
+// to win, and a difficulty with no winner says too few beads to compare.
 func TestSummarizeRouteEventsBest(t *testing.T) {
 	t.Parallel()
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
@@ -1402,53 +1623,99 @@ func TestSummarizeRouteEventsBest(t *testing.T) {
 		return store.Note{Author: author, Text: text, At: at, Seq: seq}
 	}
 	agent := runner.AgentName
-	beads := map[string]store.Bead{
-		"yard-m1": {ID: "yard-m1", Status: "closed", Labels: []string{"difficulty:3"}},
-		"yard-h1": {ID: "yard-h1", Status: "closed", Originator: "hal", Labels: []string{"difficulty:3"}},
-		"yard-h2": {ID: "yard-h2", Status: "closed", Originator: "hal", Labels: []string{"difficulty:3"}},
-		"yard-h3": {ID: "yard-h3", Status: "closed", Originator: "hal", Labels: []string{"difficulty:3"}},
-		"yard-g1": {ID: "yard-g1", Status: "closed", Labels: []string{"difficulty:3"}},
-		"yard-r1": {ID: "yard-r1", Status: "closed", Labels: []string{"difficulty:3"}},
-		"yard-c1": {ID: "yard-c1", Status: "closed", Labels: []string{"difficulty:3"}},
-		"yard-s1": {ID: "yard-s1", Status: "closed", Labels: []string{"difficulty:2"}},
+	beads := map[string]store.Bead{}
+	batch := func(prefix, org string, n int, label string) {
+		for i := 0; i < n; i++ {
+			id := prefix + "-" + strconv.Itoa(i)
+			beads[id] = store.Bead{ID: id, Status: "closed", Originator: org, Labels: []string{label}}
+		}
 	}
-	// g1: one bead sent back twice, three clean ones for hal: 2 over 4.
-	// g2: one bead fixed twice: 2 over 1. The reviewers' rows read 0.0
-	// but never win: they claimed only in review and in design's
-	// critique, which is review work under another name.
-	rep := summarizeRouteEvents([]store.Event{
-		claimed(1, t0, "yard-m1", "g1", "new", "s1"),
-		advanced(2, t0.Add(10*time.Minute), "yard-m1", "new", "review"),
-		advanced(3, t0.Add(time.Hour), "yard-m1", "review", "new"),
-		claimed(4, t0.Add(time.Hour), "yard-m1", "g1", "new", "s2"),
-		advanced(5, t0.Add(2*time.Hour), "yard-m1", "new", "review"),
-		advanced(6, t0.Add(3*time.Hour), "yard-m1", "review", "new"),
-		claimed(7, t0, "yard-h1", "g1", "new", "s3"),
-		advanced(8, t0.Add(10*time.Minute), "yard-h1", "new", "review"),
-		claimed(9, t0, "yard-h2", "g1", "new", "s4"),
-		advanced(10, t0.Add(10*time.Minute), "yard-h2", "new", "review"),
-		claimed(11, t0, "yard-h3", "g1", "new", "s5"),
-		advanced(12, t0.Add(10*time.Minute), "yard-h3", "new", "review"),
-		claimed(13, t0, "yard-g1", "g2", "new", "s6"),
-		advanced(14, t0.Add(10*time.Minute), "yard-g1", "new", "review"),
-		claimed(15, t0, "yard-r1", "reviewers", "review", "s7"),
-		claimed(16, t0, "yard-s1", "reviewers", "review", "s8"),
-		claimed(17, t0, "yard-c1", "reviewers", "critique", "s9"),
-	}, beads, routeReportOpts{
+	// g1's twelve span two originators, so the win at 12 proves the
+	// cells sum across them; g9's nine would win at 0.0 without the
+	// floor, and the shapers' twelve clean beads would win without the
+	// shaping exclusion.
+	batch("yard-g1-me", "", 6, "difficulty:3")
+	batch("yard-g1-hal", "hal", 6, "difficulty:3")
+	batch("yard-g2", "", 10, "difficulty:3")
+	batch("yard-g9", "", 9, "difficulty:3")
+	batch("yard-sh", "", 12, "difficulty:3")
+	beads["yard-r1"] = store.Bead{ID: "yard-r1", Status: "closed", Labels: []string{"difficulty:3"}}
+	beads["yard-c1"] = store.Bead{ID: "yard-c1", Status: "closed", Labels: []string{"difficulty:3"}}
+	beads["yard-s1"] = store.Bead{ID: "yard-s1", Status: "closed", Labels: []string{"difficulty:2"}}
+	var evs []store.Event
+	seq := uint64(0)
+	clean := func(bead, group, stage string) {
+		seq++
+		evs = append(evs, claimed(seq, t0, bead, group, stage, "s"+strconv.FormatUint(seq, 10)))
+		seq++
+		out := "review"
+		if stage != "new" {
+			out = "approved"
+		}
+		evs = append(evs, advanced(seq, t0.Add(10*time.Minute), bead, stage, out))
+	}
+	sentBack := func(bead, group string, n int) {
+		for i := 0; i < n; i++ {
+			seq++
+			evs = append(evs, claimed(seq, t0, bead, group, "new", "s"+strconv.FormatUint(seq, 10)))
+			seq++
+			evs = append(evs, advanced(seq, t0.Add(10*time.Minute), bead, "new", "review"))
+			seq++
+			evs = append(evs, advanced(seq, t0.Add(time.Hour), bead, "review", "new"))
+		}
+		seq++
+		evs = append(evs, claimed(seq, t0, bead, group, "new", "s"+strconv.FormatUint(seq, 10)))
+		seq++
+		evs = append(evs, advanced(seq, t0.Add(10*time.Minute), bead, "new", "review"))
+	}
+	// g1: one bead sent back twice, eleven clean: 2 over 12. g2: three
+	// beads sent back once each and one fixed twice: 5 over 10.
+	sentBack("yard-g1-me-0", "g1", 2)
+	for i := 1; i < 6; i++ {
+		clean("yard-g1-me-"+strconv.Itoa(i), "g1", "new")
+	}
+	for i := 0; i < 6; i++ {
+		clean("yard-g1-hal-"+strconv.Itoa(i), "g1", "new")
+	}
+	for i := 0; i < 3; i++ {
+		sentBack("yard-g2-"+strconv.Itoa(i), "g2", 1)
+	}
+	for i := 3; i < 10; i++ {
+		clean("yard-g2-"+strconv.Itoa(i), "g2", "new")
+	}
+	for i := 0; i < 9; i++ {
+		clean("yard-g9-"+strconv.Itoa(i), "g9", "new")
+	}
+	for i := 0; i < 12; i++ {
+		clean("yard-sh-"+strconv.Itoa(i), "shapers", "shape")
+	}
+	// The reviewers' rows read 0.0 but never win: they claimed only in
+	// review and in design's critique, which is review work under
+	// another name.
+	seq++
+	evs = append(evs, claimed(seq, t0, "yard-r1", "reviewers", "review", "s"+strconv.FormatUint(seq, 10)))
+	seq++
+	evs = append(evs, claimed(seq, t0, "yard-c1", "reviewers", "critique", "s"+strconv.FormatUint(seq, 10)))
+	seq++
+	evs = append(evs, claimed(seq, t0, "yard-s1", "reviewers", "review", "s"+strconv.FormatUint(seq, 10)))
+	rep := summarizeRouteEvents(evs, beads, routeReportOpts{
 		prefixes: []string{"difficulty:"},
-		stages:   map[string]bool{"new": true, "review": true, "critique": true},
+		stages:   map[string]bool{"new": true, "review": true, "critique": true, "shape": true},
 		operator: "me",
 	}, map[string][]store.Note{
-		"yard-g1": {
-			note(1, t0, agent("yard-g1", "new"), "built it"),
-			note(2, t0.Add(10*time.Minute), agent("yard-g1", "review"), "review fix beef111 and cafe222"),
+		"yard-g2-9": {
+			note(1, t0, agent("yard-g2-9", "new"), "built it"),
+			note(2, t0.Add(10*time.Minute), agent("yard-g2-9", "review"), "review fix beef111 and cafe222"),
 		},
 	})
-	if len(rep.best) != 1 {
-		t.Fatalf("best = %+v, want the one difficulty:3 line", rep.best)
+	if len(rep.best) != 2 {
+		t.Fatalf("best = %+v, want the difficulty:2 and difficulty:3 lines", rep.best)
 	}
-	if b := rep.best[0]; b.label != "difficulty:3" || b.group != "g1" || b.perBead != 0.5 || b.beads != 4 {
-		t.Errorf("best = %+v, want g1 at 0.5 over 4 beads", b)
+	if b := rep.best[0]; b.label != "difficulty:2" || !b.tooFew {
+		t.Errorf("best difficulty:2 = %+v, want too few beads to compare", b)
+	}
+	if b := rep.best[1]; b.label != "difficulty:3" || b.tooFew || b.group != "g1" || b.perBead != 0.2 || b.beads != 12 {
+		t.Errorf("best difficulty:3 = %+v, want g1 at 0.2 over 12 beads", b)
 	}
 	// The best line is text only: --json carries no best.
 	out, err := json.Marshal(rep)
@@ -1579,18 +1846,19 @@ func TestRouteReportReviewFixed(t *testing.T) {
 		t.Errorf("--json has %d rows, text has %d", len(rep.Rows), len(rows))
 	}
 
-	// The best line names the builder, not the reviewers' lower but
-	// disqualified row.
+	// Two beads clear no best line: the difficulty says too few beads
+	// to compare instead of naming the builder.
 	best := reportBest(t, st)
-	wantBest := []string{"best difficulty:3: builders at 1.0 sent back + repaired per bead (2 beads)"}
+	wantBest := []string{"best difficulty:3: too few beads to compare"}
 	if !slices.Equal(best, wantBest) {
 		t.Errorf("best = %q, want %q", best, wantBest)
 	}
 
-	// Where only reviewers worked, no best line prints.
+	// Where only reviewers worked, the same: no group is over the
+	// floor, so the line says so instead of staying silent.
 	best = reportBest(t, st, "--stage", "review")
-	if len(best) != 0 {
-		t.Errorf("best for --stage review = %q, want none", best)
+	if !slices.Equal(best, wantBest) {
+		t.Errorf("best for --stage review = %q, want %q", best, wantBest)
 	}
 	if _, rows := reportRows(t, st, "--stage", "review"); len(rows) == 0 {
 		t.Errorf("no rows for --stage review, want the reviewers' rows without a best line")
@@ -1617,6 +1885,258 @@ func TestRouteReportReviewFixed(t *testing.T) {
 			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
 				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
+	}
+}
+
+// --by depot splits one group's row per depot the group's beads are in;
+// the best lines still judge the group across depots, and --json carries
+// the split.
+func TestRouteReportByDepot(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "me", "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "api"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "me"))
+	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	must(err)
+	for _, depot := range []string{"web", "api"} {
+		for i := 1; i <= 5; i++ {
+			id := depot + "-b" + strconv.Itoa(i)
+			_, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: id, Depot: depot, Labels: []string{"difficulty:1"}}, "me")
+			must(err)
+			_, err = st.Claim(ctx, id, "builders", "new", "me")
+			must(err)
+			_, err = st.Advance(ctx, id, "review", store.Expect{}, "me")
+			must(err)
+			_, err = st.CloseBead(ctx, id, "done", store.Expect{}, "me")
+			must(err)
+		}
+	}
+
+	_, rows := reportRows(t, st)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %v, want the one builders row", rows)
+	}
+	row := rows["builders\x00me\x00difficulty:1"]
+	if row == nil {
+		t.Fatalf("rows = %v, want the builders row", rows)
+	}
+	if row[3] != "10" || row[9] != "under a minute under a minute" {
+		t.Errorf("row = beads %s middle %q, want 10 and the wait and build under a minute", row[3], row[9])
+	}
+	// Ten beads across two depots win one best line: best judges the
+	// group, not the group in a depot.
+	wantBest := []string{"best difficulty:1: builders at 0.0 sent back + repaired per bead (10 beads)"}
+	if best := reportBest(t, st); !slices.Equal(best, wantBest) {
+		t.Errorf("best = %q, want %q", best, wantBest)
+	}
+
+	_, split := reportRows(t, st, "--by", "depot")
+	if len(split) != 2 {
+		t.Fatalf("rows with --by depot = %v, want one per depot", split)
+	}
+	for _, depot := range []string{"web", "api"} {
+		row := split["builders\x00"+depot+"\x00me\x00difficulty:1"]
+		if row == nil {
+			t.Errorf("no row for %s: %v", depot, split)
+			continue
+		}
+		if row[4] != "5" || row[10] != "under a minute under a minute" {
+			t.Errorf("%s row = beads %s middle %q, want 5 and the wait and build under a minute", depot, row[4], row[10])
+		}
+	}
+	if best := reportBest(t, st, "--by", "depot"); !slices.Equal(best, wantBest) {
+		t.Errorf("best with --by depot = %q, want %q: the split moves no best line", best, wantBest)
+	}
+
+	// --json carries the depot: empty aggregated, named split.
+	a := &app{st: st, actor: "me", json: true}
+	out, err := run(t, a.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json = %q: %v", out, err)
+	}
+	if len(rep.Rows) != 1 || rep.Rows[0].Depot != "" || rep.Rows[0].Beads != 10 {
+		t.Errorf("--json rows = %+v, want the one row with no depot", rep.Rows)
+	}
+	out, err = run(t, a.routeReportCmd(), "--by", "depot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json --by depot = %q: %v", out, err)
+	}
+	if len(rep.Rows) != 2 || rep.Rows[0].Depot != "api" || rep.Rows[1].Depot != "web" {
+		t.Errorf("--json rows = %+v, want api then web", rep.Rows)
+	}
+	for _, r := range rep.Rows {
+		if r.Beads != 5 || r.MedianWait == nil || r.MedianBuild == nil {
+			t.Errorf("--json row %+v, want 5 beads with a wait and a build", r)
+		}
+	}
+}
+
+// Under the best lines, one now line per estimate label in the report
+// names the yard default a bead with the label matches today and the
+// depots whose own routes set it aside; --json carries the same.
+func TestRouteReportNow(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "me", "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "api"}, "me"))
+	for _, g := range []string{"heavy", "light", "plain"} {
+		must(st.PutGroup(ctx, store.Group{Name: g, Runner: "herdr", Limit: 4}, "me"))
+	}
+	d1, web, api := "difficulty:1", "web", "api"
+	defLabelled, err := st.AddRoute(ctx, store.Route{Stage: "new", Label: &d1, Group: "heavy"}, "me")
+	must(err)
+	defPlain, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "plain"}, "me")
+	must(err)
+	_, err = st.AddRoute(ctx, store.Route{Stage: "new", Depot: &web, Label: &d1, Group: "light"}, "me")
+	must(err)
+	_, err = st.AddRoute(ctx, store.Route{Stage: "new", Depot: &api, Label: &d1, Group: "light"}, "me")
+	must(err)
+	build := func(id, depot, label string) {
+		t.Helper()
+		_, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: id, Depot: depot, Labels: []string{label}}, "me")
+		must(err)
+		_, err = st.Claim(ctx, id, "heavy", "new", "me")
+		must(err)
+		_, err = st.Advance(ctx, id, "review", store.Expect{}, "me")
+		must(err)
+		_, err = st.CloseBead(ctx, id, "done", store.Expect{}, "me")
+		must(err)
+	}
+	build("web-n1", "web", "difficulty:1")
+	build("web-n2", "web", "difficulty:2")
+	build("api-n3", "api", "size:large")
+
+	want := []string{
+		"now difficulty:1: default " + defLabelled.ID + " -> heavy (own routes in api, web)",
+		"now difficulty:2: default " + defPlain.ID + " -> plain",
+		"now size:large: default " + defPlain.ID + " -> plain",
+	}
+	if now := reportNow(t, st); !slices.Equal(now, want) {
+		t.Errorf("now = %q, want %q", now, want)
+	}
+	// An explicit stage moves no now line: they read current routing,
+	// not the window.
+	if now := reportNow(t, st, "--stage", "new"); !slices.Equal(now, want) {
+		t.Errorf("now with --stage new = %q, want %q", now, want)
+	}
+	if now := reportNow(t, st, "--stage", "review", "--since", "3650d", "--originator", "nobody"); !slices.Equal(now, want) {
+		t.Errorf("now with report filters = %q, want %q: current routing ignores stage, since and originator", now, want)
+	}
+
+	a := &app{st: st, actor: "me", json: true}
+	out, err := run(t, a.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json = %q: %v", out, err)
+	}
+	if len(rep.Now) != 3 {
+		t.Fatalf("--json now = %+v, want one line per label", rep.Now)
+	}
+	n := rep.Now[0]
+	if n.Label != "difficulty:1" || n.Route == nil || n.Route.ID != defLabelled.ID ||
+		n.Route.Groups != "heavy" || !slices.Equal(n.SetAside, []string{"api", "web"}) {
+		t.Errorf("--json now[0] = %+v, want the labelled default set aside in api and web", n)
+	}
+	n = rep.Now[1]
+	if n.Label != "difficulty:2" || n.Route == nil || n.Route.ID != defPlain.ID || len(n.SetAside) != 0 {
+		t.Errorf("--json now[1] = %+v, want the plain default with no set-aside", n)
+	}
+
+	// Where no default takes the label, the line says so.
+	bare := storetest.New(t)
+	must(func() error {
+		_, err := bare.AddUser(ctx, "me", "me")
+		return err
+	}())
+	must(bare.SetSetting(ctx, store.OperatorSetting, "me", "me"))
+	must(bare.PutDepot(ctx, store.Depot{Name: "web"}, "me"))
+	must(bare.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr", Limit: 4}, "me"))
+	_, err = bare.AddRoute(ctx, store.Route{Stage: "review", Group: "reviewers"}, "me")
+	must(err)
+	_, err = bare.CreateBead(ctx, store.NewBead{ID: "web-n1", Title: "reviewed", Depot: "web", Stage: "review", Labels: []string{"difficulty:1"}}, "me")
+	must(err)
+	_, err = bare.Claim(ctx, "web-n1", "reviewers", "review", "me")
+	must(err)
+	_, err = bare.Advance(ctx, "web-n1", "approved", store.Expect{}, "me")
+	must(err)
+	_, err = bare.CloseBead(ctx, "web-n1", "done", store.Expect{}, "me")
+	must(err)
+	if now := reportNow(t, bare); !slices.Equal(now, []string{"now difficulty:1: no default route"}) {
+		t.Errorf("now with no default = %q, want the no-default line", now)
+	}
+	aj := &app{st: bare, actor: "me", json: true}
+	out, err = run(t, aj.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json = %q: %v", out, err)
+	}
+	if len(rep.Now) != 1 || rep.Now[0].Label != "difficulty:1" || rep.Now[0].Route != nil {
+		t.Errorf("--json now = %+v, want the label with a null route", rep.Now)
+	}
+}
+
+// routeNowLines matches each label's probe against the defaults alone
+// and inverts the set-asides per depot, sorted.
+func TestRouteNowLines(t *testing.T) {
+	t.Parallel()
+	d1, web, api := "difficulty:1", "web", "api"
+	routes := []store.Route{
+		{ID: "d0", Stage: "new", Group: "plain"},
+		{ID: "d1", Stage: "new", Label: &d1, Group: "heavy"},
+		{ID: "o1", Stage: "new", Depot: &web, Label: &d1, Group: "light"},
+		{ID: "o2", Stage: "new", Depot: &api, Label: &d1, Group: "light"},
+	}
+	now := routeNowLines(routes, []string{"difficulty:1", "difficulty:2"}, "me")
+	if len(now) != 2 {
+		t.Fatalf("now = %+v, want two lines", now)
+	}
+	if now[0].Label != "difficulty:1" || now[0].Route == nil || now[0].Route.ID != "d1" ||
+		now[0].Route.Groups != "heavy" || !slices.Equal(now[0].SetAside, []string{"api", "web"}) {
+		t.Errorf("now[0] = %+v, want d1 set aside in api and web", now[0])
+	}
+	if now[1].Label != "difficulty:2" || now[1].Route == nil || now[1].Route.ID != "d0" || len(now[1].SetAside) != 0 {
+		t.Errorf("now[1] = %+v, want the plain default with no set-aside", now[1])
+	}
+	// The probe's depot is none, so own routes never win it: with the
+	// plain default gone, difficulty:2 matches nothing.
+	now = routeNowLines(routes[1:], []string{"difficulty:2"}, "me")
+	if len(now) != 1 || now[0].Route != nil {
+		t.Errorf("now without a default = %+v, want a null route", now)
 	}
 }
 
@@ -1674,7 +2194,7 @@ func testRouteReportTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING", "BY HARNESS", "CREW", "agent sessions", "fresh input", "cache writes", "output"} {
+	for _, want := range []string{"TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING", "BY HARNESS", "CREW", "agent sessions", "fresh input", "cache writes", "output", "WAIT is how long", "--by depot", "DEPOT column", "ten beads at least", "too few beads", "now line"} {
 		if !strings.Contains(help, want) {
 			t.Errorf("route report help lacks %q:\n%s", want, help)
 		}
