@@ -717,8 +717,8 @@ name a path or a value; the file a setup card says a typed account will be
 written to; a note the yard wrote on a bead about what it did or what failed,
 such as a landing's line, which names the test command it ran, or a fetch
 that did not work; and the words of an error a call returns when the yard's
-own file operation failed, such as a depot it could not read. Notifications
-written by an earlier build keep the words they had. What a person writes (a
+own file operation failed, such as a depot it could not read. Rows from
+earlier builds were remade on upgrade. What a person writes (a
 note, a mail, a question and its options) is sent as written to the readers
 of its bead or the parties of the mail, and is not an operator's
 configuration.

@@ -32,6 +32,12 @@ import (
 	"yardr.dev/yardr/internal/config"
 )
 
+// schemaVersion 31 has every notification of a user who is not the operator
+// remade from what its person is told of the event (migrateNotificationsTold):
+// rows written before the hold kept the whole event, and a row whose event
+// was pruned is bare, from its Kind, Bead, Reason and Title alone. A build
+// before it never touches the remade rows: checkSchema refuses a store newer
+// than the build knows before any migration or bucket write.
 // schemaVersion 30 has a role on each user: operator or member, and every
 // operator gate reads it instead of comparing the actor with the operator
 // setting (migrateOperatorRole makes the setting's user the first
@@ -193,7 +199,7 @@ import (
 // Bump this whenever a build starts writing something every write must
 // keep up (an index, a field a read relies on): the stamp is what stops an
 // older build from appending to the store without it.
-const schemaVersion = 30
+const schemaVersion = 31
 
 var kSchema = []byte("schema")
 
@@ -347,6 +353,7 @@ func openMigrations(home string, moved, depotsMoved bool) []migration {
 		{version: 28, run: atVersion(migrateCrewRotation)},
 		{version: 29, run: atVersion(migrateGrantGiven)},
 		{version: 30, run: atVersion(migrateOperatorRole)},
+		{version: 31, run: atVersion(migrateNotificationsTold)},
 	}
 }
 
