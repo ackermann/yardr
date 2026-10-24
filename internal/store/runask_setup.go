@@ -167,7 +167,7 @@ type SetupAsked struct {
 	// name, kept with a bare pick; Missing are the names the standing
 	// file does not set, which the answer types.
 	Account     []string `json:"account"`
-	AccountFile string   `json:"account_file"`
+	AccountFile string   `json:"account_file,omitempty"`
 	Given       bool     `json:"given,omitempty"`
 	Missing     []string `json:"missing,omitempty"`
 	// Candidates are the yard sources whose account the card offers, each
@@ -231,6 +231,38 @@ func (s SetupAsked) WithoutCandidates() SetupAsked {
 	}
 	s.Candidates, s.Does = nil, does
 	return s
+}
+
+// WithoutCandidatesAndFile is the card as it reads where the yard's accounts
+// are not told: no candidates, no file of the typed account, and the account
+// sentence naming neither (setupAccountLineUntold). The file is the yard's
+// default for a new source and the standing env_file on an update, a path on
+// the yard's machine of no use to a device that cannot approve the setup, so
+// it is held where the candidates are. The sentence is found by the file it
+// names, as WithoutCandidates finds the candidates' sentence by what it says
+// of them, and by the account words themselves, since a card kept in the
+// store may have been written by a build with other words than this one's.
+// Given and Missing stay: they say what stands without naming where. Every
+// other sentence and the rest of the card are as they were, and s is left as
+// it is.
+func (s SetupAsked) WithoutCandidatesAndFile() SetupAsked {
+	bare := s.WithoutCandidates()
+	if bare.AccountFile == "" {
+		return bare
+	}
+	untold := safeSourceCardLine(setupAccountLineUntold(bare.Account, bare.Given, bare.Missing))
+	file := safeSourceCardLine(bare.AccountFile)
+	does := make([]string, 0, len(bare.Does))
+	placed := false
+	for _, line := range bare.Does {
+		if !placed && (file != "" && strings.Contains(line, file) || strings.HasPrefix(line, "the account ")) {
+			does, placed = append(does, untold), true
+			continue
+		}
+		does = append(does, line)
+	}
+	bare.AccountFile, bare.Does = "", does
+	return bare
 }
 
 // AccountSetWords is the start of the line a carried-out setup prints for its
@@ -990,6 +1022,26 @@ func setupAccountLine(account []string, file string, given bool, missing []strin
 	}
 	already, take := candidateWords()
 	return fmt.Sprintf("the account %s: %s. %s, or type another unseen (written to %s, named in the answer, never the value).", names, already, take, file)
+}
+
+// setupAccountLineUntold is the setup card's account sentence as it reads
+// where the file a typed value goes to is not told: the names to type unseen,
+// whether the account stands and what of it is missing, naming no file and no
+// candidate. It is setupAccountLine's shapes with none, the file's clauses
+// dropped and the answer's promise kept.
+func setupAccountLineUntold(account []string, given bool, missing []string) string {
+	names := strings.Join(account, " and ")
+	if len(missing) > 0 {
+		need := strings.Join(missing, " and ")
+		if len(missing) == len(account) {
+			return fmt.Sprintf("the account %s: the file holds none of it: type %s unseen (named in the answer, never the value).", names, need)
+		}
+		return fmt.Sprintf("the account %s: given, but missing %s: type %s unseen (named in the answer, never the value).", names, need, need)
+	}
+	if given {
+		return fmt.Sprintf("the account %s: given. Type another unseen to change it, or approve keeping it with a bare preset pick (named in the answer, never the value).", names)
+	}
+	return fmt.Sprintf("the account %s: type it unseen. It is written, named in the answer, never the value.", names)
 }
 
 // setupBack is the commands that take the setup back: each source removed,

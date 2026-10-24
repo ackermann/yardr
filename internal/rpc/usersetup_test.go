@@ -110,22 +110,28 @@ func setups(v store.BeadView) map[uint64]*store.SetupAsked {
 	return out
 }
 
-// Bead tells the candidates of a setup card, each a file of the yard's with
-// the values it holds, to a device of the operator and to no other: to a
-// device of anyone else the card reads as one with none, in the candidates
-// and in the sentence that names them, and so it does to every device of a
-// yard with no operator. It is the operator now who is told, and it is every
-// ask of the view that is held back, the decided ones too. The rest of the
-// view is the same, and the store, which the socket serves, keeps the card
-// whole.
+// Bead tells a setup card's account file and candidates, each a file of the
+// yard's with the values it holds, to a device of the operator and to no
+// other: to a device of anyone else the card reads with no file and no
+// candidates, and so it does to every device of a yard with no operator. It is
+// the operator now who is told, and every ask of the view is held back, the
+// decided ones too. The rest of the view is the same, and the store, which
+// the socket serves, keeps the card whole.
 func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 	ctx := context.Background()
 	y, file := setupYard(t)
 	first := y.askSetup(t, "jo")
 	want := store.AskCandidate{Source: "courier-existing", File: file, Values: map[string]string{"COURIER_ACCOUNT": candidateAddress}}
+	whole, err := y.st.Bead(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := setups(*whole)[first].Candidates; !reflect.DeepEqual(got, []store.AskCandidate{want}) {
+		t.Fatalf("the store lists the candidates %+v, want %+v", got, want)
+	}
 	// told reads the view as the device with the token has it, and fails
-	// unless the setup asks it holds are asks, and the candidate is on each
-	// of their cards and in the reply when listed, and nowhere in it when not.
+	// unless the setup asks it holds match the store's candidates and account
+	// file when listed, and expose neither of them when not.
 	told := func(who, token string, asks []uint64, listed bool) store.BeadView {
 		t.Helper()
 		v, raw := y.bead(t, token)
@@ -135,33 +141,42 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 		}
 		for _, seq := range asks {
 			card := cards[seq]
+			stored := setups(*whole)[seq]
 			if card == nil {
 				t.Fatalf("%s is told no card for ask %d", who, seq)
 			}
-			if listed && !reflect.DeepEqual(card.Candidates, []store.AskCandidate{want}) {
-				t.Errorf("%s is told the candidates %+v of ask %d, want %+v", who, card.Candidates, seq, want)
+			if stored == nil {
+				t.Fatalf("the store has no card for ask %d", seq)
 			}
-			if !listed && len(card.Candidates) != 0 {
-				t.Errorf("%s is told the candidates %+v of ask %d", who, card.Candidates, seq)
+			if listed && (!reflect.DeepEqual(card.Candidates, stored.Candidates) || card.AccountFile != stored.AccountFile) {
+				t.Errorf("%s is told the candidates %+v and account file %q of ask %d, want %+v and %q", who, card.Candidates, card.AccountFile, seq, stored.Candidates, stored.AccountFile)
+			}
+			if !listed && (len(card.Candidates) != 0 || card.AccountFile != "") {
+				t.Errorf("%s is told the candidates %+v and account file %q of ask %d", who, card.Candidates, card.AccountFile, seq)
+			}
+			if stored.AccountFile != "" && strings.Contains(strings.Join(card.Does, "\n"), stored.AccountFile) != listed {
+				t.Errorf("%s is told the account file in the sentences of ask %d: %v, want %v:\n%s", who, seq, strings.Contains(strings.Join(card.Does, "\n"), stored.AccountFile), listed, strings.Join(card.Does, "\n"))
 			}
 		}
 		// Not in the candidates, and not anywhere else of the reply either:
 		// the card says them in its sentences too.
-		for _, secret := range []string{file, candidateAddress, "courier-existing"} {
+		secrets := []string{file, candidateAddress, "courier-existing"}
+		for _, seq := range asks {
+			if path := setups(*whole)[seq].AccountFile; path != "" {
+				secrets = append(secrets, path)
+			}
+		}
+		for _, secret := range secrets {
 			if strings.Contains(raw, secret) != listed {
 				t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
 			}
 		}
+		if strings.Contains(raw, `"account_file"`) != listed {
+			t.Errorf("%s is told the account_file field: %v, want %v", who, !listed, listed)
+		}
 		return v
 	}
 
-	whole, err := y.st.Bead(ctx, "yd-crm")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := setups(*whole)[first].Candidates; !reflect.DeepEqual(got, []store.AskCandidate{want}) {
-		t.Fatalf("the store lists the candidates %+v, want %+v", got, want)
-	}
 	jos := told("jo's device", y.jo, []uint64{first}, true)
 	sams := told("sam's device", y.sam, []uint64{first}, false)
 
@@ -175,8 +190,9 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 		t.Errorf("sam's queue holds the card's candidate: %s", queue)
 	}
 
-	// What sam is not told is the candidates alone: the same view, the
-	// card's other sentences and options and fields as the operator has them.
+	// What sam is not told is the candidates and the card's file: the same
+	// view, the card's other sentences and options and fields as the operator
+	// has them.
 	card, theirs := setups(jos)[first], setups(sams)[first]
 	if len(card.Does) != len(theirs.Does) || !strings.Contains(strings.Join(card.Does, "\n"), file) {
 		t.Errorf("sam's card has %d sentences, the operator's %d:\n%s\n%s", len(theirs.Does), len(card.Does), strings.Join(theirs.Does, "\n"), strings.Join(card.Does, "\n"))
@@ -188,24 +204,34 @@ func TestUserBeadTellsCandidatesToTheOperatorAlone(t *testing.T) {
 		}
 	}
 	if differ != 1 {
-		t.Errorf("%d sentences of sam's card differ from the operator's, want the one that names the candidate", differ)
+		t.Errorf("%d sentences of sam's card differ from the operator's, want the one that names the candidate and the file", differ)
 	}
 	for _, v := range []*store.BeadView{&jos, &sams} {
 		for i := range v.Asks {
 			if v.Asks[i].Setup != nil {
 				v.Asks[i].Setup.Candidates, v.Asks[i].Setup.Does = nil, nil
+				v.Asks[i].Setup.AccountFile = ""
 			}
 		}
 	}
 	if !reflect.DeepEqual(jos, sams) {
-		t.Errorf("the view of sam's device is not the operator's but for the candidates:\n%+v\nwant\n%+v", sams, jos)
+		t.Errorf("the view of sam's device is not the operator's but for the candidates and the file:\n%+v\nwant\n%+v", sams, jos)
 	}
 
-	// Every ask of the view: this one is decided, and another stands open.
+	// Every ask of the view: the first is decided with a candidate, and the
+	// second stands open with no candidate. Both cards still name their file
+	// only to the operator.
 	if err := y.st.AddAnswer(ctx, "yd-crm", store.Answer{Ask: first, Decline: true, Words: "not this week"}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	second := y.askSetup(t, "jo")
+	whole, err = y.st.Bead(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
 	told("jo's device", y.jo, []uint64{first, second}, true)
 	told("sam's device", y.sam, []uint64{first, second}, false)
 
@@ -345,9 +371,10 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 			// told reads the view as the device with the token has it, and fails
 			// unless the result of the setup is the whole of what it printed
 			// when listed, and the same without the file when not, or, of a
-			// failure, failed and not the words of it. The candidate is in the
-			// reply when listed and nowhere in it when not; a typed account's
-			// file is the card's, which every device is told.
+			// failure, failed and not the words of it. The file the account is
+			// set in is in the reply when listed and nowhere in it when not; a
+			// typed account's file is the card's, which a device of the operator
+			// alone is told. The candidate is so where the card lists one.
 			told := func(who, token string, listed bool) store.BeadView {
 				t.Helper()
 				v, raw := y.bead(t, token)
@@ -366,11 +393,13 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 				case got.Result != want:
 					t.Errorf("%s is told the result %q, want %q", who, got.Result, want)
 				}
+				secrets := []string{file}
 				if !c.typed {
-					for _, secret := range []string{file, candidateAddress, "courier-existing"} {
-						if strings.Contains(raw, secret) != listed {
-							t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
-						}
+					secrets = append(secrets, candidateAddress, "courier-existing")
+				}
+				for _, secret := range secrets {
+					if strings.Contains(raw, secret) != listed {
+						t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
 					}
 				}
 				return v
@@ -397,12 +426,14 @@ func TestUserBeadTellsTheAccountFileToTheOperatorAlone(t *testing.T) {
 				t.Errorf("sam's queue holds the file of the account: %s", queue)
 			}
 
-			// What sam is not told is that file: the same view, but for the
-			// candidates of the card, which the other test holds.
+			// What sam is not told is that file, the card's and the result's: the
+			// same view, but for the candidates of the card, which the other
+			// test holds.
 			for _, v := range []*store.BeadView{&jos, &sams} {
 				for i := range v.Asks {
 					if v.Asks[i].Setup != nil {
 						v.Asks[i].Setup.Candidates, v.Asks[i].Setup.Does = nil, nil
+						v.Asks[i].Setup.AccountFile = ""
 					}
 					if v.Asks[i].Ran != nil {
 						v.Asks[i].Ran.Result = ""
@@ -485,11 +516,11 @@ type toldAsks struct {
 }
 
 // blankHeld blanks what UserAsks holds back from a device that is not the
-// operator's: the candidates and the sentence of a setup card and the result of
-// its approval, and what the yard wrote of a run ask (withoutRunWords): the
-// sentences, the command that takes it back, what it carries and the plan of
-// its pack, and the result of its approval. Two queues are equal after it when
-// they differ in nothing else.
+// operator's: the file and the candidates and the sentence of a setup card and
+// the result of its approval, and what the yard wrote of a run ask
+// (withoutRunWords): the sentences, the command that takes it back, what it
+// carries and the plan of its pack, and the result of its approval. Two queues
+// are equal after it when they differ in nothing else.
 func blankHeld(q *store.AskQueue) {
 	blankRun := func(run *store.RunAsked) {
 		if run == nil {
@@ -503,6 +534,7 @@ func blankHeld(q *store.AskQueue) {
 	for i := range q.Open {
 		if card := q.Open[i].Setup; card != nil {
 			card.Candidates, card.Does = nil, nil
+			card.AccountFile = ""
 		}
 		blankRun(q.Open[i].Run)
 	}
@@ -516,6 +548,7 @@ func blankHeld(q *store.AskQueue) {
 			continue
 		}
 		d.Setup.Candidates, d.Setup.Does = nil, nil
+		d.Setup.AccountFile = ""
 		if d.Ran != nil {
 			d.Ran.Result = ""
 		}
@@ -538,9 +571,10 @@ func runOf(t *testing.T, v store.BeadView, seq uint64) *store.RunAsked {
 	return nil
 }
 
-// UserAsks tells the candidates of a setup card, and the file the account of an
-// approved setup is set in, to a device of the current operator and to no other,
-// as Bead tells them (TestUserBeadTellsCandidatesToTheOperatorAlone and
+// UserAsks tells the file of a setup card's typed account, the candidates of
+// the card, and the file the account of an approved setup is set in, to a
+// device of the current operator and to no other, as Bead tells them
+// (TestUserBeadTellsCandidatesToTheOperatorAlone and
 // TestUserBeadTellsTheAccountFileToTheOperatorAlone). A setup ask is put to the
 // operator, but the operator setting moves, and the user it was put to keeps the
 // ask in their queue. So the current operator is told, whoever the ask was put
@@ -563,9 +597,10 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 			//   - the result of the carried out one is the whole of what was
 			//     recorded when listed, and the same without the file when not, or,
 			//     of a failure, failed and not the words of it;
-			//   - the candidate is in the reply when listed and nowhere in it when
-			//     not (a typed account's file is the card's, which every device is
-			//     told);
+			//   - the file the account is set in is in the reply when listed and
+			//     nowhere in it when not; a typed account's file is the card's,
+			//     which a device of the current operator alone is told. The
+			//     candidate is so where the card lists one;
 			//   - the rest of the queue is the store's, which still has the whole.
 			queued := func(who, token, user string, ct toldAsks, listed bool) {
 				t.Helper()
@@ -608,10 +643,19 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 							t.Errorf("%s is told the candidates %+v of a card, want them: %v", who, card.Candidates, listed)
 						}
 					}
-					for _, secret := range []string{ct.file, candidateAddress, "courier-existing"} {
-						if strings.Contains(raw, secret) != listed {
-							t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
-						}
+				}
+				secrets := []string{ct.file}
+				if !c.typed {
+					secrets = append(secrets, candidateAddress, "courier-existing")
+				}
+				for _, secret := range secrets {
+					if strings.Contains(raw, secret) != listed {
+						t.Errorf("%s is told %q: %v, want %v\n%s", who, secret, !listed, listed, raw)
+					}
+				}
+				for _, card := range []*store.SetupAsked{standing.Setup, settled.Setup} {
+					if (card.AccountFile != "") != listed {
+						t.Errorf("%s is told the card's file %q, want it: %v", who, card.AccountFile, listed)
 					}
 				}
 				// One device is not told by one call what it is not by the other.

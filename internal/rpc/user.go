@@ -62,10 +62,11 @@ import (
 //     stream carries the value of a setting_changed for those alone
 //     (deviceTold), so a lost token gives away no address or secret that
 //     the yard keeps in another setting;
-//   - Bead and UserAsks tell the candidates of a setup card, the yard's other
-//     accounts by file and the values they hold, and the file the account of
-//     an approved setup is set in, to a device of an operator alone (bead,
-//     userAsks), and the stream tells the file a source_set points a source
+//   - Bead and UserAsks tell the file of a setup card's typed account, the
+//     candidates of the card, the yard's other accounts by file and the values
+//     they hold, and the file the account of an approved setup is set in, to a
+//     device of an operator alone (bead, userAsks), and the stream tells the
+//     file a source_set points a source
 //     at and the command that mints its token, the file a user_set points a
 //     user at, the files a user_removed says a removed user's login named,
 //     and the secret file a hook_blocked names, to one alone
@@ -294,13 +295,14 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 }
 
 // bead is Bead as a device is told it: the view the store gives, but for
-// the candidates of a setup card, each a file of the yard's with the values
-// it holds, and for the file the account of an approved setup is set in,
-// which is the candidate's when the approval took one: only a device of the
-// operator is told them (isOperator, as deviceTold tells the operator's
-// words). To any other device the card reads as one with none
-// (store.SetupAsked.WithoutCandidates) and what the setup printed says the
-// account is set and not where, or that it failed and no more, since the
+// the file of a setup card's typed account, the candidates of the card, each
+// a file of the yard's with the values it holds, and for the file the account
+// of an approved setup is set in, which is the candidate's when the approval
+// took one: only a device of the operator is told them (isOperator, as
+// deviceTold tells the operator's words). To any other device the card reads
+// as one with none and naming no file
+// (store.SetupAsked.WithoutCandidatesAndFile) and what the setup printed says
+// the account is set and not where, or that it failed and no more, since the
 // words of a failure name the file too (store.SetupAsked.WithoutAccountFile),
 // and in a yard without an operator it does to every device. A run ask is told
 // as its asker typed it, and not as the yard wrote it up from its own records:
@@ -316,7 +318,7 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 		return nil, err
 	}
 	if !slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool {
-		return a.Run != nil || a.Setup != nil && (len(a.Setup.Candidates) > 0 || a.Ran != nil)
+		return a.Run != nil || a.Setup != nil
 	}) {
 		return v, nil
 	}
@@ -333,9 +335,10 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 
 // userAsks is UserAsks as a device is told it. The setup asks of the queue,
 // open and decided, read as Bead tells them (withoutAccount): a device of a
-// current operator is told the candidates of the card and the file the account
-// of an approved setup is set in, and no other device is. The run asks of the
-// queue read as Bead tells them too (withoutRunWords).
+// current operator is told the file of the card's typed account, the
+// candidates of the card and the file the account of an approved setup is set
+// in, and no other device is. The run asks of the queue read as Bead tells
+// them too (withoutRunWords).
 //
 // The store puts a setup ask to an operator alone, and that holds only when
 // the ask is made. The user's role can change afterwards, and the user the
@@ -372,12 +375,13 @@ func (u *UserServer) userAsks(ctx context.Context, name string) (*store.AskQueue
 }
 
 // withoutAccount cuts a setup ask's card and what its approval printed to what
-// a device that is no operator's is told: the card with no candidates
-// (store.SetupAsked.WithoutCandidates) and the result without the file the
-// account is set in (store.SetupAsked.WithoutAccountFile). bead and userAsks
-// both cut here, so the two calls cannot tell one device different things. The
-// card and the result are copied, not changed. An ask with no card, a run ask
-// among them, comes back as it is: a run ask is cut by withoutRunWords.
+// a device that is no operator's is told: the card with no candidates and no
+// file of the typed account (store.SetupAsked.WithoutCandidatesAndFile) and
+// the result without the file the account is set in
+// (store.SetupAsked.WithoutAccountFile). bead and userAsks both cut here, so
+// the two calls cannot tell one device different things. The card and the
+// result are copied, not changed. An ask with no card, a run ask among them,
+// comes back as it is: a run ask is cut by withoutRunWords.
 func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAsked, *store.AskRan) {
 	if card == nil {
 		return card, ran
@@ -386,7 +390,7 @@ func withoutAccount(card *store.SetupAsked, ran *store.AskRan) (*store.SetupAske
 		told := card.WithoutAccountFile(*ran)
 		ran = &told
 	}
-	bare := card.WithoutCandidates()
+	bare := card.WithoutCandidatesAndFile()
 	return &bare, ran
 }
 

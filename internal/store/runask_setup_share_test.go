@@ -172,6 +172,71 @@ func TestSetupCardWithoutCandidatesAnyWords(t *testing.T) {
 	}
 }
 
+// Every shape of the card is told without the file of the typed account and
+// without the candidates: the field is empty, and the account sentence names
+// neither, whether the card lists candidates or not, and whether it was
+// written by this build or another. Given and Missing stay, the rest of the
+// card is as it was, and the card it was made from is left whole.
+func TestSetupCardWithoutCandidatesAndFile(t *testing.T) {
+	account, own := []string{"SETUP_ACCOUNT", "SETUP_REGION"}, "/yard/sources/setupmail.env"
+	candidates := []AskCandidate{{Source: "setupcal", File: "/yard/sources/setupcal.env",
+		Values: map[string]string{"SETUP_ACCOUNT": "ops@example.com", "SETUP_REGION": "eu-west"}}}
+	secrets := []string{"/yard/sources/setupmail.env", "/yard/sources/setupcal.env", "ops@example.com", "eu-west", "setupcal"}
+	grants := "grants to crew yardmaster — pick one:"
+	for _, c := range []struct {
+		name    string
+		given   bool
+		missing []string
+		listed  bool // the card lists the candidates; else it lists none
+		line    string
+	}{
+		{name: "a first setup", listed: true},
+		{name: "a first setup with none listed"},
+		{name: "an update that holds the account", given: true, listed: true},
+		{name: "an update that holds the account, with none listed", given: true},
+		{name: "an update that lacks some of it", missing: []string{"SETUP_REGION"}, listed: true},
+		{name: "an update that lacks some of it, with none listed", missing: []string{"SETUP_REGION"}},
+		{name: "an update that lacks all of it", missing: account, listed: true},
+		{name: "an update that lacks all of it, with none listed", missing: account},
+		{name: "another build's words", listed: true, line: "setupcal already has ops@example.com and eu-west in /yard/sources/setupcal.env: take it with --account setupcal"},
+		{name: "another build's words, with none listed", line: "the account SETUP_ACCOUNT and SETUP_REGION is typed unseen and written to /yard/sources/setupmail.env"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			line := c.line
+			var listed []AskCandidate
+			if c.listed {
+				listed = candidates
+			}
+			if line == "" {
+				line = safeSourceCardLine(setupAccountLine(account, own, c.given, c.missing, listed))
+			}
+			card := SetupAsked{Pack: "setupmail", Account: account, AccountFile: own, Given: c.given, Missing: c.missing,
+				Candidates: listed, Does: []string{"pack setupmail: it adds 1 source.", line, grants}}
+			bare := card.WithoutCandidatesAndFile()
+			want := []string{"pack setupmail: it adds 1 source.", safeSourceCardLine(setupAccountLineUntold(account, c.given, c.missing)), grants}
+			if !slices.Equal(bare.Does, want) || len(bare.Candidates) != 0 || bare.AccountFile != "" {
+				t.Errorf("the card without file says %q and lists %+v in %q, want %q and none in no file", bare.Does, bare.Candidates, bare.AccountFile, want)
+			}
+			for _, secret := range secrets {
+				if strings.Contains(strings.Join(bare.Does, "\n"), secret) {
+					t.Errorf("the card without file still says %q: %q", secret, bare.Does)
+				}
+			}
+			if bare.Given != c.given || !slices.Equal(bare.Missing, c.missing) || !slices.Equal(bare.Account, account) {
+				t.Errorf("the account, given and missing moved: %+v", bare)
+			}
+			if len(card.Candidates) != len(listed) || card.Does[1] != line || card.AccountFile != own {
+				t.Errorf("the card it was made from moved: %+v", card)
+			}
+		})
+	}
+	// A card with no file is told as it is, but for the candidates it lists.
+	plain := SetupAsked{Account: account, Does: []string{"pack setupmail: it adds 1 source.", safeSourceCardLine(setupAccountLineUntold(account, false, nil)), grants}}
+	if got := plain.WithoutCandidatesAndFile(); !reflect.DeepEqual(got, plain) {
+		t.Errorf("a card with no file was changed: %+v", got)
+	}
+}
+
 // What an approved setup printed is told without the file its account is set
 // in: the account line says the account is set and no more, for one name or
 // several and whatever the file is called, while the lines of the apply and
