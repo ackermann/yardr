@@ -89,7 +89,9 @@ the group `security-reviewers` with `roles/review-security.md`, asks one other
 question of the same diff: what does it open, and to whom? The reviewer sends a
 bead on with `done`, or past the second review with `done-safe`, by the list in
 `flows/default/review.md`. A train goes through both reviews, on the whole of
-its diff.
+its diff. In the default flow a bead that passes review then waits in `clear`
+for the person's yes: `done` lands it, `changes` sends it back to the builder,
+`question` parks it in `decide` for a longer look.
 
 The import asks nothing for `security-reviewers`. It runs the agent, model and
 permission arguments `reviewers` has, as the yard has them or as the import
@@ -124,10 +126,11 @@ rules.
 ## Limits on rounds
 
 A bead goes round a loop when review sends it back to `new`, the builder fixes
-it and review sends it back again. The default flow limits its three ways back
-to `new` (`changes` from `review`, `changes` from `review-security` and
-`failed` from `approved`) to 3 rounds. The fourth goes to `decide` instead, and
-the bead waits there for a person, who reads the note that asked for it.
+it and review sends it back again. The default flow limits its four ways back
+to `new` (`changes` from `review`, `changes` from `review-security`, `changes`
+from `clear` and `failed` from `approved`) to 3 rounds. The fourth round goes
+to `decide` instead, and the bead waits there for a person, who reads the note
+that asked for it.
 
 The count is the stage's, whichever way the bead came back: a failed landing
 and a reviewer's changes add to one count for `new`, so a bead that failed to

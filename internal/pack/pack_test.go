@@ -96,22 +96,22 @@ func TestStarterPackLoads(t *testing.T) {
 	for _, s := range f.Stages {
 		stages = append(stages, s.Name)
 	}
-	if want := []string{"backlog", "new", "review", "review-security", "approved", "decide", "merged"}; !reflect.DeepEqual(stages, want) {
+	if want := []string{"backlog", "new", "review", "review-security", "clear", "approved", "decide", "merged"}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("stages = %v, want the file's order %v", stages, want)
 	}
-	// The three ways back to new, one from each stage that can send a bead
+	// The four ways back to new, one from each stage that can send a bead
 	// back, are limited to 3 rounds, after which a bead goes to decide.
 	review := f.Stages[2]
-	if want := []store.Outcome{{Name: "done", To: "review-security"}, {Name: "done-safe", To: "approved"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
+	if want := []store.Outcome{{Name: "done", To: "review-security"}, {Name: "done-safe", To: "clear"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; !reflect.DeepEqual(review.Outcomes, want) {
 		t.Fatalf("review outcomes = %v, want the file's order %v", review.Outcomes, want)
 	}
 	// The second review is another group's, which runs the first's agent
 	// unless the import binds it.
 	second := f.Stages[3]
-	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; second.Group != "security-reviewers" || !reflect.DeepEqual(second.Outcomes, want) {
+	if want := []store.Outcome{{Name: "done", To: "clear"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; second.Group != "security-reviewers" || !reflect.DeepEqual(second.Outcomes, want) {
 		t.Fatalf("review-security = %+v, want the group security-reviewers and the outcomes %v", second, want)
 	}
-	landing := f.Stages[4]
+	landing := f.Stages[5]
 	if want := []store.Outcome{{Name: "done", To: "merged"}, {Name: "failed", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; landing.Group != "assembly" || !reflect.DeepEqual(landing.Outcomes, want) {
 		t.Fatalf("approved = %+v, want the group assembly and the outcomes %v", landing, want)
 	}
@@ -153,7 +153,7 @@ func TestStarterPackLoads(t *testing.T) {
 		}
 	}
 	m := p.Crew[0]
-	if m.Name != "yardmaster" || m.Role != "roles/yardmaster.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide"}) ||
+	if m.Name != "yardmaster" || m.Role != "roles/yardmaster.md" || !m.Done || !reflect.DeepEqual(m.Stages, []string{"decide", "clear"}) ||
 		!reflect.DeepEqual(m.Subscribe, []pack.Source{{Name: "linear", Scope: "involved"}}) || !reflect.DeepEqual(m.Events, []string{store.KindAttention}) {
 		t.Fatalf("yardmaster = %+v", m)
 	}
@@ -181,8 +181,9 @@ func TestStarterFlowIsTheDepotInitFlow(t *testing.T) {
 	got := p.Flows[0].StoreFlow("x")
 	want := `backlog -> new | decide
 new -> review on done | decide on question | backlog
-review -> review-security on done | approved on done-safe | new on changes max 3 then decide | decide on question
-review-security -> approved on done | new on changes max 3 then decide | decide on question
+review -> review-security on done | clear on done-safe | new on changes max 3 then decide | decide on question
+review-security -> clear on done | new on changes max 3 then decide | decide on question
+clear -> approved on done | new on changes max 3 then decide | decide on question
 approved -> merged on done | new on failed max 3 then decide | decide on question
 decide -> backlog | new
 merged terminal
@@ -190,6 +191,104 @@ merged terminal
 	if got.String() != want {
 		t.Fatalf("flow =\n%s\nwant\n%s", got.String(), want)
 	}
+}
+
+// A reviewed bead waits in clear for the person's yes before it lands: done
+// lands it from approved, changes sends it back to the builder, and question
+// parks it in decide. Clear's changes counts with the reviews' and the
+// assembly's failed in the one count for new, so a bead sent back twice from
+// review and once from clear has used its rounds: driven here through Done on
+// the starter's own flow, the next changes from clear goes to decide instead.
+func TestStarterClearWaitsForThePersonsYes(t *testing.T) {
+	p, err := pack.LoadDir(starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clear pack.Stage
+	for _, s := range p.Flows[0].Stages {
+		if s.Name == "clear" {
+			clear = s
+		}
+	}
+	if want := []store.Outcome{{Name: "done", To: "approved"}, {Name: "changes", To: "new", Max: 3, Then: "decide"}, {Name: "question", To: "decide"}}; clear.Group != "decisions" || clear.File != "flows/default/clear.md" || !reflect.DeepEqual(clear.Outcomes, want) {
+		t.Fatalf("clear = %+v, want the decisions group, its stage file and the outcomes %v", clear, want)
+	}
+	// Every way back to new carries the one limit, so the count is the
+	// stage's, whichever stage sent the bead back.
+	for _, s := range p.Flows[0].Stages {
+		for _, o := range s.Outcomes {
+			if o.Max == 0 {
+				continue
+			}
+			if o.To != "new" || o.Max != 3 || o.Then != "decide" {
+				t.Fatalf("%s %s = %+v, want back to new, max 3, then decide", s.Name, o.Name, o)
+			}
+		}
+	}
+
+	st, _ := yard(t)
+	if _, err := st.PutFlow(ctx, p.Flows[0].StoreFlow("starter.default"), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetFlowPointer(ctx, "web", "", "starter.default", "me"); err != nil {
+		t.Fatal(err)
+	}
+	make := func() string {
+		t.Helper()
+		b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b.ID
+	}
+	report := func(id, outcome, want string) {
+		t.Helper()
+		from, err := st.GetBead(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := st.Done(ctx, id, outcome, "note", store.Expect{}, "me")
+		if err != nil || got.Stage != want {
+			t.Fatalf("%s from %s = %+v, %v; want stage %s", outcome, from.Stage, got, err, want)
+		}
+	}
+	toClear := func(id string) {
+		t.Helper()
+		report(id, "done", "review")
+		report(id, "done", "review-security")
+		report(id, "done", "clear")
+	}
+
+	// Twice back from review, once back from clear: the next changes, from
+	// clear, is the fourth round back to new, and goes to decide instead.
+	id := make()
+	report(id, "done", "review")
+	report(id, "changes", "new")
+	report(id, "done", "review")
+	report(id, "changes", "new")
+	report(id, "done", "review")
+	report(id, "done", "review-security")
+	report(id, "done", "clear")
+	report(id, "changes", "new")
+	toClear(id)
+	report(id, "changes", "decide")
+	if got, err := st.GetBead(ctx, id); err != nil || got.Rounds["new"] != 0 {
+		t.Fatalf("rounds after the redirect = %+v, %v; want new back at zero", got, err)
+	}
+	if evs, err := st.Events(ctx, id, 2); err != nil || len(evs) != 2 || evs[0].Kind != "advanced" ||
+		evs[0].Data["from"] != "clear" || evs[0].Data["outcome"] != "changes" || evs[0].Data["rounds"] != float64(3) ||
+		evs[0].Data["instead_of"] != "new" || evs[1].Kind != store.RoundsReached {
+		t.Fatalf("last events = %+v, %v; want the redirect past new and its rounds_reached", evs, err)
+	}
+
+	// Done from clear lands the bead from approved; question parks it in
+	// decide for a longer look.
+	land := make()
+	toClear(land)
+	report(land, "done", "approved")
+	ask := make()
+	toClear(ask)
+	report(ask, "question", "decide")
 }
 
 // Stage order is the file's, and so is the order of a stage's outcomes:

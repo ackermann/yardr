@@ -39,7 +39,8 @@ on the bead says how the review ended. Outcomes:
 
 - `done`, passed: the note says what the change opens and to whom, or that
   it touches nothing on the list, what you fixed (commits), and any risk
-  that remains. The bead is landed from `approved`.
+  that remains. The bead waits in `clear` for {{operator}}'s yes, and is
+  landed from `approved`.
 - `changes`, it needs the builder: the change opens something it must not
   and closing it is more than a small fix. The note gives the finding
   concretely: the caller, what they can do, and the line that lets them.

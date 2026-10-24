@@ -77,7 +77,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	}
 	beforeApply := head(t, st)
 	res := apply(t, st, plan, answers)
-	if res.Created != 35 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
+	if res.Created != 38 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
 	}
 	groupEvents := 0
@@ -115,13 +115,13 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for stage, outcome := range map[string]string{"review": "changes", "review-security": "changes", "approved": "failed"} {
+	for stage, outcome := range map[string]string{"review": "changes", "review-security": "changes", "clear": "changes", "approved": "failed"} {
 		if lim, err := kept.Outcome(stage, outcome); err != nil || lim.To != "new" || lim.Max != 3 || lim.Then != "decide" {
 			t.Errorf("stored flow, %s %s = %+v, %v; want back to new, max 3, then decide", stage, outcome, lim, err)
 		}
 	}
 	boss, err := st.GetCrew(ctx, "boss")
-	if err != nil || !slices.Equal(boss.On, []string{store.KindAttention}) || len(boss.Subscriptions) != 3 || boss.Config["kind"] != "claude" || boss.Dir == "" {
+	if err != nil || !slices.Equal(boss.On, []string{store.KindAttention}) || len(boss.Subscriptions) != 4 || boss.Config["kind"] != "claude" || boss.Dir == "" {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
 	if _, err := st.GetCrew(ctx, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
@@ -143,7 +143,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("commit = %q", rec.Commit)
 	}
 	// Everything but the crew member, which stays the yard's.
-	if len(rec.Objects) != 34 {
+	if len(rec.Objects) != 37 {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
@@ -151,11 +151,11 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	before := head(t, st)
 	o.Crew = nil
 	plan = build(t, st, load(t, starter), o)
-	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 35 {
+	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 38 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
 	}
 	res = apply(t, st, plan, nil)
-	if res.Wrote() || res.Recorded || res.Unchanged != 35 {
+	if res.Wrote() || res.Recorded || res.Unchanged != 38 {
 		t.Fatalf("second import = %+v", res)
 	}
 	if got := kinds(t, st, before); !slices.Equal(got, []string{"pack_unchanged"}) {
@@ -166,8 +166,8 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("the record changed:\n%+v\n%+v", recs, again)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 10 {
-		t.Fatalf("%d routes, want 10", len(routes))
+	if len(routes) != 11 {
+		t.Fatalf("%d routes, want 11", len(routes))
 	}
 }
 
@@ -235,7 +235,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 			t.Errorf("route %s lost its priority: %+v", r.Stage, r)
 		}
 	}
-	if want := map[string]int{"backlog": 1, "new": 1, "review": 1, "review-security": 1, "approved": 1, "decide": 1, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
+	if want := map[string]int{"backlog": 1, "new": 1, "review": 1, "review-security": 1, "clear": 1, "approved": 1, "decide": 1, "open": 1, "in-pr": 1, "land": 1, "merge": 1}; !reflect.DeepEqual(stages, want) {
 		t.Fatalf("routes per stage = %v, want %v", stages, want)
 	}
 	boss, err := st.GetCrew(ctx, "boss")
@@ -249,7 +249,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 		subs = append(subs, s.String())
 	}
 	slices.Sort(subs)
-	if want := []string{"linear all team=ENG", "linear involved", "yardr all depot=web stage=decide", "yardr all depot=web state=done"}; !slices.Equal(subs, want) {
+	if want := []string{"linear all team=ENG", "linear involved", "yardr all depot=web stage=clear", "yardr all depot=web stage=decide", "yardr all depot=web state=done"}; !slices.Equal(subs, want) {
 		t.Fatalf("subscriptions = %v, want %v", subs, want)
 	}
 }
@@ -265,7 +265,7 @@ func TestApplySubscribingTheInvokerItselfPasses(t *testing.T) {
 		t.Fatalf("result = %+v", res)
 	}
 	boss, err := st.GetCrew(ctx, "boss")
-	if err != nil || len(boss.Subscriptions) != 3 {
+	if err != nil || len(boss.Subscriptions) != 4 {
 		t.Fatalf("boss = %+v, %v", boss, err)
 	}
 	recs, err := st.Packs(ctx)
@@ -380,8 +380,8 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 	}
 	// The pack drops the second review, and the group that works it.
 	edit(t, dir,
-		"outcomes: { done: review-security, done-safe: approved, changes: { to: new, max: 3, then: decide }, question: decide }", "outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide }",
-		"      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }\n", "",
+		"outcomes: { done: review-security, done-safe: clear, changes: { to: new, max: 3, then: decide }, question: decide }", "outcomes: { done: clear, changes: { to: new, max: 3, then: decide }, question: decide }",
+		"      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: clear, changes: { to: new, max: 3, then: decide }, question: decide } }\n", "",
 		"outcomes: { done: review-security, changes: open, question: decide }", "outcomes: { done: approved, changes: open, question: decide }",
 		"      review-security: { group: security-reviewers, outcomes: { done: approved, changes: open, question: decide } }\n", "",
 		"  security-reviewers: { agent: roles/review-security.md, limit: 2, binds_as: reviewers }\n", "",
@@ -445,7 +445,7 @@ func TestDroppedObjectsAreReportedAndPrunedOnlyWhenAsked(t *testing.T) {
 		t.Fatalf("--prune removed a group the pack never had: %v", err)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 9 || slices.ContainsFunc(routes, func(r store.Route) bool { return r.Stage == "review-security" }) {
+	if len(routes) != 10 || slices.ContainsFunc(routes, func(r store.Route) bool { return r.Stage == "review-security" }) {
 		t.Fatalf("routes = %+v", routes)
 	}
 	plan = build(t, st, load(t, dir), o)
@@ -473,6 +473,7 @@ func TestPruneHoldsAGroupAnotherDepotUses(t *testing.T) {
 
 	edit(t, dir,
 		"      decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }", "      decide:   { manual: [backlog, new] }",
+		"      clear:    { group: decisions, file: flows/default/clear.md,    outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }", "      clear:    { group: backlog, file: flows/default/clear.md,    outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }",
 		"      in-pr:   { group: decisions, outcomes: { done: land, changes: open, question: decide, merged: merged } }", "      in-pr:   { group: backlog, outcomes: { done: land, changes: open, question: decide, merged: merged } }",
 		"      merge:   { group: decisions, outcomes: { done: open, rework: open, question: decide } }", "      merge:   { group: backlog, outcomes: { done: open, rework: open, question: decide } }",
 		"      decide:  { group: decisions, manual: [open, backlog] }", "      decide:  { group: backlog, manual: [open, backlog] }",
@@ -500,7 +501,7 @@ func TestPruneHoldsAGroupAnotherDepotUses(t *testing.T) {
 			depots = append(depots, *r.Depot)
 		}
 	}
-	if !slices.Equal(depots, []string{"api", "api", "api"}) {
+	if !slices.Equal(depots, []string{"api", "api", "api", "api"}) {
 		t.Fatalf("routes to decisions are of depots %v, want api's task and train stages", depots)
 	}
 }
@@ -605,8 +606,8 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 
 	plan = build(t, st, load(t, starter), o)
-	// Left to do: eight routes, the crew member and its three subscriptions.
-	if got := actions(plan, pack.Create); len(got) != 12 {
+	// Left to do: nine routes, the crew member and its four subscriptions.
+	if got := actions(plan, pack.Create); len(got) != 14 {
 		t.Fatalf("to create after the failure: %v", got)
 	}
 	res := apply(t, st, plan, nil)
@@ -615,11 +616,11 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	}
 	routes, _ = st.Routes(ctx)
 	groups, _ = st.Groups(ctx)
-	if len(routes) != 10 || len(groups) != 6 {
+	if len(routes) != 11 || len(groups) != 6 {
 		t.Fatalf("after applying again: %d routes, %d groups", len(routes), len(groups))
 	}
-	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 35 {
-		t.Fatalf("%d unchanged, want 40", len(got))
+	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 38 {
+		t.Fatalf("%d unchanged, want 38", len(got))
 	}
 }
 

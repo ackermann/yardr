@@ -116,8 +116,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 18 || stages != 31 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 31", roles, stages)
+	if roles != 18 || stages != 33 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 33", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {
@@ -363,11 +363,11 @@ func TestStageFilesSayWhereARoundPastTheLimitGoes(t *testing.T) {
 			}
 		}
 	}
-	// The starter's three ways back to new, the design pack's two ways back to
-	// draft and the website pack's three, which are the starter's: a pack that
+	// The starter's four ways back to new, the design pack's two ways back to
+	// draft and the website pack's four, which are the starter's: a pack that
 	// gains one raises this number with its sentence.
-	if limited != 8 {
-		t.Errorf("%d limited outcomes in the packs, want the starter's 3, the design pack's 2 and the website pack's 3", limited)
+	if limited != 10 {
+		t.Errorf("%d limited outcomes in the packs, want the starter's 4, the design pack's 2 and the website pack's 4", limited)
 	}
 }
 
@@ -522,8 +522,10 @@ func TestDesignPack(t *testing.T) {
 	if len(p.Crew) != 1 || p.Crew[0].Name != "yardmaster" || p.Crew[0].Role != "" {
 		t.Fatalf("crew = %+v, want yardmaster with no role", p.Crew)
 	}
-	// What the yardmaster hears is replaced by an import, so it is the
-	// starter's here: a yard that takes both hears the same after either.
+	// What the yardmaster hears is replaced by an import, so its events and
+	// done are the starter's here: a yard that takes both hears the same
+	// after either. Its stages are the pack's own: the starter hears clear
+	// beside decide, and this flow has no clear to hear.
 	sub, err = fs.Sub(packs.FS, packs.Starter)
 	if err != nil {
 		t.Fatal(err)
@@ -532,8 +534,11 @@ func TestDesignPack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := p.Crew[0], starter.Crew[0]; !slices.Equal(got.Events, want.Events) || !slices.Equal(got.Stages, want.Stages) || got.Done != want.Done {
-		t.Errorf("yardmaster hears %v, %v, done %v; the starter's hears %v, %v, done %v", got.Events, got.Stages, got.Done, want.Events, want.Stages, want.Done)
+	if got, want := p.Crew[0], starter.Crew[0]; !slices.Equal(got.Events, want.Events) || got.Done != want.Done {
+		t.Errorf("yardmaster hears %v, done %v; the starter's hears %v, done %v", got.Events, got.Done, want.Events, want.Done)
+	}
+	if got := p.Crew[0].Stages; !slices.Equal(got, []string{"decide"}) {
+		t.Errorf("yardmaster hears stages %v, want decide alone: this flow has no clear", got)
 	}
 	// The same copies as the contributors pack's, for the same reason: a
 	// group both packs name is prompted from whichever was imported last.
@@ -583,7 +588,7 @@ func TestCiRedPack(t *testing.T) {
 // The website pack is the starter's line with a deploy stage after landing,
 // for a website on the user's own Void platform: one depot flow, no train
 // flow, merged worked by the deploy group, live the end, and decide able to
-// send a bead back to merged. Its three ways back to new are limited as the
+// send a bead back to merged. Its four ways back to new are limited as the
 // starter's are, to 3 rounds and then decide. Its roles, stage files but
 // merged.md's, and merge-local are the starter's, byte for byte, so the two
 // never say different things of one stage; its deploy-void is the reference
@@ -621,8 +626,9 @@ func TestWebsitePack(t *testing.T) {
 	if want := []string{
 		"backlog (backlog) -> new,decide",
 		"new (builders) done:review question:decide -> backlog",
-		"review (reviewers) done:review-security done-safe:approved changes:new(max 3 then decide) question:decide",
-		"review-security (security-reviewers) done:approved changes:new(max 3 then decide) question:decide",
+		"review (reviewers) done:review-security done-safe:clear changes:new(max 3 then decide) question:decide",
+		"review-security (security-reviewers) done:clear changes:new(max 3 then decide) question:decide",
+		"clear (decisions) done:approved changes:new(max 3 then decide) question:decide",
 		"approved (assembly) done:merged failed:new(max 3 then decide) question:decide",
 		"merged (deploy) done:live failed:decide",
 		"decide (decisions) -> backlog,new,merged",
@@ -739,7 +745,7 @@ func TestWebsitePack(t *testing.T) {
 	for _, name := range []string{
 		"roles/builder.md", "roles/merger.md", "roles/review-security.md", "roles/reviewer.md", "roles/yardmaster.md",
 		"flows/default/backlog.md", "flows/default/new.md", "flows/default/review.md",
-		"flows/default/review-security.md", "flows/default/approved.md", "flows/default/decide.md",
+		"flows/default/review-security.md", "flows/default/clear.md", "flows/default/approved.md", "flows/default/decide.md",
 		"scripts/merge-local",
 	} {
 		want, err := fs.ReadFile(packs.FS, packs.Starter+"/"+name)

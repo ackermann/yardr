@@ -42,7 +42,7 @@ func TestPackExport(t *testing.T) {
 	}
 	for _, want := range []string{
 		"pack team, kind git, written to " + dir + " from depot web\n",
-		"flows\n  default          7 stages, from starter.default\n  train            type train, 10 stages, from starter.train\n",
+		"flows\n  default          8 stages, from starter.default\n  train            type train, 10 stages, from starter.train\n",
 		"  builders         agent   roles/builders.md  (the yard's web-builders)\n",
 		"  assembly         script  scripts/assembly  (the yard's web-assembly)\n",
 		"  backlog          people  (the yard's backlog)\n",

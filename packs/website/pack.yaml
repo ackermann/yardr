@@ -25,19 +25,21 @@ setup: SETUP.md
 # lands. decide may send a bead back to merged once a person has fixed what
 # a deploy failed on.
 #
-# The three ways back to new (changes from review, changes from
-# review-security, failed from the assembly) are limited as the starter's are:
-# 3 rounds between them, and the fourth goes to decide, where a person reads
-# its note. The review cycle is the starter's, copied, so what stops it going
-# round forever is the starter's too (its comment says why three). The deploy
-# stage has no limit: a deploy that fails goes to decide at once.
+# The four ways back to new (changes from review, changes from
+# review-security, changes from clear, failed from the assembly) are limited
+# as the starter's are: 3 rounds between them, and the fourth round goes to
+# decide, where a person reads its note. The review cycle is the starter's,
+# copied, so what stops it going round forever is the starter's too (its
+# comment says why three). The deploy stage has no limit: a deploy that fails
+# goes to decide at once.
 flows:
   default:
     stages:
       backlog:  { group: backlog,   file: flows/default/backlog.md,  manual: [new, decide] }
       new:      { group: builders,  file: flows/default/new.md,      outcomes: { done: review, question: decide }, manual: [backlog] }
-      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
-      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
+      review:   { group: reviewers, file: flows/default/review.md,   outcomes: { done: review-security, done-safe: clear, changes: { to: new, max: 3, then: decide }, question: decide } }
+      review-security: { group: security-reviewers, file: flows/default/review-security.md, outcomes: { done: clear, changes: { to: new, max: 3, then: decide }, question: decide } }
+      clear:    { group: decisions, file: flows/default/clear.md,    outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }
       approved: { group: assembly,  file: flows/default/approved.md, outcomes: { done: merged, failed: { to: new, max: 3, then: decide }, question: decide } }
       merged:   { group: deploy,    file: flows/default/merged.md,   outcomes: { done: live, failed: decide } }
       decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new, merged] }
@@ -60,7 +62,7 @@ crew:
     role: roles/yardmaster.md
     hears:
       events: [attention]
-      stages: [decide]
+      stages: [decide, clear]
       done: true
     subscribe:
       linear: involved

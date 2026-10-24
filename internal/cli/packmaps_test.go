@@ -245,6 +245,7 @@ func TestPackApplyByAnotherSessionSetsNoStageMap(t *testing.T) {
 	for _, sub := range []store.Subscription{
 		{Source: "linear", Scope: store.ScopeInvolved},
 		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": "web", "stage": "decide"}},
+		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": "web", "stage": "clear"}},
 		{Source: store.SourceYardr, Scope: store.ScopeAll, Where: map[string]string{"depot": "web", "state": store.StateDone}},
 	} {
 		if err := a.st.AddSubscription(ctx, "boss", sub, "boss"); err != nil {

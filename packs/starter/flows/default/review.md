@@ -8,7 +8,8 @@ forward: what the reviewer can fix with confidence is fixed on the branch
 Approval here is the last review of whether the bead does what it says, so
 be thorough. Whether a second review follows, for security alone
 (`review-security`), is yours to call, by the list below: a diff that touches
-nothing on it goes straight to the assembly.
+nothing on it skips the second review and waits in `clear` for {{operator}}'s
+yes before it is landed from `approved`.
 
 Before the bead leaves, the depot's test command has passed on the branch as
 it now is: the builder's test line names the commit under review and you
@@ -21,11 +22,13 @@ the review ended. Outcomes:
 - `done`, approved, and it needs the security review: the note says what
   you checked, what you fixed (commits), the test result, what the change
   opens and to whom, and any remaining risk. The bead goes on to
-  `review-security`, and from there to `approved`, where it is landed.
+  `review-security`, and from there to `clear`, where {{operator}} says yes
+  before it is landed from `approved`.
 - `done-safe`, approved, and it needs no security review: the diff touches
   nothing on the list below. The note says what you checked against the list,
-  what you fixed (commits), and the test result. The bead goes straight to
-  `approved`, where it is landed. The yard refuses it where the depot lists
+  what you fixed (commits), and the test result. The bead goes to `clear`,
+  where {{operator}} says yes before it is landed from `approved`.
+  The yard refuses it where the depot lists
   paths that always need the second review (`.yardr/security_paths` in its
   repository, one pattern a line) and the diff touches one: the refusal names
   the files, and the outcome is `done`.

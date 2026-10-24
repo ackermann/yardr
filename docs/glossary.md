@@ -27,7 +27,7 @@ plain words kept on purpose, because they name general machinery.
 | contributor | someone outside the yard who opened an issue or a pull request; in the contributors pack also the stage a pull request waits in for its author's next commits |
 | maintainer | a person of the yard who decides what of a contributor's work the project takes; the contributors pack's group `maintainers` |
 | flow | the stages a bead of some type goes through, and the moves allowed between them |
-| stage | one step of a flow: a status or column, in a tracker (in the starter flow: backlog, new, review, review-security, approved, merged, decide) |
+| stage | one step of a flow: a status or column, in a tracker (in the starter flow: backlog, new, review, review-security, clear, approved, merged, decide) |
 | route | which group takes the beads of a stage; a route with no depot is a yard default, serving every depot that does not state its own route for the same beads |
 | group | who works a stage: a pool of agents, a script, people, or another yard |
 | runner | how a group's work starts: `herdr` (an agent), `exec` (a command), `manual` (people), `peer` (another yard) |

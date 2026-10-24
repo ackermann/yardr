@@ -191,13 +191,14 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	install := config.At(o.Home).Pack("starter")
 	want := []string{
 		"file roles/builder.md", "file roles/review-security.md", "file roles/reviewer.md", "file roles/yardmaster.md", "file scripts/merge-local",
-		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/review-security.md", "file flows/default/approved.md", "file flows/default/decide.md",
+		"file flows/default/backlog.md", "file flows/default/new.md", "file flows/default/review.md", "file flows/default/review-security.md", "file flows/default/clear.md", "file flows/default/approved.md", "file flows/default/decide.md",
 		"group web-builders", "group web-reviewers", "group web-security-reviewers", "group web-assembly", "group backlog", "group decisions",
 		"flow starter.default", "flow starter.train",
 		"pointer depot web -> starter.default",
 		"pointer depot web type train -> starter.train",
 		"route depot web stage backlog -> backlog", "route depot web stage new -> web-builders", "route depot web stage review -> web-reviewers",
 		"route depot web stage review-security -> web-security-reviewers",
+		"route depot web stage clear -> decisions",
 		"route depot web stage approved -> web-assembly", "route depot web stage decide -> decisions",
 		// No typed copy for a stage both flows share: the plain route
 		// matches beads of every type (yardr-3jst).
@@ -205,7 +206,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 		"route depot web stage in-pr type train -> decisions", "route depot web stage land type train -> web-assembly",
 		"route depot web stage merge type train -> decisions",
 		"crew yardmaster",
-		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web state=done",
+		"subscription yardmaster yardr all depot=web stage=decide", "subscription yardmaster yardr all depot=web stage=clear", "subscription yardmaster yardr all depot=web state=done",
 		// The pack's linear subscription is skipped: the yard has no
 		// source linear, and the next apply sets it once it is there.
 	}
@@ -264,7 +265,7 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if f.To != filepath.Join(install, "scripts", "merge-local") || f.Mode != "0755" || !filepath.IsAbs(f.From) {
 		t.Fatalf("merge-local = %+v", f)
 	}
-	if got := find(t, plan, "flow", "starter.default").Flow.Stages; got[0] != "backlog" || got[6] != "merged" {
+	if got := find(t, plan, "flow", "starter.default").Flow.Stages; got[0] != "backlog" || got[7] != "merged" {
 		t.Fatalf("flow stages = %v", got)
 	}
 	m := find(t, plan, "crew", "yardmaster").CrewMember
@@ -364,7 +365,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	if c, ch, n := actions(plan, pack.Create), actions(plan, pack.Change), actions(plan, pack.NotInPack); len(c)+len(ch)+len(n) != 0 {
 		t.Fatalf("a second import would create %v, change %v, and finds %v not in the pack", c, ch, n)
 	}
-	if len(plan.Objects) != 35 || len(plan.Questions) != 0 {
+	if len(plan.Objects) != 38 || len(plan.Questions) != 0 {
 		t.Fatalf("%d objects, questions %v", len(plan.Objects), plan.Questions)
 	}
 	if g := plan.Governs; len(g) != 2 || g[0].Now != "starter.default (store)" || g[1].Now != "starter.train (store, type train)" {
@@ -379,8 +380,8 @@ func TestSecondImportChangesNothing(t *testing.T) {
 		t.Fatalf("backlog = %+v", g)
 	}
 	routes, _ := st.Routes(ctx)
-	if len(routes) != 10 {
-		t.Fatalf("%d routes, want 10", len(routes))
+	if len(routes) != 11 {
+		t.Fatalf("%d routes, want 11", len(routes))
 	}
 
 	text, err := os.ReadFile(filepath.Join(dir, "pack.yaml"))
@@ -436,7 +437,7 @@ func TestSecondImportChangesNothing(t *testing.T) {
 	// And applying those two brings the yard level again.
 	apply(t, st, plan, nil)
 	plan = build(t, st, load(t, dir), o)
-	if got := actions(plan, pack.Unchanged); len(got) != 35 {
+	if got := actions(plan, pack.Unchanged); len(got) != 38 {
 		t.Fatalf("after applying the change: %d unchanged of %d", len(got), len(plan.Objects))
 	}
 }
@@ -463,7 +464,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	must(st.PutGroup(ctx, store.Group{Name: "backlog", Runner: "manual", Limit: 50, Members: []string{"ann", "boss"}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ann"}}, "me"))
 	depot := "web"
-	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "review-security": "web-security-reviewers", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
+	for stage, group := range map[string]string{"backlog": "backlog", "new": "web-builders", "review": "web-reviewers", "review-security": "web-security-reviewers", "clear": "decisions", "approved": "web-assembly", "decide": "decisions", "merge": "web-mergers"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group, Priority: 3}, "me")
 		must(err)
 	}
@@ -546,7 +547,7 @@ func TestYardSetUpByHand(t *testing.T) {
 	}
 	boss, err := st.GetCrew(ctx, "boss")
 	must(err)
-	if boss.Dir != "/home/boss" || boss.MaxAge != "6h" || boss.Config["env_file"] != "/nowhere.env" || len(boss.Subscriptions) != 4 {
+	if boss.Dir != "/home/boss" || boss.MaxAge != "6h" || boss.Config["env_file"] != "/nowhere.env" || len(boss.Subscriptions) != 5 {
 		t.Fatalf("boss = %+v", boss)
 	}
 }
@@ -681,8 +682,8 @@ func TestRoutesAreReplacedNotAdded(t *testing.T) {
 			n++
 		}
 	}
-	if n != 1 || len(routes) != 10 {
-		t.Fatalf("%d routes for new, %d in all; want 1 and 10", n, len(routes))
+	if n != 1 || len(routes) != 11 {
+		t.Fatalf("%d routes for new, %d in all; want 1 and 11", n, len(routes))
 	}
 }
 

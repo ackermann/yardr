@@ -75,7 +75,7 @@ func TestDepotInitPack(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	const guess = "go vet ./... && go test ./..."
-	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 35 created, 0 changed, 0 unchanged\n",
+	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 38 created, 0 changed, 0 unchanged\n",
 		"\ntest: depot web is tested with " + guess + " (a guess from " + repo + ": check it with yardr depot show web)\n",
 		"To change it:\n  yardr depot add web " + repo + " --base main --test '<command>'\n"} {
 		if !strings.Contains(out, want) {
@@ -116,6 +116,7 @@ func TestDepotInitPack(t *testing.T) {
 		"stage default:new pack starter ("+filepath.Join(stages, "new.md")+")",
 		"stage default:review pack starter ("+filepath.Join(stages, "review.md")+")",
 		"stage default:review-security pack starter ("+filepath.Join(stages, "review-security.md")+")",
+		"stage default:clear pack starter ("+filepath.Join(stages, "clear.md")+")",
 		"stage default:approved pack starter ("+filepath.Join(stages, "approved.md")+")",
 		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"flow type/train pack starter (store starter.train)",
@@ -149,7 +150,7 @@ func TestDepotInitPack(t *testing.T) {
 		Result struct{ Unchanged int }
 		Test   testResult
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 35 ||
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 38 ||
 		got.Test != (testResult{Depot: "web", Kind: store.DepotGit, Path: repo, Base: "main", Test: "make test"}) {
 		t.Fatalf("json: %v, %+v\n%s", err, got, out)
 	}

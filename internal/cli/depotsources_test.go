@@ -131,6 +131,7 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 		"stage default:new none shadows .yardr/flows/default/new.md",
 		"stage default:review pack starter ("+stageFile+") shadows .yardr/flows/default/review.md",
 		"stage default:review-security pack starter ("+filepath.Join(stages, "review-security.md")+")",
+		"stage default:clear pack starter ("+filepath.Join(stages, "clear.md")+")",
 		"stage default:approved pack starter ("+filepath.Join(stages, "approved.md")+")",
 		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"flow type/train pack starter (store starter.train)",
@@ -147,7 +148,7 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	out, _ = run(t, a.depotSourcesCmd(), "web")
 	a.json = false
 	var lines []depotSource
-	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 22 {
+	if err := json.Unmarshal([]byte(out), &lines); err != nil || len(lines) != 23 {
 		t.Fatalf("--json: %v\n%s", err, out)
 	}
 	if l := slices.IndexFunc(lines, func(l depotSource) bool {
@@ -181,6 +182,7 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 		"stage default:new pack starter ("+filepath.Join(stages, "new.md")+") shadows .yardr/flows/default/new.md",
 		"stage default:review pack starter ("+filepath.Join(stages, "review.md")+") shadows .yardr/flows/default/review.md",
 		"stage default:review-security pack starter ("+filepath.Join(stages, "review-security.md")+")",
+		"stage default:clear pack starter ("+filepath.Join(stages, "clear.md")+")",
 		"stage default:approved pack starter ("+filepath.Join(stages, "approved.md")+")",
 		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"flow type/train pack starter (store starter.train)",

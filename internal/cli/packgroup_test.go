@@ -108,7 +108,7 @@ func TestDepotInitTakesGroupsOfTheYard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, want := range []string{"  takes            yardr-builders (the yard's, for the pack's builders", "\napplied pack starter to depot web: 32 created, 0 changed, 0 unchanged\n"} {
+	for _, want := range []string{"  takes            yardr-builders (the yard's, for the pack's builders", "\napplied pack starter to depot web: 35 created, 0 changed, 0 unchanged\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

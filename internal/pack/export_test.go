@@ -166,7 +166,7 @@ func TestExportRoundTrip(t *testing.T) {
 	packYAML := tree(t, d1)["pack.yaml"]
 	for _, want := range []string{
 		"changes: {to: new, max: 3, then: decide}, question: decide}",
-		"outcomes: {done: approved, changes: {to: new, max: 2, then: backlog}, question: decide}",
+		"outcomes: {done: clear, changes: {to: new, max: 2, then: backlog}, question: decide}",
 		"outcomes: {done: merged, failed: {to: new, max: 3, then: decide}, question: decide}",
 		"outcomes: {done: review, question: decide}",
 	} {

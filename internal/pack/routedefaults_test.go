@@ -107,8 +107,8 @@ func TestStarterLeavesBacklogAndDecideToYardDefaults(t *testing.T) {
 			t.Errorf("the import wrote an own %s route %s to %s over a yard default", r.Stage, r.ID, r.Group)
 		}
 	}
-	if defaults != 2 || own != 8 {
-		t.Errorf("routes after the import: %d defaults, %d own, want 2 and 8 (all %d)", defaults, own, len(routes))
+	if defaults != 2 || own != 9 {
+		t.Errorf("routes after the import: %d defaults, %d own, want 2 and 9 (all %d)", defaults, own, len(routes))
 	}
 	depot := "web"
 	if r := store.MatchRoute(routes, store.Bead{Stage: "backlog", Type: "task", Depot: &depot, Priority: store.DefaultPriority}, "me"); r == nil || r.ID != backlog.ID {
@@ -126,8 +126,8 @@ func TestStarterLeavesBacklogAndDecideToYardDefaults(t *testing.T) {
 	}
 	apply(t, st, plan, nil)
 	routes, _ = st.Routes(ctx)
-	if len(routes) != 10 {
-		t.Errorf("routes after a re-apply: %d, want 10", len(routes))
+	if len(routes) != 11 {
+		t.Errorf("routes after a re-apply: %d, want 11", len(routes))
 	}
 }
 

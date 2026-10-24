@@ -72,6 +72,13 @@ the new flow code lacks the stage of open beads in depot yardr: yardr-x
 (yardr bead update <id> --meta flow=<name>), then set the flow again
 ```
 
+A yard that trusts the line drops a stage the same way. The starter pack's
+default flow holds a reviewed bead in `clear` for the person's yes before it
+lands; once the person would always say yes, the yard edits the flow with
+`yardr flow set` so `review-security`'s `done` and review's `done-safe` point
+at `approved` again. `flow set` refuses while any open bead sits in `clear`,
+so those are sent on or back first.
+
 A flow in a depot's repository has no such check, since no command changes
 it and yardr cannot refuse a commit on the base branch: when the base moves
 to a version of the file without a stage, an open bead in that stage stays
@@ -354,10 +361,11 @@ stage as they were, and a stage ask answered with a pick that fires a limited
 outcome redirects the bead the same way.
 
 The packs that ship with yardr carry limits ([packs.md](packs.md#packyaml)).
-The starter pack's default flow limits its three ways back to `new` (`changes`
-from `review` and from `review-security`, `failed` from `approved`) to 3 rounds,
-counted together, and sends the fourth to `decide`. The website pack's default
-flow, the starter's with a deploy stage, has the same three. The design pack's
+The starter pack's default flow limits its four ways back to `new` (`changes`
+from `review`, from `review-security` and from `clear`, `failed` from
+`approved`) to 3 rounds, counted together, and sends the fourth round to
+`decide`. The website pack's default flow, the starter's with a deploy stage,
+has the same four. The design pack's
 flow limits `changes` from `critique` to 2 rounds and `failed` from `approved`
 to 3, both back to `draft`, then `decide`. The train flow has none. A yard that
 has the flow gets the limits when it imports the pack again (`yardr pack check`
@@ -397,7 +405,10 @@ A flow may offer a way past a stage that only some beads need. Depot yardr's
 `review` does: `done` sends a bead on to `review-security`, a second review
 for security alone, and `done-safe` sends it straight to `approved`
 ([line.md](line.md#then-once-more-for-security-alone)); the starter pack's
-default flow has the same two. Which one a reviewer reports is its judgment,
+default flow has the same two, except both end in `clear`: `done` goes
+through `review-security` and `done-safe` past it, and the bead waits there
+for the person's yes before it is landed from `approved`. Which one a
+reviewer reports is its judgment,
 by the list its stage file has. A depot can hold that judgment to its code
 with a file in its repository, `.yardr/security_paths`:
 
