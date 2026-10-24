@@ -84,6 +84,11 @@ const (
 // after the kind's, as a recipe method's label is.
 const apiKeyMethod = "API key"
 
+// daemonStoppedWhy is why an ask of a login whose daemon stopped is taken
+// back, in adoptLead and the orphan sweep alike: its leader went with that
+// daemon, so the login went with it.
+const daemonStoppedWhy = "the yard's daemon that led this login stopped, and the login with it: the yard asks again"
+
 // LoginLeader is a running `yardr harness login <kind> --json`: the JSON
 // lines it prints, the JSON lines it is answered with, and its end.
 type LoginLeader struct {
@@ -285,6 +290,43 @@ func (d *Dispatcher) harnessLogins(ctx context.Context, rs []store.CrewMember) {
 		}
 		d.offerLogin(ctx, seat, operator)
 	}
+	d.sweepOrphanedLoginAsks(ctx, rs, seats)
+}
+
+// sweepOrphanedLoginAsks takes back the led-login asks orphaned while no
+// daemon ran: a card whose seat was replaced with a fresh handle carries
+// no mark, so no lead is adopted for it and nothing else ever looks at it
+// again. Every daemon ask on a crew journal is a led-login ask, so
+// authorship names them whatever step they waited on. Journals with a seat
+// at the screen or a lead waiting on them are skipped before any read: a
+// live login is carried and adopted earlier in the pass, never swept.
+func (d *Dispatcher) sweepOrphanedLoginAsks(ctx context.Context, rs []store.CrewMember, seats []loginSeat) {
+	seated := map[string]bool{}
+	for _, seat := range seats {
+		seated[seat.member] = true
+	}
+	led := map[string]bool{}
+	for _, l := range d.leads {
+		led[l.seat.journal] = true
+	}
+	for _, r := range rs {
+		if r.Journal == "" || seated[r.Name] || led[r.Journal] {
+			continue
+		}
+		notes, err := d.Store.Notes(ctx, r.Journal)
+		if err != nil {
+			continue
+		}
+		for _, a := range store.ResolveAsks(notes, d.now()) {
+			if a.AskErr != nil || a.Note.Author != actor {
+				continue
+			}
+			if a.State != store.AskOpen && a.State != store.AskAside {
+				continue
+			}
+			_ = d.Store.TakeBackAsk(ctx, r.Journal, a.Note.Seq, daemonStoppedWhy, actor)
+		}
+	}
 }
 
 // ownSignIn reports whether the seat is a person's conversation on a login of
@@ -406,8 +448,7 @@ func (d *Dispatcher) adoptLead(ctx context.Context, seat loginSeat, mark map[str
 		return true
 	}
 	if state == store.AskOpen && seq > 0 {
-		_ = d.Store.TakeBackAsk(ctx, journal, uint64(seq),
-			"the yard's daemon that led this login stopped, and the login with it: the yard asks again", actor)
+		_ = d.Store.TakeBackAsk(ctx, journal, uint64(seq), daemonStoppedWhy, actor)
 	}
 	d.markLeadAsk(ctx, seat, nil)
 	return false

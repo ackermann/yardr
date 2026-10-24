@@ -632,30 +632,102 @@ func TestLedLoginAnsweredAsItsSeatLeftStartsNoLeader(t *testing.T) {
 	}
 }
 
-// A daemon that starts again finds the first ask on the handle and waits
-// on it: no second ask. One answered while no daemon ran is acted on.
+// A daemon that starts again adopts an ask on the same marked seat, but
+// takes back the orphan if the seat was replaced while it was stopped.
 func TestLedLoginAskOutlivesTheDaemon(t *testing.T) {
 	t.Parallel()
-	s, f, d, l := loginSetup(t)
-	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
-	again := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
-		LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
-	for range 3 {
-		must(t, again.Reconcile(context.Background()))
-	}
-	if n := len(openAsks(t, s)); n != 1 {
-		t.Fatalf("%d asks open after the daemon started again, want the one", n)
-	}
-	ctx := context.Background()
-	r, err := s.GetCrew(ctx, "yardmaster")
-	must(t, err)
-	must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 1, "", "op", false))
-	third := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
-		LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
-	passUntil(t, third, "the leader started for the pick made while no daemon ran", func() bool { return l.count() == 1 })
-	if _, ev := kindCount(t, s, r.Journal, "login_led"); ev.Data["step"] != "started" {
-		t.Errorf("last login_led %v, want the start", ev.Data)
-	}
+	t.Run("the same seat", func(t *testing.T) {
+		t.Parallel()
+		s, f, d, l := loginSetup(t)
+		passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+		again := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
+			LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
+		for range 3 {
+			must(t, again.Reconcile(context.Background()))
+		}
+		if n := len(openAsks(t, s)); n != 1 {
+			t.Fatalf("%d asks open after the daemon started again, want the one", n)
+		}
+		ctx := context.Background()
+		r, err := s.GetCrew(ctx, "yardmaster")
+		must(t, err)
+		must(t, s.AnswerAsk(ctx, r.Journal, openAsks(t, s)[0].Note.Seq, 1, "", "op", false))
+		third := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
+			LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
+		passUntil(t, third, "the leader started for the pick made while no daemon ran", func() bool { return l.count() == 1 })
+		if _, ev := kindCount(t, s, r.Journal, "login_led"); ev.Data["step"] != "started" {
+			t.Errorf("last login_led %v, want the start", ev.Data)
+		}
+	})
+	t.Run("a replaced seat without its mark", func(t *testing.T) {
+		t.Parallel()
+		s, f, d, l := loginSetup(t)
+		ctx := context.Background()
+		r, err := s.GetCrew(ctx, "yardmaster")
+		must(t, err)
+		passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
+		orphan := openAsks(t, s)[0]
+
+		// The session is replaced while no daemon runs: the pane shows no
+		// login screen, and the fresh handle carries neither mark.
+		f.mu.Lock()
+		f.login, f.input = "", ""
+		f.mu.Unlock()
+		ym, err := s.GetCrew(ctx, "yardmaster")
+		must(t, err)
+		handle := map[string]any{}
+		for k, v := range ym.Handle {
+			handle[k] = v
+		}
+		delete(handle, dispatch.HarnessLoginKey)
+		delete(handle, dispatch.HarnessLoginAskKey)
+		must(t, s.SetCrewHandleFor(ctx, "yardmaster", "", handle))
+
+		again := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1,
+			LeadLogin: l.lead, HarnessInstalled: d.HarnessInstalled}
+		for range 10 {
+			must(t, again.Reconcile(ctx))
+		}
+		if a := openAsks(t, s); len(a) != 0 {
+			t.Fatalf("%d asks open after the next daemon's passes, want none: %+v", len(a), a[0].Ask)
+		}
+		notes, err := s.Notes(ctx, r.Journal)
+		must(t, err)
+		found := false
+		for _, a := range store.ResolveAsks(notes, time.Now()) {
+			if a.Note.Seq != orphan.Note.Seq {
+				continue
+			}
+			found = true
+			if a.State != store.AskTakenBack || a.Current == nil ||
+				!strings.Contains(a.Current.Answer.Words, "the yard's daemon that led this login stopped, and the login with it: the yard asks again") {
+				t.Errorf("the card is %v, taken back for %+v, want it taken back with why", a.State, a.Current)
+			}
+		}
+		if !found {
+			t.Fatalf("orphan ask %d missing after the sweep", orphan.Note.Seq)
+		}
+		if ym, err = s.GetCrew(ctx, "yardmaster"); err != nil {
+			t.Fatal(err)
+		} else if ym.LoginLed || ym.Handle[dispatch.HarnessLoginAskKey] != nil {
+			t.Errorf("a lead was adopted for the orphan: login_led %v, mark %v", ym.LoginLed, ym.Handle[dispatch.HarnessLoginAskKey])
+		}
+		if err := s.AnswerAsk(ctx, r.Journal, orphan.Note.Seq, 1, "", "op", false); err == nil {
+			t.Errorf("the card taken back was answered")
+		}
+		if n := l.count(); n != 0 {
+			t.Errorf("%d leaders started for a login nothing waits on", n)
+		}
+
+		// The yardmaster back at its login screen is offered a card again.
+		f.mu.Lock()
+		f.login, f.input = "Select login method:", "1. Claude account with subscription · Pro, Max, Team, or Enterprise"
+		f.mu.Unlock()
+		passUntil(t, again, "a card again", func() bool { return len(openAsks(t, s)) == 1 })
+		if q := openAsks(t, s)[0]; q.Note.Seq == orphan.Note.Seq || !strings.HasPrefix(q.Ask.Question, "yardmaster is not logged in") {
+			t.Errorf("the card again asks %q", q.Ask.Question)
+		}
+	})
 }
 
 // A key's secret ask outlives the daemon, as the first ask does: it has
