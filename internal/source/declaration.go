@@ -2,8 +2,8 @@
 // YAML file that names the service's address, the credential it takes and
 // the requests the yard may make of it, and makes one such request (Do).
 // A service is added by its file and no Go: what the file cannot say (a
-// request that must be signed, an answer in pages, anything that is no
-// JSON over HTTPS) is not a declared source.
+// request that must be signed, an answer in pages, anything but JSON or a
+// file upload over HTTPS) is not a declared source.
 //
 // One thing a file can say is no request: a command the yard runs. The
 // command that tells what a harness kind's subscription still carries (the
@@ -254,11 +254,13 @@ type Call struct {
 // Default is set.
 type Param struct {
 	Name string `json:"name"`
-	// Type is string, int, bool or enum.
-	Type     string   `json:"type"`
-	Pattern  string   `json:"pattern,omitempty"` // of a string: a regular expression it must match
-	Max      int      `json:"max,omitempty"`     // of a string: its length at most, in characters
-	Values   []string `json:"values,omitempty"`  // of an enum: what it may be
+	// Type is string, int, bool, enum or file.
+	Type    string `json:"type"`
+	Pattern string `json:"pattern,omitempty"` // of a string: a regular expression it must match
+	// Max bounds a value: of a string its length at most, in characters;
+	// of a file its size at most, in bytes.
+	Max      int      `json:"max,omitempty"`
+	Values   []string `json:"values,omitempty"` // of an enum: what it may be
 	Optional bool     `json:"optional,omitempty"`
 	// Default is the typed JSON value sent when the caller leaves the
 	// parameter out. Its raw form preserves false and zero in JSON.
@@ -279,6 +281,9 @@ type Request struct {
 	Query  []QueryValue `json:"query,omitempty"` // in file order
 	// Body is sent as JSON: maps, lists and scalars as the file has them.
 	// A string that is exactly {param} becomes the parameter's typed value.
+	// A body that names a file parameter is sent as a multipart upload
+	// instead: each file parameter one file part, every other value a text
+	// field.
 	Body any `json:"body,omitempty"`
 }
 
@@ -465,7 +470,7 @@ var (
 
 var (
 	methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
-	types   = []string{"string", "int", "bool", "enum"}
+	types   = []string{"string", "int", "bool", "enum", "file"}
 )
 
 // booleans are the plain scalars YAML 1.1 reads as a boolean (see
@@ -614,11 +619,16 @@ func (r *reader) boolean(n *yaml.Node, key string) (value, ok bool) {
 	return n.Value == "true", true
 }
 
-// count reads a whole number from 1 to most.
+// count reads a whole number from 1 to most; most below 1 reads one with
+// no bound above, for a limit the file sets and nothing else holds.
 func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 	v, err := strconv.Atoi(n.Value)
-	if n.Kind != yaml.ScalarNode || n.Tag != "!!int" || err != nil || v < 1 || v > most {
-		r.errf(n, key, "want a whole number from 1 to %d, got %s", most, describe(n))
+	if n.Kind != yaml.ScalarNode || n.Tag != "!!int" || err != nil || v < 1 || (most > 0 && v > most) {
+		if most > 0 {
+			r.errf(n, key, "want a whole number from 1 to %d, got %s", most, describe(n))
+		} else {
+			r.errf(n, key, "want a whole number from 1, got %s", describe(n))
+		}
 		return 0, false
 	}
 	return v, true
@@ -1358,8 +1368,16 @@ func (r *reader) param(e entry) Param {
 			}
 		}
 	}
-	if only(most, "string") {
+	// Max bounds a string in characters and a file in bytes; a file's is
+	// held to no bound above, since max is the bound and may be left out.
+	switch {
+	case most == nil:
+	case p.Type != "string" && p.Type != "file":
+		r.errf(most.k, most.path, "is for a parameter of type string or file, and this one is %s", p.Type)
+	case p.Type == "string":
 		p.Max, _ = r.count(most.v, most.path, AnswerLimit)
+	default:
+		p.Max, _ = r.count(most.v, most.path, 0)
 	}
 	if only(values, "enum") {
 		p.Values = r.strs(values.v, values.path)
@@ -1420,6 +1438,14 @@ func (r *reader) paramDefault(p Param, e entry) (json.RawMessage, bool) {
 			return nil, false
 		}
 		value = b
+	case "file":
+		// A path, held to nothing here: its bounds are the file's, read
+		// when the call is made.
+		if e.v.Kind != yaml.ScalarNode || e.v.Tag != "!!str" {
+			r.errf(e.v, e.path, "want a file default, got %s", describe(e.v))
+			return nil, false
+		}
+		value = e.v.Value
 	default:
 		return nil, false
 	}
@@ -1453,6 +1479,8 @@ func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (ha
 				r.errf(n, key, msg, CredentialMark, where)
 			case !declared:
 				r.errf(n, key, "%s is no parameter of the call %s", m[0], c.Name)
+			case p.Type == "file":
+				r.errf(n, key, "%s is a file: it stands as a value of the body, which is sent as one upload, not in %s", m[0], where)
 			case p.Optional && where == "a path":
 				r.errf(n, key, "%s is optional, and a path has no place for a value that is not given", m[0])
 			case p.Optional && s != m[0]:
@@ -1506,6 +1534,7 @@ func (r *reader) request(c *Call, e entry, credential, inPath, address bool) (ha
 			}
 		case "body":
 			hasBody = true
+			r.checkFileMarks(c, f.v, f.path)
 			c.Request.Body = r.body(c, f.v, f.path, credential, address)
 			// Left out of a mapping or a list, an optional parameter that is
 			// not given leaves a body. As the whole body it leaves none to
@@ -1556,6 +1585,64 @@ func (r *reader) pairs(n *yaml.Node, key string) []entry {
 		}
 	}
 	return out
+}
+
+// checkFileMarks holds a file parameter to where an upload carries it:
+// alone as a value of the body's mapping, one value to one part. Anywhere
+// else there is no part to send it as: no key of its own in a list or as
+// the whole body, and no bytes to put inside a larger string.
+func (r *reader) checkFileMarks(c *Call, root *yaml.Node, key string) {
+	// nested walks what is no value of the body's mapping: a file mark
+	// under it stands nowhere an upload carries.
+	var nested func(n *yaml.Node, key string)
+	nested = func(n *yaml.Node, key string) {
+		switch n.Kind {
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				nested(n.Content[i+1], join(key, n.Content[i].Value))
+			}
+		case yaml.SequenceNode:
+			for _, v := range n.Content {
+				nested(v, key)
+			}
+		case yaml.ScalarNode:
+			r.fileMark(c, n, key, false)
+		}
+	}
+	if root.Kind != yaml.MappingNode {
+		nested(root, key)
+		return
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		k, v := root.Content[i], root.Content[i+1]
+		p := join(key, k.Value)
+		if v.Kind == yaml.ScalarNode {
+			r.fileMark(c, v, p, true)
+		} else {
+			nested(v, p)
+		}
+	}
+}
+
+// fileMark refuses a file parameter's mark where no upload carries it.
+// topValue says the mark stands alone as a value of the body's mapping;
+// what is no mark of a file parameter is r.body's to check.
+func (r *reader) fileMark(c *Call, n *yaml.Node, key string, topValue bool) {
+	if n.Tag != "!!str" {
+		return
+	}
+	for _, m := range mark.FindAllStringSubmatch(n.Value, -1) {
+		p, declared := c.param(m[1])
+		if !declared || p.Type != "file" {
+			continue
+		}
+		switch {
+		case n.Value != m[0]:
+			r.errf(n, key, "%s is a file: it stands alone as a value, which is sent as one upload", m[0])
+		case !topValue:
+			r.errf(n, key, "%s is a file: it stands as a value of the body's mapping, which is sent as one upload", m[0])
+		}
+	}
 }
 
 // body reads a request's body into what encoding/json sends: maps, lists

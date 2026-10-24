@@ -1986,7 +1986,7 @@ packs/dir/                     internal/pack
 packs/linear/                  internal/hooks internal/dispatch
 packs/github/                  internal/hooks
 packs/slack/                   internal/hooks internal/store
-packs/telegram/                internal/hooks internal/store
+packs/telegram/                internal/hooks internal/store internal/source
 packs/pushover/                internal/notify internal/dispatch
 packs/posthog/                 internal/hooks internal/store
 packs/webhook/                 internal/hooks

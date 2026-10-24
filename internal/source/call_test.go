@@ -1,14 +1,20 @@
 package source
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -251,6 +257,258 @@ calls:
 	}
 	if got := s.got()[1]; string(got.Body) != `{"enabled":true,"limit":20,"list":["a",3],"say":"for a"}` {
 		t.Fatalf("explicit value overrides the default: body = %s", got.Body)
+	}
+}
+
+// uploadPart is one part of a multipart body a test read back.
+type uploadPart struct{ name, filename, ctype, body string }
+
+// uploadParts reads the parts of a sent multipart body, in order.
+func uploadParts(t *testing.T, sent sent) []uploadPart {
+	t.Helper()
+	mt, params, err := mime.ParseMediaType(sent.ContentType)
+	if err != nil || mt != "multipart/form-data" {
+		t.Fatalf("Content-Type = %q, want a multipart upload", sent.ContentType)
+	}
+	mr := multipart.NewReader(bytes.NewReader(sent.Body), params["boundary"])
+	var out []uploadPart
+	for {
+		p, err := mr.NextPart()
+		if err == io.EOF {
+			return out
+		}
+		if err != nil {
+			t.Fatalf("reading the upload: %v", err)
+		}
+		data, err := io.ReadAll(p)
+		if err != nil {
+			t.Fatalf("reading a part: %v", err)
+		}
+		out = append(out, uploadPart{p.FormName(), p.FileName(), p.Header.Get("Content-Type"), string(data)})
+	}
+}
+
+// A body that names a file parameter goes as a multipart upload: the file
+// one file part under the body's key for it, every other value a text
+// field. The part carries the file's own name and the type sniffed from
+// what it holds, and an optional value left out stays out.
+func TestDoSendsAFileAsMultipart(t *testing.T) {
+	const file = `name: bot
+base: https://bot.example.com
+credential: { env: BOT_TOKEN, in_path: true }
+calls:
+  document:
+    kind: update
+    params:
+      chat: { type: string, pattern: "^-?[0-9]+$" }
+      path: { type: file, max: 52428800 }
+      caption: { type: string, max: 1024, optional: true }
+    request:
+      method: POST
+      path: /bot{credential}/sendDocument
+      body: { chat_id: "{chat}", document: "{path}", caption: "{caption}" }
+`
+	s := newStandin(t, jsonAnswer(`{"ok":true,"result":{"message_id":7}}`))
+	d := declared(t, file, "https://bot.example.com", s.URL)
+	// Named .txt but holding a PDF: the part's type is sniffed from what
+	// the file holds, not guessed from its name.
+	content := "%PDF-1.4 fake plans\n%%EOF\n"
+	upload := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(upload, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload, "caption": "the shed from the north"}, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != 200 || !res.OK() || string(res.Answer) != `{"ok":true,"result":{"message_id":7}}` {
+		t.Fatalf("result = %+v", res)
+	}
+	got := s.got()
+	if len(got) != 1 || got[0].Method != "POST" || got[0].URI != "/bot"+token+"/sendDocument" {
+		t.Fatalf("sent = %+v", got)
+	}
+	want := []uploadPart{
+		{"caption", "", "", "the shed from the north"},
+		{"chat_id", "", "", "987654321"},
+		{"document", "notes.txt", "application/pdf", content},
+	}
+	if parts := uploadParts(t, got[0]); !slices.Equal(parts, want) {
+		t.Fatalf("parts = %+v, want %+v", parts, want)
+	}
+	if _, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": upload}, token); err != nil {
+		t.Fatal(err)
+	}
+	if parts := uploadParts(t, s.got()[1]); !slices.Equal(parts, want[1:]) {
+		t.Fatalf("parts without a caption = %+v, want %+v", parts, want[1:])
+	}
+
+	// What is no string goes as its JSON: a whole number, a boolean and
+	// a nested value each one text field, beside the file part.
+	const typed = `name: typed
+base: https://typed.example.com
+calls:
+  upload:
+    kind: update
+    params:
+      path: { type: file }
+      limit: { type: int }
+      open: { type: bool }
+      tag: { type: string }
+    request:
+      method: POST
+      path: /upload
+      body: { file: "{path}", limit: "{limit}", open: "{open}", meta: { tag: "{tag}" }, note: "for {tag}" }
+`
+	d = declared(t, typed, "https://typed.example.com", s.URL)
+	if _, err := Do(context.Background(), d, "upload", map[string]string{"path": upload, "limit": "20", "open": "true", "tag": "x"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	want = []uploadPart{
+		{"file", "notes.txt", "application/pdf", content},
+		{"limit", "", "", "20"},
+		{"meta", "", "", `{"tag":"x"}`},
+		{"note", "", "", "for x"},
+		{"open", "", "", "true"},
+	}
+	if parts := uploadParts(t, s.got()[2]); !slices.Equal(parts, want) {
+		t.Fatalf("parts = %+v, want %+v", parts, want)
+	}
+	// CR and LF in a path's base must stay inside the quoted filename, not
+	// create another header in the multipart body.
+	tricky := filepath.Join(t.TempDir(), "notes\r\nX-Injected: yes.txt")
+	if err := os.WriteFile(tricky, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Do(context.Background(), d, "upload", map[string]string{"path": tricky, "limit": "20", "open": "true", "tag": "x"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	trickyBody := string(s.got()[3].Body)
+	if strings.Contains(trickyBody, "\r\nX-Injected:") || !strings.Contains(trickyBody, `filename="notes%0D%0AX-Injected: yes.txt"`) {
+		t.Fatalf("filename was not safely escaped in multipart body: %q", trickyBody)
+	}
+}
+
+// A file parameter is a path that can be read, within its bound: anything
+// else refuses the call before anything is sent, naming the parameter and
+// never the path.
+func TestDoRefusesFileParameters(t *testing.T) {
+	const file = `name: bot
+base: https://bot.example.com
+calls:
+  document:
+    kind: update
+    params:
+      chat: { type: string }
+      path: { type: file, max: 8 }
+    request:
+      method: POST
+      path: /sendDocument
+      body: { chat_id: "{chat}", document: "{path}" }
+`
+	s := newStandin(t, jsonAnswer(`{}`))
+	d := declared(t, file, "https://bot.example.com", s.URL)
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.txt")
+	if err := os.WriteFile(ok, []byte("12345678"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	big := filepath.Join(dir, "big.txt")
+	if err := os.WriteFile(big, []byte("123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ path, want string }{
+		{filepath.Join(dir, "missing.txt"), "parameter path is no file that can be read"},
+		{dir, "parameter path is no file that can be read"},
+		{big, "parameter path is 9 bytes, and at most 8"},
+	} {
+		_, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": tc.path}, "")
+		if reason(err) != BadParam || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("path %q: err = %v, want %q", tc.path, err, tc.want)
+		}
+		if strings.Contains(err.Error(), tc.path) {
+			t.Errorf("the refusal holds the path: %v", err)
+		}
+		clean(t, err)
+	}
+	if got := s.got(); len(got) != 0 {
+		t.Fatalf("a refused call was sent: %+v", got)
+	}
+	// At the bound it goes.
+	if _, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": ok}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.got(); len(got) != 1 {
+		t.Fatalf("sent = %+v", got)
+	}
+}
+
+// The telegram pack's document call is an update sending a file to a chat,
+// refused over the Bot API's 50 MB upload bound. It reads the pack's own
+// file, so the wiring it pins is the pack's, not a copy's.
+func TestTelegramDocumentSendsAFile(t *testing.T) {
+	raw, err := os.ReadFile("../../packs/telegram/telegram.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := Parse("telegram.yaml", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, ok := d.Call("document")
+	if !ok || c.Kind != Update {
+		t.Fatalf("document = %+v, %v: want an update call", c, ok)
+	}
+	if len(c.Params) != 3 || c.Params[0].Name != "chat" || c.Params[1].Name != "path" || c.Params[2].Name != "caption" {
+		t.Fatalf("params = %+v", c.Params)
+	}
+	if p := c.Params[1]; p.Type != "file" || p.Max != 52428800 {
+		t.Fatalf("path = %+v, want a file of at most 52428800 bytes", p)
+	}
+	if p := c.Params[2]; !p.Optional || p.Max != 1024 {
+		t.Fatalf("caption = %+v, want an optional string of at most 1024", p)
+	}
+	s := newStandin(t, jsonAnswer(`{"ok":true,"result":{"message_id":8}}`))
+	d.Base = s.URL
+	dir := t.TempDir()
+	big, err := os.Create(filepath.Join(dir, "big.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := big.Truncate(52428801); err != nil {
+		t.Fatal(err)
+	}
+	big.Close()
+	_, err = Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": big.Name()}, "123:ABC")
+	if reason(err) != BadParam || !strings.Contains(err.Error(), "parameter path is 52428801 bytes, and at most 52428800") {
+		t.Fatalf("over 50 MB: err = %v", err)
+	}
+	if strings.Contains(err.Error(), big.Name()) {
+		t.Fatalf("the refusal holds the path: %v", err)
+	}
+	// A small file goes to sendDocument as an upload.
+	small := filepath.Join(dir, "shed.txt")
+	if err := os.WriteFile(small, []byte("the shed, measured\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Do(context.Background(), d, "document", map[string]string{"chat": "987654321", "path": small, "caption": "tonight's build"}, "123:ABC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK() {
+		t.Fatalf("result = %+v", res)
+	}
+	got := s.got()
+	if len(got) != 1 || got[0].URI != "/bot123:ABC/sendDocument" {
+		t.Fatalf("sent = %+v", got)
+	}
+	want := []uploadPart{
+		{"caption", "", "", "tonight's build"},
+		{"chat_id", "", "", "987654321"},
+		{"document", "shed.txt", "text/plain; charset=utf-8", "the shed, measured\n"},
+	}
+	if parts := uploadParts(t, got[0]); !slices.Equal(parts, want) {
+		t.Fatalf("parts = %+v, want %+v", parts, want)
 	}
 }
 

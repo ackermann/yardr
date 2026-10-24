@@ -247,7 +247,7 @@ func TestPackApplyNotifyTelegram(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"\nsource telegram is declared: 3 calls under https://api.telegram.org (yardr source show telegram)\n",
+		"\nsource telegram is declared: 4 calls under https://api.telegram.org (yardr source show telegram)\n",
 		"source telegram: TELEGRAM_BOT_TOKEN is set in " + srcEnv + "\n",
 		"user me: told outside the yard: through telegram (TELEGRAM_CHAT_ID is set in " + userEnv + ")\n",
 	} {

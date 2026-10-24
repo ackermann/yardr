@@ -815,7 +815,8 @@ commands the source names use that selected URL.
   ([google.md](google.md#step-4-the-mint)); for a GitHub App's it is
   [`contrib/github-mint`](../contrib/github-mint/README.md), set by the
   operator.
-- **What a file can say**: JSON over HTTPS, and things that are no request:
+- **What a file can say**: JSON requests and multipart file uploads over
+  HTTPS, and things that are no request:
   the command that says a subscription's limits
   ([above](#say-what-a-subscription-still-carries)), what the service
   sends in ([below](#what-the-service-sends-in)), and the commands by

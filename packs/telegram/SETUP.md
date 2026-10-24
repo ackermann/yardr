@@ -25,7 +25,7 @@ inbox.
    name in this yard.
    ```sh
    yardr pack apply telegram --notify mckean=telegram
-   # source telegram is declared: 2 calls under https://api.telegram.org (yardr source show telegram)
+   # source telegram is declared: 4 calls under https://api.telegram.org (yardr source show telegram)
    # user mckean: told outside the yard: through telegram, which is not set up: user mckean has no env_file: yardr user key mckean telegram gives TELEGRAM_CHAT_ID
    ```
    `--notify` is telling, and telling through telegram is optional:
@@ -34,7 +34,7 @@ inbox.
    told through pushover and chat through telegram, apply without it:
    ```sh
    yardr pack apply telegram
-   # source telegram is declared: 2 calls under https://api.telegram.org (yardr source show telegram)
+   # source telegram is declared: 4 calls under https://api.telegram.org (yardr source show telegram)
    ```
 4. **Give the yard the bot's token.** No file is written by hand: the
    command asks for its value and shows nothing as it is typed or

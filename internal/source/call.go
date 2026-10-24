@@ -7,9 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -199,13 +203,26 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	var body io.Reader
+	contentType := ""
 	if built != nil {
 		body = bytes.NewReader(built)
+		contentType = "application/json"
 	} else if c.Request.Body != nil {
-		filled, _ := fill(c.Request.Body, vals, credential)
-		raw, err := json.Marshal(filled)
-		if err != nil {
-			return nil, fail(BadParam, 0, "the body cannot be sent as JSON")
+		var raw []byte
+		var err error
+		if c.hasFileParam() {
+			raw, contentType, err = c.multipart(vals, credential)
+			if err != nil {
+				return nil, fail(BadParam, 0, "the body cannot be sent as an upload")
+			}
+		} else {
+			var filled any
+			filled, _ = fill(c.Request.Body, vals, credential)
+			raw, err = json.Marshal(filled)
+			if err != nil {
+				return nil, fail(BadParam, 0, "the body cannot be sent as JSON")
+			}
+			contentType = "application/json"
 		}
 		body = bytes.NewReader(raw)
 	}
@@ -216,7 +233,7 @@ func doKeyed(ctx context.Context, d *Declaration, name string, params map[string
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "yardr")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	if d.Credential != nil && d.Credential.Header != "" {
 		k, v, _ := strings.Cut(d.Credential.Header, ": ")
@@ -375,13 +392,18 @@ func hiding(credential string, u *url.URL) *regexp.Regexp {
 type value struct {
 	text  string
 	typed any
+	// file is what a file parameter's path held when the call was made,
+	// read once so the size it is held to and the bytes that are sent are
+	// one file's. Its typed value stays the path, as a build command is
+	// handed it.
+	file []byte
 }
 
 // defaultText turns a declaration's typed default back into the text a call
 // parameter takes. Parse checked the type when it read the declaration.
 func defaultText(p Param) (string, error) {
 	switch p.Type {
-	case "string", "enum":
+	case "string", "enum", "file":
 		var s string
 		if err := json.Unmarshal(p.Default, &s); err != nil {
 			return "", err
@@ -458,6 +480,26 @@ func (c *Call) values(params map[string]string) (map[string]value, error) {
 			if !slices.Contains(p.Values, s) {
 				return nil, fmt.Errorf("parameter %s is one of %s", p.Name, strings.Join(p.Values, ", "))
 			}
+		case "file":
+			// The path is read now, not when the body is sent, so the
+			// size it is held to and the bytes that go are one file's.
+			// The errors name the parameter, never the path: no error of
+			// a call holds a value.
+			st, err := os.Stat(s)
+			switch {
+			case err != nil || !st.Mode().IsRegular():
+				return nil, fmt.Errorf("parameter %s is no file that can be read", p.Name)
+			case p.Max > 0 && st.Size() > int64(p.Max):
+				return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, st.Size(), p.Max)
+			}
+			data, err := os.ReadFile(s)
+			switch {
+			case err != nil:
+				return nil, fmt.Errorf("parameter %s is no file that can be read", p.Name)
+			case p.Max > 0 && len(data) > p.Max:
+				return nil, fmt.Errorf("parameter %s is %d bytes, and at most %d", p.Name, len(data), p.Max)
+			}
+			v.file = data
 		default:
 			return nil, fmt.Errorf("parameter %s has no type", p.Name)
 		}
@@ -597,6 +639,102 @@ func fill(v any, vals map[string]value, credential string) (out any, keep bool) 
 		return mark.ReplaceAllStringFunc(v, func(m string) string { return vals[m[1:len(m)-1]].text }), true
 	}
 	return v, true
+}
+
+// hasFileParam reports whether the body's template names a file parameter.
+// Such a body is sent as a multipart upload, not as JSON; what names none
+// is sent as it always was.
+func (c *Call) hasFileParam() bool {
+	var walk func(v any) bool
+	walk = func(v any) bool {
+		switch v := v.(type) {
+		case map[string]any:
+			for _, child := range v {
+				if walk(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if walk(child) {
+					return true
+				}
+			}
+		case string:
+			for _, m := range mark.FindAllStringSubmatch(v, -1) {
+				if p, ok := c.param(m[1]); ok && p.Type == "file" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(c.Request.Body)
+}
+
+// multipart is the body's template filled as a multipart upload: each file
+// parameter one file part under the body's key for it, every other value a
+// text field. Keys go in order, as JSON's do. A whole value whose optional
+// parameter was not given is left out, as fill leaves it.
+func (c *Call) multipart(vals map[string]value, credential string) (raw []byte, contentType string, err error) {
+	top, _ := c.Request.Body.(map[string]any)
+	keys := make([]string, 0, len(top))
+	for k := range top {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for _, k := range keys {
+		if s, ok := top[k].(string); ok {
+			if m := mark.FindStringSubmatch(s); m != nil && m[0] == s {
+				if p, declared := c.param(m[1]); declared && p.Type == "file" {
+					val, given := vals[m[1]]
+					if !given {
+						continue
+					}
+					if err := writeFilePart(w, k, val.text, val.file); err != nil {
+						return nil, "", err
+					}
+					continue
+				}
+			}
+		}
+		filled, keep := fill(top[k], vals, credential)
+		if !keep {
+			continue
+		}
+		field, ok := filled.(string)
+		if !ok {
+			var b []byte
+			if b, err = json.Marshal(filled); err != nil {
+				return nil, "", err
+			}
+			field = string(b)
+		}
+		if err := w.WriteField(k, field); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), w.FormDataContentType(), nil
+}
+
+// writeFilePart writes one file parameter as a part of an upload: the
+// body's key is the part's name, the path's base its file name, and its
+// type is sniffed from what the file holds, as a client's upload goes.
+func writeFilePart(w *multipart.Writer, key, path string, data []byte) error {
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Disposition", multipart.FileContentDisposition(key, filepath.Base(path)))
+	h.Set("Content-Type", http.DetectContentType(data))
+	part, err := w.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(data)
+	return err
 }
 
 // selected is the answer raw with only keys kept: of the object it is, or

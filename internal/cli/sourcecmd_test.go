@@ -29,6 +29,15 @@ func TestSourceParamLineDefault(t *testing.T) {
 	}
 }
 
+// A file parameter's bound is in bytes, not characters.
+func TestSourceParamLineFileMax(t *testing.T) {
+	t.Parallel()
+	got := paramLine(source.Param{Name: "path", Type: "file", Max: 52428800})
+	if got != "path  file  at most 52428800 bytes" {
+		t.Fatalf("paramLine = %q", got)
+	}
+}
+
 func TestSourceOutputUsesCommandWriter(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)

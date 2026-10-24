@@ -1,6 +1,7 @@
-# Telegram as a declared source: one message to one chat through the Bot
-# API's sendMessage, a POST of a JSON body with the bot's token in the
-# path and the chat's id in the body. The notify key makes it a source a
+# Telegram as a declared source: one message or one file to one chat
+# through the Bot API's sendMessage and sendDocument, each a POST with
+# the bot's token in the path and the chat's id in the body: a message
+# goes as JSON, a file as an upload. The notify key makes it a source a
 # user can be told through (yardr user set <name> notify=telegram); the
 # hook key hears operator-role users' chats back, answered with yardr reply.
 # The check call reads what Telegram holds of the webhook
@@ -8,10 +9,12 @@
 # failed delivery's date and message, which say a broken webhook from a
 # quiet person, whose chat has no steady rhythm to time silence by.
 #
-# Checked against core.telegram.org/bots/api on 12 October 2026: queries
+# Checked against core.telegram.org/bots/api on 24 October 2026: queries
 # are https://api.telegram.org/bot<token>/METHOD_NAME; sendMessage takes
 # chat_id (Integer or String, required) and text (1-4096 characters,
-# required), and answers 200 with the message on success. Receiving is a
+# required); sendDocument takes chat_id and the file as a multipart
+# upload (50 MB at most), with an optional caption (1024 characters at
+# most); each answers 200 with the message on success. Receiving is a
 # webhook carrying one Update, authenticated with the secret token in the
 # X-Telegram-Bot-Api-Secret-Token header, compared as it arrives; each
 # Update carries its own update_id, by which a retry is told.
@@ -40,6 +43,17 @@ calls:
       method: POST
       path: /bot{credential}/sendMessage
       body: { chat_id: "{chat}", text: "{title}\n{text}" }
+  document:
+    kind: update
+    about: One file to one chat
+    params:
+      chat:    { type: string, pattern: "^-?[0-9]+$" }
+      path:    { type: file, max: 52428800 }
+      caption: { type: string, max: 1024, optional: true }
+    request:
+      method: POST
+      path: /bot{credential}/sendDocument
+      body: { chat_id: "{chat}", document: "{path}", caption: "{caption}" }
   setwebhook:
     kind: update
     about: Tell Telegram where to send updates (setWebhook)

@@ -179,11 +179,62 @@ calls:
 		{"bool", `default: "false"`, "want true or false"},
 		{"enum", "values: [reader, commenter], default: writer", "default is one of reader, commenter"},
 		{"string", `default: too-long, max: 3`, "default is 8 characters, and at most 3"},
+		{"file", `default: 42`, "want a file default, got int 42"},
 	} {
 		_, err := Parse("defaults.yaml", []byte(fmt.Sprintf(file, tc.typ, tc.setting)))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s %s: err = %v, want %q", tc.typ, tc.setting, err, tc.want)
 		}
+	}
+}
+
+// A file parameter is a path on the machine, bounded in bytes; its body
+// goes as an upload, not as JSON.
+func TestParseFileParameter(t *testing.T) {
+	const text = `name: docs
+base: https://docs.example.com
+credential: { env: DOCS_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  send:
+    kind: update
+    params:
+      chat: { type: string, pattern: "^[0-9]+$" }
+      path: { type: file, max: 52428800 }
+      caption: { type: string, max: 1024, optional: true }
+      cover: { type: file, default: "cover.png" }
+    request:
+      method: POST
+      path: /send
+      body: { chat_id: "{chat}", document: "{path}", caption: "{caption}", cover: "{cover}" }
+`
+	d, err := Parse("docs.yaml", []byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := d.Call("send")
+	if !c.hasFileParam() {
+		t.Fatal("a body naming a file parameter is not an upload")
+	}
+	byName := map[string]Param{}
+	for _, p := range c.Params {
+		byName[p.Name] = p
+	}
+	if p := byName["path"]; p.Type != "file" || p.Max != 52428800 || p.Optional {
+		t.Fatalf("path = %+v, want a required file of at most 52428800 bytes", p)
+	}
+	if p := byName["caption"]; p.Type != "string" || p.Max != 1024 || !p.Optional {
+		t.Fatalf("caption = %+v, want an optional string of at most 1024", p)
+	}
+	if p := byName["cover"]; p.Type != "file" || !p.Optional || string(p.Default) != `"cover.png"` {
+		t.Fatalf("cover = %+v, want an optional file defaulting to cover.png", p)
+	}
+	n, err := Parse("crm.yaml", []byte(crm))
+	if err != nil {
+		t.Fatal(err)
+	}
+	note, _ := n.Call("note")
+	if note.hasFileParam() {
+		t.Fatal("a body naming no file parameter is an upload")
 	}
 }
 
@@ -389,6 +440,13 @@ func TestParseRefuses(t *testing.T) {
 		}
 		return strings.Replace(crm, old, new, 1)
 	}
+	// withFile is the CRM file with a file parameter f on the note call
+	// and its request's tail replaced by tail.
+	withFile := func(tail string) string {
+		text := with(`params: { id: { type: string, pattern: "^[0-9]{1,12}$" }, text: { type: string, max: 2000 } }`,
+			`params: { id: { type: string, pattern: "^[0-9]{1,12}$" }, text: { type: string, max: 2000 }, f: { type: file } }`)
+		return strings.Replace(text, `body: { text: "{text}" } }`, tail, 1)
+	}
 	for _, tc := range []struct {
 		name, text, key, want string
 	}{
@@ -428,6 +486,24 @@ func TestParseRefuses(t *testing.T) {
 			"calls.customer.request.path", "{other} is no parameter of the call customer"},
 		{"a parameter that is not declared, in a body", with(`body: { text: "{text}" }`, `body: { text: "{text}", by: [ "{who}" ] }`),
 			"calls.note.request.body.by", "{who} is no parameter of the call note"},
+		{"a file in a path", with(`params: { id: { type: string, pattern: "^[0-9]{1,12}$" } }`, `params: { id: { type: file } }`),
+			"calls.customer.request.path", "{id} is a file: it stands as a value of the body, which is sent as one upload, not in a path"},
+		{"a file in a query", withFile(`body: { text: "{text}" }, query: { doc: "{f}" } }`),
+			"calls.note.request.query.doc", "{f} is a file: it stands as a value of the body, which is sent as one upload, not in a query"},
+		{"a file as a part of a body's value", withFile(`body: { text: "see {f}: {text}" } }`),
+			"calls.note.request.body.text", "{f} is a file: it stands alone as a value, which is sent as one upload"},
+		{"a file under another key of a body", withFile(`body: { text: "{text}", meta: { doc: "{f}" } } }`),
+			"calls.note.request.body.meta.doc", "{f} is a file: it stands as a value of the body's mapping, which is sent as one upload"},
+		{"a file in a list of a body", withFile(`body: { text: "{text}", docs: [ "{f}" ] } }`),
+			"calls.note.request.body.docs", "{f} is a file: it stands as a value of the body's mapping, which is sent as one upload"},
+		{"a file as the whole body", withFile(`body: "{f}" }`),
+			"calls.note.request.body", "{f} is a file: it stands as a value of the body's mapping, which is sent as one upload"},
+		{"a pattern on a file", with(`text: { type: string, max: 2000 }`, `text: { type: file, pattern: "^[a-z]+$" }`),
+			"calls.note.params.text.pattern", "is for a parameter of type string, and this one is file"},
+		{"a bound on a number", with(`text: { type: string, max: 2000 }`, `text: { type: int, max: 2000 }`),
+			"calls.note.params.text.max", "is for a parameter of type string or file, and this one is int"},
+		{"a file bound of nothing", with(`text: { type: string, max: 2000 }`, `text: { type: file, max: 0 }`),
+			"calls.note.params.text.max", "want a whole number from 1, got int 0"},
 		{"a read call that deletes", with("ping:     { kind: read, request: { method: GET, path: /me } }", "ping:     { kind: read, request: { method: DELETE, path: /me } }"),
 			"calls.ping.request.method", "DELETE in a call of kind read"},
 		{"a name yardr has built in", with("name: crm", "name: token"),

@@ -133,8 +133,8 @@ func (a *app) sourceCmd() *cobra.Command {
 		Long: `A declared source is a service outside the yard that was added by a file:
 its address, the credential it takes and the requests the yard may make of
 it, each with its parameters. No Go is written for one. What a file cannot
-say (a request that must be signed, an answer in pages, anything that is no
-JSON over HTTPS) is not a declared source.
+say (a request that must be signed, an answer in pages, anything but JSON
+or a file upload over HTTPS) is not a declared source.
 
   name: crm
   about: The customer system.
@@ -155,12 +155,14 @@ JSON over HTTPS) is not a declared source.
       answer: { select: [id, created] }
 
 A call is read or update. Its parameters are string (with pattern and max),
-int, bool or enum (with values), all required unless optional: true. A
-{param} in the path, the query or the body is replaced by the value, escaped
-by where it stands. The body is sent as JSON, and a value that is exactly
-{param} is sent as the parameter's type; one whose optional parameter was
-not given is left out. The answer is JSON: select keeps the named top-level
-keys, and it is at most 64 KB (answer.max raises that, to 1 MiB at most).
+int, bool, enum (with values) or file (with max, in bytes), all required
+unless optional: true. A {param} in the path, the query or the body is
+replaced by the value, escaped by where it stands; a file stands alone as
+a value of the body. The body is sent as JSON, or as a multipart upload
+when it names a file parameter, and a value that is exactly {param} is
+sent as the parameter's type; one whose optional parameter was not given
+is left out. The answer is JSON: select keeps the named top-level keys,
+and it is at most 64 KB (answer.max raises that, to 1 MiB at most).
 
 The file holds no secret. {credential} stands for the value of the variable
 credential.env names, read at each call from the file the operator gives it
@@ -1864,7 +1866,11 @@ func paramLine(p source.Param) string {
 		parts = append(parts, "matching "+p.Pattern)
 	}
 	if p.Max > 0 {
-		parts = append(parts, fmt.Sprintf("at most %d characters", p.Max))
+		unit := "characters"
+		if p.Type == "file" {
+			unit = "bytes"
+		}
+		parts = append(parts, fmt.Sprintf("at most %d %s", p.Max, unit))
 	}
 	if len(p.Values) > 0 {
 		parts = append(parts, "one of "+strings.Join(p.Values, ", "))
