@@ -57,7 +57,7 @@ func TestPushQueuedWithAnAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	box, err := st.UserNotifications(ctx, "ada", 0)
+	box, err := st.UserNotifications(ctx, "ada", 0, "ada")
 	if err != nil || len(box.Notifications) != 1 {
 		t.Fatalf("the notification of the second ask: %+v, %v", box, err)
 	}
@@ -65,7 +65,7 @@ func TestPushQueuedWithAnAsk(t *testing.T) {
 		t.Fatalf("pushes after the second ask = %+v", ps)
 	}
 	// Reading the inbox does not answer a question.
-	if err := st.AckUserNotifications(ctx, "ada", 1<<40); err != nil {
+	if err := st.AckUserNotifications(ctx, "ada", 1<<40, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if ps = pushesOf(t, st); !ps[0].Unread() || !ps[1].Unread() {

@@ -90,7 +90,7 @@ func TestCrewAskIsStoredWithTheDeclarationsNames(t *testing.T) {
 		t.Errorf("the card:\n%s", lines)
 	}
 	// In the operator's own queue, as footplate reads it.
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

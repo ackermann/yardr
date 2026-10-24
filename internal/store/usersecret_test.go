@@ -89,7 +89,7 @@ func TestUserAskIsStoredWithTheMintOrStaticNames(t *testing.T) {
 		t.Errorf("the card:\n%s", lines)
 	}
 	// In the user's own queue, as footplate reads it.
-	q, err := y.UserAsks(y.ctx, "ada")
+	q, err := y.UserAsks(y.ctx, "ada", "ada")
 	if err != nil {
 		t.Fatal(err)
 	}

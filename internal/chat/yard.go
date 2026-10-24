@@ -67,7 +67,7 @@ func (m *Model) Notifications() int {
 func (m *Model) readNotes() tea.Cmd {
 	st, ctx, me := m.st, m.ctx, m.opt.Me
 	return func() tea.Msg {
-		page, err := st.UserNotifications(ctx, me, 0)
+		page, err := st.UserNotifications(ctx, me, 0, me)
 		if err != nil {
 			return notesMsg{err: err}
 		}
@@ -112,7 +112,7 @@ func (m *Model) ackNotes() tea.Cmd {
 	m.noteAsked = through
 	st, ctx, me := m.st, m.ctx, m.opt.Me
 	return func() tea.Msg {
-		return notesAckedMsg{through: through, err: st.AckUserNotifications(ctx, me, through)}
+		return notesAckedMsg{through: through, err: st.AckUserNotifications(ctx, me, through, me)}
 	}
 }
 

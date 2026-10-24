@@ -89,7 +89,7 @@ func TestUserAsksQueue(t *testing.T) {
 	y.tick(time.Hour)
 	y.answerOn(t, y.bead, Answer{Ask: aside, Later: true}, "mckean")
 
-	q, err := y.Store.UserAsks(y.ctx, "mckean")
+	q, err := y.Store.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestUserAsksQueue(t *testing.T) {
 
 	// A put-aside ask is open again once its 24 hours are over.
 	y.tick(25 * time.Hour)
-	q, err = y.Store.UserAsks(y.ctx, "mckean")
+	q, err = y.Store.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,8 +154,40 @@ func TestUserAsksQueue(t *testing.T) {
 		t.Fatalf("after its return: open = %+v, decided = %+v", q.Open, q.Decided)
 	}
 
-	if _, err := y.Store.UserAsks(y.ctx, "nobody"); !errors.Is(err, ErrNotFound) {
+	if _, err := y.Store.UserAsks(y.ctx, "nobody", "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UserAsks(nobody) = %v, want not found", err)
+	}
+
+	// Another user's queue is theirs and the operator's alone to read.
+	// Left out, the reader is the user.
+	if _, err := y.Store.AddUser(y.ctx, "ada", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.Store.AddUser(y.ctx, "jo", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.Store.SetUser(y.ctx, "jo", map[string]string{UserRole: RoleOperator}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, actor string
+		ok          bool
+	}{
+		{"mckean", "mckean", true},
+		{"ada", "ada", true},
+		{"jo", "jo", true},
+		{"mckean", "", true},
+		{"mckean", "jo", true},
+		{"mckean", "ada", false},
+		{"jo", "ada", false},
+	} {
+		if _, err := y.Store.UserAsks(y.ctx, c.name, c.actor); (err == nil) != c.ok {
+			t.Errorf("UserAsks(%s) by %q = %v", c.name, c.actor, err)
+		}
+	}
+	if _, err := y.Store.UserAsks(y.ctx, "mckean", "ada"); err == nil ||
+		err.Error() != "only mckean or the operator (jo) may read mckean's inbox; this is ada" {
+		t.Errorf("another user's queue by a member = %v", err)
 	}
 }
 
@@ -246,7 +278,7 @@ func TestBeadWhole(t *testing.T) {
 	if len(v.Asks) != 2 || len(v.Notes) != 1 || strings.Contains(string(mustJSON(t, v)), "{oops") {
 		t.Fatalf("a corrupt ask stands in the view: %+v %+v", v.Asks, v.Notes)
 	}
-	q, err := y.Store.UserAsks(y.ctx, "mckean")
+	q, err := y.Store.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ func TestClaimFromUnknownChatEndToEnd(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("a dropped delivery recorded: %d hook events", n)
 	}
-	q, err := r.st.UserAsks(ctx, "op")
+	q, err := r.st.UserAsks(ctx, "op", "op")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestClaimFromUnknownChatEndToEnd(t *testing.T) {
 	if code := r.chime(t, "888", "hi"); code != http.StatusOK {
 		t.Fatalf("a second unknown chat answered %d", code)
 	}
-	if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 1 {
+	if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 1 {
 		t.Fatalf("open asks = %v, %v, want 1", q, err)
 	}
 	done, err := r.st.ApproveAsk(ctx, claim.Bead, claim.Ask, "op", true, nil)
@@ -91,7 +91,7 @@ func TestClaimDeclinedAndAlreadyAddressed(t *testing.T) {
 	if code := r.chime(t, "999", "hi"); code != http.StatusOK {
 		t.Fatalf("an unknown chat answered %d", code)
 	}
-	q, err := r.st.UserAsks(ctx, "op")
+	q, err := r.st.UserAsks(ctx, "op", "op")
 	if err != nil || len(q.Open) != 1 {
 		t.Fatalf("open asks = %v, %v", q, err)
 	}
@@ -108,7 +108,7 @@ func TestClaimDeclinedAndAlreadyAddressed(t *testing.T) {
 	if code := r.chime(t, "999", "hi"); code != http.StatusOK {
 		t.Fatalf("a stranger's chat answered %d", code)
 	}
-	if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 0 {
+	if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 {
 		t.Fatalf("open asks = %v, %v, want none", q, err)
 	}
 	if n := len(r.hookEvents(t)); n != 0 {

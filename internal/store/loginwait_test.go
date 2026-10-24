@@ -267,7 +267,7 @@ func TestGiveLoginHandsToTheWaiter(t *testing.T) {
 		strings.Join(a.Secret.Env, ",") != "INPUT" || strings.Join(a.Given, ",") != "INPUT" {
 		t.Fatalf("Bead's ask = %+v (secret %+v)", a, a.Secret)
 	}
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

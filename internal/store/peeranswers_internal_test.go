@@ -431,7 +431,7 @@ func (y *homeYard) foreign(t *testing.T, id string, ask Ask) {
 
 func (y *homeYard) queue(t *testing.T) *AskQueue {
 	t.Helper()
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

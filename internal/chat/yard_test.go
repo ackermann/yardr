@@ -143,7 +143,7 @@ func TestYardRow(t *testing.T) {
 	if got := strings.Split(v.screen(), "\n")[1]; got != "yard (2)  [chief idle]  recorder idle (1)" {
 		t.Fatalf("the folded line is %q", got)
 	}
-	must(t, st.AckUserNotifications(ctx, me, newest))
+	must(t, st.AckUserNotifications(ctx, me, newest, me))
 	v.stream()
 	if got := strings.Split(v.screen(), "\n")[1]; got != "yard  [chief idle]  recorder idle (1)" {
 		t.Fatalf("the folded line after an ack elsewhere is %q", got)
@@ -279,7 +279,7 @@ func TestYardRowLines(t *testing.T) {
 // noAck is a store that acknowledges no notification.
 type noAck struct{ store.API }
 
-func (noAck) AckUserNotifications(context.Context, string, uint64) error {
+func (noAck) AckUserNotifications(context.Context, string, uint64, string) error {
 	return errors.New("the store is away")
 }
 

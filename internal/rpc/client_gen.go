@@ -163,8 +163,8 @@ func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, act
 func (c *Client) AddAnswerExpected(ctx context.Context, id string, ans store.Answer, actor, revision string) error {
 	return c.call(ctx, "AddAnswerExpected", nil, id, ans, actor, revision)
 }
-func (c *Client) UserAsks(ctx context.Context, name string, viewer ...string) (*store.AskQueue, error) {
-	return callV[*store.AskQueue](c, ctx, "UserAsks", name, viewer)
+func (c *Client) UserAsks(ctx context.Context, name, actor string, viewer ...string) (*store.AskQueue, error) {
+	return callV[*store.AskQueue](c, ctx, "UserAsks", name, actor, viewer)
 }
 func (c *Client) WriterAsks(ctx context.Context, writer string, viewer ...string) ([]store.WriterAsk, error) {
 	return callV[[]store.WriterAsk](c, ctx, "WriterAsks", writer, viewer)
@@ -543,11 +543,11 @@ func (c *Client) UserInbox(ctx context.Context, name string, limit int, actor st
 func (c *Client) AckUserInbox(ctx context.Context, name string, through uint64, actor string) error {
 	return c.call(ctx, "AckUserInbox", nil, name, through, actor)
 }
-func (c *Client) UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error) {
-	return callV[*store.NotificationPage](c, ctx, "UserNotifications", name, limit)
+func (c *Client) UserNotifications(ctx context.Context, name string, limit int, actor string) (*store.NotificationPage, error) {
+	return callV[*store.NotificationPage](c, ctx, "UserNotifications", name, limit, actor)
 }
-func (c *Client) AckUserNotifications(ctx context.Context, name string, through uint64) error {
-	return c.call(ctx, "AckUserNotifications", nil, name, through)
+func (c *Client) AckUserNotifications(ctx context.Context, name string, through uint64, actor string) error {
+	return c.call(ctx, "AckUserNotifications", nil, name, through, actor)
 }
 
 func (c *Client) AddTimer(ctx context.Context, nt store.NewTimer, actor string) (*store.Timer, error) {

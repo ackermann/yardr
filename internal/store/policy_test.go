@@ -162,7 +162,7 @@ func TestPolicySeeHidesABead(t *testing.T) {
 	if !found {
 		t.Fatalf("jo's arrivals board holds no row for yd-shown: %+v", board.Rows)
 	}
-	queue, err := api.UserAsks(ctx, "jo", "jo")
+	queue, err := api.UserAsks(ctx, "jo", "jo", "jo")
 	if err != nil || len(queue.Open) != 1 || queue.Open[0].Bead != shown.ID {
 		t.Fatalf("jo's asks with yd-hidden refused = %+v, %v, want only yd-shown", queue, err)
 	}

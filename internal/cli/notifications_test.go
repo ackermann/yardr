@@ -222,7 +222,7 @@ func TestUserInboxParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	notesBox, err := st.UserNotifications(ctx, "jo", 1)
+	notesBox, err := st.UserNotifications(ctx, "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestBareYardrSaysNotifications(t *testing.T) {
 			t.Fatalf("bare yardr as %s:\n%s", who, out)
 		}
 	}
-	notesBox, err := st.UserNotifications(ctx, "jo", 1)
+	notesBox, err := st.UserNotifications(ctx, "jo", 1, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

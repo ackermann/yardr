@@ -96,7 +96,7 @@ func signedIn(t *testing.T, st store.API, user string, args ...string) (string, 
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		// The command adds the user first: until it has, there is no queue.
-		q, err := st.UserAsks(ctx, user)
+		q, err := st.UserAsks(ctx, user, user)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			t.Fatal(err)
 		}
@@ -422,7 +422,7 @@ func TestUserAddWithALogin(t *testing.T) {
 	if err != nil || len(box.Mail) != 1 || !strings.Contains(box.Mail[0].Text, loginPage) || strings.Contains(box.Mail[0].Text, "good#s1") {
 		t.Errorf("ada's mail: %+v, %v", box, err)
 	}
-	if q, err := st.UserAsks(ctx, "ada"); err != nil || len(q.Open) != 0 || len(q.Decided) != 1 {
+	if q, err := st.UserAsks(ctx, "ada", "ada"); err != nil || len(q.Open) != 0 || len(q.Decided) != 1 {
 		t.Errorf("ada's asks: %+v, %v", q, err)
 	}
 	if strings.Contains(out, "good#s1") {
@@ -540,7 +540,7 @@ func TestUserAddWithALoginNobodyFinishes(t *testing.T) {
 	if _, err := st.GetGroup(ctx, "cy-builders"); err != nil {
 		t.Errorf("cy's group: %v", err)
 	}
-	if q, err := st.UserAsks(ctx, "cy"); err != nil || len(q.Open) != 0 {
+	if q, err := st.UserAsks(ctx, "cy", "cy"); err != nil || len(q.Open) != 0 {
 		t.Errorf("cy's asks after the sign-in ended: %+v, %v", q, err)
 	}
 	// The login was not made: her session at the screen is left as it is, to
@@ -579,7 +579,7 @@ func TestUserAddWithALoginThatAnswersNothing(t *testing.T) {
 			t.Errorf("the output lacks %q:\n%s", want, out)
 		}
 	}
-	if q, err := st.UserAsks(ctx, "dee"); err != nil || len(q.Open) != 0 {
+	if q, err := st.UserAsks(ctx, "dee", "dee"); err != nil || len(q.Open) != 0 {
 		t.Errorf("dee's asks after the sign-in ended: %+v, %v", q, err)
 	}
 }

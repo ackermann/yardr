@@ -243,7 +243,7 @@ func TestRunAskCard(t *testing.T) {
 	}
 	// A client reads the command and the yard's words from the queue and
 	// from the bead.
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestApproveAsk(t *testing.T) {
 	}) {
 		t.Errorf("the approved card still offers the approval:\n%s", strings.Join(card, "\n"))
 	}
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil || len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].Ran == nil || q.Decided[0].Ran.Result != result || q.Decided[0].Run == nil ||
 		len(q.Decided[0].Weight) != 1 || q.Decided[0].Weight[0].Class != WeightTrust {
 		t.Fatalf("the queue after the approval = %+v, %v", q, err)

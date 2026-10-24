@@ -56,7 +56,7 @@ func (y *peerYard) question(t *testing.T, airy *peerYard, options ...string) (be
 
 func (y *peerYard) queue(t *testing.T) *store.AskQueue {
 	t.Helper()
-	q, err := y.api.UserAsks(context.Background(), "mckean")
+	q, err := y.api.UserAsks(context.Background(), "mckean", "mckean")
 	must(t, err)
 	return q
 }

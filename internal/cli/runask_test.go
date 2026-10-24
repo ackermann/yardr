@@ -130,7 +130,7 @@ func seedTalkIgnored(t *testing.T, y *cliYard) {
 	if created, err := y.own.ClaimIdentity(ctx, "talk", "U999", "C1", "hi"); err != nil || !created {
 		t.Fatalf("ClaimIdentity = %v, %v", created, err)
 	}
-	q, err := y.st.UserAsks(ctx, "jo")
+	q, err := y.st.UserAsks(ctx, "jo", "jo")
 	if err != nil || len(q.Open) != 1 {
 		t.Fatalf("open asks = %+v, %v", q, err)
 	}

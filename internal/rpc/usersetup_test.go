@@ -673,7 +673,7 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 						}
 					}
 				}
-				stored, err := y.st.UserAsks(ctx, user)
+				stored, err := y.st.UserAsks(ctx, user, user)
 				if err != nil {
 					t.Fatal(err)
 				}

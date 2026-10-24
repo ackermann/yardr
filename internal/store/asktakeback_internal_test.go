@@ -192,7 +192,7 @@ func TestTakenBackSecretAskIsNotGivable(t *testing.T) {
 // thereRow is the row b has for the bead of a: open, or decided.
 func thereRow(t *testing.T, b *linked, bead string) (open bool, d DecidedAsk) {
 	t.Helper()
-	q, err := b.UserAsks(context.Background(), "mckean")
+	q, err := b.UserAsks(context.Background(), "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestTakeBackAskSettlesTheCopy(t *testing.T) {
 	if err := a.TakeBackAsk(ctx, bead, seq, "the design went back to draft", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if q, err := a.UserAsks(ctx, "mckean"); err != nil || len(q.Open) != 0 {
+	if q, err := a.UserAsks(ctx, "mckean", "mckean"); err != nil || len(q.Open) != 0 {
 		t.Fatalf("open at home after it: %+v, %v", q, err)
 	}
 	if got := carry(t, a, b); !slices.Equal(got, []string{"settle"}) {

@@ -83,6 +83,9 @@ their own rule — any operator approves one, whoever of them it was put
 to — and a stage ask is its members' to answer
 ([chat.md](chat.md#questions-for-you)). An operator reads and acknowledges
 any user's inbox ([below](#the-inbox)); a member reads only their own.
+Only the user reads their queue of decisions
+([`UserAsks`](api.md#userasks)), and an operator any user's; on the socket
+the reader is the call's `actor`, as for the inbox.
 
 `yardr user set <user> role=operator` or `role=member` is an operator's to
 type, at the shell. Nobody sets their own role, and no run ask proposes

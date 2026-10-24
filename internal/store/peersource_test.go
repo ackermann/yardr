@@ -152,7 +152,7 @@ func TestPeerSourceDelivery(t *testing.T) {
 			t.Errorf("--where %s: heard %d deliveries, want heard = %v", f.where, len(got), f.hears)
 		}
 	}
-	page, err := y.api.UserNotifications(y.ctx, "ada", 10)
+	page, err := y.api.UserNotifications(y.ctx, "ada", 10, "ada")
 	if err != nil || len(page.Notifications) != 1 {
 		t.Fatalf("ada's notifications = %+v, %v", page, err)
 	}
@@ -160,7 +160,7 @@ func TestPeerSourceDelivery(t *testing.T) {
 		n.Text != fmt.Sprintf("peer north: %s %s: yardr thread show %d [all]", b.ID, line, e.Seq) {
 		t.Fatalf("ada's notification = %+v", n)
 	}
-	if page, err := y.api.UserNotifications(y.ctx, "bo", 10); err != nil || len(page.Notifications) != 0 {
+	if page, err := y.api.UserNotifications(y.ctx, "bo", 10, "bo"); err != nil || len(page.Notifications) != 0 {
 		t.Fatalf("bo, who hears arrivals only, was told %+v, %v", page, err)
 	}
 
@@ -314,7 +314,7 @@ func TestPeerRenameRenamesTheFilter(t *testing.T) {
 	if got := y.heard(t, "southerner"); store.Reason(got[0], "southerner") != "all via watch" {
 		t.Fatalf("the group's member heard it as %q", store.Reason(got[0], "southerner"))
 	}
-	if page, err := y.api.UserNotifications(y.ctx, "ada", 10); err != nil || len(page.Notifications) != 1 {
+	if page, err := y.api.UserNotifications(y.ctx, "ada", 10, "ada"); err != nil || len(page.Notifications) != 1 {
 		t.Fatalf("ada after the rename = %+v, %v", page, err)
 	}
 }

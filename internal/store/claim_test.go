@@ -48,7 +48,7 @@ func claimYard(t *testing.T) *askYard {
 
 func claimQueue(t *testing.T, y *askYard) *AskQueue {
 	t.Helper()
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

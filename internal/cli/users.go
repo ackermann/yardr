@@ -155,11 +155,15 @@ everything either way.`,
 			if v.Timers, err = st.Timers(c.Context(), v.Name); err != nil {
 				return err
 			}
-			notes, err := st.UserNotifications(c.Context(), v.Name, 1)
-			if err != nil {
-				return err
+			// Another user's notifications are theirs alone with their
+			// mail (UnreadHidden): only their user reads them.
+			if !v.UnreadHidden {
+				notes, err := st.UserNotifications(c.Context(), v.Name, 1, a.who())
+				if err != nil {
+					return err
+				}
+				v.Notifications = notes.Unread
 			}
-			v.Notifications = notes.Unread
 			v.Told = told(c.Context(), st, &v.User)
 			if v.Credentials, err = userCredentials(c.Context(), st, &v.User); err != nil {
 				return err
@@ -690,7 +694,7 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 		}
 	}
 	if notes {
-		if box.Notifications, err = st.UserNotifications(ctx, name, limit); err != nil {
+		if box.Notifications, err = st.UserNotifications(ctx, name, limit, a.who()); err != nil {
 			return err
 		}
 	}
@@ -754,11 +758,11 @@ func (a *app) userInbox(w io.Writer, ctx context.Context, st store.API, name str
 		rest["notifications"] = box.Notifications.Unread - shown
 		if ack && box.Notifications.Unread > 0 {
 			if t := min(through, box.Notifications.Last); t > 0 {
-				if err := st.AckUserNotifications(ctx, name, t); err != nil {
+				if err := st.AckUserNotifications(ctx, name, t, a.who()); err != nil {
 					return err
 				}
 			}
-			after, err := st.UserNotifications(ctx, name, 1)
+			after, err := st.UserNotifications(ctx, name, 1, a.who())
 			if err != nil {
 				return err
 			}
@@ -1041,7 +1045,7 @@ func (a *app) unreadLine(w io.Writer, ctx context.Context) {
 	// is not printed for them: nobody is talking, and a person who never
 	// acknowledges a stream would read it under every command.
 	told := 0
-	if p, err := st.UserNotifications(ctx, m.User, 1); err == nil {
+	if p, err := st.UserNotifications(ctx, m.User, 1, a.who()); err == nil {
 		told = p.Unread
 	}
 	if told > 0 {

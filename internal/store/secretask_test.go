@@ -328,7 +328,7 @@ calls:
 	if c := bySeq[asOpen].Concealed; c == nil || *c {
 		t.Errorf("Bead's not-secret ask as ada is concealed: %+v", c)
 	}
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestGiveSecret(t *testing.T) {
 		a.Secret.Source != "crm" || strings.Join(a.Secret.Env, ",") != "CRM_TOKEN" || strings.Join(a.Given, ",") != "CRM_TOKEN" || a.Words != "" {
 		t.Fatalf("Bead's ask = %+v (secret %+v)", a, a.Secret)
 	}
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -715,7 +715,7 @@ func TestGiveSecretNotRecorded(t *testing.T) {
 	if src, err := y.GetSource(y.ctx, "crm"); err != nil || src.EnvFile != "" {
 		t.Fatalf("the source = %+v, %v: want no env_file", src, err)
 	}
-	if q, err := y.UserAsks(y.ctx, "mckean"); err != nil || len(q.Open) != 1 || q.Open[0].Secret == nil {
+	if q, err := y.UserAsks(y.ctx, "mckean", "mckean"); err != nil || len(q.Open) != 1 || q.Open[0].Secret == nil {
 		t.Fatalf("the operator's queue = %+v, %v: want the ask open still", q, err)
 	}
 

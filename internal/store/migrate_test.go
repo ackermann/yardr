@@ -2502,9 +2502,9 @@ func TestSchema30NotificationsRemadeTold(t *testing.T) {
 	}
 	keep("s1", "/home/jo/.yardr/worktrees/yd/work")
 	keep("s2", "/home/jo/.yardr/worktrees/yd/other")
-	opPage, err := s.UserNotifications(ctx, "op", 0)
+	opPage, err := s.UserNotifications(ctx, "op", 0, "op")
 	must(err)
-	adaPage, err := s.UserNotifications(ctx, "ada", 0)
+	adaPage, err := s.UserNotifications(ctx, "ada", 0, "ada")
 	must(err)
 	if len(opPage.Notifications) != 2 || len(adaPage.Notifications) != 2 {
 		t.Fatalf("notifications = op %d, ada %d; want 2 each", len(opPage.Notifications), len(adaPage.Notifications))
@@ -2570,9 +2570,9 @@ func TestSchema30NotificationsRemadeTold(t *testing.T) {
 	for _, pass := range []string{"the upgrade", "the next start"} {
 		s, err = store.Open(path)
 		must(err)
-		opPage, err = s.UserNotifications(ctx, "op", 0)
+		opPage, err = s.UserNotifications(ctx, "op", 0, "op")
 		must(err)
-		adaPage, err = s.UserNotifications(ctx, "ada", 0)
+		adaPage, err = s.UserNotifications(ctx, "ada", 0, "ada")
 		must(err)
 		got := map[string]map[uint64]store.Notification{"op": {}, "ada": {}}
 		for _, n := range opPage.Notifications {
@@ -2669,9 +2669,9 @@ func TestSchema32NotificationsRemadeTakebackHeld(t *testing.T) {
 	// leave her without a row.
 	must(s.TakeBackAsk(ctx, bead.ID, person, covered, "op"))
 	must(s.TakeBackAsk(ctx, bead.ID, pruned, loginWords(gone), "yard"))
-	opPage, err := s.UserNotifications(ctx, "op2", 0)
+	opPage, err := s.UserNotifications(ctx, "op2", 0, "op2")
 	must(err)
-	adaPage, err := s.UserNotifications(ctx, "ada", 0)
+	adaPage, err := s.UserNotifications(ctx, "ada", 0, "ada")
 	must(err)
 	if len(opPage.Notifications) != 3 || len(adaPage.Notifications) != 3 {
 		t.Fatalf("notifications = op2 %d, ada %d; want 3 each", len(opPage.Notifications), len(adaPage.Notifications))
@@ -2758,9 +2758,9 @@ func TestSchema32NotificationsRemadeTakebackHeld(t *testing.T) {
 	for _, pass := range []string{"the upgrade", "the next start"} {
 		s, err = store.Open(path)
 		must(err)
-		opPage, err = s.UserNotifications(ctx, "op2", 0)
+		opPage, err = s.UserNotifications(ctx, "op2", 0, "op2")
 		must(err)
-		adaPage, err = s.UserNotifications(ctx, "ada", 0)
+		adaPage, err = s.UserNotifications(ctx, "ada", 0, "ada")
 		must(err)
 		got := map[string]map[uint64]store.Notification{"op2": {}, "ada": {}}
 		for _, n := range opPage.Notifications {
@@ -2870,9 +2870,9 @@ func TestSchema33NotificationsRemadeHeld(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	opPage, err := s.UserNotifications(ctx, "op2", 0)
+	opPage, err := s.UserNotifications(ctx, "op2", 0, "op2")
 	must(err)
-	adaPage, err := s.UserNotifications(ctx, "ada", 0)
+	adaPage, err := s.UserNotifications(ctx, "ada", 0, "ada")
 	must(err)
 	if len(opPage.Notifications) != 3 || len(adaPage.Notifications) != 3 {
 		t.Fatalf("notifications = op2 %d, ada %d; want 3 each", len(opPage.Notifications), len(adaPage.Notifications))
@@ -2959,9 +2959,9 @@ func TestSchema33NotificationsRemadeHeld(t *testing.T) {
 	for _, pass := range []string{"the upgrade", "the next start"} {
 		s, err = store.Open(path)
 		must(err)
-		opPage, err = s.UserNotifications(ctx, "op2", 0)
+		opPage, err = s.UserNotifications(ctx, "op2", 0, "op2")
 		must(err)
-		adaPage, err = s.UserNotifications(ctx, "ada", 0)
+		adaPage, err = s.UserNotifications(ctx, "ada", 0, "ada")
 		must(err)
 		got := map[string]map[uint64]store.Notification{"op2": {}, "ada": {}}
 		for _, n := range opPage.Notifications {

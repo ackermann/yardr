@@ -65,7 +65,7 @@ type API interface {
 	// in the same write as the answer. Browser forms use it so two tabs
 	// cannot both answer from the same page.
 	AddAnswerExpected(ctx context.Context, id string, ans Answer, actor, revision string) error
-	UserAsks(ctx context.Context, name string, viewer ...string) (*AskQueue, error)
+	UserAsks(ctx context.Context, name, actor string, viewer ...string) (*AskQueue, error)
 	WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error)
 	Bead(ctx context.Context, id string, viewer ...string) (*BeadView, error)
 	Estimate(ctx context.Context, id string) (*eta.Result, error)
@@ -197,8 +197,8 @@ type API interface {
 	DevicePairClose(ctx context.Context, actor string) (*DevicePairing, error)
 	UserInbox(ctx context.Context, name string, limit int, actor string) (*Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64, actor string) error
-	UserNotifications(ctx context.Context, name string, limit int) (*NotificationPage, error)
-	AckUserNotifications(ctx context.Context, name string, through uint64) error
+	UserNotifications(ctx context.Context, name string, limit int, actor string) (*NotificationPage, error)
+	AckUserNotifications(ctx context.Context, name string, through uint64, actor string) error
 	Conversation(ctx context.Context, a, b string, after uint64, limit int, before uint64) ([]Letter, bool, error)
 	AddTimer(ctx context.Context, nt NewTimer, actor string) (*Timer, error)
 	Timers(ctx context.Context, name string) ([]Timer, error)

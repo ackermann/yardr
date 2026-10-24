@@ -403,12 +403,13 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "UserNotifications",
-		says:   "What the yard reports to a user, apart from every conversation: the events the user subscribed to, oldest first.",
+		says:   "What the yard reports to a user, apart from every conversation: the events the user subscribed to, oldest first. Only the user reads their notifications, and an operator reads any user's.",
 		args: []field{
 			{"name", "string", "the user"},
 			{"limit", "number", "at most this many; `0` is all the inbox keeps"},
+			{"actor", "string", "who reads: the user's name, or an operator's; left out, the user"},
 		},
-		requests: []string{`{"name":"jo","limit":0}`},
+		requests: []string{`{"name":"jo","limit":0,"actor":"jo"}`},
 		fields: []field{
 			{"notifications[].seq", "number", "the seq of the event it tells of"},
 			{"notifications[].at", "time", "when that happened"},
@@ -422,18 +423,19 @@ var apiCalls = []apiCall{
 	},
 	{
 		method: "AckUserNotifications",
-		says:   "Marks the user's notifications read through a seq: a position of its own, which the mail's does not move. It answers nothing; it is a `notifications_read` event in the stream.",
+		says:   "Marks the user's notifications read through a seq: a position of its own, which the mail's does not move. It answers nothing; it is a `notifications_read` event in the stream. Only the user acknowledges their notifications, and an operator any user's.",
 		args: []field{
 			{"name", "string", "the user"},
 			{"through", "number", "the seq of the newest notification shown"},
+			{"actor", "string", "who acknowledges: the user's name, or an operator's; left out, the user"},
 		},
-		requests: []string{`{"name":"jo","through":%d}`},
+		requests: []string{`{"name":"jo","through":%d,"actor":"jo"}`},
 	},
 	{
 		method:   "UserAsks",
-		says:     "The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.",
-		args:     []field{{"name", "string", "the user"}, {"viewer", "string", "who reads the queue; a device's viewer is its user; left out, the yard itself"}},
-		requests: []string{`{"name":"jo","viewer":"jo"}`},
+		says:     "The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and from the linked yards, oldest first, with what they have dealt with beside it. Only the user reads their queue, and an operator reads any user's. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.",
+		args:     []field{{"name", "string", "the user"}, {"actor", "string", "who reads: the user's name, or an operator's; left out, the user"}, {"viewer", "string", "who reads the queue; a device's viewer is its user; left out, the yard itself"}},
+		requests: []string{`{"name":"jo","actor":"jo","viewer":"jo"}`},
 		fields: append(append(append(append(queueRow("open[]."), secretAsked("open[].")...), runAsked("open[].")...), setupAsked("open[].")...),
 			append(append(append(append(queueRow("decided[]."), secretAsked("decided[].")...), runAsked("decided[].")...), setupAsked("decided[].")...),
 				field{"decided[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask"},

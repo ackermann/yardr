@@ -28,7 +28,7 @@ func user(t *testing.T, s store.API, name string, subs ...store.Subscription) {
 
 func notifications(t *testing.T, s store.API, name string, limit int) *store.NotificationPage {
 	t.Helper()
-	page, err := s.UserNotifications(context.Background(), name, limit)
+	page, err := s.UserNotifications(context.Background(), name, limit, name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestUserSubscriptionNotifies(t *testing.T) {
 	if page := notifications(t, s, "bob", 0); len(page.Notifications) != 0 {
 		t.Fatalf("bob was notified: %+v", page)
 	}
-	if _, err := s.UserNotifications(ctx, "yardmaster", 0); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.UserNotifications(ctx, "yardmaster", 0, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a crew member's notifications = %v", err)
 	}
 }
@@ -382,7 +382,7 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 
 	// The notifications through the second, which lies after the first mail.
 	page := notifications(t, s, "ada", 0)
-	if err := s.AckUserNotifications(ctx, "ada", page.Notifications[1].Seq); err != nil {
+	if err := s.AckUserNotifications(ctx, "ada", page.Notifications[1].Seq, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if got := counts(); got != "mail 2 notifications 1" {
@@ -408,7 +408,7 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 	}
 	// Past everything: the mail's cursor is not the notifications'.
 	end, _ := s.Head(ctx)
-	if err := s.AckUserNotifications(ctx, "ada", end); err != nil {
+	if err := s.AckUserNotifications(ctx, "ada", end, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	mail("m3")
@@ -419,13 +419,13 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 	// An ack never moves back, and one that passes no notification is no
 	// event.
 	head, _ = s.Head(ctx)
-	if err := s.AckUserNotifications(ctx, "ada", 1); err != nil {
+	if err := s.AckUserNotifications(ctx, "ada", 1, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if got := counts(); got != "mail 1 notifications 1" || len(kindsAfter(t, s, head)) != 0 {
 		t.Fatalf("an older ack: %s, events %+v", got, kindsAfter(t, s, head))
 	}
-	if err := s.AckUserNotifications(ctx, "nobody", 9); !errors.Is(err, store.ErrNotFound) {
+	if err := s.AckUserNotifications(ctx, "nobody", 9, "nobody"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("ack of no user = %v", err)
 	}
 
@@ -455,6 +455,53 @@ func TestUserInboxPartsAckApart(t *testing.T) {
 	}
 	if p := notifications(t, s, "ada", 1); p.Unread != 2 || p.Last != notifications(t, s, "ada", 0).Notifications[4].Seq {
 		t.Fatalf("limit 1 counts %d unread, last %d", p.Unread, p.Last)
+	}
+
+	// Another user's notifications are theirs and the operator's alone
+	// to read and acknowledge. Left out, the reader is the user.
+	if _, err := s.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleOperator}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, actor string
+		ok          bool
+	}{
+		{"ada", "ada", true},
+		{"jo", "jo", true},
+		{"ada", "jo", true},
+		{"ada", "", true},
+		{"ada", "yardmaster", false},
+		{"jo", "ada", false},
+	} {
+		if _, err := s.UserNotifications(ctx, c.name, 0, c.actor); (err == nil) != c.ok {
+			t.Errorf("UserNotifications(%s) by %q = %v", c.name, c.actor, err)
+		}
+		if err := s.AckUserNotifications(ctx, c.name, 1, c.actor); (err == nil) != c.ok {
+			t.Errorf("AckUserNotifications(%s) by %q = %v", c.name, c.actor, err)
+		}
+	}
+	if _, err := s.UserNotifications(ctx, "ada", 0, "yardmaster"); err == nil ||
+		err.Error() != "only ada or the operator (jo) may read ada's inbox; this is yardmaster" {
+		t.Errorf("another user's notifications by a crew member = %v", err)
+	}
+	if err := s.AckUserNotifications(ctx, "ada", 1, "yardmaster"); err == nil ||
+		err.Error() != "only ada or the operator (jo) may acknowledge ada's inbox; this is yardmaster" {
+		t.Errorf("another user's notifications ack by a crew member = %v", err)
+	}
+
+	// The operator's ack of ada's notifications names them as who
+	// acknowledged, as their mail's does.
+	head, _ = s.Head(ctx)
+	latest := notifications(t, s, "ada", 0)
+	if err := s.AckUserNotifications(ctx, "ada", latest.Last, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if evs := kindsAfter(t, s, head); len(evs) != 1 || evs[0].Kind != "notifications_read" ||
+		evs[0].Actor != "jo" || evs[0].Data["reader"] != "ada" {
+		t.Fatalf("after the operator acknowledged ada's notifications: %+v", evs)
 	}
 }
 

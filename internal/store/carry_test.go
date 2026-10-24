@@ -50,7 +50,7 @@ func TestCarryRecordClaimAndComplete(t *testing.T) {
 	if !strings.Contains(lines, "approved, ran: yardr pack apply wired") || !strings.Contains(lines, "applied pack wired to the yard: 1 created") {
 		t.Fatalf("the completed card reads:\n%s", lines)
 	}
-	if q, err := y.UserAsks(y.ctx, "mckean"); err != nil || len(q.Decided) != 1 || q.Decided[0].Ran == nil ||
+	if q, err := y.UserAsks(y.ctx, "mckean", "mckean"); err != nil || len(q.Decided) != 1 || q.Decided[0].Ran == nil ||
 		q.Decided[0].Ran.Result != "applied pack wired to the yard: 1 created" {
 		t.Fatalf("the asker's decided row = %+v, %v", q, err)
 	}

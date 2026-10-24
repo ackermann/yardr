@@ -43,7 +43,7 @@ func TestMappingPickIsGatedWhereItWritesAnIdentity(t *testing.T) {
 		if created, err := y.own.ClaimIdentity(ctx, "talk", sender, "C1", "hi"); err != nil || !created {
 			t.Fatalf("ClaimIdentity for %s = %v, %v", sender, created, err)
 		}
-		q, err := y.st.UserAsks(ctx, "jo")
+		q, err := y.st.UserAsks(ctx, "jo", "jo")
 		if err != nil {
 			t.Fatal(err)
 		}

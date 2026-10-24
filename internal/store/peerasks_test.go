@@ -267,7 +267,7 @@ func TestPeerAskReceive(t *testing.T) {
 	if got := y.take(t, askMsg("a1", bad)); !got[0].Duplicate || got[0].Refused != "" {
 		t.Fatalf("the same id twice = %+v", got)
 	}
-	q, err := y.api.UserAsks(y.ctx, "mckean")
+	q, err := y.api.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil || len(q.Open) != 1 {
 		t.Fatalf("the queue = %+v, %v", q, err)
 	}
@@ -309,7 +309,7 @@ func TestPeerAskReceive(t *testing.T) {
 	if _, err := y.api.AddAsk(y.ctx, b.ID, crossAsk(), "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if q, _ := y.api.UserAsks(y.ctx, "mckean"); len(q.Open) != 1 || q.Open[0].Bead != "yd-links@north" {
+	if q, _ := y.api.UserAsks(y.ctx, "mckean", "mckean"); len(q.Open) != 1 || q.Open[0].Bead != "yd-links@north" {
 		t.Fatalf("after asking mckean@north: open = %+v", q.Open)
 	}
 
@@ -376,7 +376,7 @@ func TestPeerAskReceive(t *testing.T) {
 		ref[1].Data["to"] != nil || ref[0].Actor != "peer:north" || ref[0].Data["direction"] != "in" {
 		t.Fatalf("peer_message_refused = %+v", ref)
 	}
-	if q, _ := y.api.UserAsks(y.ctx, "mckean"); len(q.Open) != 1 {
+	if q, _ := y.api.UserAsks(y.ctx, "mckean", "mckean"); len(q.Open) != 1 {
 		t.Fatalf("refused asks stand in the queue: %+v", q.Open)
 	}
 	// What the sender is told names nobody of this yard.
@@ -438,7 +438,7 @@ func TestPeerAskNeedsUser(t *testing.T) {
 	if got := y.take(t, askMsg("u1", validForeignAsk("yardmaster", "yardmaster", "yd-links", 3, since))); got[0].Refused != store.RefusedNoUser {
 		t.Fatalf("an ask for a crew member = %+v", got)
 	}
-	if q, _ := y.api.UserAsks(y.ctx, "mckean"); len(q.Open) != 0 {
+	if q, _ := y.api.UserAsks(y.ctx, "mckean", "mckean"); len(q.Open) != 0 {
 		t.Fatalf("an ask for a crew member stands in the queue: %+v", q.Open)
 	}
 	if ref := peerEvents(t, y.api, "peer_message_refused"); len(ref) != 1 || ref[0].Data["reason"] != store.RefusedNoUser || ref[0].Data["to"] != "yardmaster" {
@@ -485,7 +485,7 @@ func TestPeerAskRateLimit(t *testing.T) {
 	if rate != 1 {
 		t.Fatalf("rate_limited logged %d refusals, want 1: %+v", rate, ref)
 	}
-	if q, _ := y.api.UserAsks(y.ctx, "mckean"); len(q.Open) != store.PeerMailLimit/2 {
+	if q, _ := y.api.UserAsks(y.ctx, "mckean", "mckean"); len(q.Open) != store.PeerMailLimit/2 {
 		t.Fatalf("the queue holds %d, want %d", len(q.Open), store.PeerMailLimit/2)
 	}
 }
@@ -507,7 +507,7 @@ func TestForeignAskRename(t *testing.T) {
 	if _, err := y.api.RenamePeer(y.ctx, "north", "south", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	q, err := y.api.UserAsks(y.ctx, "mckean")
+	q, err := y.api.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil || len(q.Open) != 1 || q.Open[0].Bead != "yd-links@south" || q.Open[0].Asker != "yardmaster@south" {
 		t.Fatalf("after the rename: %+v, %v", q, err)
 	}
@@ -545,10 +545,10 @@ func TestPeerRmDropsForeignAsks(t *testing.T) {
 	if err := y.api.DeletePeer(y.ctx, "north", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if q, _ := y.api.UserAsks(y.ctx, "mckean"); len(q.Open) != 0 {
+	if q, _ := y.api.UserAsks(y.ctx, "mckean", "mckean"); len(q.Open) != 0 {
 		t.Fatalf("mckean's queue = %+v", q.Open)
 	}
-	if q, _ := y.api.UserAsks(y.ctx, "ada"); len(q.Open) != 0 {
+	if q, _ := y.api.UserAsks(y.ctx, "ada", "ada"); len(q.Open) != 0 {
 		t.Fatalf("ada's queue = %+v", q.Open)
 	}
 	rm := peerEvents(t, y.api, "peer_removed")
@@ -612,7 +612,7 @@ func TestUserAsksForeignOrder(t *testing.T) {
 	if got := y.take(t, askMsg("f2", validForeignAsk("mckean", "yardmaster", "yd-past", 13, past))); got[0].Refused != "" {
 		t.Fatalf("the past ask = %+v", got)
 	}
-	q, err := y.api.UserAsks(y.ctx, "mckean")
+	q, err := y.api.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

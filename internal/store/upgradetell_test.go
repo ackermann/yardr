@@ -655,7 +655,7 @@ func TestBeadlessFailureNotifies(t *testing.T) {
 		t.Fatalf("the yardmaster has no subscription: %v", deliveries)
 	}
 	for _, name := range []string{"ada", "bob", "jo"} {
-		page, err := st.UserNotifications(ctx, name, 10)
+		page, err := st.UserNotifications(ctx, name, 10, name)
 		if err != nil || len(page.Notifications) != 1 {
 			t.Fatalf("%s notifications = %+v, %v", name, page, err)
 		}
@@ -664,7 +664,7 @@ func TestBeadlessFailureNotifies(t *testing.T) {
 			t.Fatalf("%s notification = %+v", name, n)
 		}
 	}
-	if page, _ := st.UserNotifications(ctx, "cara", 10); len(page.Notifications) != 0 {
+	if page, _ := st.UserNotifications(ctx, "cara", 10, "cara"); len(page.Notifications) != 0 {
 		t.Fatalf("cara notifications = %+v", page.Notifications)
 	}
 	if ps := pushesOf(t, st); len(ps) != 1 || ps[0].User != "jo" {
@@ -685,7 +685,7 @@ func TestBeadlessFailureNotifies(t *testing.T) {
 	if err := st.LogDispatch(ctx, "", store.RolledBack, "ada", map[string]any{"reason": "by hand"}); err != nil {
 		t.Fatal(err)
 	}
-	if page, _ := st.UserNotifications(ctx, "ada", 10); len(page.Notifications) != 1 {
+	if page, _ := st.UserNotifications(ctx, "ada", 10, "ada"); len(page.Notifications) != 1 {
 		t.Fatalf("ada hears her own: %+v", page.Notifications)
 	}
 }
@@ -700,7 +700,7 @@ func TestToldEventNotifiesWithoutPush(t *testing.T) {
 		map[string]any{"revision": "1904417", "told": true}); err != nil {
 		t.Fatal(err)
 	}
-	page, err := st.UserNotifications(ctx, "jo", 10)
+	page, err := st.UserNotifications(ctx, "jo", 10, "jo")
 	if err != nil || len(page.Notifications) != 1 || !page.Notifications[0].Told {
 		t.Fatalf("notifications = %+v, %v", page, err)
 	}

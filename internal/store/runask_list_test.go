@@ -184,7 +184,7 @@ func TestRunAskSourceLimit(t *testing.T) {
 	if slices.ContainsFunc(card, func(l string) bool { return strings.Contains(l, "anyone") }) {
 		t.Errorf("the card says anyone takes a source's limit back:\n%s", strings.Join(card, "\n"))
 	}
-	if q, err := y.UserAsks(y.ctx, "mckean"); err != nil || len(q.Open) != 1 || q.Open[0].Run.BackBy != "only the operator" {
+	if q, err := y.UserAsks(y.ctx, "mckean", "mckean"); err != nil || len(q.Open) != 1 || q.Open[0].Run.BackBy != "only the operator" {
 		t.Fatalf("the queue's row = %+v, %v", q, err)
 	}
 	// The source's other limit is no part of the card.

@@ -408,7 +408,7 @@ func TestBeadAskTakeBack(t *testing.T) {
 			t.Errorf("%q was taken", args)
 		}
 	}
-	if q, err := st.UserAsks(ctx, "mckean"); err != nil || len(q.Open) != 1 {
+	if q, err := st.UserAsks(ctx, "mckean", "mckean"); err != nil || len(q.Open) != 1 {
 		t.Fatalf("the queue after the refusals: %+v, %v", q, err)
 	}
 
@@ -424,7 +424,7 @@ func TestBeadAskTakeBack(t *testing.T) {
 	if strings.Contains(out, "answer with:") {
 		t.Errorf("a taken-back ask says how to answer it:\n%s", out)
 	}
-	q, err := st.UserAsks(ctx, "mckean")
+	q, err := st.UserAsks(ctx, "mckean", "mckean")
 	if err != nil || len(q.Open) != 0 || len(q.Decided) != 1 || q.Decided[0].State != "taken back" || q.Decided[0].By != "yardmaster" {
 		t.Fatalf("the queue after it: %+v, %v", q, err)
 	}

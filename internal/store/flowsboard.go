@@ -395,7 +395,7 @@ func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, rou
 	// names no operator, or no user by that name, waits without asks.
 	asked := map[string]bool{}
 	if operator != "" {
-		q, err := s.UserAsks(ctx, operator)
+		q, err := s.UserAsks(ctx, operator, operator, operator)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
 				return nil, err

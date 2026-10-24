@@ -132,11 +132,11 @@ func TestAskFollowsReach(t *testing.T) {
 
 	// It stands in both queues, and is picked where the person is.
 	ref := b.ID + "@south"
-	q, err := north.st.UserAsks(ctx, "jo")
+	q, err := north.st.UserAsks(ctx, "jo", "jo")
 	if err != nil || len(q.Open) != 2 || q.Open[0].Bead != ref || q.Open[0].Asker != "yard-10-new@south" {
 		t.Fatalf("north's queue = %+v, %v", q, err)
 	}
-	if q, err := south.st.UserAsks(ctx, "jo"); err != nil || len(q.Open) != 3 {
+	if q, err := south.st.UserAsks(ctx, "jo", "jo"); err != nil || len(q.Open) != 3 {
 		t.Fatalf("south's queue = %+v, %v", q, err)
 	}
 	if _, err := run(t, north.a.beadCmd(), "answer", ref, "2", "1", "tonight"); err != nil {
@@ -148,7 +148,7 @@ func TestAskFollowsReach(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantText(t, prime, "jo@up-north (as jo) picked 1 (Move them now): tonight")
-	if q, err := south.st.UserAsks(ctx, "jo"); err != nil || len(q.Open) != 2 || q.Open[0].Ask != 1 || q.Open[1].Ask != 3 {
+	if q, err := south.st.UserAsks(ctx, "jo", "jo"); err != nil || len(q.Open) != 2 || q.Open[0].Ask != 1 || q.Open[1].Ask != 3 {
 		t.Fatalf("south's queue after the pick = %+v, %v", q, err)
 	}
 	notes, err := south.st.Notes(ctx, b.ID)
@@ -201,7 +201,7 @@ func TestAskFollowsReach(t *testing.T) {
 	}
 	wantText(t, out, fmt.Sprintf("%s created; ask %d on it for jo; also queued for jo@up-north\n", made[0].ID, asked[0].Seq))
 	carry(t, south, north)
-	q, err = north.st.UserAsks(ctx, "jo")
+	q, err = north.st.UserAsks(ctx, "jo", "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

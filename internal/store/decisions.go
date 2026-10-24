@@ -127,17 +127,22 @@ type AskQueue struct {
 
 // UserAsks reads the person's queue: every open ask addressed to them, on
 // beads the viewer may see in any stage and from the linked yards, oldest
-// first, with what they have dealt with beside it. An omitted viewer is
-// the yard itself. A foreign ask stands as
+// first, with what they have dealt with beside it. Only the user reads
+// their queue, and an operator any user's (mayReadInbox); actor is who
+// reads, and left out is the user. An omitted viewer is the yard itself.
+// A foreign ask stands as
 // bead@peer, asked by name@peer, with since as sent; it is placed by the
 // time this yard took it, never by the sender's clock, and the local asks
 // keep their note-seq order. One the person answered, put aside or
 // declined here is among the decided from then on, by what this yard knows
 // of it (foreignAsk), placed by when they did. A name that is no user of
 // the yard is refused, as UserInbox refuses it.
-func (s *Store) UserAsks(ctx context.Context, name string, viewer ...string) (*AskQueue, error) {
+func (s *Store) UserAsks(ctx context.Context, name, actor string, viewer ...string) (*AskQueue, error) {
 	if err := s.read(func(tx *bolt.Tx) error {
-		_, err := getUser(tx, name)
+		if _, err := getUser(tx, name); err != nil {
+			return err
+		}
+		_, err := s.mayReadInbox(ctx, tx, name, actor, "read")
 		return err
 	}); err != nil {
 		return nil, err

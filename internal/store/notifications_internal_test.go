@@ -85,7 +85,7 @@ func TestUserCursorOfAnOlderStore(t *testing.T) {
 	if err := s.AckUserInbox(ctx, "ada", head, "ada"); err != nil {
 		t.Fatal(err)
 	}
-	if page, err := s.UserNotifications(ctx, "ada", 0); err != nil || page.Unread != 1 {
+	if page, err := s.UserNotifications(ctx, "ada", 0, "ada"); err != nil || page.Unread != 1 {
 		t.Fatalf("notifications = %+v, %v; want one unread", page, err)
 	}
 	if err := s.Close(ctx); err != nil {

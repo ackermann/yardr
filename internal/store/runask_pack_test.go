@@ -112,7 +112,7 @@ func TestPackApplyAskStoresServerBytes(t *testing.T) {
 		t.Errorf("the card's description = %q", got.Ask.Run.Description)
 	}
 	// The queue and the bead carry the yard's sentences whole.
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil || len(q.Open) != 1 || q.Open[0].Run == nil || q.Open[0].Run.Pack == nil ||
 		!strings.Contains(strings.Join(q.Open[0].Run.Does, "\n"), "pack wired (embedded in yardr test1)") {
 		t.Fatalf("the queue's row = %+v, %v", q, err)

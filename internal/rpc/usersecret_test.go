@@ -127,7 +127,7 @@ func (y *secretYard) untouched(t *testing.T, after string) {
 	if _, err := os.Stat(filepath.Dir(y.file)); !os.IsNotExist(err) {
 		t.Errorf("%s: there is a file for the source's credential (%v)", after, err)
 	}
-	q, err := y.st.UserAsks(context.Background(), "jo")
+	q, err := y.st.UserAsks(context.Background(), "jo", "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestUserGivesASecret(t *testing.T) {
 	if text := strings.Join(store.NoteBlocks(notes, time.Now(), ""), "\n"); !strings.Contains(text, "jo (via phone) gave CRM_TOKEN") {
 		t.Errorf("the notes as they are printed do not say how the giving came:\n%s", text)
 	}
-	if q, err := y.st.UserAsks(ctx, "jo"); err != nil || len(q.Open) != 0 {
+	if q, err := y.st.UserAsks(ctx, "jo", "jo"); err != nil || len(q.Open) != 0 {
 		t.Errorf("jo's open asks after the giving: %+v, %v", q, err)
 	}
 	// Given on the yard's own machine, it says no device.
@@ -1054,7 +1054,7 @@ func TestUserGiveSecretHeldWhenTheWriteFails(t *testing.T) {
 				!strings.Contains(y.log.String(), file) {
 				t.Errorf("the listener's log does not hold the full words:\n%s", y.log.String())
 			}
-			if q, err := y.st.UserAsks(ctx, "sam"); err != nil || len(q.Open) != 1 {
+			if q, err := y.st.UserAsks(ctx, "sam", "sam"); err != nil || len(q.Open) != 1 {
 				t.Errorf("sam's open asks after the failed givings: %+v, %v", q, err)
 			}
 		})

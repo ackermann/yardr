@@ -649,7 +649,7 @@ func TestAskNew(t *testing.T) {
 		t.Fatalf("ask = %+v, %v", ask, err)
 	}
 	// It stands among the person's decisions under its topic, as any ask.
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil || len(q.Open) != 1 || q.Open[0].Bead != b.ID || q.Open[0].Topic != "topic:words" || q.Open[0].Ask != made.Ask {
 		t.Fatalf("mckean's asks = %+v, %v", q, err)
 	}

@@ -363,6 +363,10 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		{"UserInbox", `{"name":"jo"}`, `"text":"for jo"`},
 		{"UserInbox", `{"actor":"jo"}`, `"text":"for jo"`},
 		{"UserInbox", `{"name":"jo","actor":""}`, `"text":"for jo"`},
+		{"UserNotifications", `{"actor":"jo"}`, `"notifications":`},
+		{"UserNotifications", `{"name":"jo","actor":""}`, `"notifications":`},
+		{"UserAsks", `{"actor":"jo"}`, `"open":`},
+		{"UserAsks", `{"name":"jo","actor":""}`, `"open":`},
 		{"GetUser", `{}`, `"name":"jo"`},
 		{"UserAsks", `{}`, `"open":`},
 		{"Bead", `{"bead":"yd-hidden"}`, `not found`},
@@ -379,6 +383,9 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		{"AckUserInbox", fmt.Sprintf(`{"name":"sam","through":%d}`, head), `this device calls as jo`},
 		{"UserInbox", `{"name":"jo","actor":"sam"}`, `this device calls as jo: \"actor\" is jo or left out, not sam`},
 		{"AckUserInbox", fmt.Sprintf(`{"through":%d,"actor":"sam"}`, head), `this device calls as jo: \"actor\" is jo or left out, not sam`},
+		{"UserNotifications", `{"name":"jo","actor":"sam"}`, `this device calls as jo: \"actor\" is jo or left out, not sam`},
+		{"AckUserNotifications", fmt.Sprintf(`{"through":%d,"actor":"sam"}`, head), `this device calls as jo: \"actor\" is jo or left out, not sam`},
+		{"UserAsks", `{"name":"jo","actor":"sam"}`, `this device calls as jo: \"actor\" is jo or left out, not sam`},
 		{"AckUserNotifications", fmt.Sprintf(`{"name":"sam","through":%d}`, head), `this device calls as jo`},
 		{"Mail", `{"to":"sam","text":"as the yardmaster","actor":"yardmaster"}`, `this device calls as jo: \"actor\" is jo or left out, not yardmaster`},
 		{"MailPeer", `{"to":"clerk","peer":"north","text":"hello","actor":"sam"}`, `this device calls as jo`},
@@ -423,6 +430,9 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 	}
 	if got := call(t, h, token, "AckUserInbox", fmt.Sprintf(`{"through":%d}`, head)); got != `{}` {
 		t.Fatalf("AckUserInbox without a name = %s", got)
+	}
+	if got := call(t, h, token, "AckUserNotifications", fmt.Sprintf(`{"through":%d}`, head)); got != `{}` {
+		t.Fatalf("AckUserNotifications without a name = %s", got)
 	}
 	mail := eventsOfKind(t, st, "mail")
 	if last := mail[len(mail)-1]; last.Actor != "jo" || last.Data["to"] != "yardmaster" {

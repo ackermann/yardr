@@ -345,12 +345,17 @@ func show(v any) string {
 
 // UserNotifications returns the notifications of the user name: all that
 // is unread counted, and up to limit shown (0 shows all), the unread
-// first. They are oldest first (see NotificationPage).
-func (s *Store) UserNotifications(ctx context.Context, name string, limit int) (*NotificationPage, error) {
+// first. They are oldest first (see NotificationPage). Only the user
+// reads them, and an operator any user's (mayReadInbox); actor is who
+// reads, and left out is the user.
+func (s *Store) UserNotifications(ctx context.Context, name string, limit int, actor string) (*NotificationPage, error) {
 	page := &NotificationPage{Notifications: []Notification{}}
 	err := s.read(func(tx *bolt.Tx) error {
 		u, err := getUser(tx, name)
 		if err != nil {
+			return err
+		}
+		if _, err := s.mayReadInbox(ctx, tx, name, actor, "read"); err != nil {
 			return err
 		}
 		var all []Notification
@@ -387,13 +392,19 @@ func (s *Store) UserNotifications(ctx context.Context, name string, limit int) (
 }
 
 // AckUserNotifications marks the user's notifications read through seq.
-// The mail is not touched: each part of a user's inbox has its own cursor.
-// When it passes a notification it logs notifications_read with the reader
-// and how far, as mail_read does for mail, so that a view following the
-// stream counts again.
-func (s *Store) AckUserNotifications(ctx context.Context, name string, through uint64) error {
+// Only the user acknowledges them, and an operator any user's
+// (mayReadInbox); actor is who does, and left out is the user. The mail
+// is not touched: each part of a user's inbox has its own cursor. When it
+// passes a notification it logs notifications_read with the reader and how
+// far, naming who acknowledged them as its actor as mail_read does for
+// mail, so that a view following the stream counts again.
+func (s *Store) AckUserNotifications(ctx context.Context, name string, through uint64, actor string) error {
 	return s.writeVia(ctx, func(w *wtx) error {
 		u, err := getUser(w.Tx, name)
+		if err != nil {
+			return err
+		}
+		by, err := s.mayReadInbox(ctx, w.Tx, name, actor, "acknowledge")
 		if err != nil {
 			return err
 		}
@@ -411,7 +422,7 @@ func (s *Store) AckUserNotifications(ctx context.Context, name string, through u
 		if k == nil || !strings.HasPrefix(string(k), p) || binary.BigEndian.Uint64(k[len(p):]) > through {
 			return nil
 		}
-		return w.event("", "notifications_read", name, map[string]any{"reader": name, "through": through})
+		return w.event("", "notifications_read", by, map[string]any{"reader": name, "through": through})
 	})
 }
 

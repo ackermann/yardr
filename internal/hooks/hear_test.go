@@ -509,7 +509,7 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("a dropped delivery recorded: %d hook events", n)
 	}
-	q, err := r.st.UserAsks(ctx, "op")
+	q, err := r.st.UserAsks(ctx, "op", "op")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +529,7 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	r.talk(t, "U999", "again")
 	r.now = r.now.Add(time.Second)
 	r.talk(t, "U888", "someone else")
-	if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 2 {
+	if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 2 {
 		t.Fatalf("open asks = %v, %v, want 2", q, err)
 	}
 	// Picking ada on the first card writes ada's identity for U999.
@@ -584,7 +584,7 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 		mapTalk(t, rr, "ada", "U012")
 		rr.now = time.Now()
 		rr.talk(t, "U999", "unmapped words")
-		if q, err := rr.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 0 {
+		if q, err := rr.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 {
 			t.Fatalf("%s: open asks = %v, %v, want none", word, q, err)
 		}
 	}
@@ -595,7 +595,7 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 func nobodyPick(t *testing.T, r *depot, sender string) {
 	t.Helper()
 	ctx := context.Background()
-	q, err := r.st.UserAsks(ctx, "op")
+	q, err := r.st.UserAsks(ctx, "op", "op")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +648,7 @@ func TestHearByIdentityIgnoredSender(t *testing.T) {
 	}
 	openCards := func(t *testing.T, r *depot) int {
 		t.Helper()
-		q, err := r.st.UserAsks(ctx, "op")
+		q, err := r.st.UserAsks(ctx, "op", "op")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -814,7 +814,7 @@ func TestHearByIdentityDropsCrewEcho(t *testing.T) {
 		if len(evs) != 1 || speakerOf(t, evs[0]) != "ada" {
 			t.Fatalf("%s: hook events = %v, want the member's delivery alone", word, evs)
 		}
-		if q, err := r.st.UserAsks(ctx, "op"); err != nil || len(q.Open) != 0 {
+		if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 {
 			t.Fatalf("%s: open asks = %v, %v, want no mapping card", word, q, err)
 		}
 		if got := r.rc.Rejected()["self"]; got != 2 {
@@ -946,7 +946,7 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 			t.Fatalf("%q: stranger count %d, want %d", word, got, wantStrangers)
 		}
 		// And no card for the mayor: under unknown the stranger's alone.
-		q, err := r.st.UserAsks(ctx, "op")
+		q, err := r.st.UserAsks(ctx, "op", "op")
 		if err != nil {
 			t.Fatal(err)
 		}

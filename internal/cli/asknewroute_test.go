@@ -87,7 +87,7 @@ func TestBeadAskNewIsNotUnrouted(t *testing.T) {
 			}
 			id := made[0].ID
 			passes(id, "asked")
-			q, err := a.st.UserAsks(ctx, "mckean")
+			q, err := a.st.UserAsks(ctx, "mckean", "mckean")
 			if err != nil || len(q.Open) != 1 || q.Open[0].Bead != id || q.Open[0].Topic != "topic:words" {
 				t.Fatalf("mckean's decisions = %+v, %v", q, err)
 			}
@@ -99,7 +99,7 @@ func TestBeadAskNewIsNotUnrouted(t *testing.T) {
 				t.Fatalf("%v\n%s", err, out)
 			}
 			passes(id, "answered")
-			if q, err := a.st.UserAsks(ctx, "mckean"); err != nil || len(q.Open) != 0 || len(q.Decided) != 1 {
+			if q, err := a.st.UserAsks(ctx, "mckean", "mckean"); err != nil || len(q.Open) != 0 || len(q.Decided) != 1 {
 				t.Fatalf("mckean's decisions after the answer = %+v, %v", q, err)
 			}
 			if out, err := run(t, a.beadCmd(), "close", id, "--reason", "kept the word; nothing to change"); err != nil {

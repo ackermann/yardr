@@ -681,7 +681,7 @@ func TestPickInEachYard(t *testing.T) {
 	// there is the copy's row in b's queue: open, or decided.
 	there := func(bead string) (open bool, d DecidedAsk) {
 		t.Helper()
-		q, err := b.UserAsks(ctx, "mckean")
+		q, err := b.UserAsks(ctx, "mckean", "mckean")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -819,7 +819,7 @@ func TestAsideAcrossThreeYards(t *testing.T) {
 	}
 	decided := func(y *linked, bead string) DecidedAsk {
 		t.Helper()
-		q, err := y.UserAsks(ctx, "mckean")
+		q, err := y.UserAsks(ctx, "mckean", "mckean")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -963,7 +963,7 @@ func TestTwoNamesOneUserAnswerOwnCopy(t *testing.T) {
 		t.Fatalf("the copies: %q", got)
 	}
 	for _, name := range []string{"mckean", "ada"} {
-		q, err := b.UserAsks(ctx, name)
+		q, err := b.UserAsks(ctx, name, name)
 		if err != nil {
 			t.Fatal(err)
 		}

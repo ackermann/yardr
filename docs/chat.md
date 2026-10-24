@@ -1040,7 +1040,8 @@ The `yard` row follows two more things in the stream. An event that became
 a notification names whom it told in its data, `notified` (user to reason),
 and the view reads your notifications again when you are among them.
 `notifications_read`, with `reader` and `through`, says a user acknowledged
-their notifications through that seq.
+their notifications through that seq, or an operator acknowledged a user's.
+`reader` names whose cursor moved; the event actor names who acknowledged it.
 
 None of the three above is on a bead, and the web view's feed leaves them out, but for a
 crew member that stops at a prompt or leaves it.

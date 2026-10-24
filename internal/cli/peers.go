@@ -598,7 +598,7 @@ what came in the hour.`,
 			// Reach copies what is asked from now on: say what it leaves.
 			var stay []string
 			for _, user := range slices.Sorted(maps.Values(ch.Reach)) {
-				q, err := st.UserAsks(ctx, user, a.who())
+				q, err := st.UserAsks(ctx, user, a.who(), a.who())
 				if err != nil {
 					return err
 				}

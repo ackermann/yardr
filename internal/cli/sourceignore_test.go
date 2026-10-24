@@ -58,7 +58,7 @@ func ignoreSender(t *testing.T, own *store.Store, sender string) {
 	if created, err := own.ClaimIdentity(ctx, "talk", sender, "C1", "hi"); err != nil || !created {
 		t.Fatalf("ClaimIdentity for %s = %v, %v", sender, created, err)
 	}
-	q, err := own.UserAsks(ctx, "jo")
+	q, err := own.UserAsks(ctx, "jo", "jo")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -390,8 +390,8 @@ func (u *UserServer) bead(ctx context.Context, id, viewer string) (*store.BeadVi
 // It reads the role whatever the queue holds, as bead does not: the queue
 // is built from the notes of every bead, and one user read is nothing
 // beside that.
-func (u *UserServer) userAsks(ctx context.Context, name string, _ string) (*store.AskQueue, error) {
-	q, err := u.st.UserAsks(ctx, name, userOf(ctx))
+func (u *UserServer) userAsks(ctx context.Context, name string, _, _ string) (*store.AskQueue, error) {
+	q, err := u.st.UserAsks(ctx, name, userOf(ctx), userOf(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1048,9 +1048,9 @@ var selfArg = map[string][]string{
 	"GetUser":              {"name"},
 	"UserInbox":            {"name", "actor"},
 	"AckUserInbox":         {"name", "actor"},
-	"UserNotifications":    {"name"},
-	"AckUserNotifications": {"name"},
-	"UserAsks":             {"name", "viewer"},
+	"UserNotifications":    {"name", "actor"},
+	"AckUserNotifications": {"name", "actor"},
+	"UserAsks":             {"name", "actor", "viewer"},
 	"Bead":                 {"viewer"},
 	"Arrivals":             {"viewer"},
 	"Flows":                {"viewer"},

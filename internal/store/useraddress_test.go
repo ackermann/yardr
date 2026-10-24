@@ -91,7 +91,7 @@ func TestAddressAskIsStoredWithTheNotifyKeysName(t *testing.T) {
 		}
 	}
 	// In the user's own queue, as footplate reads it.
-	q, err := y.UserAsks(y.ctx, "ada")
+	q, err := y.UserAsks(y.ctx, "ada", "ada")
 	if err != nil {
 		t.Fatal(err)
 	}

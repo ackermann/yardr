@@ -99,7 +99,7 @@ func TestPushQueuedWithTheInbox(t *testing.T) {
 	if ps = pushesOf(t, st); ps[0].Unread() || !ps[1].Unread() || !ps[2].Unread() {
 		t.Fatalf("after the first mail was read: %+v", ps)
 	}
-	if err := st.AckUserNotifications(ctx, "ada", 1<<40); err != nil {
+	if err := st.AckUserNotifications(ctx, "ada", 1<<40, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if ps = pushesOf(t, st); !ps[1].Unread() || ps[2].Unread() {
@@ -204,7 +204,7 @@ func TestPushTried(t *testing.T) {
 		t.Fatalf("the times kept: %v", u.Pushed)
 	}
 	// Reading the inbox rewrites the record, and keeps them.
-	if err := st.AckUserNotifications(ctx, "ada", 1<<40); err != nil {
+	if err := st.AckUserNotifications(ctx, "ada", 1<<40, "ada"); err != nil {
 		t.Fatal(err)
 	}
 	if u, _ = st.GetUser(ctx, "ada"); u.LastPush == nil || len(u.Pushed) != store.PushesPerHour {

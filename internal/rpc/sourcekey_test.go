@@ -79,7 +79,7 @@ func TestAGivenValueIsInTheFileAlone(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					q, err := c.UserAsks(ctx, "jo")
+					q, err := c.UserAsks(ctx, "jo", "jo")
 					if err != nil {
 						t.Fatal(err)
 					}

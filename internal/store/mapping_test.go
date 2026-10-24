@@ -45,7 +45,7 @@ func mappingYard(t *testing.T) *askYard {
 
 func mappingQueue(t *testing.T, y *askYard) *AskQueue {
 	t.Helper()
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func wantCardOpen(t *testing.T, y *askYard, bead string) {
 // in state, and answers the row.
 func wantDecided(t *testing.T, y *askYard, bead, state string) DecidedAsk {
 	t.Helper()
-	q, err := y.UserAsks(y.ctx, "mckean")
+	q, err := y.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
 	}

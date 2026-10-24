@@ -258,7 +258,7 @@ func TestAnswerDeliversToUserAsker(t *testing.T) {
 	if !found {
 		t.Fatal("ada was not notified")
 	}
-	page, err := y.Store.UserNotifications(y.ctx, "ada", 0)
+	page, err := y.Store.UserNotifications(y.ctx, "ada", 0, "ada")
 	if err != nil || page.Unread != 1 {
 		t.Fatalf("ada's notifications = %+v, %v", page, err)
 	}
@@ -432,7 +432,7 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 	// rows are the notifications of user by event seq.
 	rows := func(user string) map[uint64]Notification {
 		t.Helper()
-		page, err := y.Store.UserNotifications(y.ctx, user, 100)
+		page, err := y.Store.UserNotifications(y.ctx, user, 100, user)
 		if err != nil {
 			t.Fatal(err)
 		}

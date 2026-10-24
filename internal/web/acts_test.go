@@ -151,7 +151,7 @@ func mappingActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
 	if !created {
 		t.Fatal("ClaimIdentity offered no card")
 	}
-	q, err := f.st.UserAsks(ctx, "mckean")
+	q, err := f.st.UserAsks(ctx, "mckean", "mckean")
 	must(t, err)
 	for _, o := range q.Open {
 		if o.Identity != nil && o.Identity.Sender == "U777" {

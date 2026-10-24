@@ -152,7 +152,7 @@ func TestPeerIdentityEndsTheMappingCard(t *testing.T) {
 			t.Fatalf("ClaimIdentity for %s = %v, %v", sender, created, err)
 		}
 	}
-	queue, err := y.api.UserAsks(y.ctx, "jo")
+	queue, err := y.api.UserAsks(y.ctx, "jo", "jo")
 	if err != nil || len(queue.Open) != 2 {
 		t.Fatalf("the operator's queue = %+v, %v, want the two cards", queue, err)
 	}
@@ -173,7 +173,7 @@ func TestPeerIdentityEndsTheMappingCard(t *testing.T) {
 	if b, err = y.api.GetBead(y.ctx, cards["T8"].Bead); err != nil || b.Status != "open" {
 		t.Fatalf("the card for T8 = %+v, %v, want it left open", b, err)
 	}
-	queue, err = y.api.UserAsks(y.ctx, "jo")
+	queue, err = y.api.UserAsks(y.ctx, "jo", "jo")
 	if err != nil || len(queue.Open) != 1 || queue.Open[0].Identity.Sender != "T8" {
 		t.Fatalf("the operator's queue after the mapping = %+v, %v, want T8's card alone", queue, err)
 	}

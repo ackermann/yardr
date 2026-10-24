@@ -48,8 +48,8 @@ type Store interface {
 	Mail(ctx context.Context, to, text, actor string, files ...store.BlobFile) error
 	Peers(ctx context.Context) ([]store.Peer, error)
 	MailPeer(ctx context.Context, to, peer, text, actor string, files ...store.BlobFile) (*store.PeerOut, error)
-	UserNotifications(ctx context.Context, name string, limit int) (*store.NotificationPage, error)
-	AckUserNotifications(ctx context.Context, name string, through uint64) error
+	UserNotifications(ctx context.Context, name string, limit int, actor string) (*store.NotificationPage, error)
+	AckUserNotifications(ctx context.Context, name string, through uint64, actor string) error
 }
 
 // Options are what the command knows and the model cannot find out.
@@ -150,7 +150,7 @@ func Load(ctx context.Context, st Store, me string) (*State, error) {
 		}
 	}
 	// All of them: the store bounds what a user's inbox keeps.
-	page, err := st.UserNotifications(ctx, me, 0)
+	page, err := st.UserNotifications(ctx, me, 0, me)
 	if err != nil {
 		return nil, err
 	}
