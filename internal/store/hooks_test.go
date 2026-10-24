@@ -65,6 +65,7 @@ func TestHookCRUD(t *testing.T) {
 // outside the three everywhere. This is the write a terminal hook add
 // runs, so it holds what the card's approval stores through runHookAdd.
 func TestHookUnknownWord(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	declarePack(t, s, "slack")

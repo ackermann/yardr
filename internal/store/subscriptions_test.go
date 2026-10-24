@@ -853,6 +853,7 @@ func declarePack(t *testing.T, s store.API, pack string) {
 // with no identity hearing, telegram's included, by the same word the
 // store refuses any key it may not filter on.
 func TestSpeakerFilterKey(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s, own := storetest.NewOwned(t)
 	declarePack(t, s, "slack")
@@ -910,6 +911,7 @@ func TestSpeakerFilterKey(t *testing.T) {
 // sets it, as the terminal runs it and as an approval runs it (the
 // operator), and neither user's identity moves.
 func TestUserIdentityOneToOne(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := storetest.New(t)
 	declarePack(t, s, "slack")

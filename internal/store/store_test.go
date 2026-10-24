@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,7 +17,14 @@ import (
 	"yardr.dev/yardr/internal/storetest"
 )
 
-func TestMain(m *testing.M) { storetest.Main(m) }
+// Keep the store's Git subprocesses independent of the operator's global
+// and system config. The peer Git tests need this while running in parallel,
+// and t.Setenv cannot set the process environment in a parallel test.
+func TestMain(m *testing.M) {
+	os.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	storetest.Main(m)
+}
 
 func ids(bs []store.Bead) []string {
 	out := make([]string, len(bs))

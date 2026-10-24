@@ -213,6 +213,7 @@ var builtFiles = map[string]string{
 }
 
 func TestSourceAddCardNamesCredentialForAbsoluteCommands(t *testing.T) {
+	t.Parallel()
 	decl := wiredDecl
 	for _, path := range []string{"wired/limits", "wired/thread", "wired/normalize", "wired/events"} {
 		decl = strings.ReplaceAll(decl, path, "/opt/"+path)

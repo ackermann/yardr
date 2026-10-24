@@ -232,6 +232,7 @@ func TestPackApplyStaleBuild(t *testing.T) {
 // it was, and a sentence that moved with it is named as itself, not as the
 // build. Neither stale function reads the yard when no source is carried.
 func TestStaleCardsReadAlikeWithoutBuild(t *testing.T) {
+	t.Parallel()
 	w := &wtx{}
 	cardOf := func(build string) (AskRun, AskSetup) {
 		seen := map[string]string{"pack wired": "embedded in yardr " + build, "pack wired build": build,
@@ -445,6 +446,7 @@ func TestPackApplyCarriesRemovedTextUpToThePackPayloadBound(t *testing.T) {
 }
 
 func TestPackReplacementDiffShowsWholeDeclarationKeys(t *testing.T) {
+	t.Parallel()
 	oldCalls, err := source.Parse("old", []byte(tgDecl))
 	if err != nil {
 		t.Fatal(err)

@@ -412,6 +412,7 @@ func TestHookAskDigitLeadingName(t *testing.T) {
 // Hook secret writes refuse unsafe existing files without touching them or
 // repeating the value in the refusal.
 func TestWriteHookSecretRefusesUnsafeFiles(t *testing.T) {
+	t.Parallel()
 	const old = "old-hook-secret"
 	for _, mode := range []struct {
 		name string

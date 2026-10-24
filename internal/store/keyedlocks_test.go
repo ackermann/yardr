@@ -6,6 +6,7 @@ import (
 )
 
 func TestKeyedLocksSerializeOnlyTheSameKey(t *testing.T) {
+	t.Parallel()
 	var locks keyedLocks
 	first := locks.lock("ask one")
 	started := make(chan struct{})

@@ -126,6 +126,7 @@ func TestSetupCardListsCandidateWithAddress(t *testing.T) {
 // words: a card kept in the store was written by the build of its day, and
 // the sentence is found by what it says of a candidate.
 func TestSetupCardWithoutCandidatesAnyWords(t *testing.T) {
+	t.Parallel()
 	account, own := []string{"SETUP_ACCOUNT", "SETUP_REGION"}, "/yard/sources/setupmail.env"
 	candidates := []AskCandidate{{Source: "setupcal", File: "/yard/sources/setupcal.env",
 		Values: map[string]string{"SETUP_ACCOUNT": "ops@example.com", "SETUP_REGION": "eu-west"}}}
@@ -178,6 +179,7 @@ func TestSetupCardWithoutCandidatesAnyWords(t *testing.T) {
 // written by this build or another. Given and Missing stay, the rest of the
 // card is as it was, and the card it was made from is left whole.
 func TestSetupCardWithoutCandidatesAndFile(t *testing.T) {
+	t.Parallel()
 	account, own := []string{"SETUP_ACCOUNT", "SETUP_REGION"}, "/yard/sources/setupmail.env"
 	candidates := []AskCandidate{{Source: "setupcal", File: "/yard/sources/setupcal.env",
 		Values: map[string]string{"SETUP_ACCOUNT": "ops@example.com", "SETUP_REGION": "eu-west"}}}
@@ -245,6 +247,7 @@ func TestSetupCardWithoutCandidatesAndFile(t *testing.T) {
 // failed and with none of the words that say how, whether they name the file
 // and the candidate or not.
 func TestSetupRanWithoutAccountFile(t *testing.T) {
+	t.Parallel()
 	apply := "applied pack setupmail to the yard: 1 created, 0 changed, 0 unchanged"
 	grant := "crew yardmaster may call setupmail: read"
 	account := []string{"SETUP_ACCOUNT", "SETUP_REGION"}

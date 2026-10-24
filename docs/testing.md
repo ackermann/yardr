@@ -23,8 +23,8 @@ The wall is the slowest package. When a non-allow-listed package takes over
 60 s in the race leg, the gate runs it again alone under the leg's lock.
 Over 60 s alone fails the run and names both times; 60 s or less passes
 with a `test: R1:` line naming both times and marking the first run as loaded.
-Load multiplies package times up to ~2.5x (dispatch is 68 s alone, 79-94 s
-in full runs), so the first run's time by itself does not fail the gate.
+Load multiplies package times up to ~2.5x, so the first run's time by
+itself does not fail the gate.
 The re-measurement can be loaded too: the race lock holds off the other
 gate legs, not every test on the machine. Over 60 s alone on a loaded
 machine -- the one-minute load average past the core count -- passes with

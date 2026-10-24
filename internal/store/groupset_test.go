@@ -91,6 +91,7 @@ func TestSetGroupKeepsTheRest(t *testing.T) {
 // 1, and so does a replaced one — except a paused group put back, which
 // stays paused. A negative limit is refused everywhere.
 func TestGroupLimitZeroPauses(t *testing.T) {
+	t.Parallel()
 	s, ctx := flowDepot(t)
 	must := func(err error) {
 		t.Helper()

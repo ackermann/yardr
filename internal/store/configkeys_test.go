@@ -368,6 +368,7 @@ func TestStoreChecksSettings(t *testing.T) {
 // MaxSessions reads the setting as the dispatcher holds it: unset caps
 // nothing, "0" caps everything (paused), and a number caps at it.
 func TestMaxSessions(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		settings map[string]string
 		max      int

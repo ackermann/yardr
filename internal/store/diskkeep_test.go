@@ -13,6 +13,7 @@ import (
 // for the landing that removes it, and dropped from the record once it is
 // gone. Dropping what was never recorded is no error.
 func TestGOCACHEOldRoundTrip(t *testing.T) {
+	t.Parallel()
 	st := storetest.New(t)
 	ctx := context.Background()
 	at := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -41,6 +42,7 @@ func TestGOCACHEOldRoundTrip(t *testing.T) {
 // disk_keep_gb reads as its gigabytes, as 30 while unset, unreadable or
 // negative, and as 0 while off.
 func TestDiskKeepGB(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		in   map[string]string
 		want int

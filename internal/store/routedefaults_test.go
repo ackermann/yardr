@@ -77,6 +77,7 @@ func winner(t *testing.T, s store.API, ctx context.Context, b store.Bead) *store
 // the depot takes its own route, another depot keeps the default, and a
 // bead with no depot has the default.
 func TestOwnRouteSetsDefaultAsideForItsDepotAlone(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	// The default has the higher priority, but an own route's key sets it
 	// aside regardless of the ranking each would have alone.
@@ -119,6 +120,7 @@ func TestOwnRouteSetsDefaultAsideForItsDepotAlone(t *testing.T) {
 // that routes its plain beads itself still sends its hard beads by the
 // yard's difficulty:3 default.
 func TestOwnRouteWithAnotherKeyLeavesTheDefaults(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	hard := "difficulty:3"
 	def := mustRoute(t, s, ctx, store.Route{Stage: "new", Label: &hard, Group: "hard-builders"})
@@ -149,6 +151,7 @@ func TestOwnRouteWithAnotherKeyLeavesTheDefaults(t *testing.T) {
 // state different keys, so both stand; the typed route wins for a
 // pull-request bead and the default for a plain one.
 func TestDefaultAndTypedOwnRouteForPullRequests(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers"})
 	pr := "pr"
@@ -173,6 +176,7 @@ func TestDefaultAndTypedOwnRouteForPullRequests(t *testing.T) {
 // take the same winner: the match reads no flow, and a label on the
 // pinned bead is what separates them.
 func TestPinnedFlowSharesTheRoute(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	def := mustRoute(t, s, ctx, store.Route{Stage: "review", Group: "reviewers"})
 	pinned := "pinned"
@@ -199,6 +203,7 @@ func TestPinnedFlowSharesTheRoute(t *testing.T) {
 // both stand in the depot's effective set and the scope leg places them.
 // The default's type and the own route's depot are one each of the rest.
 func TestOwnRouteRanksBeforeDefault(t *testing.T) {
+	t.Parallel()
 	bug := "bug"
 	routes := []store.Route{
 		{ID: "a-default", Stage: "new", Type: &bug, Group: "bug-builders"},
@@ -224,6 +229,7 @@ func TestOwnRouteRanksBeforeDefault(t *testing.T) {
 // keeps a second route of one key beside the first: a record that still
 // carries the priority routes had is refused as any other.
 func TestAddRouteRefusesAnExactTie(t *testing.T) {
+	t.Parallel()
 	t.Run("own against own, another chain", func(t *testing.T) {
 		s, ctx := defaultsYard(t)
 		first := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
@@ -329,6 +335,7 @@ func TestAddRouteRefusesAnExactTie(t *testing.T) {
 // A note is stored with the route and carried by its event; a route
 // without one is stored, matched and logged as it always was.
 func TestRouteNoteIsStoredAndLogged(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders", Note: "hard beads: heavy group or wait"})
 	if saved.Note != "hard beads: heavy group or wait" {
@@ -366,6 +373,7 @@ func TestRouteNoteIsStoredAndLogged(t *testing.T) {
 // Label sets can contain arbitrary strings. Length-prefixing their sorted
 // values keeps an embedded NUL from making two different sets share a key.
 func TestDifferentLabelSetsDoNotCollideInMatchKey(t *testing.T) {
+	t.Parallel()
 	first := []string{"a\x00b", "c"}
 	second := []string{"a", "b\x00c"}
 	routes := []store.Route{
@@ -390,6 +398,7 @@ func TestDifferentLabelSetsDoNotCollideInMatchKey(t *testing.T) {
 // decides. Every pair of the ranked fixture is then placed by the first
 // leg it differs on, and every leg places some pair.
 func TestSortRoutesRanksByTheNamedLegs(t *testing.T) {
+	t.Parallel()
 	p0, p1 := 0, 1
 	hal, any := "hal", store.OriginatorAny
 	labels := func(ls ...string) (*string, []string) { return &ls[0], ls[1:] }
@@ -528,6 +537,7 @@ func TestSortRoutesRanksByTheNamedLegs(t *testing.T) {
 // matches, every route ranked above it does not, and where nothing
 // matches nothing does.
 func TestRouteMatchesAgreesWithMatchRoute(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	hard := "hard"
 	mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
@@ -579,6 +589,7 @@ func TestRouteMatchesAgreesWithMatchRoute(t *testing.T) {
 // group keeps no route, as if the default were not there, and a bead with
 // no depot has the untemplated defaults alone.
 func TestTemplatedDefaultResolvesPerDepot(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	for _, g := range []store.Group{
 		{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
@@ -634,6 +645,7 @@ func TestTemplatedDefaultResolvesPerDepot(t *testing.T) {
 // add and through set; a default whose template resolves to no depot's
 // group is refused, as is one whose groups never all resolve together.
 func TestTemplatedGroupAddTimeRules(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	if err := s.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "jo"); err != nil {
 		t.Fatal(err)
@@ -678,6 +690,7 @@ func TestTemplatedGroupAddTimeRules(t *testing.T) {
 // depot where every group resolves is held to what a literal chain is:
 // only groups that start agents, or one exec group gated on a source.
 func TestTemplatedDefaultInAQuotaChain(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	for _, g := range []store.Group{
 		{Name: "web-assembly", Runner: "herdr", Config: map[string]any{"kind": "claude"}},

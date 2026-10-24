@@ -15,6 +15,7 @@ import (
 // one, naming it, and create nothing and change nothing; an ordinary
 // label is still accepted (yardr-edhj).
 func TestLabelWithWhitespaceIsRefused(t *testing.T) {
+	t.Parallel()
 	s, ctx, b := yardrDepot(t)
 	before, err := s.ListBeads(ctx, store.BeadFilter{All: true})
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 // route for their beads that leads to the operator's group, and a crew
 // member that serves them or keeps a conversation for them, each once.
 func TestLoginOf(t *testing.T) {
+	t.Parallel()
 	ada, bob := "ada", "bob"
 	groups := []Group{
 		{Name: "builders", Runner: "herdr"},
@@ -50,6 +51,7 @@ func TestLoginOf(t *testing.T) {
 // written in, and out of its env_for_ key; a list the removal empties is
 // dropped whole, since an empty for= serves everyone.
 func TestUnserve(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		name string
 		cfg  map[string]any
@@ -74,6 +76,7 @@ func TestUnserve(t *testing.T) {
 // left open holds nothing after SignInWithin, and another person's, another
 // harness's and a bead that is none of a sign-in's hold nothing at all.
 func TestSigningIn(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	sign := func(user, kind string, age time.Duration, status string) Bead {
 		return Bead{Originator: user, Status: status, CreatedAt: now.Add(-age), Metadata: map[string]any{SignInMeta: kind}}

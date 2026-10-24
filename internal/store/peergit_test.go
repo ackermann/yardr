@@ -127,9 +127,7 @@ func commit(t *testing.T, dir, file string) string {
 // is checked out, and one that the returned commit does not come after
 // stays, with a refusal no further try changes.
 func TestTakePeerBranchFastForwardOnly(t *testing.T) {
-	// Sequential: process environment.
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Parallel()
 	dir := t.TempDir()
 	remote, theirs, ours := filepath.Join(dir, "remote.git"), filepath.Join(dir, "theirs"), filepath.Join(dir, "ours")
 	git(t, dir, "init", "-q", "--bare", "-b", "main", remote)
@@ -211,9 +209,7 @@ func TestPeerGroupRemoteSetting(t *testing.T) {
 // gc that keeps nothing else, and is the depot's to drop once the bead is no
 // longer among those named.
 func TestKeepPeerBases(t *testing.T) {
-	// Sequential: process environment.
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Parallel()
 	dir := t.TempDir()
 	git(t, dir, "init", "-q", "-b", "main", dir)
 	first := commit(t, dir, "a.txt")

@@ -44,6 +44,7 @@ func routeSetEvent(t *testing.T, s store.API, ctx context.Context) store.Event {
 // which beads they are and the route's id, logging route_set with the
 // route as it was and as it is.
 func TestSetRouteRetunesWhereBeadsGoAndKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	typ, label := "task", "difficulty:3"
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Type: &typ, Depot: routePtr("web"),
@@ -88,6 +89,7 @@ func TestSetRouteRetunesWhereBeadsGoAndKeepsTheRest(t *testing.T) {
 // A set that changes nothing writes nothing and logs nothing: the route
 // comes back as it stands, with no route_set event.
 func TestSetRouteThatChangesNothingWritesNothing(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	note := "the line's own"
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"),
@@ -118,6 +120,7 @@ func TestSetRouteThatChangesNothingWritesNothing(t *testing.T) {
 // parses, and a chain or condition names only groups that start agents.
 // A refused set leaves the route as it stands.
 func TestSetRouteHoldsGroupsAsAnAddDoes(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
 	group := func(name, when string) *store.RouteGroup { return &store.RouteGroup{Name: name, When: when} }
@@ -151,6 +154,7 @@ func TestSetRouteHoldsGroupsAsAnAddDoes(t *testing.T) {
 // the tie check: the store mints the new route's id, so a caller-named
 // id is not the route's own, and the tie is refused as for any add.
 func TestAddRouteNamingAStandingRouteStillRefusesItsTie(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	standing := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
 	if _, err := s.AddRoute(ctx, store.Route{ID: standing.ID, Stage: "new", Group: "spare"}, "jo"); err == nil ||
@@ -164,6 +168,7 @@ func TestAddRouteNamingAStandingRouteStillRefusesItsTie(t *testing.T) {
 
 // Setting a route that is not there is not found.
 func TestSetRouteOnAnUnknownRoute(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	note := "nowhere"
 	if _, err := s.SetRoute(ctx, "no-such-route", store.RouteEdit{Note: &note}, "jo"); !errors.Is(err, store.ErrNotFound) {
@@ -176,6 +181,7 @@ func TestSetRouteOnAnUnknownRoute(t *testing.T) {
 // states nothing sets nothing aside, and any other key leaves the default
 // in place.
 func TestSetAsideRoutesNamesTheOwnRouteThatSetsEachAside(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	hard := "difficulty:3"
 	plain := mustRoute(t, s, ctx, store.Route{Stage: "new", Group: "builders"})
@@ -204,6 +210,7 @@ func TestSetAsideRoutesNamesTheOwnRouteThatSetsEachAside(t *testing.T) {
 // A bead claimed through the route keeps its group until its session
 // ends; the next claim takes the new chain.
 func TestClaimedBeadKeepsItsGroupWhileTheNextClaimTakesTheNewChain(t *testing.T) {
+	t.Parallel()
 	s, ctx := defaultsYard(t)
 	saved := mustRoute(t, s, ctx, store.Route{Stage: "new", Depot: routePtr("web"), Group: "builders"})
 	first, err := s.CreateBead(ctx, store.NewBead{Title: "first", Depot: "web", Stage: "new"}, "jo")
