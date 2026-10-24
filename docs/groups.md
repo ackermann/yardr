@@ -151,21 +151,26 @@ made. Each is a command that stands on its own:
 3. **The env file** that names it: `printf 'CLAUDE_CONFIG_DIR=%s\n'
    ~/.yardr/logins/ada > ~/.yardr/groups/ada.env`, mode 0600 (the variable is
    the kind's `home_env`).
-4. **The group**, a copy of the yard's builders: `yardr group add ada-builders
-   --runner herdr --set kind=claude --set login_for=ada --set
-   env_file=~/.yardr/groups/ada.env`, with the builders' prompt, arguments and
-   model besides, and a limit of 1, as a new group has: twelve people at the
-   limit of a shared builders would overrun the machine, and `yardr group set
-   ada-builders --limit 2` raises one. The builders are the group named
-   `builders`, or the one group named `<depot>-builders` as a pack names a
-   depot's; `--like <group>` names another. It must be a herdr group that runs
-   Claude and is the operator's (it has no `login_for` of another's). Its
-   `env_file` is not copied: it may hold the operator's key.
-5. **The routes**: for each route of the operator's that sends work to the
-   builders first, `yardr route add --stage new --originator ada --group
+4. **The groups**, a copy of every herdr group an operator route sends work
+   to: `yardr group add ada-builders --runner herdr --set kind=claude --set
+   login_for=ada --set env_file=~/.yardr/groups/ada.env`, one per group
+   (`ada-reviewers` beside `ada-builders`), each with its source's prompt,
+   arguments and model besides, and a limit of 1, as a new group has:
+   twelve people at the limit of a shared builders would overrun the
+   machine, and `yardr group set ada-builders --limit 2` raises one. Each
+   copy runs Claude on the person's login whatever its source ran, and its
+   `env_file` is not copied: it may hold the operator's key. A yard default
+   whose first group uses `{depot}` is copied for each depot where it resolves
+   to a herdr group (for example, `ada-web-builders`). Groups that start no
+   agents get no copy: their routes take every originator's beads already.
+5. **The routes**: for each route of the operator's that sends work to a
+   herdr group first, `yardr route add --stage new --originator ada --group
    ada-builders`, with the route's depot, type, labels and bead priority,
    and no condition and no `--else`, since a fallback would spend
-   someone else's login. The reviewers and the rest are not copied: a bead of
+   someone else's login. A `{depot}` default gets one depot-scoped twin for
+   each depot where its first group resolves to a herdr group. A route that
+   already names an originator, and a route to a script, people or another
+   yard, gain no twin. A bead of
    theirs that reaches a stage with no route of theirs waits as an unrouted
    bead does, with the one `unrouted` event naming whose beads have no route.
 6. **The conversation**: `yardr crew set yardmaster
@@ -196,9 +201,11 @@ made. Each is a command that stands on its own:
 
 Only claude is wired; another harness name is refused. A folder or env file
 that exists is refused too, with its path: a removed user's login stays on
-disk, and a name is reusable. `yardr user rm ada` takes the group, every route
-for ada's beads and `ada` from `for=` and `env_for_ada`, in the same write; the
-folder and the env file stay, and it says where they are.
+disk, and a name is reusable. A yard with no operator route to a herdr
+group is refused as well: there is no stage to route the person's beads
+to. `yardr user rm ada` takes the groups, every route for ada's beads and
+`ada` from `for=` and `env_for_ada`, in the same write; the folder and the
+env file stay, and it says where they are.
 
 A route with no `--depot` is a yard default: it serves every depot that
 does not state its own route for the same beads. Which beads a route

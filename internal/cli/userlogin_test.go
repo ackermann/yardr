@@ -154,11 +154,13 @@ func routesFor(t *testing.T, st store.API, user string) []string {
 
 // yardr user add <name> --login claude makes a person whole (design
 // yardr-m06d 3.8): the user, the folder and the env file their login lands in,
-// the group that runs on it, the routes that send their beads to it, the
-// yardmaster's conversation with them, and the sign-in, whose page is mailed
-// to them and whose code they give as an ask of their own. yardr user rm
-// takes the group, the routes and the entries in one write, and leaves the
-// folder. It stays sequential: the stand-in claude is found through lookPath.
+// a copy of every herdr group an operator route serves, a twin of each such
+// route for their beads, the yardmaster's conversation with them, and the
+// sign-in, whose page is mailed to them and whose code they give as an ask of
+// their own. Routes to scripts and people, and routes that already name an
+// originator, gain no twin. yardr user rm takes the copies, the twins and the
+// entries in one write, and leaves the folder. It stays sequential: the
+// stand-in claude is found through lookPath.
 func TestUserAddWithALogin(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()
@@ -166,8 +168,19 @@ func TestUserAddWithALogin(t *testing.T) {
 	dir := fakeTools(t, map[string]string{"claude": loginStandIn})
 	stub(t, &tryHarnessCall, realTry)
 
-	// The yard's builders, two routes that take them, and reviewers that no
-	// person's group is a copy of.
+	// A yard with no operator route to a herdr group refuses, naming the
+	// cause, before anything is made.
+	if out, err := as(t, st, "jo", "user", "add", "ada", "--login", "claude"); err == nil ||
+		!strings.Contains(err.Error(), "no route of the operator's sends work to a herdr group") {
+		t.Fatalf("user add ada --login claude with no herdr route = %v, want the refusal\n%s", err, out)
+	}
+	if _, err := st.GetUser(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a refused add made the user ada: %v", err)
+	}
+
+	// The yard's builders with two routes that take them, reviewers with
+	// one, people with an any route that gains no twin, and an explicit
+	// any route to the builders that gains none either.
 	mustAs(t, st, "jo", "group", "add", "builders", "--runner", "herdr", "--limit", "4",
 		"--set", "kind=claude", "--set", "model=claude-sonnet-5-5", "--set", "prompt=roles/builder.md")
 	mustAs(t, st, "jo", "group", "add", "reviewers", "--runner", "herdr", "--set", "kind=claude")
@@ -175,6 +188,19 @@ func TestUserAddWithALogin(t *testing.T) {
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--group", "builders")
 	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--bead-priority", "1", "--group", "builders")
 	mustAs(t, st, "jo", "route", "add", "--stage", "review", "--group", "reviewers")
+	mustAs(t, st, "jo", "route", "add", "--stage", "assembly", "--group", "bench")
+	mustAs(t, st, "jo", "route", "add", "--stage", "new", "--originator", "any", "--group", "builders")
+	for _, depot := range []string{"api", "web"} {
+		if err := st.PutDepot(ctx, store.Depot{Name: depot}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.PutGroup(ctx, store.Group{Name: depot + "-builders", Runner: "herdr", Config: map[string]any{
+			"kind": "claude", "prompt": "roles/" + depot + "-builder.md",
+		}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustAs(t, st, "jo", "route", "add", "--stage", "shape", "--group", "{depot}-builders")
 	operatorRoutes := func() int {
 		rs, err := st.Routes(ctx)
 		if err != nil {
@@ -185,11 +211,12 @@ func TestUserAddWithALogin(t *testing.T) {
 	before := operatorRoutes()
 	claimedEnv := filepath.Join(home, "groups", "nina.env")
 	mustAs(t, st, "jo", "group", "add", "stale", "--runner", "herdr", "--set", "kind=claude", "--set", "env_file="+claimedEnv)
+	mustAs(t, st, "jo", "group", "add", "ada-reviewers", "--runner", "herdr", "--set", "kind=claude")
 
 	// What cannot be made is refused before anything is: a harness that is
-	// not wired, a group that is not there or starts no agent, a login that
-	// stands from a user removed before (a name is reusable), a name that is
-	// no folder.
+	// not wired, a copy that collides with a group standing already, a
+	// login that stands from a user removed before (a name is reusable), a
+	// name that is no folder.
 	if err := os.MkdirAll(filepath.Join(home, "logins", "eve"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -199,9 +226,7 @@ func TestUserAddWithALogin(t *testing.T) {
 	}{
 		{[]string{"user", "add", "ada", "--login", "codex"}, "--login codex: only claude is wired"},
 		{[]string{"user", "add", "ada", "--login", "nothing"}, "--login nothing is no harness kind"},
-		{[]string{"user", "add", "ada", "--login", "claude", "--like", "ghost"}, "group ghost: not found"},
-		{[]string{"user", "add", "ada", "--login", "claude", "--like", "bench"}, "group bench is manual, not herdr"},
-		{[]string{"user", "add", "ada", "--like", "builders"}, "--like names the group a person's own is a copy of: it goes with --login"},
+		{[]string{"user", "add", "ada", "--login", "claude"}, "group ada-reviewers exists"},
 		{[]string{"user", "add", "nina", "--login", "claude"}, "login env file " + claimedEnv + " is already named by group stale"},
 		{[]string{"user", "add", "eve", "--login", "claude"}, filepath.Join(home, "logins", "eve") + " exists"},
 		{[]string{"user", "add", "a/b", "--login", "claude"}, "the login folder is named by the user"},
@@ -222,6 +247,7 @@ func TestUserAddWithALogin(t *testing.T) {
 		t.Fatal("a refused add wrote an env file another group already names")
 	}
 	mustAs(t, st, "jo", "group", "rm", "stale")
+	mustAs(t, st, "jo", "group", "rm", "ada-reviewers")
 
 	// The whole of it, with the yardmaster serving everyone. When her code is
 	// asked for, the daemon has started her conversation on a folder with no
@@ -240,8 +266,14 @@ func TestUserAddWithALogin(t *testing.T) {
 	for _, want := range []string{
 		"user ada added\n",
 		"  login folder " + folder + " (0700), env file " + env + " (0600)\n",
+		"  group ada-api-builders (a copy of api-builders: kind claude, login_for ada, limit 1)\n",
 		"  group ada-builders (a copy of builders: kind claude, login_for ada, limit 1)\n",
+		"  group ada-reviewers (a copy of reviewers: kind claude, login_for ada, limit 1)\n",
+		"  group ada-web-builders (a copy of web-builders: kind claude, login_for ada, limit 1)\n",
 		"-> ada-builders\n",
+		"-> ada-reviewers\n",
+		"-> ada-api-builders\n",
+		"-> ada-web-builders\n",
 		"  yardmaster serves ada (env_for_ada)\n",
 		"  ada has no device yet",
 		"  the page to sign in on is mailed to ada\n",
@@ -269,11 +301,82 @@ func TestUserAddWithALogin(t *testing.T) {
 		g.Config["model"] != "claude-sonnet-5-5" || g.Config["prompt"] != "roles/builder.md" {
 		t.Errorf("ada's group = %+v", g)
 	}
-	if got, want := strings.Join(routesFor(t, st, "ada"), "; "), "new P1 -> ada-builders; new any -> ada-builders"; got != want {
+	if g, err := st.GetGroup(ctx, "ada-reviewers"); err != nil {
+		t.Fatal(err)
+	} else if g.Runner != "herdr" || g.Limit != 1 || g.LoginFor() != "ada" || g.Config["kind"] != "claude" || g.Config["env_file"] != env {
+		t.Errorf("ada's reviewers = %+v", g)
+	}
+	for _, depot := range []string{"api", "web"} {
+		g, err := st.GetGroup(ctx, "ada-"+depot+"-builders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Runner != "herdr" || g.Limit != 1 || g.LoginFor() != "ada" || g.Config["kind"] != "claude" ||
+			g.Config["env_file"] != env || g.Config["prompt"] != "roles/"+depot+"-builder.md" {
+			t.Errorf("ada's %s builders = %+v", depot, g)
+		}
+	}
+	if got, want := strings.Join(routesFor(t, st, "ada"), "; "), "new P1 -> ada-builders; new any -> ada-builders; review any -> ada-reviewers; shape any -> ada-api-builders; shape any -> ada-web-builders"; got != want {
 		t.Errorf("ada's routes: %s\nwant %s", got, want)
 	}
-	if got := operatorRoutes(); got != before+2 {
-		t.Errorf("%d routes, want the operator's %d and two of ada's", got, before)
+	// The any routes gain no twin: the people route is still any to the
+	// bench, and the explicit any route to the builders still stands.
+	rs, err := st.Routes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var assembly, explicit int
+	for _, r := range rs {
+		if r.Originator != nil && *r.Originator == store.OriginatorAny {
+			switch r.Stage + " " + r.Group {
+			case "assembly bench":
+				assembly++
+			case "new builders":
+				explicit++
+			}
+		}
+	}
+	if assembly != 1 || explicit != 1 {
+		t.Errorf("the any routes after: assembly->bench %d, new->builders %d, want one each", assembly, explicit)
+	}
+	if got := operatorRoutes(); got != before+5 {
+		t.Errorf("%d routes, want the operator's %d and five of ada's", got, before)
+	}
+	// Her beads route on her own login through every stage, and the
+	// operator's still on theirs.
+	matched := func(stage, originator, depot string) string {
+		gs, err := st.Groups(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byName := make(map[string]store.Group, len(gs))
+		for _, g := range gs {
+			byName[g.Name] = g
+		}
+		var depotName *string
+		if depot != "" {
+			depotName = &depot
+		}
+		if r := store.MatchRoute(rs, store.Bead{Stage: stage, Originator: originator, Depot: depotName}, "jo", byName); r != nil {
+			return r.Worker()
+		}
+		return "<none>"
+	}
+	for _, c := range []struct{ stage, originator, depot, group string }{
+		{"new", "ada", "", "ada-builders"},
+		{"review", "ada", "", "ada-reviewers"},
+		{"assembly", "ada", "", "bench"},
+		{"shape", "ada", "api", "ada-api-builders"},
+		{"shape", "ada", "web", "ada-web-builders"},
+		{"new", "jo", "", "builders"},
+		{"review", "jo", "", "reviewers"},
+		{"assembly", "jo", "", "bench"},
+		{"shape", "jo", "api", "api-builders"},
+		{"shape", "jo", "web", "web-builders"},
+	} {
+		if got := matched(c.stage, c.originator, c.depot); got != c.group {
+			t.Errorf("%s's bead at %s in %s routes to %s, want %s", c.originator, c.stage, c.depot, got, c.group)
+		}
 	}
 	ym, err := st.GetCrew(ctx, "yardmaster")
 	if err != nil {
@@ -336,6 +439,9 @@ func TestUserAddWithALogin(t *testing.T) {
 	if ym, err = st.GetCrew(ctx, "yardmaster"); err != nil || strings.Join(ym.Served(), ",") != "ada,bob,jo" || ym.EnvFor("bob") != bobEnv {
 		t.Errorf("the yardmaster after bob: %+v, %v", ym.Config, err)
 	}
+	if got, want := strings.Join(routesFor(t, st, "bob"), "; "), "new P1 -> bob-builders; new any -> bob-builders; review any -> bob-reviewers; shape any -> bob-api-builders; shape any -> bob-web-builders"; got != want {
+		t.Errorf("bob's routes: %s\nwant %s", got, want)
+	}
 	// The sign-in opened again starts again only a conversation that sits at
 	// the screen of the harness it signs in to: not hers at another harness's
 	// screen, nor hers running on a login.
@@ -359,14 +465,22 @@ func TestUserAddWithALogin(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &in); err != nil || !in.Mailed || !in.SignedIn || in.Bead == "" || in.Ask == 0 || in.Error != "" {
 		t.Errorf("user login ada --json = %s (%v)", out, err)
 	}
+	// Groups carrying her login on different env files are distinct logins,
+	// and the sign-in opened again is not one's to pick.
+	mustAs(t, st, "jo", "group", "add", "ada-other", "--runner", "herdr", "--set", "kind=claude",
+		"--set", "login_for=ada", "--set", "env_file="+filepath.Join(home, "groups", "ada-other.env"))
+	if out, err := as(t, st, "jo", "user", "login", "ada"); err == nil || !strings.Contains(err.Error(), "different env files") {
+		t.Errorf("user login ada with two logins = %v, want the refusal\n%s", err, out)
+	}
+	mustAs(t, st, "jo", "group", "rm", "ada-other")
 
 	// Removing ada takes what carries her login in the one write, says so,
 	// and leaves the folder and the env file.
 	out = mustAs(t, st, "jo", "user", "rm", "ada")
 	for _, want := range []string{
 		"user ada removed\n",
-		"  Groups that carry their login go with them: ada-builders.\n",
-		"  Their routes go with them (2 routes).\n",
+		"  Groups that carry their login go with them: ada-api-builders, ada-builders, ada-reviewers, ada-web-builders.\n",
+		"  Their routes go with them (5 routes).\n",
 		"  They are taken out of for= and env_for_ada of yardmaster.\n",
 		"  Their login stays on disk, in the folder the env file " + env + " names; no command erases it yet.\n",
 	} {
@@ -374,11 +488,16 @@ func TestUserAddWithALogin(t *testing.T) {
 			t.Errorf("rm's output lacks %q:\n%s", want, out)
 		}
 	}
-	if _, err := st.GetGroup(ctx, "ada-builders"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("ada's group after rm: %v", err)
+	for _, name := range []string{"ada-api-builders", "ada-builders", "ada-reviewers", "ada-web-builders"} {
+		if _, err := st.GetGroup(ctx, name); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("ada's group %s after rm: %v", name, err)
+		}
 	}
-	if got := operatorRoutes(); got != before+2 {
-		t.Errorf("%d routes after rm, want the operator's %d and bob's two", got, before)
+	if got := len(routesFor(t, st, "ada")); got != 0 {
+		t.Errorf("%d of ada's routes after rm, want none", got)
+	}
+	if got := operatorRoutes(); got != before+5 {
+		t.Errorf("%d routes after rm, want the operator's %d and bob's five", got, before)
 	}
 	if ym, err = st.GetCrew(ctx, "yardmaster"); err != nil || ym.EnvFor("ada") != "" || strings.Join(ym.Served(), ",") != "bob,jo" {
 		t.Errorf("the yardmaster after rm: %+v, %v", ym.Config, err)

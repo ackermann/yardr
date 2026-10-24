@@ -45,7 +45,7 @@ them: yardr user identity.
 
 A device is a program of a user that calls the yard from outside it, let in
 by a token: yardr user device.`}
-	var login, like string
+	var login string
 	add := &cobra.Command{
 		Use: "add <name> [--login claude]", Short: "Add a user", Args: cobra.ExactArgs(1),
 		Long: `Adds the user name: an inbox, and a party to mail, ask and route for.
@@ -57,35 +57,33 @@ another's login. In this order, after checking that all of it can be made
 
   the user, and their login folder <home>/logins/<name> (0700) with the env
   file <home>/groups/<name>.env (0600) that names it (CLAUDE_CONFIG_DIR);
-  the group <name>-builders, a copy of the yard's builders with kind claude,
-  login_for <name>, that env file and limit 1; a route --originator <name>
-  for each stage the builders take, to that group; the yardmaster's
-  env_for_<name> (and the user in its for=, where that names some), which
-  gives them a conversation on their login; and the sign-in: the page to
-  sign in on is mailed to them, and the code it shows is asked of them as a
-  secret that goes to the waiting login and is kept nowhere. The command
-  waits for it, within the login's own timeouts, proves the login with one
-  short call on their seat, starts their conversation again on it where it
-  sat at the login screen meanwhile, and says what it made.
+  a copy of every herdr group an operator route sends work to, each named
+  <name>-<group> with kind claude, login_for <name>, that env file and
+  limit 1; a route --originator <name> for each such route, to the copy;
+  the yardmaster's env_for_<name> (and the user in its for=, where that
+  names some), which gives them a conversation on their login; and the
+  sign-in: the page to sign in on is mailed to them, and the code it shows
+  is asked of them as a secret that goes to the waiting login and is kept
+  nowhere. The command waits for it, within the login's own timeouts,
+  proves the login with one short call on their seat, starts their
+  conversation again on it where it sat at the login screen meanwhile, and
+  says what it made.
 
---like <group> names the group to copy where the yard's builders are not the
-group named builders, or the one group named <depot>-builders. Only claude is
-wired. The person reads the page and gives the code in a device (yardr user
-device pair); a sign-in that did not finish is opened again with yardr user
-login. yardr user rm takes what this made, and leaves the login folder.`,
+Routes to scripts and people take every originator's beads already, so they
+gain no copy and no twin; routes that already name an originator gain none
+either. Only claude is wired. The person reads the page and gives the code
+in a device (yardr user device pair); a sign-in that did not finish is
+opened again with yardr user login. yardr user rm takes what this made, and
+leaves the login folder.`,
 		Example: `  yardr user add ada                       # an inbox, no login of their own
-  yardr user add ada --login claude        # and the group, routes and sign-in on their own seat
-  yardr user add ada --login claude --like docs-builders`,
+  yardr user add ada --login claude        # and the groups, routes and sign-in on their own seat`,
 		RunE: func(c *cobra.Command, args []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err
 			}
 			if login != "" {
-				return a.addUserLogin(c, st, args[0], login, like)
-			}
-			if like != "" {
-				return fmt.Errorf("--like names the group a person's own is a copy of: it goes with --login")
+				return a.addUserLogin(c, st, args[0], login)
 			}
 			u, err := st.AddUser(c.Context(), args[0], a.who())
 			if err != nil {
@@ -431,7 +429,6 @@ again, and it ends as one giving that worked.`,
 		},
 	}
 	add.Flags().StringVar(&login, "login", "", "make the person whole on a login of their own, signed in to this harness (claude)")
-	add.Flags().StringVar(&like, "like", "", "with --login: the group their own is a copy of; default the yard's builders")
 	cmd.AddCommand(add, list, show, rm, set, key, a.userIdentityCmd(), a.deviceCmd(), a.userLoginCmd())
 	return cmd
 }
