@@ -5,11 +5,13 @@ This page follows a bead down the line yardr itself is built with
 (depot yardr, as of 2026-10-03). Its flows are in [flows.md](flows.md#worked-example-depot-yardr).
 
 ```
-                                                       ╭─── done-safe ─────────────────╮
+small, specified: backlog ──pick──▶ siding ──folded──▶ ready ──release by hand──▶ new
+small, shaped:                    shape ──small──▶ siding
 backlog ──pick──▶ shape ──shaper──▶ new ──builder──▶ review ──▶ review-security ──▶ approved ──assembly──▶ merged on main
    ▲                       ▲                 │              │                 │
    │                       └──── changes ────┴──────────────┘                 │
    │                       └──────────────── red check or conflict ───────────┘
+   ├──────── siding, ready to backlog by hand
    └──────── decide (Christopher) ◀── a question from backlog, shape, new, review, review-security or approved
 ```
 
@@ -20,8 +22,10 @@ yardmaster (see [crew.md](crew.md), prompt the default pack's
 `~/.yardr/packs/<pack>/roles/yardmaster.md`) or a person picks each one for
 `shape`; the pick stays a person's, never a route. A bead already specified
 well enough for a builder to finish it without asking skips that step and
-goes straight to `new`: the yardmaster advances it
-(`yardr bead advance <id> --to new`), and Christopher can do the same from
+goes straight on: a small one to `siding`, any other to `new`. The
+yardmaster advances it by hand: to `siding` for a small one
+(`yardr bead advance <id> --to siding`), or to `new` for any other
+(`yardr bead advance <id> --to new`); Christopher can do the same from
 `yardr review -g backlog`.
 
 In `shape`, a shaper reads the bead and the code it names, and specifies it
@@ -29,10 +33,16 @@ until a builder could finish it without asking: a goal, where to look, what
 "done" means and how to test it. Large beads are split, and
 `yardr dep add` orders them: a bead is only ready once its blockers are
 closed, or a staged edge releases it
-early ([Dependencies](#dependencies)). A bead specified at `difficulty:1`
-goes to `new` on `done`; a heavier one, a duplicate, or one needing a
-decision only a person can make goes to `decide` on `question`, with the
-question asked on the bead first.
+early ([Dependencies](#dependencies)). A bead shaped at `difficulty:1` and
+`size:small` goes to `siding` on `small`, to wait for company and leave
+folded with it; any other `difficulty:1` bead goes to `new` on `done`; a
+heavier one, a duplicate, or one needing a decision only a person can make
+goes to `decide` on `question`, with the question asked on the bead first.
+
+Small beads wait in `siding` for company, and leave folded into one carrier
+([Folding beads](#folding-beads)), which waits in `ready` for a person to
+send it to `new`. A bead in `siding` or `ready` that needs reshaping goes
+back to `backlog`, by hand.
 
 ### Cycles of blockers
 
