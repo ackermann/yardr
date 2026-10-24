@@ -11,18 +11,26 @@ import (
 // migrateNotificationsTold remakes every notification of a user who is not
 // the operator from what its person is told of the event (schema 31): rows
 // written before the hold kept the whole event as key=value pairs, so a
-// worktree, a command or error words stayed readable to a lost token. An
-// operator's rows are left whole, as the writer leaves them, and hook rows
-// (Source is the hook's, not yardr's) are left too: the writer tells those
-// whole to every user they reach. A row whose event is still kept is remade
-// as the writer remakes it (toldNotification): bead rows from the current
-// bead row, whose title may have changed since, and beads gone since in the
-// yard form. A row whose event was pruned is remade bare, from the row's
-// Kind, Bead, Reason and Title alone, with no event data at all.
+// worktree, a command or error words stayed readable to a lost token.
 func migrateNotificationsTold(tx *bolt.Tx, from uint64) error {
 	if from >= 31 {
 		return nil
 	}
+	return remakeNotificationsTold(tx)
+}
+
+// remakeNotificationsTold remakes every notification of a user who is not
+// the operator from what its person is told of the event, as the writer
+// remakes it (toldNotification): bead rows from the current bead row, whose
+// title may have changed since, and beads gone since in the yard form. An
+// operator's rows are left whole, as the writer leaves them, and hook rows
+// (Source is the hook's, not yardr's) are left too: the writer tells those
+// whole to every user they reach. A row whose event was pruned is remade
+// bare, from the row's Kind, Bead, Reason and Title alone, with no event
+// data at all. Schemas 33 and 34 run it again, once WithoutHeld holds old
+// takeback sentences and old approval sentences too, so the remakes cannot
+// differ but by what the event is told as.
+func remakeNotificationsTold(tx *bolt.Tx) error {
 	ops, err := operatorsIn(tx)
 	if err != nil {
 		return err

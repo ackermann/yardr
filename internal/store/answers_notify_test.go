@@ -334,7 +334,9 @@ func TestBeadPicksBefore(t *testing.T) {
 // the login ended, whose words carry the tail of the login command. The
 // event keeps the sentence whole, as the asker's inbox reads it, and the
 // operator's notification reads it too. An approval of any other row, and a
-// person's taking back, are marked nothing, and their sentences are told.
+// person's taking back, are marked nothing, and their sentences are told. An
+// answer written before the mark reads as held exactly as if marked, while
+// the log and the asker's inbox keep the sentence whole.
 func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
@@ -463,43 +465,50 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 	if n := others[e.Seq]; !strings.Contains(n.Text, "--mail-limit 300") {
 		t.Errorf("the member's notification of the told row reads %q", n.Text)
 	}
-	// An old login takeback, written before the mark: asked and taken back
-	// by the yard with the login's end, as the dispatcher's endLead writes
-	// it, then unmarked in the log. The log keeps the sentence whole, and
-	// the stream holds it exactly as if marked. The asker is the yard, which
-	// has no inbox; the readers kept whole are the operator's notification
-	// row and the crew inbox, which reads whole events and keys off no mark.
+	// An old answer, written before the mark: oldAnswer unmarks the event
+	// whose sentence names secret in the log and reads it again. The log
+	// keeps the sentence whole, and the stream holds it exactly as if marked.
+	oldAnswer := func(secret, what string) Event {
+		t.Helper()
+		old := answers(secret)[0]
+		if err := y.write(func(w *wtx) error {
+			var e Event
+			if ok, err := get(w.Tx, bEvents, seqKey(old.Seq), &e); err != nil || !ok {
+				return err
+			}
+			delete(e.Data, "answer_held")
+			return put(w.Tx, bEvents, seqKey(old.Seq), e)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		aged := answers(secret)[0]
+		if line, _ := aged.Data["answer"].(string); !strings.Contains(line, secret) {
+			t.Fatalf("the stored event reads %q, want the sentence whole", line)
+		}
+		if _, marked := aged.Data["answer_held"]; marked {
+			t.Fatalf("the old event is marked: %+v", aged.Data)
+		}
+		if told, held := aged.WithoutHeld(); !held {
+			t.Errorf("the old %s is told whole", what)
+		} else if _, ok := told.Data["answer"]; ok {
+			t.Errorf("the old %s tells its sentence: %q", what, told.Data["answer"])
+		} else if _, ok := told.Data["answer_held"]; ok {
+			t.Errorf("the old %s tells a mark", what)
+		}
+		return aged
+	}
+	// An old login takeback: asked and taken back by the yard with the
+	// login's end, as the dispatcher's endLead writes it. The asker is the
+	// yard, which has no inbox; the readers kept whole are the operator's
+	// notification row and the crew inbox, which reads whole events and keys
+	// off no mark.
 	const oldTail = "/tmp/yardr-test/seat-login: permission denied"
 	oldAsk := y.ask(t, Ask{Question: "muse is not logged in: how should the yard log in its harness?", To: "mckean",
 		Context: []string{"The crew's harness sits at its login screen."}}, "yard")
 	if err := y.TakeBackAsk(y.ctx, y.bead, oldAsk, LoginEndedPrefix+"harness login: exit status 1: cannot write "+oldTail, "yard"); err != nil {
 		t.Fatal(err)
 	}
-	old := answers(oldTail)[0]
-	if err := y.write(func(w *wtx) error {
-		var e Event
-		if ok, err := get(w.Tx, bEvents, seqKey(old.Seq), &e); err != nil || !ok {
-			return err
-		}
-		delete(e.Data, "answer_held")
-		return put(w.Tx, bEvents, seqKey(old.Seq), e)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	aged := answers(oldTail)[0]
-	if line, _ := aged.Data["answer"].(string); !strings.Contains(line, oldTail) {
-		t.Fatalf("the stored event reads %q, want the sentence whole", line)
-	}
-	if _, marked := aged.Data["answer_held"]; marked {
-		t.Fatalf("the old event is marked: %+v", aged.Data)
-	}
-	if told, held := aged.WithoutHeld(); !held {
-		t.Error("the old takeback is told whole")
-	} else if _, ok := told.Data["answer"]; ok {
-		t.Errorf("the old takeback tells its sentence: %q", told.Data["answer"])
-	} else if _, ok := told.Data["answer_held"]; ok {
-		t.Errorf("the old takeback tells a mark")
-	}
+	aged := oldAnswer(oldTail, "takeback")
 	// The rows the takeback wrote before it aged: the operator's whole, the
 	// member's told.
 	if n := rows("op")[aged.Seq]; !strings.Contains(n.Text, oldTail) {
@@ -509,5 +518,33 @@ func testRunApprovalOfTypedValueAndPathMarksItsAnswer(t *testing.T) {
 		t.Errorf("the member's notification of the old takeback reads %q", n.Text)
 	} else if !strings.Contains(n.Text, "noted") || !strings.Contains(n.Text, y.bead) {
 		t.Errorf("the member's notification of the old takeback reads %q, want the noted event without its sentence", n.Text)
+	}
+	// An old approval of each held row. The asker is a person with an
+	// inbox, which reads the whole event and keeps the sentence.
+	for _, tc := range []struct {
+		secret string
+		what   string
+	}{
+		{value, "approval of a setting"},
+		{file, "approval of a source"},
+	} {
+		aged := oldAnswer(tc.secret, tc.what)
+		inbox, err := y.Store.Inbox(y.ctx, "yardmaster", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kept bool
+		for _, e := range inbox.Events {
+			if e.Seq != aged.Seq {
+				continue
+			}
+			kept = true
+			if line, _ := e.Data["answer"].(string); !strings.Contains(line, tc.secret) {
+				t.Errorf("the asker's inbox reads %q, want the sentence of the old %s whole", line, tc.what)
+			}
+		}
+		if !kept {
+			t.Errorf("the asker's inbox has no event %d", aged.Seq)
+		}
 	}
 }

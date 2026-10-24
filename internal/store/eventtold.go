@@ -315,9 +315,11 @@ func EventDataTold(kind string) ([]string, bool) {
 // the login's end. The event carries the mark answerOf stored with it, or,
 // written before the mark, the sentence itself is read for what the mark
 // would have said: a login takeback in the fixed wording reads as held
-// exactly as if it were marked (loginTakebackLine). The event is copied, not
-// changed: the store hands one event, and one map of its data, to every
-// stream. An event that has nothing to hold comes back as it is.
+// exactly as if it were marked (loginTakebackLine), and so does an approval
+// that names, in the fixed run wording, a command RunArgvHeld holds
+// (answerHeldLine). The event is copied, not changed: the store hands one
+// event, and one map of its data, to every stream. An event that has nothing
+// to hold comes back as it is.
 func (e Event) WithoutHeld() (Event, bool) {
 	keys := eventDataTold[e.Kind]
 	if slices.Contains(keys, toldWhole) {
@@ -331,15 +333,15 @@ func (e Event) WithoutHeld() (Event, bool) {
 			break
 		}
 	}
-	// A held answer holds the event on its own: an old takeback that told
-	// nobody carries no key but the listed ones, and would otherwise read
-	// whole. The mark itself is held with the sentence, as what no kind
-	// lists: it is what held the event, so the sentence is never told alone
-	// with it.
+	// A held answer holds the event on its own: an old takeback or approval
+	// that told nobody carries no key but the listed ones, and would
+	// otherwise read whole. The mark itself is held with the sentence, as
+	// what no kind lists: it is what held the event, so the sentence is
+	// never told alone with it.
 	answerHeld := false
 	if line, ok := e.Data["answer"].(string); ok && line != "" {
 		marked, _ := e.Data["answer_held"].(bool)
-		answerHeld = marked || loginTakebackLine(line)
+		answerHeld = marked || loginTakebackLine(line) || answerHeldLine(line)
 	}
 	if !held && !answerHeld {
 		return e, false
@@ -373,6 +375,20 @@ func loginTakebackLine(line string) bool {
 	}
 	_, tail, ok := strings.Cut(line, ": "+LoginEndedPrefix)
 	return ok && tail != ""
+}
+
+// answerHeldLine reports whether the answer sentence line is an approval of
+// a command whose typed words carry a value or a path: the fixed run wording
+// (answerSentence) naming a command RunArgvHeld holds. An event written
+// before the mark carries no answer_held, so the sentence is read for what
+// the mark would have said, through the same predicate, and a sentence that
+// is no approval, or that names any other row, reads as told.
+func answerHeldLine(line string) bool {
+	_, cmd, ok := strings.Cut(line, ", and the yard ran: yardr ")
+	if !ok {
+		return false
+	}
+	return RunArgvHeld(strings.Fields(cmd))
 }
 
 // fieldsTold are the fields of the key that a row lists as key.field.
