@@ -54,6 +54,11 @@ const (
 	RefusedAskAnswered = "ask_answered"
 	// RefusedAskTakenBack is an answer to an ask its asker took back.
 	RefusedAskTakenBack = "ask_taken_back"
+	// RefusedAskSeatLeft is an answer to the yard's login card on a crew
+	// journal after its seat left the login screen: the yard takes the
+	// card back. Local answers alone are refused with it (addAnswer);
+	// peer answers never see it.
+	RefusedAskSeatLeft = "ask_seat_left"
 )
 
 // askOutcomes are the refusals that end a foreign ask.

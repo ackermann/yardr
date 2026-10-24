@@ -349,3 +349,87 @@ func TestDecisionsWrites(t *testing.T) {
 		t.Fatalf("answering a declined ask = %v", err)
 	}
 }
+
+// An answer to the yard's login card on a crew journal is refused once no
+// seat of its crew member sits at the login screen: the answer made after
+// the seat left, before the next pass takes the card back, would lead a
+// login nothing waits on. While a seat sits — the line session or a
+// conversation — the answer is taken. Declining the dead card ends it,
+// putting it aside leaves it to the sweep, and a card no login waits on
+// answers whatever the screens read.
+func TestJournalAnswerRefusedAfterItsSeatLeft(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := decisionYard(t)
+	if err := y.Store.SetSetting(y.ctx, OperatorSetting, "mckean", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.Store.AddUser(y.ctx, "hal", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := y.Store.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"kind": "claude", "env_for_hal": "/tmp/hal.env"}}, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.Store.CrewStarted(y.ctx, "yardmaster", map[string]any{"agent": "ym"}); err != nil {
+		t.Fatal(err)
+	}
+	card := y.askOn(t, r.Journal, linksAsk(), "yard")
+	if err := y.Store.AnswerAsk(y.ctx, r.Journal, card, 1, "", "mckean", false); err == nil ||
+		!strings.Contains(err.Error(), "left its login screen") {
+		t.Fatalf("answering the yard's card with no seat at the screen = %v, want the seat-left refusal", err)
+	}
+	// A decline ends the dead card, and a deferral puts it aside for the
+	// sweep: neither leads a login.
+	declined := y.askOn(t, r.Journal, linksAsk(), "yard")
+	if err := y.Store.DeclineAsk(y.ctx, r.Journal, declined, "not now", "mckean"); err != nil {
+		t.Fatalf("declining the dead card = %v, want it taken", err)
+	}
+	aside := y.askOn(t, r.Journal, linksAsk(), "yard")
+	if err := y.Store.DeferAsk(y.ctx, r.Journal, aside, "mckean"); err != nil {
+		t.Fatalf("putting the dead card aside = %v, want it taken", err)
+	}
+	// Another writer's card on the journal answers whatever the screens
+	// read: only the yard's login cards wait on a seat.
+	other := y.askOn(t, r.Journal, linksAsk(), "yardmaster")
+	if err := y.Store.AnswerAsk(y.ctx, r.Journal, other, 1, "", "mckean", false); err != nil {
+		t.Fatalf("answering another writer's card with no seat = %v, want it taken", err)
+	}
+	// The refused card stands open: seating the line session takes the
+	// same answer.
+	if err := y.Store.SetCrewHandle(y.ctx, "yardmaster", map[string]any{"agent": "ym", HarnessLoginKey: "Select login method:"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.Store.AnswerAsk(y.ctx, r.Journal, card, 1, "", "mckean", false); err != nil {
+		t.Fatalf("answering the yard's card with the line seated = %v, want it taken", err)
+	}
+	// A conversation seated while the line stands takes it too: the check
+	// is over the member's sessions.
+	if err := y.Store.SetCrewHandle(y.ctx, "yardmaster", map[string]any{"agent": "ym"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.Store.CrewStartedFor(y.ctx, "yardmaster", "hal", map[string]any{"agent": "ym-hal", HarnessLoginKey: "Select login method:"}); err != nil {
+		t.Fatal(err)
+	}
+	seated := y.askOn(t, r.Journal, linksAsk(), "yard")
+	if err := y.Store.AnswerAsk(y.ctx, r.Journal, seated, 1, "", "mckean", false); err != nil {
+		t.Fatalf("answering the yard's card with a conversation seated = %v, want it taken", err)
+	}
+	// Both gone again: refused once more.
+	if err := y.Store.SetCrewHandleFor(y.ctx, "yardmaster", "hal", map[string]any{"agent": "ym-hal"}); err != nil {
+		t.Fatal(err)
+	}
+	gone := y.askOn(t, r.Journal, linksAsk(), "yard")
+	if err := y.Store.AnswerAsk(y.ctx, r.Journal, gone, 1, "", "mckean", false); err == nil ||
+		!strings.Contains(err.Error(), "takes the card back") {
+		t.Fatalf("answering the yard's card after both seats left = %v, want the seat-left refusal", err)
+	}
+	orphaned := y.askOn(t, r.Journal, linksAsk(), "yard")
+	if err := y.Store.DeleteCrew(y.ctx, "yardmaster", "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.Store.AnswerAsk(y.ctx, r.Journal, orphaned, 1, "", "mckean", false); err == nil ||
+		!strings.Contains(err.Error(), "takes the card back") {
+		t.Fatalf("answering the yard's card after its crew member was deleted = %v, want the seat-left refusal", err)
+	}
+}

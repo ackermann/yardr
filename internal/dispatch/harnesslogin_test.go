@@ -594,11 +594,12 @@ func TestLedLoginWhoseSeatLeftTheScreenIsTakenBack(t *testing.T) {
 	}
 }
 
-// An answer that comes as the seat leaves the screen starts no leader: the
-// lead looks at its seat before it reads the ask, so a pick made after the
-// operator logged in by hand leads no login nothing waits on. The pass that
-// starts the yardmaster again still reads the old session at the screen, and
-// the next pass reads the new one.
+// An answer that comes as the seat leaves the screen is refused and starts
+// no leader: the answer path sees the seat is gone before the next pass
+// takes the card back, so a pick made after the operator logged in by hand
+// leads no login nothing waits on. The pass that starts the yardmaster
+// again still reads the old session at the screen, and the next pass reads
+// the new one.
 func TestLedLoginAnsweredAsItsSeatLeftStartsNoLeader(t *testing.T) {
 	t.Parallel()
 	s, f, d, l := loginSetup(t)
@@ -616,7 +617,10 @@ func TestLedLoginAnsweredAsItsSeatLeftStartsNoLeader(t *testing.T) {
 		r, err := s.GetCrew(ctx, "yardmaster")
 		return err == nil && r.Live() && r.Handle["agent"] != yardmaster.Handle["agent"]
 	})
-	must(t, s.AnswerAsk(ctx, yardmaster.Journal, card.Note.Seq, 1, "", "op", false))
+	if err := s.AnswerAsk(ctx, yardmaster.Journal, card.Note.Seq, 1, "", "op", false); err == nil ||
+		!strings.Contains(err.Error(), "left its login screen") {
+		t.Fatalf("answering the card after its seat left = %v, want the seat-left refusal", err)
+	}
 	passUntil(t, d, "the login's end told", func() bool {
 		_, ev := kindCount(t, s, yardmaster.Journal, "login_led")
 		return ev.Data["step"] == "failed"
@@ -629,6 +633,16 @@ func TestLedLoginAnsweredAsItsSeatLeftStartsNoLeader(t *testing.T) {
 	}
 	if a := openAsks(t, s); len(a) != 0 {
 		t.Errorf("%d asks open after the login ended, want none: %+v", len(a), a[0].Ask)
+	}
+	notes, err := s.Notes(ctx, yardmaster.Journal)
+	must(t, err)
+	for _, a := range store.ResolveAsks(notes, time.Now()) {
+		if a.Note.Seq != card.Note.Seq {
+			continue
+		}
+		if a.State != store.AskTakenBack {
+			t.Errorf("the card is %v, want it taken back", a.State)
+		}
 	}
 }
 
