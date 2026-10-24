@@ -113,8 +113,8 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 	if len(lines) < 2 {
 		t.Fatalf("route report %v printed %q, want a first line and a header", args, out)
 	}
-	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "AT", "LIMIT", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "MEDIAN", "BUILD"}) {
-		t.Fatalf("route report %v header %q, want the at-limit column beside sent back", args, lines[1])
+	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "AT", "LIMIT", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "MEDIAN", "BUILD", "TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING"}) {
+		t.Fatalf("route report %v header %q, want the at-limit and token columns beside sent back", args, lines[1])
 	}
 	rows = map[string][]string{}
 	for _, l := range lines[2:] {
@@ -125,13 +125,15 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 			continue
 		}
 		f := strings.Fields(l)
-		if len(f) < 10 {
-			t.Fatalf("route report %v row %q, want 10 fields", args, l)
+		if len(f) < 14 {
+			t.Fatalf("route report %v row %q, want 14 fields", args, l)
 		}
-		// The median is the rest of the line: it reads "under a
-		// minute" or "3h 5m" as well as "41m".
-		f[9] = strings.Join(f[9:], " ")
-		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = f[:10]
+		// The median sits between the fixed fields and the four
+		// token columns: it reads "under a minute" or "3h 5m" as
+		// well as "41m".
+		row := append(slices.Clone(f[:9]), strings.Join(f[9:len(f)-4], " "))
+		row = append(row, f[len(f)-4:]...)
+		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = row
 	}
 	return lines[0], rows
 }
@@ -229,6 +231,7 @@ func TestRouteReport(t *testing.T) {
 	if after, err := st.Head(ctx); err != nil || after != head {
 		t.Fatalf("head = %d, err = %v, want %d with no new events", after, err, head)
 	}
+	testRouteReportTokens(t)
 }
 
 // A claim cut short by failure is not a build: the bead a hand moved on
@@ -320,6 +323,8 @@ func TestRouteReportFlags(t *testing.T) {
 	_, rows = reportRows(t, st, "--stage", "decide")
 	if len(rows) != 1 || rows["people\x00me\x00difficulty:1"] == nil {
 		t.Errorf("rows for --stage decide = %v, want the one manual claim", rows)
+	} else if r := rows["people\x00me\x00difficulty:1"]; r[11] != "0" || r[12] != "0" || r[13] != "0" {
+		t.Errorf("manual claim token columns = %q, want 0 tokens, 0 uncounted, 0 pending", r[11:])
 	}
 	_, rows = reportRows(t, st, "--stage", "review")
 	if len(rows) != 0 {
@@ -717,6 +722,7 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil); rep.From != nil || len(rep.Rows) != 0 {
 		t.Errorf("empty log = %+v, want no from and no rows", rep)
 	}
+	testSummarizeRouteEventsTokens(t)
 }
 
 // BY HARNESS counts every claim with a kind, open beads included, with the
@@ -1143,6 +1149,217 @@ func TestSummarizeRouteEventsReviewFixes(t *testing.T) {
 	}
 }
 
+// Token attribution covers counted, partial, missing and pending agent
+// sessions, plus crew counts that join no bead claim.
+func testSummarizeRouteEventsTokens(t *testing.T) {
+	t.Helper()
+	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	ev := func(seq uint64, at time.Time, bead, kind string, data map[string]any) store.Event {
+		return store.Event{Seq: seq, Bead: &bead, Kind: kind, Data: data, At: at}
+	}
+	claimed := func(seq uint64, at time.Time, bead, group, stage, session, kind string) store.Event {
+		data := map[string]any{"group": group, "stage": stage, "session": session}
+		if kind != "" {
+			data["kind"] = kind
+		}
+		return ev(seq, at, bead, "claimed", data)
+	}
+	used := func(seq uint64, at time.Time, bead, session string, usage map[string]any) store.Event {
+		return ev(seq, at, bead, "session_usage", map[string]any{
+			"session": session, "group": "g", "stage": "new", "kind": "muse", "usage": usage})
+	}
+	crewUsed := func(seq uint64, at time.Time, member string, usage map[string]any) store.Event {
+		return store.Event{Seq: seq, Kind: "crew_usage", At: at,
+			Data: map[string]any{"member": member, "usage": usage}}
+	}
+	count := func(fresh, out, read, write int) map[string]any {
+		return map[string]any{"input": fresh + read, "fresh_input": fresh,
+			"output": out, "cache_read": read, "cache_write": write}
+	}
+	beads := map[string]store.Bead{
+		"yard-a": {ID: "yard-a", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-b": {ID: "yard-b", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-c": {ID: "yard-c", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-d": {ID: "yard-d", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-e": {ID: "yard-e", Status: "closed", Labels: []string{"difficulty:3"}},
+		"yard-f": {ID: "yard-f", Status: "closed", Labels: []string{"difficulty:3"}},
+	}
+	stages := map[string]bool{"new": true}
+	prefixes := []string{"difficulty:"}
+	partial := count(200, 100, 2000, 20)
+	partial["partial"] = true
+
+	rep := summarizeRouteEvents([]store.Event{
+		// yard-a: two sessions, one counted and one partial.
+		claimed(1, t0, "yard-a", "g", "new", "s1", "muse"),
+		claimed(2, t0, "yard-a", "g", "new", "s2", "muse"),
+		used(3, t0.Add(time.Hour), "yard-a", "s1", count(100, 50, 1000, 10)),
+		used(4, t0.Add(time.Hour), "yard-a", "s2", partial),
+		// yard-b: one counted session, in the socket's numbers.
+		claimed(5, t0, "yard-b", "g", "new", "s3", "muse"),
+		used(6, t0.Add(time.Hour), "yard-b", "s3", map[string]any{
+			"input": float64(300), "fresh_input": float64(300), "output": float64(0),
+			"cache_read": float64(0), "cache_write": float64(0)}),
+		// yard-c: its session came back missing.
+		claimed(7, t0, "yard-c", "g", "new", "s4", "muse"),
+		used(8, t0.Add(time.Hour), "yard-c", "s4", map[string]any{"missing": "no file"}),
+		// yard-d, worked by another group: one counted, one pending.
+		claimed(9, t0, "yard-d", "g2", "new", "s5", "codex"),
+		claimed(10, t0, "yard-d", "g2", "new", "s6", "codex"),
+		used(11, t0.Add(time.Hour), "yard-d", "s5", count(100, 0, 0, 0)),
+		// yard-e, worked by both groups: each cell holds its own.
+		claimed(12, t0, "yard-e", "g", "new", "s7", "muse"),
+		claimed(13, t0, "yard-e", "g2", "new", "s8", "codex"),
+		used(14, t0.Add(time.Hour), "yard-e", "s7", count(100, 0, 0, 0)),
+		used(15, t0.Add(time.Hour), "yard-e", "s8", count(200, 0, 0, 0)),
+		// Manual claims have session ids but no agent usage is due.
+		claimed(16, t0, "yard-f", "people", "new", "manual-session", ""),
+		// Crew: one counted and one missing for yardmaster, one for clerk.
+		crewUsed(17, t0.Add(time.Hour), "yardmaster", count(1000, 500, 9000, 100)),
+		crewUsed(18, t0.Add(time.Hour), "yardmaster", map[string]any{"missing": "no session id"}),
+		crewUsed(19, t0.Add(time.Hour), "clerk", count(200, 0, 0, 0)),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
+	if len(rep.Rows) != 3 {
+		t.Fatalf("rows = %+v, want g, g2 and people", rep.Rows)
+	}
+	g, g2 := rep.Rows[0], rep.Rows[1]
+	if g.Group != "g" || g2.Group != "g2" {
+		t.Fatalf("rows = %+v, want g then g2", rep.Rows)
+	}
+	// New tokens leave cache reads out: 160 + 320 + 300 + 100. The
+	// partial and the missing session mark the total a lower bound.
+	if g.Tokens != 880 || !g.Partial || g.Uncounted != 1 || g.Pending != 0 {
+		t.Errorf("g tokens = %d partial %v uncounted %d pending %d, want 880 true 1 0",
+			g.Tokens, g.Partial, g.Uncounted, g.Pending)
+	}
+	if u := g.Usage; u.Input != 3700 || u.FreshInput != 700 || u.Output != 150 || u.CacheRead != 3000 || u.CacheWrite != 30 {
+		t.Errorf("g usage = %+v, want the five counts summed over the counted sessions", u)
+	}
+	// The median leaves out beads with missing sessions: a at 480 (its
+	// partial reading still counts), b at 300, e at 100; c is left out.
+	if g.TokensPerBead == nil || *g.TokensPerBead != 300 {
+		t.Errorf("g tokens per bead = %v, want 300", g.TokensPerBead)
+	}
+	// g2 holds its own sessions of d and e: 100 + 200, counted only,
+	// with the pending session marked; d is no median bead.
+	if g2.Tokens != 300 || g2.Partial || g2.Uncounted != 0 || g2.Pending != 1 {
+		t.Errorf("g2 tokens = %d partial %v uncounted %d pending %d, want 300 false 0 1",
+			g2.Tokens, g2.Partial, g2.Uncounted, g2.Pending)
+	}
+	if g2.TokensPerBead == nil || *g2.TokensPerBead != 200 {
+		t.Errorf("g2 tokens per bead = %v, want 200", g2.TokensPerBead)
+	}
+	people := rep.Rows[2]
+	if people.Group != "people" || people.Tokens != 0 || people.Partial || people.Uncounted != 0 || people.Pending != 0 || people.TokensPerBead != nil {
+		t.Errorf("manual row = %+v, want no usage, pending count or median", people)
+	}
+
+	if len(rep.ByKind) != 2 {
+		t.Fatalf("by_kind = %+v, want muse and codex", rep.ByKind)
+	}
+	muse, codex := rep.ByKind[1], rep.ByKind[0]
+	if muse.Kind != "muse" || codex.Kind != "codex" {
+		t.Fatalf("by_kind = %+v, want codex then muse", rep.ByKind)
+	}
+	if muse.Sessions != 5 || muse.Tokens != 880 || !muse.Partial || muse.Uncounted != 1 || muse.Pending != 0 {
+		t.Errorf("muse = %+v, want 5 sessions, 880 tokens, partial, 1 uncounted", muse)
+	}
+	if codex.Sessions != 3 || codex.Tokens != 300 || codex.Partial || codex.Uncounted != 0 || codex.Pending != 1 {
+		t.Errorf("codex = %+v, want 3 sessions, 300 tokens, 1 pending", codex)
+	}
+
+	if len(rep.Crew) != 2 {
+		t.Fatalf("crew = %+v, want clerk and yardmaster", rep.Crew)
+	}
+	clerk, master := rep.Crew[0], rep.Crew[1]
+	if clerk.Member != "clerk" || master.Member != "yardmaster" {
+		t.Fatalf("crew = %+v, want clerk then yardmaster", rep.Crew)
+	}
+	if clerk.Sessions != 1 || clerk.Tokens != 200 || clerk.Uncounted != 0 {
+		t.Errorf("clerk = %+v, want 1 session of 200 tokens", clerk)
+	}
+	if master.Sessions != 2 || master.Tokens != 1600 || master.Uncounted != 1 {
+		t.Errorf("yardmaster = %+v, want 2 sessions, 1600 tokens, 1 uncounted", master)
+	}
+	if u := master.Usage; u.FreshInput != 1000 || u.Output != 500 || u.CacheRead != 9000 || u.CacheWrite != 100 {
+		t.Errorf("yardmaster usage = %+v, want the counted session's counts", u)
+	}
+
+	// --since follows the claim: a count whose claim is out of the
+	// window counts nowhere, as one with no claim does; crew keeps the
+	// time filter alone.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1", "muse"),
+		used(2, t0.Add(48*time.Hour), "yard-a", "s1", count(100, 0, 0, 0)),
+		used(3, t0.Add(48*time.Hour), "yard-b", "sx", count(200, 0, 0, 0)),
+		crewUsed(4, t0, "yardmaster", count(1000, 0, 0, 0)),
+		crewUsed(5, t0.Add(48*time.Hour), "clerk", count(200, 0, 0, 0)),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)}, nil)
+	if len(rep.Rows) != 0 || len(rep.ByKind) != 0 {
+		t.Errorf("rows and by_kind with --since = %+v %+v, want none: the claim is out of the window", rep.Rows, rep.ByKind)
+	}
+	if len(rep.Crew) != 1 || rep.Crew[0].Member != "clerk" || rep.Crew[0].Tokens != 200 {
+		t.Errorf("crew with --since = %+v, want clerk's recent session alone", rep.Crew)
+	}
+
+	// A claim with no session id names no session: neither counted nor
+	// pending, and its bead takes no part in the median.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "", "muse"),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
+	if len(rep.Rows) != 1 {
+		t.Fatalf("rows = %+v, want the bead's row", rep.Rows)
+	}
+	if r := rep.Rows[0]; r.Tokens != 0 || r.Uncounted != 0 || r.Pending != 0 || r.TokensPerBead != nil {
+		t.Errorf("sessionless row = %+v, want no tokens and no median bead", r)
+	}
+	if len(rep.ByKind) != 1 {
+		t.Fatalf("by_kind = %+v, want the kind's row", rep.ByKind)
+	}
+	if k := rep.ByKind[0]; k.Sessions != 1 || k.Tokens != 0 || k.Pending != 0 {
+		t.Errorf("sessionless kind = %+v, want the session and no tokens", k)
+	}
+	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil); rep.Crew == nil || len(rep.Crew) != 0 {
+		t.Errorf("empty log crew = %+v, want an empty list", rep.Crew)
+	}
+}
+
+func TestShortTokens(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{
+		{0, "0"},
+		{827, "827"},
+		{999, "999"},
+		{1000, "1k"},
+		{1040, "1k"},
+		{1500, "1.5k"},
+		{640000, "640k"},
+		{999949, "999.9k"},
+		{999950, "1M"},
+		{1000000, "1M"},
+		{1060000, "1.1M"},
+		{3100000, "3.1M"},
+		{70640000, "70.6M"},
+		{181000000, "181M"},
+	} {
+		if got := shortTokens(tc.n); got != tc.want {
+			t.Errorf("shortTokens(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+	if got := lowerBound(shortTokens(880), true, 1, 0); got != "≥880" {
+		t.Errorf("lower bound total = %q, want ≥880", got)
+	}
+	if got := lowerBound(shortTokens(300), false, 0, 1); got != "≥300" {
+		t.Errorf("pending total = %q, want ≥300", got)
+	}
+	if got := lowerBound(shortTokens(200), false, 0, 0); got != "200" {
+		t.Errorf("complete total = %q, want 200", got)
+	}
+}
+
 func TestFixSHAs(t *testing.T) {
 	t.Parallel()
 	sha40 := "0123456789abcdef0123456789abcdef01234567"
@@ -1400,5 +1617,123 @@ func TestRouteReportReviewFixed(t *testing.T) {
 			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
 				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
+	}
+}
+
+// The built report prints token columns from recorded counts: the median
+// over beads with no missing or pending sessions, counted-only totals marked
+// as lower bounds, and the CREW table and --json details.
+func testRouteReportTokens(t *testing.T) {
+	t.Helper()
+	st := storetest.New(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.AddUser(ctx, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.OperatorSetting, "me", "me"))
+	must(st.PutDepot(ctx, store.Depot{Name: "yard"}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4, Config: map[string]any{"kind": "muse"}}, "me"))
+	_, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+	must(err)
+	build := func(id string, usage map[string]any) {
+		t.Helper()
+		_, err := st.CreateBead(ctx, store.NewBead{ID: id, Title: id, Depot: "yard", Labels: []string{"difficulty:1"}}, "me")
+		must(err)
+		s, err := st.Claim(ctx, id, "builders", "new", "me")
+		must(err)
+		if usage != nil {
+			must(st.RecordUsage(ctx, s.ID, usage))
+		}
+		_, err = st.Advance(ctx, id, "review", store.Expect{}, "me")
+		must(err)
+		_, err = st.CloseBead(ctx, id, "done", store.Expect{}, "me")
+		must(err)
+	}
+	count := func(fresh, out, read, write int) map[string]any {
+		return map[string]any{"input": fresh + read, "fresh_input": fresh,
+			"output": out, "cache_read": read, "cache_write": write}
+	}
+	build("yard-t1", count(400000, 80000, 9000000, 20000))
+	partial := count(100000, 50000, 1000000, 0)
+	partial["partial"] = true
+	build("yard-t2", partial)
+	build("yard-t3", map[string]any{"missing": "no file"})
+	build("yard-t4", nil)
+	_, err = st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
+	must(err)
+	must(st.CrewStartedFor(ctx, "yardmaster", "", map[string]any{"agent": "ym-1", "kind": "muse", "agent_session": "a1"}))
+	must(st.CrewStoppedFor(ctx, "yardmaster", "", "done"))
+	must(st.RecordCrewUsage(ctx, "yardmaster", "", "a1", count(1000, 500, 9000, 100)))
+	help, err := run(t, (&app{st: st, actor: "me"}).routeReportCmd(), "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"TOKENS/BEAD", "TOKENS", "UNCOUNTED", "PENDING", "BY HARNESS", "CREW", "agent sessions", "fresh input", "cache writes", "output"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("route report help lacks %q:\n%s", want, help)
+		}
+	}
+
+	a := &app{st: st, actor: "me"}
+	out, err := run(t, a.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The median over beads with no missing or pending sessions is 325k;
+	// the total is
+	// counted-only with ≥, one session missing and one pending.
+	_, rows := reportRows(t, st)
+	row, ok := rows["builders\x00me\x00difficulty:1"]
+	if !ok {
+		t.Fatalf("no row for the built beads: %v", rows)
+	}
+	if row[10] != "325k" || row[11] != "≥650k" || row[12] != "1" || row[13] != "1" {
+		t.Errorf("token columns = %q, want 325k ≥650k 1 1", row[10:])
+	}
+	for _, want := range []string{"TOKENS/BEAD", "UNCOUNTED", "PENDING", "CREW", "yardmaster", "1.6k"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("route report lacks %q:\n%s", want, out)
+		}
+	}
+
+	aj := &app{st: st, actor: "me", json: true}
+	out, err = run(t, aj.routeReportCmd())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep routeReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("route report --json = %q: %v", out, err)
+	}
+	if len(rep.Rows) != 1 {
+		t.Fatalf("--json rows = %+v, want the one cell", rep.Rows)
+	}
+	r := rep.Rows[0]
+	if r.TokensPerBead == nil || *r.TokensPerBead != 325000 || r.Tokens != 650000 {
+		t.Errorf("--json tokens = %v %d, want 325000 650000", r.TokensPerBead, r.Tokens)
+	}
+	if u := r.Usage; u.Input != 10500000 || u.FreshInput != 500000 || u.Output != 130000 || u.CacheRead != 10000000 || u.CacheWrite != 20000 {
+		t.Errorf("--json usage = %+v, want the counts summed over the counted sessions", u)
+	}
+	if !r.Partial || r.Uncounted != 1 || r.Pending != 1 {
+		t.Errorf("--json flags = partial %v uncounted %d pending %d, want true 1 1", r.Partial, r.Uncounted, r.Pending)
+	}
+	if len(rep.ByKind) != 1 {
+		t.Fatalf("--json by_kind = %+v, want the muse row", rep.ByKind)
+	}
+	if k := rep.ByKind[0]; k.Sessions != 4 || k.Tokens != 650000 || !k.Partial || k.Uncounted != 1 || k.Pending != 1 {
+		t.Errorf("--json by_kind = %+v, want 4 sessions, 650000 tokens, partial, 1 uncounted, 1 pending", k)
+	}
+	if len(rep.Crew) != 1 {
+		t.Fatalf("--json crew = %+v, want yardmaster", rep.Crew)
+	}
+	if c := rep.Crew[0]; c.Member != "yardmaster" || c.Sessions != 1 || c.Tokens != 1600 || c.Uncounted != 0 {
+		t.Errorf("--json crew = %+v, want yardmaster's session of 1600 tokens", c)
 	}
 }

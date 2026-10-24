@@ -573,19 +573,20 @@ key or wait for herdr is open question 2.
 The headline number in this section is *new tokens*: fresh input, cache
 writes and output added together, leaving out cache reads. The
 yardr-58xw table shows why: cache reads would make up nearly all of any
-total that included them. Which number leads is open question 1.
+total that included them. Decided by mckean (ask 9299).
 
-`yardr route report` gains two columns and one table:
+`yardr route report` gains token columns in its main and BY HARNESS
+tables, a PENDING column in both, and a CREW table:
 
 ```
-GROUP            ORIGINATOR  LABEL         BEADS  SENT BACK  …  MEDIAN BUILD  TOKENS/BEAD  TOKENS  UNCOUNTED
-muse-builders    mckean      difficulty:2  290    0.3        …  20m           640k         ≥181M   3
-yardr-reviewers  mckean      difficulty:2  301    0.1        …  3m            235k         70.6M   0
+GROUP            ORIGINATOR  LABEL         BEADS  SENT BACK  …  MEDIAN BUILD  TOKENS/BEAD  TOKENS  UNCOUNTED  PENDING
+muse-builders    mckean      difficulty:2  290    0.3        …  20m           640k         ≥181M   3          2
+yardr-reviewers  mckean      difficulty:2  301    0.1        …  3m            235k         70.6M   0          0
 
 BY HARNESS
-KIND    SESSIONS  HOURS   MEDIAN  TOKENS  UNCOUNTED  STAGES
-codex   1292      5d 4h   3m      304M    12         critique, review
-muse    1316      14d 19h 11m     780M    40         draft, new, review-security, shape
+KIND    SESSIONS  HOURS   MEDIAN  TOKENS  UNCOUNTED  PENDING  STAGES
+codex   1292      5d 4h   3m      304M    12         3        critique, review
+muse    1316      14d 19h 11m     780M    40         4        draft, new, review-security, shape
 
 CREW
 MEMBER       SESSIONS  TOKENS  UNCOUNTED
@@ -597,22 +598,26 @@ yet.)
 
 - **TOKENS/BEAD** is the median, over the cell's beads, of the new
   tokens the group's sessions spent on each bead. Only beads all of
-  whose sessions in that group were counted take part, so a bead with a
-  missing session does not drag the median down. A cell with no such
-  bead shows `-`, as MEDIAN BUILD does. **TOKENS** is the total of every
-  counted session in the cell.
+  whose sessions in that group have a counted or partial result take
+  part, so a bead with a missing or pending session does not drag the
+  median down. A cell with no such bead shows `-`, as MEDIAN BUILD does.
+  **TOKENS** is the total of every counted session in the cell.
 - **UNCOUNTED** is the number of the cell's sessions whose result is
-  `missing`. Whenever a cell holds a `missing` or a `partial` result,
-  TOKENS prints `≥` in front: the total is then a lower bound, and the
-  mark says so on the row where it applies, not only in BY HARNESS.
-- **BY HARNESS** gains TOKENS (the total over its sessions) and
-  UNCOUNTED (sessions whose result was `missing`).
+  `missing`. **PENDING** is the number of agent sessions with no result
+  yet. Claims by manual and exec groups have no count due and are not
+  pending. TOKENS prints `≥` when a cell has a missing, partial or
+  pending session: the total is then a lower bound, and the mark says so
+  on the row where it applies, not only in BY HARNESS. Totals include
+  counted sessions only.
+- **BY HARNESS** gains TOKENS (the total over its counted sessions),
+  UNCOUNTED (sessions whose result was `missing`) and PENDING (agent
+  sessions with no result yet).
 - **CREW** is new: one row per crew member with `crew_usage` in the
   window. Crew sessions burn the same windows, and leaving them out
   would make the beads look like the whole bill.
-- `--json` carries all four counts for every row, under `usage`
-  (`input`, `output`, `cache_read`, `cache_write`), plus `partial` and
-  `uncounted`.
+- `--json` carries the counts for every row, under `usage` (`input`,
+  `fresh_input`, `output`, `cache_read`, `cache_write`), plus `partial`,
+  `uncounted` and `pending`. Crew rows have no `pending` field.
 
 `yardr bead show` gains one line after `labels`, read from the bead's
 `session_usage` events:
@@ -861,11 +866,12 @@ In the order they would land. Each is one session's work.
    file (the yardr-58xw case: starts 4 s and 3 s after their claims); a
    file that starts before `StartedAt` or after `modelWindow` is not
    matched; Muse's `model_reported` is filled in a test.
-7. **The route report shows tokens.** Goal: TOKENS/BEAD, TOKENS and
-   UNCOUNTED in the main table, TOKENS and UNCOUNTED in BY HARNESS, the
-   CREW table, `≥` on every TOKENS cell that holds a partial or missing
-   result, TOKENS/BEAD over fully counted beads only, and `usage`,
-   `partial` and `uncounted` in `--json`, all read from `session_usage`
+7. **The route report shows tokens.** Goal: TOKENS/BEAD, TOKENS,
+   UNCOUNTED and PENDING in the main table, TOKENS, UNCOUNTED and
+   PENDING in BY HARNESS, the CREW table, `≥` on every TOKENS cell that
+   holds a partial, missing or pending result, TOKENS/BEAD over beads
+   whose sessions are all counted or partial, and `usage`, `partial`,
+   `uncounted` and `pending` in `--json`, all read from `session_usage`
    and `crew_usage` events through `sessionOf`. The command's help is
    updated to match. Where to look: `internal/cli/routereport.go`,
    `routereport_test.go`. Depends on 4 and 5. Done when:

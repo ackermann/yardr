@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"io"
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
@@ -40,40 +42,71 @@ type routeReportOpts struct {
 // review's forward fixes per bead and SecFixed the security review's;
 // MedianBuild is how long a claim took to leave the stage, nil when no
 // counted claim did (its exit aged out of the log, or the bead closed
-// without leaving the stage).
+// without leaving the stage). TokensPerBead is the median new tokens per
+// bead whose sessions are all counted or partial, nil when no bead
+// qualifies; Tokens the new tokens over the cell's counted sessions,
+// Usage the five counts behind it; Partial says one session read partial,
+// Uncounted how many came back
+// missing, Pending how many have no result yet.
 type routeReportRow struct {
-	Group       string  `json:"group"`
-	Originator  string  `json:"originator"`
-	Label       string  `json:"label"`
-	Beads       int     `json:"beads"`
-	SentBack    float64 `json:"sent_back"`
-	AtLimit     int     `json:"at_limit"`
-	ReviewFixed float64 `json:"review_fixed"`
-	SecFixed    float64 `json:"sec_fixed"`
-	Failed      int     `json:"failed"`
-	MedianBuild *string `json:"median_build"`
+	Group         string       `json:"group"`
+	Originator    string       `json:"originator"`
+	Label         string       `json:"label"`
+	Beads         int          `json:"beads"`
+	SentBack      float64      `json:"sent_back"`
+	AtLimit       int          `json:"at_limit"`
+	ReviewFixed   float64      `json:"review_fixed"`
+	SecFixed      float64      `json:"sec_fixed"`
+	Failed        int          `json:"failed"`
+	MedianBuild   *string      `json:"median_build"`
+	TokensPerBead *int         `json:"tokens_per_bead"`
+	Tokens        int          `json:"tokens"`
+	Usage         agents.Usage `json:"usage"`
+	Partial       bool         `json:"partial"`
+	Uncounted     int          `json:"uncounted"`
+	Pending       int          `json:"pending"`
 }
 
 // routeKindRow is one BY HARNESS row: the sessions one harness kind ran in
 // the window. Sessions counts its claims, Hours their claim-to-exit time
 // summed and Median the middle of it, nil when no counted claim exited;
-// Stages is the stages they ran, sorted.
+// Stages is the stages they ran, sorted. Tokens, Usage, Partial,
+// Uncounted and Pending are the kind's counts, as the cell's are.
 type routeKindRow struct {
-	Kind     string   `json:"kind"`
-	Sessions int      `json:"sessions"`
-	Hours    *string  `json:"hours"`
-	Median   *string  `json:"median"`
-	Stages   []string `json:"stages"`
+	Kind      string       `json:"kind"`
+	Sessions  int          `json:"sessions"`
+	Hours     *string      `json:"hours"`
+	Median    *string      `json:"median"`
+	Stages    []string     `json:"stages"`
+	Tokens    int          `json:"tokens"`
+	Usage     agents.Usage `json:"usage"`
+	Partial   bool         `json:"partial"`
+	Uncounted int          `json:"uncounted"`
+	Pending   int          `json:"pending"`
+}
+
+// routeCrewRow is one CREW row: one member's counted crew sessions in the
+// window. Sessions counts its crew_usage events; Tokens, Usage, Partial
+// and Uncounted are as the cell's. There is no pending: the log shows no
+// crew session until its count is recorded.
+type routeCrewRow struct {
+	Member    string       `json:"member"`
+	Sessions  int          `json:"sessions"`
+	Tokens    int          `json:"tokens"`
+	Usage     agents.Usage `json:"usage"`
+	Partial   bool         `json:"partial"`
+	Uncounted int          `json:"uncounted"`
 }
 
 // routeReport is the report: From is when the oldest retained event was
 // logged (nil when the log holds none), Rows one row per group and label,
-// ByKind one row per harness kind, best the best builder per difficulty,
-// text only.
+// ByKind one row per harness kind, Crew one row per crew member, best the
+// best builder per difficulty, text only.
 type routeReport struct {
 	From   *time.Time       `json:"from"`
 	Rows   []routeReportRow `json:"rows"`
 	ByKind []routeKindRow   `json:"by_kind"`
+	Crew   []routeCrewRow   `json:"crew"`
 	best   []routeBest
 }
 
@@ -106,6 +139,102 @@ type reportExit struct {
 	group string
 	at    time.Time
 	seq   uint64
+}
+
+// routeSessionUsage is one session_usage or crew_usage event read: what
+// the session used, whether the reading falls short of it, or why no
+// count is there.
+type routeSessionUsage struct {
+	usage   agents.Usage
+	partial bool
+	missing string
+}
+
+// routeCrewUsage is one crew_usage event the report counts: whose member
+// it belongs to and what it read.
+type routeCrewUsage struct {
+	member string
+	routeSessionUsage
+}
+
+// usageNumber is v as a token count. Counts are ints in the store and
+// float64 over the socket's JSON; anything else reads as 0.
+func usageNumber(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
+
+// usageOf reads the usage record of a session_usage or crew_usage event's
+// data, ok when it carries one.
+func usageOf(data map[string]any) (routeSessionUsage, bool) {
+	rec, ok := data["usage"].(map[string]any)
+	if !ok {
+		return routeSessionUsage{}, false
+	}
+	u := routeSessionUsage{}
+	u.missing, _ = rec["missing"].(string)
+	u.usage = agents.Usage{
+		Input:      usageNumber(rec["input"]),
+		FreshInput: usageNumber(rec["fresh_input"]),
+		Output:     usageNumber(rec["output"]),
+		CacheRead:  usageNumber(rec["cache_read"]),
+		CacheWrite: usageNumber(rec["cache_write"]),
+	}
+	u.partial, _ = rec["partial"].(bool)
+	return u, true
+}
+
+// newTokens is the headline number: fresh input, cache writes and output,
+// leaving out cache reads, which would drown the difference between beads.
+func newTokens(u agents.Usage) int {
+	return u.FreshInput + u.CacheWrite + u.Output
+}
+
+// shortTokens is tokens as the report prints them: 827, 640k, 70.6M. One
+// decimal at most, without a trailing zero; what would round to 1000k
+// reads as 1M.
+func shortTokens(n int) string {
+	switch {
+	case n < 1000:
+		return strconv.Itoa(n)
+	case n < 999950:
+		return trimDecimal(float64(n)/1000) + "k"
+	default:
+		return trimDecimal(float64(n)/1000000) + "M"
+	}
+}
+
+// trimDecimal is f with one decimal, without a trailing ".0".
+func trimDecimal(f float64) string {
+	return strings.TrimSuffix(strconv.FormatFloat(f, 'f', 1, 64), ".0")
+}
+
+// lowerBound marks a printed total that falls short of its row's
+// sessions: one read partial, one came back missing, or one has no result
+// yet.
+func lowerBound(tokens string, partial bool, uncounted, pending int) string {
+	if partial || uncounted > 0 || pending > 0 {
+		return "≥" + tokens
+	}
+	return tokens
+}
+
+// medianTokens is the middle of v, the mean of the middle two when v is
+// even, rounded down. v must not be empty.
+func medianTokens(v []int) int {
+	s := slices.Clone(v)
+	slices.Sort(s)
+	if len(s)%2 == 1 {
+		return s[len(s)/2]
+	}
+	return (s[len(s)/2-1] + s[len(s)/2]) / 2
 }
 
 // reportOriginator resolves a bead's stored originator as it is read in the
@@ -214,12 +343,19 @@ func claimedBefore(visited []string, stages map[string]bool, fix string) bool {
 type routeCell struct {
 	beads       map[string]bool
 	stages      map[string]map[string]bool // bead -> stages claimed by this group
+	sessions    map[string][]string        // bead -> session ids claimed by this group
 	sendBacks   int
 	atLimit     map[string]bool // beads a round limit sent on from a claimed stage
 	reviewFixes int
 	secFixes    int
 	failed      int
 	builds      []time.Duration
+	tokens      int
+	usage       agents.Usage
+	partial     bool
+	uncounted   int
+	pending     int
+	beadMeds    []int // new tokens per bead with counted or partial sessions
 }
 
 // bestBuilders names, per difficulty label in the cells, the group with
@@ -303,15 +439,19 @@ func bestBuilders(cells map[string]*routeCell) []routeBest {
 // are the bead's notes by handle, in seq order: what the fix columns
 // count. BY HARNESS counts every claim with a kind under the same stage,
 // time and originator filters, open beads included: sessions ran, not
-// beads closed.
+// beads closed. Tokens come from session_usage events through the claims:
+// a count belongs to the cells of its session's claim, whatever filters
+// the claim passed, and a claim with no count yet is pending; CREW reads
+// crew_usage, which belongs to no bead and keeps only the time filter.
 func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o routeReportOpts, notes map[string][]store.Note) *routeReport {
-	rep := &routeReport{Rows: []routeReportRow{}, ByKind: []routeKindRow{}}
+	rep := &routeReport{Rows: []routeReportRow{}, ByKind: []routeKindRow{}, Crew: []routeCrewRow{}}
 	if len(evs) > 0 {
 		from := evs[0].At
 		rep.From = &from
 	}
 	var claims []reportClaim
 	var exits []reportExit
+	var crew []routeCrewUsage
 	// sendBacks counts, per bead and stage, the moves back into the stage.
 	sendBacks := map[string]int{}
 	// atLimit marks, per bead and stage, that a round limit sent the bead
@@ -321,12 +461,40 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	// reached them: what the send-back rule (store.IsSendBack) reads.
 	visited := map[string][]string{}
 	sessionOf := map[string]reportClaim{}
+	usageBySession := map[string]routeSessionUsage{}
 	for _, e := range evs {
+		// Crew counts belong to no bead, so they are read before the
+		// bead check, under the time filter alone.
+		if e.Kind == "crew_usage" {
+			if e.At.Before(o.since) {
+				continue
+			}
+			member, _ := e.Data["member"].(string)
+			if member == "" {
+				continue
+			}
+			if u, ok := usageOf(e.Data); ok {
+				crew = append(crew, routeCrewUsage{member: member, routeSessionUsage: u})
+			}
+			continue
+		}
 		if e.Bead == nil {
 			continue
 		}
 		bead := *e.Bead
 		switch e.Kind {
+		case "session_usage":
+			// The count follows its session's claim, whatever
+			// filters that claim passed, so it keeps no filter
+			// of its own; one with no in-scope claim is ignored.
+			session, _ := e.Data["session"].(string)
+			claim, inScope := sessionOf[session]
+			if session == "" || !inScope || claim.session == "" {
+				continue
+			}
+			if u, ok := usageOf(e.Data); ok {
+				usageBySession[session] = u
+			}
 		case "claimed":
 			group, _ := e.Data["group"].(string)
 			stage, _ := e.Data["stage"].(string)
@@ -484,7 +652,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			k := c.group + "\x00" + org + "\x00" + l
 			ce := cells[k]
 			if ce == nil {
-				ce = &routeCell{beads: map[string]bool{}, stages: map[string]map[string]bool{}, atLimit: map[string]bool{}}
+				ce = &routeCell{beads: map[string]bool{}, stages: map[string]map[string]bool{}, sessions: map[string][]string{}, atLimit: map[string]bool{}}
 				cells[k] = ce
 			}
 			// A bead claimed twice in one stage counts once; a bead two
@@ -494,6 +662,12 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 				ce.stages[c.bead] = map[string]bool{}
 			}
 			ce.stages[c.bead][c.stage] = true
+			// Agent claims carry a harness kind and can produce a usage
+			// result. Manual and exec claims also have session ids, but
+			// never have a count due, so they are not pending.
+			if c.kind != "" {
+				ce.sessions[c.bead] = append(ce.sessions[c.bead], c.session)
+			}
 		}
 	}
 	for k, ce := range cells {
@@ -508,6 +682,37 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 				if atLimit[bead+"\x00"+s] {
 					ce.atLimit[bead] = true
 				}
+			}
+			// Tokens cover the counted sessions only; a bead takes
+			// part in the median only when every session it names
+			// in the cell was counted, so one with a missing or
+			// pending session neither drags the median down nor
+			// passes for fully counted. A partial reading is a
+			// count, though short, and takes part.
+			beadTokens, named, counted := 0, 0, 0
+			for _, s := range ce.sessions[bead] {
+				if s == "" {
+					continue
+				}
+				named++
+				u, ok := usageBySession[s]
+				switch {
+				case !ok:
+					ce.pending++
+				case u.missing != "":
+					ce.uncounted++
+				default:
+					counted++
+					ce.tokens += newTokens(u.usage)
+					ce.usage = ce.usage.Add(u.usage)
+					beadTokens += newTokens(u.usage)
+					if u.partial {
+						ce.partial = true
+					}
+				}
+			}
+			if named > 0 && counted == named {
+				ce.beadMeds = append(ce.beadMeds, beadTokens)
 			}
 			// Fixes from a review stage count in the cell when the
 			// group claimed the bead in a stage the bead reached
@@ -543,15 +748,29 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			ReviewFixed: round1(float64(ce.reviewFixes) / float64(len(ce.beads))),
 			SecFixed:    round1(float64(ce.secFixes) / float64(len(ce.beads))),
 			Failed:      ce.failed,
+			Tokens:      ce.tokens,
+			Usage:       ce.usage,
+			Partial:     ce.partial,
+			Uncounted:   ce.uncounted,
+			Pending:     ce.pending,
 		}
 		if len(ce.builds) > 0 {
 			s := limits.Span(store.MedianDuration(ce.builds))
 			row.MedianBuild = &s
 		}
+		if len(ce.beadMeds) > 0 {
+			m := medianTokens(ce.beadMeds)
+			row.TokensPerBead = &m
+		}
 		rep.Rows = append(rep.Rows, row)
 	}
 	kindSessions := map[string]int{}
 	kindStages := map[string]map[string]bool{}
+	kindTokens := map[string]int{}
+	kindUsage := map[string]agents.Usage{}
+	kindPartial := map[string]bool{}
+	kindUncounted := map[string]int{}
+	kindPending := map[string]int{}
 	for _, c := range claims {
 		if c.kind == "" {
 			continue
@@ -561,6 +780,24 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			kindStages[c.kind] = map[string]bool{}
 		}
 		kindStages[c.kind][c.stage] = true
+		// The same join as the cells: the count of the claim's
+		// session, or pending while it has none.
+		if c.session == "" {
+			continue
+		}
+		u, ok := usageBySession[c.session]
+		switch {
+		case !ok:
+			kindPending[c.kind]++
+		case u.missing != "":
+			kindUncounted[c.kind]++
+		default:
+			kindTokens[c.kind] += newTokens(u.usage)
+			kindUsage[c.kind] = kindUsage[c.kind].Add(u.usage)
+			if u.partial {
+				kindPartial[c.kind] = true
+			}
+		}
 	}
 	kindKeys := make([]string, 0, len(kindSessions))
 	for k := range kindSessions {
@@ -573,7 +810,11 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			stages = append(stages, s)
 		}
 		slices.Sort(stages)
-		row := routeKindRow{Kind: k, Sessions: kindSessions[k], Stages: stages}
+		row := routeKindRow{
+			Kind: k, Sessions: kindSessions[k], Stages: stages,
+			Tokens: kindTokens[k], Usage: kindUsage[k], Partial: kindPartial[k],
+			Uncounted: kindUncounted[k], Pending: kindPending[k],
+		}
 		if ds := kindBuilds[k]; len(ds) > 0 {
 			var total time.Duration
 			for _, d := range ds {
@@ -585,6 +826,30 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			row.Median = &m
 		}
 		rep.ByKind = append(rep.ByKind, row)
+	}
+	crewSessions := map[string]int{}
+	crewTokens := map[string]int{}
+	crewUsage := map[string]agents.Usage{}
+	crewPartial := map[string]bool{}
+	crewUncounted := map[string]int{}
+	for _, cu := range crew {
+		crewSessions[cu.member]++
+		if cu.missing != "" {
+			crewUncounted[cu.member]++
+			continue
+		}
+		crewTokens[cu.member] += newTokens(cu.usage)
+		crewUsage[cu.member] = crewUsage[cu.member].Add(cu.usage)
+		if cu.partial {
+			crewPartial[cu.member] = true
+		}
+	}
+	for _, m := range slices.Sorted(maps.Keys(crewSessions)) {
+		rep.Crew = append(rep.Crew, routeCrewRow{
+			Member: m, Sessions: crewSessions[m],
+			Tokens: crewTokens[m], Usage: crewUsage[m], Partial: crewPartial[m],
+			Uncounted: crewUncounted[m],
+		})
 	}
 	rep.best = bestBuilders(cells)
 	return rep
@@ -732,12 +997,36 @@ per bead; a group qualifies by claiming a bead outside the review
 stages (review, review-security, critique), so reviewer groups never
 win.
 
+TOKENS/BEAD is the median, over the cell's beads whose sessions are all
+counted or partial, of the new tokens the group's sessions spent on each
+bead: fresh input, cache writes and output, leaving out cache reads, which would drown the
+difference between beads. TOKENS is the total over the cell's counted
+sessions. UNCOUNTED is the sessions whose count came back missing,
+PENDING the agent sessions claimed with no result yet. Counts are read from
+the session_usage events through the claims, so --originator, --since
+and --stage apply to them as to the claims. A TOKENS cell with a
+partial, missing or pending session takes ≥: the total is then a lower
+bound. TOKENS/BEAD reads only beads all of whose sessions in the cell
+were counted or partial, and - where no bead qualifies.
+
 BY HARNESS prints one row per harness kind the groups ran: SESSIONS is
 its claims in the window, HOURS their claim-to-exit time summed and
-MEDIAN the middle of it, STAGES the stages they ran. It counts every
-claim in the selected scope, open beads included, with the same pairing
-as the first table, so the two agree; --originator, --since and --stage
-apply to it as to the first. The
+MEDIAN the middle of it, TOKENS the new tokens over its counted
+sessions, UNCOUNTED and PENDING as in the first table, STAGES the
+stages they ran. It counts every claim in the selected scope, open
+beads included, with the same pairing as the first table, so the two
+agree; --originator, --since and --stage apply to it as to the first.
+
+CREW prints one row per crew member with crew_usage in the window:
+SESSIONS its sessions, TOKENS their new tokens, UNCOUNTED the ones
+missing. Crew counts belong to no bead; --since applies, --stage and
+--originator do not.
+
+--json carries, per row, tokens (and tokens_per_bead in the first
+table, null where the text shows -), usage (input, fresh_input, output,
+cache_read and cache_write summed over the counted sessions), partial
+(any session read partial), uncounted, and pending, which crew rows
+have not. The
 first line says from when the log still holds events: the report reads
 only what retention kept. It changes nothing.
 
@@ -782,14 +1071,20 @@ them: the eta line of yardr bead show (docs/line.md).`,
 					if r.MedianBuild != nil {
 						median = *r.MedianBuild
 					}
+					perBead := "-"
+					if r.TokensPerBead != nil {
+						perBead = shortTokens(*r.TokensPerBead)
+					}
 					rows[i] = []string{r.Group, r.Originator, r.Label, strconv.Itoa(r.Beads),
 						strconv.FormatFloat(r.SentBack, 'f', 1, 64),
 						strconv.Itoa(r.AtLimit),
 						strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64),
 						strconv.FormatFloat(r.SecFixed, 'f', 1, 64),
-						strconv.Itoa(r.Failed), median}
+						strconv.Itoa(r.Failed), median, perBead,
+						lowerBound(shortTokens(r.Tokens), r.Partial, r.Uncounted, r.Pending),
+						strconv.Itoa(r.Uncounted), strconv.Itoa(r.Pending)}
 				}
-				table(w, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tAT LIMIT\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
+				table(w, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tAT LIMIT\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD\tTOKENS/BEAD\tTOKENS\tUNCOUNTED\tPENDING", rows)
 				for _, b := range rep.best {
 					fmt.Fprintf(w, "best %s: %s at %s sent back + repaired per bead (%d beads)\n",
 						b.label, b.group, strconv.FormatFloat(b.perBead, 'f', 1, 64), b.beads)
@@ -808,9 +1103,19 @@ them: the eta line of yardr bead show (docs/line.md).`,
 					if stages == "" {
 						stages = "-"
 					}
-					kinds[i] = []string{r.Kind, strconv.Itoa(r.Sessions), hours, median, stages}
+					kinds[i] = []string{r.Kind, strconv.Itoa(r.Sessions), hours, median,
+						lowerBound(shortTokens(r.Tokens), r.Partial, r.Uncounted, r.Pending),
+						strconv.Itoa(r.Uncounted), strconv.Itoa(r.Pending), stages}
 				}
-				table(w, "KIND\tSESSIONS\tHOURS\tMEDIAN\tSTAGES", kinds)
+				table(w, "KIND\tSESSIONS\tHOURS\tMEDIAN\tTOKENS\tUNCOUNTED\tPENDING\tSTAGES", kinds)
+				fmt.Fprintln(w, "CREW")
+				members := make([][]string, len(rep.Crew))
+				for i, r := range rep.Crew {
+					members[i] = []string{r.Member, strconv.Itoa(r.Sessions),
+						lowerBound(shortTokens(r.Tokens), r.Partial, r.Uncounted, 0),
+						strconv.Itoa(r.Uncounted)}
+				}
+				table(w, "MEMBER\tSESSIONS\tTOKENS\tUNCOUNTED", members)
 			})
 		},
 	}
