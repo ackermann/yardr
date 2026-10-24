@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -1756,5 +1757,30 @@ func TestUserOtherCallsTellNoFileOrCommandToADeviceThatIsNotTheOperators(t *test
 		if got := notified(c.token, c.user); strings.Contains(got, worktree) != c.whole {
 			t.Errorf("%s is told the notification %q, want the worktree %s there: %v", c.who, got, worktree, c.whole)
 		}
+	}
+}
+
+// Over the link from the edge a device of the operator approves a setup
+// ask, taking the candidate its card lists: pairing is the grant, as for
+// a run ask. The approval is recorded and left for the server to carry
+// out, and the answer's event says it came by the edge.
+func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
+	ctx := context.Background()
+	y, _ := setupYard(t)
+	seq := y.askSetup(t, "jo")
+	w := y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
+		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","weighed":true}`, seq)))
+	var got struct {
+		Result *store.AskSetupApproved `json:"result"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
+		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
+	}
+	if rec, err := y.st.ClaimCarry(ctx, "boot"); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
+		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
+	}
+	noted := eventsOfKind(t, y.st, "noted")
+	if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone via edge" {
+		t.Errorf("the answer's event is %+v, want jo's via phone via edge", last)
 	}
 }

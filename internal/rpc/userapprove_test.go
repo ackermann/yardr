@@ -305,38 +305,59 @@ func TestUserApproveAskIsNotTakenInTheClear(t *testing.T) {
 	}
 }
 
-// Over the link from the edge an approval is refused with the link's own
-// reason: approvals never cross the edge, and the edge saw the token this
-// one carried. The fix is to answer on the yard's own machine. The
-// refusal is made before the body is read, and nothing runs.
-func TestUserApproveAskIsNotTakenOverTheLink(t *testing.T) {
+// Over the link from the edge a device of the operator approves a run
+// ask, and the yard runs the command the ask holds: pairing is the grant.
+// What the approval writes says it came by the edge: the change's event,
+// the answer on the bead and its noted event are marked "phone via edge".
+func TestUserApprovesARunAskOverTheLink(t *testing.T) {
+	ctx := context.Background()
 	y := newRunYard(t)
-	w := y.approve(edgelink.RemoteAddr, y.jo, unread{t})
-	for _, want := range []string{
-		"an approval never crosses the edge",
-		"this request came down the link from the edge",
-		"Answer on the yard's machine",
-		"The edge saw the device's token with it",
-		"yardr user device rm",
-	} {
-		if !strings.Contains(w.Body.String(), want) {
-			t.Errorf("answered %s, want it to say %q", w.Body, want)
+	w := y.approve(edgelink.RemoteAddr, y.jo, strings.NewReader(y.args()))
+	var got struct {
+		Result *store.AskApproved `json:"result"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
+		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
+	}
+	if src, err := y.st.GetSource(ctx, "crm"); err != nil || src.CallsPerHour != 120 {
+		t.Fatalf("the source is %+v, %v: want 120 calls an hour", src, err)
+	}
+	set := eventsOfKind(t, y.st, "source_set")
+	if len(set) != 1 || set[0].Actor != "jo" || store.Via(set[0]) != "phone via edge" {
+		t.Fatalf("source_set events: %+v, want one by jo via phone via edge", set)
+	}
+	notes, err := y.st.Notes(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer := notes[len(notes)-1]
+	if answer.Kind != store.NoteAnswer || answer.Author != "jo" || answer.Via != "phone via edge" {
+		t.Errorf("the answer is %+v, want jo's via phone via edge", answer)
+	}
+	noted := eventsOfKind(t, y.st, "noted")
+	if last := noted[len(noted)-1]; last.Actor != "jo" || store.Via(last) != "phone via edge" {
+		t.Errorf("the answer's event is %+v, want jo's via phone via edge", last)
+	}
+
+	t.Run("the edge says the device used plain HTTP", func(t *testing.T) {
+		y := newRunYard(t)
+		w := y.approve(edgelink.RemoteAddr, y.jo, unread{t}, "X-Forwarded-Proto", "http")
+		for _, want := range []string{
+			"the proxy in front of the yard says this request came to it in plain HTTP",
+			"The device's token was sent with it",
+			"yardr user device rm",
+		} {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("answered %s, want it to say %q", w.Body, want)
+			}
 		}
-	}
-	for _, not := range []string{"in plain HTTP from another machine", "the yard's listener", "Put the proxy or tunnel"} {
-		if strings.Contains(w.Body.String(), not) {
-			t.Errorf("answered %s, want none of %q", w.Body, not)
-		}
-	}
-	if strings.Contains(w.Body.String(), "secret") {
-		t.Errorf("answered %s: an approval holds no secret", w.Body)
-	}
-	y.nothingRan(t, "an approval over the link")
+		y.nothingRan(t, "the edge reported plain HTTP")
+	})
 }
 
-// An approval stays loopback-only: from the router's peer, said https, it
-// is refused with today's sentence, before the body is read, and nothing
-// runs.
+// From the router's peer, said https, an approval is refused with today's
+// sentence, before the body is read, and nothing runs: the router's
+// exception is the secret's, not an approval's.
 func TestUserApproveAskIsNotTakenFromTheRouter(t *testing.T) {
 	y := newRunYard(t)
 	if err := y.st.SetSetting(context.Background(), store.RouterAddrSetting, "172.18.0.2", "jo"); err != nil {

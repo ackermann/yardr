@@ -71,9 +71,10 @@ const (
 	// RefusalHeader is where the edge names what it refused.
 	RefusalHeader = "X-Edge-Refusal"
 	// RemoteAddr is the address a request that came down the link is served
-	// from. It is never loopback and never router_addr, so whatever the
-	// listener's handlers let in only from the yard's own machine or from
-	// the hosted router (a secret, an approval) is refused over the link.
+	// from. It is never loopback and never router_addr, so the listener can
+	// distinguish edge traffic from a local client or the hosted router.
+	// Calls restricted to those origins, such as secret entry, stay refused
+	// over this link.
 	RemoteAddr = "edge:0"
 )
 

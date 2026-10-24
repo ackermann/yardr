@@ -144,11 +144,13 @@ edge could act as that device within what the device may do. The edge is
 ours and connecting is invite-only, and a token is revoked per device on the
 yard: `yardr user device rm <user> <device>`.
 
-Never over the link: model credentials and hook signing secrets, and the
-calls that carry them, `GiveSecret`, `ApproveAsk` and `ApproveSetup`. Those
-are answered at the yard's own machine, as on a LAN without TLS. So is the
-grant list, `SourceGrants`: it carries no credential, but it is never read
-through the edge.
+Approvals cross the link: `ApproveAsk` and `ApproveSetup` are taken from a
+paired device of the operator down the link, as from the yard's own
+machine — pairing is the grant, and `yardr user device rm` is the revoke.
+Secrets never do: model credentials and hook signing secrets, and the call
+that carries them, `GiveSecret`, are answered at the yard's own machine, as
+on a LAN without TLS. So is the grant list, `SourceGrants`: it carries no
+credential, but it is never read through the edge.
 
 ## Hosted and connected
 

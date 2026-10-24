@@ -500,10 +500,10 @@ ask 4: this approval arrived through the reach of airy (a name of airy taken as 
 The yard knows the way an approval came from the door it came through, never
 from the words of the call: the socket knows the process at its other end, the
 listener the token of the device, and a door that takes a call over a link marks
-the call with that link. The store reads the mark where it approves. No door
-takes an approval over a link today. `ApproveAsk` is refused for a
-`bead@peer`, and an answer from a link cannot approve a run ask, so this
-refusal is the last line, kept for the day a door does.
+the call with that link. The store reads the mark where it approves. A peer's
+reach cannot approve its own link: `ApproveAsk` is refused for a `bead@peer`,
+and an answer from a peer link cannot approve a run ask. The refusal keeps a
+peer from approving a change to the link it came through.
 
 Still typed in a terminal and refused as a card: `peer add`, a pairing, `peer
 set --url`, `peer rm`, `--expose`, `--trust` and `--reach` (alone or beside a

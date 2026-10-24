@@ -905,7 +905,9 @@ nothing else. What is not the same:
 - **What it writes says how it came.** Every event a device's call writes as
   its user carries `data.via`, the device's name, and so do the letter and
   the note read back (`via` in `Conversation` and in `Bead`'s `notes[]`). A
-  view shows it behind the writer: `jo (via phone)`.
+  view shows it behind the writer: `jo (via phone)`. Down the link from the
+  edge the mark says that too: `data.via` is `phone via edge`, shown as
+  `jo (via phone via edge)`.
 - **A request is bounded**: a call's body to 1 MiB, and `PutBlob`'s to the
   yard's cap on a file besides. One over it is answered 413. Over the edge,
   an answer larger than one frame of the link carries is answered 413
@@ -1003,9 +1005,11 @@ A secret, an approval and the grant list are what the yard holds to this
 itself, as far as it can see. [`GiveSecret`, `ApproveAsk`, `ApproveSetup`
 and `SourceGrants`](#for-the-operator-alone) are taken only from a request
 that reached the listener from the yard's own machine, where the proxy or
-tunnel that ends TLS stands (or a client on that machine), and never from
-one whose proxy says it came in plain (`X-Forwarded-Proto: http`; the
-header is read for a no and never for a yes). Any other is refused with
+tunnel that ends TLS stands (or a client on that machine) — the two
+approvals also down the link from the edge
+([edge.md](edge.md#footplate-through-the-link)) — and never from one whose
+proxy says it came in plain (`X-Forwarded-Proto: http`; the header is read
+for a no and never for a yes). Any other is refused with
 the code `error`, in words that name the reason and say what may have
 crossed a network in the clear: the value, or for an approval or the grant
 list the token that was sent with it. A proxy on another machine that
@@ -1023,9 +1027,9 @@ when the request says it came to the router over https
 (`X-Forwarded-Proto: https`). On that network the router is the only such
 peer. The header is read for a yes here, as it is read for a no from the
 yard's own machine: without it, or saying anything but https, the call is
-refused as from any other machine. `ApproveAsk` and `ApproveSetup` stay
-loopback-only: from the router's peer they are refused as from anywhere
-else.
+refused as from any other machine. From the router's peer `ApproveAsk` and
+`ApproveSetup` are refused as from anywhere else: down the link from the
+edge they are taken, from the router never.
 
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a

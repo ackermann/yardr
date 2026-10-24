@@ -821,13 +821,24 @@ What stands against it besides: the yard runs the command stored on the
 ask and takes no word of it from the call; an approval is refused when
 what the command names or changes is no longer what the card said; a
 command runs once for one ask; an approval is taken only from a request
-that reached the listener from the yard's own machine, where TLS ends (a
-secret is taken besides from the yard's router, [api.md](api.md#tls-is-yours-and-the-clients-rule));
+that reached the listener from the yard's own machine, where TLS ends, or
+down the link from the edge ([edge.md](edge.md#footplate-through-the-link);
+a secret is taken besides from the yard's router, [api.md](api.md#tls-is-yours-and-the-clients-rule));
 and each approval through a device is marked `via
 <device>` on the answer and on the change's own event, which names the
-ask. `yardr user device list` says when and from which address a device
-was last used. A device of any other user, and a credential that anything
-but the yard's own record of a device vouches for, approves nothing.
+ask (`via phone via edge` down the link). `yardr user device list` says
+when and from which address a device was last used. A device of any other
+user, and a credential that anything but the yard's own record of a device
+vouches for, approves nothing.
+
+**Approvals cross the edge.** A paired device approves run and setup asks
+from wherever it reaches the yard, down the link from the edge included.
+The edge sees the device's token on every call, so a dishonest or
+compromised edge, or a stolen phone that is unlocked, can approve exactly
+the command stored on an ask. What holds it is that the command is fixed
+on the ask, that the operator paired the device, that the phone's unlock
+stands in front of the approval, which the yard cannot verify, and that
+`yardr user device rm` ends it at the next request.
 
 **A stolen device of the operator can read every grant, and no credential
 with it.** Until `yardr user device rm`, whoever holds its token can read
@@ -849,8 +860,10 @@ mark stands behind the name, for a person and for an agent alike:
 in `yardr inbox` (a crew member's and a user's), in `yardr mail --with` and
 `yardr chat`, in the notes and answers of `yardr prime --bead` and `yardr
 review` (`[2026-10-12 19:42 mckean (via phone)]`, `mckean (via phone)
-picked 1`), and on a bead's page in the web view. A client reads it as
-`via` ([api.md](api.md#over-the-network)). It is a record of the way in.
+picked 1`), and on a bead's page in the web view. Down the link from the
+edge the mark says that too: `mckean (via phone via edge)`. A client reads
+it as `via` ([api.md](api.md#over-the-network)). It is a record of the way
+in.
 Nothing is decided by it: mail `via` a device is its user's word as mail
 from the terminal is.
 

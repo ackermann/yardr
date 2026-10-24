@@ -6,8 +6,9 @@ import "context"
 // the device's user, and says how it came: every event the call writes as
 // that user carries "via", the device's name, and so does a note it puts on
 // a bead. Whoever reads the writer reads the mark with it, an agent too:
-// "mckean (via phone)". It is a record of the way in, nothing is decided by
-// it.
+// "mckean (via phone)". Down the link from the edge the mark says that
+// too: "phone via edge". It is a record of the way in, nothing is decided
+// by it.
 
 type viaKey struct{}
 
@@ -36,11 +37,10 @@ type reachKey struct{}
 // so: the user and the device the call is made as are this yard's own, and
 // the link would otherwise be lost behind them.
 //
-// No door takes an approval over a link today: ApproveAsk is refused for a
-// bead of another yard, and an answer that comes home over a link cannot
-// approve (answerable). The mark is for the day one does, and for the
-// approvals that must still be refused then: those of what changes the link
-// they came through (runCommand.link).
+// No peer-reach door approves an ask today: ApproveAsk is refused for a
+// bead of another yard, and an answer that comes home over a peer reach
+// cannot approve (answerable). The mark also keeps an approval from
+// changing the peer link it came through (runCommand.link).
 func WithReach(ctx context.Context, peer string) context.Context {
 	return context.WithValue(ctx, reachKey{}, peer)
 }

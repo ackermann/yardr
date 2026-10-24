@@ -1212,8 +1212,9 @@ const linkRemoteAddr = "edge:0"
 //
 // A hosted yard's router is the one peer besides this machine a secret is
 // taken from: the address the setting names, saying the request came to it
-// over https (fromRouter). An approval is not: ApproveAsk and ApproveSetup
-// stay loopback-only, whatever the setting names.
+// over https (fromRouter). An approval is not taken from it: from the
+// router's peer ApproveAsk and ApproveSetup are refused as from anywhere
+// else, whatever the setting names.
 //
 // An approval holds no secret of its own. It is held to the same rule for
 // what it does: a token read off a network in the clear would otherwise
@@ -1222,10 +1223,16 @@ const linkRemoteAddr = "edge:0"
 // The refusal comes after the request has crossed, so it says that too.
 //
 // Over the link from the edge the listener's reason does not hold: the
-// request came down the link, and secrets and approvals never cross the
-// edge (design yardr-hosted-050n 3.6). The refusal names that reason,
-// answers on the yard's own machine as the fix, and says the edge saw
-// what this one carried, so the key or the device is remade.
+// request came down the link. A secret never crosses the edge (design
+// yardr-hosted-050n 3.6): the refusal names that reason, answers on the
+// yard's own machine as the fix, and says the edge saw what this one
+// carried, so the key is remade. An approval crosses: a paired device of
+// the operator is the operator (design yardr-xpf8), pairing is the grant
+// and `yardr user device rm` is the revoke, and the command an approval
+// runs is fixed on the ask. The edge sees the device's token with it,
+// and what the approval writes says it came by the edge (call). If the
+// edge says the device reached it over plain HTTP, the approval is still
+// refused.
 func inTheClear(r *http.Request, name, router string) string {
 	if name == "SourceGrants" {
 		return sourceGrantsInTheClear(r, router)
@@ -1243,14 +1250,17 @@ func inTheClear(r *http.Request, name, router string) string {
 		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
 	}
 	if r.RemoteAddr == linkRemoteAddr {
-		never, seen := "a secret never crosses the edge",
-			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
 		if name == "ApproveAsk" || name == "ApproveSetup" {
-			never, seen = "an approval never crosses the edge",
-				" The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+			// Only a device of the operator reaches here (operatorCall).
+			if forwardedPlain(r) {
+				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+					"Give the device the yard's https:// address." + crossed
+			}
+			return ""
 		}
-		return never + ": this request came down the link from the edge. " +
-			"Answer on the yard's machine (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." + seen
+		return "a secret never crosses the edge: this request came down the link from the edge. " +
+			"Answer on the yard's machine (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." +
+			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
 	}
 	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
 		if name == "GiveSecret" && fromRouter(r, router) {
@@ -1259,15 +1269,25 @@ func inTheClear(r *http.Request, name, router string) string {
 		return what + " is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
 			"Put the proxy or tunnel that ends TLS on the yard's machine, or answer there (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." + crossed
 	}
+	if forwardedPlain(r) {
+		return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+			"Give the device the yard's https:// address." + crossed
+	}
+	return ""
+}
+
+// forwardedPlain reports whether any forwarded-proto value says the
+// request arrived over plain HTTP. The header can refuse a call, never
+// establish that a request was secure.
+func forwardedPlain(r *http.Request) bool {
 	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
 		for _, p := range strings.Split(proto, ",") {
 			if !strings.EqualFold(strings.TrimSpace(p), "https") {
-				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
-					"Give the device the yard's https:// address." + crossed
+				return true
 			}
 		}
 	}
-	return ""
+	return false
 }
 
 // sourceGrantsInTheClear keeps the operator's bearer token under the same
@@ -1413,7 +1433,13 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, reply{Error: toWire(err)})
 		return
 	}
-	u.api.call(w, r.WithContext(store.WithVia(r.Context(), c.User, c.SaidBy)), name, args)
+	// What a device writes says how it came (store.WithVia): the device's
+	// name, and down the link that it came by the edge.
+	via := c.SaidBy
+	if r.RemoteAddr == linkRemoteAddr {
+		via += " via edge"
+	}
+	u.api.call(w, r.WithContext(store.WithVia(r.Context(), c.User, via)), name, args)
 }
 
 // userBlob serves a blob as the web view serves it to the caller: a note's
