@@ -35,17 +35,19 @@ type routeReportOpts struct {
 
 // routeReportRow is one GROUP/ORIGINATOR/LABEL cell of the report: the
 // closed beads one group claimed in the stages for one user, what they
-// cost. SentBack is send-backs per bead, ReviewFixed review's forward
-// fixes per bead and SecFixed the security review's; MedianBuild is how
-// long a claim took to leave the stage, nil when no counted claim did
-// (its exit aged out of the log, or the bead closed without leaving the
-// stage).
+// cost. SentBack is send-backs per bead, AtLimit the beads a round limit
+// sent to its then stage from one the group claimed them in, ReviewFixed
+// review's forward fixes per bead and SecFixed the security review's;
+// MedianBuild is how long a claim took to leave the stage, nil when no
+// counted claim did (its exit aged out of the log, or the bead closed
+// without leaving the stage).
 type routeReportRow struct {
 	Group       string  `json:"group"`
 	Originator  string  `json:"originator"`
 	Label       string  `json:"label"`
 	Beads       int     `json:"beads"`
 	SentBack    float64 `json:"sent_back"`
+	AtLimit     int     `json:"at_limit"`
 	ReviewFixed float64 `json:"review_fixed"`
 	SecFixed    float64 `json:"sec_fixed"`
 	Failed      int     `json:"failed"`
@@ -213,6 +215,7 @@ type routeCell struct {
 	beads       map[string]bool
 	stages      map[string]map[string]bool // bead -> stages claimed by this group
 	sendBacks   int
+	atLimit     map[string]bool // beads a round limit sent on from a claimed stage
 	reviewFixes int
 	secFixes    int
 	failed      int
@@ -311,6 +314,9 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 	var exits []reportExit
 	// sendBacks counts, per bead and stage, the moves back into the stage.
 	sendBacks := map[string]int{}
+	// atLimit marks, per bead and stage, that a round limit sent the bead
+	// on from the stage: a rounds_reached whose to the outcome leads to.
+	atLimit := map[string]bool{}
 	// visited is the stages a bead has reached, in the order it first
 	// reached them: what the send-back rule (store.IsSendBack) reads.
 	visited := map[string][]string{}
@@ -362,6 +368,12 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 				group, _ := e.Data["group"].(string)
 				exits = append(exits, reportExit{bead: bead, from: from, to: to, group: group, at: e.At, seq: e.Seq})
 			}
+		case store.RoundsReached:
+			to, _ := e.Data["to"].(string)
+			if to == "" || !o.stages[to] || e.At.Before(o.since) {
+				continue
+			}
+			atLimit[bead+"\x00"+to] = true
 		}
 	}
 	// advancedBy is, per bead and review stage, who moved the bead out of
@@ -472,7 +484,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			k := c.group + "\x00" + org + "\x00" + l
 			ce := cells[k]
 			if ce == nil {
-				ce = &routeCell{beads: map[string]bool{}, stages: map[string]map[string]bool{}}
+				ce = &routeCell{beads: map[string]bool{}, stages: map[string]map[string]bool{}, atLimit: map[string]bool{}}
 				cells[k] = ce
 			}
 			// A bead claimed twice in one stage counts once; a bead two
@@ -491,6 +503,11 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			ce.builds = append(ce.builds, builds[group+"\x00"+bead]...)
 			for s := range ce.stages[bead] {
 				ce.sendBacks += sendBacks[bead+"\x00"+s]
+				// A bead a limit sent on counts once, however many
+				// redirects it has in the window.
+				if atLimit[bead+"\x00"+s] {
+					ce.atLimit[bead] = true
+				}
 			}
 			// Fixes from a review stage count in the cell when the
 			// group claimed the bead in a stage the bead reached
@@ -522,6 +539,7 @@ func summarizeRouteEvents(evs []store.Event, beads map[string]store.Bead, o rout
 			Label:       label,
 			Beads:       len(ce.beads),
 			SentBack:    round1(float64(ce.sendBacks) / float64(len(ce.beads))),
+			AtLimit:     len(ce.atLimit),
 			ReviewFixed: round1(float64(ce.reviewFixes) / float64(len(ce.beads))),
 			SecFixed:    round1(float64(ce.secFixes) / float64(len(ce.beads))),
 			Failed:      ce.failed,
@@ -687,7 +705,11 @@ func (a *app) routeReportCmd() *cobra.Command {
 		Long: `Read the event log and print, for each group, each originator and each estimate label, what the beads cost.
 
 BEADS is the closed beads the group claimed in the stage. SENT BACK is how
-often per bead a later stage moved one back to the stage. REVIEW FIXED is
+often per bead a later stage moved one back to the stage. AT LIMIT is how
+many of them a round limit sent to its then stage from one the group
+claimed the bead in; like BEADS it counts a bead once the bead closes,
+so a bead still waiting where the limit sent it shows in that stage's
+listing meanwhile. REVIEW FIXED is
 how often per bead review fixed one on its branch instead of sending it
 back, SEC FIXED how often the security review did. FAILED is the
 group's sessions for them that failed, died, or got stuck: blocked at a
@@ -762,11 +784,12 @@ them: the eta line of yardr bead show (docs/line.md).`,
 					}
 					rows[i] = []string{r.Group, r.Originator, r.Label, strconv.Itoa(r.Beads),
 						strconv.FormatFloat(r.SentBack, 'f', 1, 64),
+						strconv.Itoa(r.AtLimit),
 						strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64),
 						strconv.FormatFloat(r.SecFixed, 'f', 1, 64),
 						strconv.Itoa(r.Failed), median}
 				}
-				table(w, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
+				table(w, "GROUP\tORIGINATOR\tLABEL\tBEADS\tSENT BACK\tAT LIMIT\tREVIEW FIXED\tSEC FIXED\tFAILED\tMEDIAN BUILD", rows)
 				for _, b := range rep.best {
 					fmt.Fprintf(w, "best %s: %s at %s sent back + repaired per bead (%d beads)\n",
 						b.label, b.group, strconv.FormatFloat(b.perBead, 'f', 1, 64), b.beads)

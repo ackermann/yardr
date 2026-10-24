@@ -113,8 +113,8 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 	if len(lines) < 2 {
 		t.Fatalf("route report %v printed %q, want a first line and a header", args, out)
 	}
-	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "MEDIAN", "BUILD"}) {
-		t.Fatalf("route report %v header %q, want the fix columns beside sent back", args, lines[1])
+	if h := strings.Fields(lines[1]); !slices.Equal(h, []string{"GROUP", "ORIGINATOR", "LABEL", "BEADS", "SENT", "BACK", "AT", "LIMIT", "REVIEW", "FIXED", "SEC", "FIXED", "FAILED", "MEDIAN", "BUILD"}) {
+		t.Fatalf("route report %v header %q, want the at-limit column beside sent back", args, lines[1])
 	}
 	rows = map[string][]string{}
 	for _, l := range lines[2:] {
@@ -125,13 +125,13 @@ func reportRows(t *testing.T, st store.API, args ...string) (first string, rows 
 			continue
 		}
 		f := strings.Fields(l)
-		if len(f) < 9 {
-			t.Fatalf("route report %v row %q, want 9 fields", args, l)
+		if len(f) < 10 {
+			t.Fatalf("route report %v row %q, want 10 fields", args, l)
 		}
 		// The median is the rest of the line: it reads "under a
 		// minute" or "3h 5m" as well as "41m".
-		f[8] = strings.Join(f[8:], " ")
-		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = f[:9]
+		f[9] = strings.Join(f[9:], " ")
+		rows[f[0]+"\x00"+f[1]+"\x00"+f[2]] = f[:10]
 	}
 	return lines[0], rows
 }
@@ -188,13 +188,13 @@ func TestRouteReport(t *testing.T) {
 	// A bead two groups worked in one stage counts for each; the failed
 	// session counts for the group that ran it; the open and unclaimed
 	// beads count nowhere. No bead has a review note, so both fix columns
-	// read 0.0.
+	// read 0.0; no bead reached a round limit, so at limit reads 0.
 	want := map[string][]string{
-		"opus\x00me\x00difficulty:3": {"2", "0.5", "0.0", "0.0", "1"},
-		"muse\x00me\x00difficulty:3": {"1", "1.0", "0.0", "0.0", "0"},
-		"muse\x00me\x00difficulty:2": {"1", "0.0", "0.0", "0.0", "0"},
-		"opus\x00me\x00size:large":   {"1", "1.0", "0.0", "0.0", "0"},
-		"muse\x00me\x00size:large":   {"1", "1.0", "0.0", "0.0", "0"},
+		"opus\x00me\x00difficulty:3": {"2", "0.5", "0", "0.0", "0.0", "1"},
+		"muse\x00me\x00difficulty:3": {"1", "1.0", "0", "0.0", "0.0", "0"},
+		"muse\x00me\x00difficulty:2": {"1", "0.0", "0", "0.0", "0.0", "0"},
+		"opus\x00me\x00size:large":   {"1", "1.0", "0", "0.0", "0.0", "0"},
+		"muse\x00me\x00size:large":   {"1", "1.0", "0", "0.0", "0.0", "0"},
 		// The open bead, the manual claim and the unclaimed bead are
 		// in no default row.
 		"opus\x00me\x00difficulty:1":   nil,
@@ -213,12 +213,12 @@ func TestRouteReport(t *testing.T) {
 			t.Errorf("no row for %q", k)
 			continue
 		}
-		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
-			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
-				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] || got[8] != w[5] {
+			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
-		if got[8] == "-" {
-			t.Errorf("row %q median %q, want a build duration", k, got[8])
+		if got[9] == "-" {
+			t.Errorf("row %q median %q, want a build duration", k, got[9])
 		}
 	}
 	if len(rows) != 5 {
@@ -269,11 +269,11 @@ func TestRouteReportFailedClaimHasNoBuild(t *testing.T) {
 	if !ok {
 		t.Fatalf("no row for the stalled bead: %v", rows)
 	}
-	if row[3] != "1" || row[7] != "1" {
-		t.Errorf("row = beads %s failed %s, want 1 and 1", row[3], row[7])
+	if row[3] != "1" || row[8] != "1" {
+		t.Errorf("row = beads %s failed %s, want 1 and 1", row[3], row[8])
 	}
-	if row[8] != "-" {
-		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[8])
+	if row[9] != "-" {
+		t.Errorf("median build = %q, want no sample: the failed claim is not a build", row[9])
 	}
 }
 
@@ -295,10 +295,10 @@ func TestRouteReportFlags(t *testing.T) {
 	// The two beads with no size label have a row of their own per
 	// group, under "-"; the failed session counts in its bead's.
 	wantSize := map[string][]string{
-		"opus\x00me\x00size:large": {"1", "1.0", "0.0", "0.0", "0"},
-		"muse\x00me\x00size:large": {"1", "1.0", "0.0", "0.0", "0"},
-		"opus\x00me\x00-":          {"1", "0.0", "0.0", "0.0", "1"},
-		"muse\x00me\x00-":          {"1", "0.0", "0.0", "0.0", "0"},
+		"opus\x00me\x00size:large": {"1", "1.0", "0", "0.0", "0.0", "0"},
+		"muse\x00me\x00size:large": {"1", "1.0", "0", "0.0", "0.0", "0"},
+		"opus\x00me\x00-":          {"1", "0.0", "0", "0.0", "0.0", "1"},
+		"muse\x00me\x00-":          {"1", "0.0", "0", "0.0", "0.0", "0"},
 	}
 	if len(rows) != 4 {
 		t.Errorf("%d rows with --prefix size, want 4", len(rows))
@@ -309,9 +309,9 @@ func TestRouteReportFlags(t *testing.T) {
 			t.Errorf("no row for %q with --prefix size", k)
 			continue
 		}
-		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
-			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
-				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] || got[8] != w[5] {
+			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
 	}
 
@@ -342,6 +342,9 @@ func TestRouteReportFlags(t *testing.T) {
 	if len(rep.Rows) != 5 {
 		t.Fatalf("--json has %d rows, want 5", len(rep.Rows))
 	}
+	if !strings.Contains(out, `"at_limit":`) {
+		t.Errorf("--json lacks at_limit: %s", out)
+	}
 	_, text := reportRows(t, st)
 	for _, r := range rep.Rows {
 		f, ok := text[r.Group+"\x00"+r.Originator+"\x00"+r.Label]
@@ -352,17 +355,17 @@ func TestRouteReportFlags(t *testing.T) {
 		if r.Originator != "me" {
 			t.Errorf("--json row %+v names originator %q, want me", r, r.Originator)
 		}
-		if f[3] != strconv.Itoa(r.Beads) || f[7] != strconv.Itoa(r.Failed) {
+		if f[3] != strconv.Itoa(r.Beads) || f[5] != strconv.Itoa(r.AtLimit) || f[8] != strconv.Itoa(r.Failed) {
 			t.Errorf("--json row %+v differs from text row %v", r, f)
 		}
-		if f[5] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[6] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
+		if f[6] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[7] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
 			t.Errorf("--json row %+v fixes differ from text row %v", r, f)
 		}
 		median := "-"
 		if r.MedianBuild != nil {
 			median = *r.MedianBuild
 		}
-		if f[8] != median {
+		if f[9] != median {
 			t.Errorf("--json row %+v median differs from text row %v", r, f)
 		}
 	}
@@ -672,6 +675,45 @@ func TestSummarizeRouteEvents(t *testing.T) {
 	if rep.Rows[1].MedianBuild == nil || *rep.Rows[1].MedianBuild != "1m" {
 		t.Errorf("review group build = %v, want 1m", rep.Rows[1].MedianBuild)
 	}
+	// AT LIMIT counts the closed beads a round limit sent on from a
+	// stage the row's group claimed the bead in. One bead counts once
+	// however many redirects it has; an open bead counts nowhere, as
+	// does a redirect back to a stage the group never claimed.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		advanced(2, t0.Add(10*time.Minute), "yard-a", "new", "review"),
+		ev(3, t0.Add(20*time.Minute), "yard-a", store.RoundsReached, map[string]any{"stage": "review", "outcome": "changes", "rounds": 3, "to": "new", "then": "decide"}),
+		ev(4, t0.Add(30*time.Minute), "yard-a", store.RoundsReached, map[string]any{"stage": "review", "outcome": "changes", "rounds": 3, "to": "new", "then": "decide"}),
+		claimed(5, t0, "yard-b", "g", "new", "s2"),
+		advanced(6, t0.Add(10*time.Minute), "yard-b", "new", "review"),
+		ev(7, t0.Add(20*time.Minute), "yard-b", store.RoundsReached, map[string]any{"stage": "review", "outcome": "changes", "rounds": 3, "to": "review", "then": "decide"}),
+		claimed(8, t0, "yard-e", "g", "new", "s3"),
+		ev(9, t0.Add(20*time.Minute), "yard-e", store.RoundsReached, map[string]any{"stage": "review", "outcome": "changes", "rounds": 3, "to": "new", "then": "decide"}),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil)
+	if len(rep.Rows) != 1 {
+		t.Fatalf("at-limit rows = %+v, want one", rep.Rows)
+	}
+	if r := rep.Rows[0]; r.Beads != 2 || r.AtLimit != 1 {
+		t.Errorf("at-limit row = %+v, want 2 beads with 1 at the limit", r)
+	}
+
+	// A redirect older than the window counts nowhere, as the other
+	// columns': yard-a is in the row by its recent claim, but its
+	// redirect aged out.
+	rep = summarizeRouteEvents([]store.Event{
+		claimed(1, t0, "yard-a", "g", "new", "s1"),
+		ev(2, t0.Add(time.Minute), "yard-a", store.RoundsReached, map[string]any{"to": "new"}),
+		claimed(3, t0.Add(25*time.Hour), "yard-a", "g", "new", "s2"),
+		claimed(4, t0.Add(25*time.Hour), "yard-b", "g", "new", "s3"),
+		ev(5, t0.Add(25*time.Hour+time.Minute), "yard-b", store.RoundsReached, map[string]any{"to": "new"}),
+	}, beads, routeReportOpts{prefixes: prefixes, stages: stages, since: t0.Add(24 * time.Hour)}, nil)
+	if len(rep.Rows) != 1 {
+		t.Fatalf("at-limit rows with --since = %+v, want one", rep.Rows)
+	}
+	if r := rep.Rows[0]; r.Beads != 2 || r.AtLimit != 1 {
+		t.Errorf("at-limit row with --since = %+v, want 2 beads with the recent redirect alone counted", r)
+	}
+
 	if rep := summarizeRouteEvents(nil, beads, routeReportOpts{prefixes: prefixes, stages: stages}, nil); rep.From != nil || len(rep.Rows) != 0 {
 		t.Errorf("empty log = %+v, want no from and no rows", rep)
 	}
@@ -1280,9 +1322,9 @@ func TestRouteReportReviewFixed(t *testing.T) {
 
 	_, rows := reportRows(t, st)
 	want := map[string][]string{
-		// beads, sent back, review fixed, sec fixed, failed
-		"builders\x00me\x00difficulty:3":  {"2", "0.0", "0.5", "0.5", "0"},
-		"reviewers\x00me\x00difficulty:3": {"2", "0.0", "0.0", "0.5", "0"},
+		// beads, sent back, at limit, review fixed, sec fixed, failed
+		"builders\x00me\x00difficulty:3":  {"2", "0.0", "0", "0.5", "0.5", "0"},
+		"reviewers\x00me\x00difficulty:3": {"2", "0.0", "0", "0.0", "0.5", "0"},
 	}
 	for k, w := range want {
 		got, ok := rows[k]
@@ -1290,9 +1332,9 @@ func TestRouteReportReviewFixed(t *testing.T) {
 			t.Errorf("no row for %q", k)
 			continue
 		}
-		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
-			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
-				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] || got[8] != w[5] {
+			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
 	}
 
@@ -1312,7 +1354,7 @@ func TestRouteReportReviewFixed(t *testing.T) {
 			t.Errorf("--json row %+v has no text row", r)
 			continue
 		}
-		if f[5] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[6] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
+		if f[6] != strconv.FormatFloat(r.ReviewFixed, 'f', 1, 64) || f[7] != strconv.FormatFloat(r.SecFixed, 'f', 1, 64) {
 			t.Errorf("--json row %+v fixes differ from text row %v", r, f)
 		}
 	}
@@ -1340,10 +1382,10 @@ func TestRouteReportReviewFixed(t *testing.T) {
 	// --prefix size keeps the new columns, with the fixes on the large row.
 	_, rows = reportRows(t, st, "--prefix", "size")
 	wantSize := map[string][]string{
-		"builders\x00me\x00size:large":  {"1", "0.0", "1.0", "1.0", "0"},
-		"reviewers\x00me\x00size:large": {"1", "0.0", "0.0", "1.0", "0"},
-		"builders\x00me\x00-":           {"1", "0.0", "0.0", "0.0", "0"},
-		"reviewers\x00me\x00-":          {"1", "0.0", "0.0", "0.0", "0"},
+		"builders\x00me\x00size:large":  {"1", "0.0", "0", "1.0", "1.0", "0"},
+		"reviewers\x00me\x00size:large": {"1", "0.0", "0", "0.0", "1.0", "0"},
+		"builders\x00me\x00-":           {"1", "0.0", "0", "0.0", "0.0", "0"},
+		"reviewers\x00me\x00-":          {"1", "0.0", "0", "0.0", "0.0", "0"},
 	}
 	if len(rows) != 4 {
 		t.Errorf("%d rows with --prefix size, want 4", len(rows))
@@ -1354,9 +1396,9 @@ func TestRouteReportReviewFixed(t *testing.T) {
 			t.Errorf("no row for %q with --prefix size", k)
 			continue
 		}
-		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] {
-			t.Errorf("row %q = beads %s sent back %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s",
-				k, got[3], got[4], got[5], got[6], got[7], w[0], w[1], w[2], w[3], w[4])
+		if got[3] != w[0] || got[4] != w[1] || got[5] != w[2] || got[6] != w[3] || got[7] != w[4] || got[8] != w[5] {
+			t.Errorf("row %q = beads %s sent back %s at limit %s review fixed %s sec fixed %s failed %s, want %s %s %s %s %s %s",
+				k, got[3], got[4], got[5], got[6], got[7], got[8], w[0], w[1], w[2], w[3], w[4], w[5])
 		}
 	}
 }
