@@ -100,8 +100,13 @@ from outside, pr-ci's run of its head, which no landing follows) and in the
 quiet whole-suite run (R6), and nowhere else. A builder's or reviewer's run of
 `.yardr/test` tests the same selection without `-race`, says so in its first
 line (`testing without -race (race runs at landing only, docs/testing.md
-R4)`), and so never takes the machine-wide race lock, nor judges R1, which
-is defined under `-race`. Measured on 22 Oct 2026 over the last 200 beads'
+R4)`), and so never takes the machine-wide race lock for its race, nor
+judges R1, which is defined under `-race`. A plain run whose step covers
+the whole suite -- `go.mod` or `go.sum`, a file no row knows, or a selection
+of at least half the suite's packages -- still queues on that lock as class
+1, behind landings (R5): two whole-suite runs at once overload the machine,
+while a leaf run beside them is the normal tolerated load (yardr-f4tr).
+Measured on 22 Oct 2026 over the last 200 beads'
 notes: of 170 passing test lines, 66% of the gate's wall time (129k of
 193k s) was queued on that lock, and 107 runs waited over half their run;
 no bead or note among 1370 reports `WARNING: DATA RACE`. The detector still
@@ -136,8 +141,9 @@ and race-lock wait, written by `.yardr/test` itself so every note holds
 them: `test: sh .yardr/test @ <sha>: pass, <n> packages ok, 0 failed, 112 s,
 waited 40 s`. The fields are the result, the packages passed and failed, the
 run's wall seconds, and the seconds it queued on the machine-wide race lock:
-`waited 0 s` on every builder and review line, since a plain run takes no
-lock, and a wait only on a landing's.
+`waited 0 s` on most builder and review lines -- a leaf selection takes no
+lock -- and a wait on a landing's, or on a whole-suite plain run's that
+queued behind one.
 
 R5. The landing runs the incremental selection -- today's package pick --
 plus always the six black-box suites (contrib/assembly, contrib/peer,
@@ -145,24 +151,23 @@ contrib/deploy, contrib/server-yard, contrib/isolated-yard,
 contrib/release), plus the socket leg as today. Each of the six builds
 the tree's binary and drives it without importing the changed packages,
 so the pick alone misses them. A landing that changed nothing compiled
-runs the plain selection alone, as before, without `-race` and so without
-the race lock (yardr-57x5): no `.go` file, embedded file or deletion is
-in it, so the binaries are the base's and only a test that opens a
-changed file by path can differ, which the selection holds. Every plain
-run does the same, whatever it changed (R4). A landing whose change cannot be
-selected (go.mod or go.sum, a deletion, a file no row knows) and one
-with nothing to compare with still run the whole suite. The whole
-suite otherwise runs only when the yard is quiet (R6 below).
+runs the plain selection alone, as before, without `-race`: no `.go` file,
+embedded file or deletion is in it, so the binaries are the base's and only
+a test that opens a changed file by path can differ, which the selection
+holds. If that selection covers at least half the suite's packages, its
+plain go-test step queues as class 1; a smaller selection takes no ticket
+(R4, yardr-f4tr). A landing whose change cannot be selected (go.mod or
+go.sum, a deletion, a file no row knows) and one with nothing to compare
+with still run the whole suite. The whole suite otherwise runs only when
+the yard is quiet (R6 below).
 A landing's race leg takes the machine-wide race lock ahead of any other
-run's (yardr-0cw8): a ticket in the lock's queue is named by class, `0-`
-for a run with `YARDR_LANDING` set and `1-` for any other, and the first
-live ticket may take the lock, so landings go first and each class keeps
-its arrival order. Since R4 only a run with `YARDR_LANDING` set has a race
-leg, so this script makes class 0 tickets alone and the queue is first
-come, first served; class 1 is left for the tickets of a copy of the
-script from before R4 (a branch not yet rebased). The run that holds the
-lock is never pre-empted. `sh .yardr/test --race-queue` shows each
-waiter's class.
+run's (yardr-0cw8). A ticket is class 0 for a landing's race leg and class
+1 for a whole-suite plain step, including an unraced landing's plain
+selection; class 1 also accommodates tickets from a copy of the script
+from before R4 (a branch not yet rebased). The first live ticket may take
+the lock, so class 0 goes first and each class keeps its arrival order.
+The run that holds the lock is never pre-empted. `sh .yardr/test
+--race-queue` shows each waiter's class.
 
 R6. The whole suite still runs, but when the yard is quiet, not on a timer
 and not as a gate on any bead. The daemon's trigger

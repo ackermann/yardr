@@ -239,8 +239,10 @@ again after a review fix (yardr-a7sd).
 The landing run is also the only one with the race detector, besides the
 quiet run's (since yardr-ghjv, 22 Oct 2026; [testing.md](testing.md), R4).
 The builder's and the reviewer's plain run tests the same selection without
-`-race`, and so takes no place in the race lock's queue: of 170 passing test
-lines measured that day, 66% of the gate's wall time was spent queued there.
+`-race`, and so takes no place in the race lock's queue for its race: of 170
+passing test lines measured that day, 66% of the gate's wall time was spent
+queued there. A plain run whose step covers the whole suite still queues on
+it as class 1, behind landings ([testing.md](testing.md), R5).
 A data race therefore shows at the landing, which sends the bead back, and
 not in a builder's or a reviewer's run.
 
@@ -257,8 +259,10 @@ runs the plain selection alone (since yardr-bxh2, 13 Oct 2026:
 gofmt, vet, build, and the tests of the packages the table names for
 the changed files), and since yardr-57x5 (22 Oct 2026) without
 `-race`: the race detector looks at compiled code and none changed, so
-the run takes no place in the race lock's queue either. A plain run does
-the same, whatever it changed. A landing is the whole suite when what
+the run takes no place in the race lock's queue for its race either.
+A plain run does the same, whatever it changed, unless its step covers
+the whole suite, which queues as class 1 behind landings. A landing is
+the whole suite when what
 changed cannot be selected, or there is nothing to select from:
 
 - `go.mod` or `go.sum`, which move every package;
@@ -271,7 +275,7 @@ The first line of the output says which run it is and names the file
 that decided it:
 
 ```text
-test: YARDR_LANDING is set, and nothing compiled changed since main (YARDR_BASE), from 51c8a9e: testing without -race, no race lock
+test: YARDR_LANDING is set, and nothing compiled changed since main (YARDR_BASE), from 51c8a9e: testing without -race
 test: docs/design/2026-10-12-yardr-nx54-outside-pr-review.md changed: read by the tests of .
 test: testing, without -race, what changed, what imports it and what reads it: yardr.dev/yardr
 ```

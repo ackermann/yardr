@@ -12,8 +12,10 @@
 # is right; a leaf package takes seconds. It is also what a wagon of a train
 # passes to land on its train's branch. A plain run is never raced: the race
 # detector runs at landing only (docs/testing.md R4), so a plain run tests
-# with a plain go test and takes no place in the race lock's queue, whatever
-# it changed (see plainwhy below).
+# with a plain go test. A plain run that covers the whole suite still queues
+# on the race lock, as class 1 behind landings (see lockplain below): two
+# whole-suite runs at once overload the machine. A smaller selection takes
+# no ticket, whatever it changed.
 #
 # With YARDR_LANDING=1, as the assembly sets it for what lands on main, a
 # landing that changes code runs the plain selection plus always the six
@@ -28,8 +30,9 @@
 # program and every test binary is built from the source the base
 # passed with, only a test that opens a changed file by path can
 # differ, and the run is the plain selection alone, without -race: it
-# has no race to look for, and so waits for no race lock (every plain run
-# is the same, whatever it changed). The whole suite otherwise runs only when
+# has no race to look for. It still queues when its selection covers the
+# whole suite, as any plain run does (lockplain); otherwise it waits for
+# no race lock. The whole suite otherwise runs only when
 # the yard is quiet (docs/testing.md R6) and where someone runs
 # YARDR_LANDING=1 on the base itself. The first line says which run it
 # is, and why. A loaded machine runs the race leg with go test's -p set from
@@ -230,8 +233,9 @@ runlogged() {
   runstatus=$(cat "$runlog.rc")
   return "$runstatus"
 }
-# racelocked runs the race leg under the machine-wide race lock: one go test
-# -race run at a time on this machine. Five worktrees' race suites side by
+# racelocked runs a leg under the machine-wide race lock: one go test -race
+# run at a time on this machine, and no whole-suite plain run beside it.
+# Five worktrees' race suites side by
 # side on ten cores slow each other past Go's per-package timeout, while one
 # alone takes a third of the time, so the queue costs less than the
 # contention (yardr-cecb). The lock is an flock on one file under the yard's
@@ -244,10 +248,12 @@ runlogged() {
 # arrival order, landings first: each writes a ticket with its class, a
 # timestamp, its pid, start time, bead and worktree, and only the first live
 # ticket may take the flock. The class is the ticket name's first part, 0 for
-# a run with YARDR_LANDING set and 1 for any other, so the names sort
-# landings first and each class in arrival order. A landing is what frees the
-# next bead of a chain, and there are only as many as there are approved
-# beads, so landings cannot starve the other runs. Nothing pre-empts the
+# a landing's race leg and 1 for any other lock-taking step, including an
+# unraced landing's plain selection. The caller clears YARDR_LANDING for that
+# step, so the names sort landings first and each class in arrival order. A
+# landing is what frees the next bead of a chain, and there are only as many
+# as there are approved beads, so landings cannot starve the other runs.
+# Nothing pre-empts the
 # holder: a landing waits for the run that holds the lock. A dead waiter's
 # ticket is skipped and removed. Waiting gates print their place and the
 # holder at once and then each minute. The holder records itself beside the
@@ -690,39 +696,61 @@ again() {
   t0=$(date +%s)
   log=$(mktemp)
   acc=$(mktemp)
-  # The race leg, and only it, runs under the machine-wide lock: go vet,
-  # go build and the socket leg beside the first run wait for nothing.
-  # Its output is also kept whole across runs, for the package budget.
+  # The race leg runs under the machine-wide lock, and so does a plain
+  # go-test step that covers the whole suite (lockplain, which the driver
+  # sets): two whole-suite runs at once overload the machine, while a leaf
+  # run beside them is the normal tolerated load. go vet, go build and the
+  # socket leg beside the first run wait for nothing. A race leg's output is
+  # also kept whole across runs, for the package budget.
   under='env'
   race=0
+  take_lock=0
   case " $* " in
     *" go test -race "*)
       race=1
       if [ -z "$YARDR_RACE_HELD" ]; then
-        status=$(mktemp)
-        # Run the leg and its retries and package-budget checks in the lock
-        # holder. The worker writes package counts back; this process owns
-        # the summary and accounts for the lock wait.
-        { rc=0; racelocked "$status" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
-        rc=$(cat "$log.rc")
-        waited_total=$((waited_total + $(waitcount "$log")))
-        child_ok=0 child_failed=0
-        if [ -s "$status" ]; then read -r child_ok child_failed <"$status"; fi
-        pkgs_ok=$((pkgs_ok + child_ok))
-        pkgs_failed=$((pkgs_failed + child_failed))
-        took "$t0" "$*"
-        [ "$rc" = 0 ] || failed "$log" "$@"
-        rm -f "$log" "$log.rc" "$acc" "$status"
-        return "$rc"
+        take_lock=1
+      else
+        # The leg runs here, under the lock (its holder re-entered the script, or
+        # the run held it already), so the machine is read now: the wait for the
+        # lock is over, and the load is the one the leg starts in. The failed
+        # packages below run again in the same factor, as the question is
+        # whether they fail in the load that failed them.
+        sizewaits
       fi
-      # The leg runs here, under the lock (its holder re-entered the script, or
-      # the run held it already), so the machine is read now: the wait for the
-      # lock is over, and the load is the one the leg starts in. The failed
-      # packages below run again in the same factor, as the question is
-      # whether they fail in the load that failed them.
-      sizewaits
+      ;;
+    *" go test "*)
+      # A run nested in another's leg shares its hold instead of waiting on
+      # it (YARDR_RACE_HELD), as a race leg does: without that a whole-suite
+      # run's own fixtures would wait on the run they are in.
+      if [ -n "$lockplain" ] && [ -z "$YARDR_RACE_HELD" ]; then
+        take_lock=1
+      fi
       ;;
   esac
+  if [ "$take_lock" = 1 ]; then
+    status=$(mktemp)
+    # Run the leg and its retries and package-budget checks in the lock
+    # holder. The worker writes package counts back; this process owns
+    # the summary and accounts for the lock wait.
+    # A plain step queues as class 1, behind landings: the ticket's class is
+    # read from YARDR_LANDING, which a plain run never sets and an unraced
+    # landing's plain step empties for the call.
+    land=$YARDR_LANDING
+    [ "$race" = 1 ] || YARDR_LANDING=
+    { rc=0; racelocked "$status" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+    YARDR_LANDING=$land
+    rc=$(cat "$log.rc")
+    waited_total=$((waited_total + $(waitcount "$log")))
+    child_ok=0 child_failed=0
+    if [ -s "$status" ]; then read -r child_ok child_failed <"$status"; fi
+    pkgs_ok=$((pkgs_ok + child_ok))
+    pkgs_failed=$((pkgs_failed + child_failed))
+    took "$t0" "$*"
+    [ "$rc" = 0 ] || failed "$log" "$@"
+    rm -f "$log" "$log.rc" "$acc" "$status"
+    return "$rc"
+  fi
   rc=0
   # shellcheck disable=SC2086
   runlogged "$log" $under "$@" || rc=$?
@@ -1864,9 +1892,10 @@ whole() {
   fi
   exit 0
 }
-# The lock holder re-enters the script here to run the race leg, its normal
-# failed-test retries, and packagebudget() under one hold. Keep the test
-# counts for the caller, which prints the run's summary.
+# The lock holder re-enters the script here to run the race leg, or a plain
+# whole-suite leg, with its normal failed-test retries, and packagebudget()
+# under one hold. Keep the test counts for the caller, which prints the run's
+# summary.
 if [ -n "$YARDR_TEST_RACE_LEG" ]; then
   status=$1
   shift
@@ -2157,10 +2186,22 @@ awk -F'|' -v root="$(git rev-parse --show-toplevel)" -v rows="$tmp/rows" -v stra
     for (p in run) print p
   }' "$tmp/reads" "$tmp/deleted" "$tmp/changed" "$tmp/deldirs" "$tmp/pkgs" >"$tmp/run"
 }
+# wholeplain says whether a plain selection covers the whole suite: at
+# least half the suite's packages, counted from pick's lists -- its package
+# list ($1, test variants folded to their package, as pick's base does)
+# against the selection ($2). It reads two files, so the gate's own tests
+# feed it canned pairs.
+wholeplain() {
+  total=$(awk -F'|' '{ p=$1; sub(/ \[.*/, "", p); sub(/\.test$/, "", p); sub(/_test$/, "", p); if (!(p in seen)) { seen[p]=1; n++ } } END { print n+0 }' "$1")
+  sel=$(awk 'END { print NR }' "$2")
+  [ "$((sel + sel))" -ge "$total" ]
+}
 # The race detector is the landing's (docs/testing.md R4, which has the
-# measurement): a run without YARDR_LANDING is never raced, and so takes no
-# place in the race lock's queue, since a go test without -race takes no race
-# lock (again). plainwhy is what the first line of such a run says when it has
+# measurement): a run without YARDR_LANDING is never raced. A plain go test
+# takes no race lock for its race, there being none; a plain run whose step
+# covers the whole suite still queues on it as class 1, behind landings
+# (lockplain), since two whole-suite runs at once overload the machine.
+# plainwhy is what the first line of such a run says when it has
 # something to test.
 plainwhy="testing without -race (race runs at landing only, docs/testing.md R4)"
 # The race detector also looks at compiled code, so a landing that changed
@@ -2175,7 +2216,7 @@ plainwhy="testing without -race (race runs at landing only, docs/testing.md R4)"
 # to test, and nothing it changed is compiled. Every other landing ended in
 # whole before this is asked; the checks for a stray, a deletion and an
 # embedded file stay so that the answer is true of whoever asks.
-unracedwhy="testing without -race, no race lock"
+unracedwhy="testing without -race"
 unraced() {
   [ -s "$tmp/run" ] || return 1
   if grep -q -x -e '.*\.go' "$tmp/changed"; then
@@ -2249,6 +2290,8 @@ else
   if [ -n "$modchanged" ]; then
     echo "test: go.mod or go.sum changed; testing every package"
     [ -z "$YARDR_TEST_PLAN" ] || exit 0
+    # The whole suite, so the step queues on the race lock (lockplain).
+    lockplain=1
     again go test ./...
     exit 0
   fi
@@ -2256,6 +2299,8 @@ else
     { read -r file; read -r more || more=; } <"$tmp/stray"
     echo "test: $file${more:+ (and $more more)} is read by no known package: testing everything"
     [ -z "$YARDR_TEST_PLAN" ] || exit 0
+    # The whole suite, so the step queues on the race lock (lockplain).
+    lockplain=1
     again go test ./...
     exit 0
   fi
@@ -2272,5 +2317,13 @@ fi
 # shellcheck disable=SC2086
 echo "test: testing, without -race, what changed, what imports it and what reads it:" $pkgs
 [ -z "$YARDR_TEST_PLAN" ] || exit 0
+# lockplain queues the step below on the race lock, as class 1 behind
+# landings: a selection that covers the whole suite is the overload two of
+# them at once are (wholeplain). Smaller selections take no ticket, as ever.
+# A run nested in another's leg never queues (YARDR_RACE_HELD, in again).
+lockplain=
+if wholeplain "$tmp/pkgs" "$tmp/run"; then
+  lockplain=1
+fi
 # shellcheck disable=SC2086
 again go test $pkgs

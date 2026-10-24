@@ -3,9 +3,10 @@ last commit. It runs gofmt, go vet, go build, then go test on the packages
 changed since the base (`YARDR_BASE`, which your session has; its first line
 says what it compared with), every package that imports one, and the packages
 its table says read a changed file by path. It runs them without -race,
-whatever you changed, so without a place in the race lock's queue: the race
+whatever you changed: the race
 detector runs at landing only (docs/testing.md R4), and the first line says
-so. The landing run (`YARDR_LANDING=1 sh .yardr/test` on a code change: the
+so. A run whose step covers the whole suite still queues on the race lock,
+as class 1 behind landings; a smaller selection takes no ticket. The landing run (`YARDR_LANDING=1 sh .yardr/test` on a code change: the
 selection plus the six black-box suites, all under -race, vet for linux too,
 and the store, dispatch and bdp suites again through the unix-socket client
 when the selection holds one of them) is the assembly's: it runs once, on
@@ -25,7 +26,7 @@ as it is on main, so an edit to it on the branch is tested by your run
 alone. The run ends with its test line, printed by the script itself: `test: sh
 .yardr/test @ <commit>: pass, <n> packages ok, 0 failed, 112 s, waited 40
 s` -- the result, the packages `ok` and `FAIL`, the wall seconds, and the
-seconds queued on the race lock (`waited 0 s` for your run, which takes none).
+seconds queued on the race lock (`waited 0 s` for your run, unless its step covered the whole suite).
 A note carries it whole.
 
 Anything that starts agents is tested in an isolated yard, never the

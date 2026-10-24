@@ -491,8 +491,9 @@ Depot yardr's own gate serialises its race leg per machine: one `go test
 -race` run at a time, under a lock file in the yard's home, and a gate that
 has to wait says so (`test: waited 312 s for the race lock`). Only a landing
 (`YARDR_LANDING=1`) and the quiet run have a race leg: a run without it, a
-builder's or a reviewer's, whatever it changed, tests without `-race`, says
-so in its first line, and never queues. The deadline of
+builder's or a reviewer's, whatever it changed, tests without `-race` and
+says so in its first line, queuing only when its step covers the whole
+suite. The deadline of
 a landing, and of a train's integration, does not count that wait:
 `merge-local` and `integrate-train` credit the waited seconds, so one late in
 the queue is killed only when its own run outlasts `YARDR_TEST_TIMEOUT`. Race suites
@@ -501,8 +502,9 @@ alone takes a third of the time, so the queue costs less wall time than the
 contention. Waiters take the lock in arrival order, landings first (a run
 with `YARDR_LANDING` set goes ahead of any other, each class in the order
 it came, and nothing pre-empts the run that holds the lock; only such a run
-races, so the other class is left to the tickets of a copy of the script
-from before that), on tickets in `~/.yardr/race.queue/` named by class and
+races, and the other class is the whole-suite plain runs' (and the tickets
+of a copy of the script from before that)), on tickets in
+`~/.yardr/race.queue/` named by class and
 arrival (a dead waiter's ticket is skipped and removed, never blocking); a
 waiting gate says its place and the holder, at once and then each minute
 (`test: race lock: 3rd in line, held by yardr-cayh for 6 m`), and `sh

@@ -458,7 +458,7 @@ func TestYardTestSelects(t *testing.T) {
 	}
 	// What the first line of a landing that tests without -race ends with.
 	// (A plain run's is plainWhy: a plain run is never raced.)
-	const unraced = ": testing without -race, no race lock"
+	const unraced = ": testing without -race"
 	// A plain run's plan: its first line says what it was compared with and,
 	// when there is something to test, that it tests without -race and why.
 	plan := func(t *testing.T, fx selectsFixture, script string, nothing bool, changed ...string) (string, error) {
@@ -703,13 +703,16 @@ func TestYardTestSelects(t *testing.T) {
 	}
 	// Run, not planned, a plain run tests its selection with a go test that
 	// has no -race, whatever it changed (docs/testing.md R4), and so does a
-	// landing of nothing compiled: without vet for linux or socket suites, and
-	// without the race lock. The selection is the packages the table's rows
-	// name for the changed files, the root package's among them; a file no row
-	// knows and go.mod make it every package. Such a run has no YARDR_RACE_HELD
-	// and a home of its own, which stays empty: a run that raced would make the
-	// lock there and queue for it (and its worker, started from the script's
-	// path, cannot start from this test's sh -c). The go it runs is the real
+	// landing of nothing compiled: without vet for linux or socket suites.
+	// The selection is the packages the table's rows name for the changed
+	// files, the root package's among them; a file no row knows and go.mod
+	// make it every package. A leaf selection takes no race lock, and its
+	// home stays empty: a run that raced would make the lock there and
+	// queue for it. A selection that covers the whole suite queues on it
+	// as class 1, so those rows set YARDR_RACE_HELD, as the landing rows
+	// below do: the worker re-enters from the script's path and cannot
+	// start from this test's sh -c. The lock's own tests run those legs
+	// from a file and pin the queueing. The go it runs is the real
 	// one for the list of packages, with this test's home, and writes down
 	// every other call.
 	for _, c := range []struct {
@@ -733,11 +736,11 @@ func TestYardTestSelects(t *testing.T) {
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m/alone"},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m/alone"}},
-		{"a plain run of a file no row knows tests every package without -race", nil, []string{"contrib/x.txt"},
+		{"a plain run of a file no row knows tests every package without -race", []string{"YARDR_RACE_HELD=1"}, []string{"contrib/x.txt"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
 			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}},
-		{"a plain run of go.mod tests every package without -race", nil, []string{"go.mod"},
+		{"a plain run of go.mod tests every package without -race", []string{"YARDR_RACE_HELD=1"}, []string{"go.mod"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
 			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}},
@@ -3024,6 +3027,578 @@ fi
 	}
 	if left, _ := filepath.Glob(filepath.Join(tmp, "*")); len(left) > 0 {
 		t.Errorf("left behind: %v", left)
+	}
+}
+
+// plainLockFixture builds a module the plain-lock tests run the gate
+// against: every package the gate's reads table names (pick fails a row
+// whose package is gone), four leaf packages nothing imports, and the gate
+// script filed as .yardr/test, so a leg that queues re-enters from a path.
+// Every package is a leaf, so a change selects the changed set alone. It
+// returns the directory, its base commit and its package directories.
+func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []string) {
+	t.Helper()
+	_, rows := yardTestRows(t)
+	dir = t.TempDir()
+	write := func(name, text string) {
+		t.Helper()
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen := map[string]bool{}
+	add := func(pkg string) {
+		if !seen[pkg] {
+			seen[pkg] = true
+			pkgs = append(pkgs, pkg)
+		}
+		write(pkg+"/p.go", "package p\n")
+	}
+	for _, row := range rows {
+		for _, pkg := range row.pkgs {
+			add(pkg)
+		}
+	}
+	for _, leaf := range []string{"a", "b", "c", "d"} {
+		add(leaf)
+	}
+	write("go.mod", "module m.test/m\n\ngo 1.21\n")
+	write(".yardr/test", string(script))
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	return dir, gitT(t, dir, "rev-parse", "HEAD"), pkgs
+}
+
+// plainLockFake writes the go a plain-lock run drives: the real one for the
+// list of packages, and every other call written down. A go test also marks
+// its start and end in ORDER (RUN names the run), waiting for RELEASE first,
+// and prints the ok lines OKS names, so two runs' legs order themselves in
+// one file.
+func plainLockFake(t *testing.T, realGo string) (fake string) {
+	t.Helper()
+	fake = t.TempDir()
+	text := "#!/bin/sh\n" +
+		"if [ \"$1\" = list ]; then HOME=$REAL_HOME exec \"$REAL_GO\" \"$@\"; fi\n" +
+		"echo \"${GOOS:+$GOOS }$*\" >>\"$FAKE/calls\"\n" +
+		"if [ \"$1\" = test ]; then\n" +
+		"  echo \"start-$RUN\" >>\"$ORDER\"\n" +
+		"  n=0\n" +
+		"  while [ ! -e \"$RELEASE\" ] && [ \"$n\" -lt 600 ]; do sleep 0.1; n=$((n+1)); done\n" +
+		"  echo \"end-$RUN\" >>\"$ORDER\"\n" +
+		"  for p in $OKS; do echo \"ok  $p  0.1s\"; done\n" +
+		"fi\n"
+	if err := os.WriteFile(filepath.Join(fake, "go"), []byte(text), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fake, "gofmt"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return fake
+}
+
+// plainLockTicket waits for a ticket carrying this bead, and returns its
+// name: the queue publishes the wait as data.
+func plainLockTicket(t *testing.T, cmd *exec.Cmd, qdir, bead string) string {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if entries, err := os.ReadDir(qdir); err == nil {
+			for _, e := range entries {
+				if !raceTicketName.MatchString(e.Name()) {
+					continue
+				}
+				if b, _ := os.ReadFile(filepath.Join(qdir, e.Name())); strings.Contains(string(b), "bead="+bead+"\n") {
+					return e.Name()
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cmd.Process.Kill()
+	t.Fatalf("no ticket for %s in 60 s", bead)
+	return ""
+}
+
+// plainLockStart starts the gate in dir against base: under ctx, with a
+// home and fake go of its own, and the bead for its ticket. The caller
+// applies its changes first. The fake go test marks its start and end in
+// order, waiting for release first, and prints the ok lines oks names;
+// the caller settles release when the leg may pass.
+func plainLockStart(t *testing.T, ctx context.Context, dir, base, home, realGo, bead, order, release, oks string, env []string) (cmd *exec.Cmd, fake string, out *os.File) {
+	t.Helper()
+	fake = plainLockFake(t, realGo)
+	out, err := os.CreateTemp("", "wholeplain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(out.Name()) })
+	cmd = exec.CommandContext(ctx, "sh", ".yardr/test")
+	cmd.Dir = dir
+	cmd.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE="+base, "YARDR_BEAD="+bead,
+		"HOME="+home, "REAL_HOME="+os.Getenv("HOME"),
+		"FAKE="+fake, "REAL_GO="+realGo,
+		"RUN="+bead, "ORDER="+order, "RELEASE="+release, "OKS="+oks)
+	cmd.Env = append(cmd.Env, env...)
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Start(); err != nil {
+		out.Close()
+		t.Fatal(err)
+	}
+	return cmd, fake, out
+}
+
+// plainLockFinish waits for a started gate and returns its output.
+func plainLockFinish(cmd *exec.Cmd, out *os.File) (string, error) {
+	err := cmd.Wait()
+	out.Close()
+	b, _ := os.ReadFile(out.Name())
+	return string(b), err
+}
+
+// plainLockSettle lets a started run's go test pass: the release its fake
+// go waits for.
+func plainLockSettle(t *testing.T, release string) {
+	t.Helper()
+	if err := os.WriteFile(release, []byte("go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two whole-suite plain runs serialize on the race lock: the second queues
+// behind the first as class 1, waits, then runs. The selection is over
+// half the fixture's packages, so the plain step queues; the first run's
+// go test waits for the test's release, so the second's wait is real by
+// construction and spans whole seconds. Each run has its own directory,
+// worktree and bead, and the two share one lock, as two builders' runs do.
+func TestYardTestWholePlainRunsSerialize(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	order := filepath.Join(t.TempDir(), "order")
+	release := filepath.Join(t.TempDir(), "release")
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	dir1, base1, pkgs := plainLockFixture(t, script)
+	dir2, base2, _ := plainLockFixture(t, script)
+	// Over half the suite's packages, changed in both worktrees: the same
+	// step, the same queue. Nothing imports anything, so the selection is
+	// the changed set alone.
+	need := len(pkgs)/2 + 1
+	changed := make([]string, 0, need)
+	oks := make([]string, 0, need)
+	for _, pkg := range pkgs[:need] {
+		changed = append(changed, pkg+"/p.go")
+		if pkg == "." {
+			oks = append(oks, "m.test/m")
+		} else {
+			oks = append(oks, "m.test/m/"+pkg)
+		}
+	}
+	change := func(dir string) {
+		t.Helper()
+		for i, name := range changed {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(fmt.Sprintf("package p\n\nvar Changed%d int\n", i)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		gitT(t, dir, "add", "-A")
+	}
+	change(dir1)
+	change(dir2)
+	cmd1, fake1, out1 := plainLockStart(t, ctx, dir1, base1, home, realGo, "run1", order, release, strings.Join(oks, " "), nil)
+	// The first run's go test marks its start once it holds the lock; the
+	// second starts only then, so the two legs cannot interleave by luck.
+	waitOrder := func(mark string) {
+		t.Helper()
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			if b, _ := os.ReadFile(order); strings.Contains(string(b), mark+"\n") {
+				return
+			}
+			if time.Now().After(deadline) {
+				cmd1.Process.Kill()
+				b1, _ := os.ReadFile(out1.Name())
+				t.Fatalf("the order never holds %s:\n%s", mark, b1)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	waitOrder("start-run1")
+	cmd2, fake2, out2 := plainLockStart(t, ctx, dir2, base2, home, realGo, "run2", order, release, strings.Join(oks, " "), nil)
+	qdir := filepath.Join(home, ".yardr", "race.queue")
+	ticket := plainLockTicket(t, cmd2, qdir, "run2")
+	if !strings.HasPrefix(ticket, "1-") {
+		t.Errorf("the second run's ticket is %s, want class 1", ticket)
+	}
+	// The wait timer starts before the ticket is made, so a release before
+	// the first lock attempt leaves a zero wait and no wait line. Hold
+	// until the ticket is a second old, measured from its first sight, so
+	// the first attempt has run while held and the summary's waited
+	// seconds are positive.
+	firstSeen := time.Now()
+	if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
+		time.Sleep(wait)
+	}
+	if b, _ := os.ReadFile(order); strings.Contains(string(b), "start-run2\n") {
+		t.Errorf("the second run's leg started while the first holds the lock")
+	}
+	if err := os.WriteFile(release, []byte("go\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b1, err1 := plainLockFinish(cmd1, out1)
+	b2, err2 := plainLockFinish(cmd2, out2)
+	if err1 != nil {
+		t.Errorf("the first run exits with %v:\n%s", err1, b1)
+	}
+	if err2 != nil {
+		t.Errorf("the second run exits with %v:\n%s", err2, b2)
+	}
+	slices.Sort(oks)
+	wantCalls := "vet ./...\nbuild ./...\ntest " + strings.Join(oks, " ")
+	for i, fake := range []string{fake1, fake2} {
+		if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.TrimSpace(string(calls)) != wantCalls {
+			t.Errorf("run %d's go was run as:\n%s\nwant:\n%s", i+1, calls, wantCalls)
+		}
+	}
+	if b, _ := os.ReadFile(order); string(b) != "start-run1\nend-run1\nstart-run2\nend-run2\n" {
+		t.Errorf("the legs ordered %q, want the first's whole leg before the second's", b)
+	}
+	// The second run queued: its wait-started line and its waited seconds.
+	// The first took the free lock and printed neither.
+	if !raceWaitStarted.MatchString(b2) {
+		t.Errorf("the second run has no start marker for its race-lock wait:\n%s", b2)
+	}
+	waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAllString(b2, -1)
+	if len(waits) != 1 {
+		t.Errorf("the second run has %d wait lines, want 1:\n%s", len(waits), b2)
+	}
+	summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
+	if !summary.MatchString(b2) {
+		t.Errorf("the second run's summary does not include the race-lock wait:\n%s", b2)
+	}
+	if raceWaitStarted.MatchString(b1) {
+		t.Errorf("the first run queued for a free lock:\n%s", b1)
+	}
+	if entries, _ := os.ReadDir(qdir); len(entries) != 0 {
+		t.Errorf("tickets left behind: %v", entries)
+	}
+}
+
+// A plain run over go.mod, or over a file no row knows, tests every package,
+// and queues for it on the race lock as class 1: held here by the test, the
+// run waits with its ticket out, then runs when the lock is free, with the
+// same wait line and waited seconds a landing's wait prints.
+func TestYardTestWholePlainPathsQueue(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name   string
+		change func(t *testing.T, dir string)
+	}{
+		{"go.mod", func(t *testing.T, dir string) {
+			t.Helper()
+			b, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), append(b, []byte("\n// changed\n")...), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a file no row knows", func(t *testing.T, dir string) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(dir, "contrib", "x.txt"), []byte("changed\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			lock := filepath.Join(home, ".yardr", "race.lock")
+			if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer held.Close()
+			if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+				t.Fatalf("holding the lock: %v", err)
+			}
+			dir, base, _ := plainLockFixture(t, script)
+			c.change(t, dir)
+			gitT(t, dir, "add", "-A")
+			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			defer cancel()
+			order := filepath.Join(t.TempDir(), "order")
+			release := filepath.Join(t.TempDir(), "release")
+			cmd, fake, out := plainLockStart(t, ctx, dir, base, home, realGo, "whole-bead", order, release, "m.test/m/a m.test/m/b", nil)
+			plainLockSettle(t, release)
+			qdir := filepath.Join(home, ".yardr", "race.queue")
+			ticket := plainLockTicket(t, cmd, qdir, "whole-bead")
+			if !strings.HasPrefix(ticket, "1-") {
+				t.Errorf("the run's ticket is %s, want class 1", ticket)
+			}
+			if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.Contains(string(calls), "test ./...") {
+				t.Errorf("the run's leg started while the lock is held")
+			}
+			// The wait timer starts before the ticket is made, so a
+			// release before the first lock attempt leaves a zero wait
+			// and no wait line. Hold until the ticket is a second old,
+			// so the first attempt has run while held and the summary's
+			// waited seconds are positive.
+			firstSeen := time.Now()
+			if wait := time.Until(firstSeen.Add(1100 * time.Millisecond)); wait > 0 {
+				time.Sleep(wait)
+			}
+			if err := syscall.Flock(int(held.Fd()), syscall.LOCK_UN); err != nil {
+				t.Fatal(err)
+			}
+			got, err := plainLockFinish(cmd, out)
+			if err != nil {
+				t.Fatalf("err %v, output:\n%s", err, got)
+			}
+			if !raceWaitStarted.MatchString(got) {
+				t.Errorf("the output has no start marker for the race-lock wait:\n%s", got)
+			}
+			waits := regexp.MustCompile(`(?m)^test: waited \d+ s for the race lock$`).FindAllString(got, -1)
+			if len(waits) != 1 {
+				t.Errorf("the output has %d wait lines, want 1:\n%s", len(waits), got)
+			}
+			summary := regexp.MustCompile(`(?m)^test: sh \.yardr/test @ [0-9a-f]+: pass, [0-9]+ packages ok, 0 failed, [0-9]+ s, waited [1-9][0-9]* s$`)
+			if !summary.MatchString(got) {
+				t.Errorf("the summary does not include the race-lock wait:\n%s", got)
+			}
+			if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.TrimSpace(string(calls)) != "vet ./...\nbuild ./...\ntest ./..." {
+				t.Errorf("go was run as:\n%s\nwant:\n%s", calls, "vet ./...\nbuild ./...\ntest ./...")
+			}
+			if entries, _ := os.ReadDir(qdir); len(entries) != 0 {
+				t.Errorf("tickets left behind: %v", entries)
+			}
+		})
+	}
+}
+
+// A plain run over one leaf package takes no ticket and finishes in
+// seconds: the lock is held here, so a run that queued would wait on it
+// instead of passing, and the queue stays empty, the output without a
+// wait line.
+func TestYardTestLeafPlainRunTakesNoTicket(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	lock := filepath.Join(home, ".yardr", "race.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("holding the lock: %v", err)
+	}
+	dir, base, _ := plainLockFixture(t, script)
+	if err := os.WriteFile(filepath.Join(dir, "a", "p.go"), []byte("package p\n\nvar Changed int\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "add", "-A")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	order := filepath.Join(t.TempDir(), "order")
+	release := filepath.Join(t.TempDir(), "release")
+	cmd, fake, out := plainLockStart(t, ctx, dir, base, home, realGo, "leaf-bead", order, release, "m.test/m/a", nil)
+	plainLockSettle(t, release)
+	got, err := plainLockFinish(cmd, out)
+	if err != nil {
+		t.Fatalf("a leaf run under a held lock exits with %v, as if it queued:\n%s", err, got)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(home, ".yardr", "race.queue")); len(entries) != 0 {
+		t.Errorf("the run queued tickets: %v", entries)
+	}
+	if raceWaitStarted.MatchString(got) {
+		t.Errorf("the run printed a race-lock wait line:\n%s", got)
+	}
+	if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); strings.TrimSpace(string(calls)) != "vet ./...\nbuild ./...\ntest m.test/m/a" {
+		t.Errorf("go was run as:\n%s\nwant:\n%s", calls, "vet ./...\nbuild ./...\ntest m.test/m/a")
+	}
+}
+
+// A run nested in another's leg shares its hold instead of waiting on it:
+// a whole-suite plain run with YARDR_RACE_HELD set takes no ticket, though
+// the lock is held here and the selection queues without it.
+func TestYardTestHeldWholePlainRunNeverQueues(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	lock := filepath.Join(home, ".yardr", "race.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("holding the lock: %v", err)
+	}
+	dir, base, pkgs := plainLockFixture(t, script)
+	changed := pkgs[:len(pkgs)/2+1]
+	for i, pkg := range changed {
+		if err := os.WriteFile(filepath.Join(dir, pkg+"/p.go"), []byte(fmt.Sprintf("package p\n\nvar Changed%d int\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT(t, dir, "add", "-A")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	order := filepath.Join(t.TempDir(), "order")
+	release := filepath.Join(t.TempDir(), "release")
+	cmd, _, out := plainLockStart(t, ctx, dir, base, home, realGo, "held-bead", order, release, "m.test/m/a", []string{"YARDR_RACE_HELD=1"})
+	plainLockSettle(t, release)
+	got, err := plainLockFinish(cmd, out)
+	if err != nil {
+		t.Fatalf("a held run under a held lock exits with %v, as if it queued:\n%s", err, got)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(home, ".yardr", "race.queue")); len(entries) != 0 {
+		t.Errorf("the run queued tickets: %v", entries)
+	}
+	if raceWaitStarted.MatchString(got) {
+		t.Errorf("the run printed a race-lock wait line:\n%s", got)
+	}
+}
+
+// wholeplain is the gate's verdict on a plain selection: the whole suite at
+// half the suite's packages or more, counted from pick's lists, the test
+// variants folded to their package. The probe cuts it out of .yardr/test,
+// failing when the script no longer holds that shape, and the cases feed it
+// canned pairs: the boundary both ways, and every variant spelling.
+func TestYardTestWholePlainThreshold(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, fn, ok := strings.Cut(string(b), "\nwholeplain() {\n")
+	if ok {
+		fn, _, ok = strings.Cut("\nwholeplain() {\n"+fn, "\n}\n")
+	}
+	if !ok || !strings.Contains(fn, "sel + sel") {
+		t.Fatalf("cannot cut wholeplain out of %s: move the probe with the script", yardTest)
+	}
+	probe := filepath.Join(t.TempDir(), "probe.sh")
+	if err := os.WriteFile(probe, []byte("#!/bin/sh\n"+fn+"\n}\n\"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// pkgsLine is one go list -test line; only the import path counts.
+	pkgsLine := func(path string) string { return path + "|/tmp/x|m.test/m/z||\n" }
+	for _, c := range []struct {
+		name  string
+		pkgs  []string
+		run   []string
+		whole bool
+	}{
+		{"exactly half queues", []string{"m.test/m/a", "m.test/m/b", "m.test/m/c", "m.test/m/d"},
+			[]string{"m.test/m/a", "m.test/m/b"}, true},
+		{"under half skips", []string{"m.test/m/a", "m.test/m/b", "m.test/m/c", "m.test/m/d"},
+			[]string{"m.test/m/a"}, false},
+		{"one of two queues", []string{"m.test/m/a", "m.test/m/b"},
+			[]string{"m.test/m/a"}, true},
+		{"one of three skips", []string{"m.test/m/a", "m.test/m/b", "m.test/m/c"},
+			[]string{"m.test/m/a"}, false},
+		{"all queues", []string{"m.test/m/a", "m.test/m/b"},
+			[]string{"m.test/m/a", "m.test/m/b"}, true},
+		{"none skips", []string{"m.test/m/a", "m.test/m/b"}, nil, false},
+		{"test variants fold to their package", []string{"m.test/m/a", "m.test/m/a [m.test/m/a.test]", "m.test/m/a_test [m.test/m/a.test]", "m.test/m/a.test", "m.test/m/b"},
+			[]string{"m.test/m/a"}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			var pkgs, run strings.Builder
+			for _, p := range c.pkgs {
+				pkgs.WriteString(pkgsLine(p))
+			}
+			for _, p := range c.run {
+				run.WriteString(p + "\n")
+			}
+			if err := os.WriteFile(filepath.Join(dir, "pkgs"), []byte(pkgs.String()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "run"), []byte(run.String()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", probe, "wholeplain", filepath.Join(dir, "pkgs"), filepath.Join(dir, "run"))
+			cmd.Env = scriptEnv()
+			out, err := cmd.CombinedOutput()
+			var exit *exec.ExitError
+			code := 0
+			if errors.As(err, &exit) {
+				code = exit.ExitCode()
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if c.whole {
+				want = 0
+			}
+			if code != want || len(out) != 0 {
+				t.Errorf("exit %d, output %q, want exit %d and no output", code, out, want)
+			}
+		})
 	}
 }
 
