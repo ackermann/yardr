@@ -431,6 +431,10 @@ contrib/server-yard records that run). The script is also tested with
 stand-ins for herdr and the harness; yardr's tests run on no machine without a
 desktop.
 
+Where the yard is a team's, shared by several people on one box, read [A
+team server](team-server.md) next: it starts from this section and adds the
+network, the documents, the people, and upgrading by hand.
+
 ## A yard somewhere else
 
 One install serves any number of yards: each is a directory, its home, and
