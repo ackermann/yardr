@@ -36,6 +36,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 // Note kinds for questions and their answers, beside note, journal and
@@ -827,11 +829,14 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		// answer note, so the move carries no separate note. Nobody's to
 		// refuse: the answer's writer was checked as a decider above.
 		if outcome != "" {
+			// The yard's own read failing under the move, not a refusal
+			// of the answer: marked, so a device that is no operator's
+			// is told that it failed and not on which file.
 			if repoErr != nil {
-				return repoErr
+				return &config.OperationalError{Err: repoErr}
 			}
 			if homeErr != nil {
-				return homeErr
+				return &config.OperationalError{Err: homeErr}
 			}
 			if _, err := w.move(row.UUID, actor, repo, home, nil, donePick(outcome, nil)); err != nil {
 				return err

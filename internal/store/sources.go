@@ -675,12 +675,14 @@ func (e *KeyNotRecorded) Error() string {
 func (e *KeyNotRecorded) Unwrap() error { return e.Err }
 
 // failed is err as the caller is told it: after the rename, with the names
-// and the file, and never a value.
+// and the file, and never a value. What is left then is the yard's own
+// file failing under a committed write, marked (OperationalError), not a
+// refusal of what was sent.
 func (k *sourceKey) failed(err error) error {
 	if !k.renamed {
 		return err
 	}
-	return &KeyNotRecorded{Names: k.names, File: k.file, Err: err}
+	return &config.OperationalError{Err: &KeyNotRecorded{Names: k.names, File: k.file, Err: err}}
 }
 
 // afterKeyRename fails a transaction after keySource renamed the file, for

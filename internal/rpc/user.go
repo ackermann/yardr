@@ -84,9 +84,10 @@ import (
 //     giving wrote and not the file, and refuses a value the file cannot hold
 //     without naming it (giveSecret), a run ask is told as its asker typed it
 //     but for the typed words that carry a value or a path, which are the
-//     operator's alone (withoutRunWords), and the rows of the notifications
-//     are made by the store from what their person is told of the event
-//     (store.Event.WithoutHeld);
+//     operator's alone (withoutRunWords), a call that fails on the yard's
+//     own file says that it failed and not on which file (shapeUserErr),
+//     and the rows of the notifications are made by the store from what
+//     their person is told of the event (store.Event.WithoutHeld);
 //   - Users, GetUser, Crew and GetCrew tell the file a user's address is read
 //     from, and of a crew member the directory it runs in, the files and
 //     commands its config names and the handles of its sessions, to a device
@@ -97,8 +98,9 @@ import (
 //     whom an ask with no --to goes to;
 //   - the stream carries a mail, a read receipt and a reaction only to a
 //     device of its sender or its receiver (deviceEvent), and a blob only
-//     to one that may read it (userBlob), so a lost token gives away no
-//     mail but its user's own;
+//     to one that may read it; one the yard cannot read is told without
+//     the file (userBlob). A lost token gives away no mail but its
+//     user's own;
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
 //   - a refusal is counted by its reason and logged in sums (refuse), and
@@ -221,6 +223,7 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	u.api.methods["Peers"] = method{"Peers", reflect.ValueOf(u.peers)}
 	u.api.methods["DeliveryFiles"] = method{"DeliveryFiles", reflect.ValueOf(u.deliveryFiles)}
 	u.api.methods["GiveSecret"] = method{"GiveSecret", reflect.ValueOf(u.giveSecret)}
+	u.api.shapeErr = u.shapeUserErr
 	return u
 }
 
@@ -474,6 +477,25 @@ func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *
 // be read tells nothing.
 func (u *UserServer) withholds(ctx context.Context) bool {
 	return !u.isOperator(ctx, userOf(ctx))
+}
+
+// callHeld is what a device that is no operator's is told when a call fails
+// on the yard's own file: that it failed, and not on which file. The full
+// words are in the yard's log, for the operator to read.
+const callHeld = "the yard could not do that; why is an operator's to read"
+
+// shapeUserErr is a user's request error as its device is answered it: whole,
+// but for a failure of the yard's own file (config.OperationalError) to a
+// device that is no operator's, which is told that it failed and not on
+// which file. A refusal reads whole, as does every error to a device of an
+// operator. The full words of a held error are logged, for the operator.
+func (u *UserServer) shapeUserErr(ctx context.Context, name string, err error) error {
+	var op *config.OperationalError
+	if !u.withholds(ctx) || !errors.As(err, &op) {
+		return err
+	}
+	u.log.Warn("a device's request failed on the yard's file", "method", name, "err", err)
+	return errors.New(callHeld)
 }
 
 // users is Users as a device is told it: the users of the store, but for the
@@ -1403,14 +1425,28 @@ func (u *UserServer) userBlob(w http.ResponseWriter, r *http.Request) {
 	case noteErr == nil || hookErr == nil || mailErr == nil || u.unclaimedPut(ctx, c.User, hash):
 		u.api.blob(w, r)
 	case !errors.Is(noteErr, store.ErrNotFound):
-		http.Error(w, noteErr.Error(), http.StatusInternalServerError)
+		u.blobErr(w, r, noteErr)
 	case !errors.Is(hookErr, store.ErrNotFound):
-		http.Error(w, hookErr.Error(), http.StatusInternalServerError)
+		u.blobErr(w, r, hookErr)
 	case !errors.Is(mailErr, store.ErrNotFound):
-		http.Error(w, mailErr.Error(), http.StatusInternalServerError)
+		u.blobErr(w, r, mailErr)
 	default:
 		http.Error(w, noteErr.Error(), http.StatusNotFound)
 	}
+}
+
+// blobErr answers a blob the yard cannot read for its own file failing: a
+// device that is no operator's is told that it failed and not on which file
+// (callHeld), as for a call, and the full words are logged for the
+// operator. Any other error is answered as it is.
+func (u *UserServer) blobErr(w http.ResponseWriter, r *http.Request, err error) {
+	var op *config.OperationalError
+	if u.withholds(r.Context()) && errors.As(err, &op) {
+		u.log.Warn("a file a device asked for could not be read", "err", err)
+		http.Error(w, callHeld, http.StatusInternalServerError)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 // unclaimedPut reports whether hash is a blob user's device put within

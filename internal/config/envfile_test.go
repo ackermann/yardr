@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -166,7 +167,9 @@ func TestWriteEnvFile(t *testing.T) {
 }
 
 // What the writer refuses leaves the file as it was, to the byte, and no
-// second file; no error holds a value.
+// second file; no error holds a value. A failure of the file is marked
+// (OperationalError); a refusal of a name or a value is not, and reads
+// whole wherever it is told.
 func TestWriteEnvFileRefuses(t *testing.T) {
 	const body = "# kept\nTOKEN=old-s3cret\n"
 	elsewhere := writeEnv(t, body, 0o600)
@@ -185,22 +188,27 @@ func TestWriteEnvFileRefuses(t *testing.T) {
 		path   string
 		values map[string]string
 		want   string
+		marked bool
 	}{
-		"open to others":  {writeEnv(t, body, 0o640), good, "is open to others (mode 0640); chmod 600 it"},
-		"a directory":     {t.TempDir(), good, "is not a regular file"},
-		"a symbolic link": {link, good, "is a symbolic link, and the yard writes through none"},
-		"an empty value":  {writeEnv(t, body, 0o600), map[string]string{"TOKEN": ""}, "the value for TOKEN is empty"},
-		"a line break":    {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret\nOTHER=x"}, "the value for TOKEN has a line break in it"},
-		"a carriage":      {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret\rx"}, "the value for TOKEN has a line break in it"},
-		"white space":     {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret "}, "the value for TOKEN begins or ends with white space"},
-		"no name":         {writeEnv(t, body, 0o600), map[string]string{"A B": "new-s3cret"}, `"A B" is no name of a variable`},
-		"a locked folder": {locked, good, "permission denied"},
-		"one bad of two":  {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret", "OTHER": ""}, "the value for OTHER is empty"},
+		"open to others":  {writeEnv(t, body, 0o640), good, "is open to others (mode 0640); chmod 600 it", true},
+		"a directory":     {t.TempDir(), good, "is not a regular file", true},
+		"a symbolic link": {link, good, "is a symbolic link, and the yard writes through none", true},
+		"an empty value":  {writeEnv(t, body, 0o600), map[string]string{"TOKEN": ""}, "the value for TOKEN is empty", false},
+		"a line break":    {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret\nOTHER=x"}, "the value for TOKEN has a line break in it", false},
+		"a carriage":      {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret\rx"}, "the value for TOKEN has a line break in it", false},
+		"white space":     {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret "}, "the value for TOKEN begins or ends with white space", false},
+		"no name":         {writeEnv(t, body, 0o600), map[string]string{"A B": "new-s3cret"}, `"A B" is no name of a variable`, false},
+		"a locked folder": {locked, good, "permission denied", true},
+		"one bad of two":  {writeEnv(t, body, 0o600), map[string]string{"TOKEN": "new-s3cret", "OTHER": ""}, "the value for OTHER is empty", false},
 	} {
 		_, renamed, err := WriteEnvFile(c.path, c.values)
 		if err == nil || renamed || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: renamed %v, err = %v, want %q", name, renamed, err, c.want)
 			continue
+		}
+		var op *OperationalError
+		if marked := errors.As(err, &op); marked != c.marked {
+			t.Errorf("%s: errors.As OperationalError = %v, want %v: %v", name, marked, c.marked, err)
 		}
 		if strings.Contains(err.Error(), "s3cret") {
 			t.Errorf("%s: the error shows a value: %v", name, err)

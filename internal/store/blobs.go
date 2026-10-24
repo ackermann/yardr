@@ -21,6 +21,8 @@ import (
 	"unicode/utf8"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/config"
 )
 
 // A blob is a file mail or a bead's note carries: any bytes under the
@@ -427,25 +429,30 @@ func (s *Store) PutBlob(ctx context.Context, data []byte) (*BlobRef, error) {
 
 // keepBlob writes data, which ref names truly, where the yard keeps its
 // blobs, for PutBlob and for a file a peer sent (takeFile), under blobMu.
+// A failure is the yard's own file failing, marked (OperationalError), not
+// a refusal of what was sent: the words name the file.
 func (s *Store) keepBlob(ref *BlobRef, data []byte) (*BlobRef, error) {
 	path := s.BlobPath(ref.Hash)
 	if existing, err := os.ReadFile(path); err == nil {
 		if !bytes.Equal(existing, data) {
-			return nil, fmt.Errorf("blob %s already exists with different bytes", ref.Hash)
+			return nil, &config.OperationalError{Err: fmt.Errorf("blob %s already exists with different bytes", ref.Hash)}
 		}
 		at := time.Now()
-		return ref, os.Chtimes(path, at, at)
+		if err := os.Chtimes(path, at, at); err != nil {
+			return nil, &config.OperationalError{Err: err}
+		}
+		return ref, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	// Whole or not at all: a reader never finds half a picture under the
 	// name of all of it.
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".put-*")
 	if err != nil {
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	_, err = tmp.Write(data)
 	if cerr := tmp.Close(); err == nil {
@@ -456,13 +463,15 @@ func (s *Store) keepBlob(ref *BlobRef, data []byte) (*BlobRef, error) {
 	}
 	if err != nil {
 		os.Remove(tmp.Name())
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	return ref, nil
 }
 
 // Blob is the blob hash as the yard holds it; ErrNotFound for one it does
-// not, and for a name that is no hash.
+// not, and for a name that is no hash. A failure reading one it holds is
+// the yard's own file failing, marked (OperationalError): the words name
+// the file.
 func (s *Store) Blob(hash string) (*BlobRef, error) {
 	if !blobHash.MatchString(hash) {
 		return nil, fmt.Errorf("file %q: %w", hash, ErrNotFound)
@@ -471,17 +480,17 @@ func (s *Store) Blob(hash string) (*BlobRef, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("file %s: %w", hash, ErrNotFound)
 	} else if err != nil {
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	head := make([]byte, 512)
 	n, err := io.ReadFull(f, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
-		return nil, err
+		return nil, &config.OperationalError{Err: err}
 	}
 	return &BlobRef{Hash: hash, Type: blobType(head[:n]), Bytes: st.Size()}, nil
 }

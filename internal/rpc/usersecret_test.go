@@ -967,3 +967,96 @@ func TestAValueGivenOverTheListenerIsInTheFileAlone(t *testing.T) {
 		t.Fatalf("the refusals: %q", said)
 	}
 }
+
+// A giving to a file the yard cannot write fails on the yard's own file:
+// a device that is no operator's is told that it failed and not on which
+// file, and the full words are logged for the operator. A device of the
+// operator is told the error, which names the file. A value the file
+// cannot hold is still refused whole, before the file is looked at, even
+// where the file is broken.
+func TestUserGiveSecretHeldWhenTheWriteFails(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		breakFile func(t *testing.T, file string)
+	}{
+		{"a symbolic link", func(t *testing.T, file string) {
+			t.Helper()
+			if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			elsewhere := filepath.Join(t.TempDir(), "elsewhere.env")
+			if err := os.WriteFile(elsewhere, []byte("PUSH_USER=old\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, file); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"open to others", func(t *testing.T, file string) {
+			t.Helper()
+			if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(file, []byte("PUSH_USER=old\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(file, 0o640); err != nil { // past the umask
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			y := newSecretYard(t)
+			ctx := context.Background()
+			if _, err := y.st.PutSource(ctx, "push.yaml", addressDecl, "jo"); err != nil {
+				t.Fatal(err)
+			}
+			seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Your id at push", To: "sam",
+				Context: []string{"It is on the first page after login."}, Secret: &store.AskSecret{Source: "push", User: "sam"}}, "yardmaster")
+			if err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(filepath.Dir(y.db), "users", "sam.env")
+			tc.breakFile(t, file)
+			args := func(value string) string {
+				return fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"values":{"PUSH_USER":%q},"weighed":true}`, seq, value)
+			}
+
+			var held struct {
+				Error *wireError `json:"error"`
+			}
+			w := y.give(onTheMachine, y.sam, strings.NewReader(args("u-0f-sam-s3cret")))
+			if err := json.Unmarshal(w.Body.Bytes(), &held); err != nil || held.Error == nil {
+				t.Fatalf("sam's device is answered %s (%v), want an error", w.Body, err)
+			}
+			if held.Error.Message != callHeld {
+				t.Errorf("sam's device is told %q, want %q", held.Error.Message, callHeld)
+			}
+			if strings.Contains(w.Body.String(), file) || strings.Contains(w.Body.String(), "env_file") {
+				t.Errorf("sam's device is told the file: %s", w.Body)
+			}
+			w = y.give(onTheMachine, y.jo, strings.NewReader(args("typed-by-jo")))
+			if !strings.Contains(w.Body.String(), file) {
+				t.Errorf("the operator's device is answered %s, want the error that names the file", w.Body)
+			}
+			// A refusal reads whole, before the file is looked at.
+			w = y.give(onTheMachine, y.sam, strings.NewReader(args("")))
+			var refused struct {
+				Error *wireError `json:"error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &refused); err != nil || refused.Error == nil {
+				t.Fatalf("sam's device sending nothing is answered %s (%v), want a refusal", w.Body, err)
+			}
+			if refused.Error.Message != "the value for PUSH_USER is empty" {
+				t.Errorf("sam's device sending nothing is told %q, want the refusal whole", refused.Error.Message)
+			}
+			if !strings.Contains(y.log.String(), "a device's request failed on the yard's file") ||
+				!strings.Contains(y.log.String(), file) {
+				t.Errorf("the listener's log does not hold the full words:\n%s", y.log.String())
+			}
+			if q, err := y.st.UserAsks(ctx, "sam"); err != nil || len(q.Open) != 1 {
+				t.Errorf("sam's open asks after the failed givings: %+v, %v", q, err)
+			}
+		})
+	}
+}

@@ -76,6 +76,13 @@ func TestKeySourceNotRecorded(t *testing.T) {
 	if !errors.As(err, &half) || !errors.Is(err, full) {
 		t.Fatalf("err = %v, want a KeyNotRecorded around the store's error", err)
 	}
+	// What is left is the yard's own file failing under a committed write,
+	// not a refusal: marked, so a device that is no operator's is told
+	// that it failed and not on which file.
+	var op *config.OperationalError
+	if !errors.As(err, &op) {
+		t.Fatalf("err = %v, want it marked as the yard's own file failing", err)
+	}
 	if want := "CRM_TOKEN is written to " + file + ", but the yard could not record it: no space left on device. Give it again."; err.Error() != want {
 		t.Fatalf("err = %q\nwant  %q", err, want)
 	}

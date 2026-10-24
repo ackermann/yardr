@@ -162,7 +162,8 @@ func openPrivate(what, path string) (*os.File, string, error) {
 // renamed says the rename was done: an error with it false left the file as
 // it was, to the byte, and no second file; one with it true (the
 // directory's sync) left the new content in place. Errors name the file and
-// the names, never a value.
+// the names, never a value. A failure of the file is marked
+// (OperationalError); a refusal of a name or a value is not.
 //
 // A name in remove is struck instead of set, its lines dropped and no line
 // added for it: the same write, for taking a credential out of a file a
@@ -200,8 +201,11 @@ func RemoveEnvNames(path string, names []string) (resolved string, renamed bool,
 func writeEnvFile(path string, values map[string]string, remove []string, create bool) (resolved string, renamed bool, err error) {
 	p, err := ExpandPath(path)
 	if err != nil {
-		return path, false, fmt.Errorf("env_file %s: %w", path, err)
+		return path, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", path, err)}
 	}
+	// The refusals below stay bare, never marked: a refusal of what was
+	// sent reads whole, to a device as at a terminal. Every other error
+	// of this write is the yard's own file failing, and is marked.
 	struck := make(map[string]bool, len(remove))
 	for _, name := range remove {
 		if !envKey.MatchString(name) {
@@ -233,32 +237,32 @@ func writeEnvFile(path string, values map[string]string, remove []string, create
 			return p, false, nil
 		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-			return p, false, fmt.Errorf("env_file %s: %w", p, err)
+			return p, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 		}
 	case err != nil:
-		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+		return p, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 	case st.Mode()&os.ModeSymlink != 0:
-		return p, false, fmt.Errorf("env_file %s is a symbolic link, and the yard writes through none: name the file itself as the env_file", p)
+		return p, false, &OperationalError{Err: fmt.Errorf("env_file %s is a symbolic link, and the yard writes through none: name the file itself as the env_file", p)}
 	default:
 		f, _, err := openPrivate("env_file", p)
 		if err != nil {
-			return p, false, err
+			return p, false, &OperationalError{Err: err}
 		}
 		old, err = io.ReadAll(f)
 		f.Close()
 		if err != nil {
-			return p, false, fmt.Errorf("env_file %s: %w", p, err)
+			return p, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 		}
 	}
 
 	tmp := EnvFileNew(p)
 	if err := os.Remove(tmp); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+		return p, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 	}
 	// O_EXCL takes no file that is there, and no link either.
 	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+		return p, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 	}
 	err = func() error {
 		defer f.Close()
@@ -276,7 +280,7 @@ func writeEnvFile(path string, values map[string]string, remove []string, create
 	}
 	if err != nil {
 		os.Remove(tmp)
-		return p, false, fmt.Errorf("env_file %s: %w", p, err)
+		return p, false, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 	}
 	// The rename is on the disk once its directory is.
 	dir, err := os.Open(filepath.Dir(p))
@@ -285,7 +289,7 @@ func writeEnvFile(path string, values map[string]string, remove []string, create
 		dir.Close()
 	}
 	if err != nil {
-		return p, true, fmt.Errorf("env_file %s: %w", p, err)
+		return p, true, &OperationalError{Err: fmt.Errorf("env_file %s: %w", p, err)}
 	}
 	return p, true, nil
 }

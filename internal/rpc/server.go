@@ -117,6 +117,11 @@ type api struct {
 	st           *store.Store
 	methods      map[string]method
 	writeTimeout time.Duration
+	// shapeErr rewrites a user's request error before it is answered, nil
+	// to answer it as it is. The listener sets it, to hold the words of
+	// the yard's own file failing from a device that is no operator's;
+	// the socket answers every error whole.
+	shapeErr func(ctx context.Context, name string, err error) error
 }
 
 func newAPI(st *store.Store, writeTimeout time.Duration) *api {
@@ -150,6 +155,9 @@ func (a *api) call(w http.ResponseWriter, r *http.Request, name string, body jso
 	}
 	result, more, err := invoke(callerCtx(r), m, body)
 	if err != nil {
+		if a.shapeErr != nil {
+			err = a.shapeErr(callerCtx(r), m.name, err)
+		}
 		writeJSON(w, reply{Error: toWire(err)})
 		return
 	}
@@ -234,6 +242,9 @@ func (a *api) blob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	} else if err != nil {
+		if a.shapeErr != nil {
+			err = a.shapeErr(r.Context(), "Blob", err)
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

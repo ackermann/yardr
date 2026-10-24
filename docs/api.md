@@ -812,6 +812,17 @@ nothing else. What is not the same:
   <name> is empty` and the like, where a device of an operator is refused
   with the file's name before them. A device of an operator is sent the file,
   as the socket is.
+- **A call that fails on the yard's own file says that it failed, and not
+  on which file, to a device that is no operator's.** `AnswerAsk` whose
+  answer would move the bead but the depot's repository cannot be read,
+  `PutBlob` whose bytes the disk would not take, and `GiveSecret` whose
+  value the file would not take are answered `the yard could not do that;
+  why is an operator's to read`, and the full words are in the yard's log,
+  for the operator. A refusal of what was sent reads whole: a value the
+  file cannot hold is refused with the variable, as above, and a file over
+  the yard's cap is refused with its size. A file the yard holds but cannot
+  read is likewise a 500 without the file. A device of an operator is told
+  the error, which names the file, as the socket is.
 - **`Peers` has no `url` and no `error` for a device that is no
   operator's.** The address of a link, and the words of the last send that
   failed, which carry it, are an operator's. The names, what each link
