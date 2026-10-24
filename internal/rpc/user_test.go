@@ -332,6 +332,19 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 	st, u, token := userYard(t)
 	ctx := context.Background()
 	h := u.Handler()
+	hidden, err := st.CreateBead(ctx, store.NewBead{Title: "Hidden bead", ID: "yd-hidden", Stage: "new"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddAsk(ctx, hidden.ID, store.Ask{Question: "May this bead move?", To: "jo", Context: []string{"this viewer cannot see the bead", "its ask must stay hidden"}}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	st.SetPolicy(seePolicy(func(actor string, act store.Action, obj store.Object) error {
+		if act == store.ActSee && obj.Kind == store.KindBead && obj.Name == hidden.ID {
+			return fmt.Errorf("hidden from %s", actor)
+		}
+		return nil
+	}))
 	if err := st.Mail(ctx, "jo", "for jo", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +365,7 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		{"UserInbox", `{"name":"jo","actor":""}`, `"text":"for jo"`},
 		{"GetUser", `{}`, `"name":"jo"`},
 		{"UserAsks", `{}`, `"open":`},
+		{"Bead", `{"bead":"yd-hidden"}`, `not found`},
 		{"UserNotifications", `{}`, `"notifications":`},
 		{"Conversation", `{"b":"yardmaster"}`, `"text":"for jo"`},
 		{"Conversation", `{"a":"yardmaster","b":"jo"}`, `"text":"for jo"`},
@@ -359,6 +373,8 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		{"UserInbox", `{"name":"sam"}`, `this device calls as jo: \"name\" is jo or left out, not sam`},
 		{"GetUser", `{"name":"sam"}`, `this device calls as jo`},
 		{"UserAsks", `{"name":"sam"}`, `this device calls as jo`},
+		{"UserAsks", `{"name":"jo","viewer":"sam"}`, `this device calls as jo: \"viewer\" is jo or left out, not sam`},
+		{"Flows", `{"viewer":"sam"}`, `this device calls as jo: \"viewer\" is jo or left out, not sam`},
 		{"UserNotifications", `{"name":"sam"}`, `this device calls as jo`},
 		{"AckUserInbox", fmt.Sprintf(`{"name":"sam","through":%d}`, head), `this device calls as jo`},
 		{"UserInbox", `{"name":"jo","actor":"sam"}`, `this device calls as jo: \"actor\" is jo or left out, not sam`},
@@ -381,6 +397,15 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 		if got := call(t, h, token, c.method, c.body); !strings.Contains(got, c.want) {
 			t.Errorf("%s %s = %s, want %s", c.method, c.body, got, c.want)
 		}
+	}
+	if got := call(t, h, token, "UserAsks", `{}`); strings.Contains(got, hidden.ID) {
+		t.Errorf("UserAsks shows a bead the device may not see: %s", got)
+	}
+	if got := call(t, h, token, "Arrivals", `{}`); strings.Contains(got, hidden.ID) {
+		t.Errorf("Arrivals shows a bead the device may not see: %s", got)
+	}
+	if got := call(t, h, token, "Flows", `{}`); strings.Contains(got, hidden.ID) {
+		t.Errorf("Flows shows a bead the device may not see: %s", got)
 	}
 	if now, _ := st.Head(ctx); now != head {
 		t.Errorf("the refused calls wrote %d events", now-head)

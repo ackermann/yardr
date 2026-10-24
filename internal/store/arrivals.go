@@ -19,10 +19,11 @@ import (
 // arrival order, with the expected arrival as the yard's printed range
 // and the remark. It is what footplate draws: the yard computes once so
 // the readers draw without computing (design footplate-8v5t, section 3).
+// The board holds what viewer may see, "" for the yard itself.
 // The order and the remark are the board's, ported in the eta package
 // from signalbox src/board.ts.
-func (s *Store) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
-	beads, err := s.ListBeads(ctx, BeadFilter{})
+func (s *Store) Arrivals(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error) {
+	beads, err := s.ListBeads(ctx, BeadFilter{Viewer: firstViewer(viewer)})
 	if err != nil {
 		return nil, err
 	}

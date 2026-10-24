@@ -1293,12 +1293,13 @@ type WriterAsk struct {
 }
 
 // WriterAsks reads the writer's open asks: every ask they wrote that still
-// waits, on the yard's beads open or closed, oldest first. Closing a bead
+// waits, on beads the viewer may see open or closed, oldest first. An
+// omitted viewer is the yard itself. Closing a bead
 // does not answer its asks, so a closed bead's still-open asks are listed;
 // answered, declined and taken-back asks are not. A put-aside ask is listed
 // with its state until it comes back.
-func (s *Store) WriterAsks(ctx context.Context, writer string) ([]WriterAsk, error) {
-	beads, err := s.ListBeads(ctx, BeadFilter{All: true})
+func (s *Store) WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error) {
+	beads, err := s.ListBeads(ctx, BeadFilter{All: true, Viewer: firstViewer(viewer)})
 	if err != nil {
 		return nil, err
 	}

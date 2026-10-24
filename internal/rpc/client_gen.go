@@ -163,14 +163,14 @@ func (c *Client) AddAnswer(ctx context.Context, id string, ans store.Answer, act
 func (c *Client) AddAnswerExpected(ctx context.Context, id string, ans store.Answer, actor, revision string) error {
 	return c.call(ctx, "AddAnswerExpected", nil, id, ans, actor, revision)
 }
-func (c *Client) UserAsks(ctx context.Context, name string) (*store.AskQueue, error) {
-	return callV[*store.AskQueue](c, ctx, "UserAsks", name)
+func (c *Client) UserAsks(ctx context.Context, name string, viewer ...string) (*store.AskQueue, error) {
+	return callV[*store.AskQueue](c, ctx, "UserAsks", name, viewer)
 }
-func (c *Client) WriterAsks(ctx context.Context, writer string) ([]store.WriterAsk, error) {
-	return callV[[]store.WriterAsk](c, ctx, "WriterAsks", writer)
+func (c *Client) WriterAsks(ctx context.Context, writer string, viewer ...string) ([]store.WriterAsk, error) {
+	return callV[[]store.WriterAsk](c, ctx, "WriterAsks", writer, viewer)
 }
-func (c *Client) Bead(ctx context.Context, id string) (*store.BeadView, error) {
-	return callV[*store.BeadView](c, ctx, "Bead", id)
+func (c *Client) Bead(ctx context.Context, id string, viewer ...string) (*store.BeadView, error) {
+	return callV[*store.BeadView](c, ctx, "Bead", id, viewer)
 }
 func (c *Client) Estimate(ctx context.Context, id string) (*eta.Result, error) {
 	return callV[*eta.Result](c, ctx, "Estimate", id)
@@ -178,11 +178,11 @@ func (c *Client) Estimate(ctx context.Context, id string) (*eta.Result, error) {
 func (c *Client) EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error) {
 	return callV[map[string]*eta.Result](c, ctx, "EstimateMany", ids)
 }
-func (c *Client) Arrivals(ctx context.Context) (*eta.ArrivalBoard, error) {
-	return callV[*eta.ArrivalBoard](c, ctx, "Arrivals")
+func (c *Client) Arrivals(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error) {
+	return callV[*eta.ArrivalBoard](c, ctx, "Arrivals", viewer)
 }
-func (c *Client) Flows(ctx context.Context) (*store.FlowsBoard, error) {
-	return callV[*store.FlowsBoard](c, ctx, "Flows")
+func (c *Client) Flows(ctx context.Context, viewer ...string) (*store.FlowsBoard, error) {
+	return callV[*store.FlowsBoard](c, ctx, "Flows", viewer)
 }
 func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error {
 	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor, weighed)
@@ -846,4 +846,8 @@ func (c *Client) RecordPack(ctx context.Context, rec store.PackImport, changed b
 }
 func (c *Client) Packs(ctx context.Context) ([]store.PackImport, error) {
 	return callV[[]store.PackImport](c, ctx, "Packs")
+}
+
+func (c *Client) May(ctx context.Context, actor string, act store.Action, obj store.Object) error {
+	return c.call(ctx, "May", nil, actor, act, obj)
 }

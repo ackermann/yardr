@@ -431,9 +431,9 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "UserAsks",
-		says:     "The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.",
-		args:     []field{{"name", "string", "the user"}},
-		requests: []string{`{"name":"jo"}`},
+		says:     "The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.",
+		args:     []field{{"name", "string", "the user"}, {"viewer", "string", "who reads the queue; a device's viewer is its user; left out, the yard itself"}},
+		requests: []string{`{"name":"jo","viewer":"jo"}`},
 		fields: append(append(append(append(queueRow("open[]."), secretAsked("open[].")...), runAsked("open[].")...), setupAsked("open[].")...),
 			append(append(append(append(queueRow("decided[]."), secretAsked("decided[].")...), runAsked("decided[].")...), setupAsked("decided[].")...),
 				field{"decided[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask"},
@@ -453,8 +453,8 @@ var apiCalls = []apiCall{
 	{
 		method:   "Bead",
 		says:     "One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.",
-		args:     []field{{"bead", "string", "the bead: a handle, or `bead@peer` for a question another yard asked"}},
-		requests: []string{`{"bead":"yd-links"}`, `{"bead":"yd-ledger@north"}`, `{"bead":"yd-crm"}`},
+		args:     []field{{"bead", "string", "the bead: a handle, or `bead@peer` for a question another yard asked"}, {"viewer", "string", "who reads it: what they may not see reads as missing; left out, the yard itself, which sees every bead"}},
+		requests: []string{`{"bead":"yd-links","viewer":"jo"}`, `{"bead":"yd-ledger@north"}`, `{"bead":"yd-crm"}`},
 		fields: []field{
 			{"id", "string", "the bead's handle, or `bead@peer` for a question another yard asked"},
 			{"title", "string", "the bead's title"},
@@ -547,7 +547,8 @@ var apiCalls = []apiCall{
 	{
 		method:   "Arrivals",
 		says:     "The arrivals board: the open beads still travelling, everything but the backlog, up to 15 rows in arrival order, beside the platforms in the order the beads travel. It is what footplate draws: the yard computes the board once so the readers draw without computing. A row is the bead, its title, its platform (stage) and line (depot), the expected arrival as the yard's printed range, and the remark with its tone, and for a held bead who holds it; no via, no badge.",
-		requests: []string{`{}`},
+		args:     []field{{"viewer", "string", "who reads the board: it holds no row they may not see; left out, the yard itself, which sees every bead"}},
+		requests: []string{`{"viewer":"jo"}`},
 		fields: []field{
 			{"rows[].bead", "string", "the bead's handle"},
 			{"rows[].title", "string", "the bead's title"},
@@ -565,8 +566,9 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Flows",
-		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.",
-		requests: []string{`{}`},
+		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.",
+		args:     []field{{"viewer", "string", "who reads the board: it holds no row they may not see; a device's viewer is its user; left out, the yard itself"}},
+		requests: []string{`{"viewer":"jo"}`, `{}`},
 		fields: slices.Concat([]field{
 			{"travelling", "number", "the yard's open beads outside the backlog: the depots' totals plus the unassigned count, complete, not capped"},
 			{"depots[].name", "string", "the depot"},

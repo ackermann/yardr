@@ -126,15 +126,16 @@ type AskQueue struct {
 }
 
 // UserAsks reads the person's queue: every open ask addressed to them, on
-// the yard's beads in any stage and from the linked yards, oldest first,
-// with what they have dealt with beside it. A foreign ask stands as
+// beads the viewer may see in any stage and from the linked yards, oldest
+// first, with what they have dealt with beside it. An omitted viewer is
+// the yard itself. A foreign ask stands as
 // bead@peer, asked by name@peer, with since as sent; it is placed by the
 // time this yard took it, never by the sender's clock, and the local asks
 // keep their note-seq order. One the person answered, put aside or
 // declined here is among the decided from then on, by what this yard knows
 // of it (foreignAsk), placed by when they did. A name that is no user of
 // the yard is refused, as UserInbox refuses it.
-func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
+func (s *Store) UserAsks(ctx context.Context, name string, viewer ...string) (*AskQueue, error) {
 	if err := s.read(func(tx *bolt.Tx) error {
 		_, err := getUser(tx, name)
 		return err
@@ -143,7 +144,7 @@ func (s *Store) UserAsks(ctx context.Context, name string) (*AskQueue, error) {
 	}
 	// An ask remains open until answered, declined or returned. Closing its
 	// bead does not answer it, so include closed beads in this queue too.
-	beads, err := s.ListBeads(ctx, BeadFilter{All: true})
+	beads, err := s.ListBeads(ctx, BeadFilter{All: true, Viewer: firstViewer(viewer)})
 	if err != nil {
 		return nil, err
 	}
@@ -442,21 +443,31 @@ type BeadView struct {
 	Late *eta.Late `json:"late,omitempty"`
 }
 
-// Bead reads one bead whole. An ask or answer that does not parse is left
-// out, as the queue leaves it out: corrupt notes are yardr's own surfaces
-// to show, not a client's.
+// Bead reads one bead whole for viewer, "" for the yard itself. An ask
+// or answer that does not parse is left out, as the queue leaves it out:
+// corrupt notes are yardr's own surfaces to show, not a client's. A bead
+// the viewer may not see reads as one the yard has not got, and so does
+// each of its about-beads: their handles stay, as for a bead since
+// removed, but no title or stage.
 //
 // A ref of bead@peer reads a question another yard asked instead: the
 // view is the foreign card's one step away, synthesized from what the
-// asking yard carried (foreignBead).
-func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
+// asking yard carried (foreignBead), and held to may(see) for the viewer.
+func (s *Store) Bead(ctx context.Context, id string, viewer ...string) (*BeadView, error) {
+	who := firstViewer(viewer)
 	// A bead's handle never holds an "@" (validID).
 	if bead, peer, foreign := strings.Cut(id, "@"); foreign {
-		return s.foreignBead(bead, peer)
+		if err := s.mayRead(ctx, who, ActSee, Object{Kind: KindBead, Name: id}); err != nil {
+			return nil, fmt.Errorf("bead %s: %w", id, ErrNotFound)
+		}
+		return s.foreignBead(ctx, bead, peer, who)
 	}
 	b, err := s.GetBead(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if err := s.mayRead(ctx, who, ActSee, Object{Kind: KindBead, Name: b.ID}); err != nil {
+		return nil, fmt.Errorf("bead %s: %w", id, ErrNotFound)
 	}
 	notes, err := s.Notes(ctx, b.ID)
 	if err != nil {
@@ -492,7 +503,9 @@ func (s *Store) Bead(ctx context.Context, id string) (*BeadView, error) {
 		for _, h := range r.Ask.About {
 			about := AboutBead{ID: h}
 			if other, err := s.GetBead(ctx, h); err == nil {
-				about.Title, about.Stage = other.Title, other.Stage
+				if s.mayRead(ctx, who, ActSee, Object{Kind: KindBead, Name: other.ID}) == nil {
+					about.Title, about.Stage = other.Title, other.Stage
+				}
 			} else if !errors.Is(err, ErrNotFound) {
 				return nil, err
 			}
@@ -551,7 +564,7 @@ func picksBefore(r ResolvedAsk) int {
 // a second line and this yard's bead is the first of each ask's
 // about-beads: the person sees their own bead and not only a handle of
 // another yard.
-func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
+func (s *Store) foreignBead(ctx context.Context, bead, peer, viewer string) (*BeadView, error) {
 	var recs []foreignAsk
 	var p *Peer
 	var mine *AboutBead
@@ -575,7 +588,10 @@ func (s *Store) foreignBead(bead, peer string) (*BeadView, error) {
 			if ok, err := get(tx, bBeads, sent.Bead, &row); err != nil || !ok {
 				return err
 			}
-			mine, works = &AboutBead{ID: row.ID, Title: row.Title, Stage: row.Stage}, "works"
+			mine, works = &AboutBead{ID: row.ID}, "works"
+			if s.may(ctx, tx, viewer, ActSee, Object{Kind: KindBead, Name: row.ID}) == nil {
+				mine.Title, mine.Stage = row.Title, row.Stage
+			}
 			if sent.EndedAt != nil {
 				works = "worked"
 			}

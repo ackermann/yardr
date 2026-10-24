@@ -492,7 +492,7 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, ma
 			return out, decided, nil
 		}
 	}
-	q, err := s.st.UserAsks(ctx, op)
+	q, err := s.st.UserAsks(ctx, op, s.acting(ctx))
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, nil, err

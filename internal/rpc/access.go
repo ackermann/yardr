@@ -427,4 +427,8 @@ var Access = map[string]Class{
 	// Packs.
 	"RecordPack": Admin,
 	"Packs":      Read,
+
+	// Policy. A read: it changes nothing, and whoever asks is told only
+	// what the policy tells the actor it names.
+	"May": Read,
 }

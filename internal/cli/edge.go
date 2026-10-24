@@ -180,7 +180,7 @@ func (a *app) edgeConnect(c *cobra.Command, address, as string) error {
 	// Before anything is asked of the edge: its row is made when the person
 	// approves, and a yard that may not write the setting would be left with
 	// one it cannot use.
-	if err := a.operatorOnly(ctx, st, "connect this yard to an edge"); err != nil {
+	if err := st.May(ctx, a.who(), store.ActConnectEdge, store.Object{Kind: store.KindYard}); err != nil {
 		return err
 	}
 	settings, err := st.Settings(ctx)
@@ -423,7 +423,7 @@ told, so its operator can drop the row. Only the operator disconnects a yard.`,
 			if err != nil {
 				return err
 			}
-			if err := a.operatorOnly(ctx, st, "disconnect this yard from the edge"); err != nil {
+			if err := st.May(ctx, a.who(), store.ActDisconnectEdge, store.Object{Kind: store.KindYard}); err != nil {
 				return err
 			}
 			settings, err := st.Settings(ctx)

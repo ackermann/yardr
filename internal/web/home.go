@@ -72,7 +72,7 @@ func (s *Server) readYard(ctx context.Context) (*yard, error) {
 	if y.sessions, err = s.st.Sessions(ctx, false); err != nil {
 		return nil, err
 	}
-	if y.beads, err = s.st.ListBeads(ctx, store.BeadFilter{}); err != nil {
+	if y.beads, err = s.st.ListBeads(ctx, store.BeadFilter{Viewer: s.acting(ctx)}); err != nil {
 		return nil, err
 	}
 	return &y, nil
@@ -430,7 +430,7 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// What closed today: every closed bead, as /beads?all=1 lists them.
-	all, err := s.st.ListBeads(r.Context(), store.BeadFilter{All: true})
+	all, err := s.st.ListBeads(r.Context(), store.BeadFilter{All: true, Viewer: s.acting(r.Context())})
 	if err != nil {
 		s.fail(w, r, err)
 		return

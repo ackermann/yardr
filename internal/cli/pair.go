@@ -104,7 +104,7 @@ prints two documents, the code at once and the result at the end.`,
 			if err != nil {
 				return err
 			}
-			if err := a.operatorOnly(ctx, st, "pair this yard with another"); err != nil {
+			if err := st.May(ctx, a.who(), store.ActPair, store.Object{Kind: store.KindPeer}); err != nil {
 				return err
 			}
 			if len(opt.expose) > 0 {

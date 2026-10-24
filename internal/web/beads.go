@@ -279,7 +279,7 @@ func (s *Server) flows(ctx context.Context) (*Flows, error) {
 	manual := manualClaims(sessions)
 	out := &Flows{Depots: []FlowsDepot{}, Head: head, rfs: [][]store.DepotFlow{}, groups: groups}
 	for _, depot := range depots {
-		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: depot.Name})
+		beads, err := s.st.ListBeads(ctx, store.BeadFilter{Depot: depot.Name, Viewer: s.acting(ctx)})
 		if err != nil {
 			return nil, err
 		}
@@ -557,7 +557,7 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 	beads := y.beads
 	if d.All {
 		// The line beside the list still counts the open ones.
-		if beads, err = s.st.ListBeads(ctx, store.BeadFilter{All: true}); err != nil {
+		if beads, err = s.st.ListBeads(ctx, store.BeadFilter{All: true, Viewer: s.acting(ctx)}); err != nil {
 			s.fail(w, r, err)
 			return
 		}

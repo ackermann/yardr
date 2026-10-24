@@ -598,7 +598,7 @@ what came in the hour.`,
 			// Reach copies what is asked from now on: say what it leaves.
 			var stay []string
 			for _, user := range slices.Sorted(maps.Values(ch.Reach)) {
-				q, err := st.UserAsks(ctx, user)
+				q, err := st.UserAsks(ctx, user, a.who())
 				if err != nil {
 					return err
 				}
@@ -1326,20 +1326,6 @@ func invite(ctx context.Context, cfg *config.Config, st store.API, url string) (
 		return yardkey.Invite{}, fmt.Errorf("%w; give the yard a name an invite can carry: %s settings set name <name>", err, yardrAt(cfg.Home))
 	}
 	return inv, nil
-}
-
-// operatorOnly refuses what only the operator may do when this command acts
-// as anyone else, where no write of the store's refuses it in time: a read
-// (everyone's timers), and a pairing, whose first write comes after the
-// other yard was called. Every other such rule is the store's
-// (store.operatorOnly), in the write itself. Like it, this is a line, not a
-// wall.
-func (a *app) operatorOnly(ctx context.Context, st store.API, what string) error {
-	operator, is, err := a.operator(ctx, st)
-	if err != nil || is {
-		return err
-	}
-	return fmt.Errorf("only %s may %s; this is %s", store.OperatorWords(strings.Split(operator, ", ")), what, a.who())
 }
 
 // peerIncoming says how the peer's messages reach this yard, and that they

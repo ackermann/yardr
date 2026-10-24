@@ -122,7 +122,7 @@ flow file or a pack with no yard.`,
 				return err
 			}
 			if svg {
-				d, err := depotDiagram(c.ErrOrStderr(), c.Context(), st, args[0], which, a.home())
+				d, err := depotDiagram(c.ErrOrStderr(), c.Context(), st, args[0], which, a.home(), a.who())
 				if err != nil {
 					return err
 				}
@@ -142,7 +142,7 @@ flow file or a pack with no yard.`,
 			if _, err := st.GetDepot(c.Context(), args[0]); errors.Is(err, store.ErrNotFound) {
 				return a.showNamedFlow(c.OutOrStdout(), c.Context(), st, args[0])
 			}
-			views, err := flowViews(c.Context(), st, args[0], a.home())
+			views, err := flowViews(c.Context(), st, args[0], a.home(), a.who())
 			if err != nil {
 				return err
 			}
@@ -305,7 +305,7 @@ The colours follow the page: the file carries a light and a dark set
 // the group its routes put at each stage, as flow show lists them, or a
 // named flow of the store, which no route is known for. which picks another
 // of the depot's flows than its own, by the flow's name or its bead type.
-func depotDiagram(warn io.Writer, ctx context.Context, st store.API, name, which, home string) (*flowdraw.Diagram, error) {
+func depotDiagram(warn io.Writer, ctx context.Context, st store.API, name, which, home string, viewer ...string) (*flowdraw.Diagram, error) {
 	if _, err := st.GetDepot(ctx, name); errors.Is(err, store.ErrNotFound) {
 		f, err := st.GetFlow(ctx, name)
 		if errors.Is(err, store.ErrNotFound) {
@@ -318,7 +318,7 @@ func depotDiagram(warn io.Writer, ctx context.Context, st store.API, name, which
 		}
 		return &flowdraw.Diagram{Flow: *f}, nil
 	}
-	views, err := flowViews(ctx, st, name, home)
+	views, err := flowViews(ctx, st, name, home, viewer...)
 	if err != nil {
 		return nil, err
 	}
@@ -598,7 +598,7 @@ type sidingView struct {
 // home is the yard's home, where the stage files of a store flow are. A stage
 // file named after no stage is a warning: a store flow's in the home, and
 // any on the depot's base (store.RepoFlows.StrayStageFiles).
-func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowView, error) {
+func flowViews(ctx context.Context, st store.API, depot, home string, viewer ...string) ([]flowView, error) {
 	if _, err := st.GetDepot(ctx, depot); err != nil {
 		return nil, err
 	}
@@ -624,7 +624,11 @@ func flowViews(ctx context.Context, st store.API, depot, home string) ([]flowVie
 	for _, g := range groups {
 		byName[g.Name] = g
 	}
-	beads, err := st.ListBeads(ctx, store.BeadFilter{Depot: depot})
+	who := ""
+	if len(viewer) > 0 {
+		who = viewer[0]
+	}
+	beads, err := st.ListBeads(ctx, store.BeadFilter{Depot: depot, Viewer: who})
 	if err != nil {
 		return nil, err
 	}

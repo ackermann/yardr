@@ -1755,15 +1755,16 @@ POST /call/AckUserNotifications
 
 ### `UserAsks`
 
-The person's decisions: every open ask addressed to them, on any bead in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age.
+The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and from the linked yards, oldest first, with what they have dealt with beside it. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.
 
 | argument | type | |
 |---|---|---|
 | `name` | string | the user |
+| `viewer` | string | who reads the queue; a device's viewer is its user; left out, the yard itself |
 
 ```
 POST /call/UserAsks
-{"name":"jo"}
+{"name":"jo","viewer":"jo"}
 
 {
   "result": {
@@ -2907,10 +2908,11 @@ One bead whole: body, stage, labels, notes, its asks with their options, recomme
 | argument | type | |
 |---|---|---|
 | `bead` | string | the bead: a handle, or `bead@peer` for a question another yard asked |
+| `viewer` | string | who reads it: what they may not see reads as missing; left out, the yard itself, which sees every bead |
 
 ```
 POST /call/Bead
-{"bead":"yd-links"}
+{"bead":"yd-links","viewer":"jo"}
 
 {
   "result": {
@@ -4327,9 +4329,13 @@ Read it again on every event whose `bead` is the bead: `noted` and the bead's ot
 
 The arrivals board: the open beads still travelling, everything but the backlog, up to 15 rows in arrival order, beside the platforms in the order the beads travel. It is what footplate draws: the yard computes the board once so the readers draw without computing. A row is the bead, its title, its platform (stage) and line (depot), the expected arrival as the yard's printed range, and the remark with its tone, and for a held bead who holds it; no via, no badge.
 
+| argument | type | |
+|---|---|---|
+| `viewer` | string | who reads the board: it holds no row they may not see; left out, the yard itself, which sees every bead |
+
 ```
 POST /call/Arrivals
-{}
+{"viewer":"jo"}
 
 {
   "result": {
@@ -4435,7 +4441,154 @@ Read it again on every event that carries a bead, and on the events without one 
 
 ### `Flows`
 
-The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.
+The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.
+
+| argument | type | |
+|---|---|---|
+| `viewer` | string | who reads the board: it holds no row they may not see; a device's viewer is its user; left out, the yard itself |
+
+```
+POST /call/Flows
+{"viewer":"jo"}
+
+{
+  "result": {
+    "travelling": 8,
+    "depots": [
+      {
+        "name": "drafts",
+        "kind": "dir",
+        "travelling": 1,
+        "flows": [],
+        "elsewhere": [
+          {
+            "bead": "yd-greet",
+            "title": "The greeting",
+            "expected": "—",
+            "remark": "",
+            "tone": "none",
+            "working": true,
+            "worker": "herdr greet-new",
+            "group": "builders",
+            "kind": "claude",
+            "model": "opus",
+            "entered_stage_at": "2026-10-08T09:30:00Z"
+          }
+        ],
+        "error": ".yardr/flows/default.flow: flow line 1: want 'stage -\u003e next on outcome | other' or 'stage terminal', got \"this is no flow\""
+      },
+      {
+        "name": "yard",
+        "kind": "git",
+        "travelling": 3,
+        "flows": [
+          {
+            "name": "default",
+            "type": "",
+            "source": "store",
+            "stages": [
+              {
+                "stage": "new",
+                "group": "builders",
+                "human": false,
+                "lamp": "fault",
+                "terminal": false,
+                "limit": 5,
+                "taken": 3,
+                "beads": [
+                  {
+                    "bead": "yd-gate",
+                    "title": "Mend the gate",
+                    "expected": "—",
+                    "remark": "held by jo",
+                    "tone": "red",
+                    "held_by": "jo",
+                    "working": false
+                  },
+                  {
+                    "bead": "yd-train",
+                    "title": "Release train",
+                    "expected": "—",
+                    "remark": "",
+                    "tone": "none",
+                    "working": true,
+                    "worker": "herdr train-new",
+                    "group": "builders",
+                    "kind": "claude",
+                    "model": "opus",
+                    "entered_stage_at": "2026-10-08T09:30:00Z"
+                  }
+                ]
+              },
+              {
+                "stage": "shipped",
+                "group": "elders",
+                "human": true,
+                "lamp": "none",
+                "terminal": true,
+                "limit": 5,
+                "taken": 0,
+                "beads": []
+              }
+            ]
+          }
+        ],
+        "elsewhere": [
+          {
+            "bead": "yd-fence",
+            "title": "Paint the fence",
+            "expected": "—",
+            "remark": "held by yardmaster",
+            "tone": "red",
+            "held_by": "yardmaster",
+            "working": false
+          }
+        ]
+      }
+    ],
+    "unassigned": [
+      {
+        "bead": "yd-crm",
+        "title": "Read the CRM",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      },
+      {
+        "bead": "yd-siding",
+        "title": "Clear the siding",
+        "expected": "—",
+        "remark": "held by yard",
+        "tone": "red",
+        "held_by": "yard",
+        "working": false
+      },
+      {
+        "bead": "yd-links",
+        "title": "Move the links",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": true,
+        "worker": "herdr links-new",
+        "group": "builders",
+        "kind": "claude",
+        "model": "opus",
+        "entered_stage_at": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-shed",
+        "title": "Paint the shed",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": false
+      }
+    ]
+  }
+}
+```
 
 ```
 POST /call/Flows

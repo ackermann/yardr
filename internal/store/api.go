@@ -65,13 +65,13 @@ type API interface {
 	// in the same write as the answer. Browser forms use it so two tabs
 	// cannot both answer from the same page.
 	AddAnswerExpected(ctx context.Context, id string, ans Answer, actor, revision string) error
-	UserAsks(ctx context.Context, name string) (*AskQueue, error)
-	WriterAsks(ctx context.Context, writer string) ([]WriterAsk, error)
-	Bead(ctx context.Context, id string) (*BeadView, error)
+	UserAsks(ctx context.Context, name string, viewer ...string) (*AskQueue, error)
+	WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error)
+	Bead(ctx context.Context, id string, viewer ...string) (*BeadView, error)
 	Estimate(ctx context.Context, id string) (*eta.Result, error)
 	EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error)
-	Arrivals(ctx context.Context) (*eta.ArrivalBoard, error)
-	Flows(ctx context.Context) (*FlowsBoard, error)
+	Arrivals(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error)
+	Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error)
 	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error
@@ -301,6 +301,8 @@ type API interface {
 
 	RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error)
 	Packs(ctx context.Context) ([]PackImport, error)
+
+	May(ctx context.Context, actor string, act Action, obj Object) error
 
 	// Streams: closed when ctx ends or the connection to the owner drops.
 	Subscribe(ctx context.Context, after uint64) (<-chan Event, error)

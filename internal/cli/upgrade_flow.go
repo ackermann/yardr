@@ -55,7 +55,7 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 	// the same line holds for the flag, or anyone could pick the source
 	// built over the yard's binary.
 	if fromFlag != "" {
-		if err := a.operatorOnly(ctx, st, "name the depot to install from (--from)"); err != nil {
+		if err := st.May(ctx, a.who(), store.ActNameUpgradeDepot, store.Object{Kind: store.KindYard}); err != nil {
 			return err
 		}
 	}

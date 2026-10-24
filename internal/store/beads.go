@@ -706,6 +706,19 @@ type BeadFilter struct {
 	// Limit keeps the newest that many, by creation, of what the rest
 	// kept; 0 is all.
 	Limit int
+	// Viewer is who reads the listing, "" for the yard itself: each bead
+	// kept is held to may(see) for them, and what they may not see is
+	// left out. The core policy lets everyone see every bead.
+	Viewer string
+}
+
+// firstViewer is the optional viewer carried by reads that retain their
+// earlier call shape for yard-local clients.
+func firstViewer(viewer []string) string {
+	if len(viewer) == 0 {
+		return ""
+	}
+	return viewer[0]
 }
 
 func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
@@ -744,7 +757,7 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 		}
 	}
 	bs, err := s.beadsWhere(!f.All, f.Since, f.Limit, func(tx *bolt.Tx, b *Bead) bool {
-		return (f.All || b.open()) &&
+		if !((f.All || b.open()) &&
 			(train == "" || b.ID == train || b.Train == train) &&
 			(found == nil || found[b.UUID]) &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
@@ -752,7 +765,12 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
 			(f.Depot == "" || (b.Depot != nil && *b.Depot == f.Depot)) &&
 			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
-			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))
+			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))) {
+			return false
+		}
+		// What the viewer may not see is left out, as if it were not
+		// there; an ask that errs hides too, since a read fails closed.
+		return s.may(ctx, tx, f.Viewer, ActSee, Object{Kind: KindBead, Name: b.ID}) == nil
 	})
 	if train != "" {
 		// The train heads its children, whatever its priority.

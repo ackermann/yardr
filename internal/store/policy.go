@@ -127,6 +127,20 @@ const (
 	// By the store's records of the calling pane alone.
 	ActMoveOut   Action = "move a bead out of its stage" // a member of the stage's group
 	ActWaitLogin Action = "wait on a login's input"      // the yardmaster's pane or no agent's
+
+	// The CLI-only gates, asked through May: what the operator did in the
+	// CLI before any write of the store's could refuse it (an edge
+	// connection, upgrade --from, timer list --all, uninstall --purge).
+	ActConnectEdge      Action = "connect this yard to an edge"
+	ActDisconnectEdge   Action = "disconnect this yard from the edge"
+	ActNameUpgradeDepot Action = "name the depot to install from (--from)"
+	ActListAllTimers    Action = "list everyone's timers"
+	ActDeleteYardHome   Action = "delete the yard's home"
+
+	// Seeing a bead: asked per bead by the reads (Bead, ListBeads,
+	// Arrivals, the listener's event stream), for the viewer they name.
+	// The core lets everyone see every bead; a later policy holds back.
+	ActSee Action = "see a bead"
 )
 
 // ObjectKind says what kind of thing an action is done to.
@@ -228,6 +242,15 @@ func (s *Store) mayRead(ctx context.Context, actor string, act Action, obj Objec
 	return s.read(func(tx *bolt.Tx) error { return s.may(ctx, tx, actor, act, obj) })
 }
 
+// May asks the store's policy whether actor may do act to obj, changing
+// nothing. It is on the API so a command whose gate is no write of the
+// store's — an edge connection, upgrade --from, timer list --all,
+// uninstall --purge — asks the same policy the writes ask, over the
+// socket like the writes, instead of deciding in the CLI.
+func (s *Store) May(ctx context.Context, actor string, act Action, obj Object) error {
+	return s.mayRead(ctx, actor, act, obj)
+}
+
 // A rule is how the core decides one action.
 type rule func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error
 
@@ -245,6 +268,7 @@ func init() {
 		ActRenamePeer, ActRoutePeerBeads, ActMoveSource, ActApplyPack, ActSetUpPackSources,
 		ActAddUser, ActRemoveUser, ActChangeRole, ActMapIdentity, ActChangeSetting, ActPruneStore,
 		ActGiveHarnessKey, ActGiveCrewCredential, ActGiveHookSecret, ActAllowThreads, ActRemoveTimer,
+		ActConnectEdge, ActDisconnectEdge, ActNameUpgradeDepot, ActListAllTimers, ActDeleteYardHome,
 	} {
 		coreRules[act] = ruleOperator
 	}
@@ -282,9 +306,18 @@ func init() {
 		ActNoteAtPeer:        mayAtPeer,
 		ActMoveOut:           checkMembers,
 		ActWaitLogin:         mayWaitLogin,
+		ActSee:               ruleSee,
 	} {
 		coreRules[act] = r
 	}
+}
+
+// ruleSee is who may see a bead: everyone, the viewer named or none. It
+// is the seam a later policy filters through; the core holds nothing
+// back, so every read answers as before. A refusal hides the bead (the
+// read omits it, or answers not-found), so no words are said here.
+func ruleSee(_ context.Context, _ *bolt.Tx, _ string, _ Action, _ Object) error {
+	return nil
 }
 
 func ruleRemoveCrew(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
@@ -744,6 +777,11 @@ func maySubscribeCrew(ctx context.Context, tx *bolt.Tx, actor string, _ Action, 
 // pane can never pass as a member or the operator by --actor alone.
 func maySubscribeGroup(ctx context.Context, tx *bolt.Tx, actor string, _ Action, obj Object) error {
 	g := obj.Group
+	if g == nil {
+		// Asked over May, whose object carries only what the socket
+		// names: a change with no group is refused, not read.
+		return fmt.Errorf("change what a group tells its members: no group was named")
+	}
 	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
 	if err != nil {
 		return err
@@ -1009,6 +1047,11 @@ func checkMembers(ctx context.Context, tx *bolt.Tx, actor string, _ Action, obj 
 	g, b := obj.Group, obj.row
 	if g == nil || len(g.Members) == 0 {
 		return nil
+	}
+	if b == nil {
+		// Asked over May, whose object carries only what the socket
+		// names: a move with members and no bead is refused, not read.
+		return fmt.Errorf("move a bead out of its stage: no bead was named")
 	}
 	only := fmt.Sprintf("bead %s: only members of group %s may move it out of stage %s: %s", b.ID, g.Name, b.Stage, strings.Join(g.Members, ", "))
 	sess, err := callerSessionTx(tx, callerOf(ctx), obj.exp, b)

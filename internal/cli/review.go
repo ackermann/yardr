@@ -62,7 +62,7 @@ type reviewAction struct {
 // them, mirroring Advance's check. only, if set, keeps those groups'
 // beads (placeholder stages such as backlog are manual too).
 func reviewQueue(ctx context.Context, st store.API, actor string, only []string) ([]reviewItem, error) {
-	beads, err := st.ListBeads(ctx, store.BeadFilter{})
+	beads, err := st.ListBeads(ctx, store.BeadFilter{Viewer: actor})
 	if err != nil {
 		return nil, err
 	}

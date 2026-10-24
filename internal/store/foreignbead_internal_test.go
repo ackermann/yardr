@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -115,6 +117,16 @@ func TestBeadForeign(t *testing.T) {
 		!strings.HasPrefix(v.Body, "This bead lives in up's yard, at stage build.\n") {
 		t.Fatalf("after the rename: %+v", v)
 	}
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if actor == "mckean" && act == ActSee && obj.Kind == KindBead && obj.Name == "yd-links@up" {
+			return errors.New("hidden")
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	if _, err := y.Bead(y.ctx, "yd-links@up", "mckean"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Bead(yd-links@up) for mckean = %v, want not found", err)
+	}
+	y.SetPolicy(nil)
 
 	if _, err := y.Bead(y.ctx, "yd-links@north"); err == nil || !strings.Contains(err.Error(), "peer north") {
 		t.Fatalf("Bead(yd-links@north) = %v, want no such peer", err)

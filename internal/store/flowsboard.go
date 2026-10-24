@@ -128,12 +128,14 @@ type FlowBead struct {
 // Elsewhere rows, the unassigned rows, and the travelling totals. Its
 // stages, beads and lamps are /flows and the panel as served; its
 // unassigned rows are the open beads outside the backlog with no depot.
-func (s *Store) Flows(ctx context.Context) (*FlowsBoard, error) {
+// An omitted viewer is the yard itself; a viewer's board holds only the
+// beads they may see.
+func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error) {
 	depots, err := s.Depots(ctx)
 	if err != nil {
 		return nil, err
 	}
-	beads, err := s.ListBeads(ctx, BeadFilter{})
+	beads, err := s.ListBeads(ctx, BeadFilter{Viewer: firstViewer(viewer)})
 	if err != nil {
 		return nil, err
 	}

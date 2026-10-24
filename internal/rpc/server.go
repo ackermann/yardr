@@ -309,12 +309,27 @@ func invoke(ctx context.Context, m method, body json.RawMessage) (result any, mo
 	}
 	args := []reflect.Value{reflect.ValueOf(ctx)}
 	for i, a := range raw {
-		p := reflect.New(t.In(i + 1))
-		if err := json.Unmarshal(a, p.Interface()); err != nil {
-			if names, _ := argNames(m.name); len(body) > 0 && body[0] == '{' {
-				return nil, false, fmt.Errorf("argument %q: %w", names[i], err)
+		argType := t.In(i + 1)
+		p := reflect.New(argType)
+		decodeErr := json.Unmarshal(a, p.Interface())
+		// A named field gives one value even when its store method is
+		// variadic; array callers and array-valued fields keep their list
+		// form. This lets the public contract name a string viewer while
+		// yardr clients still send the variadic slice they generate.
+		if decodeErr != nil && len(body) > 0 && body[0] == '{' && t.IsVariadic() && i == len(raw)-1 && argType.Kind() == reflect.Slice {
+			elem := reflect.New(argType.Elem())
+			if json.Unmarshal(a, elem.Interface()) == nil {
+				one := reflect.MakeSlice(argType, 1, 1)
+				one.Index(0).Set(elem.Elem())
+				p.Elem().Set(one)
+				decodeErr = nil
 			}
-			return nil, false, fmt.Errorf("argument %d: %w", i+1, err)
+		}
+		if decodeErr != nil {
+			if names, _ := argNames(m.name); len(body) > 0 && body[0] == '{' {
+				return nil, false, fmt.Errorf("argument %q: %w", names[i], decodeErr)
+			}
+			return nil, false, fmt.Errorf("argument %d: %w", i+1, decodeErr)
 		}
 		args = append(args, p.Elem())
 	}

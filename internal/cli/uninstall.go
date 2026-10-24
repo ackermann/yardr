@@ -269,8 +269,8 @@ func (a *app) uninstallYard(w, warn io.Writer, ctx context.Context, cfg *config.
 		facts = f
 		if purge.set {
 			// The store goes with the home, and in it what only the operator
-			// may change: a line, as operatorOnly is, before anything stops.
-			if err := a.operatorOnly(ctx, st, "delete the yard's home"); err != nil {
+			// may change: a line, asked of the store, before anything stops.
+			if err := st.May(ctx, a.who(), store.ActDeleteYardHome, store.Object{Kind: store.KindYard}); err != nil {
 				return fmt.Errorf("%w. %s", err, nothingStopped)
 			}
 			return a.agreePurge(w, cfg, f, purge.name, yes)

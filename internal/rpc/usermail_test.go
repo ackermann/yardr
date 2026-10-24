@@ -11,8 +11,16 @@ import (
 	"testing"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
 	"yardr.dev/yardr/internal/store"
 )
+
+// seePolicy is a store.Policy of one function.
+type seePolicy func(actor string, act store.Action, obj store.Object) error
+
+func (f seePolicy) May(_ context.Context, _ *bolt.Tx, actor string, act store.Action, obj store.Object) error {
+	return f(actor, act, obj)
+}
 
 // mailYard is userYard with sam's device too: two users, jo the operator
 // and sam, a device each.
@@ -303,5 +311,36 @@ func TestUserDeviceEventShowsOnlyPartiesMail(t *testing.T) {
 		if _, keep := u.deviceEvent(ctx, sam, tc.e); keep != tc.want {
 			t.Errorf("sam is sent %s: %v, want %v", tc.name, keep, tc.want)
 		}
+	}
+}
+
+// deviceEvent drops every event of a bead the policy refuses the caller
+// to see, and keeps the rest: the stream tells no bead a listing would
+// not. Under the core every device is sent every bead's events.
+func TestUserDeviceEventDropsABeadThePolicyHides(t *testing.T) {
+	st, u, _ := userYard(t)
+	ctx := context.Background()
+	sam := &Caller{User: "sam", SaidBy: "tablet", device: true}
+	shed, other := "yd-shed", "yd-other"
+	noted := func(bead *string) store.Event {
+		return store.Event{Kind: "noted", Actor: "jo", Bead: bead, Data: map[string]any{"note": "hi"}}
+	}
+	if _, keep := u.deviceEvent(ctx, sam, noted(&shed)); !keep {
+		t.Fatal("sam is not sent the shed's note under the core")
+	}
+	st.SetPolicy(seePolicy(func(actor string, act store.Action, obj store.Object) error {
+		if act == store.ActSee && obj.Kind == store.KindBead && obj.Name == shed {
+			return fmt.Errorf("hidden from %s", actor)
+		}
+		return nil
+	}))
+	if _, keep := u.deviceEvent(ctx, sam, noted(&shed)); keep {
+		t.Error("sam is sent the shed's note with yd-shed refused, want it dropped")
+	}
+	if _, keep := u.deviceEvent(ctx, sam, noted(&other)); !keep {
+		t.Error("sam is not sent another bead's note with yd-shed refused, want it kept")
+	}
+	if _, keep := u.deviceEvent(ctx, sam, noted(nil)); !keep {
+		t.Error("sam is not sent a bead-less event with yd-shed refused, want it kept")
 	}
 }

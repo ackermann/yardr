@@ -224,7 +224,7 @@ func (s *Server) handleDeps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Total = len(edges)
-	beads, err := s.st.ListBeads(ctx, store.BeadFilter{All: true})
+	beads, err := s.st.ListBeads(ctx, store.BeadFilter{All: true, Viewer: s.acting(ctx)})
 	if err != nil {
 		s.fail(w, r, err)
 		return

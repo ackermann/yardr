@@ -149,7 +149,7 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	if err != nil {
 		return err
 	}
-	beads, err := s.st.ListBeads(ctx, store.BeadFilter{})
+	beads, err := s.st.ListBeads(ctx, store.BeadFilter{Viewer: s.acting(ctx)})
 	if err != nil {
 		return err
 	}

@@ -131,7 +131,7 @@ bead stands.`,
 			}
 			name := a.who()
 			if all {
-				if err := a.operatorOnly(c.Context(), st, "list everyone's timers"); err != nil {
+				if err := st.May(c.Context(), a.who(), store.ActListAllTimers, store.Object{Kind: store.KindTimer}); err != nil {
 					return err
 				}
 				name = ""

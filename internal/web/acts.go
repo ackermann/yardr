@@ -106,7 +106,7 @@ func (s *Server) moveActions(ctx context.Context, b *store.Bead, next *store.Nex
 // where it carries it, as on the card: a line starting with the mark is
 // the yard's.
 func (s *Server) openBeadAsks(ctx context.Context, id string) ([]store.BeadAsk, error) {
-	v, err := s.st.Bead(ctx, id)
+	v, err := s.st.Bead(ctx, id, s.acting(ctx))
 	if err != nil {
 		return nil, err
 	}

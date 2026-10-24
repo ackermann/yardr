@@ -648,7 +648,7 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 						return fmt.Errorf("--asked-by lists asks, not beads: --%s does not apply", f)
 					}
 				}
-				asks, err := st.WriterAsks(c.Context(), askedBy)
+				asks, err := st.WriterAsks(c.Context(), askedBy, a.who())
 				if err != nil {
 					return err
 				}
@@ -661,6 +661,7 @@ declined and taken-back asks are not listed, and it takes no other filter.`,
 			if lf.All, lf.Limit, lf.Since, err = cut.read(c); err != nil {
 				return err
 			}
+			lf.Viewer = a.who()
 			bs, err := st.ListBeads(c.Context(), lf)
 			if err != nil {
 				return err

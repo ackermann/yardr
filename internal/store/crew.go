@@ -1330,7 +1330,7 @@ func (s *Store) CrewPrimeFor(ctx context.Context, name, user string) (*Prime, er
 	// What it still waits on from people, from the yard's records, so its
 	// handoff need not carry that list as prose: the oldest first, and how
 	// many the prime leaves out (bead list --asked-by lists them).
-	asks, err := s.WriterAsks(ctx, name)
+	asks, err := s.WriterAsks(ctx, name, user)
 	if err != nil {
 		return nil, err
 	}

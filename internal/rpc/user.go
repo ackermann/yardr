@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/store"
 )
@@ -39,7 +40,8 @@ import (
 //	                             its kind does not list, which are the
 //	                             operator's files and commands and the words
 //	                             that name them, and but for mail, read
-//	                             receipts and reactions it is no party to
+//	                             receipts and reactions it is no party to,
+//	                             and no event of a bead it may not see
 //	                             (deviceEvent)
 //	GET  /user/blobs/<hash>      a blob the caller may read, as the web
 //	                             view serves it (userBlob)
@@ -214,6 +216,7 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	u.resolve = u.device
 	u.api.methods["Settings"] = method{"Settings", reflect.ValueOf(u.settings)}
 	u.api.methods["Bead"] = method{"Bead", reflect.ValueOf(u.bead)}
+	u.api.methods["Arrivals"] = method{"Arrivals", reflect.ValueOf(u.arrivals)}
 	u.api.methods["UserAsks"] = method{"UserAsks", reflect.ValueOf(u.userAsks)}
 	u.api.methods["Users"] = method{"Users", reflect.ValueOf(u.users)}
 	u.api.methods["GetUser"] = method{"GetUser", reflect.ValueOf(u.getUser)}
@@ -327,8 +330,8 @@ func (u *UserServer) settings(ctx context.Context) (map[string]string, error) {
 // login ended and that why is an operator's to read
 // (store.HeldYardNote, store.HeldYardWords). Any other note and any other
 // words read as they are.
-func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, error) {
-	v, err := u.st.Bead(ctx, id)
+func (u *UserServer) bead(ctx context.Context, id, viewer string) (*store.BeadView, error) {
+	v, err := u.st.Bead(ctx, id, viewer)
 	if err != nil {
 		return nil, err
 	}
@@ -387,8 +390,8 @@ func (u *UserServer) bead(ctx context.Context, id string) (*store.BeadView, erro
 // It reads the role whatever the queue holds, as bead does not: the queue
 // is built from the notes of every bead, and one user read is nothing
 // beside that.
-func (u *UserServer) userAsks(ctx context.Context, name string) (*store.AskQueue, error) {
-	q, err := u.st.UserAsks(ctx, name)
+func (u *UserServer) userAsks(ctx context.Context, name string, _ string) (*store.AskQueue, error) {
+	q, err := u.st.UserAsks(ctx, name, userOf(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -573,8 +576,14 @@ const flowsHeld = "the flows could not be read; why is an operator's to read"
 // (FlowsDepot.Error). The error is the read's own, and names the directory of
 // the depot's repository and the file of the flow that did not parse; the
 // depot it is of, and that its beads are then all in Elsewhere, stay.
-func (u *UserServer) flows(ctx context.Context) (*store.FlowsBoard, error) {
-	board, err := u.st.Flows(ctx)
+// arrivals is Arrivals as a device is told it: the board of what the
+// caller may see, as Bead tells one bead.
+func (u *UserServer) arrivals(ctx context.Context, viewer string) (*eta.ArrivalBoard, error) {
+	return u.st.Arrivals(ctx, viewer)
+}
+
+func (u *UserServer) flows(ctx context.Context, _ string) (*store.FlowsBoard, error) {
+	board, err := u.st.Flows(ctx, userOf(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -1031,16 +1040,20 @@ func (u *UserServer) Run(ctx context.Context) {
 	}
 }
 
-// selfArg is, for each call that names whose inbox or queue it reads or
-// who writes, the arguments that do: over the network each is the caller.
-// Conversation names two parties and is checked by itself (asUser).
+// selfArg is, for each call that names whose inbox or queue it reads,
+// who reads, or who writes, the arguments that do: over the network each
+// is the caller. Conversation names two parties and is checked by itself
+// (asUser).
 var selfArg = map[string][]string{
 	"GetUser":              {"name"},
 	"UserInbox":            {"name", "actor"},
 	"AckUserInbox":         {"name", "actor"},
 	"UserNotifications":    {"name"},
 	"AckUserNotifications": {"name"},
-	"UserAsks":             {"name"},
+	"UserAsks":             {"name", "viewer"},
+	"Bead":                 {"viewer"},
+	"Arrivals":             {"viewer"},
+	"Flows":                {"viewer"},
 	"Mail":                 {"actor"},
 	"MailPeer":             {"actor"},
 	"React":                {"actor"},
@@ -1527,6 +1540,14 @@ func (u *UserServer) events(w http.ResponseWriter, r *http.Request) {
 // DeliveryFiles and the blob route serve them to every device, so the event
 // that tells of them is sent to every one.
 func (u *UserServer) deviceEvent(ctx context.Context, c *Caller, e store.Event) (store.Event, bool) {
+	// A bead the device's user may not see is not told at all: the event
+	// is dropped, as ListBeads drops the bead. The core policy lets
+	// everyone see every bead, so the stream reads as before.
+	if e.Bead != nil {
+		if err := u.st.May(ctx, c.User, store.ActSee, store.Object{Kind: store.KindBead, Name: *e.Bead}); err != nil {
+			return store.Event{}, false
+		}
+	}
 	switch e.Kind {
 	case "mail":
 		// Whose inbox it is in is the store's to say (MailReceiver), as

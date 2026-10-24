@@ -21,7 +21,7 @@ type AskStore interface {
 // AsksFor loads the asks addressed to the user me on the yard's open
 // beads, oldest first, each with its answers and its state.
 func AsksFor(ctx context.Context, st AskStore, me string) ([]store.ResolvedAsk, error) {
-	beads, err := st.ListBeads(ctx, store.BeadFilter{})
+	beads, err := st.ListBeads(ctx, store.BeadFilter{Viewer: me})
 	if err != nil {
 		return nil, err
 	}
