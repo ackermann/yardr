@@ -509,7 +509,10 @@ branched from the base as it is:
 [configuration.md](configuration.md#session-limits-and-outages)) and
 `rounds_reached` (a bead went round a loop of its flow as often as an
 outcome's limit allows and was sent to the stage the limit names:
-[flows.md](flows.md#a-limit-on-rounds)).
+[flows.md](flows.md#a-limit-on-rounds)), `folded` (a siding folded its
+waiting beads into one carrier: [groups.md](groups.md#a-siding)) and
+`fold_refused` (a ready siding cannot fold: its beads weigh more than the
+group's `fold_max`, or its stage has no next stage to fold to).
 The list is yardr's, one for the yard and
 every release's own: no command changes it.
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -564,14 +565,29 @@ func TestSidingSkipsAnUnreadableRepository(t *testing.T) {
 	}
 }
 
-// A ready siding with no next stage, and one with no eligible bead, fold
-// nothing and arm nothing: telling of them is the refusals' to add.
-func TestSidingSkipsWithoutNextOrEligible(t *testing.T) {
+// A ready siding whose stage has no next stage folds nothing and arms
+// nothing, and logs one fold_refused with reason next on its latest member,
+// with the siding, the sorted members, their points and fold_max. The next
+// pass over the same set logs none; a new arrival logs one again.
+func TestSidingRefusesWithoutNext(t *testing.T) {
 	y := newSidingYard(t, 2, "8h")
 	ctx := context.Background()
-	a, b := y.bead("first", "odd", "siding"), y.bead("second", "odd", "siding")
-	if pass := y.pass(); len(pass.Folded) != 0 || pass.Next != nil {
+	a := y.bead("first", "odd", "siding")
+	y.at = y.at.Add(time.Minute)
+	b := y.bead("second", "odd", "siding")
+	pass := y.pass()
+	if len(pass.Folded) != 0 || pass.Next != nil {
 		t.Fatalf("pass = %+v, want nothing folded and no due", pass)
+	}
+	if len(pass.Refused) != 1 {
+		t.Fatalf("refused %d sidings, want one: %+v", len(pass.Refused), pass.Refused)
+	}
+	r := pass.Refused[0]
+	if r.Depot != "odd" || r.Flow != "sidingnone.f" || r.Stage != "siding" || r.Reason != "next" {
+		t.Errorf("refusal = %+v, want odd's siding refused for next", r)
+	}
+	if !reflect.DeepEqual(r.Members, []string{a.ID, b.ID}) {
+		t.Errorf("members = %v, want [%s %s] oldest first", r.Members, a.ID, b.ID)
 	}
 	for _, m := range []*Bead{a, b} {
 		if got, err := y.GetBead(ctx, m.ID); err != nil || got.Status != "open" || got.Stage != "siding" {
@@ -579,20 +595,233 @@ func TestSidingSkipsWithoutNextOrEligible(t *testing.T) {
 		}
 	}
 	if evs, err := y.EventsOfKind(ctx, "folded", 100); err != nil || len(evs) != 0 {
-		t.Errorf("folded events = %d, %v; want none", len(evs), err)
+		t.Fatalf("folded events = %d, %v; want none", len(evs), err)
+	}
+	refused := eventsOf(t, y.Store, b.ID, FoldRefused)
+	if len(refused) != 1 {
+		t.Fatalf("%d fold_refused events on the latest member %s, want one", len(refused), b.ID)
+	}
+	members := []string{a.ID, b.ID}
+	slices.Sort(members)
+	want := map[string]any{"depot": "odd", "flow": "sidingnone.f", "stage": "siding",
+		"members": []any{members[0], members[1]}, "points": float64(4), "fold_max": float64(6),
+		"reason": "next", "unreadable": []any{members[0], members[1]}}
+	if !reflect.DeepEqual(refused[0].Data, want) {
+		t.Errorf("fold_refused data = %v, want %v", refused[0].Data, want)
+	}
+	if refused[0].Actor != "yard" {
+		t.Errorf("fold_refused by %s, want yard", refused[0].Actor)
+	}
+	if other := eventsOf(t, y.Store, a.ID, FoldRefused); len(other) != 0 {
+		t.Errorf("%d fold_refused events on the older member, want none", len(other))
 	}
 
+	// The same set tells once: the next pass logs none, a new arrival logs
+	// one again.
+	if pass := y.pass(); len(pass.Refused) != 0 {
+		t.Fatalf("refused the same set again: %+v", pass.Refused)
+	}
+	if refused := eventsOf(t, y.Store, b.ID, FoldRefused); len(refused) != 1 {
+		t.Fatalf("%d fold_refused events after a second pass, want one", len(refused))
+	}
+	y.at = y.at.Add(time.Minute)
+	c := y.bead("third", "odd", "siding")
+	if pass := y.pass(); len(pass.Refused) != 1 {
+		t.Fatalf("refused %d sidings after an arrival, want one: %+v", len(pass.Refused), pass.Refused)
+	}
+	if refused := eventsOf(t, y.Store, c.ID, FoldRefused); len(refused) != 1 {
+		t.Fatalf("%d fold_refused events on the arrival, want one", len(refused))
+	}
+
+	// A siding with no next stage still wakes at fold_after, when it becomes
+	// ready and can tell the yardmaster that the flow has nowhere to go.
+	timed := newSidingYard(t, 4, "8h")
+	only := timed.bead("only", "odd", "siding")
+	due := timed.at.Add(8 * time.Hour)
+	if pass := timed.pass(); len(pass.Refused) != 0 || pass.Next == nil || !pass.Next.Equal(due) {
+		t.Fatalf("early pass = %+v, want no refusal and a wake at %v", pass, due)
+	}
+	pass = timed.tick(9 * time.Hour)
+	if len(pass.Folded) != 0 || pass.Next != nil || len(pass.Refused) != 1 || pass.Refused[0].Reason != "next" {
+		t.Fatalf("due pass = %+v, want one next-stage refusal and no fold or next wake", pass)
+	}
+	if got := eventsOf(t, timed.Store, only.ID, FoldRefused); len(got) != 1 {
+		t.Fatalf("%d fold_refused events after fold_after, want one", len(got))
+	}
+}
+
+// A ready siding whose eligible beads weigh more than fold_max changes
+// nothing and logs one fold_refused with reason ceiling on its latest
+// member, with the siding, the sorted members and the beads whose estimate
+// is unreadable. The next pass over the same set logs none; a new arrival,
+// an older member leaving, and an older member becoming ineligible log one
+// again, the latest staying: the set is compared, not the latest member. A
+// bead with more than one size label counts the largest, one with an
+// unknown label or none counts 2, and each is named as unreadable.
+func TestSidingRefusesOverCeiling(t *testing.T) {
+	y := newSidingYard(t, 2, "8h")
+	ctx := context.Background()
+	mk := func(title string, labels ...string) *Bead {
+		t.Helper()
+		y.at = y.at.Add(time.Minute)
+		b, err := y.CreateBead(ctx, NewBead{Title: title, Depot: "web", Stage: "siding", Labels: labels}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	a := mk("first", "size:large")
+	b := mk("second", "size:small", "size:large")
+	c := mk("third", "size:huge")
+	d := mk("fourth")
+	sorted := func(ids ...string) []any {
+		slices.Sort(ids)
+		var out []any
+		for _, id := range ids {
+			out = append(out, id)
+		}
+		return out
+	}
+	refusals := func() []Event {
+		t.Helper()
+		evs, err := y.EventsOfKind(ctx, FoldRefused, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return evs
+	}
+	pass := y.pass()
+	if len(pass.Folded) != 0 || pass.Next != nil {
+		t.Fatalf("pass = %+v, want nothing folded and no due", pass)
+	}
+	if len(pass.Refused) != 1 {
+		t.Fatalf("refused %d sidings, want one: %+v", len(pass.Refused), pass.Refused)
+	}
+	r := pass.Refused[0]
+	if r.Depot != "web" || r.Flow != "siding.f" || r.Stage != "siding" || r.Reason != "ceiling" {
+		t.Errorf("refusal = %+v, want web's siding refused for ceiling", r)
+	}
+	if !reflect.DeepEqual(r.Members, []string{a.ID, b.ID, c.ID, d.ID}) {
+		t.Errorf("members = %v, want the four oldest first", r.Members)
+	}
+	for _, m := range []*Bead{a, b, c, d} {
+		if got, err := y.GetBead(ctx, m.ID); err != nil || got.Status != "open" || got.Stage != "siding" {
+			t.Errorf("%s = %+v, %v; want open in siding", m.ID, got, err)
+		}
+	}
+	if evs := refusals(); len(evs) != 1 {
+		t.Fatalf("%d fold_refused events, want one", len(evs))
+	}
+	got := eventsOf(t, y.Store, d.ID, FoldRefused)
+	if len(got) != 1 {
+		t.Fatalf("%d fold_refused events on the latest member %s, want one", len(got), d.ID)
+	}
+	want := map[string]any{"depot": "web", "flow": "siding.f", "stage": "siding",
+		"members": sorted(a.ID, b.ID, c.ID, d.ID), "points": float64(12), "fold_max": float64(6),
+		"reason": "ceiling", "unreadable": sorted(b.ID, c.ID, d.ID)}
+	if !reflect.DeepEqual(got[0].Data, want) {
+		t.Errorf("fold_refused data = %v, want %v", got[0].Data, want)
+	}
+	if got[0].Actor != "yard" {
+		t.Errorf("fold_refused by %s, want yard", got[0].Actor)
+	}
+
+	// The same set tells once.
+	if pass := y.pass(); len(pass.Refused) != 0 {
+		t.Fatalf("refused the same set again: %+v", pass.Refused)
+	}
+	if evs := refusals(); len(evs) != 1 {
+		t.Fatalf("%d fold_refused events after a second pass, want one", len(evs))
+	}
+
+	// A new arrival tells again, on itself as the latest.
+	e := mk("fifth", "size:large")
+	if pass := y.pass(); len(pass.Refused) != 1 {
+		t.Fatalf("refused %d sidings after an arrival, want one: %+v", len(pass.Refused), pass.Refused)
+	}
+	if evs := refusals(); len(evs) != 2 {
+		t.Fatalf("%d fold_refused events after an arrival, want two", len(evs))
+	}
+	got = eventsOf(t, y.Store, e.ID, FoldRefused)
+	if len(got) != 1 || got[0].Data["points"] != float64(16) ||
+		!reflect.DeepEqual(got[0].Data["members"], sorted(a.ID, b.ID, c.ID, d.ID, e.ID)) {
+		t.Fatalf("arrival's fold_refused = %+v, want 16 points over the five", got)
+	}
+
+	// An older member leaving tells again, the latest staying.
+	if _, err := y.Advance(ctx, a.ID, "backlog", Expect{}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if pass := y.pass(); len(pass.Refused) != 1 {
+		t.Fatalf("refused %d sidings after a member left, want one: %+v", len(pass.Refused), pass.Refused)
+	}
+	if evs := refusals(); len(evs) != 3 {
+		t.Fatalf("%d fold_refused events after a member left, want three", len(evs))
+	}
+	got = eventsOf(t, y.Store, e.ID, FoldRefused)
+	if len(got) != 2 || got[1].Data["points"] != float64(12) ||
+		!reflect.DeepEqual(got[1].Data["members"], sorted(b.ID, c.ID, d.ID, e.ID)) ||
+		!reflect.DeepEqual(got[1].Data["unreadable"], sorted(b.ID, c.ID, d.ID)) {
+		t.Fatalf("second fold_refused on %s = %+v, want 12 points over the four left", e.ID, got)
+	}
+
+	// An older member becoming ineligible tells again too: eligibility is
+	// part of the set, and the latest stays.
+	if _, err := y.SetHold(ctx, b.ID, true, Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if pass := y.pass(); len(pass.Refused) != 1 {
+		t.Fatalf("refused %d sidings after a member held, want one: %+v", len(pass.Refused), pass.Refused)
+	}
+	if evs := refusals(); len(evs) != 4 {
+		t.Fatalf("%d fold_refused events after a member held, want four", len(evs))
+	}
+	got = eventsOf(t, y.Store, e.ID, FoldRefused)
+	if len(got) != 3 || got[2].Data["points"] != float64(8) ||
+		!reflect.DeepEqual(got[2].Data["members"], sorted(c.ID, d.ID, e.ID)) ||
+		!reflect.DeepEqual(got[2].Data["unreadable"], sorted(c.ID, d.ID)) {
+		t.Fatalf("third fold_refused on %s = %+v, want 8 points over the three eligible", e.ID, got)
+	}
+	if got, err := y.GetBead(ctx, b.ID); err != nil || got.Status != "open" || got.Stage != "siding" {
+		t.Errorf("held bead = %+v, %v; want open in siding", got, err)
+	}
+
+	// The remembered refusal must survive more than EventsOfKind's default
+	// page of unrelated siding refusals.
+	for i := 0; i < 51; i++ {
+		if err := y.LogEvent(ctx, "", FoldRefused, "yard", map[string]any{
+			"depot": "other", "flow": "siding.f", "stage": "siding",
+			"members": []string{"elsewhere"}, "reason": "ceiling",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if pass := y.pass(); len(pass.Refused) != 0 {
+		t.Fatalf("refused the same set after unrelated refusals: %+v", pass.Refused)
+	}
+	if got := eventsOf(t, y.Store, e.ID, FoldRefused); len(got) != 3 {
+		t.Fatalf("%d fold_refused events on unchanged set after unrelated refusals, want three", len(got))
+	}
+}
+
+// A ready siding with no eligible bead does nothing and logs nothing: no
+// fold, no refusal, no due. Its beads wait until one becomes eligible.
+func TestSidingSkipsWithoutEligible(t *testing.T) {
+	y := newSidingYard(t, 2, "8h")
+	ctx := context.Background()
 	c, d := y.bead("third", "web", "siding"), y.bead("fourth", "web", "siding")
 	for _, m := range []*Bead{c, d} {
 		if _, err := y.SetHold(ctx, m.ID, true, Expect{}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if pass := y.pass(); len(pass.Folded) != 0 || pass.Next != nil {
-		t.Fatalf("pass = %+v, want nothing folded and no due", pass)
+	if pass := y.pass(); len(pass.Folded) != 0 || len(pass.Refused) != 0 || pass.Next != nil {
+		t.Fatalf("pass = %+v, want nothing folded, refused or due", pass)
 	}
-	if evs, err := y.EventsOfKind(ctx, "folded", 100); err != nil || len(evs) != 0 {
-		t.Errorf("folded events = %d, %v; want none", len(evs), err)
+	for _, kind := range []string{"folded", FoldRefused} {
+		if evs, err := y.EventsOfKind(ctx, kind, 100); err != nil || len(evs) != 0 {
+			t.Errorf("%s events = %d, %v; want none", kind, len(evs), err)
+		}
 	}
 }
 

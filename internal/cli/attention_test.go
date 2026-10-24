@@ -72,6 +72,17 @@ func TestSubscribeMatrixShowsTheClassAsOneRow(t *testing.T) {
 	if !slices.Contains(want, "nudge_held") {
 		t.Errorf("nudge_held is not of the class attention: %v", store.AttentionKinds)
 	}
+	// folded and fold_refused are of the class: a siding that folds, or
+	// that is ready and cannot, moves beads no one asked to move, or moves
+	// none where someone must step in (yardr-vsmk).
+	for _, k := range []string{"folded", "fold_refused"} {
+		if !slices.Contains(want, k) {
+			t.Errorf("%s is not of the class attention: %v", k, store.AttentionKinds)
+		}
+		if !slices.Contains(knownKinds, k) {
+			t.Errorf("%s is not offered in the crew form: %v", k, knownKinds)
+		}
+	}
 	if !slices.Equal(m.ReachesNoOne, want) || !strings.Contains(text, "): "+strings.Join(want, ", ")+"\n") ||
 		!strings.Contains(text, "yardr all depot=web kind=attention ") {
 		t.Errorf("reaches no one = %v, want %v, in:\n%s", m.ReachesNoOne, want, text)
@@ -118,7 +129,7 @@ func TestDoctorNotesACopiedDefaultOn(t *testing.T) {
 	}
 	early, today := state.CopiedOn[0], state.CopiedOn[1]
 	for _, want := range []string{"crew member early has a copy of an earlier default --on",
-		"It does not hear stranded, session_idle, session_aged, session_stalled, session_harness_error, session_harness_dialog, session_model_mismatch, session_prompt_gave_up, move_refused, make_refused, held, waited, nudge_held, backup_failed, note_untold, install_failed, rolled_back, hook_quiet, quiet_failed, base_diverged, rounds_reached. ",
+		"It does not hear stranded, session_idle, session_aged, session_stalled, session_harness_error, session_harness_dialog, session_model_mismatch, session_prompt_gave_up, move_refused, make_refused, held, waited, nudge_held, backup_failed, note_untold, install_failed, rolled_back, hook_quiet, quiet_failed, base_diverged, rounds_reached, folded, fold_refused. ",
 		" crew set early --on attention,peer_bead_arrived"} {
 		if !strings.Contains(early, want) {
 			t.Errorf("the note for early lacks %q:\n%s", want, early)

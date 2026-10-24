@@ -692,6 +692,21 @@ func TestFoldBeads(t *testing.T) {
 		carrierSize("large", "size:large", "size:small"),
 		carrierSize("large", "size:medium", "size:medium", "size:medium"),
 		carrierSize("medium", "size:small", "size:huge"),
+		carrierSize("medium", "size:small size:large"),
+		{
+			name: "a fold by hand is not refused over fold_max", depot: "plain", opts: FoldOptions{To: "ready"},
+			members: sizes("size:large", "size:large", "size:large", "size:large"),
+			check: func(t *testing.T, s *Store, got *Bead, made []Bead) {
+				if got.Status != "open" {
+					t.Errorf("carrier is %s, want open past the ceiling a siding would refuse", got.Status)
+				}
+				for _, m := range made {
+					if b, err := s.GetBead(ctx, m.ID); err != nil || b.Status != "closed" {
+						t.Errorf("%s = %+v, %v; want closed", m.ID, b, err)
+					}
+				}
+			},
+		},
 		{
 			name: "its body is a part for each member, verbatim, and the bundle", depot: "plain", opts: FoldOptions{To: "ready"},
 			members: []NewBead{

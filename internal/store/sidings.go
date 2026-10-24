@@ -35,12 +35,35 @@ type FoldedSiding struct {
 // SidingPass is what one FoldSidings did.
 type SidingPass struct {
 	Folded []FoldedSiding `json:"folded"`
-	// Next is when the earliest siding that can fold is due, nil with none:
+	// Refused are the ready sidings the pass told of instead of folding:
+	// their eligible beads weigh more than the group allows, or their
+	// stage has nowhere to fold to.
+	Refused []RefusedSiding `json:"refused"`
+	// Next is when the earliest not-ready siding is due, nil with none:
 	// when to call FoldSidings again at the latest. A ready siding keeps
-	// none: it folds on this pass, or waits for a bead to arrive or to
-	// become eligible, and either wakes a pass by its own write.
+	// none: it folds or tells on this pass, or waits for a bead to arrive or
+	// to become eligible, and either wakes a pass by its own write.
 	Next *time.Time `json:"next,omitempty"`
 }
+
+// RefusedSiding is one siding the pass refused to fold: its eligible beads
+// stay where they are, and one fold_refused event tells of them.
+type RefusedSiding struct {
+	Depot string `json:"depot"`
+	Flow  string `json:"flow"`
+	Stage string `json:"stage"`
+	// Members are the beads the fold would have taken, oldest first.
+	Members []string `json:"members"`
+	// Reason is why the siding cannot fold: "ceiling" (its beads weigh
+	// more than the group's fold_max) or "next" (its stage has no next
+	// stage to fold to).
+	Reason string `json:"reason"`
+}
+
+// FoldRefused is the event a pass logs on a siding's latest member when the
+// siding is ready but cannot fold. It is of the class attention: the
+// yardmaster hears it, and anyone else subscribes.
+const FoldRefused = "fold_refused"
 
 // sidingKey is one siding: the depot's beads in the stage of the flow that
 // the group works. Two depots on one yard default route are two sidings, as
@@ -71,9 +94,10 @@ type sidingMember struct {
 // A bead whose depot's repository cannot be read is left out of the pass,
 // and folded on a later one. What git or the disk must read is read before
 // the writes; each ready siding then folds in one write of its own, which
-// re-checks that it is still ready. A siding with no next stage, and one
-// with no eligible bead, are skipped quietly here; telling of them is the
-// refusals' to add.
+// re-checks that it is still ready. A ready siding that cannot fold tells
+// instead: one fold_refused on its latest member, once per member set. A
+// ready siding with no eligible bead does nothing and logs nothing; its
+// beads wait until one becomes eligible.
 func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, routes []Route) (*SidingPass, error) {
 	pass := &SidingPass{}
 	var operator string
@@ -148,7 +172,6 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 	}
 	look := &untilLooks{repos: repos, memo: flowMemo{}}
 	members := map[sidingKey][]sidingMember{}
-	flows := map[sidingKey]*Flow{}
 	err = s.read(func(tx *bolt.Tx) error {
 		for _, b := range cands {
 			if leftOut[b.UUID] {
@@ -190,7 +213,6 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 			}
 			key := sidingKey{depot: sidingDepot(row.Depot), flow: f.Name, path: flowPath(src), stage: row.Stage, group: r.Worker()}
 			members[key] = append(members[key], sidingMember{row: row, stuck: stuck})
-			flows[key] = f
 		}
 		return nil
 	})
@@ -217,17 +239,13 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 		}
 		due := latest.Add(si.After)
 		ready := len(ms) >= si.Fold || !due.After(at)
-		hasNext := len(flows[key].Transitions[key.stage]) > 0
 		if !ready {
-			// Only a siding that can fold arms the clock: a wake for one
-			// that cannot is a pass that does nothing.
-			if hasNext && (pass.Next == nil || due.Before(*pass.Next)) {
+			// A no-next-stage siding still needs its due wake so it can tell
+			// the yardmaster when it becomes ready to refuse.
+			if pass.Next == nil || due.Before(*pass.Next) {
 				pass.Next = &due
 			}
 			continue
-		}
-		if !hasNext {
-			continue // no next stage: nothing folds here
 		}
 		var eligible []sidingMember
 		for _, m := range ms {
@@ -238,28 +256,36 @@ func (s *Store) FoldSidings(ctx context.Context, at time.Time, beads []Bead, rou
 		if len(eligible) == 0 {
 			continue // its beads wait until one becomes eligible
 		}
-		fold, err := s.foldSiding(ctx, at, key, eligible, repos)
+		fold, refused, err := s.foldOrRefuseSiding(ctx, at, key, eligible, repos)
 		if err != nil {
 			return pass, err
 		}
 		if fold != nil {
 			pass.Folded = append(pass.Folded, *fold)
 		}
+		if refused != nil {
+			pass.Refused = append(pass.Refused, *refused)
+		}
 	}
 	return pass, nil
 }
 
-// foldSiding folds one ready siding in one write: its eligible members,
-// read again inside it, through w.fold, or the one eligible bead advanced
-// alone. What the write needs read before it is read here: the gates its
-// closes flip, and the stage files of its flow. The write re-checks that
-// the siding is still a siding, still ready and still has somewhere to
-// fold to; when it is not, it changes nothing, and foldSiding answers nil.
-func (s *Store) foldSiding(ctx context.Context, at time.Time, key sidingKey, decidedEligible []sidingMember, repos map[string]*RepoFlows) (*FoldedSiding, error) {
+// foldOrRefuseSiding settles one ready siding in one write: its eligible
+// members, read again inside it, through w.fold, the one eligible bead
+// advanced alone, or one fold_refused when the siding cannot fold: its
+// stage has no next stage, or its eligible beads weigh more than the
+// group's fold_max. A refusal is told once per member set: the write
+// compares the set with the siding's last fold_refused, read here, since
+// the event is the siding's own memory of being told. What the write needs
+// read before it is read here: the gates its closes flip, the stage files
+// of its flow, and that last refusal. The write re-checks that the siding
+// is still a siding and still ready; when it is not, it changes nothing,
+// and foldOrRefuseSiding answers nil, nil.
+func (s *Store) foldOrRefuseSiding(ctx context.Context, at time.Time, key sidingKey, decidedEligible []sidingMember, repos map[string]*RepoFlows) (*FoldedSiding, *RefusedSiding, error) {
 	reads := &beadReads{repo: repos[key.depot]}
 	home, err := s.stageHomeBefore(&decidedEligible[0].row.Bead, reads.repo)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	reads.home = home
 	// The gates the closes flip: each eligible member's targets'.
@@ -276,9 +302,14 @@ func (s *Store) foldSiding(ctx context.Context, at time.Time, key sidingKey, dec
 	for depot, repo := range s.gateRepos(ctx, ids...) {
 		repos[depot] = repo
 	}
+	last, err := s.lastRefused(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
 	var got *FoldedSiding
+	var told *RefusedSiding
 	err = s.write(func(w *wtx) error {
-		got = nil // Batch may run this again
+		got, told = nil, nil // Batch may run this again
 		routes, err := sortedRoutes(w.Tx)
 		if err != nil {
 			return err
@@ -367,9 +398,19 @@ func (s *Store) foldSiding(ctx context.Context, at time.Time, key sidingKey, dec
 		if err != nil {
 			return changedMeanwhile(err)
 		}
+		points := sidingPoints(eligible)
 		next := f.Transitions[key.stage]
 		if len(next) == 0 {
-			return nil // no next stage anymore
+			// Nowhere to fold to: the flow, not the siding, is wrong,
+			// and the yardmaster learns it once per member set.
+			return w.refuseSiding(key, kept, eligible, si.Max, "next", points, last, &told)
+		}
+		if points > si.Max {
+			// More than one session can build and one review hold:
+			// nothing moves, and the yardmaster learns it once per
+			// member set. A person folds part by hand, moves some
+			// back, or raises fold_max.
+			return w.refuseSiding(key, kept, eligible, si.Max, "ceiling", points, last, &told)
 		}
 		to := next[0]
 		trigger := "wait"
@@ -403,9 +444,97 @@ func (s *Store) foldSiding(ctx context.Context, at time.Time, key sidingKey, dec
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return got, nil
+	return got, told, nil
+}
+
+// lastRefused is the siding's most recent fold_refused, or nil with none:
+// the siding's own memory of being told, read through the same kind index as
+// EventsOfKind so an older refusal cannot disappear behind other sidings'
+// recent events.
+func (s *Store) lastRefused(ctx context.Context, key sidingKey) (*Event, error) {
+	var last *Event
+	err := s.read(func(tx *bolt.Tx) error {
+		return walkEventsOfKind(tx, FoldRefused, func(e Event) bool {
+			if e.Data["depot"] == key.depot && e.Data["flow"] == key.flow && e.Data["stage"] == key.stage {
+				last = &e
+				return false
+			}
+			return true
+		})
+	})
+	return last, err
+}
+
+// sidingPoints are the points a fold of members would carry: their
+// sizePoints, summed.
+func sidingPoints(members []sidingMember) int {
+	points := 0
+	for _, m := range members {
+		points += sizePoints(m.row.Labels)
+	}
+	return points
+}
+
+// refuseSiding logs one fold_refused for the siding key on its latest
+// member, unless last already told of this set: the eligible members'
+// sorted ids and the reason equal its. kept are all the siding's members,
+// eligible the ones the fold would have taken, oldest first either way.
+// told carries the refusal for the pass when an event was logged, and stays
+// nil when the set was told of already.
+func (w *wtx) refuseSiding(key sidingKey, kept, eligible []sidingMember, max int, reason string, points int, last *Event, told **RefusedSiding) error {
+	members := make([]string, len(eligible))
+	for i, m := range eligible {
+		members[i] = m.row.ID
+	}
+	sorted := slices.Clone(members)
+	slices.Sort(sorted)
+	if last != nil {
+		if prev := refusedMembers(last); prev != nil && slices.Equal(prev, sorted) && last.Data["reason"] == reason {
+			return nil // told of this set already
+		}
+	}
+	latest := kept[0].row
+	for _, m := range kept[1:] {
+		if m.row.StayStart.After(latest.StayStart) {
+			latest = m.row
+		}
+	}
+	unreadable := []string{}
+	for _, m := range eligible {
+		if unreadableEstimate(m.row.Labels) {
+			unreadable = append(unreadable, m.row.ID)
+		}
+	}
+	slices.Sort(unreadable)
+	if err := w.event(latest.UUID, FoldRefused, "yard", map[string]any{
+		"depot": key.depot, "flow": key.flow, "stage": key.stage,
+		"members": sorted, "points": points, "fold_max": max,
+		"reason": reason, "unreadable": unreadable,
+	}); err != nil {
+		return err
+	}
+	*told = &RefusedSiding{Depot: key.depot, Flow: key.flow, Stage: key.stage, Members: members, Reason: reason}
+	return nil
+}
+
+// refusedMembers are the sorted member ids a fold_refused told of, or nil
+// when the event carries none it can be compared by.
+func refusedMembers(e *Event) []string {
+	ids, _ := e.Data["members"].([]any)
+	if ids == nil {
+		return nil
+	}
+	var out []string
+	for _, id := range ids {
+		s, _ := id.(string)
+		if s == "" {
+			return nil
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // advanceSiding moves the siding's one eligible bead to to: the yard's own

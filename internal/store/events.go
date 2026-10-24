@@ -76,28 +76,41 @@ func (s *Store) EventsOfKind(ctx context.Context, kind string, limit int) ([]Eve
 	}
 	var out []Event
 	err := s.read(func(tx *bolt.Tx) error {
-		prefix := []byte(kind + "\x00")
-		c := tx.Bucket(bEventsKd).Cursor()
-		// The key after the kind's last: the one before it is that last.
-		k, _ := c.Seek([]byte(kind + "\x01"))
-		if k == nil {
-			k, _ = c.Last()
-		} else {
-			k, _ = c.Prev()
-		}
-		for ; k != nil && bytes.HasPrefix(k, prefix) && len(out) < limit; k, _ = c.Prev() {
-			var e Event
-			if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
-				return err
-			} else if ok {
-				out = append(out, e)
-			}
+		if err := walkEventsOfKind(tx, kind, func(e Event) bool {
+			out = append(out, e)
+			return len(out) < limit
+		}); err != nil {
+			return err
 		}
 		named(tx, out)
 		return nil
 	})
 	slices.Reverse(out)
 	return out, err
+}
+
+// walkEventsOfKind visits one kind's events newest first, stopping when visit
+// returns false. The kind index lets a caller stop at the last event it needs
+// without loading an arbitrary page of unrelated events first.
+func walkEventsOfKind(tx *bolt.Tx, kind string, visit func(Event) bool) error {
+	prefix := []byte(kind + "\x00")
+	c := tx.Bucket(bEventsKd).Cursor()
+	// The key after the kind's last: the one before it is that last.
+	k, _ := c.Seek([]byte(kind + "\x01"))
+	if k == nil {
+		k, _ = c.Last()
+	} else {
+		k, _ = c.Prev()
+	}
+	for ; k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Prev() {
+		var e Event
+		if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+			return err
+		} else if ok && !visit(e) {
+			return nil
+		}
+	}
+	return nil
 }
 
 // EventsSince returns up to limit events with Seq > after, oldest first.

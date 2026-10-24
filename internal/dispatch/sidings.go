@@ -38,6 +38,9 @@ func (d *Dispatcher) sidings(ctx context.Context, groups map[string]store.Group,
 		}
 		d.Log.Info("sidings", "folded", len(pass.Folded)-advanced, "advanced", advanced)
 	}
+	if len(pass.Refused) > 0 {
+		d.Log.Warn("sidings refused", "refused", len(pass.Refused))
+	}
 }
 
 // passLists lists the open beads and the yard's routes once for the pass,

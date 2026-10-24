@@ -698,19 +698,46 @@ func foldNote(listed, untracked []string) string {
 
 // sizePoints is the points a bead with these labels adds to a fold, by its
 // size: label (the yardmaster's rubric): small 1, medium 2, large 4, and 2
-// for a bead with none of those.
+// for a bead with none of those. A bead with more than one size label
+// counts the largest it gives, so a fold never undercounts a bead for the
+// order its labels were read in.
 func sizePoints(labels []string) int {
+	best := 0
 	for _, l := range labels {
 		switch l {
 		case "size:small":
-			return 1
+			best = max(best, 1)
 		case "size:medium":
-			return 2
+			best = max(best, 2)
 		case "size:large":
-			return 4
+			best = max(best, 4)
 		}
 	}
-	return 2
+	if best == 0 {
+		return 2
+	}
+	return best
+}
+
+// unreadableEstimate says whether labels carry no estimate a fold can read:
+// no size: label, an unknown one, or more than one. Such a bead still
+// counts (sizePoints), but a refusal names it, so the yardmaster sees whose
+// estimate to fix.
+func unreadableEstimate(labels []string) bool {
+	var sizes []string
+	for _, l := range labels {
+		if strings.HasPrefix(l, "size:") {
+			sizes = append(sizes, l)
+		}
+	}
+	if len(sizes) != 1 {
+		return true
+	}
+	switch sizes[0] {
+	case "size:small", "size:medium", "size:large":
+		return false
+	}
+	return true
 }
 
 // foldPoints are the points a fold carries: its members' sizePoints, summed.
