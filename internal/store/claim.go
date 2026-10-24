@@ -574,14 +574,19 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 	if id == nil || ans.Later {
 		return nil
 	}
+	if ans.Decline || ans.Option != 0 {
+		does := fmt.Sprintf("asks who %s in %s is of %s, the operator", id.Sender, id.Source, ask.To)
+		if err := w.may(ctx, actor, ActAnswerIdentityAsk, Object{
+			Kind: KindAsk, Name: row.ID, Seq: ans.Ask, To: ask.To, Does: does,
+		}); err != nil {
+			return err
+		}
+	}
 	if ans.Decline {
 		// A decline ends the card, as a pick that writes does, so it is
 		// the operator the card asks alone to give: another caller's
 		// decline closes nothing, and the answer is refused whole, as
 		// a pick by them is below.
-		if actor != ask.To {
-			return fmt.Errorf("ask %d asks who %s in %s is of %s, the operator: this is %s", ans.Ask, id.Sender, id.Source, ask.To, or(actor, "nobody"))
-		}
 		// A card whose bead was closed by hand, with the ask still open,
 		// has nothing left to close.
 		if !row.open() {
@@ -591,9 +596,6 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 	}
 	if ans.Option == 0 {
 		return nil
-	}
-	if actor != ask.To {
-		return fmt.Errorf("ask %d asks who %s in %s is of %s, the operator: this is %s", ans.Ask, id.Sender, id.Source, ask.To, or(actor, "nobody"))
 	}
 	// A pick that writes a user's identity is weighed again, as an
 	// approval weighs every card: a card from before mapping cards were

@@ -127,7 +127,7 @@ func (s *Store) PeerNote(ctx context.Context, bead, text, actor string) (*PeerNo
 		if err != nil {
 			return err
 		}
-		if err := mayAtPeer(ctx, w.Tx, actor, p.Name, "write on a bead of"); err != nil {
+		if err := w.may(ctx, actor, ActNoteAtPeer, Object{Kind: KindPeer, Name: p.Name}); err != nil {
 			return err
 		}
 		body, err := json.Marshal(PeerNoteMessage{V: PeerBeadVersion, From: actor, Text: text})

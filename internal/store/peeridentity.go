@@ -116,7 +116,7 @@ func (w *wtx) setPeerIdentity(ctx context.Context, name string, id PeerIdentity,
 	// Askable: it decides whose word a sender's is, so the card says which
 	// speaker the sender becomes and what stood, and an approval through the
 	// peer's own reach is refused (approveAsk).
-	if err := w.operatorOnly(ctx, actor, "say who a peer's crew member is in a source", Askable); err != nil {
+	if err := w.may(ctx, actor, ActMapPeerIdentity, Object{Kind: KindPeer, Name: name, Ask: Askable}); err != nil {
 		return nil, err
 	}
 	p, err := w.peerIdentityFor(name, id)
@@ -159,7 +159,7 @@ func (w *wtx) setPeerIdentity(ctx context.Context, name string, id PeerIdentity,
 func (s *Store) RemovePeerIdentity(ctx context.Context, name, crew, source, actor string) (*Peer, error) {
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
-		if err := w.operatorOnly(ctx, actor, "take back who a peer's crew member is in a source", Alone); err != nil {
+		if err := w.may(ctx, actor, ActUnmapPeerIdentity, Object{Kind: KindPeer, Name: name}); err != nil {
 			return err
 		}
 		if p, err = loadPeer(w.Tx, name); err != nil {

@@ -251,7 +251,7 @@ func (w *wtx) grantSource(ctx context.Context, src, what string, to Grantee, as 
 // alone of one as them.
 func (w *wtx) checkGrantSource(ctx context.Context, src, what string, to Grantee, as, actor string) error {
 	if as == "" {
-		return w.maySource(ctx, actor, "granting a call of a source", Askable)
+		return w.may(ctx, actor, ActGrantSource, Object{Kind: KindSource, Name: src, Ask: Askable})
 	}
 	// No operator leg: a grant as a user is theirs to give, so that a
 	// person trusts what is called as them to their own word alone.
@@ -260,43 +260,7 @@ func (w *wtx) checkGrantSource(ctx context.Context, src, what string, to Grantee
 		flag = "--crew " + to.Crew
 	}
 	why := fmt.Sprintf("granting a call of a source as %s is %s's to give, and nobody else's: ask %s on a card (yardr bead ask <bead> \"<question>\" --run \"source grant %s %s %s --as %s\" --to %s --context \"<why it is needed>\")", as, as, as, src, what, flag, as, as)
-	refuse := func(who string) error {
-		return &OperatorOnlyError{msg: why + "; this is " + who, ask: Askable}
-	}
-	sess, err := paneSession(w.Tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	if sess != nil && !sess.Manual() {
-		return refuse("the session " + sess.ID + " of a bead's agent")
-	}
-	r, err := paneCrew(w.Tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	if r != nil {
-		return refuse("the crew member " + r.Name)
-	}
-	if err := startingRefused(w.Tx, sessionOf(ctx)); err != nil {
-		return err
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return refuse("the crew member " + actor)
-	}
-	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	if resolved == as {
-		return nil
-	}
-	who := or(resolved, "nobody")
-	if ops, err := operatorsIn(w.Tx); err != nil {
-		return err
-	} else if ops.is(resolved) {
-		who = OperatorWords([]string{resolved})
-	}
-	return refuse(who)
+	return w.may(ctx, actor, ActGrantSourceAs, Object{Kind: KindSource, Name: src, Whose: as, Does: why, Ask: Askable})
 }
 
 // grantable refuses what as a grant of the source d declares: it is
@@ -686,7 +650,7 @@ func (c *sourceCaller) grantee() (Grantee, bool) {
 // names another session than its own is refused, and so is a session that
 // has ended: an agent kept open after its bead moved on calls nothing. A
 // manual group's session is a person at work and is told by the actor.
-func sourceCallerIn(ctx context.Context, tx *bolt.Tx, session, actor string) (*sourceCaller, error) {
+func (s *Store) sourceCallerIn(ctx context.Context, tx *bolt.Tx, session, actor string) (*sourceCaller, error) {
 	c := &sourceCaller{actor: actor}
 	sess, err := paneSession(tx, callerOf(ctx))
 	if err != nil {
@@ -736,18 +700,15 @@ func sourceCallerIn(ctx context.Context, tx *bolt.Tx, session, actor string) (*s
 		c.crew = crew
 		return c, nil
 	}
-	ops, err := operatorsIn(tx)
-	if err != nil {
+	err = s.may(ctx, tx, actor, ActCallSourceAny, Object{Kind: KindSource})
+	if _, refused := IsOperatorOnly(err); refused {
+		c.status = CallNotGranted
+		c.refused = err.Error()
+		return c, nil
+	} else if err != nil {
 		return nil, err
 	}
-	// A yard without an operator has nobody to hold a call to, as it has
-	// nobody to hold a change to its sources to (maySource).
-	if ops.none() || ops.is(actor) {
-		c.operator = true
-		return c, nil
-	}
-	c.status = CallNotGranted
-	c.refused = fmt.Sprintf("this is %s, who is no session, crew member or operator (%s) of the yard: a call is granted to a group or a crew member (yardr source grant)", or(actor, "nobody"), ops)
+	c.operator = true
 	return c, nil
 }
 
@@ -805,7 +766,7 @@ func fromPeer(tx *bolt.Tx, sess *Session) (string, error) {
 func (s *Store) SourceCalls(ctx context.Context, session, actor string) (*Callables, error) {
 	var out *Callables
 	err := s.read(func(tx *bolt.Tx) error {
-		c, err := sourceCallerIn(ctx, tx, session, actor)
+		c, err := s.sourceCallerIn(ctx, tx, session, actor)
 		if err != nil {
 			return err
 		}
@@ -1134,7 +1095,7 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 			// file stands.
 			asFile = u.EnvFile
 		}
-		if caller, err = sourceCallerIn(ctx, w.Tx, req.Session, req.Actor); err != nil {
+		if caller, err = w.store.sourceCallerIn(ctx, w.Tx, req.Session, req.Actor); err != nil {
 			return err
 		}
 		why, status, err := caller.may(w.Tx, d, call, req.As)

@@ -169,6 +169,9 @@ type Store struct {
 	// paneReader reads a pane's visible screen for SessionScreen
 	// (SetPaneReader, routing.go); nil where no server owns the store.
 	paneReader PaneReader
+	// policy says who may do what (SetPolicy, policy.go); nil is
+	// CorePolicy.
+	policy Policy
 	// blobMu serializes a put with another put or prune. In particular, a
 	// prune must not remove a blob between its grace-period refresh and the
 	// mail that names it.

@@ -47,7 +47,7 @@ func isUserKeyRun(argv []string) bool {
 // needing no approval.
 func checkUserKey(ctx context.Context, w *wtx, run AskRun, actor string) error {
 	user, _ := userKeyOf(run.Argv)
-	if err := w.mayTell(ctx, user, actor); err != nil {
+	if err := w.may(ctx, actor, ActTell, Object{Kind: KindUser, Name: user}); err != nil {
 		// A crew member (or anyone else) may not give it, so the ask
 		// stands: say whose approval it takes, in mayTell's words.
 		return &OperatorOnlyError{msg: err.Error(), ask: Askable}

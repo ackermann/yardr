@@ -166,43 +166,6 @@ func awayStay(tx *bolt.Tx, row *beadRow) (*peerSent, *Peer, error) {
 	return sent, p, nil
 }
 
-// mayReadPeer says why actor may not read a bead that is at peer: reading
-// needs what writing to a peer needs (MailPeer). A crew member needs the
-// peer in its MailPeers setting, a user of the yard needs nothing, and
-// anyone else must be the operator: a bead's agent reads nothing of
-// another yard beyond what its own bead holds.
-func mayReadPeer(ctx context.Context, tx *bolt.Tx, actor, peer string) error {
-	return mayAtPeer(ctx, tx, actor, peer, "read a bead that is at")
-}
-
-// mayAtPeer is the rule of mayReadPeer for what: reading a bead that is at
-// peer, or writing on that yard's bead for it (PeerNote). From a session's
-// or a crew member's pane the actor is the pane's (paneAuthor) before the
-// rule is read, so a pane can never pass as a user or the operator by
-// --actor alone.
-func mayAtPeer(ctx context.Context, tx *bolt.Tx, actor, peer, what string) error {
-	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	actor = resolved
-	var r CrewMember
-	if ok, err := get(tx, bCrew, actor, &r); err != nil {
-		return err
-	} else if ok && !slices.Contains(r.MayMail(), peer) {
-		return fmt.Errorf("crew member %s may not %s %s: its definition does not allow that yard. The operator allows it with yardr crew set %s %s=%s",
-			actor, what, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
-	} else if !ok && tx.Bucket(bUsers).Get([]byte(actor)) == nil {
-		if _, this, err := notOperator(ctx, tx, actor); err != nil {
-			return err
-		} else if this != "" {
-			return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may %s another yard; this is %s",
-				peer, MailPeers, peer, what, this)
-		}
-	}
-	return nil
-}
-
 // reading is what is shown of the bead row at p, from what this yard keeps
 // (rec, nil for nothing): the answer only when it is of the stay sent.
 func reading(row *beadRow, p *Peer, sent *peerSent, rec *peerRead) *PeerReading {
@@ -226,7 +189,7 @@ func reading(row *beadRow, p *Peer, sent *peerSent, rec *peerRead) *PeerReading 
 // with what is kept now.
 //
 // It is refused, with nothing queued, for a bead that is not away, for an
-// actor who may not (mayReadPeer), and over a link that does not carry
+// actor who may not (mayAtPeer), and over a link that does not carry
 // PeerThread both ways. While a question about the bead still waits to be
 // delivered, no second one is queued behind it: its id is returned. From a
 // session's or a crew member's pane the read is recorded as that session's
@@ -252,7 +215,7 @@ func (s *Store) PeerRead(ctx context.Context, bead, actor string) (*PeerReading,
 		if err != nil {
 			return err
 		}
-		if err := mayReadPeer(ctx, w.Tx, actor, p.Name); err != nil {
+		if err := w.may(ctx, actor, ActReadAtPeer, Object{Kind: KindPeer, Name: p.Name}); err != nil {
 			return err
 		}
 		if !p.carries(PeerBeadRead, false) {
@@ -302,7 +265,7 @@ func (s *Store) PeerReadKept(ctx context.Context, bead, actor string) (*PeerRead
 		if err != nil {
 			return err
 		}
-		if err := mayReadPeer(ctx, tx, actor, p.Name); err != nil {
+		if err := s.may(ctx, tx, actor, ActReadAtPeer, Object{Kind: KindPeer, Name: p.Name}); err != nil {
 			return err
 		}
 		rec, err := peerReadOf(tx, row.UUID)

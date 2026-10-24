@@ -1246,7 +1246,7 @@ func (w *wtx) setOriginator(ctx context.Context, id, to string, exp Expect, acto
 		if err := w.check(ctx, exp, b); err != nil {
 			return "", nil, err
 		}
-		if err := w.operatorOnly(ctx, actor, "change a bead's originator", Askable); err != nil {
+		if err := w.may(ctx, actor, ActChangeOriginator, Object{Kind: KindBead, Name: b.ID, Ask: Askable}); err != nil {
 			return "", nil, err
 		}
 		if to == OriginatorAny {
@@ -1903,7 +1903,9 @@ func (c *worktreeCheck) refusal() error {
 // which process and session ask, for a stage only its group's members may
 // move a bead out of (checkMembers).
 func (w *wtx) moveBead(ctx context.Context, exp Expect, id, actor string, repo *RepoFlows, home *stageHome, pick func(f *Flow, b *beadRow, data map[string]any) (string, error)) (*Bead, error) {
-	return w.move(id, actor, repo, home, func(g *Group, b *beadRow) error { return w.checkMembers(ctx, exp, g, b, actor) }, pick)
+	return w.move(id, actor, repo, home, func(g *Group, b *beadRow) error {
+		return w.may(ctx, actor, ActMoveOut, Object{Kind: KindBead, Name: b.ID, Group: g, exp: exp, row: b})
+	}, pick)
 }
 
 // move is moveBead with may asked whether the bead may leave its stage's

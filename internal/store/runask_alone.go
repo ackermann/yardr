@@ -55,43 +55,43 @@ var aloneList = []aloneCommand{{
 	words: []string{"source", "add"},
 	parse: aloneArgs("yardr source add <file>", 1, 1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.maySource(ctx, actor, "adding a source", Alone)
+		return w.may(ctx, actor, ActAddSource, Object{Kind: KindSource})
 	},
 }, {
 	words: []string{"source", "key"},
 	parse: aloneArgs("yardr source key <name> [NAME...]", 1, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.maySource(ctx, actor, "setting a source's credential", Alone)
+		return w.may(ctx, actor, ActSetSourceKey, Object{Kind: KindSource, Name: argv[2]})
 	},
 }, {
 	words: []string{"source", "rm"},
 	parse: aloneArgs("yardr source rm <name>", 1, 1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.maySource(ctx, actor, "removing a source", Alone)
+		return w.may(ctx, actor, ActRemoveSource, Object{Kind: KindSource, Name: argv[2]})
 	},
 }, {
 	words: []string{"peer", "add"},
 	parse: aloneArgs("yardr peer add <name> <invite>", 0, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.operatorOnly(ctx, actor, "add a peer", Alone)
+		return w.may(ctx, actor, ActAddPeer, Object{Kind: KindPeer, Name: argv[2]})
 	},
 }, {
 	words: []string{"peer", "set"},
 	parse: aloneArgs("yardr peer set <name> --url <url>", 0, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.operatorOnly(ctx, actor, "change where a peer is called", Alone)
+		return w.may(ctx, actor, ActChangePeerAddress, Object{Kind: KindPeer, Name: argv[2]})
 	},
 }, {
 	words: []string{"peer", "rm"},
 	parse: aloneArgs("yardr peer rm <name>", 1, 1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return w.operatorOnly(ctx, actor, "remove a peer", Alone)
+		return w.may(ctx, actor, ActRemovePeer, Object{Kind: KindPeer, Name: argv[2]})
 	},
 }, {
 	words: []string{"user", "device", "add"},
 	parse: aloneArgs("yardr user device add <user> <device>", 2, 2),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		if err := mayAddDevice(ctx, w.Tx, argv[3], actor); err != nil {
+		if err := w.may(ctx, actor, ActAddDevice, Object{Kind: KindUser, Name: argv[3]}); err != nil {
 			return err
 		}
 		return deviceFree(w.Tx, argv[3], argv[4])
@@ -102,13 +102,13 @@ var aloneList = []aloneCommand{{
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
 		for _, word := range argv[3:] {
 			if word == "--end" || strings.HasPrefix(word, "--end=") {
-				return operatorOnly(ctx, w.Tx, actor, "end a device's pairing", Alone)
+				return w.may(ctx, actor, ActEndDevicePairing, Object{Kind: KindDevice})
 			}
 		}
 		if len(argv) != 5 {
 			return fmt.Errorf("yardr user device pair <user> <device>: two names, not %d words", len(argv)-3)
 		}
-		if err := mayAddDevice(ctx, w.Tx, argv[3], actor); err != nil {
+		if err := w.may(ctx, actor, ActAddDevice, Object{Kind: KindUser, Name: argv[3]}); err != nil {
 			return err
 		}
 		return deviceFree(w.Tx, argv[3], argv[4])
@@ -117,7 +117,7 @@ var aloneList = []aloneCommand{{
 	words: []string{"pair"},
 	parse: aloneArgs("yardr pair [<address> <code>]", 0, -1),
 	check: func(ctx context.Context, w *wtx, argv []string, actor string) error {
-		return operatorOnly(ctx, w.Tx, actor, pairs, Alone)
+		return w.may(ctx, actor, ActPair, Object{Kind: KindPeer})
 	},
 }, {
 	words: []string{"pack", "apply"},
@@ -157,7 +157,7 @@ var aloneList = []aloneCommand{{
 		} else if ok {
 			return fmt.Errorf("crew add defines the member whole: to change one's grants propose %s apart", runCommandLine([]string{"crew", "set", name, grantSetOf(sets)}))
 		}
-		return operatorOnly(ctx, w.Tx, actor, added[0], Alone)
+		return w.may(ctx, actor, ActGrantCrew, Object{Kind: KindCrew, Name: name, Does: added[0]})
 	},
 }, {
 	words: []string{"group", "add"},

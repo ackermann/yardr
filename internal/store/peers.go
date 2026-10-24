@@ -526,7 +526,7 @@ func (s *Store) AddPeer(ctx context.Context, p Peer, actor string) (*Peer, error
 	p = Peer{Name: p.Name, Key: p.Key, URL: p.URL, Calls: p.Calls, Send: []string{}, Receive: []string{}, AddedAt: now()}
 	err := s.write(func(w *wtx) error {
 		// Alone: a link is whom the yard talks to.
-		if err := w.operatorOnly(ctx, actor, "add a peer", Alone); err != nil {
+		if err := w.may(ctx, actor, ActAddPeer, Object{Kind: KindPeer, Name: p.Name}); err != nil {
 			return err
 		}
 		if err := peerFree(w.Tx, &p); err != nil {
@@ -649,7 +649,7 @@ func (s *Store) PeerByKey(ctx context.Context, key string) (*Peer, error) {
 func (s *Store) DeletePeer(ctx context.Context, name, actor string) error {
 	return s.write(func(w *wtx) error {
 		// Alone: a link is whom the yard talks to.
-		if err := w.operatorOnly(ctx, actor, "remove a peer", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemovePeer, Object{Kind: KindPeer, Name: name}); err != nil {
 			return err
 		}
 		p, err := loadPeer(w.Tx, name)
@@ -788,15 +788,15 @@ func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPe
 	// command also widens a mail or ping kind.
 	switch {
 	case check.expose:
-		if err := w.operatorOnly(ctx, actor, "expose someone of the yard to a peer", Alone); err != nil {
+		if err := w.may(ctx, actor, ActExposeToPeer, Object{Kind: KindPeer, Name: name}); err != nil {
 			return nil, err
 		}
 	case check.trust:
-		if err := w.operatorOnly(ctx, actor, "trust a name of a peer as a user of the yard", Alone); err != nil {
+		if err := w.may(ctx, actor, ActTrustPeerName, Object{Kind: KindPeer, Name: name}); err != nil {
 			return nil, err
 		}
 	case check.reach:
-		if err := w.operatorOnly(ctx, actor, "send a user's asks to a name of a peer", Alone); err != nil {
+		if err := w.may(ctx, actor, ActSendAsksToPeer, Object{Kind: KindPeer, Name: name}); err != nil {
 			return nil, err
 		}
 	}
@@ -807,7 +807,7 @@ func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPe
 		// carries before and after, and an approval that reaches the yard
 		// through that peer's own reach is refused (approveAsk), so a peer
 		// cannot widen its own link.
-		if err := w.operatorOnly(ctx, actor, "allow a peer's messages", Askable); err != nil {
+		if err := w.may(ctx, actor, ActAllowPeerMessages, Object{Kind: KindPeer, Name: name, Ask: Askable}); err != nil {
 			return nil, err
 		}
 	}
@@ -816,7 +816,7 @@ func (w *wtx) checkAllowPeer(ctx context.Context, name string, check peerAllowPe
 		return nil, err
 	}
 	if check.mailLimit > p.MailsAnHour() {
-		if err := w.operatorOnly(ctx, actor, "take more mail from a peer", Askable); err != nil {
+		if err := w.may(ctx, actor, ActRaisePeerMail, Object{Kind: KindPeer, Name: name, Ask: Askable}); err != nil {
 			return nil, err
 		}
 	}
@@ -936,7 +936,7 @@ func (s *Store) SetPeerURL(ctx context.Context, name, url, actor string) (*Peer,
 	var p *Peer
 	err := s.write(func(w *wtx) (err error) {
 		// Alone: the address is where the yard's calls go.
-		if err := w.operatorOnly(ctx, actor, "change where a peer is called", Alone); err != nil {
+		if err := w.may(ctx, actor, ActChangePeerAddress, Object{Kind: KindPeer, Name: name}); err != nil {
 			return err
 		}
 		if p, err = loadPeer(w.Tx, name); err != nil {

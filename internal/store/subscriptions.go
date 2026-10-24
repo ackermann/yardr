@@ -291,7 +291,7 @@ func (w *wtx) setUserIdentity(ctx context.Context, name, source string, id Ident
 	if err != nil {
 		return nil, err
 	}
-	if err := w.mayIdentify(ctx, name, actor); err != nil {
+	if err := w.may(ctx, actor, ActIdentify, Object{Kind: KindUser, Name: name}); err != nil {
 		return nil, err
 	}
 	id.Key = foldIdentityKey(w.Tx, source, id.Key)
@@ -474,7 +474,7 @@ func setIdentityIn(ids *map[string]Identity, name, source string, id Identity, k
 // it, or blinds it to what is meant for it. by is the ask the change was
 // approved on, nil for a change typed in a terminal.
 func (w *wtx) setCrewIdentity(ctx context.Context, name, source string, id Identity, actor string, by *approvedOn) error {
-	if err := w.operatorOnly(ctx, actor, "say who a crew member is in a source", Askable); err != nil {
+	if err := w.may(ctx, actor, ActMapIdentity, Object{Kind: KindCrew, Name: name, Ask: Askable}); err != nil {
 		return err
 	}
 	var r CrewMember
@@ -521,35 +521,6 @@ func foldIdentityKey(tx *bolt.Tx, name, key string) string {
 		return key
 	}
 	return strings.ToLower(key)
-}
-
-// mayIdentify refuses a change of who the user name is in a source by
-// anyone but that user and the operator. A thread opened assigned to them
-// goes to whoever the identity names, so whoever sets it sends what is
-// meant for a person to another. Who asks is told as for mayTell: by the
-// store's own records of the pane before the caller's word.
-func (w *wtx) mayIdentify(ctx context.Context, name, actor string) error {
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	why := "who " + name + " is in a source is said by " + name
-	if !ops.none() && !ops.is(name) {
-		why += ", or by " + ops.words()
-	}
-	why += ": a thread assigned to them goes there"
-	if who, err := agentPane(ctx, w.Tx); err != nil {
-		return err
-	} else if who != "" {
-		return fmt.Errorf("%s; this is %s", why, who)
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s; %s is a crew member", why, actor)
-	}
-	if actor != name && !ops.is(actor) {
-		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
-	}
-	return nil
 }
 
 // AddSubscription subscribes the crew member, or else the user, or else the
@@ -837,7 +808,7 @@ func (w *wtx) changeSharedSubscriptions(ctx context.Context, name, actor string,
 			len(crewSubs) < len(r.Subscriptions) && len(groupSubs) < len(g.Subscriptions) {
 			return fmt.Errorf("%s is a crew member and a manual group, and both have matching subscriptions: use --crew or --group to say which", name)
 		}
-		if err := w.maySubscribeCrew(ctx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSubscribeCrew, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		if crewKind == "" {
@@ -845,7 +816,7 @@ func (w *wtx) changeSharedSubscriptions(ctx context.Context, name, actor string,
 		}
 		return w.writeCrewSubs(name, r, crewSubs, crewKind, crewData, resolved)
 	case crewErr == nil:
-		if err := w.maySubscribeCrew(ctx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSubscribeCrew, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		if crewKind == "" {
@@ -853,7 +824,7 @@ func (w *wtx) changeSharedSubscriptions(ctx context.Context, name, actor string,
 		}
 		return w.writeCrewSubs(name, r, crewSubs, crewKind, crewData, resolved)
 	case groupErr == nil:
-		if err := w.maySubscribeGroup(ctx, g, actor); err != nil {
+		if err := w.may(ctx, actor, ActSubscribeGroup, Object{Kind: KindGroup, Name: g.Name, Group: &g}); err != nil {
 			return err
 		}
 		if groupKind == "" {
@@ -902,64 +873,12 @@ func (w *wtx) changeSubscriptionsKind(ctx context.Context, name, kind, actor str
 	}
 }
 
-// maySubscribeCrew refuses actor changing what the crew member name is
-// told: that is the member's own to decide, or the operator's for them.
-// From a session's or a crew member's pane the actor is the pane's
-// (paneAuthor) before the rule is read, so a pane can never pass as the
-// member or the operator by --actor alone.
-func (w *wtx) maySubscribeCrew(ctx context.Context, name, actor string) error {
-	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	actor = resolved
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	if actor == name || ops.is(actor) {
-		return nil
-	}
-	who := "the operator"
-	if !ops.none() && !ops.is(name) {
-		who = ops.words()
-	}
-	return fmt.Errorf("only %s or %s changes what %s is told; this is %s", name, who, name, or(actor, "nobody"))
-}
-
-// maySubscribeGroup refuses actor changing what the manual group g tells
-// its members: that is a member's to decide, or the operator's for them.
-// A group with no members is the operator's alone to change, not
-// anyone's as a move is (Group.Members): a subscription blinds whoever
-// it is removed from. From a session's or a crew member's pane the actor
-// is the pane's (paneAuthor) before the rule is read, so a pane can
-// never pass as a member or the operator by --actor alone.
-func (w *wtx) maySubscribeGroup(ctx context.Context, g Group, actor string) error {
-	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	actor = resolved
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	if slices.Contains(g.Members, actor) || ops.is(actor) {
-		return nil
-	}
-	who := "the operator"
-	if !ops.none() && !ops.is(g.Name) {
-		who = ops.words()
-	}
-	return fmt.Errorf("only a member of %s or %s changes what %s is told; this is %s", g.Name, who, g.Name, or(actor, "nobody"))
-}
-
 // applyCrew runs fn on the crew member's subscriptions and writes what it
 // returns back with fn's event, on the member's journal. Only the member
 // and the operator change them; from a pane the event names the pane's
 // actor.
 func (w *wtx) applyCrew(ctx context.Context, name string, r CrewMember, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
-	if err := w.maySubscribeCrew(ctx, name, actor); err != nil {
+	if err := w.may(ctx, actor, ActSubscribeCrew, Object{Kind: KindCrew, Name: name}); err != nil {
 		return err
 	}
 	subs, kind, data, err := fn(r.Subscriptions)
@@ -977,7 +896,7 @@ func (w *wtx) applyCrew(ctx context.Context, name string, r CrewMember, actor st
 // back with fn's event, unattached. Only the user and the operator change
 // them.
 func (w *wtx) applyUser(ctx context.Context, name string, u User, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
-	if err := w.maySubscribe(ctx, name, actor); err != nil {
+	if err := w.may(ctx, actor, ActSubscribe, Object{Kind: KindUser, Name: name}); err != nil {
 		return err
 	}
 	subs, kind, data, err := fn(u.Subscriptions)
@@ -996,7 +915,7 @@ func (w *wtx) applyUser(ctx context.Context, name string, u User, actor string, 
 // returns back with fn's event, unattached. Only a member and the operator
 // change them; from a pane the event names the pane's actor.
 func (w *wtx) applyGroup(ctx context.Context, name string, g Group, actor string, fn func([]Subscription) ([]Subscription, string, map[string]any, error)) error {
-	if err := w.maySubscribeGroup(ctx, g, actor); err != nil {
+	if err := w.may(ctx, actor, ActSubscribeGroup, Object{Kind: KindGroup, Name: g.Name, Group: &g}); err != nil {
 		return err
 	}
 	subs, kind, data, err := fn(g.Subscriptions)

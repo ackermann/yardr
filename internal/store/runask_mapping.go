@@ -71,7 +71,7 @@ func userIdentityOf(argv []string) (user, source, id, key string) {
 // say it themselves, which askedRun refuses as needing no approval.
 func checkUserIdentity(ctx context.Context, w *wtx, argv []string, actor string) error {
 	user, _, _, _ := userIdentityOf(argv)
-	if err := w.mayIdentify(ctx, user, actor); err != nil {
+	if err := w.may(ctx, actor, ActIdentify, Object{Kind: KindUser, Name: user}); err != nil {
 		// A crew member (or anyone else) may not say it, so the ask
 		// stands: say whose approval it takes, in mayIdentify's words.
 		return &OperatorOnlyError{msg: err.Error(), ask: Askable}
@@ -217,7 +217,8 @@ func sourceIgnoreOf(argv []string) (source, sender string) { return argv[2], arg
 
 // checkSourceIgnore is un-ignoring a sender's own check as the asker.
 func checkSourceIgnore(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.maySource(ctx, actor, "un-ignoring a sender in a source", Askable)
+	source, _ := sourceIgnoreOf(argv)
+	return w.may(ctx, actor, ActUnignoreSender, Object{Kind: KindSource, Name: source, Ask: Askable})
 }
 
 // sourceIgnoreCard is the card of source ignore <source> --rm <id>:

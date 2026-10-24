@@ -119,7 +119,7 @@ func (s *Store) RenamePeer(ctx context.Context, name, to, actor string) (*Peer, 
 // ask renames the peer in the write that records its approval: by is then
 // the ask it was approved on, which the event carries.
 func (w *wtx) renamePeer(ctx context.Context, name, to, actor string, by *approvedOn) (p *Peer, err error) {
-	if err := w.operatorOnly(ctx, actor, "rename a peer", Askable); err != nil {
+	if err := w.may(ctx, actor, ActRenamePeer, Object{Kind: KindPeer, Name: name, Ask: Askable}); err != nil {
 		return nil, err
 	}
 	if p, err = loadPeer(w.Tx, name); err != nil {

@@ -356,7 +356,7 @@ func (w *wtx) askedSetup(ctx context.Context, ask Ask, to, actor string) (*AskSe
 	}
 	// The setup's own check as the asker, as a run ask runs its command's:
 	// nothing says it needs no approval better than the yard allowing it.
-	if err := w.operatorOnly(ctx, actor, "set up a pack's sources", Askable); err != nil {
+	if err := w.may(ctx, actor, ActSetUpPackSources, Object{Kind: KindPack, Name: pack, Ask: Askable}); err != nil {
 		if class, ok := IsOperatorOnly(err); !ok {
 			return nil, nil, err
 		} else if class == Alone {
@@ -1392,7 +1392,7 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	was := *r.Ask.Setup
 	// Before anything is written: an agent's approval changes nothing, not
 	// even what the transaction would take back.
-	if err := w.mayApprove(ctx, actor); err != nil {
+	if err := w.may(ctx, actor, ActApproveRun, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To}); err != nil {
 		return nil, err
 	}
 	if option < 1 || option > len(r.Ask.Options) {

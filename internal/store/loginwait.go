@@ -86,7 +86,7 @@ func (s *Store) LoginWait(ctx context.Context, id, group string) (string, error)
 	}
 	var owner string
 	err := s.read(func(tx *bolt.Tx) error {
-		if err := mayWaitLogin(ctx, tx); err != nil {
+		if err := s.may(ctx, tx, "", ActWaitLogin, Object{Kind: KindYard}); err != nil {
 			return err
 		}
 		var err error
@@ -125,40 +125,6 @@ func (s *Store) LoginWait(ctx context.Context, id, group string) (string, error)
 		}
 		return "", ctx.Err()
 	}
-}
-
-// mayWaitLogin refuses a wait registered from the pane of any agent but
-// the yardmaster: what a wait is handed is a value the operator typed into
-// a secret ask's field, told that no agent is shown it. The yardmaster leads
-// the login in its pane (design yardr-bwm2, 3.5) and the operator may lead
-// one from their own terminal; a bead's agent or another crew member that
-// registered a wait, and asked the operator for its input, would read what
-// the operator typed. It goes by the store's own records of the process
-// that called, as maySource does.
-func mayWaitLogin(ctx context.Context, tx *bolt.Tx) error {
-	const why = "a login's input is handed to the login the yardmaster or the operator leads"
-	sess, err := paneSession(tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	if sess != nil && !sess.Manual() {
-		return fmt.Errorf("%s; this is the session %s of a bead's agent", why, sess.ID)
-	}
-	r, err := paneCrew(tx, callerOf(ctx))
-	if err != nil || r == nil {
-		return err
-	}
-	var yardmaster string
-	if _, err := get(tx, bSettings, YardmasterSetting, &yardmaster); err != nil {
-		return err
-	}
-	if yardmaster == "" {
-		yardmaster = "yardmaster"
-	}
-	if r.Name != yardmaster {
-		return fmt.Errorf("%s; this is the crew member %s", why, r.Name)
-	}
-	return nil
 }
 
 // loginOwner is the user whose login a login led for group is: whose login

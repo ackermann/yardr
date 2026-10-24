@@ -481,19 +481,8 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 			if err != nil {
 				return 0, err
 			}
-			var r CrewMember
-			if ok, err := get(w.Tx, bCrew, actor, &r); err != nil {
+			if err := w.may(ctx, actor, ActAskPeer, Object{Kind: KindPeer, Name: peer, To: to}); err != nil {
 				return 0, err
-			} else if ok && !slices.Contains(r.MayMail(), peer) {
-				return 0, fmt.Errorf("crew member %s may not ask %s@%s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
-					actor, to, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
-			} else if !ok && w.Bucket(bUsers).Get([]byte(actor)) == nil {
-				if _, this, err := notOperator(ctx, w.Tx, actor); err != nil {
-					return 0, err
-				} else if this != "" {
-					return 0, fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may ask another yard; this is %s",
-						peer, MailPeers, peer, this)
-				}
 			}
 			if !p.carries(PeerAsk, false) {
 				return 0, fmt.Errorf("peer %s: the link does not carry ask out: the operator allows it with yardr peer allow %s --send ask", peer, peer)
@@ -791,11 +780,10 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		if err != nil {
 			return err
 		}
-		ops, err := operatorsIn(w.Tx)
-		if err != nil {
-			return err
+		mayAnswer := func(to string) error {
+			return w.may(ctx, actor, ActAnswerAsk, Object{Kind: KindAsk, Name: row.ID, Seq: ans.Ask, To: to})
 		}
-		if _, err := answerable(row.ID, notes, ans, now(), actor, ops); err != nil {
+		if _, err := answerable(row.ID, notes, ans, now(), actor, mayAnswer); err != nil {
 			return err
 		}
 		outcome, _, err := w.stageAnswer(ctx, row, notes, ans, actor, repo, home)
@@ -957,13 +945,15 @@ func answerShape(id string, ans *Answer) error {
 // answerable decides whether ans, by actor, may be recorded on the ask it
 // names among notes, the notes of the bead id, at the time at: the one set
 // of rules for an answer written here, one queued home to another yard, and
-// one another yard sent home. ops are the yard's operators. With the
+// one another yard sent home. mayAnswer asks the policy whether the
+// answerer may answer a plain ask put to to (ActAnswerAsk); nil where
+// the answer is recorded as the addressee's, checked before. With the
 // refusal it answers what the other yard is told of one that came from
 // there: RefusedNoSuchAsk for an ask that is none, RefusedAskDeclined,
 // RefusedAskAnswered and RefusedAskTakenBack for one that takes no further
 // answer, RefusedNotAsk for a decline without its words, "" for an answer
 // that does not fit the ask.
-func answerable(id string, notes []Note, ans Answer, at time.Time, actor string, ops operators) (string, error) {
+func answerable(id string, notes []Note, ans Answer, at time.Time, actor string, mayAnswer func(to string) error) (string, error) {
 	var askNote *Note
 	for i := range notes {
 		if notes[i].Seq == ans.Ask {
@@ -986,9 +976,10 @@ func answerable(id string, notes []Note, ans Answer, at time.Time, actor string,
 	// members (stageAnswer); a run, secret or setup ask to its own
 	// approval, with Later and a decline anyone's here; a mapping ask
 	// to whom it was put to (answerMapping), with Later anyone's.
-	if ask.Stage == "" && ask.Secret == nil && ask.Run == nil && ask.Setup == nil && ask.Identity == nil &&
-		actor != ask.To && !ops.is(actor) {
-		return "", fmt.Errorf("ask %d is for %s: only they or %s may answer it; this is %s", ans.Ask, ask.To, ops.words(), or(actor, "nobody"))
+	if ask.Stage == "" && ask.Secret == nil && ask.Run == nil && ask.Setup == nil && ask.Identity == nil && mayAnswer != nil {
+		if err := mayAnswer(ask.To); err != nil {
+			return "", err
+		}
 	}
 	switch {
 	// First, and without what was sent: the words may be the secret, typed
@@ -1144,14 +1135,8 @@ func (s *Store) TakeBackAsk(ctx context.Context, id string, seq uint64, reason, 
 		case r.AskErr != nil:
 			return r.AskErr
 		}
-		if asker := r.Note.Author; actor != asker {
-			operator, this, err := notOperator(ctx, w.Tx, actor)
-			if err != nil {
-				return err
-			}
-			if this != "" {
-				return fmt.Errorf("only %s, who asked it, or %s may take ask %d back; this is %s", asker, operator, seq, this)
-			}
+		if err := w.may(ctx, actor, ActTakeBackAsk, Object{Kind: KindAsk, Name: row.ID, Seq: seq, Whose: r.Note.Author}); err != nil {
+			return err
 		}
 		switch r.State {
 		case AskAnswered:

@@ -594,11 +594,7 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 		// The answerer was checked above, against To and the reach
 		// grant: the yard records the solicited answer as the
 		// addressee's.
-		ops, err := operatorsIn(w.Tx)
-		if err != nil {
-			return "", err
-		}
-		why, err := answerable(row.ID, notes, ans, now(), ask.To, ops)
+		why, err := answerable(row.ID, notes, ans, now(), ask.To, nil)
 		if err != nil {
 			if reason = why; reason == "" {
 				reason = RefusedNotAsk
@@ -964,9 +960,12 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 			return err
 		}
 		id, asker := bead+"@"+p.Name, rec.From+"@"+p.Name
+		if err := w.may(ctx, actor, ActAnswerPeerAsk, Object{
+			Kind: KindAsk, Name: id, Seq: ans.Ask, To: rec.To, Does: p.Name,
+		}); err != nil {
+			return err
+		}
 		switch {
-		case actor != rec.To:
-			return fmt.Errorf("ask %d on %s is for %s: %s takes no one else's answer to it", ans.Ask, id, rec.To, p.Name)
 		case rec.Outcome != "":
 			return fmt.Errorf("ask %d on %s takes no further answer: %s", ans.Ask, id, outcomeWords(rec.Outcome, p.Name))
 		case ans.Option == 0 && !ans.Later && !ans.Decline && len(rec.Ask.Options) > 0:
@@ -976,11 +975,7 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 		// The answerer was checked above, against rec.To: the ask as
 		// the notes carry it is addressed across, so it answers as
 		// that addressee.
-		ops, err := operatorsIn(w.Tx)
-		if err != nil {
-			return err
-		}
-		if _, err := answerable(id, rec.notes(id, asker), ans, now(), rec.Ask.To, ops); err != nil {
+		if _, err := answerable(id, rec.notes(id, asker), ans, now(), rec.Ask.To, nil); err != nil {
 			return err
 		}
 		if !p.carries(PeerAsk, false) {

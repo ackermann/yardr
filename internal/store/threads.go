@@ -91,7 +91,7 @@ func (s *Store) FollowThread(ctx context.Context, name, source, thread, actor st
 		return fmt.Errorf("follow: source and thread are required")
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		thread, err := peerThread(w.Tx, source, thread)
@@ -190,7 +190,7 @@ func (s *Store) Replying(ctx context.Context, name string, seq uint64, to, body,
 	hash := replyHash(to, body, files)
 	var out *Reply
 	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		out = nil
@@ -233,7 +233,7 @@ func (s *Store) Replied(ctx context.Context, name string, rp Reply, actor string
 // the event kind on its journal.
 func (s *Store) posted(ctx context.Context, name string, rp Reply, how, kind, actor string) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		if !participates(w.Tx, name, rp.Source, rp.Thread) {
@@ -337,7 +337,7 @@ func (s *Store) AllowOpening(ctx context.Context, name string, sources []string,
 			return nil
 		}
 		slices.Sort(added)
-		if err := w.operatorOnly(ctx, actor, fmt.Sprintf("let %s open threads in %s", name, strings.Join(added, ", ")), Askable); err != nil {
+		if err := w.may(ctx, actor, ActAllowThreads, Object{Kind: KindCrew, Name: name, Does: fmt.Sprintf("let %s open threads in %s", name, strings.Join(added, ", ")), Ask: Askable}); err != nil {
 			return err
 		}
 		may = append(may, added...)
@@ -376,7 +376,7 @@ func (s *Store) Opening(ctx context.Context, name, source, in, title, body, acto
 	hash := openHash(source, in, title, body)
 	var out *Reply
 	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		if !slices.Contains(r.MayOpen(), source) {
@@ -479,7 +479,7 @@ func (s *Store) SettingState(ctx context.Context, name, source, thread, actor st
 		if !ok {
 			return fmt.Errorf("crew member %s: %w", name, ErrNotFound)
 		}
-		if err := maySpeakAs(ctx, tx, name, actor); err != nil {
+		if err := s.may(ctx, tx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		out, err = mayState(tx, &r, source, thread)
@@ -497,7 +497,7 @@ func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor
 		return fmt.Errorf("thread state: the state asked for and the status set are required")
 	}
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		if _, err := mayState(w.Tx, r, ts.Source, ts.Thread); err != nil {
@@ -518,7 +518,7 @@ func (s *Store) StateSet(ctx context.Context, name string, ts ThreadState, actor
 // crew member and the operator is refused (maySpeakAs), as actor.
 func (s *Store) UnfollowThread(ctx context.Context, name, source, thread, actor string) error {
 	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
-		if err := maySpeakAs(ctx, w.Tx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		thread, err := peerThread(w.Tx, source, thread)

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	bolt "go.etcd.io/bbolt"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
@@ -809,7 +810,27 @@ func TestStageAnswerTrustedMember(t *testing.T) {
 	if err != nil || len(out) != 1 {
 		t.Fatalf("outbox = %+v, %v", out, err)
 	}
+	policyErr := fmt.Errorf("policy refuses stage answers")
+	var policyObject store.Object
+	own.SetPolicy(policyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act store.Action, obj store.Object) error {
+		if act == store.ActAnswerStageAsk {
+			policyObject = obj
+			return policyErr
+		}
+		return store.CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
 	if taken := stageAnswerFromLink(t, own, ctx, key, "ans1", out[0].ID, "ada", b.ID, got[0].Note.Seq,
+		map[string]any{"option": 2}); taken.Refused != store.RefusedNotAsk {
+		t.Fatalf("the trusted answer under a refusing policy = %+v, want it refused", taken)
+	}
+	if policyObject.Kind != store.KindBead || policyObject.Name != b.ID || policyObject.To != "ada" || policyObject.Fallback != got[0].Ask.Fallback || policyObject.Group == nil || policyObject.Group.Name != "reviewers" {
+		t.Fatalf("stage answer policy object = %+v, want the reviewers ask for ada on %s", policyObject, b.ID)
+	}
+	if cur, err := s.GetBead(ctx, b.ID); err != nil || cur.Stage != "review" {
+		t.Fatalf("refused policy answer changed the bead: %+v, %v", cur, err)
+	}
+	own.SetPolicy(nil)
+	if taken := stageAnswerFromLink(t, own, ctx, key, "ans2", out[0].ID, "ada", b.ID, got[0].Note.Seq,
 		map[string]any{"option": 2}); taken.Refused != "" {
 		t.Fatalf("the trusted answer = %+v", taken)
 	}

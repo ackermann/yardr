@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
+
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -561,6 +563,23 @@ func TestForeignAskAnswered(t *testing.T) {
 	}
 	if noted != 3 {
 		t.Fatalf("noted events by the person = %d, want 3", noted)
+	}
+
+	policyYard := newHomeYard(t)
+	policyYard.foreign(t, "policy-ask", linksAsk())
+	var got Object
+	policyYard.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if act == ActAnswerPeerAsk && actor == "jo" {
+			got = obj
+			return nil
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	if err := policyYard.AddAnswer(policyYard.ctx, "yd-links@north", Answer{Ask: 3, Option: 1}, "jo"); err != nil {
+		t.Fatalf("a foreign answer allowed by policy: %v", err)
+	}
+	if got.Kind != KindAsk || got.Name != "yd-links@north" || got.Seq != 3 || got.To != "mckean" {
+		t.Fatalf("foreign answer policy object = %+v, want ask yd-links@north/3 for mckean", got)
 	}
 }
 

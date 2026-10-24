@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"os"
@@ -737,6 +738,19 @@ func TestRunAskListRefusals(t *testing.T) {
 	}
 	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
 		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+	var got Object
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if act == ActSetSourceKey {
+			got = obj
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", "source key crm"), "yardmaster"); err == nil || !strings.Contains(err.Error(), alone) {
+		t.Fatalf("--run %q = %v, want the operator's alone", "source key crm", err)
+	}
+	if got.Kind != KindSource || got.Name != "crm" {
+		t.Fatalf("source key policy object = %+v, want source crm", got)
 	}
 }
 

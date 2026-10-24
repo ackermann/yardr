@@ -112,10 +112,11 @@ func peerIntakeOf(argv []string) (name string, in PeerIntake, none bool) {
 // needing no approval. Saying where beads go starts this yard's agents on
 // another yard's text, and is the operator's.
 func checkPeerIntake(ctx context.Context, w *wtx, argv []string, actor string) error {
-	if _, _, none := peerIntakeOf(argv); none {
+	name, _, none := peerIntakeOf(argv)
+	if none {
 		return nil
 	}
-	return w.operatorOnly(ctx, actor, "say where a peer's beads go", Askable)
+	return w.may(ctx, actor, ActRoutePeerBeads, Object{Kind: KindPeer, Name: name, Ask: Askable})
 }
 
 // readyPeerIntake reads, before the write, the repository flows of the
@@ -327,7 +328,8 @@ func peerIdentityOf(argv []string) (name string, id PeerIdentity) {
 // check as the asker: the operator's, as it decides whose word a sender's
 // is. A run ask proposes it, and the operator approves.
 func checkPeerIdentity(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "say who a peer's crew member is in a source", Askable)
+	name, _ := peerIdentityOf(argv)
+	return w.may(ctx, actor, ActMapPeerIdentity, Object{Kind: KindPeer, Name: name, Ask: Askable})
 }
 
 // peerIdentityHeld is the id the crew member of the link p has in source

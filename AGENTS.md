@@ -125,6 +125,11 @@ it lists every exported name with its comment, faster than grepping.
   `internal/agents` says what each field means.
 - New store migration: `internal/store/migrate_NNN_<name>.go`, following
   the previous one.
+- New permission gate in the store: an `Action` in
+  `internal/store/policy.go` with its rule in `coreRules`, asked through
+  `may` (`w.may`, `s.may`); a gate never compares the actor with a role
+  or the operator setting itself, so a `Policy` set with `SetPolicy`
+  decides every gate.
 
 ## Conventions
 

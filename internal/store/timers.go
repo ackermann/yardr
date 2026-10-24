@@ -359,7 +359,7 @@ func (w *wtx) timerForRemoval(ctx context.Context, id, actor string) (*Timer, er
 		return nil, fmt.Errorf("timer %s: %w", id, ErrNotFound)
 	}
 	if t.By != actor && t.To != actor {
-		if err := w.operatorOnly(ctx, actor, timerRemoveDoes(id, t), Askable); err != nil {
+		if err := w.may(ctx, actor, ActRemoveTimer, Object{Kind: KindTimer, Name: id, Does: timerRemoveDoes(id, t), Ask: Askable}); err != nil {
 			return nil, err
 		}
 	}

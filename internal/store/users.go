@@ -264,50 +264,6 @@ func (o operators) as(to string) string {
 	return o[0]
 }
 
-// notOperator says whether actor acts as anyone but an operator (a user
-// whose role is RoleOperator): this is then how a refusal names them, and
-// operator how it names the operators.
-// It is the one place the rule is read, inside the write it guards, so
-// every client of the store is held to it. From a session's or a crew
-// member's pane the actor is the pane's (paneAuthor) before the rule is
-// read, so a pane can never pass an admin write as the operator by
-// --actor alone; from anywhere else it is the caller's word (YARDR_ACTOR,
-// --actor): every agent runs as one OS user, so this is a line against
-// mistakes, not a wall, and moves when yardr hosts more than one person.
-// A yard that has no operator has nobody to hold it to, and takes the
-// change from anyone who is no agent of its own, as maySource reads it:
-// no crew member, and no call from the pane of a bead's session or of a
-// crew member.
-func notOperator(ctx context.Context, tx *bolt.Tx, actor string) (operator, this string, err error) {
-	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
-	if err != nil {
-		return "", "", err
-	}
-	actor = resolved
-	ops, err := operatorsIn(tx)
-	switch {
-	case err != nil:
-		return "", "", err
-	case ops.is(actor):
-		return "", "", nil
-	case !ops.none():
-		return ops.words(), or(actor, "nobody"), nil
-	case tx.Bucket(bCrew).Get([]byte(actor)) != nil:
-		return "the operator", "the crew member " + actor, nil
-	}
-	if sess, err := paneSession(tx, callerOf(ctx)); err != nil {
-		return "", "", err
-	} else if sess != nil && !sess.Manual() {
-		return "the operator", "the session " + sess.ID + " of a bead's agent", nil
-	}
-	if r, err := paneCrew(tx, callerOf(ctx)); err != nil {
-		return "", "", err
-	} else if r != nil {
-		return "the operator", "the crew member " + r.Name, nil
-	}
-	return "", "", nil
-}
-
 // AskClass says whether an operator-only action may be proposed as a run
 // ask. Alone is the zero value: a new operator-only check lands alone
 // until its site marks it Askable, so nothing becomes proposable by
@@ -342,89 +298,18 @@ func IsOperatorOnly(err error) (AskClass, bool) {
 	return Alone, false
 }
 
-// operatorOnly refuses what only the operator may do (does, as in "add a
-// peer") when actor is anyone else (notOperator), in the same words
-// whatever is asked and whoever asks. ask marks whether a run ask may
-// propose it, beside the refusal it marks.
-func operatorOnly(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
-	operator, this, err := notOperator(ctx, tx, actor)
-	if err != nil || this == "" {
-		return err
-	}
-	return &OperatorOnlyError{msg: fmt.Sprintf("only %s may %s; this is %s", operator, does, this), ask: ask}
-}
-
-func (w *wtx) operatorOnly(ctx context.Context, actor, does string, ask AskClass) error {
-	return operatorOnly(ctx, w.Tx, actor, does, ask)
-}
-
-// operatorOrYardmaster passes the operator's call (notOperator) or the
-// crew member's the yardmaster setting names, and refuses anyone else in
-// words naming both. It covers undoing what the yardmaster may already
-// add (crew, groups, flows, routes: adding each is anyone's, attributed)
-// and restarting crew: removing a crew member, a group, a flow or a
-// route, enabling a crew member, and asking one's session to restart.
-// ask marks whether a run ask may propose it, as with operatorOnly.
-func operatorOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
-	operator, _, err := notOperator(ctx, tx, actor)
-	if err != nil || operator == "" {
-		return err
-	}
-	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	var ym string
-	if _, err := get(tx, bSettings, YardmasterSetting, &ym); err != nil {
-		return err
-	}
-	if ym == "" {
-		ym = "yardmaster"
-	}
-	// The setting names a crew member; a matching user name or stale
-	// setting is not a delegation.
-	if resolved == ym && tx.Bucket(bCrew).Get([]byte(ym)) != nil {
+// daemonOr passes the daemon's own call (daemonOnly) or whoever the
+// policy lets do act (may): a rotation restart and the automatic prune run
+// in-process as "yard", and anyone else asking must be let by the policy
+// (the operator to prune, the operator or the yardmaster to restart crew).
+// Over the socket only the daemon-lock holder passes the daemon leg, so
+// actor "yard" from a pane still faces the policy; the daemon leg's
+// refusal is then swallowed in favour of the policy's words.
+func (s *Store) daemonOr(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+	if err := s.daemonOnly(ctx, string(act)); err == nil {
 		return nil
 	}
-	return &OperatorOnlyError{msg: fmt.Sprintf("only %s or the yardmaster (%s) may %s", operator, ym, does), ask: ask}
-}
-
-func (w *wtx) operatorOrYardmaster(ctx context.Context, actor, does string, ask AskClass) error {
-	return operatorOrYardmaster(ctx, w.Tx, actor, does, ask)
-}
-
-// operatorOnly is the rule for a change that is no write of the database
-// (a pairing, which lives in the server's memory).
-func (s *Store) operatorOnly(ctx context.Context, actor, does string, ask AskClass) error {
-	return s.read(func(tx *bolt.Tx) error { return operatorOnly(ctx, tx, actor, does, ask) })
-}
-
-// daemonOrOperator passes the daemon's own call (daemonOnly) or the
-// operator's (operatorOnly, does): a rotation restart and the automatic
-// prune run in-process as "yard", and anyone else asking must be the
-// operator. Over the socket only the daemon-lock holder passes the
-// daemon leg, so actor "yard" from a pane still faces operatorOnly; the
-// daemon leg's refusal is then swallowed in favour of the operator's
-// words.
-func (s *Store) daemonOrOperator(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
-	if err := s.daemonOnly(ctx, does); err == nil {
-		return nil
-	}
-	return operatorOnly(ctx, tx, actor, does, ask)
-}
-
-// daemonOrYardmaster passes the daemon's own call (daemonOnly) or the
-// operator's or the yardmaster's (operatorOrYardmaster, does): a rotation
-// restart runs in-process as "yard", and anyone else asking must be the
-// operator or the yardmaster. Over the socket only the daemon-lock holder
-// passes the daemon leg, so actor "yard" from a pane still faces
-// operatorOrYardmaster; the daemon leg's refusal is then swallowed in
-// favour of the operator's words.
-func (s *Store) daemonOrYardmaster(ctx context.Context, tx *bolt.Tx, actor, does string, ask AskClass) error {
-	if err := s.daemonOnly(ctx, does); err == nil {
-		return nil
-	}
-	return operatorOrYardmaster(ctx, tx, actor, does, ask)
+	return s.may(ctx, tx, actor, act, obj)
 }
 
 // daemonOnly refuses a session-lifecycle write from any caller but the
@@ -447,35 +332,6 @@ func (s *Store) daemonOnly(ctx context.Context, method string) error {
 		return fmt.Errorf("%s is the daemon's alone", method)
 	}
 	return nil
-}
-
-// maySpeakAs refuses to speak as the crew member name to anyone but the
-// crew member itself and the operator: a bead's agent, or another crew
-// member, would otherwise speak in its name, with its credential or the
-// operator's. From a session's or a crew member's pane the actor is the
-// pane's (paneAuthor) before the rule is read, so a pane can never pass
-// as the crew member or the operator by --actor alone; the pane yardr
-// started it in still speaks as it when a command there names another.
-// Like operatorOnly it is a line, not a wall.
-func maySpeakAs(ctx context.Context, tx *bolt.Tx, name, actor string) error {
-	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	actor = resolved
-	if actor == name {
-		return nil
-	}
-	if r, err := paneCrew(tx, callerOf(ctx)); err != nil {
-		return err
-	} else if r != nil && r.Name == name {
-		return nil
-	}
-	operator, this, err := notOperator(ctx, tx, actor)
-	if err != nil || this == "" {
-		return err
-	}
-	return fmt.Errorf("only %s's own session or %s may speak as %s; this is %s", name, operator, name, this)
 }
 
 // addUser writes a new user who reads mail from now on: mail an earlier
@@ -624,7 +480,7 @@ func (s *Store) AddUser(ctx context.Context, name, actor string) (*User, error) 
 // ask adds the user in the write that records its approval: by is then
 // the ask it was approved on, which the event carries.
 func (w *wtx) insertUser(ctx context.Context, name, actor string, by *approvedOn) (*User, error) {
-	if err := w.operatorOnly(ctx, actor, "add a user", Askable); err != nil {
+	if err := w.may(ctx, actor, ActAddUser, Object{Kind: KindUser, Name: name, Ask: Askable}); err != nil {
 		return nil, err
 	}
 	switch {
@@ -804,7 +660,7 @@ func (w *wtx) clearUserCredential(name string, u *User) error {
 // ask removes the user in the write that records its approval: by is then
 // the ask it was approved on, which the event carries.
 func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn) error {
-	if err := w.operatorOnly(ctx, actor, "remove a user", Askable); err != nil {
+	if err := w.may(ctx, actor, ActRemoveUser, Object{Kind: KindUser, Name: name, Ask: Askable}); err != nil {
 		return err
 	}
 	u, err := getUser(w.Tx, name)
@@ -1066,17 +922,16 @@ func (rd *readers) letter(e Event) (Letter, error) {
 	return Letter{Seq: e.Seq, At: e.At, From: e.Actor, To: to, Text: text, Read: e.Seq <= cursor, Reactions: reactions, Timer: timerOf(e), As: SpeaksAs(e), Via: Via(e), Files: EventFiles(e)}, nil
 }
 
-// mayReadInbox refuses to read or acknowledge the inbox of the user name
-// to anyone but them and an operator: actor is who reads. From a
+// mayReadInbox asks whether actor may read or acknowledge (does) the inbox
+// of the user name (ActReadInbox): the user and an operator may. From a
 // session's or a crew member's pane the reader is the pane's (paneAuthor)
-// before the rule is read, so a pane can never read another's inbox by
+// before the policy is asked, so a pane can never read another's inbox by
 // naming them; from anywhere else it is the caller's word, as every
 // actor-taking call is (a line against mistakes, not a wall). Left out,
 // the reader is the user: a client from before the call took an actor
 // reads its own inbox as it did. It returns that resolved reader so an
-// acknowledgement records who acted, including the pane's author. does is
-// what is refused.
-func mayReadInbox(ctx context.Context, tx *bolt.Tx, name, actor, does string) (string, error) {
+// acknowledgement records who acted, including the pane's author.
+func (s *Store) mayReadInbox(ctx context.Context, tx *bolt.Tx, name, actor, does string) (string, error) {
 	resolved, err := paneAuthor(tx, callerOf(ctx), actor)
 	if err != nil {
 		return "", err
@@ -1084,17 +939,10 @@ func mayReadInbox(ctx context.Context, tx *bolt.Tx, name, actor, does string) (s
 	if resolved == "" {
 		resolved = name
 	}
-	if resolved == name {
-		return resolved, nil
-	}
-	operator, this, err := notOperator(ctx, tx, resolved)
-	if err != nil {
+	if err := s.may(ctx, tx, resolved, ActReadInbox, Object{Kind: KindUser, Name: name, Does: does}); err != nil {
 		return "", err
 	}
-	if this == "" {
-		return resolved, nil
-	}
-	return "", fmt.Errorf("only %s or %s may %s %s's inbox; this is %s", name, operator, does, name, this)
+	return resolved, nil
 }
 
 // UserInbox returns the mail to the user name: all that is unread counted,
@@ -1107,7 +955,7 @@ func (s *Store) UserInbox(ctx context.Context, name string, limit int, actor str
 		if _, err := getUser(tx, name); err != nil {
 			return err
 		}
-		if _, err := mayReadInbox(ctx, tx, name, actor, "read"); err != nil {
+		if _, err := s.mayReadInbox(ctx, tx, name, actor, "read"); err != nil {
 			return err
 		}
 		rd := &readers{tx: tx}
@@ -1165,7 +1013,7 @@ func (s *Store) AckUserInbox(ctx context.Context, name string, through uint64, a
 		if err != nil {
 			return err
 		}
-		by, err := mayReadInbox(ctx, w.Tx, name, actor, "acknowledge")
+		by, err := s.mayReadInbox(ctx, w.Tx, name, actor, "acknowledge")
 		if err != nil {
 			return err
 		}

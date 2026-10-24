@@ -116,14 +116,14 @@ func (w *wtx) carriedSource(run AskRun) (d *source.Declaration, carried AskSourc
 // and an absolute program are the operator's alone, in maySource's words
 // with its mark.
 func checkSourceAdd(ctx context.Context, w *wtx, run AskRun, actor string) error {
-	_, _, absolute, exists, err := w.carriedSource(run)
+	d, _, absolute, exists, err := w.carriedSource(run)
 	if err != nil {
 		return err
 	}
 	if absolute || exists {
-		return w.maySource(ctx, actor, "adding a source", Alone)
+		return w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name})
 	}
-	return w.maySource(ctx, actor, "adding a source", Askable)
+	return w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name, Ask: Askable})
 }
 
 // sourceAddCard is the card of source add <file>: the whole declaration
@@ -830,7 +830,7 @@ func showCommand(argv []string) string {
 // as PutSource does inside its write, with the approval that asked for it
 // on the event. It refuses a name the yard has: this row adds only.
 func (w *wtx) putCarriedSource(ctx context.Context, d *source.Declaration, text, actor string, by *approvedOn) error {
-	if err := w.maySource(ctx, actor, "adding a source", Askable); err != nil {
+	if err := w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name, Ask: Askable}); err != nil {
 		return err
 	}
 	if w.Bucket(bSources).Get([]byte(d.Name)) != nil {

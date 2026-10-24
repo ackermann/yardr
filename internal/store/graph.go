@@ -1309,22 +1309,22 @@ func (s *Store) PutDepot(ctx context.Context, r Depot, actor string) error {
 		}
 		if had {
 			if r.Path != was.Path {
-				if err := w.operatorOnly(ctx, actor, "change a depot's path", Alone); err != nil {
+				if err := w.may(ctx, actor, ActChangeDepotPath, Object{Kind: KindDepot, Name: r.Name}); err != nil {
 					return err
 				}
 			}
 			if r.Test != was.Test {
-				if err := w.operatorOnly(ctx, actor, "change a depot's test command", Alone); err != nil {
+				if err := w.may(ctx, actor, ActChangeDepotTest, Object{Kind: KindDepot, Name: r.Name}); err != nil {
 					return err
 				}
 			}
 			if r.Base != was.Base {
-				if err := w.operatorOnly(ctx, actor, "change a depot's base", Alone); err != nil {
+				if err := w.may(ctx, actor, ActChangeDepotBase, Object{Kind: KindDepot, Name: r.Name}); err != nil {
 					return err
 				}
 			}
 			if r.Kind != was.Kind {
-				if err := w.operatorOnly(ctx, actor, "change a depot's kind", Alone); err != nil {
+				if err := w.may(ctx, actor, ActChangeDepotKind, Object{Kind: KindDepot, Name: r.Name}); err != nil {
 					return err
 				}
 			}
@@ -1387,7 +1387,7 @@ func (s *Store) DeleteDepot(ctx context.Context, name, actor string) (*DepotRemo
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "remove a depot", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemoveDepot, Object{Kind: KindDepot, Name: name}); err != nil {
 			return err
 		}
 		// Batch reruns this closure when another call in the batch fails, so

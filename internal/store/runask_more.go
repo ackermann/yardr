@@ -30,7 +30,7 @@ func parseUserAdd(rest []string) ([]string, error) {
 
 // checkUserAdd is adding a user's own check as the asker.
 func checkUserAdd(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "add a user", Askable)
+	return w.may(ctx, actor, ActAddUser, Object{Kind: KindUser, Name: argv[2], Ask: Askable})
 }
 
 // userAddCard is the card of user add <name>: what adding holds is what
@@ -85,7 +85,7 @@ func parseUserRm(rest []string) ([]string, error) {
 
 // checkUserRm is removing a user's own check as the asker.
 func checkUserRm(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "remove a user", Askable)
+	return w.may(ctx, actor, ActRemoveUser, Object{Kind: KindUser, Name: argv[2], Ask: Askable})
 }
 
 // userRmCard is the card of user rm <name>: who goes is named with what
@@ -307,7 +307,7 @@ func checkCrewGrant(ctx context.Context, w *wtx, argv []string, actor string) er
 		return err
 	}
 	if added := crewGrantsAdded(have, want); len(added) > 0 {
-		return w.operatorOnly(ctx, actor, added[0], Askable)
+		return w.may(ctx, actor, ActGrantCrew, Object{Kind: KindCrew, Name: c.name, Does: added[0], Ask: Askable})
 	}
 	return nil
 }
@@ -506,7 +506,8 @@ func crewIdentityOf(argv []string) (name, source, id, key string) {
 // checkCrewIdentity is saying who a crew member is in a source's own
 // check as the asker.
 func checkCrewIdentity(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "say who a crew member is in a source", Askable)
+	name, _, _, _ := crewIdentityOf(argv)
+	return w.may(ctx, actor, ActMapIdentity, Object{Kind: KindCrew, Name: name, Ask: Askable})
 }
 
 // identitySays is the id and/or key as a card names them.
@@ -629,7 +630,7 @@ func parseSettingSet(rest []string) ([]string, error) {
 
 // checkSettingSet is setting a setting's own check as the asker.
 func checkSettingSet(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "change a setting", settingAsk(argv[2]))
+	return w.may(ctx, actor, ActChangeSetting, Object{Kind: KindSetting, Name: argv[2], Ask: settingAsk(argv[2])})
 }
 
 // settingSetCard is the card of settings set <key> <value>: the value it
@@ -714,7 +715,7 @@ func parsePeerRename(rest []string) ([]string, error) {
 
 // checkPeerRename is renaming a peer's own check as the asker.
 func checkPeerRename(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "rename a peer", Askable)
+	return w.may(ctx, actor, ActRenamePeer, Object{Kind: KindPeer, Name: argv[2], Ask: Askable})
 }
 
 // peerRenameCard is the card of peer rename <old> <new>: what follows
@@ -827,7 +828,7 @@ func parseOriginator(rest []string) ([]string, error) {
 // checkOriginator is changing a bead's originator's own check as the
 // asker.
 func checkOriginator(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.operatorOnly(ctx, actor, "change a bead's originator", Askable)
+	return w.may(ctx, actor, ActChangeOriginator, Object{Kind: KindBead, Name: argv[2], Ask: Askable})
 }
 
 // originatorCard is the card of bead update <bead> --originator <user>:

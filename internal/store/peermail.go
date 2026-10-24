@@ -298,19 +298,8 @@ func (s *Store) MailPeer(ctx context.Context, to, peer, text, actor string, file
 		if err != nil {
 			return err
 		}
-		var r CrewMember
-		if ok, err := get(w.Tx, bCrew, actor, &r); err != nil {
+		if err := w.may(ctx, actor, ActMailPeer, Object{Kind: KindPeer, Name: peer}); err != nil {
 			return err
-		} else if ok && !slices.Contains(r.MayMail(), peer) {
-			return fmt.Errorf("crew member %s may not mail crew members of %s: its definition does not allow it. The operator allows it with yardr crew set %s %s=%s",
-				actor, peer, actor, MailPeers, strings.Join(append(r.MayMail(), peer), ","))
-		} else if !ok && w.Bucket(bUsers).Get([]byte(actor)) == nil {
-			if _, this, err := notOperator(ctx, w.Tx, actor); err != nil {
-				return err
-			} else if this != "" {
-				return fmt.Errorf("only a crew member allowed %s (yardr crew set <crew member> %s=%s) or a user of the yard (yardr user list) may mail another yard; this is %s",
-					peer, MailPeers, peer, this)
-			}
 		}
 		body, err := json.Marshal(peerMail{To: to, From: actor, Text: text, Files: refs})
 		if err != nil {

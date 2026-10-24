@@ -56,7 +56,7 @@ func (s *Store) MoveSourceRecords(ctx context.Context, from, to, actor string) (
 			return paneErr
 		}
 		actor = paneActor
-		if err := w.operatorOnly(ctx, actor, "move a source's records", Alone); err != nil {
+		if err := w.may(ctx, actor, ActMoveSource, Object{Kind: KindSource, Name: from, To: to}); err != nil {
 			return err
 		}
 		*out = SourceMove{}

@@ -971,7 +971,7 @@ func (w *wtx) setPeerIntake(ctx context.Context, name string, in *PeerIntake, re
 		// Askable: the card names the depot, the flow and who works the
 		// first stage, and an approval through the peer's own reach is
 		// refused (approveAsk).
-		if err := w.operatorOnly(ctx, actor, "say where a peer's beads go", Askable); err != nil {
+		if err := w.may(ctx, actor, ActRoutePeerBeads, Object{Kind: KindPeer, Name: name, Ask: Askable}); err != nil {
 			return nil, err
 		}
 	}

@@ -93,7 +93,7 @@ func checkSourceCheck(ctx context.Context, w *wtx, argv []string, actor string) 
 	if user == "" {
 		return nil
 	}
-	if err := w.mayTell(ctx, user, actor); err != nil {
+	if err := w.may(ctx, actor, ActTell, Object{Kind: KindUser, Name: user}); err != nil {
 		// A crew member (or anyone else) may not send it, so the ask
 		// stands: say whose approval it takes, in mayTell's words.
 		return &OperatorOnlyError{msg: err.Error(), ask: Askable}
@@ -397,7 +397,7 @@ func (w *wtx) prepareSourceCheck(ctx context.Context, id string, seq uint64, act
 		return nil, fmt.Errorf("ask %d: %w", seq, err)
 	}
 	srcName, user, _ := sourceCheckOf(argv)
-	if err := w.mayApproveOwn(ctx, actor, r.Ask.To, user); err != nil {
+	if err := w.may(ctx, actor, ActApproveOwn, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To, Whose: user}); err != nil {
 		return nil, err
 	}
 	if !slices.Equal(argv, was.Argv) {

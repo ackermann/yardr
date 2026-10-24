@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -310,6 +311,23 @@ func TestMappingDeclineIsTheOperatorsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCardClosed(t, y, card.Bead, "declined by mckean")
+
+	allowed := claimCard(t, y, "U556")
+	var got Object
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if act == ActAnswerIdentityAsk && actor == "ada" {
+			got = obj
+			return nil
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	if err := y.DeclineAsk(y.ctx, allowed.Bead, allowed.Ask, "not now", "ada"); err != nil {
+		t.Fatalf("a mapping decline allowed by policy: %v", err)
+	}
+	if got.Kind != KindAsk || got.Name != allowed.Bead || got.Seq != uint64(allowed.Ask) || got.To != "mckean" {
+		t.Fatalf("mapping answer policy object = %+v, want ask %s/%d for mckean", got, allowed.Bead, allowed.Ask)
+	}
+	wantCardClosed(t, y, allowed.Bead, "declined by ada")
 }
 
 // mappedTo is the users who hold the sender's id in the source.

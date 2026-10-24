@@ -200,7 +200,7 @@ const pairs = "pair this yard with another"
 // (peer_added, peer_allowed) and peer_paired. This is the calling side's;
 // the host's is saved by the pairing itself.
 func (s *Store) PairPeer(ctx context.Context, p Peer, actor string) (*Peer, error) {
-	if err := s.operatorOnly(ctx, actor, pairs, Alone); err != nil {
+	if err := s.mayRead(ctx, actor, ActPair, Object{Kind: KindPeer}); err != nil {
 		return nil, err
 	}
 	return s.pairPeer(p, actor, map[string]any{"role": "joiner"})
@@ -263,7 +263,7 @@ func (s *Store) PairRefused(ctx context.Context, reason, peer, actor string) err
 // PairOpen opens a pairing and returns its code, good for pairing.TTL and
 // for one pairing. A yard has one open at a time.
 func (s *Store) PairOpen(ctx context.Context, o PairOffer, actor string) (*PairingCode, error) {
-	if err := s.operatorOnly(ctx, actor, pairs, Alone); err != nil {
+	if err := s.mayRead(ctx, actor, ActPair, Object{Kind: KindPeer}); err != nil {
 		return nil, err
 	}
 	if err := (pairing.Party{Nonce: pairing.NewNonce(), Name: o.Name, Key: o.Key, URL: o.URL}).Valid(); err != nil {
@@ -326,7 +326,7 @@ func (s *Store) GetPairing(ctx context.Context, id string) (*Pairing, error) {
 // and the peer is saved once the other yard's operator has confirmed too;
 // no ends the pairing with nothing saved on either side.
 func (s *Store) PairAnswer(ctx context.Context, id string, yes bool, actor string) (*Pairing, error) {
-	if err := s.operatorOnly(ctx, actor, pairs, Alone); err != nil {
+	if err := s.mayRead(ctx, actor, ActPair, Object{Kind: KindPeer}); err != nil {
 		return nil, err
 	}
 	s.pair.mu.Lock()
@@ -355,7 +355,7 @@ func (s *Store) PairAnswer(ctx context.Context, id string, yes bool, actor strin
 // it knows what the other yard calls itself. A name that cannot be a peer's
 // here is refused, and the pairing stays as it was.
 func (s *Store) PairName(ctx context.Context, id, name, actor string) (*Pairing, error) {
-	if err := s.operatorOnly(ctx, actor, pairs, Alone); err != nil {
+	if err := s.mayRead(ctx, actor, ActPair, Object{Kind: KindPeer}); err != nil {
 		return nil, err
 	}
 	if err := checkName("peer", name); err != nil {
@@ -381,7 +381,7 @@ func (s *Store) PairName(ctx context.Context, id, name, actor string) (*Pairing,
 // PairClose ends the host's pairing, if it is still open: nothing is
 // saved, and the code is good for nothing.
 func (s *Store) PairClose(ctx context.Context, id, actor string) error {
-	if err := s.operatorOnly(ctx, actor, pairs, Alone); err != nil {
+	if err := s.mayRead(ctx, actor, ActPair, Object{Kind: KindPeer}); err != nil {
 		return err
 	}
 	s.pair.mu.Lock()

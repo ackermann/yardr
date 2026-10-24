@@ -327,7 +327,7 @@ func (s *Store) CrewStartFailedFor(ctx context.Context, name, user, reason strin
 // RequestRestartFor is RequestRestart for one session. A rev other than ""
 // must be the crew member's current revision. Asking for a fresh session
 // is the daemon's, the operator's or the yardmaster's to do
-// (daemonOrYardmaster): a rotation restart runs in-process, and anyone
+// (daemonOr, ActRestartCrew): a rotation restart runs in-process, and anyone
 // else asking must be the operator or the yardmaster.
 func (s *Store) RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error {
 	return s.changeCrewSessionAt(name, user, rev, func(w *wtx, r *CrewMember, st *CrewSession) error {
@@ -336,7 +336,7 @@ func (s *Store) RequestRestartFor(ctx context.Context, name, user, reason, rev, 
 			return err
 		}
 		actor = resolved
-		if err := s.daemonOrYardmaster(ctx, w.Tx, actor, "restart a crew member", Alone); err != nil {
+		if err := s.daemonOr(ctx, w.Tx, actor, ActRestartCrew, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
 		}
 		t := now()

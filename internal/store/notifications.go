@@ -110,36 +110,6 @@ func userSubscribers(tx *bolt.Tx, fn func(u *User, subs []boundSub) error) error
 	})
 }
 
-// maySubscribe refuses actor changing what the user name is told: that is
-// the user's own to decide, or the operator's for them. A crew member
-// deciding what a person hears of is what notifications are there to end.
-// From a session's or a crew member's pane the actor is the pane's
-// (paneAuthor) before the rule is read, so a pane can never pass as the
-// user or the operator by --actor alone.
-func (w *wtx) maySubscribe(ctx context.Context, name, actor string) error {
-	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-	if err != nil {
-		return err
-	}
-	actor = resolved
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	if actor == name || ops.is(actor) {
-		return nil
-	}
-	who := "the operator"
-	if !ops.none() && !ops.is(name) {
-		who = ops.words()
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s is a crew member, and a crew member does not decide what a person is told: %s subscribes themselves, or %s does it for them",
-			actor, name, who)
-	}
-	return fmt.Errorf("%s does not decide what %s is told: %s subscribes themselves, or %s does it for them", or(actor, "nobody"), name, name, who)
-}
-
 // notify writes a notification for each of users (user -> reason), with the
 // push that tells it outside the yard (queuePush), and drops what is over the
 // bound. An operator's is whole and every other user's is told (see

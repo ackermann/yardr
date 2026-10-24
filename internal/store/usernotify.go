@@ -121,61 +121,6 @@ func notifySources(tx *bolt.Tx) ([]string, error) {
 	return out, err
 }
 
-// mayTell refuses a change of where the user name is told outside the yard
-// by anyone but that user and the operator. What lands in a person's inbox
-// goes where these settings point, so whoever sets them can send it out of
-// the yard, to an address of their own. yardr checks nobody's name, so who
-// asks is told by the store's own records before the caller's word, as for
-// a declared source (maySource): a call from the pane of a bead's session
-// or of a crew member is that session's or that crew member's, whatever
-// actor it names.
-func (w *wtx) mayTell(ctx context.Context, name, actor string) error {
-	return w.mayStandFor(ctx, name, actor, func(ops operators) string {
-		why := "where " + name + " is told outside the yard is set by " + name
-		if !ops.none() && !ops.is(name) {
-			why += ", or by " + ops.words()
-		}
-		return why + ": what lands in their inbox goes there"
-	})
-}
-
-// mayAnswerLogin is mayTell for the input of a login that is the user
-// name's own (AskSecret.As beside a Login): the code their sign-in page shows
-// is theirs to read, or the operator's for them, and never the pane of an
-// agent's or a crew member's.
-func (w *wtx) mayAnswerLogin(ctx context.Context, name, actor string) error {
-	return w.mayStandFor(ctx, name, actor, func(ops operators) string {
-		why := "the code that signs " + name + " in is " + name + "'s to give"
-		if !ops.none() && !ops.is(name) {
-			why += ", or " + ops.whose() + " for them"
-		}
-		return why + ": it goes to their login and to nothing else"
-	})
-}
-
-// mayStandFor is the rule behind mayTell and mayAnswerLogin: the user name
-// and the operators, by the store's own records of who calls, and refuses the
-// pane of a session or a crew member with says's words, given the operators.
-func (w *wtx) mayStandFor(ctx context.Context, name, actor string, says func(ops operators) string) error {
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	why := says(ops)
-	if who, err := agentPane(ctx, w.Tx); err != nil {
-		return err
-	} else if who != "" {
-		return fmt.Errorf("%s; this is %s", why, who)
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s; %s is a crew member", why, actor)
-	}
-	if actor != name && !ops.is(actor) {
-		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
-	}
-	return nil
-}
-
 // SetUser sets settings of the user name: UserNotify to the source that
 // tells them ("" for none), UserEnvFile to the path of the file their
 // address in it is read from ("" for none), UserTell to the parts they are
@@ -221,12 +166,12 @@ func (w *wtx) setUser(ctx context.Context, name string, keys []string, set map[s
 	// terminal (Alone). The other settings are where the user is told,
 	// theirs or an operator's (mayTell).
 	if _, ok := set[UserRole]; ok {
-		if err := w.operatorOnly(ctx, actor, "change a user's role", Alone); err != nil {
+		if err := w.may(ctx, actor, ActChangeRole, Object{Kind: KindUser, Name: name}); err != nil {
 			return nil, err
 		}
 	}
 	if len(keys) > 1 || keys[0] != UserRole {
-		if err := w.mayTell(ctx, name, actor); err != nil {
+		if err := w.may(ctx, actor, ActTell, Object{Kind: KindUser, Name: name}); err != nil {
 			return nil, err
 		}
 	}
@@ -394,7 +339,7 @@ func (w *wtx) keyUser(ctx context.Context, home, name, srcName string, values ma
 	if err != nil {
 		return err
 	}
-	if err := w.mayTell(ctx, name, actor); err != nil {
+	if err := w.may(ctx, actor, ActTell, Object{Kind: KindUser, Name: name}); err != nil {
 		return err
 	}
 	src := new(Source)

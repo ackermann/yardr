@@ -1361,11 +1361,11 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	// Before anything is written: an agent's approval changes nothing, not
 	// even what the transaction would take back.
 	if c.sole != nil && c.sole(argv) != "" {
-		err = w.mayApproveSole(ctx, actor, r.Ask.To, c.sole(argv))
+		err = w.may(ctx, actor, ActApproveSole, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To, Whose: c.sole(argv)})
 	} else if c.whose != nil {
-		err = w.mayApproveOwn(ctx, actor, r.Ask.To, c.whose(argv))
+		err = w.may(ctx, actor, ActApproveOwn, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To, Whose: c.whose(argv)})
 	} else {
-		err = w.mayApprove(ctx, actor)
+		err = w.may(ctx, actor, ActApproveRun, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To})
 	}
 	if err != nil {
 		return nil, err
@@ -1507,94 +1507,4 @@ func sameMap(a, b map[string]string) bool {
 		}
 	}
 	return true
-}
-
-// mayApprove refuses an approval by anyone but an operator: any of them,
-// whomever of them the ask was put to, so an approval does not wait on one
-// person. It is the firmest check the store has, as maySource is: who asks
-// is told by the store's own record of the calling process before the
-// caller's word, so a call from the pane of a bead's session or of a crew
-// member is refused whatever actor it names. A yard without an operator
-// has nobody whose command it would be.
-func (w *wtx) mayApprove(ctx context.Context, actor string) error {
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	if ops.none() {
-		return fmt.Errorf("approving a command is the operator's, and this yard has none: yardr settings set operator <name>")
-	}
-	why := "approving a command is " + ops.whose() + ": the yard runs it as them"
-	pane, err := agentPane(ctx, w.Tx)
-	if err != nil {
-		return err
-	}
-	if pane != "" {
-		return fmt.Errorf("%s; this is %s", why, pane)
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s; %s is a crew member", why, actor)
-	}
-	if !ops.is(actor) {
-		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
-	}
-	return nil
-}
-
-// mayApproveOwn refuses an approval of a command that is the user whose own
-// to give, as it is the operator's for them, by anyone but the one the ask
-// was put to, who is one of the two: the card says the yard runs the
-// command as the one asked, and so it does. An agent's pane is refused
-// first, whatever actor the call names, as mayApprove refuses it. Whether
-// the one asked may still make the change is the command's own check,
-// which runs after this one.
-func (w *wtx) mayApproveOwn(ctx context.Context, actor, to, whose string) error {
-	why := "approving this command is " + to + "'s, whom it was asked of: the yard runs it as them"
-	pane, err := agentPane(ctx, w.Tx)
-	if err != nil {
-		return err
-	}
-	if pane != "" {
-		return fmt.Errorf("%s; this is %s", why, pane)
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s; %s is a crew member", why, actor)
-	}
-	if actor != to {
-		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
-	}
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	if to != whose && !ops.is(to) {
-		return fmt.Errorf("this command is %s's own to approve, or an operator's for them, and %s is neither now", whose, to)
-	}
-	return nil
-}
-
-// mayApproveSole is mayApproveOwn for a command one user alone gives:
-// the one asked must be that user, and the operator has no leg beside
-// them, so an approval by the operator (or by anyone else) is refused
-// whoever the ask was put to. An agent's pane is refused first, as in
-// mayApproveOwn.
-func (w *wtx) mayApproveSole(ctx context.Context, actor, to, sole string) error {
-	why := "approving this command is " + sole + "'s alone, and nobody else's: the yard runs it as them"
-	pane, err := agentPane(ctx, w.Tx)
-	if err != nil {
-		return err
-	}
-	if pane != "" {
-		return fmt.Errorf("%s; this is %s", why, pane)
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return fmt.Errorf("%s; %s is a crew member", why, actor)
-	}
-	if actor != to {
-		return fmt.Errorf("%s; this is %s", why, or(actor, "nobody"))
-	}
-	if to != sole {
-		return fmt.Errorf("this command is %s's own to approve alone, and %s is not them", sole, to)
-	}
-	return nil
 }

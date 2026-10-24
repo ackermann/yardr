@@ -884,7 +884,7 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 // then the ask it was approved on, which the event carries. known is
 // whether key is one of KnownSettings.
 func (w *wtx) setSetting(ctx context.Context, key, value string, known bool, actor string, by *approvedOn) error {
-	if err := w.operatorOnly(ctx, actor, "change a setting", settingAsk(key)); err != nil {
+	if err := w.may(ctx, actor, ActChangeSetting, Object{Kind: KindSetting, Name: key, Ask: settingAsk(key)}); err != nil {
 		return err
 	}
 	if !known && (value != "" || w.Bucket(bSettings).Get([]byte(key)) == nil) {

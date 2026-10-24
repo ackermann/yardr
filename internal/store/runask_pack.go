@@ -98,7 +98,7 @@ func checkPackApply(ctx context.Context, w *wtx, run AskRun, actor string) error
 	if w.packReaderOf() == nil {
 		return fmt.Errorf("pack %s: no server has registered its reading of the packs yardr embeds on this store, so no card can be written from the binary that runs the yard: a pack is proposed from a yard its server runs", run.Argv[2])
 	}
-	return w.operatorOnly(ctx, actor, "apply a pack", Askable)
+	return w.may(ctx, actor, ActApplyPack, Object{Kind: KindPack, Name: run.Argv[2], Ask: Askable})
 }
 
 // inventoryOf is every file under <home>/sources/<name>/ as the yard

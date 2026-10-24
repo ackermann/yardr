@@ -347,7 +347,7 @@ func (s *Store) DeleteGroup(ctx context.Context, name, actor string) (int, error
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOrYardmaster(ctx, actor, "remove a group", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemoveGroup, Object{Kind: KindGroup, Name: name}); err != nil {
 			return err
 		}
 		// Batch reruns this closure when another call in the batch fails, so
@@ -1892,51 +1892,6 @@ func stageGroup(tx *bolt.Tx, b *beadRow) (*Group, error) {
 	return g, nil
 }
 
-// checkMembers refuses moving b out of its stage when the stage's group g
-// has members and whoever asks is none of them, naming who may. Who asks is
-// told by the store's own records before the caller's word: a move from the
-// pane of a bead's agent, or one that names such a session as its own
-// (callerSession), is that agent's, which is a member of no group, and one
-// from a crew member's pane is that crew member's, whatever actor the
-// command names. A stage of people is what stands between another
-// yard's text and this yard's agents (docs/peers.md, "The intake"), and a
-// crew member that reads such a bead and is talked into moving it on
-// cannot do it by naming someone who may. The one exception is a session
-// of the exec runner: a script, not a model, so there is no one for
-// another yard's text to talk into anything, and it counts as its group
-// where the members list that group. A call the store knows no pane
-// of is told by its actor, as a manual group's session is: a person at
-// work.
-func (w *wtx) checkMembers(ctx context.Context, exp Expect, g *Group, b *beadRow, actor string) error {
-	if g == nil || len(g.Members) == 0 {
-		return nil
-	}
-	only := fmt.Sprintf("bead %s: only members of group %s may move it out of stage %s: %s", b.ID, g.Name, b.Stage, strings.Join(g.Members, ", "))
-	sess, err := w.callerSession(ctx, exp, b)
-	if err != nil {
-		return err
-	}
-	if sess != nil && !sess.Manual() {
-		if sess.RunnerName() == "exec" && slices.Contains(g.Members, sess.Group) {
-			return nil
-		}
-		return fmt.Errorf("%s (this is the session %s of a bead's agent, whatever actor the command names)", only, sess.ID)
-	}
-	r, err := paneCrew(w.Tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	switch {
-	case r != nil && slices.Contains(g.Members, r.Name):
-		return nil
-	case r != nil && r.Name != actor:
-		return fmt.Errorf("%s (this is the pane of the crew member %s, whatever actor the command names: %q)", only, r.Name, actor)
-	case r == nil && slices.Contains(g.Members, actor):
-		return nil
-	}
-	return fmt.Errorf("%s (you are %q)", only, actor)
-}
-
 // DeleteRoute removes a route and logs route_removed with what it matched.
 // A route that was not there logs nothing. Removing a route is the
 // operator's or the yardmaster's to do (operatorOrYardmaster).
@@ -1947,7 +1902,7 @@ func (s *Store) DeleteRoute(ctx context.Context, id, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOrYardmaster(ctx, actor, "remove a route", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemoveRoute, Object{Kind: KindRoute, Name: id}); err != nil {
 			return err
 		}
 		var r Route

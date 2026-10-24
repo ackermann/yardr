@@ -483,7 +483,7 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 		if !ok {
 			ask = Alone
 		}
-		if err := w.operatorOnly(ctx, actor, added[0], ask); err != nil {
+		if err := w.may(ctx, actor, ActGrantCrew, Object{Kind: KindCrew, Name: def.Name, Does: added[0], Ask: ask}); err != nil {
 			return nil, err
 		}
 	}
@@ -495,7 +495,7 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 	if ps := configProblems(CrewConfig, def.Name, def.Runner, def.Config, kept); len(ps) > 0 {
 		return nil, ps[0]
 	}
-	if err := checkCrewSessionSettings(ctx, w.Tx, def.Name, r.Config, def.Config, actor); err != nil {
+	if err := w.checkCrewSessionSettings(ctx, def.Name, r.Config, def.Config, actor); err != nil {
 		return nil, err
 	}
 	if err := checkCrewUsers(w.Tx, &def); err != nil {
@@ -536,7 +536,7 @@ func (w *wtx) putCrew(ctx context.Context, def CrewMember, actor string, by *app
 // checkCrewSessionSettings keeps the conversation logins and the serving
 // list in the operator's hands: they decide which user's login the daemon
 // starts. Other crew settings keep PutCrew's existing actor rules.
-func checkCrewSessionSettings(ctx context.Context, tx *bolt.Tx, name string, before, after map[string]any, actor string) error {
+func (w *wtx) checkCrewSessionSettings(ctx context.Context, name string, before, after map[string]any, actor string) error {
 	keys := map[string]bool{}
 	for key := range before {
 		if key == CrewForKey || IsEnvForKey(key) {
@@ -559,7 +559,7 @@ func checkCrewSessionSettings(ctx context.Context, tx *bolt.Tx, name string, bef
 		if had == set && reflect.DeepEqual(was, is) {
 			continue
 		}
-		if err := operatorOnly(ctx, tx, actor, fmt.Sprintf("change %s on crew member %s", key, name), Alone); err != nil {
+		if err := w.may(ctx, actor, ActChangeCrew, Object{Kind: KindCrew, Name: name, Does: fmt.Sprintf("change %s on crew member %s", key, name)}); err != nil {
 			return err
 		}
 	}
@@ -642,18 +642,8 @@ func (s *Store) DeleteCrew(ctx context.Context, name, rev, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOrYardmaster(ctx, actor, "remove a crew member", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemoveCrew, Object{Kind: KindCrew, Name: name}); err != nil {
 			return err
-		}
-		var ym string
-		if _, err := get(w.Tx, bSettings, YardmasterSetting, &ym); err != nil {
-			return err
-		}
-		if ym == "" {
-			ym = "yardmaster"
-		}
-		if actor == ym && name == ym {
-			return fmt.Errorf("the yardmaster cannot remove itself; the operator can")
 		}
 		if err := w.Bucket(bCrew).Delete([]byte(name)); err != nil {
 			return err
@@ -731,7 +721,7 @@ func (s *Store) SetCrewEnabled(ctx context.Context, name string, enabled bool, r
 		}
 		actor = resolved
 		if enabled {
-			if err := w.operatorOrYardmaster(ctx, actor, "enable a crew member", Alone); err != nil {
+			if err := w.may(ctx, actor, ActEnableCrew, Object{Kind: KindCrew, Name: name}); err != nil {
 				return err
 			}
 		}

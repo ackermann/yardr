@@ -450,47 +450,23 @@ func (w *wtx) stageAnswerAuth(ctx context.Context, row *beadRow, ask Ask, actor 
 	if err != nil {
 		return err
 	}
-	if err := w.checkMembers(ctx, Expect{}, g, row, actor); err != nil {
-		spoil, serr := w.stageAnswerSpoof(ctx, row, actor)
-		if serr != nil || spoil {
-			if serr != nil {
-				return serr
-			}
-			return err
-		}
-		var peers []Peer
-		if err := each(w.Tx, bPeers, "", func(_ []byte, p *Peer) error {
-			peers = append(peers, *p)
-			return nil
-		}); err != nil {
-			return err
-		}
-		// An answer arriving over reach counts as the member's word.
-		if as, ok := TrustedAs(peers)[actor]; ok {
-			if slices.Contains(g.Members, as) || ask.Fallback && as == ask.To {
-				return nil
-			}
-		}
-		if ask.Fallback && actor == ask.To {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return w.may(ctx, actor, ActAnswerStageAsk, Object{
+		Kind: KindBead, Name: row.ID, Group: g, To: ask.To, Fallback: ask.Fallback, row: row,
+	})
 }
 
-// stageAnswerSpoof is whether the answer's caller is who checkMembers
+// stageAnswerSpoofTx is whether the answer's caller is who checkMembers
 // refuses whatever name it answers under: a bead's agent session, or a
 // crew pane naming another name.
-func (w *wtx) stageAnswerSpoof(ctx context.Context, row *beadRow, actor string) (bool, error) {
-	sess, err := w.callerSession(ctx, Expect{}, row)
+func stageAnswerSpoofTx(ctx context.Context, tx *bolt.Tx, row *beadRow, actor string) (bool, error) {
+	sess, err := callerSessionTx(tx, callerOf(ctx), Expect{}, row)
 	if err != nil {
 		return false, err
 	}
 	if sess != nil && !sess.Manual() {
 		return true, nil
 	}
-	r, err := paneCrew(w.Tx, callerOf(ctx))
+	r, err := paneCrew(tx, callerOf(ctx))
 	if err != nil {
 		return false, err
 	}

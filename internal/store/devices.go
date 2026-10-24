@@ -147,7 +147,7 @@ func (s *Store) AddDevice(ctx context.Context, user, name, actor string) (*NewDe
 		return nil, err
 	}
 	err = s.write(func(w *wtx) error {
-		if err := mayAddDevice(ctx, w.Tx, user, actor); err != nil {
+		if err := w.may(ctx, actor, ActAddDevice, Object{Kind: KindUser, Name: user}); err != nil {
 			return err
 		}
 		return putDevice(w, out, user, name, actor, nil)
@@ -165,18 +165,6 @@ func newDevice() (*NewDevice, error) {
 		return nil, err
 	}
 	return &NewDevice{Token: DeviceTokenPrefix + base64.RawURLEncoding.EncodeToString(raw)}, nil
-}
-
-// mayAddDevice is who gives a user a device: the operator, outside an
-// agent's pane. It is asked where the operator asks for one, by AddDevice
-// and by the opening of a pairing (DevicePairOpen).
-func mayAddDevice(ctx context.Context, tx *bolt.Tx, user, actor string) error {
-	if who, err := agentPane(ctx, tx); err != nil {
-		return err
-	} else if who != "" {
-		return fmt.Errorf("a device is added by the operator, outside an agent's pane: whoever adds one decides who may speak as %s; this is %s", user, who)
-	}
-	return operatorOnly(ctx, tx, actor, "add a device", Alone)
 }
 
 // deviceFree refuses a device that cannot be added: one of a user the yard
@@ -260,14 +248,8 @@ func (s *Store) RemoveDevice(ctx context.Context, user, name, actor string) (*De
 			return err
 		}
 		actor = resolved
-		if actor != user {
-			operator, this, err := notOperator(ctx, w.Tx, actor)
-			if err != nil {
-				return err
-			}
-			if this != "" {
-				return fmt.Errorf("only %s or %s may remove a device of %s; this is %s", user, operator, user, this)
-			}
+		if err := w.may(ctx, actor, ActRemoveDevice, Object{Kind: KindUser, Name: user}); err != nil {
+			return err
 		}
 		key := join(user, name)
 		var d deviceRecord

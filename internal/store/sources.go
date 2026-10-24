@@ -123,53 +123,6 @@ func (s Source) UpdateLimit() int {
 	return SourceUpdateLimit
 }
 
-// maySource refuses a change to the declared sources by anyone but the
-// operator. A source is where a credential of the yard is sent: whoever
-// may replace its file can point the next call, and the credential with
-// it, at an address of their own. And its file may name a command the yard
-// runs (limits), as the user the daemon runs as. Who asks is told by the store's own
-// records before the caller's word, as for a move out of a stage whose
-// group has members (checkMembers): a call from the pane of a bead's session or of a crew
-// member is that session's or that crew member's, whatever actor it
-// names. A yard without an operator has nobody to hold it to, and takes
-// the change from anyone who is no agent of its own. ask marks whether a
-// run ask may propose it, beside the refusal it marks.
-func (w *wtx) maySource(ctx context.Context, actor, does string, ask AskClass) error {
-	ops, err := operatorsIn(w.Tx)
-	if err != nil {
-		return err
-	}
-	why := does + " is " + ops.whose()
-	why += ": a source is where a credential of the yard is sent, and its file may name a command the yard runs"
-	refuse := func(format, a string) error {
-		return &OperatorOnlyError{msg: fmt.Sprintf(format, why, a), ask: ask}
-	}
-	sess, err := paneSession(w.Tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	if sess != nil && !sess.Manual() {
-		return refuse("%s; this is the session %s of a bead's agent", sess.ID)
-	}
-	r, err := paneCrew(w.Tx, callerOf(ctx))
-	if err != nil {
-		return err
-	}
-	if r != nil {
-		return refuse("%s; this is the crew member %s", r.Name)
-	}
-	if err := startingRefused(w.Tx, sessionOf(ctx)); err != nil {
-		return err
-	}
-	if w.Bucket(bCrew).Get([]byte(actor)) != nil {
-		return &OperatorOnlyError{msg: fmt.Sprintf("%s; %s is a crew member", why, actor), ask: ask}
-	}
-	if !ops.none() && !ops.is(actor) {
-		return refuse("%s; this is %s", or(actor, "nobody"))
-	}
-	return nil
-}
-
 // PutSource adds the source text declares, under the name the text gives
 // it, or replaces the one of that name, which keeps its settings. file is
 // how an error names the text. A declaration that source.Parse refuses,
@@ -186,7 +139,7 @@ func (s *Store) PutSource(ctx context.Context, file, text, actor string) (*Sourc
 	err = s.write(func(w *wtx) error {
 		// Alone: it reads a file that says where a credential is sent and
 		// may name a command the yard runs.
-		if err := w.maySource(ctx, actor, "adding a source", Alone); err != nil {
+		if err := w.may(ctx, actor, ActAddSource, Object{Kind: KindSource, Name: d.Name}); err != nil {
 			return err
 		}
 		var was Source
@@ -399,7 +352,7 @@ func (w *wtx) setSource(ctx context.Context, name, key, value string, perHour in
 // ask uses the same permission and existence check for both its asker
 // and the operator it would run as.
 func (w *wtx) sourceSetCheck(ctx context.Context, name, key, actor string) (*Source, error) {
-	if err := w.maySource(ctx, actor, "setting a source's credential", sourceSetAsk(key)); err != nil {
+	if err := w.may(ctx, actor, ActSetSourceKey, Object{Kind: KindSource, Name: name, Ask: sourceSetAsk(key)}); err != nil {
 		return nil, err
 	}
 	src := new(Source)
@@ -435,7 +388,7 @@ func ignoredIn(tx *bolt.Tx, name, sender string) bool {
 // cards for the sender (retireMappingCards), also where the id was on
 // the list already: the sender is settled either way.
 func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string) error {
-	if err := w.maySource(ctx, actor, "ignoring a sender in a source", Askable); err != nil {
+	if err := w.may(ctx, actor, ActIgnoreSender, Object{Kind: KindSource, Name: name, Ask: Askable}); err != nil {
 		return err
 	}
 	src := new(Source)
@@ -460,7 +413,7 @@ func (w *wtx) ignoreSender(ctx context.Context, name, sender, actor string) erro
 // ignoring is; an id the list does not name is refused. by is the ask
 // the change was approved on, nil for one typed at a terminal.
 func (w *wtx) unignoreSender(ctx context.Context, name, sender, actor string, by *approvedOn) error {
-	if err := w.maySource(ctx, actor, "un-ignoring a sender in a source", Askable); err != nil {
+	if err := w.may(ctx, actor, ActUnignoreSender, Object{Kind: KindSource, Name: name, Ask: Askable}); err != nil {
 		return err
 	}
 	src := new(Source)
@@ -733,7 +686,7 @@ func checkURLCredential(d *source.Declaration, name string, values map[string]st
 // Whoever has more to record of the giving puts it before calling this:
 // nothing may follow the rename but the commit.
 func (w *wtx) keySource(ctx context.Context, home, name string, values map[string]string, actor string, k *sourceKey) error {
-	if err := w.maySource(ctx, actor, "setting a source's credential", Alone); err != nil {
+	if err := w.may(ctx, actor, ActSetSourceKey, Object{Kind: KindSource, Name: name}); err != nil {
 		return err
 	}
 	src := new(Source)
@@ -803,7 +756,7 @@ func (s *Store) DeleteSource(ctx context.Context, name, actor string) error {
 func (w *wtx) deleteSource(ctx context.Context, name, actor string) error {
 	// Alone: removing a source also removes the files of its commands
 	// from disk, which no write of the store takes back.
-	if err := w.maySource(ctx, actor, "removing a source", Alone); err != nil {
+	if err := w.may(ctx, actor, ActRemoveSource, Object{Kind: KindSource, Name: name}); err != nil {
 		return err
 	}
 	if w.Bucket(bSources).Get([]byte(name)) == nil {

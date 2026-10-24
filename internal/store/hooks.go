@@ -675,11 +675,11 @@ func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn,
 		}
 		switch {
 		case !had:
-			if err := w.operatorOnly(ctx, actor, "add a hook", add); err != nil {
+			if err := w.may(ctx, actor, ActAddHook, Object{Kind: KindHook, Name: h.Name, Ask: add}); err != nil {
 				return nil, err
 			}
 		case was.Source != h.Source || was.SecretFile != h.SecretFile:
-			if err := w.operatorOnly(ctx, actor, "change a hook's source or secret file", Alone); err != nil {
+			if err := w.may(ctx, actor, ActChangeHookSource, Object{Kind: KindHook, Name: h.Name}); err != nil {
 				return nil, err
 			}
 		}
@@ -700,7 +700,7 @@ func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn,
 			h.Unknown = HookUnknownUnknown
 		}
 		if had && identityHearing && was.UnknownPolicy() != h.UnknownPolicy() {
-			if err := w.operatorOnly(ctx, actor, "change a hook's unmapped sender policy", Alone); err != nil {
+			if err := w.may(ctx, actor, ActChangeHookUnknown, Object{Kind: KindHook, Name: h.Name}); err != nil {
 				return nil, err
 			}
 		}
@@ -729,7 +729,7 @@ func (w *wtx) putHook(ctx context.Context, h Hook, actor string, by *approvedOn,
 				return nil, fmt.Errorf("hook %s: --as %s: crew member %s: %w", h.Name, h.As, h.As, ErrNotFound)
 			}
 			// A hook that acts as a crew member speaks as it.
-			if err := maySpeakAs(ctx, w.Tx, h.As, actor); err != nil {
+			if err := w.may(ctx, actor, ActSpeakAs, Object{Kind: KindCrew, Name: h.As}); err != nil {
 				return nil, fmt.Errorf("hook %s: %w", h.Name, err)
 			}
 			if r.Identities[h.Source].zero() {
@@ -842,7 +842,7 @@ func (s *Store) DeleteHook(ctx context.Context, name, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "remove a hook", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemoveHook, Object{Kind: KindHook, Name: name}); err != nil {
 			return err
 		}
 		if w.Bucket(bHooks).Get([]byte(name)) == nil {

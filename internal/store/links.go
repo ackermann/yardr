@@ -501,7 +501,7 @@ func (s *Store) MoveLinkSource(ctx context.Context, from, to, actor string) (int
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOnly(ctx, actor, "move links from one source to another", Alone); err != nil {
+		if err := w.may(ctx, actor, ActMoveLinks, Object{Kind: KindSource, Name: from, To: to}); err != nil {
 			return err
 		}
 		var all []linkRow

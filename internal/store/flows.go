@@ -553,7 +553,7 @@ func (s *Store) DeleteFlow(ctx context.Context, name, actor string) error {
 			return err
 		}
 		actor = resolved
-		if err := w.operatorOrYardmaster(ctx, actor, "remove a flow", Alone); err != nil {
+		if err := w.may(ctx, actor, ActRemoveFlow, Object{Kind: KindFlow, Name: name}); err != nil {
 			return err
 		}
 		k := []byte(name)

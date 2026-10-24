@@ -106,9 +106,9 @@ func hookUnknownSays(effective string) string {
 func checkHookAdd(ctx context.Context, w *wtx, argv []string, actor string) error {
 	name, _ := hookAddOf(argv)
 	if w.Bucket(bHooks).Get([]byte(name)) != nil {
-		return w.operatorOnly(ctx, actor, "replace a hook", Alone)
+		return w.may(ctx, actor, ActReplaceHook, Object{Kind: KindHook, Name: name})
 	}
-	return w.operatorOnly(ctx, actor, "add a hook", Askable)
+	return w.may(ctx, actor, ActAddHook, Object{Kind: KindHook, Name: name, Ask: Askable})
 }
 
 // hookAddCard is the card of hook add <name> --source <source>
@@ -640,7 +640,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	if err != nil {
 		return nil, fmt.Errorf("ask %d: %w", seq, err)
 	}
-	if err := w.mayApprove(ctx, actor); err != nil {
+	if err := w.may(ctx, actor, ActApproveRun, Object{Kind: KindAsk, Name: row.ID, Seq: seq, To: r.Ask.To}); err != nil {
 		return nil, err
 	}
 	if !slices.Equal(argv, was.Argv) {
