@@ -207,10 +207,13 @@ func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	if _, err := os.ReadFile(script); err != nil {
 		t.Fatal(err)
 	}
+	// YARDR_TEST_PID is the test binary's own pid: a fixture file-wait ends
+	// when it is gone, since a killed binary runs no cleanup.
 	env := append(os.Environ(),
 		"YARDR_BEAD=r-1", "YARDR_DEPOT=r", "YARDR_DEPOT_PATH="+repo, "YARDR_BASE=main",
 		"YARDR_BRANCH=yard/r-1", "YARDR_WORKTREE="+wt, "YARDR_TEST="+test,
 		"YARDR_TEST_TIMEOUT="+limit, "YARDR_BIN="+stub, "TMPDIR="+tmp,
+		"YARDR_TEST_PID="+strconv.Itoa(os.Getpid()),
 		"FAKE_SLEEP_RECORD="+record, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return &watcherRun{t: t, repo: repo, wt: wt, tmp: tmp, script: script,
 		record: record, env: env, extra: extra, test: test, limit: limit}
@@ -723,8 +726,10 @@ func TestMergeLocalIgnoresZeroWatcherPID(t *testing.T) {
 	// second: however long this goroutine is unscheduled, merge-local cannot
 	// finish, kill its watcher and remove the nap file before the zero is
 	// written. The release path needs w.tmp, so the command is gated here.
+	// The wait also ends when the test binary is gone, so a killed run
+	// leaves no gated command polling.
 	release := filepath.Join(w.tmp, "release")
-	gated := "while [ ! -f " + shellQuote(release) + " ]; do sleep 1; done"
+	gated := "while [ ! -f " + shellQuote(release) + " ]; do kill -0 \"$YARDR_TEST_PID\" 2>/dev/null || exit 0; sleep 1; done"
 	for i, kv := range w.env {
 		if strings.HasPrefix(kv, "YARDR_TEST=") {
 			w.env[i] = "YARDR_TEST=" + gated

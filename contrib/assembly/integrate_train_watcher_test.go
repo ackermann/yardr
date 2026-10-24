@@ -276,9 +276,9 @@ func TestIntegrateTrainIgnoresZeroWatcherPID(t *testing.T) {
 			// The test command waits for a release file, as merge-local's
 			// zero test does: the run cannot finish and remove the nap
 			// file before the zero is written, however long this goroutine
-			// is unscheduled.
+			// is unscheduled. The wait ends with the test binary, as there.
 			release := filepath.Join(w.tmp, "release")
-			gated := "while [ ! -f " + shellQuote(release) + " ]; do sleep 1; done"
+			gated := "while [ ! -f " + shellQuote(release) + " ]; do kill -0 \"$YARDR_TEST_PID\" 2>/dev/null || exit 0; sleep 1; done"
 			for i, kv := range w.env {
 				if strings.HasPrefix(kv, "YARDR_TEST=") {
 					w.env[i] = "YARDR_TEST=" + gated

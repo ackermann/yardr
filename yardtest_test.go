@@ -4088,9 +4088,12 @@ func testYardTestRaceLegLockDiesWithOrphan(t *testing.T, forceDeadline bool) {
 if [ "$1" = test ]; then
   if [ "$FORCE_ORPHAN_DEADLINE" = true ]; then
     : >"$FAKE/fixture-ready"
-    while [ ! -f "$FAKE/allow-barrier" ]; do sleep 0.1; done
+    # Each wait also ends when the test binary is gone: t.Cleanup never
+    # runs for a killed binary, so without kill -0 the fixture would poll
+    # for a file nobody will write, forever.
+    while [ ! -f "$FAKE/allow-barrier" ]; do kill -0 "$YARDR_TEST_PID" 2>/dev/null || exit 0; sleep 0.1; done
     : >"$FAKE/barrier-reached"
-    while [ ! -f "$FAKE/release" ]; do sleep 0.1; done
+    while [ ! -f "$FAKE/release" ]; do kill -0 "$YARDR_TEST_PID" 2>/dev/null || exit 0; sleep 0.1; done
   fi
   sleep 300 &
   echo $! >"$FAKE/sleeper"
@@ -4121,10 +4124,13 @@ fi
 	cmd := exec.Command("sh", ".yardr/test")
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// YARDR_TEST_PID is the test binary's own pid: the fake go's waits end
+	// when it is gone, since a killed binary runs no cleanup.
 	cmd.Env = append(scriptEnv(),
 		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"YARDR_LANDING=1", "YARDR_BASE=nowhere", "HOME="+home, "TMPDIR="+tmp, "FAKE="+fake,
-		"FORCE_ORPHAN_DEADLINE="+strconv.FormatBool(forceDeadline))
+		"FORCE_ORPHAN_DEADLINE="+strconv.FormatBool(forceDeadline),
+		"YARDR_TEST_PID="+strconv.Itoa(os.Getpid()))
 	outFile, err := os.CreateTemp(t.TempDir(), "yardtest-orphan")
 	if err != nil {
 		t.Fatal(err)

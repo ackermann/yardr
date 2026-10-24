@@ -190,10 +190,12 @@ func gateRm(t *testing.T, bin string) (arm, held, release string) {
 	}
 	dir := filepath.Dir(bin)
 	arm, held, release = filepath.Join(dir, "rm-arm"), filepath.Join(dir, "rm-held"), filepath.Join(dir, "rm-release")
+	// The wait ends when the test binary is gone, so a killed run leaves
+	// no rm wrapper polling for a release nobody will touch.
 	wrapper := "#!/bin/sh\n" +
 		"if [ -e " + shellQuote(arm) + " ] && [ ! -e " + shellQuote(release) + " ]; then\n" +
 		"  : >" + shellQuote(held) + "\n" +
-		"  while [ ! -e " + shellQuote(release) + " ]; do " + shellQuote(sleep) + " 0.05; done\n" +
+		"  while [ ! -e " + shellQuote(release) + " ]; do kill -0 \"$YARDR_TEST_PID\" 2>/dev/null || exit 0; " + shellQuote(sleep) + " 0.05; done\n" +
 		"fi\n" +
 		"exec " + shellQuote(rm) + " \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "rm"), []byte(wrapper), 0o755); err != nil {
