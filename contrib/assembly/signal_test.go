@@ -212,12 +212,17 @@ func TestMergeLocalTestsDeadlineExcludesRaceLockWaitLongerThanLimit(t *testing.T
 }
 
 // Past LIMIT plus its waited seconds, the run is killed as before: here
-// LIMIT is 2, the wait 2, and the run 10, killed at 4.
+// LIMIT is 2, the wait 2, and the run 30, killed at 4. The run outlasts
+// the kill by 26 s, not 6: under a pileup's load the watcher's spawns
+// stall past a 10 s run, which then lands instead of going back to new
+// (yardr-d6wj). A green run still ends at the kill, so the longer sleep
+// costs it nothing, and a run that finishes fails the assertions below,
+// well short of the exec fuse.
 func TestMergeLocalTestsDeadlinePastRaceLockWaitIsRed(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.wt, "b.txt", "bead\n")
 	ran := filepath.Join(y.home, "ran")
-	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 10`)
+	y.tests(`echo run >> ` + ran + `; echo "test: waited 2 s for the race lock"; sleep 30`)
 	y.opts = "YARDR_TEST_TIMEOUT=2"
 
 	y.assembly()

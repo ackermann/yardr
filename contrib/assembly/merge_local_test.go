@@ -443,7 +443,11 @@ func (y *yard) exec(script, group, id string) {
 		}
 		if time.Now().After(deadline) {
 			_ = e.Stop(ctx, h)
-			y.t.Fatalf("%s did not finish", script)
+			// The run's log is the only record of where the script
+			// stuck; without it the next flake keeps nothing again.
+			out, _ := os.ReadFile(logPath)
+			y.log = string(out)
+			y.t.Fatalf("%s did not finish; %s log:\n%s", script, group, out)
 		}
 	}
 	out, _ := os.ReadFile(logPath)
