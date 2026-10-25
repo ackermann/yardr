@@ -79,26 +79,33 @@ esac`)}
 // no other kind gets the flag, and a group that passes it gets it once.
 // yardr-bcx5: and with its check for a release of itself off, whatever the
 // operator's own config says, so that no session upgrades Codex at start.
+// yardr-2eka: and with its own memory off unless a group explicitly enables
+// it; Codex applies --disable after --enable regardless of argument order.
 func TestAgentArgsCodexRunsWithoutItsSharedDaemon(t *testing.T) {
 	t.Parallel()
 	const noUpdate = "--config=check_for_update_on_startup=false"
+	const memOff = "--disable memories "
 	cases := []struct {
 		name string
 		cfg  map[string]any
 		bead string
 		want string
 	}{
-		{"codex", map[string]any{"kind": "codex"}, "", "--no-daemon " + noUpdate},
+		{"codex", map[string]any{"kind": "codex"}, "", memOff + "--no-daemon " + noUpdate},
 		{"codex with args and a model", map[string]any{"kind": "codex", "args": []any{"--approve-for-me"}, "model": "gpt-6-luna"}, "",
-			"--no-daemon " + noUpdate + " --approve-for-me --model gpt-6-luna"},
+			memOff + "--no-daemon " + noUpdate + " --approve-for-me --model gpt-6-luna"},
 		{"codex with a bead's model", map[string]any{"kind": "codex", "model": "gpt-6-luna"}, "gpt-6-astra",
-			"--no-daemon " + noUpdate + " --model gpt-6-astra"},
+			memOff + "--no-daemon " + noUpdate + " --model gpt-6-astra"},
 		{"codex already told", map[string]any{"kind": "codex", "args": []any{"--no-daemon", "--approve-for-me"}}, "",
-			noUpdate + " --no-daemon --approve-for-me"},
+			memOff + noUpdate + " --no-daemon --approve-for-me"},
 		// yardr-bcx5: a group's own -c (the reviewers' reasoning effort) is
 		// another setting's, and does not pass for the update check's.
 		{"codex with a -c of its own", map[string]any{"kind": "codex", "args": []any{"-c", "model_reasoning_effort=high"}}, "",
-			"--no-daemon " + noUpdate + " -c model_reasoning_effort=high"},
+			memOff + "--no-daemon " + noUpdate + " -c model_reasoning_effort=high"},
+		{"codex with its memory back on", map[string]any{"kind": "codex", "args": []any{"--enable", "memories"}}, "",
+			"--no-daemon " + noUpdate + " --enable memories"},
+		{"codex with its memory back on as one arg", map[string]any{"kind": "codex", "args": []any{"--enable=memories"}}, "",
+			"--no-daemon " + noUpdate + " --enable=memories"},
 		{"claude", map[string]any{"kind": "claude", "args": []any{"--permission-mode", "auto"}}, "", "--permission-mode auto"},
 		{"no kind is claude", map[string]any{}, "", ""},
 	}

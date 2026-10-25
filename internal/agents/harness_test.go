@@ -189,6 +189,47 @@ func TestTrustEnv(t *testing.T) {
 	}
 }
 
+// The switch that turns a harness's own memory off in a session the yard
+// starts: claude's is the environment, codex's an argument, and no other
+// kind names one (yardr-2eka).
+func TestMemoryOff(t *testing.T) {
+	t.Parallel()
+	env, args := MemoryOff("claude")
+	if !slices.Equal(env, []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"}) || args != nil {
+		t.Errorf("claude: env %v args %v", env, args)
+	}
+	env, args = MemoryOff("codex")
+	if env != nil || !slices.Equal(args, []string{"--disable", "memories"}) {
+		t.Errorf("codex: env %v args %v", env, args)
+	}
+	for _, kind := range []string{"kimi", "muse", "cursor", ""} {
+		if env, args := MemoryOff(kind); env != nil || args != nil {
+			t.Errorf("%s: env %v args %v, want none", kind, env, args)
+		}
+	}
+}
+
+// Where a harness keeps its own per-directory memory: claude's project
+// directory encodes the working dir, every character outside letters,
+// digits and "-" as "-", and nothing else names one (yardr-2eka).
+func TestMemoryDir(t *testing.T) {
+	t.Parallel()
+	claude, ok := MemoryDir("claude", "/Users/mckean", "/Users/mckean")
+	if !ok || claude != "/Users/mckean/.claude/projects/-Users-mckean/memory" {
+		t.Errorf("claude home: %q, %v", claude, ok)
+	}
+	project, ok := MemoryDir("claude", "/Users/mckean", "/Users/mckean/projects/repos/yardr")
+	if !ok || project != "/Users/mckean/.claude/projects/-Users-mckean-projects-repos-yardr/memory" {
+		t.Errorf("claude project: %q, %v", project, ok)
+	}
+	if dir, ok := MemoryDir("codex", "/Users/mckean", "/Users/mckean"); ok || dir != "" {
+		t.Errorf("codex: %q, %v, want none", dir, ok)
+	}
+	if dir, ok := MemoryDir("cursor", "/Users/mckean", "/Users/mckean"); ok || dir != "" {
+		t.Errorf("cursor: %q, %v, want none", dir, ok)
+	}
+}
+
 // Kimi's question to a session that sat idle past its cache is the one
 // dialog a file names (yardr-vsen): either of the lines it may begin with
 // is the cache menu's, and no other kind has a dialog.

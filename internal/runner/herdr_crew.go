@@ -217,7 +217,7 @@ func (h *Herdr) StartCrew(ctx context.Context, r store.CrewMember, user string) 
 	// The environment goes over the socket, never on a command line (see
 	// call). The workspace is not focused: a crew member starts in the
 	// background, under the daemon, not in front of whoever is at herdr.
-	paneEnv := withEnvFile(env, secrets)
+	paneEnv := withMemoryOff(kind, withEnvFile(env, secrets))
 	// Before the agent starts: a home directory's trust never sticks past
 	// the accept, so it is seeded first (see maybeSeedHomeTrust).
 	h.maybeSeedHomeTrust(r.Config, dir, paneEnv)
@@ -421,6 +421,30 @@ func (h *Herdr) crewEnv(ctx context.Context, r store.CrewMember, dir string) ([]
 		h.Log.Debug("crew member environment loaded", "for", "crew member "+r.Name, "from", env.From(), "keys", env.Keys())
 	}
 	return env.Env, nil
+}
+
+// withMemoryOff is env with the entries that switch kind's harness memory
+// off (agents.MemoryOff), for the keys env does not already set. Unlike
+// withEnvFile, the file wins here: the operator turns the harness's own
+// memory back on by setting the variable in the env file
+// (CLAUDE_CODE_DISABLE_AUTO_MEMORY=0). Called after withEnvFile merges
+// the file in, at every pane a harness session starts in.
+func withMemoryOff(kind string, env []string) []string {
+	off, _ := agents.MemoryOff(kind)
+	if len(off) == 0 {
+		return env
+	}
+	set := make(map[string]bool, len(env))
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		set[k] = true
+	}
+	for _, e := range off {
+		if k, _, _ := strings.Cut(e, "="); !set[k] {
+			env = append(env, e)
+		}
+	}
+	return env
 }
 
 // withEnvFile is env with the env file's entries added. A key yardr sets

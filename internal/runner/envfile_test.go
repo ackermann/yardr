@@ -235,6 +235,71 @@ func TestStartCrewSetsTrustEnv(t *testing.T) {
 	}
 }
 
+// yardr-2eka: a session the yard starts has no memory but the yard's, so a
+// claude pane starts with CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, crew and
+// group alike. Its env file wins for the variable: 0 turns the harness's
+// own memory back on. No other kind carries the variable.
+func TestHerdrStartSetsMemoryOff(t *testing.T) {
+	t.Parallel()
+	start := func(t *testing.T, cfg map[string]any) map[string]string {
+		t.Helper()
+		wt := seedEmptyRepo(t)
+		h, calls, _ := envHerdr(t, wt)
+		h.YardHome = t.TempDir()
+		job := dispatch.Job{
+			Bead:    store.Bead{ID: "yard-13", Stage: "build"},
+			Group:   store.Group{Name: "g", Config: cfg},
+			Depot:   &store.Depot{Name: "yard", Path: t.TempDir(), Base: "main"},
+			Session: store.Session{ID: "s1"},
+		}
+		if _, err := h.Start(context.Background(), job); err != nil {
+			t.Fatal(err)
+		}
+		return envOf(apiCall(t, readCalls(t, calls), "tab.create"))
+	}
+	if env := start(t, map[string]any{"kind": "claude"}); env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] != "1" {
+		t.Errorf("claude tab.create lacks the memory switch: %v", env)
+	}
+	on := filepath.Join(t.TempDir(), "on.env")
+	if err := os.WriteFile(on, []byte("CLAUDE_CODE_DISABLE_AUTO_MEMORY=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if env := start(t, map[string]any{"kind": "claude", "env_file": on}); env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] != "0" {
+		t.Errorf("the yard's switch overrode the env file's 0: %v", env)
+	}
+	for _, kind := range []string{"codex", "kimi"} {
+		if env := start(t, map[string]any{"kind": kind}); env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] != "" {
+			t.Errorf("%s tab.create carries claude's switch: %v", kind, env)
+		}
+	}
+}
+
+func TestStartCrewSetsMemoryOff(t *testing.T) {
+	t.Parallel()
+	start := func(t *testing.T, cfg map[string]any) map[string]string {
+		t.Helper()
+		h, calls, _ := envHerdr(t, "")
+		r := store.CrewMember{Name: "yardmaster", Dir: t.TempDir(), Config: cfg}
+		if _, err := h.StartCrew(context.Background(), r, ""); err != nil {
+			t.Fatal(err)
+		}
+		return envOf(apiCall(t, readCalls(t, calls), "workspace.create"))
+	}
+	if env := start(t, map[string]any{"kind": "claude"}); env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] != "1" {
+		t.Errorf("claude workspace.create lacks the memory switch: %v", env)
+	}
+	on := filepath.Join(t.TempDir(), "on.env")
+	if err := os.WriteFile(on, []byte("CLAUDE_CODE_DISABLE_AUTO_MEMORY=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if env := start(t, map[string]any{"kind": "claude", "env_file": on}); env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] != "0" {
+		t.Errorf("the yard's switch overrode the env file's 0: %v", env)
+	}
+	if env := start(t, map[string]any{"kind": "codex"}); env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] != "" {
+		t.Errorf("codex workspace.create carries claude's switch: %v", env)
+	}
+}
+
 // A file others can read, or none at all, refuses the start before herdr is
 // asked for anything, as Blocked, and the error shows no value.
 func TestEnvFileRefusedBlocksStart(t *testing.T) {

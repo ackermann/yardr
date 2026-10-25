@@ -26,7 +26,7 @@ func TestPrimeTeachesMemoryAndJournal(t *testing.T) {
 		"what concerns one bead",
 		`yardr recall <words>`,
 		"yardr bead show <mem-id> reads one memory",
-		"the yard's is the home for anything about",
+		"This session has no memory of its own",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("prime has no %q:\n%s", want, out)

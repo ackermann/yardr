@@ -1211,6 +1211,59 @@ func TrustEnv(kind string, enabled bool) []string {
 	return out
 }
 
+// MemoryOff are the environment entries and harness arguments that switch
+// kind's own memory off in a session the yard starts, so the yard's memory
+// is the only one the session has. A kind with no switch reads (nil, nil).
+// The runner puts the entries after the session's env file wins, and omits
+// Codex's disabling argument when the session's own args enable memories,
+// so the operator turns the harness's own memory back on per session
+// (CLAUDE_CODE_DISABLE_AUTO_MEMORY=0, --enable memories).
+//
+// Claude Code's switch is the environment (code.claude.com/docs/en/env-vars,
+// 2.1.310): CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, "When disabled, Claude does
+// not create or load auto memory files"; 0 forces it on. With it set the
+// system prompt carries no memory section either (asked live, yardr-2eka).
+// Its --bare and --safe-mode also disable auto memory but skip much else.
+// Codex keeps its own in ~/.codex/memories, behind the memories feature
+// (stable, off unless enabled); `codex --help` (0.160.1) documents
+// --disable memories for it, and names no environment switch (only
+// CODEX_HOME; CODEX_DISABLE_PROJECT_DOC is project docs, not memory). No
+// other kind is researched: whether it keeps a memory of its own, and what
+// switches it off, is unknown here.
+func MemoryOff(kind string) (env, args []string) {
+	switch kind {
+	case "claude":
+		return []string{"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1"}, nil
+	case "codex":
+		return nil, []string{"--disable", "memories"}
+	default:
+		return nil, nil
+	}
+}
+
+// MemoryDir is where kind's harness keeps its own memory for project under
+// the user's home; false when no such place is known. Only names are ever
+// read from it (see doctor); its contents are the harness's. Claude Code's
+// project is the git repository root, shared across its worktrees and
+// subdirectories; outside git it is the project root. Every character
+// outside letters, digits and "-" reads as "-", as its project directories
+// show (yardr-2eka). Codex's memories are global to ~/.codex, not per
+// project, and off unless enabled, so no directory names them.
+func MemoryDir(kind, home, project string) (string, bool) {
+	if kind != "claude" {
+		return "", false
+	}
+	var b strings.Builder
+	for _, r := range project {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	return filepath.Join(home, ".claude", "projects", b.String(), "memory"), true
+}
+
 // UnattendedHelp lists the unattended flags per kind, one line each, for
 // command help.
 func UnattendedHelp() string {

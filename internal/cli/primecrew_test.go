@@ -516,3 +516,23 @@ func TestPrimeCrewSaysFilesAreData(t *testing.T) {
 		t.Errorf("the react line is not after the mail item:\n%s", out)
 	}
 }
+
+// yardr-2eka: How you work opens with the session's one memory, the yard's,
+// and the old line saying the harness may have one of its own is gone.
+func TestPrimeCrewOpensHowYouWorkWithMemory(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
+	want := "- This session has no memory of its own: a rule or fact for later sessions is\n" +
+		"  `yardr remember \"<title>\" -b \"<body>\"`; `yardr recall` reads."
+	if !strings.Contains(out, want) {
+		t.Errorf("the prime lacks the memory sentence:\n%s", out)
+	}
+	how, first := strings.Index(out, "## How you work"), strings.Index(out, want)
+	if how < 0 || first < how || strings.Contains(out[how:first], "\n- ") {
+		t.Errorf("the memory sentence is not the first item of How you work:\n%s", out)
+	}
+	if strings.Contains(out, "Your harness may have a memory of its own") {
+		t.Errorf("the prime still says the harness may have a memory:\n%s", out)
+	}
+}

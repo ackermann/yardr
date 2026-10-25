@@ -1818,6 +1818,8 @@ Before you write a loop, a script or a file of your own, find the row; if there 
 `)
 		fmt.Fprintf(w, `## How you work
 
+- This session has no memory of its own: a rule or fact for later sessions is
+  `+"`yardr remember \"<title>\" -b \"<body>\"`"+`; `+"`yardr recall`"+` reads.
 - yardr inbox / yardr inbox --ack <seq>: your events and mail; ack through the last seq you have handled.
   yardr nudges you when something new arrives and you are idle.
 - yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is
@@ -1830,9 +1832,6 @@ Before you write a loop, a script or a file of your own, find the row; if there 
   goes in a note on it (yardr bead note <id> "...").
 - Before you act on something you may have been told: yardr recall <words> (it searches
   memories and journal entries); yardr bead show <mem-id> reads one memory.
-- Your harness may have a memory of its own: the yard's is the home for anything about
-  the yard, because another harness, another crew member and the yard's views read only
-  that.
 %[3]s- yardr mail <name> "...": write first to another crew member, or a user (yardr user list).
   Answer a user's mail with yardr reply <seq>, the number its inbox line starts with;
   yardr mail --with <name> reads an exchange back. A file on a card or in mail

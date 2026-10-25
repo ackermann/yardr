@@ -273,7 +273,7 @@ func (h *Herdr) Start(ctx context.Context, job dispatch.Job) (map[string]any, er
 	raw, err = h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": wt.Workspace.ID, "cwd": wt.Worktree.Path,
 		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
-		"env":   envMap(withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets)),
+		"env":   envMap(withMemoryOff(agents.Kind(job.Group.Config), withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets))),
 	})
 	if err != nil {
 		return handle, err
@@ -376,7 +376,7 @@ func (h *Herdr) startDir(ctx context.Context, job dispatch.Job, hookEnv []string
 	raw, err := h.call(ctx, "tab.create", map[string]any{
 		"workspace_id": ws.Workspace.ID, "cwd": depot.Path,
 		"label": TabLabel(depot.Name, job.Bead.Stage, job.Train, job.Bead.ID),
-		"env":   envMap(withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets)),
+		"env":   envMap(withMemoryOff(agents.Kind(job.Group.Config), withEnvFile(h.agentEnvWithHook(job, name, hookEnv), secrets))),
 	})
 	if err != nil {
 		return handle, err
@@ -873,15 +873,23 @@ const WorkdirArg = "{workdir}"
 
 func agentArgs(cfg map[string]any, override, home, workdir string) []string {
 	args := strs(cfg, "args")
+	kindName := agents.Kind(cfg)
 	// What the kind's harness file says every agent of it runs with
 	// (flags.always), and why: first, so a subcommand (Kiro's chat) comes
 	// before the group's flags.
-	kind, _ := agents.Lookup(agents.Kind(cfg))
+	kind, _ := agents.Lookup(kindName)
 	var first []string
 	for _, a := range kind.Flags.Always {
 		if !slices.Contains(args, a) {
 			first = append(first, a)
 		}
+	}
+	// The switch that turns the kind's own memory off (agents.MemoryOff),
+	// before its other defaults. Codex applies --disable after --enable
+	// regardless of their order, so an explicit group --enable must omit
+	// the default --disable instead.
+	if _, mo := agents.MemoryOff(kindName); len(mo) > 0 && !codexEnablesMemories(kindName, args) {
+		first = append(mo, first...)
 	}
 	args = append(first, args...)
 	// Each path with its symlinks resolved, which is the one a sandbox is
@@ -927,4 +935,25 @@ func agentArgs(cfg map[string]any, override, home, workdir string) []string {
 		}
 	}
 	return append(out, modelFlag, model)
+}
+
+// codexEnablesMemories reports whether the group's arguments explicitly
+// turn Codex memories on. Codex collects --enable and --disable separately
+// and applies disables last, so its default disable must be omitted when an
+// operator enables memories in these arguments.
+func codexEnablesMemories(kind string, args []string) bool {
+	if kind != "codex" {
+		return false
+	}
+	for i, arg := range args {
+		switch {
+		case arg == "--":
+			return false
+		case arg == "--enable=memories":
+			return true
+		case arg == "--enable" && i+1 < len(args) && args[i+1] == "memories":
+			return true
+		}
+	}
+	return false
 }

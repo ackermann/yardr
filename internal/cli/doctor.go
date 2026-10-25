@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -119,6 +120,10 @@ type yardState struct {
 	// commands that bring them up to date (stalePackNotes). A notice,
 	// not a fault: the yard runs as it did.
 	StalePacks []string `json:"stale_packs,omitempty"`
+	// StrayMemory are the crew members whose harness keeps a memory of
+	// its own beside the yard's (strayMemoryNotes). A notice, never a
+	// fault: the yard runs, and the files stay where they are.
+	StrayMemory []string `json:"stray_memory,omitempty"`
 	// What readState read to say the above, kept for yardr status, which
 	// lists it: every crew member, and the open beads.
 	crew []store.CrewMember
@@ -460,6 +465,7 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 			state.CopiedOn = append(state.CopiedOn, n)
 		}
 	}
+	state.StrayMemory = strayMemoryNotes(userHome(), def, cfg.Home, crew)
 	open, err := st.ListBeads(ctx, store.BeadFilter{})
 	if err != nil {
 		return nil, err
@@ -474,6 +480,88 @@ func readState(ctx context.Context, cfg *config.Config, st store.API, crew []sto
 		return nil, err
 	}
 	return state, nil
+}
+
+// userHome is the operator's home, where a session's harness keeps its own
+// state: sessions inherit it from herdr (the runner sets YARDR_HOME, not
+// HOME). "" when unknown, and no stray memory is reported then.
+func userHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
+}
+
+// strayMemoryNotes names, one line per crew member of kind claude, the
+// markdown files its harness's own memory holds for its working dir.
+// Only names are counted, every one of them; nothing is read, moved or
+// deleted. home is the operator's, and yardHome the default a crew member
+// without a dir runs in.
+func strayMemoryNotes(home, def, yardHome string, crew []store.CrewMember) []string {
+	if home == "" {
+		return nil
+	}
+	var out []string
+	for _, r := range crew {
+		if loginKindOf(def, r) != "claude" {
+			continue
+		}
+		dir := cmp.Or(r.Dir, yardHome)
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = real
+		}
+		mem, ok := agents.MemoryDir("claude", home, claudeProjectDir(dir))
+		if !ok {
+			continue
+		}
+		entries, err := os.ReadDir(mem)
+		if err != nil {
+			continue
+		}
+		n := 0
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+				n++
+			}
+		}
+		if n == 0 {
+			continue
+		}
+		files, them := fmt.Sprintf("%d memory files", n), "them"
+		if n == 1 {
+			files, them = "1 memory file", "it"
+		}
+		out = append(out, fmt.Sprintf("crew %s: %s in %s that the yard has no memory for; move %s with yardr remember", r.Name, files, mem, them))
+	}
+	return out
+}
+
+// claudeProjectDir is the repository path Claude Code uses to share its
+// auto memory between worktrees and subdirectories. Its git common
+// directory is <repository>/.git for a normal clone and for linked
+// worktrees, so the parent is the shared project path. Outside git, dir
+// itself is the project path.
+func claudeProjectDir(dir string) string {
+	common, err := exec.Command("git", "-C", dir, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return dir
+	}
+	path := strings.TrimSpace(string(common))
+	if path == "" {
+		return dir
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	path, err = filepath.Abs(path)
+	if err != nil || filepath.Base(path) != ".git" {
+		return dir
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	return filepath.Dir(path)
 }
 
 // loginKindOf is the harness kind r runs on: the kind the runner started it
@@ -852,6 +940,9 @@ func (s *yardState) lines(home string) []docLine {
 		out = append(out, docLine{tagNote, "crew", n})
 	}
 	for _, n := range s.CopiedOn {
+		out = append(out, docLine{tagNote, "crew", n})
+	}
+	for _, n := range s.StrayMemory {
 		out = append(out, docLine{tagNote, "crew", n})
 	}
 	for _, n := range s.Parties {

@@ -287,8 +287,16 @@ names its person and its slice.
   since it is what a later session sees; memories retire automatically when
   they expire. The yard's memory is the home for anything about the yard:
   another harness, another crew member and the yard's views read only that,
-  never a harness's own memory. With a query, `yardr recall` searches journal
-  entries too (one's own journal, every crew member's with `--scope all`).
+  never a harness's own memory. Crew and group sessions' harness memories
+  are switched off at launch, so the yard's is the only memory a session
+  has: kind claude runs with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, kind
+  codex with `--disable memories`. To turn the harness's own back on for a
+  crew member, set the variable to `0` in its `env_file` (claude) or add
+  `--enable memories` to its `args` (codex). For a group, use the same
+  `env_file` or `args` settings on the group. `yardr doctor` reports a
+  member whose harness memory still holds files, which stay where they are.
+  With a query, `yardr recall` searches journal entries too (one's own
+  journal, every crew member's with `--scope all`).
 
 Agents are told to run yardr by absolute path: a shell may find an older yardr
 first on its PATH, and the prime warns about it.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/huh"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/scripttest"
@@ -1631,5 +1632,103 @@ func TestDoctorBlockerCycle(t *testing.T) {
 	}
 	if ready, err := st.Ready(ctx); err != nil || len(ready) != 1 || ready[0].ID != "y-a" {
 		t.Fatalf("ready = %+v, %v", ready, err)
+	}
+}
+
+// yardr-2eka: doctor names, one informational line per crew member of kind
+// claude, the markdown files its harness's own memory holds for its working
+// dir. Every markdown file counts and nothing else; other kinds, empty dirs
+// and no home report nothing. The line is a note, never a fault.
+func TestDoctorStrayMemory(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	mem := func(dir string, files ...string) string {
+		t.Helper()
+		real, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, ok := agents.MemoryDir("claude", home, real)
+		if !ok {
+			t.Fatal("claude names no memory dir")
+		}
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if err := os.WriteFile(filepath.Join(path, f), []byte("x\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return path
+	}
+	work := t.TempDir()
+	workMem := mem(work, "MEMORY.md", "a-rule.md", "notes.txt")
+	if err := os.Mkdir(filepath.Join(workMem, "sub.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	crew := []store.CrewMember{
+		{Name: "yardmaster", Dir: work, Config: map[string]any{"kind": "claude"}},
+		{Name: "coder", Dir: t.TempDir(), Config: map[string]any{"kind": "codex"}},
+		{Name: "empty", Dir: t.TempDir(), Config: map[string]any{"kind": "claude"}},
+	}
+	got := strayMemoryNotes(home, "", t.TempDir(), crew)
+	want := "crew yardmaster: 2 memory files in " + workMem + " that the yard has no memory for; move them with yardr remember"
+	if !slices.Equal(got, []string{want}) {
+		t.Errorf("notes = %v, want %q", got, want)
+	}
+	// Claude shares the repository's memory directory across linked
+	// worktrees and subdirectories. Doctor must look up the common project
+	// path rather than the worktree path.
+	repo := t.TempDir()
+	gitInDir := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitInDir(repo, "init", "-q", "-b", "main")
+	cmd := exec.Command("git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "init")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	worktree := filepath.Join(t.TempDir(), "checkout")
+	gitInDir(repo, "worktree", "add", "--detach", "-q", worktree, "HEAD")
+	subdir := filepath.Join(worktree, "nested")
+	if err := os.Mkdir(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realRepo, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := claudeProjectDir(subdir); got != realRepo {
+		t.Errorf("claude project for worktree subdirectory = %q, want %q", got, realRepo)
+	}
+	repoMem := mem(realRepo, "MEMORY.md")
+	worktreeNote := strayMemoryNotes(home, "", t.TempDir(), []store.CrewMember{{
+		Name: "worktree", Dir: subdir, Config: map[string]any{"kind": "claude"},
+	}})
+	want = "crew worktree: 1 memory file in " + repoMem + " that the yard has no memory for; move it with yardr remember"
+	if !slices.Equal(worktreeNote, []string{want}) {
+		t.Errorf("worktree note = %v, want %q", worktreeNote, want)
+	}
+	// One file reads singular, and a member without a dir runs in the
+	// yard home.
+	yardHome := t.TempDir()
+	yardMem := mem(yardHome, "only.md")
+	single := strayMemoryNotes(home, "", yardHome, []store.CrewMember{{Name: "line", Config: map[string]any{"kind": "claude"}}})
+	want = "crew line: 1 memory file in " + yardMem + " that the yard has no memory for; move it with yardr remember"
+	if !slices.Equal(single, []string{want}) {
+		t.Errorf("single = %v, want %q", single, want)
+	}
+	if got := strayMemoryNotes("", "", yardHome, crew); got != nil {
+		t.Errorf("no home reports %v", got)
+	}
+	for _, l := range (&yardState{Server: serverUp, Daemon: true, StrayMemory: single}).lines(home) {
+		if l.tag == tagFault {
+			t.Errorf("the note is a fault: %+v", l)
+		}
 	}
 }
