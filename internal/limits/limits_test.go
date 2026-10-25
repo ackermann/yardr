@@ -98,11 +98,12 @@ func TestAsk(t *testing.T) {
 	}
 
 	as, err := Answerers(context.Background(), yard(p), home)
-	if err != nil || len(as) != 1 || as[0].Source != "quokka" || as[0].Missing() != nil {
+	if err != nil || len(as) != 2 || as[0].Source != "machine" || !as[0].Builtin || as[0].Missing() != nil ||
+		as[1].Source != "quokka" || as[1].Builtin || as[1].Missing() != nil {
 		t.Fatalf("Answerers = %+v, %v", as, err)
 	}
-	if as, _ = Answerers(context.Background(), yard(filepath.Join(home, "nope")), home); len(as) != 1 || as[0].Missing() == nil ||
-		!strings.Contains(as[0].Missing().Error(), "limits command "+filepath.Join(home, "nope")) {
+	if as, _ = Answerers(context.Background(), yard(filepath.Join(home, "nope")), home); len(as) != 2 || as[0].Missing() != nil ||
+		as[1].Missing() == nil || !strings.Contains(as[1].Missing().Error(), "limits command "+filepath.Join(home, "nope")) {
 		t.Fatalf("a program that is not there: %+v", as)
 	}
 }
@@ -120,11 +121,11 @@ func TestAnswererEnv(t *testing.T) {
 	t.Setenv("QUOKKA_OTHER", "from the caller")
 
 	as, err := Answerers(ctx, yard(p), home)
-	if err != nil || len(as) != 1 {
+	if err != nil || len(as) != 2 || as[1].Source != "quokka" {
 		t.Fatalf("Answerers = %+v, %v", as, err)
 	}
-	as[0].Env = []string{"QUOKKA_LOGIN=from the group"}
-	r, err := as[0].Ask(ctx, "kimi")
+	as[1].Env = []string{"QUOKKA_LOGIN=from the group"}
+	r, err := as[1].Ask(ctx, "kimi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestAnswererEnv(t *testing.T) {
 
 	// Asked for the provider by name, the entries join the same way.
 	os.Remove(seen)
-	r, err = as[0].AskName(ctx, "moonshot")
+	r, err = as[1].AskName(ctx, "moonshot")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,14 +265,14 @@ func TestAskFor(t *testing.T) {
 	// Provides is whether the source names the provider among its kinds
 	// values, and AskName runs its command with the name directly.
 	as, err := Answerers(ctx, st, home)
-	if err != nil || len(as) != 2 || as[0].Source != "alpha" || as[1].Source != "zeta" {
+	if err != nil || len(as) != 3 || as[0].Source != "alpha" || as[1].Source != "machine" || !as[1].Builtin || as[2].Source != "zeta" {
 		t.Fatalf("Answerers = %+v, %v", as, err)
 	}
-	if !as[0].Provides("zai") || !as[0].Provides("moonshot") || as[0].Provides("other") || !as[1].Provides("moonshot") || as[1].Provides("zai") {
+	if !as[0].Provides("zai") || !as[0].Provides("moonshot") || as[0].Provides("other") || !as[2].Provides("moonshot") || as[2].Provides("zai") {
 		t.Fatal("Provides is not the kinds values")
 	}
 	os.Remove(seen)
-	if _, err := as[1].AskName(ctx, "moonshot"); err != nil {
+	if _, err := as[2].AskName(ctx, "moonshot"); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {

@@ -98,6 +98,11 @@ type Source struct {
 	Ignored []string  `json:"ignored,omitempty"`
 	AddedAt time.Time `json:"added_at"`
 	AddedBy string    `json:"added_by"`
+	// Builtin is whether the source is answered by the yard itself, in
+	// process, with no record: the machine. It is never stored; the
+	// commands that list a source beside the declared ones set it, so
+	// that --json tells the built-in from a declared source of its name.
+	Builtin bool `json:"builtin,omitempty"`
 }
 
 // Declaration reads the source's file. It was read when it was added, so

@@ -348,16 +348,31 @@ func TestLimitsOfTheProvidersInUse(t *testing.T) {
 	ctx := context.Background()
 	a := &app{st: st, actor: "jo"}
 	out, err := run(t, a.limitsCmd())
-	if err != nil || !strings.Contains(out, "No source of this yard says limits: nothing is known, and nothing was asked.") {
+	if err != nil {
 		t.Fatalf("limits in a yard with no source: %q %v", out, err)
+	}
+	for _, want := range []string{
+		"machine says (provider machine):\n",
+		"  load  ", "  swap  ", "  disk  ", "  mem   ",
+		"% used  reset not known",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("limits in a yard with no source printed no %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "target") {
+		t.Errorf("the built-in carries no target:\n%s", out)
 	}
 	file, asked := limitsStandIn(t, kimiAnswer())
 	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
 		t.Fatal(err)
 	}
 	out, err = run(t, a.limitsCmd())
-	if err != nil || !strings.Contains(out, "Nothing was asked: no group, crew member or default_kind of this yard names a kind a source says the limits of (quokka for claude, kimi).") {
+	if err != nil || !strings.Contains(out, "machine says (provider machine):\n") || strings.Contains(out, "Nothing was asked") {
 		t.Fatalf("limits with no kind in use: %q %v", out, err)
+	}
+	if got := asks(t, asked); got != "" {
+		t.Fatalf("with no kind in use the provider was asked: %q", got)
 	}
 	putGroup := func(name, kind, provider string) {
 		t.Helper()
@@ -803,6 +818,105 @@ func TestSourceThatAnswersForItselfShownAndChecked(t *testing.T) {
 	}
 }
 
+// The built-in machine is shown, listed and checked where the yard
+// declares none of its name, and removing it is refused: each says it is
+// built in. A declared source named machine wins over it while it stands,
+// and removing that one brings the built-in back.
+func TestBuiltinMachineSourceShownCheckedListedAndRemoved(t *testing.T) {
+	t.Parallel()
+	st := storetest.New(t)
+	a := &app{st: st, actor: "jo"}
+	out, err := run(t, a.sourceCmd(), "show", "machine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"machine  no calls, built in\n",
+		"  Load, swap, disk and memory of this machine, as limits windows.\n",
+		"  credential: none: the yard answers it itself\n",
+		"  limits: the yard answers what the source itself carries, in process (yardr limits)\n",
+		"  built in: no file declares it; a declared source named machine wins over it (yardr source add)\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show printed no %q:\n%s", want, out)
+		}
+	}
+	a.json = true
+	out, err = run(t, a.sourceCmd(), "show", "machine")
+	a.json = false
+	var shown struct {
+		Builtin bool `json:"builtin"`
+		Source  struct {
+			Name    string `json:"name"`
+			Builtin bool   `json:"builtin"`
+		} `json:"source"`
+		Declaration struct {
+			Name   string `json:"name"`
+			Limits struct {
+				Kinds map[string]string `json:"kinds"`
+			} `json:"limits"`
+		} `json:"declaration"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &shown) != nil || !shown.Builtin ||
+		shown.Source.Name != "machine" || !shown.Source.Builtin || shown.Declaration.Name != "machine" {
+		t.Fatalf("show --json: %q %v", out, err)
+	}
+	if out, err = run(t, a.sourceCmd(), "list"); err != nil || !strings.Contains(out, "machine (built in)") || !strings.Contains(out, "itself") {
+		t.Fatalf("list: %q %v", out, err)
+	}
+	a.json = true
+	out, err = run(t, a.sourceCmd(), "list")
+	a.json = false
+	var listed []struct {
+		Name    string `json:"name"`
+		Builtin bool   `json:"builtin"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &listed) != nil || len(listed) != 1 ||
+		listed[0].Name != "machine" || !listed[0].Builtin {
+		t.Fatalf("list --json: %q %v", out, err)
+	}
+	out, err = run(t, a.sourceCmd(), "check", "machine")
+	if err != nil || !strings.Contains(out, "machine: built in: no credential, no check call\n") ||
+		!strings.Contains(out, "machine: limits: machine says (provider machine):\n") ||
+		!strings.Contains(out, "machine: limits:   load  ") {
+		t.Fatalf("check: %q %v", out, err)
+	}
+	if _, err = run(t, a.sourceCmd(), "check", "machine", "--as", "ada"); err == nil ||
+		!strings.Contains(err.Error(), "source machine is built in: it takes no credential, so --as ada has nothing to read") {
+		t.Fatalf("check --as: %v", err)
+	}
+	if _, err = run(t, a.sourceCmd(), "rm", "machine"); err == nil || err.Error() != "source machine is built in: nothing to remove" {
+		t.Fatalf("rm: %v", err)
+	}
+
+	// Declared, machine is the declaration's: shown and asked as any
+	// source that answers for itself, with no word of built in.
+	file, _ := selfStandIn(t, machineAnswer())
+	if _, err := run(t, a.sourceCmd(), "add", file); err != nil {
+		t.Fatal(err)
+	}
+	if out, err = run(t, a.sourceCmd(), "show", "machine"); err != nil || strings.Contains(out, "built in") {
+		t.Fatalf("show of the declared source: %q %v", out, err)
+	}
+	if out, err = run(t, a.sourceCmd(), "list"); err != nil || strings.Contains(out, "(built in)") {
+		t.Fatalf("list with the declared source: %q %v", out, err)
+	}
+	out, err = run(t, a.limitsCmd(), "machine")
+	if err != nil || !strings.Contains(out, "12.5% used (target 80%)") {
+		t.Fatalf("limits machine with the declared source: %q %v", out, err)
+	}
+	// Removed, the built-in answers again.
+	out, err = run(t, a.sourceCmd(), "rm", "machine")
+	if err != nil || !strings.Contains(out, "machine: removed;") ||
+		!strings.Contains(out, "  machine is built in, and answers for itself again.\n") {
+		t.Fatalf("rm of the declared source: %q %v", out, err)
+	}
+	out, err = run(t, a.limitsCmd(), "machine")
+	if err != nil || !strings.Contains(out, "machine says (provider machine):\n") || strings.Contains(out, "target") {
+		t.Fatalf("limits machine with the built-in back: %q %v", out, err)
+	}
+}
+
 // doctor says of a source that answers for itself, and --try asks it.
 func TestDoctorLimitsPartAsksASourceThatAnswersForItself(t *testing.T) {
 	t.Parallel()
@@ -848,11 +962,13 @@ func TestDoctorLimitsPart(t *testing.T) {
 		{kind: "grok", provider: "zai", by: "crew member watcher"},
 	}
 	part, err := limitsPart(ctx, cfg, st, uses, true)
-	if err != nil || part.Configured || len(part.Notes) != 3 ||
+	if err != nil || !part.Configured || part.Detail != "machine (built in) answers for itself" || len(part.Notes) != 6 ||
 		part.Notes[0] != "group zap names provider moonshot and no source answers for it (limits.kinds)" ||
 		part.Notes[1] != "group nightshift names provider zai and no source answers for it (limits.kinds)" ||
 		part.Notes[2] != "crew member watcher names provider zai and no source answers for it (limits.kinds)" ||
-		!strings.Contains(part.Detail, "no source says what a harness kind's subscription still carries") {
+		part.Notes[3] != "kimi is in use (group builders) and no source says its limits (limits.kinds)" ||
+		part.Notes[4] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" ||
+		!strings.HasPrefix(part.Notes[5], "tried: machine (built in) answered for itself: 4 windows; ") {
 		t.Fatalf("no source: %+v %v", part, err)
 	}
 	file, asked := limitsStandIn(t, kimiAnswer())
@@ -860,7 +976,7 @@ func TestDoctorLimitsPart(t *testing.T) {
 		t.Fatal(err)
 	}
 	part, err = limitsPart(ctx, cfg, st, uses, false)
-	if err != nil || !part.Configured || !strings.HasPrefix(part.Detail, "quokka for claude, kimi; not asked (") || len(part.Notes) != 3 ||
+	if err != nil || !part.Configured || !strings.HasPrefix(part.Detail, "machine (built in) answers for itself; quokka for claude, kimi; not asked (") || len(part.Notes) != 3 ||
 		part.Notes[0] != "group nightshift names provider zai and no source answers for it (limits.kinds)" ||
 		part.Notes[1] != "crew member watcher names provider zai and no source answers for it (limits.kinds)" ||
 		part.Notes[2] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" {
@@ -870,10 +986,11 @@ func TestDoctorLimitsPart(t *testing.T) {
 		t.Fatalf("doctor without --try asked the provider: %q", got)
 	}
 	part, err = limitsPart(ctx, cfg, st, uses, true)
-	if err != nil || part.Detail != "quokka for claude, kimi" || len(part.Notes) != 4 ||
+	if err != nil || part.Detail != "machine (built in) answers for itself; quokka for claude, kimi" || len(part.Notes) != 5 ||
 		!strings.HasPrefix(part.Notes[0], "tried: quokka answered for provider moonshot (group builders, group zap): 2 windows; an agent burning moonshot waits for the 5h window, which resets ") ||
 		part.Notes[1] != "group nightshift names provider zai and no source answers for it (limits.kinds)" ||
-		part.Notes[3] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" {
+		part.Notes[3] != "codex is in use (the yard's default, crew member scribe) and no source says its limits (limits.kinds)" ||
+		!strings.HasPrefix(part.Notes[4], "tried: machine (built in) answered for itself: 4 windows; ") {
 		t.Fatalf("part under --try = %+v %v", part, err)
 	}
 	if got := asks(t, asked); got != "moonshot" {

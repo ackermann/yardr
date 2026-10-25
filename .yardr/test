@@ -1365,8 +1365,8 @@ contrib/isolated-yard yardr-n9ss TestYardShapes (the yard-shape matrix) walks th
 # ends with what it says, so a reader can tell a strike on a quiet machine
 # from one under load without a second source. It reads /proc/loadavg and
 # nproc where the system keeps them, sysctl's vm.loadavg and hw.ncpu
-# elsewhere, as the machine source's limits command does
-# (contrib/machine-limits/machine/limits). YARDR_TEST_LOADAVG and
+# elsewhere, as the built-in machine source does
+# (internal/limits/machine.go). YARDR_TEST_LOADAVG and
 # YARDR_TEST_CORES override the readings, for the gate's own tests. Where
 # nothing answers, or the readings are no numbers, it prints nothing and
 # fails, and the caller says "load unknown" in its place.
@@ -2048,7 +2048,6 @@ contrib/deploy/deploy-dokku    internal/cli contrib/assembly
 contrib/deploy/deploy-void     internal/cli internal/pack contrib/assembly
 contrib/deploy/                contrib/deploy .
 contrib/github-mint/           contrib/github-mint internal/cli internal/dispatch .
-contrib/machine-limits/        contrib/machine-limits .
 contrib/peer/return-branch     internal/cli
 contrib/peer/                  contrib/peer .
 contrib/isolated-yard/sources/crm.yaml internal/cli

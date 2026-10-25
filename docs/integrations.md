@@ -496,21 +496,23 @@ yardr limits
 ```
 
 A source with no kinds answers for itself instead, and `yardr limits`
-lists it beside the providers, each with its windows. `machine` is one,
-whose command says the load, swap, disk and memory of this machine
-(`contrib/machine-limits`):
+lists it beside the providers, each with its windows. One such source is
+built into every yard: `machine`, the load, swap, disk and memory of the
+machine the yard runs on, answered with no `source add`:
 
 ```sh
 yardr limits machine
 # machine says (provider machine):
-#   load  12.5% used (target 80%)  reset not known
-#   swap  10% used (target 85%)     reset not known
-#   disk  40% used (target 90%)     reset not known
-#   mem   55% used (target 90%)     reset not known
+#   load  12.5% used  reset not known
+#   swap  10% used    reset not known
+#   disk  40% used    reset not known
+#   mem   55% used    reset not known
 #   no window is used up
 ```
 
-yardr holds no logic of any provider. A declared source has the capability
+yardr holds no logic of any provider. The machine is the exception: the
+yard's own body, not a provider, answered in process with no file. A
+declared source has the capability
 when its file has a `limits` key: **a command**, and the harness kinds it
 answers for, each with the provider's own name for it. Such a file needs no
 `base` and no `calls`. This one is whole, for
@@ -543,26 +545,35 @@ yardr limits kimi --json        # the report, for a program
 With no kinds the file is shorter, and the command takes no `{provider}`:
 
 ```yaml
-name: machine
-about: Load, swap, disk and memory of this machine, as limits windows (contrib/machine-limits).
+name: queue
 limits:
-  command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90, --target, mem=90]
+  command: [queue/limits]
 ```
 
 ```sh
-yardr source add contrib/machine-limits/machine.yaml   # from main, not a checkout
-yardr source check machine     # asks the source once, for itself
+yardr source add queue.yaml
+yardr source check queue       # asks the source once, for itself
 yardr limits                   # its windows beside the providers'
 ```
 
-`load` is the 1-minute load average over the core count, as a percent (10
-cores at load 8 = 80); `swap` is used over total swap, or 0 where the
-machine has none; `disk` is used over the volume that holds the yard's
-home; `mem` is used RAM over total, as a percent. Each carries its
-target, the `--target` the declaration sets (the script's defaults are
-the same). None resets. A route's condition names
-one as `machine.load<80`
+The yard's own machine needs no file: `machine` is built in, answered in
+process on macOS and Linux, with no credential and no thresholds of its
+own. `load` is the 1-minute load average over the core count, as a percent
+(10 cores at load 8 = 80), and may read past 100; `swap` is used over
+total swap, or 0 where the machine has none; `disk` is used over the
+volume that holds the yard's home; `mem` is used RAM over total, as a
+percent. Available memory is `MemAvailable` on Linux, free plus inactive
+pages on macOS. None carries a target and none resets: the thresholds live
+in the route conditions that name one, as `machine.load<80`
 ([groups.md](groups.md#a-route-with-further-groups-and-quota-conditions)).
+A condition that names `target` on such a window reads as a window that
+reports none does: it holds, and the `claimed` event says the limits were
+not known. A declared source named `machine` wins over the built-in while
+it stands, so an operator can still replace it; removing it brings the
+built-in back. Where the machine cannot be read, its limits are not known,
+as for a provider that gives no answer: the yard reads `sysctl`, `vm_stat`
+and `df` on macOS, `/proc/loadavg`, `/proc/meminfo` and `df` on Linux,
+and answers nothing anywhere else.
 
 Leave out of `kinds` the harnesses that are not logged in on the machine:
 they have no answer, and `source check` fails for them.

@@ -91,12 +91,14 @@ func useKinds(t *testing.T, f *fixture, def string, rest ...string) {
 // /limits answers what `yardr limits` answers with no kind named, one entry
 // per provider in use with the burning kinds and users, and unmapped naming
 // the kinds in use that resolve to nothing, beside the head from before the
-// read, and empty lists, never null, for a yard with nothing to ask. It has
-// a page, so only a client that asks for JSON gets it.
+// read. A yard with nothing in use still answers the built-in machine. It
+// has a page, so only a client that asks for JSON gets it.
 func TestLimits(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
+	// The yard's home is made: the built-in machine reads its volume.
+	must(t, os.MkdirAll(f.home, 0o755))
 	var empty web.Limits
 	r := f.getJSON("/limits", &empty)
 	if r.header.Get("Content-Type") != "application/json" || r.header.Get("Cache-Control") != "no-store" {
@@ -104,19 +106,23 @@ func TestLimits(t *testing.T) {
 	}
 	head, err := f.st.Head(ctx)
 	must(t, err)
-	if !reflect.DeepEqual(empty, web.Limits{Limits: []web.ProviderLimits{}, Sources: []web.SourceLimits{}, Unmapped: []string{}, Head: head}) {
-		t.Errorf("an empty yard: %+v, want empty lists and head %d", empty, head)
+	if len(empty.Limits) != 0 || len(empty.Sources) != 1 || len(empty.Unmapped) != 0 || empty.Head != head {
+		t.Errorf("an empty yard: %+v, want the built-in machine alone and head %d", empty, head)
+	} else if s := empty.Sources[0]; s.Source != "machine" || s.Limits == nil || s.Limits.Provider != "machine" ||
+		len(s.Limits.Windows) != 4 || s.Unknown != "" {
+		t.Errorf("an empty yard's source: %+v, want the built-in machine answered", s)
 	}
 	if strings.Contains(r.body, "null") {
-		t.Errorf("an empty yard answers %s, want empty lists and not null", r.body)
+		t.Errorf("an empty yard answers %s, want no null", r.body)
 	}
 
 	asked := limitsSource(t, f, limitsAnswer())
-	// A source and nothing in use: still nothing to ask, and nothing asked.
+	// A source and nothing in use: the providers ask nothing, and the
+	// built-in answers beside them.
 	var bare web.Limits
 	f.getJSON("/limits", &bare)
-	if len(bare.Limits) != 0 || len(bare.Unmapped) != 0 {
-		t.Fatalf("a source with nothing in use: %+v, want empty lists", bare)
+	if len(bare.Limits) != 0 || len(bare.Unmapped) != 0 || len(bare.Sources) != 1 || bare.Sources[0].Source != "machine" {
+		t.Fatalf("a source with nothing in use: %+v, want the built-in machine alone", bare)
 	}
 	if got := askedFor(t, asked); got != "" {
 		t.Fatalf("asked = %q, want nothing asked", got)
@@ -353,6 +359,9 @@ func TestLimitsPage(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	asked := limitsSource(t, f, limitsAnswer())
+	// The declared machine wins over the built-in, so the page's machine
+	// section is the stand-in's fixed answer and reads the same twice.
+	selfSource(t, f, selfAnswer())
 	useKinds(t, f, "claude", "kimi", "codex")
 	page := squash(f.get("/limits").body)
 	for _, want := range []string{
@@ -374,9 +383,10 @@ func TestLimitsPage(t *testing.T) {
 		}
 	}
 	// Each used-up provider marks its 5h window once; the weekly window is
-	// not marked, and neither provider waits on nothing.
-	if n := strings.Count(page, "used up"); n != 2 {
-		t.Errorf("/limits says used up %d times, want twice (one mark per provider)", n)
+	// not marked, and neither provider waits on nothing. The declared
+	// machine's no window is used up is the third.
+	if n := strings.Count(page, "used up"); n != 3 {
+		t.Errorf("/limits says used up %d times, want three (one mark per provider, one for the machine)", n)
 	}
 	// Another read renders the same page and runs nothing.
 	if first, second := f.get("/limits").body, f.get("/limits").body; first != second {
@@ -386,9 +396,19 @@ func TestLimitsPage(t *testing.T) {
 		t.Errorf("asked = %q, want each provider once", got)
 	}
 
-	// An empty yard says so.
-	if body := newFixture(t).get("/limits").body; !strings.Contains(body, "This yard has no limits to show.") {
-		t.Errorf("/limits of an empty yard lacks its line: %s", body)
+	// An empty yard shows the built-in machine's windows.
+	g := newFixture(t)
+	must(t, os.MkdirAll(g.home, 0o755))
+	if body := g.get("/limits").body; !strings.Contains(body, "<h2>machine</h2>") ||
+		strings.Contains(body, "This yard has no limits to show.") {
+		t.Errorf("/limits of an empty yard shows no machine section: %s", body)
+	}
+	// A declared machine that answers for kinds instead of itself takes
+	// the name: the built-in yields, and an empty yard says so.
+	h := newFixture(t)
+	limitsSourceAs(t, h, "machine", "{ kimi: kimi }", limitsAnswer())
+	if body := h.get("/limits").body; !strings.Contains(body, "This yard has no limits to show.") {
+		t.Errorf("/limits with a machine that answers for nothing of its own lacks its line: %s", body)
 	}
 }
 

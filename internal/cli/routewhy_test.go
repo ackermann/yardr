@@ -323,7 +323,8 @@ func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {
 		t.Error("doctor without --try ran the limits command")
 	}
 
-	// With no limits source no condition can be evaluated: each is noted.
+	// With no source for the provider no condition on it can be
+	// evaluated: each is noted. The built-in answers for no kind.
 	bare := storetest.New(t)
 	if err := bare.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
 		t.Fatal(err)
@@ -333,7 +334,7 @@ func TestDoctorNotesARouteWhoseConditionNoSourceAnswersFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	part, err = limitsPart(ctx, cfg, bare, nil, false)
-	if err != nil || part.Configured || len(part.Notes) != 1 ||
+	if err != nil || !part.Configured || len(part.Notes) != 1 ||
 		part.Notes[0] != "route "+lone.ID+" (stage new) puts the condition Weekly<80 on group a, and no source answers for its kind claude: the condition holds whatever is used (limits.kinds)" {
 		t.Fatalf("with no source: %+v %v", part, err)
 	}

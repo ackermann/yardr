@@ -8,7 +8,10 @@
 // whose file has a limits key (internal/source): a command of the
 // operator's, which is run for one kind and prints the report as JSON. That
 // command is the one provider here; a second way to an answer (a declared
-// HTTPS call, say) would be one more.
+// HTTPS call, say) would be one more. The one exception is the yard's own
+// machine (MachineSource): no provider but the yard's body, answered in
+// process (machine.go), present in every yard with no file and no
+// credential. A declared source of its name wins over it.
 //
 // Asking is not free and not harmless: a provider may be slow, may be
 // bounded itself in how often it is asked, and may renew a stored login as
@@ -187,6 +190,10 @@ type provider interface {
 type Answerer struct {
 	Source string
 	Limits *source.Limits
+	// Builtin is whether the yard answers the source itself, in process,
+	// with no file and no command: the machine (MachineAnswerer). Its
+	// limits key names no kinds, as a source's that answers for itself.
+	Builtin bool
 	// Home is the yard's home, where the command runs.
 	Home string
 	// Env, when set, joins the command's environment over the caller's:
@@ -198,17 +205,26 @@ type Answerer struct {
 
 // Answerers are the sources of the yard that say limits, by name. home is
 // the yard's home. A source whose file this build does not read answers
-// for nothing.
+// for nothing. The yard's own machine answers beside them, unless a
+// declared source of its name stands: the name taken wins over the
+// built-in, whatever the file says.
 func Answerers(ctx context.Context, st Store, home string) ([]Answerer, error) {
 	srcs, err := st.Sources(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var out []Answerer
+	machine := false
 	for _, src := range srcs {
+		if src.Name == MachineSource {
+			machine = true
+		}
 		if d, err := src.Declaration(); err == nil && d.Limits != nil {
 			out = append(out, Answerer{Source: d.Name, Limits: d.Limits, Home: home})
 		}
+	}
+	if !machine {
+		out = append(out, MachineAnswerer(home))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
 	return out, nil
@@ -332,7 +348,17 @@ func (a Answerer) AskName(ctx context.Context, name string) (*Report, error) {
 
 // AskSelf asks this source for what it says of itself: one run of its
 // command as its file has it, for a source whose limits key names no kinds.
+// The built-in is answered in process, with no run.
 func (a Answerer) AskSelf(ctx context.Context) (*Report, error) {
+	if a.Builtin {
+		asked := time.Now()
+		r, err := MachineReport(ctx, a.Home)
+		if err != nil {
+			return nil, fmt.Errorf("source %s: %w", a.Source, err)
+		}
+		r.Source, r.AskedAt = a.Source, asked
+		return r, nil
+	}
 	return command(a).run(ctx, slices.Clone(a.Limits.Command))
 }
 
@@ -341,6 +367,9 @@ func (a Answerer) AskSelf(ctx context.Context) (*Report, error) {
 // daemon) has a PATH of its own, which is why a file names the program by
 // its whole path, or a file it brings, run from its copy.
 func (a Answerer) Missing() error {
+	if a.Builtin {
+		return nil // answered in process: no program to miss
+	}
 	if len(a.Limits.Command) == 0 {
 		return nil
 	}

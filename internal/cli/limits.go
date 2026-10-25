@@ -155,7 +155,7 @@ name it is asked for alone:
 
   yardr limits machine
   machine says (provider machine):
-    load  12.5% used (target 80%)  reset not known
+    load  12.5% used  reset not known
     no window is used up
 
 Where the provider says what share of a window has passed, it is printed
@@ -506,17 +506,27 @@ func groupUses(as []limits.Answerer, uses []limitUse) ([]providerGroup, []harnes
 }
 
 // answeredKinds says which source answers for which kinds: "aiquokka for
-// claude, codex, kimi"; a source that answers for itself says so.
+// claude, codex, kimi"; a source that answers for itself says so, the
+// built-in with its mark.
 func answeredKinds(as []limits.Answerer) string {
 	parts := make([]string, len(as))
 	for i, a := range as {
 		if a.Limits.Self() {
-			parts[i] = a.Source + " answers for itself"
+			parts[i] = answererName(a) + " answers for itself"
 		} else {
-			parts[i] = a.Source + " for " + strings.Join(a.Limits.KindNames(), ", ")
+			parts[i] = answererName(a) + " for " + strings.Join(a.Limits.KindNames(), ", ")
 		}
 	}
 	return strings.Join(parts, "; ")
+}
+
+// answererName is the source's name as doctor says it: the built-in with
+// its mark.
+func answererName(a limits.Answerer) string {
+	if a.Builtin {
+		return a.Source + " (built in)"
+	}
+	return a.Source
 }
 
 // lines are what an ask came to, for a person.
@@ -771,10 +781,10 @@ func limitsPart(ctx context.Context, cfg *config.Config, st store.API, uses []li
 		}
 		s := askSource(ctx, a)
 		if s.Unknown != "" {
-			part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s is not known: %s", a.Source, s.Unknown))
+			part.Notes = append(part.Notes, fmt.Sprintf("tried: source %s is not known: %s", answererName(a), s.Unknown))
 		} else {
 			part.Notes = append(part.Notes, fmt.Sprintf("tried: %s answered for itself: %s; %s",
-				a.Source, plural(len(s.Limits.Windows), "window"), s.summary(time.Now())))
+				answererName(a), plural(len(s.Limits.Windows), "window"), s.summary(time.Now())))
 		}
 	}
 	part.Notes = append(part.Notes, gated...)

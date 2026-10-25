@@ -234,7 +234,9 @@ Refused when the file is added: a base that is not https:// (plain http://
 only to this machine, for a stand-in), or one beside credential.url; a path
 that is an address, has '..' or a query; a {param} the call does not
 declare; a read call with PUT, PATCH or DELETE; a name yardr has built in
-(` + strings.Join(source.BuiltIn, ", ") + `). When a call is made,
+(` + strings.Join(source.BuiltIn, ", ") + `). (machine is built in as well,
+as the yard's own limits source, but a file may still take its name: the
+declaration wins over the built-in while it stands.) When a call is made,
 no redirect is followed, the call ends after ` + source.Timeout.String() + `, and an answer over its
 bound is refused, not cut.
 
@@ -274,13 +276,18 @@ check or notify either.
       kimi: kimi
 
 With no kinds the source answers for itself instead: its command takes no
-{provider} and is asked by the source's name, for the windows it reports.
-contrib/machine-limits has one, whose command says the load, swap and disk
-of this machine as windows (docs/integrations.md):
+{provider} and is asked by the source's name, for the windows it reports:
 
-  name: machine
+  name: queue
   limits:
-    command: [machine/limits, --target, load=80, --target, swap=85, --target, disk=90]
+    command: [queue/limits]
+
+One such source is built into the yard: machine, the load, swap, disk and
+memory of the machine the yard runs on, answered in process with no file
+and no credential. Its windows carry no target and never reset: the
+thresholds live in the route conditions that name them (machine.load<80),
+as docs/integrations.md says. A declared source named machine wins over
+it while it stands.
 
 The command is run by yardr itself, as the user yardr runs as: without a
 shell (each word is one element of the list), its stdin closed, in the
@@ -600,7 +607,7 @@ env_file; what the new file changes of its calls is printed.`,
 	}
 
 	list := &cobra.Command{
-		Use: "list", Short: "List the declared sources", Args: cobra.NoArgs,
+		Use: "list", Short: "List the sources of the yard, declared and built in", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			st, err := a.store(c.Context())
 			if err != nil {
@@ -610,6 +617,10 @@ env_file; what the new file changes of its calls is printed.`,
 			if err != nil {
 				return err
 			}
+			if !slices.ContainsFunc(srcs, func(s store.Source) bool { return s.Name == limits.MachineSource }) {
+				srcs = append(srcs, store.Source{Name: limits.MachineSource, Builtin: true})
+				slices.SortFunc(srcs, func(a, b store.Source) int { return strings.Compare(a.Name, b.Name) })
+			}
 			users, err := st.Users(c.Context())
 			if err != nil {
 				return err
@@ -618,6 +629,9 @@ env_file; what the new file changes of its calls is printed.`,
 				rows := [][]string{}
 				for _, src := range srcs {
 					d, err := src.Declaration()
+					if src.Builtin {
+						d, err = limits.MachineDeclaration(), nil
+					}
 					if err != nil {
 						rows = append(rows, []string{src.Name, "-", "not read by this yardr: yardr source show " + src.Name, "-", "-", "-", "-"})
 						continue
@@ -653,7 +667,11 @@ env_file; what the new file changes of its calls is printed.`,
 							kinds = "itself"
 						}
 					}
-					rows = append(rows, []string{d.Name, or(baseInUse(d, src.Base), "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
+					name := d.Name
+					if src.Builtin {
+						name += " (built in)"
+					}
+					rows = append(rows, []string{name, or(baseInUse(d, src.Base), "-"), or(strings.Join(names, ", "), "-"), cred, or(d.Check, "-"), notify, kinds})
 				}
 				table(w, "NAME\tBASE\tCALLS\tCREDENTIAL\tCHECK\tNOTIFY\tLIMITS", rows)
 			})
@@ -673,6 +691,9 @@ credential in it whether their file sets that. The value is never printed.
 			}
 			src, err := st.GetSource(c.Context(), args[0])
 			if err != nil {
+				if args[0] == limits.MachineSource && errors.Is(err, store.ErrNotFound) {
+					return a.showBuiltin(c)
+				}
 				return err
 			}
 			d, err := src.Declaration()
@@ -908,6 +929,9 @@ credential in it whether their file sets that. The value is never printed.
 			defer release()
 			src, err := st.GetSource(c.Context(), args[0])
 			if err != nil {
+				if args[0] == limits.MachineSource && errors.Is(err, store.ErrNotFound) {
+					return fmt.Errorf("source machine is built in: nothing to remove")
+				}
 				return err
 			}
 			left, err := sourceRmReferences(c.Context(), st, args[0])
@@ -927,12 +951,20 @@ credential in it whether their file sets that. The value is never printed.
 					return err
 				}
 			}
-			return a.out(c.OutOrStdout(), map[string]any{
+			removed := map[string]any{
 				"source": args[0], "rm": "ok",
 				"subscriptions": left.subscriptions, "participations": left.participations,
 				"remove_subscriptions": left.unsubscribe, "remove_participations": left.unfollow,
-			}, func(w io.Writer) {
+			}
+			if args[0] == limits.MachineSource {
+				// The declared source is gone: the built-in answers again.
+				removed["builtin"] = true
+			}
+			return a.out(c.OutOrStdout(), removed, func(w io.Writer) {
 				fmt.Fprintf(w, "%s: removed; %s and %s still name this source.\n", args[0], countPhrase(left.subscriptions, "subscription", "subscriptions"), countPhrase(left.participations, "participation", "participations"))
+				if args[0] == limits.MachineSource {
+					fmt.Fprintln(w, "  machine is built in, and answers for itself again.")
+				}
 				if len(left.unsubscribe) > 0 {
 					fmt.Fprintln(w, "  Remove subscriptions with:")
 					for _, command := range left.unsubscribe {
@@ -1451,6 +1483,9 @@ process for it. Nothing of the request is written anywhere.`,
 			}
 			src, err := st.GetSource(c.Context(), args[0])
 			if err != nil {
+				if args[0] == limits.MachineSource && errors.Is(err, store.ErrNotFound) {
+					return a.checkBuiltin(c, checkAs)
+				}
 				return err
 			}
 			d, err := src.Declaration()
@@ -1600,6 +1635,54 @@ process for it. Nothing of the request is written anywhere.`,
 
 	cmd.AddCommand(add, list, show, ignore, rm, set, key, check, grant, revoke, a.grantsCmd())
 	return cmd
+}
+
+// showBuiltin prints the built-in source machine, where the yard declares
+// none of its name: what the yard answers itself, with no file, no
+// credential and no command.
+func (a *app) showBuiltin(c *cobra.Command) error {
+	d := limits.MachineDeclaration()
+	src := &store.Source{Name: d.Name, Builtin: true}
+	state := "none: the yard answers it itself"
+	out := map[string]any{"source": src, "builtin": true, "declaration": d, "credential": state, "grants": []store.SourceGrant{}}
+	return a.out(c.OutOrStdout(), out, func(w io.Writer) {
+		fmt.Fprintf(w, "%s  no calls, built in\n", d.Name)
+		fmt.Fprintf(w, "  %s\n", d.About)
+		fmt.Fprintf(w, "  credential: %s\n", state)
+		fmt.Fprintln(w, "  limits: the yard answers what the source itself carries, in process (yardr limits)")
+		fmt.Fprintln(w, "    load, swap, disk and mem, each how far it is used, with no target and no reset")
+		fmt.Fprintln(w, "  notify: none: no user is told through it")
+		fmt.Fprintln(w, "  built in: no file declares it; a declared source named machine wins over it (yardr source add)")
+	})
+}
+
+// checkBuiltin is yardr source check machine where the yard declares none
+// of its name: the built-in is asked once, for itself, as a declared
+// source that answers for itself is. It takes no credential, so --as has
+// nothing to read.
+func (a *app) checkBuiltin(c *cobra.Command, as string) error {
+	if as != "" {
+		return fmt.Errorf("source machine is built in: it takes no credential, so --as %s has nothing to read", as)
+	}
+	cfg, err := a.config()
+	if err != nil {
+		return err
+	}
+	asked, ok := checkLimits(c.Context(), limits.MachineAnswerer(cfg.Home))
+	out := map[string]any{"source": limits.MachineSource, "builtin": true,
+		"credential": "none: the yard answers it itself", "sent": false, "limits": asked}
+	if err := a.out(c.OutOrStdout(), out, func(w io.Writer) {
+		fmt.Fprintln(w, "machine: built in: no credential, no check call")
+		for _, l := range checkLines(asked, time.Now()) {
+			fmt.Fprintf(w, "machine: limits: %s\n", l)
+		}
+	}); err != nil {
+		return err
+	}
+	if !ok {
+		return errCheckFailed // the lines said why the machine gave no answer
+	}
+	return nil
 }
 
 // checkTells is yardr source check <name> --user <user>: one message to

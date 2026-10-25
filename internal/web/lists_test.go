@@ -845,8 +845,8 @@ func TestProviderFirstByName(t *testing.T) {
 	}
 	as, err := limits.Answerers(context.Background(), st, "")
 	must(t, err)
-	if len(as) != 2 || as[0].Source != "alpha" || as[1].Source != "zeta" {
-		t.Fatalf("Answerers = %+v, want alpha first by name", as)
+	if len(as) != 3 || as[0].Source != "alpha" || as[1].Source != "machine" || !as[1].Builtin || as[2].Source != "zeta" {
+		t.Fatalf("Answerers = %+v, want alpha first by name, the built-in between", as)
 	}
 	if got := web.ProviderOf("herdr", map[string]any{"kind": "pi"}, as); got != "zai" {
 		t.Errorf("pi resolves to %q, want alpha's zai", got)

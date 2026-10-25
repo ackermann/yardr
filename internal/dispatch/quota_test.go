@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -808,6 +810,72 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 	if got := runs(); got != 2 {
 		t.Fatalf("the machine command ran %d times, want 2: once over, once under", got)
 	}
+
+	// With no declared source, the built-in gates on this machine's actual
+	// load. Half the measured load holds, and ten points above releases; the
+	// one-minute average is unlikely to cross either threshold between reads.
+	t.Run("built-in machine", func(t *testing.T) {
+		r, err := limits.MachineReport(ctx, t.TempDir())
+		if err != nil {
+			t.Skipf("this machine answers no limits: %v", err)
+		}
+		load := *r.Windows[0].UsedPercent
+		// To a point, as the quota_wait reason renders the threshold.
+		point := func(p float64) float64 { return math.Round(p*10) / 10 }
+		hold := func() (string, bool) {
+			under := point(load / 2)
+			if under <= 0 {
+				return "", false
+			}
+			if under > 99 {
+				under = 99
+			}
+			return fmt.Sprintf("%g", under), true
+		}
+		release := func() (string, bool) {
+			if load >= 100 {
+				return "", false
+			}
+			under := point(load + 10)
+			if under > 100 {
+				under = 100
+			}
+			return fmt.Sprintf("%g", under), true
+		}
+		if under, ok := hold(); ok {
+			s, _, d, _, r, _ := quotaYard(t, "a@machine.load<"+under, "wait")
+			d.Home = t.TempDir()
+			b := newBead(t, s, "x")
+			must(t, d.Reconcile(ctx))
+			if group, _ := claimedBy(t, s, b.ID); group != "" {
+				t.Fatalf("claimed by %q, want nobody: this machine's load is over %s", group, under)
+			}
+			evs := eventKinds(t, s, b.ID, "quota_wait")
+			if len(evs) != 1 {
+				t.Fatalf("quota_wait events = %v, want one", evs)
+			}
+			reason, _ := evs[0].Data["reason"].(string)
+			if evs[0].Data["route"] != r.ID || !strings.Contains(reason, "machine's load window is") ||
+				!strings.Contains(reason, "the route asks under "+under) {
+				t.Fatalf("quota_wait = %v", evs[0].Data)
+			}
+			if _, has := evs[0].Data["resets_at"]; has {
+				t.Fatalf("quota_wait = %v: the built-in never resets", evs[0].Data)
+			}
+		}
+		if under, ok := release(); ok {
+			s, _, d, _, r, _ := quotaYard(t, "a@machine.load<"+under, "wait")
+			d.Home = t.TempDir()
+			b := newBead(t, s, "x")
+			must(t, d.Reconcile(ctx))
+			if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil {
+				t.Fatalf("claimed by %q with %v, want a with nobody passed over", group, data)
+			}
+			if evs := eventKinds(t, s, b.ID, "quota_wait"); len(evs) != 0 {
+				t.Fatalf("quota_wait events = %v, want none", evs)
+			}
+		}
+	})
 }
 
 // A condition may mix a source's window with the provider's: each
