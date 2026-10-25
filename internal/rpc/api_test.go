@@ -454,7 +454,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Bead",
-		says:     "One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.",
+		says:     "One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, its stage moves, who works it now, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.",
 		args:     []field{{"bead", "string", "the bead: a handle, or `bead@peer` for a question another yard asked"}, {"viewer", "string", "who reads it: what they may not see reads as missing; left out, the yard itself, which sees every bead"}},
 		requests: []string{`{"bead":"yd-links","viewer":"jo"}`, `{"bead":"yd-ledger@north"}`, `{"bead":"yd-crm"}`},
 		fields: []field{
@@ -465,6 +465,22 @@ var apiCalls = []apiCall{
 			{"topic", "string", "the bead's topic: its first `topic:` label, `\"\"` when it has none"},
 			{"labels", "array of string", "the bead's labels"},
 			{"rounds", "object?", "the stages the bead has reached, each with the rounds counted for it: how many times an outcome brought the bead back to a stage it had been in (a reviewer's `changes`, a failed landing), a same-stage outcome included. A stage reached for the first time reads `0`, and a move by hand (`yardr bead advance --to`) adds none. Absent on a bead from before the record, and on a `bead@peer`"},
+			{"moves", "array?", "the bead's recorded stage moves still in the event log, oldest first, at most 100: the stages each left and entered and when, with the outcome that moved it where one did. Absent when none remain, and on a `bead@peer`"},
+			{"moves[].from", "string", "the stage the move left"},
+			{"moves[].to", "string", "the stage the move entered"},
+			{"moves[].at", "time", "when the move was made"},
+			{"moves[].outcome", "string?", "the outcome that moved the bead, as the flow names it; absent on a move by hand"},
+			{"moves[].instead_of", "string?", "the stage a round limit kept the bead from, which `to` stands in for; absent where no limit sent the bead on"},
+			{"now", "object?", "the live session, if any, and the latest event still in the log. Absent when neither remains, and on a `bead@peer`"},
+			{"now.session", "object?", "the live session working the bead; absent where none is"},
+			{"now.session.group", "string", "the group the session works for"},
+			{"now.session.kind", "string", "the harness kind the session started with"},
+			{"now.session.model", "string", "the model the session started with"},
+			{"now.session.state", "string", "the session's state: `starting` or `running`"},
+			{"now.session.started_at", "time", "when the session started"},
+			{"now.activity", "object?", "the bead's latest recorded activity: its newest event still in the log, with its bare kind and time and no content. Absent when no event remains"},
+			{"now.activity.kind", "string", "the kind of the bead's newest event"},
+			{"now.activity.at", "time", "when the bead's newest event was written"},
 			{"notes[].seq", "number", "the note's seq"},
 			{"notes[].kind", "string", "the note's kind: `note`, `journal` or `handoff`"},
 			{"notes[].author", "string", "who wrote it"},
@@ -1612,6 +1628,28 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(err)
 	_, err = st.Advance(ctx, landed.ID, "merged", store.Expect{}, "jo")
 	must(err)
+
+	// The links bead's stage moves with who works it now, so the bead
+	// has moves and now to show: a flow of its own pinned to it, a move
+	// by hand into the loop, two rounds of the loop and a third past its
+	// limit, and a fresh claim under the same agent name, since a move
+	// ends the session. Last again, for the seqs above.
+	rework, err := store.ParseFlow("new -> draft\ndraft -> critique on done\ncritique -> draft on changes max 1 then review\nreview -> merged on done\nmerged terminal\n")
+	must(err)
+	rework.Name = "rework"
+	_, err = st.PutFlow(ctx, *rework, "jo")
+	must(err)
+	_, err = st.UpdateBead(ctx, links.ID, store.BeadPatch{Metadata: map[string]any{"flow": "rework"}}, store.Expect{}, "jo")
+	must(err)
+	_, err = st.Advance(ctx, links.ID, "draft", store.Expect{}, "jo")
+	must(err)
+	for _, outcome := range []string{"done", "changes", "done", "changes"} {
+		_, err = st.Done(ctx, links.ID, outcome, "", store.Expect{}, "jo")
+		must(err)
+	}
+	moved, err := st.Claim(ctx, links.ID, "builders", "review", "yard")
+	must(err)
+	must(st.MarkRunning(ctx, moved.ID, map[string]any{"agent": "links-new"}))
 	return st, d.Token
 }
 

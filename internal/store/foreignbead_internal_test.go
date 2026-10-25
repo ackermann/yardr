@@ -86,6 +86,9 @@ func TestBeadForeign(t *testing.T) {
 	if len(a.About) != 1 || a.About[0] != (AboutBead{ID: "yd-train", Title: "Release train", Stage: "new"}) {
 		t.Fatalf("about = %+v", a.About)
 	}
+	if v.Moves != nil || v.Now != nil {
+		t.Fatalf("moves and now = %+v %+v, want neither on one of another yard's", v.Moves, v.Now)
+	}
 
 	// Answered here, the state is this yard's: a newer pick stands, and
 	// the view says how many came before it.

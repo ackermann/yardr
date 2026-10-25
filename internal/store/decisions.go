@@ -17,6 +17,7 @@
 package store
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -442,10 +443,64 @@ type BeadView struct {
 	// times an outcome brought it back to it. Absent on a bead from before
 	// the record, and on one of another yard's.
 	Rounds map[string]int `json:"rounds,omitempty"`
+	// Moves is the bead's recorded stage-move history, oldest first: its
+	// advanced events still in the log, at most beadMovesCap of them.
+	// Absent where none remain, and on one of another yard's.
+	Moves []BeadMove `json:"moves,omitempty"`
+	// Now is the live session and latest recorded activity, when either
+	// remains. Absent on one of another yard's.
+	Now *BeadNow `json:"now,omitempty"`
 	// ETA and Late are the bead's estimate, absent when there is nothing
 	// to say; the same shapes bead show --json carries.
 	ETA  *eta.ETA  `json:"eta,omitempty"`
 	Late *eta.Late `json:"late,omitempty"`
+}
+
+// BeadMove is one stage move of a bead: the stages it left and entered
+// and when, with the outcome that moved it where one did, and the stage
+// a round limit kept it from where one did (instead_of). Every field is
+// in the advanced event's told set (eventDataTold), so a move is told to
+// any viewer whole, with no rpc-layer filtering.
+type BeadMove struct {
+	From      string    `json:"from"`
+	To        string    `json:"to"`
+	At        time.Time `json:"at"`
+	Outcome   string    `json:"outcome,omitempty"`
+	InsteadOf string    `json:"instead_of,omitempty"`
+}
+
+// beadMovesCap is how many of a bead's stage moves Bead serves: the
+// newest that many, oldest first. Past that it is a log, not a glance.
+const beadMovesCap = 100
+
+// BeadNow is who works a bead now: the live session working it, if one
+// is, and the bead's latest activity if its event remains in the log.
+// The session's handle and error never leave: a handle names the yard's
+// machine, and an error names what failed on it. No terminal text
+// crosses either: the activity is a bare kind and time ("noted 2m ago"),
+// and content stays in Notes under its redaction.
+type BeadNow struct {
+	Session  *BeadSession  `json:"session,omitempty"`
+	Activity *BeadActivity `json:"activity,omitempty"`
+}
+
+// BeadSession is the live session working a bead, as Bead tells it: the
+// group, the harness kind and model it started with, its state, and
+// since when. The handle and the error are not served.
+type BeadSession struct {
+	Group     string    `json:"group"`
+	Kind      string    `json:"kind"`
+	Model     string    `json:"model"`
+	State     string    `json:"state"`
+	StartedAt time.Time `json:"started_at"`
+}
+
+// BeadActivity is the latest recorded activity on a bead: the kind of its
+// newest event still in the log and when it was written. The kind alone,
+// never the event's data.
+type BeadActivity struct {
+	Kind string    `json:"kind"`
+	At   time.Time `json:"at"`
 }
 
 // Bead reads one bead whole for viewer, "" for the yard itself. An ask
@@ -529,12 +584,86 @@ func (s *Store) Bead(ctx context.Context, id string, viewer ...string) (*BeadVie
 		}
 		v.Asks = append(v.Asks, a)
 	}
+	moves, activity, err := s.beadMoves(b.ID)
+	if err != nil {
+		return nil, err
+	}
+	v.Moves = moves
+	var now BeadNow
+	if activity != nil {
+		now.Activity = activity
+	}
+	sess, err := s.ListSessions(ctx, SessionFilter{Bead: b.ID})
+	if err != nil {
+		return nil, err
+	}
+	// Live sessions, oldest first; the newest is who works it now.
+	if len(sess) > 0 {
+		live := sess[len(sess)-1]
+		now.Session = &BeadSession{Group: live.Group, Kind: live.Kind, Model: live.Model, State: live.State, StartedAt: live.StartedAt}
+	}
+	if now.Activity != nil || now.Session != nil {
+		v.Now = &now
+	}
 	// The estimate reads what the view already read; a bead shown
 	// without one is still shown.
 	if est, err := s.Estimate(ctx, id); err == nil && est != nil {
 		v.ETA, v.Late = est.ETA, est.Late
 	}
 	return v, nil
+}
+
+// beadMoves is the bead's stage-move history with its latest activity:
+// the bead's advanced events oldest first, at most beadMovesCap of them
+// (the newest), and the kind and time of its newest event of any kind.
+// It walks the bead's event index newest first, stopping after finding
+// the cap and holding only the entries it serves.
+func (s *Store) beadMoves(id string) ([]BeadMove, *BeadActivity, error) {
+	var moves []BeadMove
+	var activity *BeadActivity
+	err := s.read(func(tx *bolt.Tx) error {
+		u, err := resolve(tx, id)
+		if err != nil {
+			return err
+		}
+		prefix := []byte(u + "\x00")
+		c := tx.Bucket(bEventsBy).Cursor()
+		k, _ := c.Seek([]byte(u + "\x01"))
+		if k == nil {
+			k, _ = c.Last()
+		} else {
+			k, _ = c.Prev()
+		}
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Prev() {
+			var e Event
+			if ok, err := get(tx, bEvents, string(k[len(prefix):]), &e); err != nil {
+				return err
+			} else if !ok {
+				continue
+			}
+			// The first key is the bead's newest event.
+			if activity == nil {
+				activity = &BeadActivity{Kind: e.Kind, At: e.At}
+			}
+			if e.Kind != "advanced" {
+				continue
+			}
+			from, _ := e.Data["from"].(string)
+			to, _ := e.Data["to"].(string)
+			outcome, _ := e.Data["outcome"].(string)
+			insteadOf, _ := e.Data["instead_of"].(string)
+			moves = append(moves, BeadMove{From: from, To: to, At: e.At, Outcome: outcome, InsteadOf: insteadOf})
+			if len(moves) == beadMovesCap {
+				break
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	slices.Reverse(moves)
+	return moves, activity, nil
 }
 
 // picksBefore is how many picks came before the ask's current one, so a

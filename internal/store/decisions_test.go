@@ -278,6 +278,9 @@ func TestBeadWhole(t *testing.T) {
 	if len(v.Asks) != 2 || len(v.Notes) != 1 || strings.Contains(string(mustJSON(t, v)), "{oops") {
 		t.Fatalf("a corrupt ask stands in the view: %+v %+v", v.Asks, v.Notes)
 	}
+	if len(v.Moves) != 0 || v.Now == nil || v.Now.Session != nil || v.Now.Activity == nil || v.Now.Activity.Kind != "noted" {
+		t.Fatalf("moves and now = %+v %+v, want activity only", v.Moves, v.Now)
+	}
 	q, err := y.Store.UserAsks(y.ctx, "mckean", "mckean")
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +293,32 @@ func TestBeadWhole(t *testing.T) {
 
 	if _, err := y.Store.Bead(y.ctx, "nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Bead(nope) = %v, want not found", err)
+	}
+
+	// A manual claim can outlive the event log: unlike a running agent, a
+	// person does not hold the log back to the claim. The live session still
+	// answers who works the bead when its claimed event has been pruned.
+	if err := y.Store.PutGroup(y.ctx, Group{Name: "people", Runner: "manual", Limit: 5}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	manual := y.makeBead(t, NewBead{Title: "manual work"})
+	sess, err := y.Store.Claim(y.ctx, manual, "people", "new", "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.tick(91 * 24 * time.Hour)
+	y.makeBead(t, NewBead{Title: "newer work"}) // keeps a newer event as the head
+	if _, err := y.Store.Prune(y.ctx, Retention{Events: 90 * 24 * time.Hour}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	v, err = y.Store.Bead(y.ctx, manual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Now == nil || v.Now.Session == nil || v.Now.Activity != nil ||
+		v.Now.Session.Group != "people" || v.Now.Session.State != "starting" ||
+		!v.Now.Session.StartedAt.Equal(sess.StartedAt) {
+		t.Fatalf("moves and now after the claim was pruned = %+v %+v, want the live session without activity", v.Moves, v.Now)
 	}
 }
 

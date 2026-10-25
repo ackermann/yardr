@@ -277,7 +277,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 158,
+  "seq": 168,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -305,7 +305,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 160,
+  "seq": 170,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -449,7 +449,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 161,
+  "seq": 171,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -1053,7 +1053,7 @@ POST /call/Head
 {}
 
 {
-  "result": 155
+  "result": 165
 }
 ```
 
@@ -1552,7 +1552,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 156,
+      "seq": 166,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1560,7 +1560,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 157,
+      "seq": 167,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1586,7 +1586,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 156,
+      "seq": 166,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1594,7 +1594,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 157,
+      "seq": 167,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1621,7 +1621,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 158,
+      "seq": 168,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -2914,7 +2914,7 @@ Read it again on every `noted` event: a question asked, answered, put aside, dec
 
 ### `Bead`
 
-One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.
+One bead whole: body, stage, labels, notes, its asks with their options, recommendation and state, its stage moves, who works it now, and for each about-bead its id, title and stage. On a `bead@peer` ref, a question another yard asked, the view is synthesized from what that yard carried: its title, stage, topic and labels, its body under one first line saying the bead lives in the other yard and at which stage, no notes, the asks whole with their state as this yard knows it, and the about-beads as carried.
 
 | argument | type | |
 |---|---|---|
@@ -2930,7 +2930,7 @@ POST /call/Bead
     "id": "yd-links",
     "title": "Move the links",
     "body": "The links file declares the new source.",
-    "stage": "new",
+    "stage": "review",
     "topic": "topic:linear-out",
     "labels": ["topic:linear-out"],
     "notes": [
@@ -3074,7 +3074,55 @@ POST /call/Bead
       }
     ],
     "rounds": {
-      "new": 0
+      "critique": 1,
+      "draft": 0,
+      "new": 0,
+      "review": 0
+    },
+    "moves": [
+      {
+        "from": "new",
+        "to": "draft",
+        "at": "2026-10-08T09:30:00Z"
+      },
+      {
+        "from": "draft",
+        "to": "critique",
+        "at": "2026-10-08T09:30:00Z",
+        "outcome": "done"
+      },
+      {
+        "from": "critique",
+        "to": "draft",
+        "at": "2026-10-08T09:30:00Z",
+        "outcome": "changes"
+      },
+      {
+        "from": "draft",
+        "to": "critique",
+        "at": "2026-10-08T09:30:00Z",
+        "outcome": "done"
+      },
+      {
+        "from": "critique",
+        "to": "review",
+        "at": "2026-10-08T09:30:00Z",
+        "outcome": "changes",
+        "instead_of": "draft"
+      }
+    ],
+    "now": {
+      "session": {
+        "group": "builders",
+        "kind": "claude",
+        "model": "opus",
+        "state": "running",
+        "started_at": "2026-10-08T09:30:00Z"
+      },
+      "activity": {
+        "kind": "started",
+        "at": "2026-10-08T09:30:00Z"
+      }
     }
   }
 }
@@ -4239,6 +4287,12 @@ POST /call/Bead
     ],
     "rounds": {
       "new": 0
+    },
+    "now": {
+      "activity": {
+        "kind": "noted",
+        "at": "2026-10-08T09:30:00Z"
+      }
     }
   }
 }
@@ -4253,6 +4307,22 @@ POST /call/Bead
 | `topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
 | `labels` | array of string | the bead's labels |
 | `rounds` | object, may be absent | the stages the bead has reached, each with the rounds counted for it: how many times an outcome brought the bead back to a stage it had been in (a reviewer's `changes`, a failed landing), a same-stage outcome included. A stage reached for the first time reads `0`, and a move by hand (`yardr bead advance --to`) adds none. Absent on a bead from before the record, and on a `bead@peer` |
+| `moves` | array, may be absent | the bead's recorded stage moves still in the event log, oldest first, at most 100: the stages each left and entered and when, with the outcome that moved it where one did. Absent when none remain, and on a `bead@peer` |
+| `moves[].from` | string | the stage the move left |
+| `moves[].to` | string | the stage the move entered |
+| `moves[].at` | time | when the move was made |
+| `moves[].outcome` | string, may be absent | the outcome that moved the bead, as the flow names it; absent on a move by hand |
+| `moves[].instead_of` | string, may be absent | the stage a round limit kept the bead from, which `to` stands in for; absent where no limit sent the bead on |
+| `now` | object, may be absent | the live session, if any, and the latest event still in the log. Absent when neither remains, and on a `bead@peer` |
+| `now.session` | object, may be absent | the live session working the bead; absent where none is |
+| `now.session.group` | string | the group the session works for |
+| `now.session.kind` | string | the harness kind the session started with |
+| `now.session.model` | string | the model the session started with |
+| `now.session.state` | string | the session's state: `starting` or `running` |
+| `now.session.started_at` | time | when the session started |
+| `now.activity` | object, may be absent | the bead's latest recorded activity: its newest event still in the log, with its bare kind and time and no content. Absent when no event remains |
+| `now.activity.kind` | string | the kind of the bead's newest event |
+| `now.activity.at` | time | when the bead's newest event was written |
 | `notes[].seq` | number | the note's seq |
 | `notes[].kind` | string | the note's kind: `note`, `journal` or `handoff` |
 | `notes[].author` | string | who wrote it |
@@ -4361,19 +4431,19 @@ POST /call/Arrivals
         "tone": "none"
       },
       {
-        "bead": "yd-links",
-        "title": "Move the links",
+        "bead": "yd-greet",
+        "title": "The greeting",
         "platform": "new",
-        "line": "",
+        "line": "drafts",
         "expected": "—",
         "remark": "",
         "tone": "none"
       },
       {
-        "bead": "yd-greet",
-        "title": "The greeting",
-        "platform": "new",
-        "line": "drafts",
+        "bead": "yd-links",
+        "title": "Move the links",
+        "platform": "review",
+        "line": "",
         "expected": "—",
         "remark": "",
         "tone": "none"
@@ -4427,7 +4497,7 @@ POST /call/Arrivals
         "held_by": "yard"
       }
     ],
-    "platforms": ["new"]
+    "platforms": ["new", "review"]
   }
 }
 ```
@@ -4574,6 +4644,19 @@ POST /call/Flows
     ],
     "unassigned": [
       {
+        "bead": "yd-links",
+        "title": "Move the links",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": true,
+        "worker": "herdr links-new",
+        "group": "builders",
+        "kind": "claude",
+        "model": "opus",
+        "entered_stage_at": "2026-10-08T09:30:00Z"
+      },
+      {
         "bead": "yd-crm",
         "title": "Read the CRM",
         "expected": "—",
@@ -4589,19 +4672,6 @@ POST /call/Flows
         "tone": "red",
         "held_by": "yard",
         "working": false
-      },
-      {
-        "bead": "yd-links",
-        "title": "Move the links",
-        "expected": "—",
-        "remark": "",
-        "tone": "none",
-        "working": true,
-        "worker": "herdr links-new",
-        "group": "builders",
-        "kind": "claude",
-        "model": "opus",
-        "entered_stage_at": "2026-10-08T09:30:00Z"
       },
       {
         "bead": "yd-shed",
@@ -4732,6 +4802,19 @@ POST /call/Flows
     ],
     "unassigned": [
       {
+        "bead": "yd-links",
+        "title": "Move the links",
+        "expected": "—",
+        "remark": "",
+        "tone": "none",
+        "working": true,
+        "worker": "herdr links-new",
+        "group": "builders",
+        "kind": "claude",
+        "model": "opus",
+        "entered_stage_at": "2026-10-08T09:30:00Z"
+      },
+      {
         "bead": "yd-crm",
         "title": "Read the CRM",
         "expected": "—",
@@ -4747,19 +4830,6 @@ POST /call/Flows
         "tone": "red",
         "held_by": "yard",
         "working": false
-      },
-      {
-        "bead": "yd-links",
-        "title": "Move the links",
-        "expected": "—",
-        "remark": "",
-        "tone": "none",
-        "working": true,
-        "worker": "herdr links-new",
-        "group": "builders",
-        "kind": "claude",
-        "model": "opus",
-        "entered_stage_at": "2026-10-08T09:30:00Z"
       },
       {
         "bead": "yd-shed",
