@@ -277,7 +277,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 154,
+  "seq": 158,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -305,7 +305,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 156,
+  "seq": 160,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -449,7 +449,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 157,
+  "seq": 161,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -1053,7 +1053,7 @@ POST /call/Head
 {}
 
 {
-  "result": 151
+  "result": 155
 }
 ```
 
@@ -1552,7 +1552,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 152,
+      "seq": 156,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1560,7 +1560,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 153,
+      "seq": 157,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1586,7 +1586,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 152,
+      "seq": 156,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1594,7 +1594,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 153,
+      "seq": 157,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1621,7 +1621,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 154,
+      "seq": 158,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -4452,7 +4452,7 @@ Read it again on every event that carries a bead, and on the events without one 
 
 ### `Flows`
 
-The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.
+The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, each flow its landings of the trailing 24 hours, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise. A flow's landings are the beads that entered merged in the trailing 24 hours, newest first, at most 30: what landed under its landed station.
 
 | argument | type | |
 |---|---|---|
@@ -4536,10 +4536,25 @@ POST /call/Flows
                 "group": "elders",
                 "human": true,
                 "lamp": "none",
-                "terminal": true,
+                "terminal": false,
                 "limit": 5,
                 "taken": 0,
                 "beads": []
+              },
+              {
+                "stage": "merged",
+                "group": "",
+                "human": false,
+                "lamp": "none",
+                "terminal": true,
+                "beads": []
+              }
+            ],
+            "landings": [
+              {
+                "bead": "yd-points",
+                "title": "Oil the points",
+                "landed_at": "2026-10-08T09:30:00Z"
               }
             ]
           }
@@ -4679,10 +4694,25 @@ POST /call/Flows
                 "group": "elders",
                 "human": true,
                 "lamp": "none",
-                "terminal": true,
+                "terminal": false,
                 "limit": 5,
                 "taken": 0,
                 "beads": []
+              },
+              {
+                "stage": "merged",
+                "group": "",
+                "human": false,
+                "lamp": "none",
+                "terminal": true,
+                "beads": []
+              }
+            ],
+            "landings": [
+              {
+                "bead": "yd-points",
+                "title": "Oil the points",
+                "landed_at": "2026-10-08T09:30:00Z"
               }
             ]
           }
@@ -4772,6 +4802,9 @@ POST /call/Flows
 | `depots[].flows[].stages[].beads[].kind` | string, may be absent | the harness kind the claiming session started with (`claude`, `codex`, ...), as it recorded it at claim, served unchanged; absent wherever no worker can be named, on a manual group's claim, and where the session recorded none (an exec or peer claim, or a session from before kinds were recorded) |
 | `depots[].flows[].stages[].beads[].model` | string, may be absent | the model the claiming session started with, as it recorded it at claim, served unchanged; absent wherever no worker can be named, on a manual group's claim, and where the session recorded none |
 | `depots[].flows[].stages[].beads[].entered_stage_at` | time, may be absent | when the bead entered its stage, as an RFC 3339 time; absent where no session claimed it, and where the stay has no clock |
+| `depots[].flows[].landings[].bead` | string | the landed bead's handle |
+| `depots[].flows[].landings[].title` | string | the landed bead's title, as it stands now |
+| `depots[].flows[].landings[].landed_at` | time | when the bead entered merged, as an RFC 3339 time |
 | `depots[].elsewhere[].bead` | string | the bead's handle |
 | `depots[].elsewhere[].title` | string | the bead's title |
 | `depots[].elsewhere[].expected` | string | the expected arrival as the yard prints it: the usual range, one span when both ends agree, `—` where the yard serves none, or the bead is blocked by an open bead |

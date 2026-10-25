@@ -568,7 +568,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Flows",
-		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise.",
+		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, each flow its landings of the trailing 24 hours, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise. A flow's landings are the beads that entered merged in the trailing 24 hours, newest first, at most 30: what landed under its landed station.",
 		args:     []field{{"viewer", "string", "who reads the board: it holds no row they may not see; a device's viewer is its user; left out, the yard itself"}},
 		requests: []string{`{"viewer":"jo"}`, `{}`},
 		fields: slices.Concat([]field{
@@ -588,6 +588,11 @@ var apiCalls = []apiCall{
 			{"depots[].flows[].stages[].taken", "number?", "how many of the routed group's seats live sessions hold across the whole yard, the same number on every stage routed to the group; absent where no route matches"},
 		},
 			flowBead("depots[].flows[].stages[].beads[]."),
+			[]field{
+				{"depots[].flows[].landings[].bead", "string", "the landed bead's handle"},
+				{"depots[].flows[].landings[].title", "string", "the landed bead's title, as it stands now"},
+				{"depots[].flows[].landings[].landed_at", "time", "when the bead entered merged, as an RFC 3339 time"},
+			},
 			flowBead("depots[].elsewhere[]."),
 			[]field{
 				{"depots[].error", "string?", "why the depot's flows could not be read; its beads are then all in Elsewhere; absent when they read"},
@@ -1362,7 +1367,7 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	// flow, holding another off the line. Last again, for the seqs above;
 	// the Arrivals rows of the two moved beads gain their lines.
 	must(st.PutDepot(ctx, store.Depot{Name: "yard", Base: "origin/main"}, "jo"))
-	flow, err := store.ParseFlow("new -> shipped\nshipped terminal\n")
+	flow, err := store.ParseFlow("new -> shipped\nshipped -> merged\nmerged terminal\n")
 	must(err)
 	flow.Name = "default"
 	_, err = st.PutFlow(ctx, *flow, "jo")
@@ -1598,6 +1603,15 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	ask(crm.ID, store.Ask{Question: "Hook the bot's messages up?", To: "jo",
 		Context: []string{"The bot's stream needs a hook to land in."},
 		Run:     &store.AskRun{Argv: []string{"hook", "add", "bot", "--source", "bot"}}})
+
+	// A bead that landed under the yard depot's flow, so the flows view
+	// has a landing to show. Last again, for the seqs above.
+	landed, err := st.CreateBead(ctx, store.NewBead{Title: "Oil the points", ID: "yd-points", Stage: "new", Depot: "yard"}, "yardmaster")
+	must(err)
+	_, err = st.Advance(ctx, landed.ID, "shipped", store.Expect{}, "jo")
+	must(err)
+	_, err = st.Advance(ctx, landed.ID, "merged", store.Expect{}, "jo")
+	must(err)
 	return st, d.Token
 }
 

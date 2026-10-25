@@ -59,7 +59,35 @@ type FlowsFlow struct {
 	// "store", "repo@0f415ee".
 	Source string       `json:"source"`
 	Stages []FlowsStage `json:"stages"`
+	// Landings are the flow's beads that entered merged in the trailing
+	// 24 hours, newest first, at most flowLandingsPerFlow of them: what
+	// landed under the flow's landed station. Empty where nothing did.
+	Landings []FlowLanding `json:"landings"`
 }
+
+// FlowLanding is one bead that landed under a flow: the bead, its title
+// as it stands now, and when it entered merged.
+type FlowLanding struct {
+	Bead     string    `json:"bead"`
+	Title    string    `json:"title"`
+	LandedAt time.Time `json:"landed_at"`
+}
+
+// flowLandingsWindow is how many of the most recent advanced events Flows
+// reads to find the trailing 24 hours' landings: about two days at
+// current rates, so the window always holds the day it keeps. It reads
+// through the index by kind, so what it costs is what it returns, and
+// keeps the day in memory; the bead side has no closed-at index, so it
+// would scan every bead ever instead.
+const flowLandingsWindow = 3000
+
+// flowLandingsPerFlow caps the landings served under one flow: past that
+// it is a log, not a glance.
+const flowLandingsPerFlow = 30
+
+// flowLandingsAfter is how far back a landing counts: the trailing 24
+// hours, not the calendar day, so no timezone semantics.
+const flowLandingsAfter = 24 * time.Hour
 
 // FlowsStage is one stage of a flow and the open beads in it.
 type FlowsStage struct {
@@ -124,12 +152,13 @@ type FlowBead struct {
 }
 
 // Flows answers the flows view: the depots each with its flows, each flow
-// its stages in travel order, each stage its beads, the per-depot
-// Elsewhere rows, the unassigned rows, and the travelling totals. Its
-// stages, beads and lamps are /flows and the panel as served; its
-// unassigned rows are the open beads outside the backlog with no depot.
-// An omitted viewer is the yard itself; a viewer's board holds only the
-// beads they may see.
+// its stages in travel order, each stage its beads, each flow its
+// landings of the trailing 24 hours, the per-depot Elsewhere rows, the
+// unassigned rows, and the travelling totals. Its stages, beads and lamps
+// are /flows and the panel as served; its unassigned rows are the open
+// beads outside the backlog with no depot. An omitted viewer is the yard
+// itself; a viewer's board holds only the beads they may see, landings
+// among them.
 func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error) {
 	depots, err := s.Depots(ctx)
 	if err != nil {
@@ -202,6 +231,10 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 	if err != nil {
 		return nil, err
 	}
+	landed, err := s.flowLandings(ctx, firstViewer(viewer))
+	if err != nil {
+		return nil, err
+	}
 	row := func(b Bead) FlowBead {
 		r := rows[b.ID]
 		fb := FlowBead{Bead: b.ID, Title: b.Title, Expected: r.Expected,
@@ -254,7 +287,7 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 			fd.Error = err.Error()
 		}
 		for _, rf := range rfs {
-			ff := FlowsFlow{Name: rf.Flow.Name, Type: rf.Type, Source: rf.Source.String(), Stages: []FlowsStage{}}
+			ff := FlowsFlow{Name: rf.Flow.Name, Type: rf.Type, Source: rf.Source.String(), Stages: []FlowsStage{}, Landings: []FlowLanding{}}
 			for _, st := range rf.Flow.Stages {
 				fs := FlowsStage{Stage: st, Lamp: "none", Terminal: rf.Flow.IsTerminal(st), Beads: []FlowBead{}}
 				// Routes may match on type; the depot's own flow is shown
@@ -274,6 +307,25 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 				ff.Stages = append(ff.Stages, fs)
 			}
 			fd.Flows = append(fd.Flows, ff)
+		}
+		// The depot's landings under their flows, newest first, capped
+		// per flow. A landing in no section of the flows as they stand
+		// now (a flow changed since it landed) has no flow to stand
+		// under.
+		byFlow := map[int][]FlowLanding{}
+		for _, l := range landed[depot.Name] {
+			if f, _ := flowSection(&l.bead, rfs); f >= 0 {
+				byFlow[f] = append(byFlow[f], FlowLanding{Bead: l.bead.ID, Title: l.bead.Title, LandedAt: l.at})
+			}
+		}
+		for f, rows := range byFlow {
+			slices.SortStableFunc(rows, func(a, b FlowLanding) int {
+				if c := b.LandedAt.Compare(a.LandedAt); c != 0 {
+					return c
+				}
+				return cmp.Compare(a.Bead, b.Bead)
+			})
+			fd.Flows[f].Landings = append(fd.Flows[f].Landings, rows[:min(len(rows), flowLandingsPerFlow)]...)
 		}
 		var elsewhere []Bead
 		onStage := map[[2]int][]Bead{}
@@ -317,6 +369,64 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 		out.Depots = append(out.Depots, fd)
 	}
 	return out, nil
+}
+
+// landedBead is a bead that entered merged with when it did.
+type landedBead struct {
+	bead Bead
+	at   time.Time
+}
+
+// flowLandings is what landed under each depot's flows in the trailing
+// 24 hours, by depot: the beads whose advanced event entered merged since
+// then, with when. What the viewer may not see is left out, as if it
+// never landed, as the board leaves it out; a bead with no depot has no
+// flow to land under.
+func (s *Store) flowLandings(ctx context.Context, viewer string) (map[string][]landedBead, error) {
+	evs, err := s.EventsOfKind(ctx, "advanced", flowLandingsWindow)
+	if err != nil {
+		return nil, err
+	}
+	since := now().Add(-flowLandingsAfter)
+	type pending struct {
+		handle string
+		at     time.Time
+	}
+	var pend []pending
+	for _, e := range evs {
+		if e.Bead == nil {
+			continue
+		}
+		if to, _ := e.Data["to"].(string); to != "merged" {
+			continue
+		}
+		if e.At.Before(since) {
+			continue
+		}
+		pend = append(pend, pending{*e.Bead, e.At})
+	}
+	out := map[string][]landedBead{}
+	err = s.read(func(tx *bolt.Tx) error {
+		for _, p := range pend {
+			row, err := loadBead(tx, p.handle)
+			if err != nil {
+				if errors.Is(err, ErrNotFound) {
+					continue
+				}
+				return err
+			}
+			b := row.Bead
+			if b.Depot == nil {
+				continue
+			}
+			if s.may(ctx, tx, viewer, ActSee, Object{Kind: KindBead, Name: b.ID}) != nil {
+				continue
+			}
+			out[*b.Depot] = append(out[*b.Depot], landedBead{bead: b, at: p.at})
+		}
+		return nil
+	})
+	return out, err
 }
 
 // flowSection is where the depot's bead stands: the indexes of its flow

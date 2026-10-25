@@ -3,12 +3,15 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // flowsBoard is the served view of a yard with a depot on a store flow, a
@@ -183,6 +186,156 @@ func TestFlowsServesDepotsFlowsStagesBeads(t *testing.T) {
 	}
 	if r := shop.Flows[0].Stages[1].Beads[1]; r.Remark != "" || r.Tone != "none" || r.HeldBy != "" {
 		t.Errorf("the plain bead's row = %+v, want no remark", r)
+	}
+	t.Run("landings", testFlowsLandings)
+}
+
+// testFlowsLandings pins the landings each flow serves: the beads that
+// entered merged in the trailing 24 hours, newest first, each with bead,
+// title and when. An older landing and an advance short of merged land
+// nowhere; a landing the viewer may not see lands nowhere for them and
+// still lands for the yard; past 30 per flow the oldest drop; a flow with
+// no landings serves an empty row, never null.
+func testFlowsLandings(t *testing.T) {
+	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
+	y := newArrivalsTest(t)
+	ctx := context.Background()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(y.PutDepot(ctx, Depot{Name: "shop", Base: "origin/main"}, "me"))
+	must(y.PutDepot(ctx, Depot{Name: "quiet", Base: "origin/main"}, "me"))
+	fl, err := ParseFlow("backlog -> new\nnew -> review\nreview -> merged\nmerged terminal\n")
+	must(err)
+	fl.Name = "code"
+	_, err = y.PutFlow(ctx, *fl, "me")
+	must(err)
+	must(y.SetFlowPointer(ctx, "shop", "", "code", "me"))
+	must(y.SetFlowPointer(ctx, "quiet", "", "code", "me"))
+	y.flowDepot(t, "bare", "plain", "new", "review")
+
+	t0 := y.now
+	// land moves the bead through review into merged at at, closing it,
+	// as a landing does. The intermediate advance is a non-merged
+	// advance inside the window, which lands nowhere.
+	land := func(id, depot, title string, at time.Time) {
+		t.Helper()
+		y.at(at)
+		if _, err := y.CreateBead(ctx, NewBead{Title: title, ID: id, Stage: "new", Depot: depot}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.Advance(ctx, id, "review", Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		b, err := y.Advance(ctx, id, "merged", Expect{}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b.Status != "closed" {
+			t.Fatalf("%s landed but is %s, want closed", id, b.Status)
+		}
+	}
+	land("old", "shop", "old", t0.Add(-25*time.Hour))
+	edgeAt := t0.Add(-24 * time.Hour)
+	land("edge", "shop", "The edge landing", edgeAt)
+	r1At := t0.Add(-23 * time.Hour)
+	land("recent-1", "shop", "recent-1", r1At)
+	hiddenAt := t0.Add(-2 * time.Hour)
+	land("hidden", "shop", "hidden", hiddenAt)
+	r2At := t0.Add(-time.Hour)
+	land("recent-2", "shop", "The second landing", r2At)
+	// An advance short of merged: open in review, no landing.
+	y.at(t0.Add(-time.Hour))
+	unlanded := y.travel(t, "unlanded", "shop", "new")
+	if _, err := y.Advance(ctx, unlanded.ID, "review", Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	// Past 30 on quiet's flow the oldest drop: 35 landings, newest kept.
+	for i := 0; i < 35; i++ {
+		id := "cap-" + string(rune('a'+i/26)) + string(rune('a'+i%26))
+		land(id, "quiet", id, t0.Add(-20*time.Hour+time.Duration(i)*10*time.Minute))
+	}
+	y.at(t0)
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if act == ActSee && obj.Kind == KindBead && obj.Name == "hidden" && actor == "hal" {
+			return errors.New("hidden from hal")
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	landingsOf := func(board *FlowsBoard, depot, flow string) []FlowLanding {
+		t.Helper()
+		for _, d := range board.Depots {
+			if d.Name != depot {
+				continue
+			}
+			for _, f := range d.Flows {
+				if f.Name == flow {
+					return f.Landings
+				}
+			}
+		}
+		t.Fatalf("no flow %s on depot %s", flow, depot)
+		return nil
+	}
+	rows := func(ls []FlowLanding) [][3]string {
+		var out [][3]string
+		for _, l := range ls {
+			out = append(out, [3]string{l.Bead, l.Title, l.LandedAt.Format(time.RFC3339)})
+		}
+		return out
+	}
+
+	yard, err := y.Flows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantYard := [][3]string{
+		{"recent-2", "The second landing", r2At.Format(time.RFC3339)},
+		{"hidden", "hidden", hiddenAt.Format(time.RFC3339)},
+		{"recent-1", "recent-1", r1At.Format(time.RFC3339)},
+		{"edge", "The edge landing", edgeAt.Format(time.RFC3339)},
+	}
+	if got := rows(landingsOf(yard, "shop", "code")); !reflect.DeepEqual(got, wantYard) {
+		t.Errorf("the yard's shop landings:\n got %v\nwant %v\n(old, 25h back, and the review-only advance land nowhere; the landing exactly 24h back does)", got, wantYard)
+	}
+	hal, err := y.Flows(ctx, "hal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHal := [][3]string{
+		{"recent-2", "The second landing", r2At.Format(time.RFC3339)},
+		{"recent-1", "recent-1", r1At.Format(time.RFC3339)},
+		{"edge", "The edge landing", edgeAt.Format(time.RFC3339)},
+	}
+	if got := rows(landingsOf(hal, "shop", "code")); !reflect.DeepEqual(got, wantHal) {
+		t.Errorf("hal's shop landings:\n got %v\nwant %v\n(the landing hal may not see lands nowhere for them)", got, wantHal)
+	}
+	got := landingsOf(yard, "quiet", "code")
+	if len(got) != 30 {
+		t.Fatalf("quiet landings = %d rows, want the newest 30 of 35", len(got))
+	}
+	for i, l := range got {
+		wantID := "cap-" + string(rune('a'+(34-i)/26)) + string(rune('a'+(34-i)%26))
+		if l.Bead != wantID {
+			t.Fatalf("quiet landing %d = %s, want %s (newest first, the oldest 5 dropped)", i, l.Bead, wantID)
+		}
+		if want := t0.Add(-20*time.Hour + time.Duration(34-i)*10*time.Minute); !l.LandedAt.Equal(want) {
+			t.Fatalf("quiet landing %s at %v, want %v", l.Bead, l.LandedAt, want)
+		}
+	}
+	bare := landingsOf(yard, "bare", "plain")
+	if bare == nil || len(bare) != 0 {
+		t.Fatalf("bare landings = %+v, want an empty row, never null", bare)
+	}
+	raw, err := json.Marshal(landingsOf(yard, "bare", "plain"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "[]" {
+		t.Errorf("bare landings serve %s, want []", raw)
 	}
 }
 
