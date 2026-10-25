@@ -698,19 +698,26 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 	if calls == nil && (d.Limits != nil || (d.Hook != nil && d.Hook.Register == nil)) {
 		// A source that is its limits command and/or what it sends in,
 		// and nothing else: there is no request, so nothing a request
-		// needs has a meaning.
+		// needs has a meaning. Hearing is not one of those: it keeps
+		// the deliveries by who speaks, which needs no call, so the
+		// hear key is read, and hearing by address refused there with
+		// its own reason, since it names a notify address the file has
+		// none of.
 		alone := "limits alone"
 		if d.Hook != nil && d.Limits != nil {
 			alone = "hook and limits alone"
 		} else if d.Hook != nil {
 			alone = "hook alone"
 		}
-		for _, e := range []*entry{base, bases, credential, check, idempotency, notify, hear} {
+		for _, e := range []*entry{base, bases, credential, check, idempotency, notify} {
 			if e != nil {
 				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has %s)", alone)
 			}
 		}
 		d.Base, d.Bases, d.Credential = "", nil, nil
+		if hear != nil {
+			d.Hear = r.hear(d, *hear, alone)
+		}
 		return
 	}
 	// A credential that is the address is every call's address, so it
@@ -767,7 +774,7 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		d.Notify = r.notify(d, *notify)
 	}
 	if hear != nil {
-		d.Hear = r.hear(d, *hear)
+		d.Hear = r.hear(d, *hear, "")
 	}
 	if hook != nil && d.Hook != nil && d.Hook.Register != nil {
 		r.hookRegisterCheck(d, *hook)

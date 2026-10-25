@@ -1301,6 +1301,11 @@ hear:
   by: identity
 ```
 
+A source with a `hook` key and no calls hears by identity too:
+keeping a delivery by who speaks needs no call, so a hook-only source
+carries the same key. Hearing by address is refused there: it names a
+notify address, and such a source has none.
+
 `fields[field]` must then hold a member id that is some user's
 identity in the source (`yardr user identity <user> --source <source>
 --id <id>`); the mapping is the consent to be heard, one id naming
@@ -1414,7 +1419,9 @@ The telegram pack says `from: operator`: chats of users whose role is
 but hears nothing back, as does setting another member's address; its `subscribe`
 says `type: message`, so the hearer hears messages and not the chat's
 other Updates. Refused: a `hear`
-without a `hook` key; hearing by address without a `notify` key; a
+without a `hook` key; hearing by address without a `notify` key;
+hearing by address on a hook-only source, which names a notify
+address the source has none of; a
 field that is no key of `hook.keys`; `by: identity` with an
 `address` or a `from`, or a `by` that is no way the yard hears; an
 address that is not the one `notify` reads; a `from` that is not

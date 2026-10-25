@@ -311,6 +311,26 @@ hear:
 // identity in talk. unknown is the hook's --unknown word, "" for a
 // hook made without it.
 func identityDepot(t *testing.T, unknown string) *depot {
+	return identityDepotWithText(t, unknown, fmt.Sprintf(talkText, "normalize"))
+}
+
+// hookOnlyIdentityDepot is an identity-hearing source with only its inbound
+// hook: the receiver must still offer the mapping card for an unmapped sender.
+func hookOnlyIdentityDepot(t *testing.T, unknown string) *depot {
+	text := `name: talk
+hook:
+  verify: { scheme: secret, signature: { header: Talk-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [sender, channel]
+hear:
+  field: sender
+  by: identity
+`
+	return identityDepotWithText(t, unknown, text)
+}
+
+func identityDepotWithText(t *testing.T, unknown, text string) *depot {
 	t.Helper()
 	home := t.TempDir()
 	r := newDepot(t)
@@ -319,7 +339,6 @@ func identityDepot(t *testing.T, unknown string) *depot {
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv.Config.Handler = r.rc.Handler()
 	ctx := context.Background()
-	text := fmt.Sprintf(talkText, "normalize")
 	d, err := source.Parse("talk.yaml", []byte(text))
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +510,7 @@ func TestHearByIdentity(t *testing.T) {
 // under ignore no card is offered.
 func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	ctx := context.Background()
-	r := identityDepot(t, "")
+	r := hookOnlyIdentityDepot(t, "")
 	if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
 		t.Fatal(err)
 	}

@@ -1596,17 +1596,22 @@ func TestParseHookUntimed(t *testing.T) {
 
 // A hook alone is a source: one that sends in and is never called has no
 // base and no calls, as one that is its limits command has neither. What
-// is for the calls is refused with it.
+// is for the calls is refused with it. It still hears by identity:
+// keeping the deliveries by who speaks needs no call.
 func TestParseHookAlone(t *testing.T) {
 	for name, tc := range map[string]struct {
 		text, want string
 		hook       bool // parses, with a hook key
 	}{
-		"hook alone":                     {"name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "", true},
-		"hook and limits alone":          {"name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\nlimits:\n  command: [q, \"{provider}\"]\n  kinds: { kimi: kimi }\n", "", true},
-		"a base and no calls":            {"name: q\nbase: https://q.example.com\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "base: is for the calls of a source, and this file declares none (it has hook alone)", false},
-		"a credential and no calls":      {"name: q\ncredential: { env: Q }\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "credential: is for the calls of a source", false},
-		"neither calls, limits nor hook": {"name: q\n", "calls: missing: a source is the calls it declares, or its limits command, or what it sends in (hook)", false},
+		"hook alone":                       {"name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "", true},
+		"hook alone with hear by identity": {"name: q\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n  keys: [sender, channel]\nhear:\n  field: sender\n  by: identity\n", "", true},
+		"hook and limits alone":            {"name: q\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\nlimits:\n  command: [q, \"{provider}\"]\n  kinds: { kimi: kimi }\n", "", true},
+		"a base and no calls":              {"name: q\nbase: https://q.example.com\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "base: is for the calls of a source, and this file declares none (it has hook alone)", false},
+		"a credential and no calls":        {"name: q\ncredential: { env: Q }\nhook:\n  verify:\n    scheme: hmac-sha256\n    signed: body\n    signature: { header: S-Sig, encoding: hex }\n    delivery: { header: S-Delivery }\n  bodies: repeat\n  normalize: [normalize]\n", "credential: is for the calls of a source", false},
+		"a check and no calls":             {"name: q\ncheck: ping\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n", "check: is for the calls of a source", false},
+		"an idempotency and no calls":      {"name: q\nidempotency: Idempotency-Key\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n", "idempotency: is for the calls of a source", false},
+		"a notify and no calls":            {"name: q\nnotify: { call: tell }\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n", "notify: is for the calls of a source", false},
+		"neither calls, limits nor hook":   {"name: q\n", "calls: missing: a source is the calls it declares, or its limits command, or what it sends in (hook)", false},
 	} {
 		d, err := Parse("f", []byte(tc.text))
 		if tc.hook {
@@ -1864,7 +1869,9 @@ func TestParseHear(t *testing.T) {
 // Hearing by identity: the field holds a speaker's id in the source,
 // matched against a user's identity there. It needs no notify key and
 // no address, and address and from are refused with it, as is a field
-// no hook key names and a by that is no way the yard hears.
+// no hook key names and a by that is no way the yard hears. A hook
+// alone hears by identity too: keeping the deliveries by who speaks
+// needs no call.
 func TestParseHearByIdentity(t *testing.T) {
 	hooked := "hook:\n" +
 		"  verify:\n    scheme: secret\n    signature: { header: P-Secret }\n" +
@@ -1873,9 +1880,12 @@ func TestParseHearByIdentity(t *testing.T) {
 	// Without its notify key the file still parses by identity: hearing
 	// by who speaks names no address telling reads.
 	unnotified := strings.SplitN(pushover, "notify:\n", 2)[0] + hooked
+	// A hook alone, and nothing else: no base, no calls, no notify.
+	hookAlone := "name: q\n" + hooked
 	for _, text := range []string{
 		base + "hear:\n  field: sender\n  by: identity\n",
 		unnotified + "hear:\n  field: sender\n  by: identity\n",
+		hookAlone + "hear:\n  field: sender\n  by: identity\n",
 	} {
 		d, err := Parse("p.yaml", []byte(text))
 		if err != nil {
@@ -1947,12 +1957,21 @@ func TestParseHearRefusals(t *testing.T) {
 		"hear without notify": {unnotified,
 			"hear: needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one"},
 		"hear with hook alone": {"name: q\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\nhear:\n" + good,
-			"hear: is for the calls of a source, and this file declares none (it has hook alone)"},
+			"hear: hearing by address names a notify address, and this file declares none (it has hook alone): hear by identity (by: identity)"},
+		"hook alone, by identity, a field under no key": {"name: q\nhook:\n  verify:\n    scheme: secret\n    signature: { header: Q-Secret }\n  bodies: unique\n  normalize: [normalize]\n  keys: [chat]\nhear:\n  field: room\n  by: identity\n",
+			"hear.field: room is no key the envelope carries: hook.keys names chat"},
+		"hear with limits alone": {"name: q\nlimits:\n  command: [q, \"{provider}\"]\n  kinds: { kimi: kimi }\nhear:\n  field: sender\n  by: identity\n",
+			"hear: needs hook: hear keeps the deliveries of a source, and this file has no hook key to receive any"},
 	} {
 		_, err := Parse("f", []byte(tc.text))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
 		}
+	}
+	limitsOnlyAddress := "name: q\nlimits:\n  command: [q, \"{provider}\"]\n  kinds: { kimi: kimi }\nhear:\n  field: sender\n  address: { env: SENDER }\n"
+	_, err := Parse("f", []byte(limitsOnlyAddress))
+	if err == nil || !strings.Contains(err.Error(), "hear: needs hook:") || strings.Contains(err.Error(), "hearing by address names a notify address") {
+		t.Fatalf("hear by address on limits alone = %v, want only the needs-hook refusal", err)
 	}
 }
 

@@ -285,8 +285,11 @@ func (r *reader) notify(d *Declaration, e entry) *Notify {
 // a subscribe that is no filter or names the field the claim sets
 // itself. Without a hook key there is no delivery to hear; hearing by
 // address without a notify key names no address to match, so it is
-// refused too, while hearing by identity needs no notify key.
-func (r *reader) hear(d *Declaration, e entry) *Hear {
+// refused too, while hearing by identity needs no notify key. alone
+// names a declaration without calls: when it has a hook, address hearing
+// gets its own refusal because the file cannot declare notify at all; a
+// limits-only declaration is refused for needing a hook.
+func (r *reader) hear(d *Declaration, e entry, alone string) *Hear {
 	h := &Hear{}
 	var field, address, env, subscribe, fromEntry, byEntry *entry
 	for _, f := range r.entries(e.v, e.path, "field", "by", "address", "from", "subscribe") {
@@ -370,7 +373,11 @@ func (r *reader) hear(d *Declaration, e entry) *Hear {
 	}
 	if !byIdentity {
 		if d.Notify == nil {
-			r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one")
+			if d.Hook != nil && alone != "" {
+				r.errf(e.v, e.path, "hearing by address names a notify address, and this file declares none (it has %s): hear by identity (by: identity)", alone)
+			} else if alone == "" {
+				r.errf(e.v, e.path, "needs notify: hear keeps the deliveries from an address the notify key names, and this file has no notify key to name one")
+			}
 		} else if env != nil && h.Address.Env != "" && h.Address.Env != d.Notify.AddressEnv {
 			r.errf(env.v, env.path, "%s is not the address telling reads: notify.address.env names %s, and hear reads the same file", h.Address.Env, d.Notify.AddressEnv)
 		}

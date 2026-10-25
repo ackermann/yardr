@@ -140,6 +140,19 @@ func TestHookAddUnknown(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	hookOnly := `name: mail
+hook:
+  verify: { scheme: secret, signature: { header: Mail-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [sender]
+hear:
+  field: sender
+  by: identity
+`
+	if _, err := st.PutSource(ctx, "mail.yaml", hookOnly, "me"); err != nil {
+		t.Fatalf("hook-only source: %v", err)
+	}
 	f := filepath.Join(t.TempDir(), "s.secret")
 	if err := os.WriteFile(f, []byte("s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -149,6 +162,12 @@ func TestHookAddUnknown(t *testing.T) {
 	}
 	if h, err := st.GetHook(ctx, "slackline"); err != nil || h.Unknown != store.HookUnknownUnknown {
 		t.Fatalf("hook without --unknown = %+v %v", h, err)
+	}
+	if _, err := run(t, a.hookCmd(), "add", "mailbox", "--source", "mail", "--secret-file", f, "--unknown", "unknown"); err != nil {
+		t.Fatalf("hook add --unknown unknown for hook-only source: %v", err)
+	}
+	if h, err := st.GetHook(ctx, "mailbox"); err != nil || h.Unknown != store.HookUnknownUnknown {
+		t.Fatalf("hook-only --unknown unknown = %+v %v", h, err)
 	}
 	for _, word := range store.HookUnknowns {
 		name := "slack-" + word

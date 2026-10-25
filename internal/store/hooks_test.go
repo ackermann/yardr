@@ -114,6 +114,29 @@ func TestHookUnknownWord(t *testing.T) {
 	if h.Unknown != "" {
 		t.Fatalf("telegram hook stored %q, want no word", h.Unknown)
 	}
+	// A hook alone hearing by identity takes --unknown too: its senders
+	// are unknown the same way, though the source is never called.
+	mail := "name: mail\nhook:\n" +
+		"  verify:\n    scheme: secret\n    signature: { header: M-Secret }\n" +
+		"  bodies: unique\n  normalize: [normalize]\n  keys: [sender, to, subject]\n" +
+		"hear:\n  field: sender\n  by: identity\n"
+	if _, err := s.PutSource(ctx, "mail.yaml", mail, "me"); err != nil {
+		t.Fatalf("hook-only source hearing by identity: %v", err)
+	}
+	h, err = s.PutHook(ctx, store.Hook{Name: "mailbox", Source: "mail", SecretFile: "/s"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.Unknown != store.HookUnknownUnknown {
+		t.Fatalf("hook-only hook without --unknown stored %q, want %q", h.Unknown, store.HookUnknownUnknown)
+	}
+	h, err = s.PutHook(ctx, store.Hook{Name: "mailbox", Source: "mail", SecretFile: "/s", Unknown: store.HookUnknownUnknown}, "me")
+	if err != nil {
+		t.Fatalf("hook-only hook with --unknown unknown: %v", err)
+	}
+	if h.Unknown != store.HookUnknownUnknown {
+		t.Fatalf("hook-only hook with --unknown unknown stored %q", h.Unknown)
+	}
 }
 
 func TestRecordHookKeepsPayload(t *testing.T) {

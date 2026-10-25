@@ -71,7 +71,30 @@ func TestSourceOutputUsesCommandWriter(t *testing.T) {
 func TestSourceAddShowRemove(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
-	a := &app{st: st, actor: "jo"}
+	a := &app{st: st, actor: "jo", env: map[string]string{"YARDR_HOME": t.TempDir()}}
+	hookOnly := filepath.Join(t.TempDir(), "mail.yaml")
+	if err := os.WriteFile(hookOnly, []byte(`name: mail
+hook:
+  verify: { scheme: secret, signature: { header: Mail-Secret } }
+  bodies: unique
+  normalize: [normalize]
+  keys: [sender]
+hear:
+  field: sender
+  by: identity
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(hookOnly), "normalize"), []byte("#!/bin/sh\ncat\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.sourceCmd(), "add", hookOnly); err != nil {
+		t.Fatalf("source add for hook-only identity hearing: %v", err)
+	}
+	if out, err := run(t, a.sourceCmd(), "show", "mail"); err != nil ||
+		!strings.Contains(out, "hear: keeps a delivery whose sender is some user's identity in mail") {
+		t.Fatalf("source show for hook-only identity hearing: %q %v", out, err)
+	}
 	out, err := run(t, a.sourceCmd(), "add", "testdata/pushover.yaml")
 	if err != nil {
 		t.Fatal(err)
