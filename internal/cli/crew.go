@@ -1798,6 +1798,24 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 		if note := yardSkew(); note != "" {
 			fmt.Fprintf(w, "## Important\n\n%s\n\n", note)
 		}
+		// What the yard does for the crew member, as need -> mechanism: a
+		// yardmaster that cannot find its need here rebuilds it with a
+		// shell loop, a queue file or a hand-written wait, so the section
+		// names the mechanism beside the need instead of leaving the
+		// commands scattered through the prime as a reference.
+		fmt.Fprintf(w, `## What the yard does for you
+
+- wait for a bead to move or land -> yardr bead watch <id> [--stage|--kind|--done]
+- a deadline on that wait -> yardr timer add --in N --unless bead=<id>[,stage=<stage>] "..."
+- start builders only when the machine can carry them -> route conditions on machine.load/mem/swap (e.g. builders@machine.load<80)
+- an agent that went idle -> session_stalled (2m, never got going) and session_idle (30m, a still pane counts from 10m) reach your inbox
+- be told when a group has nothing to send -> a quota_wait subscription
+- a check by the clock -> yardr timer, never a shell loop or a cron
+- a fact for later sessions -> yardr remember (or the crew journal); for this bead -> a bead note; for the next session -> the handoff
+
+Before you write a loop, a script or a file of your own, find the row; if there is none, say so in the handoff so the yard can grow one.
+
+`)
 		fmt.Fprintf(w, `## How you work
 
 - yardr inbox / yardr inbox --ack <seq>: your events and mail; ack through the last seq you have handled.

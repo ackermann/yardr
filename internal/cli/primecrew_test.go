@@ -238,7 +238,7 @@ func TestPrimeCrewOpenAsksOverflow(t *testing.T) {
 	}
 	out := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 	sec := out[strings.Index(out, "## Open asks:"):]
-	if i := strings.Index(sec, "## How you work"); i >= 0 {
+	if i := strings.Index(sec, "## What the yard does for you"); i >= 0 {
 		sec = sec[:i]
 	}
 	if !strings.Contains(sec, "## Open asks: 21 waiting") {
@@ -347,10 +347,20 @@ func TestPrimeCrewListsOtherMembers(t *testing.T) {
 		"skeptic",
 		"yardr mail brakeman",
 		"yardr crew show brakeman",
+		"## What the yard does for you",
+		"wait for a bead to move or land -> yardr bead watch <id> [--stage|--kind|--done]",
+		"a check by the clock -> yardr timer, never a shell loop or a cron",
+		"Before you write a loop, a script or a file of your own, find the row; if there is none, say so in the handoff so the yard can grow one.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the prime lacks %q:\n%s", want, out)
 		}
+	}
+	// The generated section sits directly before How you work.
+	if i, j := strings.Index(out, "## What the yard does for you"), strings.Index(out, "## How you work"); i < 0 || j < 0 || i > j {
+		t.Errorf("the yard section is not before the work:\n%s", out)
+	} else if strings.Contains(out[i+len("## What the yard does for you"):j], "## ") {
+		t.Errorf("another section stands between the yard's and the work:\n%s", out[i:j])
 	}
 	if !strings.Contains(out, "> You are the yardmaster's second opinion in this yard") {
 		t.Errorf("the role excerpt is not quoted as reference text:\n%s", out)
@@ -382,6 +392,9 @@ func TestPrimeCrewListsOtherMembers(t *testing.T) {
 		if strings.Contains(sec, "yardr mail yardmaster") {
 			t.Errorf("the crew section lists the primed member itself:\n%s", sec)
 		}
+	}
+	if other := mustAs(t, st, "brakeman", "prime", "--crew", "brakeman"); !strings.Contains(other, "## What the yard does for you") {
+		t.Errorf("another member's prime lacks the yard section:\n%s", other)
 	}
 
 	// JSON carries the same entry.
