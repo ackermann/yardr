@@ -49,8 +49,8 @@
 # allow-list below, naming why each entry is over and which bead brings it
 # under; the fix beads delete the rows. A race leg runs a package it ran
 # over budget and not allow-listed again by itself: over budget alone on a
-# quiet machine fails the run; on a loaded machine (loaded as the re-run
-# started or as it ended) it passes with an R1 line naming both times and
+# quiet machine fails the run; on a loaded machine (loaded as the re-runs
+# started or as the last ended) it passes with an R1 line naming both times and
 # the load, unless YARDR_R1_STRICT is set by the quiet run. Then over budget
 # alone fails however loaded the machine, and on a loaded machine the
 # failure line names the load beside both times;
@@ -1490,15 +1490,21 @@ legflag() {
 # loaded one (loadedmachine), unless YARDR_R1_STRICT is set by the quiet
 # run. Then the loaded pass is off: over 60 s alone fails however loaded
 # the machine, and on a loaded machine the failure line names the load
-# beside both times. The machine is sampled twice, as the re-run starts and
-# as it ends, and is loaded when either sample is (loadedeither); the load
-# a line names is the start's where that is loaded, else the end's. The
-# re-run is the leg's own command ($2 on: the same flags), with -count=1 so
-# it is timed and not cached, and the one package; several are re-run one
-# after another, sorted, not in parallel. It shares the leg's hold on the
-# race lock (YARDR_RACE_HELD, which the leg set): it waits on nothing
-# again. A re-run that fails, or prints no seconds, fails the run: the leg
-# saw an over-budget package the re-run did not clear.
+# beside both times. The machine is sampled twice, as the re-runs start and
+# when the last ends, and is loaded when either sample is (loadedeither);
+# the load a line names is the start's where that is loaded, else the end's.
+# The re-run is the leg's own command ($2 on: the same flags), with -count=1 so
+# it is timed and not cached, and the one package; several are re-run up to
+# three at a time, each to its own file, and printed and judged in sorted
+# order once all are done, so the lines read as one re-run after another did.
+# Three stays under the five side-by-side race suites that slowed past
+# timeout (yardr-cecb), with margin, on any machine. On a quiet leg with two
+# over-budget packages or more, the re-runs' own contention can read as
+# loaded and pass what one re-run after another would convict; a strict run
+# convicts it. The re-runs share the leg's hold on the race lock
+# (YARDR_RACE_HELD, which the leg set): they wait on nothing again. A re-run
+# that fails, or prints no seconds, fails the run: the leg saw an
+# over-budget package the re-run did not clear.
 packagebudget() {
   legout=$1
   shift
@@ -1560,20 +1566,48 @@ packagebudget() {
       esac
     fi
   done
-  st=0
+  # The re-runs share one load pair, sampled around the whole batch: the
+  # one-minute average lags, so the start sample holds the loaded minutes
+  # the re-runs were about to sit in (loadedeither).
+  load_start=$(loadedmachine) || load_start=
+  runs=$(mktemp -d)
+  jobs=$(mktemp)
+  n=0
+  inflight=0
+  wave=""
   while read -r pkg secs; do
     [ -n "$pkg" ] || continue
-    run=$(mktemp)
-    # The load the re-run starts in, sampled before it: the one-minute
-    # average lags, so by the time the re-run ends it may have forgotten the
-    # load the re-run sat in (loadedeither).
-    load_start=$(loadedmachine) || load_start=
+    n=$((n + 1))
+    run=$runs/$n.out
+    # Store the numeric file id, not its path: TMPDIR may contain spaces.
+    printf '%s %s %s\n' "$pkg" "$secs" "$n" >>"$jobs"
     # The re-run reads no stdin: the loop's is the over-budget list. Its
-    # output is printed and kept for its seconds.
-    rrc=0
+    # output goes to its own file, runlogged's file mode without the print,
+    # which waits for the batch; its status beside it.
     # shellcheck disable=SC2086
-    runlogged "$run" $prefix $flags -count=1 "$pkg" </dev/null || rrc=$?
-    load_end=$(loadedmachine) || load_end=
+    ( $prefix $flags -count=1 "$pkg" </dev/null >"$run" 2>&1; echo "$?" >"$run.rc" ) &
+    wave="$wave $!"
+    inflight=$((inflight + 1))
+    if [ "$inflight" -ge 3 ]; then
+      # A wave of three: wait each pid before the next wave starts. A
+      # re-run's own status waits in its .rc file, so a failed wait here
+      # keeps nothing.
+      for pid in $wave; do wait "$pid" || true; done
+      wave=""
+      inflight=0
+    fi
+  done <"$over"
+  for pid in $wave; do wait "$pid" || true; done
+  load_end=$(loadedmachine) || load_end=
+  st=0
+  while read -r pkg secs id; do
+    [ -n "$pkg" ] || continue
+    run=$runs/$id.out
+    # The re-run's output first, in sorted order, as runlogged printed it
+    # where the re-runs ran one after another.
+    cat "$run"
+    rrc=$(cat "$run.rc" 2>/dev/null) || rrc=1
+    [ -n "$rrc" ] || rrc=1
     alone=$(awk '
       function seconds(s, total, n) {
         if (s == "") return -1
@@ -1614,9 +1648,9 @@ packagebudget() {
       echo "test: $pkg took $secs s with -race, over the 60 s budget (docs/testing.md R1), and its re-run alone failed"
       st=1
     fi
-    rm -f "$run" "$run.rc"
-  done <"$over"
-  rm -f "$over"
+  done <"$jobs"
+  rm -rf "$runs"
+  rm -f "$over" "$jobs"
   return "$st"
 }
 # The test sleeps over the 500 ms budget (docs/testing.md R2): the file,

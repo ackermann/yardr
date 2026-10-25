@@ -21,6 +21,8 @@ compiled (R5), test their selection without `-race` and so reach no R1
 verdict. A package that slips over 60 s shows at its landing, not before.
 The wall is the slowest package. When a non-allow-listed package takes over
 60 s in the race leg, the gate runs it again alone under the leg's lock.
+Several over-budget packages are re-run up to three at a time, and every
+one is judged by the single load pair sampled around the batch.
 Over 60 s alone fails the run and names both times; 60 s or less passes
 with a `test: R1:` line naming both times and marking the first run as loaded.
 Load multiplies package times up to ~2.5x, so the first run's time by
@@ -31,7 +33,7 @@ machine -- the one-minute load average past the core count -- passes with
 a `test: R1:` line naming both times and the load instead of failing
 (yardr-wq5h), unless `YARDR_R1_STRICT` is set by the quiet run (R6): then
 over 60 s alone fails however loaded the machine. The load is sampled when
-the re-run starts and again when it ends, and the machine is loaded when
+the re-runs start and again when the last ends, and the machine is loaded when
 either sample is (yardr-f5f7): the average lags, so the end sample alone
 read a load that dipped before the check as quiet, while the start sample
 holds the loaded minutes the re-run was about to sit in. The line names the
