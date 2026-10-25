@@ -49,6 +49,39 @@ func gitT(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// copyFixture is one row's copy of a template fixture the parent built: the
+// rows of a matrix share the commit and the files, and each runs the script
+// against its own copy, so they run in parallel without each building (and
+// committing) the same repository. The root package has little room under
+// R1's 60 s (yardr-2t2m, yardr-qach).
+func copyFixture(t *testing.T, template string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "row")
+	cmd := exec.Command("cp", "-R", template, dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("cp -R %s %s: %v\n%s", template, dir, err, out)
+	}
+	return dir
+}
+
+// goModTemplate is the repository the whole-suite rows run the script
+// against: a module with nothing in it, committed, and the base commit and
+// short sha every row's copy shares. A row copies it, changes go.mod, and
+// runs.
+func goModTemplate(t *testing.T) (template, base, short string) {
+	t.Helper()
+	template = t.TempDir()
+	if err := os.WriteFile(filepath.Join(template, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, template, "init", "-q", "-b", "main")
+	gitT(t, template, "add", "-A")
+	gitT(t, template, "commit", "-q", "-m", "base")
+	base = gitT(t, template, "rev-parse", "HEAD")
+	short = gitT(t, template, "rev-parse", "--short", "HEAD")
+	return template, base, short
+}
+
 // scriptEnv is this test's environment without what the run it is in gave
 // the script it is part of: the base and the landing of an agent's session
 // or the assembly, the socket client and the GOOS of a landing's steps, the
@@ -310,9 +343,10 @@ func TestYardTestSaysItsBase(t *testing.T) {
 // whatever changed, and says so in its first line and its testing line
 // (docs/testing.md R4); a landing tests it without -race only when nothing
 // compiled changed (no .go file, no embedded file, no deletion), which its
-// first line and testing line both say, and with it otherwise. Every row builds
-// its own fixture directory, so the rows run in parallel: the root package
-// has little room under R1's 60 s (yardr-2t2m).
+// first line and testing line both say, and with it otherwise. The rows share
+// one template fixture and run against a copy each, so they run in parallel
+// without each committing the same repository: the root package has little
+// room under R1's 60 s (yardr-2t2m, yardr-qach).
 func TestYardTestSelects(t *testing.T) {
 	t.Parallel()
 	script, rows := yardTestRows(t)
@@ -320,9 +354,8 @@ func TestYardTestSelects(t *testing.T) {
 		t.Skip("no go in PATH")
 	}
 	const pre = "test: "
-	// In the row tables below, sincePH and shortPH stand for the row's own
-	// base: every row builds its own fixture, so its base commit differs
-	// from every other's, and the row fills its own in before it compares.
+	// In the row tables below, sincePH and shortPH stand for the shared
+	// base: the row fills it in before it compares.
 	const sincePH = "\x00since\x00"
 	const shortPH = "\x00short\x00"
 	writeFile := func(t *testing.T, dir, name, text string) {
@@ -336,19 +369,18 @@ func TestYardTestSelects(t *testing.T) {
 		}
 	}
 	// selectsFixture is one row's copy of the module the script runs
-	// against: its own directory and base commit, and the words the script
-	// prints for them. Every row builds its own, so the rows run in
-	// parallel; nothing of it is shared.
+	// against: its own directory, and the shared base commit with the words
+	// the script prints for them.
 	type selectsFixture struct {
 		dir   string
 		base  string
 		short string
 		since string
 	}
-	// newFixture builds the module the rows run the script against: the
-	// table's packages and nothing in them, the socket suites' shape, and
-	// the embedding and rowed-directory cases the rows change. It reads
-	// the shared table rows, which no row writes.
+	// newFixture builds the module the rows run the script against, once:
+	// the table's packages and nothing in them, the socket suites' shape,
+	// and the embedding and rowed-directory cases the rows change. It reads
+	// the shared table rows, which no row writes. Each row copies it.
 	newFixture := func(t *testing.T) selectsFixture {
 		t.Helper()
 		dir := t.TempDir()
@@ -418,6 +450,13 @@ func TestYardTestSelects(t *testing.T) {
 		base := gitT(t, dir, "rev-parse", "HEAD")
 		short := gitT(t, dir, "rev-parse", "--short", "HEAD")
 		return selectsFixture{dir: dir, base: base, short: short, since: " since " + base + " (YARDR_BASE), from " + short}
+	}
+	template := newFixture(t)
+	rowFixture := func(t *testing.T) selectsFixture {
+		t.Helper()
+		fx := template
+		fx.dir = copyFixture(t, fx.dir)
+		return fx
 	}
 	// The script's plan for a branch that changed these files, deleted them
 	// (a name after "-") or moved them (a name "from -> to", done by git mv,
@@ -580,7 +619,7 @@ func TestYardTestSelects(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fx := newFixture(t)
+			fx := rowFixture(t)
 			// A plain run is never raced, and says so in its first line and
 			// its testing line, unless it has nothing to test: then it makes
 			// no claim about how.
@@ -687,7 +726,7 @@ func TestYardTestSelects(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fx := newFixture(t)
+			fx := rowFixture(t)
 			first, rest, err := planned(t, fx, script, []string{"YARDR_LANDING=1"}, c.changed...)
 			firstWant := strings.ReplaceAll(c.first, sincePH, fx.since)
 			want := strings.ReplaceAll(strings.Join(c.rest, "\n"), shortPH, fx.short)
@@ -747,7 +786,7 @@ func TestYardTestSelects(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fx := newFixture(t)
+			fx := rowFixture(t)
 			realGo, err := exec.LookPath("go")
 			if err != nil {
 				t.Fatal(err)
@@ -835,7 +874,7 @@ func TestYardTestSelects(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			fx := newFixture(t)
+			fx := rowFixture(t)
 			realGo, err := exec.LookPath("go")
 			if err != nil {
 				t.Fatal(err)
@@ -894,7 +933,7 @@ func TestYardTestSelects(t *testing.T) {
 	// does, so the complaint is all it says.
 	t.Run("a stale row", func(t *testing.T) {
 		t.Parallel()
-		fx := newFixture(t)
+		fx := rowFixture(t)
 		stale := strings.Replace(script, "\nreads='\n", "\nreads='\nnowhere/ internal/pack internal/gone\n", 1)
 		first, rest, err := planned(t, fx, stale, nil, "docs/web.md")
 		if want := pre + "the row for nowhere/ in " + yardTest + " names internal/gone, which is no package here"; err == nil || first != want || rest != "" {
@@ -907,7 +946,7 @@ func TestYardTestSelects(t *testing.T) {
 	// directory in neither stays a failure.
 	t.Run("a row for a directory the change deletes", func(t *testing.T) {
 		t.Parallel()
-		fx := newFixture(t)
+		fx := rowFixture(t)
 		deleted := strings.Replace(script, "\nreads='\n", "\nreads='\nfakepkg/ fakepkg .\n", 1)
 		out, err := plan(t, fx, deleted, false, "-fakepkg/p.go")
 		if want := strings.Join([]string{
@@ -1066,6 +1105,13 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./..."}
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
+	// One template repository for every row: each copies it, changes go.mod
+	// and runs, so no row commits the same module again.
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, base, _ := goModTemplate(t)
 	for _, c := range []struct {
 		name   string
 		step   string // the step that fails,
@@ -1123,11 +1169,8 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			script, err := os.ReadFile(yardTest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fake, dir := t.TempDir(), t.TempDir()
+			fake := t.TempDir()
+			dir := copyFixture(t, template)
 			for name, text := range map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"} {
 				if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
 					t.Fatal(err)
@@ -1140,12 +1183,6 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			// A branch that changed go.mod: a plain run tests every
 			// package, and asks go for no list of them.
 			mod := filepath.Join(dir, "go.mod")
-			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			gitT(t, dir, "init", "-q", "-b", "main")
-			gitT(t, dir, "add", "-A")
-			gitT(t, dir, "commit", "-q", "-m", "base")
 			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -1160,7 +1197,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			env := scriptEnv()
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"YARDR_BASE="+base,
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP="+c.step, "FAKE_TIMES="+c.times, "FAKE_LINE="+c.line, "YARDR_RACE_HELD=1")
 			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
@@ -1390,6 +1427,13 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 	// cores is a factor of 2.5 and a -p of 3, which the rerun of its failed
 	// packages keeps; the socket suites beside the leg stay go's default.
 	noBase := []string{"YARDR_LANDING=1", "YARDR_BASE=nowhere", "YARDR_TEST_LOADAVG=25.3", "YARDR_TEST_CORES=10"}
+	// One template repository for every row: each copies it, changes go.mod
+	// and runs, so no row commits the same module again.
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, base, short := goModTemplate(t)
 	for _, c := range []struct {
 		name     string
 		testName string // override the failed test name
@@ -1579,11 +1623,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if slices.Contains(c.env, "YARDR_LANDING=1") {
 				failedStep = "go test -race -p=3 ./..."
 			}
-			script, err := os.ReadFile(yardTest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fake, dir := t.TempDir(), t.TempDir()
+			fake := t.TempDir()
+			dir := copyFixture(t, template)
 			bins := map[string]string{"go": fakeGo, "gofmt": "#!/bin/sh\n"}
 			if c.yardr {
 				bins["yardr"] = fakeYardr
@@ -1597,13 +1638,9 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			if err := os.Mkdir(tmp, 0o755); err != nil {
 				t.Fatal(err)
 			}
+			// A branch that changed go.mod: a plain run tests every
+			// package, and asks go for no list of them.
 			mod := filepath.Join(dir, "go.mod")
-			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			gitT(t, dir, "init", "-q", "-b", "main")
-			gitT(t, dir, "add", "-A")
-			gitT(t, dir, "commit", "-q", "-m", "base")
 			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -1617,7 +1654,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 				common = filepath.Join(dir, common)
 			}
 			flakyLog := filepath.Join(common, "yardr-flaky.log")
-			sha := gitT(t, dir, "rev-parse", "--short", "HEAD")
+			sha := short
 			// The sha each line of the log carries, in file order: the run's
 			// own is the last.
 			var lineShas []string
@@ -1672,7 +1709,7 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 			}
 			cmd.Env = append(env, pathEnv,
 				"LC_ALL=C",
-				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"YARDR_BASE="+base,
 				"YARDR_BEAD=", "YARDR_DEPOT=",
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_STEP=test", "FAKE_TIMES="+c.times, "FAKE_LINE="+line, "YARDR_RACE_HELD=1")
 			if c.rpcTimes != "" {
@@ -2517,10 +2554,19 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 // carries whole: the result, the packages passed and failed, the wall
 // seconds, and the seconds queued on the race lock, at the short sha. A
 // package that passed on rerun counts as passed; a plan and a run that
-// could not start print none.
+// could not start print none. Every row runs the gate in its own fixture,
+// so the rows run in parallel.
 func TestYardTestPrintsItsTestLine(t *testing.T) {
+	t.Parallel()
 	const flaky = "test: flaky: TestX (m.test/m/a) passed on rerun"
 	line := regexp.MustCompile(`^test: sh \.yardr/test @ ([0-9a-f]+): (pass|fail), ([0-9]+) packages ok, ([0-9]+) failed, ([0-9]+) s, waited ([0-9]+) s$`)
+	// One template repository for every row: each copies it, changes go.mod
+	// and runs, so no row commits the same module again.
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template, base, short := goModTemplate(t)
 	for _, c := range []struct {
 		name  string
 		fails string // how often the test step fails: 0 (green), 1 (flaky), 2 (red)
@@ -2542,11 +2588,9 @@ func TestYardTestPrintsItsTestLine(t *testing.T) {
 		{"exit 2 prints none", "0", "", 2, "", "", "", "", false, []string{"YARDR_BASE=nowhere"}, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			script, err := os.ReadFile(yardTest)
-			if err != nil {
-				t.Fatal(err)
-			}
-			fake, dir := t.TempDir(), t.TempDir()
+			t.Parallel()
+			fake := t.TempDir()
+			dir := copyFixture(t, template)
 			// A go whose test step reports a wait the way the race lock
 			// would, then fails its first few runs with one package's
 			// FAIL lines and passes with two packages' ok lines.
@@ -2577,16 +2621,9 @@ fi
 			// A branch that changed go.mod: a plain run tests every
 			// package, and asks go for no list of them.
 			mod := filepath.Join(dir, "go.mod")
-			if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			gitT(t, dir, "init", "-q", "-b", "main")
-			gitT(t, dir, "add", "-A")
-			gitT(t, dir, "commit", "-q", "-m", "base")
 			if err := os.WriteFile(mod, []byte("module m.test/m\n\ngo 1.21\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			short := gitT(t, dir, "rev-parse", "--short", "HEAD")
 			cmd := exec.Command("sh", "-c", string(script))
 			cmd.Dir = dir
 			// The case's own variables come last, so a landing's nowhere
@@ -2594,7 +2631,7 @@ fi
 			env := scriptEnv()
 			cmd.Env = append(env,
 				"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"YARDR_BASE="+gitT(t, dir, "rev-parse", "HEAD"),
+				"YARDR_BASE="+base,
 				"TMPDIR="+tmp, "FAKE="+fake, "FAKE_FAILS="+c.fails, "FAKE_WAIT="+c.wait, "YARDR_RACE_HELD=1")
 			cmd.Env = append(cmd.Env, c.env...)
 			b, err := cmd.CombinedOutput()
@@ -2645,7 +2682,8 @@ fi
 // the line says `fail`; where it runs none on signal death (dash) there is
 // no line at all, so a test line is only required to say `fail` when one is
 // printed. Cleanup on signal death is the EXIT trap's, which dash skips, so
-// unlike its neighbours this test asserts nothing is left behind.
+// unlike its neighbours this test asserts nothing is left behind. Each row
+// signals its own process group, so the two run in parallel.
 func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 	t.Parallel()
 	script, err := os.ReadFile(yardTest)
@@ -2683,6 +2721,7 @@ func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 		{"INT", false, 130},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			// The fake go answers the selection's list. For TERM it holds
 			// its test step at a marker; for INT it signals the gate shell
 			// and exits so the shell handles INT after the command returns.
@@ -2798,6 +2837,7 @@ func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 // must retain the same retry-aware meaning as the foreground leg: a package
 // that fails once and passes on retry is passed, not both passed and failed.
 func TestYardTestCountsSocketRetryByFinalResult(t *testing.T) {
+	t.Parallel()
 	script, err := os.ReadFile(yardTest)
 	if err != nil {
 		t.Fatal(err)
@@ -3812,7 +3852,9 @@ func TestYardTestRaceLockDiesWithTheRun(t *testing.T) {
 // package over budget in the run is run again alone, with the leg's flags
 // and -count=1, and judged by the re-run, and the leg takes the lock once,
 // for the run, never again for the re-run. The perl is a stand-in that
-// logs every hold and runs the rest, so the run takes no real lock.
+// logs every hold and runs the rest, so the run takes no real lock. Every
+// row runs the gate under its own home and lock, so the rows run in
+// parallel.
 //
 // The race leg also gives its go the load factor that sizes the waits of the
 // contrib suites (YARDR_TEST_LOAD, internal/testload), read when the leg starts
@@ -3829,6 +3871,22 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 		underAlone = "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		quietSays  = "machine not loaded, or its load unknown"
 	)
+	// One template repository for every row: a landing with no comparable
+	// base tests every package, and asks go for no list of them: only a
+	// landing has a race leg. Each row copies it and runs.
+	template := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(template, ".yardr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(template, ".yardr", "test"), script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(template, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, template, "init", "-q", "-b", "main")
+	gitT(t, template, "add", "-A")
+	gitT(t, template, "commit", "-q", "-m", "base")
 	for _, c := range []struct {
 		name  string
 		alone string // the re-run's Go duration: fast passes, over fails
@@ -3861,7 +3919,9 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 			"", "7", "1.0", quietSays, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			fake, dir := t.TempDir(), t.TempDir()
+			t.Parallel()
+			fake := t.TempDir()
+			dir := copyFixture(t, template)
 			// A go whose race leg runs one package over budget and whose
 			// re-run of it reports FAKE_ALONE, writing down every call
 			// with YARDR_RACE_HELD, but for the landing's socket step beside
@@ -3897,20 +3957,6 @@ exec "$@"
 				t.Fatal(err)
 			}
 			home := t.TempDir()
-			// A landing with no comparable base tests every package, and
-			// asks go for no list of them: only a landing has a race leg.
-			if err := os.MkdirAll(filepath.Join(dir, ".yardr"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, ".yardr", "test"), script, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			gitT(t, dir, "init", "-q", "-b", "main")
-			gitT(t, dir, "add", "-A")
-			gitT(t, dir, "commit", "-q", "-m", "base")
 			cmd := exec.Command("sh", ".yardr/test")
 			cmd.Dir = dir
 			// No YARDR_RACE_HELD: the race leg takes the lock itself, as
@@ -5039,15 +5085,20 @@ func TestYardTestBudgets(t *testing.T) {
 	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runEnv := func(dir string, env []string, args ...string) (string, int) {
+	// The cases run in parallel, each in its own directory with its own
+	// fake go: the probe, the table rows and the counts are read-only once
+	// built. Each takes its own t, as TestYardTestSelects' rows do. The
+	// re-run waves below stay sequential: they assert a wall time, which is
+	// judged under the pool's contention, not their siblings' too.
+	runEnv := func(t *testing.T, dir string, env []string, args ...string) (string, int) {
 		t.Helper()
 		return runProbe(t, probePath, dir, os.Environ(), env, args...)
 	}
-	run := func(dir string, args ...string) (string, int) {
+	run := func(t *testing.T, dir string, args ...string) (string, int) {
 		t.Helper()
-		return runEnv(dir, nil, args...)
+		return runEnv(t, dir, nil, args...)
 	}
-	write := func(dir, name, content string) {
+	write := func(t *testing.T, dir, name, content string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
@@ -5055,24 +5106,26 @@ func TestYardTestBudgets(t *testing.T) {
 	}
 
 	t.Run("a compliant tree passes the sleep budget", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "ok_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestOk(t *testing.T) {\n\t"+
+		write(t, dir, "ok_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestOk(t *testing.T) {\n\t"+
 			sleepSite("500 * time.Millisecond")+"\n\t"+sleepSite("10 * time.Millisecond")+"\n\tdelay := 300 * time.Millisecond\n\t"+sleepSite("delay")+"\n}\n")
 		// A sleep in a line comment is not code, and a sleep outside a
 		// test file is not judged.
-		write(dir, "comment_test.go", "package p\n\n// "+sleepSite("30 * time.Second")+" in a comment is not a sleep.\n")
-		write(dir, "other.go", "package p\n\nimport \"time\"\n\nfunc wait() { "+sleepSite("30 * time.Second")+" }\n")
-		out, code := run(dir, "sleepbudget")
+		write(t, dir, "comment_test.go", "package p\n\n// "+sleepSite("30 * time.Second")+" in a comment is not a sleep.\n")
+		write(t, dir, "other.go", "package p\n\nimport \"time\"\n\nfunc wait() { "+sleepSite("30 * time.Second")+" }\n")
+		out, code := run(t, dir, "sleepbudget")
 		if code != 0 || strings.Contains(out, "over the 500 ms budget") {
 			t.Errorf("exit %d, output %q, want exit 0 and no budget line", code, out)
 		}
 	})
 
 	t.Run("an over-budget site fails the sleep budget", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "bad_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestBad(t *testing.T) {\n\t"+
+		write(t, dir, "bad_test.go", "package p\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestBad(t *testing.T) {\n\t"+
 			sleepSite("2 * time.Second")+"\n\t"+sleepSite("600 * time.Millisecond")+"\n\t"+sleepSite("time.Second")+"\n\t"+sleepSite("500.4 * time.Millisecond")+"\n}\n")
-		out, code := run(dir, "sleepbudget")
+		out, code := run(t, dir, "sleepbudget")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
@@ -5089,20 +5142,22 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("a duplicate allowed duration does not cover another site", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "yardtest_test.go", "package p\n\nimport \"time\"\n\nfunc f() {\n\t"+
+		write(t, dir, "yardtest_test.go", "package p\n\nimport \"time\"\n\nfunc f() {\n\t"+
 			sleepSite("3 * time.Second")+"\n\t"+sleepSite("3 * time.Second")+"\n}\n")
-		out, code := run(dir, "sleepbudget")
+		out, code := run(t, dir, "sleepbudget")
 		if code != 1 || !strings.Contains(out, "yardtest_test.go:7 sleeps 3 * time.Second, over the 500 ms budget") {
 			t.Errorf("exit %d, output %q, want the second 3 s sleep to fail", code, out)
 		}
 	})
 
 	t.Run("the tree's allow-listed sleeps are counted", func(t *testing.T) {
+		t.Parallel()
 		// On the checkout itself: green, with every row's site still in
 		// the tree. A row whose site is gone, or a site no row names,
 		// fails here as it fails the gate.
-		out, code := run(".", "sleepbudget")
+		out, code := run(t, ".", "sleepbudget")
 		if code != 0 {
 			t.Fatalf("sleepbudget on the tree: exit %d\n%s", code, out)
 		}
@@ -5112,15 +5167,16 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("a tracked file carrying the redaction marker fails the marker check", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		gitT(t, dir, "init", "-q", "-b", "main")
 		// Built from parts, as the step builds it: the literal must not
 		// sit in this file, which the step judges too.
 		marker := "[" + "REDACTED]"
-		write(dir, "note.md", "sent as a token\nline two carries "+marker+" here\n")
+		write(t, dir, "note.md", "sent as a token\nline two carries "+marker+" here\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "base")
-		out, code := run(dir, "nomarkers")
+		out, code := run(t, dir, "nomarkers")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
@@ -5133,45 +5189,49 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("the product's lowercase markers pass the marker check", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		gitT(t, dir, "init", "-q", "-b", "main")
-		write(dir, "login.go", "package p\n\n// [redacted] and [credential redacted] stay.\n")
+		write(t, dir, "login.go", "package p\n\n// [redacted] and [credential redacted] stay.\n")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "base")
-		out, code := run(dir, "nomarkers")
+		out, code := run(t, dir, "nomarkers")
 		if code != 0 || strings.Contains(out, "carries the redaction marker") {
 			t.Errorf("exit %d, output %q, want exit 0 and no marker line", code, out)
 		}
 	})
 
 	t.Run("a failed marker scan fails the check", func(t *testing.T) {
+		t.Parallel()
 		// A real failure of git grep, not a stand-in for one: git dies on a
 		// GIT_DIR that is no repository, as it does where the run is no
 		// checkout. That needs no repository and no executable written
 		// first, whose first run is slow on a loaded machine. The status is
 		// git's, so the test names no number.
 		dir := t.TempDir()
-		out, code := runEnv(dir, []string{"GIT_DIR=" + filepath.Join(dir, "no-repository")}, "nomarkers")
+		out, code := runEnv(t, dir, []string{"GIT_DIR=" + filepath.Join(dir, "no-repository")}, "nomarkers")
 		if want := "test: redaction marker scan failed (git grep exited " + strconv.Itoa(code) + ")"; code == 0 || code == 1 || !strings.Contains(out, want) {
 			t.Errorf("exit %d, output %q, want git's failure status (not 0 or 1) and %q", code, out, want)
 		}
 	})
 
 	t.Run("an untracked file carrying the marker passes the marker check", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		gitT(t, dir, "init", "-q", "-b", "main")
 		gitT(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
 		marker := "[" + "REDACTED]"
-		write(dir, "draft.md", "line one carries "+marker+" but is untracked\n")
-		out, code := run(dir, "nomarkers")
+		write(t, dir, "draft.md", "line one carries "+marker+" but is untracked\n")
+		out, code := run(t, dir, "nomarkers")
 		if code != 0 || strings.Contains(out, "carries the redaction marker") {
 			t.Errorf("exit %d, output %q, want exit 0 and no marker line", code, out)
 		}
 	})
 
 	t.Run("the package budget judges race legs by re-measuring alone", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "red.txt",
+		write(t, dir, "red.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t1m58.3s\n"+
 				"ok  \tyardr.dev/yardr\t1m5.5s\n"+
 				"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"+
@@ -5195,7 +5255,7 @@ func TestYardTestBudgets(t *testing.T) {
 		// pinned quiet, so the root's over-alone verdict fails however
 		// loaded the test machine is.
 		fake, env := r1go(t)
-		out, code := runEnv(dir, append(env,
+		out, code := runEnv(t, dir, append(env,
 			"FAKE_OVER=yardr.dev/yardr",
 			"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10"),
 			"packagebudget", "red.txt", "go", "test", "-race", "./...")
@@ -5239,10 +5299,11 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("a package under budget alone passes", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		write(t, dir, "loaded.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		fake, env := r1go(t)
-		out, code := runEnv(dir, append(env, "FAKE_OVER="),
+		out, code := runEnv(t, dir, append(env, "FAKE_OVER="),
 			"packagebudget", "loaded.txt", "go", "test", "-race", "./...")
 		if code != 0 {
 			t.Fatalf("exit %d, output %q, want exit 0", code, out)
@@ -5261,13 +5322,14 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("the alone re-run carries the leg's -p as one word", func(t *testing.T) {
+		t.Parallel()
 		// A loaded landing's race leg has -p=N (gatepar), and the re-run takes
 		// the leg's flags, the dash-words after test: in two words, -p 2 would
 		// reach it as -p -count=1, which go refuses.
 		dir := t.TempDir()
-		write(dir, "par.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		write(t, dir, "par.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		fake, env := r1go(t)
-		out, code := runEnv(dir, append(env, "FAKE_OVER="),
+		out, code := runEnv(t, dir, append(env, "FAKE_OVER="),
 			"packagebudget", "par.txt", "go", "test", "-race", "-p=2", "./...")
 		if code != 0 {
 			t.Fatalf("exit %d, output %q, want exit 0", code, out)
@@ -5283,10 +5345,11 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("a package over budget alone on a loaded machine passes", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		write(t, dir, "heavy.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		fake, env := r1go(t)
-		out, code := runEnv(dir, append(env,
+		out, code := runEnv(t, dir, append(env,
 			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
 			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"),
 			"packagebudget", "heavy.txt", "go", "test", "-race", "./...")
@@ -5307,8 +5370,9 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("quiet run marks and the race leg's wait factor do not reach the budget probe", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "leak.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		write(t, dir, "leak.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		inheritedEnv := append(os.Environ(), "YARDR_R1_STRICT=1", "YARDR_QUIET_RUN=1", "YARDR_TEST_LOAD=3.0")
 		for _, kv := range scriptEnvFrom(inheritedEnv) {
 			k, _, _ := strings.Cut(kv, "=")
@@ -5331,6 +5395,7 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("the run's yard does not reach the script", func(t *testing.T) {
+		t.Parallel()
 		// A builder's session names its bead, depot and yard; none of
 		// those reach a case's script, and the home a real yardr reached
 		// anyway would read is a path that cannot be a yard (yardr-vvy2).
@@ -5360,18 +5425,19 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("the quiet run's strict setting fails over budget alone on a loaded machine", func(t *testing.T) {
+		t.Parallel()
 		// The same loaded re-measurement, judged twice: without the
 		// setting it loud-passes as at a landing, with YARDR_R1_STRICT,
 		// which the quiet run alone sets, it fails, naming both times
 		// and the load beside them.
 		dir := t.TempDir()
-		write(dir, "strict.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+		write(t, dir, "strict.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 		loaded := []string{
 			"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
 			"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10",
 		}
 		_, env := r1go(t)
-		out, code := runEnv(dir, append(env, loaded...),
+		out, code := runEnv(t, dir, append(env, loaded...),
 			"packagebudget", "strict.txt", "go", "test", "-race", "./...")
 		if code != 0 {
 			t.Fatalf("without the setting: exit %d, output %q, want exit 0", code, out)
@@ -5381,7 +5447,7 @@ func TestYardTestBudgets(t *testing.T) {
 			t.Errorf("without the setting: output %q, want it to hold %q", out, loud)
 		}
 		_, env = r1go(t)
-		out, code = runEnv(dir, append(env, append(loaded, "YARDR_R1_STRICT=1")...),
+		out, code = runEnv(t, dir, append(env, append(loaded, "YARDR_R1_STRICT=1")...),
 			"packagebudget", "strict.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("with the setting: exit %d, output %q, want exit 1", code, out)
@@ -5396,6 +5462,7 @@ func TestYardTestBudgets(t *testing.T) {
 	})
 
 	t.Run("the load is sampled as the re-run starts and as it ends", func(t *testing.T) {
+		t.Parallel()
 		// The one-minute average lags, so a re-run that sat in a load was
 		// judged quiet once the load dipped before the check (yardr-f5f7).
 		// The machine is loaded when either end of the re-run was, and the
@@ -5447,8 +5514,9 @@ loadedmachine() {
 			{"strict, quiet at both", quiet, quiet, true, 1, overQuiet},
 		} {
 			t.Run(c.name, func(t *testing.T) {
+				t.Parallel()
 				dir := t.TempDir()
-				write(dir, "sampled.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+				write(t, dir, "sampled.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 				fake, env := r1go(t)
 				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/dispatch",
 					"FAKE_LOAD_START="+c.start, "FAKE_LOAD_END="+c.end)
@@ -5474,6 +5542,7 @@ loadedmachine() {
 	})
 
 	t.Run("unknown load and a load at the core count fail the run", func(t *testing.T) {
+		t.Parallel()
 		for _, c := range []struct {
 			name string
 			avg  string
@@ -5482,10 +5551,11 @@ loadedmachine() {
 			{"at the count", "10"},
 		} {
 			t.Run(c.name, func(t *testing.T) {
+				t.Parallel()
 				dir := t.TempDir()
-				write(dir, "stray.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
+				write(t, dir, "stray.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n")
 				_, env := r1go(t)
-				out, code := runEnv(dir, append(env,
+				out, code := runEnv(t, dir, append(env,
 					"FAKE_OVER=yardr.dev/yardr/internal/dispatch",
 					"YARDR_TEST_LOADAVG="+c.avg, "YARDR_TEST_CORES=10"),
 					"packagebudget", "stray.txt", "go", "test", "-race", "./...")
@@ -5501,6 +5571,7 @@ loadedmachine() {
 	})
 
 	t.Run("the race leg's wait factor is the load over the cores, from 1 to 4", func(t *testing.T) {
+		t.Parallel()
 		// sizewaits reads the load as loadedmachine does, so a quiet machine
 		// and an unreadable one are both 1, and says what it set under to.
 		const quiet = "machine not loaded, or its load unknown"
@@ -5520,7 +5591,8 @@ loadedmachine() {
 			{"no cores", "20", "0", "1.0", quiet},
 		} {
 			t.Run(c.name, func(t *testing.T) {
-				out, code := runEnv(t.TempDir(), []string{"YARDR_TEST_LOADAVG=" + c.avg, "YARDR_TEST_CORES=" + c.cores},
+				t.Parallel()
+				out, code := runEnv(t, t.TempDir(), []string{"YARDR_TEST_LOADAVG=" + c.avg, "YARDR_TEST_CORES=" + c.cores},
 					"eval", `sizewaits; echo "under=$under"`)
 				want := "test: YARDR_TEST_LOAD=" + c.factor + " for the race leg (" + c.says + ")\n" +
 					"under=env YARDR_TEST_LOAD=" + c.factor + "\n"
@@ -5532,7 +5604,7 @@ loadedmachine() {
 		// loadedmachine answers only for a machine past its cores, but the
 		// factor keeps its own floor: a line under the cores, which a change
 		// to that predicate could let through, is 1 and not a shorter wait.
-		out, code := runEnv(t.TempDir(), nil, "eval",
+		out, code := runEnv(t, t.TempDir(), nil, "eval",
 			`loadedmachine() { echo "load 5 on 10 cores"; }; sizewaits; echo "under=$under"`)
 		want := "test: YARDR_TEST_LOAD=1.0 for the race leg (load 5 on 10 cores)\nunder=env YARDR_TEST_LOAD=1.0\n"
 		if code != 0 || out != want {
@@ -5541,6 +5613,7 @@ loadedmachine() {
 	})
 
 	t.Run("gatepar gives the race leg the cores the load leaves it", func(t *testing.T) {
+		t.Parallel()
 		// The line loadedmachine printed in, the leg's -p out: the cores
 		// squared over the load, rounded down, at least 2 and at most the
 		// cores. The line is all it reads, so the cases need no machine.
@@ -5556,7 +5629,8 @@ loadedmachine() {
 			{"load 4 on 10 cores", "10"},   // a line loadedmachine never prints: all the cores
 		} {
 			t.Run(c.line, func(t *testing.T) {
-				out, code := run(t.TempDir(), "gatepar", c.line)
+				t.Parallel()
+				out, code := run(t, t.TempDir(), "gatepar", c.line)
 				if code != 0 || out != c.want+"\n" {
 					t.Errorf("exit %d, output %q, want exit 0 and %q", code, out, c.want+"\n")
 				}
@@ -5564,12 +5638,13 @@ loadedmachine() {
 		}
 		// No line is where loadedmachine found the machine quiet or its load
 		// unknown: no -p, so the leg's command is what it was.
-		if out, code := run(t.TempDir(), "gatepar", ""); code != 1 || out != "" {
+		if out, code := run(t, t.TempDir(), "gatepar", ""); code != 1 || out != "" {
 			t.Errorf("an empty line: exit %d, output %q, want exit 1 and no output", code, out)
 		}
 	})
 
 	t.Run("the leg's -p follows the load, and a quiet or unknown one adds none", func(t *testing.T) {
+		t.Parallel()
 		// legflag sets the flag the race leg's command carries and says so in
 		// one line, only where the load made one. The probe here carries a
 		// function that shows the flag it set.
@@ -5592,6 +5667,7 @@ loadedmachine() {
 			{"unknown", "bogus", "legpar=[]\n"},
 		} {
 			t.Run(c.name, func(t *testing.T) {
+				t.Parallel()
 				var env []string
 				if c.avg != "" {
 					env = []string{"YARDR_TEST_LOADAVG=" + c.avg, "YARDR_TEST_CORES=10"}
@@ -5605,10 +5681,11 @@ loadedmachine() {
 	})
 
 	t.Run("a re-run that fails fails the run", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "flaky.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
+		write(t, dir, "flaky.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
 		_, env := r1go(t)
-		out, code := runEnv(dir, append(env, "FAKE_FAIL=1"),
+		out, code := runEnv(t, dir, append(env, "FAKE_FAIL=1"),
 			"packagebudget", "flaky.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
@@ -5650,7 +5727,7 @@ loadedmachine() {
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				dir := t.TempDir()
-				write(dir, "wave.txt", leg)
+				write(t, dir, "wave.txt", leg)
 				fake, env := r1go(t)
 				tmp := filepath.Join(t.TempDir(), "tmp with spaces")
 				if err := os.MkdirAll(tmp, 0o700); err != nil {
@@ -5664,7 +5741,7 @@ loadedmachine() {
 					env = append(env, "FAKE_TRACK=1")
 				}
 				start := time.Now()
-				out, code := runEnv(dir, env,
+				out, code := runEnv(t, dir, env,
 					"packagebudget", "wave.txt", "go", "test", "-race", "./...")
 				wall := time.Since(start)
 				if code != c.code {
@@ -5725,13 +5802,14 @@ loadedmachine() {
 	})
 
 	t.Run("a re-run that prints no seconds fails the run", func(t *testing.T) {
+		t.Parallel()
 		// A re-run that prints no seconds, cached where the leg's run was
 		// over budget, clears nothing: the leg saw an over-budget package
 		// the re-run did not clear.
 		dir := t.TempDir()
-		write(dir, "cached.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
+		write(t, dir, "cached.txt", "ok  \tyardr.dev/yardr/internal/dispatch\t61.2s\n")
 		_, env := r1go(t)
-		out, code := runEnv(dir, append(env, "FAKE_CACHED=1"),
+		out, code := runEnv(t, dir, append(env, "FAKE_CACHED=1"),
 			"packagebudget", "cached.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
@@ -5743,8 +5821,9 @@ loadedmachine() {
 	})
 
 	t.Run("a leg with nothing over budget runs nothing again", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
-		write(dir, "green.txt",
+		write(t, dir, "green.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t51.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/web\t32.4s\n"+
 				"ok  \tyardr.dev/yardr/contrib/isolated-yard\t118.3s\n"+
@@ -5752,7 +5831,7 @@ loadedmachine() {
 				"ok  \tyardr.dev/yardr\t31.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t21.0s\n")
 		fake, env := r1go(t)
-		if out, code := runEnv(dir, env, "packagebudget", "green.txt", "go", "test", "-race", "./..."); code != 0 || out != "" {
+		if out, code := runEnv(t, dir, env, "packagebudget", "green.txt", "go", "test", "-race", "./..."); code != 0 || out != "" {
 			t.Errorf("exit %d, output %q, want exit 0 and no output", code, out)
 		}
 		if calls, _ := os.ReadFile(filepath.Join(fake, "calls")); len(calls) != 0 {
@@ -5761,6 +5840,7 @@ loadedmachine() {
 	})
 
 	t.Run("allow-listed packages are there", func(t *testing.T) {
+		t.Parallel()
 		for _, dir := range overDirs {
 			info, err := os.Stat(dir)
 			if err != nil {

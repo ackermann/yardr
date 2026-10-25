@@ -2128,11 +2128,34 @@ git diff --no-renames --name-only --diff-filter=D "$from" >"$tmp/deleted"
 # directory the change moves elsewhere is deleted too.
 : >"$tmp/deldirs"
 printf '%s\n' "$reads" | awk '{ for (i = 2; i <= NF; i++) print $i }' | sort -u >"$tmp/dirs"
-while IFS= read -r word; do
-  if [ -n "$word" ] && [ "$word" != "-" ] && git cat-file -e "$from:$word" 2>/dev/null && [ -z "$(git ls-files -- "$word")" ]; then
-    printf '%s\n' "$word" >>"$tmp/deldirs"
-  fi
-done <"$tmp/dirs"
+# One ls-files and one ls-tree for the words, not a git per word per way: a
+# fork each way cost every plan its seconds (yardr-qach). As the loop did, a
+# word is one when the base holds it and the tree holds no tracked file of
+# it: a file's own path, or a directory's files below it. A git that fails
+# decides nothing, as a failed check of the loop decided nothing.
+git ls-files >"$tmp/tracked" || : >"$tmp/tracked"
+base_ok=1
+git ls-tree -r -t --name-only "$from" >"$tmp/basepaths" 2>/dev/null || base_ok=
+awk -v ok="$base_ok" '
+  FILENAME == ARGV[1] { base[$0] = 1; next }
+  FILENAME == ARGV[2] { tracked[++nt] = $0; next }
+  $0 == "" || $0 == "-" { next }
+  {
+    word = $0
+    sub(/\/+$/, "", word)
+    if (word == "" || ok == "") { next }
+    if (word != "." && !(word in base)) { next }
+    if (word == ".") {
+      if (nt == 0) { print }
+      next
+    }
+    for (i = 1; i <= nt; i++) {
+      t = tracked[i]
+      if (t == word || index(t, word "/") == 1) { next }
+    }
+    print
+  }
+' "$tmp/basepaths" "$tmp/tracked" "$tmp/dirs" >"$tmp/deldirs"
 t0=$(date +%s)
 go list -test -f '{{.ImportPath}}|{{.Dir}}|{{join .Deps ","}}|{{join .EmbedFiles ","}},{{join .TestEmbedFiles ","}},{{join .XTestEmbedFiles ","}}|{{join .EmbedPatterns ","}},{{join .TestEmbedPatterns ","}},{{join .XTestEmbedPatterns ","}}' ./... >"$tmp/pkgs"
 # Said by listed, after the run's first line, which a landing prints only
