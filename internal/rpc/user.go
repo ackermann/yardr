@@ -105,6 +105,8 @@ import (
 //     user's own;
 //   - without a credential that resolves every path is 401, answered before
 //     the body is read or anything of the yard but the credential's record;
+//     a lookup that did not answer in time is 503 with Retry-After, since
+//     it says nothing about the credential and the device should keep asking;
 //   - a refusal is counted by its reason and logged in sums (refuse), and
 //     nothing is kept for the address it came from or for the credential, so
 //     no number of them shuts out or slows a device at that address;
@@ -937,10 +939,13 @@ func bearer(values []string) (string, bool) {
 	return credential, true
 }
 
-// refuse answers a request that is not let in, the same whatever the
-// reason, and counts it: by its reason alone. The event that says it is
-// logged when the reason has had none within RefuseWindow; otherwise the
-// next one says it, by its count.
+// refuse answers a request that is not let in and counts it: by its
+// reason alone. The event that says it is logged when the reason has had
+// none within RefuseWindow; otherwise the next one says it, by its count.
+// A credential that is none or resolves to nobody is 401; a lookup the
+// yard could not make is 500, and one that did not answer in time is 503
+// with Retry-After, since neither says the credential is wrong and the
+// device should keep asking.
 func (u *UserServer) refuse(w http.ResponseWriter, reason string) {
 	now := u.now()
 	u.mu.Lock()
@@ -958,13 +963,29 @@ func (u *UserServer) refuse(w http.ResponseWriter, reason string) {
 	}
 	u.mu.Unlock()
 	u.logRefused(due)
-	status := http.StatusUnauthorized
-	if reason == refusedStore {
-		status = http.StatusInternalServerError
-	} else {
+	status := refusedStatus(reason)
+	switch status {
+	case http.StatusServiceUnavailable:
+		w.Header().Set("Retry-After", "5")
+	case http.StatusUnauthorized:
 		w.Header().Set("WWW-Authenticate", "Bearer")
 	}
 	http.Error(w, http.StatusText(status), status)
+}
+
+// refusedStatus is the status a refusal for reason is answered with, and
+// the one its event says: 401 for a credential that is none or resolves
+// to nobody, 500 when the yard could not look, 503 when the lookup did
+// not answer in time.
+func refusedStatus(reason string) int {
+	switch reason {
+	case refusedStore:
+		return http.StatusInternalServerError
+	case refusedTimeout:
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusUnauthorized
+	}
 }
 
 // refusedEvent is one UserRefused event to log.
@@ -986,11 +1007,8 @@ func (t *refusals) take(reason string, now time.Time) refusedEvent {
 // on its count, for the next event to say.
 func (u *UserServer) logRefused(due []refusedEvent) {
 	for _, e := range due {
-		status := http.StatusUnauthorized
-		if e.reason == refusedStore {
-			status = http.StatusInternalServerError
-		}
-		u.log.Warn("requests under /user/ refused", "reason", e.reason, "count", e.count)
+		status := refusedStatus(e.reason)
+		u.log.Warn("requests under /user/ refused", "reason", e.reason, "status", status, "count", e.count)
 		// Not a request's context: the sender going away does not unsay it.
 		err := u.st.LogEvent(context.Background(), "", UserRefused, "yard", map[string]any{
 			"reason": e.reason, "status": status, "count": e.count, "last": e.last.UTC().Format(time.RFC3339)})

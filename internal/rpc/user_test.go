@@ -2,10 +2,12 @@ package rpc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net"
 	"net/http"
@@ -932,6 +934,28 @@ func TestUserRefusedWithoutACredential(t *testing.T) {
 	if got := u.Rejected(); !reflect.DeepEqual(got, want) {
 		t.Errorf("a yard with no device counted refusals: %v", got)
 	}
+	if _, err := st.AddDevice(ctx, "jo", "retry", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	u.resolve = func(context.Context, string, string) (*Caller, error) {
+		return nil, fmt.Errorf("store unavailable")
+	}
+	if w := ask(h, http.MethodGet, "/user/me", token, nil); w.Code != http.StatusInternalServerError ||
+		w.Body.String() != "Internal Server Error\n" || w.Header().Get("WWW-Authenticate") != "" {
+		t.Errorf("a credential the store could not resolve = %d %q, want 500 without WWW-Authenticate", w.Code, w.Body)
+	}
+	foundStore := false
+	for _, e := range eventsOfKind(t, st, UserRefused) {
+		if e.Data["reason"] == refusedStore {
+			foundStore = true
+			if e.Data["status"] != float64(http.StatusInternalServerError) {
+				t.Errorf("the store refusal event says status %v, want 500", e.Data["status"])
+			}
+		}
+	}
+	if !foundStore {
+		t.Error("no user_refused event records the store failure")
+	}
 }
 
 // A thousand wrong credentials from one address cost a device at that same
@@ -992,9 +1016,13 @@ func TestUserRefusalsKeepNothingForTheAddress(t *testing.T) {
 }
 
 // A resolver that does not return is given up: the request is refused when
-// ResolveTimeout has passed, and the handler goes on answering.
+// ResolveTimeout has passed, with 503 and not 401 — a lookup that did not
+// answer says nothing about the credential — and the handler goes on
+// answering.
 func TestUserResolverThatDoesNotReturn(t *testing.T) {
-	_, u, token := userYard(t)
+	st, u, token := userYard(t)
+	var log bytes.Buffer
+	u.log = slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	hang := make(chan struct{})
 	t.Cleanup(func() { close(hang) })
 	device := u.resolve
@@ -1008,11 +1036,26 @@ func TestUserResolverThatDoesNotReturn(t *testing.T) {
 	h := u.Handler()
 	start := time.Now()
 	w := ask(h, http.MethodGet, "/user/me", "slow", unread{t})
-	if w.Code != http.StatusUnauthorized || time.Since(start) > 5*time.Second {
-		t.Errorf("a credential whose resolver hangs = %d after %s, want 401 when the limit passed", w.Code, time.Since(start))
+	if w.Code != http.StatusServiceUnavailable || w.Body.String() != "Service Unavailable\n" {
+		t.Errorf("a credential whose resolver hangs = %d %q after %s, want 503 when the limit passed", w.Code, w.Body, time.Since(start))
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Errorf("a credential whose resolver hangs took %s, want it given up when the limit passed", time.Since(start))
+	}
+	if got := w.Header().Get("Retry-After"); got != "5" {
+		t.Errorf("the timeout's Retry-After = %q, want 5", got)
+	}
+	if got := w.Header().Get("WWW-Authenticate"); got != "" {
+		t.Errorf("the timeout carries WWW-Authenticate %q, want none", got)
 	}
 	if got := u.Rejected(); got[refusedTimeout] != 1 {
 		t.Errorf("the refusals are counted %v, want one %s", got, refusedTimeout)
+	}
+	if evs := eventsOfKind(t, st, UserRefused); len(evs) != 1 || evs[0].Data["reason"] != refusedTimeout || evs[0].Data["status"] != float64(503) {
+		t.Errorf("the events of the timeout are %+v, want one naming the reason and 503", evs)
+	}
+	if got := log.String(); !strings.Contains(got, "reason=resolve_timeout status=503") {
+		t.Errorf("the timeout log is %q, want the reason and answered status", got)
 	}
 	// The short limit served the hanging credential; the device beside it
 	// is answered under the limit the yard runs with. Under load the

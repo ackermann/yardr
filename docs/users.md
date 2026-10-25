@@ -878,10 +878,11 @@ the stream when it no longer resolves.
 
 **What is refused** is answered 401 before the request's body is read, and
 is counted by its reason alone: `no_credential` (no `Authorization: Bearer`
-header, or more than one), `unknown_credential` (a token the yard does not
-know, a removed device's among them), and `resolve_timeout`. If the store
-fails while checking a credential, the yard answers 500: that is a yard
-fault, not a token to replace. Nothing is kept for the address a request
+header, or more than one) and `unknown_credential` (a token the yard does not
+know, a removed device's among them). A lookup that does not finish in time
+(`resolve_timeout`) is answered 503 with `Retry-After`, since the token may
+be fine. If the store fails while checking a credential, the yard answers
+500: that is a yard fault, not a token to replace. Nothing is kept for the address a request
 came from or for the token it carried, and no request is slowed or answered
 429, so wrong tokens from an address cost a device at that address nothing.
 The refusals are logged in sums, as [a hook's](subscriptions.md#a-refused-delivery)
