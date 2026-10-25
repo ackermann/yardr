@@ -59,6 +59,9 @@ type EdgeData struct {
 
 // EdgeLink is one link the stand-in welcomed.
 type EdgeLink struct {
+	// Header is the signed upgrade's headers, as received by the edge.
+	Header http.Header
+
 	e       *Edge
 	c       *websocket.Conn
 	session string
@@ -154,7 +157,7 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 		c.Close(websocket.StatusPolicyViolation, "the hello does not answer this challenge")
 		return
 	}
-	l := &EdgeLink{e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{},
+	l := &EdgeLink{Header: r.Header.Clone(), e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{},
 		ackCh: make(chan string, 64), dataCh: make(chan EdgeData, 64), endCh: make(chan string, 64), pongCh: make(chan struct{}, 64)}
 	if err := writeFrame(ctx, c, map[string]string{"type": "welcome"}); err != nil {
 		return

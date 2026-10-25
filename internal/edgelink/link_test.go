@@ -205,29 +205,37 @@ func hook(name string) (string, http.Header, []byte) {
 // up once welcomed.
 func TestLinkServesTheEdgesFramesInOrder(t *testing.T) {
 	t.Parallel()
-	y := linkTo(t, nil, nil)
-	l := y.next(t)
-	if s := y.until(t, func(s State) bool { return s.Up }); s.Ups != 1 || s.Handle != "mckean" {
-		t.Errorf("up as %+v", s)
-	}
-	var want []string
-	for _, name := range []string{"github", "linear", "slack", "github", "github"} {
-		path, h, body := hook(name)
-		f := l.Frame(http.MethodPost, path+"?n=1", h, body, false)
-		a := deliver(t, l, f)
-		if a.ID != f.ID || a.Status != http.StatusAccepted || string(a.Body) != "seen "+path || a.Header.Get("X-Seen") != path {
-			t.Errorf("frame %d answered %+v", f.Seq, a)
-		}
-		want = append(want, path+"?n=1")
-	}
-	y.stop()
-	if got := y.served.paths(); strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("served %v, want %v", got, want)
-	}
-	for _, r := range y.served.reqs {
-		if r.RemoteAddr != RemoteAddr || r.Signature != "sha256=abc" || !strings.HasPrefix(r.Body, `{"zen":`) {
-			t.Errorf("served %+v", r)
-		}
+	for _, role := range []string{"", "web"} {
+		t.Run("role="+role, func(t *testing.T) {
+			t.Parallel()
+			y := linkTo(t, func(l *Link) { l.Role = role }, nil)
+			l := y.next(t)
+			if got := l.Header.Values("Yardr-Link-Role"); (role == "" && len(got) != 0) || (role != "" && (len(got) != 1 || got[0] != role)) {
+				t.Fatalf("upgrade role headers = %v, want %q", got, role)
+			}
+			if s := y.until(t, func(s State) bool { return s.Up }); s.Ups != 1 || s.Handle != "mckean" {
+				t.Errorf("up as %+v", s)
+			}
+			var want []string
+			for _, name := range []string{"github", "linear", "slack", "github", "github"} {
+				path, h, body := hook(name)
+				f := l.Frame(http.MethodPost, path+"?n=1", h, body, false)
+				a := deliver(t, l, f)
+				if a.ID != f.ID || a.Status != http.StatusAccepted || string(a.Body) != "seen "+path || a.Header.Get("X-Seen") != path {
+					t.Errorf("frame %d answered %+v", f.Seq, a)
+				}
+				want = append(want, path+"?n=1")
+			}
+			y.stop()
+			if got := y.served.paths(); strings.Join(got, " ") != strings.Join(want, " ") {
+				t.Errorf("served %v, want %v", got, want)
+			}
+			for _, r := range y.served.reqs {
+				if r.RemoteAddr != RemoteAddr || r.Signature != "sha256=abc" || !strings.HasPrefix(r.Body, `{"zen":`) {
+					t.Errorf("served %+v", r)
+				}
+			}
+		})
 	}
 }
 

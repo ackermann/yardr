@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -10,13 +11,18 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 // web serve refuses an address off loopback before it touches the yard: no
@@ -393,6 +399,8 @@ func TestWebServeJWTRefusals(t *testing.T) {
 // explicitly empty --as stands aside for the mode, as it does for web_as.
 func TestWebServeJWTModeServes(t *testing.T) {
 	// YARDR_WEB_AS is blank in the process already (TestMain).
+	// The web command reports link events through the server's socket API.
+	t.Setenv("YARDR_TEST_RPC", "1")
 	home, st, _ := statusYard(t, "abcdef123456")
 	ctx := context.Background()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -413,6 +421,7 @@ func TestWebServeJWTModeServes(t *testing.T) {
 	}))
 	t.Cleanup(jwks.Close)
 	for k, v := range map[string]string{
+		store.WebJWTHeaderSetting:   "X-Edge-JWT",
 		store.WebJWTIssuerSetting:   "https://team.example.net",
 		store.WebJWTAudienceSetting: "aud-tag",
 		store.WebJWTJWKSSetting:     jwks.URL,
@@ -423,6 +432,27 @@ func TestWebServeJWTModeServes(t *testing.T) {
 		}
 	}
 	cfg := &config.Config{Home: home}
+	edge, err := standin.NewEdge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgeServer := httptest.NewServer(edge)
+	t.Cleanup(edgeServer.Close)
+	yardKey, _, err := yardkey.Ensure(cfg.PeerKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.EdgeSetting, (store.Edge{URL: edgeServer.URL, Key: edge.PublicKey(), Handle: "jo"}).String(), "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	signed := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"iss": "https://team.example.net", "aud": "aud-tag", "email": "jo@example.net", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	signed.Header["kid"] = "a"
+	token, err := signed.SignedString(key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	serves := func(args ...string) {
 		t.Helper()
 		cmd := (&app{st: st, cfg: cfg, actor: "me"}).rootCmd()
@@ -444,6 +474,55 @@ func TestWebServeJWTModeServes(t *testing.T) {
 			}
 			views = webViews(cfg)
 		}
+		var link *standin.EdgeLink
+		select {
+		case link = <-edge.Links():
+		case <-time.After(10 * time.Second):
+			t.Fatal("web serve opened no edge link")
+		}
+		if link.Header.Get("Yardr-Link-Role") != "web" || link.Header.Get(yardkey.HeaderKey) != yardkey.Public(yardKey) {
+			t.Fatalf("web upgrade headers = %v", link.Header)
+		}
+		request := func(path, token string) standin.EdgeAnswer {
+			t.Helper()
+			callCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+			defer stop()
+			a, err := link.Deliver(callCtx, link.Frame(http.MethodGet, path, http.Header{"X-Edge-JWT": {token}}, nil, false))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return a
+		}
+		if a := request("/", ""); a.Status != http.StatusUnauthorized {
+			t.Errorf("home without JWT = %d", a.Status)
+		}
+		if a := request("/", token); a.Status != http.StatusOK || !bytes.Contains(bytes.ToLower(a.Body), []byte("<!doctype html>")) {
+			t.Errorf("web home = %d %.200s", a.Status, a.Body)
+		}
+		head := request("/events?format=json&after=0", token)
+		if head.Status != http.StatusOK || head.Header.Get("Content-Type") != "text/event-stream" {
+			t.Fatalf("web events head = %+v", head)
+		}
+		var data []byte
+		deadline := time.After(10 * time.Second)
+	streamed:
+		for {
+			select {
+			case d := <-link.DataEvents():
+				if d.ID == head.ID {
+					data = append(data, d.Body...)
+				}
+				if bytes.Contains(data, []byte("edge_link_up")) {
+					break streamed
+				}
+			case <-deadline:
+				t.Fatal("web events did not stream the link event")
+			}
+		}
+		if _, err := os.Stat(cfg.EdgeState()); !os.IsNotExist(err) {
+			t.Errorf("web process wrote edge state: %v", err)
+		}
+
 		cancel()
 		select {
 		case err := <-done:

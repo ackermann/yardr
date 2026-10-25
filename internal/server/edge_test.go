@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +18,7 @@ import (
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -97,7 +101,7 @@ func overLink(t *testing.T, l *standin.EdgeLink, path string, header http.Header
 }
 
 // waitEvent is the first event of kind the yard logged, waiting for it.
-func waitEvent(t *testing.T, cl *rpc.Client, kind string, ok func(store.Event) bool) store.Event {
+func waitEvent(t *testing.T, cl store.API, kind string, ok func(store.Event) bool) store.Event {
 	t.Helper()
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		evs, err := cl.Events(context.Background(), "", 200)
@@ -160,7 +164,7 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 	if a := overLink(t, l, "/peers/messages", nil, `{}`); a.Status != http.StatusNotFound {
 		t.Errorf("/peers/ over the link answered %d, want 404", a.Status)
 	}
-	if up := waitEvent(t, cl, "edge_link_up", nil); up.Data["handle"] != "jo" || up.Data["url"] != srv.URL {
+	if up := waitEvent(t, cl, "edge_link_up", nil); up.Data["handle"] != "jo" || up.Data["url"] != srv.URL || up.Data["role"] != "yard" {
 		t.Errorf("edge_link_up = %+v", up.Data)
 	}
 	if s, known := edgelink.ReadState(c); !known || !s.Up || s.Handle != "jo" {
@@ -172,41 +176,176 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 // with a listener dial at once, the listener serving on beside the link,
 // and disconnecting closes the link, told with its reason.
 func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
-	edge, srv := stubEdge(t)
-	c := home(t)
-	addr := freeAddr(t)
-	setHookAddr(t, c, addr)
-	_, value := edgeYard(t, c, edge, srv, false)
-	start(t, &runner{c: c})
-	cl := rpc.NewClient(c.Socket())
-	defer cl.Close(context.Background())
-	if _, known := edgelink.ReadState(c); known {
-		t.Error("a yard with no edge says how a link is")
-	}
-	ctx := context.Background()
-	if err := cl.SetSetting(ctx, store.EdgeSetting, value, "jo"); err != nil {
-		t.Fatal(err)
-	}
-	l := nextLink(t, edge)
-	if a := overLink(t, l, "/hooks/adhoc", http.Header{"Authorization": {"Bearer " + hookToken}, "Yard-Delivery": {"linked-1"}}, `{"text":"linked"}`); a.Status != http.StatusOK {
-		t.Errorf("a delivery over the link answered %d %s", a.Status, a.Body)
-	}
-	if !listens(addr) {
-		t.Errorf("the listener on %s stopped with the link up", addr)
-	}
-	if err := cl.SetSetting(ctx, store.EdgeSetting, "", "jo"); err != nil {
-		t.Fatal(err)
-	}
-	down := waitEvent(t, cl, "edge_link_down", nil)
-	if down.Data["reason"] != edgelink.DownStopped {
-		t.Errorf("edge_link_down = %+v", down.Data)
-	}
-	select {
-	case <-l.Done():
-	case <-time.After(10 * time.Second):
-		t.Fatal("the link stayed open at the edge after disconnecting")
-	}
-	if _, known := edgelink.ReadState(c); known {
-		t.Error("a disconnected yard still says how its link is")
+	for _, role := range []string{"", "web"} {
+		t.Run("role="+role, func(t *testing.T) {
+			edge, srv := stubEdge(t)
+			c := home(t)
+			ctx := context.Background()
+			var cl store.API
+			var addr string
+			stopEdge := func() {}
+			if role == "" {
+				addr = freeAddr(t)
+				setHookAddr(t, c, addr)
+			}
+			_, value := edgeYard(t, c, edge, srv, false)
+			if role == "" {
+				start(t, &runner{c: c})
+				client := rpc.NewClient(c.Socket())
+				defer client.Close(ctx)
+				cl = client
+			} else {
+				cl = storetest.NewIn(t, c.Home)
+				view := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.RemoteAddr != edgelink.RemoteAddr {
+						t.Errorf("remote address = %q", r.RemoteAddr)
+					}
+					if r.URL.Path == "/events" {
+						w.Header().Set("Content-Type", "text/event-stream")
+						io.WriteString(w, "data: edge_link_up\n\n")
+						w.(http.Flusher).Flush()
+						<-r.Context().Done()
+						return
+					}
+					io.WriteString(w, "web home")
+				})
+				tune := linkTest
+				linkTest = func(l *edgelink.Link) {
+					tune(l)
+					l.PingEvery, l.DeadAfter = 20*time.Millisecond, 2*time.Second
+				}
+				stopEdge = KeepEdge(ctx, c, cl, role, view, slog.New(slog.NewTextHandler(io.Discard, nil)))
+				defer stopEdge()
+			}
+			if _, err := os.Stat(c.EdgeState()); !os.IsNotExist(err) {
+				t.Fatalf("a yard with no edge has a state file: %v", err)
+			}
+			if err := cl.SetSetting(ctx, store.EdgeSetting, value, "jo"); err != nil {
+				t.Fatal(err)
+			}
+			l := nextLink(t, edge)
+			key, err := yardkey.Load(c.PeerKey())
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkUpgrade := func(l *standin.EdgeLink) {
+				t.Helper()
+				if got := l.Header.Get("Yardr-Link-Role"); got != role {
+					t.Errorf("upgrade role = %q, want %q", got, role)
+				}
+				if got := l.Header.Get(yardkey.HeaderKey); got != yardkey.Public(key) {
+					t.Errorf("upgrade key = %q, want the yard's key", got)
+				}
+			}
+			checkUpgrade(l)
+			eventRole := role
+			if eventRole == "" {
+				eventRole = "yard"
+			}
+			hasRole := func(e store.Event) bool { return e.Data["role"] == eventRole }
+			waitEvent(t, cl, "edge_link_up", hasRole)
+			if role == "" {
+				if a := overLink(t, l, "/hooks/adhoc", http.Header{"Authorization": {"Bearer " + hookToken}, "Yard-Delivery": {"linked-1"}}, `{"text":"linked"}`); a.Status != http.StatusOK {
+					t.Errorf("a delivery over the link answered %d %s", a.Status, a.Body)
+				}
+				if !listens(addr) {
+					t.Errorf("the listener on %s stopped with the link up", addr)
+				}
+				if s, known := edgelink.ReadState(c); !known || !s.Up {
+					t.Errorf("yard state = %+v, known %v", s, known)
+				}
+			} else {
+				request := func(path string) standin.EdgeAnswer {
+					t.Helper()
+					callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+					defer cancel()
+					a, err := l.Deliver(callCtx, l.Frame(http.MethodGet, path, nil, nil, false))
+					if err != nil {
+						t.Fatal(err)
+					}
+					return a
+				}
+				if a := request("/"); a.Status != http.StatusOK || !bytes.Contains(a.Body, []byte("web home")) {
+					t.Errorf("web home = %d %.200s", a.Status, a.Body)
+				}
+				head := request("/events?format=json&after=0")
+				if head.Status != http.StatusOK || head.Header.Get("Content-Type") != "text/event-stream" {
+					t.Fatalf("web events head = %+v", head)
+				}
+				var data []byte
+				deadline := time.After(10 * time.Second)
+			stream:
+				for {
+					select {
+					case d := <-l.DataEvents():
+						if d.ID == head.ID {
+							data = append(data, d.Body...)
+						}
+						if bytes.Contains(data, []byte("edge_link_up")) {
+							break stream
+						}
+					case <-deadline:
+						t.Fatal("web events did not stream the link event")
+					}
+				}
+				if err := l.SendEnd(ctx, head.ID); err != nil {
+					t.Fatal(err)
+				}
+				deadline = time.After(10 * time.Second)
+			ended:
+				for {
+					select {
+					case id := <-l.EndEvents():
+						if id == head.ID {
+							break ended
+						}
+					case <-deadline:
+						t.Fatal("web event stream did not end")
+					}
+				}
+				l.Silence()
+				down := waitEvent(t, cl, "edge_link_down", hasRole)
+				if down.Data["reason"] != edgelink.DownPings {
+					t.Errorf("silent web link down = %+v", down.Data)
+				}
+				l = nextLink(t, edge)
+				checkUpgrade(l)
+				if a := request("/"); a.Status != http.StatusOK {
+					t.Errorf("redialled web home = %d", a.Status)
+				}
+				if _, err := os.Stat(c.EdgeState()); !os.IsNotExist(err) {
+					t.Fatalf("web link wrote state: %v", err)
+				}
+				// A web process must leave the server's state alone, even on disconnect
+				// and shutdown. A sentinel makes removing it as visible as writing it.
+				if err := os.WriteFile(c.EdgeState(), []byte("yard state"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := cl.SetSetting(ctx, store.EdgeSetting, "", "jo"); err != nil {
+				t.Fatal(err)
+			}
+			down := waitEvent(t, cl, "edge_link_down", func(e store.Event) bool {
+				return hasRole(e) && e.Data["reason"] == edgelink.DownStopped
+			})
+			if down.Data["role"] != eventRole {
+				t.Errorf("edge_link_down = %+v", down.Data)
+			}
+			select {
+			case <-l.Done():
+			case <-time.After(10 * time.Second):
+				t.Fatal("the link stayed open at the edge after disconnecting")
+			}
+			if role == "" {
+				if _, known := edgelink.ReadState(c); known {
+					t.Error("a disconnected yard still says how its link is")
+				}
+			} else {
+				stopEdge()
+				if got, err := os.ReadFile(c.EdgeState()); err != nil || string(got) != "yard state" {
+					t.Errorf("web disconnect/shutdown changed yard state: %q, %v", got, err)
+				}
+			}
+		})
 	}
 }

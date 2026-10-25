@@ -71,9 +71,14 @@ address, its pinned key, the account's handle and this yard's name, and the
 ([configuration.md](configuration.md#settings)). `hook_public_url` becomes
 `<url>/hooks/<account>/<yard>`, so `yardr hook add` and the packs that
 register their own webhooks print or register the right URL with no change.
-The running server dials at once; no restart. `yardr status` and `yardr
-doctor` show the link beside the listener's, and the server logs
-`edge_link_up` and `edge_link_down`, with why a link went down.
+The running server dials at once; no restart. The web process (`yardr web
+start`) keeps a second socket with `Yardr-Link-Role: web`, serving the web
+view's requests and event streams through its own handler. Both sockets use
+the same pinned edge key and yard key and follow the `edge` setting.
+`edge_link_up` and `edge_link_down` events carry `role` (`yard` or `web`),
+with why a link went down. Only the yard link writes `edge.state`:
+`yardr edge status`, `yardr status` and `yardr doctor` show the yard link,
+not the web link.
 
 The edge no longer accepts the previous one-segment webhook URL
 `/hooks/<handle>/<hook>`. A setting saved before yards had names reads its

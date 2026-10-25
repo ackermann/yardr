@@ -125,6 +125,9 @@ const (
 type Link struct {
 	// Edge is the edge the yard is connected to, its key the one pinned.
 	Edge store.Edge
+	// Role selects the edge's receiver. Empty keeps the default yard link
+	// and sends no role header; "web" carries the web view.
+	Role string
 	// Key is the yard's own key.
 	Key ed25519.PrivateKey
 	// Handler serves each request that comes down the link: the listener's
@@ -312,6 +315,9 @@ func (l *Link) once(ctx context.Context) (upFor time.Duration, reason, detail st
 	h.Set(yardkey.HeaderTime, ts)
 	h.Set(yardkey.HeaderSig, sig)
 	h.Set(NonceHeader, yardkey.EncodeNonce(yardNonce))
+	if l.Role != "" {
+		h.Set("Yardr-Link-Role", l.Role)
+	}
 	dctx, cancel := context.WithTimeout(ctx, callTimeout)
 	c, resp, err := websocket.Dial(dctx, l.Edge.URL+LinkPath, &websocket.DialOptions{
 		HTTPClient: l.client(), HTTPHeader: h, CompressionMode: websocket.CompressionDisabled})

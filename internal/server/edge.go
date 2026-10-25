@@ -13,19 +13,14 @@ import (
 	"yardr.dev/yardr/internal/yardkey"
 )
 
-// keepEdge keeps the yard's link to its edge (design yardr-hosted-050n, 3.2)
-// while the edge setting names one: it reads the setting now and again at
-// each change of it, so yardr edge connect has the running server dial and
-// yardr edge disconnect has it close the link, with no restart. What comes
-// down the link is served by h, the listener's own mux, less /peers/.
-//
-// The link is told as events (edge_link_up, edge_link_down with its reason)
-// and in the home's edge.state, which yardr status and yardr doctor read.
+// KeepEdge keeps a link of role to the configured edge and serves h over it.
+// It follows the edge setting without a restart and loads the yard's key
+// from PeerKey. An empty role keeps the default yard link and its edge.state;
+// the web role reports events only, since that file describes the server.
 // The function returned closes the link and waits for it.
-func keepEdge(ctx context.Context, c *config.Config, st *store.Store, h http.Handler, log *slog.Logger) (stop func()) {
+func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, h http.Handler, log *slog.Logger) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
-	served := withoutPeers(h)
 	go func() {
 		defer close(done)
 		var events <-chan store.Event
@@ -54,7 +49,9 @@ func keepEdge(ctx context.Context, c *config.Config, st *store.Store, h http.Han
 			}
 			stopLink()
 			stopLink, current = func() {}, v
-			os.Remove(c.EdgeState())
+			if role == "" {
+				os.Remove(c.EdgeState())
+			}
 			if v == "" {
 				return
 			}
@@ -68,14 +65,16 @@ func keepEdge(ctx context.Context, c *config.Config, st *store.Store, h http.Han
 				log.Warn("edge: the yard's key is not read; no link", "err", err)
 				return
 			}
-			stopLink = startLink(ctx, c, st, &edgelink.Link{Edge: e, Key: key, Handler: served, Log: log})
+			stopLink = startLink(ctx, c, st, &edgelink.Link{Edge: e, Key: key, Role: role, Handler: h, Log: log})
 		}
 		apply()
 		for {
 			select {
 			case <-ctx.Done():
 				stopLink()
-				os.Remove(c.EdgeState())
+				if role == "" {
+					os.Remove(c.EdgeState())
+				}
 				return
 			case ev, ok := <-events:
 				if !ok {
@@ -100,21 +99,25 @@ var linkTest func(*edgelink.Link)
 
 // startLink runs l until the function it returns is called, and tells each
 // change of it.
-func startLink(ctx context.Context, c *config.Config, st *store.Store, l *edgelink.Link) (stop func()) {
+func startLink(ctx context.Context, c *config.Config, st store.API, l *edgelink.Link) (stop func()) {
 	if linkTest != nil {
 		linkTest(l)
 	}
 	l.Told = func(s edgelink.State) {
-		if err := edgelink.WriteState(c, s); err != nil {
-			l.Log.Warn("edge: the link's state is not written", "err", err)
+		role := l.Role
+		if role == "" {
+			role = "yard"
+			if err := edgelink.WriteState(c, s); err != nil {
+				l.Log.Warn("edge: the link's state is not written", "err", err)
+			}
 		}
-		kind, data := "edge_link_up", map[string]any{"url": s.URL, "handle": s.Handle}
+		kind, data := "edge_link_up", map[string]any{"url": s.URL, "handle": s.Handle, "role": role}
 		if !s.Up {
 			kind, data["reason"], data["detail"] = "edge_link_down", s.Reason, s.Detail
 		}
 		// The link's own context may be the one ending: the event is the
-		// yard's all the same, and the store is open until keepEdge returns.
-		if err := st.LogEvent(context.Background(), "", kind, "yard", data); err != nil {
+		// yard's all the same, and the store is open until KeepEdge returns.
+		if err := st.LogDispatch(context.Background(), "", kind, "yard", data); err != nil {
 			l.Log.Warn(kind+" event", "err", err)
 		}
 	}

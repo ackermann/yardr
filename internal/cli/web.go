@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
@@ -315,6 +316,8 @@ this machine. Both answers carry Retry-After.`,
 					log.Info("to act as " + as + ", run yardr web open: the token is in the view's record, not in this log")
 				}
 			}
+			stopEdge := server.KeepEdge(ctx, a.cfg, st, "web", srv, log)
+			defer stopEdge()
 			serveErr := make(chan error, 2)
 			go func() { serveErr <- hs.Serve(ln) }()
 			go func() { serveErr <- ps.Serve(pln) }()
