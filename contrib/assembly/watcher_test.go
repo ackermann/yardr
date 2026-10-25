@@ -604,6 +604,9 @@ func TestMergeLocalTestCommandStartsWithNoInheritedFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("merge-local (ls /dev/fd): %v\n%s", err, out)
 			}
+			if !row.sh.high && !row.refused {
+				strayRefusal(t, "merge-local", string(out))
+			}
 			main, tip := watcherGit(t, w.repo, "rev-parse", "main"), watcherGit(t, w.wt, "rev-parse", "HEAD")
 			awaitNoWatcherSleepers(t, w.record, "1799")
 			if row.refused {
@@ -662,21 +665,80 @@ func (r fdRun) sentinel(t *testing.T) int {
 	return hi
 }
 
-// assertRefused fails unless a script held its bead without starting the test
-// command, and said which descriptor it could not close and why. The command
-// would have left record.
-func assertRefused(t *testing.T, script, out, record string) {
-	t.Helper()
-	for _, want := range []string{
-		"== hold r-1: ",
-		script + ": descriptors 10 are open above 9 and this sh cannot close them; not starting the tests with them",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("%s did not hold with %q:\n%s", script, want, out)
+// refusedList is the descriptor list of the script's refusal in out: the
+// numbers between "descriptors" and "are open above 9" on its line, or
+// nothing when the script never refused.
+func refusedList(out, script string) []string {
+	for _, line := range strings.Split(out, "\n") {
+		msg, ok := strings.CutPrefix(line, script+": descriptors ")
+		if !ok {
+			continue
+		}
+		list, _, _ := strings.Cut(msg, " are open above 9")
+		return strings.Fields(list)
+	}
+	return nil
+}
+
+// refusedHas reports whether fd is among refused descriptors.
+func refusedHas(got []string, fd string) bool {
+	for _, f := range got {
+		if f == fd {
+			return true
 		}
 	}
+	return false
+}
+
+// strayRefusal skips a run a shell that cannot close descriptors above 9
+// held for strays: the run planted only 3 to 9, which the shell closes, so
+// any refusal names descriptors the test binary handed down without
+// close-on-exec (an agent session's socket follows it to every run), and
+// the run proves nothing about what it planted. Judged per run, after it:
+// the set handed down shifts as the test binary opens and closes files, so
+// no once-probed list holds for a later run. A hold without a refusal is
+// not a stray, and is left for the caller to fail.
+func strayRefusal(t *testing.T, script, out string) {
+	t.Helper()
+	if !strings.Contains(out, "== hold r-1: ") {
+		return
+	}
+	if got := refusedList(out, script); len(got) > 0 {
+		t.Skipf("%s held the run for stray fd %s, which it cannot close: the run would refuse instead of proving 3 to 9 closed", script, strings.Join(got, " "))
+	}
+}
+
+// refusedRecord describes what the test command left in record: nothing when
+// the script held without starting it, else the descriptor listing and any
+// "leaked N" lines the probe wrote. A recurrence that started the command
+// carries whether fd 10 reached it (a listing with 10 and "leaked 10" means
+// closefds missed an open descriptor; a listing without means the run lost
+// fd 10 before closefds saw it).
+func refusedRecord(record string) string {
+	b, err := os.ReadFile(record)
+	if err != nil {
+		return "the test command left no record"
+	}
+	return "the test command left:\n" + strings.TrimSpace(string(b))
+}
+
+// assertRefused fails unless a script held its bead without starting the test
+// command, and named the run's fd 10 among what it could not close. The
+// command would have left record. The refusal may name strays beside 10,
+// whatever the test binary handed down without close-on-exec; every check
+// reports, so a recurrence says what the script printed, whether the
+// command ran, and what it saw.
+func assertRefused(t *testing.T, script, out, record string) {
+	t.Helper()
+	rec := refusedRecord(record)
+	if !strings.Contains(out, "== hold r-1: ") {
+		t.Errorf("%s did not hold with %q:\n%s\n%s", script, "== hold r-1: ", out, rec)
+	}
+	if got := refusedList(out, script); !refusedHas(got, "10") {
+		t.Errorf("%s refused with descriptors %v, want 10 among them:\n%s\n%s", script, got, out, rec)
+	}
 	if _, err := os.Stat(record); err == nil {
-		t.Fatalf("%s started the test command, which left %s", script, record)
+		t.Errorf("%s started the test command, %s", script, rec)
 	}
 }
 

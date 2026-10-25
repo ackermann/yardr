@@ -8,6 +8,7 @@ package assembly
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -502,6 +503,66 @@ func TestCopiedScriptBlocksStayEqual(t *testing.T) {
 		if got := markedBlock(t, s.path, closefdsOpen, closefdsClose); got != want {
 			t.Errorf("%s's closefds differs from merge-local's: change all\nmerge-local:\n%s\n%s:\n%s", s.path, want, s.path, got)
 		}
+	}
+}
+
+// closefds refuses when it cannot even list the descriptors it must close:
+// with no listing, the glob matches nothing, and the run must hold rather
+// than start over unseen descriptors. The block is merge-local's, read
+// from the script, so the test pins whatever the equality test holds
+// across the scripts; the unlisted row points it at a directory that does
+// not exist, which fails the listing the way a failed open does. The
+// listed row keeps the harness honest.
+func TestCloseFdsRefusesWhenDescriptorsCannotBeListed(t *testing.T) {
+	t.Parallel()
+	dash := ""
+	for _, sh := range testShells() {
+		if sh.name == "dash" {
+			dash = sh.path
+		}
+	}
+	if dash == "" {
+		t.Skip("no dash on this host")
+	}
+	block := markedBlock(t, "merge-local", closefdsOpen, closefdsClose)
+	for _, tc := range []struct {
+		name    string
+		rewrite bool // point the listing at a missing directory
+		want    string
+	}{
+		{"listed", false, "10"},
+		{"unlisted", true, "?"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// From a string, not a file: dash holds a script file open
+			// while it reads it, and its descriptor would join the
+			// listing the test pins.
+			driver := block + "set -u\nclosefds \"the tests\"\necho SURVIVED:$?\n"
+			if tc.rewrite {
+				driver = strings.ReplaceAll(driver, "/dev/fd", "/dev/no-such-dir-8hm5")
+			}
+			cmd := exec.Command(dash, "-c", driver, "closefds.sh")
+			cmd.Dir = t.TempDir()
+			cmd.ExtraFiles = plantedFiles(t, cmd.Dir, true, 0)
+			out, err := cmd.CombinedOutput()
+			code := 0
+			var exit *exec.ExitError
+			if errors.As(err, &exit) {
+				code = exit.ExitCode()
+			} else if err != nil {
+				t.Fatalf("closefds driver: %v\n%s", err, out)
+			}
+			if code != 2 {
+				t.Errorf("closefds with %s descriptors exits %d, want 2 (refused):\n%s", tc.name, code, out)
+			}
+			if strings.Contains(string(out), "SURVIVED") {
+				t.Errorf("closefds with %s descriptors started the command:\n%s", tc.name, out)
+			}
+			if got := refusedList(string(out), "closefds.sh"); !refusedHas(got, tc.want) {
+				t.Errorf("closefds with %s descriptors refused with %v, want %s among them:\n%s", tc.name, got, tc.want, out)
+			}
+		})
 	}
 }
 

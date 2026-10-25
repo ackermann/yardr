@@ -248,6 +248,9 @@ func TestIntegrateTrainTestCommandStartsWithNoInheritedFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("integrate-train (ls /dev/fd): %v\n%s", err, out)
 			}
+			if !row.sh.high && !row.refused {
+				strayRefusal(t, "integrate-train", out)
+			}
 			awaitNoWatcherSleepers(t, w.record, "1799")
 			if row.refused {
 				assertRefused(t, "integrate-train", out, record)

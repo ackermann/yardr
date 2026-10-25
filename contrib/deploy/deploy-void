@@ -207,7 +207,9 @@ node_version() { node --version 2>/dev/null || echo "node is not on PATH"; }
 # 3 to 9 are closed by name, which every sh reads. Above them /dev/fd is
 # enumerated, so that no number is missed; the loop has no redirection, since
 # the shell saves fd 2 above 10 for one and would close the save from under
-# itself. But dash reads one digit as a redirection's number: there
+# itself. When the listing itself fails, closefds refuses what it never
+# saw: a run that cannot prove its descriptors closed must not start.
+# But dash reads one digit as a redirection's number: there
 # `exec 10>&-` is the command `10` with its output closed, and a special
 # builtin that fails ends the shell. A subshell asks first. An sh that cannot
 # name them leaves them open, and closefds returns 1 with their numbers in
@@ -223,6 +225,13 @@ closefds() {
   highok=1
   (eval 'exec 10>&-') >/dev/null 2>&1 || highok=
   for path in /dev/fd/*; do
+    if [ "$path" = "/dev/fd/*" ]; then
+      # An unmatched glob expands to itself: the listing failed, so no
+      # descriptor was seen, let alone closed. Refuse rather than
+      # report them closed.
+      leftover="$leftover ?"
+      break
+    fi
     fd=${path##*/}
     case "$fd" in ''|*[!0-9]*|?) continue ;; esac
     if [ -n "$highok" ]; then
