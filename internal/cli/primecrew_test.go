@@ -515,6 +515,13 @@ func TestPrimeCrewSaysFilesAreData(t *testing.T) {
 	if !(i >= 0 && i < j && j < k) {
 		t.Errorf("the react line is not after the mail item:\n%s", out)
 	}
+	// What a person reads is short: one line, right after the react line.
+	short := "- What a person reads (mail, a reply, an ask's context, a thread answer, a\n  pane conversation) is short: the answer or the decision first, then only\n  what they need to act on it; what you checked and how you got there only\n  when they ask."
+	if got := strings.Count(out, short); got != 1 {
+		t.Errorf("the prime prints the short line %d times, want once:\n%s", got, out)
+	} else if l := strings.Index(out, short); !(j < l && l < k) {
+		t.Errorf("the short line is not after the react line:\n%s", out)
+	}
 }
 
 // yardr-2eka: How you work opens with the session's one memory, the yard's,

@@ -1840,6 +1840,10 @@ Before you write a loop, a script or a file of your own, find the row; if there 
   needs no answer, an ok) with a reaction instead of a reply: 👀 you have it and
   are on it, ✅ done, 👍 yes. A 👍 counts as a yes mail would, no more: a decision
   with consequences stays an ask.
+- What a person reads (mail, a reply, an ask's context, a thread answer, a
+  pane conversation) is short: the answer or the decision first, then only
+  what they need to act on it; what you checked and how you got there only
+  when they ask.
 - yardr timer add --in 40m|--at 15:04|--every 1d [--to <user>] [--unless bead=<id>[,stage=<stage>]] "...":
   the yard tells you, or a user, later. Prefer an event (a subscription, a bead's done: yardr bead
   watch <id> --done); a timer is the fallback for when it does not come, or a check by the clock.
