@@ -569,7 +569,13 @@ env_file; what the new file changes of its calls is printed.`,
 			changes = append(changes, stillGranted(before, d, grants)...)
 			return a.out(c.OutOrStdout(), map[string]any{"source": saved, "declaration": d, "changes": changes}, func(w io.Writer) {
 				if len(d.Calls) == 0 {
-					fmt.Fprintf(w, "source %s saved: no call, its limits command alone\n", d.Name)
+					alone := "its limits command alone"
+					if d.Hook != nil && d.Limits != nil {
+						alone = "its hook and limits command alone"
+					} else if d.Hook != nil {
+						alone = "its hook alone"
+					}
+					fmt.Fprintf(w, "source %s saved: no call, %s\n", d.Name, alone)
 				} else {
 					fmt.Fprintf(w, "source %s saved: %s under %s\n", d.Name, plural(len(d.Calls), "call"), baseInUse(d, saved.Base))
 				}

@@ -65,6 +65,28 @@ func kimiAnswer() string {
 		in(42*time.Minute+20*time.Second), in(81*time.Hour+20*time.Second))
 }
 
+// hookStandIn is the file of a source, name, that sends in and is never
+// called, its normalize program a stand-in, as limitsStandIn is for a
+// limits-only one. With limits it also carries the limits key, a
+// hook-and-limits source. Neither script ever runs: adding asks nothing.
+func hookStandIn(t *testing.T, name string, limits bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	normalize := filepath.Join(dir, "normalize")
+	scripttest.Write(t, normalize, "#!/bin/sh\ncat\n")
+	text := "name: " + name + "\nhook:\n  verify: { scheme: secret, signature: { header: Mail-Secret } }\n  bodies: unique\n  normalize: [" + normalize + "]\n"
+	if limits {
+		provider := filepath.Join(dir, "provider")
+		scripttest.Write(t, provider, "#!/bin/sh\n"+kimiAnswer()+"\n")
+		text += "limits:\n  command: [" + provider + ", \"{provider}\", --json]\n  kinds: { codex: codex }\n"
+	}
+	file := filepath.Join(dir, name+".yaml")
+	if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
 // yardr limits <kind> asks the source that lists the kind, once, and prints
 // its windows; --json has the report. A kind nothing lists, and a command
 // that fails, are "not known" with why, and exit 1.
@@ -81,6 +103,24 @@ func TestLimitsOfAKind(t *testing.T) {
 	}
 	if got := asks(t, asked); got != "" {
 		t.Fatalf("adding the source asked it: %q", got)
+	}
+	for _, tc := range []struct {
+		name, file, want string
+		next             bool // the add prints a next step
+	}{
+		{"hook alone", hookStandIn(t, "wombat", false), "source wombat saved: no call, its hook alone\n", false},
+		{"hook and limits", hookStandIn(t, "quoll", true), "source quoll saved: no call, its hook and limits command alone\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolated := &app{st: storetest.New(t), actor: "jo"}
+			out, err := run(t, isolated.sourceCmd(), "add", tc.file)
+			if err != nil || !strings.HasPrefix(out, tc.want) {
+				t.Fatalf("source add: %q %v, want it to start %q", out, err, tc.want)
+			}
+			if has := strings.Contains(out, "next: "); has != tc.next {
+				t.Fatalf("source add printed a next step = %v, want %v:\n%s", has, tc.next, out)
+			}
+		})
 	}
 	out, _ = writerRun(t, a.limitsCmd(), "kimi")
 	for _, want := range []string{
