@@ -876,6 +876,57 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 			}
 		}
 	})
+	t.Run("remembered answer hold", func(t *testing.T) {
+		// A remembered answer that says how long it holds is asked again
+		// once that has passed, within the five minutes: a machine-gated
+		// bead parked on one spiked reading starts on the first pass after
+		// it ages out. An answer that says nothing holds for the whole five
+		// minutes, as before.
+		for name, tc := range map[string]struct {
+			holds time.Duration
+			want  string // "" parks the bead, else the claiming group
+			runs  int
+		}{
+			"the machine's answer holds for one pass": {30 * time.Second, "a", 1},
+			"a silent answer holds for five minutes":  {0, "", 0},
+		} {
+			t.Run(name, func(t *testing.T) {
+				s, _, d, _, _, now := quotaYard(t, "a@machine.load<80", "wait")
+				say, runs := machineStandIn(t, s)
+				say(loadReport(20))
+				over := 95.0
+				dispatch.RememberSourceAnswer(d, "machine", *now, &limits.Report{
+					Source: "machine", Provider: "machine", AskedAt: *now,
+					HoldsFor: tc.holds,
+					Windows:  []limits.Window{{Label: "load", UsedPercent: &over}},
+				})
+				b := newBead(t, s, "x")
+				*now = now.Add(40 * time.Second)
+				must(t, d.Reconcile(ctx))
+				if group, _ := claimedBy(t, s, b.ID); group != tc.want {
+					t.Fatalf("claimed by %q, want %q", group, tc.want)
+				}
+				if got := runs(); got != tc.runs {
+					t.Fatalf("the machine command ran %d times, want %d", got, tc.runs)
+				}
+				if tc.want == "" {
+					return
+				}
+				// The re-read answer says nothing, so it holds for the five
+				// minutes: a bead more starts on it without another run.
+				say(loadReport(95))
+				*now = now.Add(40 * time.Second)
+				later := newBead(t, s, "y")
+				must(t, d.Reconcile(ctx))
+				if group, _ := claimedBy(t, s, later.ID); group != "a" {
+					t.Fatalf("claimed by %q, want a: the re-read 20%% still holds", group)
+				}
+				if got := runs(); got != 1 {
+					t.Fatalf("the machine command ran %d times, want 1", got)
+				}
+			})
+		}
+	})
 }
 
 // A condition may mix a source's window with the provider's: each

@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"yardr.dev/yardr/internal/source"
 )
@@ -227,10 +228,13 @@ func diskUsed(ctx context.Context, io machineIO, home string) (float64, error) {
 
 // machineReport is the four windows as the yard keeps them: load, swap,
 // disk and mem in order, each a used share to a point, with no target and
-// no reset. load may read past 100, as the script's does.
+// no reset. load may read past 100, as the script's does. The answer holds
+// for one pass: the machine is read in process, cheaply, and load moves
+// faster than any window a provider reports, so a spiked reading must not
+// hold a route's gate shut for the whole of the dispatcher's memory.
 func machineReport(load, swap, disk, mem float64) *Report {
 	used := func(p float64) *float64 { p = math.Round(p*10) / 10; return &p }
-	return &Report{Provider: MachineSource, Windows: []Window{
+	return &Report{Provider: MachineSource, HoldsFor: 30 * time.Second, Windows: []Window{
 		{Label: "load", UsedPercent: used(load)},
 		{Label: "swap", UsedPercent: used(swap)},
 		{Label: "disk", UsedPercent: used(disk)},

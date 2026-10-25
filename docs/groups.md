@@ -426,7 +426,10 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   `reason` in words and the earliest `resets_at` among its windows that
   failed), `reason` (the same on one line) and `resets_at`, the earliest
   of them all. A source's windows may never reset, and then no `resets_at`
-  is said.
+  is said. A source is asked at most once in five minutes for a route's
+  conditions, however many beads are ready; the built-in machine source
+  is re-read every pass, about every 30 seconds, since load moves faster
+  than any provider's windows.
 - **A group at its limit is waited for, not passed over.** So is one whose
   runtime is down or that is held back for a model. Only a quota condition
   sends a bead to a further group, and what the yard runs at once stays

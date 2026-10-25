@@ -336,7 +336,7 @@ func TestBuiltinMachineResolvesAndYields(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if r.Source != "machine" || r.Provider != "machine" || len(r.Windows) != 4 ||
+		if r.Source != "machine" || r.Provider != "machine" || len(r.Windows) != 4 || r.HoldsFor != 30*time.Second ||
 			r.AskedAt.Before(before) || r.AskedAt.After(time.Now()) {
 			t.Fatalf("report = %+v", r)
 		}

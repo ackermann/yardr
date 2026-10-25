@@ -54,6 +54,17 @@ type limitsAnswer struct {
 	err    error
 }
 
+// fresh is whether what was asked at m.at still holds now: for the caller's
+// age, or sooner where the answer says how long it holds (Report.HoldsFor),
+// whichever runs out first. An answer that says nothing, and a failure,
+// hold for the whole age.
+func fresh(m limitsAnswer, now time.Time, age time.Duration) bool {
+	if m.report != nil && m.report.HoldsFor > 0 && m.report.HoldsFor < age {
+		age = m.report.HoldsFor
+	}
+	return now.Sub(m.at) < age
+}
+
 // groupEnv is the env_file entries of g, the environment its panes burn
 // under, for a limits read of its login: nil where it names none, the
 // machine's login being its login too. An error names why the file cannot
@@ -85,7 +96,8 @@ func limitsEnvScope(env []string) string {
 // askLimits is what the yard's source says of the subscription an agent of
 // kind with the provider setting burns, read under env: from memory when
 // the provider was asked for that environment within age (limitsMemory, or
-// routeLimitsMemory for a route's condition), else by one run of its
+// routeLimitsMemory for a route's condition), sooner where the remembered
+// answer says how long it holds, else by one run of its
 // command. With a provider setting, the first source by name whose kinds
 // table names it is asked,
 // even where no table lists the kind; without it, the kind resolves
@@ -104,7 +116,7 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age t
 		return nil, &limits.NoSource{Kind: kind}
 	}
 	key, now := a.Source+"\x00"+name+"\x00"+limitsEnvScope(env), d.now()
-	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < age {
+	if m, ok := d.limitsAsked[key]; ok && fresh(m, now, age) {
 		return m.report, m.err
 	}
 	a.Env = env
@@ -125,7 +137,8 @@ func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age t
 }
 
 // askSource is what the source named source says of itself: from memory
-// when the source was asked within age, else by one run of its command.
+// when the source was asked within age, sooner where the remembered answer
+// says how long it holds, else by one run of its command.
 // Only a source whose limits key names no kinds answers; the error is a
 // *limits.NoSource naming the source where none does, and nothing was run.
 // The memory is the providers' own: a source's key has no provider in it,
@@ -140,7 +153,7 @@ func (d *Dispatcher) askSource(ctx context.Context, source string, age time.Dura
 		return nil, &limits.NoSource{Source: source}
 	}
 	key, now := a.Source+"\x00", d.now()
-	if m, ok := d.limitsAsked[key]; ok && now.Sub(m.at) < age {
+	if m, ok := d.limitsAsked[key]; ok && fresh(m, now, age) {
 		return m.report, m.err
 	}
 	r, err := a.AskSelf(ctx)

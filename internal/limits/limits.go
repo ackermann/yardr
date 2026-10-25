@@ -58,6 +58,11 @@ type Report struct {
 	AskedAt  time.Time `json:"asked_at"`
 	Plan     string    `json:"plan,omitempty"`
 	Windows  []Window  `json:"windows"`
+	// HoldsFor is how long the answer holds: a dispatcher that remembers
+	// it asks again once this has passed, however long its own memory is.
+	// It is the answerer's own word, carried in Go alone, never printed
+	// nor read from JSON: zero says nothing, and keeps the caller's age.
+	HoldsFor time.Duration `json:"-"`
 }
 
 // Window is one window of a usage limit: five hours, a week. What the

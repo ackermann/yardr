@@ -25,7 +25,9 @@ import (
 // condition: the command runs at most twelve times an hour for a provider,
 // however many beads are ready. A group may so start a session or two
 // after its window crossed the threshold, which is within the margin a
-// threshold below 100 gives.
+// threshold below 100 gives. An answer that says how long it holds
+// (Report.HoldsFor, as the built-in machine's does for one pass) is asked
+// again once that has passed, within the five minutes.
 const routeLimitsMemory = 5 * time.Minute
 
 // chooseGroup is the group of r that takes b: the first whose quota

@@ -4,12 +4,24 @@ import (
 	"context"
 	"time"
 
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/store"
 )
 
 // SetClock makes d read the time from clock, so a test can let a backoff
 // elapse without waiting for it.
 func SetClock(d *Dispatcher, clock func() time.Time) { d.clock = clock }
+
+// RememberSourceAnswer keeps what the source named source said at at as
+// this daemon's memory of it, as if askSource had asked it then. A test
+// stands in with it for an answer no script can print: one that says how
+// long it holds (limits.Report.HoldsFor), as the built-in machine's does.
+func RememberSourceAnswer(d *Dispatcher, source string, at time.Time, r *limits.Report) {
+	if d.limitsAsked == nil {
+		d.limitsAsked = map[string]limitsAnswer{}
+	}
+	d.limitsAsked[source+"\x00"] = limitsAnswer{at: at, report: r}
+}
 
 // SidingDue is when the earliest siding that can fold is due, as of the
 // last pass; nil with none.
