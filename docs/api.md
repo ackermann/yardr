@@ -5569,11 +5569,11 @@ POST /call/SourceGrants
 
 ### `SessionScreen`
 
-Reads what a running session's pane shows: its visible screen with the terminal's ANSI styling, so the operator sees whether something hangs (a dialog, a login screen, a spinner). `session` is a session id or a crew member's name, the id first; a crew member's is its own session's screen. The read is passive: it moves nothing in the pane, on the alternate screen or off it. The reply is the screen alone: no width or height rides with it, and a client that draws it measures them itself. It is the operator's to read: on the socket the operator's alone, and on the listener there for a device of the operator and for no other caller. A screen can show what an agent printed, a secret among it, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and never over the link from the edge.
+Reads what a running session's pane shows: its visible screen with the terminal's ANSI styling, so the operator sees whether something hangs (a dialog, a login screen, a spinner). `session` is a session id, the herdr agent name of a live session (starting or running), or a crew member's name, in that order; the agent name is the name the board shows, and a crew member's is its own session's screen. The read is passive: it moves nothing in the pane, on the alternate screen or off it. The reply is the screen alone: no width or height rides with it, and a client that draws it measures them itself. It is the operator's to read: on the socket the operator's alone, and on the listener there for a device of the operator and for no other caller. A screen can show what an agent printed, a secret among it, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and never over the link from the edge.
 
 | argument | type | |
 |---|---|---|
-| `session` | string | a session id, or a crew member's name for its own session's screen |
+| `session` | string | a session id, a live session's herdr agent name, or a crew member's name for its own session's screen |
 
 ```
 POST /call/SessionScreen

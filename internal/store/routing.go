@@ -2753,8 +2753,10 @@ func (s *Store) SetPaneReader(r PaneReader) { s.paneReader = r }
 // SessionScreen answers what the session's pane shows: the visible screen
 // of the session session names, with its ANSI styling, read passively — the
 // read moves nothing in the pane (docs/groups.md "How a pane is read").
-// session is a session id or a crew member's name, the id first: a crew
-// member's is its own session's screen. It is the operator's call
+// session is a session id, the herdr agent name of a live session
+// (starting or running), or a crew member's name, in that order: an agent
+// name is the name the board shows, a crew member's its own session's
+// screen. It is the operator's call
 // (rpc.OperatorCalls): on the socket the operator's alone, and on the
 // listener a device of an operator's. A screen can show what an agent
 // printed, a secret among it.
@@ -2773,9 +2775,12 @@ func (s *Store) SessionScreen(ctx context.Context, session string) (*SessionScre
 	return &SessionScreen{Screen: screen}, nil
 }
 
-// sessionPane is the pane of the session session names: a session id first,
-// else a crew member's name, whose own session's pane it is. A session with
-// no pane recorded is refused naming it; one neither names is not found.
+// sessionPane is the pane of the session session names: a session id
+// first, else the herdr agent name of one live session, else a crew
+// member's name, whose own session's pane it is. The agent name is read
+// through the live index, so a finished session's no longer names it. An
+// agent name shared by two live sessions is refused and names both; a
+// session without a pane is refused, and an unmatched name is not found.
 func (s *Store) sessionPane(ctx context.Context, session string) (string, error) {
 	sess, err := s.GetSession(ctx, session)
 	if err != nil && !errors.Is(err, ErrNotFound) {
@@ -2783,6 +2788,36 @@ func (s *Store) sessionPane(ctx context.Context, session string) (string, error)
 	}
 	if err == nil {
 		if pane, _ := sess.Handle["pane"].(string); pane != "" {
+			return pane, nil
+		}
+		return "", fmt.Errorf("session %s has no pane", session)
+	}
+	var matches []Session
+	if err := s.read(func(tx *bolt.Tx) error {
+		live, err := s.liveSessions(tx, "")
+		if err != nil {
+			return err
+		}
+		for _, l := range live {
+			agent, _ := l.Handle["agent"].(string)
+			if agent == "" || agent != session {
+				continue
+			}
+			matches = append(matches, l)
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	if len(matches) > 1 {
+		ids := make([]string, len(matches))
+		for i, m := range matches {
+			ids[i] = m.ID
+		}
+		return "", fmt.Errorf("agent name %s names live sessions %s", session, strings.Join(ids, ", "))
+	}
+	if len(matches) == 1 {
+		if pane, _ := matches[0].Handle["pane"].(string); pane != "" {
 			return pane, nil
 		}
 		return "", fmt.Errorf("session %s has no pane", session)

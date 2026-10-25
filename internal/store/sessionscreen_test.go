@@ -23,10 +23,12 @@ func (f *screenHerdr) PaneScreen(_ context.Context, pane string) (string, error)
 }
 
 // SessionScreen answers the pane's screen through the store's reader: by
-// session id, and by crew member's name for the member's own session. What
-// neither names is not found; a session with no pane recorded is refused
-// naming it; and a store no server gave a reader is refused naming the
-// server. (New path: no existing test drives this method.)
+// session id, by the herdr agent name of a live session, and by crew
+// member's name for the member's own session. What none names is not
+// found, and a finished session's agent name names nothing; a session with
+// no pane recorded is refused naming it; and a store no server gave a
+// reader is refused naming the server. Two live sessions with one agent
+// name are refused naming both.
 func TestSessionScreen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -37,13 +39,24 @@ func TestSessionScreen(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 2}, "me"))
+	must(api.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 4}, "me"))
 	b, err := api.CreateBead(ctx, store.NewBead{Title: "Paint the shed"}, "me")
 	must(err)
 	sess, err := api.Claim(ctx, b.ID, "builders", "new", "me")
 	must(err)
 	must(api.MarkRunning(ctx, sess.ID, map[string]any{"pane": "w1:p1"}))
-	plain, err := api.CreateBead(ctx, store.NewBead{Title: "Sweep the yard"}, "me")
+	herd, err := api.CreateBead(ctx, store.NewBead{Title: "Mend the fence"}, "me")
+	must(err)
+	herdSess, err := api.Claim(ctx, herd.ID, "builders", "new", "me")
+	must(err)
+	must(api.MarkRunning(ctx, herdSess.ID, map[string]any{"agent": "mend-new", "pane": "w1:p3"}))
+	gone, err := api.CreateBead(ctx, store.NewBead{Title: "Sweep the yard"}, "me")
+	must(err)
+	goneSess, err := api.Claim(ctx, gone.ID, "builders", "new", "me")
+	must(err)
+	must(api.MarkRunning(ctx, goneSess.ID, map[string]any{"agent": "sweep-new", "pane": "w1:p4"}))
+	must(api.EndSession(ctx, goneSess.ID, "died", "the runner went away"))
+	plain, err := api.CreateBead(ctx, store.NewBead{Title: "Oil the gate"}, "me")
 	must(err)
 	paneLess, err := api.Claim(ctx, plain.ID, "builders", "new", "me")
 	must(err)
@@ -56,6 +69,7 @@ func TestSessionScreen(t *testing.T) {
 	st.SetPaneReader(fake)
 	for _, c := range []struct{ session, pane string }{
 		{sess.ID, "w1:p1"},
+		{"mend-new", "w1:p3"},
 		{"yardmaster", "w1:p2"},
 	} {
 		got, err := api.SessionScreen(ctx, c.session)
@@ -66,8 +80,23 @@ func TestSessionScreen(t *testing.T) {
 			t.Errorf("SessionScreen(%q) = %q of %s, want the reader's screen of %s", c.session, got.Screen, fake.pane, c.pane)
 		}
 	}
+	duplicate, err := api.CreateBead(ctx, store.NewBead{Title: "Mend the wall"}, "me")
+	must(err)
+	duplicateSess, err := api.Claim(ctx, duplicate.ID, "builders", "new", "me")
+	must(err)
+	must(api.MarkRunning(ctx, duplicateSess.ID, map[string]any{"agent": "mend-new", "pane": "w1:p5"}))
 	if _, err := api.SessionScreen(ctx, "no-such-session"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("SessionScreen(no-such-session) = %v, want not found", err)
+	}
+	if _, err := api.SessionScreen(ctx, "sweep-new"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("SessionScreen(sweep-new) = %v, want a finished session's agent name not found", err)
+	}
+	if _, err := api.SessionScreen(ctx, "mend-new"); err == nil ||
+		!strings.Contains(err.Error(), herdSess.ID) || !strings.Contains(err.Error(), duplicateSess.ID) {
+		t.Errorf("SessionScreen(mend-new) = %v, want an error naming both live sessions %s and %s", err, herdSess.ID, duplicateSess.ID)
+	}
+	if _, err := api.SessionScreen(ctx, goneSess.ID); err != nil {
+		t.Errorf("SessionScreen(%s) = %v, want the finished session still read by its id", goneSess.ID, err)
 	}
 	if _, err := api.SessionScreen(ctx, paneLess.ID); err == nil || !strings.Contains(err.Error(), "has no pane") {
 		t.Errorf("SessionScreen(%s) = %v, want it refused for having no pane", paneLess.ID, err)

@@ -1823,6 +1823,10 @@ check the footer's model instead.
   folder-trust dialog is read with `--source visible --format ansi`. So are
   the reads of `yardr chat` and of `yardr start`.
 
+  The operator's `SessionScreen` call also reads the visible screen. It takes
+  a session id, the herdr agent name of a live session (the name shown on the
+  board), or a crew member's name.
+
   What such a read gives depends on the harness. One that prints to the
   normal screen has its transcript in herdr's scrollback, and the read is its last lines, up to
   200. One on the alternate screen has no scrollback, and the read is its
