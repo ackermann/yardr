@@ -50,9 +50,9 @@ stored link: [pairing](#pairing), when one operator can read a short code to
 the other, and [by hand](#by-hand-invite-lines), with a line from each
 carried to the other.
 
-Either way the yard that is called needs **a listener, where it can be
-reached.** The other yard's requests come in on the server's hook listener,
-under `/peers/`, beside `/hooks/`:
+Either way the yard that is called needs to be **reachable where it is
+called.** Usually that is a listener of its own. The other yard's requests
+come in on the server's hook listener, under `/peers/`, beside `/hooks/`:
 
 ```sh
 # on north
@@ -60,13 +60,19 @@ yardr settings set hook_addr 10.0.0.5:8790
 yardr server stop            # the next command starts it again, on the address
 ```
 
-No listener, no incoming. `yardr doctor` and `yardr peer show` say when that
-is so. A yard that only calls needs no listener. One of the two has to be
-reachable by the other: on an address the other can reach, directly or
-through a tunnel or proxy of your own. There is no relay. Peers are never
-carried through [the edge](edge.md) either: it carries webhooks alone, so a
-yard nothing can reach still takes those, while everything between two yards
-still crosses the link between them.
+Or the yard is [connected to the edge](edge.md), and the other yard calls
+it through the edge at `https://my.yardr.dev/peers/<account>/<yard>`:
+the edge's address with the account and the yard's name at the edge. The
+edge passes the requests down the yard's link and the answers back,
+keeping nothing, and the signatures still hold end to end. So two yards
+behind routers link as soon as one is edge-connected: the other calls
+the edge URL, and asks through it for what waits there.
+
+No listener and no edge link, no incoming. `yardr doctor` and `yardr peer
+show` say when that is so. A yard that only calls needs neither. One of
+the two has to be reachable by the other: on an address the other can
+reach, directly, through a tunnel or proxy of your own, or through the
+edge.
 
 ### The form
 
@@ -195,9 +201,11 @@ the same and the command says that the ping is owed.
   calls finds out before it has said who it is, so its code is still good
   for the same command with `--name`.
 - **`--url`** is where the other yard reaches the one that opens the
-  pairing. Without it, it is the listener's own address, which is right on
-  one machine or one network; a listener on every address (`:8790`) needs
-  it. The yard that calls keeps the address it called, until `yardr peer set`
+  pairing: its listener's address, or, for a yard called through the edge,
+  its edge URL (`https://my.yardr.dev/peers/<account>/<yard>`). Without
+  it, it is the listener's own address, which is right on one machine or
+  one network; a listener on every address (`:8790`) needs it. The yard
+  that calls keeps the address it called, until `yardr peer set`
 [changes it](#changing-where-a-peer-is-called).
 - **Without a terminal** there is no one to ask, and both commands refuse,
   naming `--yes`. `--yes` confirms the check without asking and prints it,
@@ -412,7 +420,8 @@ peer (lowercase letters, digits, `.`, `_`, `-`), `<new>` is a peer already.
 The URL of a peer is where this yard calls it. It comes with the invite, or
 is the address a pairing called, and `yardr peer set <name> --url <url>`
 changes it: the yard moved to another host or port, or TLS was put in front
-of it.
+of it. A peer called through the edge is called at its edge URL,
+`https://my.yardr.dev/peers/<account>/<yard>`.
 
 ```sh
 yardr peer set north --url https://north.example.com
@@ -3032,6 +3041,14 @@ requests a minute.
   again`: what waits is still handed over, by the question after the wait,
   so within two minutes and not at once. Let the proxy give a request 60
   seconds or more.
+- **Over the edge.** A question through an edge URL is held by the yard as
+  any is, but the edge ends the wait itself after about 25 seconds, with
+  204 and no body (`X-Edge-Hold: capped`), since a longer hold would
+  outlast what the edge carries. The asker takes that as an empty answer
+  and asks again shortly: an idle link still costs about two requests a
+  minute, and a message queued for the asker is still handed over as it is
+  queued. When the yard is offline the edge answers that it is away
+  instead, and the asker tries again as it does a yard that is down.
 
 ### What a link forgets
 
@@ -3053,7 +3070,8 @@ how many of each it removed per peer (`peers` on `store_pruned`, and in what
 
 ## The requests
 
-Both go to `<url>/peers/messages` and carry three headers:
+Both go to `<url>/peers/messages`, under the peer URL's own base for an
+edge URL, and carry three headers:
 
 | header | |
 |---|---|
@@ -3227,6 +3245,7 @@ error of each, and `yardr doctor` has a `peers` line
 | the two checks differ | say no on both. Something between the yards changed what crossed, or the code was read to someone else: pair again over another way, or [by hand](#by-hand-invite-lines) |
 | `the link is saved, and not proved yet: …` | the pairing is done, the ping is owed: usually no daemon (`yardr daemon`, then `yardr peer ping <name>`) |
 | `answered 401, not signed with its key` | the other yard has not added this one, the clocks are more than five minutes apart, or something between the two answered |
+| `answered 503, not signed with its key`, for a peer called through the edge | the yard is offline or unknown at the edge: it connects, and the pushes and pulls go through again |
 | `the link does not carry ping out` | `yardr peer allow <name> --send ping` here |
 | `refused by the peer: its link does not carry ping in` | `yardr peer allow <name> --receive ping` there |
 | `refused by the peer: north's yardr does not know <kind>` | the other yard runs a yardr from before that kind: it is upgraded there, and no `peer allow` helps. `yardr peer show north` says what it understands ([above](#two-yards-on-different-builds)) |

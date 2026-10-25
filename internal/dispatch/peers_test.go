@@ -23,17 +23,19 @@ type peerClock struct{ now time.Time }
 
 // peerYard is a yard with a key, a receiver on a listener of its own and a
 // daemon. down makes the listener answer as something that is not the
-// yard: a proxy with nothing behind it.
+// yard: a proxy with nothing behind it. capped makes it answer as the edge
+// does a pull it carried past its own wait: 204 with X-Edge-Hold: capped.
 type peerYard struct {
-	name  string
-	api   store.API
-	own   *store.Store
-	pub   string
-	srv   *httptest.Server
-	rc    *yards.Receiver
-	d     *dispatch.Dispatcher
-	down  atomic.Bool
-	asked atomic.Int64 // requests that reached the listener
+	name   string
+	api    store.API
+	own    *store.Store
+	pub    string
+	srv    *httptest.Server
+	rc     *yards.Receiver
+	d      *dispatch.Dispatcher
+	down   atomic.Bool
+	capped atomic.Bool
+	asked  atomic.Int64 // requests that reached the listener
 }
 
 // peerSendDisallowedHook changes a link after the dispatcher's peer
@@ -69,6 +71,11 @@ func newPeerYard(t *testing.T, name string, clock *peerClock) *peerYard {
 		y.asked.Add(1)
 		if y.down.Load() {
 			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		if y.capped.Load() {
+			w.Header().Set(yards.HoldHeader, "capped")
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		inner.ServeHTTP(w, r)

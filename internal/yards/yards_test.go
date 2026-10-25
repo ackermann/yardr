@@ -381,6 +381,16 @@ func TestCallerPush(t *testing.T) {
 	if err := a.caller().Push(ctx, store.Peer{Name: "b", Key: b.pub()}, m); err == nil || !strings.Contains(err.Error(), "has no URL") {
 		t.Fatalf("Push to a peer without a URL = %v", err)
 	}
+	capped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Edge-Hold", "capped")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer capped.Close()
+	p := toB
+	p.URL = capped.URL
+	if err := a.caller().Push(ctx, p, m); !errors.Is(err, yards.ErrHoldCapped) || errors.Is(err, yards.ErrRefused) {
+		t.Fatalf("a capped push = %v, want ErrHoldCapped and no refusal", err)
+	}
 	b.srv.Close()
 	if err := a.caller().Push(ctx, toB, m); err == nil || errors.Is(err, yards.ErrRefused) {
 		t.Fatalf("Push to a yard that is down = %v", err)
@@ -460,6 +470,23 @@ func TestCallerPull(t *testing.T) {
 	// GET wants a number.
 	if resp, _ := signed(b, a, "GET", yards.Path+"?after=x", nil).send(t, a); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("after=x: %d", resp.StatusCode)
+	}
+	capped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Edge-Hold", "capped")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer capped.Close()
+	cappedPeer := store.Peer{Name: "a", Key: a.pub(), URL: capped.URL}
+	if _, err := b.caller().Pull(ctx, cappedPeer, 0, 0); !errors.Is(err, yards.ErrHoldCapped) {
+		t.Fatalf("a capped pull = %v, want ErrHoldCapped", err)
+	}
+	bare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer bare.Close()
+	cappedPeer.URL = bare.URL
+	if _, err := b.caller().Pull(ctx, cappedPeer, 0, 0); !errors.Is(err, yards.ErrUnsigned) {
+		t.Fatalf("a bare 204 = %v, want ErrUnsigned", err)
 	}
 }
 

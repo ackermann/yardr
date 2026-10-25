@@ -173,6 +173,8 @@ func (c *Caller) pairPost(ctx context.Context, url string, v, out any) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// No connection is kept, as for a peer's own requests (do).
+	req.Close = true
 	resp, err := c.client().Do(req)
 	if err != nil {
 		return err

@@ -111,9 +111,14 @@ signs each login in, and states at sign-up that their provider's terms allow
 that use. The edge's public notice says the same for both kinds of yard, for
 people who have no yard of their own.
 
-Peers are never carried through the edge: two linked yards call each other
-directly, as [peers.md](peers.md) says. A device's calls are carried
-through the same link ([below](#footplate-through-the-link)).
+Peers are carried through the edge when a yard is called at its peer URL,
+`https://my.yardr.dev/peers/<account>/<yard>`: the edge passes the requests
+down the yard's link and the answers back, keeping nothing of either
+([peers.md](peers.md#linking-two-yards)). It reads them as it reads a
+webhook: the peer signatures prove who sent what, and hide nothing. Two
+yards that reach each other directly still call each other directly. A
+device's calls are carried through the same link
+([below](#footplate-through-the-link)).
 
 ## footplate through the link
 
@@ -158,6 +163,7 @@ credential, but it is never read through the edge.
 |---|---|---|
 | account, handle, sign-up | the edge's, by invite | the same |
 | webhook URL | `https://my.yardr.dev/hooks/<account>/<yard>/<hook>` | the same |
+| peer URL | `https://my.yardr.dev/peers/<account>/<yard>` | the same |
 | how the edge reaches it | TCP to its container or droplet | the link the yard opened |
 | footplate | Kratos session plus device token, pairing by code | the same, through the link |
 | who runs it, upgrades, backs up | the service | the person |

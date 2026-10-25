@@ -255,6 +255,19 @@ func TestPeersDaemonHoldsOrPolls(t *testing.T) {
 	// at once, says the ping arrived.
 	until(t, "the pong", func() bool { return a.pong(t, id) != nil })
 	until(t, "a logs the ping as sent", func() bool { return len(a.events(t, "peer_message_sent")) == 1 })
+	// A pull the edge ends itself is no failure: the daemon asks again after
+	// the poll, without a wait that doubles, and holds again once the yard
+	// answers itself.
+	from = a.asked.Load()
+	a.capped.Store(true)
+	// Ten questions quickly: asked again after the 50ms poll, not after a
+	// wait that doubles into the minutes, which would take most of a minute.
+	until(t, "b asks through the cap", func() bool { return a.asked.Load() >= from+10 })
+	a.capped.Store(false)
+	until(t, "b's question is held again", func() bool { return a.rc.Held() == 1 })
+	id = a.send(t, "b")
+	until(t, "the pong to the ping queued after the cap", func() bool { return a.pong(t, id) != nil })
+	until(t, "nothing waits at a for b", func() bool { return len(a.waiting(t, "b")) == 0 })
 }
 
 // What is queued while the asker is away waits, and arrives at its next

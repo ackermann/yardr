@@ -78,6 +78,7 @@ func TestInvite(t *testing.T) {
 	for _, inv := range []Invite{
 		{Name: "north", Key: key, URL: "http://10.0.0.5:8790"},
 		{Name: "north", Key: key, URL: "https://yard.example.com/y"},
+		{Name: "mac", Key: key, URL: "https://my.yardr.dev/peers/mckean/mac"},
 		{Name: "laptop.2", Key: key},
 	} {
 		line := inv.String()

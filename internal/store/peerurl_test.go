@@ -29,6 +29,14 @@ func TestSetPeerURL(t *testing.T) {
 			t.Errorf("SetPeerURL(%q) = %v; an add says %v", bad, err, added)
 		}
 	}
+	// An edge URL is kept whole, base path and all, its trailing slash
+	// trimmed as any URL's.
+	if _, err := y.api.AddPeer(y.ctx, store.Peer{Name: "edge", Key: otherKey(t), URL: "https://my.yardr.dev/peers/mckean/mac/"}, "jo"); err != nil {
+		t.Fatalf("AddPeer with an edge URL = %v", err)
+	}
+	if edge, err := y.api.GetPeer(y.ctx, "edge"); err != nil || edge.URL != "https://my.yardr.dev/peers/mckean/mac" {
+		t.Fatalf("the edge URL as kept = %+v, %v", edge, err)
+	}
 	if _, err := y.api.SetPeerURL(y.ctx, "nowhere", "http://north.test", "jo"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the URL of no peer = %v", err)
 	}
@@ -64,6 +72,10 @@ func TestSetPeerURL(t *testing.T) {
 	if err != nil || p.URL != "https://north.example" {
 		t.Fatalf("a second URL = %+v, %v", p, err)
 	}
+	p, err = y.api.SetPeerURL(y.ctx, "north", "https://my.yardr.dev/peers/mckean/mac", "jo")
+	if err != nil || p.URL != "https://my.yardr.dev/peers/mckean/mac" {
+		t.Fatalf("an edge URL = %+v, %v", p, err)
+	}
 	p, err = y.api.SetPeerURL(y.ctx, "north", "", "jo")
 	if err != nil || p.URL != "" || p.Waiting != 1 {
 		t.Fatalf("the URL taken away = %+v, %v", p, err)
@@ -74,13 +86,14 @@ func TestSetPeerURL(t *testing.T) {
 	}
 
 	evs := peerEvents(t, y.api, "peer_url_set")
-	if len(evs) != 3 {
+	if len(evs) != 4 {
 		t.Fatalf("peer_url_set = %+v", evs)
 	}
 	for i, want := range []map[string]any{
 		{"peer": "north", "url": "http://north.test:8790"},
 		{"peer": "north", "url": "https://north.example", "was": "http://north.test:8790"},
-		{"peer": "north", "was": "https://north.example"},
+		{"peer": "north", "url": "https://my.yardr.dev/peers/mckean/mac", "was": "https://north.example"},
+		{"peer": "north", "was": "https://my.yardr.dev/peers/mckean/mac"},
 	} {
 		if e := evs[i]; e.Actor != "jo" || len(e.Data) != len(want) || e.Data["peer"] != want["peer"] || e.Data["url"] != want["url"] || e.Data["was"] != want["was"] {
 			t.Errorf("peer_url_set %d = %s %+v, want %+v", i, e.Actor, e.Data, want)

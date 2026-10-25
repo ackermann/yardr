@@ -49,6 +49,16 @@ func (e *Refused) Is(target error) bool { return target == ErrRefused }
 // was asked: what it says is anyone's.
 var ErrUnsigned = errors.New("not signed with its key")
 
+// HoldHeader is the edge's word on a peer's pull it ended itself: 204 with
+// this header set to "capped" and no body, when the yard held the pull past
+// the edge's wait (yardr-hosted's HoldHeader). No body means no signature
+// surface: the puller asks again rather than crying hostile.
+const HoldHeader = "X-Edge-Hold"
+
+// ErrHoldCapped is a pull the edge ended itself (HoldHeader): no answer was
+// lost, and the puller asks again.
+var ErrHoldCapped = errors.New("the edge ended the hold")
+
 // Caller makes this yard's requests to its peers, signed with its key.
 type Caller struct {
 	Key  ed25519.PrivateKey
@@ -79,6 +89,12 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 	req.Header.Set(yardkey.HeaderKey, yardkey.Public(c.Key))
 	req.Header.Set(yardkey.HeaderTime, ts)
 	req.Header.Set(yardkey.HeaderSig, reqSig)
+	// No connection is kept for the next request: a pooled one reused after
+	// the machine slept carries a signature from before it, which the peer
+	// answers 401, and over the edge the same reuse would hit the router.
+	// The peer equivalent of a declared source's DisableKeepAlives
+	// (internal/source).
+	req.Close = true
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -97,6 +113,12 @@ func (c *Caller) do(ctx context.Context, p store.Peer, method, path string, body
 	}
 	if len(answer) > maxAnswer {
 		return 0, nil, "", "", fmt.Errorf("peer %s: its answer is larger than %d bytes", p.Name, maxAnswer)
+	}
+	if resp.StatusCode == http.StatusNoContent && resp.Header.Get(HoldHeader) == "capped" {
+		// The edge ended a held pull itself: no answer was lost, so it is
+		// said as its own error rather than as anyone's unsigned text.
+		// Nothing of it is kept: it carries no body and no signature.
+		return 0, nil, "", "", fmt.Errorf("peer %s: %w", p.Name, ErrHoldCapped)
 	}
 	sig = resp.Header.Get(yardkey.HeaderSig)
 	if err := yardkey.VerifyResponse(p.Key, resp.StatusCode, reqSig, sig, answer); err != nil {

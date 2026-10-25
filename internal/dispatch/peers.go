@@ -260,6 +260,11 @@ func (d *Dispatcher) pullOnce(ctx context.Context, key, url string) (name string
 	asked := time.Now()
 	n, err := d.ask(ctx, c, ps[i], d.PeerHold)
 	switch {
+	case errors.Is(err, yards.ErrHoldCapped):
+		// The edge ended the hold itself: nothing was lost, so the peer is
+		// asked again after the poll, as after an answer the yard did not
+		// hold, with no failure said and no wait that doubles.
+		return name, d.PeerPoll, nil
 	case err != nil:
 		return name, 0, err
 	case n > 0:
