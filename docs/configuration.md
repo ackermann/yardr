@@ -1015,6 +1015,17 @@ member), `stage`, `group`, `agent` (herdr's name for it), `state`,
 `stopped`, `handoff`, and `error` with `do`. `yardr status --json` says what
 runs without changing anything ([doctor.md](doctor.md#yardr-status)).
 
+Stopping the daemon alone — `yardr daemon stop`, a crash, a kill — leaves
+the server up, and the server notices the silence: where the daemon's last
+completed pass or, if later, its last start is over 3 minutes old with no
+daemon holding the lock, it writes one `daemon_lost` event and raises a
+run card for `yardr up` to the operator on a new bead. Until a fresh
+`daemon_started` ends it, the crew reads unknown since then
+(`yardr crew list`, `yardr doctor`,
+`yardr status`, the web crew page). Stopping the whole yard (`yardr down`)
+writes none: the server goes down with the daemon, so nothing is there to
+notice.
+
 #### Long-running commands
 
 Four commands run until they are stopped: `yardr daemon`, `yardr web serve`,

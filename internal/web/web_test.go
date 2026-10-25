@@ -29,9 +29,10 @@ import (
 func TestMain(m *testing.M) { storetest.Main(m) }
 
 type fixture struct {
-	t  *testing.T
-	st store.API
-	ts *httptest.Server
+	t   *testing.T
+	st  store.API
+	own *store.Store
+	ts  *httptest.Server
 	// home is the yard's home, where a store flow's stage files are.
 	home string
 	// token, session and csrf are those of a view that acts, once signIn
@@ -46,7 +47,7 @@ type fixture struct {
 // setting, so its name is depot.
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	st := storetest.New(t)
+	st, own := storetest.NewOwned(t)
 	home := filepath.Join(t.TempDir(), ".depot")
 	srv, err := web.NewServer(st, home, nil)
 	if err != nil {
@@ -54,7 +55,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
-	return &fixture{t: t, st: st, ts: ts, home: home}
+	return &fixture{t: t, st: st, own: own, ts: ts, home: home}
 }
 
 type resp struct {

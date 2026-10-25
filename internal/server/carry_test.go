@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -113,6 +114,61 @@ func carryState(t *testing.T, st *store.Store, bead string, seq uint64) *store.C
 	}
 	return rec
 }
+
+// An approved up is carried out once: the server starts yardr up for the
+// home, detached, the record done, the card ran with the daemon_started
+// event to come as the recovery's evidence.
+func TestCarryUp(t *testing.T) {
+	ctx := context.Background()
+	st, home, bead := carryYard(t)
+	seq := askApprove(t, st, bead, store.Ask{Question: "Bring it up?", To: "mckean",
+		Context: []string{"the daemon is down"}, Run: &store.AskRun{Argv: []string{"up"}}})
+	var got string
+	c := testCarrier(st, home, "boot-one")
+	c.up = func(home string) (int, error) {
+		got = home
+		return 4242, nil
+	}
+	did, err := c.carryNext(ctx)
+	if err != nil || !did {
+		t.Fatalf("carryNext = %v, %v", did, err)
+	}
+	if got != home {
+		t.Fatalf("up started for %q, want the home", got)
+	}
+	const want = "up started; the daemon's start follows as a daemon_started event"
+	rec := carryState(t, st, bead, seq)
+	if rec.State != store.CarryDone || rec.Result != want {
+		t.Fatalf("the carrying record = %+v", rec)
+	}
+	if lines := resolvedLines(t, st, bead, seq); !strings.Contains(lines, want) {
+		t.Fatalf("the card reads:\n%s", lines)
+	}
+}
+
+// An up that does not start fails the carry with its words and the
+// terminal command.
+func TestCarryUpFailure(t *testing.T) {
+	ctx := context.Background()
+	st, home, bead := carryYard(t)
+	seq := askApprove(t, st, bead, store.Ask{Question: "Bring it up?", To: "mckean",
+		Context: []string{"the daemon is down"}, Run: &store.AskRun{Argv: []string{"up"}}})
+	c := testCarrier(st, home, "boot-one")
+	c.up = func(home string) (int, error) {
+		return 0, errUpFailed
+	}
+	did, err := c.carryNext(ctx)
+	if err != nil || !did {
+		t.Fatalf("carryNext = %v, %v", did, err)
+	}
+	rec := carryState(t, st, bead, seq)
+	if rec.State != store.CarryFailed || !strings.Contains(rec.Result, "the daemon would not start") ||
+		!strings.Contains(rec.Result, "Finish it with yardr up in a terminal") {
+		t.Fatalf("the carrying record = %+v", rec)
+	}
+}
+
+var errUpFailed = errors.New("the daemon would not start")
 
 // An approved telegram apply is carried out once, as the operator:
 // the source stands with the pack's text, each command file copied

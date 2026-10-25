@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -23,11 +24,12 @@ import (
 
 // The server's carrying out of an approved apply (design yardr-bht9
 // 3.5): one watcher goroutine takes each approved-and-not-carried-out
-// pack ask, each loose source ask that names commands, and each setup
-// ask, and finishes it, once, as the operator. It holds the yard's apply
-// lock from the plan's rebuilding through the completion record, as the
-// terminal pack apply, source add and source rm hold it for their write
-// phase, so the four never interleave on the same files and records.
+// pack ask, each loose source ask that names commands, each approved up,
+// and each setup ask, and finishes it, once, as the operator. It holds
+// the yard's apply lock from the plan's rebuilding through the
+// completion record, as the terminal pack apply, source add and source
+// rm hold it for their write phase, so the four never interleave on the
+// same files and records.
 
 // newBoot mints the boot of one server start: a claim under it is this
 // server's while it runs, and dead with it (store.ResumeCarry).
@@ -53,13 +55,16 @@ func embeddedPack(name string) (*pack.Pack, fs.FS, error) {
 
 // carrier carries out approved applies against one store, under one
 // boot. load reads the pack to apply; the watcher uses embeddedPack,
-// and a test may read a pack of its own the same way.
+// and a test may read a pack of its own the same way. up starts yardr
+// up for the home, detached; the watcher uses bringUp, and a test its
+// own.
 type carrier struct {
 	st   *store.Store
 	home string
 	boot string
 	log  *slog.Logger
 	load func(name string) (*pack.Pack, fs.FS, error)
+	up   func(home string) (int, error)
 }
 
 // runCarryWatcher is the server's one carrying-out goroutine: it takes
@@ -67,7 +72,7 @@ type carrier struct {
 // every event of the yard (an approval writes one) and on a slow tick,
 // until ctx ends. One goroutine, so one carrying out at a time.
 func runCarryWatcher(ctx context.Context, st *store.Store, home, boot string, log *slog.Logger) {
-	c := &carrier{st: st, home: home, boot: boot, log: log, load: embeddedPack}
+	c := &carrier{st: st, home: home, boot: boot, log: log, load: embeddedPack, up: bringUp}
 	if n, err := st.ResumeCarry(ctx, boot); err != nil {
 		log.Warn("carrying out: taking up unfinished applies", "err", err)
 	} else if n > 0 {
@@ -148,6 +153,11 @@ func (c *carrier) carryNext(ctx context.Context) (bool, error) {
 	run, err := c.askRun(ctx, rec)
 	if err != nil {
 		return true, err
+	}
+	if len(run.Argv) == 1 && run.Argv[0] == "up" {
+		return c.carryClaimed(ctx, rec, "an approved up", run.Command(), func() (string, string) {
+			return c.carryUp(ctx)
+		})
 	}
 	return c.carryClaimed(ctx, rec, "an approved apply", run.Command(), func() (string, string) {
 		if len(run.Argv) >= 2 && run.Argv[0] == "pack" {
@@ -251,6 +261,40 @@ func (c *carrier) carryLoose(ctx context.Context, rec *store.Carry, run *store.A
 		return fmt.Sprintf("source %s saved: no call, its limits command alone", d.Name), ""
 	}
 	return fmt.Sprintf("source %s saved: %s under %s", d.Name, plural(len(d.Calls), "call"), d.Address()), ""
+}
+
+// carryUp finishes an approved up: the server starts yardr up for the
+// home, detached, and the card reads that the daemon's start follows as
+// a daemon_started event, which is the recovery's evidence. The pid goes
+// to the server log; a spawn failure fails the carry with the terminal
+// command.
+func (c *carrier) carryUp(ctx context.Context) (string, string) {
+	up := c.up
+	if up == nil {
+		up = bringUp
+	}
+	pid, err := up(c.home)
+	if err != nil {
+		return "", failWords("yardr up: "+err.Error(), "yardr up")
+	}
+	c.log.Info("carrying out an approved up: it runs detached", "pid", pid)
+	return "up started; the daemon's start follows as a daemon_started event", ""
+}
+
+// bringUp starts yardr up for the home, detached: the server's own
+// binary, since up leaves the running server alone and starts what is
+// missing. What it prints is discarded; the daemon's start arrives as a
+// daemon_started event.
+func bringUp(home string) (int, error) {
+	self, err := executable()
+	if err != nil {
+		return 0, err
+	}
+	cmd := exec.Command(self, "--home", home, "up")
+	if _, err := SpawnDetached(cmd, os.DevNull); err != nil {
+		return 0, err
+	}
+	return cmd.Process.Pid, nil
 }
 
 func plural(n int, word string) string {

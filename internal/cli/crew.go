@@ -227,14 +227,31 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
+			// The lost state is the table's alone: --json carries the
+			// stored crew.
+			var lostAt time.Time
+			lost := false
+			if !a.json {
+				var err error
+				if lostAt, lost, err = store.DaemonLostEpisode(c.Context(), st); err != nil {
+					return err
+				}
+			}
 			return a.out(c.OutOrStdout(), rs, func(w io.Writer) {
 				rows := [][]string{}
 				for _, r := range rs {
 					up := "-"
-					if r.Live() && r.StartedAt != nil {
-						up = time.Since(*r.StartedAt).Round(time.Second).String()
-					}
 					state := r.State
+					if r.Live() {
+						// The stored state is only as fresh as the
+						// daemon's last pass: while it is lost, a
+						// session that reads running is unknown.
+						if lost {
+							state = store.UnknownSince(lostAt)
+						} else if r.StartedAt != nil {
+							up = time.Since(*r.StartedAt).Round(time.Second).String()
+						}
+					}
 					if !r.Enabled {
 						state += " (disabled)"
 					}
@@ -245,7 +262,12 @@ for its links (yardr peer list).`,
 						state += " (" + f + ")"
 					}
 					for _, u := range r.ConversationUsers() {
-						state += fmt.Sprintf(" (for %s: %s)", u, or(r.Session(u).State, "stopped"))
+						cs := r.Session(u)
+						show := or(cs.State, "stopped")
+						if lost && cs.Live() {
+							show = store.UnknownSince(lostAt)
+						}
+						state += fmt.Sprintf(" (for %s: %s)", u, show)
 					}
 					rows = append(rows, []string{r.Name, state, up, crewAgent(r), r.Journal})
 				}
@@ -292,6 +314,16 @@ for its links (yardr peer list).`,
 			if err != nil {
 				return err
 			}
+			// The lost state is the page's alone: --json carries the
+			// stored crew.
+			var lostAt time.Time
+			lost := false
+			if !a.json {
+				var err error
+				if lostAt, lost, err = store.DaemonLostEpisode(c.Context(), st); err != nil {
+					return err
+				}
+			}
 			mayCall := grantedTo(grants, store.Grantee{Crew: r.Name})
 			out := map[string]any{"crew": r, "inbox": inbox.Total, "journal": notes, "timers": timers}
 			if user != "" {
@@ -312,8 +344,12 @@ for its links (yardr peer list).`,
 				out["credentials"] = creds
 			}
 			words := grantWords(c.Context(), st)
+			lineState := r.State
+			if lost && r.Live() {
+				lineState = store.UnknownSince(lostAt)
+			}
 			return a.out(c.OutOrStdout(), out, func(w io.Writer) {
-				fmt.Fprintf(w, "%s  %s · %s · %s\n", r.Name, r.State, crewAgent(*r), r.Dir)
+				fmt.Fprintf(w, "%s  %s · %s · %s\n", r.Name, lineState, crewAgent(*r), r.Dir)
 				if f := startFailures(*r, time.Now()); f != "" {
 					fmt.Fprintf(w, "  %s", f)
 					if reason := lastStartFailure(c.Context(), st, *r); reason != "" {
@@ -328,7 +364,11 @@ for its links (yardr peer list).`,
 				}
 				for _, u := range r.ConversationUsers() {
 					cs := r.Session(u)
-					fmt.Fprintf(w, "  for %s: %s · %s · inbox %d unread\n", u, or(cs.State, "stopped"), sessionAgent(cs.Handle), unread[u])
+					csState := or(cs.State, "stopped")
+					if lost && cs.Live() {
+						csState = store.UnknownSince(lostAt)
+					}
+					fmt.Fprintf(w, "  for %s: %s · %s · inbox %d unread\n", u, csState, sessionAgent(cs.Handle), unread[u])
 					if cs.ContextAt != nil {
 						fmt.Fprintf(w, "  for %s: context %d%% of %s at %s\n", u, cs.ContextPct, shortWindow(cs.ContextWindow), cs.ContextAt.Local().Format("15:04"))
 					}

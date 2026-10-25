@@ -332,6 +332,11 @@ func (a *app) status(ctx context.Context, cfg *config.Config) (*statusReport, er
 	rep.HerdrLogin = herdrLoginState(ctx, true)
 	for _, r := range doc.State.crew {
 		rs := crewStatus{Name: r.Name, State: chat.StateOf(r)}
+		// The stored state is only as fresh as the daemon's last pass:
+		// while it is lost, a crew member that reads live is unknown.
+		if r.Live() && doc.State.DaemonLostAt != nil {
+			rs.State = store.UnknownSince(*doc.State.DaemonLostAt)
+		}
 		if r.Live() && r.Handle["agent"] != nil {
 			rs.Agent = show(r.Handle["agent"])
 		}

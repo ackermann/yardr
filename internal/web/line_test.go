@@ -1370,6 +1370,28 @@ func TestCrew(t *testing.T) {
 	if text := squash(f.get("/crew").body); !strings.Contains(text, `<h2>yardmaster</h2>`) || strings.Contains(text, "2 unread") {
 		t.Error("the yardmaster read its inbox, and the page still counts 2 unread")
 	}
+
+	// While a daemon_lost event stands with no start after it, the
+	// running crew member reads unknown since the daemon's last pass,
+	// with no live dot and no running-since; the stopped one reads on.
+	stopped := time.Now().Add(-time.Hour)
+	if _, _, err := f.own.NoteDaemonLost(ctx, stopped); err != nil {
+		t.Fatal(err)
+	}
+	want := store.UnknownSince(stopped)
+	r = f.get("/crew", "Accept", "application/json")
+	var lost web.Crew
+	if err := json.Unmarshal([]byte(r.body), &lost); err != nil || r.status != 200 {
+		t.Fatalf("status %d, %v: %s", r.status, err, r.body)
+	}
+	if len(lost.Crew) != 2 || lost.Crew[0].State != want || lost.Crew[0].Running || !lost.Crew[0].Lost ||
+		lost.Crew[0].Since != nil || lost.Crew[0].Up != "" || lost.Crew[1].State != "stopped" || lost.Crew[1].Lost {
+		t.Fatalf("lost crew: %+v", lost.Crew)
+	}
+	if text := squash(f.get("/crew").body); !strings.Contains(text, `<span>`+want+`</span>`) ||
+		strings.Contains(text, "running since") || strings.Contains(text, "dot running") {
+		t.Errorf("the page of a lost daemon lacks the unknown state, or keeps a live dot or a running-since")
+	}
 }
 
 // busyStore is a yard in which something happens while a page reads it:

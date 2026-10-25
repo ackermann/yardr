@@ -140,7 +140,7 @@ var eventDataTold = map[string][]string{
 	"crew_gave_up":           {"crew", "failures", "user"},
 	"crew_start_tail":        {"crew", "user"},
 	"crew_blocked":           {"agent", "crew", "user"},
-	"crew_restart_requested": {"crew", "user"},
+	"crew_restart_requested": {"approved", "crew", "user"},
 	"crew_rotation_asked":    {"crew", "user"},
 	"crew_context_asked":     {"crew", "pct", "window", "user"},
 	"open_threads_granted":   {"crew", "pack", "sources"},
@@ -252,6 +252,7 @@ var eventDataTold = map[string][]string{
 	// the words of what failed, are held.
 	"daemon_started":    {"to"},
 	"daemon_replaced":   {"from", "to"},
+	"daemon_lost":       {"stopped_at"},
 	"server_replaced":   {"from", "to"},
 	"replace_skipped":   {"candidate", "process", "running"},
 	"runtime_down":      {"group", "runner"},

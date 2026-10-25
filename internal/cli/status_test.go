@@ -374,6 +374,46 @@ func TestStatusRunningYard(t *testing.T) {
 	}
 }
 
+// While a daemon_lost event stands with no start after it, status lists
+// the crew member that reads live as unknown since the daemon's last
+// pass, instead of a stale idle.
+func TestStatusDaemonLost(t *testing.T) {
+	home := newHomeDir(t)
+	answeredTools(t, "git", "herdr", "claude")
+	st, own := storetest.NewOwned(t)
+	testYard(t, st, home)
+	a := func() *app {
+		a := appOn(st)
+		a.actor = "me"
+		return a
+	}
+	if _, err := run(t, a().rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	stub(t, &serverRunning, func(context.Context, *config.Config) bool { return true })
+	ctx := context.Background()
+	if err := st.CrewStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CrewStatus(ctx, "yardmaster", "idle"); err != nil {
+		t.Fatal(err)
+	}
+	stopped := time.Now().Add(-time.Hour)
+	if _, _, err := own.NoteDaemonLost(ctx, stopped); err != nil {
+		t.Fatal(err)
+	}
+	want := store.UnknownSince(stopped)
+	out, err := run(t, a().rootCmd(), "status")
+	if err != nil {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+	wantText(t, out, "yardmaster  "+want)
+	rep := statusJSON(t, a())
+	if len(rep.Crew) != 1 || rep.Crew[0].State != want {
+		t.Fatalf("crew: %+v", rep.Crew)
+	}
+}
+
 // workYard puts the groups and a bead per name in claims, claimed by the
 // group of that name ("" for none), and returns the beads.
 func workYard(t *testing.T, st store.API, depot string, groups []store.Group, claims ...string) []string {

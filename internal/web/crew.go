@@ -22,7 +22,8 @@ type Crew struct {
 type CrewRow struct {
 	store.CrewMember
 	Name string `json:"name"`
-	// State is stopped, running or failed.
+	// State is stopped, running or failed, or unknown since the
+	// daemon's last pass while the daemon is lost (Lost).
 	State string `json:"state"`
 	// Status is what the running session is doing, as the daemon last saw
 	// it: working, idle, blocked or unknown; absent when none runs.
@@ -43,6 +44,10 @@ type CrewRow struct {
 	Unread int `json:"unread"`
 	// Restart is why a restart was asked for and has not happened yet.
 	Restart string `json:"restart,omitempty"`
+	// Lost is whether the daemon is lost (a daemon_lost event stands with
+	// no start after it) while the member reads running: its state is
+	// then unknown since the daemon's last pass, and Running false.
+	Lost bool `json:"lost,omitempty"`
 }
 
 // Dot is the status dot's class: running, held for one that failed, none
@@ -81,6 +86,11 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	lostAt, lost, err := store.DaemonLostEpisode(ctx, s.st)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	as, err := limits.Answerers(ctx, s.st, s.home)
 	if err != nil {
 		s.fail(w, r, err)
@@ -93,6 +103,14 @@ func (s *Server) handleCrew(w http.ResponseWriter, r *http.Request) {
 		row.Provider = providerOf(res.Runner, res.Config, as)
 		if res.Live() && res.StartedAt != nil {
 			row.Since, row.Up = res.StartedAt, age(time.Since(*res.StartedAt))
+		}
+		// The stored state is only as fresh as the daemon's last pass:
+		// while it is lost, a crew member that reads running is unknown,
+		// with no live dot and no running-since.
+		if lost && res.Live() {
+			row.State, row.Status = store.UnknownSince(lostAt), ""
+			row.Running, row.Lost = false, true
+			row.Since, row.Up = nil, ""
 		}
 		// The count alone: the events are the crew member's to read.
 		inbox, err := s.st.Inbox(ctx, res.Name, 1)

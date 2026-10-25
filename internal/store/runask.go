@@ -250,11 +250,11 @@ func (r AskRun) TakenBack() string { return or(r.BackBy, "anyone") + " can take 
 // shortens it.
 func (r AskRun) Command() string { return runCommandLine(r.Argv) }
 
-// CarryPending is what an approval of a pack apply, or of a source add
-// that names commands, records until the yard's server has carried it
-// out (design yardr-bht9 3.5): the ask reads as being carried out while
-// its answer holds these words, and as ran or failed once the carrying
-// out completes it.
+// CarryPending is what an approval of a pack apply, of an up, or of a
+// source add that names commands, records until the yard's server has
+// carried it out (design yardr-bht9 3.5): the ask reads as being carried
+// out while its answer holds these words, and as ran or failed once the
+// carrying out completes it.
 const CarryPending = "approved, to be carried out"
 
 // AskRan is what an approved run ask ran: the command, which is the one the
@@ -655,6 +655,24 @@ var runList = []runCommand{{
 	card:        (*wtx).timerRmCard,
 	stale:       (*wtx).timerRmStale,
 	run:         runTimerRm,
+}, {
+	words:       []string{"up"},
+	use:         "yardr up",
+	description: "Start everything the yard needs that is not running",
+	parse:       parseUp,
+	check:       checkUp,
+	card:        (*wtx).upCard,
+	stale:       (*wtx).upStale,
+	run:         runUp,
+}, {
+	words:       []string{"crew", "restart"},
+	use:         "yardr crew restart <name> [--for <user>]",
+	description: "Start a fresh session once the current one is idle",
+	parse:       parseCrewRestart,
+	check:       checkCrewRestart,
+	card:        (*wtx).crewRestartCard,
+	stale:       (*wtx).crewRestartStale,
+	run:         runCrewRestart,
 }}
 
 // RunCommands are the commands of the list, each as a refusal and the help

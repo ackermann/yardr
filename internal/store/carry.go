@@ -1,10 +1,11 @@
 // The carrying out of an approved apply (design yardr-bht9 3.5): an
-// approval of a pack apply, of a source add that names commands, or of a
-// setup ask is recorded first (ApproveAsk and ApproveSetup, with the
-// answer holding CarryPending) and carried out straight after by the
-// yard's server, because applying a pack writes files and makes many
-// store calls and cannot be one write of the store, and neither can
-// writing a loose file's command files or a setup's account and grants.
+// approval of a pack apply, of a source add that names commands, of an
+// up, or of a setup ask is recorded first (ApproveAsk and ApproveSetup,
+// with the answer holding CarryPending) and carried out straight after
+// by the yard's server, because applying a pack writes files and makes
+// many store calls and cannot be one write of the store, and neither can
+// writing a loose file's command files, starting the yard's processes,
+// or a setup's account and grants.
 //
 // The store keeps, beside the ask, a carrying record the approval's
 // write makes and only the server's methods move: approved and not yet
@@ -95,10 +96,14 @@ type CarrySource struct {
 func carryKey(bead string, ask uint64) string { return join(bead, seqKey(ask)) }
 
 // needsCarry says whether approving the run ask was records it to be
-// carried out: a pack apply always, and a source add whose declaration
-// names command files the approval's write cannot write.
+// carried out: a pack apply always, an up, which starts the yard's own
+// processes after the write, and a source add whose declaration names
+// command files the approval's write cannot write.
 func needsCarry(was AskRun) bool {
 	if len(was.Argv) >= 2 && was.Argv[0] == "pack" && was.Argv[1] == "apply" {
+		return true
+	}
+	if len(was.Argv) == 1 && was.Argv[0] == "up" {
 		return true
 	}
 	return len(was.Argv) >= 2 && was.Argv[0] == "source" && was.Argv[1] == "add" &&
@@ -160,6 +165,9 @@ func (s *Store) PendingCarry(ctx context.Context) (bool, error) {
 // how to carry rec. A record for a later carrying kind stays approved until
 // the build that knows it takes it up.
 func carryHandledHere(rec *Carry) bool {
+	if len(rec.Argv) == 1 && rec.Argv[0] == "up" {
+		return true
+	}
 	if len(rec.Argv) < 2 {
 		return false
 	}

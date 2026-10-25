@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -1893,5 +1894,272 @@ func TestRunAskCrewIdentityUsesItsStoreCheck(t *testing.T) {
 	}
 	if operatorErr != nil {
 		t.Errorf("operator's crew identity check = %v, want allowed", operatorErr)
+	}
+}
+
+// Bringing the yard up is a card to the operator: what starts, what is
+// left alone, and that yardr down takes it back. The approval records it
+// to be carried out, as a pack apply's does: the server starts the yard's
+// processes after the write.
+func TestRunAskUp(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	seq := y.ask(t, listAsk("mckean", "up"), "yardmaster")
+	r := y.asked(t, seq)
+	run := r.Ask.Run
+	if want := []string{"up"}; !slices.Equal(run.Argv, want) {
+		t.Fatalf("the ask holds %q, want %q", run.Argv, want)
+	}
+	if want := []string{
+		"starts what the yard needs and is not running: herdr's server, the yard's server and the daemon, with the web view and the BDP server where their addresses are set.",
+		"what runs already is left alone.",
+	}; !slices.Equal(run.Does, want) {
+		t.Fatalf("the card says %q, want %q", run.Does, want)
+	}
+	if run.Back != "yardr down" || run.BackBy != "" {
+		t.Fatalf("the take-back is %q by %q", run.Back, run.BackBy)
+	}
+	if len(run.Seen) != 0 {
+		t.Fatalf("the ask keeps seen %q, want none: up is safe to repeat", run.Seen)
+	}
+	denied := errors.New("the policy refuses bringing the yard up")
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if act == ActBringUp {
+			return denied
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err != denied {
+		t.Fatalf("the approval under a policy refusing up = %v, want %v", err, denied)
+	}
+	y.SetPolicy(nil)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != CarryPending {
+		t.Fatalf("the approval ran %q, want %q", done.Result, CarryPending)
+	}
+	rec, err := y.CarryOf(y.ctx, y.bead, seq)
+	if err != nil || rec == nil {
+		t.Fatalf("the approval carries %v, %v", rec, err)
+	}
+	if !slices.Equal(rec.Argv, []string{"up"}) || rec.State != CarryApproved {
+		t.Fatalf("the carrying record is %+v", rec)
+	}
+}
+
+// yardr up with a flag, and an ask from who may run it themselves, are
+// refused: the operator types up with --login in a terminal, and up at
+// all.
+func TestRunAskUpRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	for _, c := range []struct{ command, actor, want string }{
+		{"up --login", "yardmaster", "up with --login is the operator's to type in a terminal"},
+		{"up --json", "yardmaster", "up with --json is the operator's to type in a terminal"},
+		{"up", "mckean", "needs no approval: run it yourself"},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), c.actor); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q as %s = %v, want %q", c.command, c.actor, err, c.want)
+		}
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+// A crew restart is a card to the operator: a fresh session once the
+// current one is idle. The approval requests it as the command does, and
+// names the ask on the event.
+func TestRunAskCrewRestart(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	seq := y.ask(t, listAsk("mckean", "crew restart yardmaster"), "ada")
+	r := y.asked(t, seq)
+	run := r.Ask.Run
+	if want := []string{"crew", "restart", "yardmaster"}; !slices.Equal(run.Argv, want) {
+		t.Fatalf("the ask holds %q, want %q", run.Argv, want)
+	}
+	if want := []string{"starts a fresh session of yardmaster once the current one is idle."}; !slices.Equal(run.Does, want) {
+		t.Fatalf("the card says %q, want %q", run.Does, want)
+	}
+	if run.Back != "a requested restart cannot be taken back" || run.BackBy != "nobody" {
+		t.Fatalf("the take-back is %q by %q", run.Back, run.BackBy)
+	}
+	if len(run.Seen["crew yardmaster session"]) != 64 || len(run.Seen["crew yardmaster restart"]) != 64 {
+		t.Fatalf("the ask keeps seen %q, want SHA-256 hashes of the session and the request", run.Seen)
+	}
+	denied := errors.New("the policy refuses restarting crew")
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
+		if act == ActRestartCrew {
+			return denied
+		}
+		return CorePolicy.May(ctx, tx, actor, act, obj)
+	}))
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err != denied {
+		t.Fatalf("the approval under a policy refusing restart = %v, want %v", err, denied)
+	}
+	y.SetPolicy(nil)
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "restart requested: yardmaster" {
+		t.Fatalf("the approval ran %q", done.Result)
+	}
+	member, err := y.GetCrew(y.ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.RestartRequested != "requested by mckean" {
+		t.Fatalf("the crew member's restart is %q", member.RestartRequested)
+	}
+	evs, err := y.EventsOfKind(y.ctx, "crew_restart_requested", 10)
+	if err != nil || len(evs) == 0 {
+		t.Fatalf("crew_restart_requested events = %d, %v", len(evs), err)
+	}
+	y.approved(t, evs[len(evs)-1], seq)
+}
+
+// A crew restart with --for restarts the conversation session for the
+// user: the card holds that session, and the approval requests its
+// restart alone.
+func TestRunAskCrewRestartFor(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	if err := y.write(func(w *wtx) error {
+		res := new(CrewMember)
+		if ok, err := get(w.Tx, bCrew, "yardmaster", res); err != nil || !ok {
+			return err
+		}
+		if res.Config == nil {
+			res.Config = map[string]any{}
+		}
+		// A declared conversation session has no stored row until it is
+		// first used; the terminal command still accepts a restart for it.
+		res.Config[EnvForPrefix+"ada"] = "ada.env"
+		return put(w.Tx, bCrew, "yardmaster", res)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, listAsk("mckean", "crew restart --for ada yardmaster"), "ada")
+	run := y.asked(t, seq).Ask.Run
+	if want := []string{"crew", "restart", "yardmaster", "--for", "ada"}; !slices.Equal(run.Argv, want) {
+		t.Fatalf("the ask holds %q, want %q", run.Argv, want)
+	}
+	if want := []string{"starts a fresh session of yardmaster for ada once the current one is idle."}; !slices.Equal(run.Does, want) {
+		t.Fatalf("the card says %q, want %q", run.Does, want)
+	}
+	if len(run.Seen["crew yardmaster for ada session"]) != 64 || len(run.Seen["crew yardmaster for ada restart"]) != 64 {
+		t.Fatalf("the ask keeps seen %q, want SHA-256 hashes of the conversation session and the request", run.Seen)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "restart requested: yardmaster" {
+		t.Fatalf("the approval ran %q", done.Result)
+	}
+	member, err := y.GetCrew(y.ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.Conversations["ada"].RestartRequested != "requested by mckean" {
+		t.Fatalf("the conversation session's restart is %q", member.Conversations["ada"].RestartRequested)
+	}
+	if member.RestartRequested != "" {
+		t.Fatalf("the line session's restart is %q, want none", member.RestartRequested)
+	}
+}
+
+// A restart requested after the ask makes the approval stale: the card
+// holds whether one is requested, and a request since is another's.
+func TestRunAskCrewRestartStaleOnRequest(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	seq := y.ask(t, listAsk("mckean", "crew restart yardmaster"), "ada")
+	if err := y.RequestRestartFor(y.ctx, "yardmaster", "", "requested by mckean", "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written while no restart of yardmaster was requested: one was requested since")
+}
+
+// A session ended or restarted after the ask makes the approval stale:
+// the card holds the session it was written for, not the one that runs
+// now.
+func TestRunAskCrewRestartStaleOnSession(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	seq := y.ask(t, listAsk("mckean", "crew restart yardmaster"), "ada")
+	if err := y.CrewStartedFor(y.ctx, "yardmaster", "", map[string]any{"agent": "herdr-1"}); err != nil {
+		t.Fatal(err)
+	}
+	y.refusedStale(t, seq, "was written for the session yardmaster ran then: it ended or restarted since")
+}
+
+// A crew restart is refused past its row: a crew member the yard has not,
+// an asker who may restart themselves, a conversation session the member
+// has not, a command beside the row's form, and a restart requested
+// already.
+func TestRunAskCrewRestartRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	for _, c := range []struct{ command, actor, want string }{
+		{"crew restart nobody", "ada", "crew member nobody: not found"},
+		{"crew restart yardmaster", "mckean", "needs no approval: run it yourself"},
+		{"crew restart yardmaster", "yardmaster", "needs no approval: run it yourself"},
+		{"crew restart", "ada", "one crew member, not 0 words"},
+		{"crew restart a b", "ada", "one crew member, not 2 words"},
+		{"crew restart yardmaster --revision abc", "ada", "crew restart with --revision is the operator's to type in a terminal"},
+		{"crew restart yardmaster --for a --for b", "ada", "--for once, not 2 times"},
+		{"crew restart yardmaster --for hal", "ada", "has no conversation session for hal"},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", c.command), c.actor); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("--run %q as %s = %v, want %q", c.command, c.actor, err, c.want)
+		}
+	}
+	if err := y.RequestRestartFor(y.ctx, "yardmaster", "", "requested by mckean", "", "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.AddAsk(y.ctx, y.bead, listAsk("mckean", "crew restart yardmaster"), "ada"); err == nil || !strings.Contains(err.Error(), "is requested already, so the command would change nothing") {
+		t.Errorf("asking the restart that stands = %v, want it refused as changing nothing", err)
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+// A crew restart's check is the command's own leave as the asker: the
+// operator's or the yardmaster's, proposed to the operator by anyone
+// else. The command's daemon leg is not the check's: the daemon never
+// asks.
+func TestRunAskCrewRestartUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := listYard(t)
+	c, argv, err := parseRun([]string{"crew restart yardmaster"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.check == nil {
+		t.Fatal("crew restart has no asker permission check")
+	}
+	var askerErr, operatorErr, masterErr error
+	if err := y.write(func(w *wtx) error {
+		askerErr = c.check(y.ctx, w, argv, "ada")
+		operatorErr = c.check(y.ctx, w, argv, "mckean")
+		masterErr = c.check(y.ctx, w, argv, "yardmaster")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if class, ok := IsOperatorOnly(askerErr); !ok || class != Askable {
+		t.Fatalf("crew restart refusal = %v; operator-only class is %v, %v", askerErr, class, ok)
+	}
+	if operatorErr != nil {
+		t.Errorf("operator's crew restart check = %v, want allowed", operatorErr)
+	}
+	if masterErr != nil {
+		t.Errorf("yardmaster's crew restart check = %v, want allowed", masterErr)
 	}
 }

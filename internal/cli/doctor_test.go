@@ -865,6 +865,46 @@ func TestDoctorCrewNotLoggedIn(t *testing.T) {
 	}
 }
 
+// While a daemon_lost event stands with no start after it, the crew
+// displays read unknown since the daemon's last pass: crew list, crew
+// show and doctor's own yardmaster line, instead of a stale running. A
+// start ends the state, and the stored state reads again.
+func TestDoctorDaemonLost(t *testing.T) {
+	home := newHomeDir(t)
+	answeredTools(t, "git", "herdr", "claude")
+	st, own := storetest.NewOwned(t)
+	testYard(t, st, home)
+	ctx := context.Background()
+	cmd := func(args ...string) string {
+		t.Helper()
+		a := appOn(st)
+		a.actor = "me"
+		out, err := run(t, a.rootCmd(), args...)
+		if err != nil && !errors.Is(err, errCheckFailed) {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return out
+	}
+	cmd("init", "--harness", "claude")
+	if err := st.CrewStarted(ctx, "yardmaster", yardmasterHandle()); err != nil {
+		t.Fatal(err)
+	}
+	stopped := time.Now().Add(-time.Hour)
+	if _, _, err := own.NoteDaemonLost(ctx, stopped); err != nil {
+		t.Fatal(err)
+	}
+	want := store.UnknownSince(stopped)
+	wantText(t, cmd("crew", "list"), "yardmaster", want)
+	wantText(t, cmd("crew", "show", "yardmaster"), want)
+	wantText(t, cmd("doctor"), "note   yardmaster  yardmaster is "+want+": the daemon's last pass ended then")
+	if err := own.LogDispatch(ctx, "", "daemon_started", "daemon", map[string]any{"to": "new"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := cmd("crew", "list"); strings.Contains(out, want) || !strings.Contains(out, "running") {
+		t.Errorf("after a start the crew reads:\n%s", out)
+	}
+}
+
 // Found live (yardr-05dd): a yardmaster whose harness exits at once is given up
 // like any crew member, but it is the one who hears crew_gave_up, so doctor
 // is where it is said, with how long the last session lived; crew list

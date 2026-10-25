@@ -501,6 +501,8 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr peer rename <old> <new>":                {"peer rename airy north"},
 		"yardr bead update <bead> --originator <user>": {"bead update yardmaster-journal --originator ada"},
 		"yardr timer rm <id>":                          {"timer rm t1"},
+		"yardr up":                                     {"up"},
+		"yardr crew restart <name> [--for <user>]":     {"crew restart yardmaster"},
 	}
 	if len(asks) != len(store.RunCommands()) {
 		t.Errorf("this test has asks for %d commands, and the list has %d", len(asks), len(store.RunCommands()))
@@ -576,6 +578,40 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				if description != "Import a pack into the yard: set the yard to what the pack says" {
 					t.Errorf("%s card description %q, want the yard wording for a kind-source pack", use, description)
+				}
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false, nil)
+				if err != nil || done.Result != "approved, to be carried out" {
+					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				continue
+			}
+			if use == "yardr up" {
+				ctx := context.Background()
+				// An up approval is carried out by the server after it,
+				// as a pack apply's is, so there is no typed state to
+				// compare yet: the row is held to its card and its
+				// recorded approval.
+				seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
+					Run: &store.AskRun{Argv: []string{command}}}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				notes, err := approved.st.Notes(ctx, ab.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var description string
+				for _, asked := range store.ResolveAsks(notes, time.Now()) {
+					if asked.Note.Seq == seq && asked.Ask.Run != nil {
+						description = asked.Ask.Run.Description
+					}
+				}
+				helpCmd, _, err := typed.a.rootCmd().Find([]string{"up"})
+				if err != nil {
+					t.Fatalf("%s: find help for %q: %v", use, command, err)
+				}
+				if description != helpCmd.Short {
+					t.Errorf("%s card description %q, want the command help's %q", use, description, helpCmd.Short)
 				}
 				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false, nil)
 				if err != nil || done.Result != "approved, to be carried out" {
@@ -709,8 +745,14 @@ func TestRunListIsTheCLIs(t *testing.T) {
 			} else {
 				runAsk.Carried = carried
 			}
+			asker := "yardmaster"
+			if use == "yardr crew restart <name> [--for <user>]" {
+				// The yardmaster may restart the crew itself, so it
+				// never asks: the row's ask comes from ada, a user.
+				asker = "ada"
+			}
 			seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
-				Run: runAsk}, "yardmaster")
+				Run: runAsk}, asker)
 			if err != nil {
 				t.Fatalf("%s: %v", use, err)
 			}
@@ -839,7 +881,7 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				}
 				var changes []map[string]any
 				for _, kind := range []string{"peer_allowed", "source_set", "source_granted", "subscribed", "user_set",
-					"peer_renamed", "user_added", "user_removed", "crew_defined", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set"} {
+					"peer_renamed", "user_added", "user_removed", "crew_defined", "crew_restart_requested", "setting_changed", "timer_removed", "originator_changed", "source_added", "hook_added", "identity_set", "identity_removed", "sender_unignored", "peer_intake", "peer_identity_set"} {
 					evs, err := y.st.EventsOfKind(ctx, kind, 10)
 					if err != nil {
 						t.Fatal(err)

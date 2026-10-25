@@ -331,18 +331,30 @@ func (s *Store) CrewStartFailedFor(ctx context.Context, name, user, reason strin
 // else asking must be the operator or the yardmaster.
 func (s *Store) RequestRestartFor(ctx context.Context, name, user, reason, rev, actor string) error {
 	return s.changeCrewSessionAt(name, user, rev, func(w *wtx, r *CrewMember, st *CrewSession) error {
-		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
-		if err != nil {
-			return err
-		}
-		actor = resolved
-		if err := s.daemonOr(ctx, w.Tx, actor, ActRestartCrew, Object{Kind: KindCrew, Name: name}); err != nil {
-			return err
-		}
-		t := now()
-		st.RestartRequested, st.RestartRequestedAt = reason, &t
-		return w.event(r.Journal, "crew_restart_requested", actor, sessionData(user, map[string]any{"crew": name, "reason": reason}))
+		return w.requestRestartFor(ctx, r, st, user, reason, actor, nil)
 	})
+}
+
+// requestRestartFor is the store write of RequestRestartFor, shared with
+// an approved run ask so both paths keep the same permission gate, session
+// change and event. by names the ask on an approved request; a terminal
+// request carries none.
+func (w *wtx) requestRestartFor(ctx context.Context, r *CrewMember, st *CrewSession, user, reason, actor string, by *approvedOn) error {
+	resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+	if err != nil {
+		return err
+	}
+	actor = resolved
+	if err := w.store.daemonOr(ctx, w.Tx, actor, ActRestartCrew, Object{Kind: KindCrew, Name: r.Name}); err != nil {
+		return err
+	}
+	t := now()
+	st.RestartRequested, st.RestartRequestedAt = reason, &t
+	data := map[string]any{"crew": r.Name, "reason": reason}
+	if by != nil {
+		data["approved"] = by
+	}
+	return w.event(r.Journal, "crew_restart_requested", actor, sessionData(user, data))
 }
 
 // MarkRotationAskedFor is MarkRotationAsked for one session. The

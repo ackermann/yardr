@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -75,10 +76,14 @@ var storeChecks = []string{"yardmaster", "crew", "held", "cycles", "mail", "name
 type yardState struct {
 	// Server is "running", "not_running" (nothing else of the yard is read
 	// then but the daemon, which the home says) or "unreachable".
-	Server      string           `json:"server"`
-	ServerError string           `json:"server_error,omitempty"`
-	Daemon      bool             `json:"daemon"`
-	Yardmaster  *yardmasterState `json:"yardmaster,omitempty"`
+	Server      string `json:"server"`
+	ServerError string `json:"server_error,omitempty"`
+	Daemon      bool   `json:"daemon"`
+	// DaemonLostAt is the daemon's last pass where a daemon_lost event
+	// stands with no start after it: every running crew session reads
+	// unknown since then.
+	DaemonLostAt *time.Time       `json:"daemon_lost_at,omitempty"`
+	Yardmaster   *yardmasterState `json:"yardmaster,omitempty"`
 	// Crew is how many the yard has; Failing those that do not start.
 	Crew    int           `json:"crew"`
 	Failing []failingCrew `json:"failing"`
@@ -408,6 +413,11 @@ func (a *app) examine(ctx context.Context, cfg *config.Config, try, set bool, er
 func readState(ctx context.Context, cfg *config.Config, st store.API, crew []store.CrewMember) (*yardState, error) {
 	state := &yardState{Server: serverUp, Daemon: config.DaemonRunning(cfg.DaemonLock()), Crew: len(crew),
 		Failing: []failingCrew{}, Held: []string{}, crew: crew}
+	if at, lost, err := store.DaemonLostEpisode(ctx, st); err != nil {
+		return nil, err
+	} else if lost {
+		state.DaemonLostAt = &at
+	}
 	yardmaster := yardmasterOf(ctx, st)
 	def := defaultKind(ctx, st)
 	state.Yardmaster = &yardmasterState{Name: yardmaster}
@@ -886,6 +896,10 @@ func (s *yardState) lines(home string) []docLine {
 	case !m.CrewMember:
 		out = append(out, docLine{tagFault, "yardmaster", fmt.Sprintf("no crew member %s: %s init adds it", m.Name, yardr)})
 	case m.Running:
+		if s.DaemonLostAt != nil {
+			out = append(out, docLine{tagNote, "yardmaster", fmt.Sprintf("%s is %s: the daemon's last pass ended then (%s crew list)", m.Name, store.UnknownSince(*s.DaemonLostAt), yardr)})
+			break
+		}
 		out = append(out, docLine{tagOK, "yardmaster", fmt.Sprintf("%s is running (herdr agent %s)", m.Name, or(m.Agent, "unknown"))})
 	case !m.Enabled:
 		out = append(out, docLine{tagNote, "yardmaster", fmt.Sprintf("%s is stopped (disabled). Let it run again: %s crew start %s", m.Name, yardr, m.Name)})

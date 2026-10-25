@@ -1,7 +1,8 @@
 // The rows of the list after the first five (runList): a user added and
 // removed, a crew member's grants, a crew member's identity in a source, a
-// setting, a peer renamed, a bead's originator, and another's timer
-// removed. Each has what a row has: how
+// setting, a peer renamed, a bead's originator, another's timer removed,
+// the yard brought up, and a crew member restarted. Each has what a row
+// has: how
 // its words are read into one stored form, the command's own check as
 // the asker, the card the yard writes from its records, why an approval
 // of an older card is refused, and the store function that makes the
@@ -1006,4 +1007,204 @@ func runTimerRm(ctx context.Context, w *wtx, argv []string, actor string, by *ap
 		return "", err
 	}
 	return "timer " + t.ID + " removed", nil
+}
+
+// parseUp reads the words of yardr up: none. With a flag the command is
+// the operator's to type in a terminal, where the operator chooses what
+// its flags do.
+func parseUp(rest []string) ([]string, error) {
+	if len(rest) > 0 {
+		return nil, fmt.Errorf("--run takes yardr up, and up with %s is the operator's to type in a terminal", strings.Join(rest, " "))
+	}
+	return nil, nil
+}
+
+// checkUp is bringing the yard up as the asker: the operator's alone,
+// since it starts the yard's own processes.
+func checkUp(ctx context.Context, w *wtx, argv []string, actor string) error {
+	return w.may(ctx, actor, ActBringUp, Object{Kind: KindYard, Ask: Askable})
+}
+
+// upCard is the card of yardr up: what starts, and that what runs is left
+// alone. The command is safe to repeat, so the card holds to nothing: an
+// approval is never stale.
+func (w *wtx) upCard(argv []string, asking bool) (AskRun, error) {
+	return AskRun{
+		Argv: argv,
+		Does: []string{
+			"starts what the yard needs and is not running: herdr's server, the yard's server and the daemon, with the web view and the BDP server where their addresses are set.",
+			"what runs already is left alone.",
+		},
+		Back:   runCommandLine([]string{"down"}),
+		BackBy: "",
+		Seen:   map[string]string{},
+	}, nil
+}
+
+// upStale is never told apart: up is safe to repeat, so a card written
+// while the yard was down approves the same once it is up.
+func (w *wtx) upStale(seq uint64, was, now AskRun) error {
+	return staleCard(seq, was, now)
+}
+
+// runUp never runs in the approval's write: the yard's server carries an
+// approved up out after it, as it carries an approved pack apply, and
+// nothing of the yard is started here.
+func runUp(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+	if err := w.may(ctx, actor, ActBringUp, Object{Kind: KindYard, Ask: Askable}); err != nil {
+		return "", err
+	}
+	return CarryPending, nil
+}
+
+// parseCrewRestart reads the words of crew restart <name> [--for <user>].
+// A --revision is the operator's to type in a terminal: a card holds the
+// session it was written for, and pins no revision of its own.
+func parseCrewRestart(rest []string) ([]string, error) {
+	const use = "yardr crew restart <name> [--for <user>]"
+	args, values, err := runWords(use, "crew restart", "the operator's", rest, map[string]bool{"--for": true})
+	if err != nil {
+		return nil, err
+	}
+	if len(args) != 1 {
+		return nil, fmt.Errorf("--run takes %s: one crew member, not %d words", use, len(args))
+	}
+	if len(values["--for"]) > 1 {
+		return nil, fmt.Errorf("--run takes %s: --for once, not %d times", use, len(values["--for"]))
+	}
+	parsed := []string{args[0]}
+	if len(values["--for"]) == 1 {
+		parsed = append(parsed, "--for", values["--for"][0])
+	}
+	return parsed, nil
+}
+
+// crewRestartOf is the crew member and the conversation user of a parsed
+// crew restart, "" where it restarts the line session.
+func crewRestartOf(argv []string) (name, user string) {
+	name = argv[2]
+	for i := 3; i+1 < len(argv); i++ {
+		if argv[i] == "--for" {
+			user = argv[i+1]
+		}
+	}
+	return name, user
+}
+
+// checkCrewRestart is a crew restart's own check as the asker: the
+// operator's or the yardmaster's, the command's own leave but for the
+// daemon, which never asks.
+func checkCrewRestart(ctx context.Context, w *wtx, argv []string, actor string) error {
+	name, _ := crewRestartOf(argv)
+	return w.may(ctx, actor, ActRestartCrew, Object{Kind: KindCrew, Name: name, Ask: Askable})
+}
+
+// crewRestartCard is the card of crew restart: a fresh session once the
+// current one is idle. A restart requested already refuses the ask: the
+// command would change nothing. The card holds the session it was written
+// for and whether a restart is requested, so a session ended or restarted
+// since, or a request since, reads stale.
+func (w *wtx) crewRestartCard(argv []string, asking bool) (AskRun, error) {
+	name, user := crewRestartOf(argv)
+	res := new(CrewMember)
+	if ok, err := get(w.Tx, bCrew, name, res); err != nil {
+		return AskRun{}, err
+	} else if !ok {
+		return AskRun{}, fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+	}
+	st, err := crewRestartSession(res, user)
+	if err != nil {
+		return AskRun{}, err
+	}
+	if asking && st.RestartRequested != "" {
+		return AskRun{}, fmt.Errorf("a restart of %s%s is requested already, so the command would change nothing%s", name, forConversation(user), since(lastEvent(w.Tx, "crew_restart_requested", naming("crew", name))))
+	}
+	does := fmt.Sprintf("starts a fresh session of %s once the current one is idle.", name)
+	if user != "" {
+		does = fmt.Sprintf("starts a fresh session of %s for %s once the current one is idle.", name, user)
+	}
+	scope := "crew " + name + forConversation(user)
+	return AskRun{
+		Argv:   argv,
+		Does:   []string{does},
+		Back:   "a requested restart cannot be taken back",
+		BackBy: "nobody",
+		Seen: map[string]string{
+			scope + " session": seen(st.StartedAt, st.State),
+			scope + " restart": seen(st.RestartRequested),
+		},
+	}, nil
+}
+
+// crewRestartSession is the session of a parsed crew restart: the line
+// session, or a conversation the member declares or still has a row for.
+// A declared conversation need not have a row until its first use.
+func crewRestartSession(res *CrewMember, user string) (*CrewSession, error) {
+	if user == "" {
+		return &res.CrewSession, nil
+	}
+	_, row := res.Conversations[user]
+	if !res.HasConversation(user) && !row {
+		return nil, fmt.Errorf("crew member %s has no conversation session for %s", res.Name, user)
+	}
+	cs := res.ensureConversation(user)
+	return &cs, nil
+}
+
+// forConversation is the conversation user as a card names it: " for hal",
+// or "" for the line session.
+func forConversation(user string) string {
+	if user == "" {
+		return ""
+	}
+	return " for " + user
+}
+
+// crewRestartStale says why a crew restart approval is refused: a restart
+// requested since the card was written, or the session ended or restarted
+// since.
+func (w *wtx) crewRestartStale(seq uint64, was, now AskRun) error {
+	name, user := crewRestartOf(was.Argv)
+	scope := "crew " + name + forConversation(user)
+	if was.Seen[scope+" restart"] != now.Seen[scope+" restart"] {
+		return fmt.Errorf("ask %d was written while no restart of %s%s was requested: one was requested since%s. %s", seq, name, forConversation(user), since(lastEvent(w.Tx, "crew_restart_requested", naming("crew", name))), nothingRan)
+	}
+	if was.Seen[scope+" session"] != now.Seen[scope+" session"] {
+		ended := lastEvent(w.Tx, "crew_stopped", naming("crew", name))
+		if started := lastEvent(w.Tx, "crew_started", naming("crew", name)); started != nil && (ended == nil || started.Seq > ended.Seq) {
+			ended = started
+		}
+		return fmt.Errorf("ask %d was written for the session %s ran then: it ended or restarted since%s. %s", seq, name, since(ended), nothingRan)
+	}
+	return staleCard(seq, was, now)
+}
+
+// runCrewRestart requests the restart as actor, as the command itself
+// does, and answers what the command prints at a terminal.
+func runCrewRestart(ctx context.Context, w *wtx, argv []string, actor string, by *approvedOn) (string, error) {
+	name, user := crewRestartOf(argv)
+	res := new(CrewMember)
+	if ok, err := get(w.Tx, bCrew, name, res); err != nil {
+		return "", err
+	} else if !ok {
+		return "", fmt.Errorf("crew member %s: %w", name, ErrNotFound)
+	}
+	st, err := crewRestartSession(res, user)
+	if err != nil {
+		return "", err
+	}
+	if err := w.may(ctx, actor, ActRestartCrew, Object{Kind: KindCrew, Name: name}); err != nil {
+		return "", err
+	}
+	if err := w.requestRestartFor(ctx, res, st, user, "requested by "+actor, actor, by); err != nil {
+		return "", err
+	}
+	if user != "" {
+		res.Conversations[user] = *st
+	}
+	res.Revision = newRevision()
+	if err := put(w.Tx, bCrew, name, res); err != nil {
+		return "", err
+	}
+	return "restart requested: " + name, nil
 }

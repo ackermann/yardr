@@ -279,6 +279,12 @@ is one of the list the yard runs from a card:
       the bead is for the user
   timer rm <id>
       another's timer is removed; one's own needs no approval
+  up
+      everything the yard needs that is not running is started, and what
+      runs is left alone; safe to repeat, so an approval is never stale
+  crew restart <name> [--for <user>]
+      a fresh session of the crew member starts once the current one is
+      idle; with --for, of its conversation session for the user
 
 Whether each is the operator's is the command's own check: when the asker
 may run the command themselves the ask is refused with that. What is the

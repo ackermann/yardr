@@ -65,6 +65,7 @@ const (
 	ActMoveSource         Action = "move a source's records"
 	ActApplyPack          Action = "apply a pack"
 	ActSetUpPackSources   Action = "set up a pack's sources"
+	ActBringUp            Action = "bring the yard up"
 	ActAddUser            Action = "add a user"
 	ActRemoveUser         Action = "remove a user"
 	ActChangeRole         Action = "change a user's role"
@@ -271,6 +272,7 @@ func init() {
 		ActPair, ActMapPeerIdentity, ActUnmapPeerIdentity, ActAddPeer, ActRemovePeer, ActExposeToPeer,
 		ActTrustPeerName, ActSendAsksToPeer, ActAllowPeerMessages, ActRaisePeerMail, ActChangePeerAddress,
 		ActRenamePeer, ActRoutePeerBeads, ActMoveSource, ActApplyPack, ActSetUpPackSources,
+		ActBringUp,
 		ActAddUser, ActRemoveUser, ActChangeRole, ActMapIdentity, ActChangeSetting, ActPruneStore,
 		ActGiveHarnessKey, ActGiveCrewCredential, ActGiveHookSecret, ActAllowThreads, ActRemoveTimer,
 		ActConnectEdge, ActDisconnectEdge, ActNameUpgradeDepot, ActListAllTimers, ActDeleteYardHome,

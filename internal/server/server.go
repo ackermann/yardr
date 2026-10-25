@@ -144,6 +144,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	go runCarryWatcher(watchCtx, st, c.Home, boot, log)
+	go runDaemonWatcher(watchCtx, st, c.Home, log)
 
 	// We own the store, so a socket file left behind is stale.
 	_ = os.Remove(c.Socket())

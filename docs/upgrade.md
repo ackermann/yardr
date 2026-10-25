@@ -216,7 +216,12 @@ completed pass: the stamp must be on this build and at or after
 `--since`, else the daemon fails as wedged. `--since` is a duration
 back from now (`10m`, `90s`, the default `10m`) or the install's start
 as an RFC3339 time, which the gate passes. A yard with no daemon
-running skips the part instead of failing it.
+running skips the part instead of failing it. Where the daemon stopped
+on a yard whose server still runs, the server judges the same staleness
+live: the daemon's last completed pass or, if later, its last start is
+over 3 minutes old with no daemon holding the lock. The server writes one
+`daemon_lost` event and raises a run card for `yardr up`; a fresh
+`daemon_started` ends it.
 
 `views` probes every recorded web view with one GET of `/health`, and
 counts each with the build it answers on. A view that answers on this
