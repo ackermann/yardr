@@ -5017,10 +5017,11 @@ func runProbe(t *testing.T, probePath, dir string, inheritedEnv, env []string, a
 // r1go is a go for the package budget's re-run: it reports the alone
 // seconds FAKE_OVER names over budget, every other package fast, and
 // fails every re-run when FAKE_FAIL is set. FAKE_SLEEP sleeps that long
-// in every re-run, so a case can tell overlapping re-runs from one re-run
-// after another by the wall; FAKE_TRACK records the maximum concurrent
-// re-runs; FAKE_CACHED prints no seconds, as a cached re-run would. It
-// writes down every call with YARDR_RACE_HELD.
+// in every re-run, opening a window the re-runs overlap in; FAKE_TRACK
+// records the maximum concurrent re-runs, which is what proves the
+// overlap, since a wall clock fails on a loaded machine; FAKE_CACHED
+// prints no seconds, as a cached re-run would. It writes down every call
+// with YARDR_RACE_HELD.
 func r1go(t *testing.T) (fake string, env []string) {
 	t.Helper()
 	fake = t.TempDir()
@@ -5088,8 +5089,9 @@ func TestYardTestBudgets(t *testing.T) {
 	// The cases run in parallel, each in its own directory with its own
 	// fake go: the probe, the table rows and the counts are read-only once
 	// built. Each takes its own t, as TestYardTestSelects' rows do. The
-	// re-run waves below stay sequential: they assert a wall time, which is
-	// judged under the pool's contention, not their siblings' too.
+	// re-run waves below stay sequential, so the timed row's batch runs
+	// under the pool's contention alone; its only wall time is a floor the
+	// load cannot break, and the fake's record proves the overlap.
 	runEnv := func(t *testing.T, dir string, env []string, args ...string) (string, int) {
 		t.Helper()
 		return runProbe(t, probePath, dir, os.Environ(), env, args...)
@@ -5697,10 +5699,11 @@ loadedmachine() {
 	})
 
 	t.Run("over-budget packages are re-run up to three at a time", func(t *testing.T) {
-		// Four packages over budget, each re-run sleeping two seconds: one
-		// re-run after another would take their sum, eight seconds, while
-		// waves of three take the slowest of each wave, about four. The
-		// verdicts are the sequential ones, every package judged by the one
+		// Four packages over budget, each re-run sleeping two seconds so
+		// the re-runs overlap: waves of three, which the fake's maximum
+		// concurrent re-runs proves, not the wall clock, which a loaded
+		// machine stretches past any ceiling. The verdicts are the
+		// sequential ones, every package judged by the one
 		// load pair sampled around the batch. The leg lists the packages
 		// out of order; the verdicts print in sorted order. Only the quiet
 		// row sleeps: the other rows judge the same verdicts without paying
@@ -5763,14 +5766,12 @@ loadedmachine() {
 					}
 					last = i
 				}
-				// Two waves of two-second re-runs: about four seconds, not
-				// the eight one re-run after another would take. The floor
-				// keeps the ceiling honest: without it a sleep that never
-				// ran would pass.
+				// The floor keeps the overlap honest: without it a sleep
+				// that never ran would still record its three-wide
+				// maximum. The maximum below is what proves the re-runs
+				// overlapped; the batch's wall proves nothing more, so
+				// there is no ceiling for a loaded machine to miss.
 				if timed {
-					if wall >= 6*time.Second {
-						t.Errorf("the batch took %s, want under 6 s for two waves of 2 s re-runs", wall)
-					}
 					if wall < 2*time.Second {
 						t.Errorf("the batch took %s, want at least one 2 s re-run: the sleep did not run", wall)
 					}
