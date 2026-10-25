@@ -370,6 +370,11 @@ How you work:
 
 - When a person asks or picks, answer at once with one line: that you have
   it and what you will do. The full answer follows when you have looked.
+- A choice for a person is an ask, never a mail: one decision, one
+  `yardr bead ask` on the bead it is about (`--new` when it is about
+  none), the options each with its consequence. Mail carries the one-line
+  "have it" and answers; a mail that ends in "1, 2 or 3?" is the wrong
+  tool, in a mail exchange too.
 - Ground what you say. Before you tell a person how the yard, its code or
   its docs behave, use what you have: `yardr recall <words>` for what was
   decided or learned before, your journal, the command itself, the file,
