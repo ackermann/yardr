@@ -2063,9 +2063,11 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 // dropped. With no FAIL line, one block keeps a timeout's panic line and
 // running tests, a fatal error's or panic's line and the dump's head, else
 // the first output lines; a timeout names its running tests, a fatal error
-// or panic its crashing test past the runtime's frames. Only the head of a
-// log line, before the separator, names the tests that flaked and the beads
-// it tested. A change is the set of beads a line's
+// or panic its crashing test past the runtime's frames. The summary a failed
+// step prints (--human) shows the blocks as lines, and where a test failed
+// by name too, a timeout's block after them, which the log line leaves out.
+// Only the head of a log line, before the separator, names the tests that
+// flaked and the beads it tested. A change is the set of beads a line's
 // last field names, in any order, whatever commits it was tested at, and a
 // line with no field is a change of its sha: the same one on many lines is
 // one change, and only lines in the last 7 days count, whichever change they
@@ -2127,6 +2129,15 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			manyBlocks = append(manyBlocks, block(fmt.Sprintf("--- FAIL: TestT%02d (0.00s)", i), fmt.Sprintf("    t_test.go:1: boom %02d", i)))
 		}
 	}
+	// A test that failed in one package and a timeout in another, as a run of
+	// several prints them, and a timeout that caught seven tests running.
+	// The table of the log line and the table of the summary below take
+	// these logs alike.
+	const (
+		failedA      = "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\nFAIL\nFAIL\tm.test/a 0.1s\n"
+		timeoutB     = "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestB (10m0s)\n\nFAIL\tm.test/b 600.1s\n"
+		timeoutSeven = "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestT00 (10m0s)\n\t\tTestT01 (10m0s)\n\t\tTestT02 (10m0s)\n\t\tTestT03 (10m0s)\n\t\tTestT04 (10m0s)\n\t\tTestT05 (10m0s)\n\t\tTestT06 (10m0s)\n\nFAIL\tm.test/b 600.1s\n"
+	)
 	for _, c := range []struct {
 		name string
 		in   string
@@ -2186,7 +2197,7 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		// panic's line and the dump's head, else the first output lines.
 		{"a timeout keeps its panic line and running tests", "ok  \tm.test/a\t0.1s\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\t\tTestA/sub (10m0s)\n\ngoroutine 5 [running]:\ntesting.(*M).startAlarm.func1()\n\t/go/src/testing/testing.go:2959 +0x2c4\nFAIL\tm.test/b 600.1s\n",
 			[]string{block("panic: test timed out after 10m0s", "\t\tTestA (10m0s)", "\t\tTestA/sub (10m0s)")}},
-		{"a timeout keeps the panic line and five entries", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestT00 (10m0s)\n\t\tTestT01 (10m0s)\n\t\tTestT02 (10m0s)\n\t\tTestT03 (10m0s)\n\t\tTestT04 (10m0s)\n\t\tTestT05 (10m0s)\n\t\tTestT06 (10m0s)\n\nFAIL\tm.test/b 600.1s\n",
+		{"a timeout keeps the panic line and five entries", timeoutSeven,
 			[]string{block("panic: test timed out after 10m0s", "\t\tTestT00 (10m0s)", "\t\tTestT01 (10m0s)", "\t\tTestT02 (10m0s)", "\t\tTestT03 (10m0s)", "\t\tTestT04 (10m0s)")}},
 		{"a fatal error keeps its line and the dump head", "=== RUN   TestA\n--- PASS: TestA (0.00s)\nfatal error: concurrent map writes\n\ngoroutine 8 [running]:\ninternal/runtime/maps.fatal({0x1?, 0x0?})\n\t/go/src/runtime/panic.go:1195 +0x20\nm.test/a.TestA.func1()\n\ta_test.go:16 +0x60\ncreated by m.test/a.TestA in goroutine 4\n\ta_test.go:13 +0x48\nFAIL\tm.test/a 0.1s\n",
 			[]string{block("fatal error: concurrent map writes", "goroutine 8 [running]:", "internal/runtime/maps.fatal({0x1?, 0x0?})", "\t/go/src/runtime/panic.go:1195 +0x20", "m.test/a.TestA.func1()", "\ta_test.go:16 +0x60")}},
@@ -2198,7 +2209,11 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			[]string{"exit status 3"}},
 		// A failure report wins over a timeout behind it; a timeout wins
 		// over a fatal error in another package behind it.
-		{"a failure report wins over a timeout behind it", "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\nFAIL\nFAIL\tm.test/a 0.1s\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestB (10m0s)\n\nFAIL\tm.test/b 600.1s\n",
+		{"a failure report wins over a timeout behind it", failedA + timeoutB,
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
+		{"a failure report wins over a timeout before it", timeoutB + failedA,
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
+		{"a failure report wins over a timeout of seven running tests", failedA + timeoutSeven,
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
 		{"a timeout wins over a fatal error behind it", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\nFAIL\tm.test/a 600.1s\nfatal error: concurrent map writes\n\ngoroutine 8 [running]:\nFAIL\tm.test/b 0.1s\n",
 			[]string{block("panic: test timed out after 10m0s", "\t\tTestA (10m0s)")}},
@@ -2208,6 +2223,33 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		t.Run("keeps: "+c.name, func(t *testing.T) {
 			if got, want := run(t, c.in, "flakyfails"), strings.Join(c.want, sep); got != want {
 				t.Errorf("flakyfails printed:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+
+	// The summary failed prints (--human) shows the same blocks as lines, and
+	// where a test failed by name and a package timed out too, the timeout's
+	// block after them, whichever the log has first: the panic line says that
+	// a package timed out, its running tests say what it was in. The block
+	// keeps its five entries, and the log line of each such log, pinned above,
+	// has the failed tests alone.
+	failedALines := []string{"--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2"}
+	timeoutBLines := []string{"panic: test timed out after 10m0s", "\t\tTestB (10m0s)"}
+	for _, c := range []struct {
+		name string
+		in   string
+		want []string // the lines of the summary
+	}{
+		{"a failure alone", failedA, failedALines},
+		{"a timeout alone is shown once", timeoutB, timeoutBLines},
+		{"a failure and a timeout behind it", failedA + timeoutB, append(slices.Clone(failedALines), timeoutBLines...)},
+		{"a timeout and a failure behind it", timeoutB + failedA, append(slices.Clone(failedALines), timeoutBLines...)},
+		{"a timeout of seven running tests keeps five behind a failure", failedA + timeoutSeven,
+			append(slices.Clone(failedALines), "panic: test timed out after 10m0s", "\t\tTestT00 (10m0s)", "\t\tTestT01 (10m0s)", "\t\tTestT02 (10m0s)", "\t\tTestT03 (10m0s)", "\t\tTestT04 (10m0s)")},
+	} {
+		t.Run("human: "+c.name, func(t *testing.T) {
+			if got, want := run(t, c.in, "flakyfails", "--human"), strings.Join(c.want, "\n"); got != want {
+				t.Errorf("flakyfails --human printed:\n%s\nwant:\n%s", got, want)
 			}
 		})
 	}
@@ -4516,8 +4558,12 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	ticket("", now-200, self, live, "legacy-bead", "/wt/legacy")
 	ticket("0", now-30, self, live, "new-bead", "/wt/new")
 	// A ticket whose content says nothing is a waiter all the same: its pid is
-	// in its name.
-	write(qdir, "1-"+strconv.FormatInt(now-100, 10)+"000000000-"+strconv.Itoa(self), "")
+	// in its name. Its age reads "1 m" from 60 s to 119 s, and the view
+	// measures it after the setup above and the script's start, which take tens
+	// of seconds on a busy Mac, so it is written 65 s back, near the start of
+	// its minute: 55 s of slack, where 100 s left 20. It still sorts last of
+	// the plain runs, after legacy's.
+	write(qdir, "1-"+strconv.FormatInt(now-65, 10)+"000000000-"+strconv.Itoa(self), "")
 	write(yard, "race.holder",
 		"pid="+strconv.Itoa(holderPID)+"\nstart="+holderStart+"\nbead=holder-bead\ndir=/wt/holder\nsince="+strconv.FormatInt(now-360, 10)+"\n")
 	view := func() string {
