@@ -323,8 +323,11 @@ type Dispatcher struct {
 	// nil when nothing needs a pass before the regular interval.
 	// promptIdle is session (or "crew:<name>") -> when its agent was
 	// first seen idle with a prompt that has not been delivered yet.
+	// timing is how long the steps of the pass in progress took, nil
+	// outside a pass (see passtime.go).
 	lookDue    *time.Time
 	promptIdle map[string]time.Time
+	timing     *passTiming
 	// drafts is session (or "crew:<name>") -> the text found in its
 	// agent's input when yardr had something to type there. See inputHeld.
 	// dialogs is the same -> the dialog of its harness that was told of
@@ -950,12 +953,19 @@ func (d *Dispatcher) noteStart(ctx context.Context) {
 // to new hook events, read the CI of trains in in-pr, move the issues beads
 // track, tell users outside the yard of what landed in their inboxes, route
 // and start unowned ready beads, make the copy of the store that is due.
+//
+// Each step is marked by name as it begins, so a pass that ran past one
+// Interval says where its time went (passtime.go).
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
+	pass := d.timePass()
+	defer d.endPass(pass)
 	// A pass is a moment the refresher may have work by: a key that came
 	// due since its scheduler last looked is started now, not when its
 	// timer next fires. The pass itself still only reads the cache.
+	pass.step("stamp_limits_clock")
 	d.stampLimitsClock()
+	pass.step("nudge_limits_refresher")
 	d.nudgeLimitsRefresher()
 	// Starts that finished since the last pass: their outcomes are
 	// already the store's, and what they owe the pass (the outage, the
@@ -963,13 +973,18 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// the sessions and before any new claim for their groups. The crew's
 	// are drained beside them (a failed start counted, a started session's
 	// old memory cleared), before the crew reads the store.
+	pass.step("drain_starts")
 	d.drainStartCompletions(ctx)
+	pass.step("drain_crew_starts")
 	d.drainCrewCompletions(ctx)
+	pass.step("begin_home")
 	d.beginHomePass()
 	// One snapshot of each pane for the whole pass, whatever checks read
 	// from it (see PaneCache).
+	pass.step("pane_cache")
 	ctx = WithPaneCache(ctx)
 	d.lookDue, d.pushDue = nil, nil
+	pass.step("groups")
 	groups, err := d.Store.Groups(ctx)
 	if err != nil {
 		return err
@@ -979,55 +994,73 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 		byName[g.Name] = g
 	}
 
+	pass.step("reap")
 	active, err := d.reap(ctx, byName)
 	if err != nil {
 		return err
 	}
+	pass.live(active)
 	// Before teardown: a session it stops is counted from the next pass on,
 	// once its agent has had the time between to write its last lines.
+	pass.step("usage")
 	if err := d.usage(ctx, byName); err != nil {
 		return err
 	}
+	pass.step("teardown")
 	if err := d.teardown(ctx, byName); err != nil {
 		return err
 	}
+	pass.step("cleanup")
 	if err := d.cleanup(ctx, byName); err != nil {
 		return err
 	}
 	// Before the crew, so one a timer is for is nudged in this pass.
+	pass.step("timers")
 	d.timers(ctx)
 	// By the same clock, and before the crew for the same reason. The two
 	// share one listing of the open beads and the yard's routes.
+	pass.step("pass_lists")
 	beads, routes, operator, ok := d.passLists(ctx, byName)
 	if ok {
+		pass.step("waits")
 		d.waits(ctx, byName, beads, routes, operator)
+		pass.step("sidings")
 		d.sidings(ctx, byName, beads, routes)
 	}
 	// By the same clock: a hook gone quiet tells the yardmaster once.
+	pass.step("quiet_hooks")
 	d.quietHooks(ctx)
 	// While the upgrade gate pauses dispatch the pass still reconciles,
 	// and still stamps, but the crew and the route below start nothing.
+	pass.step("gate")
 	paused := d.gatePaused()
+	pass.step("crew")
 	if err := d.crew(ctx, paused); err != nil {
 		return err
 	}
 	// Before routing, so a train the rules move to land is dispatched to
 	// its merger in this pass.
+	pass.step("rules")
 	if err := d.rules(ctx); err != nil {
 		return err
 	}
+	pass.step("ci")
 	if err := d.ci(ctx); err != nil {
 		return err
 	}
+	pass.step("issues")
 	if err := d.issues(ctx); err != nil {
 		return err
 	}
+	pass.step("pushes")
 	if err := d.pushes(ctx); err != nil {
 		return err
 	}
 	// Before anything is started: what a bead from a peer starts from is
 	// kept by its ref when its worktree is made.
+	pass.step("bases")
 	d.bases(ctx)
+	pass.step("route")
 	if err := d.route(ctx, byName, active, paused); err != nil {
 		return err
 	}
@@ -1035,18 +1068,25 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// and the crew's in crewstarts.go), so the steps below see their
 	// sessions as a pass that started them inline did; under Run their
 	// completions wake the loop instead.
+	pass.step("settle_starts")
 	d.settleStarts(ctx)
+	pass.step("settle_crew_starts")
 	d.settleCrewStarts(ctx)
 	// After the work is started: a copy of a large store takes a while.
+	pass.step("backups")
 	d.backups(ctx)
 	// Last: a peer that does not answer holds up nothing of this yard's,
 	// and neither does a remote. What a peer's return brought in this pass
 	// is fetched in it.
+	pass.step("peers")
 	err = d.peers(ctx)
+	pass.step("fetches")
 	d.fetches(ctx)
 	// The pass ran: publish the herdr sessions it saw and started, then
 	// stamp it, whatever the peers said.
+	pass.step("end_home")
 	d.endHomePass()
+	pass.step("stamp")
 	d.stampPass()
 	return err
 }
@@ -1412,8 +1452,12 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 	// Beads in a stage their flow lacks: a repository flow lost the stage on
 	// the base. The stage's route may well still be there, and would hand
 	// the bead to its old group with the flow's first stage as the only way
-	// on, so it is not routed at all until someone advances it.
+	// on, so it is not routed at all until someone advances it. The pass
+	// times the lookup: it decodes every open bead and, for a bead whose
+	// flow is in its repository, reads that checkout with git.
+	done := d.timing.call("stranded")
 	lost, err := d.Store.Stranded(ctx, "")
+	done()
 	if err != nil {
 		return err
 	}
@@ -1573,8 +1617,13 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 				"bead", b.ID, "stage", b.Stage, "group", g.Name)
 			continue
 		}
+		// Timed whole, its write included: the repository flows of the
+		// bead's blockers are read inside it, before the write, and the
+		// store does not say how long they took.
+		done := d.timing.call("claim")
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor,
 			store.Routed{Route: r.ID, Passed: choice.Passed, Unknown: choice.Unknown})
+		done()
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
 			// ErrAtLimit: another dispatcher, or a session this pass could
 			// not see, holds the group's last slot.
@@ -1653,7 +1702,11 @@ func (d *Dispatcher) runtimeUp(ctx context.Context, g store.Group) {
 // nil when no flow governs b. Operator is whose subscription a bead with no
 // originator builds on.
 func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []store.Route, groups map[string]store.Group, operator string) ([]NextStage, []NextOutcome, stageDoc, error) {
+	// Both lookups resolve the bead's flow, from its repository when it is
+	// there, which runs git at least once: the pass times them.
+	done := d.timing.call("next_stages")
 	ns, err := d.Store.NextStages(ctx, b.ID)
+	done()
 	if err != nil || ns.Flow == nil {
 		return nil, nil, stageDoc{}, err
 	}
@@ -1681,7 +1734,9 @@ func (d *Dispatcher) nextStages(ctx context.Context, b store.Bead, routes []stor
 	}
 	// The map is drawn now, as the bead is handed out, so a bead sent back
 	// starts its new session with the path that brought it here.
+	done = d.timing.call("flow_map")
 	fm, err := d.Store.FlowMap(ctx, b.ID)
+	done()
 	if err != nil {
 		return nil, nil, stageDoc{}, err
 	}

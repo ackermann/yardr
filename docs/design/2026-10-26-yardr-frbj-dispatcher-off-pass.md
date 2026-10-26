@@ -308,7 +308,9 @@ on is:
 | `bases` and `fetches` run git for peer beads' bases and returned branches (`KeepPeerBases`, `TakePeerBranch`) | `branchTimeout`, 60 seconds each |
 | `peers` posts and asks peers with a URL, at the pass's end ("a peer that does not answer holds up nothing of this yard's") | `peerTimeout`, 30 seconds a request, 16 messages a peer; the held questions themselves already run on the pullers |
 | `backups` copies the store file when one is due ("a copy of a large store takes a while") | the copy itself |
-| `route`'s claims read the blockers' repository flows before the claim's write: `Store.Claim` calls `untilBlockerRepos` (internal/store/routing.go:2337) which, for each blocker on an `until` edge, may call `repoFor` into `RepoFlows` (internal/store/flows.go:877, 1171; internal/store/repoflows.go:276) — a `rev-parse`, an `ls-tree` and one `git cat-file --batch` over the depot checkout, cached by base commit so the common claim pays one `rev-parse` | no bound of its own in the store's git; the pass's context is the only one, and the cache makes it rare |
+| `route` asks which open beads sit in a stage their flow lacks, in each pass that has a ready bead: `Store.Stranded` (internal/store/flows.go:974) decodes every open bead and, for a bead whose flow is in its depot's repository, reads that checkout through `RepoFlows` (flows.go:1022; internal/store/repoflows.go:276) | no bound of its own in the store's git; the pass's context is the only one, and the cache by base commit makes one `rev-parse` the common cost |
+| `route`'s `nextStages` resolves each bead's flow before its claim: `Store.NextStages` (internal/store/flows.go:1317) and `Store.FlowMap` (internal/store/flowmap.go:219) each call `repoFor` (flows.go:1171) into `RepoFlows`, so a bead whose flow is in its repository pays that lookup twice | the same: no bound of its own, cached by base commit |
+| `route`'s claims read the blockers' repository flows before the claim's write: `Store.Claim` calls `untilBlockerRepos` (internal/store/routing.go:2340) which, for each blocker on an `until` edge, may call `repoFor` into `RepoFlows` (internal/store/flows.go:877, 1171; internal/store/repoflows.go:276) — a `rev-parse`, an `ls-tree` and one `git cat-file --batch` over the depot checkout, cached by base commit so the common claim pays one `rev-parse` | no bound of its own in the store's git; the pass's context is the only one, and the cache makes it rare |
 
 Two of those already carry the pattern this proposal follows: a source that
 just failed is not asked for the next bead in the same breath (`issueWait`,
@@ -317,6 +319,19 @@ held questions left the pass entirely when they learned to hold. The reap's
 per-session herdr calls are the largest wait left after this design, larger
 than any of the three it removes once a yard runs many sessions. They are
 left out (section 4), deliberately and by name, not overlooked.
+
+The pass measures these waits itself now (bead 5, yardr-cf76). `Reconcile`
+marks its steps by name, and a pass that runs past one `Interval` logs one
+`slow pass` line at Warn: how long the pass took, how many sessions it found
+live, and each step's time in the order the steps ran
+(internal/dispatch/passtime.go). A pass inside the interval logs nothing.
+Route's flow lookups are timed at the pass's call sites and not in the
+store, whose API does not move for measurement: `Stranded`, `NextStages` and
+`FlowMap`, and `Claim`, which reads the blockers' flows inside the call, so
+its time is the whole call's, its write included. Each appears in the line
+with its total and how many times the pass made it, and each is inside the
+`route` step's time, not beside it. The line is names and numbers only: no
+bead, session handle or credential.
 
 ### 2.7. What a person sees today
 

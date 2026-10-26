@@ -561,7 +561,10 @@ number, so subscribers get every change pushed in order and resume from where
 they stopped. Nothing polls the store for changes: the dispatcher wakes on
 each committed write, re-reads state and acts idempotently, so a missed
 wake-up only costs a delay (a pass every 30s is the safety net) and a restart
-is just another pass.
+is just another pass. A pass that runs longer than that interval
+(`--interval` of the daemon) logs one `slow pass` warning in the daemon's
+log: how long it took, how many sessions it found live, and the time of each
+of its steps in the order they ran. A faster pass logs nothing.
 
 `yardr watch` streams every event as it commits. Each line starts with the
 event's sequence number; `yardr watch --after <seq>` resumes from there with no

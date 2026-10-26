@@ -91,8 +91,26 @@ cannot falsify.
 A fix for a test that fails only under load is proved the way it failed:
 `contrib/burn/burn -n 100 ./internal/dispatch TestName` runs the test a
 hundred times beside five times as many busy loops as the machine has cpus
-(contrib/burn/README.md), first on the code as it was, to see it fail, then
-on the fix, and the note names the command and the counts it printed.
+(contrib/burn/README.md; `-x` sets the factor, 5 by default), first on the
+code as it was, to see it fail, then on the fix, and the note names the
+command, the counts it printed and the load average before and after. The
+loops are niced, but they still raise the load average, and the builder
+routes wait on `machine.load<80`, so that default factor runs outside a
+session, when the line is idle. Inside a builder's or reviewer's session the
+burn runs at `-x 1` and names the one suspect test
+(`contrib/burn/burn -x 1 PACKAGE TEST`), the rule in `.yardr/depot.md`.
+
+A failure seen at a load of several times the cpu count may not show in a
+burn at `-x 1`, which runs as many loops as there are cpus. A fix therefore
+has two burn proofs, and its note records both, each as done or outstanding:
+the in-session one (the command, the counts and the load it printed) and the
+full-factor one (the default `-x`, the same test and count). The
+full-factor burn is run by whoever is idle outside a session, when the line
+is idle: the yardmaster on ask, or the operator. Its command, counts and
+load go in a note on the fix's bead, and a full-factor burn that fails files
+a new bead. A fix lands on the in-session proof with the full-factor one
+outstanding: the assembly gate runs no burns, so landing never waited on
+them, and the note, not the gate, carries what is still owed.
 
 R3. A package over the R1 budget with over 100 tests runs its tests
 parallel: `t.Parallel` on every test that owns its state, allow-list for
