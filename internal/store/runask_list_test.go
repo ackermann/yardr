@@ -1289,6 +1289,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		HookPublicURLSetting:  Askable,
 		EdgeSetting:           Alone,
 		RouterAddrSetting:     Alone,
+		HostedSetting:         Alone,
 		WebAddrSetting:        Alone,
 		WebPagesAddrSetting:   Alone,
 		WebPagesHostSetting:   Alone,
@@ -1381,6 +1382,7 @@ func TestRunAskHookPublicURL(t *testing.T) {
 	for _, c := range []string{
 		"settings set hook_addr 127.0.0.1:9999",
 		"settings set router_addr 172.18.0.2",
+		"settings set hosted true",
 		"settings set web_addr 127.0.0.1:9998",
 		"settings set web_pages_addr 127.0.0.1:9997",
 		"settings set web_pages_host example.com",

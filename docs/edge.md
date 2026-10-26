@@ -157,8 +157,8 @@ yard: `yardr user device rm <user> <device>`.
 Approvals cross the link: `ApproveAsk` and `ApproveSetup` are taken from a
 paired device of the operator down the link, as from the yard's own
 machine — pairing is the grant, and `yardr user device rm` is the revoke.
-One secret crosses with them: the code a harness's sign-in page shows, when
-the yard leads the harness's login for the operator
+One secret crosses with them on every yard: the code a harness's sign-in
+page shows, when the yard leads the harness's login for the operator
 ([crew.md](crew.md#the-yard-leads-a-harnesss-login)). A paired device of the
 operator gives it with `GiveSecret`, so a phone with no terminal behind it
 can sign the assistant in. The edge reads the code with the device's token,
@@ -169,11 +169,16 @@ a paired device of the operator down the link, as from the yard's own
 machine. The edge reads the screen with the device's token, as it reads
 every call; a member's device is answered as for a method the yard does not
 have.
-No other secret crosses: model credentials such as an API key, and hook
-signing secrets, are answered at the yard's own machine, as on a LAN without
-TLS, and `GiveSecret` is refused down the link for every other ask. So is
-the grant list, `SourceGrants`: it carries no credential, but it is never
-read through the edge.
+On a connected yard no other secret crosses: model credentials such as an
+API key, and hook signing secrets, are answered at the yard's own machine, as
+on a LAN without TLS, and `GiveSecret` is refused down the link for every
+other ask. On a hosted yard every secret crosses, from a paired device of the
+operator: the service runs the edge and the machine the yard lives on, and
+the operator has no shell there to answer at (the yard's `hosted` setting,
+[configuration.md](configuration.md#settings)). A device of a user who is not
+the operator gives no secret down the link on either. The grant list,
+`SourceGrants`, carries no credential but is never read through the edge, on
+either.
 
 ## Hosted and connected
 
@@ -184,6 +189,7 @@ read through the edge.
 | peer URL | `https://my.yardr.dev/peers/<account>/<yard>` | the same |
 | how the edge reaches it | TCP to its container or droplet | the link the yard opened |
 | footplate | Kratos session plus device token, pairing by code | the same, through the link |
+| secrets given from a device | every secret, from the operator's devices | the code of a harness login |
 | who runs it, upgrades, backs up | the service | the person |
 | invite list | yes, for the trial | yes, the same list |
 

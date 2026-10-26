@@ -826,8 +826,9 @@ what the command names or changes is no longer what the card said; a
 command runs once for one ask; an approval is taken only from a request
 that reached the listener from the yard's own machine, where TLS ends, or
 down the link from the edge ([edge.md](edge.md#footplate-through-the-link);
-a secret is taken besides from the yard's router, and down the link when it is
-a harness login's code, [api.md](api.md#tls-is-yours-and-the-clients-rule));
+a secret is taken besides from the yard's router, and down the link when the
+yard is hosted or the secret is a harness login's code,
+[api.md](api.md#tls-is-yours-and-the-clients-rule));
 and each approval through a device is marked `via
 <device>` on the answer and on the change's own event, which names the
 ask (`via phone via edge` down the link). `yardr user device list` says
@@ -849,11 +850,25 @@ harness's login for the operator ([crew.md](crew.md#the-yard-leads-a-harnesss-lo
 a paired device of the operator gives the code the sign-in page shows, down
 the link as from the yard's own machine. The edge reads the code with the
 device's token. The code is used once, within minutes, and the yard hands it
-to the waiting login in its memory and keeps it nowhere. It is the only
-secret that crosses: an API key, a source's credential, a hook's signing
-secret and a user's own login code are refused down the link and answered at
-the yard's own machine. `yardr user device rm` ends a device's reach at its
-next request.
+to the waiting login in its memory and keeps it nowhere. On a yard the
+operator runs and has connected to the edge it is the only secret that
+crosses: an API key, a source's credential, a hook's signing secret and a
+user's own login code are refused down the link and answered at the yard's
+own machine. `yardr user device rm` ends a device's reach at its next
+request.
+
+**On a hosted yard every secret crosses the edge.** A hosted yard is one the
+service made and runs, and its `hosted` setting is `true`
+([configuration.md](configuration.md#settings)). The service runs the edge
+and the machine the yard lives on, and the operator has no shell on that
+machine to answer at, so a paired device of the operator gives any secret ask
+down the link: an API key, a source's credential, a hook's signing secret, a
+user's own address or credential, and the login's code. The edge reads the
+value with the device's token, as it reads every call; the yard writes it to
+its file, as it does for a giving at the yard's own machine. A device of a
+user who is not the operator still gives nothing down the link, hosted or
+not, and a call that the edge says came in plain HTTP is refused as ever.
+`yardr user device rm` ends a device's reach at its next request.
 
 **A session's screen crosses the edge too.** A paired device of the operator
 reads a running session's screen down the link as from the yard's own

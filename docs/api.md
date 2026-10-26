@@ -1010,8 +1010,8 @@ itself, as far as it can see. [`GiveSecret`, `ApproveAsk`, `ApproveSetup`
 and `SourceGrants`](#for-the-operator-alone) are taken only from a request
 that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine) — the two
-approvals also down the link from the edge, and `GiveSecret` there for the
-code of a harness login alone
+approvals also down the link from the edge, and `GiveSecret` there for every
+secret on a hosted yard and for the code of a harness login alone on any other
 ([edge.md](edge.md#footplate-through-the-link)) — and never from one whose
 proxy says it came in plain (`X-Forwarded-Proto: http`; the header is read
 for a no and never for a yes). Any other is refused with
@@ -1026,21 +1026,27 @@ read. The grant list holds none either and approves nothing; it is held to
 the rule because the operator's device token goes with the request. Every
 other call is served wherever it comes from, as before.
 
-Down the link from the edge `GiveSecret` is taken for one ask: the daemon's
-ask for the code a harness login waits for
+Down the link from the edge `GiveSecret` is taken from a device of the
+operator, and which asks it is taken for depends on the yard. A hosted yard,
+whose `hosted` setting is `true` (the provisioner writes it when it makes the
+yard, [configuration.md](configuration.md#settings)), takes it for every
+secret ask: the service runs the edge and the machine the yard lives on, and
+the person has no shell there to answer at. Any other yard takes it for one
+ask: the daemon's ask for the code a harness login waits for
 ([crew.md](crew.md#the-yard-leads-a-harnesss-login)). It is a secret ask with
 `secret.login` set and `secret.env` of `["INPUT"]`, and with `secret.source`
 empty and none of `secret.hook`, `secret.harness`, `secret.user`,
 `secret.crew` and `secret.as` beside it. The code is used once, within
 minutes, and the yard hands it to the waiting login in its memory and keeps
-it nowhere. To know which ask a call names, the yard reads its body, so a
-giving down the link has its body read before it is refused, and nothing of
-what is found is said back. Every other secret down the link, an API key and
+it nowhere. To know which ask a call names, such a yard reads its body, so a
+giving down its link has its body read before it is refused, and nothing of
+what is found is said back. Every other secret down its link, an API key and
 a user's own login code (`secret.as`) among them, is refused with the code
 `error`, in words that say a secret never crosses the edge and send the
-person to the yard's own machine. The code is held to the approvals' rule
-there: when the edge says the device reached it in plain HTTP, it is refused
-as they are.
+person to the yard's own machine. On either yard a device of a user who is
+not the operator is refused its own giving down the link in the same words,
+and a giving that is taken is held to the approvals' rule there: when the
+edge says the device reached it in plain HTTP, it is refused as they are.
 
 A hosted yard takes `GiveSecret` and `SourceGrants` from one peer besides
 its own machine: its router, the address the `router_addr` setting names,
@@ -5114,7 +5120,8 @@ cards](#weighty-cards)). Where they are served, and to whom:
   read. For `GiveSecret` a caller
   without a device token is; a device of a user who is not the operator
   is read for the ask it names, and nothing of it is said back; so is
-  a giving of a device of the operator down the link from the edge
+  a giving of a device of the operator down the link from the edge, unless
+  the yard is hosted
   ([TLS is yours](#tls-is-yours-and-the-clients-rule)). Against
   such an answer a client says "answer it at the yard" and sends its user
   to a terminal there (`ssh -t <host> yardr bead answer <bead> <ask>

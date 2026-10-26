@@ -66,6 +66,11 @@ const (
 	// network, which GiveSecret is taken from besides the yard's own
 	// machine (rpc).
 	RouterAddrSetting = "router_addr"
+	// HostedSetting says the yard is a hosted one, made and run by the
+	// hosting service, whose own edge it is reached through: GiveSecret is
+	// taken down the edge link for every secret, from the operator's
+	// devices (rpc).
+	HostedSetting = "hosted"
 	// WebAddrSetting and BDPAddrSetting are the addresses the web view and
 	// the BDP server listen on when their --addr is not given.
 	WebAddrSetting = "web_addr"
@@ -221,6 +226,15 @@ var KnownSettings = []Setting{
 		Check: func(v string) error {
 			if net.ParseIP(v) == nil {
 				return fmt.Errorf("%s %q: the router's address as an IP address, such as 172.18.0.2: it is compared with the address the request came from", RouterAddrSetting, v)
+			}
+			return nil
+		}},
+	{Key: HostedSetting, Help: "whether this is a hosted yard, made and run by the hosting service (true), and not one you run yourself, connected to the edge or not (false): " +
+		"the provisioner writes it when it makes a yard. On a hosted yard GiveSecret is taken for every secret down the edge link from the operator's devices; " +
+		"on any other yard down the link it is taken for a harness login's code alone. Read on every call; default: false",
+		Default: "false", Check: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("%s %q: true or false", HostedSetting, v)
 			}
 			return nil
 		}},
@@ -432,7 +446,8 @@ func SettingOf(key string) (Setting, bool) {
 // are who the operator is, what the yard installs itself from, who the
 // web view acts as and what it trusts, where backups go, the addresses
 // the servers bind, the edge it is connected to (the key it pins is one
-// the operator was shown), and the herdr session, whose check turns on
+// the operator was shown), whether it is hosted (which secrets cross the
+// edge's link), and the herdr session, whose check turns on
 // which panes run now: the operator types those. hook_public_url is
 // Askable: it binds nothing and serves nothing, only says where the yard is
 // reached from outside, and its card shows the whole URL each hook is
@@ -444,7 +459,7 @@ func settingAsk(key string) AskClass {
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
-		BackupDirSetting, HookAddrSetting, EdgeSetting, RouterAddrSetting, WebAddrSetting,
+		BackupDirSetting, HookAddrSetting, EdgeSetting, RouterAddrSetting, HostedSetting, WebAddrSetting,
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone

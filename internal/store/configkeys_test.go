@@ -250,12 +250,14 @@ func TestStoreChecksSettings(t *testing.T) {
 	// Sequential: process environment.
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, quiet_landings, router_addr, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, quiet_landings, router_addr, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
 		`router_addr "router": the router's address as an IP address`:                                                       {"router_addr", "router"},
 		`router_addr "172.18.0.2:8790": the router's address as an IP address`:                                              {"router_addr", "172.18.0.2:8790"},
+		`hosted "yes": true or false`:                                                                                       {"hosted", "yes"},
+		`hosted "1": true or false`:                                                                                         {"hosted", "1"},
 		`bdp_addr: --addr 8765: address 8765: missing port in address`:                                                      {"bdp_addr", "8765"},
 		`bdp_addr: --addr 0.0.0.0:8765 refused: 0.0.0.0 is not a loopback address, and yardr bdp has no authentication yet`: {"bdp_addr", "0.0.0.0:8765"},
 		`bdp_addr: --addr :8765 refused: an address with no host listens on every interface`:                                {"bdp_addr", ":8765"},
@@ -291,7 +293,7 @@ func TestStoreChecksSettings(t *testing.T) {
 	if all, err := s.Settings(ctx); err != nil || len(all) != 1 || all[store.FilesMaxSetting] != "64" {
 		t.Fatalf("a refused setting was stored: %v, %v", all, err)
 	}
-	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790", "router_addr": "172.18.0.2",
+	for k, v := range map[string]string{"default_kind": "codex", "operator_style": "report", "hook_addr": "127.0.0.1:8790", "router_addr": "172.18.0.2", "hosted": "true",
 		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go",
 		"web_as": "jo", "web_jwt_issuer": "https://team.cloudflareaccess.com", "web_jwt_audience": "aud-tag",
 		"web_jwt_jwks": "https://team.cloudflareaccess.com/cdn-cgi/access/certs", "web_jwt_header": "Authorization",
@@ -331,6 +333,15 @@ func TestStoreChecksSettings(t *testing.T) {
 	}
 	if v, from := timers.Effective(map[string]string{"timer_limit": "9"}); v != "9" || from != store.FromSet {
 		t.Errorf("set timer_limit = %q from %q", v, from)
+	}
+	// A yard is not hosted until the provisioner says so, and no variable
+	// says it instead.
+	hosted, _ := store.SettingOf("hosted")
+	if v, from := hosted.Effective(nil); v != "false" || from != store.FromDefault {
+		t.Errorf("unset hosted = %q from %q", v, from)
+	}
+	if v, from := hosted.Effective(map[string]string{"hosted": "true"}); v != "true" || from != store.FromSet {
+		t.Errorf("set hosted = %q from %q", v, from)
 	}
 	t.Setenv("YARDR_HOOK_ADDR", "")
 	addr, _ := store.SettingOf("hook_addr")

@@ -182,6 +182,22 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 			t.Errorf("SourceGrants over the edge is answered %s, want it to say %q", w.Body, want)
 		}
 	}
+	// Being hosted widens GiveSecret down the link and no other call
+	// (TestUserGiveSecretIsNotTakenOverTheLink/hosted): the grant list is
+	// refused there as before. A session's screen below crosses to a device
+	// of the operator on any yard, so the yard being hosted from here on
+	// moves nothing for it.
+	if err := st.SetSetting(context.Background(), store.HostedSetting, "true", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	edge = httptest.NewRequest(http.MethodPost, "/user/call/SourceGrants", unread{t})
+	edge.RemoteAddr = linkRemoteAddr
+	edge.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, edge)
+	if !strings.Contains(w.Body.String(), "not read over the link") {
+		t.Errorf("SourceGrants over the edge of a hosted yard is answered %s, want it refused", w.Body)
+	}
 	local := httptest.NewRequest(http.MethodPost, "/user/call/SourceGrants", strings.NewReader(`{"source":""}`))
 	local.RemoteAddr = "127.0.0.1:40000"
 	local.Header.Set("Authorization", "Bearer "+token)

@@ -120,6 +120,19 @@ func (y *secretYard) args(values any) string {
 	return string(b)
 }
 
+// askFor puts a secret ask for sec on the bead, of to, and returns the body
+// of a giving of value for it under name.
+func (y *secretYard) askFor(t *testing.T, to string, sec *store.AskSecret, name, value string) string {
+	t.Helper()
+	seq, err := y.st.AddAsk(context.Background(), "yd-crm", store.Ask{Question: "A secret?", To: to,
+		Context: []string{"It is shown where the service makes it."}, Secret: sec}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{name: value}, "weighed": true})
+	return string(b)
+}
+
 // untouched fails the test when anything was given: the env file is not
 // there and the ask is open, with no answer.
 func (y *secretYard) untouched(t *testing.T, after string) {
@@ -229,7 +242,8 @@ func TestUserGivesASecret(t *testing.T) {
 // A device of the yard's operator gives a waiting login's input over the
 // listener: the waiter is handed the value, the ask is answered with the
 // names, and the value is in no note. It does so from the yard's own machine
-// and down the link from the edge, where this is the one secret taken, and
+// and down the link from the edge, where this is the one secret taken unless
+// the yard is hosted (TestUserGiveSecretIsNotTakenOverTheLink/hosted), and
 // the answer says how it came. A device of another user is answered as for a
 // method the yard does not have.
 func TestUserGivesALoginInput(t *testing.T) {
@@ -237,20 +251,27 @@ func TestUserGivesALoginInput(t *testing.T) {
 		from   string
 		header []string
 		via    string
+		hosted bool
 	}{
-		"from the yard's machine":     {onTheMachine, []string{"X-Forwarded-Proto", "https"}, "jo via phone"},
-		"down the link from the edge": {edgelink.RemoteAddr, nil, "jo via phone via edge"},
+		"from the yard's machine":                       {onTheMachine, []string{"X-Forwarded-Proto", "https"}, "jo via phone", false},
+		"down the link from the edge":                   {edgelink.RemoteAddr, nil, "jo via phone via edge", false},
+		"down the link from the edge, on a hosted yard": {edgelink.RemoteAddr, nil, "jo via phone via edge", true},
 	} {
-		t.Run(name, func(t *testing.T) { givesALoginInput(t, c.from, c.header, c.via) })
+		t.Run(name, func(t *testing.T) { givesALoginInput(t, c.from, c.header, c.via, c.hosted) })
 	}
 }
 
 // givesALoginInput is TestUserGivesALoginInput from the address from, the
-// answer on the bead being by via.
-func givesALoginInput(t *testing.T, from string, header []string, via string) {
+// answer on the bead being by via, on a hosted yard when hosted.
+func givesALoginInput(t *testing.T, from string, header []string, via string, hosted bool) {
 	const value = "code-fr0m-the-device"
 	y := newSecretYard(t)
 	ctx := context.Background()
+	if hosted {
+		if err := y.st.SetSetting(ctx, store.HostedSetting, "true", "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "The code the sign-in page showed", To: "jo",
 		Context: []string{"The login waits for what the sign-in page showed."},
 		Secret:  &store.AskSecret{Login: "claude-a1b2c3d4"}}, "yardmaster")
@@ -801,7 +822,9 @@ calls:
 // daemon's ask for a harness login's code (TestUserGivesALoginInput), so the
 // yard reads which ask a call names before it refuses, and says nothing of
 // what it found. Nothing is given, and a code the edge says came in plain
-// HTTP is refused as an approval is.
+// HTTP is refused as an approval is. This is the yard that is not hosted,
+// which is every yard until its hosted setting says otherwise
+// (TestUserGiveSecretIsNotTakenOverTheLink/hosted).
 func TestUserGiveSecretIsNotTakenOverTheLink(t *testing.T) {
 	const value = "s3cret-0f-the-yard"
 	ctx := context.Background()
@@ -815,13 +838,7 @@ func TestUserGiveSecretIsNotTakenOverTheLink(t *testing.T) {
 	// giving of value for it under name.
 	ask := func(to string, sec *store.AskSecret, name string) string {
 		t.Helper()
-		seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "A secret?", To: to,
-			Context: []string{"It is shown where the service makes it."}, Secret: sec}, "yardmaster")
-		if err != nil {
-			t.Fatal(err)
-		}
-		b, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{name: value}, "weighed": true})
-		return string(b)
+		return y.askFor(t, to, sec, name, value)
 	}
 	userLogin := ask("sam", &store.AskSecret{Login: "claude-sam", As: "sam"}, "INPUT")
 	operatorLogin := ask("jo", &store.AskSecret{Login: "claude-a1b2c3d4"}, "INPUT")
@@ -912,6 +929,122 @@ func TestUserGiveSecretIsNotTakenOverTheLink(t *testing.T) {
 			t.Errorf("a refused giving left %s (%v)", file, err)
 		}
 	}
+	t.Run("hosted", testUserGiveSecretIsTakenDownTheLinkOfAHostedYard)
+}
+
+// On a hosted yard every secret that an operator's device gives is taken down
+// the link from the edge, whatever the ask: a source's credential, a
+// harness's API key, a hook's signing secret and a user's own address are
+// written to their files as they are from the yard's own machine, and the
+// answer on the bead says the giving came by the edge. (The login's code is
+// taken on any yard: TestUserGivesALoginInput.) Only the operator's devices
+// give: a member's device is refused its own ask with the link's words and
+// the operator's as a method the yard does not have, and a giving the edge
+// says came in plain HTTP is refused as an approval is. A yard whose hosted
+// setting is false is the yard that is not hosted
+// (TestUserGiveSecretIsNotTakenOverTheLink).
+func testUserGiveSecretIsTakenDownTheLinkOfAHostedYard(t *testing.T) {
+	const value = "s3cret-0f-the-hosted-yard"
+	ctx := context.Background()
+	hostedYard := func(t *testing.T) *secretYard {
+		t.Helper()
+		y := newSecretYard(t)
+		for file, decl := range map[string]string{"push.yaml": addressDecl, "linear.yaml": hookDecl} {
+			if _, err := y.st.PutSource(ctx, file, decl, "jo"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := y.st.SetSetting(ctx, store.HostedSetting, "true", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		return y
+	}
+	for _, c := range []struct {
+		name string
+		to   string
+		sec  *store.AskSecret
+		env  string                   // the variable the ask asks for
+		file func(home string) string // where its value is written
+	}{
+		{"a source's credential", "jo", &store.AskSecret{Source: "crm"}, "CRM_TOKEN",
+			func(home string) string { return filepath.Join(home, "sources", "crm.env") }},
+		{"a harness's API key", "jo", &store.AskSecret{Harness: "claude", Crew: "yardmaster"}, "ANTHROPIC_API_KEY",
+			func(home string) string {
+				file, err := store.HarnessKeyFile(home, "claude", "jo")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return file
+			}},
+		{"a hook's signing secret", "jo", &store.AskSecret{Source: "linear", Hook: "linear"}, "LINEAR_SIGNING_SECRET",
+			func(home string) string { return store.HookSecretFile(home, "linear") }},
+		{"a user's own address, given for them", "sam", &store.AskSecret{Source: "push", User: "sam"}, "PUSH_USER",
+			func(home string) string { return filepath.Join(home, "users", "sam.env") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			y := hostedYard(t)
+			body := y.askFor(t, c.to, c.sec, c.env, value)
+			w := y.give(edgelink.RemoteAddr, y.jo, strings.NewReader(body))
+			if !strings.Contains(w.Body.String(), `"given":["`+c.env+`"]`) {
+				t.Fatalf("answered %s", w.Body)
+			}
+			if b, err := os.ReadFile(c.file(filepath.Dir(y.db))); err != nil || !strings.Contains(string(b), value) {
+				t.Errorf("the file holds %q (%v), want the value", b, err)
+			}
+			if got, want := y.answers(t), []string{"jo via phone via edge"}; !slices.Equal(got, want) {
+				t.Errorf("the giving is answered on the bead by %q, want %q", got, want)
+			}
+		})
+	}
+	t.Run("a member's device", func(t *testing.T) {
+		y := hostedYard(t)
+		own := y.askFor(t, "sam", &store.AskSecret{Source: "push", User: "sam"}, "PUSH_USER", value)
+		w := y.give(edgelink.RemoteAddr, y.sam, strings.NewReader(own))
+		for _, want := range []string{"a secret never crosses the edge", "this request came down the link from the edge"} {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("sam's own ask is answered %s, want it to say %q", w.Body, want)
+			}
+		}
+		if strings.Contains(w.Body.String(), value) {
+			t.Errorf("sam's own ask is answered %s, with the value", w.Body)
+		}
+		none, _ := json.Marshal(noSuchMethod("GiveSecret"))
+		w = y.give(edgelink.RemoteAddr, y.sam, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})))
+		if strings.TrimSpace(w.Body.String()) != string(none) {
+			t.Errorf("the operator's ask from sam's device is answered %s, want no such method", w.Body)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(y.db), "users", "sam.env")); !os.IsNotExist(err) {
+			t.Errorf("a refused giving left a file of sam's (%v)", err)
+		}
+		y.untouched(t, "a member's device")
+	})
+	t.Run("said plain by the edge", func(t *testing.T) {
+		y := hostedYard(t)
+		w := y.give(edgelink.RemoteAddr, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})), "X-Forwarded-Proto", "http")
+		for _, want := range []string{
+			"a secret is taken over https only, or from the yard's own machine",
+			"the proxy in front of the yard says this request came to it in plain HTTP",
+		} {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("answered %s, want it to say %q", w.Body, want)
+			}
+		}
+		if strings.Contains(w.Body.String(), "a secret never crosses the edge") || strings.Contains(w.Body.String(), value) {
+			t.Errorf("answered %s, want the plain-HTTP refusal and not the link's, without the value", w.Body)
+		}
+		y.untouched(t, "a request said plain")
+	})
+	t.Run("hosted set to false", func(t *testing.T) {
+		y := hostedYard(t)
+		if err := y.st.SetSetting(ctx, store.HostedSetting, "false", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		w := y.give(edgelink.RemoteAddr, y.jo, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})))
+		if !strings.Contains(w.Body.String(), "a secret never crosses the edge") {
+			t.Errorf("answered %s, want the link's refusal", w.Body)
+		}
+		y.untouched(t, "hosted set to false")
+	})
 }
 
 // A hosted yard takes a secret from its router: the peer the router_addr
