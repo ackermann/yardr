@@ -167,6 +167,14 @@ type Dispatcher struct {
 	Binary *version.Binary
 	// CheckBinary is how often Binary is checked between passes (default 10s).
 	CheckBinary time.Duration
+	// Server, when set, makes sure a server answers and starts one if none
+	// does (server.Connect). The daemon connected to the server that ran
+	// when it started and only dials after, so a server that is gone (a
+	// replace whose new build did not come up, a stop, a crash) would leave
+	// it failing on a socket nothing listens on until someone restarted it:
+	// Run asks from the wake stream when it notices the server is gone, and
+	// after each pass that failed.
+	Server func(ctx context.Context) error
 	// StreamRetry is how long the wake stream and the quiet run's event
 	// stream wait before they ask a server that did not answer again
 	// (default 1s).
@@ -696,6 +704,13 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 				forward(ch)
 			} else if first {
 				d.Log.Warn("store wake-ups unavailable; retrying", "err", err)
+			} else {
+				// The stream had lived, so the server went away mid-run:
+				// ask for one again before the wait, instead of after the
+				// next pass fails its retries. The first failure starts
+				// nothing: boot already connected, and a starting server
+				// must not be raced.
+				d.ensureServer(ctx)
 			}
 			select {
 			case <-ctx.Done():
@@ -760,6 +775,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 				return nil
 			}
 			d.Log.Error("reconcile", "err", err)
+			d.ensureServer(ctx)
 		}
 		if d.replace(ctx) {
 			return nil
@@ -831,6 +847,20 @@ func (d *Dispatcher) prune(ctx context.Context) {
 	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers) > 0 {
 		d.Log.Info("pruned store", "events", res.Events, "sessions", res.Sessions, "hook_payloads", res.HookPayloads,
 			"held_by", res.HeldBy, "expired", res.Expired, "peers", res.Peers)
+	}
+}
+
+// ensureServer asks Server for a server that answers, since the failure
+// that led here may be that none does. It costs a call where one does;
+// where none did, the wake stream's next reconnect wakes the loop for a
+// pass that works. A server that cannot be started is said and asked for
+// again on the next failure, not on a timer of its own.
+func (d *Dispatcher) ensureServer(ctx context.Context) {
+	if d.Server == nil {
+		return
+	}
+	if err := d.Server(ctx); err != nil && ctx.Err() == nil {
+		d.Log.Warn("no yardr server answers, and one could not be started", "err", err)
 	}
 }
 

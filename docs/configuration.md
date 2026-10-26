@@ -569,7 +569,9 @@ gaps or duplicates, and a running watch rides out a server restart. With
 `--json`, one event per line.
 
 The server starts on first use, in the background (further down);
-`yardr server status` says whether it runs and `yardr server stop` ends it.
+`yardr server status` says whether it runs and `yardr server stop` stops the
+current server; a running daemon starts it again within about a minute, so
+stop the daemon first to keep it stopped.
 
 `--home <dir>` is a flag of every command, and runs it on the yard in that
 directory, so a second yard takes no variable:
@@ -1829,7 +1831,14 @@ A flow file in a repository still called
 - the daemon checks between passes, at least every 10 seconds; it finishes
   the pass it is in, then execs. Sessions live in the store, so the new
   daemon carries on with them. A daemon or server told to stop while a
-  replace is pending stops; the new build is not started.
+  replace is pending stops; the new build is not started;
+- the daemon reaches the server over the socket, and asks for it again when
+  its wake stream or a pass finds it gone: where no server answers (it was
+  stopped, or the new build did not come up), the daemon starts one, as any
+  command does, and says so in `daemon.log` (`the yardr server is gone;
+  starting it`). So a daemon that outlives its server heals without a
+  restart of its own; to keep the server stopped, as `yardr store compact`
+  needs, stop the daemon first.
 
 Each replace is logged in `server.log` (or the daemon's output) and as a
 `server_replaced` or `daemon_replaced` event with `from` and `to` revisions.

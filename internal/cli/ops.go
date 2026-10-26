@@ -61,7 +61,14 @@ func (a *app) serverCmd() *cobra.Command {
 			})
 		},
 	}, &cobra.Command{
-		Use: "stop", Short: "Stop the background server", Args: cobra.NoArgs,
+		Use:   "stop",
+		Short: "Stop the background server",
+		Long: `Stop the background server.
+
+A running daemon starts the server again within about a minute: stop the
+daemon first to keep it stopped. yardr down stops the daemon first and is
+unaffected.`,
+		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			cfg, err := a.config()
 			if err != nil {
@@ -153,6 +160,19 @@ func (a *app) daemonCmd() *cobra.Command {
 				Binary:      bin,
 				Retention:   keep,
 				PeerKey:     a.cfg.PeerKey(),
+				// The server it connected to may be gone mid-run: as any
+				// command does, the daemon starts one.
+				Server: func(ctx context.Context) error {
+					if server.Running(ctx, cfg) {
+						return nil
+					}
+					log.Warn("the yardr server is gone; starting it")
+					if _, err := server.Connect(ctx, cfg); err != nil {
+						return err
+					}
+					log.Info("the yardr server answers again")
+					return nil
+				},
 			}
 			log.Info("yardr daemon started", "store", a.cfg.DBPath(), "reconcile", interval)
 			runErr := d.Run(ctx)
