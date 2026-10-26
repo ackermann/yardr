@@ -359,7 +359,7 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 			agents[sess.Bead] = append(agents[sess.Bead], sess)
 		}
 	}
-	asks, decided, err := s.openAsks(ctx, y)
+	asks, decided, knowledge, err := s.openAsks(ctx, y)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -456,10 +456,28 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 		}
 		waits = append(waits, w)
 	}
+	// A journal waits on its asks alone: it is no work, so it is held,
+	// routed and stranded by nothing. Its asks may have ended since the
+	// queue was read.
+	for _, k := range knowledge {
+		if len(asks[k.bead.ID]) == 0 {
+			continue
+		}
+		waits = append(waits, Waiting{Bead: k.bead.ID, Title: k.bead.Title, Stage: k.bead.Stage, Since: k.since,
+			Why: asks[k.bead.ID], Revision: k.bead.Revision, As: s.acting(ctx)})
+	}
 	latest := func(a, b Waiting) int { return b.Since.Compare(a.Since) }
 	slices.SortStableFunc(waits, latest)
 	slices.SortStableFunc(parked, latest)
 	return waits, parked, nil
+}
+
+// knowledgeWait is an open journal or memory that holds an open ask to the
+// viewer, with since when it waits: its oldest open ask's time, not its own
+// last change, which a journal makes with every entry its crew member writes.
+type knowledgeWait struct {
+	bead  store.Bead
+	since time.Time
 }
 
 // openAsks reads the open asks on the yard's open beads, oldest first per
@@ -474,7 +492,12 @@ func (s *Server) waits(ctx context.Context, y *yard) (waits, parked []Waiting, e
 // Beside them it answers the open beads carrying a decided ask to the same
 // viewer — answered, declined, put aside or taken back — from the same
 // queue, so the manual row says whose answer is in at no new store read.
-func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, map[string]bool, error) {
+//
+// And the open journals and memories that hold an open ask, which the yard
+// view lists none of (they are no work): the yard asks the operator how to
+// log a harness in on the journal of the crew member sitting at its login
+// screen, and that ask waits like any other.
+func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, map[string]bool, []knowledgeWait, error) {
 	out := map[string][]Reason{}
 	decided := map[string]bool{}
 	op := s.acting(ctx)
@@ -482,32 +505,55 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, ma
 		all, err := s.st.Settings(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			s.log.Error("web: settings for asks", "err", err)
-			return out, decided, nil
+			return out, decided, nil, nil
 		}
 		op = all[store.OperatorSetting]
 		if op == "" {
-			return out, decided, nil
+			return out, decided, nil, nil
 		}
 	}
 	q, err := s.st.UserAsks(ctx, op, op, s.acting(ctx))
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		s.log.Error("web: user asks", "err", err)
-		return out, decided, nil
+		return out, decided, nil, nil
 	}
 	// The queue holds closed beads too; only the open ones wait.
 	open := map[string]bool{}
 	for _, b := range y.beads {
 		open[b.ID] = true
 	}
+	// An open ask on a bead the yard view does not hold is on a closed bead
+	// or on a journal or memory; the queue is oldest first, so the first of
+	// a journal's is the one it waits since.
+	var knowledge []knowledgeWait
+	read := map[string]bool{}
 	byBead := map[string][]store.OpenAsk{}
 	for _, o := range q.Open {
-		if !open[o.Bead] || strings.Contains(o.Bead, "@") {
+		if strings.Contains(o.Bead, "@") {
+			continue
+		}
+		if !open[o.Bead] && !read[o.Bead] {
+			read[o.Bead] = true
+			b, err := s.st.GetBead(ctx, o.Bead)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, nil, nil, err
+				}
+				s.log.Error("web: bead of an ask", "bead", o.Bead, "err", err)
+				continue
+			}
+			if b.Status == "open" && store.NotWork[b.Type] {
+				open[b.ID] = true
+				knowledge = append(knowledge, knowledgeWait{bead: *b, since: o.Since})
+			}
+		}
+		if !open[o.Bead] {
 			continue
 		}
 		byBead[o.Bead] = append(byBead[o.Bead], o)
@@ -523,7 +569,7 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, ma
 		notes, err := s.st.Notes(ctx, id)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			s.log.Error("web: bead notes for asks", "bead", id, "err", err)
 			continue
@@ -540,7 +586,7 @@ func (s *Server) openAsks(ctx context.Context, y *yard) (map[string][]Reason, ma
 			out[id] = append(out[id], askReason(r))
 		}
 	}
-	return out, decided, nil
+	return out, decided, knowledge, nil
 }
 
 // askReason is one open ask as a wait: the question in one line, its

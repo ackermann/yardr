@@ -341,6 +341,10 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 	if _, err := st.AddAsk(ctx, hidden.ID, store.Ask{Question: "May this bead move?", To: "jo", Context: []string{"this viewer cannot see the bead", "its ask must stay hidden"}}, "jo"); err != nil {
 		t.Fatal(err)
 	}
+	// The yard asks how to log a harness in on the crew member's journal.
+	if _, err := st.AddAsk(ctx, "yardmaster-journal", store.Ask{Question: "How should the yard log the harness in?", To: "jo", Context: []string{"the yardmaster is at its login screen"}}, "yard"); err != nil {
+		t.Fatal(err)
+	}
 	st.SetPolicy(seePolicy(func(actor string, act store.Action, obj store.Object) error {
 		if act == store.ActSee && obj.Kind == store.KindBead && obj.Name == hidden.ID {
 			return fmt.Errorf("hidden from %s", actor)
@@ -409,6 +413,8 @@ func TestUserCallsAreMadeAsTheUser(t *testing.T) {
 	}
 	if got := call(t, h, token, "UserAsks", `{}`); strings.Contains(got, hidden.ID) {
 		t.Errorf("UserAsks shows a bead the device may not see: %s", got)
+	} else if !strings.Contains(got, `"bead":"yardmaster-journal"`) {
+		t.Errorf("UserAsks leaves out the ask on the crew journal: %s", got)
 	}
 	if got := call(t, h, token, "Arrivals", `{}`); strings.Contains(got, hidden.ID) {
 		t.Errorf("Arrivals shows a bead the device may not see: %s", got)

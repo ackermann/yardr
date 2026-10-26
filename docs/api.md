@@ -1765,7 +1765,7 @@ POST /call/AckUserNotifications
 
 ### `UserAsks`
 
-The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and from the linked yards, oldest first, with what they have dealt with beside it. Only the user reads their queue, and an operator reads any user's. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.
+The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and of any type, the journal of a crew member among them (where the yard asks the operator how to log its harness in), and from the linked yards, oldest first, with what they have dealt with beside it. Only the user reads their queue, and an operator reads any user's. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.
 
 | argument | type | |
 |---|---|---|

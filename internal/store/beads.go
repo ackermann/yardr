@@ -767,6 +767,11 @@ type BeadFilter struct {
 	Depot string
 	Label string
 	Group string
+	// Knowledge keeps the journals and memories (NotWork) too, which a
+	// listing leaves out unless it names their type: for a read of what
+	// stands on every bead, such as the asks of a queue. A Type still keeps
+	// that type alone.
+	Knowledge bool
 	// Train keeps the train (a handle or UUID) and its children, the train
 	// first.
 	Train string
@@ -833,8 +838,9 @@ func (s *Store) ListBeads(ctx context.Context, f BeadFilter) ([]Bead, error) {
 			(train == "" || b.ID == train || b.Train == train) &&
 			(found == nil || found[b.UUID]) &&
 			(f.Stage == "" || b.Stage == f.Stage) &&
-			// Journals and memories are listed only when asked for by type.
-			((f.Type == "" && !NotWork[b.Type]) || b.Type == f.Type) &&
+			// Journals and memories are listed only when asked for by type
+			// or as knowledge.
+			((f.Type == "" && (f.Knowledge || !NotWork[b.Type])) || b.Type == f.Type) &&
 			(f.Depot == "" || (b.Depot != nil && *b.Depot == f.Depot)) &&
 			(f.Label == "" || slices.Contains(b.Labels, f.Label)) &&
 			(f.Group == "" || (b.Group != nil && *b.Group == f.Group))) {

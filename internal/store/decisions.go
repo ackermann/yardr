@@ -4,9 +4,9 @@
 // holds the page to the server.
 //
 // The queue is a new read of its own: every open ask addressed to the
-// person, on the yard's open beads in any stage, oldest ask first. It is
-// not yardr review's queue, which walks beads in manual stages by bead
-// age and stays as it is.
+// person, on the yard's beads in any stage and of any type, a crew
+// journal's among them, oldest ask first. It is not yardr review's queue,
+// which walks beads in manual stages by bead age and stays as it is.
 //
 // The writes delegate to AddAnswer, TakeBackAsk and AddNote: one
 // implementation, not two. Every refusal is theirs, word for word. A secret ask is answered by
@@ -127,8 +127,9 @@ type AskQueue struct {
 }
 
 // UserAsks reads the person's queue: every open ask addressed to them, on
-// beads the viewer may see in any stage and from the linked yards, oldest
-// first, with what they have dealt with beside it. Only the user reads
+// beads the viewer may see in any stage and of any type (a crew journal
+// holds the yard's own asks) and from the linked yards, oldest first, with
+// what they have dealt with beside it. Only the user reads
 // their queue, and an operator any user's (mayReadInbox); actor is who
 // reads, and left out is the user. An omitted viewer is the yard itself.
 // A foreign ask stands as
@@ -150,7 +151,10 @@ func (s *Store) UserAsks(ctx context.Context, name, actor string, viewer ...stri
 	}
 	// An ask remains open until answered, declined or returned. Closing its
 	// bead does not answer it, so include closed beads in this queue too.
-	beads, err := s.ListBeads(ctx, BeadFilter{All: true, Viewer: firstViewer(viewer)})
+	// So does a bead that is no work: the yard asks how to log a harness in
+	// on the crew member's journal. One listing that keeps them, not one
+	// more per type, since this is read on every noted event.
+	beads, err := s.ListBeads(ctx, BeadFilter{All: true, Knowledge: true, Viewer: firstViewer(viewer)})
 	if err != nil {
 		return nil, err
 	}

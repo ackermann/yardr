@@ -415,6 +415,13 @@ func TestBeadListHidesKnowledgeBeads(t *testing.T) {
 	if len(all) != 1 || all[0].Title != "work" || len(mem) != 1 {
 		t.Fatalf("list %d (%v), memories %d", len(all), all, len(mem))
 	}
+	// Asked for as knowledge they stand with the work, the crew's journal
+	// among them; a type still keeps that type alone.
+	know, _ := s.ListBeads(ctx, store.BeadFilter{Knowledge: true})
+	only, _ := s.ListBeads(ctx, store.BeadFilter{Knowledge: true, Type: store.TypeMemory})
+	if len(know) != 3 || len(only) != 1 || only[0].Type != store.TypeMemory {
+		t.Fatalf("knowledge list %d (%v), memories among it %d", len(know), know, len(only))
+	}
 }
 
 // An event already in the log keeps the kind an earlier release gave it,

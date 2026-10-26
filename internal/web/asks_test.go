@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -338,7 +339,9 @@ func TestHomeNeedsAskBacklog(t *testing.T) {
 }
 
 // Only an open ask to the operator stands: answered, declined, put aside,
-// addressed elsewhere, and on a closed bead stand in no row.
+// addressed elsewhere, and on a closed bead stand in no row. One on a crew
+// journal stands as any does, though the journal is no work and the yard
+// view lists none; an ended one there stands in no row either.
 func TestHomeNeedsAskOnlyOpen(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -368,12 +371,50 @@ func TestHomeNeedsAskOnlyOpen(t *testing.T) {
 	_, err := f.st.CloseBead(ctx, shut.ID, "done", store.Expect{}, "me")
 	must(t, err)
 
-	h := homeJSON(t, f, "/")
-	if len(h.Attention) != 1 || h.Attention[0].Bead != open.ID {
-		t.Fatalf("attention %+v, want the one open ask", h.Attention)
+	crew, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"kind": "claude"}}, "me")
+	must(t, err)
+	askOn(t, f, crew.Journal, pickAsk())
+	ended := askOn(t, f, crew.Journal, pickAsk())
+	must(t, f.st.TakeBackAsk(ctx, crew.Journal, ended, "the login ended", "yardmaster"))
+	// It has waited since its ask, whatever its crew member writes after.
+	q, err := f.st.UserAsks(ctx, "mckean", "mckean")
+	must(t, err)
+	i := slices.IndexFunc(q.Open, func(o store.OpenAsk) bool { return o.Bead == crew.Journal })
+	if i < 0 {
+		t.Fatalf("the queue %+v lacks the journal's ask", q.Open)
 	}
-	if got := waiting(lineJSON(t, f)); len(got) != 1 || got[0].Bead != open.ID {
-		t.Fatalf("/line waits %+v, want the one open ask", got)
+	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+
+	ids := func(ws []web.Waiting) []string {
+		var out []string
+		for _, w := range ws {
+			out = append(out, w.Bead)
+		}
+		slices.Sort(out)
+		return out
+	}
+	want := []string{open.ID, crew.Journal}
+	slices.Sort(want)
+	h := homeJSON(t, f, "/")
+	if got := ids(h.Attention); !slices.Equal(got, want) {
+		t.Fatalf("attention %+v, want the open ask and the journal's", h.Attention)
+	}
+	if got := ids(waiting(lineJSON(t, f))); !slices.Equal(got, want) {
+		t.Fatalf("/line waits %v, want the open ask and the journal's %v", got, want)
+	}
+	if page := answerSection(t, f.get("/").body); !strings.HasPrefix(page, "2 need you.") ||
+		!strings.Contains(page, `<a href="/beads/`+crew.Journal+`" class="ask">`) {
+		t.Errorf("the home list is %q, want two needs and a row linking to the journal", page)
+	}
+	for _, w := range h.Attention {
+		if w.Bead != crew.Journal {
+			continue
+		}
+		if w.Title != "Journal of yardmaster" || w.Stage != "journal" || len(w.Why) != 1 ||
+			w.Why[0].Kind != "ask" || w.Why[0].Text != pickAsk().Question || !w.Since.Equal(q.Open[i].Since) {
+			t.Fatalf("the journal's row %+v, want its one open ask, waiting since %v", w, q.Open[i].Since)
+		}
 	}
 }
 

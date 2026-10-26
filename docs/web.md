@@ -725,12 +725,13 @@ Home as JSON:
 - `attention` are the open beads that wait for a person: everything
   something stops (held, blocked on a prompt, stranded), the beads with
   an open ask to the operator — to the view's user, on a view that
-  acts — and the parked beads past their flow's first whose every
-  manual wait the reader has not answered, in the line's order, faults
-  first. A bead parked where it starts (a backlog) is on `/line` only,
-  unless an ask names the reader in particular, as is a parked bead
-  whose every manual wait the reader answered: their answer is in, and
-  `/line` says whose move it is now.
+  acts; a crew member's journal is one, where the yard asks how to log
+  its harness in — and the parked beads past their flow's first whose
+  every manual wait the reader has not answered, in the line's order,
+  faults first. A bead parked where it starts (a backlog) is on `/line`
+  only, unless an ask names the reader in particular, as is a parked
+  bead whose every manual wait the reader answered: their answer is in,
+  and `/line` says whose move it is now.
 - On the page they stand under the answer line: `Nothing needs you.`
   with `All clear.` under it when none waits, else `N need you.` with
   the faults counted apart (`2 need you. 1 fault.`). Each wait is one

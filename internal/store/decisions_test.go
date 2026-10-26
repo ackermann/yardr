@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -152,6 +153,64 @@ func TestUserAsksQueue(t *testing.T) {
 	}
 	if len(q.Open) != 4 || q.Open[3].Ask != aside || len(q.Decided) != 3 {
 		t.Fatalf("after its return: open = %+v, decided = %+v", q.Open, q.Decided)
+	}
+
+	// A crew journal is a bead like any other here, though a bead listing
+	// leaves it out: the yard asks the operator how to log a harness in on
+	// the journal of the crew member sitting at its login screen, and the
+	// person answers there or nowhere. The yard itself and a device read it
+	// alike, and a row reads on as its card, options and all.
+	crew, err := y.Store.PutCrew(y.ctx, CrewMember{Name: "yardmaster", Runner: "herdr",
+		Config: map[string]any{"kind": "claude"}}, "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.tick(time.Hour)
+	login := y.askOn(t, crew.Journal, linksAsk(), "yard")
+	y.tick(time.Hour)
+	ended := y.askOn(t, crew.Journal, linksAsk(), "yard")
+	y.tick(time.Hour)
+	if err := y.Store.TakeBackAsk(y.ctx, crew.Journal, ended, "the login ended", "yard"); err != nil {
+		t.Fatal(err)
+	}
+	y.tick(time.Hour)
+	// Another writer's card answers whatever the screens read: only the
+	// yard's own login cards wait on a seat.
+	chosen := y.askOn(t, crew.Journal, linksAsk(), "yardmaster")
+	y.tick(time.Hour)
+	y.answerOn(t, crew.Journal, Answer{Ask: chosen, Option: 2}, "mckean")
+	for _, viewer := range [][]string{nil, {"mckean"}} {
+		q, err := y.Store.UserAsks(y.ctx, "mckean", "mckean", viewer...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(q.Open) != 5 || q.Open[4].Ask != login {
+			t.Fatalf("viewer %q: open = %+v, want the journal's ask %d after the four", viewer, q.Open, login)
+		}
+		row := q.Open[4]
+		if row.Bead != crew.Journal || row.BeadTitle != "Journal of yardmaster" || row.Topic != "" ||
+			row.Question != linksAsk().Question || row.Asker != "yard" || row.Since.IsZero() {
+			t.Fatalf("viewer %q: open journal row = %+v", viewer, row)
+		}
+		if len(q.Decided) != 5 {
+			t.Fatalf("viewer %q: decided = %+v, want the journal's two before the three", viewer, q.Decided)
+		}
+		if d := q.Decided[0]; d.Bead != crew.Journal || d.Ask != chosen || d.State != "answered" ||
+			d.Option != 2 || d.OptionLabel != "After Friday" {
+			t.Fatalf("viewer %q: decided journal answer = %+v", viewer, d)
+		}
+		if d := q.Decided[1]; d.Bead != crew.Journal || d.Ask != ended || d.State != "taken back" ||
+			d.By != "yard" || d.Words != "the login ended" {
+			t.Fatalf("viewer %q: decided journal take-back = %+v", viewer, d)
+		}
+		v, err := y.Store.Bead(y.ctx, row.Bead, viewer...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(v.Asks, func(a BeadAsk) bool { return a.Ask == row.Ask })
+		if i < 0 || v.Asks[i].State != "open" || len(v.Asks[i].Options) != 3 || v.Asks[i].Options[0].Label != "Move them now" {
+			t.Fatalf("viewer %q: the journal's card = %+v, want ask %d open with its options", viewer, v.Asks, row.Ask)
+		}
 	}
 
 	if _, err := y.Store.UserAsks(y.ctx, "nobody", "nobody"); !errors.Is(err, ErrNotFound) {
