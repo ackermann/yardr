@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,6 +89,44 @@ func nextLink(t *testing.T, edge *standin.Edge) *standin.EdgeLink {
 		t.Fatal("the server's link never came up at the edge")
 		return nil
 	}
+}
+
+// edgeAwayStore gives each subscription what its script says: "ends" a
+// stream that ends when end is closed, as the server's does when it
+// replaces itself, "away" no answer, as a client's is while the server
+// does not answer; once the script is used up, the store's own.
+type edgeAwayStore struct {
+	store.API
+	script   []string
+	end      chan struct{}
+	attempts chan uint64
+	mu       sync.Mutex
+	subs     int
+}
+
+func (s *edgeAwayStore) Subscribe(ctx context.Context, after uint64) (<-chan store.Event, error) {
+	s.mu.Lock()
+	s.subs++
+	n := s.subs
+	s.mu.Unlock()
+	if s.attempts != nil {
+		s.attempts <- after
+	}
+	if n > len(s.script) {
+		return s.API.Subscribe(ctx, after)
+	}
+	if s.script[n-1] == "away" {
+		return nil, errors.New("yardr server: no server")
+	}
+	out := make(chan store.Event)
+	go func() {
+		defer close(out)
+		select {
+		case <-s.end:
+		case <-ctx.Done():
+		}
+	}()
+	return out, nil
 }
 
 func overLink(t *testing.T, l *standin.EdgeLink, path string, header http.Header, body string) standin.EdgeAnswer {
@@ -348,4 +388,66 @@ func TestEdgeLinkFollowsTheSettingBesideTheListener(t *testing.T) {
 			}
 		})
 	}
+	t.Run("web across a server replace", func(t *testing.T) {
+		edge, srv := stubEdge(t)
+		c := home(t)
+		ctx := context.Background()
+		_, value := edgeYard(t, c, edge, srv, false)
+		real := storetest.NewIn(t, c.Home)
+		head, err := real.Head(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		attempts := make(chan uint64, 4)
+		away := &edgeAwayStore{
+			API:      real,
+			script:   []string{"ends", "away", "away"},
+			end:      make(chan struct{}),
+			attempts: attempts,
+		}
+		view := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, "web home")
+		})
+		stopEdge := KeepEdge(ctx, c, away, "web", view, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		defer stopEdge()
+		nextAttempt := func() uint64 {
+			t.Helper()
+			select {
+			case after := <-attempts:
+				return after
+			case <-time.After(10 * time.Second):
+				t.Fatal("the web view did not retry its event subscription")
+				return 0
+			}
+		}
+		if got := nextAttempt(); got != head {
+			t.Fatalf("initial subscription after = %d, want head %d", got, head)
+		}
+		// The server replaces itself: the stream ends, and the edge is
+		// connected while it does not answer.
+		close(away.end)
+		if got := nextAttempt(); got != head {
+			t.Fatalf("first retry after = %d, want last sequence %d", got, head)
+		}
+		if err := real.SetSetting(ctx, store.EdgeSetting, value, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		for retry := 2; retry <= 3; retry++ {
+			if got := nextAttempt(); got != head {
+				t.Fatalf("retry %d after = %d, want last sequence %d", retry, got, head)
+			}
+		}
+		l := nextLink(t, edge)
+		if got := l.Header.Get("Yardr-Link-Role"); got != "web" {
+			t.Errorf("upgrade role = %q, want web", got)
+		}
+		key, err := yardkey.Load(c.PeerKey())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := l.Header.Get(yardkey.HeaderKey); got != yardkey.Public(key) {
+			t.Errorf("upgrade key = %q, want the yard's key", got)
+		}
+		waitEvent(t, real, "edge_link_up", func(e store.Event) bool { return e.Data["role"] == "web" })
+	})
 }

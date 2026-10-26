@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
@@ -23,14 +24,6 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		var events <-chan store.Event
-		head, err := st.Head(ctx)
-		if err == nil {
-			events, err = st.Subscribe(ctx, head)
-		}
-		if err != nil && ctx.Err() == nil {
-			log.Warn("edge: not subscribed to the yard's settings; the edge setting is read at the server's next start", "err", err)
-		}
 		var (
 			current  string
 			stopLink = func() {}
@@ -67,24 +60,55 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 			}
 			stopLink = startLink(ctx, c, st, &edgelink.Link{Edge: e, Key: key, Role: role, Handler: h, Log: log})
 		}
-		apply()
-		for {
+		// The stream ends whenever the server does, and a server that is
+		// replacing itself does not answer for a moment: subscribe again
+		// from the last event seen, asking again every second until it
+		// answers, as the dispatcher's wake stream and the quiet run's
+		// trigger do. A web view lives across every server replace, so
+		// without this its link keeps whatever edge it had until the
+		// view is restarted.
+		var after uint64
+		have, told := false, false
+		// pause says why the server could not be asked, once for each
+		// time it could not, and waits to ask again.
+		pause := func(what string, err error) {
+			if !told {
+				told = true
+				log.Warn("edge: cannot "+what+"; asking again", "err", err)
+			}
 			select {
 			case <-ctx.Done():
-				stopLink()
-				if role == "" {
-					os.Remove(c.EdgeState())
-				}
-				return
-			case ev, ok := <-events:
-				if !ok {
-					events = nil
+			case <-time.After(time.Second):
+			}
+		}
+		for ctx.Err() == nil {
+			if !have {
+				head, err := st.Head(ctx)
+				if err != nil {
+					pause("read the event log", err)
 					continue
 				}
-				if ev.Kind == "setting_changed" && ev.Data["key"] == store.EdgeSetting {
+				after, have = head, true
+			}
+			events, err := st.Subscribe(ctx, after)
+			if err != nil {
+				pause("watch the yard's events", err)
+				continue
+			}
+			told = false
+			// Subscribed first, so nothing committed while applying is
+			// missed: it is on the stream behind this pass.
+			apply()
+			for e := range events {
+				after = e.Seq
+				if e.Kind == "setting_changed" && e.Data["key"] == store.EdgeSetting {
 					apply()
 				}
 			}
+		}
+		stopLink()
+		if role == "" {
+			os.Remove(c.EdgeState())
 		}
 	}()
 	return func() {
