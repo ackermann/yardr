@@ -140,7 +140,12 @@ func runDaemon(t *testing.T, d *dispatch.Dispatcher) (stop func()) {
 // its unrouted event for the wake bead is the effect waited on.
 func wakePass(t *testing.T, s store.API) {
 	t.Helper()
-	b, err := s.CreateBead(context.Background(), store.NewBead{Title: "wake", Stage: "limbo"}, "me")
+	// The pass walks the ready beads by priority, 0 first, and a bead made
+	// without one has 0. The wake bead would come before the beads a test
+	// waits on, and its unrouted event, which ends the wait below, would be
+	// written before the pass reached them. At 9 it sorts after every bead
+	// a test makes, so the pass has been through them when its event is seen.
+	b, err := s.CreateBead(context.Background(), store.NewBead{Title: "wake", Stage: "limbo", Priority: 9}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
