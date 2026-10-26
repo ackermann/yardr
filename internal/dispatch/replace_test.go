@@ -297,3 +297,42 @@ func TestDaemonStoppedDuringAPassDoesNotReplaceItself(t *testing.T) {
 		t.Fatal("a daemon told to stop exec'd the new build instead")
 	}
 }
+
+// A daemon with a crew start in flight does not exec the new build until the
+// pass has applied the start: an exec mid-StartCrew leaves an agent in the
+// runtime that the new build finds under the member's name and takes for a
+// second session. The exec sees the session it waited for, and the start is
+// held through two passes first (passRan: the second is a pass that began
+// after the first one ended and was checked for a replacement), so a daemon
+// that did not wait would be gone by then.
+func TestDaemonWaitsOutACrewStartBeforeReplacingItself(t *testing.T) {
+	t.Parallel()
+	s, f, d := crewSetup(t, store.CrewMember{})
+	ctx := context.Background()
+	f.hold, f.entered, f.release = "yardmaster", make(chan string, 4), make(chan struct{})
+	execd := make(chan bool, 1)
+	bin, path := fakeBinary(t, "old", func([]string) error {
+		r, err := s.GetCrew(ctx, "yardmaster")
+		execd <- err == nil && r.Live()
+		return nil
+	})
+	d.Binary = bin
+	d.Interval = time.Hour
+	installRev(t, path, "new")
+
+	done := make(chan error, 1)
+	go func() { done <- d.Run(ctx) }()
+	awaitEntered(t, f)
+	passRan(t, s)
+	passRan(t, s)
+	close(f.release)
+	select {
+	case live := <-execd:
+		if !live {
+			t.Fatal("the daemon exec'd the new build with a crew start in flight")
+		}
+	case <-time.After(dispatch.WaitFuse):
+		t.Fatal("the daemon did not replace itself once the crew start was applied")
+	}
+	must(t, <-done)
+}

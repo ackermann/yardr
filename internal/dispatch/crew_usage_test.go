@@ -155,11 +155,16 @@ func TestCrewSessionIsCountedToItsMember(t *testing.T) {
 	}
 	for name, tc := range map[string]struct {
 		user string
-		end  func(t *testing.T, s store.API, c *crewCountRunner, d *dispatch.Dispatcher, agent string)
+		// started is the passes the session needs to start and have the id of
+		// its agent kept. A member starts one session a pass (one start in
+		// flight per member, crewstarts.go), the line session first, so a
+		// conversation's is the line's two passes and one more.
+		started int
+		end     func(t *testing.T, s store.API, c *crewCountRunner, d *dispatch.Dispatcher, agent string)
 	}{
-		"rotated":                        {"", rotated},
-		"gone":                           {"", gone},
-		"a conversation session is gone": {"hal", gone},
+		"rotated":                        {"", 2, rotated},
+		"gone":                           {"", 2, gone},
+		"a conversation session is gone": {"hal", 3, gone},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -172,7 +177,7 @@ func TestCrewSessionIsCountedToItsMember(t *testing.T) {
 				must(t, err)
 				serveCrew(t, s, "", map[string]string{tc.user: "/tmp/" + tc.user + ".env"})
 			}
-			passes(t, d, 2) // started, and the id of its agent kept
+			passes(t, d, tc.started) // started, and the id of its agent kept
 			agent := crewAgent(t, s, tc.user)
 			if h := crewSessionOf(t, s, tc.user).Handle; h[dispatch.AgentSession] != agentID(agent) || h["kind"] != "codex" {
 				t.Fatalf("handle = %v, want the id of the agent's session and its kind", h)

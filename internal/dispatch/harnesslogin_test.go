@@ -886,7 +886,10 @@ func TestLedLoginSwitchJoinsExistingKind(t *testing.T) {
 	})
 	scout, err = s.GetCrew(ctx, "scout")
 	must(t, err)
-	if scout.Config["kind"] != "claude" || scout.Handle["agent"] != "scout-3" {
+	// Scout and the yardmaster restart in the same pass, each on a worker of
+	// its own (crewstarts.go), so which of them is the third start is not
+	// fixed: scout's is the third or the fourth, and never a second restart.
+	if agent := scout.Handle["agent"]; scout.Config["kind"] != "claude" || (agent != "scout-3" && agent != "scout-4") {
 		t.Errorf("scout after restart: config kind %v, handle %v", scout.Config["kind"], scout.Handle)
 	}
 	if asks := openAsksOn(t, s, scout.Journal); len(asks) != 0 {

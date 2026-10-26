@@ -220,6 +220,18 @@ func (d *Dispatcher) operatorName(ctx context.Context) string {
 
 func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter CrewRunner, s *memberSession, paused bool) error {
 	def := s.member
+	// A start in flight for this member, on its worker or finished and not
+	// yet drained (crewstarts.go).
+	startKey, starting := d.crewInFlight[def.Name]
+	if starting && startKey == s.key() {
+		// This session is the one being started. The store may already say
+		// it runs (the worker wrote CrewStartedFor while this pass was under
+		// way), but what the session before it left in the pass's maps is
+		// cleared only by the drain, and a look before that would read it
+		// (a stale crewWorkHistory refuses the new session's trust dialog):
+		// nothing of it is kept until the drain.
+		return nil
+	}
 	if s.st.Live() {
 		status, err := d.crewStatus(ctx, runner, s)
 		if err != nil {
@@ -314,6 +326,14 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 	if s.st.RetryAfter != nil && d.now().Before(*s.st.RetryAfter) {
 		return nil
 	}
+	if starting {
+		// One start in flight per crew member, and no queue: while its
+		// worker starts one session (the line's or a conversation's) the
+		// member starts no other, and a later pass asks again once the drain
+		// has applied that start. Before the check below, which would find
+		// the agent being started and call it a second session.
+		return nil
+	}
 	if finder, ok := runner.(CrewFinder); ok {
 		other, err := finder.LiveCrew(ctx, def, s.user)
 		if err != nil {
@@ -342,34 +362,13 @@ func (d *Dispatcher) keepSession(ctx context.Context, runner Runner, starter Cre
 		d.Log.Info("would start, paused by the upgrade gate", "crew", def.Name, "session", s.label())
 		return nil
 	}
-	handle, err := starter.StartCrew(ctx, def, s.user)
-	if err != nil {
-		if def.Runner == "herdr" && hasHomeTab(handle) {
-			// StartCrew can open the tab and then fail while recording its
-			// handle. Keep that partial start for home-loss cleanup too.
-			d.noteHomeStarted(startedCrewHome(def.Name, s.user, def.Runner, handle))
-		}
-		return d.crewStartFailed(ctx, runner, s, handle, "", err)
-	}
-	if def.Runner == "herdr" {
-		// The pane is open from here, whatever the store says next.
-		d.noteHomeStarted(startedCrewHome(def.Name, s.user, def.Runner, handle))
-	}
-	d.Log.Info("crew session started", "crew", def.Name, "session", s.label())
-	key := s.key()
-	delete(d.status, key)
-	delete(d.promptIdle, key)
-	delete(d.idleSince, key)
-	delete(d.drafts, key)
-	delete(d.dialogs, key)
-	delete(d.logins, key)
-	delete(d.nudged, key)
-	delete(d.unsent, key)
-	delete(d.crewWorkHistory, key)
-	if err := d.Store.CrewStartedFor(ctx, def.Name, s.user, handle); err != nil {
-		return err
-	}
-	return d.closeLeft(ctx, runner, s)
+	// Hand the session to its member's worker and go on: the worker runs
+	// StartCrew beside the pass (crewstarts.go) and writes the start to the
+	// store, and the next pass drains its completion, where a failed start
+	// is counted (crewStartFailed) and a started one forgets what the session
+	// before it left and has what gone sessions left open closed (closeLeft).
+	d.handCrewStart(ctx, crewJob{session: *s, runner: runner, starter: starter})
+	return nil
 }
 
 // earlyExit marks the handle of a crew session that never ran (an early

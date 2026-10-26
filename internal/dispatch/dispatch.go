@@ -380,6 +380,15 @@ type Dispatcher struct {
 	startCtx      context.Context
 	startRunOwned bool
 	startNotify   func()
+	// The crew's workers (crewstarts.go) share startMu and Run's
+	// ownership above, and keep the same three things: crewWorkers, one
+	// per member, under startMu; crewInFlight, the pass's own record of
+	// the session (its memberSession.key) each member has in flight,
+	// which no worker touches; and crewDone, their completions for the
+	// drain at the head of the next pass.
+	crewWorkers  map[string]*crewWorker
+	crewInFlight map[string]string // crew member -> key of the session with a start in flight
+	crewDone     chan crewCompletion
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
@@ -574,6 +583,7 @@ func (d *Dispatcher) defaults() {
 	}
 	d.startMu.Lock()
 	d.initStartsLocked()
+	d.initCrewStartsLocked()
 	d.startMu.Unlock()
 }
 
@@ -759,9 +769,11 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	d.startLimitsRefresher(ctx, poke)
 	defer d.stopLimitsRefresher()
 	d.warmLimits(ctx)
-	// The bead-start workers (starts.go): route hands each claim to its
-	// group's worker, which runs beside this loop for Run's life and
-	// wakes it as each start lands.
+	// The start workers (starts.go, crewstarts.go): route hands each claim
+	// to its group's worker, and the crew each session it keeps to its
+	// member's, and they run beside this loop for Run's life and wake it as
+	// each start lands. The crew's share what this sets (the context their
+	// starts derive from, the poke), so it is one start for both.
 	d.startStartWorkers(ctx, poke)
 	defer d.stopStartWorkers()
 	// What a post that failed is tried again by is looked at more often
@@ -878,15 +890,17 @@ func (d *Dispatcher) streamRetry() time.Duration {
 // stop while a pass ran stops, rather than come back up as the new build.
 // It waits out a start in flight on its worker: exec'ing mid-start would
 // abandon a session this daemon claimed, whose handle the new build
-// could only judge as an interrupted start. The completion wakes the
-// loop, and the replacement is taken by the check after that pass.
+// could only judge as an interrupted start, or (for a crew member) an
+// agent the new build would find under the member's name and take for a
+// second session. The completion wakes the loop, and the replacement is
+// taken by the check after that pass.
 // It returns true only when a test's fake exec "succeeded". A failed exec
 // is logged and the old build carries on.
 func (d *Dispatcher) replace(ctx context.Context) bool {
 	if d.Binary == nil || ctx.Err() != nil {
 		return false
 	}
-	if len(d.startInFlight) > 0 {
+	if len(d.startInFlight) > 0 || len(d.crewInFlight) > 0 {
 		return false
 	}
 	to, ok := d.Binary.Replacement()
@@ -943,8 +957,11 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// Starts that finished since the last pass: their outcomes are
 	// already the store's, and what they owe the pass (the outage, the
 	// idle state, the prompt watch) is applied here, before reap reads
-	// the sessions and before any new claim for their groups.
+	// the sessions and before any new claim for their groups. The crew's
+	// are drained beside them (a failed start counted, a started session's
+	// old memory cleared), before the crew reads the store.
 	d.drainStartCompletions(ctx)
+	d.drainCrewCompletions(ctx)
 	d.beginHomePass()
 	// One snapshot of each pane for the whole pass, whatever checks read
 	// from it (see PaneCache).
@@ -1011,10 +1028,12 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.route(ctx, byName, active, paused); err != nil {
 		return err
 	}
-	// A pass run alone settles the starts it just handed over (starts.go),
-	// so the steps below see their sessions as a pass that started them
-	// inline did; under Run their completions wake the loop instead.
+	// A pass run alone settles the starts it just handed over (starts.go,
+	// and the crew's in crewstarts.go), so the steps below see their
+	// sessions as a pass that started them inline did; under Run their
+	// completions wake the loop instead.
 	d.settleStarts(ctx)
+	d.settleCrewStarts(ctx)
 	// After the work is started: a copy of a large store takes a while.
 	d.backups(ctx)
 	// Last: a peer that does not answer holds up nothing of this yard's,

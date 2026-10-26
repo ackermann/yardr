@@ -288,16 +288,20 @@ payment.
 This design takes three waits out of the pass. Others stay, and the reader
 should be able to see them. Two of them have since left it: limits
 commands went behind the background-refreshed cache (bead 1, yardr-sybk),
-and bead starts went to one worker per group (bead 3, yardr-jzhq), which
-claims in the pass and runs `runner.Start` beside it under each call's
-own bound, one start in flight per group. What a pass still waits on is:
+and starts went to workers, bead starts to one per group (bead 3,
+yardr-jzhq), which claims in the pass and runs `runner.Start` beside it
+under each call's own bound, one start in flight per group, and crew
+starts to one per crew member (bead 4, yardr-pv12), which decides in the
+pass and runs `StartCrew` beside it the same way, one start in flight per
+member across its line and conversation sessions. What a pass still waits
+on is:
 
 | Wait still in the pass | Bound today |
 |---|---|
 | `reap` asks each live session's runner for its status, in sequence (`alive`, then `Status`: one herdr call per session, 2 minutes each), reads pane ends for blocked, idle and stopped agents, and applies idle and age limits (`limits`, internal/dispatch/limits.go:79); the limits those apply are read from the background-refreshed cache, so no provider command runs here | 2 minutes per session, times the live sessions, worst case |
 | `teardown` and `cleanup` stop runners and finish worktrees (`Stop`, `Finish`: herdr calls and git at `checkoutTimeout`) | 2 minutes per call |
 | `usage` and `crewUsage` read stopped agents' session files for token counts | filesystem only, retried next pass |
-| `crew` starts members (section 2.2) and `harnessLogins` may run this binary's `harness login` | herdr bounds, plus the login command's |
+| `crew` keeps the members' live sessions (status reads, the nudges it types, the stops of a restart and what a failed start left open) and `harnessLogins` may run this binary's `harness login`; the start itself is off the pass | herdr bounds, plus the login command's |
 | `rules`, `makes` put hook events to their tables, which can run declared sources' commands | each source call's own timeout, with per-source waits after failure |
 | `ci` reads a train's checks through its source; `issues` moves tracked issues through theirs | source timeouts, skipped after failure through `ciWait` and `issueWait` until `Backoff` to `BackoffMax` |
 | `pushes` tells users outside the yard through their source (`tell`, internal/dispatch/pushes.go:86) | `PushTimeout`, 10 seconds a send, twice that with the picture fallback, per user |

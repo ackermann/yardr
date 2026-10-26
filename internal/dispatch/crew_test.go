@@ -73,6 +73,20 @@ type crewRunner struct {
 	ctxOK           bool                // ... and whether the session's kind names a source
 	ctxErr          error               // ... or the read fails
 	ctxCalls        int                 // reads of the session's context use
+
+	hold    string                         // the crew member whose start waits to be let go
+	entered chan string                    // ... says so when it has entered StartCrew
+	release chan struct{}                  // ... and goes on once this is closed
+	calls   map[string]int                 // StartCrew calls, by session: "<member>", or "<member>:<user>" for a conversation
+	listed  map[string]*dispatch.LiveAgent // the agent a held start has opened, which LiveCrew lists until the start returns
+}
+
+// startCalls is how often StartCrew was called for the session, failed or
+// not: "<member>" for the line session, "<member>:<user>" for a conversation.
+func (f *crewRunner) startCalls(session string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[session]
 }
 
 func (f *crewRunner) InputDialog(context.Context, map[string]any) (string, string, error) {
@@ -201,13 +215,48 @@ func (f *crewRunner) AcceptOnboarding(_ context.Context, _ map[string]any, _ map
 	return true
 }
 
-func (f *crewRunner) LiveCrew(context.Context, store.CrewMember, string) (*dispatch.LiveAgent, error) {
+func (f *crewRunner) LiveCrew(_ context.Context, r store.CrewMember, _ string) (*dispatch.LiveAgent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if a := f.listed[r.Name]; a != nil {
+		return a, nil
+	}
 	return f.foreign, f.findErr
 }
 
-func (f *crewRunner) StartCrew(_ context.Context, r store.CrewMember, user string) (map[string]any, error) {
+func (f *crewRunner) StartCrew(ctx context.Context, r store.CrewMember, user string) (map[string]any, error) {
+	f.mu.Lock()
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	session := r.Name
+	if user != "" {
+		session += ":" + user
+	}
+	f.calls[session]++
+	held, entered, release := f.hold == r.Name, f.entered, f.release
+	if held {
+		// As herdr's agent list shows the agent of a start still under way:
+		// listed once it is opened, before the start returns the handle that
+		// makes it the session's own.
+		if f.listed == nil {
+			f.listed = map[string]*dispatch.LiveAgent{}
+		}
+		f.listed[r.Name] = &dispatch.LiveAgent{Name: r.Name + "-opening", Pane: "p-opening"}
+	}
+	f.mu.Unlock()
+	if held {
+		// Without f.mu: a held start must not hold the other members' up.
+		entered <- r.Name
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		f.mu.Lock()
+		delete(f.listed, r.Name)
+		f.mu.Unlock()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.failNext; err != nil {

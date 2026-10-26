@@ -169,6 +169,19 @@ func StartsInFlight(d *Dispatcher) []string {
 	return out
 }
 
+// CrewStartsInFlight is the crew members with a start in flight, as the
+// crew last left them, for a test that says a pass run alone settled its
+// crew starts. Like StartsInFlight, it is read from the pass's own
+// goroutine or after it: a daemon's loop owns the record.
+func CrewStartsInFlight(d *Dispatcher) []string {
+	out := make([]string, 0, len(d.crewInFlight))
+	for member := range d.crewInFlight {
+		out = append(out, member)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // SidingDue is when the earliest siding that can fold is due, as of the
 // last pass; nil with none.
 func SidingDue(d *Dispatcher) *time.Time { return d.sidingDue }
