@@ -390,7 +390,10 @@ type Dispatcher struct {
 	crewInFlight map[string]string // crew member -> key of the session with a start in flight
 	crewDone     chan crewCompletion
 
-	clock      func() time.Time // tests only; see now
+	// clock is the time a test has set (SetClock), nil for the wall clock.
+	// A test sets it while Run's goroutines read it, so it is read and
+	// written atomically; see now.
+	clock      atomic.Pointer[func() time.Time]
 	retryAfter map[string]time.Time
 	reported   map[string]string // bead -> last unroutable reason, to log once
 	stays      map[string]stay   // bead -> its stay in a manual group's stage (waits.go)
@@ -1299,10 +1302,12 @@ func (d *Dispatcher) backingOff(ctx context.Context, b store.Bead) (bool, error)
 	return true, nil
 }
 
-// now is the dispatcher's clock, time.Now unless a test sets clock.
+// now is the dispatcher's clock, time.Now unless a test sets clock. Every
+// pass reads it, so it is one atomic load, and a test may set the clock
+// while a pass runs.
 func (d *Dispatcher) now() time.Time {
-	if d.clock != nil {
-		return d.clock()
+	if c := d.clock.Load(); c != nil {
+		return (*c)()
 	}
 	return time.Now()
 }

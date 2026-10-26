@@ -11,8 +11,10 @@ import (
 )
 
 // SetClock makes d read the time from clock, so a test can let a backoff
-// elapse without waiting for it.
-func SetClock(d *Dispatcher, clock func() time.Time) { d.clock = clock }
+// elapse without waiting for it. It may be called while d runs. The daemon's
+// goroutines call clock, which is not nil: a variable it captures that the
+// test also moves is the test's to guard.
+func SetClock(d *Dispatcher, clock func() time.Time) { d.clock.Store(&clock) }
 
 // RememberSourceAnswer keeps what the source named source said at at as
 // this daemon's memory of it, as if cachedSource had asked it then. A test
