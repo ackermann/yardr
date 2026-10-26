@@ -8,6 +8,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // waitCrew polls until the session of crew member name for user ("": the
@@ -15,7 +16,7 @@ import (
 // start runs beside its passes, never the wall time the start takes.
 func waitCrew(t *testing.T, s store.API, name, user, what string, cond func(store.CrewSession) bool) store.CrewSession {
 	t.Helper()
-	deadline := time.Now().Add(dispatch.WaitFuse)
+	deadline := time.Now().Add(testload.Scale(dispatch.WaitFuse))
 	for time.Now().Before(deadline) {
 		r, err := s.GetCrew(context.Background(), name)
 		must(t, err)
@@ -33,7 +34,7 @@ func crewRuns(st store.CrewSession) bool { return st.Live() }
 // waitEvent polls until the journal or bead id has an event of kind.
 func waitEvent(t *testing.T, s store.API, id, kind string) {
 	t.Helper()
-	deadline := time.Now().Add(dispatch.WaitFuse)
+	deadline := time.Now().Add(testload.Scale(dispatch.WaitFuse))
 	for time.Now().Before(deadline) {
 		if len(eventKinds(t, s, id, kind)) > 0 {
 			return
@@ -63,7 +64,7 @@ func nudge(t *testing.T, s store.API) *store.Bead {
 // that one has ended.
 func passRan(t *testing.T, s store.API) {
 	t.Helper()
-	deadline := time.Now().Add(dispatch.WaitFuse)
+	deadline := time.Now().Add(testload.Scale(dispatch.WaitFuse))
 	for tries := 1; time.Now().Before(deadline); tries++ {
 		b := nudge(t, s)
 		// How long a nudge gets before the next is made, not what the test
@@ -87,7 +88,7 @@ func awaitEntered(t *testing.T, f *crewRunner) string {
 	select {
 	case name := <-f.entered:
 		return name
-	case <-time.After(dispatch.WaitFuse):
+	case <-time.After(testload.Scale(dispatch.WaitFuse)):
 		t.Fatal("the held crew start never began")
 	}
 	return ""
@@ -132,7 +133,7 @@ func (r *aliveGate) Alive(ctx context.Context, h map[string]any) (bool, error) {
 // takes every one of them.
 func (r *aliveGate) awaitPass(t *testing.T, s store.API) *store.Bead {
 	t.Helper()
-	deadline := time.Now().Add(dispatch.WaitFuse)
+	deadline := time.Now().Add(testload.Scale(dispatch.WaitFuse))
 	for tries := 1; time.Now().Before(deadline); tries++ {
 		b := nudge(t, s)
 		select {
@@ -277,7 +278,7 @@ func TestStandaloneReconcileCrewStartUsesPassContext(t *testing.T) {
 	cancel()
 	select {
 	case <-pass: // whatever it returned: its context is gone
-	case <-time.After(dispatch.WaitFuse):
+	case <-time.After(testload.Scale(dispatch.WaitFuse)):
 		t.Fatal("the pass did not end once its context was cancelled")
 	}
 

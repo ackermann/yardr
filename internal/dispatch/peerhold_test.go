@@ -8,6 +8,7 @@ import (
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/testload"
 	"yardr.dev/yardr/internal/yardkey"
 	"yardr.dev/yardr/internal/yards"
 )
@@ -45,9 +46,10 @@ func (y *peerYard) ask(t *testing.T, ctx context.Context, peer string, clock *pe
 // hang (dispatch.WaitFuse), not a window the effect has to fit in.
 func until(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for end := time.Now().Add(dispatch.WaitFuse); !ok(); time.Sleep(5 * time.Millisecond) {
+	fuse := testload.Scale(dispatch.WaitFuse)
+	for end := time.Now().Add(fuse); !ok(); time.Sleep(5 * time.Millisecond) {
 		if time.Now().After(end) {
-			t.Fatalf("%s: not within %s", what, dispatch.WaitFuse)
+			t.Fatalf("%s: not within %s", what, fuse)
 		}
 	}
 }

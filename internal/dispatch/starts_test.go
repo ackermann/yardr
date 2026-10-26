@@ -11,6 +11,7 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/testload"
 )
 
 // gateRunner is a fakeRunner whose starts for one group wait to be
@@ -100,7 +101,7 @@ func (r *cancelStartRunner) Start(ctx context.Context, _ dispatch.Job) (map[stri
 func waitSessionState(t *testing.T, s store.API, bead, state string) store.Session {
 	t.Helper()
 	ctx := context.Background()
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(testload.Scale(30 * time.Second))
 	for time.Now().Before(deadline) {
 		b, err := s.GetBead(ctx, bead)
 		must(t, err)
@@ -149,7 +150,7 @@ func wakePass(t *testing.T, s store.API) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(testload.Scale(30 * time.Second))
 	for time.Now().Before(deadline) {
 		if len(eventKinds(t, s, b.ID, "unrouted")) > 0 {
 			return
@@ -252,13 +253,13 @@ func TestStandaloneReconcileUsesPassContext(t *testing.T) {
 	go func() { pass <- d.Reconcile(ctx) }()
 	select {
 	case <-r.started:
-	case <-time.After(30 * time.Second):
+	case <-time.After(testload.Scale(30 * time.Second)):
 		t.Fatal("standalone pass did not start the runner")
 	}
 	cancel()
 	select {
 	case <-r.canceled:
-	case <-time.After(30 * time.Second):
+	case <-time.After(testload.Scale(30 * time.Second)):
 		t.Fatal("runner start did not receive the pass cancellation")
 	}
 	select {
@@ -266,7 +267,7 @@ func TestStandaloneReconcileUsesPassContext(t *testing.T) {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Fatalf("standalone pass after cancellation: %v", err)
 		}
-	case <-time.After(30 * time.Second):
+	case <-time.After(testload.Scale(30 * time.Second)):
 		t.Fatal("standalone pass did not settle its cancelled start")
 	}
 	if groups := dispatch.StartsInFlight(d); len(groups) != 0 {
@@ -321,7 +322,7 @@ func TestRuntimeStartFailureLeavesNextBeadToALaterPass(t *testing.T) {
 	}
 	first := waitSessionState(t, s, b1.ID, "starting")
 	close(r.release)
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(testload.Scale(30 * time.Second))
 	for time.Now().Before(deadline) {
 		if got, _ := s.GetSession(ctx, first.ID); got.State == "aborted" {
 			break
@@ -391,7 +392,7 @@ func TestWorkerFailureClassesEndSessionsAsThePassDid(t *testing.T) {
 			must(t, err)
 			must(t, d.Reconcile(ctx))
 			var claimed store.Session
-			deadline := time.Now().Add(10 * time.Second)
+			deadline := time.Now().Add(testload.Scale(10 * time.Second))
 			for claimed.ID == "" && time.Now().Before(deadline) {
 				all, err := s.Sessions(ctx, true)
 				must(t, err)
