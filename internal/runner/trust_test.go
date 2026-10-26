@@ -1,8 +1,10 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -250,6 +252,34 @@ func securityDialog() string {
 `
 }
 
+// fullscreenOffer is Claude Code 2.1.310's offer of its fullscreen renderer
+// as herdr's `pane read --source visible` prints it, the cursor on the answer
+// `on` ("1. Yes, try it" or "2. Not now"). Read live under herdr, 26 Oct 2026,
+// in a home whose onboarding was done, with the offer forced by
+// CLAUDE_CODE_FORCE_FULLSCREEN_UPSELL=1: it is drawn in place of the input,
+// herdr says the agent is blocked while it shows, it opens with its cursor on
+// Yes, and Esc or Not now dismiss it for good.
+func fullscreenOffer(on string) string {
+	mark := func(answer string) string {
+		if answer == on {
+			return "  ❯ " + answer
+		}
+		return "    " + answer
+	}
+	return `
+───────────────────────────────────────────────────────────────────────────────
+  Try the new fullscreen renderer?
+
+  · Flicker-free output — fixes the flashing you see during long responses
+  · Mouse support — click to move your cursor or expand results
+  · Selected text auto-copies to your clipboard
+
+` + mark("1. Yes, try it") + "\n" + mark("2. Not now") + `
+
+  Enter to confirm · Esc to cancel
+`
+}
+
 // trustHerdr is a fake herdr whose agent stops at the folder-trust dialog:
 // agent start says agent_not_ready, the pane shows screen, `down` toggles
 // it between no and yes as the real one wraps, redrawing after `redraw`
@@ -390,11 +420,14 @@ func TestStartAgentAcceptsAPIKey(t *testing.T) {
 // answers each in turn, moving the picker's cursor onto its default first,
 // and the agent gets its first prompt at once; the security notes take
 // Enter alone, with no cursor moved. The folder-trust and API-key dialogs
-// beside them are untouched.
+// beside them are untouched. The offer of the fullscreen renderer stops a
+// start behind them, and its cursor opens on Yes: it is moved onto Not now
+// first, and Enter is never sent on Yes (trustHerdr fails the test if it is).
 func TestStartAgentAcceptsOnboarding(t *testing.T) {
 	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	dark := claude.Onboarding[0].Answers[0]
+	yes, notNow := "1. Yes, try it", claude.Onboarding[2].Answers[0]
 	for _, c := range []struct {
 		name           string
 		entry          int
@@ -404,6 +437,8 @@ func TestStartAgentAcceptsOnboarding(t *testing.T) {
 		{"theme, cursor on Dark mode", 0, themeDialog("Auto (match terminal)"), themeDialog(dark), themeDialog(dark), false},
 		{"theme, cursor off Dark mode", 0, themeDialog("Auto (match terminal)"), themeDialog(dark), themeDialog("Auto (match terminal)"), true},
 		{"security notes", 1, securityDialog(), securityDialog(), securityDialog(), false},
+		{"fullscreen offer, cursor on Yes", 2, fullscreenOffer(yes), fullscreenOffer(notNow), fullscreenOffer(yes), true},
+		{"fullscreen offer, cursor on Not now", 2, fullscreenOffer(yes), fullscreenOffer(notNow), fullscreenOffer(notNow), false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -624,7 +659,8 @@ func TestStartAgentLeavesRenamedOnboardingAnswer(t *testing.T) {
 	dark := claude.Onboarding[0].Answers[0]
 	renamedTheme := strings.Replace(themeDialog("Light mode"), "✔ Dark mode", "Dark theme", 1)
 	renamedSecurity := strings.Replace(securityDialog(), "Press Enter to continue…", "Press Return to continue…", 1)
-	for name, screen := range map[string]string{"theme": renamedTheme, "security notes": renamedSecurity} {
+	renamedOffer := strings.Replace(fullscreenOffer("1. Yes, try it"), "2. Not now", "2. Maybe later", 1)
+	for name, screen := range map[string]string{"theme": renamedTheme, "security notes": renamedSecurity, "fullscreen offer": renamedOffer} {
 		h, calls := trustHerdr(t, themeDialog("Auto (match terminal)"), themeDialog(dark), screen, "idle")
 		handle, err := h.startAgent(context.Background(), []string{"agent", "start", "b1"}, "b1", "read the brief",
 			map[string]any{"agent": "b1", "pane": "w1:p1"}, nil, nil, claude.Onboarding)
@@ -632,7 +668,7 @@ func TestStartAgentLeavesRenamedOnboardingAnswer(t *testing.T) {
 			t.Fatal(err)
 		}
 		if handle[store.PendingPrompt] != "read the brief" || handle[dispatch.OnboardingAccepted(0)] != nil ||
-			handle[dispatch.OnboardingAccepted(1)] != nil {
+			handle[dispatch.OnboardingAccepted(1)] != nil || handle[dispatch.OnboardingAccepted(2)] != nil {
 			t.Errorf("%s: handle = %v", name, handle)
 		}
 		if got := calls(); strings.Contains(got, "send-keys") || strings.Contains(got, "agent prompt") {
@@ -749,6 +785,10 @@ func TestStartupShown(t *testing.T) {
 		{"api key", "claude", apiKeyDialog("No (recommended)"), true},
 		{"theme picker", "claude", themeDialog(dark), true},
 		{"security notes", "claude", securityDialog(), true},
+		// Its selected answer carries the mark of the input, so only this
+		// keeps a first prompt from being typed into it, where Enter would
+		// take Yes.
+		{"fullscreen offer", "claude", fullscreenOffer("1. Yes, try it"), true},
 		{"another question", "claude", " Do you want to allow this?\n ❯ Yes\n", false},
 		{"the bare input", "claude", " ❯ \n", false},
 		{"unknown kind", "nope", trustDialog("No, exit"), false},
@@ -861,12 +901,18 @@ func TestAcceptKeyAnswersLateDialog(t *testing.T) {
 
 // The dispatcher's later passes answer an onboarding screen that drew only
 // after the start looked, by the same rule as the start, and nothing else.
-// `trust=false` leaves them answered, as it leaves the API-key dialog.
+// `trust=false` leaves them answered, as it leaves the API-key dialog. The
+// offer of the fullscreen renderer is answered here when herdr has the agent
+// blocked at it, which is what a crew start finds: only its own title and
+// its Not now line make it, and the renderer's tip, which has neither as a
+// line of its own, is no offer.
 func TestAcceptOnboardingAnswersLateDialog(t *testing.T) {
 	t.Parallel()
 	claude, _ := agents.Lookup("claude")
 	dark := claude.Onboarding[0].Answers[0]
 	themeYes, security := themeDialog(dark), securityDialog()
+	offerOff, offerOn := fullscreenOffer("1. Yes, try it"), fullscreenOffer(claude.Onboarding[2].Answers[0])
+	tip := "✻ Working… (esc to interrupt)\n  ⎿ Tip: Try the new fullscreen renderer — flicker-free output, mouse support, auto-copy on select · /tui fullscreen\n❯ \n"
 	question := "Choose the text style that looks best with your terminal"
 	wrappedTheme := strings.Replace(themeYes, question, "Choose the text style that looks best with\n your terminal", 1)
 	wrappedOff := strings.Replace(themeDialog("Auto (match terminal)"), question, "Choose the text style that looks best with\n your terminal", 1)
@@ -892,7 +938,16 @@ func TestAcceptOnboardingAnswersLateDialog(t *testing.T) {
 		{"the folder-trust dialog, security entry", trustDialog(claude.Trust.Answers[0]), map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 1, false, false},
 		{"theme asked of the security entry", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 1, false, false},
 		{"security notes asked of the theme entry", security, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, false, false},
-		{"entry out of range", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, false, false},
+		{"fullscreen offer, drawn late", offerOff, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, true, true},
+		{"fullscreen offer, kind unset", offerOff, map[string]any{"pane": "w1:p1"}, nil, 2, true, true},
+		{"fullscreen offer, trust=false", offerOff, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude", "trust": false}, 2, true, true},
+		{"fullscreen offer asked of the theme entry", offerOff, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 0, false, false},
+		{"fullscreen offer asked of the security entry", offerOff, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 1, false, false},
+		{"theme asked of the offer entry", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, false, false},
+		{"security notes asked of the offer entry", security, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, false, false},
+		{"the folder-trust dialog, offer entry", trustDialog(claude.Trust.Answers[0]), map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, false, false},
+		{"the renderer's tip, offer entry", tip, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 2, false, false},
+		{"entry out of range", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "claude"}, 3, false, false},
 		{"a kind with no screens", themeYes, map[string]any{"pane": "w1:p1"}, map[string]any{"kind": "grok"}, 0, false, false},
 		{"no pane", themeYes, map[string]any{"agent": "b1"}, map[string]any{"kind": "claude"}, 0, false, false},
 	}
@@ -903,6 +958,9 @@ func TestAcceptOnboardingAnswersLateDialog(t *testing.T) {
 		}
 		if c.screen == wrappedTheme {
 			no, yes = wrappedOff, wrappedTheme
+		}
+		if c.screen == offerOff {
+			no, yes = offerOff, offerOn
 		}
 		h, calls := trustHerdr(t, no, yes, c.screen, "idle")
 		if got := h.AcceptOnboarding(context.Background(), c.handle, c.cfg, c.entry); got != c.want {
@@ -1229,6 +1287,206 @@ func TestMaybeSeedHomeTrust(t *testing.T) {
 		h.maybeSeedHomeTrust(claude, home, nil) // must not fail the start
 		if _, err := os.Stat(filepath.Join(home, ".claude.json")); !os.IsNotExist(err) {
 			t.Fatalf("store created: %v", err)
+		}
+	})
+}
+
+// The harness's login command, on the path the yard leads, leaves
+// hasCompletedOnboarding unwritten, so yardr writes the true itself and only
+// the true: every other key is kept, a store already true is left untouched
+// byte for byte, and one that is missing is the harness's to write. The read
+// and the atomic write are the trust seed's (TestSeedClaudeHomeTrust).
+func TestSeedClaudeOnboarding(t *testing.T) {
+	t.Parallel()
+	write := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), ".claude.json")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	for _, c := range []struct {
+		name                string
+		body                string
+		wantSeeded, wantErr bool
+	}{
+		{"already true writes nothing", `{"hasCompletedOnboarding": true, "numStartups": 3}`, false, false},
+		{"absent becomes true", `{"numStartups": 3, "oauthAccount": {"emailAddress": "ada@example.com"}}`, true, false},
+		{"false becomes true", `{"hasCompletedOnboarding": false, "numStartups": 3}`, true, false},
+		{"an empty store", `{}`, true, false},
+		{"broken json is an error", `{oops`, false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			path := write(t, c.body)
+			seeded, err := seedClaudeOnboarding(path)
+			if seeded != c.wantSeeded || (err != nil) != c.wantErr {
+				t.Fatalf("seedClaudeOnboarding() = %v, %v, want %v, err %v", seeded, err, c.wantSeeded, c.wantErr)
+			}
+			body, ferr := os.ReadFile(path)
+			if ferr != nil {
+				t.Fatal(ferr)
+			}
+			if !c.wantSeeded {
+				if string(body) != c.body {
+					t.Fatalf("store rewritten, want it untouched:\n%s", body)
+				}
+				return
+			}
+			var store map[string]any
+			if err := json.Unmarshal(body, &store); err != nil {
+				t.Fatalf("seeded store does not parse: %v\n%s", err, body)
+			}
+			if store["hasCompletedOnboarding"] != true {
+				t.Errorf("onboarding is not marked done:\n%s", body)
+			}
+			if strings.Contains(c.body, "numStartups") && store["numStartups"] != float64(3) {
+				t.Errorf("another key not kept:\n%s", body)
+			}
+			if account, _ := store["oauthAccount"].(map[string]any); strings.Contains(c.body, "oauthAccount") && account["emailAddress"] != "ada@example.com" {
+				t.Errorf("another key not kept:\n%s", body)
+			}
+		})
+	}
+	t.Run("a missing store is left alone", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), ".claude.json")
+		if seeded, err := seedClaudeOnboarding(path); seeded || err != nil {
+			t.Fatalf("seedClaudeOnboarding() = %v, %v, want false, nil", seeded, err)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("store created: %v", err)
+		}
+	})
+}
+
+// A login the yard led marks the onboarding of a Claude harness done in the
+// home its sessions start in, and nowhere else: another kind, a config that
+// redirects the store and a store that is missing are left for the harness,
+// and a store already true is not written again. A mark that cannot be made
+// warns and goes on: it never fails the restart that follows.
+func TestMarkOnboarded(t *testing.T) {
+	// No t.Parallel: HOME and CLAUDE_CONFIG_DIR are process-wide.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	store := filepath.Join(home, ".claude.json")
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(store, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func() string {
+		t.Helper()
+		b, err := os.ReadFile(store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	marked := func() bool {
+		t.Helper()
+		var s map[string]any
+		if err := json.Unmarshal([]byte(read()), &s); err != nil {
+			t.Fatalf("store does not parse: %v\n%s", err, read())
+		}
+		return s["hasCompletedOnboarding"] == true
+	}
+	var logs bytes.Buffer
+	h := &Herdr{Log: slog.New(slog.NewTextHandler(&logs, nil))}
+	ctx := context.Background()
+	t.Run("marks the home's store", func(t *testing.T) {
+		write(`{"numStartups": 1}`)
+		h.MarkOnboarded(ctx, "claude")
+		if !marked() {
+			t.Fatalf("onboarding is not marked done: %s", read())
+		}
+		// Twice is once: the next login finds the true and writes nothing.
+		before := read()
+		h.MarkOnboarded(ctx, "claude")
+		if after := read(); after != before {
+			t.Fatalf("the store rewritten although marked:\n%s", after)
+		}
+		if strings.Contains(logs.String(), "level=WARN") {
+			t.Fatalf("warned of a mark that was made:\n%s", logs.String())
+		}
+	})
+	for _, c := range []struct{ name, kind, redirect string }{
+		{"another kind", "kimi", ""},
+		{"no kind", "", ""},
+		{"a redirected config", "claude", t.TempDir()},
+	} {
+		t.Run(c.name+" is left alone", func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", c.redirect)
+			body := `{"numStartups": 1}`
+			write(body)
+			h.MarkOnboarded(ctx, c.kind)
+			if got := read(); got != body {
+				t.Fatalf("the store rewritten:\n%s", got)
+			}
+		})
+	}
+	t.Run("an empty redirect is no redirect", func(t *testing.T) {
+		t.Setenv("CLAUDE_CONFIG_DIR", "")
+		write(`{"numStartups": 1}`)
+		h.MarkOnboarded(ctx, "claude")
+		if !marked() {
+			t.Fatalf("onboarding is not marked done: %s", read())
+		}
+	})
+	t.Run("a missing store is left for the harness", func(t *testing.T) {
+		if err := os.Remove(store); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		logs.Reset()
+		(&Herdr{}).MarkOnboarded(ctx, "claude") // no logger either: it must not fail
+		h.MarkOnboarded(ctx, "claude")
+		if _, err := os.Stat(store); !os.IsNotExist(err) {
+			t.Fatalf("store created: %v", err)
+		}
+		if logs.Len() != 0 {
+			t.Fatalf("said something of a store that is not there:\n%s", logs.String())
+		}
+	})
+	t.Run("a store that cannot be read warns and is left as it was", func(t *testing.T) {
+		body := `{oops`
+		write(body)
+		logs.Reset()
+		(&Herdr{}).MarkOnboarded(ctx, "claude") // no logger: the warning has nowhere to go, and it must not fail
+		h.MarkOnboarded(ctx, "claude")
+		if got := read(); got != body {
+			t.Fatalf("the store rewritten:\n%s", got)
+		}
+		if out := logs.String(); !strings.Contains(out, "level=WARN") || !strings.Contains(out, "mark onboarding done") {
+			t.Fatalf("no warning of the mark that failed:\n%s", out)
+		}
+	})
+	t.Run("a store that cannot be written warns and is left as it was", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root writes into a directory made read-only")
+		}
+		ro := t.TempDir()
+		t.Setenv("HOME", ro)
+		path := filepath.Join(ro, ".claude.json")
+		body := `{"numStartups": 1}`
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// The store reads, and no temporary file can be made beside it.
+		if err := os.Chmod(ro, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+		logs.Reset()
+		h.MarkOnboarded(ctx, "claude")
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != body {
+			t.Fatalf("the store is %q (%v), want it as it was", got, err)
+		}
+		if out := logs.String(); !strings.Contains(out, "level=WARN") || !strings.Contains(out, "mark onboarding done") {
+			t.Fatalf("no warning of the mark that failed:\n%s", out)
 		}
 	})
 }

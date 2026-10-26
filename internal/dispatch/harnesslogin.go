@@ -50,12 +50,15 @@ import (
 //     user's login reads that user's file, which no ask writes yet.
 //  3. Its confirm, the one call that proves the login, is an ask of its
 //     own: it costs a model call on the person's account.
-//  4. Done: every session of the kind sitting at its login screen is
-//     restarted: a crew session as yardr crew restart does, and a bead
-//     session ended as aborted, so its bead is routed again and a new
-//     session starts on the login. A key's done is the same restart, on
-//     the secret ask's answer, of the sessions on the operator's login
-//     alone: the others read no key and would sit at the screen again.
+//  4. Done: the harness's onboarding is marked done where its sessions
+//     start (the login command does not, and a session that started on the
+//     login would draw the first-start flow again), and then every session
+//     of the kind sitting at its login screen is restarted: a crew session
+//     as yardr crew restart does, and a bead session ended as aborted, so
+//     its bead is routed again and a new session starts on the login. A
+//     key's done is the same mark and restart, on the secret ask's answer,
+//     of the sessions on the operator's login alone: the others read no
+//     key and would sit at the screen again.
 //
 // One login is led per kind at a time: the machine's login of a kind is
 // every crew member's of that kind. A login that ends without one (the
@@ -942,12 +945,36 @@ func (d *Dispatcher) askKey(ctx context.Context, l *harnessLead) error {
 	return nil
 }
 
-// loggedIn ends l with its login made: every live session of its kind at
-// the login screen, crew and bead sessions both, and the crew member its
-// pick switched, starts again. A key's lead runs no leader, so there is
-// nothing to stop; its key is read by the sessions on the operator's login
-// alone (onLedLogin), so only those start again.
+// OnboardingMarker is implemented by runners that can mark a harness's own
+// onboarding done where the sessions they start find it (the herdr runner,
+// for the kinds whose home it knows). The sessions that start again once a
+// login the yard led is made must not meet the first-start flow the harness
+// draws until it has seen its onboarding done, and the login command does
+// not say so. It tells the dispatcher nothing of what it did: a mark that
+// could not be made leaves the screens to be answered as before, which the
+// runner's own answers to them still do.
+type OnboardingMarker interface {
+	MarkOnboarded(ctx context.Context, kind string)
+}
+
+// markOnboarded has the runners that can mark kind's onboarding done.
+func (d *Dispatcher) markOnboarded(ctx context.Context, kind string) {
+	for _, name := range slices.Sorted(maps.Keys(d.Runners)) {
+		if m, ok := d.Runners[name].(OnboardingMarker); ok {
+			m.MarkOnboarded(ctx, kind)
+		}
+	}
+}
+
+// loggedIn ends l with its login made: the harness's onboarding is marked
+// done, and then every live session of its kind at the login screen, crew
+// and bead sessions both, and the crew member its pick switched, starts
+// again. The mark comes first: a session that came up before it would meet
+// the onboarding on the login just made. A key's lead runs no leader, so
+// there is nothing to stop; its key is read by the sessions on the
+// operator's login alone (onLedLogin), so only those start again.
 func (d *Dispatcher) loggedIn(ctx context.Context, l *harnessLead) {
+	d.markOnboarded(ctx, l.kind)
 	delete(d.leads, l.kind)
 	if l.stop != nil {
 		l.stop()

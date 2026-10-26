@@ -473,12 +473,19 @@ with the key and no login, the harness asks in its pane whether to use
 it; the yard answers yes, as it answers folder trust, since the key is
 only there by the operator's hand.
 
-When the login is made, every session of that harness sitting at its
-login screen is started again: a crew session as `yardr crew restart`
-does, and its first prompt goes; a bead session is ended as `aborted`,
-no failure, and its bead is routed again onto the login. After an API
-key only the sessions on the operator's login start again. A `login_led` event on the journal tells each step
-(`asked`, `started`, `logged_in`, `failed`), never a value.
+When the login is made, the yard first marks the harness's onboarding
+done, since the login command of Claude Code does not, and a session that
+started on the login would draw its first-start screens again: it writes
+`hasCompletedOnboarding` into `~/.claude.json` of the user the yard runs
+as. It leaves that file as it is when it does not exist yet (Claude Code
+writes it), when it already says so, and when the daemon's environment
+names a `CLAUDE_CONFIG_DIR`, which moves the file. Then every session of
+that harness sitting at its login screen is started again: a crew session
+as `yardr crew restart` does, and its first prompt goes; a bead session is
+ended as `aborted`, no failure, and its bead is routed again onto the
+login. After an API key only the sessions on the operator's login start
+again. A `login_led` event on the journal tells each step (`asked`,
+`started`, `logged_in`, `failed`), never a value.
 
 One login is led per harness at a time: the machine's login of a harness
 is that of every crew member running it. Mail while a login is open asks

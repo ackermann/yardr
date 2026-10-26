@@ -171,6 +171,39 @@ func passUntil(t *testing.T, d *dispatch.Dispatcher, what string, cond func() bo
 	}
 }
 
+// watchMark has f note whether the yardmaster's restart was requested when
+// the yard marked the harness's onboarding done, and returns what it noted
+// (the restart's reason, "" for none). The mark must come first: a session
+// that started again before it would meet the onboarding on the login just
+// made.
+func watchMark(s store.API, f *crewRunner) *string {
+	at := new(string)
+	f.atMark = func(string) {
+		r, err := s.GetCrew(context.Background(), "yardmaster")
+		if err != nil {
+			*at = "the crew member could not be read: " + err.Error()
+			return
+		}
+		*at = r.RestartRequested
+	}
+	return at
+}
+
+// wantMarked checks that the yard marked claude's onboarding done once, and
+// before any restart was requested (watchMark).
+func wantMarked(t *testing.T, f *crewRunner, restartAtMark string) {
+	t.Helper()
+	f.mu.Lock()
+	marks := fmt.Sprint(f.marks)
+	f.mu.Unlock()
+	if marks != "[claude]" {
+		t.Errorf("onboarding marked done for %s, want claude once", marks)
+	}
+	if restartAtMark != "" {
+		t.Errorf("a restart was requested (%q) before onboarding was marked done", restartAtMark)
+	}
+}
+
 // The yardmaster of a hosted yard sat at Claude Code's login screen, and
 // nobody led the login: the yardmaster that was to relay it is that
 // harness's agent (yardr-302g). The yard leads it: one ask how, then the
@@ -181,6 +214,7 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	t.Parallel()
 	s, f, d, l := loginSetup(t)
 	ctx := context.Background()
+	restartAtMark := watchMark(s, f)
 
 	passUntil(t, d, "an ask how to log in", func() bool { return len(openAsks(t, s)) == 1 })
 	pick := openAsks(t, s)[0]
@@ -288,6 +322,9 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	if _, ev := kindCount(t, s, r.Journal, "login_led"); fmt.Sprint(ev.Data["restarted"]) != "[crew:yardmaster]" {
 		t.Errorf("restarted %v, want the yardmaster", ev.Data["restarted"])
 	}
+	// The login command writes no hasCompletedOnboarding, so the yard says
+	// it is done, before the yardmaster starts again on the login.
+	wantMarked(t, f, *restartAtMark)
 }
 
 // Picking "API key" on the first ask leads no login program: one secret
@@ -298,6 +335,7 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 	t.Parallel()
 	s, f, d, l := loginSetup(t)
 	ctx := context.Background()
+	restartAtMark := watchMark(s, f)
 	r, err := s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 
@@ -363,6 +401,8 @@ func TestYardLeadsAPIKeyLoginThroughAsks(t *testing.T) {
 	if b, err := os.ReadFile(file); err != nil || string(b) != "ANTHROPIC_API_KEY="+value+"\n" {
 		t.Fatalf("the env file holds %q, %v", b, err)
 	}
+	// A key's done is marked and restarted as a login's is.
+	wantMarked(t, f, *restartAtMark)
 	if st, err := os.Stat(file); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("the env file's mode = %v, %v", st.Mode(), err)
 	}

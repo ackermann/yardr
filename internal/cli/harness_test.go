@@ -80,9 +80,9 @@ func TestHarnessListAndShow(t *testing.T) {
 		`   · \d+ shells? still running$`,
 		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
 		`auto_mode_setup  ^Teach auto mode about your environment\?`)
-	// Claude's file names a context, two entries of usage and two onboarding
-	// screens: each is printed in the order the file has it, with what yardr
-	// does with it.
+	// Claude's file names a context, two entries of usage and three
+	// first-start screens: each is printed in the order the file has it, with
+	// what yardr does with it.
 	wantText(t, ask(0, "harness", "show", "claude"),
 		"The context its agent holds: a crew member is asked for a handoff at its --context-handoff percent of the window\n"+
 			"  ~/.claude (or $CLAUDE_CONFIG_DIR)/projects/*/{session}.jsonl: input_tokens + cache_read_input_tokens + cache_creation_input_tokens at message.usage of the last line of type assistant that has any of them\n",
@@ -94,9 +94,10 @@ func TestHarnessListAndShow(t *testing.T) {
 			"  2. every line of type assistant that has numbers at message.usage, the last for each message.id, added up (partial: it reads short of what the session used)\n"+
 			"     counts: input input_tokens, output output_tokens, cache read cache_read_input_tokens, cache write cache_creation_input_tokens\n"+
 			"     time:   from timestamp, RFC 3339 when a string or Unix time in seconds\n",
-		"First-start screens, drawn in a fresh home before any login or input: yardr answers each once, in turn\n"+
+		"First-start screens, drawn before its input is up: yardr answers each once, in turn\n"+
 			`  "Choose the text style": the cursor ❯ is moved onto "✔ Dark mode", then Enter`+"\n"+
-			`  "Security notes:": Enter, once "Press Enter to continue…" shows`+"\n")
+			`  "Security notes:": Enter, once "Press Enter to continue…" shows`+"\n"+
+			`  "Try the new fullscreen renderer?": the cursor ❯ is moved onto "2. Not now", then Enter`+"\n")
 	var shown agents.Harness
 	showJSON := ask(0, "harness", "show", "kimi", "--json")
 	if err := json.Unmarshal([]byte(showJSON), &shown); err != nil ||
@@ -214,7 +215,7 @@ func TestHarnessListAndShow(t *testing.T) {
 			"  2. every line of type done that has numbers at totals, added up\n"+
 			"     counts: input none (reads as 0), output out, cache read none (reads as 0), cache write none (reads as 0)\n"+
 			"     time:   from at, RFC 3339 when a string or Unix time in seconds\n",
-		"First-start screens, drawn in a fresh home before any login or input: yardr answers each once, in turn\n"+
+		"First-start screens, drawn before its input is up: yardr answers each once, in turn\n"+
 			`  "Pick one": the cursor > is moved onto "Yes" or "Sure", then Enter`+"\n")
 
 	// A file with none of the three prints none of their headings.

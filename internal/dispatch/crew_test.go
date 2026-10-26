@@ -79,6 +79,9 @@ type crewRunner struct {
 	release chan struct{}                  // ... and goes on once this is closed
 	calls   map[string]int                 // StartCrew calls, by session: "<member>", or "<member>:<user>" for a conversation
 	listed  map[string]*dispatch.LiveAgent // the agent a held start has opened, which LiveCrew lists until the start returns
+
+	marks  []string          // kinds whose onboarding it was asked to mark done, in order
+	atMark func(kind string) // runs as the mark is asked for, with no lock held
 }
 
 // startCalls is how often StartCrew was called for the session, failed or
@@ -213,6 +216,18 @@ func (f *crewRunner) AcceptOnboarding(_ context.Context, _ map[string]any, _ map
 	}
 	f.trustKeys = append(f.trustKeys, "enter")
 	return true
+}
+
+// MarkOnboarded records the kinds a login the yard led asked to be marked,
+// and lets the test look at the yard as it stood when the mark was asked for.
+func (f *crewRunner) MarkOnboarded(_ context.Context, kind string) {
+	f.mu.Lock()
+	f.marks = append(f.marks, kind)
+	on := f.atMark
+	f.mu.Unlock()
+	if on != nil {
+		on(kind)
+	}
 }
 
 func (f *crewRunner) LiveCrew(_ context.Context, r store.CrewMember, _ string) (*dispatch.LiveAgent, error) {

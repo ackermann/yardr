@@ -285,6 +285,36 @@ api_key:
 #   Press Enter to continue…
 # The security notes draw with no choice to move to: the entry names no
 # cursor, and yardr answers it with Enter alone when both lines show.
+#
+# The third entry is no onboarding screen, but it stops a start the same way
+# and is answered the same way: Claude Code's offer of its fullscreen
+# renderer, the first of the dialogs it draws in place of its input once its
+# onboarding is done (read live under herdr, Claude Code 2.1.310, 26 Oct
+# 2026, in a home whose onboarding was done, with a stand-in ANTHROPIC_API_KEY;
+# CLAUDE_CODE_FORCE_FULLSCREEN_UPSELL=1 draws it in a home that would not).
+# herdr says the agent is blocked while it shows, and `dialogs` below is read
+# only when yardr has text to type, so only an entry here answers it at a
+# start.
+#   Try the new fullscreen renderer?
+#
+#   · Flicker-free output — fixes the flashing you see during long responses
+#   · Mouse support — click to move your cursor or expand results
+#   · Selected text auto-copies to your clipboard
+#
+#   ❯ 1. Yes, try it
+#     2. Not now
+#
+#   Enter to confirm · Esc to cancel
+# The offer opens with its cursor on Yes. yardr moves it onto Not now before
+# it sends Enter, so the session keeps the renderer yardr reads today. Not
+# now takes Esc's way out: it writes nothing to the operator's
+# settings, and it counts the offer as seen for good
+# (fullscreenUpsellSeenCount in ~/.claude.json reaches 3, where the offer is
+# no longer made). Claude Code's code skips the offer for a `tui` setting in
+# settings.json and for CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 in the
+# environment (read in 2.1.310, not run), and neither is used: the first
+# writes the operator's own file, and the second forces the classic renderer
+# on an operator who chose fullscreen.
 onboarding:
   - dialog: "Choose the text style"
     answers: ["✔ Dark mode"]
@@ -292,6 +322,9 @@ onboarding:
   - dialog: "Security notes:"
     answers: ["Press Enter to continue…"]
     cursor: ""
+  - dialog: "Try the new fullscreen renderer?"
+    answers: ["2. Not now"]
+    cursor: "❯"
 
 # Claude Code's offer to run /auto-mode-setup, drawn in place of its input
 # at the end of a turn once auto mode has blocked several actions and

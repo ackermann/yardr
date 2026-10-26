@@ -51,6 +51,12 @@ import (
 // wherever it shows: at the start and on later passes, each kept on the
 // handle under its own mark, since the entries stand at different times.
 // An entry with no cursor is answered with Enter alone.
+//
+// After a login the yard led, the onboarding is not answered but marked
+// done (see MarkOnboarded), so the sessions that start again on the login
+// do not meet it. A screen the harness draws behind it, and stops a start
+// the same way, has an entry of the same list: Claude Code's offer of its
+// fullscreen renderer is the last entry of its file, answered Not now.
 
 // trustWait bounds the wait for an agent to be ready after its trust dialog
 // was answered. Start runs inside the dispatcher's pass, so it is short; an
@@ -200,6 +206,42 @@ func (h *Herdr) maybeSeedHomeTrust(cfg map[string]any, dir string, sessionEnv []
 	}
 }
 
+var _ dispatch.OnboardingMarker = (*Herdr)(nil)
+
+// MarkOnboarded marks the onboarding of kind's harness done in the home its
+// sessions start in (dispatch.OnboardingMarker): the dispatcher asks for it
+// when a login the yard led has been made, before the sessions at the login
+// screen start again. The login command the yard leads writes no
+// hasCompletedOnboarding on its browser path (read in Claude Code 2.1.310),
+// so a session started on the new login would draw the harness's first-start
+// flow again, which can include its login menu, and the crew start would wait
+// on a person at it.
+//
+// The home is this process's: the leader of the login ran in it, as a child
+// of the daemon, and the panes inherit it. As for folder trust, a config
+// that redirects the store (CLAUDE_CONFIG_DIR moves .claude.json too) is
+// left alone, as is a store that is missing, which the harness writes
+// itself, and one already true is left untouched. It never fails the
+// restart that follows: at worst the screens draw and are answered as before.
+func (h *Herdr) MarkOnboarded(_ context.Context, kind string) {
+	if kind != "claude" || os.Getenv("CLAUDE_CONFIG_DIR") != "" {
+		return
+	}
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return
+	}
+	marked, err := seedClaudeOnboarding(filepath.Join(home, ".claude.json"))
+	switch {
+	case err != nil:
+		if h.Log != nil {
+			h.Log.Warn("mark onboarding done", "kind", kind, "err", err)
+		}
+	case marked && h.Log != nil:
+		h.Log.Info("marked onboarding done", "kind", kind)
+	}
+}
+
 // seedClaudeHomeTrust sets projects.dir.hasTrustDialogAccepted in the Claude
 // trust store at storePath, creating the projects map or dir's entry when
 // missing, and reports whether it wrote. Every other key is kept as it was.
@@ -209,6 +251,54 @@ func (h *Herdr) maybeSeedHomeTrust(cfg map[string]any, dir string, sessionEnv []
 // event, and a side whose update is lost re-reads it on the next accept or
 // start. The write itself is atomic, a rename over the store.
 func seedClaudeHomeTrust(storePath, dir string) (bool, error) {
+	return editClaudeStore(storePath, func(store map[string]any) (bool, error) {
+		projects, ok := store["projects"].(map[string]any)
+		if store["projects"] != nil && !ok {
+			return false, fmt.Errorf("read %s: projects is not an object", storePath)
+		}
+		if projects == nil {
+			projects = map[string]any{}
+			store["projects"] = projects
+		}
+		entry, ok := projects[dir].(map[string]any)
+		if projects[dir] != nil && !ok {
+			return false, fmt.Errorf("read %s: the entry for %s is not an object", storePath, dir)
+		}
+		if entry == nil {
+			entry = map[string]any{}
+			projects[dir] = entry
+		}
+		if entry["hasTrustDialogAccepted"] == true {
+			return false, nil
+		}
+		entry["hasTrustDialogAccepted"] = true
+		return true, nil
+	})
+}
+
+// seedClaudeOnboarding sets hasCompletedOnboarding in the Claude store at
+// storePath and reports whether it wrote, as seedClaudeHomeTrust does for a
+// folder: every other key is kept, and a store that is missing, or one
+// already true, is left alone, byte for byte. The bare true is all the
+// harness itself writes where it logs in with no screen to draw (the
+// refresh-token form of `claude auth login`, read in Claude Code 2.1.310),
+// so it is all that is written here.
+func seedClaudeOnboarding(storePath string) (bool, error) {
+	return editClaudeStore(storePath, func(store map[string]any) (bool, error) {
+		if store["hasCompletedOnboarding"] == true {
+			return false, nil
+		}
+		store["hasCompletedOnboarding"] = true
+		return true, nil
+	})
+}
+
+// editClaudeStore reads the Claude store at storePath, lets edit change it,
+// and writes it back when edit says it changed something: it reports
+// whether it wrote. A store that is missing is left alone, and an error of
+// edit's leaves the file as it was. Numbers the edit does not touch keep
+// their exact digits, and the file keeps its mode.
+func editClaudeStore(storePath string, edit func(store map[string]any) (changed bool, err error)) (bool, error) {
 	body, err := os.ReadFile(storePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -231,26 +321,9 @@ func seedClaudeHomeTrust(storePath, dir string) (bool, error) {
 	if store == nil {
 		store = map[string]any{}
 	}
-	projects, ok := store["projects"].(map[string]any)
-	if store["projects"] != nil && !ok {
-		return false, fmt.Errorf("read %s: projects is not an object", storePath)
+	if changed, err := edit(store); err != nil || !changed {
+		return false, err
 	}
-	if projects == nil {
-		projects = map[string]any{}
-		store["projects"] = projects
-	}
-	entry, ok := projects[dir].(map[string]any)
-	if projects[dir] != nil && !ok {
-		return false, fmt.Errorf("read %s: the entry for %s is not an object", storePath, dir)
-	}
-	if entry == nil {
-		entry = map[string]any{}
-		projects[dir] = entry
-	}
-	if entry["hasTrustDialogAccepted"] == true {
-		return false, nil
-	}
-	entry["hasTrustDialogAccepted"] = true
 	out, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
 		return false, fmt.Errorf("write %s: %w", storePath, err)

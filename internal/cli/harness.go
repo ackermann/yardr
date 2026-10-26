@@ -354,7 +354,7 @@ func printHarness(w io.Writer, h agents.Harness, has bool) {
 		fmt.Fprintf(w, "\nUse-this-API-key dialog, drawn with no login: yardr answers %q with %s\n", k.Dialog, strings.Join(k.Answers, ", "))
 	}
 	if len(h.Onboarding) > 0 {
-		fmt.Fprintln(w, "\nFirst-start screens, drawn in a fresh home before any login or input: yardr answers each once, in turn")
+		fmt.Fprintln(w, "\nFirst-start screens, drawn before its input is up: yardr answers each once, in turn")
 		for _, o := range h.Onboarding {
 			shown := make([]string, len(o.Answers))
 			for i, a := range o.Answers {

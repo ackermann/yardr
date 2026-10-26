@@ -1436,7 +1436,7 @@ built into the binary and read once when yardr starts:
 | `login_recipe` | how a program leads its login for a person with no terminal ([doctor.md](doctor.md#a-harnesss-login-led-by-a-program)): the harness's own login command (`argv`), the ways to log in it has flags for (`methods`, each a `label` and its `args`), and patterns for two lines it prints, the one with the page to sign in on (`open_url`, whose one group is the address) and the one it takes input on (`input`), with the command and version they were read from (`verified`). Claude Code has one; a kind with none is logged in in a terminal | `yardr harness login <kind> --json`; `yardr doctor --json`, `yardr harness show --json`, for a program that leads it |
 | `login_env` | the variables of an API key the harness runs with when they are set in its session's environment. A kind that names them gets an API key choice on the yard's first-login ask ([crew.md](crew.md#the-yard-leads-a-harnesss-login)), which writes the given key into the crew member's environment and leads no login program; a kind with none gets no such choice. Claude Code names one | the daemon |
 | `api_key` | the dialog the harness draws on its first start with such a key set and no login, which yardr answers with the accepting answer, as it answers folder trust: `dialog`, `answers`, `cursor`, as `trust` has them, and no `env`. A kind with none is left for a person | the herdr runner, at start |
-| `onboarding` | the first-start screens the harness draws in a fresh home, before any login and before any input, which yardr answers in turn as it answers folder trust: a list of `dialog`, `answers`, `cursor`, as `trust` has them, and no `env`; an entry with no cursor is answered with Enter alone. Each entry is answered once, under its own mark. Claude Code names two; a kind with none is left for a person | the herdr runner, at start and on later passes |
+| `onboarding` | the screens the harness draws on a start before its input is up (onboarding in a fresh home, and the offers it makes behind it), which yardr answers in turn as it answers folder trust: a list of `dialog`, `answers`, `cursor`, as `trust` has them, and no `env`; an entry with no cursor is answered with Enter alone. Each entry is answered once, under its own mark. Claude Code names three: its theme picker, its security notes and its [offer of the fullscreen renderer](#claude-code), answered "Not now"; a kind with none is left for a person | the herdr runner, at start and on later passes |
 | `background` | the lines it draws around its input while a command its agent started in the background still runs, each a `pattern`: a session whose pane shows one at its `idle` limit is not told of as idle ([above](#a-command-runs-in-the-background); Claude Code has two, Muse one) | the daemon |
 | `hints` | what the kind adds to a hint of yardr's, a sentence each. `reset`: what the harness may ask before it takes the prompt given at a usage limit's reset, for the event that says the prompt [was not taken](#a-window-that-resets-within-six-hours-is-waited-for) ([Kimi](#kimi) has one; no other kind has any) | the daemon |
 
@@ -1509,6 +1509,32 @@ after Claude Code returns to its input. The runner waits for the dialog to
 redraw before sending Esc again, so a delayed repaint cannot send repeated
 keys to the agent's input. You can also turn the offer off in Claude Code's
 settings as above.
+
+Claude Code also offers its fullscreen renderer, once its onboarding is done
+and before it takes a message. The offer is drawn in place of its input, and
+herdr says the agent is blocked while it shows:
+
+```text
+ Try the new fullscreen renderer?
+
+ · Flicker-free output — fixes the flashing you see during long responses
+ · Mouse support — click to move your cursor or expand results
+ · Selected text auto-copies to your clipboard
+
+ ❯ 1. Yes, try it
+   2. Not now
+
+ Enter to confirm · Esc to cancel
+```
+
+A crew member that met it stopped at its start (`crew_blocked`, "not ready
+at startup") until someone answered it in its pane. yardr answers it itself,
+as it answers folder trust: it moves the cursor onto "Not now" and sends
+Enter, so the session stays in the renderer it was started in, and nothing
+is written to Claude Code's settings. Once it is dismissed, Claude
+Code does not ask again in that home. The screen is the last entry of
+`onboarding` in `harnesses/claude.yaml`, and `yardr harness show claude`
+lists it with the others.
 
 ### Codex
 

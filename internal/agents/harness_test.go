@@ -557,8 +557,10 @@ func TestLoginEnv(t *testing.T) {
 // in a fresh home (yardr-dffh): Claude Code's theme picker and its security
 // notes, each as the pty read them. The picker opens with its cursor on
 // Dark mode, which the ✔ marks as the current theme; the security notes
-// name no cursor and are answered with Enter alone. No other kind names
-// any.
+// name no cursor and are answered with Enter alone. The offer of its
+// fullscreen renderer is the last: it opens with its cursor on Yes, and the
+// answer is Not now, which is the second line, so the cursor is moved there.
+// No other kind names any.
 func TestOnboarding(t *testing.T) {
 	for _, h := range Harnesses {
 		if (len(h.Onboarding) > 0) != (h.Kind == "claude") {
@@ -569,6 +571,7 @@ func TestOnboarding(t *testing.T) {
 	want := []Trust{
 		{Dialog: "Choose the text style", Answers: []string{"✔ Dark mode"}, Cursor: "❯"},
 		{Dialog: "Security notes:", Answers: []string{"Press Enter to continue…"}},
+		{Dialog: "Try the new fullscreen renderer?", Answers: []string{"2. Not now"}, Cursor: "❯"},
 	}
 	if len(claude.Onboarding) != len(want) {
 		t.Fatalf("claude's onboarding: %+v, want %d entries", claude.Onboarding, len(want))
