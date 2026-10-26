@@ -241,6 +241,20 @@ func (w *watcherRun) under(t *testing.T, sh testShell, high bool, hi int) {
 	w.extra = plantedFiles(t, filepath.Dir(w.tmp), high, hi)
 }
 
+// watcherMidExecCommand reports whether a ps command line has the shape of
+// a process caught between fork and exec, while argv is unavailable: empty,
+// or the bare process name in parens ("(bash)" for the fake sleep's sh).
+// Nothing else makes that shape for a live process, so callers re-read ps
+// while it lasts instead of failing or skipping the pid.
+func watcherMidExecCommand(command string) bool {
+	if command == "" {
+		return true
+	}
+	argv := strings.Fields(command)
+	return len(argv) == 1 && len(argv[0]) > 2 &&
+		strings.HasPrefix(argv[0], "(") && strings.HasSuffix(argv[0], ")")
+}
+
 // watcherSleepers is this run's recorded timeout sleep, as pid and ppid.
 // It scopes both assertions and cleanup to PIDs created by the fake sleep
 // on this test's PATH, so another run's sleep is never signaled.
@@ -265,11 +279,29 @@ func watcherSleepers(t *testing.T, record, limit string) [][2]int {
 		if first != "argv: "+limit {
 			continue
 		}
-		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "stat=", "-o", "command=").CombinedOutput()
-		if err != nil && strings.TrimSpace(string(out)) != "" {
-			t.Fatalf("ps pid %d: %v\n%s", pid, err, out)
+		// ps can land between the fake sleep's record and its exec of
+		// /bin/sleep, when argv is unavailable and the command prints as
+		// the bare process name in parens or nothing. Skipping that pid
+		// here strands a live sleep past cleanup, so the lookup is
+		// re-read briefly while the command has that shape; anything else
+		// that is not the sleep is skipped at once, as before. The second
+		// is written for an idle box and sized to the machine
+		// (testload.Scale).
+		var fields []string
+		retry := time.Now().Add(testload.Scale(time.Second))
+		for {
+			out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "stat=", "-o", "command=").CombinedOutput()
+			if err != nil && strings.TrimSpace(string(out)) != "" {
+				t.Fatalf("ps pid %d: %v\n%s", pid, err, out)
+			}
+			fields = strings.Fields(string(out))
+			if len(fields) < 2 || strings.Contains(fields[1], "Z") ||
+				!watcherMidExecCommand(strings.Join(fields[2:], " ")) ||
+				time.Now().After(retry) {
+				break
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
-		fields := strings.Fields(string(out))
 		if len(fields) < 3 || strings.Contains(fields[1], "Z") {
 			continue
 		}
@@ -341,7 +373,7 @@ func assertWatcherSleepFds(t *testing.T, record, limit string) {
 
 // awaitWatcherSleep waits for the watcher's sleep to appear in its files and
 // returns its pid and its watcher's: the pid from the files themselves, the
-// watcher from one ps lookup of that pid. The files are the fake sleep's
+// watcher from a ps lookup of that pid. The files are the fake sleep's
 // record for the limit and the nap file holding the same pid; both must
 // appear, so the recording is complete before the caller kills the run. The
 // one-minute deadline is a fuse against the watcher never starting, not a
@@ -364,29 +396,43 @@ func awaitWatcherSleep(t *testing.T, cmd *exec.Cmd, tmp, record, limit string) (
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// One ps lookup of the known pid for the watcher, its parent: the sleep
+	// The ps lookup of the known pid for the watcher, its parent: the sleep
 	// lives as long as the test command, 60 s or gated on a release file,
-	// so it is alive however long this one ps takes under load.
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "stat=", "-o", "command=").CombinedOutput()
-	if err != nil && strings.TrimSpace(string(out)) != "" {
-		t.Fatalf("ps pid %d: %v\n%s", pid, err, out)
+	// so it is alive however long ps takes under load. But ps can land
+	// between the fake sleep's record and its exec of /bin/sleep, when argv
+	// is unavailable and the command prints as the bare process name in
+	// parens or nothing: that shape re-polls at the same cadence until the
+	// command resolves to the sleep or the deadline fires. Anything else
+	// that is not the sleep fails at once.
+	for {
+		out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "ppid=", "-o", "stat=", "-o", "command=").CombinedOutput()
+		if err != nil && strings.TrimSpace(string(out)) != "" {
+			t.Fatalf("ps pid %d: %v\n%s", pid, err, out)
+		}
+		fields := strings.Fields(string(out))
+		if len(fields) < 2 || strings.Contains(fields[1], "Z") {
+			t.Fatalf("the watcher's sleep %d from its files is not running", pid)
+		}
+		command := strings.Join(fields[2:], " ")
+		if watcherMidExecCommand(command) {
+			if time.Now().After(deadline) {
+				t.Fatalf("the watcher's sleep %d from its files never resolved past %q in ps", pid, command)
+			}
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		ppid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			t.Fatalf("ps pid %d has invalid parent %q", pid, fields[0])
+		}
+		argv := strings.Fields(command)
+		fakeSleep := filepath.Join(filepath.Dir(record), "bin", "sleep")
+		if len(argv) == 0 || argv[len(argv)-1] != limit ||
+			(filepath.Base(argv[0]) != "sleep" && !strings.Contains(command, fakeSleep)) {
+			t.Fatalf("the watcher's sleep %d from its files is not sleep %s in ps: %q", pid, limit, command)
+		}
+		return pid, ppid
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) < 3 || strings.Contains(fields[1], "Z") {
-		t.Fatalf("the watcher's sleep %d from its files is not running", pid)
-	}
-	ppid, err := strconv.Atoi(fields[0])
-	if err != nil {
-		t.Fatalf("ps pid %d has invalid parent %q", pid, fields[0])
-	}
-	command := strings.Join(fields[2:], " ")
-	argv := strings.Fields(command)
-	fakeSleep := filepath.Join(filepath.Dir(record), "bin", "sleep")
-	if len(argv) == 0 || argv[len(argv)-1] != limit ||
-		(filepath.Base(argv[0]) != "sleep" && !strings.Contains(command, fakeSleep)) {
-		t.Fatalf("the watcher's sleep %d from its files is not sleep %s in ps: %q", pid, limit, command)
-	}
-	return pid, ppid
 }
 
 // watcherSleepPidFromFiles returns the watcher's sleep pid once both its
