@@ -999,14 +999,37 @@ func testUserGiveSecretIsTakenDownTheLinkOfAHostedYard(t *testing.T) {
 	t.Run("a member's device", func(t *testing.T) {
 		y := hostedYard(t)
 		own := y.askFor(t, "sam", &store.AskSecret{Source: "push", User: "sam"}, "PUSH_USER", value)
+		var refused struct {
+			Error *wireError `json:"error"`
+		}
 		w := y.give(edgelink.RemoteAddr, y.sam, strings.NewReader(own))
-		for _, want := range []string{"a secret never crosses the edge", "this request came down the link from the edge"} {
-			if !strings.Contains(w.Body.String(), want) {
-				t.Errorf("sam's own ask is answered %s, want it to say %q", w.Body, want)
-			}
+		if err := json.Unmarshal(w.Body.Bytes(), &refused); err != nil || refused.Error == nil {
+			t.Fatalf("sam's own ask is answered %s (%v), want a refusal", w.Body, err)
+		}
+		const hostedMember = "a secret never crosses the edge from a member's device: this request came down the link from the edge. " +
+			"Ask the operator to give it from their paired device." +
+			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
+		if refused.Error.Message != hostedMember {
+			t.Errorf("sam's own ask is told %q, want %q", refused.Error.Message, hostedMember)
 		}
 		if strings.Contains(w.Body.String(), value) {
 			t.Errorf("sam's own ask is answered %s, with the value", w.Body)
+		}
+		// On a yard that is not hosted the same ask is refused with the
+		// yard's-machine sentence, word for word.
+		if err := y.st.SetSetting(ctx, store.HostedSetting, "false", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		w = y.give(edgelink.RemoteAddr, y.sam, strings.NewReader(own))
+		refused.Error = nil
+		if err := json.Unmarshal(w.Body.Bytes(), &refused); err != nil || refused.Error == nil {
+			t.Fatalf("sam's own ask, unhosted, is answered %s (%v), want a refusal", w.Body, err)
+		}
+		const connectedMember = "a secret never crosses the edge: this request came down the link from the edge. " +
+			"Answer on the yard's machine (ssh -t <host> yardr bead answer <bead> <ask> --secret)." +
+			" The edge saw what was sent with it: if it was a real key, make a new one at the service."
+		if refused.Error.Message != connectedMember {
+			t.Errorf("sam's own ask, unhosted, is told %q, want %q", refused.Error.Message, connectedMember)
 		}
 		none, _ := json.Marshal(noSuchMethod("GiveSecret"))
 		w = y.give(edgelink.RemoteAddr, y.sam, strings.NewReader(y.args(map[string]string{"CRM_TOKEN": value})))

@@ -1310,7 +1310,10 @@ const linkRemoteAddr = "edge:0"
 // (design yardr-hosted-050n 3.6), and only call can say it, since the
 // ask is in the body: crosses is its word that this giving is one the yard
 // takes down the link, and it passes false for every call it judges before the
-// body is read. On a hosted yard every secret crosses, for a device of the
+// body is read. hosted is the yard's hosted setting, read the same way: on
+// a hosted yard the operator's giving crosses, so a giving refused down the
+// link is a member's own, and its refusal names the operator's paired
+// device as the fix. On a hosted yard every secret crosses, for a device of the
 // operator: the hosting service runs the edge and the machine the yard lives
 // on, so a refusal would guard nothing it does not hold, and would leave a
 // person with no shell on that machine unable to give a key at all (hosted).
@@ -1328,7 +1331,7 @@ const linkRemoteAddr = "edge:0"
 // approval or a giving writes says it came by the edge (call). If the edge
 // says the device reached it over plain HTTP, the approval, the secret and
 // the screen are still refused.
-func inTheClear(r *http.Request, name, router string, crosses bool) string {
+func inTheClear(r *http.Request, name, router string, crosses, hosted bool) string {
 	if name == "SourceGrants" {
 		return sourceGrantsInTheClear(r, router)
 	}
@@ -1353,6 +1356,14 @@ func inTheClear(r *http.Request, name, router string, crosses bool) string {
 					"Give the device the yard's https:// address." + crossed
 			}
 			return ""
+		}
+		if hosted {
+			// The operator's giving crosses on a hosted yard (call), so
+			// this is a member's own: the member has no shell on the
+			// yard's machine, and the fix is the operator's device.
+			return "a secret never crosses the edge from a member's device: this request came down the link from the edge. " +
+				"Ask the operator to give it from their paired device." +
+				" The edge saw what was sent with it: if it was a real key, make a new one at the service."
 		}
 		return "a secret never crosses the edge: this request came down the link from the edge. " +
 			"Answer on the yard's machine (ssh -t <host> yardr bead answer <bead> <ask> " + flag + ")." +
@@ -1517,7 +1528,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 	// Every other operator call is judged before its body is read.
 	overLink := operators && name == "GiveSecret" && r.RemoteAddr == linkRemoteAddr
 	if operators && !overLink {
-		if why := inTheClear(r, name, u.routerAddr(r.Context()), false); why != "" {
+		if why := inTheClear(r, name, u.routerAddr(r.Context()), false, false); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}
@@ -1544,7 +1555,7 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		// Only the operator's giving crosses: a user's own (own) is refused
 		// down the link, hosted or not.
 		crosses := overLink && (u.hosted(r.Context()) || u.loginCode(r.Context(), body, c.User))
-		if why := inTheClear(r, name, u.routerAddr(r.Context()), crosses); why != "" {
+		if why := inTheClear(r, name, u.routerAddr(r.Context()), crosses, u.hosted(r.Context())); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}
