@@ -67,15 +67,17 @@ func TestPutHookChecksWhatItMakes(t *testing.T) {
 		make   store.Make
 		want   string
 	}{
-		"no filter":               {"github", store.Make{Type: "issue", Stage: "triage"}, "no filter"},
-		"a key of another source": {"linear", store.Make{Where: map[string]string{"merged": "true"}, Type: "issue", Stage: "triage"}, `cannot filter linear on "merged"`},
-		"the bead's stage":        {"github", store.Make{Where: map[string]string{"stage": "new"}, Type: "issue", Stage: "triage"}, `cannot filter github on "stage"`},
-		"the bead's type":         {"github", store.Make{Where: map[string]string{"event": "issues", "type": "issue"}, Type: "issue", Stage: "triage"}, "redundant with the bead the line makes"},
-		"an empty value":          {"github", store.Make{Where: map[string]string{"event": ""}, Type: "issue", Stage: "triage"}, "empty value for event"},
-		"no type":                 {"github", store.Make{Where: opened, Stage: "triage"}, `bead type ""`},
-		"a type with no flow":     {"github", store.Make{Where: opened, Type: store.TypeMemory, Stage: "memory"}, "follows no flow"},
-		"no stage":                {"github", store.Make{Where: opened, Type: "issue"}, `stage ""`},
-		"a depot that is no name": {"github", store.Make{Where: opened, Type: "issue", Stage: "triage", Depot: "My Depot"}, `depot "My Depot"`},
+		"no filter":                 {"github", store.Make{Type: "issue", Stage: "triage"}, "no filter"},
+		"a key of another source":   {"linear", store.Make{Where: map[string]string{"merged": "true"}, Type: "issue", Stage: "triage"}, `cannot filter linear on "merged"`},
+		"the bead's stage":          {"github", store.Make{Where: map[string]string{"stage": "new"}, Type: "issue", Stage: "triage"}, `cannot filter github on "stage"`},
+		"the bead's stage on token": {"token", store.Make{Where: map[string]string{"event": "box", "stage": "new"}, Type: "box", Stage: "requested"}, "stage=new names the bead's stage"},
+		"a routing name on token":   {"token", store.Make{Where: map[string]string{"event": "box", "train": "yard-1"}, Type: "box", Stage: "requested"}, `cannot filter token on "train"`},
+		"the bead's type":           {"github", store.Make{Where: map[string]string{"event": "issues", "type": "issue"}, Type: "issue", Stage: "triage"}, "redundant with the bead the line makes"},
+		"an empty value":            {"github", store.Make{Where: map[string]string{"event": ""}, Type: "issue", Stage: "triage"}, "empty value for event"},
+		"no type":                   {"github", store.Make{Where: opened, Stage: "triage"}, `bead type ""`},
+		"a type with no flow":       {"github", store.Make{Where: opened, Type: store.TypeMemory, Stage: "memory"}, "follows no flow"},
+		"no stage":                  {"github", store.Make{Where: opened, Type: "issue"}, `stage ""`},
+		"a depot that is no name":   {"github", store.Make{Where: opened, Type: "issue", Stage: "triage", Depot: "My Depot"}, `depot "My Depot"`},
 	} {
 		if err := put(c.source, c.make); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", name, err, c.want)
@@ -116,6 +118,15 @@ func TestPutHookChecksWhatItMakes(t *testing.T) {
 	}
 	if m := h.Made(map[string]any{"type": "push", "fields": map[string]any{"event": []any{"push"}}}); m != nil {
 		t.Fatalf("a push makes %+v", m)
+	}
+	// A token hook's makes lines filter on the delivery's sender-chosen
+	// fields, so any key but the routing names holds there.
+	tok, err := store.ParseMake("event=box verb=create -> box:requested@yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := put("token", tok); err != nil {
+		t.Fatalf("a token makes line on a sender-chosen key: %v", err)
 	}
 }
 

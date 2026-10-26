@@ -359,9 +359,16 @@ func TestTokenSource(t *testing.T) {
 	if code := r.post(t, "/hooks/adhoc", []byte("plain words"), bearer("t-2")); code != http.StatusOK {
 		t.Fatalf("plain body: %d", code)
 	}
+	long := strings.Repeat("é", hooks.MaxText*3)
+	fieldsBody, _ := json.Marshal(map[string]any{"type": "box", "verb": "create", "handle": "h-1",
+		"size": 8, "region": map[string]any{"id": "iad"}, "note": long,
+		"train": "yard-1", "repo": "acme/yardr", "number": "17", "head_sha": "abc", "head_repo": "acme/yardr"})
+	if code := r.post(t, "/hooks/adhoc", fieldsBody, bearer("t-3")); code != http.StatusOK {
+		t.Fatalf("fields body: %d", code)
+	}
 	evs := r.hookEvents(t)
-	if len(evs) != 2 {
-		t.Fatalf("want 2 events, got %d", len(evs))
+	if len(evs) != 3 {
+		t.Fatalf("want 3 events, got %d", len(evs))
 	}
 	if d := evs[0].Data; d["type"] != "deploy" || d["action"] != "finished" || d["text"] != "prod is on v42" ||
 		d["actor"].(map[string]any)["name"] != "CI" || d["source"] != "token" {
@@ -369,6 +376,24 @@ func TestTokenSource(t *testing.T) {
 	}
 	if d := evs[1].Data; d["type"] != "message" || d["text"] != "plain words" {
 		t.Fatalf("plain body: %+v", d)
+	}
+	// Every other top-level string of the body rides as a field, each
+	// truncated as text is; numbers and objects stay out, as do the
+	// routing names, which a sender must not steer.
+	d := evs[2].Data
+	fields, _ := d["fields"].(map[string]any)
+	if d["type"] != "box" || len(fields) != 3 ||
+		fmt.Sprint(fields["verb"]) != "[create]" || fmt.Sprint(fields["handle"]) != "[h-1]" {
+		t.Fatalf("fields body: %+v", d)
+	}
+	for _, k := range store.TokenReservedFields {
+		if _, ok := fields[k]; ok {
+			t.Fatalf("fields body carries the routing name %q: %+v", k, d)
+		}
+	}
+	note, _ := fields["note"].([]any)
+	if len(note) != 1 || len([]rune(note[0].(string))) != hooks.MaxText || !strings.HasSuffix(note[0].(string), "…") {
+		t.Fatalf("fields body: note field %+v, want it truncated as text is", fields["note"])
 	}
 }
 

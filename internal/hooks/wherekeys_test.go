@@ -40,7 +40,10 @@ func githubEventOf(file string) string {
 // names are literals in the adapters and the where keys a list in the
 // store, so nothing but this holds them together. Every fixture of each
 // builtin adapter is normalized, and the store is asked for a subscription
-// on each field it came back with.
+// on each field it came back with. token's sender-chosen fields are the
+// exception: its fixtures carry none, its subscriptions keep the common
+// keys, and only its makes lines filter on any key but the routing names
+// (store.SourceToken, store.TokenReservedFields).
 //
 // The other way round is only said (go test -v): a where key no fixture
 // sets may be an event the fixtures do not cover, or a key of another

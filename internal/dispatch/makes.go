@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -195,16 +197,18 @@ func (d *Dispatcher) closedSince(ctx context.Context, ev ruleEvent, decl *source
 // make puts ev, about a thread no open bead tracks, to its hook's table of
 // what its events make. It returns the bead that tracks the thread after
 // all, when one came to between the look for it and the write: the event
-// then says to it what it would have. decl is the yard's declared source
-// of the event's source, nil for a builtin one.
+// then says to it what it would have. A token delivery belongs to no
+// thread: its hook's line files it as a standalone bead carrying the
+// delivery's fields. decl is the yard's declared source of the event's
+// source, nil for a builtin one.
 func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, decl *source.Declaration) (tracked bool) {
-	if ev.threadURL == "" {
+	if ev.threadURL == "" && ev.source != store.SourceToken {
 		return false
 	}
 	h := d.hookOf(ctx, ev.hook, pass)
 	line := h.Made(ev.data)
-	// What the yard did itself makes nothing, as it says nothing.
-	if line == nil || d.own(ctx, ev, pass) {
+	// A token's actor is sender-asserted, not proof of the yard's identity.
+	if line == nil || (ev.threadURL != "" && d.own(ctx, ev, pass)) {
 		return false
 	}
 	if d.closedSince(ctx, ev, decl) {
@@ -224,11 +228,19 @@ func (d *Dispatcher) make(ctx context.Context, ev ruleEvent, pass *hookPass, dec
 	var bead *store.Bead
 	if why == "" {
 		data["depot"] = depot
-		nb := madeBead(ev, line, depot)
-		forUser, fallback := d.hookOriginator(ctx, ev, line, depot)
-		nb.For = forUser
-		for k, v := range fallback {
-			data[k] = v
+		var nb store.NewBead
+		if ev.threadURL == "" {
+			// A standalone bead is filed on the operator's: the token
+			// actor is sender-asserted, never identity proof, so it is
+			// not put to the originator's checks.
+			nb = madeStandaloneBead(ev, line, depot)
+		} else {
+			nb = madeBead(ev, line, depot)
+			forUser, fallback := d.hookOriginator(ctx, ev, line, depot)
+			nb.For = forUser
+			for k, v := range fallback {
+				data[k] = v
+			}
 		}
 		bead, err = d.Store.CreateBead(ctx, nb, "hook:"+h.Name)
 	}
@@ -362,5 +374,59 @@ func madeBead(ev ruleEvent, line *store.Make, depot string) store.NewBead {
 		Metadata:  map[string]any{metaHookSeq: ev.seq},
 		Links:     []store.NewLink{{Kind: store.LinkTracks, Source: ev.source, URL: ev.threadURL, Thread: str(thread["id"])}},
 		Untracked: true,
+	}
+}
+
+// madeStandaloneBead is the bead line makes of a threadless token delivery
+// in depot: no thread to track, so no link and no Untracked. The delivery's
+// carried fields ride as hook.<key> metadata, which the bead's scripts
+// read, and are listed in the body beside the text and the delivery id;
+// the title is the text's first line. Fields ride as data only: nothing on
+// this path runs them.
+func madeStandaloneBead(ev ruleEvent, line *store.Make, depot string) store.NewBead {
+	str := func(v any) string { s, _ := v.(string); return s }
+	first := func(v any) string {
+		switch l := v.(type) {
+		case []any:
+			if len(l) > 0 {
+				return str(l[0])
+			}
+		case []string:
+			if len(l) > 0 {
+				return l[0]
+			}
+		}
+		return ""
+	}
+	fields, _ := ev.data["fields"].(map[string]any)
+	meta := map[string]any{metaHookSeq: ev.seq}
+	var listed []string
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		v := first(fields[k])
+		if v == "" {
+			continue
+		}
+		meta["hook."+k] = v
+		listed = append(listed, k+": "+v)
+	}
+	text := strings.TrimSpace(str(ev.data["text"]))
+	title, _, _ := strings.Cut(text, "\n")
+	if title == "" {
+		title = ev.typ + " request"
+		if id := str(ev.data["delivery"]); id != "" {
+			title += " " + id
+		}
+	}
+	body := strings.Join(listed, "\n")
+	if text != "" {
+		body = strings.TrimSpace(body + "\n\n" + text)
+	}
+	if id := str(ev.data["delivery"]); id != "" {
+		body = strings.TrimSpace(body + "\n\n" + "delivery " + id)
+	}
+	return store.NewBead{
+		Title: title, Body: body,
+		Type: line.Type, Stage: line.Stage, Depot: depot,
+		Metadata: meta,
 	}
 }

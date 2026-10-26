@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
@@ -687,6 +689,210 @@ func TestDepotIsFoundByItsOriginRemote(t *testing.T) {
 	if got := r.beadless(t); len(got) != 1 || !strings.HasPrefix(got[0], "ignored: no depot's origin is acme/yardr") {
 		t.Fatalf("hook_rule events on no bead: %q", got)
 	}
+}
+
+// tokenBoxFlow is the flow box beads follow in a token depot: requested,
+// then closed.
+const tokenBoxFlow = `
+requested -> closed on done
+closed terminal
+`
+
+// newTokenDepot is newGHDepot with a token hook carrying lines, and box
+// beads following tokenBoxFlow in yard.
+func newTokenDepot(t *testing.T, lines ...string) *ghDepot {
+	t.Helper()
+	r := newGHDepot(t)
+	ctx := context.Background()
+	flow, err := store.ParseFlow(tokenBoxFlow)
+	must(t, err)
+	flow.Name = "box"
+	_, err = r.api.PutFlow(ctx, *flow, "me")
+	must(t, err)
+	must(t, r.api.SetFlowPointer(ctx, "yard", "box", "box", "me"))
+	h := store.Hook{Name: "provisioner", Source: "token", SecretFile: "/nonexistent/token.secret"}
+	for _, l := range lines {
+		m, err := store.ParseMake(l)
+		must(t, err)
+		h.Makes = append(h.Makes, m)
+	}
+	_, err = r.api.PutHook(ctx, h, "me")
+	must(t, err)
+	return r
+}
+
+// deliverToken records body as provisioner took it with the delivery id: as
+// the receiver would, normalized as a token delivery and through its
+// dedupe keys. It answers whether the delivery was a redelivery.
+func (r *ghDepot) deliverToken(t *testing.T, body, id string) (dup bool) {
+	t.Helper()
+	env, err := hooks.Token{}.Normalize(nil, []byte(body))
+	must(t, err)
+	env.Delivery = id
+	_, dup, err = r.own.RecordHook(context.Background(), "provisioner", env.Map(), []byte(body),
+		hooks.DedupeKeys("provisioner", "token", hooks.Token{}, []byte(body), id))
+	must(t, err)
+	return dup
+}
+
+// A token hook's line makes a standalone bead from a delivery with no
+// external thread: of the line's type and stage in the depot the line
+// names, with no tracks link, the delivery's request fields in metadata
+// under hook.* and listed in the body. The token actor is
+// sender-asserted, so even one claiming a linked user's id files on the
+// operator's, with no originator fallback recorded. Reposting the same
+// delivery id makes no second bead, and a malformed or an incomplete
+// delivery makes none: refusal is no bead.
+func TestTokenDeliveryMakesStandaloneBead(t *testing.T) {
+	t.Parallel()
+	r := newTokenDepot(t, "event=box verb=create -> box:requested@yard")
+	ctx := context.Background()
+	if _, err := r.api.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	must(t, r.api.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	if _, err := r.api.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// hal would bill their own login on the threaded path: linked, with a
+	// personal group and route. A standalone bead stays the operator's, and
+	// the sender-asserted actor cannot make the yard mistake it for its own.
+	must(t, r.api.SetIdentity(ctx, "hal", "token", store.Identity{ID: "u-hal"}, "jo"))
+	must(t, r.api.SetIdentity(ctx, "yardmaster", "token", store.Identity{ID: "u-hal"}, "jo"))
+	halGroup(t, r, writeEnv(t))
+	halRoute(t, r, "requested", "hal-builders")
+
+	const handle = `h-1$(id)` + "`x`" + `"q"`
+	if dup := r.deliverToken(t, `{"type":"box","verb":"create","handle":`+quoteForJSON(t, handle)+
+		`,"yard":"y-1","size":"big","region":"iad","text":"provision a box please","actor":{"id":"u-hal","name":"Hal"}}`, "d-1"); dup {
+		t.Fatal("the first delivery is a redelivery")
+	}
+	r.pass(t)
+	all, err := r.api.ListBeads(ctx, store.BeadFilter{})
+	must(t, err)
+	if len(all) != 1 {
+		t.Fatalf("beads: %d, want the one", len(all))
+	}
+	b := r.bead(t, all[0].ID)
+	if b.Type != "box" || b.Stage != "requested" || b.Depot == nil || *b.Depot != "yard" || b.Status != "open" {
+		t.Fatalf("made %s: type %s, stage %s, depot %v, %s", b.ID, b.Type, b.Stage, b.Depot, b.Status)
+	}
+	if b.Title != "provision a box please" {
+		t.Fatalf("made %s: title %q", b.ID, b.Title)
+	}
+	if b.CreatedBy == nil || *b.CreatedBy != "hook:provisioner" {
+		t.Fatalf("made by %v, want hook:provisioner", b.CreatedBy)
+	}
+	if b.Originator != "jo" {
+		t.Fatalf("made %s for %q, want the operator's", b.ID, b.Originator)
+	}
+	if b.Metadata["hook_seq"] == nil {
+		t.Fatalf("made %s without hook_seq: %v", b.ID, b.Metadata)
+	}
+	for k, want := range map[string]string{"verb": "create", "handle": handle, "yard": "y-1", "size": "big", "region": "iad"} {
+		if got, _ := b.Metadata["hook."+k].(string); got != want {
+			t.Fatalf("made %s: hook.%s = %q, want %q", b.ID, k, got, want)
+		}
+	}
+	if want := "handle: " + handle + "\nregion: iad\nsize: big\nverb: create\nyard: y-1\n\nprovision a box please\n\ndelivery d-1"; b.Body != want {
+		t.Fatalf("made %s: body %q, want %q", b.ID, b.Body, want)
+	}
+	if links, err := r.api.Links(ctx, b.ID); err != nil || len(links) != 0 {
+		t.Fatalf("made %s with links %+v (%v), want none", b.ID, links, err)
+	}
+	if data := makeEvent(t, r, b.ID); data["makes"] != "event=box verb=create -> box:requested@yard" ||
+		data["depot"] != "yard" || data["linked_author"] != nil || data["originator_rule"] != nil {
+		t.Fatalf("hook_rule of the make: %v", data)
+	}
+	wantRules(t, r.rules(t, b.ID), "box made "+b.ID)
+
+	// Reposting the same delivery id is the receiver's duplicate: no event,
+	// no second bead.
+	if dup := r.deliverToken(t, `{"type":"box","verb":"create","handle":"h-1"}`, "d-1"); !dup {
+		t.Fatal("reposting the delivery id recorded it again")
+	}
+	r.pass(t)
+	if all, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(all) != 1 {
+		t.Fatalf("beads after the repost: %d (%v), want the one", len(all), err)
+	}
+
+	// A malformed body (not a JSON object) and an incomplete one (no verb)
+	// match no line and make nothing.
+	r.deliverToken(t, `[1,2]`, "d-2")
+	r.deliverToken(t, `{"type":"box","text":"no verb"}`, "d-3")
+	r.pass(t)
+	if all, err := r.api.ListBeads(ctx, store.BeadFilter{}); err != nil || len(all) != 1 {
+		t.Fatalf("beads after a malformed and an incomplete delivery: %d (%v), want the one", len(all), err)
+	}
+
+	// A delivery with no text still files, titled by its type and id.
+	r.deliverToken(t, `{"type":"box","verb":"create"}`, "d-4")
+	r.pass(t)
+	all, err = r.api.ListBeads(ctx, store.BeadFilter{})
+	must(t, err)
+	if len(all) != 2 {
+		t.Fatalf("beads after a textless delivery: %d, want two", len(all))
+	}
+	var textless *store.Bead
+	for _, c := range all {
+		if c.ID != b.ID {
+			textless = r.bead(t, c.ID)
+		}
+	}
+	if textless.Title != "box request d-4" || textless.Body != "verb: create\n\ndelivery d-4" {
+		t.Fatalf("textless bead: title %q, body %q", textless.Title, textless.Body)
+	}
+}
+
+// A token delivery's request fields are data, never routing: one naming a
+// train files the standalone bead its line makes all the same, carrying
+// no hook.train, and the train is moved nowhere, whatever the hook's says
+// table holds for the delivery.
+func TestTokenTrainFieldMovesNoTrain(t *testing.T) {
+	t.Parallel()
+	r := newTokenDepot(t, "event=box verb=create -> box:requested@yard")
+	ctx := context.Background()
+	h, err := r.api.GetHook(ctx, "provisioner")
+	must(t, err)
+	h.Says = says(t, "event=box type=train -> done")
+	if _, err := r.api.PutHook(ctx, *h, "me"); err != nil {
+		t.Fatal(err)
+	}
+	r.train(t, "yard-a", "in-pr")
+	r.deliverToken(t, `{"type":"box","verb":"create","handle":"h-9","train":"yard-a"}`, "d-train")
+	r.pass(t)
+	all, err := r.api.ListBeads(ctx, store.BeadFilter{})
+	must(t, err)
+	if len(all) != 2 {
+		t.Fatalf("beads: %d, want the train and the one", len(all))
+	}
+	var made *store.Bead
+	for _, c := range all {
+		if c.ID != "yard-a" {
+			made = r.bead(t, c.ID)
+		}
+	}
+	if made.Type != "box" || made.Stage != "requested" {
+		t.Fatalf("made %s: type %s, stage %s", made.ID, made.Type, made.Stage)
+	}
+	if _, ok := made.Metadata["hook.train"]; ok {
+		t.Fatalf("made %s carries hook.train: %v", made.ID, made.Metadata)
+	}
+	if tr := r.bead(t, "yard-a"); tr.Stage != "in-pr" || tr.Metadata["hook_seq"] != nil {
+		t.Fatalf("train judged: stage %s, metadata %v", tr.Stage, tr.Metadata)
+	}
+	if rules := r.rules(t, "yard-a"); len(rules) != 0 {
+		t.Fatalf("hook_rule events on the train: %v", rules)
+	}
+}
+
+// quoteForJSON is s as a JSON string, for a token body carrying shell
+// metacharacters that must reach the bead byte-identical.
+func quoteForJSON(t *testing.T, s string) string {
+	t.Helper()
+	raw, err := json.Marshal(s)
+	must(t, err)
+	return string(raw)
 }
 
 // The depot's repository is asked at each event, not kept: a stub that

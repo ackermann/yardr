@@ -2152,7 +2152,19 @@ The same steps as Linear, with these differences:
   logged as `make_refused`, of the class `attention`, beside the
   `hook_rule` event. What the yard
   did itself, and what happened before the hook was last saved, makes
-  nothing.
+  nothing. A `token` hook's line files a delivery that belongs to no
+  thread as a standalone bead: the delivery's own request fields, every
+  other top-level string of its JSON body but the routing names (`train`,
+  `repo`, `number`, `head_sha`, `head_repo`), ride as `hook.<key>` metadata
+  and are listed in the body, so `--makes "event=box verb=create ->
+  box:requested@webapp"` files a `box` bead in `requested` from a
+  delivery of `{"type":"box","verb":"create",...}`. The line must name
+  the depot, since a threadless delivery names no repository; the bead
+  has no `tracks` link, is titled by the delivery's text, and is filed
+  on the operator's whatever actor the sender claims. A resend under the
+  same `Yard-Delivery` id is the receiver's duplicate and files nothing
+  twice. A body that is no JSON object, or one missing a key the line
+  names, matches no line and files nothing.
 - **A CI run on a branch** that belongs to no pull request has the thread of
   the branch, `<owner>/<repo>@<branch>`, at `<repository URL>/tree/<branch>`:
   the same thread and URL for every run of the branch, so a line makes one

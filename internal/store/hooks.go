@@ -430,11 +430,28 @@ func (m Make) Unstaged(stages []string) error {
 	return fmt.Errorf("no stage %s a bead can be made in (stages: %s)", m.Stage, or(strings.Join(stages, ", "), "none"))
 }
 
+// SourceToken is the source of a token hook: yardr's own receiver for ad
+// hoc senders, which a declaration cannot take (source.BuiltIn). A token
+// delivery carries the sender's own fields, which no fixed list holds, so
+// a token hook's makes lines filter on any key but the routing names,
+// which no token delivery carries.
+const SourceToken = "token"
+
+// TokenReservedFields are the field names a token delivery never carries:
+// the dispatcher reads them from an event's fields for routing (which
+// train, repository, pull number and head an event belongs to), and a
+// token sender names only request data, never where its delivery goes.
+var TokenReservedFields = []string{"head_repo", "head_sha", "number", "repo", "train"}
+
 // CheckMakes refuses a line that could match nothing or everything, or make
-// nothing: a filter that is empty or names a key the source's envelope has
-// not, and a type, stage or depot that is no name. Whether the type's flow
-// has the stage is the caller's to ask (Make's Unstaged): the flows are the
-// depots', and may change after the hook is saved.
+// nothing: a filter that is empty or, on a hook of any source but token's,
+// names a key the source's envelope has not, and a type, stage or depot
+// that is no name. No line filters on the bead's own type or stage: the
+// line's bead already says what it makes, and is in no stage yet. A token
+// hook's lines take any other key but the routing names, which no token
+// delivery carries. Whether the type's flow has the stage is the caller's
+// to ask (Make's Unstaged): the flows are the depots', and may change
+// after the hook is saved.
 func (h Hook) CheckMakes() error { return h.checkMakes(whereKeys(h.Source)) }
 
 // CheckMakesKeys is CheckMakes against keys: for a caller that knows the
@@ -452,8 +469,19 @@ func (h Hook) checkMakes(keys []string) error {
 		if typ, ok := m.Where[SayType]; ok {
 			return fmt.Errorf("hook %s: makes %s: type=%s is redundant with the bead the line makes (-> %s:%s): the line makes a bead of that type, so it needs no filter on it; the event's own type is named with event", h.Name, m, WhereValues(typ)[0], m.Type, m.Stage)
 		}
+		// stage names the bead's stage, and the line makes a bead that is
+		// in no stage yet. Other sources refuse it as a key they have not;
+		// token's lines take any key, so it is refused outright.
+		if h.Source == SourceToken {
+			if stage, ok := m.Where[SayStage]; ok {
+				return fmt.Errorf("hook %s: makes %s: stage=%s names the bead's stage, and the line makes a bead that is in no stage yet (-> %s:%s): it needs no filter on it", h.Name, m, WhereValues(stage)[0], m.Type, m.Stage)
+			}
+		}
 		for _, k := range slices.Sorted(maps.Keys(m.Where)) {
-			if !slices.Contains(keys, k) {
+			if h.Source == SourceToken && slices.Contains(TokenReservedFields, k) {
+				return fmt.Errorf("hook %s: makes %s: cannot filter token on %q: the dispatcher reads it for routing, and a token delivery carries only request data", h.Name, m, k)
+			}
+			if h.Source != SourceToken && !slices.Contains(keys, k) {
 				return fmt.Errorf("hook %s: makes %s: cannot filter %s on %q: use %s", h.Name, m, h.Source, k, strings.Join(keys, ", "))
 			}
 			if slices.Contains(WhereValues(m.Where[k]), "") {
