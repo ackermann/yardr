@@ -164,8 +164,8 @@ func TestPeerCodeComesBack(t *testing.T) {
 	b.pass(t)
 	a.pass(t)
 
-	got := a.get(t, mine.ID)
-	if got.Stage != "review" || got.Hold {
+	got := a.settled(t, mine.ID, "review")
+	if got.Hold {
 		t.Fatalf("a's bead after the return = %+v, %+v", got, got.Away())
 	}
 	if at := branchAt(t, aRepo, store.Branch(mine.ID)); at != commit {
@@ -236,8 +236,8 @@ func TestPeerBeadBaseUnknown(t *testing.T) {
 			if bs, _ := b.api.ListBeads(context.Background(), store.BeadFilter{}); len(bs) != 0 {
 				t.Fatalf("b kept %d beads of a refused one", len(bs))
 			}
-			got := a.get(t, mine.ID)
-			if got.Stage != "decide" || got.Away().Outcome != store.OutcomeRefused || !strings.Contains(got.Away().Detail, tc.away) {
+			got := a.settled(t, mine.ID, "decide")
+			if got.Away().Outcome != store.OutcomeRefused || !strings.Contains(got.Away().Detail, tc.away) {
 				t.Fatalf("a's bead = %+v, %+v", got, got.Away())
 			}
 		})
@@ -303,8 +303,8 @@ func TestPeerCodeRemoteDown(t *testing.T) {
 	_, err := a.api.SetHold(context.Background(), mine.ID, false, store.Expect{}, "jo")
 	must(t, err)
 	a.pass(t)
-	got = a.get(t, mine.ID)
-	if got.Stage != "review" || got.Hold || branchAt(t, aRepo, store.Branch(mine.ID)) != commit || len(a.beadEvents(t, mine.ID, "peer_bead_sent")) != 1 {
+	got = a.settled(t, mine.ID, "review")
+	if got.Hold || branchAt(t, aRepo, store.Branch(mine.ID)) != commit || len(a.beadEvents(t, mine.ID, "peer_bead_sent")) != 1 {
 		t.Fatalf("a's bead once the remote was back and it was unheld = %+v, %+v", got, got.Away())
 	}
 	if bs, _ := b.api.ListBeads(context.Background(), store.BeadFilter{Label: "from-a"}); len(bs) != 0 {
@@ -421,9 +421,9 @@ func TestPeerCodeNotTaken(t *testing.T) {
 			b.done(t, theirs.ID)
 			b.pass(t)
 			a.pass(t)
-			got := a.get(t, mine.ID)
+			got := a.settled(t, mine.ID, "review")
 			away := got.Away()
-			if got.Stage != "review" || got.Hold || away.FetchedAt != nil || !strings.Contains(away.NotTaken, tc.want) ||
+			if got.Hold || away.FetchedAt != nil || !strings.Contains(away.NotTaken, tc.want) ||
 				!strings.Contains(away.CodeLine(mine.ID), "was not taken: ") {
 				t.Fatalf("a's bead = %+v, %+v", got, away)
 			}
@@ -520,7 +520,7 @@ func TestPeerCodeSentOn(t *testing.T) {
 	c.done(t, atC.ID)
 	c.pass(t)
 	b.pass(t)
-	if got := b.get(t, atB.ID); got.Stage != "push" || branchAt(t, bRepo, store.Branch(atB.ID)) != commit {
+	if got := b.settled(t, atB.ID, "push"); branchAt(t, bRepo, store.Branch(atB.ID)) != commit {
 		t.Fatalf("b's bead after c's return = %+v, its branch at %q", got, branchAt(t, bRepo, store.Branch(atB.ID)))
 	}
 	// b's return-branch: its own bead's branch, never c's name for it.
@@ -529,7 +529,7 @@ func TestPeerCodeSentOn(t *testing.T) {
 	b.done(t, atB.ID)
 	b.pass(t)
 	a.pass(t)
-	if got := a.get(t, mine.ID); got.Stage != "review" || branchAt(t, aRepo, store.Branch(mine.ID)) != commit || got.Away().Git.Branch != store.Branch(atB.ID) {
+	if got := a.settled(t, mine.ID, "review"); branchAt(t, aRepo, store.Branch(mine.ID)) != commit || got.Away().Git.Branch != store.Branch(atB.ID) {
 		t.Fatalf("a's bead after the chain unwound = %+v, %+v", got, got.Away())
 	}
 }
@@ -613,8 +613,8 @@ func TestPeerCodeOneRemoteTwoSpellings(t *testing.T) {
 			}
 			b.pass(t)
 			a.pass(t)
-			got := a.get(t, mine.ID)
-			if got.Stage != "review" || got.Hold || got.Away().NotTaken != "" || branchAt(t, aRepo, store.Branch(mine.ID)) != commit {
+			got := a.settled(t, mine.ID, "review")
+			if got.Hold || got.Away().NotTaken != "" || branchAt(t, aRepo, store.Branch(mine.ID)) != commit {
 				t.Fatalf("a's bead after the return = %+v, %+v; its branch is at %q, want %s", got, got.Away(), branchAt(t, aRepo, store.Branch(mine.ID)), commit)
 			}
 			// What b wrote on its own bead is b's; nothing of it reached a,
@@ -656,7 +656,7 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 		!strings.Contains(refused[0].Data["detail"].(string), "the bead starts from git.example.test/acme/web, which no intake takes: the intakes take git.example.test/acme/api") {
 		t.Fatalf("b's peer_message_refused = %+v", refused)
 	}
-	if got := a.get(t, mine.ID); got.Stage != "decide" || got.Away().Outcome != store.OutcomeRefused {
+	if got := a.settled(t, mine.ID, "decide"); got.Away().Outcome != store.OutcomeRefused {
 		t.Fatalf("a's bead = %+v, %+v", got, got.Away())
 	}
 
@@ -671,8 +671,8 @@ func TestPeerCodeTwoRepositoriesOnOneHost(t *testing.T) {
 	b.done(t, theirs.ID)
 	b.pass(t)
 	a.pass(t)
-	got := a.get(t, mine.ID)
-	if got.Stage != "review" || !strings.Contains(got.Away().NotTaken, "it was pushed to git.example.test/acme/api, and the remote origin of depot web is git.example.test/acme/web here") ||
+	got := a.settled(t, mine.ID, "review")
+	if !strings.Contains(got.Away().NotTaken, "it was pushed to git.example.test/acme/api, and the remote origin of depot web is git.example.test/acme/web here") ||
 		branchAt(t, aRepo, store.Branch(mine.ID)) != "" {
 		t.Fatalf("a's bead = %+v, %+v", got, got.Away())
 	}
@@ -788,7 +788,7 @@ func TestPeerBaseKeptByARef(t *testing.T) {
 		t.Fatalf("b's bead is %s and its refs are %q, want it closed and none", got.Status, refs())
 	}
 	a.pass(t)
-	if got := a.get(t, mine.ID); got.Stage != "review" || branchAt(t, aRepo, store.Branch(mine.ID)) != commit || gitIn(t, aRepo, "for-each-ref", "refs/yardr") != "" {
+	if got := a.settled(t, mine.ID, "review"); branchAt(t, aRepo, store.Branch(mine.ID)) != commit || gitIn(t, aRepo, "for-each-ref", "refs/yardr") != "" {
 		t.Fatalf("a's bead = %+v, %+v", got, got.Away())
 	}
 

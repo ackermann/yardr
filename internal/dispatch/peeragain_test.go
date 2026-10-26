@@ -56,7 +56,7 @@ func TestPeerBeadSentAgain(t *testing.T) {
 	b.done(t, first.ID)
 	b.pass(t)
 	a.pass(t)
-	if got := a.get(t, mine.ID); got.Stage != "review" || branchAt(t, aRepo, store.Branch(mine.ID)) != one {
+	if got := a.settled(t, mine.ID, "review"); branchAt(t, aRepo, store.Branch(mine.ID)) != one {
 		t.Fatalf("a's bead after the first return = %+v, branch at %s", got, branchAt(t, aRepo, store.Branch(mine.ID)))
 	}
 
@@ -89,8 +89,8 @@ func TestPeerBeadSentAgain(t *testing.T) {
 	b.done(t, second.ID)
 	b.pass(t)
 	a.pass(t)
-	got := a.get(t, mine.ID)
-	if got.Stage != "review" || got.Hold || branchAt(t, aRepo, store.Branch(mine.ID)) != two {
+	got := a.settled(t, mine.ID, "review")
+	if got.Hold || branchAt(t, aRepo, store.Branch(mine.ID)) != two {
 		t.Fatalf("a's bead after the second return = %+v, %+v, branch at %s, want %s", got, got.Away(), branchAt(t, aRepo, store.Branch(mine.ID)), two)
 	}
 	if f := a.beadEvents(t, mine.ID, "peer_bead_fetched"); len(f) != 2 || f[1].Data["commit"] != two || len(a.beadEvents(t, mine.ID, "peer_bead_not_fetched")) != 0 {
@@ -121,6 +121,7 @@ func TestPeerBeadSentAgainWithTheBranchMovedOn(t *testing.T) {
 	b.done(t, first.ID)
 	b.pass(t)
 	a.pass(t)
+	a.settled(t, mine.ID, "review")
 	branch := store.Branch(mine.ID)
 	gitIn(t, aRepo, "checkout", "-q", branch)
 	own := commitIn(t, aRepo, "review.txt", "a's own\n")
@@ -206,6 +207,7 @@ func TestPeerBeadSentAgainFromTheBase(t *testing.T) {
 	b.done(t, first.ID)
 	b.pass(t)
 	a.pass(t)
+	a.settled(t, mine.ID, "review")
 	// The base moved on, and the bead's branch was made anew from it.
 	base := commitIn(t, aRepo, "b.txt", "two\n")
 	gitIn(t, aRepo, "push", "-q", "origin", "main")

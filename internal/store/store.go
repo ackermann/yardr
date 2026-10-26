@@ -188,6 +188,10 @@ type Store struct {
 	nudge  chan struct{}
 	done   chan struct{}
 	pumped chan struct{} // closed when the pump exits
+	// settler applies the outcomes of beads' stays at peers after the
+	// writes that learned them; a write that ended a stay only nudges it.
+	settleNudge chan struct{}
+	settled     chan struct{} // closed when the settler exits
 }
 
 // NoSyncEnv names the variable that, set to 1, opens the store without
@@ -249,7 +253,8 @@ func Open(path string) (*Store, error) {
 	if noSync {
 		db.MaxBatchDelay = 0
 	}
-	s := &Store{db: db, home: home, nudge: make(chan struct{}, 1), done: make(chan struct{}), pumped: make(chan struct{})}
+	s := &Store{db: db, home: home, nudge: make(chan struct{}, 1), done: make(chan struct{}), pumped: make(chan struct{}),
+		settleNudge: make(chan struct{}, 1), settled: make(chan struct{})}
 	s.hub.init()
 	head, err := s.Head(context.Background())
 	if err != nil {
@@ -257,12 +262,14 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	go s.pump(head)
+	go s.settler()
 	return s, nil
 }
 
 func (s *Store) Close(ctx context.Context) error {
 	close(s.done)
 	<-s.pumped
+	<-s.settled
 	s.hub.close()
 	return s.db.Close()
 }
@@ -284,6 +291,37 @@ func (s *Store) pump(published uint64) {
 		}
 		s.hub.publish(evs)
 		published = evs[len(evs)-1].Seq
+	}
+}
+
+// settler applies the outcomes of beads' stays at peers, one bead at a
+// time, after the writes that learned them. Writers only nudge it; what is
+// owed is read back from the store, so a nudge dropped on close loses
+// nothing: the next open settles it on its first sweep.
+func (s *Store) settler() {
+	defer close(s.settled)
+	s.settleOwed()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-s.settleNudge:
+		}
+		s.settleOwed()
+	}
+}
+
+// settleOwed settles every bead whose stay at a peer ended and whose
+// outcome is not applied yet, each under settleTimeout.
+func (s *Store) settleOwed() {
+	pending, err := s.owedSettles()
+	if err != nil || len(pending) == 0 {
+		return
+	}
+	for _, uuid := range pending {
+		ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
+		_ = s.settleSent(ctx, uuid)
+		cancel()
 	}
 }
 
@@ -334,20 +372,21 @@ func (s *Store) write(fn func(*wtx) error) error {
 	}
 	s.hub.ping()
 	s.hub.pingPeers(queued)
-	// A bead whose stay at a peer ended in the write is moved on now, in a
-	// write of its own. One that cannot be (its depot's repository does not
-	// read) stays as the write left it, for the daemon's next pass
-	// (SettlePeerBeads): the write itself is done either way.
-	for _, uuid := range settle {
-		ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
-		_ = s.settleSent(ctx, uuid)
-		cancel()
+	// A bead whose stay at a peer ended in the write is moved on by the
+	// settler, in a write of its own. One that cannot be (its depot's
+	// repository does not read) stays as the write left it, for the next
+	// nudge and the daemon's next pass (SettlePeerBeads).
+	if len(settle) > 0 {
+		select {
+		case s.settleNudge <- struct{}{}:
+		default: // a nudge is already pending; the settler reads everything owed
+		}
 	}
 	return nil
 }
 
-// settleTimeout bounds what a write waits for a bead it ended the stay of
-// at a peer to be moved on: reading its flow may run git.
+// settleTimeout bounds the settling of one bead whose stay at a peer
+// ended: reading its flow may run git.
 const settleTimeout = 30 * time.Second
 
 func (s *Store) read(fn func(*bolt.Tx) error) error { return s.db.View(fn) }

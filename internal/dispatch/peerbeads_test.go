@@ -84,6 +84,42 @@ func (y *peerYard) get(t *testing.T, id string) *store.Bead {
 	return b
 }
 
+// settled is the bead once the outcome of its stay at a peer has been
+// applied: the write that ended the stay returns before the store's
+// settler moves the bead, so a test that asserts the move waits on the
+// effect.
+func (y *peerYard) settled(t *testing.T, id, stage string) *store.Bead {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got := y.get(t, id)
+		if got.Stage == stage {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("bead %s still in %s, want %s: %+v", id, got.Stage, stage, got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// held is the bead once it is held: the same wait for a stay whose
+// outcome its stage does not name, which keeps the bead where it is.
+func (y *peerYard) held(t *testing.T, id string) *store.Bead {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got := y.get(t, id)
+		if got.Hold {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("bead %s still unheld: %+v", id, got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // from is the one open bead y has that came from the peer name.
 func (y *peerYard) from(t *testing.T, name string) *store.Bead {
 	t.Helper()
@@ -258,9 +294,7 @@ func TestPeerBeadDeliveredTwice(t *testing.T) {
 		t.Fatalf("b's outbox after its flow ended = %+v", back)
 	}
 	b.pass(t)
-	if got := a.get(t, mine.ID); got.Stage != "review" {
-		t.Fatalf("a's bead after the return = %+v", got)
-	}
+	a.settled(t, mine.ID, "review")
 	taken, err := a.own.PeerReceive(ctx, "b", b.pub, []store.PeerMessage{back[0].PeerMessage})
 	must(t, err)
 	if !taken[0].Duplicate {
@@ -292,8 +326,8 @@ func TestPeerBeadRefused(t *testing.T) {
 				a.pass(t)
 				b.pass(t)
 			}
-			got := a.get(t, mine.ID)
-			if got.Stage != "decide" || got.Hold || len(a.live(t)) != 0 {
+			got := a.settled(t, mine.ID, "decide")
+			if got.Hold || len(a.live(t)) != 0 {
 				t.Fatalf("a's bead after b refused it = %+v", got)
 			}
 			adv := a.beadEvents(t, mine.ID, "advanced")
@@ -346,8 +380,8 @@ func TestPeerBeadUndelivered(t *testing.T) {
 		a.pass(t)
 		clock.now = clock.now.Add(2 * time.Hour)
 	}
-	got := a.get(t, mine.ID)
-	if got.Stage != "decide" || len(a.live(t)) != 0 {
+	got := a.settled(t, mine.ID, "decide")
+	if len(a.live(t)) != 0 {
 		t.Fatalf("a's bead after %d tries = %+v; outbox %+v", store.PeerBeadTries, got, a.waiting(t, "b"))
 	}
 	un := a.beadEvents(t, mine.ID, "peer_bead_undelivered")
@@ -406,9 +440,7 @@ func TestPeerBeadTriesOfTheGroup(t *testing.T) {
 	}
 	clock.now = clock.now.Add(time.Hour)
 	a.pass(t)
-	if got := a.get(t, mine.ID); got.Stage != "decide" {
-		t.Fatalf("a's bead after its group's two tries = %+v", got)
-	}
+	a.settled(t, mine.ID, "decide")
 }
 
 // A stage that does not name the outcome that came keeps the bead, held,
@@ -428,8 +460,8 @@ func TestPeerBeadOutcomeTheStageDoesNotName(t *testing.T) {
 	_, err := b.api.Done(ctx, theirs.ID, "odd", "", store.Expect{}, "builder")
 	must(t, err)
 	b.pass(t)
-	got := a.get(t, mine.ID)
-	if got.Stage != "build" || !got.Hold || got.HeldBy != "peer:b" || got.Group != nil || len(a.live(t)) != 0 {
+	got := a.held(t, mine.ID)
+	if got.Stage != "build" || got.HeldBy != "peer:b" || got.Group != nil || len(a.live(t)) != 0 {
 		t.Fatalf("a's bead after an outcome its stage does not name = %+v", got)
 	}
 	ns := a.notes(t, mine.ID)
@@ -518,8 +550,8 @@ func TestPeerBeadLinkGoesWhileAway(t *testing.T) {
 			a.pass(t)
 			must(t, cut(a))
 			for _, id := range []string{there.ID, waiting.ID} {
-				got := a.get(t, id)
-				if got.Stage != "decide" || len(a.beadEvents(t, id, "peer_bead_undelivered")) != 1 {
+				got := a.settled(t, id, "decide")
+				if len(a.beadEvents(t, id, "peer_bead_undelivered")) != 1 {
 					t.Fatalf("a's bead %s after the link went = %+v", got.Title, got)
 				}
 				if ns := a.notes(t, id); len(ns) != 1 || !strings.Contains(ns[0].Text, "the link with b") {
@@ -583,8 +615,8 @@ func TestPeerBeadRename(t *testing.T) {
 	_, err = b.api.Done(ctx, theirs.ID, "done", "built", store.Expect{}, "builder")
 	must(t, err)
 	b.pass(t)
-	got := a.get(t, mine.ID)
-	if adv := a.beadEvents(t, mine.ID, "advanced"); got.Stage != "review" || len(adv) != 1 || adv[0].Actor != "peer:mac" {
+	got := a.settled(t, mine.ID, "review")
+	if adv := a.beadEvents(t, mine.ID, "advanced"); len(adv) != 1 || adv[0].Actor != "peer:mac" {
 		t.Fatalf("a's bead after the renamed yard's return = %+v, %+v", got, adv)
 	}
 	if ns := a.notes(t, mine.ID); len(ns) != 1 || ns[0].Author != "builder@mac" {
@@ -641,10 +673,7 @@ func TestPeerBeadSentOn(t *testing.T) {
 	if got := b.get(t, atB.ID); got.Status != "closed" || got.Stage != "returned" || got.Peer.Outcome != "done" {
 		t.Fatalf("b's bead after c's done = %+v, %+v", got, got.Peer)
 	}
-	got := a.get(t, mine.ID)
-	if got.Stage != "review" {
-		t.Fatalf("a's bead after the chain unwound = %+v", got)
-	}
+	a.settled(t, mine.ID, "review")
 	// c's note came to b as builder@c, and went on to a as b's own note of
 	// that author: a knows b, not c.
 	if ns := a.notes(t, mine.ID); len(ns) != 1 || ns[0].Text != "built at c" || !strings.HasSuffix(ns[0].Author, "@b") {
@@ -687,16 +716,16 @@ func TestPeerBeadLoop(t *testing.T) {
 	}
 	bs, err := b.api.ListBeads(ctx, store.BeadFilter{All: true})
 	must(t, err)
-	if len(bs) != 1 || bs[0].Status != "closed" {
+	if len(bs) != 1 {
 		t.Fatalf("b's bead after a refused the loop = %+v", bs)
+	}
+	if got := b.settled(t, bs[0].ID, "returned"); got.Status != "closed" {
+		t.Fatalf("b's bead after a refused the loop = %+v", got)
 	}
 	if ev := b.beadEvents(t, bs[0].ID, "peer_bead_refused"); len(ev) != 1 || !strings.Contains(ev[0].Data["reason"].(string), "it would go round") {
 		t.Fatalf("b's peer_bead_refused = %+v", ev)
 	}
-	got := a.get(t, mine.ID)
-	if got.Stage != "decide" {
-		t.Fatalf("a's bead after b's flow ended as refused = %+v", got)
-	}
+	a.settled(t, mine.ID, "decide")
 	if adv := a.beadEvents(t, mine.ID, "advanced"); len(adv) != 1 || adv[0].Data["outcome"] != "refused" || adv[0].Actor != "peer:b" {
 		t.Fatalf("a's advanced = %+v", adv)
 	}

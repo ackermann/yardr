@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	peerscripts "yardr.dev/yardr/contrib/peer"
 	"yardr.dev/yardr/internal/store"
@@ -447,6 +448,17 @@ func TestBeadAtAPeerInTheCommands(t *testing.T) {
 	}
 	if err := st.PeerFetched(ctx, id, page.Messages[0].ID, ""); err != nil {
 		t.Fatal(err)
+	}
+	// The write that took the branch returns before the store's settler
+	// moves the bead: bead show waits on the effect.
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		got, err := st.GetBead(ctx, id)
+		if err == nil && got.Stage == "review" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("bead %s not settled: %+v, %v", id, got, err)
+		}
 	}
 	show = mustAs(t, st, "jo", "bead", "show", id)
 	if !strings.Contains(show, "stage review") || !strings.Contains(show, "  branch yard/"+id+" came from nord: its yard/n-7 at ab12ab12ab12, fetched ") ||

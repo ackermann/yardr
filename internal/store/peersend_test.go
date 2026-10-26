@@ -3,11 +3,15 @@ package store_test
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -76,6 +80,24 @@ func (y *peerYard) outbox(t *testing.T) []store.PeerOut {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// settled is the bead once the store's settler has applied the outcome of
+// its stay at a peer: the write that ended the stay returns before that
+// move, so a test that asserts it waits on the effect.
+func (y *peerYard) settled(t *testing.T, id, stage string) *store.Bead {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, err := y.api.GetBead(y.ctx, id)
+		if err == nil && got.Stage == stage {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("bead %s not in %s: %+v, %v", id, stage, got, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // A peer group names a yard this one is linked with, whose link carries
@@ -216,9 +238,9 @@ func TestPeerBeadTooLargeToSend(t *testing.T) {
 	t.Parallel()
 	y, _ := newSendingYard(t)
 	big, _ := y.send(t, store.NewBead{Title: "Too much", Body: strings.Repeat("x", store.MaxPeerBeadBody+1)})
-	got, err := y.api.GetBead(y.ctx, big.ID)
-	if err != nil || got.Stage != "decide" || len(y.outbox(t)) != 0 {
-		t.Fatalf("a bead too large to send = %+v, %v; outbox %d", got, err, len(y.outbox(t)))
+	got := y.settled(t, big.ID, "decide")
+	if len(y.outbox(t)) != 0 {
+		t.Fatalf("a bead too large to send = %+v; outbox %d", got, len(y.outbox(t)))
 	}
 	notes, _ := y.api.Notes(y.ctx, big.ID)
 	if len(notes) != 1 || !strings.Contains(notes[0].Text, "This yard did not send this bead to north: it is too large: ") {
@@ -271,8 +293,8 @@ func TestPeerBeadMessageTooLargeToSend(t *testing.T) {
 		}
 	}
 	y.claim(t, b.ID)
-	got, _ := y.api.GetBead(y.ctx, b.ID)
-	if got == nil || got.Away() == nil || !got.Away().Unsent || !strings.HasPrefix(got.Away().Detail, "it is too large: peer message ") || len(y.outbox(t)) != 0 {
+	got := y.settled(t, b.ID, "decide")
+	if got.Away() == nil || !got.Away().Unsent || !strings.HasPrefix(got.Away().Detail, "it is too large: peer message ") || len(y.outbox(t)) != 0 {
 		t.Fatalf("oversized peer message = %+v; outbox %+v", got, y.outbox(t))
 	}
 	if len(got.PeerLinks()) != 0 {
@@ -297,9 +319,9 @@ func TestPeerBeadNotSentWithoutALink(t *testing.T) {
 	y, _ := newSendingYard(t)
 	y.allow(t, store.PeerAllow{NoSend: []string{"bead"}})
 	big, _ := y.send(t, store.NewBead{Title: "Too much", Body: strings.Repeat("x", store.MaxPeerBeadBody+1)})
-	got, err := y.api.GetBead(y.ctx, big.ID)
-	if err != nil || got.Stage != "decide" || len(y.outbox(t)) != 0 {
-		t.Fatalf("a bead whose link carries nothing out = %+v, %v; outbox %d", got, err, len(y.outbox(t)))
+	got := y.settled(t, big.ID, "decide")
+	if len(y.outbox(t)) != 0 {
+		t.Fatalf("a bead whose link carries nothing out = %+v; outbox %d", got, len(y.outbox(t)))
 	}
 	away := got.Away()
 	if away == nil || away.Outcome != store.OutcomeUndelivered || !away.Unsent ||
@@ -324,10 +346,7 @@ func TestPeerBeadNotSentWithoutALink(t *testing.T) {
 		t.Fatal(err)
 	}
 	y.claim(t, big.ID)
-	got, err = y.api.GetBead(y.ctx, big.ID)
-	if err != nil || got.Stage != "decide" {
-		t.Fatalf("the refused bead = %+v, %v", got, err)
-	}
+	got = y.settled(t, big.ID, "decide")
 	if away := got.Away(); away == nil || away.Outcome != store.OutcomeRefused || !away.Unsent || away.Stayed != nil || len(got.PeerLinks()) != 0 {
 		t.Fatalf("a bead refused after one not sent = %+v, rows %+v", away, got.PeerLinks())
 	}
@@ -338,10 +357,7 @@ func TestPeerBeadNotSentWithoutALink(t *testing.T) {
 		t.Fatal(err)
 	}
 	lost, _ := y2.send(t, store.NewBead{Title: "Nowhere to go"})
-	got, err = y2.api.GetBead(y2.ctx, lost.ID)
-	if err != nil || got.Stage != "decide" {
-		t.Fatalf("a bead whose peer is gone = %+v, %v", got, err)
-	}
+	got = y2.settled(t, lost.ID, "decide")
 	away = got.Away()
 	if away == nil || away.Outcome != store.OutcomeUndelivered || !away.Unsent ||
 		!strings.HasPrefix(away.Line(), "not sent to the yard that was north (link removed) ") ||
@@ -358,6 +374,104 @@ func TestPeerBeadNotSentWithoutALink(t *testing.T) {
 	notes, _ = y2.api.Notes(y2.ctx, lost.ID)
 	if len(notes) != 1 || !strings.HasPrefix(notes[0].Text, "This yard did not send this bead to north: this yard is not linked with a yard north any more") {
 		t.Fatalf("its note = %+v", notes)
+	}
+}
+
+// hangingGit is a stand-in git before the real one that waits until
+// release is called for calls in the checkout repo, and hands on
+// everything else: a depot's repository that answers slowly. asked is
+// its calls in that checkout, as the stand-in saw them.
+type hangingGit struct {
+	t   *testing.T
+	dir string
+}
+
+func hangGit(t *testing.T, repo string) *hangingGit {
+	t.Helper()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &hangingGit{t: t, dir: t.TempDir()}
+	scripttest.Write(t, filepath.Join(h.dir, "git"), "#!/bin/sh\ndir=.\n[ \"${1:-}\" = -C ] && dir=$2 && shift 2\n"+
+		"if [ \"$dir\" = \""+repo+"\" ]; then echo \"$*\" >>"+h.dir+"/asked\nwhile [ ! -f "+h.dir+"/release ]; do sleep 0.05; done; fi\n"+
+		"exec \"$YARDR_TEST_GIT\" -C \"$dir\" \"$@\"\n")
+	t.Setenv("YARDR_TEST_GIT", real)
+	t.Setenv("PATH", h.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return h
+}
+
+func (h *hangingGit) release() {
+	h.t.Helper()
+	if err := os.WriteFile(filepath.Join(h.dir, "release"), nil, 0o600); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// waitAsked waits until git has been called in the held checkout: the
+// effect a test waits on, never the wall time a call takes.
+func (h *hangingGit) waitAsked() {
+	h.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if b, err := os.ReadFile(filepath.Join(h.dir, "asked")); err == nil && len(b) > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.t.Fatal("git was never called in the held checkout")
+}
+
+// A write that ends a bead's stay at a peer returns before a settle made
+// slow on purpose has run: while the settler waits on the depot's
+// repository the bead is still in its stage, and it is moved on once the
+// repository answers, with no further write.
+func TestPeerBeadReturnSettlesOffTheWrite(t *testing.T) {
+	// Serial: it shims git on the process PATH, which parallel tests cannot share.
+	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": away})
+	// A sending yard governed by the repository's flow, not the store's.
+	y := newPeerYard(t, "http://north.test")
+	keyFile := filepath.Join(t.TempDir(), "peer.key")
+	if _, _, err := yardkey.Ensure(keyFile); err != nil {
+		t.Fatal(err)
+	}
+	y.own.SetYard(keyFile, "v0.9.2")
+	if err := y.api.PutDepot(y.ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.allow(t, store.PeerAllow{Send: []string{"bead"}})
+	if err := y.api.PutGroup(y.ctx, store.Group{Name: "at-north", Runner: store.PeerRunner, Limit: 2, Config: map[string]any{"peer": "north"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := y.send(t, store.NewBead{Title: "Add the export"})
+	// A commit the store's cache has not read: the next resolve of the
+	// depot's flows runs git, which the shim below holds.
+	commitFiles(t, dir, map[string]string{".yardr/flows/alt.flow": "build -> review\nreview terminal\n"})
+	git := hangGit(t, dir)
+	re := y.outbox(t)[0].ID
+	body, _ := json.Marshal(map[string]any{"v": 1, "bead": "web-0wzb", "outcome": "done"})
+	if got := y.take(t, store.PeerMessage{ID: "r1", Kind: store.PeerBeadReturn, Re: re, Body: body}); got[0].Refused != "" {
+		t.Fatalf("the return = %+v", got)
+	}
+	// The write is back and did its part: the return is logged, and the
+	// settler is now in git, which hangs until released.
+	if evs := y.kindEvents(t, b.ID, "peer_bead_returned"); len(evs) != 1 || evs[0].Data["outcome"] != "done" {
+		t.Fatalf("peer_bead_returned = %+v", evs)
+	}
+	git.waitAsked()
+	if got := mustBead(t, y, b.ID); got.Stage != "build" {
+		t.Fatalf("the bead while its settle waits on git = %+v", got)
+	}
+	git.release()
+	// Moved on with no further write: this test's reads are its only
+	// calls since the return.
+	got := y.settled(t, b.ID, "review")
+	adv := y.kindEvents(t, b.ID, "advanced")
+	if len(adv) != 1 || adv[0].Actor != "peer:north" || adv[0].Data["outcome"] != "done" || adv[0].Data["from"] != "build" || adv[0].Data["to"] != "review" {
+		t.Fatalf("advanced = %+v", adv)
+	}
+	if away := got.Away(); away.Outcome != "done" || !strings.HasPrefix(away.Line(), "was at north") {
+		t.Fatalf("the bead after its return = %+v, %q", away, away.Line())
 	}
 }
 

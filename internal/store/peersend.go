@@ -28,13 +28,14 @@ import (
 // OutcomeUndelivered, the message never reached it.
 //
 // How a stay at a peer ends is known inside the write that takes the
-// message, or gives one up. What it does to the bead is done right after
-// that write, in one of its own (settleSent): where the outcome leads is
-// the bead's flow to say, and a flow in the depot's repository is read with
+// message, or gives one up. What it does to the bead is done after that
+// write, in one of its own (settleSent): where the outcome leads is the
+// bead's flow to say, and a flow in the depot's repository is read with
 // git, which does not run inside a write. Between the two the record says
-// the outcome is known and not applied, and the daemon applies what a
-// write left (SettlePeerBeads), so nothing is lost to a process that died
-// between them or a repository that could not be read.
+// the outcome is known and not applied, and the store's settler applies
+// what a write nudged it for, with the daemon's sweep (SettlePeerBeads) as
+// the backstop, so nothing is lost to a process that died between them or
+// a repository that could not be read.
 
 const (
 	// PeerRunner is the runner of a group whose beads another yard works.
@@ -812,10 +813,20 @@ func awayAt(tx *bolt.Tx, p *Peer) error {
 func stamp(t time.Time) string { return t.Local().Format("01-02 15:04") }
 
 // SettlePeerBeads applies every outcome of a bead's stay at a peer that is
-// known and not applied yet (settleSent). The write that learns an outcome
-// applies it itself right after; this is for what that left: the daemon
-// calls it on every pass.
+// known and not applied yet (settleSent). The settler applies what the
+// write that learned it nudged it for; this is the backstop for what that
+// left: the daemon calls it on every pass.
 func (s *Store) SettlePeerBeads(ctx context.Context) error {
+	pending, err := s.owedSettles()
+	for _, uuid := range pending {
+		err = errors.Join(err, s.settleSent(ctx, uuid))
+	}
+	return err
+}
+
+// owedSettles lists the beads whose stay at a peer ended and whose outcome
+// is not applied yet: what the settler drains and SettlePeerBeads sweeps.
+func (s *Store) owedSettles() ([]string, error) {
 	var pending []string
 	err := s.read(func(tx *bolt.Tx) error {
 		return each(tx, bPeerSent, "", func(_ []byte, rec *peerSent) error {
@@ -825,10 +836,7 @@ func (s *Store) SettlePeerBeads(ctx context.Context) error {
 			return nil
 		})
 	})
-	for _, uuid := range pending {
-		err = errors.Join(err, s.settleSent(ctx, uuid))
-	}
-	return err
+	return pending, err
 }
 
 // settleSent applies the outcome of the bead's stay at a peer to the bead:
