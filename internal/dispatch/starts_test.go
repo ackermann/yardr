@@ -3,6 +3,7 @@ package dispatch_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -295,69 +296,135 @@ func TestStandaloneReconcileStartsSuccessiveBeads(t *testing.T) {
 	}
 }
 
+// gatedEndStore holds EndSession's return, once the store holds the end,
+// until release is closed or the context ends. The worker's abort commit is
+// then visible, and has woken the loop, while its completion is not yet
+// posted: the gap between the two (runStart commits, its caller posts) that
+// a busy box leaves open for a pass, held open here until the test has seen
+// what a pass in it does.
+type gatedEndStore struct {
+	store.API
+	release chan struct{}
+}
+
+func (s *gatedEndStore) EndSession(ctx context.Context, id, state, reason string) error {
+	err := s.API.EndSession(ctx, id, state, reason)
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+	}
+	return err
+}
+
 // The same blocked group's first start then fails as a runtime error:
 // the runner has been called once, the second bead is still unclaimed —
 // it is considered only by a later pass, under the recorded outage,
 // never by the worker on its own motion.
+//
+// The worker commits the abort inside runStart and posts its completion
+// after runStart returns, and the commit wakes the loop. A pass that runs
+// between the two sees the group's start still in flight and no outage
+// recorded, so the bead's one group_wait says the group is starting a
+// session; one that runs after the drain says the runtime is down. Which
+// comes first is up to the machine, so the first row takes either reason;
+// the second holds the worker between the two until a pass has reported,
+// so the stale reason is the one it must get.
 func TestRuntimeStartFailureLeavesNextBeadToALaterPass(t *testing.T) {
 	t.Parallel()
-	s := storetest.New(t)
-	r := newGateRunner("builders")
-	r.err = dispatch.Runtime(errors.New("herdr is down"))
-	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
-		Backoff: time.Nanosecond, RuntimeBackoff: time.Hour, Interval: time.Hour}
-	ctx := context.Background()
-	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
-	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
-	must(t, err)
-	b1, err := s.CreateBead(ctx, store.NewBead{Title: "b1", Priority: 1}, "me")
-	must(t, err)
-	b2, err := s.CreateBead(ctx, store.NewBead{Title: "b2", Priority: 2}, "me")
-	must(t, err)
-	stop := runDaemon(t, d)
-	defer stop()
+	for _, tc := range []struct {
+		name string
+		// gap holds the worker between its abort commit and its completion
+		// until a pass has run in between.
+		gap     bool
+		reasons []string
+	}{
+		{"either order", false, []string{"runtime is down", "starting a session"}},
+		{"pass in the gap", true, []string{"starting a session"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := storetest.New(t)
+			r := newGateRunner("builders")
+			r.err = dispatch.Runtime(errors.New("herdr is down"))
+			var daemonStore store.API = s
+			var gap chan struct{}
+			if tc.gap {
+				gap = make(chan struct{})
+				daemonStore = &gatedEndStore{API: s, release: gap}
+			}
+			d := &dispatch.Dispatcher{Store: daemonStore, Runners: map[string]dispatch.Runner{"fake": r},
+				Backoff: time.Nanosecond, RuntimeBackoff: time.Hour, Interval: time.Hour}
+			ctx := context.Background()
+			must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
+			_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
+			must(t, err)
+			b1, err := s.CreateBead(ctx, store.NewBead{Title: "b1", Priority: 1}, "me")
+			must(t, err)
+			b2, err := s.CreateBead(ctx, store.NewBead{Title: "b2", Priority: 2}, "me")
+			must(t, err)
+			stop := runDaemon(t, d)
+			defer stop()
 
-	if got := <-r.entered; got != b1.ID {
-		t.Fatalf("blocked start is for %s, want %s", got, b1.ID)
-	}
-	first := waitSessionState(t, s, b1.ID, "starting")
-	close(r.release)
-	deadline := time.Now().Add(testload.Scale(30 * time.Second))
-	for time.Now().Before(deadline) {
-		if got, _ := s.GetSession(ctx, first.ID); got.State == "aborted" {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got, _ := s.GetSession(ctx, first.ID); got.State != "aborted" {
-		t.Fatalf("runtime-failed session = %s, want aborted", got.State)
-	}
-	for _, b := range []string{b1.ID, b2.ID} {
-		if got, _ := s.GetBead(ctx, b); got.Group != nil || got.Session != nil {
-			t.Fatalf("bead %s claimed behind the failed start: %+v", b, got)
-		}
-		if n, _ := s.FailureCount(ctx, b, "new"); n != 0 {
-			t.Fatalf("bead %s counted %d failures from an outage", b, n)
-		}
-	}
-	if n := r.callsFor("builders"); n != 1 {
-		t.Fatalf("builders starts = %d, want 1: the worker retried on its own", n)
-	}
-	// The completion's pass records the outage, and only then considers
-	// the beads again — under it, so nothing more is tried.
-	for time.Now().Before(deadline) && groupEvents(t, s, "runtime_down")["builders"] == 0 {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := groupEvents(t, s, "runtime_down"); got["builders"] != 1 {
-		t.Fatalf("runtime_down = %v, want one for builders", got)
-	}
-	wakePass(t, s)
-	if n := r.callsFor("builders"); n != 1 {
-		t.Fatalf("builders starts after the outage was recorded = %d, want 1", n)
-	}
-	waits := eventKinds(t, s, b1.ID, "group_wait")
-	if len(waits) != 1 || !strings.Contains(waits[0].Data["reason"].(string), "runtime is down") {
-		t.Fatalf("group_wait after the outage = %+v, want the down runtime", waits)
+			if got := <-r.entered; got != b1.ID {
+				t.Fatalf("blocked start is for %s, want %s", got, b1.ID)
+			}
+			first := waitSessionState(t, s, b1.ID, "starting")
+			close(r.release)
+			deadline := time.Now().Add(testload.Scale(30 * time.Second))
+			for time.Now().Before(deadline) {
+				if got, _ := s.GetSession(ctx, first.ID); got.State == "aborted" {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			if got, _ := s.GetSession(ctx, first.ID); got.State != "aborted" {
+				t.Fatalf("runtime-failed session = %s, want aborted", got.State)
+			}
+			for _, b := range []string{b1.ID, b2.ID} {
+				if got, _ := s.GetBead(ctx, b); got.Group != nil || got.Session != nil {
+					t.Fatalf("bead %s claimed behind the failed start: %+v", b, got)
+				}
+				if n, _ := s.FailureCount(ctx, b, "new"); n != 0 {
+					t.Fatalf("bead %s counted %d failures from an outage", b, n)
+				}
+			}
+			if n := r.callsFor("builders"); n != 1 {
+				t.Fatalf("builders starts = %d, want 1: the worker retried on its own", n)
+			}
+			if tc.gap {
+				// The abort is committed and the worker is held before its
+				// post, so the pass that commit woke finds the start in
+				// flight and the bead is told so; the worker goes on only
+				// once that is on record.
+				until(t, "a pass between the abort and the completion", func() bool {
+					return len(eventKinds(t, s, b1.ID, "group_wait")) > 0
+				})
+				close(gap)
+			}
+			// The completion's pass records the outage, and only then considers
+			// the beads again — under it, so nothing more is tried.
+			for time.Now().Before(deadline) && groupEvents(t, s, "runtime_down")["builders"] == 0 {
+				time.Sleep(5 * time.Millisecond)
+			}
+			if got := groupEvents(t, s, "runtime_down"); got["builders"] != 1 {
+				t.Fatalf("runtime_down = %v, want one for builders", got)
+			}
+			wakePass(t, s)
+			if n := r.callsFor("builders"); n != 1 {
+				t.Fatalf("builders starts after the outage was recorded = %d, want 1", n)
+			}
+			// A bead hears of its wait once per stage and route, so the count
+			// holds whichever pass spoke first; the reason is that pass's, and
+			// the outage's own wait is dropped behind it.
+			waits := eventKinds(t, s, b1.ID, "group_wait")
+			if len(waits) != 1 {
+				t.Fatalf("group_wait events after the outage = %+v, want one", waits)
+			}
+			reason := waits[0].Data["reason"].(string)
+			if !slices.ContainsFunc(tc.reasons, func(want string) bool { return strings.Contains(reason, want) }) {
+				t.Fatalf("group_wait after the outage says %q, want one of %q", reason, tc.reasons)
+			}
+		})
 	}
 }
 
