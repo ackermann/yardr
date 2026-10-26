@@ -537,6 +537,15 @@ func (c *Client) DevicePairOpen(ctx context.Context, user, name, actor string) (
 func (c *Client) DevicePairClose(ctx context.Context, actor string) (*store.DevicePairing, error) {
 	return callV[*store.DevicePairing](c, ctx, "DevicePairClose", actor)
 }
+func (c *Client) DevicePairOpenSelf(ctx context.Context, user, name string) (*store.DevicePairingCode, error) {
+	return callV[*store.DevicePairingCode](c, ctx, "DevicePairOpenSelf", user, name)
+}
+func (c *Client) DevicePairCloseSelf(ctx context.Context, user string) (*store.DevicePairing, error) {
+	return callV[*store.DevicePairing](c, ctx, "DevicePairCloseSelf", user)
+}
+func (c *Client) DevicePairCodeSelf(ctx context.Context, user string) (*store.DevicePairingCode, error) {
+	return callV[*store.DevicePairingCode](c, ctx, "DevicePairCodeSelf", user)
+}
 func (c *Client) UserInbox(ctx context.Context, name string, limit int, actor string) (*store.Mailbox, error) {
 	return callV[*store.Mailbox](c, ctx, "UserInbox", name, limit, actor)
 }

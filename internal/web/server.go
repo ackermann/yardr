@@ -46,6 +46,7 @@ var menu = []menuItem{
 	{Name: "sessions", Label: "Sessions", Path: "/sessions"},
 	{Name: "crew", Label: "Crew", Path: "/crew"},
 	{Name: "config", Label: "Config", Path: "/config"},
+	{Name: "pairing", Label: "Pair device", Path: "/pairing", SignedInOnly: true},
 	{Name: "line", Label: "Line", Path: "/line", Phone: true},
 }
 
@@ -53,18 +54,36 @@ type menuItem struct {
 	Name, Label, Path string
 	// Phone marks an entry the phone's bottom bar shows itself; the
 	// rest open under its More entry.
-	Phone bool
+	Phone        bool
+	SignedInOnly bool
 }
 
 // moreCurrent is whether name is a menu entry the phone's bottom bar
-// hides: its More entry then stands for the current page.
-func moreCurrent(name string) bool {
-	for _, m := range menu {
+// hides: its More entry then stands for the current page. Entries is the
+// menu this view is allowed to show.
+func moreCurrent(name string, entries []menuItem) bool {
+	for _, m := range entries {
 		if m.Name == name {
 			return !m.Phone
 		}
 	}
 	return false
+}
+
+// menuFor hides the pairing page from views that cannot open one. The
+// handlers still refuse those views, but a signed-in user can reach the
+// page from the web view without knowing its path.
+func menuFor(signedIn bool) []menuItem {
+	if signedIn {
+		return menu
+	}
+	entries := make([]menuItem, 0, len(menu))
+	for _, item := range menu {
+		if !item.SignedInOnly {
+			entries = append(entries, item)
+		}
+	}
+	return entries
 }
 
 // unbuilt are the menu's pages no child of the train has built yet: each
@@ -210,6 +229,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /blobs/{hash}/{name}", s.handleBlob)
 	// The configuration lists (lists.go, limits.go): each has a page under
 	// the Config entry, with /config as their hub.
+	s.mux.HandleFunc("GET /pairing", s.handlePairing)
+	s.mux.HandleFunc("GET /pairing.png", s.handlePairingPNG)
 	s.mux.HandleFunc("GET /config", s.handleConfig)
 	s.mux.HandleFunc("GET /depots", s.handleDepots)
 	s.mux.HandleFunc("GET /groups", s.handleGroups)
@@ -508,7 +529,8 @@ func (s *Server) respond(w http.ResponseWriter, r *http.Request, p Page) {
 	}
 	// The shell shows the yard's name on every page: the aside beside
 	// home and the line, and the header's count elsewhere.
-	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream, MoreCurrent: moreCurrent(p.Menu)}
+	entries := menuFor(s.jwt != nil)
+	v := view{Page: p, Entries: entries, Yard: s.yardName(r.Context()), Aside: p.line, Head: p.head, Stream: p.stream, MoreCurrent: moreCurrent(p.Menu, entries)}
 	if v.Aside == nil {
 		var err error
 		// A handler's own head stands: it is from before the handler read
@@ -578,7 +600,8 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		_ = json.NewEncoder(w).Encode(p.Data)
 		return
 	}
-	v := view{Page: p, Entries: menu, Yard: s.yardName(r.Context()), MoreCurrent: moreCurrent(p.Menu)}
+	entries := menuFor(s.jwt != nil)
+	v := view{Page: p, Entries: entries, Yard: s.yardName(r.Context()), MoreCurrent: moreCurrent(p.Menu, entries)}
 	// An error page still carries the header's count when the yard can
 	// answer it; keep the error itself renderable when those reads failed.
 	if ov, overviewErr := s.overview(r.Context(), nil); overviewErr == nil {
@@ -685,6 +708,7 @@ func (s *Server) ActAs(user string) (token string) {
 func (s *Server) postRoutes() {
 	s.mux.HandleFunc("POST /talk", s.handleTalkPost)
 	s.mux.HandleFunc("POST /beads/{id}", s.handleBeadPost)
+	s.mux.HandleFunc("POST /pairing", s.handlePairingPost)
 }
 
 // As is the user the view acts as, "" when it acts as none.

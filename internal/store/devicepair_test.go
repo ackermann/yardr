@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/pairing"
 	"yardr.dev/yardr/internal/peer"
@@ -139,5 +140,130 @@ func TestDevicePairNotAdded(t *testing.T) {
 	}
 	if list, _ := api.Devices(ctx, ""); len(list) != 1 || list[0].User != "bob" {
 		t.Fatalf("devices = %+v", list)
+	}
+}
+
+// A user opens a pairing for one of their own devices with no leave taken:
+// good for the pairing's ten minutes and for one device, under their own
+// name as its actor, and redeemable as the operator's pairing is. What the
+// operator's opening refuses of the device, this one refuses too.
+func TestDevicePairOpenSelf(t *testing.T) {
+	t.Parallel()
+	api, own := deviceYard(t)
+	ctx := context.Background()
+	opened, err := api.DevicePairOpenSelf(ctx, "ada", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.State != store.PairOpened || opened.User != "ada" || opened.Device != "phone" || len(opened.Code) != 9 {
+		t.Fatalf("opened = %+v", opened)
+	}
+	if until := time.Until(opened.Expires); until > pairing.TTL || until < pairing.TTL-time.Minute {
+		t.Fatalf("the pairing runs out in %v, want about %v", until, pairing.TTL)
+	}
+	if got, _ := api.EventsOfKind(ctx, "device_pair_opened", 10); len(got) != 1 || got[0].Actor != "ada" {
+		t.Fatalf("device_pair_opened = %+v, want one by ada", got)
+	}
+	// The code getter answers the same pairing, code and all, so a page
+	// that reloads shows the same QR.
+	again, err := api.DevicePairCodeSelf(ctx, "ada")
+	if err != nil || again.Code != opened.Code || again.Device != "phone" || !again.Expires.Equal(opened.Expires) {
+		t.Fatalf("DevicePairCodeSelf = %+v, %v, want %+v again", again, err, opened)
+	}
+	// Another user is told nothing of it: no code, and no end either.
+	if _, err := api.DevicePairCodeSelf(ctx, "bob"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DevicePairCodeSelf as bob = %v", err)
+	}
+	if _, err := api.DevicePairCloseSelf(ctx, "bob"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DevicePairCloseSelf as bob = %v", err)
+	}
+	if !own.DevicePairOpened(ctx) {
+		t.Fatal("another user's asking ended the pairing")
+	}
+	// The code still redeems, and the device is ada's, made by ada.
+	d, err := own.DevicePairRedeem(ctx, opened.Code)
+	if err != nil || d.User != "ada" || d.Name != "phone" || d.CreatedBy != "ada" {
+		t.Fatalf("the code redeemed to %+v, %v", d, err)
+	}
+	if _, err := api.DevicePairCodeSelf(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the code of a used pairing = %v", err)
+	}
+}
+
+// One pairing lives at a time, whosever it is: a second opening of one's
+// own is refused while one lives, another user's opening likewise in words
+// that name no one's device, and so is the operator's — and the operator's
+// pairing refuses a user's the same way. Only the owner ends their own; the
+// operator still ends any.
+func TestDevicePairSelfOneAtATime(t *testing.T) {
+	t.Parallel()
+	api, _ := deviceYard(t)
+	ctx := context.Background()
+	if _, err := api.DevicePairOpenSelf(ctx, "ada", "phone"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.DevicePairOpenSelf(ctx, "ada", "laptop"); err == nil || !strings.Contains(err.Error(), "a pairing is open already, for your device phone until ") {
+		t.Fatalf("a second pairing of one's own = %v", err)
+	}
+	other, err := api.DevicePairOpenSelf(ctx, "bob", "phone")
+	if err == nil || other != nil || !strings.Contains(err.Error(), "a pairing is already open, try again in a few minutes") ||
+		strings.Contains(err.Error(), "ada") || strings.Contains(err.Error(), "phone of") {
+		t.Fatalf("another user's pairing = %+v, %v", other, err)
+	}
+	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err == nil || !strings.Contains(err.Error(), "a pairing is open already") {
+		t.Fatalf("the operator's pairing over one's own = %v", err)
+	}
+	ended, err := api.DevicePairCloseSelf(ctx, "ada")
+	if err != nil || ended.State != store.PairEnded || ended.Reason != pairing.Closed || ended.Device != "phone" {
+		t.Fatalf("DevicePairCloseSelf = %+v, %v", ended, err)
+	}
+	if _, err := api.DevicePairCloseSelf(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DevicePairCloseSelf with none open = %v", err)
+	}
+	// The operator's pairing now: a user's opening is refused, and the
+	// operator's own ending still works over it.
+	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.DevicePairOpenSelf(ctx, "ada", "laptop"); err == nil || !strings.Contains(err.Error(), "a pairing is already open, try again in a few minutes") {
+		t.Fatalf("one's own pairing over the operator's = %v", err)
+	}
+	// The pairing is bob's, whoever opened it: bob ends it, and the
+	// operator's ending then finds none. A fresh one is the operator's to
+	// end as before.
+	if _, err := api.DevicePairCloseSelf(ctx, "ada"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("ending another's pairing as ada = %v", err)
+	}
+	if _, err := api.DevicePairCloseSelf(ctx, "bob"); err != nil {
+		t.Fatalf("ending one's own pairing the operator opened: %v", err)
+	}
+	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.DevicePairClose(ctx, "jo"); err != nil {
+		t.Fatalf("the operator ends the pairing: %v", err)
+	}
+}
+
+// What one's own opening refuses before any code: a user the yard has not,
+// a device of no name, and a device the user already has.
+func TestDevicePairOpenSelfRefusals(t *testing.T) {
+	t.Parallel()
+	api, own := deviceYard(t)
+	ctx := context.Background()
+	if _, err := api.DevicePairOpenSelf(ctx, "carol", "phone"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a pairing for a user the yard has not = %v", err)
+	}
+	if _, err := api.DevicePairOpenSelf(ctx, "ada", "my phone"); err == nil || !strings.Contains(err.Error(), "use letters, digits") {
+		t.Errorf("a pairing for a device of no name = %v", err)
+	}
+	if _, err := api.AddDevice(ctx, "ada", "laptop", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.DevicePairOpenSelf(ctx, "ada", "laptop"); !errors.Is(err, store.ErrConflict) {
+		t.Errorf("a pairing for a device ada has = %v", err)
+	}
+	if own.DevicePairOpened(ctx) {
+		t.Fatal("a refused pairing is open")
 	}
 }

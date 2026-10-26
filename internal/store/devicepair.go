@@ -124,12 +124,44 @@ func (s *Store) devicePairing(ctx context.Context) *devicePairing {
 // that would: the device is added when the code is used, as by the actor
 // who opened the pairing.
 func (s *Store) DevicePairOpen(ctx context.Context, user, name, actor string) (*DevicePairingCode, error) {
+	return s.openDevicePairing(ctx, user, name, actor, func(tx *bolt.Tx) error {
+		return s.may(ctx, tx, actor, ActAddDevice, Object{Kind: KindUser, Name: user})
+	}, func(p *devicePairing) error {
+		return fmt.Errorf("a pairing is open already, for the device %s of %s until %s: a yard has one at a time (yardr user device pair --end ends it)",
+			p.Device, p.User, p.Expires.Local().Format("15:04:05"))
+	})
+}
+
+// DevicePairOpenSelf opens a pairing for the device name of the user
+// themselves, as the web view's pairing page does for the user its signed-in
+// session names. It is DevicePairOpen with the leave-taking left out: no may
+// call stands in front of it, and the user is the actor of its events, so the
+// web page — which passes its signed-in user and no name from the request —
+// opens a pairing for that user's own devices and for no one else's. The
+// pairing is the yard's one, as the operator's is: while it lives the
+// operator's opening is refused too, and the other way round.
+func (s *Store) DevicePairOpenSelf(ctx context.Context, user, name string) (*DevicePairingCode, error) {
+	return s.openDevicePairing(ctx, user, name, user, nil, func(p *devicePairing) error {
+		if p.User == user {
+			return fmt.Errorf("a pairing is open already, for your device %s until %s: a yard has one at a time (end it to open another)",
+				p.Device, p.Expires.Local().Format("15:04:05"))
+		}
+		return fmt.Errorf("a pairing is already open, try again in a few minutes")
+	})
+}
+
+// openDevicePairing is DevicePairOpen and DevicePairOpenSelf: check, inside
+// the read, is the leave the opening takes (nil for one's own), and busy
+// words the refusal when the yard's one pairing already lives.
+func (s *Store) openDevicePairing(ctx context.Context, user, name, actor string, check func(tx *bolt.Tx) error, busy func(p *devicePairing) error) (*DevicePairingCode, error) {
 	if err := checkDeviceName(name); err != nil {
 		return nil, err
 	}
 	err := s.read(func(tx *bolt.Tx) error {
-		if err := s.may(ctx, tx, actor, ActAddDevice, Object{Kind: KindUser, Name: user}); err != nil {
-			return err
+		if check != nil {
+			if err := check(tx); err != nil {
+				return err
+			}
 		}
 		return deviceFree(tx, user, name)
 	})
@@ -139,8 +171,7 @@ func (s *Store) DevicePairOpen(ctx context.Context, user, name, actor string) (*
 	s.devPair.mu.Lock()
 	defer s.devPair.mu.Unlock()
 	if p := s.devicePairing(ctx); p != nil && p.State == PairOpened {
-		return nil, fmt.Errorf("a pairing is open already, for the device %s of %s until %s: a yard has one at a time (yardr user device pair --end ends it)",
-			p.Device, p.User, p.Expires.Local().Format("15:04:05"))
+		return nil, busy(p)
 	}
 	code := pairing.NewCode()
 	clean, err := pairing.CleanCode(code)
@@ -172,6 +203,46 @@ func (s *Store) DevicePairClose(ctx context.Context, actor string) (*DevicePairi
 	s.endDevicePairing(ctx, p, pairing.Closed, "", actor)
 	out := p.DevicePairing
 	return &out, nil
+}
+
+// DevicePairCloseSelf ends the open pairing of the user themselves, as the
+// web view's pairing page does for the user its signed-in session names.
+// A pairing of another user's is no pairing to them, in the same words as
+// none at all, so nothing of it is learned by asking.
+func (s *Store) DevicePairCloseSelf(ctx context.Context, user string) (*DevicePairing, error) {
+	s.devPair.mu.Lock()
+	defer s.devPair.mu.Unlock()
+	p := s.devicePairing(ctx)
+	if p == nil || p.State != PairOpened || p.User != user {
+		return nil, fmt.Errorf("an open device pairing: %w (one lives in the server's memory, and ends with it)", ErrNotFound)
+	}
+	s.endDevicePairing(ctx, p, pairing.Closed, "", user)
+	out := p.DevicePairing
+	return &out, nil
+}
+
+// DevicePairCodeSelf answers the user's own open pairing with its code, as
+// it was shown when it was opened, so the web view's pairing page shows the
+// same QR again on a reload. Another user's pairing, and none, are both no
+// pairing to them. The code is the one in the server's memory: it is gone
+// when the pairing ends, and this answers none then.
+func (s *Store) DevicePairCodeSelf(ctx context.Context, user string) (*DevicePairingCode, error) {
+	s.devPair.mu.Lock()
+	defer s.devPair.mu.Unlock()
+	p := s.devicePairing(ctx)
+	if p == nil || p.State != PairOpened || p.User != user {
+		return nil, fmt.Errorf("an open device pairing: %w (one lives in the server's memory, and ends with it)", ErrNotFound)
+	}
+	return &DevicePairingCode{DevicePairing: p.DevicePairing, Code: displayCode(p.code)}, nil
+}
+
+// displayCode is a pairing's stored code as it is shown: XXXX-XXXX (the
+// stored form has no dash, as pairing.CleanCode leaves it).
+func displayCode(clean string) string {
+	if len(clean) <= 4 {
+		return clean
+	}
+	return clean[:4] + "-" + clean[4:]
 }
 
 // DevicePairOpened reports whether a device pairing is open now: whether a

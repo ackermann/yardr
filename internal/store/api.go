@@ -195,6 +195,9 @@ type API interface {
 	RemoveDevice(ctx context.Context, user, name, actor string) (*Device, error)
 	DevicePairOpen(ctx context.Context, user, name, actor string) (*DevicePairingCode, error)
 	DevicePairClose(ctx context.Context, actor string) (*DevicePairing, error)
+	DevicePairOpenSelf(ctx context.Context, user, name string) (*DevicePairingCode, error)
+	DevicePairCloseSelf(ctx context.Context, user string) (*DevicePairing, error)
+	DevicePairCodeSelf(ctx context.Context, user string) (*DevicePairingCode, error)
 	UserInbox(ctx context.Context, name string, limit int, actor string) (*Mailbox, error)
 	AckUserInbox(ctx context.Context, name string, through uint64, actor string) error
 	UserNotifications(ctx context.Context, name string, limit int, actor string) (*NotificationPage, error)

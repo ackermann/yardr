@@ -1,0 +1,44 @@
+{{define "content"}}
+<div id="pairing">
+  {{- if .Data.Open}}
+  {{- /* The visitor's own open pairing: its device, its code, how long
+        the code still has, and the QR a phone scans in place of typing.
+        Ending it is the form under it; the code is good for nothing then. */}}
+  <section class="item">
+    {{- if .Data.Error}}
+    <p class="item error">{{.Data.Error}}</p>
+    {{- end}}
+    <p>Pairing is open for your device <strong>{{.Data.Device}}</strong>, until {{clock .Data.Expires}} ({{.Data.Left}} left). Give the device this code:</p>
+    <p class="pairing-code">{{.Data.Code}}</p>
+    {{- if .Data.Address}}
+    <p><img class="pairing-qr" src="/pairing.png" alt="QR code holding the yard's address, its name and the pairing code"></p>
+    <p class="faint">Scan it with the device, or give it the address {{.Data.Address}}, the yard {{.Data.Yard}} and the code. The code is good once, for this device: whoever has it within those minutes is answered with the device's token, so show it to the device and to nobody else.</p>
+    {{- else}}
+    <p class="faint">This yard is not connected to an edge, so there is no QR to scan: give the device the code where it asks for one. The code is good once, for this device: whoever has it within those minutes is answered with the device's token, so show it to the device and to nobody else.</p>
+    {{- end}}
+    <form method="post" action="/pairing">
+      {{template "csrf"}}
+      <input type="hidden" name="action" value="end">
+      <button type="submit">End pairing</button>
+    </form>
+  </section>
+  {{- else}}
+  {{- /* No pairing of the visitor's is open: the form opens one for a
+        device of theirs. The yard has one pairing at a time, whosever it
+        is; a refusal says so on this page, in plain words. */}}
+  <section class="item">
+    <p>Pair one of your own devices: open a pairing, then give the device the code it shows, here or by the QR beside it. The device that calls with the code is answered with its token, once — nobody types or pastes the token. The code is good for 10 minutes and for one device.</p>
+    {{- if .Data.Error}}
+    <p class="item error">{{.Data.Error}}</p>
+    {{- end}}
+    <form method="post" action="/pairing">
+      {{template "csrf"}}
+      <input type="hidden" name="action" value="open">
+      <label class="label" for="device">Device name</label>
+      <input id="device" name="device" type="text" required value="{{.Data.Draft}}" placeholder="phone">
+      <button type="submit">Open pairing</button>
+    </form>
+  </section>
+  {{- end}}
+</div>
+{{end}}

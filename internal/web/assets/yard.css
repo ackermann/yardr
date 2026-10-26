@@ -423,6 +423,16 @@ ul, ol { list-style: none; }
 #send button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
 /* Why a mail was not sent, above the form that keeps its words. */
 .error { color: var(--held); }
+/* The pairing page: the code large in mono, the QR at its natural size on
+   white (a scanner wants the contrast the page's ground does not give),
+   and the open/end forms in the talk form's dress. The input is 16px, as
+   the talk form's is, so a phone does not enlarge it on focus. */
+.pairing-code { font-family: var(--mono); font-size: var(--large); letter-spacing: 2px; }
+.pairing-qr { background: #fff; padding: 8px; }
+#pairing form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+#pairing input[type="text"] { padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
+#pairing button { padding: 8px 16px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); font-size: var(--small); letter-spacing: var(--label-spacing); text-transform: uppercase; }
+#pairing button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
 /* An ask's answer, under a needs row, a wait's reason or its bead: the
    options as buttons, with Later and Decline. The buttons wrap instead of
    widening the page, and each is large enough to tap. Its text is 16px:
