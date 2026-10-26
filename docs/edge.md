@@ -164,6 +164,11 @@ operator gives it with `GiveSecret`, so a phone with no terminal behind it
 can sign the assistant in. The edge reads the code with the device's token,
 as it reads every call. The code is used once, within minutes, and the yard
 hands it to the waiting login in its memory and keeps it nowhere.
+A session's screen crosses with the approvals: `SessionScreen` is taken from
+a paired device of the operator down the link, as from the yard's own
+machine. The edge reads the screen with the device's token, as it reads
+every call; a member's device is answered as for a method the yard does not
+have.
 No other secret crosses: model credentials such as an API key, and hook
 signing secrets, are answered at the yard's own machine, as on a LAN without
 TLS, and `GiveSecret` is refused down the link for every other ask. So is

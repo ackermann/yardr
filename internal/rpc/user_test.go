@@ -242,14 +242,39 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 			t.Errorf("SessionScreen from another machine is answered %s, want it to say %q", w.Body, want)
 		}
 	}
-	edge = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", unread{t})
+	edge = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", strings.NewReader(`{"session":"yardmaster"}`))
 	edge.RemoteAddr = linkRemoteAddr
 	edge.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, edge)
-	for _, want := range []string{"not read over the link", "The edge saw the device's token", "yardr user device rm"} {
+	if !strings.Contains(w.Body.String(), `"screen":"\u001b[1mYardr yardmaster\u001b[0m\n❯ "`) {
+		t.Errorf("SessionScreen over the edge is answered %s, want the styled screen", w.Body)
+	}
+	// A member's device is answered as for a method the yard does not
+	// have, and a device the edge says reached it in plain HTTP is
+	// refused before its body is read, as an approval is.
+	none, _ = json.Marshal(noSuchMethod("SessionScreen"))
+	edge = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", strings.NewReader(`{"session":"yardmaster"}`))
+	edge.RemoteAddr = linkRemoteAddr
+	edge.Header.Set("Authorization", "Bearer "+tablet.Token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, edge)
+	if got := strings.TrimSpace(w.Body.String()); got != string(none) {
+		t.Errorf("SessionScreen over the edge from sam's device is answered %s, want %s", got, none)
+	}
+	edge = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", unread{t})
+	edge.RemoteAddr = linkRemoteAddr
+	edge.Header.Set("Authorization", "Bearer "+token)
+	edge.Header.Set("X-Forwarded-Proto", "http")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, edge)
+	for _, want := range []string{
+		"the proxy in front of the yard says this request came to it in plain HTTP",
+		"The device's token was sent with it",
+		"yardr user device rm",
+	} {
 		if !strings.Contains(w.Body.String(), want) {
-			t.Errorf("SessionScreen over the edge is answered %s, want it to say %q", w.Body, want)
+			t.Errorf("SessionScreen over the edge in plain HTTP is answered %s, want it to say %q", w.Body, want)
 		}
 	}
 	local = httptest.NewRequest(http.MethodPost, "/user/call/SessionScreen", strings.NewReader(`{"session":"yardmaster"}`))

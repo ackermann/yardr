@@ -1316,10 +1316,13 @@ const linkRemoteAddr = "edge:0"
 // false for every call it judges before the body is read. An approval
 // crosses: a paired device of the operator is the operator (design
 // yardr-xpf8), pairing is the grant and `yardr user device rm` is the
-// revoke, and the command an approval runs is fixed on the ask. The edge
-// sees the device's token with either, and what they write says it came by
-// the edge (call). If the edge says the device reached it over plain HTTP,
-// the approval and the code are still refused.
+// revoke, and the command an approval runs is fixed on the ask. A session's
+// screen crosses to the same device: pairing is the grant there too, and a
+// member's device is answered as for a method the yard does not have
+// (operatorCall). The edge sees the device's token with each, and what an
+// approval or a giving writes says it came by the edge (call). If the edge
+// says the device reached it over plain HTTP, the approval, the code and
+// the screen are still refused.
 func inTheClear(r *http.Request, name, router string, code bool) string {
 	if name == "SourceGrants" {
 		return sourceGrantsInTheClear(r, router)
@@ -1409,13 +1412,18 @@ func sourceGrantsInTheClear(r *http.Request, router string) string {
 // sessionScreenInTheClear keeps a session's screen under the same transport
 // rule as the other operator calls: a screen can show what an agent
 // printed, a secret among it, so it is read over https or from the yard's
-// own machine, and never over the link from the edge.
+// own machine, and down the link from the edge from a paired device of the
+// operator, as an approval is.
 func sessionScreenInTheClear(r *http.Request, router string) string {
 	const crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
 	const readHere = "Read it on the yard's machine."
 	if r.RemoteAddr == linkRemoteAddr {
-		return "a session's screen is not read over the link: this request came down the link from the edge. " +
-			readHere + " The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+		// Only a device of the operator reaches here (operatorCall).
+		if forwardedPlain(r) {
+			return "a session's screen is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+				"Give the device the yard's https:// address, or " + readHere + crossed
+		}
+		return ""
 	}
 	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
 		if fromRouter(r, router) {

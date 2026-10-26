@@ -855,6 +855,14 @@ secret and a user's own login code are refused down the link and answered at
 the yard's own machine. `yardr user device rm` ends a device's reach at its
 next request.
 
+**A session's screen crosses the edge too.** A paired device of the operator
+reads a running session's screen down the link as from the yard's own
+machine, so a terminal opened over the edge shows what the session shows.
+The edge reads the screen with the device's token, as it reads every call.
+A screen can show what an agent printed, a secret among it, so a member's
+device is answered as for a method the yard does not have. `yardr user
+device rm` ends a device's reach at its next request.
+
 **A stolen device of the operator can read every grant, and no credential
 with it.** Until `yardr user device rm`, whoever holds its token can read
 the whole grant graph ([api.md](api.md#sourcegrants)): for each source,
