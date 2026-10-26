@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"maps"
 	"os"
 	"strings"
 	"testing"
@@ -471,6 +472,65 @@ func TestAskAnswerRoutedToAsker(t *testing.T) {
 	}
 	if len(prime.Asks) != 0 {
 		t.Errorf("hal prime asks = %+v, want none (both answered)", prime.Asks)
+	}
+}
+
+// An ask a crew member left open on its journal or on a memory is among its
+// open asks like one on a plain bead, for the yard itself and for a viewer:
+// a bead listing leaves those two out unless it keeps the knowledge beads,
+// and the crew prime and `bead list --asked-by` read this list. An answered
+// ask on the journal is not listed, as on any bead.
+func TestWriterAsksListsAsksOnJournalAndMemory(t *testing.T) {
+	t.Parallel()
+	s, ctx := sessionYard(t)
+	crew, err := s.PutCrew(ctx, store.CrewMember{Name: "scribe", Runner: "herdr"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem, err := s.Remember(ctx, store.NewMemory{Title: "ask before moving a release"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := s.CreateBead(ctx, store.NewBead{Title: "b"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := func(bead string) uint64 {
+		t.Helper()
+		seq, err := s.AddAsk(ctx, bead, store.Ask{To: "jo", Question: "which one?", Context: []string{"line one", "line two"}}, crew.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return seq
+	}
+	onPlain, onJournal, answered, onMemory := ask(plain.ID), ask(crew.Journal), ask(crew.Journal), ask(mem.ID)
+	if err := s.AnswerAsk(ctx, crew.Journal, answered, 0, "this one", "jo", false); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]uint64{plain.ID: onPlain, crew.Journal: onJournal, mem.ID: onMemory}
+	read := func(asks []store.WriterAsk) map[string]uint64 {
+		got := map[string]uint64{}
+		for _, a := range asks {
+			got[a.Bead] = a.Ask
+		}
+		return got
+	}
+	for _, viewer := range [][]string{nil, {"jo"}} {
+		asks, err := s.WriterAsks(ctx, crew.Name, viewer...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := read(asks); len(asks) != 3 || !maps.Equal(got, want) {
+			t.Errorf("viewer %q: asks = %+v, want the plain bead's, the journal's open one and the memory's", viewer, asks)
+		}
+	}
+	// What the line is primed with, which reads the same list.
+	prime, err := s.CrewPrime(ctx, crew.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := read(prime.Asks); len(prime.Asks) != 3 || !maps.Equal(got, want) {
+		t.Errorf("line prime asks = %+v, want the same three", prime.Asks)
 	}
 }
 

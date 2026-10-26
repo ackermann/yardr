@@ -101,6 +101,9 @@ func TestPolicyAllowingAMember(t *testing.T) {
 // A policy that refuses see for one bead hides it from the reads: the
 // listing leaves it out, the view answers not-found, and the arrivals
 // board holds no row for it. Under the core every viewer sees every bead.
+// A crew journal is hidden alike from the lists of asks, though they keep
+// the journals: the viewer's list holds the ask on the journal they may see
+// and none on the one refused.
 func TestPolicySeeHidesABead(t *testing.T) {
 	t.Parallel()
 	api, own := operatorYard(t)
@@ -118,6 +121,20 @@ func TestPolicySeeHidesABead(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// jo's asks on two crew journals: put to ada, they stay out of jo's own
+	// queue below, which is the two beads' asks to jo.
+	var journals []string
+	for _, member := range []string{"yardmaster", "clerk"} {
+		crew, err := api.GetCrew(ctx, member)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := api.AddAsk(ctx, crew.Journal, store.Ask{Question: "Who reads this journal?", To: "ada", Context: []string{"the viewer cannot see one of the journals", "the writer's list should omit its ask"}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		journals = append(journals, crew.Journal)
+	}
+	shownJournal, hiddenJournal := journals[0], journals[1]
 	ids := func(bs []store.Bead) []string {
 		var out []string
 		for _, b := range bs {
@@ -129,7 +146,7 @@ func TestPolicySeeHidesABead(t *testing.T) {
 		t.Fatalf("jo's listing under the core = %v, %v, want both beads", ids(bs), err)
 	}
 	own.SetPolicy(policyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act store.Action, obj store.Object) error {
-		if act == store.ActSee && obj.Kind == store.KindBead && obj.Name == hidden.ID {
+		if act == store.ActSee && obj.Kind == store.KindBead && (obj.Name == hidden.ID || obj.Name == hiddenJournal) {
 			return errors.New("hidden from " + actor)
 		}
 		return store.CorePolicy.May(ctx, tx, actor, act, obj)
@@ -167,8 +184,8 @@ func TestPolicySeeHidesABead(t *testing.T) {
 		t.Fatalf("jo's asks with yd-hidden refused = %+v, %v, want only yd-shown", queue, err)
 	}
 	writerAsks, err := api.WriterAsks(ctx, "jo", "jo")
-	if err != nil || len(writerAsks) != 1 || writerAsks[0].Bead != shown.ID {
-		t.Fatalf("jo's writer asks with yd-hidden refused = %+v, %v, want only yd-shown", writerAsks, err)
+	if err != nil || len(writerAsks) != 2 || writerAsks[0].Bead != shown.ID || writerAsks[1].Bead != shownJournal {
+		t.Fatalf("jo's writer asks with yd-hidden and %s refused = %+v, %v, want yd-shown and %s", hiddenJournal, writerAsks, err, shownJournal)
 	}
 	flows, err := api.Flows(ctx, "jo")
 	if err != nil || len(flows.Unassigned) != 1 || flows.Unassigned[0].Bead != shown.ID {

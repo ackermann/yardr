@@ -192,7 +192,14 @@ func TestBlockedStartDoesNotBlockOtherGroup(t *testing.T) {
 	if live, _ := s.Sessions(ctx, false); len(live) != 2 {
 		t.Fatalf("live sessions = %v, want the starting and the running one", live)
 	}
-	waits := eventKinds(t, s, b2.ID, "group_wait")
+	// b2 is the pass's last bead: its wait is written after the effects
+	// waited on above are visible, so wait for the event itself, as long as
+	// the fuse against a hang (dispatch.WaitFuse, in until) allows.
+	var waits []store.Event
+	until(t, "next bead's group_wait", func() bool {
+		waits = eventKinds(t, s, b2.ID, "group_wait")
+		return len(waits) > 0
+	})
 	if len(waits) != 1 || !strings.Contains(waits[0].Data["reason"].(string), "starting a session") {
 		t.Fatalf("next bead's group_wait = %+v, want one for the busy worker", waits)
 	}
