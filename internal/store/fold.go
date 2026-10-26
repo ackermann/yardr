@@ -228,7 +228,10 @@ func (w *wtx) fold(ctx context.Context, reads *beadReads, look *untilLooks, memb
 	if f != nil && src.Kind != "repo" {
 		nb.Metadata = map[string]any{"flow": f.Name}
 	}
-	carrier, err := w.createBead(ctx, nb, author, reads)
+	// A hand fold names its carrier's stage, so it is a filing there, held
+	// to the members gate as bead create -s is; a siding's fold is the yard
+	// consolidating beads already in a stage, and is not.
+	carrier, err := w.createBead(ctx, nb, author, reads, trigger == "hand")
 	if err != nil {
 		return nil, err
 	}

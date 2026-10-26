@@ -298,7 +298,7 @@ func TestDepotSourceFlowRefusals(t *testing.T) {
 	refused(t, a, []string{"web", "flow", "--type", "decision", "pack"}, "no pack imported into depot web (starter) has a flow for beads of type decision")
 
 	// approved is a stage of the pack's flow the repository's lacks.
-	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "approved"}, "me")
+	b, err := a.st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "approved"}, "ann")
 	if err != nil {
 		t.Fatal(err)
 	}

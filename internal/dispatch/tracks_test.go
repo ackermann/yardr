@@ -46,7 +46,9 @@ func newTrackingDepot(t *testing.T, lines ...string) *ghDepot {
 	_, err = r.api.PutFlow(ctx, *flow, "me")
 	must(t, err)
 	must(t, r.api.SetFlowPointer(ctx, "yard", "", "yard", "me"))
-	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yard"}}, "me"))
+	// The hook files its made beads in these stages, so it is a member
+	// beside the people: filing past a members stage is a member's to do.
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yard", "hook:gh"}}, "me"))
 	for _, stage := range []string{"triage", "backlog", "new", "review"} {
 		_, err = r.api.AddRoute(ctx, store.Route{Stage: stage, Group: "maintainers"}, "me")
 		must(t, err)
@@ -60,7 +62,7 @@ func newTrackingDepot(t *testing.T, lines ...string) *ghDepot {
 func (r *ghDepot) tracker(t *testing.T, id, stage, url string) {
 	t.Helper()
 	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: id, Title: id, Depot: "yard", Stage: stage,
-		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "github", URL: url}}}, "me")
+		Links: []store.NewLink{{Kind: store.LinkTracks, Source: "github", URL: url}}}, "yard")
 	must(t, err)
 }
 

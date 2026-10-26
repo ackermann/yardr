@@ -159,7 +159,7 @@ func TestFlowShowSiding(t *testing.T) {
 
 	newBead := func(stage string, labels ...string) *store.Bead {
 		t.Helper()
-		b, err := st.CreateBead(ctx, store.NewBead{Title: "part", Depot: "yard", Stage: stage, Labels: labels}, "me")
+		b, err := st.CreateBead(ctx, store.NewBead{Title: "part", Depot: "yard", Stage: stage, Labels: labels}, "mckean")
 		must(err)
 		return b
 	}

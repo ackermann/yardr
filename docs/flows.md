@@ -226,6 +226,15 @@ With a flow in place:
 - Entering a **terminal** stage closes the bead in the same write, with the
   stage as close reason (`closed: merged`).
 - `yardr bead create -s <stage>` must name a non-terminal stage of the flow.
+  Filing in a stage past the first honors the members gates exactly as
+  `advance` does: when every stage the flow's transitions lead into it from
+  is held by a group with members, only a member of one of those groups may
+  file there (an exec session counts as its group, as it does for a move
+  out), and the refusal names the blocking groups. A hand fold's carrier
+  (`yardr bead fold --to <stage>`) is filed the same way; a siding's own
+  fold is not. Where any stage before
+  it is held by no members group — most flows — `-s` files as before, and
+  the first stage takes a bead from anyone.
   Without `-s` a bead starts in the flow's first stage (`backlog` in the
   example and in the starter flow, where the yardmaster shapes it before
   advancing it to `new`); a bead no flow governs starts in `new`. The
@@ -355,8 +364,9 @@ The bead is not held: it is moved, and a `then` that people work stops the
 sessions on its own (`decide`, in the starter flow). The note given with the
 outcome is attached as usual, so whoever the bead goes to reads why the last
 round was asked for. The move is made as any other is: only members of the
-stage's group may move a bead out of it, and a wagon with no train may not be
-put in any stage but its flow's first. A refusal leaves the count and the
+stage's group may move a bead out of it (and only a member of such a group
+may file a bead past it in the first place: `bead create -s`, above), and a
+wagon with no train may not be put in any stage but its flow's first. A refusal leaves the count and the
 stage as they were, and a stage ask answered with a pick that fires a limited
 outcome redirects the bead the same way.
 

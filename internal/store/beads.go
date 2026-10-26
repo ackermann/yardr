@@ -470,15 +470,20 @@ func (s *Store) newBead(ctx context.Context, nb NewBead, actor string) (func(*wt
 		if err != nil {
 			return nil, err
 		}
-		return w.createBead(ctx, nb, resolved, reads)
+		return w.createBead(ctx, nb, resolved, reads, true)
 	}, nil
 }
 
 // createBead makes the bead nb says, inside the write w, as actor (already
 // resolved through paneAuthor), with the reads taken before the write for a
 // bead of its depot, type and flow pin. newBead hands it the nb it checked;
-// a fold hands it one made from the members the write itself read.
-func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *beadReads) (*beadRow, error) {
+// a fold hands it one made from the members the write itself read. filed
+// says the create is a filing, held to the members gate
+// (checkCreateMembers); a siding fold's carrier is not — the yard
+// consolidating beads already in a stage, as its own moves out of one are
+// nobody's to refuse — while a hand fold's, whose stage its caller names,
+// is.
+func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *beadReads, filed bool) (*beadRow, error) {
 	prefix := nb.Prefix
 	if prefix == "" {
 		prefix = nb.Depot
@@ -514,8 +519,14 @@ func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *b
 	if err != nil {
 		return nil, err
 	}
-	if err := w.checkAgentCreate(ctx, f, Bead{Type: typ, Depot: depot, Priority: nb.Priority, Labels: nb.Labels, Metadata: nb.Metadata, Originator: originator}, stage); err != nil {
+	proto := Bead{Type: typ, Depot: depot, Priority: nb.Priority, Labels: nb.Labels, Metadata: nb.Metadata, Originator: originator}
+	if err := w.checkAgentCreate(ctx, f, proto, stage); err != nil {
 		return nil, err
+	}
+	if filed {
+		if err := w.checkCreateMembers(ctx, f, proto, stage, actor); err != nil {
+			return nil, err
+		}
 	}
 	row := &beadRow{Bead: Bead{
 		Title: nb.Title, Body: nb.Body, Type: typ, Stage: stage,
@@ -640,6 +651,67 @@ func (w *wtx) checkAgentStage(ctx context.Context, f *Flow, b Bead, stage, how, 
 		return err
 	}
 	return fmt.Errorf("stage %s: the session %s of a bead's agent may %s only in its flow's first stage %s or in a stage people work, whatever actor the command names; %s %s", stage, sess.ID, how, first, instead, first)
+}
+
+// checkCreateMembers refuses filing a bead of flow f in stage, past the
+// flow's first, when every stage the flow's transitions lead into it from
+// is held by a group with members and whoever files it is a member of
+// none of them: filing there would put the bead where only those members
+// could have moved it (checkMembers), with nobody's yes. Predecessors are
+// read over the flow's transitions, as an explicit move rides them; a
+// stage with none, one predecessor no members group holds, and the first
+// stage itself are filed in as before, so a flow that sets no members is
+// unchanged. Whoever files is asked as a move out asks (memberAllowed),
+// the session told by the caller's pane or the session it names
+// (callerIn), there being no bead yet to expect one of.
+func (w *wtx) checkCreateMembers(ctx context.Context, f *Flow, b Bead, stage, actor string) error {
+	if f == nil || stage == firstStage(f) {
+		return nil
+	}
+	var preds []string
+	for _, from := range f.Stages {
+		if slices.Contains(f.Transitions[from], stage) {
+			preds = append(preds, from)
+		}
+	}
+	if len(preds) == 0 {
+		return nil
+	}
+	routes, err := sortedRoutes(w.Tx)
+	if err != nil {
+		return err
+	}
+	var gated []StageWork
+	for _, pred := range preds {
+		work, err := stageWork(w.Tx, routes, b, pred)
+		if err != nil {
+			return err
+		}
+		if len(work.Members) == 0 {
+			return nil
+		}
+		gated = append(gated, work)
+	}
+	_, sess, err := callerIn(w.Tx, ctx)
+	if err != nil {
+		return err
+	}
+	var who string
+	for _, work := range gated {
+		allowed, suffix, err := memberAllowed(ctx, w.Tx, sess, actor, work.Members)
+		if err != nil {
+			return err
+		}
+		if allowed {
+			return nil
+		}
+		who = suffix
+	}
+	only := make([]string, 0, len(gated))
+	for _, work := range gated {
+		only = append(only, fmt.Sprintf("only members of group %s may file a bead in stage %s: %s", work.Group, stage, strings.Join(work.Members, ", ")))
+	}
+	return fmt.Errorf("%s %s", strings.Join(only, "; "), who)
 }
 
 // insertBead gives a new bead its UUID, from its creation time and after

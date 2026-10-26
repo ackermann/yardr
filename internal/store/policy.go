@@ -1078,25 +1078,46 @@ func checkMembers(ctx context.Context, tx *bolt.Tx, actor string, _ Action, obj 
 	if err != nil {
 		return err
 	}
-	if sess != nil && !sess.Manual() {
-		if sess.RunnerName() == "exec" && slices.Contains(g.Members, sess.Group) {
-			return nil
-		}
-		return fmt.Errorf("%s (this is the session %s of a bead's agent, whatever actor the command names)", only, sess.ID)
-	}
-	r, err := paneCrew(tx, callerOf(ctx))
+	allowed, who, err := memberAllowed(ctx, tx, sess, actor, g.Members)
 	if err != nil {
 		return err
 	}
-	switch {
-	case r != nil && slices.Contains(g.Members, r.Name):
-		return nil
-	case r != nil && r.Name != actor:
-		return fmt.Errorf("%s (this is the pane of the crew member %s, whatever actor the command names: %q)", only, r.Name, actor)
-	case r == nil && slices.Contains(g.Members, actor):
+	if allowed {
 		return nil
 	}
-	return fmt.Errorf("%s (you are %q)", only, actor)
+	return fmt.Errorf("%s %s", only, who)
+}
+
+// memberAllowed says whether whoever asks counts as a member of a group
+// with the given members, and, when they do not, the words in brackets
+// that say who asks instead, for a refusal that opens with who may. It is
+// checkMembers' who-asks resolution with no bead of its own, so filing a
+// bead past a members stage (checkCreateMembers) asks it the same way a
+// move out of one does: a session that is not a person's (sess, resolved
+// by the caller as its records tell it) counts only as an exec session
+// whose group the members list, a crew member's pane counts as that crew
+// member, and any other call counts as the actor it names. There is no
+// operator leg: membership is membership.
+func memberAllowed(ctx context.Context, tx *bolt.Tx, sess *Session, actor string, members []string) (bool, string, error) {
+	if sess != nil && !sess.Manual() {
+		if sess.RunnerName() == "exec" && slices.Contains(members, sess.Group) {
+			return true, "", nil
+		}
+		return false, fmt.Sprintf("(this is the session %s of a bead's agent, whatever actor the command names)", sess.ID), nil
+	}
+	r, err := paneCrew(tx, callerOf(ctx))
+	if err != nil {
+		return false, "", err
+	}
+	switch {
+	case r != nil && slices.Contains(members, r.Name):
+		return true, "", nil
+	case r != nil && r.Name != actor:
+		return false, fmt.Sprintf("(this is the pane of the crew member %s, whatever actor the command names: %q)", r.Name, actor), nil
+	case r == nil && slices.Contains(members, actor):
+		return true, "", nil
+	}
+	return false, fmt.Sprintf("(you are %q)", actor), nil
 }
 
 // mayWaitLogin refuses a wait registered from the pane of any agent but

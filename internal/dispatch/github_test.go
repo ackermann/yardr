@@ -136,7 +136,7 @@ func (r *ghDepot) train(t *testing.T, id, stage string) {
 func (r *ghDepot) unboundTrain(t *testing.T, id, stage string) {
 	t.Helper()
 	_, err := r.api.CreateBead(context.Background(), store.NewBead{ID: id, Title: "train " + id, Type: store.TypeTrain,
-		Depot: "yard", Stage: stage}, "me")
+		Depot: "yard", Stage: stage}, "mckean")
 	must(t, err)
 }
 

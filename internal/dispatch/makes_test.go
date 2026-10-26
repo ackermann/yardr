@@ -584,6 +584,41 @@ func TestAMakesLineTheStoreRefusesIsHeard(t *testing.T) {
 	}
 }
 
+// A makes line that files in a stage only a members group may reach —
+// every stage before it is held by one, and the hook is a member of none —
+// is refused by the store as any filing past that stage is, and heard the
+// same way: make_refused, of the class attention, naming the group whose
+// members may file there.
+func TestAMakesLineIntoAMembersStageIsRefusedAndHeard(t *testing.T) {
+	t.Parallel()
+	r := newMakingDepot(t, "event=pull_request action=opened -> task:review")
+	ctx := context.Background()
+	must(t, r.api.PutGroup(ctx, store.Group{Name: "maintainers", Runner: "manual", Limit: 50, Members: []string{"mckean", "yard"}}, "me"))
+	r.deliverAs(t, "gh", "pull_request", "pull_request_opened", nil)
+	r.pass(t)
+	if tracks, _ := r.tracking(t, pull17); len(tracks) != 0 {
+		t.Fatalf("%v made in a stage only members may file in", tracks)
+	}
+	wantRules(t, r.beadless(t), "refused: only members of group maintainers may file a bead in stage review: mckean, yard (you are \"hook:gh\")")
+	evs, err := r.api.Events(ctx, "", 500)
+	must(t, err)
+	var found []store.Event
+	for _, e := range evs {
+		if e.Kind == "make_refused" {
+			found = append(found, e)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("make_refused events: %d, want one", len(found))
+	}
+	if refused, _ := found[0].Data["refused"].(string); !strings.Contains(refused, "only members of group maintainers may file a bead in stage review") {
+		t.Fatalf("make_refused refused %q", found[0].Data["refused"])
+	}
+	if !slices.Contains(store.AttentionKinds, "make_refused") {
+		t.Fatalf("make_refused is not of the class attention: %v", store.AttentionKinds)
+	}
+}
+
 // What the yard did itself makes nothing, as it says nothing: an issue a
 // crew member opened is no one's from outside.
 func TestTheYardsOwnActionMakesNothing(t *testing.T) {
