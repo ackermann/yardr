@@ -88,6 +88,12 @@ in whatever time the machine takes, and keep only the one elapsed-time
 assertion (at least 200 ms over five 50 ms pauses) whose direction load
 cannot falsify.
 
+A fix for a test that fails only under load is proved the way it failed:
+`contrib/burn/burn -n 100 ./internal/dispatch TestName` runs the test a
+hundred times beside five times as many busy loops as the machine has cpus
+(contrib/burn/README.md), first on the code as it was, to see it fail, then
+on the fix, and the note names the command and the counts it printed.
+
 R3. A package over the R1 budget with over 100 tests runs its tests
 parallel: `t.Parallel` on every test that owns its state, allow-list for
 the rest. That binds the volume debts -- internal/dispatch and internal/store,

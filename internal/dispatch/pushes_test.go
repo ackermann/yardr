@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -354,22 +355,26 @@ func TestPushBurstIsOneMessage(t *testing.T) {
 		y.mail(t, "yardmaster", fmt.Sprint("mail ", i))
 	}
 	y.mail(t, "jo", "and one from jo")
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	want(t, "a burst", y.sent(), []string{"5 new in your yardr inbox | mail from yardmaster (4), mail from jo"})
 	if l := y.last(t); l.Count != 5 {
 		t.Fatalf("last push = %+v", l)
 	}
 
 	// A message does not go while more is still coming: the first is past
-	// its grace here, the second is not.
+	// its grace here, the second is not. The store stamps a mail with the time
+	// it is made, to the microsecond, so the clock is set from the two stamps,
+	// with the second made after the first's, and not from how long the test
+	// took to get here.
 	y.mail(t, "yardmaster", "first")
-	time.Sleep(200 * time.Millisecond)
+	stamp := y.queued(t)[0].At
+	until(t, "the clock to pass the first mail's stamp", func() bool { return time.Now().Truncate(time.Microsecond).After(stamp) })
 	y.mail(t, "yardmaster", "second")
 	ps := y.queued(t)
-	y.now = ps[0].At.Add(store.PushGrace + ps[1].At.Sub(ps[0].At)/2)
+	y.now = ps[0].At.Add(store.PushGrace)
 	y.pass(t, 0)
 	want(t, "sent while the burst was coming", len(y.sent()), 1)
-	y.pass(t, time.Second)
+	y.settle(t)
 	if got := y.sent(); len(got) != 2 || got[1] != "2 new in your yardr inbox | mail from yardmaster (2)" {
 		t.Fatalf("after the burst: %q", got)
 	}
@@ -569,13 +574,15 @@ func TestPushToAUserWhoIsNotSetUp(t *testing.T) {
 
 // withImage gives the push source an image command: a script that records
 // what it was handed and answers 200. It returns the directory it records
-// in.
+// in. The script is a stand-in (scripttest), since the send runs it at once and
+// the first start of an executable file written a moment before takes seconds
+// on a loaded macOS (see scripttest).
 func (y *pushYard) withImage(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "ishow")
 	show := "#!/bin/sh\n{ cat; echo; } >> " + dir + "/image.stdin\nprintf '%s' '{\"status\":200}'\n"
-	must(t, os.WriteFile(script, []byte(show), 0o755))
+	scripttest.Write(t, script, show)
 	text := strings.Replace(pushSource, "BASE", y.srv.URL, 1)
 	text = strings.Replace(text, "  text: text\n", "  text: text\n  image: ["+script+"]\n", 1)
 	_, err := y.api.PutSource(context.Background(), "push.yaml", text, "jo")
@@ -626,7 +633,7 @@ func testPushTellsMailImage(t *testing.T) {
 
 	shot := y.putBlob(t, pushPNG, "shot.png")
 	must(t, y.api.Mail(ctx, "ada", "the shed lands Monday", "yardmaster", shot))
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	sends := imageSends(t, dir)
 	if len(sends) != 1 || sends[0]["address"] != pushAddress || sends[0]["title"] != "mail from yardmaster" ||
 		sends[0]["text"] != "the shed lands Monday" {
@@ -646,9 +653,9 @@ func testPushTellsMailImage(t *testing.T) {
 	gone := y.putBlob(t, pushPNG, "gone.png")
 	must(t, y.api.Mail(ctx, "ada", "another shed", "yardmaster", gone))
 	must(t, os.Remove(store.BlobPath(y.home, gone.Hash)))
-	// From here on a push settles: the first send ran a script written a
-	// moment before, which under load can take longer than the grace, and the
-	// store stamps a mail with the time it is made, not the daemon's clock.
+	// A push settles wherever this test sends (y.settle): the store stamps a
+	// mail with the time it is made, not the daemon's clock, and a send that
+	// ran the command can take longer than the grace on a loaded machine.
 	y.settle(t)
 	want(t, "told without the picture", y.sent(), []string{"mail from yardmaster | another shed"})
 	if sends := imageSends(t, dir); len(sends) != 1 {
@@ -658,7 +665,7 @@ func testPushTellsMailImage(t *testing.T) {
 
 	// The source refuses the picture: the call tells all the same, in the
 	// same pass, with nothing left to try again.
-	must(t, os.WriteFile(filepath.Join(dir, "ishow"), []byte("#!/bin/sh\necho 'PHOTO_INVALID_DIMENSIONS' >&2\nexit 1\n"), 0o755))
+	scripttest.Write(t, filepath.Join(dir, "ishow"), "#!/bin/sh\necho 'PHOTO_INVALID_DIMENSIONS' >&2\nexit 1\n")
 	tall := y.putBlob(t, append(bytes.Clone(pushPNG), "-tall"...), "tall.png")
 	must(t, y.api.Mail(ctx, "ada", "a long page", "yardmaster", tall))
 	y.settle(t)
@@ -699,7 +706,7 @@ func testPushTellsDoneBeadScreenshot(t *testing.T) {
 	_, err = y.api.CloseBead(ctx, "yard-1", "landed", store.Expect{}, "builder")
 	must(t, err)
 
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	sends := imageSends(t, dir)
 	if len(sends) != 1 || sends[0]["title"] != "yard-1 closed" {
 		t.Fatalf("the command was handed %v", sends)
@@ -751,14 +758,14 @@ func testPushFirstImageAcrossBatch(t *testing.T) {
 	}
 
 	y, dir, mailShot, _ := setup(t, true)
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	sends := imageSends(t, dir)
 	if len(sends) != 1 || sends[0]["image"] != store.BlobPath(y.home, mailShot.Hash) {
 		t.Fatalf("the mail first: %v", sends)
 	}
 
 	y, dir, _, noteShot := setup(t, false)
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	sends = imageSends(t, dir)
 	if len(sends) != 1 || sends[0]["image"] != store.BlobPath(y.home, noteShot.Hash) {
 		t.Fatalf("the done bead first: %v", sends)

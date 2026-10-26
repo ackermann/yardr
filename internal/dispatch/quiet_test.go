@@ -146,23 +146,34 @@ func (y *quietYard) ready(t *testing.T) bool {
 	return ready
 }
 
-// waitQuiet waits for the depot's quiet runs to be told of as kind says.
+// waitQuiet waits for the depot's quiet runs to be told of as kind says. It
+// waits for the event, as long as the run takes: a real run starts processes
+// (git, the depot's check), which a loaded machine delays for longer than any
+// number of seconds a test could bound it by, so the only deadline is a fuse
+// against a hang. A run that ends red when a green one is awaited is not waited
+// out: the test fails at once with the reason the run gave.
 func waitQuiet(t *testing.T, s store.API, kind string, n int) []store.Event {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dispatch.WaitFuse)
 	defer cancel()
 	ch, err := s.Subscribe(ctx, 0)
 	must(t, err)
 	var mine []store.Event
 	for e := range ch {
-		if e.Kind == kind && e.Data["depot"] == "yard" {
+		if e.Data["depot"] != "yard" {
+			continue
+		}
+		switch e.Kind {
+		case kind:
 			mine = append(mine, e)
 			if len(mine) >= n {
 				return mine
 			}
+		case store.QuietFailed:
+			t.Fatalf("waited for %d %s events for the depot, got %d, then the run failed: %v", n, kind, len(mine), e.Data["reason"])
 		}
 	}
-	t.Fatalf("waited for %d %s events for the depot, got %d", n, kind, len(mine))
+	t.Fatalf("waited for %d %s events for the depot, got %d within %s", n, kind, len(mine), dispatch.WaitFuse)
 	return nil
 }
 

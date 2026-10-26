@@ -25,13 +25,21 @@ func RememberSourceAnswer(d *Dispatcher, source string, at time.Time, r *limits.
 	d.limitsAsked[source+"\x00"] = limitsAnswer{at: at, report: r}
 }
 
+// WaitFuse is how long a test lets an effect it waits for take. It is a
+// fuse against a hang, and a green run spends none of it: what the tests wait
+// for is a pass, a process or a store write, which a loaded machine delays
+// past any number of seconds a test could pick, so a wait that gives up in
+// seconds measures the load and not the program. A wait that is met returns
+// at once, and only a hang burns the whole fuse.
+const WaitFuse = 2 * time.Minute
+
 // WaitLimitsIdle waits until the limits refresher has no run in flight
 // and no wanted key due to start one, by the dispatcher's clock: the
 // effect a test waits on instead of the command's wall time. It gives
-// up after 15 seconds, leaving the test's own assertions to say what
-// did not land.
+// up after WaitFuse, leaving the test's own assertions to say what did
+// not land.
 func WaitLimitsIdle(d *Dispatcher) {
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(WaitFuse)
 	for {
 		d.limitsMu.Lock()
 		idle := true
@@ -135,10 +143,10 @@ func LimitsWanted(d *Dispatcher) []string {
 // handed-over start has run and written its outcome to the store (its
 // completion may still wait for the next pass's drain). It is the effect
 // a test waits on instead of a start's wall time, as WaitLimitsIdle is
-// for the refresher. It gives up after 15 seconds, leaving the test's
+// for the refresher. It gives up after WaitFuse, leaving the test's
 // own assertions to say what did not land.
 func WaitStartsIdle(d *Dispatcher) {
-	deadline := time.Now().Add(15 * time.Second)
+	deadline := time.Now().Add(WaitFuse)
 	for {
 		d.startMu.Lock()
 		idle := len(d.startOwned) == 0

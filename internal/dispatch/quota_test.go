@@ -1097,10 +1097,11 @@ func (p *hangingStandIn) asks() []string {
 }
 
 // waitAsked waits until the provider has been run for name: the effect
-// a test waits on, never the wall time a run takes.
+// a test waits on, never the wall time a run takes. The deadline is a fuse
+// against a hang (dispatch.WaitFuse).
 func waitAsked(t *testing.T, p *hangingStandIn, name string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(dispatch.WaitFuse)
 	for time.Now().Before(deadline) {
 		for _, a := range p.asks() {
 			if a == name {
@@ -1203,19 +1204,18 @@ func TestOneKeysHangingLimitsRunDoesNotQueueAnotherKeys(t *testing.T) {
 	select {
 	case err := <-done:
 		must(t, err)
-	case <-time.After(10 * time.Second):
+	case <-time.After(dispatch.WaitFuse):
 		t.Fatal("a pass waited on the hanging limits command")
 	}
 	// The codex key's run starts and lands behind no queue, while the
-	// kimi key's run is still blocked on its release.
+	// kimi key's run is still blocked on its release. The refresher marks a
+	// key running before the goroutine that runs its command has started
+	// it, so a run in flight has not asked yet: both commands are waited for
+	// at the stand-in, the held one while it is held, and only then the
+	// codex key's landing, which leaves one run in flight.
+	waitAsked(t, p, "moonshot")
 	waitAsked(t, p, "openai")
-	deadline := time.Now().Add(10 * time.Second)
-	for dispatch.LimitsRunsInFlight(d) != 1 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := dispatch.LimitsRunsInFlight(d); got != 1 {
-		t.Fatalf("runs in flight = %d, want 1: the codex key's run landed while the kimi key's still hangs", got)
-	}
+	until(t, "the codex key's run to land while the kimi key's hangs", func() bool { return dispatch.LimitsRunsInFlight(d) == 1 })
 	if asks := p.asks(); len(asks) != 2 {
 		t.Fatalf("the provider was run for %v, want both keys' runs started, neither queued behind the other", asks)
 	}

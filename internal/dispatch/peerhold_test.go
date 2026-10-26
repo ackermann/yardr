@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 	"yardr.dev/yardr/internal/yards"
@@ -40,12 +41,13 @@ func (y *peerYard) ask(t *testing.T, ctx context.Context, peer string, clock *pe
 	return out
 }
 
-// until waits for ok, for a few seconds.
+// until waits for ok, as long as it takes: the deadline is a fuse against a
+// hang (dispatch.WaitFuse), not a window the effect has to fit in.
 func until(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	for end := time.Now().Add(5 * time.Second); !ok(); time.Sleep(5 * time.Millisecond) {
+	for end := time.Now().Add(dispatch.WaitFuse); !ok(); time.Sleep(5 * time.Millisecond) {
 		if time.Now().After(end) {
-			t.Fatalf("%s: not within 5s", what)
+			t.Fatalf("%s: not within %s", what, dispatch.WaitFuse)
 		}
 	}
 }

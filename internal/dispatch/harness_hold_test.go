@@ -313,6 +313,14 @@ func TestPassesThatStartSessionsWithNothingStoppedAskLimitsOnceInFiveMinutes(t *
 		beads = append(beads, nb.ID)
 		*now = now.Add(time.Minute)
 		must(t, d.Reconcile(ctx))
+		// The first pass reads the key cold, and the refresher starts its run
+		// at the clock the passes last stamped. Left to run beside the next
+		// passes, under load that is a later minute: the answer is then asked
+		// later than the count below counts on, still holds when the clock
+		// reaches the end, and the lease's due run never comes. With each run
+		// landed before the clock moves on, the count does not depend on how
+		// soon the refresher's goroutine ran.
+		dispatch.WaitLimitsIdle(d)
 	}
 	r.showBead(t, s, b, "idle", kimiIdle)
 	for range 3 {

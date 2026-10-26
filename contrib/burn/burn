@@ -1,0 +1,156 @@
+#!/bin/sh
+# Runs a Go package's tests over and over on a machine kept busy, to show
+# whether a test that failed only under load still does.
+#
+#   burn [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]
+#
+# PACKAGE is a Go package (./internal/dispatch), each TEST the name of one of
+# its top-level tests. The package's test binary is built once, before the
+# load starts. Then FACTOR times as many yes-loops as the machine has cpus
+# are started (5 times, a machine at load 50 on ten cores), and every TEST is
+# run COUNT times (100), one run at a time, in the package's directory, as go
+# test runs a package. With no TEST the whole of the package's tests is the
+# unit that is run COUNT times, every test beside the others as go test runs
+# them, which is where a failure that needs its neighbours shows.
+#
+# A run passes only when the binary exits 0 and prints the test's own
+# "--- PASS" line (a whole package's, its closing "PASS"): a name that matches
+# no test, or a test that skips, is not a pass, since go test calls both ok.
+# The failing runs' output is shown (the first five of a test, as far as the
+# lines that say what failed), and the last lines say, for each TEST, how
+# many of its runs passed. The exit status is 1 when any run failed, 2 when
+# burn could not start.
+#
+# The yes-loops and the tests run at one nice level (19), so that the load
+# they make weighs on the test and not on whoever else uses the machine: the
+# tests still contend with FACTOR times the cpus' worth of loops, and give way
+# to everything else. -N sets another level. A test's own children (git, sh)
+# inherit it.
+#
+# The loops end with burn, by pid, on a signal as on the normal end. Nothing
+# is matched by name.
+set -eu
+
+fail() { echo "burn: $*" >&2; exit 2; }
+
+usage() {
+  echo "usage: burn [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]" >&2
+  exit 2
+}
+
+count=100 factor=5 cpus='' nice=19
+while getopts n:x:c:N: opt; do
+  case $opt in
+    n) count=$OPTARG ;;
+    x) factor=$OPTARG ;;
+    c) cpus=$OPTARG ;;
+    N) nice=$OPTARG ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND - 1))
+[ $# -ge 1 ] || usage
+pkg=$1
+shift
+
+# number <what> <value> refuses a value that is not a whole number from 1 up
+# (from 0 up for what is nice), since a count of nothing would run nothing and
+# say it passed.
+number() {
+  case $2 in
+    '' | *[!0-9]*) fail "$1 is $2, want a whole number" ;;
+  esac
+}
+number -n "$count"
+number -x "$factor"
+number -N "$nice"
+[ "$count" -ge 1 ] || fail "-n is $count, want at least 1"
+[ "$factor" -ge 1 ] || fail "-x is $factor, want at least 1"
+if [ -z "$cpus" ]; then
+  # getconf is POSIX and on macOS and Linux alike; nproc and sysctl are for
+  # a system whose getconf does not know the name.
+  cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || true)
+  [ -n "$cpus" ] || fail "cannot tell how many cpus the machine has: give -c"
+fi
+number -c "$cpus"
+[ "$cpus" -ge 1 ] || fail "-c is $cpus, want at least 1"
+for tool in go nice yes; do
+  command -v "$tool" >/dev/null 2>&1 || fail "needs $tool on PATH"
+done
+
+child='' spinners='' work=''
+# shellcheck disable=SC2329 # run by the EXIT trap below
+cleanup() {
+  trap '' INT TERM HUP
+  [ -z "$child" ] || kill "$child" 2>/dev/null || true
+  # shellcheck disable=SC2086
+  [ -z "$spinners" ] || kill $spinners 2>/dev/null || true
+  wait 2>/dev/null || true
+  [ -z "$work" ] || rm -rf "$work"
+}
+trap cleanup EXIT
+# A signal ends burn with the status a shell reports for it; the EXIT trap
+# above does the cleaning, once.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+work=$(mktemp -d)
+dir=$(go list -f '{{.Dir}}' "$pkg") || fail "no package $pkg"
+bin=$work/test.bin
+go test -c -o "$bin" "$pkg" || fail "cannot build the tests of $pkg"
+[ -x "$bin" ] || fail "$pkg has no tests"
+
+# load is the machine's load average as uptime prints it: three numbers, with
+# spaces on macOS and commas on Linux.
+load() { uptime | sed 's/.*load averages*: *//'; }
+
+n=$((cpus * factor))
+echo "burn: $n yes-loops ($factor x $cpus cpus) at nice $nice, load average before: $(load)" >&2
+i=0
+while [ "$i" -lt "$n" ]; do
+  nice -n "$nice" yes >/dev/null 2>&1 &
+  spinners="$spinners $!"
+  i=$((i + 1))
+done
+
+# shown is how many failing runs of a test have their output printed.
+shown=5
+status=0
+results=
+[ $# -gt 0 ] || set -- ''
+for name in "$@"; do
+  if [ -n "$name" ]; then
+    only="-test.run=^$name\$" label=$name pass="^--- PASS: $name ("
+  else
+    only='' label=$pkg pass='^PASS$'
+  fi
+  passed=0 failed=0 run=0
+  while [ "$run" -lt "$count" ]; do
+    run=$((run + 1))
+    (cd "$dir" && exec nice -n "$nice" "$bin" ${only:+"$only"} -test.v) >"$work/out" 2>&1 &
+    child=$!
+    rc=0
+    wait "$child" || rc=$?
+    child=
+    if [ "$rc" -eq 0 ] && grep -q "$pass" "$work/out"; then
+      passed=$((passed + 1))
+    else
+      failed=$((failed + 1))
+      if [ "$failed" -le "$shown" ]; then
+        echo "burn: $label, run $run failed (exit $rc):" >&2
+        grep -E '^[[:space:]]*(--- (FAIL|SKIP)|panic:|fatal error:|testing: warning)|_test\.go:[0-9]+:' "$work/out" | head -n 40 >&2 || true
+      fi
+    fi
+    if [ $((run % 25)) -eq 0 ] && [ "$run" -lt "$count" ]; then
+      echo "burn: $label: $run of $count run, $passed passed" >&2
+    fi
+  done
+  [ "$failed" -le "$shown" ] || echo "burn: $label: $((failed - shown)) more failed runs, not shown" >&2
+  [ "$failed" -eq 0 ] || status=1
+  results="$results$label: $passed/$count passed
+"
+done
+echo "burn: load average after: $(load)" >&2
+printf '%s' "$results"
+exit "$status"
