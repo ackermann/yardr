@@ -18,6 +18,27 @@ func BriefDir(ctx context.Context, worktree string) (string, error) {
 	return depotfile.GitPath(ctx, worktree, "yardr")
 }
 
+// briefDirArgs are the flags that let kind read the session's brief: it
+// lives in dir, outside the tracked tree, where Claude Code asks about a
+// read on a fresh yard. Kimi takes the same flag for the same reason; a
+// kind that runs unattended (codex) is told nothing.
+func briefDirArgs(kind, dir string) []string {
+	switch kind {
+	case "claude", "kimi":
+	default:
+		return nil
+	}
+	if dir == "" {
+		return nil
+	}
+	// Resolved, the path a permission check is asked about whatever path
+	// the session goes by (see agentArgs).
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	return []string{"--add-dir", dir}
+}
+
 // DirBriefDir is where briefs for a bead of the dir depot at path go:
 // .yardr/briefs/ in the directory itself, since there is no git directory
 // to hide them in. The folder ignores itself, for a dir depot that happens to

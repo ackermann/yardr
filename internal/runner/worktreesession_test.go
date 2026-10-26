@@ -18,6 +18,8 @@ import (
 // there, outside the tracked tree, so a yardr command run in it with
 // another session's environment can still tell whose it is. A later stage
 // replaces the earlier one's, and a subdirectory is the worktree's too.
+// Claude and Kimi get the brief directory added to their workspace; Codex's
+// unattended start gets no extra flag.
 func TestHerdrStartRecordsTheWorktreesSession(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -36,6 +38,32 @@ case "$1 $2" in
   "worktree create") echo '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"},"worktree":{"path":"`+wt+`"}}}' ;;
   *) echo '{"result":{"type":"ok"}}' ;;
 esac`)}
+	briefDir, err := BriefDir(ctx, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkStart := func(kind, name string, adds bool) {
+		t.Helper()
+		raw, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var line string
+		for _, l := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(l, "agent start "+name+" ") {
+				line = l
+			}
+		}
+		if line == "" {
+			t.Fatalf("%q: no agent start for %s in the log", kind, name)
+		}
+		if want := "--add-dir " + briefDir; adds && !strings.Contains(line, want) {
+			t.Errorf("%q: agent start %q, want %q", kind, line, want)
+		}
+		if !adds && strings.Contains(line, "--add-dir") {
+			t.Errorf("%q: agent start %q, want no --add-dir", kind, line)
+		}
+	}
 	job := dispatch.Job{
 		Bead:    store.Bead{ID: "yard-13", Title: "Shed", Stage: "new"},
 		Group:   store.Group{Name: "builders"},
@@ -45,15 +73,21 @@ esac`)}
 	if _, err := h.Start(ctx, job); err != nil {
 		t.Fatal(err)
 	}
+	if real, err := filepath.EvalSymlinks(briefDir); err == nil {
+		briefDir = real
+	}
+	checkStart("claude (default)", AgentName("yard-13", "new"), true)
 	want := WorktreeSession{Bead: "yard-13", Session: "s1", Actor: "yard-13-new", Stage: "new", Group: "builders"}
 	if ws := SessionOf(ctx, wt); ws == nil || *ws != want {
 		t.Fatalf("the worktree names %+v, want %+v", ws, want)
 	}
 
 	job.Bead.Stage, job.Group.Name, job.Session.ID = "review", "reviewers", "s2"
+	job.Group.Config = map[string]any{"kind": "kimi"}
 	if _, err := h.Start(ctx, job); err != nil {
 		t.Fatal(err)
 	}
+	checkStart("kimi", AgentName("yard-13", "review"), true)
 	want = WorktreeSession{Bead: "yard-13", Session: "s2", Actor: "yard-13-review", Stage: "review", Group: "reviewers"}
 	sub := filepath.Join(wt, "internal")
 	if err := os.Mkdir(sub, 0o700); err != nil {
@@ -61,6 +95,17 @@ esac`)}
 	}
 	if ws := SessionOf(ctx, sub); ws == nil || *ws != want {
 		t.Fatalf("after the next stage the worktree names %+v, want %+v", ws, want)
+	}
+
+	job.Bead.Stage, job.Group.Name, job.Session.ID = "review-security", "muse-security", "s3"
+	job.Group.Config = map[string]any{"kind": "codex"}
+	if _, err := h.Start(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	checkStart("codex", AgentName("yard-13", "review-security"), false)
+	want = WorktreeSession{Bead: "yard-13", Session: "s3", Actor: "yard-13-review-security", Stage: "review-security", Group: "muse-security"}
+	if ws := SessionOf(ctx, sub); ws == nil || *ws != want {
+		t.Fatalf("after the security review the worktree names %+v, want %+v", ws, want)
 	}
 	// The depot's own checkout and a plain directory are nobody's.
 	for _, dir := range []string{repo, t.TempDir()} {

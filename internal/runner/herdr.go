@@ -323,7 +323,8 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 	kind := agents.Kind(job.Group.Config)
 	handle[harnessKind] = kind
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
-	if extra := AgentArgs(job, h.YardHome, workdir); len(extra) > 0 {
+	extra := append(AgentArgs(job, h.YardHome, workdir), briefDirArgs(kind, dir)...)
+	if len(extra) > 0 {
 		args = append(append(args, "--"), extra...)
 	}
 	return h.startAgent(ctx, args, name, h.FirstPrompt(handle), handle, trustEntry(job.Group.Config), keyEntry(job.Group.Config),
