@@ -42,6 +42,13 @@ whoever carries it. For anything that is not on one machine or a private
 network, put TLS in front of the listener (a reverse proxy or a tunnel of your own)
 and give the `https://` address as the URL. yardr does not do TLS itself.
 
+The signature covers the body's sha256, so the receiver reads the whole
+body before it can check who sent it: a request that names a peer's key is
+read up to file size (~43MB) and only then refused if its signature does
+not hold. Bodies past message size (256KB plus room) are read at most four
+at a time, ~172MB held at most; a further large one is refused with 503
+and its sender posts it again.
+
 ## Linking two yards
 
 Here `north` is a server that can be reached and `laptop` is behind a

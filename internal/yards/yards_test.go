@@ -311,7 +311,121 @@ func TestReceiverPost(t *testing.T) {
 			t.Errorf("%s %s: %d", r.method, r.path, resp.StatusCode)
 		}
 	}
+	t.Run("large reads", checkReceiverBoundsLargeReads)
 }
+
+// checkReceiverBoundsLargeReads pins how a large peer request is read and
+// how the receiver refuses one when no large-read slot is free.
+func checkReceiverBoundsLargeReads(t *testing.T) {
+	t.Helper()
+	a, b := newYard(t), newYard(t)
+	b.add(t, "a", a, true, ping, ping)
+	head := store.MaxPeerBody + 4<<10 // maxRequest, the slot-free head
+	large, _ := json.Marshal(store.PeerMessage{ID: "big", Kind: "ping", Body: json.RawMessage(`"` + strings.Repeat("x", head) + `"`)})
+	bad := bytes.Clone(large)
+	bad[len(bad)-10] ^= 0xff // signed below, then changed: no peer's
+
+	// Read, then refused: the 401 for a bad signature needs the whole body.
+	// Repeating it with one slot proves the first read released that slot.
+	b.rc.SetMaxLargeReads(1)
+	r := signed(a, b, "POST", yards.Path, large)
+	r.body = bad
+	if resp, _ := r.send(t, b); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a large request with a bad signature: %d, want 401", resp.StatusCode)
+	}
+	if got := b.rc.Rejected()["unauthorized"]; got != 1 {
+		t.Fatalf("rejected = %v", b.rc.Rejected())
+	}
+	r = signed(a, b, "POST", yards.Path, large)
+	r.body = bad
+	if resp, _ := r.send(t, b); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a second large request after its slot was released: %d, want 401", resp.StatusCode)
+	}
+	if got := b.rc.Rejected()["unauthorized"]; got != 2 {
+		t.Fatalf("rejected = %v", b.rc.Rejected())
+	}
+
+	// With no slot free the same request is 503'd, unsigned: its sender
+	// keeps it and posts it again.
+	b.rc.SetMaxLargeReads(0)
+	r = signed(a, b, "POST", yards.Path, large)
+	r.body = bad
+	resp, _ := r.send(t, b)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("a large request with no slot free: %d, want 503", resp.StatusCode)
+	}
+	if resp.Header.Get(yardkey.HeaderSig) != "" {
+		t.Fatal("the 503 is signed")
+	}
+	if got := b.rc.Rejected()["too_many_large"]; got != 1 {
+		t.Fatalf("rejected = %v", b.rc.Rejected())
+	}
+
+	// Unread past the head: the body stalls after maxRequest+1 bytes, and
+	// the 503 still comes back. Served straight at the handler, so what the
+	// handler read is what the body gave it.
+	stall := &stallBody{left: bytes.Clone(large[:head+1]), release: make(chan struct{})}
+	req := httptest.NewRequest(http.MethodPost, yards.Path, stall)
+	req.Header.Set(yardkey.HeaderKey, a.pub())
+	rec := httptest.NewRecorder()
+	done := make(chan int, 1)
+	go func() { b.rc.Handler().ServeHTTP(rec, req); done <- rec.Code }()
+	select {
+	case code := <-done:
+		if code != http.StatusServiceUnavailable {
+			t.Fatalf("a stalled large request with no slot free: %d, want 503", code)
+		}
+	case <-time.After(10 * time.Second):
+		close(stall.release)
+		<-done
+		t.Fatal("a large request with no slot free was read past its head")
+	}
+	close(stall.release)
+	if stall.read != head+1 {
+		t.Fatalf("the handler read %d bytes past the head", stall.read-(head+1))
+	}
+	if got := b.rc.Rejected()["too_many_large"]; got != 2 {
+		t.Fatalf("rejected = %v", b.rc.Rejected())
+	}
+
+	// Small traffic never takes a slot: a post, a bad signature and a pull
+	// go as before with none free.
+	if resp, _ := signed(a, b, "POST", yards.Path, message("m1")).send(t, b); resp.StatusCode != http.StatusOK {
+		t.Fatalf("a small post with no slot free: %d", resp.StatusCode)
+	}
+	small := signed(a, b, "POST", yards.Path, message("m2"))
+	small.body = message("m3")
+	if resp, _ := small.send(t, b); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a small bad signature with no slot free: %d, want 401", resp.StatusCode)
+	}
+	if resp, _ := signed(a, b, "GET", yards.Path+"?after=0", nil).send(t, b); resp.StatusCode != http.StatusOK {
+		t.Fatalf("a pull with no slot free: %d", resp.StatusCode)
+	}
+	if got := b.rc.Rejected()["too_many_large"]; got != 2 {
+		t.Fatalf("rejected = %v, want no further too_many_large", b.rc.Rejected())
+	}
+}
+
+// stallBody gives its bytes, then waits for release: a body that stalls
+// where the test wants it to, counting what it gave.
+type stallBody struct {
+	left    []byte
+	read    int
+	release chan struct{}
+}
+
+func (s *stallBody) Read(p []byte) (int, error) {
+	if len(s.left) == 0 {
+		<-s.release
+		return 0, io.EOF
+	}
+	n := copy(p, s.left)
+	s.left = s.left[n:]
+	s.read += n
+	return n, nil
+}
+
+func (s *stallBody) Close() error { return nil }
 
 // A yard with no key of its own, or one whose key file is open to others,
 // takes nothing: it could sign no answer.

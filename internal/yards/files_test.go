@@ -245,7 +245,7 @@ func TestMailWithAPageCrosses(t *testing.T) {
 func TestMailWithAFileCrosses(t *testing.T) {
 	south, north, toNorth := fileYards(t, true, mailAndFile, mailAndFile)
 	ctx := context.Background()
-	report := []byte("%PDF-1.4 a report, as far as the yard asks")
+	report := bytes.Repeat([]byte("%PDF-1.4 a report\n"), 16<<10) // 288KB, past message size in base64
 	ref, err := south.api.PutBlob(ctx, report)
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@
 package yards
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -90,9 +91,19 @@ const (
 // file this yard does not take is read and refused with its reason, signed,
 // and the sender gives it up. A file cut off unread would be posted again
 // for most of a day.
+//
+// The grant is on the key the request claims, before its signature is
+// checked (the signature covers the body's sha256, so checking it needs the
+// whole body): a stranger who knows a peer's key can make the receiver read
+// megabytes it will then refuse. That read is accepted, and bounded below:
+// a body past maxRequest is read only behind one of maxLargeReads slots.
+// maxLargeReads bounds the bodies past maxRequest read at once, over all
+// peers: four concurrent ~43MB reads hold ~172MB at most inside the
+// listener's timeouts, and a refused large one is reposted by its sender.
 const (
 	maxRequest     = store.MaxPeerBody + 4<<10
 	maxFileRequest = store.MaxPeerFileBody + 4<<10
+	maxLargeReads  = 4
 )
 
 // Store is what the receiver needs of the yard: the store itself, in the
@@ -125,6 +136,10 @@ type Receiver struct {
 	// and maxHeld how many there may be.
 	held    map[string]chan struct{}
 	maxHeld int
+	// largeReads is how many large request bodies are being read now, and
+	// maxLargeReads how many may be at once.
+	largeReads    int
+	maxLargeReads int
 }
 
 // NewReceiver serves the peers of the yard whose key is in the file
@@ -133,7 +148,7 @@ func NewReceiver(st Store, keyFile string, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}, held: map[string]chan struct{}{}, maxHeld: maxHeld}
+	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}, held: map[string]chan struct{}{}, maxHeld: maxHeld, maxLargeReads: maxLargeReads}
 	// The store is both; a test's stand-in for its messages may be only one.
 	rc.pair, _ = st.(PairStore)
 	return rc
@@ -148,6 +163,14 @@ func (rc *Receiver) SetClock(now func() time.Time) { rc.now = now }
 func (rc *Receiver) SetMaxHeld(n int) {
 	rc.mu.Lock()
 	rc.maxHeld = n
+	rc.mu.Unlock()
+}
+
+// SetMaxLargeReads replaces how many large request bodies are read at once
+// (tests). With none, every body past maxRequest is refused.
+func (rc *Receiver) SetMaxLargeReads(n int) {
+	rc.mu.Lock()
+	rc.maxLargeReads = n
 	rc.mu.Unlock()
 }
 
@@ -192,19 +215,24 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 	// Whose the request says it is decides only how much of it is read:
 	// megabytes for a key a link has, and not for anyone who can reach the
 	// listener. Whether it is that yard's is the signature's to say, below.
-	limit := int64(maxRequest)
 	p, known := rc.st.PeerByKey(r.Context(), r.Header.Get(yardkey.HeaderKey))
+	var body []byte
 	if known == nil {
-		limit = maxFileRequest
-	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
-	var tooBig *http.MaxBytesError
-	if errors.As(err, &tooBig) {
-		rc.reject(w, "", "too_large", http.StatusRequestEntityTooLarge, err)
-		return nil, false
-	} else if err != nil {
-		rc.reject(w, "", "read", http.StatusBadRequest, err)
-		return nil, false
+		var ok bool
+		if body, ok = rc.readLarge(w, r); !ok {
+			return nil, false
+		}
+	} else {
+		var err error
+		body, err = io.ReadAll(http.MaxBytesReader(w, r.Body, int64(maxRequest)))
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			rc.reject(w, "", "too_large", http.StatusRequestEntityTooLarge, err)
+			return nil, false
+		} else if err != nil {
+			rc.reject(w, "", "read", http.StatusBadRequest, err)
+			return nil, false
+		}
 	}
 	unauthorized := func(peer, reason string, err error) (*from, bool) {
 		rc.reject(w, peer, reason, http.StatusUnauthorized, err)
@@ -236,6 +264,63 @@ func (rc *Receiver) verify(w http.ResponseWriter, r *http.Request) (*from, bool)
 		}
 	}
 	return &from{peer: p, key: key, sig: sig, body: body}, true
+}
+
+// readLarge reads a request that names a peer's key, which may be a file:
+// up to maxFileRequest, in two steps. The first maxRequest+1 bytes are read
+// with no slot, so small traffic goes exactly as before; only a body past
+// maxRequest takes one of the large-read slots before its tail is read. With
+// no slot free the request is refused 503, so its sender keeps it and posts
+// it again. False means the request was answered here.
+func (rc *Receiver) readLarge(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	head := make([]byte, maxRequest+1)
+	n, err := io.ReadFull(r.Body, head)
+	switch err {
+	case nil:
+		// Past maxRequest: the tail goes behind the bound, below.
+	case io.EOF, io.ErrUnexpectedEOF:
+		return head[:n], true
+	default:
+		rc.reject(w, "", "read", http.StatusBadRequest, err)
+		return nil, false
+	}
+	if !rc.takeLarge() {
+		rc.reject(w, "", "too_many_large", http.StatusServiceUnavailable, errors.New("too many large requests in flight"))
+		return nil, false
+	}
+	defer rc.releaseLarge()
+	body := bytes.NewBuffer(head)
+	if r.ContentLength > int64(body.Len()) && r.ContentLength <= int64(maxFileRequest) {
+		body.Grow(int(r.ContentLength) - body.Len())
+	}
+	_, err = io.Copy(body, http.MaxBytesReader(w, r.Body, int64(maxFileRequest-body.Len())))
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		rc.reject(w, "", "too_large", http.StatusRequestEntityTooLarge, err)
+		return nil, false
+	} else if err != nil {
+		rc.reject(w, "", "read", http.StatusBadRequest, err)
+		return nil, false
+	}
+	return body.Bytes(), true
+}
+
+// takeLarge takes a large-read slot, false when none is free. releaseLarge
+// gives one back when its read ends.
+func (rc *Receiver) takeLarge() bool {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if rc.largeReads >= rc.maxLargeReads {
+		return false
+	}
+	rc.largeReads++
+	return true
+}
+
+func (rc *Receiver) releaseLarge() {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.largeReads--
 }
 
 // stated reads what a request says of its sender's build: nil for one that
