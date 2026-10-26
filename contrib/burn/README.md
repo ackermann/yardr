@@ -24,6 +24,11 @@ is the name of a top-level test; its subtests run with it. With no TEST the
 whole of the package's tests is what is run COUNT times, every test beside the
 others as `go test` runs them.
 
+The default factor is for an idle yard: the loops are niced, but they still
+raise the load average, and the yard's builder routes wait on
+`machine.load<80`, so inside a builder's or reviewer's session burn runs at
+`-x 1` and names one test (the rule in `.yardr/depot.md`).
+
 A run passes when the binary exits 0 and prints the test's own `--- PASS`
 line (a whole package's, its closing `PASS`). A name that matches no test and
 a test that skips are not passes, though `go test` calls both ok. The output

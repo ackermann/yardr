@@ -29,6 +29,16 @@ s` -- the result, the packages `ok` and `FAIL`, the wall seconds, and the
 seconds queued on the race lock (`waited 0 s` for your run, unless its step covered the whole suite).
 A note carries it whole.
 
+A burn inside a builder's or reviewer's session runs at `-x 1` and names one
+suspect test (`contrib/burn/burn -x 1 PACKAGE TEST`, the proof docs/testing.md
+R2 asks of a fix for a test that fails only under load), never at the default
+factor of 5. A burn's loops are niced, so they yield the cpus, but they still
+raise the load average, and every builder route waits on `machine.load<80`
+(`yardr route list`): a burn at the default factor has held the load at 100 to
+200, and while it ran no builder started anywhere and every other gate and
+landing ran on a loaded machine. A burn at any higher factor, the default
+included, runs outside a session, when the line is idle.
+
 Anything that starts agents is tested in an isolated yard, never the
 operator's herdr session or yard. From the worktree:
 `contrib/isolated-yard/isolated-yard up` builds one in a directory D and
