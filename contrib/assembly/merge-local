@@ -36,8 +36,9 @@
 # the mergers (the conflict outcome where the flow names one, else the merge
 # stage), else back to the builders with the conflicting files; a red run
 # back (outcome failed: new, or open for a train) with a
-# note that names the commit and carries the end of the output, as does a
-# branch that moved while the tests ran, and a test command that says it
+# note that names the commit and carries the FAIL lines and the end of the
+# output, as does a branch that moved while the tests ran, and a test command
+# that says it
 # could not run (exit 2), or one red only for a flaky test's strike (exit
 # 3), or anything it cannot land without touching a dirty tree, is held. A
 # run ended by a signal is run once more, and held if a
@@ -92,6 +93,9 @@ PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
 LAND=${YARDR_LAND:-rebase}
 TAIL=200
+# How many FAIL lines a red note keeps from the full log, ahead of the tail:
+# a failure early in a long run would otherwise sit unseen above it.
+FAILS=40
 # The top-level directories that say nothing as the scope of a squash commit
 # (squash_message): a change under internal/ alone is better named by its
 # package. A depot's copy of this script changes the list.
@@ -670,9 +674,10 @@ trainbeads() {
 }
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, and $late set when it ran past $LIMIT seconds besides what it
-# waited for the race lock. It adds the seconds the run took to $secs, which
-# a second run after a signal adds to.
+# in $lines, the full log's FAIL lines in $fails (at most $FAILS, only when
+# the log runs past the tail), and $late set when it ran past $LIMIT seconds
+# besides what it waited for the race lock. It adds the seconds the run took
+# to $secs, which a second run after a signal adds to.
 #
 # The bound is sh's own, since timeout(1) is not everywhere (macOS has none):
 # the command runs in the background beside a watcher that sleeps $LIMIT
@@ -822,6 +827,13 @@ runtest() {
   if [ -z "$flakes" ]; then
     flakes=$(grep -E -e '^test: flaky: ' -e ' flaked on [0-9][0-9]* changes in 7 days' "$log" || true)
   fi
+  # The FAIL lines a red note keeps ahead of the tail: every one of the full
+  # log's, capped, so a failure above the tail still shows. Only when the log
+  # runs past the tail; a short run's tail already holds them.
+  fails=
+  if [ "$lines" -gt "$TAIL" ]; then
+    fails=$(grep -E -e '--- FAIL' -e '^FAIL' "$log" | head -n "$FAILS" || true)
+  fi
   cleanup
   log=
   latefile=
@@ -891,7 +903,8 @@ $out${flakes:+
 $flakes}
 Nothing landed, and the branch is not at fault: fix the flaky test, then unhold to test it again." ;;
   *) back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
-$out" ;;
+${fails:+$fails
+}$out" ;;
   esac
 fi
 

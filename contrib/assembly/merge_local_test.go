@@ -841,22 +841,59 @@ func TestMergeLocalConflictWithoutMergeStageOutcomes(t *testing.T) {
 }
 
 func TestMergeLocalRedTests(t *testing.T) {
-	y := newYard(t)
-	main := y.git(y.repo, "rev-parse", "main")
-	y.commit(y.wt, "RED", "red\n")
+	t.Run("short output", func(t *testing.T) {
+		y := newYard(t)
+		main := y.git(y.repo, "rev-parse", "main")
+		y.commit(y.wt, "RED", "red\n")
 
-	y.assembly()
+		y.assembly()
 
-	if b := y.bead(); b.Stage != "new" {
-		t.Fatalf("bead in %s, want new", b.Stage)
-	}
-	if short := y.git(y.repo, "rev-parse", "--short", "yard/r-1"); !strings.Contains(y.notes(),
-		"the tests failed on yard/r-1 at "+short+" rebased onto main (the command test ! -e RED, exit 1); its output:") {
-		t.Fatalf("no note of the red run:\n%s", y.notes())
-	}
-	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved on a red run")
-	}
+		if b := y.bead(); b.Stage != "new" {
+			t.Fatalf("bead in %s, want new", b.Stage)
+		}
+		if short := y.git(y.repo, "rev-parse", "--short", "yard/r-1"); !strings.Contains(y.notes(),
+			"the tests failed on yard/r-1 at "+short+" rebased onto main (the command test ! -e RED, exit 1); its output:") {
+			t.Fatalf("no note of the red run:\n%s", y.notes())
+		}
+		if got := y.git(y.repo, "rev-parse", "main"); got != main {
+			t.Fatal("main moved on a red run")
+		}
+	})
+
+	// A red run longer than a note holds keeps the full log's FAIL lines ahead
+	// of the tail, so a failure above the last 200 lines still shows in the note.
+	t.Run("keeps FAIL lines ahead of long output tail", func(t *testing.T) {
+		y := newYard(t)
+		main := y.git(y.repo, "rev-parse", "main")
+		y.tests(`echo '--- FAIL: TestEarly (0.00s)'; echo 'FAIL example.com/early'; i=0; while [ $i -lt 500 ]; do i=$((i+1)); echo "ok pkg$i"; done; exit 1`)
+		y.commit(y.wt, "b.txt", "bead\n")
+
+		y.assembly()
+
+		if b := y.bead(); b.Stage != "new" || b.Hold {
+			t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
+		}
+		notes := y.notes()
+		// The command itself, in the note's lead, names the failing test too;
+		// what matters is the run's output section, after the tail header.
+		tail := strings.Index(notes, "the last 200 of 502 lines of output:\n")
+		if tail < 0 {
+			t.Fatalf("note lacks the tail header:\n%s", notes)
+		}
+		end := notes[tail:]
+		for _, want := range []string{"--- FAIL: TestEarly (0.00s)", "FAIL example.com/early", "ok pkg301\n"} {
+			if !strings.Contains(end, want) {
+				t.Fatalf("the output section lacks %q:\n%s", want, end)
+			}
+		}
+		// The FAIL lines come ahead of the tail's first line.
+		if fail := strings.Index(end, "--- FAIL: TestEarly"); fail < 0 || strings.Index(end, "ok pkg301\n") < fail {
+			t.Fatalf("want the FAIL lines ahead of the tail:\n%s", end)
+		}
+		if got := y.git(y.repo, "rev-parse", "main"); got != main {
+			t.Fatal("main moved on a red run")
+		}
+	})
 }
 
 // A test command that says it could not run at all (exit 2) is no builder's
