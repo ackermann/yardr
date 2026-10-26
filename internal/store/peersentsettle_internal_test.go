@@ -12,7 +12,8 @@ import (
 // A bead whose stay at a peer ended but whose outcome the settler has not
 // applied is settled by the next open's first sweep: what is owed is read
 // from the file, not from the dropped nudge, so closing with one queued
-// loses nothing.
+// loses nothing. A sweep a close ended before it reached the bead leaves it
+// owed in the same way.
 func TestPeerSentSettlesAcrossClose(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -79,6 +80,14 @@ func TestPeerSentSettlesAcrossClose(t *testing.T) {
 		return put(w.Tx, bPeerSent, rec.Bead, rec)
 	}); err != nil {
 		t.Fatal(err)
+	}
+	// A sweep whose context has ended, as a close ends it, begins no bead:
+	// this one's flow needs no git, so only the check between beads stops it.
+	ended, end := context.WithCancel(ctx)
+	end()
+	s.settleOwed(ended)
+	if owed, err := s.owedSettles(); err != nil || len(owed) != 1 {
+		t.Fatalf("owed after a sweep that was ended = %v, %v", owed, err)
 	}
 	if err := s.Close(ctx); err != nil {
 		t.Fatal(err)

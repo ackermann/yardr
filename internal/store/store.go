@@ -184,9 +184,13 @@ type Store struct {
 	// that ask, and with removal of the hook it is registering.
 	askLocks keyedLocks
 
+	// closing ends when Close begins, and stops the pump and the settler with
+	// it. The settler works under it, so the git read of the bead it is on
+	// ends too, instead of Close waiting for it.
+	closing context.Context
+	stop    context.CancelFunc
 	// pump publishes committed events in seq order; writers only nudge it.
 	nudge  chan struct{}
-	done   chan struct{}
 	pumped chan struct{} // closed when the pump exits
 	// settler applies the outcomes of beads' stays at peers after the
 	// writes that learned them; a write that ended a stay only nudges it.
@@ -253,7 +257,7 @@ func Open(path string) (*Store, error) {
 	if noSync {
 		db.MaxBatchDelay = 0
 	}
-	s := &Store{db: db, home: home, nudge: make(chan struct{}, 1), done: make(chan struct{}), pumped: make(chan struct{}),
+	s := &Store{db: db, home: home, nudge: make(chan struct{}, 1), pumped: make(chan struct{}),
 		settleNudge: make(chan struct{}, 1), settled: make(chan struct{})}
 	s.hub.init()
 	head, err := s.Head(context.Background())
@@ -261,13 +265,14 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	s.closing, s.stop = context.WithCancel(context.Background())
 	go s.pump(head)
 	go s.settler()
 	return s, nil
 }
 
 func (s *Store) Close(ctx context.Context) error {
-	close(s.done)
+	s.stop()
 	<-s.pumped
 	<-s.settled
 	s.hub.close()
@@ -281,7 +286,7 @@ func (s *Store) pump(published uint64) {
 	defer close(s.pumped)
 	for {
 		select {
-		case <-s.done:
+		case <-s.closing.Done():
 			return
 		case <-s.nudge:
 		}
@@ -300,27 +305,33 @@ func (s *Store) pump(published uint64) {
 // nothing: the next open settles it on its first sweep.
 func (s *Store) settler() {
 	defer close(s.settled)
-	s.settleOwed()
+	s.settleOwed(s.closing)
 	for {
 		select {
-		case <-s.done:
+		case <-s.closing.Done():
 			return
 		case <-s.settleNudge:
 		}
-		s.settleOwed()
+		s.settleOwed(s.closing)
 	}
 }
 
 // settleOwed settles every bead whose stay at a peer ended and whose
-// outcome is not applied yet, each under settleTimeout.
-func (s *Store) settleOwed() {
+// outcome is not applied yet, each under settleTimeout, until ctx ends. A
+// close ends it, between beads and in the git read of the one it is on, so
+// it waits for no more than a write; what it did not reach stays owed, as
+// after a dropped nudge, for the next open's first sweep.
+func (s *Store) settleOwed(ctx context.Context) {
 	pending, err := s.owedSettles()
 	if err != nil || len(pending) == 0 {
 		return
 	}
 	for _, uuid := range pending {
-		ctx, cancel := context.WithTimeout(context.Background(), settleTimeout)
-		_ = s.settleSent(ctx, uuid)
+		if ctx.Err() != nil {
+			return
+		}
+		bead, cancel := context.WithTimeout(ctx, settleTimeout)
+		_ = s.settleSent(bead, uuid)
 		cancel()
 	}
 }

@@ -28,6 +28,13 @@ type peerYard struct {
 func newPeerYard(t *testing.T, url string) *peerYard {
 	t.Helper()
 	api, own := storetest.NewOwned(t)
+	return newPeerYardOn(t, url, api, own)
+}
+
+// newPeerYardOn is newPeerYard over a store the test opened itself, for one
+// that closes it and opens the file again.
+func newPeerYardOn(t *testing.T, url string, api store.API, own *store.Store) *peerYard {
+	t.Helper()
 	k, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
 		t.Fatal(err)

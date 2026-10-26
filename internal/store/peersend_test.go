@@ -7,12 +7,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -380,7 +382,9 @@ func TestPeerBeadNotSentWithoutALink(t *testing.T) {
 // hangingGit is a stand-in git before the real one that waits until
 // release is called for calls in the checkout repo, and hands on
 // everything else: a depot's repository that answers slowly. asked is
-// its calls in that checkout, as the stand-in saw them.
+// its calls in that checkout, as the stand-in saw them. A call also ends
+// when the test binary is gone, so none is left waiting by a test that
+// failed with git held.
 type hangingGit struct {
 	t   *testing.T
 	dir string
@@ -394,10 +398,16 @@ func hangGit(t *testing.T, repo string) *hangingGit {
 	}
 	h := &hangingGit{t: t, dir: t.TempDir()}
 	scripttest.Write(t, filepath.Join(h.dir, "git"), "#!/bin/sh\ndir=.\n[ \"${1:-}\" = -C ] && dir=$2 && shift 2\n"+
-		"if [ \"$dir\" = \""+repo+"\" ]; then echo \"$*\" >>"+h.dir+"/asked\nwhile [ ! -f "+h.dir+"/release ]; do sleep 0.05; done; fi\n"+
+		"if [ \"$dir\" = \""+repo+"\" ]; then echo \"$*\" >>"+h.dir+"/asked\nwhile [ ! -f "+h.dir+"/release ]; do kill -0 \"$YARDR_TEST_PID\" 2>/dev/null || exit 0; sleep 0.05; done; fi\n"+
 		"exec \"$YARDR_TEST_GIT\" -C \"$dir\" \"$@\"\n")
 	t.Setenv("YARDR_TEST_GIT", real)
+	// YARDR_TEST_PID is the test binary's own pid: the stand-in's wait ends
+	// when it is gone, since a killed binary runs no cleanup.
+	t.Setenv("YARDR_TEST_PID", strconv.Itoa(os.Getpid()))
 	t.Setenv("PATH", h.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// A test that failed with git held lets what waits on it end before its
+	// directories go.
+	t.Cleanup(h.release)
 	return h
 }
 
@@ -422,15 +432,13 @@ func (h *hangingGit) waitAsked() {
 	h.t.Fatal("git was never called in the held checkout")
 }
 
-// A write that ends a bead's stay at a peer returns before a settle made
-// slow on purpose has run: while the settler waits on the depot's
-// repository the bead is still in its stage, and it is moved on once the
-// repository answers, with no further write.
-func TestPeerBeadReturnSettlesOffTheWrite(t *testing.T) {
-	// Serial: it shims git on the process PATH, which parallel tests cannot share.
+// holdSettle sends a bead of the yard y to north, which works its stage
+// build, and takes north's return of it with git held in the depot's
+// repository, where the bead's flow is. It returns the bead and the shim
+// once the write is back and the settler is in git, waiting on it.
+func (y *peerYard) holdSettle(t *testing.T) (*store.Bead, *hangingGit) {
+	t.Helper()
 	dir := gitRepo(t, map[string]string{".yardr/flows/default.flow": away})
-	// A sending yard governed by the repository's flow, not the store's.
-	y := newPeerYard(t, "http://north.test")
 	keyFile := filepath.Join(t.TempDir(), "peer.key")
 	if _, _, err := yardkey.Ensure(keyFile); err != nil {
 		t.Fatal(err)
@@ -462,17 +470,58 @@ func TestPeerBeadReturnSettlesOffTheWrite(t *testing.T) {
 	if got := mustBead(t, y, b.ID); got.Stage != "build" {
 		t.Fatalf("the bead while its settle waits on git = %+v", got)
 	}
-	git.release()
-	// Moved on with no further write: this test's reads are its only
-	// calls since the return.
-	got := y.settled(t, b.ID, "review")
-	adv := y.kindEvents(t, b.ID, "advanced")
-	if len(adv) != 1 || adv[0].Actor != "peer:north" || adv[0].Data["outcome"] != "done" || adv[0].Data["from"] != "build" || adv[0].Data["to"] != "review" {
-		t.Fatalf("advanced = %+v", adv)
-	}
-	if away := got.Away(); away.Outcome != "done" || !strings.HasPrefix(away.Line(), "was at north") {
-		t.Fatalf("the bead after its return = %+v, %q", away, away.Line())
-	}
+	return b, git
+}
+
+// A peer return is settled outside its write, and a close cuts a settle in
+// its repository read while leaving the stay owed for the next open.
+func TestPeerBeadReturnSettlesOffTheWrite(t *testing.T) {
+	t.Run("settles after the repository read", func(t *testing.T) {
+		// Serial: it shims git on the process PATH, which parallel tests cannot share.
+		y := newPeerYard(t, "http://north.test")
+		b, git := y.holdSettle(t)
+		git.release()
+		// Moved on with no further write: this test's reads are its only
+		// calls since the return.
+		got := y.settled(t, b.ID, "review")
+		adv := y.kindEvents(t, b.ID, "advanced")
+		if len(adv) != 1 || adv[0].Actor != "peer:north" || adv[0].Data["outcome"] != "done" || adv[0].Data["from"] != "build" || adv[0].Data["to"] != "review" {
+			t.Fatalf("advanced = %+v", adv)
+		}
+		if away := got.Away(); away.Outcome != "done" || !strings.HasPrefix(away.Line(), "was at north") {
+			t.Fatalf("the bead after its return = %+v, %q", got, away.Line())
+		}
+	})
+
+	t.Run("close cuts the repository read", func(t *testing.T) {
+		// Serial: it shims git on the process PATH, which parallel tests cannot share.
+		path := filepath.Join(t.TempDir(), "yard.db")
+		// Closed below, not by a cleanup that would close it a second time.
+		first, err := store.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		y := newPeerYardOn(t, "http://north.test", first, first)
+		b, git := y.holdSettle(t)
+		closed := make(chan error, 1)
+		go func() { closed <- first.Close(y.ctx) }()
+		select {
+		case err := <-closed:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(10 * time.Second): // a fuse: git is held until released
+			t.Fatal("Close waited for the settler's read of the depot's repository")
+		}
+		// What the close cut is owed still: the next open takes it up.
+		again := storetest.Open(t, path)
+		y.api, y.own = again, again
+		git.release()
+		y.settled(t, b.ID, "review")
+		if adv := y.kindEvents(t, b.ID, "advanced"); len(adv) != 1 || adv[0].Actor != "peer:north" || adv[0].Data["to"] != "review" {
+			t.Fatalf("advanced = %+v", adv)
+		}
+	})
 }
 
 // Where a bead has been comes with it and goes on with it: a bead that
