@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -576,28 +577,31 @@ func TestQuietTestsNamesTheFailingTests(t *testing.T) {
 // The trigger itself, on the stream: landings committed after it starts
 // fire the run with no judging by hand and no clock waited on.
 func TestQuietTriggerFiresOnLandingEvents(t *testing.T) {
-	y := newQuietYard(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	watch := &quietScanStore{API: y.s, firstScan: make(chan struct{})}
-	y.d.Store = watch
-	go dispatch.QuietTrigger(y.d, ctx)
-	// The initial pass has read the zero landing count and is returning;
-	// subscriptions are already live, so the following moves must wake it.
-	select {
-	case <-watch.firstScan:
-	case <-time.After(10 * time.Second):
-		t.Fatal("quiet trigger did not make its initial landing scan")
-	}
-	if n := y.runCalls(); n != 0 {
-		t.Fatalf("run started at trigger start with nothing owed, calls = %d", n)
-	}
-	y.land(t, "one")
-	y.land(t, "two")
-	waitQuiet(t, y.s, store.QuietPassed, 1)
-	if n := y.runCalls(); n != 1 {
-		t.Fatalf("calls = %d, want the landing events to fire one run", n)
-	}
+	t.Run("after the initial scan", func(t *testing.T) {
+		y := newQuietYard(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		watch := &quietScanStore{API: y.s, firstScan: make(chan struct{})}
+		y.d.Store = watch
+		go dispatch.QuietTrigger(y.d, ctx)
+		// The initial pass has read the zero landing count and is returning;
+		// subscriptions are already live, so the following moves must wake it.
+		select {
+		case <-watch.firstScan:
+		case <-time.After(10 * time.Second):
+			t.Fatal("quiet trigger did not make its initial landing scan")
+		}
+		if n := y.runCalls(); n != 0 {
+			t.Fatalf("run started at trigger start with nothing owed, calls = %d", n)
+		}
+		y.land(t, "one")
+		y.land(t, "two")
+		waitQuiet(t, y.s, store.QuietPassed, 1)
+		if n := y.runCalls(); n != 1 {
+			t.Fatalf("calls = %d, want the landing events to fire one run", n)
+		}
+	})
+	t.Run("after the server stops answering", quietTriggerResumesAfterServerInterruption)
 }
 
 // A hold ends a live session through a bead event, not a session_* event.
@@ -652,6 +656,91 @@ func TestQuietThresholdChangeRejudgesThroughEventStream(t *testing.T) {
 	waitQuiet(t, y.s, store.QuietPassed, 1)
 	if n := y.runCalls(); n != 1 {
 		t.Fatalf("calls = %d, want the threshold-change event to fire one run", n)
+	}
+}
+
+// quietAwayStore gives each subscription what its script says: "away" is no
+// answer, as a client's is while the server execs its next build, "ends" a
+// stream that ends when end is closed, as the server's does when it replaces
+// itself; once the script is used up, the store's own.
+type quietAwayStore struct {
+	store.API
+	script []string
+	end    chan struct{}
+	mu     sync.Mutex
+	subs   int
+}
+
+func (s *quietAwayStore) Subscribe(ctx context.Context, after uint64) (<-chan store.Event, error) {
+	s.mu.Lock()
+	s.subs++
+	n := s.subs
+	s.mu.Unlock()
+	if n > len(s.script) {
+		return s.API.Subscribe(ctx, after)
+	}
+	if s.script[n-1] == "away" {
+		return nil, fmt.Errorf("yardr server: Get \"http://yard/events?after=%d\": dial unix /y/yard.sock: connect: %w", after, syscall.ENOENT)
+	}
+	out := make(chan store.Event)
+	go func() {
+		defer close(out)
+		select {
+		case <-s.end:
+		case <-ctx.Done():
+		}
+	}()
+	return out, nil
+}
+
+func (s *quietAwayStore) subscriptions() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.subs
+}
+
+// quietTriggerResumesAfterServerInterruption keeps the landing-event cases
+// beside the trigger's ordinary event test: the stream must keep working
+// through a server replace or an outage at startup.
+func quietTriggerResumesAfterServerInterruption(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		script []string
+		// ends: the stream the trigger first gets is ended by the test, as
+		// a replace of the server ends it, before the answer it waits for.
+		ends bool
+	}{
+		// Landings owed at start are judged once the server answers.
+		{"at start", []string{"away", "away"}, false},
+		// What lands after the server came back is judged.
+		{"after a replace", []string{"ends", "away", "away"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			y := newQuietYard(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if !tc.ends {
+				y.land(t, "one")
+				y.land(t, "two")
+			}
+			away := &quietAwayStore{API: y.s, script: tc.script, end: make(chan struct{})}
+			y.d.Store = away
+			y.d.StreamRetry = time.Millisecond
+			go dispatch.QuietTrigger(y.d, ctx)
+			if tc.ends {
+				until(t, "the first stream", func() bool { return away.subscriptions() >= 1 })
+				close(away.end)
+			}
+			until(t, "a subscription the server answers", func() bool { return away.subscriptions() > len(tc.script) })
+			if tc.ends {
+				y.land(t, "one")
+				y.land(t, "two")
+			}
+			waitQuiet(t, y.s, store.QuietPassed, 1)
+			if n := y.runCalls(); n != 1 {
+				t.Fatalf("calls = %d, want the landings to fire one run", n)
+			}
+		})
 	}
 }
 

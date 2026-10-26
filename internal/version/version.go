@@ -220,7 +220,9 @@ func Watch(path, running string) (*Binary, error) {
 // is merely older than this process never makes it exec anything. Nor does
 // an installed build that is not newer (see Newer): a `go install` of an
 // older checkout or of this same commit, dirty or not, is skipped, so a
-// downgrade never meets the store's one-way migrations.
+// downgrade never meets the store's one-way migrations. A build made without
+// a VCS stamp carries no revision, and is newer by its file's time alone: its
+// revision is then "" with true, so a caller goes by the bool.
 func (b *Binary) Replacement() (string, bool) {
 	rev, reason, ok := b.replacement()
 	if reason != "" && b.Skipped != nil {

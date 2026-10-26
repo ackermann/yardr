@@ -167,6 +167,10 @@ type Dispatcher struct {
 	Binary *version.Binary
 	// CheckBinary is how often Binary is checked between passes (default 10s).
 	CheckBinary time.Duration
+	// StreamRetry is how long the wake stream and the quiet run's event
+	// stream wait before they ask a server that did not answer again
+	// (default 1s).
+	StreamRetry time.Duration
 	// Retention is how long the store keeps events, ended sessions,
 	// webhook bodies and what a link remembers of its messages
 	// (store.PeerKeep), and how long an unread inbox event holds them; the
@@ -695,7 +699,7 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 			}
 			select {
 			case <-ctx.Done():
-			case <-time.After(time.Second):
+			case <-time.After(d.streamRetry()):
 			}
 		}
 	}()
@@ -828,6 +832,15 @@ func (d *Dispatcher) prune(ctx context.Context) {
 		d.Log.Info("pruned store", "events", res.Events, "sessions", res.Sessions, "hook_payloads", res.HookPayloads,
 			"held_by", res.HeldBy, "expired", res.Expired, "peers", res.Peers)
 	}
+}
+
+// streamRetry is how long a stream waits before it asks again a server
+// that did not answer.
+func (d *Dispatcher) streamRetry() time.Duration {
+	if d.StreamRetry > 0 {
+		return d.StreamRetry
+	}
+	return time.Second
 }
 
 // replace execs a new build of the daemon if one is installed. It is only

@@ -85,22 +85,45 @@ func quietRelevant(e store.Event) bool {
 // daemon ran are still owed), then on each relevant event of the stream.
 // When the stream ends (the store closed, or this subscriber fell too far
 // behind), it subscribes again from the last event seen; judging is
-// idempotent, so no run is lost or doubled by the seam.
+// idempotent, so no run is lost or doubled by the seam. The stream ends
+// whenever the server does, and a server that is replacing itself does not
+// answer for a moment: it is asked again every streamRetry, as the wake
+// stream is, and the backstop is never given up for the rest of the
+// daemon's life.
 func (d *Dispatcher) runQuietTrigger(ctx context.Context) {
-	after, err := d.Store.Head(ctx)
-	if err != nil {
-		d.Log.Warn("quiet run: cannot read the event log; the backstop is off until the daemon restarts", "err", err)
-		return
+	var after uint64
+	have, judged, told := false, false, false
+	// pause says why the server could not be asked, once for each time it
+	// could not, and waits to ask again.
+	pause := func(what string, err error) {
+		if !told {
+			told = true
+			d.Log.Warn("quiet run: cannot "+what+"; asking again", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(d.streamRetry()):
+		}
 	}
-	for first := true; ctx.Err() == nil; first = false {
+	for ctx.Err() == nil {
+		if !have {
+			head, err := d.Store.Head(ctx)
+			if err != nil {
+				pause("read the event log", err)
+				continue
+			}
+			after, have = head, true
+		}
 		ch, err := d.Store.Subscribe(ctx, after)
 		if err != nil {
-			d.Log.Warn("quiet run: cannot watch events; the backstop is off until the daemon restarts", "err", err)
-			return
+			pause("watch events", err)
+			continue
 		}
-		if first {
+		told = false
+		if !judged {
 			// Subscribed first, so nothing committed while judging is
 			// missed: it is on the stream behind this pass.
+			judged = true
 			d.maybeQuiet(ctx)
 		}
 		for e := range ch {

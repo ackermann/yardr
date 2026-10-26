@@ -75,6 +75,37 @@ func TestReplacement(t *testing.T) {
 	}
 }
 
+// A build made without a VCS stamp says neither a revision nor a time: the
+// file's time orders it against the running one. It is a replacement, with the
+// revision "", and a caller goes by the bool: the server once took the empty
+// revision for none, and a replace to such a build ended it.
+func TestReplacementWithoutARevisionIsOneByItsFileTime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "yardr")
+	install(t, path, "running")
+	b, err := Watch(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ReadBuild = func(string) (Build, error) { return Build{}, nil }
+	if _, ok := b.Replacement(); ok {
+		t.Fatal("unchanged binary offered as a replacement")
+	}
+	install(t, path, "later")
+	if rev, ok := b.Replacement(); !ok || rev != "" {
+		t.Fatalf("Replacement = %q, %v; want \"\" and true for a build with no revision installed later", rev, ok)
+	}
+	var skipped []string
+	b.Skipped = func(rev, reason string) { skipped = append(skipped, reason) }
+	install(t, path, "earlier")
+	past := time.Now().Add(-24 * time.Hour)
+	if err := os.Chtimes(path, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.Replacement(); ok || len(skipped) != 1 || !strings.HasPrefix(skipped[0], "built ") {
+		t.Fatalf("a build with no revision installed earlier: offered %v, skipped %q", ok, skipped)
+	}
+}
+
 func TestSameCommitDirtyOrNotIsNeverAReplacement(t *testing.T) {
 	// A go install from a bead worktree on the running commit must not
 	// deploy its unreviewed changes (yard-r4z9).

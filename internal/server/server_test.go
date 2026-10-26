@@ -427,19 +427,39 @@ func TestInFlightCallCompletesAcrossReplace(t *testing.T) {
 	}
 }
 
+// A build made without a VCS stamp carries no revision and is newer by its
+// file's time alone. It is replaced like any other: it was taken for a stop
+// (the revision to exec was "", which serve returned for a stop too), so the
+// server drained, removed its socket and pidfile, and ended, without a line
+// in its log or an exec, and nothing started another.
 func TestServerChecksItsBinaryWithoutClients(t *testing.T) {
-	c := home(t)
-	execd := make(chan struct{})
-	bin, path := binary(t, "old", func([]string) error { close(execd); return nil })
-	done := start(t, &runner{c: c, bin: bin, rev: "old", check: 20 * time.Millisecond})
-	install(t, path, "new")
-	select {
-	case <-execd:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the backstop never replaced the server")
-	}
-	if err := <-done; err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct{ name, old, new string }{
+		{"with a revision", "old", "new"},
+		{"without a revision", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := home(t)
+			execd := make(chan []string, 1)
+			bin, path := binary(t, tc.old, func(env []string) error { execd <- env; return nil })
+			done := start(t, &runner{c: c, bin: bin, rev: tc.old, check: 20 * time.Millisecond})
+			install(t, path, tc.new)
+			select {
+			case env := <-execd:
+				if from := envOf(env, "YARDR_REPLACED_FROM"); from != version.Show(tc.old) {
+					t.Fatalf("exec env YARDR_REPLACED_FROM = %q, want %q", from, version.Show(tc.old))
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("the backstop never replaced the server")
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			// The pidfile stays across the exec, for the clients that wait
+			// for the new build by it.
+			if b, _ := os.ReadFile(c.PIDFile()); strings.TrimSpace(string(b)) != strconv.Itoa(os.Getpid()) {
+				t.Fatalf("pidfile after the replace = %q", b)
+			}
+		})
 	}
 }
 

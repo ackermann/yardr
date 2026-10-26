@@ -93,14 +93,17 @@ func (r *runner) run(ctx context.Context) error {
 		}
 	}
 	for {
-		to, err := r.serve(ctx)
-		if err != nil || to == "" {
+		to, replacing, err := r.serve(ctx)
+		if err != nil || !replacing {
+			if err == nil {
+				r.log.Info("yardr server stopped")
+			}
 			return err
 		}
 		if ctx.Err() != nil {
 			// Told to stop while draining for the replace: stop, rather than
-			// come back up as the new build. serve has already returned "" in
-			// this case; this covers a stop that lands just after it.
+			// come back up as the new build. serve has already said it is not
+			// replacing in this case; this covers a stop that lands just after.
 			r.log.Info("yardr server stopped during a replace; not starting the new build", "to", version.Show(to))
 			return nil
 		}
@@ -117,15 +120,18 @@ func (r *runner) run(ctx context.Context) error {
 }
 
 // serve owns the store until ctx ends or a new build is installed; it
-// returns that build's revision, with the store closed and in-flight calls
-// answered.
-func (r *runner) serve(ctx context.Context) (string, error) {
+// returns that build's revision and true, with the store closed and in-flight
+// calls answered. A build can carry no revision (one made without a VCS
+// stamp, whose file's time says it is newer), so whether this is a replace is
+// the bool's to say: an empty revision is a build to exec like any other,
+// never a stop.
+func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	c, log := r.c, r.log
 	st, err := store.Open(c.DBPath())
 	if errors.Is(err, store.ErrLocked) {
-		return "", fmt.Errorf("another yardr server owns %s", c.DBPath())
+		return "", false, fmt.Errorf("another yardr server owns %s", c.DBPath())
 	} else if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer st.Close(context.Background())
 	// What a bead this yard sends to a linked one says of the yard.
@@ -150,24 +156,25 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 	_ = os.Remove(c.Socket())
 	ln, err := net.Listen("unix", c.Socket())
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if err := os.Chmod(c.Socket(), 0o600); err != nil {
 		ln.Close()
-		return "", err
+		return "", false, err
 	}
 	if err := writePID(c); err != nil {
 		ln.Close()
-		return "", err
+		return "", false, err
 	}
 	held, err := c.Hold(c.Socket())
 	if err != nil {
 		ln.Close()
-		return "", err
+		return "", false, err
 	}
 	defer held.Close()
 	var to string
-	lost := false // the home or the socket is no longer ours
+	replacing := false // a newer build is installed: serve ends so that run execs it
+	lost := false      // the home or the socket is no longer ours
 	defer func() {
 		switch {
 		case lost:
@@ -179,7 +186,7 @@ func (r *runner) serve(ctx context.Context) (string, error) {
 				os.Remove(c.PIDStart())
 				os.Remove(c.HookState())
 			}
-		case to == "":
+		case !replacing:
 			// The pid stays ours across the exec, and clients seeing the
 			// pidfile wait for the new build instead of starting a second
 			// server.
@@ -283,8 +290,11 @@ wait:
 	for {
 		select {
 		case <-ctx.Done():
+			log.Info("yardr server told to stop")
 			break wait
 		case to = <-replace:
+			replacing = true
+			log.Info("yardr server draining for a replace", "to", version.Show(to))
 			break wait
 		case <-check:
 			offer("")
@@ -317,15 +327,15 @@ wait:
 	}
 	r.settleHandlers(&inflight)
 	if ctx.Err() != nil {
-		to = "" // a stop during the replace drain wins over the replace
+		replacing = false // a stop during the replace drain wins over the replace
 	}
 	if errors.Is(serveErr, http.ErrServerClosed) {
 		serveErr = nil
 	}
 	if serveErr != nil {
-		to = ""
+		replacing = false
 	}
-	return to, serveErr
+	return to, replacing, serveErr
 }
 
 // settleHandlers waits, up to r.settle, for handlers still running after

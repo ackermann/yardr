@@ -1833,6 +1833,10 @@ A flow file in a repository still called
 
 Each replace is logged in `server.log` (or the daemon's output) and as a
 `server_replaced` or `daemon_replaced` event with `from` and `to` revisions.
+The server logs the start of its drain too (`draining for a replace`), and a
+stop of its own (`told to stop`, then `stopped`), so a server that went away
+says why. A build that carries no revision (made without a VCS stamp, which
+the logs call `unknown`) is replaced like any other, by its file's time.
 
 A daemon that runs as a [login service](#login-services) upgrades the same
 way, and the service manager has no part in it: an `exec` keeps the pid, so
