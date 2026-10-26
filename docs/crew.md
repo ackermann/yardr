@@ -271,8 +271,11 @@ names its person and its slice.
   `yardr recall <words>`, which searches entries as well as memories, or whole
   with `yardr prime --bead <name>-journal`; `yardr crew show` prints the last
   few first lines.
-- **Prime:** a new session reads `yardr prime --crew <name>`: its role, how
-  the operator wants agents to work with them when the yard says
+- **Prime:** a new session reads `yardr prime --crew <name>`: its role, on a
+  hosted yard a "No terminal" section after it (its people have no terminal,
+  so every command for the operator goes as a card; the `hosted` setting in
+  [configuration.md](configuration.md#settings)), how the operator wants
+  agents to work with them when the yard says
   ([configuration.md](configuration.md#how-agents-work-with-you)), the
   latest handoff, journal entries since, its inbox, the titles of its 20 most
   recently written memories (`yardr recall` finds the rest), its live timers

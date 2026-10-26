@@ -543,3 +543,101 @@ func TestPrimeCrewOpensHowYouWorkWithMemory(t *testing.T) {
 		t.Errorf("the prime still says the harness may have a memory:\n%s", out)
 	}
 }
+
+// testPrimeCrewHostedYardHasNoTerminal checks the hosted case of the settings
+// that change what a crew prime says.
+func testPrimeCrewHostedYardHasNoTerminal(t *testing.T) {
+	t.Helper()
+	st := userYard(t)
+	ctx := context.Background()
+	// A member with no role file is told as well.
+	mustAs(t, st, "jo", "crew", "add", "clerk", "--set", "kind=claude")
+	prime := func(name string, more ...string) string {
+		t.Helper()
+		return mustAs(t, st, name, append([]string{"prime", "--crew", name}, more...)...)
+	}
+	section := "## No terminal\n\n" + noTerminalRule + "\n\n"
+
+	plain, plainClerk, plainJSON := prime("yardmaster"), prime("clerk"), prime("yardmaster", "--json")
+	if strings.Contains(plain, "No terminal") || strings.Contains(plainClerk, "No terminal") || strings.Contains(plainJSON, "no_terminal") {
+		t.Fatalf("a yard that is not hosted primes the section:\n%s", plain)
+	}
+	// Said outright, hosted=false is the same yard as one that never set it.
+	mustAs(t, st, "jo", "settings", "set", "hosted", "false")
+	if got := prime("yardmaster"); got != plain {
+		t.Errorf("hosted=false changed the prime:\n%s\nwas:\n%s", got, plain)
+	}
+
+	mustAs(t, st, "jo", "settings", "set", "hosted", "true")
+	out := prime("yardmaster")
+	sec := strings.Index(out, section)
+	if sec < 0 {
+		t.Fatalf("a hosted yard's prime lacks the section:\n%s", out)
+	}
+	if got := out[:sec] + out[sec+len(section):]; got != plain {
+		t.Errorf("the hosted prime is not the plain one with the section added:\n%s\nplain:\n%s", got, plain)
+	}
+	// The words that make it a rule: who has no terminal, what it supersedes,
+	// the three cards, and the fallback for a command none carries.
+	for _, want := range []string{
+		"no terminal and no ssh",
+		"supersedes every line of your role",
+		"the fenced code block for a command no card carries",
+		"the one for a command that is the operator's alone",
+		"\"hand the command to the operator\"",
+		"Every command for the operator goes as a card",
+		"a run ask",
+		"`yardr bead ask --help` names under `--run`",
+		"a secret ask",
+		"a setup ask",
+		"File a bead for the yard to grow the card (`yardr bead create`",
+		"never mailed as text to type",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the section lacks %q:\n%s", want, section)
+		}
+	}
+	// After the role and before the rest of the prime. The role's lines it
+	// supersedes are still in the role, and nothing after the section says
+	// them again.
+	role, inbox := strings.Index(out, "## Your role"), strings.Index(out, "## Inbox")
+	if !(0 <= role && role < sec && sec < inbox) {
+		t.Errorf("the section is not between the role and the inbox (role %d, section %d, inbox %d):\n%s", role, sec, inbox, out)
+	}
+	for _, line := range []string{
+		"for them to type in a terminal",
+		"What a person is to run, paste or type goes in a fenced code block",
+		"hand the command to the operator",
+	} {
+		if !strings.Contains(out[role:sec], line) || strings.Contains(out[sec+len(section):], line) {
+			t.Errorf("%q is not in the role alone, before the section:\n%s", line, out)
+		}
+	}
+	clerk := prime("clerk")
+	if got := strings.Replace(clerk, section, "", 1); got != plainClerk || got == clerk || strings.Contains(clerk, "## Your role") {
+		t.Errorf("a member with no role is not told as one with a role is:\n%s", clerk)
+	}
+
+	// The JSON carries the same words, as it carries the role's.
+	var v struct {
+		NoTerminal string `json:"no_terminal"`
+	}
+	if err := json.Unmarshal([]byte(prime("yardmaster", "--json")), &v); err != nil || v.NoTerminal != noTerminalRule {
+		t.Errorf("prime --json no_terminal = %q, %v, want the section's words", v.NoTerminal, err)
+	}
+
+	// A builder's prime has no role text to supersede and says nothing of it.
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "first"}, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bead := mustAs(t, st, "jo", "prime", "--bead", b.ID); strings.Contains(bead, "No terminal") {
+		t.Errorf("a builder's prime on a hosted yard carries the section:\n%s", bead)
+	}
+
+	// Unset again, the yard primes as before.
+	mustAs(t, st, "jo", "settings", "set", "hosted", "")
+	if got := prime("yardmaster"); got != plain {
+		t.Errorf("unsetting hosted left the section:\n%s", got)
+	}
+}

@@ -1670,6 +1670,16 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 		role = withoutFirstRun(role)
 	}
 	v := map[string]any{"prime": p, "role": role}
+	// A role is written for any yard and cannot know that its people have no
+	// terminal; the yard does, so every crew member's prime says it, whatever
+	// its role says.
+	hosted, err := hostedYard(ctx, st)
+	if err != nil {
+		return err
+	}
+	if hosted {
+		v["no_terminal"] = noTerminalRule
+	}
 	op, err := primeOperator(ctx, st)
 	if err != nil {
 		return err
@@ -1728,6 +1738,11 @@ func (a *app) primeCrew(w io.Writer, ctx context.Context, st store.API, name, us
 		}
 		if role != "" {
 			fmt.Fprintf(w, "## Your role\n\n%s\n\n", role)
+		}
+		// After the role, so it reads after the lines it supersedes; a
+		// member with no role is told as well.
+		if hosted {
+			fmt.Fprintf(w, "## No terminal\n\n%s\n\n", noTerminalRule)
 		}
 		if op != nil {
 			fmt.Fprintf(w, "## The operator: %s\n\n%s\n\n", op.Name, strings.Join(op.lines(), "\n\n"))
@@ -1931,6 +1946,41 @@ func withoutFirstRun(role string) string {
 		out = append(out, lines[end:]...)
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// noTerminalRule is what a hosted yard's crew prime says after the role: the
+// people there have no shell on the yard's machine, so every command for the
+// operator goes as a card. The packs' yardmaster roles are written for any
+// yard, and for a command no card carries they say to mail it in a fenced code
+// block for the operator to type in a terminal. The rule supersedes those
+// lines in so many words instead of cutting them out: that covers every pack's
+// roles, present and future, and a role stays right for a yard that is not
+// hosted.
+const noTerminalRule = "This is a hosted yard. Its people have no terminal and no ssh to the machine it runs on. " +
+	"They read mail and answer cards in footplate and the web view, so a command mailed for them to type has nowhere to be typed.\n\n" +
+	"This section supersedes every line of your role, or of anything else you read, that has you mail, show or hand a person " +
+	"a command to type, paste or run, or sends them to a terminal. That includes the fenced code block for a command no card carries, " +
+	"the one for a command that is the operator's alone, the rule that what a person is to run goes in a fenced code block, " +
+	"and \"hand the command to the operator\".\n\n" +
+	"Every command for the operator goes as a card, by what it asks of them:\n\n" +
+	"- to approve a yardr command that `yardr bead ask --help` names under `--run`: a run ask (`settings set <key> <value>` is one such command);\n" +
+	"- to give a credential, a harness login's code or a webhook's signing secret: a secret ask (`--secret`, `--secret-login`, `--secret-hook`);\n" +
+	"- to set up a pack's source: a setup ask (`--setup <pack>`).\n\n" +
+	"A command no card carries is one the yard refuses as a run ask, or that `--help` does not name. " +
+	"Tell whoever needed it, in plain words, that no card carries it, what it was for and what stays undone. " +
+	"File a bead for the yard to grow the card (`yardr bead create`, with the command, what it does and why it is wanted) and give them its id. " +
+	"The command itself is never mailed as text to type."
+
+// hostedYard reports whether the yard's hosted setting is true: the
+// provisioner writes it when it makes the yard. A setting that cannot be read
+// is an error, as elsewhere in the prime, never a yard whose people may be
+// told to open a terminal.
+func hostedYard(ctx context.Context, st store.API) (bool, error) {
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return false, err
+	}
+	return all[store.HostedSetting] == "true", nil
 }
 
 // outsideHowTo is what a crew member's prime says of mail between yards: how

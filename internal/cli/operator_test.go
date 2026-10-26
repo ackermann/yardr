@@ -255,6 +255,9 @@ func TestSettingsSetChangesThePrimes(t *testing.T) {
 	if bead, member = primes(t, st, id, false); strings.Contains(bead, "OPERATOR") || strings.Contains(member, "The operator") {
 		t.Errorf("unset, the primes still have the section:\n%s\n%s", bead, member)
 	}
+	t.Run("hosted yard", func(t *testing.T) {
+		testPrimeCrewHostedYardHasNoTerminal(t)
+	})
 }
 
 // With operator_style guide the setup's pages run their commands and show no
