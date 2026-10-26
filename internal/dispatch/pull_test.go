@@ -46,7 +46,9 @@ func TestJobNamesThePullRequestTheBeadTracks(t *testing.T) {
 		bead("no link", "", "", ""):                                                            nil,
 		bead("train", store.TypeTrain, store.LinkTracks, "https://github.com/acme/web/pull/9"): nil,
 	}
-	must(t, d.Reconcile(ctx))
+	for range 5 { // one start per pass for the group (starts.go)
+		must(t, d.Reconcile(ctx))
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.jobs) != len(want) {

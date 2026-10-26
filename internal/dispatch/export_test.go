@@ -131,6 +131,36 @@ func LimitsWanted(d *Dispatcher) []string {
 	return out
 }
 
+// WaitStartsIdle waits until no start worker owns a session: every
+// handed-over start has run and written its outcome to the store (its
+// completion may still wait for the next pass's drain). It is the effect
+// a test waits on instead of a start's wall time, as WaitLimitsIdle is
+// for the refresher. It gives up after 15 seconds, leaving the test's
+// own assertions to say what did not land.
+func WaitStartsIdle(d *Dispatcher) {
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		d.startMu.Lock()
+		idle := len(d.startOwned) == 0
+		d.startMu.Unlock()
+		if idle || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// StartsInFlight is the groups with a start in flight, as route last
+// left them, for a test that says a busy group claimed nothing more.
+func StartsInFlight(d *Dispatcher) []string {
+	out := make([]string, 0, len(d.startInFlight))
+	for group := range d.startInFlight {
+		out = append(out, group)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // SidingDue is when the earliest siding that can fold is due, as of the
 // last pass; nil with none.
 func SidingDue(d *Dispatcher) *time.Time { return d.sidingDue }

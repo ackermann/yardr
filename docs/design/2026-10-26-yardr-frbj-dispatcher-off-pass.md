@@ -286,11 +286,15 @@ payment.
 ### 2.6. What else waits in a pass, named so the scope is honest
 
 This design takes three waits out of the pass. Others stay, and the reader
-should be able to see them:
+should be able to see them. Two of them have since left it: limits
+commands went behind the background-refreshed cache (bead 1, yardr-sybk),
+and bead starts went to one worker per group (bead 3, yardr-jzhq), which
+claims in the pass and runs `runner.Start` beside it under each call's
+own bound, one start in flight per group. What a pass still waits on is:
 
 | Wait still in the pass | Bound today |
 |---|---|
-| `reap` asks each live session's runner for its status, in sequence (`alive`, then `Status`: one herdr call per session, 2 minutes each), reads pane ends for blocked, idle and stopped agents, and applies idle and age limits (`limits`, internal/dispatch/limits.go:79), which is where the limits command's other two call sites hang off | 2 minutes per session, times the live sessions, worst case |
+| `reap` asks each live session's runner for its status, in sequence (`alive`, then `Status`: one herdr call per session, 2 minutes each), reads pane ends for blocked, idle and stopped agents, and applies idle and age limits (`limits`, internal/dispatch/limits.go:79); the limits those apply are read from the background-refreshed cache, so no provider command runs here | 2 minutes per session, times the live sessions, worst case |
 | `teardown` and `cleanup` stop runners and finish worktrees (`Stop`, `Finish`: herdr calls and git at `checkoutTimeout`) | 2 minutes per call |
 | `usage` and `crewUsage` read stopped agents' session files for token counts | filesystem only, retried next pass |
 | `crew` starts members (section 2.2) and `harnessLogins` may run this binary's `harness login` | herdr bounds, plus the login command's |

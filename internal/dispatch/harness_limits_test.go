@@ -464,7 +464,11 @@ func limitsYard(t *testing.T, n int, cfg map[string]any) (s store.API, r *agentR
 		_, err := s.CreateBead(ctx, store.NewBead{Title: fmt.Sprint("bead ", i)}, "me")
 		must(t, err)
 	}
-	must(t, d.Reconcile(ctx)) // all start
+	// All start: one start per pass for the group (starts.go), as the
+	// daemon's loop is woken for each completion in turn.
+	for range n {
+		must(t, d.Reconcile(ctx))
+	}
 	must(t, d.Reconcile(ctx)) // seen working
 	if got := len(r.starts()); got != n {
 		t.Fatalf("starts = %d, want %d", got, n)

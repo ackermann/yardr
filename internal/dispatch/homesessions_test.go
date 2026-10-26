@@ -85,9 +85,10 @@ func TestHomeSessionsSkipOtherRunners(t *testing.T) {
 	}
 }
 
-// A session the pass started is in the snapshot even when the pass never
-// ends: its store gone halfway through, nothing publishes what the reads
-// saw.
+// A session whose start's MarkRunning fails in the store is still in
+// the snapshot: the worker records what it opened before it attempts
+// the write, and the pass no longer fails for the write, so the
+// snapshot is the record home-loss cleanup closes from.
 func TestHomeSessionsKeepSessionsStartedByAFailedPass(t *testing.T) {
 	t.Parallel()
 	s, f, _ := homeSetup(t)
@@ -95,12 +96,10 @@ func TestHomeSessionsKeepSessionsStartedByAFailedPass(t *testing.T) {
 	ctx := context.Background()
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")
 	must(t, err)
-	if err := d.Reconcile(ctx); err == nil {
-		t.Fatal("Reconcile with a failing store succeeded")
-	}
+	must(t, d.Reconcile(ctx))
 	got := d.HomeSessions()
 	if len(got) != 1 || got[0].Name != b.ID || len(got[0].Handle) == 0 {
-		t.Fatalf("HomeSessions after the failed pass = %+v, want the started session", got)
+		t.Fatalf("HomeSessions after the failed MarkRunning = %+v, want the started session", got)
 	}
 }
 
@@ -196,6 +195,61 @@ func (p partialCrewStart) Stop(ctx context.Context, handle map[string]any) error
 		return p.stopErr
 	}
 	return p.crewRunner.Stop(ctx, handle)
+}
+
+// A start that opens a tab and then has its store writes fail still
+// leaves the tab in the snapshot: the worker records it before it
+// attempts MarkRunning (on success) or SetHandle (on a partial start),
+// and regardless of whether either succeeds, so a home-loss cleanup
+// over the snapshot still closes it.
+func TestHomeSessionsKeepTabWhenStoreWritesFail(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	t.Run("MarkRunning fails", func(t *testing.T) {
+		t.Parallel()
+		s, f, _ := homeSetup(t)
+		d := &dispatch.Dispatcher{Store: failingMarkRunning{s}, Runners: map[string]dispatch.Runner{"herdr": tabHerdrStart{fakeRunner: f}}}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")
+		must(t, err)
+		must(t, d.Reconcile(ctx))
+		got := d.HomeSessions()
+		if len(got) != 1 || got[0].Name != b.ID || got[0].Handle["tab"] != "tab-1" {
+			t.Fatalf("HomeSessions after the failed MarkRunning = %+v, want its open tab", got)
+		}
+		// The next pass publishes its own snapshot: the tab is still
+		// there, read from the handle the worker kept in the store.
+		must(t, d.Reconcile(ctx))
+		got = d.HomeSessions()
+		if len(got) != 1 || got[0].Handle["tab"] != "tab-1" {
+			t.Fatalf("HomeSessions after the next pass = %+v, want its open tab", got)
+		}
+	})
+	t.Run("SetHandle fails on a partial start", func(t *testing.T) {
+		t.Parallel()
+		s, f, _ := homeSetup(t)
+		d := &dispatch.Dispatcher{Store: failingSetHandle{s}, Runners: map[string]dispatch.Runner{"herdr": partialHerdrStart{fakeRunner: f}}}
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "feature"}, "me")
+		must(t, err)
+		must(t, d.Reconcile(ctx))
+		got := d.HomeSessions()
+		if len(got) != 1 || got[0].Name != b.ID || got[0].Handle["tab"] != "tab-1" {
+			t.Fatalf("HomeSessions after the failed SetHandle = %+v, want its open tab", got)
+		}
+	})
+}
+
+type tabHerdrStart struct{ *fakeRunner }
+
+func (tabHerdrStart) Start(_ context.Context, j dispatch.Job) (map[string]any, error) {
+	return map[string]any{"session": j.Session.ID, "tab": "tab-1"}, nil
+}
+
+// failingSetHandle is a store gone after a partial start: SetHandle
+// fails, everything else answers.
+type failingSetHandle struct{ store.API }
+
+func (failingSetHandle) SetHandle(context.Context, string, map[string]any) error {
+	return errors.New("the store is gone")
 }
 
 // failingMarkRunning is a store gone after the session started: MarkRunning

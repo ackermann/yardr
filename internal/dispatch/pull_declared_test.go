@@ -273,7 +273,9 @@ func TestJobNamesTheForgePullRequestTheBeadTracks(t *testing.T) {
 		tracks:                       {URL: forgePull, Number: 7},
 		bead("an issue", forgeIssue): nil,
 	}
-	must(t, d.Reconcile(ctx))
+	for range 2 { // one start per pass for the group (starts.go)
+		must(t, d.Reconcile(ctx))
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.jobs) != len(want) {

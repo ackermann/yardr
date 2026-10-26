@@ -119,6 +119,13 @@ func (d *Dispatcher) waitReason(g store.Group, b store.Bead, active map[string]i
 	if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
 		return waitedGroup{g.Name, fmt.Sprintf("group %s's runtime is down (see the group's runtime_down event); the bead starts when it is tried again", g.Name)}, true
 	}
+	// One start in flight per group, and no queue (starts.go): while its
+	// worker is starting a session the group starts no other, and this
+	// bead stays unclaimed until a later pass has drained that start's
+	// completion and applied any outage it recorded.
+	if d.startInFlight[g.Name] != "" {
+		return waitedGroup{g.Name, fmt.Sprintf("group %s is starting a session; the bead starts when that start finishes (yardr session list)", g.Name)}, true
+	}
 	// A session of the group sits stalled with this model, or waits
 	// with it for a usage limit's window to reset: another would end
 	// the same way (see holdBack).

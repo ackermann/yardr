@@ -134,7 +134,9 @@ func TestNoteTellsTheBeadsSessionOnce(t *testing.T) {
 	// No route out of backlog: no session ever works it.
 	quiet, err := s.CreateBead(ctx, store.NewBead{Title: "quiet", Stage: "backlog"}, "me")
 	must(t, err)
-	must(t, d.Reconcile(ctx))
+	for range 2 { // both sessions start, one per pass for the group (starts.go)
+		must(t, d.Reconcile(ctx))
+	}
 	sess := liveSession(t, s, b.ID)
 	writerSess := liveSession(t, s, writer.ID)
 	f.screen(true, true) // the pane shows the prompt: the telling is typed

@@ -108,6 +108,9 @@ func TestRuntimeDownHoldsNoBead(t *testing.T) {
 	r.up = true
 	r.mu.Unlock()
 	time.Sleep(time.Millisecond)
+	// One start per group per pass (starts.go): builders' two beads take
+	// two passes, the reviewers' one the first of them.
+	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if n := len(r.starts()); n != 3 { // builders' limit 2, reviewers 1
 		t.Fatalf("starts after recovery = %d, want 3", n)
@@ -175,13 +178,22 @@ func TestRuntimeDownBacksOff(t *testing.T) {
 		t.Fatalf("starts tried = %d, want 1: the pass should stop at the first outage and back off", n)
 	}
 	must(t, d.Reconcile(ctx))
-	for _, id := range ids {
+	for i, id := range ids {
 		evs := eventKinds(t, s, id, "group_wait")
 		if len(evs) != 1 {
 			t.Fatalf("group_wait events of %s = %d, want 1 over three passes", id, len(evs))
 		}
-		if reason, _ := evs[0].Data["reason"].(string); !strings.Contains(reason, "runtime is down") {
-			t.Fatalf("group_wait reason of %s = %q, want the down runtime", id, reason)
+		// The bead whose start failed is told of the outage the next
+		// pass records; the beads behind it were first told their group
+		// was starting a session, since the outage is only recognised
+		// when that start's completion is drained (starts.go). Each
+		// bead's one group_wait keeps the first reason it was told.
+		want := "runtime is down"
+		if i > 0 {
+			want = "starting a session"
+		}
+		if reason, _ := evs[0].Data["reason"].(string); !strings.Contains(reason, want) {
+			t.Fatalf("group_wait reason of %s = %q, want %q", id, reason, want)
 		}
 	}
 

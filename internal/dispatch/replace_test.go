@@ -277,11 +277,14 @@ func TestDaemonStoppedDuringAPassDoesNotReplaceItself(t *testing.T) {
 	bin, path := fakeBinary(t, "old", func([]string) error { execd.Store(true); return nil })
 	d.Binary = bin
 	d.Interval = time.Hour
-	installRev(t, path, "new")
 
 	done := make(chan error, 1)
 	go func() { done <- d.Run(ctx) }()
 	<-slow.started
+	// Installed only now, with the start in flight on its worker: a
+	// daemon told to stop from here must not take it (a pass that held
+	// the start inline would still be running; the check is the same).
+	installRev(t, path, "new")
 	cancel()
 	close(slow.release)
 	select {

@@ -353,6 +353,22 @@ type Dispatcher struct {
 	limitsRunOwned bool
 	limitsNotify   func()
 
+	// startMu guards the start workers' shared state alone (starts.go):
+	// the owned set a worker records its session in for reap, and the
+	// workers themselves. startInFlight is the pass's own record of the
+	// one session each group has in flight, which no worker touches;
+	// startDone carries their completions to the drain at the head of
+	// the next pass, and the rest is Run's ownership of the workers, as
+	// limitsRunOwned and limitsNotify are the refresher's.
+	startMu       sync.Mutex
+	startOwned    map[string]bool
+	startWorkers  map[string]*startWorker
+	startInFlight map[string]string // group -> session with a start in flight
+	startDone     chan startCompletion
+	startCtx      context.Context
+	startRunOwned bool
+	startNotify   func()
+
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
 	reported   map[string]string // bead -> last unroutable reason, to log once
@@ -544,6 +560,9 @@ func (d *Dispatcher) defaults() {
 	if d.crewWorkHistory == nil {
 		d.crewWorkHistory = map[string]bool{}
 	}
+	d.startMu.Lock()
+	d.initStartsLocked()
+	d.startMu.Unlock()
 }
 
 // PromptUnconfirmed is a handle key next to store.PendingPrompt: the runner sent
@@ -721,6 +740,11 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	d.startLimitsRefresher(ctx, poke)
 	defer d.stopLimitsRefresher()
 	d.warmLimits(ctx)
+	// The bead-start workers (starts.go): route hands each claim to its
+	// group's worker, which runs beside this loop for Run's life and
+	// wakes it as each start lands.
+	d.startStartWorkers(ctx, poke)
+	defer d.stopStartWorkers()
 	// What a post that failed is tried again by is looked at more often
 	// than the yard is reconciled. It makes no request while nothing is
 	// due.
@@ -809,10 +833,17 @@ func (d *Dispatcher) prune(ctx context.Context) {
 // replace execs a new build of the daemon if one is installed. It is only
 // called between passes, and never once ctx has ended: a daemon told to
 // stop while a pass ran stops, rather than come back up as the new build.
+// It waits out a start in flight on its worker: exec'ing mid-start would
+// abandon a session this daemon claimed, whose handle the new build
+// could only judge as an interrupted start. The completion wakes the
+// loop, and the replacement is taken by the check after that pass.
 // It returns true only when a test's fake exec "succeeded". A failed exec
 // is logged and the old build carries on.
 func (d *Dispatcher) replace(ctx context.Context) bool {
 	if d.Binary == nil || ctx.Err() != nil {
+		return false
+	}
+	if len(d.startInFlight) > 0 {
 		return false
 	}
 	to, ok := d.Binary.Replacement()
@@ -866,6 +897,11 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// timer next fires. The pass itself still only reads the cache.
 	d.stampLimitsClock()
 	d.nudgeLimitsRefresher()
+	// Starts that finished since the last pass: their outcomes are
+	// already the store's, and what they owe the pass (the outage, the
+	// idle state, the prompt watch) is applied here, before reap reads
+	// the sessions and before any new claim for their groups.
+	d.drainStartCompletions(ctx)
 	d.beginHomePass()
 	// One snapshot of each pane for the whole pass, whatever checks read
 	// from it (see PaneCache).
@@ -932,6 +968,10 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	if err := d.route(ctx, byName, active, paused); err != nil {
 		return err
 	}
+	// A pass run alone settles the starts it just handed over (starts.go),
+	// so the steps below see their sessions as a pass that started them
+	// inline did; under Run their completions wake the loop instead.
+	d.settleStarts(ctx)
 	// After the work is started: a copy of a large store takes a while.
 	d.backups(ctx)
 	// Last: a peer that does not answer holds up nothing of this yard's,
@@ -990,9 +1030,18 @@ func (d *Dispatcher) reap(ctx context.Context, groups map[string]store.Group) (m
 		case r == nil:
 			live(s) // cannot judge; leave it alone
 		case s.State == "starting":
-			// Start runs inside a pass; a 'starting' session seen by a later
-			// pass means the dispatcher died mid-start.
-			if time.Since(s.StartedAt) > 5*time.Minute {
+			// A start runs on its group's worker now, and may still be
+			// running healthily: one a live worker of this daemon owns
+			// is counted live at any age, since the longest healthy
+			// start sums past five minutes of bounded calls (design
+			// section 2.3). The five minutes judge only a session no
+			// worker owns, which is exactly the dead-dispatcher case
+			// this rule was written for: a daemon restarted over the
+			// previous daemon's in-flight start fails it as before,
+			// and teardown closes what its handle names.
+			if d.startIsOwned(s.ID) {
+				live(s)
+			} else if d.now().Sub(s.StartedAt) > 5*time.Minute {
 				d.end(ctx, s, "failed", "start interrupted")
 			} else {
 				live(s)
@@ -1467,15 +1516,13 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			return err
 		}
 		delete(d.reported, b.ID)
-		// count adds the session to its group's and the yard's count, or
-		// takes it off again when its start came to nothing.
-		count := func(n int) {
-			active[g.Name] += n
-			if store.RunsHere(g.Runner) {
-				d.running += n
-			}
+		// The claim holds the group's slot from here, in the store and
+		// in this pass's counts alike; the next pass rebuilds both from
+		// reap whatever the start comes to, so no outcome repairs them.
+		active[g.Name]++
+		if store.RunsHere(g.Runner) {
+			d.running++
 		}
-		count(1)
 		d.Log.Info("dispatching", "bead", b.ID, "stage", b.Stage, "group", g.Name, "session", sess.ID)
 
 		// What the brief says the session may call. A brief without it is
@@ -1487,71 +1534,17 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 			calls = may.Calls
 		}
 
-		handle, err := runner.Start(ctx, Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
-			Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls, Pull: pull})
-		if err != nil && g.Runner == "herdr" && hasHomeTab(handle) {
-			// A start can open its pane and then fail while recording its
-			// handle. Keep that partial start for home-loss cleanup too.
-			d.noteHomeStarted(startedBeadHome(b.ID, b.Stage, g.Name, sess.ID, g.Runner, handle))
-		}
-		if isBeadBlocked(err) {
-			// The runner could not safely start this bead. Keep the failure on
-			// the bead, with the reason, and wait for a person to fix and release
-			// it; do not count it against retries or the rest of the group.
-			if endErr := d.Store.EndSession(ctx, sess.ID, "aborted", err.Error()); endErr != nil {
-				d.Log.Error("end blocked session", "session", sess.ID, "err", endErr)
-			}
-			d.forget(sess.ID)
-			if len(handle) > 0 {
-				_ = d.Store.SetHandle(ctx, sess.ID, handle)
-			}
-			_ = d.Store.LogDispatch(ctx, b.ID, "session_blocked", actor, map[string]any{
-				"session": sess.ID, "stage": b.Stage, "reason": err.Error(),
-			})
-			if _, holdErr := d.Store.SetHold(ctx, b.ID, true, store.Expect{}, actor); holdErr != nil {
-				d.Log.Error("hold bead after blocked start", "bead", b.ID, "err", holdErr)
-			}
-			count(-1)
-			continue
-		}
-		if IsRuntime(err) || IsBlocked(err) {
-			// Not the bead's fault: abort the session (no failure), leave
-			// the bead for the next try and stop trying the group a while.
-			// A blocked group (its env_file refused) is reported the same
-			// way, with the reason, until someone fixes the file.
-			d.runtimeDown(ctx, g, err)
-			if err := d.Store.EndSession(ctx, sess.ID, "aborted", err.Error()); err != nil {
-				d.Log.Error("end session", "session", sess.ID, "err", err)
-			}
-			d.forget(sess.ID)
-			count(-1)
-			if len(handle) > 0 {
-				_ = d.Store.SetHandle(ctx, sess.ID, handle)
-			}
-			continue
-		}
-		if err != nil {
-			d.end(ctx, *sess, "failed", err.Error())
-			count(-1)
-			// Keep what Start created so teardown can clean it up.
-			if len(handle) > 0 {
-				_ = d.Store.SetHandle(ctx, sess.ID, handle)
-			}
-			continue
-		}
-		d.runtimeUp(ctx, g)
-		if g.Runner == "herdr" {
-			// The pane is open from here, whatever the store says next.
-			d.noteHomeStarted(startedBeadHome(b.ID, b.Stage, g.Name, sess.ID, g.Runner, handle))
-		}
-		if err := d.Store.MarkRunning(ctx, sess.ID, handle); err != nil {
-			return err
-		}
-		// A prompt the runner could not deliver yet is watched from its
-		// delivery (see alive).
-		if handle[store.PendingPrompt] == nil {
-			d.prompted(runner, sess.ID)
-		}
+		// Hand the finished job to the group's worker and move to the
+		// next bead: the worker runs Start beside the pass (starts.go),
+		// writes the outcome to the store, and posts the completion the
+		// next pass drains. Nothing is queued behind it: waitReason has
+		// already held this group's later beads for the busy worker,
+		// and holds them until that completion is drained.
+		d.handStart(ctx, startJob{
+			job: Job{Bead: b, Group: g, Depot: depot, Session: *sess, Train: fam.Train, Base: fam.Base,
+				Children: fam.Children, Next: next, Outcomes: outcomes, StageFile: stage.file, StoreFlow: stage.storeFlow, FlowMap: stage.flowMap, Calls: calls, Pull: pull},
+			runner: runner,
+		})
 	}
 	return nil
 }

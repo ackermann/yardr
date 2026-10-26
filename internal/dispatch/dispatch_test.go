@@ -178,7 +178,11 @@ func TestJobCarriesNextStages(t *testing.T) {
 		_, err = s.Done(ctx, retried.ID, "retry", "", store.Expect{}, "me")
 		must(t, err)
 	}
-	must(t, d.Reconcile(ctx))
+	// One start per pass for the group (starts.go): three passes start
+	// the three beads, as the daemon's loop is woken per completion.
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -291,13 +295,23 @@ func TestLimitsBlockersAndRouteSpecificity(t *testing.T) {
 
 	must(t, d.Reconcile(ctx))
 	// general has limit 1: only t1; bugs: b1 (b2 is blocked by b1).
-	if got := f.starts(); !slices.Equal(got, []string{t1.ID, b1.ID}) {
+	// The two groups start concurrently, so their global order is not part
+	// of this test's contract.
+	got := f.starts()
+	slices.Sort(got)
+	want := []string{t1.ID, b1.ID}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
 		t.Fatalf("starts = %v", got)
 	}
 	_, _ = s.CloseBead(ctx, b1.ID, "done", store.Expect{}, "me")
 	_, _ = s.CloseBead(ctx, t1.ID, "done", store.Expect{}, "me")
 	must(t, d.Reconcile(ctx))
-	if got := f.starts(); !slices.Equal(got, []string{t1.ID, b1.ID, t2.ID, b2.ID}) {
+	got = f.starts()
+	slices.Sort(got)
+	want = []string{t1.ID, b1.ID, t2.ID, b2.ID}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
 		t.Fatalf("starts after closes = %v", got)
 	}
 }
@@ -848,7 +862,11 @@ func TestJobCarriesTrainAndBase(t *testing.T) {
 	_, err = s.UpdateBead(ctx, "r-e", store.BeadPatch{Type: &train}, store.Expect{}, "me")
 	must(t, err)
 
-	must(t, d.Reconcile(ctx))
+	// One start per pass for the group (starts.go): the third pass is
+	// the first to reach r-3, behind the two starts before it.
+	for range 3 {
+		must(t, d.Reconcile(ctx))
+	}
 	if evs := eventKinds(t, s, "r-3", "bad_train"); len(evs) != 1 {
 		t.Fatalf("bad_train events for r-3 = %+v, want one", evs)
 	}
@@ -999,7 +1017,9 @@ func TestJobCarriesTheStageFile(t *testing.T) {
 	must(t, err)
 	none, err := s.CreateBead(ctx, store.NewBead{Title: "no flow"}, "me")
 	must(t, err)
-	must(t, d.Reconcile(ctx))
+	for range 3 { // one start per pass for the group (starts.go)
+		must(t, d.Reconcile(ctx))
+	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1165,7 +1185,9 @@ func TestRouteByBeadPriorityAndLabels(t *testing.T) {
 		must(t, err)
 		want[b.ID] = c.group
 	}
-	must(t, d.Reconcile(ctx))
+	for range 2 { // one start per group per pass (starts.go)
+		must(t, d.Reconcile(ctx))
+	}
 	if got := f.starts(); len(got) != len(want) {
 		t.Fatalf("starts = %v, want every bead", got)
 	}

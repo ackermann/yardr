@@ -601,11 +601,12 @@ func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForAGatedRoute(t *testing.T) {
 	for i := range 4 {
 		newBead(t, s, fmt.Sprint("b", i))
 	}
-	for range 3 {
+	for range 4 { // one start per pass for the group (starts.go)
 		must(t, d.Reconcile(ctx))
 	}
 	newBead(t, s, "later")
 	*now = now.Add(4 * time.Minute)
+	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if got := f.starts(); len(got) != 5 {
 		t.Fatalf("starts = %v, want all five", got)
@@ -1147,6 +1148,12 @@ func TestHangingLimitsCommandHoldsNoPass(t *testing.T) {
 			t.Fatal("a pass waited on the hanging limits command")
 		}
 	}
+	// One start per group in this pass (starts.go): the other bead of
+	// each group is claimed cold by the next, while the run still hangs.
+	pass()
+	if got := len(f.starts()); got != 2 {
+		t.Fatalf("starts = %d, want one per group from the first pass", got)
+	}
 	pass()
 	for _, b := range beads {
 		_, data := claimedBy(t, s, b.ID)
@@ -1157,9 +1164,12 @@ func TestHangingLimitsCommandHoldsNoPass(t *testing.T) {
 	if got := len(f.starts()); got != len(beads) {
 		t.Fatalf("starts = %d, want all %d claimed cold (fail-open)", got, len(beads))
 	}
-	// A second pass while the run still hangs starts nothing more, and
+	// A further pass while the run still hangs starts nothing more, and
 	// wants no second run of the key.
 	pass()
+	if got := len(f.starts()); got != len(beads) {
+		t.Fatalf("starts = %d after a third pass, want still %d", got, len(beads))
+	}
 	waitAsked(t, p, "moonshot")
 	p.release()
 	dispatch.WaitLimitsIdle(d)

@@ -89,7 +89,9 @@ func TestMaxSessionsFreedAndUnset(t *testing.T) {
 				b, _ := s.CreateBead(ctx, store.NewBead{Title: title}, "me")
 				ids = append(ids, b.ID)
 			}
-			must(t, d.Reconcile(ctx))
+			for range tc.first { // one start per pass for the group (starts.go)
+				must(t, d.Reconcile(ctx))
+			}
 			if got := f.starts(); !slices.Equal(got, ids[:tc.first]) {
 				t.Fatalf("starts = %v, want %v", got, ids[:tc.first])
 			}
