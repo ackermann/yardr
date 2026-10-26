@@ -140,7 +140,9 @@ func (y *pushYard) mail(t *testing.T, from, text string) {
 	must(t, y.api.Mail(context.Background(), "ada", text, from))
 }
 
-// pass is one pass of the daemon after d has gone by.
+// pass is one pass of the daemon after d has gone by. The clock began when the
+// yard was built and the store stamps a mail when it is made, so a pass that
+// has to find mail past its grace is y.settle, not a grace and a margin.
 func (y *pushYard) pass(t *testing.T, d time.Duration) {
 	t.Helper()
 	y.now = y.now.Add(d)
@@ -292,7 +294,7 @@ func TestPushNotForWhatWasRead(t *testing.T) {
 	box, err := y.api.UserInbox(ctx, "ada", 0, "ada")
 	must(t, err)
 	must(t, y.api.AckUserInbox(ctx, "ada", box.Mail[0].Seq, "ada"))
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	want(t, "told of the unread one alone", y.sent(), []string{"mail from yardmaster | two"})
 
 	y.mail(t, "yardmaster", "three")
@@ -413,7 +415,7 @@ func TestPushTriedAgainOn500AndNotOn400(t *testing.T) {
 	y := newPushYard(t)
 	y.status.Store(500)
 	y.mail(t, "yardmaster", "the tests are green")
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	want(t, "asked", len(y.sent()), 1)
 	if l := y.last(t); l.Reason != store.PushRetry || l.Status != 500 || l.RetryAt == nil {
 		t.Fatalf("last push = %+v", l)
@@ -479,7 +481,7 @@ func TestPushWhileTheSourceIsDown(t *testing.T) {
 	must(t, err)
 	want(t, "unread in the inbox", box.Unread, 2)
 
-	y.pass(t, store.PushGrace+time.Second)
+	y.settle(t)
 	ps := y.queued(t)
 	if len(ps) != 2 || ps[0].Attempts != 1 || ps[0].RetryAt == nil || !strings.Contains(ps[0].Error, "no answer") {
 		t.Fatalf("after the first try: %+v", ps)
