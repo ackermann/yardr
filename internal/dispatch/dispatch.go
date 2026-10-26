@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -330,6 +331,27 @@ type Dispatcher struct {
 	// limitsAsked is provider -> what it last said of its limits, kept for
 	// limitsMemory. See harness_limits.go.
 	limitsAsked map[string]limitsAnswer
+	// limitsMu guards limitsAsked and limitsWants alone: the pass reads
+	// the cache through it and the background refresher stores into it,
+	// running its commands outside it (limits_refresh.go). limitsWants
+	// is the refresher's leased wants, and the rest its scheduler's
+	// state: limitsWake nudges it, limitsCancel stops it, limitsLoop
+	// says it runs, limitsRunOwned keeps it for Run's life, and
+	// limitsNotify is Run's poke, called as each answer lands.
+	limitsMu    sync.Mutex
+	limitsWants map[string]*limitWant
+	// limitsClock is the refresher's view of the dispatcher's clock,
+	// stamped by each read and pass (the goroutines that may read
+	// d.now()) so the scheduler and its runs never read the clock
+	// itself: a clock a test moves under the daemon is the test's own
+	// variable, and a background read of it would race its writes.
+	limitsClock    atomic.Int64
+	limitsWake     chan struct{}
+	limitsCancel   context.CancelFunc
+	limitsLoop     bool
+	limitsLoopGen  int
+	limitsRunOwned bool
+	limitsNotify   func()
 
 	clock      func() time.Time // tests only; see now
 	retryAfter map[string]time.Time
@@ -693,6 +715,12 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	pulling, stopPulling := context.WithCancel(ctx)
 	defer stopPulling()
 	d.pulling, d.pullersOf, d.poke = pulling, nil, poke
+	// The limits refresher (limits_refresh.go): the pass only reads its
+	// cache, so its scheduler runs beside the loop for Run's life, and
+	// warms the keys the yard is known to need before the first pass.
+	d.startLimitsRefresher(ctx, poke)
+	defer d.stopLimitsRefresher()
+	d.warmLimits(ctx)
 	// What a post that failed is tried again by is looked at more often
 	// than the yard is reconciled. It makes no request while nothing is
 	// due.
@@ -833,6 +861,11 @@ func (d *Dispatcher) noteStart(ctx context.Context) {
 // and start unowned ready beads, make the copy of the store that is due.
 func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	d.defaults()
+	// A pass is a moment the refresher may have work by: a key that came
+	// due since its scheduler last looked is started now, not when its
+	// timer next fires. The pass itself still only reads the cache.
+	d.stampLimitsClock()
+	d.nudgeLimitsRefresher()
 	d.beginHomePass()
 	// One snapshot of each pane for the whole pass, whatever checks read
 	// from it (see PaneCache).

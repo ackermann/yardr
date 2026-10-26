@@ -26,6 +26,7 @@ func quotaYard(t *testing.T, first string, further ...string) (store.API, *fakeR
 	s := storetest.New(t)
 	f := &fakeRunner{dead: map[string]bool{}}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": f}, Backoff: time.Nanosecond}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
 	now := noon()
 	dispatch.SetClock(d, func() time.Time { return now })
 	ctx := context.Background()
@@ -102,6 +103,8 @@ func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
 		Else: []store.RouteGroup{{Name: "b", When: "Weekly<80"}}}, "me")
 	must(t, err)
 
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	group, data := claimedBy(t, s, b.ID)
@@ -137,6 +140,7 @@ func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.sayAs("a-login-2", weekly(10, 10))
+	primeGroupLimits(t, s, d, "a")
 	b = newBead(t, s, "login changed")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "a" {
@@ -150,6 +154,7 @@ func TestQuotaConditionGatesOnTheGroupsOwnWindows(t *testing.T) {
 	// own answer, read once more.
 	now = now.Add(6 * time.Minute)
 	p.sayAs("a-login-2", weekly(10, 10))
+	primeGroupLimits(t, s, d, "a")
 	b = newBead(t, s, "z")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "a" {
@@ -179,6 +184,7 @@ func TestQuotaMemoryIsSharedAcrossGroupsWithTheSameLogin(t *testing.T) {
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80",
 		Else: []store.RouteGroup{{Name: "b", When: "Weekly<80"}}}, "me")
 	must(t, err)
+	primeGroupLimits(t, s, d, "a")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "" {
@@ -197,6 +203,8 @@ func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
 	ctx := context.Background()
 	s, _, d, p, r, _ := quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(85, 10))
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	group, data := claimedBy(t, s, b.ID)
@@ -217,6 +225,7 @@ func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
 
 	s, _, d, p, r, _ = quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(70, 10))
+	primeGroupLimits(t, s, d, "a")
 	b = newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
@@ -233,12 +242,14 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 	ctx := context.Background()
 	s, _, d, p, r, now := quotaYard(t, "a@Weekly<80,5h<50")
 	p.say(weekly(85, 60))
+	primeGroupLimits(t, s, d, "a")
 	b := newBead(t, s, "x")
 	for i := range 3 {
 		must(t, d.Reconcile(ctx))
 		// A later answer with other numbers is the same wait.
 		*now = now.Add(6 * time.Minute)
 		p.say(weekly(86+float64(i), 60))
+		primeGroupLimits(t, s, d, "a")
 	}
 	if group, _ := claimedBy(t, s, b.ID); group != "" {
 		t.Fatalf("claimed by %q, want nobody: a's windows are past the thresholds", group)
@@ -260,6 +271,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 
 	p.say(weekly(20, 10))
 	*now = now.Add(6 * time.Minute)
+	primeGroupLimits(t, s, d, "a")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "a" {
 		t.Fatalf("claimed by %q once the windows opened, want a", group)
@@ -267,6 +279,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 	t.Run("a plain route waits while a provider window is used up", func(t *testing.T) {
 		ctx := context.Background()
 		s, f, d, p, r, now := quotaYard(t, "a")
+		primeGroupLimits(t, s, d, "a")
 		first := newBead(t, s, "no limit")
 		must(t, d.Reconcile(ctx))
 		if group, data := claimedBy(t, s, first.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
@@ -274,6 +287,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		}
 		*now = now.Add(6 * time.Minute)
 		p.say(weekly(100, 10))
+		primeGroupLimits(t, s, d, "a")
 		b := newBead(t, s, "x")
 		for range 3 {
 			must(t, d.Reconcile(ctx))
@@ -294,6 +308,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		// Just under 100% is not used up.
 		*now = now.Add(6 * time.Minute)
 		p.say(weekly(99.9, 10))
+		primeGroupLimits(t, s, d, "a")
 		must(t, d.Reconcile(ctx))
 		group, data := claimedBy(t, s, b.ID)
 		if group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
@@ -309,6 +324,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		}
 		*now = now.Add(6 * time.Minute)
 		p.say(perModel(10))
+		primeGroupLimits(t, s, d, "a")
 		c := newBead(t, s, "y")
 		must(t, d.Reconcile(ctx))
 		if group, data := claimedBy(t, s, c.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
@@ -316,6 +332,7 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		}
 		*now = now.Add(6 * time.Minute)
 		p.say(perModel(100))
+		primeGroupLimits(t, s, d, "a")
 		e := newBead(t, s, "z")
 		must(t, d.Reconcile(ctx))
 		if group, _ := claimedBy(t, s, e.ID); group != "" {
@@ -456,6 +473,8 @@ func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
 	s, _, d, _, r, _ := quotaYard(t, "a@Weekly<target+10", "b")
 	say := pacedStandIn(t, s)
 	say(paced(38, 10, "17"))
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
 	b := newBead(t, s, "past")
 	must(t, d.Reconcile(ctx))
 	group, data := claimedBy(t, s, b.ID)
@@ -474,6 +493,7 @@ func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
 	s, _, d, _, _, _ = quotaYard(t, "a@Weekly<target+10", "b")
 	say = pacedStandIn(t, s)
 	say(paced(20, 10, "17"))
+	primeGroupLimits(t, s, d, "a")
 	b = newBead(t, s, "within")
 	must(t, d.Reconcile(ctx))
 	if group, data := claimedBy(t, s, b.ID); group != "a" || data["passed"] != nil || data["limits_unknown"] != nil {
@@ -483,6 +503,7 @@ func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
 	s, _, d, _, _, _ = quotaYard(t, "a@Weekly<target+10", "b")
 	say = pacedStandIn(t, s)
 	say(paced(99, 99, ""))
+	primeGroupLimits(t, s, d, "a")
 	b = newBead(t, s, "untargeted")
 	must(t, d.Reconcile(ctx))
 	group, data = claimedBy(t, s, b.ID)
@@ -497,6 +518,7 @@ func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
 	s, _, d, _, r, _ = quotaYard(t, "a@Weekly<target+10")
 	say = pacedStandIn(t, s)
 	say(paced(38, 10, "17"))
+	primeGroupLimits(t, s, d, "a")
 	b = newBead(t, s, "waiting")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "" {
@@ -518,6 +540,8 @@ func TestConditionWithoutALabelReadsEveryWindow(t *testing.T) {
 	ctx := context.Background()
 	s, _, d, p, _, _ := quotaYard(t, "a@<80", "b")
 	p.say(weekly(10, 90))
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	group, data := claimedBy(t, s, b.ID)
@@ -552,6 +576,7 @@ func TestConditionThatCannotBeEvaluatedHolds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, _, d, p, _, _ := quotaYard(t, tc.first, "b")
 			tc.break_(t, s, p)
+			primeGroupLimits(t, s, d, "a")
 			b := newBead(t, s, "x")
 			must(t, d.Reconcile(ctx))
 			group, data := claimedBy(t, s, b.ID)
@@ -572,6 +597,7 @@ func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForAGatedRoute(t *testing.T) {
 	ctx := context.Background()
 	s, f, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(70, 10))
+	primeGroupLimits(t, s, d, "a")
 	for i := range 4 {
 		newBead(t, s, fmt.Sprint("b", i))
 	}
@@ -599,6 +625,7 @@ func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForAGatedRoute(t *testing.T) {
 		must(t, d.Reconcile(ctx))
 		*now = now.Add(time.Minute)
 	}
+	dispatch.WaitLimitsIdle(d)
 	if asks := p.asks(); len(asks) != 2 {
 		t.Fatalf("the limits command ran %d times, want 2: a failure is remembered as an answer is", len(asks))
 	}
@@ -606,6 +633,7 @@ func TestLimitsAreAskedOnceInFiveMinutesAndOnlyForAGatedRoute(t *testing.T) {
 	// A route with no condition is read as well, for the provider of the
 	// group that takes the bead: b is not reached, so it is not asked.
 	s, f, d, p, _, _ = quotaYard(t, "a", "b")
+	primeGroupLimits(t, s, d, "a")
 	newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	if got, asks := f.starts(), p.asks(); len(got) != 1 || len(asks) != 1 || asks[0] != "moonshot" {
@@ -714,6 +742,7 @@ func TestClaimedEventNamesTheGroupThatHeldTheBeadInTheStageBefore(t *testing.T) 
 	ctx := context.Background()
 	s, _, d, p, _, now := quotaYard(t, "a@Weekly<80", "b")
 	p.say(weekly(70, 10))
+	primeGroupLimits(t, s, d, "a")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	if group, data := claimedBy(t, s, b.ID); group != "a" || data["was"] != nil {
@@ -727,6 +756,8 @@ func TestClaimedEventNamesTheGroupThatHeldTheBeadInTheStageBefore(t *testing.T) 
 		_, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "me")
 		must(t, err)
 		*now = now.Add(6 * time.Minute)
+		primeGroupLimits(t, s, d, "a")
+		primeGroupLimits(t, s, d, "b")
 		must(t, d.Reconcile(ctx))
 		evs := eventKinds(t, s, b.ID, "claimed")
 		if len(evs) != i+2 {
@@ -784,6 +815,7 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 	s, _, d, _, r, now := quotaYard(t, "a@machine.load<80", "wait")
 	say, runs := machineStandIn(t, s)
 	say(loadReport(93))
+	dispatch.PrimeSourceLimits(d, ctx, "machine")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "" {
@@ -803,6 +835,7 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 
 	say(loadReport(12))
 	*now = now.Add(6 * time.Minute)
+	dispatch.PrimeSourceLimits(d, ctx, "machine")
 	must(t, d.Reconcile(ctx))
 	if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil {
 		t.Fatalf("claimed by %q with %v, want a with nobody passed over", group, data)
@@ -845,6 +878,7 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 		if under, ok := hold(); ok {
 			s, _, d, _, r, _ := quotaYard(t, "a@machine.load<"+under, "wait")
 			d.Home = t.TempDir()
+			dispatch.PrimeSourceLimits(d, ctx, "machine")
 			b := newBead(t, s, "x")
 			must(t, d.Reconcile(ctx))
 			if group, _ := claimedBy(t, s, b.ID); group != "" {
@@ -866,6 +900,7 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 		if under, ok := release(); ok {
 			s, _, d, _, r, _ := quotaYard(t, "a@machine.load<"+under, "wait")
 			d.Home = t.TempDir()
+			dispatch.PrimeSourceLimits(d, ctx, "machine")
 			b := newBead(t, s, "x")
 			must(t, d.Reconcile(ctx))
 			if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil {
@@ -903,6 +938,7 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 				b := newBead(t, s, "x")
 				*now = now.Add(40 * time.Second)
 				must(t, d.Reconcile(ctx))
+				dispatch.WaitLimitsIdle(d)
 				if group, _ := claimedBy(t, s, b.ID); group != tc.want {
 					t.Fatalf("claimed by %q, want %q", group, tc.want)
 				}
@@ -938,6 +974,9 @@ func TestRouteConditionMixesASourceAndAProvider(t *testing.T) {
 	say, _ := machineStandIn(t, s)
 	p.say(weekly(70, 10))
 	say(loadReport(93))
+	dispatch.PrimeSourceLimits(d, ctx, "machine")
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	group, data := claimedBy(t, s, b.ID)
@@ -970,6 +1009,7 @@ func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: g.Name, When: g.When, Else: []store.RouteGroup{{Name: "wait"}}}, "me")
 	must(t, err)
 	say(loadReport(93))
+	dispatch.PrimeSourceLimits(d, ctx, "machine")
 	b := newBead(t, s, "x")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "" {
@@ -980,6 +1020,7 @@ func TestRouteGatesAGroupWithNoKindOnASource(t *testing.T) {
 	}
 	say(loadReport(12))
 	now = now.Add(6 * time.Minute)
+	dispatch.PrimeSourceLimits(d, ctx, "machine")
 	must(t, d.Reconcile(ctx))
 	if group, _ := claimedBy(t, s, b.ID); group != "refinery" {
 		t.Fatalf("claimed by %q once load opened, want refinery", group)
@@ -1000,6 +1041,7 @@ func TestConditionOnAGroupWithoutAKindReadsTheYardsDefaultKind(t *testing.T) {
 	must(t, s.SetSetting(ctx, store.DefaultKindSetting, "kimi", "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5}, "me"))
 	p.say(weekly(10, 10))
+	primeLimits(t, d, "kimi", "", nil)
 	under := newBead(t, s, "under")
 	must(t, d.Reconcile(ctx))
 	group, data := claimedBy(t, s, under.ID)
@@ -1008,9 +1050,217 @@ func TestConditionOnAGroupWithoutAKindReadsTheYardsDefaultKind(t *testing.T) {
 	}
 	*now = now.Add(6 * time.Minute)
 	p.say(weekly(91, 10))
+	primeLimits(t, d, "kimi", "", nil)
+	primeGroupLimits(t, s, d, "b")
 	over := newBead(t, s, "over")
 	must(t, d.Reconcile(ctx))
 	if group, data := claimedBy(t, s, over.ID); group != "b" || data["limits_unknown"] != nil {
 		t.Fatalf("claimed by %q with %v, want b: kimi's Weekly window is past the threshold", group, data)
 	}
+}
+
+// hangingStandIn is a stand-in provider whose run for the provider
+// named hangOn waits until release is called: a limits command that
+// hangs past any fuse a test would set. asks is its runs, as standIn's.
+type hangingStandIn struct {
+	t   *testing.T
+	dir string
+}
+
+func newHangingStandIn(t *testing.T, s store.API, hangOn string) *hangingStandIn {
+	t.Helper()
+	p := &hangingStandIn{t: t, dir: t.TempDir()}
+	script := filepath.Join(p.dir, "provider")
+	scripttest.Write(t, script, "#!/bin/sh\ncd "+p.dir+"\necho \"$1\" >>asked\n"+
+		"if [ \"$1\" = \""+hangOn+"\" ]; then while [ ! -f release ]; do sleep 0.05; done; fi\ncat answer\n")
+	_, err := s.PutSource(context.Background(), "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+
+		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai }\n", "me")
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(p.dir, "answer"), []byte(`{"provider":"Kimi","windows":[]}`), 0o600))
+	return p
+}
+
+func (p *hangingStandIn) release() {
+	p.t.Helper()
+	must(p.t, os.WriteFile(filepath.Join(p.dir, "release"), nil, 0o600))
+}
+
+func (p *hangingStandIn) asks() []string {
+	p.t.Helper()
+	b, err := os.ReadFile(filepath.Join(p.dir, "asked"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	must(p.t, err)
+	return strings.Fields(string(b))
+}
+
+// waitAsked waits until the provider has been run for name: the effect
+// a test waits on, never the wall time a run takes.
+func waitAsked(t *testing.T, p *hangingStandIn, name string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, a := range p.asks() {
+			if a == name {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the provider was never run for %s (runs so far: %v)", name, p.asks())
+}
+
+// A limits command that hangs holds no pass: the pass completes while
+// its run is still blocked, ready beads of two groups that share the
+// provider's key are claimed at once with limits_unknown (the cold
+// exposure, bounded by each group's limit), and the blocked run is the
+// one run for all of them.
+func TestHangingLimitsCommandHoldsNoPass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": f}, Backoff: time.Nanosecond}
+	for _, name := range []string{"ga", "gb"} {
+		must(t, s.PutGroup(ctx, store.Group{Name: name, Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "kimi"}}, "me"))
+	}
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "ga"}, "me")
+	must(t, err)
+	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "gb"}, "me")
+	must(t, err)
+	p := newHangingStandIn(t, s, "moonshot")
+	var beads []store.Bead
+	for _, stage := range []string{"new", "new", "review", "review"} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Stage: stage}, "me")
+		must(t, err)
+		beads = append(beads, *b)
+	}
+	pass := func() {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- d.Reconcile(ctx) }()
+		select {
+		case err := <-done:
+			must(t, err)
+		case <-time.After(10 * time.Second):
+			t.Fatal("a pass waited on the hanging limits command")
+		}
+	}
+	pass()
+	for _, b := range beads {
+		_, data := claimedBy(t, s, b.ID)
+		if data["limits_unknown"] == nil {
+			t.Fatalf("claimed %s with %v, want limits_unknown while its provider's first run hangs", b.ID, data)
+		}
+	}
+	if got := len(f.starts()); got != len(beads) {
+		t.Fatalf("starts = %d, want all %d claimed cold (fail-open)", got, len(beads))
+	}
+	// A second pass while the run still hangs starts nothing more, and
+	// wants no second run of the key.
+	pass()
+	waitAsked(t, p, "moonshot")
+	p.release()
+	dispatch.WaitLimitsIdle(d)
+	if asks := p.asks(); len(asks) != 1 {
+		t.Fatalf("the provider was run for %v, want once, for many beads of two groups sharing its key", asks)
+	}
+}
+
+// One key's hanging run does not queue another key's behind it: the
+// other provider's refresh is run and lands while the first still
+// hangs, and a pass reads it.
+func TestOneKeysHangingLimitsRunDoesNotQueueAnotherKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := storetest.New(t)
+	f := &fakeRunner{dead: map[string]bool{}}
+	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": f}, Backoff: time.Nanosecond}
+	must(t, s.PutGroup(ctx, store.Group{Name: "ga", Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "kimi"}}, "me"))
+	must(t, s.PutGroup(ctx, store.Group{Name: "gb", Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "codex"}}, "me"))
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "ga"}, "me")
+	must(t, err)
+	_, err = s.AddRoute(ctx, store.Route{Stage: "review", Group: "gb"}, "me")
+	must(t, err)
+	p := newHangingStandIn(t, s, "moonshot")
+	slow, err := s.CreateBead(ctx, store.NewBead{Title: "slow"}, "me")
+	must(t, err)
+	fast, err := s.CreateBead(ctx, store.NewBead{Title: "fast", Stage: "review"}, "me")
+	must(t, err)
+	done := make(chan error, 1)
+	go func() { done <- d.Reconcile(ctx) }()
+	select {
+	case err := <-done:
+		must(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("a pass waited on the hanging limits command")
+	}
+	// The codex key's run starts and lands behind no queue, while the
+	// kimi key's run is still blocked on its release.
+	waitAsked(t, p, "openai")
+	deadline := time.Now().Add(10 * time.Second)
+	for dispatch.LimitsRunsInFlight(d) != 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := dispatch.LimitsRunsInFlight(d); got != 1 {
+		t.Fatalf("runs in flight = %d, want 1: the codex key's run landed while the kimi key's still hangs", got)
+	}
+	if asks := p.asks(); len(asks) != 2 {
+		t.Fatalf("the provider was run for %v, want both keys' runs started, neither queued behind the other", asks)
+	}
+	_ = slow
+	_ = fast
+	p.release()
+	dispatch.WaitLimitsIdle(d)
+}
+
+// What Run warms gates from the first pass: a source a route condition
+// names (warmed through its own key, as a provider's is), and a
+// provider whose warmed window is used up, which writes one quota_wait
+// with its reset and starts nothing, where 99.9% still starts.
+func TestWarmedLimitsGateFromTheFirstPass(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	t.Run("a source a condition names", func(t *testing.T) {
+		s, _, d, _, _, _ := quotaYard(t, "a@machine.load<80", "wait")
+		say, runs := machineStandIn(t, s)
+		say(loadReport(93))
+		dispatch.WarmLimitsForTest(d, ctx)
+		b := newBead(t, s, "x")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, b.ID); group != "" {
+			t.Fatalf("claimed by %q, want nobody: the warmed source says load is past the threshold", group)
+		}
+		if evs := eventKinds(t, s, b.ID, "quota_wait"); len(evs) != 1 {
+			t.Fatalf("quota_wait events = %v, want one from the warmed answer", evs)
+		}
+		if got := runs(); got != 1 {
+			t.Fatalf("the machine command ran %d times, want the warm-up's one", got)
+		}
+	})
+	t.Run("a provider window used up", func(t *testing.T) {
+		s, f, d, p, _, _ := quotaYard(t, "a")
+		p.say(weekly(100, 10))
+		dispatch.WarmLimitsForTest(d, ctx)
+		b := newBead(t, s, "x")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, b.ID); group != "" || len(f.starts()) != 0 {
+			t.Fatalf("claimed by %q, starts %v; want nobody: the warmed window is used up", group, f.starts())
+		}
+		evs := eventKinds(t, s, b.ID, "quota_wait")
+		if len(evs) != 1 || evs[0].Data["resets_at"] != noon().Add(72*time.Hour).UTC().Format(time.RFC3339) {
+			t.Fatalf("quota_wait = %v, want one with the Weekly window's reset", evs)
+		}
+	})
+	t.Run("a provider window just under used up", func(t *testing.T) {
+		s, _, d, p, _, _ := quotaYard(t, "a")
+		p.say(weekly(99.9, 10))
+		dispatch.WarmLimitsForTest(d, ctx)
+		b := newBead(t, s, "x")
+		must(t, d.Reconcile(ctx))
+		if group, data := claimedBy(t, s, b.ID); group != "a" || data["limits_unknown"] != nil {
+			t.Fatalf("claimed by %q with %v, want a: 99.9%% is not used up", group, data)
+		}
+	})
 }

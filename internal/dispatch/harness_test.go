@@ -27,6 +27,7 @@ func harnessSetup(t *testing.T, kind string, cfg map[string]any) (store.API, *ag
 	s := storetest.New(t)
 	r := &agentRunner{statusRunner: &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
 	conf := map[string]any{"kind": kind}
 	for k, v := range cfg {
 		conf[k] = v

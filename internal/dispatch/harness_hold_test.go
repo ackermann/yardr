@@ -62,6 +62,7 @@ func holdYard(t *testing.T) (s store.API, r *paneRunner, d *dispatch.Dispatcher,
 		fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}}, panes: map[string][2]string{}}
 	s = storetest.New(t)
 	d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
 	at := noon()
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
@@ -100,6 +101,7 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	ctx := context.Background()
 	resets := now.Add(42 * time.Minute)
 	p.say(kimiUsed(resets))
+	primeLimits(t, d, "kimi", "", nil)
 	r.showBead(t, s, b, "idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 
@@ -162,6 +164,7 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b3.ID}) {
 		t.Fatalf("starts in the wait = %v, want the bead of another model started and the one of the waiting model not", got)
 	}
+	dispatch.WaitLimitsIdle(d)
 	if asks := p.asks(); len(asks) != 2 {
 		t.Fatalf("the provider was run %d times, want 2: the stop and the start of the other model; holding a group back asks nothing", len(asks))
 	}
@@ -169,6 +172,7 @@ func TestGroupStartsNoFurtherSessionWithAModelThatWaitsForItsReset(t *testing.T)
 	// The wake: the provider is asked the once the wake asks, the agent is
 	// prompted, and the bead that waited starts.
 	*now = wakes.Add(time.Second)
+	primeLimits(t, d2, "kimi", "", nil)
 	must(t, d2.Reconcile(ctx))
 	if len(r.nudges) != 1 || r.nudges[0] != resetLine {
 		t.Fatalf("typed %q at the wake, want the reset line", r.nudges)
@@ -193,6 +197,7 @@ func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.showBead(t, s, b, "idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	b2, err := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
@@ -216,6 +221,7 @@ func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 	p.say(kimiOpen)
 	*now = now.Add(5 * time.Minute)
 	must(t, d.Reconcile(ctx))
+	dispatch.WaitLimitsIdle(d)
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
 		t.Fatalf("starts = %v, want the second bead started once the first works again and the window is open", got)
 	}
@@ -231,6 +237,7 @@ func TestResetWaitFromBeforeUpgradeHoldsTheGroupModel(t *testing.T) {
 	s, r, d, b, p, now := holdYard(t)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.showBead(t, s, b, "idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 
@@ -266,6 +273,7 @@ func TestUsageLimitYardrDoesNotWaitForSetsNoHoldAndTheQuotaWaits(t *testing.T) {
 	ctx := context.Background()
 	resets := now.Add(80 * time.Hour)
 	p.say(kimiUsed(resets))
+	primeLimits(t, d, "kimi", "", nil)
 	r.showBead(t, s, b, "idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	evs := eventKinds(t, s, b.ID, "session_harness_error")
@@ -317,7 +325,14 @@ func TestPassesThatStartSessionsWithNothingStoppedAskLimitsOnceInFiveMinutes(t *
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, beads[0], beads[1]}) {
 		t.Fatalf("starts = %v, want the group filled to its limit of 3", got)
 	}
-	if asks := p.asks(); !slices.Equal(asks, []string{"moonshot"}) {
-		t.Fatalf("the limits command was run for %v, want once, for the two starts: the full group and the working and idle agents ask nothing", asks)
+	dispatch.WaitLimitsIdle(d)
+	// The two starts are one run, as they were. The second run is the
+	// wanted key's own: its answer came due (five minutes on) while its
+	// lease, from the last start's read, still stood, so the refresher
+	// ran it once more in the background. No pass ran it: the passes
+	// that found the group full and the agents working and idle read
+	// the cache and asked nothing themselves.
+	if asks := p.asks(); !slices.Equal(asks, []string{"moonshot", "moonshot"}) {
+		t.Fatalf("the limits command was run for %v, want the starts' run and its lease's one due run", asks)
 	}
 }

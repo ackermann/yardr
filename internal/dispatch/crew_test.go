@@ -315,6 +315,7 @@ func crewSetup(t *testing.T, def store.CrewMember) (store.API, *crewRunner, *dis
 	// No waits: a pending prompt is delivered on the first pass that finds
 	// the agent idle and judged on the next, unless a test sets them.
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": f}, PromptSettle: -1, PromptWait: -1}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
 	def.Name, def.Runner = "yardmaster", "fake"
 	if _, err := s.PutCrew(context.Background(), def, "me"); err != nil {
 		t.Fatal(err)

@@ -42,6 +42,7 @@ func TestPassWithNothingStoppedAsksLimitsOnlyForTheStarts(t *testing.T) {
 	}
 	must(t, d.Reconcile(ctx)) // both start
 	must(t, d.Reconcile(ctx)) // seen working
+	dispatch.WaitLimitsIdle(d)
 	if n := len(r.starts()); n != 2 {
 		t.Fatalf("starts = %d, want 2", n)
 	}

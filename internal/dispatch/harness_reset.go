@@ -107,36 +107,73 @@ func resetLine(kind, window string) string {
 	return fmt.Sprintf("yardr: the usage limit your harness stopped on (%s) has reset. Go on where you stopped.", what)
 }
 
-// windowOpen asks the yard's source once more whether an agent of kind with
-// the provider setting can work, read under env: false while a window is
-// used up that resets later, or at a time the provider does not say. It
-// uses the same environment overlay as the limit error it is reopening. It
-// is the one place
-// besides harnessLimits where the dispatcher runs the source's command, and
-// it is reached only at the wake of an agent that is about to be prompted.
+// windowVerdict is what a wake's read of the cache found: the window
+// has opened, it is still shut, or it is not known yet. The third is
+// new with the cache: the wake defers on it, where the synchronous ask
+// always decided.
+type windowVerdict int
+
+const (
+	windowIsOpen windowVerdict = iota
+	windowIsShut
+	// windowNotKnown is no fresh answer while its refresh runs: the
+	// wake is left standing, nothing is prompted, no retry is spent,
+	// and the next pass after the refresh lands decides it. The defer
+	// is bounded by that one run, which is already running or started
+	// by this read for its own key, never queued behind another's.
+	windowNotKnown
+)
+
+// windowOpen reads the cache once more for whether an agent of kind
+// with the provider setting can work, read under env, the same overlay
+// as the limit error it is reopening. It is reached only at the wake of
+// an agent that is about to be prompted, beside harnessLimits the only
+// reader at a stop or wake. On a fresh report the verdict is the
+// report's, word for word as the synchronous ask decided; a fresh
+// remembered failure, and a read nothing can answer for (no source,
+// an unread store, an unreadable env_file at the caller), prompt at
+// once as they always have, since there is no answer to wait for.
 //
 // A window that counts for a single model holds nothing here. UsedUpForStop
 // gives one only when no window every model draws from is used up, and the
 // agent's model is not known: holding the agent for a window that may be
 // another model's, days off, would undo the choice made at the stop. An agent
 // of that model stops on it again when it is prompted, and is told of it then.
-func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string, env []string) bool {
-	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env)
-	if err != nil {
-		return ctx.Err() == nil
+func (d *Dispatcher) windowOpen(ctx context.Context, kind, provider string, env []string) windowVerdict {
+	rd := d.cachedLimits(ctx, kind, provider, limitsMemory, env)
+	switch rd.state {
+	case limitNone:
+		return windowNotKnown
+	case limitUnresolvable:
+		if ctx.Err() != nil {
+			return windowNotKnown // stopping: no prompt is typed anyway
+		}
+		return windowIsOpen
 	}
-	w := r.UsedUpForStop()
-	return w == nil || w.Model != "" || w.ResetsAt != nil && !w.ResetsAt.After(d.now())
+	if rd.report == nil { // a fresh remembered failure prompts, as ever
+		if ctx.Err() != nil {
+			return windowNotKnown
+		}
+		return windowIsOpen
+	}
+	w := rd.report.UsedUpForStop()
+	if w == nil || w.Model != "" || w.ResetsAt != nil && !w.ResetsAt.After(d.now()) {
+		return windowIsOpen
+	}
+	return windowIsShut
 }
 
 // sessionWindowOpen is windowOpen for a session of g: the subscription
 // read under the group's env, the login the stop was told of. A group
 // whose env_file cannot be read holds the prompt back no more than a
-// provider that gives no answer.
-func (d *Dispatcher) sessionWindowOpen(ctx context.Context, g store.Group, kind, provider string) bool {
+// provider that gives no answer: it prompts at once, with no want left.
+func (d *Dispatcher) sessionWindowOpen(ctx context.Context, g store.Group, kind, provider string) windowVerdict {
 	env, err := groupEnv(g)
 	if err != nil {
-		return ctx.Err() == nil
+		if ctx.Err() != nil {
+			return windowNotKnown
+		}
+		return windowIsOpen
 	}
 	return d.windowOpen(ctx, kind, provider, env)
 }
@@ -176,7 +213,14 @@ func (d *Dispatcher) harnessReset(ctx context.Context, r Runner, s *store.Sessio
 		d.markHarnessError(ctx, s, reason, nil)
 		return
 	}
-	if !d.sessionWindowOpen(ctx, g, kind, provider) {
+	switch d.sessionWindowOpen(ctx, g, kind, provider) {
+	case windowNotKnown:
+		// No fresh answer while its refresh runs: the wake is left
+		// standing, nothing is prompted, no retry is spent, and the
+		// error is not raised again yet. The next pass, once the
+		// refresh has landed, decides as the two cases below do.
+		return
+	case windowIsShut:
 		if ctx.Err() != nil {
 			return
 		}
@@ -343,7 +387,12 @@ func (d *Dispatcher) crewReset(ctx context.Context, runner Runner, s *memberSess
 		}
 		return false, nil
 	}
-	if !d.windowOpen(ctx, kind, provider, nil) {
+	switch d.windowOpen(ctx, kind, provider, nil) {
+	case windowNotKnown:
+		// As a session's wake: left standing, nothing typed, no retry
+		// spent, until the refresh lands and a later pass decides.
+		return false, nil
+	case windowIsShut:
 		if ctx.Err() != nil {
 			return false, nil
 		}

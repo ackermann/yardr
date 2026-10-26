@@ -2,7 +2,9 @@ package dispatch_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +66,7 @@ func resetYardOf(t *testing.T, r dispatch.Runner, cfg map[string]any) (s store.A
 	t.Helper()
 	s = storetest.New(t)
 	d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
 	at := noon()
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
@@ -111,6 +114,7 @@ func TestSessionAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
 	ctx := context.Background()
 	resets := now.Add(42 * time.Minute)
 	p.say(kimiUsed(resets))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 
@@ -138,9 +142,20 @@ func TestSessionAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) {
 		t.Fatalf("in the wait: typed %q, the provider run %d times; want nothing typed and the one ask of the stop", r.nudges, len(asks))
 	}
 
-	// The wake.
+	// The wake, first with no fresh answer on this daemon: its cache is
+	// cold, so the wake defers — nothing is typed, no retry is spent,
+	// the error is not raised again, and harness_reset_at stands for
+	// the next pass, once the refresh the read wanted has landed.
 	p.say(kimiOpen)
 	*now = wakes.Add(time.Second)
+	must(t, d2.Reconcile(ctx))
+	if len(r.nudges) != 0 || len(eventKinds(t, s, b.ID, "session_harness_retry")) != 0 {
+		t.Fatalf("at a cold wake: typed %q; want a defer, nothing typed and no retry spent", r.nudges)
+	}
+	if h := handleOfBead(t, s, b); h["harness_reset_at"] == nil {
+		t.Fatalf("handle = %v, want the wake left standing at a cold read", h)
+	}
+	primeLimits(t, d2, "kimi", "", nil)
 	must(t, d2.Reconcile(ctx))
 	must(t, d2.Reconcile(ctx))
 	if asks := p.asks(); len(asks) != 2 {
@@ -183,6 +198,7 @@ func TestProviderSessionIsAskedAsTheProviderAtTheWake(t *testing.T) {
 	ctx := context.Background()
 	resets := now.Add(42 * time.Minute)
 	p.say(kimiUsed(resets))
+	primeLimits(t, d, "kimi", "zai", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	evs := eventKinds(t, s, b.ID, "session_harness_error")
@@ -195,6 +211,7 @@ func TestProviderSessionIsAskedAsTheProviderAtTheWake(t *testing.T) {
 	wakes := resets.Add(time.Minute)
 	p.say(kimiOpen)
 	*now = wakes.Add(time.Second)
+	primeLimits(t, d, "kimi", "zai", nil)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	if asks := p.asks(); len(asks) != 2 || asks[1] != "zai" {
@@ -215,10 +232,12 @@ func TestSessionThatHasDoneNothingGetsItsFirstPromptAtTheReset(t *testing.T) {
 	r.worked = false
 	r.mu.Unlock()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	p.say(kimiOpen)
 	*now = now.Add(44 * time.Minute)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	if len(r.nudges) != 1 || r.nudges[0] != "Read brief.md and follow it." {
 		t.Fatalf("typed %q, want the first prompt", r.nudges)
@@ -279,12 +298,14 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 	ctx := context.Background()
 	first := now.Add(42 * time.Minute)
 	p.say(kimiUsed(first))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 
 	later := first.Add(2 * time.Hour)
 	p.say(kimiUsed(later))
 	*now = first.Add(time.Minute + time.Second)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	evs := eventKinds(t, s, b.ID, "session_harness_error")
@@ -302,6 +323,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 	// The later reset comes, the window is open: prompted.
 	p.say(kimiOpen)
 	*now = later.Add(time.Minute + time.Second)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	if len(r.nudges) != 1 || r.nudges[0] != resetLine {
 		t.Fatalf("typed %q at the later reset, want the line once", r.nudges)
@@ -310,10 +332,12 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 	// A weekly window used up meanwhile is not waited for.
 	s2, r2, d2, b2, p2, now2 := resetYard(t, nil)
 	p2.say(kimiUsed(now2.Add(42 * time.Minute)))
+	primeLimits(t, d2, "kimi", "", nil)
 	r2.show("idle", kimiLimit)
 	must(t, d2.Reconcile(ctx))
 	p2.say(`{"provider":"Kimi","windows":[{"label":"Weekly","used_percent":100,"resets_at":"` + now2.Add(80*time.Hour).Format(time.RFC3339) + `"}]}`)
 	*now2 = now2.Add(44 * time.Minute)
+	primeLimits(t, d2, "kimi", "", nil)
 	must(t, d2.Reconcile(ctx))
 	evs = eventKinds(t, s2, b2.ID, "session_harness_error")
 	if len(r2.nudges) != 0 || len(evs) != 2 || evs[1].Data["window"] != "Weekly" || evs[1].Data["wakes_at"] != nil {
@@ -329,6 +353,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 		told := func() []store.Event { t.Helper(); return eventKinds(t, s, b.ID, "session_harness_error") }
 		five, fable := now.Add(30*time.Minute), now.Add(72*time.Hour)
 		p.say(kimiFable(100, five, fable))
+		primeLimits(t, d, "kimi", "", nil)
 		r.show("idle", kimiLimit)
 		must(t, d.Reconcile(ctx))
 		evs := told()
@@ -347,6 +372,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 		later := five.Add(time.Hour)
 		p.say(kimiFable(100, later, fable))
 		*now = five.Add(time.Minute + time.Second)
+		primeLimits(t, d, "kimi", "", nil)
 		must(t, d.Reconcile(ctx))
 		must(t, d.Reconcile(ctx))
 		evs = told()
@@ -359,6 +385,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 		// window it waited for.
 		p.say(kimiFable(0, later.Add(5*time.Hour), fable))
 		*now = later.Add(time.Minute + time.Second)
+		primeLimits(t, d, "kimi", "", nil)
 		must(t, d.Reconcile(ctx))
 		must(t, d.Reconcile(ctx))
 		if len(r.nudges) != 1 || r.nudges[0] != resetLine {
@@ -370,6 +397,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 		// three days off: one prompt, and it corrects itself.
 		r.show("idle", kimiLimit+"\n > "+resetLine+"\n"+kimiLimit)
 		*now = now.Add(2*time.Minute + time.Second)
+		primeLimits(t, d, "kimi", "", nil)
 		must(t, d.Reconcile(ctx))
 		evs = told()
 		if len(evs) != 3 || evs[2].Data["window"] != "Weekly Fable" || evs[2].Data["resets_at"] != fable.UTC().Format(time.RFC3339) ||
@@ -390,6 +418,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 		s, r, d, b, p, now := resetYard(t, nil)
 		fable := now.Add(2 * time.Hour)
 		p.say(kimiFable(0, now.Add(4*time.Hour), fable))
+		primeLimits(t, d, "kimi", "", nil)
 		r.show("idle", kimiLimit)
 		must(t, d.Reconcile(context.Background()))
 		evs := eventKinds(t, s, b.ID, "session_harness_error")
@@ -399,6 +428,7 @@ func TestWindowStillUsedUpAtTheWakeWaitsForTheLaterReset(t *testing.T) {
 		}
 		p.say(kimiOpen)
 		*now = fable.Add(time.Minute + time.Second)
+		primeLimits(t, d, "kimi", "", nil)
 		must(t, d.Reconcile(context.Background()))
 		must(t, d.Reconcile(context.Background()))
 		if want := "yardr: the usage limit your harness stopped on (kimi, Weekly Fable window) has reset. Go on where you stopped."; len(r.nudges) != 1 || r.nudges[0] != want {
@@ -433,6 +463,7 @@ func TestUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
 		// The provider is wrong each time: it says the window opens in ten
 		// minutes, and says it is open when asked then.
 		p.say(kimiUsed(now.Add(10 * time.Minute)))
+		primeLimits(t, d, "kimi", "", nil)
 		must(t, d.Reconcile(ctx))
 		evs := told()
 		if len(evs) != try || evs[try-1].Data["wakes_at"] == nil {
@@ -444,6 +475,7 @@ func TestUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
 		}
 		p.say(kimiOpen)
 		*now = now.Add(11*time.Minute + time.Second)
+		primeLimits(t, d, "kimi", "", nil)
 		must(t, d.Reconcile(ctx))
 		if len(r.nudges) != try {
 			t.Fatalf("try %d: typed %q", try, r.nudges)
@@ -458,6 +490,7 @@ func TestUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
 		*now = now.Add(time.Minute + time.Second)
 	}
 	p.say(kimiUsed(now.Add(10 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	evs := told()
 	last := evs[len(evs)-1].Data
@@ -486,6 +519,7 @@ func TestSessionWaitingForItsWindowIsNotIdleAndStillAges(t *testing.T) {
 	s, r, d, b, p, now := resetYard(t, map[string]any{"idle": "30ms", "grace": "0", "max_age": "1h"})
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	time.Sleep(50 * time.Millisecond)
@@ -509,6 +543,7 @@ func TestSessionWaitingForItsWindowIsNotIdleAndStillAges(t *testing.T) {
 	// passes below (yardr-h991).
 	s, r, d, b, p, now = resetYard(t, map[string]any{"idle": "off", "max_age": "1s", "grace": "1h"})
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	time.Sleep(time.Second)
 	must(t, d.Reconcile(ctx))
@@ -533,10 +568,12 @@ func TestPromptBehindAHarnessQuestionIsToldNotCountedAsTaken(t *testing.T) {
 	s, d, b, p, now := resetYardOf(t, r, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	p.say(kimiOpen)
 	*now = now.Add(44 * time.Minute)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	if len(r.nudges) != 1 {
 		t.Fatalf("typed %q, want the prompt at the reset", r.nudges)
@@ -599,10 +636,12 @@ func TestPromptTakenWithTheOldErrorAboveItRaisesNothing(t *testing.T) {
 	s, d, b, p, now := resetYardOf(t, r, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	p.say(kimiOpen)
 	*now = now.Add(44 * time.Minute)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	r.mu.Lock()
 	r.shown = true
@@ -624,6 +663,7 @@ func TestPromptTakenWithTheOldErrorAboveItRaisesNothing(t *testing.T) {
 	r.show("working", " ● Going on.")
 	must(t, d.Reconcile(ctx))
 	p.say(kimiUsed(now.Add(time.Hour)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	if evs := eventKinds(t, s, b.ID, "session_harness_error"); len(evs) != 2 || evs[1].Data["tries"] != float64(1) {
@@ -645,6 +685,7 @@ func TestSessionNotPromptedAtTheReset(t *testing.T) {
 			s, r, d, b, p, now := resetYard(t, nil)
 			ctx := context.Background()
 			p.say(kimiUsed(now.Add(42 * time.Minute)))
+			primeLimits(t, d, "kimi", "", nil)
 			r.show("idle", kimiLimit)
 			must(t, d.Reconcile(ctx))
 			at(r)
@@ -678,10 +719,12 @@ func TestProviderFailingAtTheWakeDoesNotHoldThePrompt(t *testing.T) {
 	_, r, d, _, p, now := resetYard(t, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	p.fail()
 	*now = now.Add(44 * time.Minute)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	if asks := p.asks(); len(r.nudges) != 1 || len(asks) != 2 {
 		t.Fatalf("typed %q, the provider run %d times; want the prompt and one ask at the wake", r.nudges, len(asks))
@@ -704,6 +747,7 @@ func crewAtItsLimit(t *testing.T, resetsIn time.Duration) (s store.API, f *crewR
 	f.show(kimiIdle)
 	must(t, s.Mail(ctx, "yardmaster", "review yardr-1my8", "chris"))
 	must(t, d.Reconcile(ctx)) // nudged
+	primeLimits(t, d, "kimi", "", nil)
 	f.show(kimiLimit)
 	must(t, d.Reconcile(ctx))
 	told = func() []store.Event {
@@ -733,8 +777,15 @@ func TestCrewMemberAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) 
 		t.Fatalf("in the wait: nudges %q, the provider run %d times; want the inbox's nudge and the ask of the stop", f.nudges, len(asks))
 	}
 
+	// A cold wake defers for a crew member as for a session: nothing
+	// more is typed and no retry is spent until the refresh lands.
 	p.say(kimiOpen)
 	*now = noon().Add(43*time.Minute + time.Second)
+	must(t, d.Reconcile(ctx))
+	if len(f.nudges) != 1 {
+		t.Fatalf("at a cold wake: nudges = %q, want the defer to type nothing", f.nudges)
+	}
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	want := agent + ": " + resetLine + " 1 new in your inbox: run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled."
 	if len(f.nudges) != 2 || f.nudges[1] != want {
@@ -781,6 +832,7 @@ func TestCrewPromptBehindAHarnessQuestionHoldsItsNudges(t *testing.T) {
 	ctx := context.Background()
 	p.say(kimiOpen)
 	*now = noon().Add(43*time.Minute + time.Second)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	if len(f.nudges) != 2 {
 		t.Fatalf("nudges = %q, want the prompt at the reset", f.nudges)
@@ -834,6 +886,7 @@ func TestCrewUsageLimitStandingAgainAfterThePromptIsRaised(t *testing.T) {
 			ctx := context.Background()
 			p.say(kimiOpen)
 			*now = noon().Add(43*time.Minute + time.Second)
+			primeLimits(t, d, "kimi", "", nil)
 			must(t, d.Reconcile(ctx))
 			f.mu.Lock()
 			f.shown = true
@@ -867,6 +920,7 @@ func TestCrewWindowStillUsedUpAtTheWake(t *testing.T) {
 	later := noon().Add(3 * time.Hour)
 	p.say(kimiUsed(later))
 	*now = noon().Add(43*time.Minute + time.Second)
+	primeLimits(t, d, "kimi", "", nil)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
 	evs := told()
@@ -911,4 +965,135 @@ func TestPassWithNothingStoppedAsksNoLimitsOfAgentsYardrCanPrompt(t *testing.T) 
 	if asks := p.asks(); asks != nil {
 		t.Fatalf("the limits command was run for %v by passes with nothing stopped on a usage limit", asks)
 	}
+}
+
+// A wake whose read nothing can answer for does not defer: no source
+// names the kind any more (or, for a session, its env_file is gone).
+// There is no key, no command and nothing to refresh, so the agent is
+// prompted at once, one retry is spent, no want is left registered and
+// no command is run, however long the test waits. Through both
+// harnessReset and crewReset, as the defer is.
+func TestWakeNothingCanAnswerForPromptsAtOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	unanswer := func(t *testing.T, s store.API) {
+		t.Helper()
+		_, err := s.PutSource(ctx, "quokka.yaml",
+			"name: quokka\nlimits:\n  command: [provider, \"{provider}\", --json]\n  kinds: { codex: openai }\n", "me")
+		must(t, err)
+	}
+	t.Run("session", func(t *testing.T) {
+		s, r, d, b, p, now := resetYard(t, nil)
+		resets := now.Add(42 * time.Minute)
+		p.say(kimiUsed(resets))
+		primeLimits(t, d, "kimi", "", nil)
+		r.show("idle", kimiLimit)
+		must(t, d.Reconcile(ctx))
+		unanswer(t, s)
+		*now = resets.Add(time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		if len(r.nudges) != 1 || r.nudges[0] != resetLine {
+			t.Fatalf("typed %q, want the prompt at once: nothing can answer for the kind", r.nudges)
+		}
+		if n := len(eventKinds(t, s, b.ID, "session_harness_retry")); n != 1 {
+			t.Fatalf("session_harness_retry events = %d, want exactly one retry spent", n)
+		}
+		dispatch.WaitLimitsIdle(d)
+		if wanted := dispatch.LimitsWanted(d); len(wanted) != 0 {
+			t.Fatalf("wanted keys = %v, want none left by an unresolvable wake", wanted)
+		}
+		if asks := p.asks(); len(asks) != 1 {
+			t.Fatalf("the provider was run %d times, want the stop's one: the wake ran nothing", len(asks))
+		}
+	})
+	t.Run("crew", func(t *testing.T) {
+		s, f, d, p, now, _ := crewAtItsLimit(t, 42*time.Minute)
+		unanswer(t, s)
+		*now = noon().Add(43*time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		if len(f.nudges) != 2 {
+			t.Fatalf("nudges = %q, want the prompt at once: nothing can answer for the kind", f.nudges)
+		}
+		dispatch.WaitLimitsIdle(d)
+		if wanted := dispatch.LimitsWanted(d); len(wanted) != 0 {
+			t.Fatalf("wanted keys = %v, want none left by an unresolvable wake", wanted)
+		}
+		if asks := p.asks(); len(asks) != 1 {
+			t.Fatalf("the provider was run %d times, want the stop's one: the wake ran nothing", len(asks))
+		}
+	})
+	t.Run("session sources unreadable", func(t *testing.T) {
+		s, r, d, b, p, now := resetYard(t, nil)
+		resets := now.Add(42 * time.Minute)
+		p.say(kimiUsed(resets))
+		primeLimits(t, d, "kimi", "", nil)
+		r.show("idle", kimiLimit)
+		must(t, d.Reconcile(ctx))
+
+		d.Store = sourcesUnavailable{API: s}
+		*now = resets.Add(time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		if len(r.nudges) != 1 || r.nudges[0] != resetLine {
+			t.Fatalf("typed %q, want the prompt at once: Store.Sources is unreadable", r.nudges)
+		}
+		if n := len(eventKinds(t, s, b.ID, "session_harness_retry")); n != 1 {
+			t.Fatalf("session_harness_retry events = %d, want exactly one retry spent", n)
+		}
+		if asks := p.asks(); len(asks) != 1 {
+			t.Fatalf("the provider was run for %v, want the stop's one run", asks)
+		}
+	})
+	t.Run("crew sources unreadable", func(t *testing.T) {
+		s, f, d, p, now, told := crewAtItsLimit(t, 42*time.Minute)
+		d.Store = sourcesUnavailable{API: s}
+		*now = noon().Add(43*time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		if len(f.nudges) != 2 || !strings.Contains(f.nudges[1], resetLine) {
+			t.Fatalf("nudges = %q, want the prompt at once: Store.Sources is unreadable", f.nudges)
+		}
+		member, err := s.GetCrew(ctx, "yardmaster")
+		must(t, err)
+		if n := len(eventKinds(t, s, member.Journal, "session_harness_retry")); n != 1 {
+			t.Fatalf("session_harness_retry events = %d, want exactly one retry spent", n)
+		}
+		if len(told()) != 1 {
+			t.Fatalf("session_harness_error events = %v, want only the stop event", told())
+		}
+		if asks := p.asks(); len(asks) != 1 {
+			t.Fatalf("the provider was run for %v, want the stop's one run", asks)
+		}
+	})
+	t.Run("session env_file gone", func(t *testing.T) {
+		s, r, d, b, p, now := resetYard(t, nil)
+		login := loginEnv(t, "g-login")
+		must(t, os.WriteFile(login, []byte("YARDR_TEST_LOGIN=g-login\n"), 0o600))
+		must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Config: map[string]any{"kind": "kimi", "env_file": login}}, "me"))
+		resets := now.Add(42 * time.Minute)
+		p.say(kimiUsed(resets))
+		primeGroupLimits(t, s, d, "g")
+		r.show("idle", kimiLimit)
+		must(t, d.Reconcile(ctx))
+		must(t, os.Remove(login))
+		*now = resets.Add(time.Minute + time.Second)
+		must(t, d.Reconcile(ctx))
+		if len(r.nudges) != 1 {
+			t.Fatalf("typed %q, want the prompt at once: the env_file cannot be read", r.nudges)
+		}
+		if n := len(eventKinds(t, s, b.ID, "session_harness_retry")); n != 1 {
+			t.Fatalf("session_harness_retry events = %d, want exactly one retry spent", n)
+		}
+		dispatch.WaitLimitsIdle(d)
+		if wanted := dispatch.LimitsWanted(d); len(wanted) != 0 {
+			t.Fatalf("wanted keys = %v, want none left by an unresolvable wake", wanted)
+		}
+		if asks := p.asks(); len(asks) != 1 {
+			t.Fatalf("the provider was run for %v, want the stop's one: the wake ran nothing", asks)
+		}
+	})
+}
+
+type sourcesUnavailable struct{ store.API }
+
+func (sourcesUnavailable) Sources(context.Context) ([]store.Source, error) {
+	return nil, errors.New("sources unavailable")
 }

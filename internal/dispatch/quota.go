@@ -173,11 +173,14 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 	if err != nil {
 		return store.Quota{Unknown: err.Error()}
 	}
-	r, err := d.askLimits(ctx, kind, provider, routeLimitsMemory, env)
-	if err != nil {
-		return store.Quota{Unknown: err.Error()}
+	rd := d.cachedLimits(ctx, kind, provider, routeLimitsMemory, env)
+	if rd.report == nil {
+		// No fresh answer (its refresh already running), a provider
+		// that gave none, or nothing that answers: unknown, on which
+		// Choose fails open, as it always has.
+		return store.Quota{Unknown: rd.unknown()}
 	}
-	return quotaOf(r)
+	return quotaOf(rd.report)
 }
 
 // sourceQuota is what the source named source says of itself, as a route's
@@ -185,11 +188,11 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 // whatever the group's provider is, so a group with no kind is gated the
 // same way.
 func (d *Dispatcher) sourceQuota(ctx context.Context, source string) store.Quota {
-	r, err := d.askSource(ctx, source, routeLimitsMemory)
-	if err != nil {
-		return store.Quota{Unknown: err.Error()}
+	rd := d.cachedSource(ctx, source, routeLimitsMemory)
+	if rd.report == nil {
+		return store.Quota{Unknown: rd.unknown()}
 	}
-	return quotaOf(r)
+	return quotaOf(rd.report)
 }
 
 // quotaOf is a report as a route's condition reads it.

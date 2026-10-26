@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,21 +24,18 @@ import (
 //
 // The source's command is slow, may be bounded in how often it answers and
 // may renew a stored login as it reads one, so it is not leaned on. The
-// dispatcher runs it in three places. harnessLimits is reached only while
-// such an event is being raised: once per idle spell of a session and once
-// per standing error of a crew member. windowOpen (harness_reset.go) is
-// reached only when the reset such an event told of has come and the agent
-// is about to be prompted. Neither is reached by a pass that finds nothing
-// stopped on a usage limit, or by a timer. And what it said is remembered
-// for limitsMemory, so agents that stop or wake together are one run.
-// routeQuota (quota.go) is reached only for a ready bead whose route is
-// gated (store.Route.Gated: it puts a quota condition on a group, or names
-// a group that starts agents), and reads the same memory with the longer
-// age routeLimitsMemory: a start is no emergency, and beads become ready
-// far more often than a harness stops.
-//
-// It is run inside the pass, as a crew member's env_command is: a command
-// that hangs holds one pass for limits.Timeout, once in limitsMemory.
+// dispatcher reads it in three places, and runs it in none of them:
+// harnessLimits is reached only while such an event is being raised, once
+// per idle spell of a session and once per standing error of a crew
+// member; windowOpen (harness_reset.go) only when the reset such an event
+// told of has come and the agent is about to be prompted; routeQuota
+// (quota.go) only for a ready bead whose route is gated (store.Route.Gated:
+// it puts a quota condition on a group, or names a group that starts
+// agents), with the longer age routeLimitsMemory, since a start is no
+// emergency and beads become ready far more often than a harness stops.
+// Every read is of the memory below, kept fresh by the background
+// refresher (limits_refresh.go): a command that hangs holds no pass at
+// all, and agents that stop or wake together are still one run.
 
 // limitsMemory is how long what a provider said is kept, in the memory of
 // this daemon only: five sessions of one kind that stop in the same minute
@@ -93,78 +91,107 @@ func limitsEnvScope(env []string) string {
 	return fmt.Sprintf("env:%x", sum)
 }
 
-// askLimits is what the yard's source says of the subscription an agent of
-// kind with the provider setting burns, read under env: from memory when
-// the provider was asked for that environment within age (limitsMemory, or
-// routeLimitsMemory for a route's condition), sooner where the remembered
-// answer says how long it holds, else by one run of its
-// command. With a provider setting, the first source by name whose kinds
-// table names it is asked,
-// even where no table lists the kind; without it, the kind resolves
-// through the kinds table as before. The error is a *limits.NoSource
-// naming the provider where no source names it, and nothing was run.
-func (d *Dispatcher) askLimits(ctx context.Context, kind, provider string, age time.Duration, env []string) (*limits.Report, error) {
+// limitState is which of the cache's answers a read found, which its
+// readers must not confuse: a route fails open on the last two alike,
+// a reset prompts on them and defers only on the middle one, and a stop
+// writes limits_unknown for each.
+type limitState int
+
+const (
+	// limitFresh is a fresh report (report set), or a fresh remembered
+	// failure (err set): the provider was asked within the reader's age
+	// and gave that answer.
+	limitFresh limitState = iota
+	// limitNone is no fresh answer: the key was never asked, or its
+	// answer has gone stale and its refresh is due or already running.
+	// The read has noted the key as wanted, so the refresher runs it.
+	limitNone
+	// limitUnresolvable is no answer and nothing to refresh: no source
+	// names what was asked for, the store's sources could not be read,
+	// or (at the caller) an env_file could not be read. There is no
+	// key and no command, so no want is registered and no run starts.
+	limitUnresolvable
+)
+
+// limitRead is one read of the cache: what it found, and in which state.
+type limitRead struct {
+	report *limits.Report
+	err    error
+	state  limitState
+}
+
+// unknown is why nothing is known, for a limits_unknown or a route's
+// Unknown: the remembered or resolving error, or, for no fresh answer,
+// that there is none yet.
+func (r limitRead) unknown() string {
+	if r.err != nil {
+		return r.err.Error()
+	}
+	return "no fresh answer yet: the limits command is being asked in the background"
+}
+
+// cachedLimits is what the yard's source says of the subscription an
+// agent of kind with the provider setting burns, read under env, from
+// the memory the background refresher keeps: never a run of the command
+// and never a wait for one. Its whole cost is resolving the answerer
+// (limits.Answerers over the store's sources, then Resolve or, with a
+// provider setting, the first source by name whose kinds table names
+// it, even where no table lists the kind) and the cache lookup under
+// limitsMu. A key whose answer is missing or stale is noted as wanted
+// at the caller's age before limitNone is returned.
+func (d *Dispatcher) cachedLimits(ctx context.Context, kind, provider string, age time.Duration, env []string) limitRead {
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
-		return nil, err
+		return limitRead{err: err, state: limitUnresolvable}
 	}
 	a, name, ok := limits.Resolve(as, kind, provider)
 	if !ok {
 		if provider != "" {
-			return nil, &limits.NoSource{Provider: provider}
+			return limitRead{err: &limits.NoSource{Provider: provider}, state: limitUnresolvable}
 		}
-		return nil, &limits.NoSource{Kind: kind}
+		return limitRead{err: &limits.NoSource{Kind: kind}, state: limitUnresolvable}
 	}
 	key, now := a.Source+"\x00"+name+"\x00"+limitsEnvScope(env), d.now()
-	if m, ok := d.limitsAsked[key]; ok && fresh(m, now, age) {
-		return m.report, m.err
+	a.Env = slices.Clone(env)
+	want := limitWant{key: key, age: age, answerer: a, kind: kind, provider: provider, name: name}
+	d.limitsMu.Lock()
+	d.initLimitsLocked()
+	m, asked := d.limitsAsked[key]
+	d.limitsMu.Unlock()
+	if asked && fresh(m, now, age) {
+		d.renewLimitWant(want)
+		return limitRead{report: m.report, err: m.err, state: limitFresh}
 	}
-	a.Env = env
-	var r *limits.Report
-	if provider != "" {
-		r, err = a.AskName(ctx, name)
-	} else {
-		r, err = a.Ask(ctx, kind)
-	}
-	if d.limitsAsked == nil {
-		d.limitsAsked = map[string]limitsAnswer{}
-	}
-	d.limitsAsked[key] = limitsAnswer{at: now, report: r, err: err}
-	if err != nil {
-		d.Log.Warn("limits of a harness kind not known", "kind", kind, "source", a.Source, "err", err)
-	}
-	return r, err
+	d.registerLimitWant(want, false)
+	return limitRead{state: limitNone}
 }
 
-// askSource is what the source named source says of itself: from memory
-// when the source was asked within age, sooner where the remembered answer
-// says how long it holds, else by one run of its command.
-// Only a source whose limits key names no kinds answers; the error is a
-// *limits.NoSource naming the source where none does, and nothing was run.
-// The memory is the providers' own: a source's key has no provider in it,
-// and no provider's name is empty.
-func (d *Dispatcher) askSource(ctx context.Context, source string, age time.Duration) (*limits.Report, error) {
+// cachedSource is what the source named source says of itself, read as
+// cachedLimits reads a provider: from the refresher's memory, never a
+// run. Only a source whose limits key names no kinds answers; the
+// memory is the providers' own, whose keys name a provider beside the
+// source, where a source's names none.
+func (d *Dispatcher) cachedSource(ctx context.Context, source string, age time.Duration) limitRead {
 	as, err := limits.Answerers(ctx, d.Store, d.Home)
 	if err != nil {
-		return nil, err
+		return limitRead{err: err, state: limitUnresolvable}
 	}
 	a, ok := limits.SelfAnswerer(as, source)
 	if !ok {
-		return nil, &limits.NoSource{Source: source}
+		return limitRead{err: &limits.NoSource{Source: source}, state: limitUnresolvable}
 	}
 	key, now := a.Source+"\x00", d.now()
-	if m, ok := d.limitsAsked[key]; ok && fresh(m, now, age) {
-		return m.report, m.err
+	want := limitWant{key: key, age: age, answerer: a, isSource: true}
+	d.limitsMu.Lock()
+	d.initLimitsLocked()
+	m, asked := d.limitsAsked[key]
+	d.limitsMu.Unlock()
+	if asked && fresh(m, now, age) {
+		d.renewLimitWant(want)
+		return limitRead{report: m.report, err: m.err, state: limitFresh}
 	}
-	r, err := a.AskSelf(ctx)
-	if d.limitsAsked == nil {
-		d.limitsAsked = map[string]limitsAnswer{}
-	}
-	d.limitsAsked[key] = limitsAnswer{at: now, report: r, err: err}
-	if err != nil {
-		d.Log.Warn("limits of a source not known", "source", a.Source, "err", err)
-	}
-	return r, err
+	d.registerLimitWant(want, false)
+	return limitRead{state: limitNone}
 }
 
 // harnessLimits adds to data, a session_harness_error of reason
@@ -174,19 +201,24 @@ func (d *Dispatcher) askSource(ctx context.Context, source string, age time.Dura
 // for (`window`) with when it resets (`resets_at`, when the provider
 // said). The agent's model is not known, so the window is UsedUpForStop's:
 // one that counts for a single model only when no other is used up. scope
-// names whose login is read, as askLimits asks. It returns that in words, to
+// names whose login is read, as cachedLimits reads. It returns that in words, to
 // begin the event's hint, and the window, nil for none.
 //
-// With no source for the subscription, or a provider that gave no answer,
-// the event is as it was, with why nothing is known in `limits_unknown`,
-// and "" is returned.
+// With no source for the subscription, a provider that gave no answer,
+// or no fresh answer yet (the daemon's first stop on a key, whose refresh
+// is already running), the event is as it was, with why nothing is known
+// in `limits_unknown`, and "" is returned: no window, no reset and no
+// wake, and the answer that lands after amends nothing. The read still
+// wants the key, so a later stop on the warmed key is told with its
+// window, as the fresh case below is.
 func (d *Dispatcher) harnessLimits(ctx context.Context, kind, provider string, env []string, data map[string]any) (said string, w *limits.Window) {
-	r, err := d.askLimits(ctx, kind, provider, limitsMemory, env)
-	if err != nil {
+	rd := d.cachedLimits(ctx, kind, provider, limitsMemory, env)
+	r := rd.report
+	if r == nil {
 		if ctx.Err() != nil {
-			return "", nil // the daemon is stopping: the provider was not heard out
+			return "", nil // the daemon is stopping
 		}
-		data["limits_unknown"] = err.Error()
+		data["limits_unknown"] = rd.unknown()
 		return "", nil
 	}
 	data["limits"] = r

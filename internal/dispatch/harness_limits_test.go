@@ -58,6 +58,31 @@ func (p *standIn) asks() []string {
 	return strings.Fields(string(b))
 }
 
+// primeLimits warms d's cache for a provider's key through a read and
+// waits for the background refresh it wants to land, so the pass a test
+// drives next reads a fresh answer (the cold read's loss is pinned by
+// the tests that do not prime). env is the login's overlay, as a stop
+// under a group's env_file reads it; nil is the machine's login.
+func primeLimits(t *testing.T, d *dispatch.Dispatcher, kind, provider string, env []string) {
+	t.Helper()
+	dispatch.PrimeLimits(d, context.Background(), kind, provider, env)
+}
+
+// primeGroupLimits warms d's cache for the group named name, through its
+// route read (kind, provider and env_file, at a route's age).
+func primeGroupLimits(t *testing.T, s store.API, d *dispatch.Dispatcher, name string) {
+	t.Helper()
+	groups, err := s.Groups(context.Background())
+	must(t, err)
+	for _, g := range groups {
+		if g.Name == name {
+			dispatch.PrimeRouteLimits(d, context.Background(), g, "")
+			return
+		}
+	}
+	t.Fatalf("no group %s", name)
+}
+
 // loginStandIn is a provider of limits that answers per login: the yard's
 // source "quokka" for kimi and codex, whose script answers with the report
 // sayAs set for $YARDR_TEST_LOGIN. asks tells whom each run was for and
@@ -130,6 +155,7 @@ func TestSessionAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 	p := newStandIn(t, s)
 	resets := now.Add(42 * time.Minute)
 	p.say(kimiUsed(resets))
+	primeLimits(t, d, "kimi", "", nil)
 
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(context.Background()))
@@ -176,6 +202,7 @@ func TestSessionAtItsUsageLimitReadsTheGroupsLogin(t *testing.T) {
 	resets := now.Add(42 * time.Minute)
 	p.sayAs("g-login", kimiUsed(resets))
 	p.sayAs("operator", `{"provider":"Kimi","windows":[]}`)
+	primeGroupLimits(t, s, d, "g")
 
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(context.Background()))
@@ -205,6 +232,7 @@ func TestSessionWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
 	p := newStandIn(t, s)
 	resets := now.Add(42 * time.Minute)
 	p.say(kimiUsed(resets))
+	primeLimits(t, d, "claude", "zai", nil)
 
 	r.show("idle", "  ⎿  You've hit your limit · resets 3pm (Europe/Berlin)")
 	must(t, d.Reconcile(context.Background()))
@@ -273,6 +301,7 @@ func TestCrewMemberAtItsUsageLimitSaysTheWindowAndItsReset(t *testing.T) {
 	if asks := p.asks(); asks != nil {
 		t.Fatalf("the provider was run for %v with nothing stopped", asks)
 	}
+	primeLimits(t, d, "kimi", "", nil)
 	f.show(kimiLimit)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
@@ -314,6 +343,7 @@ func TestCrewMemberWithProviderSettingIsAskedAsTheProvider(t *testing.T) {
 	f.show(kimiIdle)
 	must(t, s.Mail(ctx, "yardmaster", "review yardr-1my8", "chris"))
 	must(t, d.Reconcile(ctx)) // nudged
+	primeLimits(t, d, "kimi", "zai", nil)
 	f.show(kimiLimit)
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
@@ -373,6 +403,7 @@ func TestUsageLimitWithNoResetToRead(t *testing.T) {
 				if c.fail {
 					p.fail()
 				}
+				primeLimits(t, d, "kimi", "", nil)
 			}
 			r.show("idle", kimiLimit)
 			must(t, d.Reconcile(context.Background()))
@@ -418,6 +449,7 @@ func limitsYard(t *testing.T, n int, cfg map[string]any) (s store.API, r *agentR
 	ctx := context.Background()
 	r = &agentRunner{statusRunner: &statusRunner{fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}
 	d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r}, Backoff: time.Hour}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
 	at := noon()
 	now = &at
 	dispatch.SetClock(d, func() time.Time { return *now })
@@ -465,6 +497,7 @@ func TestSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 	s, r, d, p, now := limitsYard(t, 5, nil)
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	*now = now.Add(20 * time.Second)
@@ -492,12 +525,15 @@ func TestSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 	if n, asks := harnessErrors(t, s), p.asks(); n != 10 || len(asks) != 1 {
 		t.Fatalf("events = %d, asks = %d; want 10 events from 1 ask within the minute", n, len(asks))
 	}
-	// And after it, one more.
+	// And after it, one more: the minute has passed, so those stops read
+	// no fresh answer (their events carry limits_unknown, as a cold stop
+	// does) and the refresher's second run is what they want.
 	r.show("working", "")
 	must(t, d.Reconcile(ctx))
 	*now = now.Add(time.Minute)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
+	dispatch.WaitLimitsIdle(d)
 	if n, asks := harnessErrors(t, s), p.asks(); n != 15 || len(asks) != 2 {
 		t.Fatalf("events = %d, asks = %d; want 15 events and a second ask after the minute", n, len(asks))
 	}
@@ -508,6 +544,7 @@ func TestAFailingProviderIsAskedOnceForSessionsStoppingTogether(t *testing.T) {
 	t.Parallel()
 	s, r, d, p, _ := limitsYard(t, 5, nil)
 	p.fail()
+	primeLimits(t, d, "kimi", "", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(context.Background()))
 	if n, asks := harnessErrors(t, s), p.asks(); n != 5 || len(asks) != 1 {
@@ -522,6 +559,7 @@ func TestProviderSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 	s, r, d, p, now := limitsYard(t, 2, map[string]any{"provider": "zai"})
 	ctx := context.Background()
 	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "zai", nil)
 	r.show("idle", kimiLimit)
 	must(t, d.Reconcile(ctx))
 	if n := harnessErrors(t, s); n != 2 {
@@ -540,6 +578,128 @@ func TestProviderSessionsStoppingTogetherAreOneAsk(t *testing.T) {
 }
 
 // Only a usage limit asks: a harness that stopped on anything else is told
+// A stop whose read is cold writes its event as it is, with
+// limits_unknown and no window, no reset and no wake, and keeps no
+// reset wake or model hold: the answer its read wanted lands after and
+// amends nothing, and writes no second event. The same session's next
+// stop, on the warmed key, is told with its window and its wake.
+func TestColdStopWritesUnknownAndLaterStopCarriesTheWindow(t *testing.T) {
+	t.Parallel()
+	s, r, d, b, p, now := resetYard(t, nil)
+	resets := now.Add(42 * time.Minute)
+	p.say(kimiUsed(resets))
+
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(context.Background()))
+	evs := eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 1 {
+		t.Fatalf("session_harness_error events = %v, want one", evs)
+	}
+	data := evs[0].Data
+	if data["limits_unknown"] == nil || data["window"] != nil || data["resets_at"] != nil || data["wakes_at"] != nil {
+		t.Fatalf("data = %v, want limits_unknown with no window, reset or wake on a cold stop", data)
+	}
+	if h := handleOfBead(t, s, b); h["harness_reset_at"] != nil {
+		t.Fatalf("handle = %v, want no reset wake kept from a cold stop", h)
+	}
+	dispatch.WaitLimitsIdle(d)
+	must(t, d.Reconcile(context.Background()))
+	if n := len(eventKinds(t, s, b.ID, "session_harness_error")); n != 1 {
+		t.Fatalf("session_harness_error events = %d after the refresh landed, want the one, unamended", n)
+	}
+
+	// It gets going and stops again: that stop reads the warmed key.
+	r.show("working", "")
+	must(t, d.Reconcile(context.Background()))
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(context.Background()))
+	evs = eventKinds(t, s, b.ID, "session_harness_error")
+	if len(evs) != 2 {
+		t.Fatalf("session_harness_error events = %v, want two", evs)
+	}
+	data = evs[1].Data
+	if data["window"] != "5h" || data["resets_at"] != resets.UTC().Format(time.RFC3339) || data["limits_unknown"] != nil || data["wakes_at"] == nil {
+		t.Fatalf("data = %v, want the 5h window, its reset and its wake on the warmed stop", data)
+	}
+	if h := handleOfBead(t, s, b); h["harness_reset_at"] == nil {
+		t.Fatalf("handle = %v, want the reset wake kept from a warmed stop", h)
+	}
+	if asks := p.asks(); len(asks) != 1 {
+		t.Fatalf("the provider was run %d times, want the cold stop's one run", len(asks))
+	}
+}
+
+// The refresher's want is a lease: a key readers have stopped reading
+// is run no more than once more (when its answer comes due while the
+// lease stands), and one age past its last read it is dropped and not
+// run again.
+func TestLimitsLeaseEndsWhenReadersStop(t *testing.T) {
+	t.Parallel()
+	s, r, d, p, now := limitsYard(t, 1, nil)
+	ctx := context.Background()
+	p.say(kimiUsed(now.Add(42 * time.Minute)))
+	primeLimits(t, d, "kimi", "", nil)
+	r.show("idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+	if n := harnessErrors(t, s); n != 1 {
+		t.Fatalf("session_harness_error events = %d, want 1", n)
+	}
+	// The agent gets going: nothing reads the key any more.
+	r.show("working", "")
+	must(t, d.Reconcile(ctx))
+	*now = now.Add(2 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	must(t, d.Reconcile(ctx))
+	dispatch.WaitLimitsIdle(d)
+	if asks := p.asks(); len(asks) > 2 {
+		t.Fatalf("the provider was run %d times after its readers stopped, want no more than once more", len(asks))
+	}
+	if wanted := dispatch.LimitsWanted(d); len(wanted) != 0 {
+		t.Fatalf("wanted keys = %v, want none: the lease ran out", wanted)
+	}
+	before := len(p.asks())
+	*now = now.Add(10 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	dispatch.WaitLimitsIdle(d)
+	if asks := p.asks(); len(asks) != before {
+		t.Fatalf("the provider was run again (%v) after its key was dropped", asks)
+	}
+
+	t.Run("a fresh shorter reader age governs the live lease", func(t *testing.T) {
+		_, _, d, p, now := limitsYard(t, 1, nil)
+		ctx := context.Background()
+		p.say(kimiOpen)
+		g := store.Group{Config: map[string]any{"kind": "kimi"}}
+		dispatch.PrimeRouteLimits(d, ctx, g, "")
+		// A stop reads the same fresh answer at its shorter one-minute age.
+		dispatch.PrimeLimits(d, ctx, "kimi", "", nil)
+		*now = now.Add(59 * time.Second)
+		dispatch.PrimeLimits(d, ctx, "kimi", "", nil)
+		*now = now.Add(2 * time.Second)
+		must(t, d.Reconcile(ctx)) // stamp the advanced clock for the scheduler
+		dispatch.WaitLimitsIdle(d)
+		if asks := p.asks(); len(asks) != 2 {
+			t.Fatalf("the provider was run for %v, want a refresh at the shorter reader's age", asks)
+		}
+	})
+	t.Run("a fresh longer-age read does not revive an expired short lease", func(t *testing.T) {
+		_, _, d, p, now := limitsYard(t, 1, nil)
+		ctx := context.Background()
+		p.say(kimiOpen)
+		g := store.Group{Config: map[string]any{"kind": "kimi"}}
+		dispatch.PrimeRouteLimits(d, ctx, g, "")
+		dispatch.PrimeLimits(d, ctx, "kimi", "", nil)
+		*now = now.Add(time.Minute + time.Second)
+		dispatch.ReadRouteLimitsForTest(d, ctx, g, "")
+		if wanted := dispatch.LimitsWanted(d); len(wanted) != 0 {
+			t.Fatalf("wanted keys = %v, want the expired short-age lease to stay dropped", wanted)
+		}
+		if asks := p.asks(); len(asks) != 1 {
+			t.Fatalf("the provider was run for %v, want no refresh from a fresh route-age read", asks)
+		}
+	})
+}
+
 // of as before, and the provider is not run for it.
 func TestHarnessErrorThatIsNoUsageLimitAsksNoLimits(t *testing.T) {
 	t.Parallel()
