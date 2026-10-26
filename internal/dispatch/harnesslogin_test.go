@@ -219,6 +219,11 @@ func TestYardLeadsHarnessLoginThroughAsks(t *testing.T) {
 	if input.Ask.Secret.Login != "claude-wait1" {
 		t.Fatalf("the secret ask names wait %q", input.Ask.Secret.Login)
 	}
+	// A phone gives this code down the link from the edge, which takes the
+	// operator's login input and no other secret (OperatorLoginInput).
+	if !input.Ask.Secret.OperatorLoginInput() {
+		t.Errorf("the daemon's ask for the code is %+v, which the edge link would refuse", input.Ask.Secret)
+	}
 	if !strings.Contains(strings.Join(input.Ask.Context, "\n"), "https://claude.com/cai/oauth/authorize?code=true&state=s1") {
 		t.Errorf("the page is not in the ask: %q", input.Ask.Context)
 	}

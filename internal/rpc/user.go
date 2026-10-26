@@ -1187,25 +1187,90 @@ func (u *UserServer) operatorCall(ctx context.Context, c *Caller, name string) b
 // the operator: not there. Who may give is still the store's to decide,
 // with the user of the device's token as the actor (asUser).
 func (u *UserServer) ownSecret(ctx context.Context, c *Caller, body []byte) bool {
-	var named struct {
-		Bead string `json:"bead"`
-		Ask  uint64 `json:"ask"`
-	}
-	if json.Unmarshal(body, &named) != nil || named.Bead == "" || c.User == "" {
+	if c.User == "" {
 		return false
 	}
-	notes, err := u.st.Notes(ctx, named.Bead)
+	sec := u.namedSecret(ctx, body)
+	return sec != nil && (sec.User == c.User || sec.As == c.User)
+}
+
+// loginCode reports whether body is a GiveSecret call from an operator's
+// device that names the daemon's ask for a harness login's input and carries
+// only that ask's values. Other argument shapes must be refused before the
+// edge reads them, even if a client later rejects them. It is the one secret
+// taken down the link from the edge (inTheClear), because it is used once,
+// within minutes, and the login it is handed to keeps it in memory and
+// nowhere else. A user's own login code (As) is not it: widening this is a
+// decision of its own.
+func (u *UserServer) loginCode(ctx context.Context, body []byte, user string) bool {
+	if _, err := named("GiveSecret", body); err != nil {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil {
+		return false
+	}
+	decode := func(name string, value any) bool {
+		raw, ok := fields[name]
+		return !ok || json.Unmarshal(raw, value) == nil
+	}
+	var id string
+	var ask uint64
+	var values map[string]string
+	var actor string
+	var weighed bool
+	if !decode("bead", &id) || !decode("ask", &ask) || !decode("values", &values) ||
+		!decode("actor", &actor) || !decode("weighed", &weighed) {
+		return false
+	}
+	if id == "" || ask == 0 || !weighed || actor != "" && actor != user {
+		return false
+	}
+	sec := u.namedSecret(ctx, body)
+	if sec == nil || !sec.OperatorLoginInput() || len(values) != len(sec.Env) {
+		return false
+	}
+	for _, name := range sec.Env {
+		if _, ok := values[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// namedSecret is the secret that the ask body, the arguments of GiveSecret,
+// names asks for: nil for arguments that name no ask of a bead, and for an ask
+// that asks for none. Only the bead and the ask are read from the arguments,
+// and nothing of what is found is said back; who may give is the store's to
+// decide.
+func (u *UserServer) namedSecret(ctx context.Context, body []byte) *store.AskSecret {
+	var named map[string]json.RawMessage
+	if json.Unmarshal(body, &named) != nil {
+		return nil
+	}
+	var id string
+	if json.Unmarshal(named["bead"], &id) != nil || id == "" {
+		return nil
+	}
+	var ask uint64
+	if json.Unmarshal(named["ask"], &ask) != nil {
+		return nil
+	}
+	notes, err := u.st.Notes(ctx, id)
 	if err != nil {
-		return false
+		return nil
 	}
 	for _, n := range notes {
-		if n.Seq != named.Ask || n.Kind != store.NoteAsk {
+		if n.Seq != ask || n.Kind != store.NoteAsk {
 			continue
 		}
 		ask, err := store.ParseAsk(n)
-		return err == nil && ask.Secret != nil && (ask.Secret.User == c.User || ask.Secret.As == c.User)
+		if err != nil {
+			return nil
+		}
+		return ask.Secret
 	}
-	return false
+	return nil
 }
 
 // linkRemoteAddr is the RemoteAddr of a request that came down the link
@@ -1241,17 +1306,21 @@ const linkRemoteAddr = "edge:0"
 // The refusal comes after the request has crossed, so it says that too.
 //
 // Over the link from the edge the listener's reason does not hold: the
-// request came down the link. A secret never crosses the edge (design
-// yardr-hosted-050n 3.6): the refusal names that reason, answers on the
-// yard's own machine as the fix, and says the edge saw what this one
-// carried, so the key is remade. An approval crosses: a paired device of
-// the operator is the operator (design yardr-xpf8), pairing is the grant
-// and `yardr user device rm` is the revoke, and the command an approval
-// runs is fixed on the ask. The edge sees the device's token with it,
-// and what the approval writes says it came by the edge (call). If the
-// edge says the device reached it over plain HTTP, the approval is still
-// refused.
-func inTheClear(r *http.Request, name, router string) string {
+// request came down the link. A secret crosses the edge for one giving
+// only (design yardr-hosted-050n 3.6): the refusal of every other names that
+// reason, answers on the yard's own machine as the fix, and says the edge
+// saw what this one carried, so the key is remade. The giving that crosses is
+// the code a harness's sign-in page shows (loginCode), which is used once,
+// within minutes, and kept nowhere. Only call can say that a giving is
+// that one, since the ask is in the body: code is its word, and it passes
+// false for every call it judges before the body is read. An approval
+// crosses: a paired device of the operator is the operator (design
+// yardr-xpf8), pairing is the grant and `yardr user device rm` is the
+// revoke, and the command an approval runs is fixed on the ask. The edge
+// sees the device's token with either, and what they write says it came by
+// the edge (call). If the edge says the device reached it over plain HTTP,
+// the approval and the code are still refused.
+func inTheClear(r *http.Request, name, router string, code bool) string {
 	if name == "SourceGrants" {
 		return sourceGrantsInTheClear(r, router)
 	}
@@ -1268,8 +1337,9 @@ func inTheClear(r *http.Request, name, router string) string {
 		crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
 	}
 	if r.RemoteAddr == linkRemoteAddr {
-		if name == "ApproveAsk" || name == "ApproveSetup" {
-			// Only a device of the operator reaches here (operatorCall).
+		if name == "ApproveAsk" || name == "ApproveSetup" || name == "GiveSecret" && code {
+			// Only a device of the operator reaches here (operatorCall),
+			// and call says code for no other caller.
 			if forwardedPlain(r) {
 				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
 					"Give the device the yard's https:// address." + crossed
@@ -1416,8 +1486,13 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, noSuchMethod(name))
 		return
 	}
-	if operators {
-		if why := inTheClear(r, name, u.routerAddr(r.Context())); why != "" {
+	// Down the link the operator's GiveSecret is taken for one ask alone, which
+	// only its body names (loginCode): its check waits for the body, as a
+	// user's own does. Every other operator call is judged before its body is
+	// read.
+	overLink := operators && name == "GiveSecret" && r.RemoteAddr == linkRemoteAddr
+	if operators && !overLink {
+		if why := inTheClear(r, name, u.routerAddr(r.Context()), false); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}
@@ -1436,12 +1511,13 @@ func (u *UserServer) call(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
-	if own {
-		if !u.ownSecret(r.Context(), c, body) {
-			writeJSON(w, noSuchMethod(name))
-			return
-		}
-		if why := inTheClear(r, name, u.routerAddr(r.Context())); why != "" {
+	if own && !u.ownSecret(r.Context(), c, body) {
+		writeJSON(w, noSuchMethod(name))
+		return
+	}
+	if own || overLink {
+		code := overLink && u.loginCode(r.Context(), body, c.User)
+		if why := inTheClear(r, name, u.routerAddr(r.Context()), code); why != "" {
 			writeJSON(w, reply{Error: toWire(errors.New(why))})
 			return
 		}

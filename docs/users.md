@@ -826,7 +826,8 @@ what the command names or changes is no longer what the card said; a
 command runs once for one ask; an approval is taken only from a request
 that reached the listener from the yard's own machine, where TLS ends, or
 down the link from the edge ([edge.md](edge.md#footplate-through-the-link);
-a secret is taken besides from the yard's router, [api.md](api.md#tls-is-yours-and-the-clients-rule));
+a secret is taken besides from the yard's router, and down the link when it is
+a harness login's code, [api.md](api.md#tls-is-yours-and-the-clients-rule));
 and each approval through a device is marked `via
 <device>` on the answer and on the change's own event, which names the
 ask (`via phone via edge` down the link). `yardr user device list` says
@@ -842,6 +843,17 @@ the command stored on an ask. What holds it is that the command is fixed
 on the ask, that the operator paired the device, that the phone's unlock
 stands in front of the approval, which the yard cannot verify, and that
 `yardr user device rm` ends it at the next request.
+
+**A harness login's code crosses the edge too.** When the yard leads a
+harness's login for the operator ([crew.md](crew.md#the-yard-leads-a-harnesss-login)),
+a paired device of the operator gives the code the sign-in page shows, down
+the link as from the yard's own machine. The edge reads the code with the
+device's token. The code is used once, within minutes, and the yard hands it
+to the waiting login in its memory and keeps it nowhere. It is the only
+secret that crosses: an API key, a source's credential, a hook's signing
+secret and a user's own login code are refused down the link and answered at
+the yard's own machine. `yardr user device rm` ends a device's reach at its
+next request.
 
 **A stolen device of the operator can read every grant, and no credential
 with it.** Until `yardr user device rm`, whoever holds its token can read

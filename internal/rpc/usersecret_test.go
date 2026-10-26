@@ -228,9 +228,26 @@ func TestUserGivesASecret(t *testing.T) {
 
 // A device of the yard's operator gives a waiting login's input over the
 // listener: the waiter is handed the value, the ask is answered with the
-// names, and the value is in no note. A device of another user is answered
-// as for a method the yard does not have.
+// names, and the value is in no note. It does so from the yard's own machine
+// and down the link from the edge, where this is the one secret taken, and
+// the answer says how it came. A device of another user is answered as for a
+// method the yard does not have.
 func TestUserGivesALoginInput(t *testing.T) {
+	for name, c := range map[string]struct {
+		from   string
+		header []string
+		via    string
+	}{
+		"from the yard's machine":     {onTheMachine, []string{"X-Forwarded-Proto", "https"}, "jo via phone"},
+		"down the link from the edge": {edgelink.RemoteAddr, nil, "jo via phone via edge"},
+	} {
+		t.Run(name, func(t *testing.T) { givesALoginInput(t, c.from, c.header, c.via) })
+	}
+}
+
+// givesALoginInput is TestUserGivesALoginInput from the address from, the
+// answer on the bead being by via.
+func givesALoginInput(t *testing.T, from string, header []string, via string) {
 	const value = "code-fr0m-the-device"
 	y := newSecretYard(t)
 	ctx := context.Background()
@@ -272,7 +289,7 @@ func TestUserGivesALoginInput(t *testing.T) {
 	}
 	body, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{"INPUT": value}, "weighed": true})
 	// The actor is left out: the listener fills in the token's user.
-	w := y.give(onTheMachine, y.jo, bytes.NewReader(body), "X-Forwarded-Proto", "https")
+	w := y.give(from, y.jo, bytes.NewReader(body), header...)
 	var got struct {
 		Result *store.SourceKeyed `json:"result"`
 		Error  *wireError         `json:"error"`
@@ -286,6 +303,9 @@ func TestUserGivesALoginInput(t *testing.T) {
 	if handed := <-waited; handed != value {
 		t.Fatalf("the waiter was handed %q", handed)
 	}
+	if answers := y.answers(t); !slices.Equal(answers, []string{via}) {
+		t.Errorf("the giving is answered on the bead by %q, want %q", answers, via)
+	}
 	notes, err := y.st.Notes(ctx, "yd-crm")
 	if err != nil {
 		t.Fatal(err)
@@ -298,9 +318,10 @@ func TestUserGivesALoginInput(t *testing.T) {
 	if bead := call(t, y.h, y.jo, "Bead", `{"bead":"yd-crm"}`); !strings.Contains(bead, `"given":["INPUT"]`) {
 		t.Errorf("the bead does not say what was given: %s", bead)
 	}
-	// A device of another user names no ask of its own: not there.
+	// A device of another user names no ask of its own: not there, wherever
+	// it calls from.
 	none, _ := json.Marshal(noSuchMethod("GiveSecret"))
-	w = y.give(onTheMachine, y.sam, bytes.NewReader(body))
+	w = y.give(from, y.sam, bytes.NewReader(body), header...)
 	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != string(none) {
 		t.Errorf("sam's device is answered %d %s, want no such method", w.Code, w.Body)
 	}
@@ -757,30 +778,140 @@ func TestLinkRemoteAddrMatchesTheLink(t *testing.T) {
 	}
 }
 
-// Over the link from the edge a secret is refused with the link's own
-// reason: secrets never cross the edge, and the edge saw what this one
-// carried. The fix is to answer on the yard's own machine. The refusal is
-// made before the body is read, and nothing is given.
+// hookDecl is a source with a hook, so that the signing secret of the hook
+// linear is a secret ask.
+const hookDecl = `name: linear
+base: https://api.linear.app
+credential: { env: LINEAR_API_KEY }
+hook:
+  verify:
+    scheme: hmac-sha256
+    signed: body
+    signature: { header: Linear-Signature, encoding: hex }
+    delivery: { header: Linear-Delivery }
+  bodies: unique
+  normalize: [linear/normalize]
+calls:
+  viewer: { kind: read, request: { method: GET, path: /viewer } }
+`
+
+// Down the link from the edge a secret is refused with the link's own
+// reason, whatever the ask: the edge saw what this one carried, and the fix
+// is to answer on the yard's own machine. The one giving taken there is the
+// daemon's ask for a harness login's code (TestUserGivesALoginInput), so the
+// yard reads which ask a call names before it refuses, and says nothing of
+// what it found. Nothing is given, and a code the edge says came in plain
+// HTTP is refused as an approval is.
 func TestUserGiveSecretIsNotTakenOverTheLink(t *testing.T) {
+	const value = "s3cret-0f-the-yard"
+	ctx := context.Background()
 	y := newSecretYard(t)
-	w := y.give(edgelink.RemoteAddr, y.jo, unread{t})
-	for _, want := range []string{
-		"a secret never crosses the edge",
-		"this request came down the link from the edge",
-		"Answer on the yard's machine",
-		"The edge saw what was sent with it",
-		"make a new one at the service",
-	} {
-		if !strings.Contains(w.Body.String(), want) {
-			t.Errorf("answered %s, want it to say %q", w.Body, want)
+	for file, decl := range map[string]string{"push.yaml": addressDecl, "linear.yaml": hookDecl} {
+		if _, err := y.st.PutSource(ctx, file, decl, "jo"); err != nil {
+			t.Fatal(err)
 		}
 	}
-	for _, not := range []string{"in plain HTTP from another machine", "the yard's listener", "Put the proxy or tunnel"} {
-		if strings.Contains(w.Body.String(), not) {
-			t.Errorf("answered %s, want none of %q", w.Body, not)
+	// ask puts an ask for sec on the bead, of to, and answers the body of a
+	// giving of value for it under name.
+	ask := func(to string, sec *store.AskSecret, name string) string {
+		t.Helper()
+		seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "A secret?", To: to,
+			Context: []string{"It is shown where the service makes it."}, Secret: sec}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(map[string]any{"bead": "yd-crm", "ask": seq, "values": map[string]string{name: value}, "weighed": true})
+		return string(b)
+	}
+	userLogin := ask("sam", &store.AskSecret{Login: "claude-sam", As: "sam"}, "INPUT")
+	operatorLogin := ask("jo", &store.AskSecret{Login: "claude-a1b2c3d4"}, "INPUT")
+	changeLoginBody := func(change func(map[string]any)) string {
+		t.Helper()
+		var body map[string]any
+		if err := json.Unmarshal([]byte(operatorLogin), &body); err != nil {
+			t.Fatal(err)
+		}
+		change(body)
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	refused := []struct{ name, token, body string }{
+		{"a source's credential", y.jo, y.args(map[string]string{"CRM_TOKEN": value})},
+		{"a harness's API key", y.jo, ask("jo", &store.AskSecret{Harness: "claude", Crew: "yardmaster"}, "ANTHROPIC_API_KEY")},
+		{"a hook's signing secret", y.jo, ask("jo", &store.AskSecret{Source: "linear", Hook: "linear"}, "LINEAR_SIGNING_SECRET")},
+		// A user's own login code is the operator's to give for them and the
+		// user's own: the exception is the operator's login alone.
+		{"a user's login code, from the operator's device", y.jo, userLogin},
+		{"a user's login code, from their device", y.sam, userLogin},
+		{"a user's own address", y.sam, ask("sam", &store.AskSecret{Source: "push", User: "sam"}, "PUSH_USER")},
+		// Arguments that name no ask of the daemon's are refused the same.
+		{"an ask that asks for no secret", y.jo, ask("jo", nil, "INPUT")},
+		{"an ask of no bead", y.jo, `{"bead":"yd-none","ask":1,"values":{"INPUT":"` + value + `"}}`},
+		{"no ask of the bead", y.jo, `{"bead":"yd-crm","ask":999999,"values":{"INPUT":"` + value + `"}}`},
+		{"no arguments", y.jo, `{}`},
+		{"the array of yardr's own builds", y.jo, `["yd-crm", 1, {"INPUT":"` + value + `"}, "jo"]`},
+		{"no body", y.jo, ``},
+		{"a case-folded bead argument on a login ask", y.jo, strings.Replace(operatorLogin, `"bead":`, `"Bead":`, 1)},
+		{"an unknown argument on a login ask", y.jo, changeLoginBody(func(body map[string]any) { body["extra"] = value })},
+		{"an extra value name on a login ask", y.jo, changeLoginBody(func(body map[string]any) { body["values"].(map[string]any)["EXTRA_TOKEN"] = value })},
+		{"a different actor on a login ask", y.jo, changeLoginBody(func(body map[string]any) { body["actor"] = value })},
+		{"a non-boolean weight on a login ask", y.jo, changeLoginBody(func(body map[string]any) { body["weighed"] = value })},
+		{"an unweighed login ask", y.jo, changeLoginBody(func(body map[string]any) { body["weighed"] = false })},
+	}
+	for _, c := range refused {
+		t.Run(c.name, func(t *testing.T) {
+			w := y.give(edgelink.RemoteAddr, c.token, strings.NewReader(c.body))
+			for _, want := range []string{
+				"a secret never crosses the edge",
+				"this request came down the link from the edge",
+				"Answer on the yard's machine",
+				"The edge saw what was sent with it",
+				"make a new one at the service",
+			} {
+				if !strings.Contains(w.Body.String(), want) {
+					t.Errorf("answered %s, want it to say %q", w.Body, want)
+				}
+			}
+			for _, not := range []string{"in plain HTTP from another machine", "the yard's listener", "Put the proxy or tunnel", value} {
+				if strings.Contains(w.Body.String(), not) {
+					t.Errorf("answered %s, want none of %q", w.Body, not)
+				}
+			}
+		})
+	}
+	// The daemon's own ask, from an edge that says the device used plain
+	// HTTP: refused as an approval is, and the body names the ask.
+	t.Run("the login's code, said plain by the edge", func(t *testing.T) {
+		w := y.give(edgelink.RemoteAddr, y.jo, strings.NewReader(operatorLogin), "X-Forwarded-Proto", "http")
+		for _, want := range []string{
+			"a secret is taken over https only, or from the yard's own machine",
+			"the proxy in front of the yard says this request came to it in plain HTTP",
+		} {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("answered %s, want it to say %q", w.Body, want)
+			}
+		}
+		if strings.Contains(w.Body.String(), "a secret never crosses the edge") {
+			t.Errorf("answered %s, want the plain-HTTP refusal and not the link's", w.Body)
+		}
+	})
+	// None of it gave anything: no answer on the bead, and none of the
+	// files a giving writes.
+	if got := y.answers(t); len(got) != 0 {
+		t.Errorf("the bead is answered %q after the refusals", got)
+	}
+	keyFile, err := store.HarnessKeyFile(filepath.Dir(y.db), "claude", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{y.file, keyFile, store.HookSecretFile(filepath.Dir(y.db), "linear"), filepath.Join(filepath.Dir(y.db), "users", "sam.env")} {
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Errorf("a refused giving left %s (%v)", file, err)
 		}
 	}
-	y.untouched(t, "a giving over the link")
 }
 
 // A hosted yard takes a secret from its router: the peer the router_addr

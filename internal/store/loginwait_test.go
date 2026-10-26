@@ -114,6 +114,9 @@ func TestLoginAskIsStoredWithTheWait(t *testing.T) {
 	if got := rs[0].Ask.Secret.Line(); got != "a secret: INPUT, for the waiting login claude-a1b2c3d4" {
 		t.Fatalf("the line = %q", got)
 	}
+	if !rs[0].Ask.Secret.OperatorLoginInput() {
+		t.Errorf("the stored ask %+v is not the operator's login input", rs[0].Ask.Secret)
+	}
 	lines := strings.Join(rs[0].Lines(), "\n")
 	for _, want := range []string{
 		"  a secret: INPUT, for the waiting login claude-a1b2c3d4",
@@ -142,6 +145,38 @@ func TestLoginAskIsStoredWithTheWait(t *testing.T) {
 	// Asked of the operator for them it stands as well.
 	own.To = "mckean"
 	y.ask(t, own, "yardmaster")
+
+	// Only the operator's own login input is the daemon's ask, which the
+	// listener takes down the link from the edge (OperatorLoginInput): the
+	// whole of the struct is held to its form, a field at a time and any
+	// field added later.
+	no := false
+	input := AskSecret{Env: []string{"INPUT"}, Login: "claude-a1b2c3d4"}
+	if !input.OperatorLoginInput() {
+		t.Errorf("%+v is not the operator's login input", input)
+	}
+	for name, mutate := range map[string]func(*AskSecret){
+		"a user's own login":       func(s *AskSecret) { s.As = "ada" },
+		"a source":                 func(s *AskSecret) { s.Source = "crm" },
+		"a hook":                   func(s *AskSecret) { s.Hook = "bot" },
+		"a harness":                func(s *AskSecret) { s.Harness = "claude" },
+		"a crew member":            func(s *AskSecret) { s.Crew = "yardmaster" },
+		"a user's address":         func(s *AskSecret) { s.User = "ada" },
+		"a host":                   func(s *AskSecret) { s.Host = "https://crm.example.com" },
+		"a concealment":            func(s *AskSecret) { s.Concealed = &no },
+		"no login":                 func(s *AskSecret) { s.Login = "" },
+		"another name":             func(s *AskSecret) { s.Env = []string{"TOKEN"} },
+		"a name more":              func(s *AskSecret) { s.Env = []string{"INPUT", "TOKEN"} },
+		"no name":                  func(s *AskSecret) { s.Env = nil },
+		"the name twice":           func(s *AskSecret) { s.Env = []string{"INPUT", "INPUT"} },
+		"a harness key's variable": func(s *AskSecret) { s.Env = []string{"ANTHROPIC_API_KEY"} },
+	} {
+		s := AskSecret{Env: []string{"INPUT"}, Login: "claude-a1b2c3d4"}
+		mutate(&s)
+		if s.OperatorLoginInput() {
+			t.Errorf("%s: %+v is taken for the operator's login input", name, s)
+		}
+	}
 }
 
 // A login-input ask is refused, and nothing is stored, beside a source or a

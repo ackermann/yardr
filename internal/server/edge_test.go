@@ -162,9 +162,9 @@ func waitEvent(t *testing.T, cl store.API, kind string, ok func(store.Event) boo
 // what comes down the link with the listener's own handlers: a delivery is
 // verified by the hook's secret, which the edge never holds (the right token
 // recorded, a wrong one 401); a device's call is served as the device, and
-// GiveSecret refused, since secrets never cross the edge; /peers/ is not
-// served through the edge. The link is told as an event and in its state,
-// and nothing listens on a port.
+// GiveSecret without an eligible login-input ask is refused, since no other
+// secret crosses the edge; /peers/ is not served through the edge. The link
+// is told as an event and in its state, and nothing listens on a port.
 func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 	edge, srv := stubEdge(t)
 	c := home(t)
@@ -199,7 +199,7 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 		t.Errorf("GetUser over the link answered %d %s", a.Status, a.Body)
 	}
 	if a := overLink(t, l, "/user/call/GiveSecret", bearer(token), `{}`); !strings.Contains(string(a.Body), "a secret never crosses the edge") {
-		t.Errorf("GiveSecret over the link answered %d %s, want it refused as never crossing the edge", a.Status, a.Body)
+		t.Errorf("GiveSecret without an ask over the link answered %d %s, want it refused", a.Status, a.Body)
 	}
 	if a := overLink(t, l, "/peers/messages", nil, `{}`); a.Status != http.StatusNotFound {
 		t.Errorf("/peers/ over the link answered %d, want 404", a.Status)

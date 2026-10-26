@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -415,6 +416,18 @@ func (w *wtx) askedLogin(sec AskSecret, to string) (*AskSecret, error) {
 		return nil, fmt.Errorf("%s, so %s cannot be asked for it", whose, to)
 	}
 	return &AskSecret{Env: []string{loginInputName}, Login: login, As: as}, nil
+}
+
+// OperatorLoginInput reports whether the ask is for the input of the
+// operator's own waiting login and nothing else: the form askedLogin stores
+// for a Login with no As, and the one the daemon asks for the code a
+// harness's sign-in page shows (askInput in dispatch). The whole of the
+// struct is compared with that form, so a field AskSecret gains later makes
+// an ask not this one until this says it is. It is what the listener takes
+// down the link from the edge, where it refuses every other secret
+// (rpc.UserServer.loginCode).
+func (s AskSecret) OperatorLoginInput() bool {
+	return s.Login != "" && reflect.DeepEqual(s, AskSecret{Env: []string{loginInputName}, Login: s.Login})
 }
 
 // askedHarnessKey checks an ask for the API key of the harness kind sec
