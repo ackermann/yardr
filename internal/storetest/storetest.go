@@ -184,16 +184,26 @@ func HoldDaemonAs(t testing.TB, home string, pid int, start uint64) (release fun
 	}
 }
 
+// longStartWait is the wait for a server to start that NameTestBinary gives the
+// yardr a test runs: twelve times the real ten seconds, which the machine the
+// tests run on, under load, does not always leave (docs/testing.md R2: the
+// product's bound is stubbed long, and the suite's timeout still ends a hang).
+const longStartWait = "120s"
+
 // NameTestBinary names this test binary to every yardr it starts, so that
 // the server and the daemon stop by themselves when the binary is killed
 // and runs no cleanup: YARDR_TEST_OWNER is this process's pid and the start
 // time the OS reports for it (the daemon-lock idiom), and
 // YARDR_TEST_HOME_CHECK=1s has them look for it every second, not every
-// minute as a real yard does. It is for the TestMain of a package that
-// starts a real yardr, once per process, and not for the environment of one
-// command: the exec runner hands the test binary's own environment on to a
-// script, and the yardr that script calls may be the one that starts the
-// server. os.Setenv, not t.Setenv, which a parallel test may not call.
+// minute as a real yard does. The yardr a test runs waits longer for a
+// server it starts too, YARDR_TEST_START_WAIT=120s in place of the real
+// ten seconds: that wait is the starter's, so it is set for the commands the
+// test runs, and the server does not get it. It is for the TestMain of a
+// package that starts a real yardr, once per process, and not for the
+// environment of one command: the exec runner hands the test binary's own
+// environment on to a script, and the yardr that script calls may be the one
+// that starts the server. os.Setenv, not t.Setenv, which a parallel test may
+// not call.
 func NameTestBinary() {
 	var start uint64
 	if st, err := peer.Describe(os.Getpid()); err == nil {
@@ -201,6 +211,7 @@ func NameTestBinary() {
 	}
 	os.Setenv(config.Key(config.TestOwnerEnv), strconv.Itoa(os.Getpid())+" "+strconv.FormatUint(start, 10))
 	os.Setenv(config.Key(config.TestHomeCheckEnv), "1s")
+	os.Setenv(config.Key(config.TestStartWaitEnv), longStartWait)
 }
 
 // Open opens the store at path, closing it when the test ends.

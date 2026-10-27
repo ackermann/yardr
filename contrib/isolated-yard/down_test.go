@@ -292,8 +292,9 @@ func TestDownStopsAServerStartedFromAnotherBinary(t *testing.T) {
 	cmd := exec.Command(other, "server", "start")
 	cmd.Env = []string{"HOME=" + filepath.Join(d, "h"), "PATH=/usr/bin:/bin", "YARDR_HOME=" + home}
 	// Not started through D/e, but a server of the yard all the same: named
-	// to this binary like the rest, or a kill during the test leaves it.
-	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+	// to this binary like the rest, or a kill during the test leaves it, and
+	// given the wait for it to start that the rest are given.
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv, config.TestStartWaitEnv} {
 		cmd.Env = append(cmd.Env, config.Env(name, config.Getenv(name))...)
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -948,7 +949,9 @@ func TestLoginShellFindsNothingOfTheMachine(t *testing.T) {
 // that made the yard. Without __CF_USER_TEXT_ENCODING a newly built binary's
 // first run under `codex sandbox` stalls in dyld's initializers, before
 // main, in _CFStringGetUserDefaultEncoding -> getpwuid; a test binary's name
-// lets the yard's server and daemon stop when that binary is killed.
+// lets the yard's server and daemon stop when that binary is killed, and its
+// long wait for a server to start keeps a loaded machine from failing the
+// yardr that starts one.
 func TestWrapperEnvironment(t *testing.T) {
 	d := bare(t)
 	out, err := exec.Command(filepath.Join(d, "e"), "printenv", "__CF_USER_TEXT_ENCODING").CombinedOutput()
@@ -967,7 +970,7 @@ func TestWrapperEnvironment(t *testing.T) {
 		t.Fatalf("D/e sets __CF_USER_TEXT_ENCODING to %q off macOS; want it unset", strings.TrimSpace(string(out)))
 	}
 
-	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv, config.TestStartWaitEnv} {
 		want := config.Getenv(name)
 		if want == "" {
 			t.Fatalf("%s is not set in this binary: TestMain names it (storetest.NameTestBinary)", config.Key(name))
@@ -980,7 +983,7 @@ func TestWrapperEnvironment(t *testing.T) {
 
 	hand := bareEnv(t, slices.DeleteFunc(os.Environ(), func(kv string) bool {
 		key, _, _ := strings.Cut(kv, "=")
-		return config.IsVar(key, config.TestOwnerEnv, config.TestHomeCheckEnv)
+		return config.IsVar(key, config.TestOwnerEnv, config.TestHomeCheckEnv, config.TestStartWaitEnv)
 	}))
 	if got := in(t, hand, "env"); strings.Contains(got, "YARDR_TEST_") {
 		t.Errorf("D/e of a yard made without a name for a test binary hands one on:\n%s", got)

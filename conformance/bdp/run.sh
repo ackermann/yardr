@@ -18,6 +18,9 @@ scope=https://scope.example/acme/
 port=${BDP_PORT:-18899}
 
 export YARDR_HOME=$work/home
+# The seed's first command that needs the store starts the server, and a loaded
+# machine does not always leave it the real ten seconds to answer in.
+export YARDR_TEST_START_WAIT=120s
 # Run from inside a yardr session (an agent's pane), the session's variables
 # would make every seeded move a stale move of that session's bead.
 for v in BEAD SESSION STAGE GROUP ACTOR; do unset "YARDR_$v"; done

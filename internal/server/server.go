@@ -617,6 +617,24 @@ func SpawnDetached(cmd *exec.Cmd, log string) (exited <-chan error, err error) {
 // executable is the binary Start runs as the server; tests replace it.
 var executable = os.Executable
 
+// startWaitDefault is how long Start waits for the server it started to
+// answer.
+const startWaitDefault = 10 * time.Second
+
+// startWait is how long Start waits for the server it started to answer: ten
+// seconds, or the bound the test process named in config.TestStartWaitEnv. A
+// test that runs the CLI cannot reach the bound from Go, and a machine under
+// load does not always leave a server ten seconds to start in. A bound that
+// is missing, malformed or not positive is the ten seconds: a zero wait would
+// give up before the first ping.
+func startWait() time.Duration {
+	wait, err := time.ParseDuration(config.Getenv(config.TestStartWaitEnv))
+	if err != nil || wait <= 0 {
+		return startWaitDefault
+	}
+	return wait
+}
+
 // Start launches `yardr server run` detached and waits until it answers.
 //
 // The server outlives the command that started it and serves every later
@@ -639,7 +657,8 @@ func Start(ctx context.Context, c *config.Config) error {
 		return err
 	}
 	client := rpc.NewClient(c.Socket())
-	deadline := time.Now().Add(10 * time.Second)
+	wait := startWait()
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if ping(ctx, client) {
 			return nil
@@ -654,7 +673,7 @@ func Start(ctx context.Context, c *config.Config) error {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("yardr server did not answer within 10s; see %s", c.LogFile())
+	return fmt.Errorf("yardr server did not answer within %gs; see %s", wait.Seconds(), c.LogFile())
 }
 
 // ServerEnv is the environment a detached server starts with, from the

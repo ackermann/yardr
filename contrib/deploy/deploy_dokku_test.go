@@ -200,7 +200,10 @@ func newYard(t *testing.T) *yard {
 	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo"), state: t.TempDir(), depot: "r",
 		script: "deploy-dokku"}
 	// os.Environ names this binary to the servers a command starts
-	// (TestMain), so a run killed by its timeout leaves none behind.
+	// (TestMain), so a run killed by its timeout leaves none behind, and
+	// gives the command that starts the first of them a long wait for it
+	// (YARDR_TEST_START_WAIT: a loaded machine left it less than the real
+	// ten seconds, yardr-5jd7).
 	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
 
 	y.yardr("init", "--harness", "claude", "--dir", home, "--operator", "test")

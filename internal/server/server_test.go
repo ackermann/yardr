@@ -881,6 +881,9 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	t.Setenv("YARDR_PPROF", "/y1/pprof.sock")
 	t.Setenv("YARDR_TEST_OWNER", "4242 987654")
 	t.Setenv("YARDR_TEST_HOME_CHECK", "1s")
+	// The wait for the server is the starter's, not the server's: it is in
+	// the environment here, and the check below fails if the server gets it.
+	t.Setenv("YARDR_TEST_START_WAIT", "90s")
 	// A box behind a company's proxy has it in the operator's shell, and
 	// the server it starts reaches its sources and remotes through it.
 	for _, kv := range egressEnviron {
@@ -929,6 +932,64 @@ func TestStartGivesTheServerItsOwnEnvAndDir(t *testing.T) {
 	}
 	if envOf(env, "PATH") == "" || envOf(env, "HOME") == "" {
 		t.Errorf("server lacks PATH or HOME:\n%s", strings.Join(env, "\n"))
+	}
+}
+
+// Start waits ten seconds for the server it started, or as long as the bound
+// a test names in YARDR_TEST_START_WAIT: the CLI a test runs reads it from the
+// test's environment, where a Go variable cannot reach it, and a machine under
+// load does not always leave a server ten seconds to start in (yardr-5jd7). A
+// bound that is missing, malformed or not positive is the ten seconds.
+func TestStartWait(t *testing.T) {
+	// Serial: sets the process's environment.
+	for _, tc := range []struct {
+		name, value string
+		want        time.Duration
+	}{
+		{"missing", "", 10 * time.Second},
+		{"seconds", "90s", 90 * time.Second},
+		{"minutes", "2m", 2 * time.Minute},
+		{"under a second", "1500ms", 1500 * time.Millisecond},
+		{"not a duration", "soon", 10 * time.Second},
+		{"a number with no unit", "90", 10 * time.Second},
+		{"zero", "0s", 10 * time.Second},
+		{"negative", "-5s", 10 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("YARDR_TEST_START_WAIT", tc.value)
+			if got := startWait(); got != tc.want {
+				t.Errorf("startWait() = %v with YARDR_TEST_START_WAIT=%q, want %v", got, tc.value, tc.want)
+			}
+		})
+	}
+}
+
+// The bound reaches Start's deadline, and the error names the bound it was
+// given, in seconds as the unstubbed ten always were. The stand-in is a
+// server that is up and has not bound its socket, which ends with its home.
+func TestStartWaitEndsStartAtTheBoundGiven(t *testing.T) {
+	c := home(t)
+	script := filepath.Join(t.TempDir(), "yardr")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nwhile [ -d \"$YARDR_HOME\" ]; do sleep 0.2; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := executable
+	executable = func() (string, error) { return script, nil }
+	t.Cleanup(func() { executable = old })
+	t.Setenv("YARDR_TEST_START_WAIT", "300ms")
+
+	began := time.Now()
+	err := Start(context.Background(), c)
+	if err == nil {
+		t.Fatal("Start: no error from a server that never answers")
+	}
+	// Only the direction a loaded machine cannot falsify: Start does not
+	// give up before the bound.
+	if took := time.Since(began); took < 300*time.Millisecond {
+		t.Errorf("Start gave up after %v, want at least the 300ms it was given", took)
+	}
+	if want := "did not answer within 0.3s; see " + c.LogFile(); !strings.Contains(err.Error(), want) {
+		t.Errorf("Start: %q, want it to say %q", err, want)
 	}
 }
 

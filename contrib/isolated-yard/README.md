@@ -20,13 +20,17 @@ fails it tears the yard down and exits 1. `D/e` is `env -i` with `HOME`,
 `__CF_USER_TEXT_ENCODING` from the caller's environment (without it a fresh
 binary's first run under the codex sandbox stalls in dyld, before main),
 so nothing else of the calling session (no `HERDR_SOCKET_PATH`, no `YARDR_*`
-but the two below) reaches a command run through it. Those two are
+but the three below) reaches a command run through it. The first two are
 `YARDR_TEST_OWNER` and `YARDR_TEST_HOME_CHECK`, with which a Go test binary
 names itself to the servers it starts (`storetest.NameTestBinary`): `D/e`
 carries each that the environment making the yard has, so the yard's server
 and daemon stop within a few seconds of that binary's end, however it ended (a
-kill or a timeout runs no cleanup). A yard made by hand has neither, and its
-`D/e` carries neither. The herdr server of an `up` yard and the stand-in
+kill or a timeout runs no cleanup). The third is `YARDR_TEST_START_WAIT`, the
+long wait the same binary gives the `yardr` a test runs for a server it starts
+(a command that finds none starts one, and the real wait is ten seconds, which
+a loaded machine does not always leave); only that `yardr` reads it, and the
+server does not get it. A yard made by hand has none of the three, and its
+`D/e` carries none. The herdr server of an `up` yard and the stand-in
 agents in its panes do not look for the owner; the yard's watchdog does (see
 "When the test binary is killed", below).
 `D/h/.profile` sets `PATH` to the same directories, so the

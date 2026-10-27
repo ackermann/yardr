@@ -155,7 +155,9 @@ it lists every exported name with its comment, faster than grepping.
 - Fixtures: throwaway stores from `internal/storetest`, stand-in scripts
   from `internal/scripttest`; wait on the effect, not on wall time. A
   package whose tests start a real yardr names its test binary to the
-  servers it starts: its `TestMain` calls `storetest.NameTestBinary()`.
+  servers it starts: its `TestMain` calls `storetest.NameTestBinary()`,
+  which also gives the yardr it runs a long wait for a server to start
+  (`YARDR_TEST_START_WAIT`).
 - A wait in a contrib suite (a fuse against a hang, the deadline of a poll)
   is written for an idle box and goes through `testload.Scale`: the factor
   is the machine's load over its cores, 1 to 4, the larger of the one the

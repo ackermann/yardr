@@ -138,8 +138,10 @@ exec "$SY_REAL_YARDR" "$@"
 	y.env = append(y.env, managerEnv...)
 	// Of the test's environment only the name TestMain gave the binary comes
 	// in: the server and the daemon the script starts, itself or through a
-	// stand-in manager, inherit it and stop when the binary is gone.
-	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+	// stand-in manager, inherit it and stop when the binary is gone. The wait
+	// for a server to start comes in too, for the yardr the script runs
+	// (init --start): it is the starter's, and the server does not get it.
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv, config.TestStartWaitEnv} {
 		y.env = append(y.env, config.Env(name, config.Getenv(name))...)
 	}
 	t.Cleanup(y.stop)

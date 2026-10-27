@@ -261,7 +261,11 @@ stop within a few seconds of the binary's end. A run killed by its timeout
 runs no cleanup, so that is what ends them. The herdr stand-in looks for the
 name too (`fake/main.go`) and exits, with status 0, within a few seconds of
 the binary's end; the yard's directory stays until the test's cleanup, so a
-killed binary leaves it in `/tmp`.
+killed binary leaves it in `/tmp`. `NameTestBinary` also gives the `yardr`
+the script runs `YARDR_TEST_START_WAIT`, a long wait for the server that
+`init --start` starts, in place of the real ten seconds, which a loaded machine
+does not always leave; the yard's environment hands that on to the script as
+well, and the server does not get it.
 
 `fake/` holds what the script is run against, with `HOME`,
 `XDG_CONFIG_HOME` and `YARDR_HOME` in a temp dir and nothing else of the

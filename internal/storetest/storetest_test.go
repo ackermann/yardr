@@ -51,9 +51,13 @@ func TestInitDropsTheProxy(t *testing.T) {
 // process as the owner, running, and a tick they take. They take a malformed
 // owner for a warning and no more, so a change to either side of the format
 // would leave every server of the binary ownerless with no test red but this.
+// It says what the yardr a test runs reads of it too: a wait for a server to
+// start well over the real ten seconds, which the starter parses itself
+// (server.startWait takes a malformed one for the ten seconds, so this is the
+// one place a mistake in it would show).
 func TestNameTestBinary(t *testing.T) {
 	// Serial: sets the process's environment, and puts it back.
-	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv} {
+	for _, name := range []string{config.TestOwnerEnv, config.TestHomeCheckEnv, config.TestStartWaitEnv} {
 		old, had := os.LookupEnv(config.Key(name))
 		t.Cleanup(func() {
 			if had {
@@ -70,5 +74,8 @@ func TestNameTestBinary(t *testing.T) {
 	}
 	if every, ok := config.TestHomeCheck(); !ok || every != time.Second {
 		t.Errorf("TestHomeCheck() = %v, %v after NameTestBinary: want 1s", every, ok)
+	}
+	if wait, err := time.ParseDuration(config.Getenv(config.TestStartWaitEnv)); err != nil || wait < time.Minute {
+		t.Errorf("%s = %q after NameTestBinary (%v): want a duration of a minute or more", config.Key(config.TestStartWaitEnv), config.Getenv(config.TestStartWaitEnv), err)
 	}
 }

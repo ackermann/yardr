@@ -28,6 +28,8 @@
 #     The one other thing of the caller's it keeps is the name of a test
 #     binary, YARDR_TEST_OWNER and YARDR_TEST_HOME_CHECK, when the environment
 #     that made the yard has them: the yard's servers then stop with the binary.
+#     It keeps that binary's YARDR_TEST_START_WAIT likewise: the long wait of
+#     the yardr a test runs through D/e for a server it starts.
 #     A watchdog that `up` and `bare` start for the yard goes by the same
 #     name: when that binary is gone it runs `down`, which stops the herdr
 #     server and the stand-in agents too, since they look for no owner.
@@ -417,9 +419,14 @@ build() {
   # killed before its cleanup leaves none behind. Only what the creating
   # environment has: a yard made by hand has no binary to be named to, and
   # its D/e stays as clean as before. The owner holds a space, hence the quotes.
+  # The test binary gives the yardr it runs a long wait for a server to start
+  # too (YARDR_TEST_START_WAIT): a command through D/e that finds no server
+  # starts one, and the real wait, ten seconds, is not always left by the
+  # machine the test runs on. Only the starter reads it.
   testarg=""
   [ -z "${YARDR_TEST_OWNER:-}" ] || testarg=" YARDR_TEST_OWNER='$YARDR_TEST_OWNER'"
   [ -z "${YARDR_TEST_HOME_CHECK:-}" ] || testarg="$testarg YARDR_TEST_HOME_CHECK='$YARDR_TEST_HOME_CHECK'"
+  [ -z "${YARDR_TEST_START_WAIT:-}" ] || testarg="$testarg YARDR_TEST_START_WAIT='$YARDR_TEST_START_WAIT'"
   cat >"$d/e" <<WRAP
 #!/bin/sh
 exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\

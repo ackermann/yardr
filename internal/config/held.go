@@ -105,6 +105,18 @@ const TestOwnerEnv = "TEST_OWNER"
 // blanked into work sessions nor baked into login-service files.
 const TestHomeCheckEnv = "TEST_HOME_CHECK"
 
+// TestStartWaitEnv names the test-only variable in which a test lengthens
+// the wait of the command that starts a server (server.Start): a duration
+// such as "90s", parsed as time.ParseDuration parses it. The real wait is
+// ten seconds, which a test machine under load does not always leave a
+// server to start in, and a test that runs the CLI cannot reach the bound
+// from Go, so it stubs the bound long here (docs/testing.md R2). Unlike the
+// two above, the starter reads it, not the server it starts: the server's
+// environment (server.ServerEnv) does not carry it. A real yard never sets
+// it; like them it is deliberately not in ServerSettings, so it is never
+// blanked into work sessions nor baked into login-service files.
+const TestStartWaitEnv = "TEST_START_WAIT"
+
 // TestHomeCheck is the tick the test process named in TestHomeCheckEnv:
 // false when the variable is missing or malformed, in which case the watch
 // keeps the real minute. A tick that is not positive is malformed: a zero

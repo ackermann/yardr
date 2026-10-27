@@ -49,6 +49,10 @@ func TestServerStopsWhenItsTestOwnerIsGone(t *testing.T) {
 	if st, err := peer.Describe(sleep.Process.Pid); err == nil {
 		start = st.Start
 	}
+	// os.Environ() brings the long wait for a server to start that TestMain
+	// gave this binary (YARDR_TEST_START_WAIT, storetest.NameTestBinary):
+	// the bead list below starts the server, and the real ten seconds were
+	// not left to it by a loaded machine (yardr-5jd7).
 	env := append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test",
 		fmt.Sprintf("YARDR_TEST_OWNER=%d %d", sleep.Process.Pid, start),
 		"YARDR_TEST_HOME_CHECK=1s")

@@ -79,16 +79,17 @@ it. A deadline taken from the load is the last resort, and only where
 the thing waited on is a program outside the test (a harness binary, a
 browser): there the bound is product code, its failure under load is a
 product question, and the test stubs the bound long (as the doctor
-tests stub thirty seconds) instead of inheriting whatever load leaves
-of it. Where a test must still tell a slow machine from a slow program,
-as contrib/shot's real Chrome does to skip a miss of its deadline, it
-asks `testload.Loaded`: the factor above 1, the leg's or the machine's
-own as it is asked, so a plain run on a loaded box is found loaded too,
-and a load that cannot be read is not. A test whose result depends on
-that factor pins the machine with `YARDR_TEST_LOADAVG` and
-`YARDR_TEST_CORES`, as the gate's tests do, so that it does not turn on
-what else the machine is running. A count inside a fixed
-wall-clock window, and a sleep followed
+tests stub thirty seconds, and `storetest.NameTestBinary` the ten seconds
+a command waits for a server it starts, `YARDR_TEST_START_WAIT`) instead
+of inheriting whatever load leaves of it. Where a test must still tell a
+slow machine from a slow program, as contrib/shot's real Chrome does to
+skip a miss of its deadline, it asks `testload.Loaded`: the factor above
+1, the leg's or the machine's own as it is asked, so a plain run on a
+loaded box is found loaded too, and a load that cannot be read is not. A
+test whose result depends on that factor pins the machine with
+`YARDR_TEST_LOADAVG` and `YARDR_TEST_CORES`, as the gate's tests do, so
+that it does not turn on what else the machine is running. A count inside
+a fixed wall-clock window, and a sleep followed
 by asserting the slept-for event exists, are both the first shape
 written wrong. A reviewer checks the pick without running anything, as
 the sleep scan is checked: a diff that adds a test names one of the
