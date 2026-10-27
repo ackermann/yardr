@@ -1345,9 +1345,10 @@ func TestLinearPack(t *testing.T) {
 }
 
 // The github pack is GitHub as an integration: of kind source, one declared
-// source with the commands the yard runs for it and the pull request and CI
-// reads. The source is named github; while its Go adapter is still compiled
-// in, the declared one wins every lookup when the yard has it.
+// source with the commands for it — the yard runs them all but the git
+// credential helper, which a depot's git runs — and the pull request and
+// CI reads. The source is named github; while its Go adapter is still
+// compiled in, the declared one wins every lookup when the yard has it.
 func TestGitHubPack(t *testing.T) {
 	sub, err := fs.Sub(packs.FS, packs.GitHub)
 	if err != nil {
@@ -1367,7 +1368,7 @@ func TestGitHubPack(t *testing.T) {
 	for _, c := range p.Declared[0].Declaration.Commands() {
 		keys = append(keys, c.Key)
 	}
-	if want := []string{"thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "hook.normalize", "events.pr", "events.ci"}; !slices.Equal(keys, want) {
+	if want := []string{"thread.reply", "thread.posted", "thread.read", "thread.open", "thread.opened", "thread.state", "hook.normalize", "events.pr", "events.ci", "git.credential"}; !slices.Equal(keys, want) {
 		t.Fatalf("commands = %v, want %v", keys, want)
 	}
 	// Its setup notes: where the webhook is made, the hook and its
@@ -1393,6 +1394,8 @@ func TestGitHubPack(t *testing.T) {
 		"open_threads=github set_state=github",
 		"yardr thread open github",
 		"yardr thread state <owner>/<repo>#<n> started",
+		`git -C <depot> config credential."https://github.com".helper`,
+		"contents: write",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)

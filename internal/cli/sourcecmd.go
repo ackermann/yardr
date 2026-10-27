@@ -373,6 +373,20 @@ What runs the commands: yardr reply, yardr thread show, yardr thread open,
 yardr thread state and yardr link, each with the calling process's
 credential, and the daemon for a hook's stage map, with the crew member's.
 
+A file can also name the credential helper git runs for the source's host,
+for a depot whose origin is there:
+
+  git:
+    credential: [github/git-credential]
+
+The yard copies it with the declaration's other command files and never
+runs it: the depot's git is pointed at the copy, which answers git's own
+protocol from the source's env file at the moment git asks. Refused: a
+command that is no list of strings or has no program, and a helper beside
+no credential, or beside a credential that is the address every call goes
+to. A pack for a depot brings no git key; a pack of kind source may, with
+the helper's file.
+
 A file can also say what the service sends in: a hook key makes the source
 one a hook receives, as linear and github are, with the secret in the
 hook's --secret-file verified as the file says.

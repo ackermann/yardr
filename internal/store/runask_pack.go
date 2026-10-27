@@ -665,7 +665,7 @@ func packDeclDiffLines(name string, was, now *source.Declaration) []string {
 		return []string{fmt.Sprintf("source %s: the yard's declaration is one this yardr does not read, and the pack's replaces it.", name)}
 	}
 	var out []string
-	for _, key := range []string{"base", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "identity", "hook", "events"} {
+	for _, key := range []string{"base", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "identity", "hook", "events", "git"} {
 		old, new := declarationKey(was, key), declarationKey(now, key)
 		if old != new {
 			out = append(out, safeSourceCardLine(fmt.Sprintf("source %s %s: %s -> %s.", name, key, or(old, "none"), or(new, "none"))))
@@ -713,6 +713,8 @@ func declarationKey(d *source.Declaration, key string) string {
 		v = d.Hook
 	case "events":
 		v = d.Events
+	case "git":
+		v = d.Git
 	default:
 		return ""
 	}

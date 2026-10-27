@@ -454,8 +454,9 @@ crew member of the pack; any other {{...}} in one makes the pack invalid.
 
 A pack of kind source (kind: source) is imported into the yard itself, and
 into no depot: check takes it without --depot, and refuses --depot for it.
-It declares a source yardr has no Go for, with the commands the yard runs
-for it; the plan names each command, its file and the file's sha256. What a
+It declares a source yardr has no Go for, with the commands for it; the
+plan names each command, its file and the file's sha256. The yard runs
+them all but the git credential helper, which a depot's git runs. What a
 stage means in such a source is a pack for a depot's to say
 (sources.<name>: hears): until the yard has the source, an import of that
 pack skips the lines and says so, and the next apply sets them. A pack with
@@ -626,8 +627,9 @@ run by anyone else the import does the rest and adds none.
 
 A pack of kind source (kind: source) is imported into the yard itself, and
 into no depot: apply takes it without --depot, and refuses --depot for it.
-It declares a source yardr has no Go for, with the commands the yard runs
-for it, which the import copies under <home>/sources/<name>/. The source's
+It declares a source yardr has no Go for, with the commands for it,
+which the import copies under <home>/sources/<name>/. The yard runs them
+all but the git credential helper, which a depot's git runs. The source's
 own credential file is still to be set where a call of it is granted
 (yardr source set <name> env_file=<file>); where none is and a crew member
 holds the key, the output says nothing of it. As for a declared source,

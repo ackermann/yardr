@@ -476,6 +476,19 @@ func TestPackReplacementDiffShowsWholeDeclarationKeys(t *testing.T) {
 	if !strings.Contains(hook, "X-Wired-Secret") || !strings.Contains(hook, "X-New-Secret") {
 		t.Errorf("the hook change omits its old or new verification header:\n%s", hook)
 	}
+
+	oldGit, err := source.Parse("old", []byte(wiredDecl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newGit, err := source.Parse("new", []byte(wiredDecl+"git:\n  credential: [wired/git-credential]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := strings.Join(packDeclDiffLines("wired", oldGit, newGit), "\n")
+	if !strings.Contains(git, `source wired git: null -> {"credential":["wired/git-credential"]}.`) {
+		t.Errorf("the git change is not on the card:\n%s", git)
+	}
 }
 
 // A chmod of a command copy after the ask makes the approval stale, and

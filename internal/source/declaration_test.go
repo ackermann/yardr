@@ -1832,6 +1832,56 @@ func TestParseEventsRefusals(t *testing.T) {
 	}
 }
 
+func TestParseGit(t *testing.T) {
+	const file = `name: forge
+base: https://forge.test
+credential: { env: FORGE_TOKEN }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+git:
+  credential: [forge/git-credential]
+`
+	d, err := Parse("forge.yaml", []byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Git == nil || strings.Join(d.Git.Credential, " ") != "forge/git-credential" {
+		t.Fatalf("git = %+v", d.Git)
+	}
+	keys := []string{}
+	for _, c := range d.Commands() {
+		keys = append(keys, c.Key)
+	}
+	if strings.Join(keys, " ") != "git.credential" {
+		t.Fatalf("commands = %v", keys)
+	}
+}
+
+func TestParseGitRefusals(t *testing.T) {
+	src := func(body string) string {
+		return "name: q\nbase: https://q.example.com\ncredential: { env: Q_TOKEN }\ncalls:\n  ping: { kind: read, request: { method: GET, path: /me } }\n" + body
+	}
+	gitted := func(body string) string { return src("git:\n" + body) }
+	for name, tc := range map[string]struct{ text, want string }{
+		"a key it does not have":            {gitted("  helper: [q/git-credential]\n"), "git.helper: unknown key (known here: credential)"},
+		"a credential that is a string":     {gitted("  credential: forge/git-credential\n"), "git.credential: want a list of strings ([program, git/credential])"},
+		"a credential with no program":      {gitted("  credential: []\n"), "git.credential: an empty list"},
+		"a credential that leaves the file": {gitted("  credential: [../git-credential]\n"), `git.credential: the program "../git-credential" has a '.' or '..' segment`},
+		"git that is no mapping":            {src("git: [credential]\n"), "git: want a mapping (key: value), got a list"},
+		"git beside no credential": {strings.Replace(src("git:\n  credential: [q/git-credential]\n"), "credential: { env: Q_TOKEN }\n", "", 1),
+			"git: carries the source's token to git, and the file names no credential"},
+		"git beside a credential that is an address": {strings.Replace(src("git:\n  credential: [q/git-credential]\n"), "credential: { env: Q_TOKEN }", "credential: { env: Q_URL, url: true }", 1),
+			"git: carries the source's token to git, and the credential is the address every call goes to (credential.url: true), not a token"},
+		"git on a file with no calls": {"name: q\nhook:\n  verify: { scheme: secret, signature: { header: X-Secret } }\n  bodies: unique\n  normalize: [q/normalize]\ngit:\n  credential: [q/git-credential]\n",
+			"git: carries the source's token to git, and this file declares no credential (it has hook alone)"},
+	} {
+		_, err := Parse("f", []byte(tc.text))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
 // A hear key: the envelope field that must hold a user's address, the
 // variable it is under in a user's env file, and from, which narrows whom
 // the source hears to the operator. Without from every user whose env

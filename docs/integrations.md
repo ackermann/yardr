@@ -928,7 +928,9 @@ a file names a **command** for: one per thing the yard does in the
 source's threads, under `thread`, and the source's issues as a bead's link,
 as data, under `link`. `yardr reply`, `yardr thread show`, `yardr thread
 open`, `yardr thread state`, `yardr link` and a hook's stage map run them
-for a source that has the keys.
+for a source that has the keys. What git uses to reach the source's
+repositories is a command too, under `git`, but one the yard never runs:
+git does, once a depot's git is pointed at the copy.
 
 ```yaml
 thread:
@@ -947,6 +949,8 @@ link:                                 # the source's issues as a bead's link
   issue: '^/([^/]+)/issue/([A-Z][A-Z0-9]*-[0-9]+)'
   fixed: "https://linear.app/{1}/issue/{2}"   # templates over the
   thread: "{2}"                               # expression's groups, {1}, {2}
+git:                                  # what git uses to reach the source's repositories
+  credential: [github/git-credential] # git's protocol, not JSON; the yard copies it, git runs it
 ```
 
 - **The contract** is the one the limits command runs under: a list, run
@@ -955,6 +959,13 @@ link:                                 # the source's issues as a bead's link
   everything it started are killed as one process group. Anything else is a
   failure the yard reports with the last lines of the command's stderr,
   never its stdout.
+- **`git.credential` keeps another contract, git's.** Git runs it with
+  `get`, `store` or `erase` and its request on stdin; for the source's
+  host it answers the token the env file sets, for any other host or
+  protocol it answers nothing, and `store` and `erase` do nothing. The
+  yard copies it with the declaration's other command files and never
+  runs it. Refused beside no credential, or beside a credential that is
+  the address every call goes to.
 - **`posted` and `opened` answer `{}` for none.** Every reply and every
   opened thread is on record with a key before anything is sent, and a
   second attempt asks first, so one whose answer was lost is found, not

@@ -20,6 +20,10 @@
 // against the pull request's head, and reads the pull request and its CI
 // live when no event told what it needs.
 //
+// The git key names the credential helper git runs for the source's
+// host, for a depot whose origin is there: the yard copies it with the
+// declaration's other command files and never runs it.
+//
 // The file holds no secret. It names the variable the credential is in, and
 // the value is read from a file of the yard's at each call, so a
 // declaration can be kept in the store, shown and copied. A service whose
@@ -118,6 +122,10 @@ type Declaration struct {
 	// Events is what the source sends in about pull requests and CI, and
 	// the commands that read them back, nil for a source without either.
 	Events *Events `json:"events,omitempty"`
+	// Git is what git uses to reach the source's repositories, nil for a
+	// source whose repositories git reaches without the yard: the
+	// credential helper git runs, which the yard copies and never runs.
+	Git *Git `json:"git,omitempty"`
 }
 
 // Credential is where a source's credential comes from and where it goes.
@@ -635,9 +643,9 @@ func (r *reader) count(n *yaml.Node, key string, most int) (int, bool) {
 }
 
 func (r *reader) declaration(d *Declaration, root *yaml.Node) {
-	var calls, check, notify, hear, base, bases, credential, idempotency, hook *entry
+	var calls, check, notify, hear, base, bases, credential, idempotency, hook, git *entry
 	named := false
-	for _, e := range r.entries(root, "", "name", "about", "base", "bases", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "hook", "identity", "events") {
+	for _, e := range r.entries(root, "", "name", "about", "base", "bases", "credential", "check", "idempotency", "calls", "notify", "hear", "limits", "thread", "link", "hook", "identity", "events", "git") {
 		switch e.key {
 		case "name":
 			named = true
@@ -687,6 +695,9 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 			d.Identity = r.identity(e)
 		case "events":
 			d.Events = r.events(e)
+		case "git":
+			git = &e
+			d.Git = r.git(e)
 		}
 	}
 	if root.Kind != yaml.MappingNode {
@@ -714,6 +725,9 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 				r.errf(e.k, e.path, "is for the calls of a source, and this file declares none (it has %s)", alone)
 			}
 		}
+		if git != nil {
+			r.errf(git.k, git.path, "carries the source's token to git, and this file declares no credential (it has %s)", alone)
+		}
 		d.Base, d.Bases, d.Credential = "", nil, nil
 		if hear != nil {
 			d.Hear = r.hear(d, *hear, alone)
@@ -730,6 +744,16 @@ func (r *reader) declaration(d *Declaration, root *yaml.Node) {
 		r.errf(bases.k, bases.path, "the credential is the address every call goes to (credential.url: true), so the file names no bases beside it")
 	case base == nil && !address:
 		r.errf(root, "base", "missing: the address every call's path is under (https://…), or credential.url: true where the credential is the address itself")
+	}
+	// The git helper carries the source's token, so it stands beside the
+	// credential that names it, and never beside one that is an address.
+	if git != nil {
+		switch {
+		case d.Credential == nil:
+			r.errf(git.k, git.path, "carries the source's token to git, and the file names no credential")
+		case address:
+			r.errf(git.k, git.path, "carries the source's token to git, and the credential is the address every call goes to (credential.url: true), not a token")
+		}
 	}
 	if calls == nil {
 		r.errf(root, "calls", "missing: a source is the calls it declares, or its limits command, or what it sends in (hook)")

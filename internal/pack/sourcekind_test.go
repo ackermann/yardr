@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/packs"
 )
 
 // cmdDecl is a declaration with commands, as a pack of kind source carries:
@@ -119,6 +121,53 @@ func TestSourcePackBringsEvents(t *testing.T) {
 	ev := p.Declared[0].Declaration.Events
 	if ev == nil || len(ev.Runs) != 1 || len(ev.HeadFrom) != 1 || len(ev.PR) != 1 || len(ev.CI) != 1 {
 		t.Fatalf("events = %+v", ev)
+	}
+}
+
+// A pack of kind source may bring what git uses to reach the source's
+// repositories: the credential helper, with its file beside the
+// declaration. In a pack for a depot the key is refused.
+func TestSourcePackBringsGit(t *testing.T) {
+	files := sourcePackFiles()
+	files["acme.yaml"] = cmdDecl + "git:\n  credential: [acme/git-credential]\n"
+	files["acme/git-credential"] = "#!/bin/sh\necho credential\n"
+	p := load(t, writePack(t, files))
+	if len(p.Declared) != 1 {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	g := p.Declared[0].Declaration.Git
+	if g == nil || len(g.Credential) != 1 {
+		t.Fatalf("git = %+v", g)
+	}
+}
+
+// The github pack brings the credential helper git runs for github.com:
+// named in its declaration, with its file beside it, so an import copies
+// it with the declaration's other commands.
+func TestSourcePackGitHubBringsGitCredential(t *testing.T) {
+	sub, err := fs.Sub(packs.FS, packs.GitHub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Loading holds the declaration's commands to the pack's files, so a
+	// load that passes says the helper is named and beside it.
+	p, err := pack.Load(sub, packs.GitHub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Declared) != 1 {
+		t.Fatalf("declared = %+v", p.Declared)
+	}
+	d := p.Declared[0].Declaration
+	if d.Git == nil || strings.Join(d.Git.Credential, " ") != "github/git-credential" {
+		t.Fatalf("git = %+v", d.Git)
+	}
+	found := false
+	for _, c := range d.Commands() {
+		found = found || c.Key == "git.credential"
+	}
+	if !found {
+		t.Fatalf("commands carry no git.credential: %+v", d.Commands())
 	}
 }
 

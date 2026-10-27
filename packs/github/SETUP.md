@@ -153,3 +153,20 @@ file's.
    yardr user identity <user> --source github --key <their login>
    yardr thread open github --in <owner>/<repo> --assign <user> "For you"
    ```
+8. **Pushing the depot's landings.** A depot whose origin is on github.com
+   pushes its landings because git itself is handed the source's token.
+   The pack brings the credential helper; the depot's git is pointed at
+   the copy the import made, in that depot's own config alone:
+   ```sh
+   git -C <depot> config credential."https://github.com".helper ~/.yardr/sources/github/github/git-credential
+   ```
+   Never `--global`: the person's own login stays as it is for everything
+   else (on a Mac, the keychain), and only this depot's git asks the
+   helper. Only the helper's name stands in the config: the token is in no
+   remote URL, group `cmd`, log or config, and is read from the source's
+   env file at the moment git asks, so a rotated token needs no re-turn-on.
+   The token needs the `contents: write` permission to push; where the
+   source mints from a GitHub App instead of a static token, add a
+   `GITHUB_TOKEN` with that permission to the source's env file for pushes
+   (the yard keeps minting for its own calls). Whether the depot pushes at
+   all is the assembly group's `YARDR_PUSH`, not the pack's.

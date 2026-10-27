@@ -23,7 +23,10 @@ Three words:
 
 A pack that names a program authorizes yardr to run its author's code as the
 user who runs the yard. A program is a script that a group runs with `run:`,
-or a file that a command of a declaration names. `yardr pack check`, and
+or a file that a command of a declaration names. The one program git runs
+instead is the git credential helper (`git.credential`): the import
+installs it with the rest, and a depot's git runs it once it is pointed
+at the copy. `yardr pack check`, and
 `pack apply` before it asks anything, print the plan and end it with one line
 that names the programs, after the digest:
 
