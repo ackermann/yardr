@@ -170,8 +170,9 @@ func TestYardTestRowsAreThere(t *testing.T) {
 // any other: a reviewer that committed names the commit the last test line
 // does (the review stages say so), and the plan holds what its own commits
 // changed, and what imports it. If that commit is ahead of HEAD, the merge
-// base is HEAD and the script must fail closed instead of passing an empty
-// selection.
+// base is HEAD: a plain run compares from there, the branch point, and says
+// so loudly, and only a landing falls back to the whole suite. A base with
+// no commit in common with HEAD still fails closed.
 func TestYardTestSaysItsBase(t *testing.T) {
 	t.Parallel()
 	if _, err := exec.LookPath("go"); err != nil {
@@ -271,18 +272,56 @@ func TestYardTestSaysItsBase(t *testing.T) {
 		gitT(t, dir, "commit", "-q", "-m", "a later test line")
 		ahead := gitT(t, dir, "rev-parse", "HEAD")
 		gitT(t, dir, "checkout", "-q", "main")
+		branchPoint := gitT(t, dir, "merge-base", ahead, "HEAD")
+		warn := "test: " + ahead + " (YARDR_BASE) is not an ancestor of HEAD; comparing with the branch point " + branchPoint + " instead\n"
 
-		out, code := run("YARDR_BASE=" + ahead)
-		want := "test: cannot compare with " + ahead + " (YARDR_BASE): base is not an ancestor of HEAD\n"
-		if code != 2 || !strings.Contains(out, want) {
-			t.Errorf("a base ahead of HEAD: exit %d, output %q, want exit 2 and %q", code, out, want)
-		}
-
-		out, code = run("YARDR_BASE="+ahead, "YARDR_LANDING=1")
+		// A landing with a base ahead of HEAD is the whole suite, as
+		// with no base at all.
+		out, code := run("YARDR_BASE="+ahead, "YARDR_LANDING=1")
 		first, _, _ := strings.Cut(out, "\n")
-		want = "test: YARDR_LANDING is set, and " + ahead + " (YARDR_BASE) is not an ancestor of HEAD: the whole suite"
+		want := "test: YARDR_LANDING is set, and " + ahead + " (YARDR_BASE) is not an ancestor of HEAD: the whole suite"
 		if code != 0 || first != want {
 			t.Errorf("a landing with a base ahead of HEAD: exit %d, first line %q, want exit 0 and %q", code, first, want)
+		}
+
+		// A plain run compares from the branch point and says so loudly.
+		// On a clean tree that selects nothing; with an uncommitted
+		// change, the change alone.
+		out, code = run("YARDR_BASE=" + ahead)
+		want = warn +
+			"test: what changed since " + ahead + " (YARDR_BASE), from " + short + "\n" +
+			"test: no package changed since " + short + "; no tests to run\n"
+		if code != 0 || out != want {
+			t.Errorf("a base ahead of HEAD on a clean tree: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
+		}
+
+		write("alone/p.go", "package p\n\nvar Touched int\n")
+		out, code = run("YARDR_BASE=" + ahead)
+		const tested = "test: testing, without -race, what changed, what imports it and what reads it:"
+		want = warn +
+			"test: what changed since " + ahead + " (YARDR_BASE), from " + short + plainWhy + "\n" +
+			tested + " m.test/m/alone\n"
+		if code != 0 || out != want {
+			t.Errorf("a base ahead of HEAD with an uncommitted change: exit %d, output:\n%s\nwant exit 0 and:\n%s", code, out, want)
+		}
+		write("alone/p.go", "package p\n")
+	})
+	t.Run("a base with no common history", func(t *testing.T) {
+		gitT(t, dir, "checkout", "-q", "--orphan", "lone")
+		t.Cleanup(func() {
+			gitT(t, dir, "checkout", "-q", "-f", "main")
+			gitT(t, dir, "branch", "-q", "-D", "lone")
+		})
+		write("lone.txt", "lone\n")
+		gitT(t, dir, "add", "-A")
+		gitT(t, dir, "commit", "-q", "-m", "lone")
+		lone := gitT(t, dir, "rev-parse", "HEAD")
+		gitT(t, dir, "checkout", "-q", "-f", "main")
+
+		out, code := run("YARDR_BASE=" + lone)
+		want := "test: cannot compare with " + lone + " (YARDR_BASE): no such commit here, or none in common with HEAD\n"
+		if code != 2 || !strings.Contains(out, want) {
+			t.Errorf("a base with no common history: exit %d, output %q, want exit 2 and %q", code, out, want)
 		}
 	})
 	// The builder changed a package nothing imports, the reviewer a file that
@@ -4465,6 +4504,203 @@ func TestYardTestRaceLockTermDuringTicketCreationLeavesNoQueueFiles(t *testing.T
 				}
 			}
 		})
+	}
+}
+
+// A TERM to the shell of a gate queued on the race lock stops it at once:
+// the shell waits for the lock pipeline, where its trap runs, instead of
+// running the pipeline in the foreground, where the trap waits for the leg
+// to end (yardr-k9mv). The gate ends within 2 s of the signal, and its
+// ticket is gone from the queue while the holder's stays. The signal goes
+// to the shell's pid alone, as the one in the evidence did: to the whole
+// group the lock helper would get one too and clean up whatever the shell
+// does. Its own home stands in for the yard's, so no real gate waits on it.
+func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("no perl in PATH")
+	}
+	script, err := os.ReadFile(yardTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver, home := raceLockDriver(t)
+	qdir := filepath.Join(home, ".yardr", "race.queue")
+	// beads are the queued tickets by name, each with the bead its
+	// content names. A ticket gone between the listing and the read is
+	// already gone.
+	beads := func() map[string]string {
+		t.Helper()
+		entries, err := os.ReadDir(qdir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return map[string]string{}
+			}
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, e := range entries {
+			if !raceTicketName.MatchString(e.Name()) {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(qdir, e.Name()))
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(b), "\n") {
+				if bead, ok := strings.CutPrefix(line, "bead="); ok {
+					got[e.Name()] = bead
+				}
+			}
+		}
+		return got
+	}
+	// The holder takes the lock for a minute, past every wait below.
+	holderOut, err := os.CreateTemp("", "raceholder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(holderOut.Name()) })
+	holder := exec.Command(driver, filepath.Join(home, "holder.status"), "sleep", "60")
+	holder.Dir = t.TempDir()
+	holder.Env = append(scriptEnv(), "HOME="+home, "YARDR_BEAD=holder-bead")
+	holder.Stdout, holder.Stderr = holderOut, holderOut
+	holder.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := holder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	holderPG := holder.Process.Pid
+	holderDone := make(chan error, 1)
+	go func() { holderDone <- holder.Wait() }()
+	t.Cleanup(func() { _ = syscall.Kill(-holderPG, syscall.SIGKILL) })
+	deadline := time.Now().Add(30 * time.Second)
+	for len(beads()) != 1 {
+		select {
+		case err := <-holderDone:
+			out, _ := os.ReadFile(holderOut.Name())
+			t.Fatalf("the holder exited %v before it queued:\n%s", err, out)
+		default:
+		}
+		if time.Now().After(deadline) {
+			out, _ := os.ReadFile(holderOut.Name())
+			t.Fatalf("the holder queued nothing in 30 s:\n%s", out)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// go.mod changed: the whole suite, so the step queues on the race
+	// lock (lockplain) without asking go for any list. The gate's own
+	// process group, so the TERM below names its shell's pid alone.
+	fake, dir := t.TempDir(), t.TempDir()
+	for name, text := range map[string]string{"go": "#!/bin/sh\nexit 0\n", "gofmt": "#!/bin/sh\n"} {
+		if err := os.WriteFile(filepath.Join(fake, name), []byte(text), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tmp := filepath.Join(fake, "tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mod := filepath.Join(dir, "go.mod")
+	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, dir, "init", "-q", "-b", "main")
+	gitT(t, dir, "add", "-A")
+	gitT(t, dir, "commit", "-q", "-m", "base")
+	base := gitT(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(mod, []byte("module m.test/m\n\n// touched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := exec.Command("sh", "-c", "echo $$ > \"$FAKE/gate.pid\"\n"+string(script))
+	gate.Dir = dir
+	gate.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	gate.Env = append(scriptEnv(),
+		"PATH="+fake+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"YARDR_BASE="+base, "YARDR_BEAD=gate-bead",
+		"TMPDIR="+tmp, "FAKE="+fake, "HOME="+home)
+	var stdout, stderr strings.Builder
+	gate.Stdout, gate.Stderr = &stdout, &stderr
+	if err := gate.Start(); err != nil {
+		t.Fatal(err)
+	}
+	gatePG := gate.Process.Pid
+	gateDone := make(chan error, 1)
+	go func() { gateDone <- gate.Wait() }()
+	t.Cleanup(func() { _ = syscall.Kill(-gatePG, syscall.SIGKILL) })
+	// The gate's ticket beside the holder's: its shell is blocked in the
+	// lock pipeline, which is the only way that ticket's process runs.
+	deadline = time.Now().Add(60 * time.Second)
+	for len(beads()) != 2 {
+		select {
+		case err := <-gateDone:
+			t.Fatalf("the gate exited %v before it queued, output:\n%s%s", err, stdout.String(), stderr.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the gate queued nothing in 60 s, output:\n%s%s", stdout.String(), stderr.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	pidB, err := os.ReadFile(filepath.Join(fake, "gate.pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidB)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		t.Fatalf("TERM the gate's shell: %v", err)
+	}
+	var runErr error
+	select {
+	case runErr = <-gateDone:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("the gate is still queued 10 s after TERM, output:\n%s%s", stdout.String(), stderr.String())
+	}
+	if elapsed := time.Since(start); elapsed >= 2*time.Second {
+		t.Errorf("the gate ended %s after TERM, want within 2 s", elapsed)
+	}
+	var ee *exec.ExitError
+	if !errors.As(runErr, &ee) {
+		t.Fatalf("the gate exited %v, want ended by TERM", runErr)
+	}
+	// onterm re-sends TERM to its group, itself included at the default
+	// disposition, so the shell dies of the signal; a shell that reached
+	// the exit it then calls reports 143. Either is the trap running.
+	st, _ := ee.ProcessState.Sys().(syscall.WaitStatus)
+	if ee.ExitCode() != 143 && !(st.Signaled() && st.Signal() == syscall.SIGTERM) {
+		t.Errorf("the gate ended %v, want exit 143 or death by TERM", runErr)
+	}
+	if out := stdout.String() + stderr.String(); strings.Contains(out, ": pass,") {
+		t.Errorf("a killed gate printed a pass test line")
+	}
+	// The helper's cleanup runs beside the shell's death, so the ticket
+	// follows the exit: the holder's is what stays.
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		got := beads()
+		gateLeft := false
+		for _, bead := range got {
+			gateLeft = gateLeft || bead == "gate-bead"
+		}
+		if !gateLeft {
+			if len(got) != 1 {
+				t.Errorf("tickets left: %v, want the holder's alone", got)
+				break
+			}
+			for _, bead := range got {
+				if bead != "holder-bead" {
+					t.Errorf("the ticket left names %q, want the holder's", bead)
+				}
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the gate's ticket is still queued 10 s after TERM: %v", got)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

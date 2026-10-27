@@ -42,7 +42,9 @@
 # agent's session and the assembly have it: main, or the train's branch for
 # a wagon), else origin/main. The first line of the output says which. A
 # reviewer that committed sets it to the commit the last test line names, so
-# the selection is its own commits alone (the review stages say so).
+# the selection is its own commits alone (the review stages say so). Where
+# the named base is ahead of HEAD, a plain run compares from the branch
+# point instead, and says so loudly; a landing is the whole suite.
 #
 # Two budgets (docs/testing.md R1 and R2): a package's tests finish in 60 s
 # under -race, and a test sleeps no more than 500 ms at a site. Each has its
@@ -745,7 +747,16 @@ again() {
     # landing's plain step empties for the call.
     land=$YARDR_LANDING
     [ "$race" = 1 ] || YARDR_LANDING=
-    { rc=0; racelocked "$status" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log"
+    # In the background, waited for: a shell runs no trap while it waits on a
+    # foreground command, and this pipeline waits on the race lock and then
+    # runs the whole leg, so a TERM or INT to a queued gate ran only when the
+    # leg ended (yardr-k9mv). In a wait the traps run at once, as the R1
+    # re-runs' wave already relies on. The wait names the pipeline ($!, its
+    # tee), not every child: in a landing the socket leg whole() started
+    # beside the first run is still unreaped here, and a bare wait would reap
+    # it and fail that leg's own wait below.
+    { rc=0; racelocked "$status" "$@" 2>&1 || rc=$?; echo "$rc" >"$log.rc"; } | tee "$log" &
+    wait $!
     YARDR_LANDING=$land
     rc=$(cat "$log.rc")
     waited_total=$((waited_total + $(waitcount "$log")))
@@ -2005,10 +2016,11 @@ fi
 # changed": a plain run could not run, and a landing is the whole suite (CI's
 # checkout has one commit and no origin/main). A review base left behind by a
 # rebase is compared from where it and HEAD meet, which selects more, never
-# less. If the named base is ahead of HEAD, the merge base is HEAD and would
-# select nothing, so the script says it cannot compare instead of passing an
-# empty selection; the review stage can then run plainly from its session's
-# base.
+# less. If the named base is ahead of HEAD, the merge base is HEAD: the
+# branch has no commits past it, and what it changed is uncommitted. A plain
+# run compares from there and says so loudly; a landing is the whole suite,
+# as with no base at all. Only a base that is no commit here, or has none in
+# common with HEAD, says it cannot compare.
 if [ -n "$YARDR_BASE" ]; then
   base=$YARDR_BASE said="YARDR_BASE"
 else
@@ -2021,9 +2033,17 @@ if [ -n "$from" ]; then
   head_commit=$(git rev-parse HEAD)
   base_commit=$(git rev-parse "$base")
   if [ "$from" = "$head_commit" ] && [ "$base_commit" != "$head_commit" ]; then
-    from=
-    no_base_reason="base is not an ancestor of HEAD"
-    no_base_suffix="is not an ancestor of HEAD"
+    if [ -n "$YARDR_LANDING" ]; then
+      from=
+      no_base_reason="base is not an ancestor of HEAD"
+      no_base_suffix="is not an ancestor of HEAD"
+    else
+      # The base moved past the branch point (a worktree whose main is
+      # ahead of its branch): compare from where the two meet, which is
+      # HEAD here, and say so loudly (yardr-p0xr). What the branch changed
+      # is then uncommitted, and a clean tree selects nothing.
+      echo "test: $base ($said) is not an ancestor of HEAD; comparing with the branch point $from instead" >&2
+    fi
   fi
 fi
 if [ -z "$from" ]; then

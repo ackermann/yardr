@@ -10,6 +10,7 @@ package managers
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -43,6 +44,14 @@ func Install(root, bin, state string) ([]string, error) {
 		if err := os.WriteFile(filepath.Join(bin, m.name), body, 0o755); err != nil {
 			return nil, err
 		}
+		// Run each once while nothing times it: the first run of a file
+		// written a moment ago waits behind the machine's other first
+		// runs on macOS (yardr-c3nm), and the script runs these under
+		// its waits. Bare, so each fails at its missing state variable
+		// before it logs its call: the tests read those logs.
+		cmd := exec.Command(filepath.Join(bin, m.name))
+		cmd.Env = []string{}
+		_ = cmd.Run()
 		env = append(env, m.stateVar+"="+dir)
 	}
 	return env, nil

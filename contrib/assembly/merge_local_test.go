@@ -104,6 +104,10 @@ func TestMain(m *testing.M) {
 	if err := build.Run(); err != nil {
 		panic("building yardr: " + err.Error())
 	}
+	// Run it once before any test times a script that starts it: the first
+	// run of a file written a moment ago waits behind the machine's other
+	// first runs on macOS (yardr-c3nm). version needs no home.
+	_ = exec.Command(yardrBin, "version").Run()
 	body, err := mktempRecorderScript()
 	if err != nil {
 		panic(err)

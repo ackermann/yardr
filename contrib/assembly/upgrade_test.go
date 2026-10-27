@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -76,6 +77,9 @@ func yardrCopy(t *testing.T, dir string) string {
 	if err := os.WriteFile(dst, b, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A copy is a new file, assessed on its first run like the build was:
+	// run it once here, where no fuse times it.
+	_ = exec.Command(dst, "version").Run()
 	return dst
 }
 

@@ -71,6 +71,15 @@ func goBuild(t *testing.T, root, out, pkg string) {
 	}
 }
 
+// warm runs path once with args in env, where no fuse times it, and ignores
+// the result: the first run of a file written a moment ago waits behind the
+// machine's other first runs on macOS (yardr-c3nm).
+func warm(path string, env []string, args ...string) {
+	cmd := exec.Command(path, args...)
+	cmd.Env = env
+	_ = cmd.Run()
+}
+
 // build makes D: yardr from the tree, the fake herdr, the shell stand-ins,
 // and the directories the script writes to.
 func build(t *testing.T) *yard {
@@ -121,6 +130,16 @@ exec "$SY_REAL_YARDR" "$@"
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Everything above is a file the script runs under its waits: run each
+	// once here, where no fuse times it (the managers ran in Install). The
+	// stand-ins get only what their run needs: herdr with no state answers
+	// nothing and logs nothing, and claude with no argument prints its
+	// version.
+	real := filepath.Join(y.bin, "yardr")
+	warm(real, []string{"HOME=" + y.home}, "version")
+	warm(filepath.Join(y.bin, "herdr"), []string{})
+	warm(filepath.Join(y.bin, "claude"), []string{"HERDR_FAKE_STATE=" + filepath.Join(y.state, "herdr")})
+	warm(filepath.Join(shim, "yardr"), []string{"HOME=" + y.home, "SY_REAL_YARDR=" + real}, "version")
 	// The test's own environment stays out: a YARDR_HOME or a
 	// HERDR_SOCKET_PATH inherited from it would reach the real yard.
 	y.env = []string{
@@ -875,6 +894,9 @@ func TestFakeHerdrStopsWithItsOwner(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	herdr := filepath.Join(dir, "herdr")
 	goBuild(t, root, herdr, "yardr.dev/yardr/contrib/server-yard/fake")
+	// Run it once before the serve the fuse below times: with no state it
+	// answers nothing and logs nothing.
+	warm(herdr, []string{})
 	named, end := owner(t)
 	sock := filepath.Join(dir, "herdr.sock")
 	cmd := exec.Command(herdr, "server")
