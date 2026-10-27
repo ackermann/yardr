@@ -73,6 +73,45 @@ backlog: The bead goes back to be reshaped by the yardmaster.
 		t.Fatalf("check with move ship: %+v, %v", tmpl, err)
 	}
 
+	// "options:" alone opens the options: every line after it is one, whatever
+	// its name, so an outcome can be named like a field. The fields above it
+	// keep their meaning, an option above it stays one, and recommend counts
+	// the options in the order they stand.
+	named := &store.StageFile{Text: `Build the thing.
+
+## Ask
+kind: choice
+question: Where should this bead go next?
+context:
+- The reviewer left a question in their note.
+recommend: 2
+why: The question is the reason the bead is here.
+done: The bead moves on.
+options:
+question: The bead parks in decide for a longer look.
+kind: The outcome is named kind.
+context: The outcome is named context.
+recommend: The outcome is named recommend.
+why: The outcome is named why.
+move: The outcome is named move.
+options: The outcome is named options.
+`}
+	if tmpl, err = named.Ask(); err != nil {
+		t.Fatalf("options: %v", err)
+	}
+	if tmpl.Kind != store.AskChoice || tmpl.Question != "Where should this bead go next?" || len(tmpl.Context) != 1 ||
+		tmpl.Recommend != 2 || tmpl.Why != "The question is the reason the bead is here." || tmpl.Move != "" {
+		t.Errorf("options: fields %+v", tmpl)
+	}
+	var outcomes []string
+	for _, o := range tmpl.Options {
+		outcomes = append(outcomes, o.Outcome)
+	}
+	if got := strings.Join(outcomes, " "); got != "done question kind context recommend why move options" ||
+		tmpl.Options[1].Consequence != "The bead parks in decide for a longer look." {
+		t.Errorf("options: outcomes %q, options %+v", got, tmpl.Options)
+	}
+
 	// No section is no template, not an error.
 	for _, text := range []string{"", "Build it.\n", "Build it.\n\n### Ask\nNot the section.\n"} {
 		if tmpl, err := (&store.StageFile{Text: text}).Ask(); err != nil || tmpl != nil {
@@ -146,6 +185,18 @@ func TestAskTemplateMalformed(t *testing.T) {
 		{"check with an option", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: a check ask takes no options: Done fires 'move:'"},
 		{"check with recommend", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nrecommend: 1\n", "ask line 6: a check ask takes no 'recommend:': Done is its only option"},
 		{"check with none", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nmove: none\n", "ask line 6: 'move: none' is for an input ask: a check ask moves on Done"},
+		{"field name as an option without options:", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\nquestion: Ask.\n", "ask line 7: question twice; write it once"},
+		{"options with a value", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions: Go.\n", "ask line 6: options takes the '<outcome>: <consequence>' lines beneath it, not a value"},
+		{"options: with nothing beneath it", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions:\n", "ask line 6: options needs at least one '<outcome>: <consequence>' line beneath it"},
+		{"options: with nothing beneath it but an option above", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\n", "ask line 7: options needs at least one '<outcome>: <consequence>' line beneath it"},
+		{"option named options without a consequence", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions:\noptions:\n", "ask line 7: outcome options needs a consequence: 'options: <what picking it does>'"},
+		{"option twice across options:", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\ndone: Go again.\n", "ask line 8: outcome done twice; write it once"},
+		{"context line after options:", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions:\ndone: Go.\n- More.\n", "ask line 8: a '- ' line after 'options:': context lines go under 'context:', above it"},
+		{"context below options:", "## Ask\nkind: choice\nquestion: Q?\noptions:\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: a '- ' line after 'options:': context lines go under 'context:', above it"},
+		{"kind below options:", "## Ask\nquestion: Q?\ncontext:\n- Why.\noptions:\ndone: Go.\nkind: choice\n", "ask line 1: kind is required: choice, input or check"},
+		{"input with options:", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\noptions:\n", "ask line 6: an input ask takes no options: its answer is words, and 'move:' says what they do"},
+		{"input with an option above options:", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\nquestion: Ask.\n", "ask line 6: an input ask takes no options: its answer is words, and 'move:' says what they do"},
+		{"check with options:", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\noptions:\n", "ask line 6: a check ask takes no options: Done fires 'move:'"},
 		{"stray prose", "Prose.\n\n## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\nSome more prose.\n", "ask line 8: want 'field: value', a '- ' context line or a blank line, got \"Some more prose.\""},
 		{"another section after", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\n\n## Outcomes\n", "ask line 7: want 'field: value', a '- ' context line or a blank line, got \"## Outcomes\""},
 	} {
@@ -210,6 +261,23 @@ func TestAskTemplateCheck(t *testing.T) {
 	var noTemplate *store.AskTemplate
 	if err := noTemplate.Check(flow, "review"); err != nil {
 		t.Errorf("no template: %v", err)
+	}
+
+	// An outcome named like a field is offered after "options:" and resolves
+	// like any other, so BrokenAsk, which flow show warns by, says nothing. A
+	// field line after "options:" is an option too, refused as one.
+	withQuestion, err := store.ParseFlow("new -> review\nreview -> merged on done | new on changes | decide on question\ndecide -> review\nmerged terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	withQuestion.Name = "code"
+	offersQuestion := &store.StageFile{Path: "review.md", Text: "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\nquestion: Park it.\n"}
+	if got := offersQuestion.BrokenAsk(withQuestion, "review"); got != "" {
+		t.Errorf("an option named question: %s", got)
+	}
+	offersKind := &store.StageFile{Path: "review.md", Text: "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\nkind: Back.\n"}
+	if got := offersKind.BrokenAsk(withQuestion, "review"); !strings.HasPrefix(got, "review.md: ask line 8: flow code has no outcome kind for stage review; outcomes: done, changes, question") {
+		t.Errorf("an option named kind: %q", got)
 	}
 }
 

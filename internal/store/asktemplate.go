@@ -14,6 +14,12 @@
 //	done: The bead moves to new with your words as the note.
 //	backlog: The bead goes back to be reshaped by the yardmaster.
 //
+// A line named like a field is that field, so an outcome named question,
+// kind, context, recommend, why, move or options cannot be offered as a bare
+// line. A line of "options:", which takes no value, opens the options
+// instead: every line after it is an option whatever its name, to the end of
+// the section.
+//
 // The section is stripped wherever the stage file is shown (StageFile.Body),
 // as the summary: line already is. A section that is present must parse
 // fully; anything else is refused naming its line, and yardr flow show
@@ -188,7 +194,8 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 	t := &AskTemplate{askLine: at + 1, Move: DefaultOutcome}
 	var (
 		seenKind, seenQuestion, seenContext, seenRecommend, seenWhy, seenMove bool
-		contextLine, recommendLine, whyLine                                   int // 1-based
+		contextLine, recommendLine, whyLine, optionsLine                      int // 1-based
+		optionsAbove                                                          int // options before the 'options:' line
 		options                                                               []askOptionLine
 	)
 	fail := func(n int, format string, args ...any) (*AskTemplate, error) {
@@ -201,6 +208,11 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 			continue
 		}
 		if line == "-" || strings.HasPrefix(line, "- ") {
+			// Past 'options:' there is no way back to the fields, and the
+			// context is one: its lines would otherwise attach to it from here.
+			if optionsLine != 0 {
+				return fail(n, "a '- ' line after 'options:': context lines go under 'context:', above it")
+			}
 			if !seenContext {
 				return fail(n, "a '- ' line before any 'context:' line: context lines go under 'context:'")
 			}
@@ -214,6 +226,12 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 			return fail(n, "want 'field: value', a '- ' context line or a blank line, got %q", line)
 		}
 		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		// Past 'options:' every line is an option, whatever its name, so that
+		// an outcome can be named like a field, options included.
+		if optionsLine != 0 {
+			options = append(options, askOptionLine{outcome: key, consequence: value, line: n})
+			continue
+		}
 		// A field twice is refused where it stands; an option's duplicates
 		// are refused once the kind says these lines are options.
 		seen := func(had *bool) bool {
@@ -271,6 +289,11 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 			}
 			t.Move = value
 			t.moveLine = n
+		case "options":
+			if value != "" {
+				return fail(n, "options takes the '<outcome>: <consequence>' lines beneath it, not a value")
+			}
+			optionsLine, optionsAbove = n, len(options)
 		default:
 			options = append(options, askOptionLine{outcome: key, consequence: value, line: n})
 		}
@@ -287,12 +310,21 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 	if len(t.Context) == 0 {
 		return fail(contextLine, "context needs at least one '- ' line")
 	}
+	// Where the ask first takes options, for the kinds that take none: its
+	// first option's line, or the 'options:' line when no option stands above it.
+	firstOption := optionsLine
+	if len(options) > 0 && (firstOption == 0 || options[0].line < firstOption) {
+		firstOption = options[0].line
+	}
 	switch t.Kind {
 	case AskChoice:
 		if seenMove {
 			return fail(t.moveLine, "a choice ask takes no 'move:': each option names its outcome")
 		}
 		t.Move = ""
+		if optionsLine != 0 && len(options) == optionsAbove {
+			return fail(optionsLine, "options needs at least one '<outcome>: <consequence>' line beneath it")
+		}
 		if len(options) == 0 {
 			return fail(t.askLine, "a choice ask needs at least one '<outcome>: <consequence>' line")
 		}
@@ -323,8 +355,8 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 			return fail(whyLine, "'why:' needs 'recommend:': which option it is for")
 		}
 	case AskInput:
-		if len(options) > 0 {
-			return fail(options[0].line, "an input ask takes no options: its answer is words, and 'move:' says what they do")
+		if firstOption != 0 {
+			return fail(firstOption, "an input ask takes no options: its answer is words, and 'move:' says what they do")
 		}
 		if seenRecommend {
 			return fail(recommendLine, "an input ask takes no 'recommend:': its answer is words")
@@ -336,8 +368,8 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 			return fail(t.moveLine, "move %q: an outcome name uses letters, digits, '.', '_' or '-', or 'none'", t.Move)
 		}
 	case AskCheck:
-		if len(options) > 0 {
-			return fail(options[0].line, "a check ask takes no options: Done fires 'move:'")
+		if firstOption != 0 {
+			return fail(firstOption, "a check ask takes no options: Done fires 'move:'")
 		}
 		if seenRecommend {
 			return fail(recommendLine, "a check ask takes no 'recommend:': Done is its only option")

@@ -587,12 +587,45 @@ backlog: The bead goes back to be reshaped by the yardmaster.
 - `choice` offers one option per line of the form `<outcome>: <consequence>`,
   at least one line. The option's label is the outcome's name; each outcome
   must resolve under the flow. `recommend` and `why` follow the ask's rules.
+  An outcome named like a field takes `options:`, below.
 - `input` asks for words: no options and no recommendation. `move:` names the
   outcome the words fire, default `done`; `move: none` records the words and
   moves nothing, for a stage with no outcomes.
 - `check` asks "has X been done?": `move:` names the outcome Done fires
   (default `done`). There is no explicit Not-yet option: Later, the existing
   action, is the not-yet.
+
+A line named like a field is that field, so an outcome called `question`,
+`kind`, `context`, `recommend`, `why`, `move` or `options` cannot be offered as
+a bare option line: `question: <consequence>` reads as the question a second
+time and is refused, and every stage of the starter flows that has outcomes has
+one named `question`. A line of `options:`, which takes no value, opens the
+options: every line after it is an option, whatever its name, to the end of
+the section.
+
+```
+## Ask
+kind: choice
+question: Where should this bead go next?
+context:
+- The reviewer left a question in their note.
+recommend: 1
+why: Landing it is the usual answer once the checks are green.
+options:
+done: The bead goes to approved, where it lands.
+changes: The bead goes back to new with your words as the note.
+question: The bead parks in decide for a longer look.
+```
+
+Write the fields first and `options:` last. After it there is no way back to
+the fields: a `kind:`, `context:` or `recommend:` line there is an option, and
+is refused as one when the flow has no outcome of that name, and a `- ` line
+there is refused, since context lines go under `context:`. Option lines above
+`options:` stay options, so a template that parses without it needs the line
+only for the outcomes named like a field, and `recommend` counts the options
+in the order they stand, above the line and below it. `options:` takes no
+value, as `context:` takes none, so an outcome named `options` is offered
+below the line like any other.
 
 The question and context are literal text; nothing is interpolated. The
 section is stripped wherever the stage file is shown (the brief, prime, the
