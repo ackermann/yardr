@@ -16,9 +16,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"yardr.dev/yardr/internal/agents"
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/yardkey"
 )
@@ -51,9 +53,13 @@ connected yard dials out, so it needs no open port and no tunnel of its own.
   yardr edge mint-google <url> <source>
                               mint a Google access token through the edge,
                               as a google source's mint_command
+  yardr edge setup-google <url>
+                              set the hosted mint on the google sources the
+                              edge's connection granted, and record the
+                              provider's terms on your reading of them
 
 Connecting sets the edge setting and hook_public_url (yardr settings).`}
-	cmd.AddCommand(a.edgeConnectCmd(), a.edgeStatusCmd(), a.edgeDisconnectCmd(), a.edgeMintGoogleCmd())
+	cmd.AddCommand(a.edgeConnectCmd(), a.edgeStatusCmd(), a.edgeDisconnectCmd(), a.edgeMintGoogleCmd(), a.edgeSetupGoogleCmd())
 	return cmd
 }
 
@@ -550,8 +556,7 @@ func (a *app) edgeMintGoogle(c *cobra.Command, address, source string) error {
 	if err := store.CheckEdgeURL(addr); err != nil {
 		return refuse("%s", err)
 	}
-	needs, ok := googleMintScopes[source]
-	if !ok {
+	if _, ok := googleMintScopes[source]; !ok {
 		return refuse("unknown source %q: one of %s", source, strings.Join(googleMintSources, ", "))
 	}
 	raw, err := io.ReadAll(c.InOrStdin())
@@ -579,45 +584,15 @@ func (a *app) edgeMintGoogle(c *cobra.Command, address, source string) error {
 	if err != nil {
 		return refuse("%s", err)
 	}
-	yard, err := yardkey.Load(cfg.PeerKey())
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return refuse("this yard has no key, so it can sign nothing: connect it first (%s edge connect <url> makes the pair)", yardrAt(cfg.Home))
-		}
-		return refuse("%s", err)
-	}
 	st, err := a.store(ctx)
 	if err != nil {
 		return refuse("%s", err)
 	}
-	settings, err := st.Settings(ctx)
+	mint, err := a.mintGoogleThrough(ctx, addr, account, st, cfg)
 	if err != nil {
 		return refuse("%s", err)
 	}
-	client := &edgelink.Client{URL: addr, HTTP: a.edgeHTTP}
-	// The key this yard pinned, where its edge setting names this edge;
-	// else the key a connect would fetch. A pin is never replaced by a
-	// later fetch.
-	edgeKey := ""
-	if e, connected, perr := store.EdgeOf(settings); perr == nil && connected && e.URL == addr {
-		edgeKey = e.Key
-	}
-	if edgeKey == "" {
-		if edgeKey, err = client.Key(ctx); err != nil {
-			return refuse("%s", err)
-		}
-	}
-	mint, err := client.MintGoogle(ctx, edgeKey, yard, account)
-	if err != nil {
-		return refuse("%s", err)
-	}
-	var missing []string
-	for _, need := range needs {
-		if !slices.Contains(mint.GrantedScopes, need) {
-			missing = append(missing, need)
-		}
-	}
-	if len(missing) > 0 {
+	if missing := missingGoogleScopes(source, mint.GrantedScopes); len(missing) > 0 {
 		return refuse("%s needs %s, missing from the Google connection's grant: reconnect at %s/google", source, strings.Join(missing, ", "), addr)
 	}
 	answer, err := json.Marshal(struct {
@@ -629,4 +604,270 @@ func (a *app) edgeMintGoogle(c *cobra.Command, address, source string) error {
 	}
 	fmt.Fprintln(w, string(answer))
 	return nil
+}
+
+// missingGoogleScopes are the scopes source needs that granted does not
+// hold, in the order googleMintScopes names them.
+func missingGoogleScopes(source string, granted []string) []string {
+	var missing []string
+	for _, need := range googleMintScopes[source] {
+		if !slices.Contains(granted, need) {
+			missing = append(missing, need)
+		}
+	}
+	return missing
+}
+
+// mintGoogleThrough makes one signed mint call for account at the edge
+// addr, as mint-google and the hosted setup's probe both make it: the
+// yard's key loaded from peer.key, and the edge's key the one this yard
+// pinned where its edge setting names addr, else the one a connect
+// would fetch. The answer's token is the caller's to discard or print;
+// nothing here checks its scopes.
+func (a *app) mintGoogleThrough(ctx context.Context, addr, account string, st store.API, cfg *config.Config) (*edgelink.GoogleMint, error) {
+	yard, err := yardkey.Load(cfg.PeerKey())
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("this yard has no key, so it can sign nothing: connect it first (%s edge connect <url> makes the pair)", yardrAt(cfg.Home))
+		}
+		return nil, err
+	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	client := &edgelink.Client{URL: addr, HTTP: a.edgeHTTP}
+	// The key this yard pinned, where its edge setting names this edge;
+	// else the key a connect would fetch. A pin is never replaced by a
+	// later fetch.
+	edgeKey := ""
+	if e, connected, perr := store.EdgeOf(settings); perr == nil && connected && e.URL == addr {
+		edgeKey = e.Key
+	}
+	if edgeKey == "" {
+		if edgeKey, err = client.Key(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return client.MintGoogle(ctx, edgeKey, yard, account)
+}
+
+// googleSetupSource is one source's outcome of a hosted setup.
+type googleSetupSource struct {
+	Source string `json:"source"`
+	// Action is set, kept or skipped.
+	Action string `json:"action"`
+	Mint   string `json:"mint,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// googleSetup is what yardr edge setup-google did.
+type googleSetup struct {
+	Edge          string               `json:"edge"`
+	Sources       []googleSetupSource  `json:"sources"`
+	ProviderTerms *store.ProviderTerms `json:"provider_terms,omitempty"`
+	TermsNote     string               `json:"terms_note,omitempty"`
+}
+
+func (a *app) edgeSetupGoogleCmd() *cobra.Command {
+	var termsRead, bars bool
+	var termsURL, readOn string
+	cmd := &cobra.Command{
+		Use: "setup-google <edge-url>", Short: "Set the hosted mint on the granted google sources, and record the provider's terms",
+		Long: `Sets the hosted mint on this yard's google sources, for a yard whose
+Google is connected at the edge: each of google-drive, google-docs,
+google-slides and google-calendar is probed once through the edge, and
+only a source whose scopes the connection was granted gets
+mint_command="yardr edge mint-google <edge-url> <source>". A source the
+probe refuses keeps the pack's google-mint, and its token is discarded.
+google-mail is untouched: it mints locally in this slice. Clearing a
+source's mint_command (yardr source set <source> mint_command=) is the
+way back to the pack's mint. Only the operator sets a mint, as only the
+operator sets any source's.
+
+The same setup records what you read of your model provider's terms.
+It names the provider of the yard's harness kind (default_kind) and
+asks you to read that provider's terms page. With --terms-read you say
+you read it: --terms-url names the page you relied on, --read-on the
+date (today by default), and --bars-general-training says those terms
+bar creating, training or improving a general model from the data.
+Without --terms-read no record is made.`,
+		Example: `  yardr edge setup-google https://my.yardr.dev --terms-read --terms-url https://provider.example/terms --bars-general-training`,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			return a.edgeSetupGoogle(c, args[0], termsRead, termsURL, readOn, bars)
+		},
+	}
+	cmd.Flags().BoolVar(&termsRead, "terms-read", false, "say you read the provider's terms page, and record it")
+	cmd.Flags().StringVar(&termsURL, "terms-url", "", "the provider's terms page you read and relied on (with --terms-read)")
+	cmd.Flags().StringVar(&readOn, "read-on", "", "the date you read it, YYYY-MM-DD (with --terms-read; today by default)")
+	cmd.Flags().BoolVar(&bars, "bars-general-training", false, "whether the terms bar creating, training or improving a general model from the data; pass true or false (with --terms-read)")
+	return cmd
+}
+
+func (a *app) edgeSetupGoogle(c *cobra.Command, address string, termsRead bool, termsURL, readOn string, bars bool) error {
+	ctx := c.Context()
+	addr := strings.TrimRight(address, "/")
+	if err := store.CheckEdgeURL(addr); err != nil {
+		return err
+	}
+	if termsRead && termsURL == "" {
+		return errors.New("--terms-read names the page relied on: --terms-url <the provider's terms page>")
+	}
+	if termsRead && !c.Flags().Changed("bars-general-training") {
+		return errors.New("--terms-read records whether the terms bar general training: pass --bars-general-training=true or --bars-general-training=false")
+	}
+	if !termsRead && (termsURL != "" || readOn != "" || c.Flags().Changed("bars-general-training")) {
+		return errors.New("--terms-url, --read-on and --bars-general-training say what a reading records: they go with --terms-read")
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	cfg, err := a.config()
+	if err != nil {
+		return err
+	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	kind := settings[store.DefaultKindSetting]
+	if kind == "" {
+		kind = agents.DefaultKind
+	}
+	provider := ""
+	if h, ok := agents.Lookup(kind); ok {
+		provider = h.Provider
+	}
+	var terms *store.ProviderTerms
+	var termsValue string
+	if termsRead {
+		if provider == "" {
+			return fmt.Errorf("the harness kind %s names no provider: no provider-terms record is made", kind)
+		}
+		if readOn == "" {
+			readOn = time.Now().Format("2006-01-02")
+		}
+		rec := store.ProviderTerms{Provider: provider, TermsURL: termsURL, ReadOn: readOn, BarsGeneralTraining: bars}
+		termsValue, err = store.WithProviderTerms(settings, rec)
+		if err != nil {
+			return err
+		}
+		terms = &rec
+	}
+	// Check every source and setting this command may write before a
+	// probe signs a call with the yard's key. A policy may decide by
+	// source name, so permission to change one is not permission to probe
+	// the rest.
+	for _, name := range googleMintSources {
+		if _, err := st.GetSource(ctx, name); errors.Is(err, store.ErrNotFound) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("source %s: %w", name, err)
+		}
+		if err := st.May(ctx, a.who(), store.ActSetSourceKey, store.Object{Kind: store.KindSource, Name: name, Ask: store.Alone}); err != nil {
+			return err
+		}
+	}
+	if terms != nil {
+		if err := st.May(ctx, a.who(), store.ActChangeSetting, store.Object{Kind: store.KindSetting, Name: store.ProviderTermsSetting, Ask: store.Alone}); err != nil {
+			return err
+		}
+	}
+	out := googleSetup{Edge: addr, Sources: []googleSetupSource{}}
+	for _, name := range googleMintSources {
+		source, err := a.setupGoogleSource(ctx, st, cfg, addr, name)
+		if err != nil {
+			return err
+		}
+		out.Sources = append(out.Sources, source)
+	}
+	if _, err := st.GetSource(ctx, "google-mail"); err == nil {
+		out.Sources = append(out.Sources, googleSetupSource{Source: "google-mail", Action: "skipped", Reason: "mints locally in this slice, and is left as it is"})
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("source google-mail: %w", err)
+	}
+	// The provider of the yard's harness kind, and the record of its
+	// terms: shown and asked here, recorded only on the operator's
+	// reading, since no code in the yard can read terms and judge them.
+	switch {
+	case provider == "":
+		out.TermsNote = fmt.Sprintf("the harness kind %s names no provider, so no provider-terms record is made", kind)
+	case !termsRead:
+		out.TermsNote = fmt.Sprintf("read %s's terms page, then run this again with --terms-read --terms-url <the page you relied on> --bars-general-training=<true|false>: no provider-terms record is made until you do", provider)
+	default:
+		if err := st.SetSetting(ctx, store.ProviderTermsSetting, termsValue, a.who()); err != nil {
+			return err
+		}
+		out.ProviderTerms = terms
+	}
+	return a.out(c.OutOrStdout(), out, func(w io.Writer) {
+		for _, s := range out.Sources {
+			switch s.Action {
+			case "set":
+				fmt.Fprintf(w, "source %s: mint set to %s\n", s.Source, s.Mint)
+			case "kept":
+				fmt.Fprintf(w, "source %s: kept the pack's mint (%s)\n", s.Source, s.Reason)
+			default:
+				fmt.Fprintf(w, "source %s: skipped (%s)\n", s.Source, s.Reason)
+			}
+		}
+		if out.ProviderTerms != nil {
+			r := out.ProviderTerms
+			bars := "do not bar"
+			if r.BarsGeneralTraining {
+				bars = "bar"
+			}
+			fmt.Fprintf(w, "provider terms: %s, read at %s on %s; they %s creating, training or improving a general model from the data\n", r.Provider, r.TermsURL, r.ReadOn, bars)
+		} else if out.TermsNote != "" {
+			fmt.Fprintf(w, "provider terms: %s\n", out.TermsNote)
+		}
+	})
+}
+
+// setupGoogleSource probes one google source through the edge and sets
+// its hosted mint only where the probe answers with its scopes granted:
+// any refusal keeps the pack's mint, and the probe's token is discarded
+// with the probe. The setting is verified back as the source's
+// effective mint before it is said to stand.
+func (a *app) setupGoogleSource(ctx context.Context, st store.API, cfg *config.Config, addr, name string) (googleSetupSource, error) {
+	src, err := st.GetSource(ctx, name)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return googleSetupSource{Source: name, Action: "skipped", Reason: "not in this yard"}, nil
+		}
+		return googleSetupSource{}, fmt.Errorf("source %s: %w", name, err)
+	}
+	file := src.EnvFile
+	if file == "" {
+		file = source.EnvFile(cfg.Home, name)
+	}
+	f, err := config.ReadEnvFile(file)
+	account := ""
+	if err == nil {
+		account = source.Lookup(f.Env, "GOOGLE_ACCOUNT")
+	}
+	if account == "" {
+		return googleSetupSource{Source: name, Action: "kept", Reason: "its account GOOGLE_ACCOUNT is not set, so there is nothing to probe with"}, nil
+	}
+	mint, err := a.mintGoogleThrough(ctx, addr, account, st, cfg)
+	if err != nil {
+		return googleSetupSource{Source: name, Action: "kept", Reason: err.Error()}, nil
+	}
+	if missing := missingGoogleScopes(name, mint.GrantedScopes); len(missing) > 0 {
+		return googleSetupSource{Source: name, Action: "kept", Reason: fmt.Sprintf("needs %s, missing from the Google connection's grant: reconnect at %s/google", strings.Join(missing, ", "), addr)}, nil
+	}
+	command := "yardr edge mint-google " + addr + " " + name
+	if _, err := st.SetSource(ctx, name, store.SourceMintCommand, command, a.who()); err != nil {
+		return googleSetupSource{}, fmt.Errorf("source %s: set hosted mint: %w", name, err)
+	}
+	after, err := st.GetSource(ctx, name)
+	if err != nil {
+		return googleSetupSource{}, fmt.Errorf("source %s: read back hosted mint: %w", name, err)
+	}
+	if strings.Join(after.Mint, " ") != command {
+		return googleSetupSource{}, fmt.Errorf("source %s: the hosted mint does not stand as the source's mint after setting it", name)
+	}
+	return googleSetupSource{Source: name, Action: "set", Mint: command}, nil
 }

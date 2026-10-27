@@ -430,6 +430,8 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: ProviderTermsSetting, Help: "the provider-terms records the hosted Google setup made, one JSON list: each record's provider, the terms page the operator read (terms_url), the date read (read_on) and whether those terms bar creating, training or improving a general model from the data (bars_general_training); written by yardr edge setup-google on the operator's reading alone, and read by the agent gate for hosted Google calls",
+		Check: checkProviderTermsSetting},
 	{Key: PreviewIdleSetting, Help: "how long a preview may go without a request before the supervisor stops it, such as 4h or 1d; the approval stands, and the next visit starts it again",
 		Default: Span(DefaultPreviewIdle), Check: func(v string) error {
 			d, err := ParseSpan(v)
@@ -470,7 +472,7 @@ func settingAsk(key string) AskClass {
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
-		BackupDirSetting, HookAddrSetting, EdgeSetting, RouterAddrSetting, HostedSetting, WebAddrSetting,
+		BackupDirSetting, HookAddrSetting, EdgeSetting, RouterAddrSetting, HostedSetting, ProviderTermsSetting, WebAddrSetting,
 		WebPagesAddrSetting, WebPagesHostSetting, BDPAddrSetting,
 		HerdrSessionSetting:
 		return Alone

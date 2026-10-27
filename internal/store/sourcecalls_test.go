@@ -319,6 +319,110 @@ func TestSourceCallChosenBase(t *testing.T) {
 	}
 }
 
+// A session's and a crew member's hosted-Google call is refused with
+// the 3.9 words before any mint, while the operator's same call mints
+// and answers: the hosted mint is a fake yardr on PATH that hands back
+// a token for the stand-in Drive API and counts its runs in a log the
+// test reads back.
+func TestSourceCallHostedGoogle(t *testing.T) {
+	s := storetest.New(t)
+	ctx := crmYard(t, s)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer hosted-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		io.WriteString(w, `{"files":[]}`)
+	}))
+	t.Cleanup(api.Close)
+	text := `name: google-drive
+base: ` + api.URL + `
+credential:
+  env: GOOGLE_TOKEN
+  header: "Authorization: Bearer {credential}"
+  mint:
+    - name: GOOGLE_ACCOUNT
+      secret: false
+  mint_command: [google-mint]
+calls:
+  files: { kind: read, request: { method: GET, path: /drive/v3/files } }
+`
+	if _, err := s.PutSource(ctx, "google-drive.yaml", text, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(t.TempDir(), "google.env")
+	if err := os.WriteFile(env, []byte("GOOGLE_ACCOUNT=ada@example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSource(ctx, "google-drive", store.SourceEnvFile, env, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, "yardr edge mint-google https://edge.example.com google-drive", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	// The fake hosted mint: it counts its runs and hands back a token
+	// that expires two hours out, as the edge's answer would.
+	bin := t.TempDir()
+	log := filepath.Join(bin, "mints.log")
+	answer := filepath.Join(bin, "mint.json")
+	expires := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	if err := os.WriteFile(answer, []byte(`{"token":"hosted-token","expires_at":"`+expires+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\necho run >> " + log + "\ncat " + answer + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "yardr"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	mints := func() int {
+		data, _ := os.ReadFile(log)
+		return strings.Count(string(data), "run")
+	}
+	if _, err := s.GrantSource(ctx, "google-drive", store.GrantRead, store.Grantee{Group: "builders"}, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GrantSource(ctx, "google-drive", store.GrantRead, store.Grantee{Crew: "yardmaster"}, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	_, sess := session(t, s, "builders")
+	for _, call := range []store.SourceCall{
+		{Source: "google-drive", Call: "files", Session: sess.ID, Actor: "x"},
+		{Source: "google-drive", Call: "files", Actor: "yardmaster"},
+	} {
+		_, err := s.CallSource(ctx, call)
+		if err == nil || !strings.Contains(err.Error(), "in-context confirmation of 3.9") {
+			t.Fatalf("an agent caller's hosted-Google call = %v, want the 3.9 refusal", err)
+		}
+		if _, data := lastCall(t, s); !strings.Contains(data, `"status":"hosted_google"`) {
+			t.Fatalf("its event = %s", data)
+		}
+	}
+	if n := mints(); n != 0 {
+		t.Fatalf("a refused agent call minted %d times", n)
+	}
+	res, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Actor: "jo"})
+	if err != nil || string(res.Answer) != `{"files":[]}` {
+		t.Fatalf("the operator's hosted-Google call = %+v, %v", res, err)
+	}
+	if n := mints(); n != 1 {
+		t.Fatalf("the operator's call minted %d times, want 1", n)
+	}
+	// The hosted mint spelled another way is still the hosted mint: an
+	// agent's call through it is refused before it runs.
+	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, "env yardr edge mint-google https://edge.example.com google-drive", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Session: sess.ID, Actor: "x"}); err == nil || !strings.Contains(err.Error(), "in-context confirmation of 3.9") {
+		t.Fatalf("a session's call through the hosted mint run by env = %v, want the 3.9 refusal", err)
+	}
+	if n := mints(); n != 1 {
+		t.Fatalf("a refused agent call minted: %d mints, want 1", n)
+	}
+}
+
 // The operator makes any call without a grant; a crew member the ones it
 // was granted, by name or through read; anyone else none.
 func TestSourceCallGrants(t *testing.T) {

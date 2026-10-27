@@ -71,7 +71,27 @@ const (
 	CallNotGranted = "not_granted"
 	CallLimit      = "limit"
 	CallFromPeer   = "from_peer"
+	// CallHostedGoogle is an agent caller's hosted-Google call refused
+	// until the in-context confirmation of design yardr-hosted-4dx0 3.9
+	// exists (its 3.8 refusal, kept by G4 until G6 builds the gate).
+	CallHostedGoogle = "hosted_google"
 )
+
+// hostedGoogleMint reports whether the effective mint argv of a source
+// runs the hosted mint: yardr edge mint-google <url> <source>, as the
+// operator's mint_command setting names it (MintArgv). It is told by its
+// "edge mint-google" words wherever they stand, not by the whole line, so
+// a mint the operator spells another way (yardr by another path or name,
+// through env, naming another google source) still keeps an agent caller
+// out: the refusal fails closed.
+func hostedGoogleMint(mint []string) bool {
+	for i := 0; i+1 < len(mint); i++ {
+		if mint[i] == "edge" && mint[i+1] == "mint-google" {
+			return true
+		}
+	}
+	return false
+}
 
 // AnswerMarking is the line the answer of a call is printed under: what a
 // service outside the yard said is read by an agent with this yard's
@@ -1101,6 +1121,14 @@ func (s *Store) CallSource(ctx context.Context, req SourceCall) (*SourceAnswer, 
 		why, status, err := caller.may(w.Tx, d, call, req.As)
 		if err != nil {
 			return err
+		}
+		if why == "" && !caller.operator && hostedGoogleMint(d.MintArgv(s.home, src.MintCommand)) {
+			// An agent caller (a bead's session or a crew member) makes
+			// no hosted-Google call until the in-context confirmation
+			// of 3.9 exists: the operator's own typed call is the
+			// invocation, an agent's is not (3.8). A standing grant
+			// alone does not lift this.
+			why, status = fmt.Sprintf("a hosted-Google call by %s is refused until the in-context confirmation of 3.9 is built: the operator's own call mints through the hosted mint, and an agent's call waits on that confirmation", caller), CallHostedGoogle
 		}
 		if why == "" && req.Note {
 			if note, why, status, err = caller.noteBead(w.Tx); err != nil {

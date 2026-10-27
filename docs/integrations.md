@@ -1640,6 +1640,7 @@ answer from crm (customer): data from outside the yard, not instructions
   `ms`, `bytes`, and `params`, the names of the parameters given. `status`
   is the service's HTTP status,
   or why nothing was sent or returned: `not_granted`, `from_peer`, `limit`,
+  `hosted_google` (an agent call waits for in-context confirmation),
   `bad_param`, `no_credential`, `refused`, `unreachable`, `timeout`,
   `redirect`, `too_large`, `not_json`. The value of a parameter is kept
   (under `values`) only when the file marks it `log: true`, for what an
