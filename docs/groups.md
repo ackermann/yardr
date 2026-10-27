@@ -1091,8 +1091,8 @@ key sets them.
 | runner | starts | config |
 |---|---|---|
 | `manual` | nothing; the bead waits on the group | `notify`, `wait` ([below](#a-bead-that-waits-long)), `fold`, `fold_after`, `fold_max` ([below](#a-siding)) |
-| `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group), `YARDR_KIND` (`exec`), `YARDR_MODEL` and `YARDR_GIT_SYSTEM_CLEAN`; for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [line.md](line.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TEST` (the depot's test command, unset when it has none, see [configuration.md](configuration.md#registering-a-depot)); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([line.md](line.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([line.md](line.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees`, `env_file`, `timeout` |
-| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_KIND` (its harness kind), `YARDR_MODEL`, `YARDR_GIT_SYSTEM_CLEAN`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `still`, `label`, `env_file`, `trust` |
+| `exec` | `sh -c cmd` in the depot, with `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_ACTOR` (the group), `YARDR_KIND` (`exec`), `YARDR_MODEL` and `YARDR_GIT_SYSTEM_CLEAN`; for a bead with a depot also `YARDR_DEPOT`, `YARDR_DEPOT_PATH`, `YARDR_BASE` (what the bead lands on: the depot's base, or its train's branch, see [line.md](line.md#trains); for a bead from a linked yard that named where its work starts, that commit, see [peers.md](peers.md#code-that-comes-back)), `YARDR_BRANCH` (`yard/<bead>`), `YARDR_WORKTREE` (where herdr groups check that branch out); `YARDR_TEST` (the depot's test command, unset when it has none, see [configuration.md](configuration.md#registering-a-depot)); `YARDR_TYPE` (the bead's type) and `YARDR_TRAIN` (the train it is a child of, empty for none), by which merge-local knows a wagon of a train ([line.md](line.md#wagons)); and `YARDR_BIN`, `YARDR_HOME` for the script's own `yardr` commands; `YARDR_DEPOT_KIND` is `git`, or `dir` for a dir depot, whose beads get no base, branch or worktree. An assembly is one ([line.md](line.md#4-approved-the-assembly-lands-it-on-main)), and so is an integrator such as `yardr-integrators`, which integrates a train's branch once its children have landed ([line.md](line.md#the-trains-own-flow)) | `cmd`, `dir`, `log`, `worktrees`, `env_file`, `timeout`, `nice` ([below](#sessions-that-give-way)) |
+| `herdr` | a herdr worktree workspace on branch `yard/<bead>` (from the bead's base) at `~/.yardr/worktrees/<depot>/<bead>` (reopened for later stages, one tab per stage), an agent in it, in a tab of its own with `YARDR_ACTOR` (the agent), `YARDR_BEAD`, `YARDR_SESSION`, `YARDR_STAGE`, `YARDR_GROUP`, `YARDR_KIND` (its harness kind), `YARDR_MODEL`, `YARDR_GIT_SYSTEM_CLEAN`, `YARDR_BASE` (what it branches from: the depot's base, or its train's branch), `YARDR_HOME` and `YARDR_BIN` in its environment, prompted with a brief in the worktree's git dir (`git rev-parse --git-path yardr`); a dir depot's bead works in the directory itself (see [Dir depots](#dir-depots)) | `kind`, `prompt`, `args`, `model`, `keep`, `worktrees`, `idle`, `max_age`, `grace`, `stall`, `still`, `label`, `env_file`, `trust`, `nice` ([below](#sessions-that-give-way)) |
 | `peer` | nothing here: the bead is sent to a linked yard, which works it in a flow of its own and returns how it ended ([Peer groups](#peer-groups)) | `peer`, `tries`, `remote`, `max_age` |
 
 An exec script acts as its group, whatever actor it names: a command
@@ -1223,6 +1223,49 @@ The setting is read on every pass of the daemon, so raising it starts the
 beads that wait on the next pass. `yardr status` shows it on its `work`
 line, with how many sessions count against it:
 `3 sessions running (web/assembly 1, web/builders 2), 3 of max_sessions 4`.
+
+### Sessions that give way
+
+When builders and a landing's tests fill the machine, the yard's own work
+waits for a core with them: the daemon's passes slow down and a call to its
+socket times out. A group's `nice` runs its sessions at a lower priority, so
+that when every core is wanted the daemon, its socket and its hook listener
+are served first:
+
+```sh
+yardr group set webapp/builders nice=10
+```
+
+`nice` is a whole number from 0 to 19, the niceness the session's process
+runs at (`ps -o nice` shows it; the daemon's is 0 unless it was started
+niced). The higher it is, the more the session gives way to a process with a
+lower one. Everything the session starts has it too, since a process takes
+the niceness of the one that starts it: an agent's builds and test runs, and
+what they run in turn. It is a priority, not a share or a cap: on a machine
+with cores to spare a niced session loses nothing, and it gets the cores that
+nothing less nice wants. It is the system's own niceness, so it works the
+same on Linux and macOS.
+
+Each runner sets it where it can:
+
+- An `exec` group's command is run under `nice(1)`, so the script and
+  everything it forks have the niceness from the first instruction. The
+  daemon's `PATH` must hold `nice`, which Linux and macOS both ship; without
+  it none of the group's sessions start, and the group backs off and logs
+  `runtime_down` with the reason.
+- A `herdr` group's pane is started by herdr, which takes no priority for it,
+  so the yard sets the niceness of the pane's shell just before the agent is
+  started in it, and the agent and all it starts take it from there. What the
+  shell ran before that, its own startup, ran at the niceness it had.
+
+A session is never started less nice than the process that starts it (the
+daemon for an `exec` group, herdr's pane for a `herdr` one), since a process
+cannot give itself a higher priority than it has without privilege: a `nice`
+below that changes nothing. `nice=0`, like no `nice`, starts a session as
+before. The key is read at each start, so a changed one holds from the next
+session, and a session that runs keeps the niceness it started with.
+`yardr group show` prints it like any other setting. A crew member has no
+`nice`: its session is no group's.
 
 ### Pausing the yard
 

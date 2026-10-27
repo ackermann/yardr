@@ -42,8 +42,11 @@ import (
 //	           the agent's pane environment: outbound credentials, which
 //	           never belong in the store (see config.ReadEnvFile) nor on a
 //	           command line (see call)
+//	nice       the niceness the agent and all it starts run at, 0 to 19: the
+//	           pane's shell is set to it before the agent starts (see
+//	           niceShell)
 //
-// A crew member's config has those but keep and worktrees, and one more:
+// A crew member's config has those but keep, worktrees and nice, and one more:
 //
 //	env_command  a command that prints KEY=VALUE lines, run at each start,
 //	             whose entries join the env_file's (see
@@ -322,6 +325,11 @@ func (h *Herdr) brief(ctx context.Context, job dispatch.Job, name, workdir, dir,
 
 	kind := agents.Kind(job.Group.Config)
 	handle[harnessKind] = kind
+	// Before the agent is started in the pane: the agent and all it starts take
+	// the niceness of the shell they descend from.
+	if err := niceShell(handle, job.Group.Nice()); err != nil {
+		return handle, err
+	}
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
 	extra := append(AgentArgs(job, h.YardHome, workdir), briefDirArgs(kind, dir)...)
 	if len(extra) > 0 {

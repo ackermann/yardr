@@ -44,6 +44,10 @@ const (
 	// the least). A smaller one would fold nothing, so it is refused where
 	// it is typed.
 	ConfigCount = "a whole number of 2 or more"
+	// ConfigNice is a niceness, a whole number from 0 to MaxNice. A process
+	// can raise its own niceness and not lower it without privilege, so a
+	// number below 0 is not one a group can ask for.
+	ConfigNice = "a whole number from 0 to 19"
 	// ConfigNames is names separated by commas, or a list of them.
 	ConfigNames = "names separated by commas, or a list"
 	// ConfigWord is one word: a string, or the number or boolean --set
@@ -73,6 +77,7 @@ var ConfigKeys = []ConfigKey{
 	{"dir", ConfigString, []string{"exec"}, GroupConfig, "where the command runs; default: the depot"},
 	{"log", ConfigString, []string{"exec"}, GroupConfig, "the file the command's output is appended to"},
 	{"worktrees", ConfigString, []string{"exec", "herdr"}, GroupConfig, "the directory a bead's worktree is made under; default: the home's worktrees"},
+	{"nice", ConfigNice, []string{"exec", "herdr"}, GroupConfig, "the niceness a session and everything it starts run at, so that the daemon is served first when the machine is full; unset: the one it would start with"},
 	{"kind", ConfigString, []string{"herdr"}, "", "the agent kind herdr starts; default: the yard's default_kind"},
 	{"model", ConfigString, []string{"herdr"}, "", "the agent's model; default: the harness's own"},
 	{"provider", ConfigString, []string{"herdr"}, "", "the subscription the agent burns, named as a source's limits kinds name it; default: the kind's mapping"},
@@ -263,6 +268,9 @@ func configTyped(want string, v any) bool {
 	case ConfigCount:
 		_, ok := wholeCount(v)
 		return ok
+	case ConfigNice:
+		_, ok := wholeNice(v)
+		return ok
 	case ConfigWord:
 		return isString || isBool || isNumber
 	}
@@ -272,7 +280,28 @@ func configTyped(want string, v any) bool {
 // wholeCount is v, a decoded JSON number or a Go int, as the count
 // ConfigCount holds a key to: a whole number of 2 or more, and one that is
 // an int on any machine.
-func wholeCount(v any) (int, bool) {
+func wholeCount(v any) (int, bool) { return wholeBetween(v, 2, math.MaxInt32) }
+
+// MaxNice is the highest niceness a process can have: the least it asks of
+// the CPU.
+const MaxNice = 19
+
+// wholeNice is v as the niceness ConfigNice holds a key to: a whole number
+// from 0 to MaxNice.
+func wholeNice(v any) (int, bool) { return wholeBetween(v, 0, MaxNice) }
+
+// Nice is the niceness the group's sessions run at: its nice setting, and 0,
+// which starts a session as it would start without the key, where the group
+// names none or one that is no niceness (ConfigProblems refuses such a value
+// where it is written).
+func (g Group) Nice() int {
+	n, _ := wholeNice(g.Config["nice"])
+	return n
+}
+
+// wholeBetween is v, a decoded JSON number or a Go int, as a whole number
+// from lo to hi.
+func wholeBetween(v any, lo, hi int) (int, bool) {
 	var n float64
 	switch v := v.(type) {
 	case float64:
@@ -282,7 +311,7 @@ func wholeCount(v any) (int, bool) {
 	default:
 		return 0, false
 	}
-	if n < 2 || n != math.Trunc(n) || n > math.MaxInt32 {
+	if n < float64(lo) || n > float64(hi) || n != math.Trunc(n) {
 		return 0, false
 	}
 	return int(n), true

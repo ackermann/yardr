@@ -22,8 +22,8 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 		return s.PutGroup(ctx, store.Group{Name: "g", Runner: runner, Config: cfg}, "me")
 	}
 	for want, err := range map[string]error{
-		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, login_for, max_age, model, prompt, provider, stall, still, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
-		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, stall, still, timeout, worktrees`:                                     put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
+		`group g: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, login_for, max_age, model, nice, prompt, provider, stall, still, trust, worktrees`: put("herdr", map[string]any{"kind": "claude", "idel": "5m"}),
+		`group g: unknown config key "max-age": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, nice, stall, still, timeout, worktrees`:                                     put("exec", map[string]any{"cmd": "true", "max-age": "6h"}),
 		// A key of another runner, or of a crew member, is read by nothing here.
 		`group g: unknown config key "kind": nothing reads it. A group of the manual runner takes: cleanup, fold, fold_after, fold_max, grace, idle, keep, max_age, notify, stall, still, wait`: put("manual", map[string]any{"kind": "claude"}),
 		`group g: unknown config key "greet"`:       put("herdr", map[string]any{"greet": "jo"}),
@@ -59,6 +59,15 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 		`group g: manual runner needs config.fold_after as a duration such as 40m, 12h or 7d, got the JSON number 3600`:  put("manual", map[string]any{"fold_after": 3600}),
 		`group g: exec runner needs config.cmd as a string, got the JSON boolean true; write --set 'cmd="true"'`:         put("exec", map[string]any{"cmd": true}),
 		"group g: exec runner needs config.cmd": put("exec", nil),
+		// A niceness is 0 to 19: a session cannot ask for more of the CPU
+		// than the process that starts it has.
+		`group g: herdr runner needs config.nice as a whole number from 0 to 19, got the JSON number 20`:    put("herdr", map[string]any{"kind": "claude", "nice": 20}),
+		`group g: exec runner needs config.nice as a whole number from 0 to 19, got the JSON number -1`:     put("exec", map[string]any{"cmd": "true", "nice": -1}),
+		`group g: exec runner needs config.nice as a whole number from 0 to 19, got the JSON number 2.5`:    put("exec", map[string]any{"cmd": "true", "nice": 2.5}),
+		`group g: herdr runner needs config.nice as a whole number from 0 to 19, got the JSON string "10"`:  put("herdr", map[string]any{"kind": "claude", "nice": "10"}),
+		`group g: herdr runner needs config.nice as a whole number from 0 to 19, got the JSON boolean true`: put("herdr", map[string]any{"kind": "claude", "nice": true}),
+		// A session of a manual group runs nothing to be nice, a peer's runs at the other yard.
+		`group g: unknown config key "nice"`: put("manual", map[string]any{"nice": 10}),
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("PutGroup = %v, want %s", err, want)
@@ -72,9 +81,9 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	// JSON stores it.
 	for runner, cfg := range map[string]map[string]any{
 		"herdr": {"kind": "claude", "args": []string{"--model", "opus"}, "idle": "off", "max_age": 3600, "grace": "0",
-			"stall": "2m", "keep": true, "cleanup": false, "trust": false, "label": "builders", "worktrees": "/srv/wt"},
+			"stall": "2m", "keep": true, "cleanup": false, "trust": false, "label": "builders", "worktrees": "/srv/wt", "nice": 19},
 		"manual": {"notify": "yes", "max_age": 90.5, "wait": "1d", "fold": 4, "fold_after": "1d", "fold_max": 6},
-		"exec":   {"cmd": "make", "dir": "/srv", "log": "/srv/log", "idle": "10m", "env_file": "/srv/deploy.env", "timeout": "2h"},
+		"exec":   {"cmd": "make", "dir": "/srv", "log": "/srv/log", "idle": "10m", "env_file": "/srv/deploy.env", "timeout": "2h", "nice": 0},
 		// A runner the table does not know is asked nothing.
 		"fake": {"whatever": 1},
 	} {
@@ -121,6 +130,34 @@ func TestStoreRefusesAConfigKeyNothingReads(t *testing.T) {
 	}
 }
 
+// The niceness a group's sessions run at is its nice setting, as a Go caller
+// builds it and as JSON stores it. A value the store refuses to write (see
+// above) reads as none, so a group stored before the key was checked starts
+// its sessions as it did.
+func TestGroupNice(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		cfg  map[string]any
+		want int
+	}{
+		{nil, 0},
+		{map[string]any{"cmd": "true"}, 0},
+		{map[string]any{"nice": 10}, 10},
+		{map[string]any{"nice": 10.0}, 10},
+		{map[string]any{"nice": 0}, 0},
+		{map[string]any{"nice": 19}, 19},
+		{map[string]any{"nice": 20}, 0},
+		{map[string]any{"nice": -3}, 0},
+		{map[string]any{"nice": 2.5}, 0},
+		{map[string]any{"nice": "10"}, 0},
+		{map[string]any{"nice": true}, 0},
+	} {
+		if got := (store.Group{Config: c.cfg}).Nice(); got != c.want {
+			t.Errorf("Group{Config: %v}.Nice() = %d, want %d", c.cfg, got, c.want)
+		}
+	}
+}
+
 // A herdr group may say which subscription it burns: provider is a shared
 // herdr key, named as a source's limits kinds name it (yardr-368s). Any
 // other runner refuses it with the keys it takes.
@@ -147,10 +184,10 @@ func TestStoreTakesProviderOnHerdr(t *testing.T) {
 		return s.PutGroup(ctx, store.Group{Name: "o", Runner: runner, Config: cfg}, "me")
 	}
 	for want, err := range map[string]error{
-		`group o: unknown config key "provider": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, stall, still, timeout, worktrees`: put("exec", map[string]any{"cmd": "true", "provider": "zai"}),
-		`group o: unknown config key "provider": nothing reads it. A group of the manual runner takes: cleanup, fold, fold_after, fold_max, grace, idle, keep, max_age, notify, stall, still, wait`:  put("manual", map[string]any{"provider": "zai"}),
-		`group o: unknown config key "provider": nothing reads it. A group of the peer runner takes: cleanup, grace, idle, keep, max_age, peer, remote, stall, still, tries`:                         put("peer", map[string]any{"peer": "north", "provider": "zai"}),
-		`group o: herdr runner needs config.provider as a string, got the JSON boolean true; write --set 'provider="true"'`:                                                                          put("herdr", map[string]any{"provider": true}),
+		`group o: unknown config key "provider": nothing reads it. A group of the exec runner takes: cleanup, cmd, dir, env_file, grace, idle, keep, log, max_age, nice, stall, still, timeout, worktrees`: put("exec", map[string]any{"cmd": "true", "provider": "zai"}),
+		`group o: unknown config key "provider": nothing reads it. A group of the manual runner takes: cleanup, fold, fold_after, fold_max, grace, idle, keep, max_age, notify, stall, still, wait`:        put("manual", map[string]any{"provider": "zai"}),
+		`group o: unknown config key "provider": nothing reads it. A group of the peer runner takes: cleanup, grace, idle, keep, max_age, peer, remote, stall, still, tries`:                               put("peer", map[string]any{"peer": "north", "provider": "zai"}),
+		`group o: herdr runner needs config.provider as a string, got the JSON boolean true; write --set 'provider="true"'`:                                                                                put("herdr", map[string]any{"provider": true}),
 	} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("PutGroup = %v, want %s", err, want)

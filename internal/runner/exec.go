@@ -67,6 +67,9 @@ import (
 // get theirs (see envFile): what the script needs to act outside the yard,
 // such as the path of a deploy key, which belongs neither in the store, where
 // cmd is, nor in the daemon's own environment.
+//
+// With config.nice the command, and everything it starts, runs at that
+// niceness (see underNice).
 type Exec struct {
 	Home string // state directory; bead worktrees default to <Home>/worktrees
 	Bin  string // this yardr's executable
@@ -118,6 +121,9 @@ func (e *Exec) Start(ctx context.Context, job dispatch.Job) (map[string]any, err
 	defer logf.Close()
 
 	cmd := exec.Command("sh", "-c", cmdline)
+	if err := underNice(cmd, job.Group.Nice()); err != nil {
+		return nil, dispatch.Runtime(err) // no nice: no bead of the group can start
+	}
 	cmd.Dir = dir
 	// The file's entries come after what is inherited, so they win over the
 	// daemon's own, and are held to what the daemon's are: none of what

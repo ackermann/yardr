@@ -131,6 +131,8 @@ func TestGroupSetRefuses(t *testing.T) {
 		`group tick: exec runner needs config.cmd as a string, got the JSON boolean true; write 'cmd="true"'`:           {"tick", "cmd=true"},
 		"group tick: exec runner needs config.cmd":                                                                      {"tick", "--unset", "cmd"},
 		`group tick: exec runner needs config.timeout as a duration such as 40m, 12h or 7d, got the JSON string "soon"`: {"tick", "timeout=soon"},
+		`group tick: exec runner needs config.nice as a whole number from 0 to 19, got the JSON number 20`:              {"tick", "nice=20"},
+		`group tick: exec runner needs config.nice as a whole number from 0 to 19, got the JSON string "soon"`:          {"tick", "nice=soon"},
 	} {
 		refusedAs(t, st, "jo", want, append([]string{"group", "set"}, args...)...)
 	}
@@ -290,7 +292,9 @@ func TestGroupSetChecksASidingsKeys(t *testing.T) {
 // An exec group takes env_file, as a herdr group does: a script group's
 // command gets what it needs to act outside the yard from a file, not from
 // cmd, which is in the store. And it takes timeout: how long a session's
-// script may run before the yard stops it.
+// script may run before the yard stops it. And nice, the niceness its
+// sessions run at, which a herdr group takes as well; group show prints it
+// for either (yardr-7a36).
 func TestGroupSetExecEnvFile(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
@@ -309,5 +313,18 @@ func TestGroupSetExecEnvFile(t *testing.T) {
 	}
 	if out := mustAs(t, st, "jo", "group", "show", "deployers"); !strings.Contains(out, "\n  timeout=2h\n") {
 		t.Fatalf("group show does not print the timeout:\n%s", out)
+	}
+	if out := mustAs(t, st, "jo", "group", "set", "deployers", "nice=10"); out !=
+		"group deployers saved\n  nice: (not set) -> 10\n" {
+		t.Fatalf("set of nice printed %q", out)
+	}
+	if g := group(t, st, "deployers"); g.Nice() != 10 {
+		t.Fatalf("after the set of nice: %+v", g)
+	}
+	mustAs(t, st, "jo", "group", "add", "builders", "--runner", "herdr", "--set", "kind=claude", "--set", "nice=10")
+	for _, name := range []string{"deployers", "builders"} {
+		if out := mustAs(t, st, "jo", "group", "show", name); !strings.Contains(out, "\n  nice=10\n") {
+			t.Fatalf("group show %s does not print the niceness:\n%s", name, out)
+		}
 	}
 }

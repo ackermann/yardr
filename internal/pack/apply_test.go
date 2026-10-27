@@ -179,10 +179,11 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 }
 
 // A yard set up by hand under the pack's names is overwritten in what the
-// pack carries and keeps the rest: the agent, model, arguments and env_file
-// of a group, the variables of a script group's command, the members of a
-// people group, a crew member's identity and directory. No route is added
-// beside the one a stage has.
+// pack carries and keeps the rest: the agent, model, arguments, env_file and
+// nice of a group, the variables and the nice of a script group's command
+// (the assembly and the other gates), the members of a people group, a crew
+// member's identity and directory. No route is added beside the one a stage
+// has.
 func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	st, o := yard(t)
 	withLinear(t, st)
@@ -194,8 +195,8 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	}
 	depot := "web"
 	must(st.PutGroup(ctx, store.Group{Name: "web-builders", Runner: "herdr", Limit: 2,
-		Config: map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "prompt": "/old/builder.md"}}, "me"))
-	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast"}}, "me"))
+		Config: map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "nice": 10, "prompt": "/old/builder.md"}}, "me"))
+	must(st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /old/merge-local --fast", "nice": 10}}, "me"))
 	must(st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Members: []string{"ann"}}, "me"))
 	for stage, group := range map[string]string{"new": "web-builders", "approved": "web-assembly", "decide": "decisions"} {
 		_, err := st.AddRoute(ctx, store.Route{Stage: stage, Depot: &depot, Group: group}, "me")
@@ -219,7 +220,7 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 
 	g, err := st.GetGroup(ctx, "web-builders")
 	must(err)
-	want := map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "prompt": filepath.Join(install, "roles", "builder.md")}
+	want := map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "nice": float64(10), "prompt": filepath.Join(install, "roles", "builder.md")}
 	if !reflect.DeepEqual(g.Config, want) || g.Limit != 5 {
 		t.Fatalf("web-builders = %+v", g)
 	}
@@ -227,6 +228,9 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 	must(err)
 	if got, want := g.Config["cmd"], "YARDR_PUSH=origin "+filepath.Join(install, "scripts", "merge-local")+" --fast"; got != want {
 		t.Fatalf("cmd = %q, want %q", got, want)
+	}
+	if g.Nice() != 10 {
+		t.Fatalf("web-assembly nice = %v, want the yard's 10 kept: %+v", g.Config["nice"], g)
 	}
 	g, err = st.GetGroup(ctx, "decisions")
 	must(err)
