@@ -278,7 +278,10 @@ func (d *Dispatcher) startDueLimitRefreshes(ctx context.Context) {
 // runLimitRefresh is one run of a wanted key's command, outside every
 // lock, bounded as every limits ask is (limits.Timeout, in source.Run).
 // Its answer, or its failure, is stored as the cache's memory of the
-// key, asked at the run's start as the synchronous ask kept it.
+// key, asked at the run's start as the synchronous ask kept it. A failure
+// keeps beside it the report before it (limitsAnswer.kept), so that a
+// window the provider said was used up is not forgotten because the next
+// ask failed.
 func (d *Dispatcher) runLimitRefresh(ctx context.Context, w limitWant, startedAt time.Time) {
 	var r *limits.Report
 	var err error
@@ -292,7 +295,11 @@ func (d *Dispatcher) runLimitRefresh(ctx context.Context, w limitWant, startedAt
 	}
 	d.limitsMu.Lock()
 	d.initLimitsLocked()
-	d.limitsAsked[w.key] = limitsAnswer{at: startedAt, report: r, err: err}
+	ans := limitsAnswer{at: startedAt, report: r, err: err}
+	if r == nil {
+		ans.kept = d.limitsAsked[w.key].known()
+	}
+	d.limitsAsked[w.key] = ans
 	if cur, ok := d.limitsWants[w.key]; ok {
 		cur.running = false
 		if cur.warm {

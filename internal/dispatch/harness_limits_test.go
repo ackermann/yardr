@@ -18,8 +18,10 @@ import (
 
 // standIn is a provider of limits in place of the operator's: a script the
 // yard's source "quokka" names for the kinds kimi, codex and pi. It answers
-// with what say last set, or exits 1 as a provider does after fail, and
-// asks tells for whom it was run, one name per run.
+// with what say last set (or, for one provider, what sayFor did), or exits 1
+// as a provider does after fail, and asks tells for whom it was run, one
+// name per run. While hold is on, a run waits after it is counted: a refresh
+// that is pending, with no sleep to guess its length by.
 type standIn struct {
 	t   *testing.T
 	dir string
@@ -30,7 +32,9 @@ func newStandIn(t *testing.T, s store.API) *standIn {
 	p := &standIn{t: t, dir: t.TempDir()}
 	script := filepath.Join(p.dir, "provider")
 	scripttest.Write(t, script, "#!/bin/sh\ncd "+p.dir+"\necho \"$1\" >>asked\n"+
-		"if [ -f fail ]; then echo 'quokka: kimi: not logged in' >&2; exit 1; fi\ncat answer\n")
+		"while [ -f hold ]; do sleep 0.05; done\n"+
+		"if [ -f fail ]; then echo 'quokka: kimi: not logged in' >&2; exit 1; fi\n"+
+		"if [ -f \"answer-$1\" ]; then cat \"answer-$1\"; else cat answer; fi\n")
 	_, err := s.PutSource(context.Background(), "quokka.yaml", "name: quokka\nlimits:\n  command: ["+script+
 		", \"{provider}\", --json]\n  kinds: { kimi: moonshot, codex: openai, pi: zai }\n", "me")
 	must(t, err)
@@ -43,9 +47,31 @@ func (p *standIn) say(report string) {
 	must(p.t, os.WriteFile(filepath.Join(p.dir, "answer"), []byte(report), 0o600))
 }
 
+// sayFor is say for the provider named provider alone (moonshot for kimi,
+// openai for codex).
+func (p *standIn) sayFor(provider, report string) {
+	p.t.Helper()
+	must(p.t, os.WriteFile(filepath.Join(p.dir, "answer-"+provider), []byte(report), 0o600))
+}
+
 func (p *standIn) fail() {
 	p.t.Helper()
 	must(p.t, os.WriteFile(filepath.Join(p.dir, "fail"), nil, 0o600))
+}
+
+// hold makes every run wait, from the moment it is counted in asks, until
+// unhold; the test ends by unholding, so that the dispatcher's cleanup finds
+// no run in flight.
+func (p *standIn) hold() {
+	p.t.Helper()
+	must(p.t, os.WriteFile(filepath.Join(p.dir, "hold"), nil, 0o600))
+	p.t.Cleanup(p.unhold)
+}
+
+func (p *standIn) unhold() {
+	if err := os.Remove(filepath.Join(p.dir, "hold")); err != nil && !os.IsNotExist(err) {
+		p.t.Error(err)
+	}
 }
 
 func (p *standIn) asks() []string {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/shared"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -389,6 +390,18 @@ func TestRouteChoose(t *testing.T) {
 			{Label: "disk", UsedPercent: pct(40), TargetPercent: pct(90)},
 		}}
 	}
+	// lastKnown is what a route is handed when no fresh answer is known
+	// (Quota.LastKnown): why, and the windows the provider last said were
+	// used up. usedUp is the Weekly window so, resetting at late, and
+	// reason says it as a comparison that fails on it does.
+	lastKnown := func(windows ...store.QuotaWindow) store.Quota {
+		return store.Quota{Provider: "Claude", Unknown: "no fresh answer yet", LastKnown: windows}
+	}
+	usedUp := store.QuotaWindow{Label: "Weekly", UsedPercent: pct(100), ResetsAt: &late}
+	reason := func(under string) string {
+		return "Claude's Weekly window is 100% used, the route asks under " + under +
+			" (last known: used up until " + shared.Clock(late, now) + ")"
+	}
 	route := func(first string, further ...string) store.Route {
 		g := store.ParseRouteGroup(first)
 		r := store.Route{Group: g.Name, When: g.When}
@@ -588,6 +601,31 @@ func TestRouteChoose(t *testing.T) {
 		"no condition, used up and about to reset": {route("a"), map[string]store.Quota{"a": resetting(100, 10, time.Hour)},
 			store.RouteChoice{Passed: []store.PassedGroup{
 				{Group: "a", Reason: "Claude's Weekly window is 100% used, the route asks under 100", ResetsAt: in(time.Hour)}}}, "a"},
+		// With no fresh answer, a window last known used up until a reset
+		// ahead fails the comparisons it answers, and says it is the last
+		// known. What it does not answer is not known, as without it.
+		"no condition, last known used up": {route("a"), map[string]store.Quota{"a": lastKnown(usedUp)},
+			store.RouteChoice{Passed: []store.PassedGroup{{Group: "a", Reason: reason("100"), ResetsAt: &late}}}, "a"},
+		"a condition on the window, last known used up": {route("a@Weekly<80", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a", Reason: reason("80"), ResetsAt: &late}}}, "a"},
+		"a condition on another window, last known used up": {route("a@5h<50", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no fresh answer yet"}, "a"},
+		"two conditions, one answered by what was last known": {route("a@Weekly<80,5h<50", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a", Reason: reason("80"), ResetsAt: &late}}}, "a"},
+		// A duration is read as for a fresh window: the group takes the bead
+		// within it, the note saying the window was last known, and is passed
+		// over beyond it.
+		"a duration holds what was last known within it": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 100% but resets in 12h (last known)"}}, "a"},
+		"a duration passes over what was last known beyond it": {route("a@Weekly<80/6h", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a", Reason: reason("80"), ResetsAt: &late}}}, "a"},
+		// A window of one model alone holds no group with no condition, last
+		// known or not, and the claim says the limits were not known.
+		"no condition, a per-model window last known used up": {route("a"),
+			map[string]store.Quota{"a": lastKnown(store.QuotaWindow{Label: "Weekly Fable", Model: "Fable", UsedPercent: pct(100), ResetsAt: &late})},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no fresh answer yet"}, "a"},
+		"no condition, nothing last known": {route("a"), map[string]store.Quota{"a": lastKnown()},
+			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no fresh answer yet"}, "a"},
 	} {
 		var asked []string
 		got := tc.route.ChooseAt(now, func(group, source string) store.Quota {

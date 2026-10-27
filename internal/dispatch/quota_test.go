@@ -272,6 +272,141 @@ func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
 		one["reason"] != "Kimi's Weekly window is 90% used, the route asks under 80" {
 		t.Fatalf("passed = %v", one)
 	}
+
+	// A window the provider said was used up stays so until it resets, and the
+	// group is passed over for it when the cache has no fresh answer: the
+	// answer gone stale with its refresh pending, then one whose refresh
+	// failed. The reason says it is the last known. A group the cache knows
+	// nothing of takes the bead, as it does for any condition that cannot be
+	// evaluated, and so does this one from the reset the provider gave on.
+	const usedUp = "Kimi's Weekly window is 100% used, the route asks under 100"
+	const lastKnown = usedUp + " (last known: used up until 13:00)"
+	wantPassed := func(t *testing.T, data map[string]any, reason string) {
+		t.Helper()
+		passed, _ := data["passed"].([]any)
+		if len(passed) != 1 {
+			t.Fatalf("passed = %v, want the one group", data["passed"])
+		}
+		if one, _ := passed[0].(map[string]any); one["group"] != "a" || one["reason"] != reason {
+			t.Fatalf("passed = %v, want a passed over with %q", one, reason)
+		}
+	}
+	t.Run("a window used up stays so while the cache has no fresh answer", func(t *testing.T) {
+		s, _, d, p, _, now := quotaYard(t, "a", "b")
+		p.sayFor("moonshot", weeklyResetting(100, time.Hour))
+		primeGroupLimits(t, s, d, "a")
+		primeGroupLimits(t, s, d, "b")
+		fresh := newBead(t, s, "fresh")
+		must(t, d.Reconcile(ctx))
+		group, data := claimedBy(t, s, fresh.ID)
+		if group != "b" || data["limits_unknown"] != nil {
+			t.Fatalf("fresh: claimed by %q with %v, want b, nothing unknown", group, data)
+		}
+		wantPassed(t, data, usedUp)
+
+		p.hold()
+		*now = now.Add(6 * time.Minute)
+		stale := newBead(t, s, "stale")
+		must(t, d.Reconcile(ctx))
+		group, data = claimedBy(t, s, stale.ID)
+		if unknown, _ := data["limits_unknown"].(string); group != "b" || !strings.Contains(unknown, "no fresh answer yet") {
+			t.Fatalf("stale: claimed by %q with %v, want b, its own limits not known yet", group, data)
+		}
+		wantPassed(t, data, lastKnown)
+
+		p.fail()
+		p.unhold()
+		dispatch.WaitLimitsIdle(d)
+		failed := newBead(t, s, "failed")
+		must(t, d.Reconcile(ctx))
+		group, data = claimedBy(t, s, failed.ID)
+		if unknown, _ := data["limits_unknown"].(string); group != "b" || !strings.Contains(unknown, "not logged in") {
+			t.Fatalf("failed: claimed by %q with %v, want b, its own limits not known: the command failed", group, data)
+		}
+		wantPassed(t, data, lastKnown)
+
+		p.hold()
+		*now = noon().Add(61 * time.Minute)
+		after := newBead(t, s, "after the reset")
+		must(t, d.Reconcile(ctx))
+		group, data = claimedBy(t, s, after.ID)
+		if unknown, _ := data["limits_unknown"].(string); group != "a" || data["passed"] != nil || !strings.Contains(unknown, "no fresh answer yet") {
+			t.Fatalf("after the reset: claimed by %q with %v, want a, its limits not known", group, data)
+		}
+	})
+	t.Run("a fresh answer lifts it, and a key never answered is not gated", func(t *testing.T) {
+		s, _, d, p, _, now := quotaYard(t, "a", "b")
+		p.sayFor("moonshot", weeklyResetting(100, time.Hour))
+		p.hold()
+		cold := newBead(t, s, "cold")
+		must(t, d.Reconcile(ctx))
+		if group, data := claimedBy(t, s, cold.ID); group != "a" || data["passed"] != nil || data["limits_unknown"] == nil {
+			t.Fatalf("cold: claimed by %q with %v, want a with its limits not known: nothing is remembered yet", group, data)
+		}
+
+		// The run lands: the window is used up, and the cache keeps it past
+		// its age.
+		p.unhold()
+		dispatch.WaitLimitsIdle(d)
+		p.hold()
+		*now = now.Add(6 * time.Minute)
+		stale := newBead(t, s, "stale")
+		must(t, d.Reconcile(ctx))
+		group, data := claimedBy(t, s, stale.ID)
+		if group != "b" {
+			t.Fatalf("stale: claimed by %q with %v, want b", group, data)
+		}
+		wantPassed(t, data, lastKnown)
+
+		// The provider says the window is open: the answer that lands replaces
+		// what was remembered, and a takes the bead.
+		p.sayFor("moonshot", kimiOpen)
+		p.unhold()
+		dispatch.WaitLimitsIdle(d)
+		open := newBead(t, s, "open")
+		must(t, d.Reconcile(ctx))
+		if group, data := claimedBy(t, s, open.ID); group != "a" || data["passed"] != nil || data["limits_unknown"] != nil {
+			t.Fatalf("open: claimed by %q with %v, want a: the provider says the window is open", group, data)
+		}
+	})
+	// A duration on the condition is read as it is for a fresh window: what
+	// was last known holds within it, and the claim says so; beyond it the
+	// group is passed over.
+	t.Run("a duration holds what was last known as it holds a fresh window", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			resets time.Duration
+			group  string
+		}{
+			"the reset is within the duration": {20 * time.Hour, "a"},
+			"the reset is beyond the duration": {72 * time.Hour, "b"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				s, _, d, p, _, now := quotaYard(t, "a@Weekly<80/1d", "b")
+				p.sayFor("moonshot", weeklyResetting(100, tc.resets))
+				primeGroupLimits(t, s, d, "a")
+				primeGroupLimits(t, s, d, "b")
+				p.hold()
+				*now = now.Add(6 * time.Minute)
+				b := newBead(t, s, "x")
+				must(t, d.Reconcile(ctx))
+				group, data := claimedBy(t, s, b.ID)
+				if group != tc.group {
+					t.Fatalf("claimed by %q with %v, want %s", group, data, tc.group)
+				}
+				if tc.group == "a" {
+					if data["passed"] != nil || !reflect.DeepEqual(data["held"], []any{"Weekly 100% but resets in 19h 54m (last known)"}) {
+						t.Fatalf("claimed with %v, want the Weekly window held for its reset 19h 54m on, as last known", data)
+					}
+					return
+				}
+				resets := limits.Clock(noon().Add(tc.resets), *now)
+				wantPassed(t, data, "Kimi's Weekly window is 100% used, the route asks under 80 (last known: used up until "+resets+")")
+				if data["held"] != nil {
+					t.Fatalf("claimed with %v, want nothing held: the reset is beyond the duration", data)
+				}
+			})
+		}
+	})
 }
 
 // With no further group the bead waits for its group: it is not claimed,
@@ -426,6 +561,31 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		if group != "a" || data["route"] != r.ID || data["passed"] != nil ||
 			!reflect.DeepEqual(data["held"], []any{"Weekly 90% but resets in 19h 48m"}) {
 			t.Fatalf("claimed by %q with %v, want a with the Weekly window held for its reset 19h 48m on", group, data)
+		}
+	})
+	t.Run("a window used up keeps the bead waiting while the cache has no fresh answer", func(t *testing.T) {
+		ctx := context.Background()
+		s, f, d, p, r, now := quotaYard(t, "a")
+		p.say(weeklyResetting(100, time.Hour))
+		primeGroupLimits(t, s, d, "a")
+		p.hold()
+		*now = now.Add(6 * time.Minute)
+		b := newBead(t, s, "x")
+		for range 3 {
+			must(t, d.Reconcile(ctx))
+		}
+		if group, _ := claimedBy(t, s, b.ID); group != "" || len(f.starts()) != 0 {
+			t.Fatalf("claimed by %q, starts %v, want nobody: the window was used up until 13:00, and nothing fresh says otherwise", group, f.starts())
+		}
+		evs := eventKinds(t, s, b.ID, "quota_wait")
+		if len(evs) != 1 {
+			t.Fatalf("quota_wait events = %v, want one", evs)
+		}
+		reason, _ := evs[0].Data["reason"].(string)
+		if evs[0].Data["route"] != r.ID ||
+			reason != "a passed over (Kimi's Weekly window is 100% used, the route asks under 100 (last known: used up until 13:00))" ||
+			evs[0].Data["resets_at"] != noon().Add(time.Hour).UTC().Format(time.RFC3339) {
+			t.Fatalf("quota_wait = %v, want the window as last known and its reset", evs[0].Data)
 		}
 	})
 }

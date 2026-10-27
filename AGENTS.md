@@ -79,8 +79,8 @@ it lists every exported name with its comment, faster than grepping.
 - `server`: the `yardr server` process: owns the store, serves the socket,
   re-execs itself on upgrade.
 - `shared`: what eta, the store and limits share but cannot pass between
-  them: route matching over a minimal route shape each side adapts, and
-  duration spans.
+  them: route matching over a minimal route shape each side adapts,
+  duration spans and clock times.
 - `source`: declared sources: declarations, credentials, mints, calls; the
   operator's provider logic lives in commands, not here.
 - `standin`: fake Linear/GitHub APIs and the edge for tests and tryouts,

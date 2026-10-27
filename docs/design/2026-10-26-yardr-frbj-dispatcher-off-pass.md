@@ -737,6 +737,18 @@ and costs the pass only its answerer resolution and memory read (a
 provider that hangs every time is retried at its readers' age
 while it stays wanted, no faster; the refresher adds no retry of its own.
 
+**Amended (yardr-qv85, 27 Oct 2026): a route keeps a window last known used
+up.** A route read with no fresh answer, or with a fresh failure, no longer
+forgets a window the provider said was used up until a reset still ahead:
+that stays true however old the answer is, where a percentage below 100 does
+not. The cache keeps the report before a failed run, and the route hands
+`Route.Choose` those windows beside the unknown (`Quota.LastKnown`). They fail
+the comparisons they answer, a `/duration` grace included, until the reset or
+the next answer that lands, and the reason says "last known: used up until
+16:06". The cold window above stays as it was for a key never answered, which
+has nothing to remember, and for a daemon that has just started, whose cache
+is memory only.
+
 ### 3.3. `settleSent` behind a settler in the store
 
 `Store.write` keeps the first half of what it does today and drops the

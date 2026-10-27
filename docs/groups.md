@@ -464,7 +464,22 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   judged by too, so in a yard with no source for a group's provider each of
   its claims says the limits were not known; a report with no window is no
   such case there. A limits command that breaks takes the gate away; it
-  does not stop the yard.
+  does not stop the yard. One thing it does not take away: a window the
+  provider said was used up, with a reset it gave still ahead, goes on
+  failing the comparisons it answers until that reset, however old the
+  answer has grown and whether or not the command since failed or is
+  still being asked, since a window used up stays so until it resets. The
+  reason says it, `Claude's 5h window is 100% used, the route asks under
+  100 (last known: used up until 16:06)`, and so does the `quota_wait`
+  event's `resets_at`. It is read as the same window would be if it were
+  fresh, a duration on the comparison included: within it the group takes
+  the bead, and the note in `held` ends in `(last known)`; beyond it the
+  group is passed over. The next answer that lands replaces it, so a window
+  the provider now says is open starts the bead at the pass that answer
+  wakes. Nothing is held for a window the provider gave no reset for, one
+  whose reset has passed, a percentage below 100 (a threshold leaves its
+  room for those, below), or a provider that has not answered since the
+  daemon started: those hold, as above.
 - **The `claimed` event** of a bead the dispatcher started names the
   `route` by its id and, when groups were passed over, `passed`: each with
   its `reason`, such as `Claude's Weekly window is 83% used, the route asks

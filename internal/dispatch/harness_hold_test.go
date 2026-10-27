@@ -217,11 +217,14 @@ func TestAgentGoingAgainBeforeTheResetLiftsTheHold(t *testing.T) {
 	if n := len(eventKinds(t, s, b2.ID, "quota_wait")); n != 1 {
 		t.Fatalf("quota_wait events = %d, want 1: the hold is lifted and the window is used up", n)
 	}
-	// It starts once the provider shows the window open.
+	// It starts once the provider shows the window open: the pass that finds
+	// the answer stale still holds it for the window the answer said was used
+	// up, and the pass after the new answer has landed starts it.
 	p.say(kimiOpen)
 	*now = now.Add(5 * time.Minute)
 	must(t, d.Reconcile(ctx))
 	dispatch.WaitLimitsIdle(d)
+	must(t, d.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
 		t.Fatalf("starts = %v, want the second bead started once the first works again and the window is open", got)
 	}
@@ -290,8 +293,16 @@ func TestUsageLimitYardrDoesNotWaitForSetsNoHoldAndTheQuotaWaits(t *testing.T) {
 	if waits := eventKinds(t, s, b2.ID, "quota_wait"); len(waits) != 1 || waits[0].Data["resets_at"] != resets.UTC().Format(time.RFC3339) {
 		t.Fatalf("quota_wait events = %v, want one with the reset days away", waits)
 	}
+	// The answer has gone stale, and the window it said was used up, until a
+	// reset days off, still keeps the bead from starting: nothing fresh says
+	// otherwise yet. The pass the new answer's landing wakes finds it open.
 	p.say(kimiOpen)
 	*now = now.Add(6 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts = %v, want the second bead waiting until the provider has answered again", got)
+	}
+	dispatch.WaitLimitsIdle(d)
 	must(t, d.Reconcile(ctx))
 	if got := r.starts(); !slices.Equal(got, []string{b.ID, b2.ID}) {
 		t.Fatalf("starts = %v, want the second bead started once the window is open", got)
@@ -342,5 +353,69 @@ func TestPassesThatStartSessionsWithNothingStoppedAskLimitsOnceInFiveMinutes(t *
 	// the cache and asked nothing themselves.
 	if asks := p.asks(); !slices.Equal(asks, []string{"moonshot", "moonshot"}) {
 		t.Fatalf("the limits command was run for %v, want the starts' run and its lease's one due run", asks)
+	}
+}
+
+// The hold of a session that waits for its window is the session's, and
+// ending the session (`yardr bead release`, to move its bead to another
+// group) ends it. What the provider said does not end with it: a window it
+// said was used up keeps the group from starting a session, whatever the
+// bead's model, until the reset it gave, whether the cache holds that answer
+// stale with its refresh pending or its refresh failed. From the reset on
+// nothing says the window is used up, and the group starts a session again.
+func TestReleasedWaitingSessionLeavesTheUsedUpWindowGatingUntilItsReset(t *testing.T) {
+	t.Parallel()
+	s, r, d, b, p, now := holdYard(t)
+	ctx := context.Background()
+	resets := now.Add(42 * time.Minute)
+	p.say(kimiUsed(resets))
+	primeLimits(t, d, "kimi", "", nil)
+	r.showBead(t, s, b, "idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+	if _, _, model, waits := dispatch.ResetWait(handleOfBead(t, s, b)); !waits || model != "k3" {
+		t.Fatalf("the handle's wait = %q %v, want the session waiting with k3", model, waits)
+	}
+
+	// The release ends the wait, and the hold with it. The answer then goes
+	// stale with the next refresh pending.
+	_, err := s.Release(ctx, b.ID, "moved to another group", store.Expect{}, "me")
+	must(t, err)
+	same, err := s.CreateBead(ctx, store.NewBead{Title: "y"}, "me")
+	must(t, err)
+	other, err := s.CreateBead(ctx, store.NewBead{Title: "z", Metadata: map[string]any{"model": "k2"}}, "me")
+	must(t, err)
+	p.hold()
+	*now = now.Add(6 * time.Minute)
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts = %v, want no session after the release: the 5h window was used up until %v", got, resets)
+	}
+	if n := len(eventKinds(t, s, same.ID, "group_wait")); n != 0 {
+		t.Fatalf("group_wait events of the bead of the model that waited = %d, want none: its session is gone", n)
+	}
+	for _, bead := range []store.Bead{*same, *other} {
+		waits := eventKinds(t, s, bead.ID, "quota_wait")
+		if len(waits) != 1 || waits[0].Data["resets_at"] != resets.UTC().Format(time.RFC3339) ||
+			!strings.Contains(waits[0].Data["reason"].(string), "(last known: used up until 12:42)") {
+			t.Fatalf("quota_wait events of %s = %v, want one naming the window as last known and its reset", bead.ID, waits)
+		}
+	}
+
+	// The refresh fails: what was last said still stands.
+	p.fail()
+	p.unhold()
+	dispatch.WaitLimitsIdle(d)
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b.ID}) {
+		t.Fatalf("starts = %v, want none while the refresh fails: the window was used up until %v", got, resets)
+	}
+
+	// The reset has come, and the cache is stale again: nothing says the
+	// window is used up any more.
+	p.hold()
+	*now = resets.Add(time.Second)
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); len(got) != 2 {
+		t.Fatalf("starts = %v, want one more session once the reset has come", got)
 	}
 }

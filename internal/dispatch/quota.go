@@ -184,10 +184,7 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 	}
 	rd := d.cachedLimits(ctx, kind, provider, routeLimitsMemory, env)
 	if rd.report == nil {
-		// No fresh answer (its refresh already running), a provider
-		// that gave none, or nothing that answers: unknown, on which
-		// Choose fails open, as it always has.
-		return store.Quota{Unknown: rd.unknown()}
+		return d.unknownQuota(rd)
 	}
 	return quotaOf(rd.report)
 }
@@ -199,22 +196,45 @@ func (d *Dispatcher) routeQuota(ctx context.Context, g store.Group, def string) 
 func (d *Dispatcher) sourceQuota(ctx context.Context, source string) store.Quota {
 	rd := d.cachedSource(ctx, source, routeLimitsMemory)
 	if rd.report == nil {
-		return store.Quota{Unknown: rd.unknown()}
+		return d.unknownQuota(rd)
 	}
 	return quotaOf(rd.report)
 }
 
+// unknownQuota is what a read with no fresh report tells a route: no fresh
+// answer (its refresh already running), a provider that gave none, or
+// nothing that answers. Choose fails open on it, as it always has, but for
+// the windows the provider last said were used up until a reset still ahead
+// (usedUpAhead): a session started into one stops on the limit at once, so
+// they go on failing the comparisons they answer however old the report is,
+// until a fresh one replaces them. A key never answered, and a provider that
+// failed before it ever answered, have none.
+func (d *Dispatcher) unknownQuota(rd limitRead) store.Quota {
+	q := store.Quota{Unknown: rd.unknown()}
+	if rd.last != nil {
+		if used := usedUpAhead(rd.last, d.now()); len(used) > 0 {
+			q.Provider, q.LastKnown = rd.last.Provider, quotaWindows(used)
+		}
+	}
+	return q
+}
+
 // quotaOf is a report as a route's condition reads it.
 func quotaOf(r *limits.Report) store.Quota {
-	q := store.Quota{Provider: r.Provider}
-	for _, w := range r.Windows {
+	return store.Quota{Provider: r.Provider, Windows: quotaWindows(r.Windows)}
+}
+
+// quotaWindows is windows as a route's condition reads them.
+func quotaWindows(windows []limits.Window) []store.QuotaWindow {
+	var out []store.QuotaWindow
+	for _, w := range windows {
 		qw := store.QuotaWindow{Label: w.Label, Model: w.Model, UsedPercent: w.UsedPercent, TargetPercent: w.TargetPercent, ResetsAt: w.ResetsAt}
 		// A provider that counts instead says the same in two numbers.
 		if qw.UsedPercent == nil && w.Used != nil && w.Limit != nil && *w.Limit > 0 {
 			p := float64(*w.Used) * 100 / float64(*w.Limit)
 			qw.UsedPercent = &p
 		}
-		q.Windows = append(q.Windows, qw)
+		out = append(out, qw)
 	}
-	return q
+	return out
 }

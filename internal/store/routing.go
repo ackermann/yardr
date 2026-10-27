@@ -798,8 +798,16 @@ type Quota struct {
 	Provider string
 	Windows  []QuotaWindow
 	// Unknown is why nothing is known (no source answers for the provider,
-	// its command failed); Windows is then not read.
+	// its command failed, no fresh answer yet); Windows is then not read.
 	Unknown string
+	// LastKnown, beside Unknown, are the windows the provider last said were
+	// used up and that reset after the moment of the choice: a window used
+	// up stays so until it resets, however old the answer that said it. They
+	// are read as the same windows fresh would be, a comparison's duration
+	// included: they fail the comparisons they answer, or are held for their
+	// reset, the reason or the note saying they were last known, and every
+	// other comparison is as unknown as Unknown says.
+	LastKnown []QuotaWindow
 }
 
 // QuotaWindow is one window of a usage limit as a condition reads it.
@@ -947,19 +955,20 @@ func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota) 
 	said := map[string]bool{}
 	for _, l := range limits {
 		q := quota(l.Source)
-		if q.Unknown != "" {
-			if !said[l.Source] {
-				said[l.Source] = true
-				unknown = append(unknown, q.Unknown)
-			}
-			continue
+		// With nothing known, the windows last known used up (Quota.LastKnown)
+		// are all there is to read. They are read as a fresh window is, so
+		// they fail the comparisons they answer or are held for their reset,
+		// and a comparison they do not answer is unknown.
+		windows, lastKnown := q.Windows, q.Unknown != ""
+		if lastKnown {
+			windows = q.LastKnown
 		}
 		whose := "its provider's"
 		if q.Provider != "" {
 			whose = q.Provider + "'s"
 		}
 		seen := false
-		for _, w := range q.Windows {
+		for _, w := range windows {
 			if l.Label != "" && w.Label != l.Label {
 				continue
 			}
@@ -997,18 +1006,32 @@ func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota) 
 			// then not known and the number decides.
 			if l.Within > 0 && w.ResetsAt != nil {
 				if left := w.ResetsAt.Sub(now); left <= l.Within {
-					held = append(held, fmt.Sprintf("%s %s%% but %s", w.Label, percent(*w.UsedPercent), resetsIn(left)))
+					note := fmt.Sprintf("%s %s%% but %s", w.Label, percent(*w.UsedPercent), resetsIn(left))
+					if lastKnown {
+						note += " (last known)"
+					}
+					held = append(held, note)
 					continue
 				}
 			}
-			failed = append(failed, fmt.Sprintf("%s %s window is %s%% used, the route asks under %s",
-				whose, w.Label, percent(*w.UsedPercent), want))
+			reason := fmt.Sprintf("%s %s window is %s%% used, the route asks under %s",
+				whose, w.Label, percent(*w.UsedPercent), want)
+			if lastKnown && w.ResetsAt != nil {
+				reason += " (last known: used up until " + shared.Clock(*w.ResetsAt, now) + ")"
+			}
+			failed = append(failed, reason)
 			if w.ResetsAt != nil && (resets == nil || w.ResetsAt.Before(*resets)) {
 				resets = w.ResetsAt
 			}
 		}
 		switch {
-		case seen, l.Implicit:
+		case seen:
+		case lastKnown:
+			if !said[l.Source] {
+				said[l.Source] = true
+				unknown = append(unknown, q.Unknown)
+			}
+		case l.Implicit:
 		case l.Label == "":
 			unknown = append(unknown, whose+" report has no windows")
 		default:
