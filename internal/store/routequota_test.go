@@ -122,6 +122,10 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 		{"a@Weekly<targets", nil, `nor <window><target> with an optional margin`},
 		{"a@Weekly<Target", nil, `nor <window><target> with an optional margin`},
 		{"a@Weekly<lots", nil, `nor <window><target> with an optional margin`},
+		{"a@Weekly<80/0d", nil, `"Weekly<80/0d" is not <window><<percent used>`},
+		{"a@Weekly<80/xyz", nil, `"Weekly<80/xyz" is not <window><<percent used>`},
+		{"a@Weekly<80/xyz", nil, `either may end in /<duration> above 0, as in Weekly<80/1d`},
+		{"a", []string{"b@<90/-5h"}, `group b: condition "<90/-5h"`},
 	} {
 		if _, err := add(tc.first, tc.further...); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("route %s else %v: %v, want %q", tc.first, tc.further, err, tc.want)
@@ -132,6 +136,82 @@ func TestAddRouteRefusesWhatAQuotaRouteMayNotName(t *testing.T) {
 	}
 	if routes, err := s.Routes(t.Context()); err != nil || len(routes) != 0 {
 		t.Fatalf("routes after the refusals = %+v, %v", routes, err)
+	}
+}
+
+// A comparison may end in a duration after a slash, on the number, the
+// target, a source's window and every window alike; the days and the Go
+// durations are those of the CLI's parseDays, and anything else, or a
+// duration too long for a Duration to count, is refused naming the
+// comparison.
+func TestParseQuotaReadsTheDurationAComparisonMayEndIn(t *testing.T) {
+	t.Parallel()
+	day := 24 * time.Hour
+	for _, tc := range []struct {
+		when string
+		want []store.QuotaLimit
+	}{
+		{"Weekly<80", []store.QuotaLimit{{Label: "Weekly", Under: 80}}},
+		{"Weekly<80/1d", []store.QuotaLimit{{Label: "Weekly", Under: 80, Within: day}}},
+		{"Weekly<80/7d", []store.QuotaLimit{{Label: "Weekly", Under: 80, Within: 7 * day}}},
+		{"Weekly<80/20h", []store.QuotaLimit{{Label: "Weekly", Under: 80, Within: 20 * time.Hour}}},
+		{"Weekly<80/30m", []store.QuotaLimit{{Label: "Weekly", Under: 80, Within: 30 * time.Minute}}},
+		{"Weekly<80/1h30m", []store.QuotaLimit{{Label: "Weekly", Under: 80, Within: 90 * time.Minute}}},
+		{"Weekly<100/1d", []store.QuotaLimit{{Label: "Weekly", Under: 100, Within: day}}},
+		{"Weekly<target/1d", []store.QuotaLimit{{Label: "Weekly", Target: true, Within: day}}},
+		{"Weekly<target+10/1d", []store.QuotaLimit{{Label: "Weekly", Target: true, Margin: 10, Within: day}}},
+		{"Weekly<target-5/20h", []store.QuotaLimit{{Label: "Weekly", Target: true, Margin: -5, Within: 20 * time.Hour}}},
+		{"machine.load<80/1h", []store.QuotaLimit{{Source: "machine", Label: "load", Under: 80, Within: time.Hour}}},
+		{"machine.<80/1h", []store.QuotaLimit{{Source: "machine", Under: 80, Within: time.Hour}}},
+		{"<80/1d", []store.QuotaLimit{{Under: 80, Within: day}}},
+		// A label may hold a slash: it is left of the "<".
+		{"Weekly/Opus<80/1d", []store.QuotaLimit{{Label: "Weekly/Opus", Under: 80, Within: day}}},
+		{" Weekly < 80 / 1d ", []store.QuotaLimit{{Label: "Weekly", Under: 80, Within: day}}},
+		{"Weekly<80/1d,5h<90,Monthly<target+5/30m", []store.QuotaLimit{
+			{Label: "Weekly", Under: 80, Within: day},
+			{Label: "5h", Under: 90},
+			{Label: "Monthly", Target: true, Margin: 5, Within: 30 * time.Minute}}},
+	} {
+		got, err := store.ParseQuota(tc.when)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("ParseQuota(%q) = %+v, %v; want %+v", tc.when, got, err, tc.want)
+		}
+	}
+	for _, tc := range []struct{ when, part string }{
+		{"Weekly<80/0d", "Weekly<80/0d"},
+		{"Weekly<80/0", "Weekly<80/0"},
+		{"Weekly<80/0h", "Weekly<80/0h"},
+		{"Weekly<80/-1d", "Weekly<80/-1d"},
+		{"Weekly<80/-20h", "Weekly<80/-20h"},
+		{"Weekly<80/xyz", "Weekly<80/xyz"},
+		{"Weekly<80/d", "Weekly<80/d"},
+		{"Weekly<80/", "Weekly<80/"},
+		{"Weekly<80/ ", "Weekly<80/ "},
+		{"Weekly<80/1.5d", "Weekly<80/1.5d"},
+		{"Weekly<80/1w", "Weekly<80/1w"},
+		{"Weekly<80/1d12h", "Weekly<80/1d12h"},
+		{"Weekly<80/20", "Weekly<80/20"},
+		{"Weekly<80/1d/2d", "Weekly<80/1d/2d"},
+		{"Weekly</1d", "Weekly</1d"},
+		{"Weekly<0/1d", "Weekly<0/1d"},
+		{"Weekly<101/1d", "Weekly<101/1d"},
+		{"Weekly<lots/1d", "Weekly<lots/1d"},
+		{"Weekly<target+/1d", "Weekly<target+/1d"},
+		{"Weekly<target+10/0d", "Weekly<target+10/0d"},
+		{"machine.load<80/0d", "machine.load<80/0d"},
+		{"Weekly<80/1d,5h<90/0m", "5h<90/0m"},
+		// 106751 days is the most a Duration counts; a number beyond it must
+		// not wrap into a duration of some other sign.
+		{"Weekly<80/106752d", "Weekly<80/106752d"},
+		{"Weekly<80/999999999d", "Weekly<80/999999999d"},
+	} {
+		_, err := store.ParseQuota(tc.when)
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("condition %q: %q is not <window><<percent used>", tc.when, tc.part)) {
+			t.Errorf("ParseQuota(%q): %v, want a refusal naming %q", tc.when, err, tc.part)
+		}
+	}
+	if got, err := store.ParseQuota("Weekly<80/106751d"); err != nil || len(got) != 1 || got[0].Within != 106751*day {
+		t.Errorf("ParseQuota of the longest duration = %+v, %v", got, err)
 	}
 }
 
@@ -280,6 +360,24 @@ func TestRouteChoose(t *testing.T) {
 		q := claude(week, five)
 		q.Windows[0].TargetPercent = pct(fiveTarget)
 		q.Windows[1].TargetPercent = pct(weekTarget)
+		return q
+	}
+	// now is the moment the rows choose at, between the two resets above: the
+	// 5h window's has passed, the weekly one's is twelve hours away. A route
+	// whose comparisons end in a duration measures its resets from it.
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	in := func(d time.Duration) *time.Time { at := now.Add(d); return &at }
+	// resetting is claude with the Weekly window at week percent and resetting
+	// the given time from now (negative: already past), the 5h window at five.
+	resetting := func(week, five float64, d time.Duration) store.Quota {
+		q := twoWindows(week, five)
+		q.Windows[1].ResetsAt = in(d)
+		return q
+	}
+	// noReset is claude with a Weekly window the provider says no reset of.
+	noReset := func(week float64) store.Quota {
+		q := twoWindows(week, 10)
+		q.Windows[1].ResetsAt = nil
 		return q
 	}
 	// machine is what the machine source says of itself: load at load
@@ -432,9 +530,67 @@ func TestRouteChoose(t *testing.T) {
 		"wait after a group with no condition, used up": {route("a", "wait"), map[string]store.Quota{"a": twoWindows(10, 100)},
 			store.RouteChoice{Passed: []store.PassedGroup{
 				{Group: "a", Reason: "Claude's 5h window is 100% used, the route asks under 100", ResetsAt: &early}}}, "a"},
+		// A comparison that ends in a duration holds a window past its number
+		// that resets within it, and the choice says so.
+		"past the number, resetting within the duration": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": resetting(90, 10, 20*time.Hour)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 90% but resets in 20h"}}, "a"},
+		"past the number, resetting after the duration": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": resetting(90, 10, 72*time.Hour)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: in(72 * time.Hour)}}}, "a"},
+		"resetting at the duration": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": resetting(90, 10, 24*time.Hour)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 90% but resets in 1d"}}, "a"},
+		"resetting a second after the duration": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": resetting(90, 10, 24*time.Hour+time.Second)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: in(24*time.Hour + time.Second)}}}, "a"},
+		// The provider has not seen the window open yet: its reset has passed,
+		// and that is soon enough.
+		"a reset already past": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": resetting(100, 10, -2*time.Hour)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 100% but was to reset 2h ago"}}, "a"},
+		// With no reset said there is no time left to know: the number decides.
+		"no reset said": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": noReset(90)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80"}}}, "a"},
+		"under the number, the reset far away": {route("a@Weekly<80/1d", "b"), map[string]store.Quota{"a": resetting(70, 10, 72*time.Hour)},
+			store.RouteChoice{Group: "a"}, "a"},
+		"minutes within": {route("a@Weekly<80/30m", "b"), map[string]store.Quota{"a": resetting(90, 10, 20*time.Minute)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 90% but resets in 20m"}}, "a"},
+		"minutes beyond": {route("a@Weekly<80/30m", "b"), map[string]store.Quota{"a": resetting(90, 10, 40*time.Minute)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 90% used, the route asks under 80", ResetsAt: in(40 * time.Minute)}}}, "a"},
+		"hours within": {route("a@Weekly<80/20h", "b"), map[string]store.Quota{"a": resetting(90, 10, 20*time.Hour)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 90% but resets in 20h"}}, "a"},
+		"the target and a duration": {route("a@Weekly<target+10/1d", "b"), map[string]store.Quota{"a": paced(38, 10, 17, 50)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 38% but resets in 12h"}}, "a"},
+		"the target and a shorter duration": {route("a@Weekly<target+10/6h", "b"), map[string]store.Quota{"a": paced(38, 10, 17, 50)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 38% used, the route asks under target 17% + 10", ResetsAt: &late}}}, "a"},
+		// A source's windows may say no reset at all.
+		"a source's window and a duration": {route("a@machine.load<80/1h", "b"), map[string]store.Quota{"machine": machine(93)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "machine's load window is 93% used, the route asks under 80"}}}, "a@machine"},
+		// Every window the comparison reads is held on its own reset.
+		"every window and a duration": {route("a@<80/1d", "b"), map[string]store.Quota{"a": twoWindows(90, 100)},
+			store.RouteChoice{Group: "a", Held: []string{
+				"5h 100% but was to reset 4d 12h ago",
+				"Weekly 90% but resets in 12h"}}, "a"},
+		"a duration on one comparison of two": {route("a@Weekly<80/1d,5h<90", "b"), map[string]store.Quota{"a": resetting(90, 10, 20*time.Hour)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 90% but resets in 20h"}}, "a"},
+		// The 5h comparison has no duration, so its reset soon holds nothing:
+		// the group is passed over for it alone, and what was held is not said.
+		"held beside a comparison that failed": {route("a@Weekly<80/1d,5h<50", "b"), map[string]store.Quota{"a": resetting(90, 60, 20*time.Hour)},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's 5h window is 60% used, the route asks under 50", ResetsAt: &early}}}, "a"},
+		"held beside a comparison that could not be made": {route("a@Weekly<80/1d,Monthly<80", "b"), map[string]store.Quota{"a": resetting(90, 10, 20*time.Hour)},
+			store.RouteChoice{Group: "a", Held: []string{"Weekly 90% but resets in 20h"},
+				Unknown: "the limits of a were not known: Claude's report has no window labelled Monthly"}, "a"},
+		// A group with no condition is judged by "<100" alone: its window used
+		// up resets soon, and that holds nothing.
+		"no condition, used up and about to reset": {route("a"), map[string]store.Quota{"a": resetting(100, 10, time.Hour)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly window is 100% used, the route asks under 100", ResetsAt: in(time.Hour)}}}, "a"},
 	} {
 		var asked []string
-		got := tc.route.Choose(func(group, source string) store.Quota {
+		got := tc.route.ChooseAt(now, func(group, source string) store.Quota {
 			name := group
 			if source != "" {
 				name = source
@@ -473,6 +629,20 @@ func TestRouteChoose(t *testing.T) {
 	// asked, and the first group is taken.
 	if got := route("a", "b").Choose(nil); !reflect.DeepEqual(got, store.RouteChoice{Group: "a"}) {
 		t.Errorf("a nil quota chose %+v, want a", got)
+	}
+	// Choose measures a reset from the wall clock, as ChooseAt does from the
+	// one it is handed.
+	soon, far := time.Now().Add(20*time.Hour), time.Now().Add(72*time.Hour)
+	for _, tc := range []struct {
+		resets time.Time
+		group  string
+	}{{soon, "a"}, {far, "b"}} {
+		c := route("a@Weekly<80/1d", "b").Choose(func(_, _ string) store.Quota {
+			return store.Quota{Provider: "Claude", Windows: []store.QuotaWindow{{Label: "Weekly", UsedPercent: pct(90), ResetsAt: &tc.resets}}}
+		})
+		if c.Group != tc.group || (tc.group == "a") != (len(c.Held) == 1) {
+			t.Errorf("Choose with a window at 90%% resetting at %s chose %+v, want %s", tc.resets.Format(time.RFC3339), c, tc.group)
+		}
 	}
 }
 

@@ -70,7 +70,9 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 		}
 		return c, false
 	}
-	c = r.Choose(func(group, source string) store.Quota {
+	// The pass's own clock decides whether a window resets within a
+	// comparison's duration, as it decides every other wait of the pass.
+	c = r.ChooseAt(d.now(), func(group, source string) store.Quota {
 		if source != "" {
 			return d.sourceQuota(ctx, source)
 		}

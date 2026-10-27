@@ -376,6 +376,22 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   gives no target cannot be compared with one, and reads as any
   comparison that cannot be made does (below): the condition holds and
   the `claimed` event says the limits were not known.
+- **A window close to its reset stops gating.** Any comparison may end
+  in `/<duration>`: `Weekly<80/1d` holds while the window is under 80%
+  used or resets within a day, so a group does not stand idle on quota
+  that is about to renew. The duration is days (`1d`, `7d`) or hours and
+  minutes (`20h`, `30m`, `1h30m`), above 0, and goes on every form of a
+  comparison: `Weekly<target+10/1d`, `<80/1d` for every window, and a
+  comparison on a source's window. It is measured from the moment the
+  dispatcher chooses against the `resets_at` the limits source reports,
+  window by window, and each comparison is judged on its own: in
+  `Weekly<80/1d,5h<90` a Weekly window close to its reset holds, and the
+  5h window must still be under 90. A reset already past counts, since the
+  provider has not seen the window open yet. A window whose report gives
+  no reset never holds by time: the number decides. The built-in `machine`
+  source's windows never reset, so a duration on them holds nothing. The
+  `claimed` event says which windows held for their reset (`held`, below).
+  A condition without the suffix reads as it always did.
 - **Only groups that start agents, or one exec group gated on a source.**
   A route with `--else` or a condition may name only herdr groups, or gate
   one exec group alone on the windows of sources, as
@@ -455,17 +471,24 @@ prints them as `builders@Weekly<80,5h<90 else spare-builders`.
   under 80`, for a condition on the target `Claude's Weekly window is
   38% used, the route asks under target 17% + 10`, or for a comparison on
   a source `machine's load window is 93% used, the route asks under 80`.
+  `held` names, of the group that took the bead, each window that was past
+  its number and held for its reset (above), one note each: `Weekly 90%
+  but resets in 20h`, or `Weekly 100% but was to reset 2h ago` where the
+  reset has passed. It is not `limits_unknown`: those comparisons could
+  not be made, these were made and held for the time left.
   `was` names the group that last held the bead in this stage, when it is
   another: a bead sent back to the stage went to another group than the one
   that worked it before.
 - **`yardr bead show` says it in one line**, under the bead's owner, when
-  the route had something to say: a group passed over, limits that were
-  not known, or another group before. A bead that waits for a condition
-  shows what it waits for and when the first of those windows resets, from
-  its `quota_wait` event. `--json` has the same as `routing`.
+  the route had something to say: a group passed over, a window held for
+  its reset, limits that were not known, or another group before. A bead
+  that waits for a condition shows what it waits for and when the first of
+  those windows resets, from its `quota_wait` event. `--json` has the same
+  as `routing`.
 
   ```text
     routed to spare-builders by route qp3f…: builders passed over (Claude's Weekly window is 83% used, the route asks under 80)
+    routed to builders by route 8x2k…: Weekly 90% but resets in 20h
     waits since 14:02 for a group of route qp3f… whose condition holds: builders passed over (Claude's Weekly window is 83% used, the route asks under 80); the first of those windows resets Sat 17 Oct 09:00 (in 3d 2h)
   ```
 - **Conditions that cannot work are said, and none is refused.**

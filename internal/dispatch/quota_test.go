@@ -51,6 +51,13 @@ func weekly(week, five float64) string {
 		five, noon().Add(time.Hour).Format(time.RFC3339), week, noon().Add(72*time.Hour).Format(time.RFC3339))
 }
 
+// weeklyResetting is a report with the Weekly window at week percent
+// resetting the given time after noon, the dispatcher's clock in these tests.
+func weeklyResetting(week float64, in time.Duration) string {
+	return fmt.Sprintf(`{"provider":"Kimi","windows":[{"label":"Weekly","used_percent":%v,"resets_at":%q}]}`,
+		week, noon().Add(in).Format(time.RFC3339))
+}
+
 func newBead(t *testing.T, s store.API, title string) store.Bead {
 	t.Helper()
 	b, err := s.CreateBead(context.Background(), store.NewBead{Title: title}, "me")
@@ -231,6 +238,40 @@ func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
 	if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil {
 		t.Fatalf("at 70%%: claimed by %q with %v, want a, nobody passed over", group, data)
 	}
+
+	// A comparison that ends in a duration holds a window past its number
+	// that resets within it: a takes the bead at 90% resetting in 20 hours,
+	// and the claimed event says which window was held and for what.
+	s, _, d, p, r, _ = quotaYard(t, "a@Weekly<80/1d", "b")
+	p.say(weeklyResetting(90, 20*time.Hour))
+	primeGroupLimits(t, s, d, "a")
+	b = newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	if group, data := claimedBy(t, s, b.ID); group != "a" || data["route"] != r.ID || data["passed"] != nil || data["limits_unknown"] != nil ||
+		!reflect.DeepEqual(data["held"], []any{"Weekly 90% but resets in 20h"}) {
+		t.Fatalf("at 90%% resetting in 20h: claimed by %q with %v, want a, the Weekly window held", group, data)
+	}
+
+	// Three days away it is not soon: the group is passed over for its
+	// number, as it would be without the duration, and nothing is held.
+	s, _, d, p, r, _ = quotaYard(t, "a@Weekly<80/1d", "b")
+	p.say(weekly(90, 10))
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
+	b = newBead(t, s, "x")
+	must(t, d.Reconcile(ctx))
+	group, data = claimedBy(t, s, b.ID)
+	if group != "b" || data["route"] != r.ID || data["held"] != nil || data["limits_unknown"] != nil {
+		t.Fatalf("at 90%% resetting in 3 days: claimed by %q with %v, want b by route %s, nothing held", group, data, r.ID)
+	}
+	passed, _ = data["passed"].([]any)
+	if len(passed) != 1 {
+		t.Fatalf("passed = %v, want the one group", data["passed"])
+	}
+	if one, _ := passed[0].(map[string]any); one["group"] != "a" ||
+		one["reason"] != "Kimi's Weekly window is 90% used, the route asks under 80" {
+		t.Fatalf("passed = %v", one)
+	}
 }
 
 // With no further group the bead waits for its group: it is not claimed,
@@ -344,6 +385,47 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		}
 		if reason, _ := evs[0].Data["reason"].(string); reason != "a passed over (Kimi's Weekly window is 100% used, the route asks under 100)" {
 			t.Fatalf("quota_wait reason = %q, want the Weekly window alone", reason)
+		}
+	})
+	t.Run("a reset beyond the route's duration waits, one within it starts", func(t *testing.T) {
+		ctx := context.Background()
+		s, _, d, p, r, now := quotaYard(t, "a@Weekly<80/1d")
+		p.say(weeklyResetting(90, 72*time.Hour))
+		primeGroupLimits(t, s, d, "a")
+		b := newBead(t, s, "x")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, b.ID); group != "" {
+			t.Fatalf("claimed by %q, want nobody: the Weekly window is past 80%% and resets in three days", group)
+		}
+		evs := eventKinds(t, s, b.ID, "quota_wait")
+		if len(evs) != 1 {
+			t.Fatalf("quota_wait events = %v, want one", evs)
+		}
+		reason, _ := evs[0].Data["reason"].(string)
+		if evs[0].Data["route"] != r.ID || reason != "a passed over (Kimi's Weekly window is 90% used, the route asks under 80)" ||
+			evs[0].Data["resets_at"] != noon().Add(72*time.Hour).UTC().Format(time.RFC3339) {
+			t.Fatalf("quota_wait = %v, want the window and its reset", evs[0].Data)
+		}
+
+		// A provider that says no reset gives the duration nothing to hold.
+		*now = now.Add(6 * time.Minute)
+		p.say(`{"provider":"Kimi","windows":[{"label":"Weekly","used_percent":90}]}`)
+		primeGroupLimits(t, s, d, "a")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, b.ID); group != "" {
+			t.Fatalf("claimed by %q, want nobody: the report says no reset", group)
+		}
+
+		// The window now says it resets in under a day: the bead starts, and
+		// its claim says the window was held, measured from the pass's clock.
+		*now = now.Add(6 * time.Minute)
+		p.say(weeklyResetting(90, 20*time.Hour))
+		primeGroupLimits(t, s, d, "a")
+		must(t, d.Reconcile(ctx))
+		group, data := claimedBy(t, s, b.ID)
+		if group != "a" || data["route"] != r.ID || data["passed"] != nil ||
+			!reflect.DeepEqual(data["held"], []any{"Weekly 90% but resets in 19h 48m"}) {
+			t.Fatalf("claimed by %q with %v, want a with the Weekly window held for its reset 19h 48m on", group, data)
 		}
 	})
 }

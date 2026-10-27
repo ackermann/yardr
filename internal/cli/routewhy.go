@@ -28,6 +28,9 @@ type beadRouting struct {
 	Route string `json:"route,omitempty"`
 	// Passed are the groups the route passed over, each with why.
 	Passed []store.PassedGroup `json:"passed,omitempty"`
+	// Held says which windows of Group's condition were past their number
+	// and held all the same, for a reset soon.
+	Held []string `json:"held,omitempty"`
 	// Unknown says what of Group's condition could not be evaluated.
 	Unknown string `json:"limits_unknown,omitempty"`
 	// Was is the group that last held the bead in this stage, when it is
@@ -100,6 +103,7 @@ func (r *beadRouting) line(now time.Time) string {
 		return fmt.Sprintf("waits since %s for a group of route %s whose condition holds: %s",
 			limits.Clock(r.At, now), r.Route, strings.Join(parts, "; "))
 	}
+	parts = append(parts, r.Held...)
 	if r.Unknown != "" {
 		parts = append(parts, r.Unknown)
 	}

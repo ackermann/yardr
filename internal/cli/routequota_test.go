@@ -132,8 +132,9 @@ func TestRouteAddTakesFurtherGroupsAndConditions(t *testing.T) {
 }
 
 // route add takes a condition on the window's target, with an optional
-// margin, and route list prints it as written; a malformed right side is
-// refused with a message that names both forms.
+// margin, and one that ends in a duration (a window close to its reset stops
+// gating), and route list prints them as written; a malformed right side or
+// duration is refused with a message that names the forms.
 func TestRouteAddTakesATargetCondition(t *testing.T) {
 	t.Parallel()
 	a, st, _ := quotaCLI(t)
@@ -151,20 +152,41 @@ func TestRouteAddTakesATargetCondition(t *testing.T) {
 	if err != nil || !strings.Contains(strings.Join(strings.Fields(out), " "), "a@Weekly<target+10 else b") {
 		t.Fatalf("route list does not print the condition as written: %v\n%s", err, out)
 	}
+	// The duration is kept as typed, on the number, the target and the
+	// comparisons of a source alike.
+	for stage, group := range map[string]string{
+		"review":  "a@Weekly<80/1d",
+		"approve": "a@Weekly<target+10/20h,5h<90/30m",
+		"merge":   "a@machine.load<80/1h",
+	} {
+		if _, err := run(t, a.routeCmd(), "add", "--stage", stage, "--group", group, "--else", "b"); err != nil {
+			t.Fatalf("route add --stage %s --group %s: %v", stage, group, err)
+		}
+		out, err := run(t, a.routeCmd(), "list")
+		if err != nil || !strings.Contains(strings.Join(strings.Fields(out), " "), group+" else b") {
+			t.Fatalf("route list does not print %s as written: %v\n%s", group, err, out)
+		}
+	}
 	for _, bad := range []string{
 		"a@Weekly<target+lots",
 		"a@Weekly<target+",
 		"a@Weekly<target++1",
 		"a@Weekly<target-+1",
 		"a@Weekly<lots",
+		"a@Weekly<80/0d",
+		"a@Weekly<80/xyz",
+		"a@Weekly<80/",
+		"a@Weekly<target+10/-1h",
+		"a@Weekly<80/1d,5h<90/0m",
 	} {
 		_, err := run(t, a.routeCmd(), "add", "--stage", "new", "--group", bad)
 		if err == nil || !strings.Contains(err.Error(), "is not <window><<percent used>") ||
-			!strings.Contains(err.Error(), "nor <window><target> with an optional margin") {
-			t.Errorf("route add --group %s: %v, want a refusal naming both forms", bad, err)
+			!strings.Contains(err.Error(), "nor <window><target> with an optional margin") ||
+			!strings.Contains(err.Error(), "either may end in /<duration> above 0, as in Weekly<80/1d") {
+			t.Errorf("route add --group %s: %v, want a refusal naming the forms", bad, err)
 		}
 	}
-	if routes, _ := st.Routes(ctx); len(routes) != 1 {
+	if routes, _ := st.Routes(ctx); len(routes) != 4 {
 		t.Fatalf("a refused route was stored: %+v", routes)
 	}
 }

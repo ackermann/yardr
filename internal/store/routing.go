@@ -650,6 +650,12 @@ type QuotaLimit struct {
 	Under  float64
 	Target bool
 	Margin float64
+	// Within, where the comparison ends in a duration, lets a window that is
+	// not under the number hold all the same when it resets within it:
+	// quota that is about to renew is not worth waiting out. 0 is no such
+	// duration. A window whose reset the provider does not say never
+	// qualifies by time.
+	Within time.Duration
 	// Implicit is a comparison no route wrote (noWindowUsedUp). A provider
 	// that reports no window knows of no limit, so none is used up, and
 	// there is nothing to say of it as there is when a comparison asked for
@@ -662,9 +668,11 @@ type QuotaLimit struct {
 // source for the window: "machine.load<80", or "machine.<80" for every
 // window the source reports. In place of a number the right side may be the
 // window's target with an optional margin: "Weekly<target",
-// "Weekly<target+10". The label is the limits source's own text for the
-// window, so the yard knows no provider's windows; the number and the
-// margin are the operator's.
+// "Weekly<target+10". A comparison may end in a duration after a slash,
+// "Weekly<80/1d" or "Weekly<target+10/20h": the window holds when it resets
+// within it, whatever its use (QuotaLimit.Within). The label is the limits
+// source's own text for the window, so the yard knows no provider's windows;
+// the number, the margin and the duration are the operator's.
 func ParseQuota(when string) ([]QuotaLimit, error) {
 	var out []QuotaLimit
 	for _, part := range strings.Split(when, ",") {
@@ -682,6 +690,16 @@ func ParseQuota(when string) ([]QuotaLimit, error) {
 		} else {
 			l.Label = label
 		}
+		// Neither a number nor a target holds a slash, so the first one starts
+		// the duration. A label may hold one: it is left of the "<".
+		num, span, timed := strings.Cut(num, "/")
+		if timed {
+			within, ok := parseWithin(strings.TrimSpace(span))
+			if !ok {
+				return nil, quotaError(when, part)
+			}
+			l.Within = within
+		}
 		if under, err := strconv.ParseFloat(strings.TrimSpace(num), 64); err == nil && under > 0 && under <= 100 {
 			l.Under = under
 			out = append(out, l)
@@ -698,9 +716,30 @@ func ParseQuota(when string) ([]QuotaLimit, error) {
 }
 
 // quotaError is why a comparison is none: it names the window's two forms
-// and both right sides, the number and the target.
+// and both right sides, the number and the target, and the duration either
+// may end in.
 func quotaError(when, part string) error {
-	return fmt.Errorf("condition %q: %q is not <window><<percent used>, as in Weekly<80 (or machine.load<80 for a window of a source, <80 for every window), with a percentage above 0 and at most 100, nor <window><target> with an optional margin, as in Weekly<target+10", when, part)
+	return fmt.Errorf("condition %q: %q is not <window><<percent used>, as in Weekly<80 (or machine.load<80 for a window of a source, <80 for every window), with a percentage above 0 and at most 100, nor <window><target> with an optional margin, as in Weekly<target+10; either may end in /<duration> above 0, as in Weekly<80/1d (days, 1d or more) or Weekly<80/20h (hours and minutes)", when, part)
+}
+
+// maxWithinDays is the most days a duration can count, so that a number
+// too large for it is refused instead of wrapping into a gate that holds
+// for the wrong windows.
+const maxWithinDays = math.MaxInt64 / int64(24*time.Hour)
+
+// parseWithin reads the duration a comparison may end in as the CLI reads
+// one (parseDays, which the store cannot import): a count of days, 1d or
+// more, or a Go duration such as 20h or 30m, above 0.
+func parseWithin(s string) (time.Duration, bool) {
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.Atoi(n)
+		if err != nil || days < 1 || int64(days) > maxWithinDays {
+			return 0, false
+		}
+		return time.Duration(days) * 24 * time.Hour, true
+	}
+	d, err := time.ParseDuration(s)
+	return d, err == nil && d > 0
 }
 
 // parseMargin reads the right side of a comparison with the target: the
@@ -774,6 +813,12 @@ type RouteChoice struct {
 	// one Choose gives it, and is said of in the same words, but for a
 	// provider that reports no window: it knows of no limit.
 	Unknown string `json:"limits_unknown,omitempty"`
+	// Held says, of Group, which windows were past the number its condition
+	// asks for and held all the same, because they reset within the duration
+	// the comparison ends in (QuotaLimit.Within): one note for each. It is
+	// not Unknown, which is what could not be evaluated: these were
+	// evaluated, and held for the time left.
+	Held []string `json:"held,omitempty"`
 }
 
 // PassedGroup is a group a route passed over, with why in words.
@@ -823,8 +868,17 @@ var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 // names alone; a caller whose route names a group that starts none passes a
 // nil quota, and nothing is asked: the first group is taken. Whether the
 // group chosen can start a bead now (its limit, its runtime) is not asked
-// here: a group at its limit is waited for, not passed over.
+// here: a group at its limit is waited for, not passed over. A comparison
+// that ends in a duration holds a window past its number that resets within
+// it (QuotaLimit.Within), and the choice says which (RouteChoice.Held).
 func (r Route) Choose(quota func(group, source string) Quota) RouteChoice {
+	return r.ChooseAt(time.Now(), quota)
+}
+
+// ChooseAt is Choose with now as the moment a reset is measured from, for a
+// comparison that ends in a duration: the dispatcher hands in the clock it
+// runs the pass by.
+func (r Route) ChooseAt(now time.Time, quota func(group, source string) Quota) RouteChoice {
 	var c RouteChoice
 	for _, g := range r.Groups() {
 		if g.Name == RouteWait {
@@ -855,9 +909,9 @@ func (r Route) Choose(quota func(group, source string) Quota) RouteChoice {
 			}
 			return q
 		}
-		failed, unknown, resets := judge(limits, get)
+		failed, unknown, held, resets := judge(now, limits, get)
 		if len(failed) == 0 {
-			c.Group = g.Name
+			c.Group, c.Held = g.Name, held
 			if len(unknown) > 0 {
 				c.Unknown = "the limits of " + g.Name + " were not known: " + strings.Join(unknown, "; ")
 			}
@@ -869,11 +923,13 @@ func (r Route) Choose(quota func(group, source string) Quota) RouteChoice {
 }
 
 // judge compares the windows with limits: the comparisons that failed, in
-// words, those that could not be made, and the earliest reset among the
-// windows that failed. Each comparison reads the quota of the source it
-// names, "" being the group's provider; a source nothing is known of is
-// said once, however many comparisons name it.
-func judge(limits []QuotaLimit, quota func(source string) Quota) (failed, unknown []string, resets *time.Time) {
+// words, those that could not be made, the windows that were past their
+// number and held because they reset within the comparison's duration
+// (held, in words), and the earliest reset among the windows that failed.
+// now is what a reset is measured from. Each comparison reads the quota of
+// the source it names, "" being the group's provider; a source nothing is
+// known of is said once, however many comparisons name it.
+func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota) (failed, unknown, held []string, resets *time.Time) {
 	said := map[string]bool{}
 	for _, l := range limits {
 		q := quota(l.Source)
@@ -922,6 +978,15 @@ func judge(limits []QuotaLimit, quota func(source string) Quota) (failed, unknow
 			if *w.UsedPercent < under {
 				continue
 			}
+			// A reset already past counts: the provider has not seen the window
+			// open yet. One it does not say never does, since the time left is
+			// then not known and the number decides.
+			if l.Within > 0 && w.ResetsAt != nil {
+				if left := w.ResetsAt.Sub(now); left <= l.Within {
+					held = append(held, fmt.Sprintf("%s %s%% but %s", w.Label, percent(*w.UsedPercent), resetsIn(left)))
+					continue
+				}
+			}
 			failed = append(failed, fmt.Sprintf("%s %s window is %s%% used, the route asks under %s",
 				whose, w.Label, percent(*w.UsedPercent), want))
 			if w.ResetsAt != nil && (resets == nil || w.ResetsAt.Before(*resets)) {
@@ -936,7 +1001,17 @@ func judge(limits []QuotaLimit, quota func(source string) Quota) (failed, unknow
 			unknown = append(unknown, fmt.Sprintf("%s report has no window labelled %s", whose, l.Label))
 		}
 	}
-	return failed, unknown, resets
+	return failed, unknown, held, resets
+}
+
+// resetsIn says when a window resets from the time left to it: "resets in
+// 20h", or, for a reset already past, the provider's word kept as the
+// limits command words it: "was to reset 2h ago".
+func resetsIn(left time.Duration) string {
+	if left < 0 {
+		return "was to reset " + shared.Span(-left) + " ago"
+	}
+	return "resets in " + shared.Span(left)
 }
 
 // percent prints a percentage with at most one decimal.
@@ -2323,7 +2398,8 @@ func fillLiveSessions(tx *bolt.Tx) error {
 //
 // via is how the dispatcher came to the group, for the claimed event: the
 // route's id (`route`), the groups the route passed over with why
-// (`passed`), and what of the group's condition could not be evaluated
+// (`passed`), the windows past their number that held because they reset
+// soon (`held`), and what of the group's condition could not be evaluated
 // (`limits_unknown`). A claim that names none logs the event as it was.
 // Whatever the claim came by, the event names the group that last held the
 // bead in this stage when it is another (`was`).
@@ -2410,6 +2486,9 @@ func (s *Store) Claim(ctx context.Context, beadID, group, stage, actor string, v
 			if len(v.Passed) > 0 {
 				data["passed"] = v.Passed
 			}
+			if len(v.Held) > 0 {
+				data["held"] = v.Held
+			}
 			if v.Unknown != "" {
 				data["limits_unknown"] = v.Unknown
 			}
@@ -2441,6 +2520,7 @@ func lastHeld(tx *bolt.Tx, uuid, stage string) (string, error) {
 type Routed struct {
 	Route   string        `json:"route,omitempty"`
 	Passed  []PassedGroup `json:"passed,omitempty"`
+	Held    []string      `json:"held,omitempty"`
 	Unknown string        `json:"limits_unknown,omitempty"`
 }
 

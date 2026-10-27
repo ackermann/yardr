@@ -968,7 +968,14 @@ In place of a number the right side may be the window's target, the share of
 it that has passed as the source reports it, with an optional margin:
 Weekly<target holds while Weekly is under its target, Weekly<target+10
 while under ten points above it, Weekly<target-5 while under five below,
-and the two forms mix (Weekly<target+10,5h<90). A bead
+and the two forms mix (Weekly<target+10,5h<90). Any comparison may end in
+/<duration>, days (1d) or hours and minutes (20h, 30m): Weekly<80/1d holds
+while Weekly is under 80% used or resets within a day, so quota that is
+about to renew does not keep a bead waiting. It goes on the target form
+(Weekly<target+10/1d) and on a source's window too, though a window that
+never resets, as the machine source's, holds nothing by it. A reset
+already past counts; a window whose report gives no reset is held to the
+number alone. The claimed event says which windows held (held). A bead
 goes to the first group whose condition holds; a group that starts agents
 with none holds while no window of its provider is used up (as <100 would,
 but for a window the source says counts for one model alone: yardr limits
@@ -1024,6 +1031,7 @@ cannot: why this route is there. route list prints it.`,
   yardr route add --stage new --type video --group herald
   yardr route add --stage new --group 'builders@Weekly<80,5h<90' --else spare-builders
   yardr route add --stage new --group 'builders@Weekly<target+10' --else spare-builders
+  yardr route add --stage new --group 'builders@Weekly<80/1d' --else spare-builders
   yardr route add --stage new --group 'builders@machine.load<80' --else wait
   yardr route add --stage new --label difficulty:3 --label size:large --group builders
   yardr route add --stage new --bead-priority 0 --group builders --note 'P0 reserve'

@@ -1622,7 +1622,7 @@ func (d *Dispatcher) route(ctx context.Context, groups map[string]store.Group, a
 		// store does not say how long they took.
 		done := d.timing.call("claim")
 		sess, err := d.Store.Claim(ctx, b.ID, g.Name, b.Stage, actor,
-			store.Routed{Route: r.ID, Passed: choice.Passed, Unknown: choice.Unknown})
+			store.Routed{Route: r.ID, Passed: choice.Passed, Held: choice.Held, Unknown: choice.Unknown})
 		done()
 		if errors.Is(err, store.ErrTaken) || errors.Is(err, store.ErrAtLimit) {
 			// ErrAtLimit: another dispatcher, or a session this pass could

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,8 +23,8 @@ func TestBeadShowSaysWhyABeadWentWhereItWent(t *testing.T) {
 	t.Parallel()
 	a, st, ran := quotaCLI(t)
 	ctx := context.Background()
-	// Room for the three beads a takes below.
-	if err := st.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 5, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+	// Room for the beads a takes below.
+	if err := st.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 8, Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	r, err := st.AddRoute(ctx, store.Route{Stage: "new", Group: "a", When: "Weekly<80", Else: []store.RouteGroup{{Name: "b"}}}, "me")
@@ -88,6 +89,37 @@ func TestBeadShowSaysWhyABeadWentWhereItWent(t *testing.T) {
 	}
 	if out, err = run(t, a.beadCmd(), "show", unknown.ID); err != nil || !strings.Contains(out, "\n  routed to a by route "+r.ID+": "+why+"\n") {
 		t.Fatalf("bead show does not say the limits were not known: %v\n%s", err, out)
+	}
+
+	// A window held for a reset soon is said, alone and after the groups
+	// passed over and before what could not be evaluated.
+	heldNote := "Weekly 90% but resets in 20h"
+	passedB := []store.PassedGroup{{Group: "b", Reason: "Codex's 5h window is 95% used, the route asks under 90"}}
+	for _, tc := range []struct {
+		via  store.Routed
+		line string
+	}{
+		{store.Routed{Route: r.ID, Held: []string{heldNote}}, heldNote},
+		{store.Routed{Route: r.ID, Passed: passedB, Held: []string{heldNote, "5h 96% but was to reset 1h ago"}, Unknown: why},
+			"b passed over (Codex's 5h window is 95% used, the route asks under 90); " + heldNote +
+				"; 5h 96% but was to reset 1h ago; " + why},
+	} {
+		bead, err := st.CreateBead(ctx, store.NewBead{Title: "h"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Claim(ctx, bead.ID, "a", "new", "yardr", tc.via); err != nil {
+			t.Fatal(err)
+		}
+		if out, err = run(t, a.beadCmd(), "show", bead.ID); err != nil || !strings.Contains(out, "\n  routed to a by route "+r.ID+": "+tc.line+"\n") {
+			t.Fatalf("bead show does not say which windows held, want %q: %v\n%s", tc.line, err, out)
+		}
+		out, err = run(t, js.beadCmd(), "show", bead.ID)
+		var shownHeld struct{ Routing *beadRouting }
+		if err != nil || json.Unmarshal([]byte(out), &shownHeld) != nil || shownHeld.Routing == nil ||
+			!slices.Equal(shownHeld.Routing.Held, tc.via.Held) {
+			t.Fatalf("bead show --json routing.held = %+v, %v; want %q\n%s", shownHeld.Routing, err, tc.via.Held, out)
+		}
 	}
 
 	// A route with nothing to say: the bead shows as it always did.
