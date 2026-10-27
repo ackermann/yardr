@@ -5589,6 +5589,101 @@ loadedmachine() {
 		}
 	})
 
+	t.Run("a strict run judges each re-run by the load around it, a landing all by the batch's", func(t *testing.T) {
+		t.Parallel()
+		// Three packages over budget and over alone. A strict run re-runs
+		// them one after another and samples the machine on either side of
+		// each, so a line names the load its own re-run sat in; a landing
+		// re-runs them together and judges all three by the one pair around
+		// the batch. The probe here carries a loadedmachine that answers
+		// with the load of the moment, which is told by how many re-runs the
+		// fake go has logged: line N+1 of loads after N, quiet where that
+		// line is empty. One re-run ends where the next starts, so the loads
+		// are four moments: before the first re-run, between the first and
+		// the second, between the second and the third, and after the last.
+		// A pair taken from the wrong moments judges the wrong line.
+		sampling, ok := strings.CutSuffix(probe, "\n\"$@\"\n")
+		if !ok {
+			t.Fatal("the probe no longer ends by running its arguments: move this case with it")
+		}
+		sampling += `
+loadedmachine() {
+  logged=$(grep -c '' "$FAKE/calls" 2>/dev/null) || :
+  sample=$(sed -n "$((${logged:-0} + 1))p" "$FAKE/loads")
+  [ -n "$sample" ] || return 1
+  echo "$sample"
+}
+"$@"
+`
+		samplingPath := filepath.Join(t.TempDir(), "sampling.sh")
+		if err := os.WriteFile(samplingPath, []byte(sampling), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		const (
+			early = "load 26.4 on 10 cores"
+			late  = "load 72.4 on 10 cores"
+		)
+		// Loaded before the first re-run and after the last, quiet between.
+		loads := early + "\n\n\n" + late + "\n"
+		leg := "ok  \tyardr.dev/yardr/internal/cli\t1m1.1s\n" +
+			"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n" +
+			"ok  \tyardr.dev/yardr/internal/pack\t1m1.3s\n"
+		for _, c := range []struct {
+			name   string
+			strict bool
+			code   int
+			want   []string // the verdicts, cli, dispatch and pack
+		}{
+			{"strict, each by its own", true, 1, []string{
+				// cli sat from early to quiet, dispatch in quiet, pack from quiet to late.
+				"test: yardr.dev/yardr/internal/cli took 61.1 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (" + early + ")",
+				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)",
+				"test: yardr.dev/yardr/internal/pack took 61.3 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (" + late + ")",
+			}},
+			{"a landing, all by the batch's", false, 0, []string{
+				// The batch started in early and ended in late: all three name the start's.
+				"test: R1: yardr.dev/yardr/internal/cli took 61.1 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
+				"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
+				"test: R1: yardr.dev/yardr/internal/pack took 61.3 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
+			}},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				t.Parallel()
+				dir := t.TempDir()
+				write(t, dir, "sampled.txt", leg)
+				fake, env := r1go(t)
+				write(t, fake, "loads", loads)
+				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/cli yardr.dev/yardr/internal/dispatch yardr.dev/yardr/internal/pack")
+				if c.strict {
+					env = append(env, "YARDR_R1_STRICT=1")
+				}
+				out, code := runProbe(t, samplingPath, dir, os.Environ(), env,
+					"packagebudget", "sampled.txt", "go", "test", "-race", "./...")
+				if code != c.code {
+					t.Errorf("exit %d, output %q, want exit %d", code, out, c.code)
+				}
+				for _, want := range c.want {
+					if !strings.Contains(out, want+"\n") {
+						t.Errorf("output %q, want it to hold %q", out, want)
+					}
+				}
+				// Each package re-run once; the journal's order is the
+				// scheduler's where the re-runs overlap.
+				calls, _ := os.ReadFile(filepath.Join(fake, "calls"))
+				got := strings.Split(strings.TrimSpace(string(calls)), "\n")
+				slices.Sort(got)
+				wantCalls := []string{
+					"test -race -count=1 yardr.dev/yardr/internal/cli held=1",
+					"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
+					"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
+				}
+				if !slices.Equal(got, wantCalls) {
+					t.Errorf("go was run as:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(wantCalls, "\n"))
+				}
+			})
+		}
+	})
+
 	t.Run("unknown load and a load at the core count fail the run", func(t *testing.T) {
 		t.Parallel()
 		for _, c := range []struct {
@@ -5744,16 +5839,19 @@ loadedmachine() {
 		}
 	})
 
-	t.Run("over-budget packages are re-run up to three at a time", func(t *testing.T) {
-		// Four packages over budget, each re-run sleeping two seconds so
-		// the re-runs overlap: waves of three, which the fake's maximum
-		// concurrent re-runs proves, not the wall clock, which a loaded
-		// machine stretches past any ceiling. The verdicts are the
-		// sequential ones, every package judged by the one
-		// load pair sampled around the batch. The leg lists the packages
-		// out of order; the verdicts print in sorted order. Only the quiet
-		// row sleeps: the other rows judge the same verdicts without paying
-		// for the overlap twice, since root's own budget pays for this case.
+	t.Run("over-budget packages are re-run up to three at a time, and one at a time in a strict run", func(t *testing.T) {
+		// Four packages over budget, each re-run sleeping so the re-runs
+		// overlap if they can: waves of three at a landing and of one in
+		// the strict run, which the fake's maximum concurrent re-runs
+		// proves, not the wall clock, which a loaded machine stretches
+		// past any ceiling. The verdicts are the sequential ones, every
+		// package judged by one load pair (the strict run's own for each
+		// re-run, which the load pinned here makes the same pair). The leg
+		// lists the packages out of order; the verdicts print in sorted
+		// order. Only the quiet and strict rows sleep: the loaded row
+		// judges the same verdicts without paying for the overlap again,
+		// since root's own budget pays for this case. The strict row's
+		// sleeps are short and add up, four of them one after another.
 		leg := "ok  \tyardr.dev/yardr/internal/store\t1m1.4s\n" +
 			"ok  \tyardr.dev/yardr/internal/cli\t1m1.1s\n" +
 			"ok  \tyardr.dev/yardr/internal/pack\t1m1.3s\n" +
@@ -5766,13 +5864,20 @@ loadedmachine() {
 			env  []string
 			code int
 			want string // dispatch's verdict: over alone, judged by the load
+			// A row that sleeps in each re-run (in seconds, as the fake's
+			// sleep takes them) wants the most re-runs the fake saw at once.
+			sleep string
+			width int
 		}{
-			{"quiet convicts", []string{"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10", "FAKE_SLEEP=2"}, 1,
-				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"},
+			{"quiet convicts", []string{"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10"}, 1,
+				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)",
+				"2", 3},
 			{"loaded passes", []string{"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10"}, 0,
-				"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed"},
-			{"strict fails naming the load", []string{"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10", "YARDR_R1_STRICT=1"}, 1,
-				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (load 72.4 on 10 cores)"},
+				"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (load 72.4 on 10 cores), not failed",
+				"", 0},
+			{"strict fails naming the load, one re-run at a time", []string{"YARDR_TEST_LOADAVG=72.4", "YARDR_TEST_CORES=10", "YARDR_R1_STRICT=1"}, 1,
+				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (load 72.4 on 10 cores)",
+				"0.3", 1},
 		} {
 			t.Run(c.name, func(t *testing.T) {
 				dir := t.TempDir()
@@ -5785,9 +5890,9 @@ loadedmachine() {
 				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/dispatch")
 				env = append(env, "TMPDIR="+tmp)
 				env = append(env, c.env...)
-				timed := slices.Contains(c.env, "FAKE_SLEEP=2")
+				timed := c.sleep != ""
 				if timed {
-					env = append(env, "FAKE_TRACK=1")
+					env = append(env, "FAKE_SLEEP="+c.sleep, "FAKE_TRACK=1")
 				}
 				start := time.Now()
 				out, code := runEnv(t, dir, env,
@@ -5813,21 +5918,28 @@ loadedmachine() {
 					last = i
 				}
 				// The floor keeps the overlap honest: without it a sleep
-				// that never ran would still record its three-wide
-				// maximum. The maximum below is what proves the re-runs
+				// that never ran would still record the maximum, a strict
+				// run's one among them. It is the sleeps of the waves the
+				// width allows, one after another, which nothing shortens.
+				// The maximum below is what proves how many re-runs
 				// overlapped; the batch's wall proves nothing more, so
 				// there is no ceiling for a loaded machine to miss.
 				if timed {
-					if wall < 2*time.Second {
-						t.Errorf("the batch took %s, want at least one 2 s re-run: the sleep did not run", wall)
+					sleep, err := time.ParseDuration(c.sleep + "s")
+					if err != nil {
+						t.Fatal(err)
+					}
+					waves := (strings.Count(leg, "\n") + c.width - 1) / c.width
+					if floor := time.Duration(waves) * sleep; wall < floor {
+						t.Errorf("the batch took %s, want at least %s, %d waves of %s: the sleep did not run", wall, floor, waves, sleep)
 					}
 				}
 				if timed {
 					max, err := os.ReadFile(filepath.Join(fake, "max"))
 					if err != nil {
 						t.Errorf("read maximum concurrent re-runs: %v", err)
-					} else if got := strings.TrimSpace(string(max)); got != "3" {
-						t.Errorf("maximum concurrent re-runs = %s, want 3", got)
+					} else if got := strings.TrimSpace(string(max)); got != strconv.Itoa(c.width) {
+						t.Errorf("maximum concurrent re-runs = %s, want %d", got, c.width)
 					}
 				}
 				// Each package re-run once, with the leg's flags, inside

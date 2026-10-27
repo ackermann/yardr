@@ -22,7 +22,13 @@ verdict. A package that slips over 60 s shows at its landing, not before.
 The wall is the slowest package. When a non-allow-listed package takes over
 60 s in the race leg, the gate runs it again alone under the leg's lock.
 Several over-budget packages are re-run up to three at a time, and every
-one is judged by the single load pair sampled around the batch.
+one is judged by the single load pair sampled around the batch. With
+`YARDR_R1_STRICT` set, which only the quiet run does (R6), they are re-run
+one after another instead, each judged by the pair sampled around its own
+re-run, so a failure line names the load that package sat in: three race
+suites side by side make a load and times of their own, and a run that
+fails a package over 60 s alone however loaded the machine would convict
+it for those (yardr-t4c0).
 Over 60 s alone fails the run and names both times; 60 s or less passes
 with a `test: R1:` line naming both times and marking the first run as loaded.
 Load multiplies package times up to ~2.5x, so the first run's time by
@@ -231,7 +237,11 @@ with its wall time and starting load. The strict setting, which only the
 quiet run sets, turns off R1's loaded pass: a package over 60 s alone
 fails however loaded the machine. On a loaded host its failure line
 names both times and the load; on a quiet host it names both times, so a
-slowdown cannot hide behind a loaded host (yardr-8gdt).
+slowdown cannot hide behind a loaded host (yardr-8gdt). It also re-runs
+the packages over budget one after another, not up to three at a time, so
+that the time a package is failed by is its own and not what three race
+suites side by side made of it, and the load a failure line names is the
+one around that package's own re-run (R1, yardr-t4c0).
 
 `YARDR_QUIET_RUN=1`, which like `YARDR_R1_STRICT` only the quiet run sets, is
 the mark a test reads when it costs minutes and belongs to no other run.

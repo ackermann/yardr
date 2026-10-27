@@ -53,7 +53,10 @@
 # started or as the last ended) it passes with an R1 line naming both times and
 # the load, unless YARDR_R1_STRICT is set by the quiet run. Then over budget
 # alone fails however loaded the machine, and on a loaded machine the
-# failure line names the load beside both times;
+# failure line names the load beside both times; its re-runs go one after
+# another, each judged by the load around itself, where a landing's go up to
+# three at a time under one load pair, so that a time over budget is not made
+# by the re-runs' own contention;
 # the run fails when a test file sleeps over budget at a site that is not.
 # A run without -race judges no package's time, R1 being defined under -race:
 # a plain run, which is never raced, judges none, and the landing and the quiet
@@ -1505,6 +1508,8 @@ legflag() {
 # beside both times. The machine is sampled twice, as the re-runs start and
 # when the last ends, and is loaded when either sample is (loadedeither);
 # the load a line names is the start's where that is loaded, else the end's.
+# A strict run samples it twice for each re-run instead, as that re-run
+# starts and as it ends, so a line names the load around its own re-run.
 # The re-run is the leg's own command ($2 on: the same flags), with -count=1 so
 # it is timed and not cached, and the one package; several are re-run up to
 # three at a time, each to its own file, and printed and judged in sorted
@@ -1512,8 +1517,12 @@ legflag() {
 # Three stays under the five side-by-side race suites that slowed past
 # timeout (yardr-cecb), with margin, on any machine. On a quiet leg with two
 # over-budget packages or more, the re-runs' own contention can read as
-# loaded and pass what one re-run after another would convict; a strict run
-# convicts it. The re-runs share the leg's hold on the race lock
+# loaded and pass what one re-run after another would convict. A strict run
+# passes nothing for load, so what it convicts on is the time itself, and
+# three suites side by side made that: the quiet run's alone times were
+# 60-84 s for packages that took 30-57 s one after another (yardr-t4c0). It
+# therefore re-runs one at a time, and a time over 60 s is the package's own.
+# The re-runs share the leg's hold on the race lock
 # (YARDR_RACE_HELD, which the leg set): they wait on nothing again. A re-run
 # that fails, or prints no seconds, fails the run: the leg saw an
 # over-budget package the re-run did not clear.
@@ -1580,8 +1589,12 @@ packagebudget() {
   done
   # The re-runs share one load pair, sampled around the whole batch: the
   # one-minute average lags, so the start sample holds the loaded minutes
-  # the re-runs were about to sit in (loadedeither).
+  # the re-runs were about to sit in (loadedeither). A strict run's re-runs
+  # go one at a time, and each takes a pair of its own below, which the
+  # judging reads in this one's place.
   load_start=$(loadedmachine) || load_start=
+  width=3
+  [ -z "$YARDR_R1_STRICT" ] || width=1
   runs=$(mktemp -d)
   jobs=$(mktemp)
   n=0
@@ -1595,14 +1608,23 @@ packagebudget() {
     printf '%s %s %s\n' "$pkg" "$secs" "$n" >>"$jobs"
     # The re-run reads no stdin: the loop's is the over-budget list. Its
     # output goes to its own file, runlogged's file mode without the print,
-    # which waits for the batch; its status beside it.
+    # which waits for the batch; its status beside it. A strict run's
+    # re-run samples the load on either side of itself, each to a file.
     # shellcheck disable=SC2086
-    ( $prefix $flags -count=1 "$pkg" </dev/null >"$run" 2>&1; echo "$?" >"$run.rc" ) &
+    (
+      [ -z "$YARDR_R1_STRICT" ] || loadedmachine >"$run.before" || :
+      $prefix $flags -count=1 "$pkg" </dev/null >"$run" 2>&1
+      echo "$?" >"$run.rc"
+      [ -z "$YARDR_R1_STRICT" ] || loadedmachine >"$run.after" || :
+    ) &
     wave="$wave $!"
     inflight=$((inflight + 1))
-    if [ "$inflight" -ge 3 ]; then
-      # A wave of three: wait each pid before the next wave starts. A
-      # re-run's own status waits in its .rc file, so a failed wait here
+    if [ "$inflight" -ge "$width" ]; then
+      # A full wave, of three or of one: wait each pid before the next
+      # wave starts. A wave of one is started in the background all the
+      # same: a TERM or INT the gate traps runs at once in a wait, and
+      # only after the command returns when that runs in the foreground.
+      # A re-run's own status waits in its .rc file, so a failed wait here
       # keeps nothing.
       for pid in $wave; do wait "$pid" || true; done
       wave=""
@@ -1615,6 +1637,13 @@ packagebudget() {
   while read -r pkg secs id; do
     [ -n "$pkg" ] || continue
     run=$runs/$id.out
+    # A strict run's re-run is judged by the load around itself, not the
+    # batch's. A sample that was never written is an unknown load, which
+    # counts as quiet, as it does everywhere else (loadedmachine).
+    if [ -n "$YARDR_R1_STRICT" ]; then
+      load_start=$(cat "$run.before" 2>/dev/null) || load_start=
+      load_end=$(cat "$run.after" 2>/dev/null) || load_end=
+    fi
     # The re-run's output first, in sorted order, as runlogged printed it
     # where the re-runs ran one after another.
     cat "$run"
