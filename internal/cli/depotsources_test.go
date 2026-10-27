@@ -115,6 +115,7 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 	// The pack's stage files are in the yard's home; one is taken away, so
 	// a stage of the pack's flow without a file is seen beside those with.
 	stages := filepath.Join(home, "flows", "starter.default")
+	trainStages := filepath.Join(home, "flows", "starter.train")
 	stageFile := filepath.Join(stages, "review.md")
 	if err := os.Remove(filepath.Join(stages, "new.md")); err != nil {
 		t.Fatal(err)
@@ -136,7 +137,7 @@ func TestDepotSourcesAppliedPack(t *testing.T) {
 		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"flow type/train pack starter (store starter.train)",
 		"stage train:backlog none", "stage train:open none", "stage train:review none", "stage train:review-security none", "stage train:approved none",
-		"stage train:in-pr none", "stage train:land none", "stage train:merge none", "stage train:decide none",
+		"stage train:in-pr pack starter ("+filepath.Join(trainStages, "in-pr.md")+")", "stage train:land none", "stage train:merge pack starter ("+filepath.Join(trainStages, "merge.md")+")", "stage train:decide none",
 		"role web-builders pack starter ("+filepath.Join(packs, "builder.md")+") shadows .yardr/roles/builder.md",
 		"role web-reviewers pack starter ("+filepath.Join(packs, "reviewer.md")+") shadows .yardr/roles/reviewer.md",
 		"role web-security-reviewers pack starter ("+filepath.Join(packs, "review-security.md")+")",
@@ -172,6 +173,7 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 	}
 	// The pack's stage files come with its flow, whoever's the roles are.
 	stages := filepath.Join(home, "flows", "starter.default")
+	trainStages := filepath.Join(home, "flows", "starter.train")
 	out, err := run(t, a.depotSourcesCmd(), "web")
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +189,7 @@ func TestDepotSourcesPackFlowDepotRoles(t *testing.T) {
 		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"flow type/train pack starter (store starter.train)",
 		"stage train:backlog none", "stage train:open none", "stage train:review none", "stage train:review-security none", "stage train:approved none",
-		"stage train:in-pr none", "stage train:land none", "stage train:merge none", "stage train:decide none",
+		"stage train:in-pr pack starter ("+filepath.Join(trainStages, "in-pr.md")+")", "stage train:land none", "stage train:merge pack starter ("+filepath.Join(trainStages, "merge.md")+")", "stage train:decide none",
 		"role web-builders depot (.yardr/roles/builder.md@"+sha+") pack starter has a copy",
 		"role web-reviewers depot (.yardr/roles/reviewer.md@"+sha+") pack starter has a copy",
 		"role web-security-reviewers pack starter ("+filepath.Join(config.At(home).PackRoles("starter"), "review-security.md")+")",

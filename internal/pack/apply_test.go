@@ -77,7 +77,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	}
 	beforeApply := head(t, st)
 	res := apply(t, st, plan, answers)
-	if res.Created != 38 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
+	if res.Created != 40 || res.Changed != 0 || res.Unchanged != 0 || !res.Recorded || !res.Wrote() {
 		t.Fatalf("first import = %+v", res)
 	}
 	groupEvents := 0
@@ -150,7 +150,7 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 		t.Fatalf("commit = %q", rec.Commit)
 	}
 	// Everything but the crew member, which stays the yard's.
-	if len(rec.Objects) != 37 {
+	if len(rec.Objects) != 39 {
 		t.Fatalf("%d objects recorded: %+v", len(rec.Objects), rec.Objects)
 	}
 
@@ -158,11 +158,11 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	before := head(t, st)
 	o.Crew = nil
 	plan = build(t, st, load(t, starter), o)
-	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 38 {
+	if len(plan.Questions) != 0 || len(actions(plan, pack.Unchanged)) != 40 {
 		t.Fatalf("second plan: questions %v, unchanged %v", plan.Questions, actions(plan, pack.Unchanged))
 	}
 	res = apply(t, st, plan, nil)
-	if res.Wrote() || res.Recorded || res.Unchanged != 38 {
+	if res.Wrote() || res.Recorded || res.Unchanged != 40 {
 		t.Fatalf("second import = %+v", res)
 	}
 	if got := kinds(t, st, before); !slices.Equal(got, []string{"pack_unchanged"}) {
@@ -482,8 +482,8 @@ func TestPruneHoldsAGroupAnotherDepotUses(t *testing.T) {
 	edit(t, dir,
 		"      decide:   { group: decisions, file: flows/default/decide.md,   manual: [backlog, new] }", "      decide:   { manual: [backlog, new] }",
 		"      clear:    { group: decisions, file: flows/default/clear.md,    outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }", "      clear:    { group: backlog, file: flows/default/clear.md,    outcomes: { done: approved, changes: { to: new, max: 3, then: decide }, question: decide } }",
-		"      in-pr:   { group: decisions, outcomes: { done: land, changes: open, question: decide, merged: merged } }", "      in-pr:   { group: backlog, outcomes: { done: land, changes: open, question: decide, merged: merged } }",
-		"      merge:   { group: decisions, outcomes: { done: open, rework: open, question: decide } }", "      merge:   { group: backlog, outcomes: { done: open, rework: open, question: decide } }",
+		"      in-pr:   { group: decisions, file: flows/train/in-pr.md, outcomes: { done: land, changes: open, question: decide, merged: merged } }", "      in-pr:   { group: backlog, file: flows/train/in-pr.md, outcomes: { done: land, changes: open, question: decide, merged: merged } }",
+		"      merge:   { group: decisions, file: flows/train/merge.md, outcomes: { done: open, rework: open, question: decide } }", "      merge:   { group: backlog, file: flows/train/merge.md, outcomes: { done: open, rework: open, question: decide } }",
 		"      decide:  { group: decisions, manual: [open, backlog] }", "      decide:  { group: backlog, manual: [open, backlog] }",
 		"  decisions: { people: true }\n", "")
 	plan := build(t, st, load(t, dir), o)
@@ -627,7 +627,7 @@ func TestApplyAgainFinishesAnImportThatFailedHalfway(t *testing.T) {
 	if len(routes) != 11 || len(groups) != 6 {
 		t.Fatalf("after applying again: %d routes, %d groups", len(routes), len(groups))
 	}
-	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 38 {
+	if got := actions(build(t, st, load(t, starter), o), pack.Unchanged); len(got) != 40 {
 		t.Fatalf("%d unchanged, want 38", len(got))
 	}
 }

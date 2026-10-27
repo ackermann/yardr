@@ -116,8 +116,8 @@ func TestTemplatesAreGeneric(t *testing.T) {
 			stages++
 		}
 	}
-	if roles != 18 || stages != 33 {
-		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 33", roles, stages)
+	if roles != 18 || stages != 35 {
+		t.Fatalf("embedded: %d roles and %d stage files, want 18 and 35", roles, stages)
 	}
 	for name, body := range files {
 		for i, line := range strings.Split(body, "\n") {

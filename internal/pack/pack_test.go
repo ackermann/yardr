@@ -11,10 +11,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/docs"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/packs"
 )
 
@@ -289,6 +291,125 @@ func TestStarterClearWaitsForThePersonsYes(t *testing.T) {
 	ask := make()
 	toClear(ask)
 	report(ask, "question", "decide")
+}
+
+// The starter's approval stages ask the person who works them: clear, in-pr
+// and merge each carry a choice template over the stage's outcomes, so a
+// bead waiting for a yes shows among the person's decisions. In-pr's merged
+// is left out of its options: only the hook fires it, when the pull request
+// is merged. Driven here through an import of the starter into an empty
+// yard: the three files parse and resolve under their flows, and a bead
+// done into clear gets one open ask per member of the decisions group.
+func TestStarterApprovalStagesAsk(t *testing.T) {
+	home := t.TempDir()
+	st := storetest.NewIn(t, home)
+	if err := st.PutDepot(ctx, store.Depot{Name: "web", Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "me", "me"); err != nil {
+		t.Fatal(err)
+	}
+	o := pack.Options{Depot: "web", Home: home}
+	apply(t, st, build(t, st, load(t, starter), o), answers)
+
+	// Each approval stage's file carries a choice template over the
+	// stage's outcomes: what flow show lists, with no warning beside it.
+	for _, tc := range []struct {
+		flow, stage string
+		options     []string
+	}{
+		{"starter.default", "clear", []string{"done", "changes", "question"}},
+		{"starter.train", "in-pr", []string{"done", "changes", "question"}},
+		{"starter.train", "merge", []string{"done", "rework", "question"}},
+	} {
+		f, err := st.GetFlow(ctx, tc.flow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf, err := store.HomeStageFile(home, tc.flow, tc.stage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sf == nil {
+			t.Fatalf("%s %s has no stage file", tc.flow, tc.stage)
+		}
+		if broken := sf.BrokenAsk(f, tc.stage); broken != "" {
+			t.Fatalf("%s %s: %s", tc.flow, tc.stage, broken)
+		}
+		tmpl, err := sf.Ask()
+		if err != nil || tmpl == nil {
+			t.Fatalf("%s %s ask = %+v, %v; want a template", tc.flow, tc.stage, tmpl, err)
+		}
+		if tmpl.Kind != store.AskChoice {
+			t.Fatalf("%s %s kind = %q, want choice", tc.flow, tc.stage, tmpl.Kind)
+		}
+		var got []string
+		for _, o := range tmpl.Options {
+			got = append(got, o.Outcome)
+		}
+		if !slices.Equal(got, tc.options) {
+			t.Fatalf("%s %s options = %v, want %v", tc.flow, tc.stage, got, tc.options)
+		}
+		if tmpl.Recommend != 0 {
+			t.Fatalf("%s %s recommends option %d; the person decides", tc.flow, tc.stage, tmpl.Recommend)
+		}
+	}
+
+	// A bead done into clear gets one open ask per member of the
+	// decisions group, offering the stage's outcomes.
+	for _, u := range []string{"ada", "hal"} {
+		if _, err := st.AddUser(ctx, u, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual", Limit: 50, Members: []string{"ada", "hal"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := st.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if b, err = st.Done(ctx, b.ID, "done", "note", store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b.Stage != "clear" {
+		t.Fatalf("stage = %s, want clear", b.Stage)
+	}
+	notes, err := st.Notes(ctx, b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asks := store.ResolveAsks(notes, time.Now())
+	if len(asks) != 2 {
+		t.Fatalf("%d asks, want one per member of decisions", len(asks))
+	}
+	for i, r := range asks {
+		if r.AskErr != nil || r.Note.Author != "yard" || r.State != store.AskOpen {
+			t.Fatalf("ask %d: %+v", i, r)
+		}
+		a := r.Ask
+		if a.Stage != "clear" || a.Entry == 0 {
+			t.Fatalf("ask %d: stage %q entry %d", i, a.Stage, a.Entry)
+		}
+		var labels []string
+		for _, o := range a.Options {
+			labels = append(labels, o.Label)
+		}
+		if want := []string{"done", "changes", "question", store.YouDecide}; !slices.Equal(labels, want) {
+			t.Fatalf("ask %d: options %v, want %v", i, labels, want)
+		}
+		if want := []string{"done", "changes", "question", ""}; !slices.Equal(a.Move, want) {
+			t.Fatalf("ask %d: move %v, want %v", i, a.Move, want)
+		}
+		if a.Recommend != 0 {
+			t.Fatalf("ask %d: recommends option %d; the person decides", i, a.Recommend)
+		}
+	}
+	if asks[0].Ask.To != "ada" || asks[1].Ask.To != "hal" {
+		t.Fatalf("to = %s, %s", asks[0].Ask.To, asks[1].Ask.To)
+	}
 }
 
 // Stage order is the file's, and so is the order of a stage's outcomes:

@@ -75,7 +75,7 @@ func TestDepotInitPack(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	const guess = "go vet ./... && go test ./..."
-	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 38 created, 0 changed, 0 unchanged\n",
+	for _, want := range []string{"pack starter (", "  create           web-builders\n", "\napplied pack starter to depot web: 40 created, 0 changed, 0 unchanged\n",
 		"\ntest: depot web is tested with " + guess + " (a guess from " + repo + ": check it with yardr depot show web)\n",
 		"To change it:\n  yardr depot add web " + repo + " --base main --test '<command>'\n"} {
 		if !strings.Contains(out, want) {
@@ -110,6 +110,7 @@ func TestDepotInitPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	stages := filepath.Join(a.cfg.Home, "flows", "starter.default")
+	trainStages := filepath.Join(a.cfg.Home, "flows", "starter.train")
 	wantLines(t, out,
 		"flow default pack starter (store starter.default)",
 		"stage default:backlog pack starter ("+filepath.Join(stages, "backlog.md")+")",
@@ -121,7 +122,7 @@ func TestDepotInitPack(t *testing.T) {
 		"stage default:decide pack starter ("+filepath.Join(stages, "decide.md")+")",
 		"flow type/train pack starter (store starter.train)",
 		"stage train:backlog none", "stage train:open none", "stage train:review none", "stage train:review-security none", "stage train:approved none",
-		"stage train:in-pr none", "stage train:land none", "stage train:merge none", "stage train:decide none",
+		"stage train:in-pr pack starter ("+filepath.Join(trainStages, "in-pr.md")+")", "stage train:land none", "stage train:merge pack starter ("+filepath.Join(trainStages, "merge.md")+")", "stage train:decide none",
 		"role web-builders pack starter ("+filepath.Join(roles, "builder.md")+")",
 		"role web-reviewers pack starter ("+filepath.Join(roles, "reviewer.md")+")",
 		"role web-security-reviewers pack starter ("+filepath.Join(roles, "review-security.md")+")",
@@ -150,7 +151,7 @@ func TestDepotInitPack(t *testing.T) {
 		Result struct{ Unchanged int }
 		Test   testResult
 	}
-	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 38 ||
+	if err != nil || json.Unmarshal([]byte(out), &got) != nil || got.Result.Unchanged != 40 ||
 		got.Test != (testResult{Depot: "web", Kind: store.DepotGit, Path: repo, Base: "main", Test: "make test"}) {
 		t.Fatalf("json: %v, %+v\n%s", err, got, out)
 	}

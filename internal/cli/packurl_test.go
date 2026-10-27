@@ -132,7 +132,7 @@ func TestPackApplyPinsAURLPack(t *testing.T) {
 	}
 
 	changed.Store(false)
-	if out, err := run(t, a.packCmd(), slices.Concat(args, []string{"--sha256", digest})...); err != nil || !strings.Contains(out, "\napplied pack starter to depot web: 38 created") {
+	if out, err := run(t, a.packCmd(), slices.Concat(args, []string{"--sha256", digest})...); err != nil || !strings.Contains(out, "\napplied pack starter to depot web: 40 created") {
 		t.Fatalf("the pack that was read, under its pin: %v\n%s", err, out)
 	}
 }

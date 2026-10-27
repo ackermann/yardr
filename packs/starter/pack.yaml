@@ -71,9 +71,9 @@ flows:
       review:  { group: reviewers, outcomes: { done: review-security, changes: open, question: decide } }
       review-security: { group: security-reviewers, outcomes: { done: approved, changes: open, question: decide } }
       approved: { group: assembly, outcomes: { done: in-pr, failed: open, conflict: merge, changes: open, question: decide, merged: merged } }
-      in-pr:   { group: decisions, outcomes: { done: land, changes: open, question: decide, merged: merged } }
+      in-pr:   { group: decisions, file: flows/train/in-pr.md, outcomes: { done: land, changes: open, question: decide, merged: merged } }
       land:    { group: assembly, outcomes: { done: merged, failed: open, question: decide, merged: merged } }
-      merge:   { group: decisions, outcomes: { done: open, rework: open, question: decide } }
+      merge:   { group: decisions, file: flows/train/merge.md, outcomes: { done: open, rework: open, question: decide } }
       decide:  { group: decisions, manual: [open, backlog] }
       merged:  { end: true }
 
