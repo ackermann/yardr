@@ -694,7 +694,11 @@ they have no answer, and `source check` fails for them.
   pane, as for every source, and here for a second reason: the yard runs
   what it names. For the same reason no pack brings one: a declaration in a
   pack with a `limits` key is refused by `yardr pack check`
-  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)).
+  ([packs.md](packs.md#how-a-pack-maps-to-the-yard)). A crew member
+  proposes a new one with a run ask, and the operator approves its card
+  ([below](#a-call-by-a-session-or-a-crew-member)). aiquokka's declaration
+  and command file are in a yardr checkout as `packs/aiquokka`, with the
+  notes for setting it up.
 
 ### A declared source
 

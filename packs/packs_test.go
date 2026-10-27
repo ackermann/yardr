@@ -2,6 +2,9 @@ package packs_test
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,12 +13,13 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
-	_ "yardr.dev/yardr/internal/storetest" // nothing of the box's proxy reaches the packs' scripts the tests run
+	"yardr.dev/yardr/internal/storetest" // its init: nothing of the box's proxy reaches the packs' scripts the tests run
 	"yardr.dev/yardr/packs"
 
 	"go.yaml.in/yaml/v3"
@@ -1441,6 +1445,129 @@ func TestTemplateAndDocsTypeNoSecret(t *testing.T) {
 		if strings.Contains(string(page), not) {
 			t.Errorf("docs/integrations.md types a secret as a command's word: %q", not)
 		}
+	}
+}
+
+// aiquokka is no pack: a pack may not bring a limits key, so packs/aiquokka
+// holds the files of the source for a source add, which a crew member
+// proposes as a run ask and the operator approves. Nothing of it is
+// embedded, so this reads the checkout. The declaration names its program
+// bare, a shim beside it, and no path or login of any machine; its notes
+// give the ask; and the two files, carried as that ask carries them, make a
+// card the yard accepts and an approval that stores the source.
+func TestAiquokkaSourceFiles(t *testing.T) {
+	decl, err := os.ReadFile("aiquokka/aiquokka.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim, err := os.ReadFile("aiquokka/aiquokka")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := source.Parse("aiquokka.yaml", decl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Name != "aiquokka" || d.Limits == nil || len(d.Calls) != 0 {
+		t.Fatalf("declaration = %+v, want the source aiquokka with a limits key and no call", d)
+	}
+	wantKinds := map[string]string{"claude": "claude", "codex": "codex", "grok": "grok", "kimi": "kimi", "muse": "muse"}
+	if !reflect.DeepEqual(d.Limits.Kinds, wantKinds) {
+		t.Errorf("kinds = %v, want %v", d.Limits.Kinds, wantKinds)
+	}
+	if cs := d.Commands(); len(cs) != 1 || cs[0].Key != "limits.command" || !cs[0].Relative() ||
+		strings.Join(cs[0].Argv, " ") != "aiquokka {provider} --json" {
+		t.Errorf("commands = %+v, want limits.command aiquokka {provider} --json, the program a file beside the declaration", cs)
+	}
+	if err := d.CheckCommandFiles("aiquokka"); err != nil {
+		t.Error(err)
+	}
+	if !bytes.HasPrefix(shim, []byte("#!/bin/sh\n")) || !bytes.HasSuffix(shim, []byte("\nexec aiquokka \"$@\"\n")) {
+		t.Errorf("the command file is no shell script that ends by running the aiquokka on PATH:\n%s", shim)
+	}
+	if info, err := os.Stat("aiquokka/aiquokka"); err != nil || info.Mode()&0o111 == 0 {
+		t.Errorf("the command file is not executable: %v, %v", info, err)
+	}
+	for _, not := range []string{"MUSE_AUTH_PATH", "/Users/", "/home/", "/usr/", "/opt/"} {
+		if strings.Contains(string(decl), not) {
+			t.Errorf("the declaration names %q: a path or a login of one machine", not)
+		}
+	}
+	setup, err := os.ReadFile("aiquokka/SETUP.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"This directory is no pack",
+		"github.com/McKean/aiquokka/releases",
+		"go install github.com/McKean/aiquokka@latest",
+		"aiquokka claude --json",
+		`--run "source add packs/aiquokka/aiquokka.yaml"`,
+		"yardr source add packs/aiquokka/aiquokka.yaml\n",
+		"yardr limits claude",
+		"'builders@Weekly<90'",
+		"MUSE_AUTH_PATH",
+	} {
+		if !strings.Contains(string(setup), want) {
+			t.Errorf("aiquokka/SETUP.md lacks %q", want)
+		}
+	}
+
+	ctx := context.Background()
+	st := storetest.New(t)
+	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	bead, err := st.CreateBead(ctx, store.NewBead{Title: "the work"}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(shim)
+	seq, err := st.AddAsk(ctx, bead.ID, store.Ask{
+		Question: "Add the aiquokka limits source?", To: "ada",
+		Context: []string{"Routes can then gate builders on token use."},
+		Run: &store.AskRun{
+			Argv: []string{"source add packs/aiquokka/aiquokka.yaml"},
+			Carried: []store.AskSource{{Name: "aiquokka", Text: string(decl),
+				Files: []store.AskFile{{Program: "aiquokka", Text: string(shim), SHA256: hex.EncodeToString(sum[:])}}}},
+		},
+	}, "yardmaster")
+	if err != nil {
+		t.Fatalf("the yard refuses the ask SETUP.md gives: %v", err)
+	}
+	notes, err := st.Notes(ctx, bead.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card string
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq == seq {
+			card = strings.Join(r.Ask.Run.Does, "\n")
+		}
+	}
+	for _, want := range []string{
+		"its limits command [aiquokka, {provider}, --json] says what the subscription of claude as claude, codex as codex, grok as grok, kimi as kimi, muse as muse still carries.",
+		"command file aiquokka: [aiquokka, {provider}, --json] (limits.command",
+	} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the card lacks %q:\n%s", want, card)
+		}
+	}
+	done, err := st.ApproveAsk(ctx, bead.ID, seq, "ada", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "approved, to be carried out" {
+		t.Errorf("the approval recorded %q", done.Result)
+	}
+	if got, err := st.GetSource(ctx, "aiquokka"); err != nil || got.Text != string(decl) {
+		t.Errorf("the source the approval stored = %+v, %v; want the declaration as carried", got, err)
 	}
 }
 

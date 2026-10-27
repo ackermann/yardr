@@ -98,6 +98,18 @@ credential (`credential.url: true`,
 [integrations.md](integrations.md#a-declared-source)), so the declaration
 names no base ([An integration pack](#an-integration-pack-kind-source)).
 
+[`packs/aiquokka`](../packs/aiquokka) is no pack, and the binary does not
+carry it: it holds the files of the source `aiquokka`, which says what the
+subscriptions of claude, codex, grok, kimi and muse still carry, so a
+route's condition can gate builders on token use. A pack may not bring a
+`limits` key (below), so there is no `yardr pack apply aiquokka`: the
+operator adds the source with `yardr source add
+packs/aiquokka/aiquokka.yaml`, and a crew member proposes it with
+`yardr bead ask <bead> "…" --context "…" --run "source add
+packs/aiquokka/aiquokka.yaml"`, for the operator to approve on its card
+([integrations.md](integrations.md#say-what-a-subscription-still-carries)).
+Its SETUP.md says how, from installing aiquokka to the route's condition.
+
 And [`packs/website`](../packs/website), named `website`, is the starter's
 line with a deploy stage, for a depot that is a website: a landed change is
 deployed to the site's project on the user's own Void platform, and the bead

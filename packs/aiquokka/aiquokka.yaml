@@ -1,0 +1,18 @@
+# Aiquokka as a declared source: the usage limits of the subscriptions the
+# agents' CLIs are logged in to, read from the logins their CLIs store. The
+# source is its limits command and has no call: `yardr limits <kind>` asks
+# it, and a route's condition gates on the windows it reports. The program
+# is the file of the same name beside this one, which runs the aiquokka the
+# yard's machine carries on PATH; the binary is the person's to install
+# (SETUP.md). It names no login of its own: the command runs with the
+# asking group's env, so a group on its own login gates on its own windows.
+name: aiquokka
+about: Usage limits of the subscriptions the agents' CLIs are logged in to (github.com/McKean/aiquokka).
+limits:
+  command: [aiquokka, "{provider}", --json]
+  kinds:              # harness kind -> the provider's own name for it
+    claude: claude
+    codex: codex
+    grok: grok
+    kimi: kimi
+    muse: muse

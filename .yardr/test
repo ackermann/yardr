@@ -2090,6 +2090,7 @@ packs/pushover/                internal/notify internal/dispatch
 packs/posthog/                 internal/hooks internal/store
 packs/webhook/                 internal/hooks
 packs/template/                internal/pack packs
+packs/aiquokka/                packs
 packs/website/                 internal/pack
 .yardr/flows/                  internal/cli internal/dispatch internal/store internal/flowdraw contrib/assembly
 .yardr/security_paths          internal/store

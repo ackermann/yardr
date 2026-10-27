@@ -16,7 +16,10 @@ worked); user docs live in `docs/` and are not repeated here.
   contract), `docs/testing.md` (the test rules), `docs/design/`, `docs/flows/`;
   `docs/docs.go` beside them embeds the top-level pages in the binary (`yardr docs`).
 - `packs/`: packs shipped inside the binary (`packs/packs.go` embeds them);
-  per-service and per-depot-kind directories.
+  per-service and per-depot-kind directories. Two are not embedded:
+  `template`, the skeleton a new source pack is copied from, and `aiquokka`,
+  which is no pack but the files of a limits source for `yardr source add`
+  (a pack may not bring a `limits` key).
 - `harnesses/`: one `<kind>.yaml` per agent harness kind, embedded and read
   by `internal/agents`.
 - `contrib/`: operator and developer tools, each with its own README

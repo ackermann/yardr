@@ -1,0 +1,7 @@
+#!/bin/sh
+# aiquokka: the command file of the aiquokka source's limits command. The
+# yard runs its copy of this file, which runs the aiquokka the machine
+# carries on PATH, with the env of whoever asks. The source brings no
+# binary, only this line to it: the binary is the person's to install
+# (SETUP.md), on the PATH of whoever runs the yard, the daemon included.
+exec aiquokka "$@"
