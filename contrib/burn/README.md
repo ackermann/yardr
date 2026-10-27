@@ -4,10 +4,11 @@ One shell script that runs a Go package's tests over and over on a machine
 kept busy, to show whether a test that failed only under load still does.
 
 ```sh
-contrib/burn/burn [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]
+contrib/burn/burn [-r] [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]
 
 contrib/burn/burn ./internal/dispatch TestPushBurstIsOneMessage TestQuietExecRunSetsStrictR1
 contrib/burn/burn -n 5 ./internal/dispatch
+contrib/burn/burn -r ./internal/dispatch TestPushBurstIsOneMessage
 ```
 
 A test that fails once in fifty runs on a loaded machine passes on a quiet
@@ -24,6 +25,14 @@ is the name of a top-level test; its subtests run with it. With no TEST the
 whole of the package's tests is what is run COUNT times, every test beside the
 others as `go test` runs them.
 
+A data race shows in a burn when the test binary carries the race detector.
+Use `-r` to request it (`go test -c -race`); without `-r`, burn does not add
+it, though an inherited `GOFLAGS=-race` can still enable it. A burn without
+the detector proves nothing about a race fix. The detector slows each run,
+which is why it is not the default. `-r` adds the flag to the build itself
+and leaves the caller's `GOFLAGS` alone, so a `-race=false` among them does
+not turn it off.
+
 The default factor is for an idle yard: the loops are niced, but they still
 raise the load average, and the yard's builder routes wait on
 `machine.load<80`, so inside a builder's or reviewer's session burn runs at
@@ -33,7 +42,8 @@ A run passes when the binary exits 0 and prints the test's own `--- PASS`
 line (a whole package's, its closing `PASS`). A name that matches no test and
 a test that skips are not passes, though `go test` calls both ok. The output
 of the first five failing runs of a test is shown, down to the lines that say
-what failed, and the last lines say how many runs of each test passed:
+what failed (a data race's `WARNING: DATA RACE` is one), and the last lines say
+how many runs of each test passed:
 
 ```text
 TestPushBurstIsOneMessage: 100/100 passed
@@ -71,4 +81,6 @@ a failed run.
 
 `go test ./contrib/burn/` runs it against stand-ins for `go` and `yes`: the
 counts, what is not a pass, the whole-package run, the loops' number and nice
-level, and the end on a signal.
+level, and the end on a signal. `-r` is the one case that builds a package of
+its own with the real `go`, since only a real build shows whether the binary
+has the detector.

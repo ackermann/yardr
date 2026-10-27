@@ -2,7 +2,7 @@
 # Runs a Go package's tests over and over on a machine kept busy, to show
 # whether a test that failed only under load still does.
 #
-#   burn [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]
+#   burn [-r] [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]
 #
 # PACKAGE is a Go package (./internal/dispatch), each TEST the name of one of
 # its top-level tests. The package's test binary is built once, before the
@@ -12,6 +12,10 @@
 # test runs a package. With no TEST the whole of the package's tests is the
 # unit that is run COUNT times, every test beside the others as go test runs
 # them, which is where a failure that needs its neighbours shows.
+#
+# -r adds the race detector to the test binary. Without it burn does not
+# request the detector, though the caller's GOFLAGS may still enable it. A
+# data race shows only when the binary carries the detector.
 #
 # A run passes only when the binary exits 0 and prints the test's own
 # "--- PASS" line (a whole package's, its closing "PASS"): a name that matches
@@ -34,13 +38,14 @@ set -eu
 fail() { echo "burn: $*" >&2; exit 2; }
 
 usage() {
-  echo "usage: burn [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]" >&2
+  echo "usage: burn [-r] [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]" >&2
   exit 2
 }
 
-count=100 factor=5 cpus='' nice=19
-while getopts n:x:c:N: opt; do
+count=100 factor=5 cpus='' nice=19 race=''
+while getopts rn:x:c:N: opt; do
   case $opt in
+    r) race=1 ;;
     n) count=$OPTARG ;;
     x) factor=$OPTARG ;;
     c) cpus=$OPTARG ;;
@@ -98,7 +103,11 @@ trap 'exit 129' HUP
 work=$(mktemp -d)
 dir=$(go list -f '{{.Dir}}' "$pkg") || fail "no package $pkg"
 bin=$work/test.bin
-go test -c -o "$bin" "$pkg" || fail "cannot build the tests of $pkg"
+# -race is a flag of this command and not an addition to GOFLAGS: a flag on the
+# command line is applied after GOFLAGS, so the caller's GOFLAGS (-trimpath,
+# which the gate sets so that builds are shared) stays as it was and cannot
+# turn the detector off with a -race=false of its own.
+go test -c -o "$bin" ${race:+-race} "$pkg" || fail "cannot build the tests of $pkg"
 [ -x "$bin" ] || fail "$pkg has no tests"
 
 # load is the machine's load average as uptime prints it: three numbers, with
@@ -139,7 +148,7 @@ for name in "$@"; do
       failed=$((failed + 1))
       if [ "$failed" -le "$shown" ]; then
         echo "burn: $label, run $run failed (exit $rc):" >&2
-        grep -E '^[[:space:]]*(--- (FAIL|SKIP)|panic:|fatal error:|testing: warning)|_test\.go:[0-9]+:' "$work/out" | head -n 40 >&2 || true
+        grep -E '^[[:space:]]*(--- (FAIL|SKIP)|panic:|fatal error:|testing: warning|WARNING: DATA RACE)|_test\.go:[0-9]+:' "$work/out" | head -n 40 >&2 || true
       fi
     fi
     if [ $((run % 25)) -eq 0 ] && [ "$run" -lt "$count" ]; then

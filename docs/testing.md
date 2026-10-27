@@ -106,12 +106,17 @@ A fix for a test that fails only under load is proved the way it failed:
 hundred times beside five times as many busy loops as the machine has cpus
 (contrib/burn/README.md; `-x` sets the factor, 5 by default), first on the
 code as it was, to see it fail, then on the fix, and the note names the
-command, the counts it printed and the load average before and after. The
-loops are niced, but they still raise the load average, and the builder
-routes wait on `machine.load<80`, so that default factor runs outside a
-session, when the line is idle. Inside a builder's or reviewer's session the
-burn runs at `-x 1` and names the one suspect test
-(`contrib/burn/burn -x 1 PACKAGE TEST`), the rule in `.yardr/depot.md`.
+command, the counts it printed and the load average before and after. A fix
+for a data race is proved the same way with `contrib/burn/burn -r`, which
+builds the test binary with the race detector even if GOFLAGS contains
+`-race=false`. Without `-r`, burn does not request the detector, though an
+inherited `GOFLAGS=-race` can still enable it; use `-r` so the command says
+the detector is part of the proof. The loops are niced, but they still raise
+the load average, and the builder routes wait on `machine.load<80`, so that
+default factor runs outside a session, when the line is idle. Inside a
+builder's or reviewer's session the burn runs at `-x 1` and names the one
+suspect test (`contrib/burn/burn -x 1 PACKAGE TEST`, with `-r` for a race),
+the rule in `.yardr/depot.md`.
 
 A failure seen at a load of several times the cpu count may not show in a
 burn at `-x 1`, which runs as many loops as there are cpus. A fix therefore
@@ -133,11 +138,12 @@ whose fix beads parallelize them following the assembly train-yard shape
 threaded its output and environment through its commands. Packages under
 budget comply until they breach it, and the budget is their backstop then.
 
-R4. Race at landing only. `go test -race` runs in the landing run
+R4. The depot test gate runs `go test -race` in its landing run
 (`YARDR_LANDING=1`, the assembly's, on exactly what lands; for a pull request
 from outside, pr-ci's run of its head, which no landing follows) and in the
-quiet whole-suite run (R6), and nowhere else. A builder's or reviewer's run of
-`.yardr/test` tests the same selection without `-race`, says so in its first
+quiet whole-suite run (R6). A builder or reviewer can request an earlier race
+check with `contrib/burn/burn -r` (R2). A plain `.yardr/test` run by a builder
+or reviewer tests the same selection without `-race`, says so in its first
 line (`testing without -race (race runs at landing only, docs/testing.md
 R4)`), and so never takes the machine-wide race lock for its race, nor
 judges R1, which is defined under `-race`. A plain run whose step covers

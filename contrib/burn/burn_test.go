@@ -36,6 +36,10 @@ const fuse = 2 * time.Minute
 type rig struct {
 	t   *testing.T
 	dir string
+	// cwd is where burn runs, "" for this package's directory, and env more
+	// of its environment: for the test whose go is the machine's own (goModule).
+	cwd string
+	env []string
 }
 
 // testBin is what the stand-in test binary does, with the name of the test it
@@ -128,6 +132,40 @@ func (r *rig) set(name, body string) {
 	}
 }
 
+// goModule makes the rig's go the machine's own, building in a module of the
+// rig's with files (name to text), for the test whose subject is what a real
+// build carries, which no stand-in can say. The stand-in go gets a new body
+// that runs the real one, so the rest of the rig stays as it is. The build
+// cache is the machine's, so that the standard library is not built again for
+// each test. GOFLAGS is the gate's, whatever the caller exported, so that a
+// caller's -race cannot turn the detector on for a run that asks for none.
+func (r *rig) goModule(files map[string]string) {
+	r.t.Helper()
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	cache, err := exec.Command(goBin, "env", "GOCACHE").Output()
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	scripttest.Write(r.t, filepath.Join(r.dir, "bin", "go"), "exec \"$REAL_GO\" \"$@\"\n")
+	r.cwd = filepath.Join(r.dir, "mod")
+	if err := os.Mkdir(r.cwd, 0o755); err != nil {
+		r.t.Fatal(err)
+	}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(r.cwd, name), []byte(text), 0o600); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+	// The real go finds its compiler on the caller's PATH, wherever that is;
+	// the stand-ins stay first.
+	r.env = append(r.env, "REAL_GO="+goBin, "GOCACHE="+strings.TrimSpace(string(cache)),
+		"GOFLAGS=-trimpath", "GOTOOLCHAIN=local",
+		"PATH="+filepath.Join(r.dir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func (r *rig) read(name string) string {
 	r.t.Helper()
 	b, err := os.ReadFile(filepath.Join(r.dir, name))
@@ -152,14 +190,19 @@ func (r *rig) pids(file string) []int {
 // the stand-in test binary waits for.
 func (r *rig) burn(spinners int, args ...string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer) {
 	r.t.Helper()
-	cmd := exec.Command("./burn", args...)
-	cmd.Env = []string{
+	script, err := filepath.Abs("burn")
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	cmd := exec.Command(script, args...)
+	cmd.Dir = r.cwd
+	cmd.Env = append([]string{
 		"PATH=" + filepath.Join(r.dir, "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
 		"HOME=" + r.dir,
 		"TMPDIR=" + filepath.Join(r.dir, "tmp"),
 		"RIG=" + r.dir,
 		"SPINNERS=" + strconv.Itoa(spinners),
-	}
+	}, r.env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
@@ -308,6 +351,68 @@ func TestBurnRunsThePackageWhenNoTestIsNamed(t *testing.T) {
 	}
 	if got := r.read("ran-package"); got != "3" {
 		t.Errorf("the package was run %q times, want 3", got)
+	}
+}
+
+// A data race shows in a burn only when its test binary carries the race
+// detector, which -r builds in: without it a test that races passes however
+// often it runs, and with it the run fails and says why, whatever GOFLAGS the
+// caller had. The package is a real one, built by the real go, since the
+// stand-ins cannot tell whether a binary has the detector: what a plain build
+// lacks is the bug this pins.
+func TestBurnRBuildsTheTestsWithTheRaceDetector(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		env    []string // more of burn's environment
+		code   int
+		stdout string
+		stderr []string
+	}{
+		{"a plain build has no detector", nil, nil, 0, "TestRace: 1/1 passed\n", nil},
+		{"-r builds it in", []string{"-r"}, nil, 1, "TestRace: 0/1 passed\n",
+			[]string{"burn: TestRace, run 1 failed (exit 1):", "WARNING: DATA RACE"}},
+		// Of a flag repeated in GOFLAGS the last wins, so a -race put there
+		// before the caller's flags would lose to this one.
+		{"-r holds against a GOFLAGS that turns it off", []string{"-r"}, []string{"GOFLAGS=-trimpath -race=false"}, 1,
+			"TestRace: 0/1 passed\n", []string{"WARNING: DATA RACE"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.goModule(map[string]string{
+				"go.mod": "module example.com/racy\n\ngo 1.21\n",
+				// Two goroutines add to one variable with nothing between them.
+				"racy_test.go": `package racy
+
+import "testing"
+
+func TestRace(t *testing.T) {
+	var x int
+	done := make(chan bool)
+	go func() { x++; done <- true }()
+	x++
+	<-done
+	_ = x
+}
+`,
+			})
+			r.env = append(r.env, tc.env...)
+			args := append(tc.args, "-n", "1", "-x", "1", "-c", "1", ".", "TestRace")
+			cmd, stdout, stderr := r.burn(0, args...)
+			if code := finish(t, cmd); code != tc.code {
+				t.Fatalf("exit status = %d, want %d\n%s", code, tc.code, stderr)
+			}
+			if got := stdout.String(); got != tc.stdout {
+				t.Fatalf("stdout = %q, want %q\n%s", got, tc.stdout, stderr)
+			}
+			for _, want := range tc.stderr {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr lacks %q:\n%s", want, stderr)
+				}
+			}
+		})
 	}
 }
 

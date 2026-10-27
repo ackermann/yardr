@@ -126,6 +126,8 @@ type yard struct {
 	envFile        string // the group's env_file, when a test's script reads its credentials from one
 	bin            string // the script's YARDR_BIN, when not yardrBin itself
 	log            string // what the last run wrote to its group's log
+
+	runs []string // the log of each run, for a failed test (showRuns)
 }
 
 // serveYard serves the home's store on its socket in this process, the
@@ -437,7 +439,8 @@ func (y *yard) exec(script, group, id string) {
 	if err != nil {
 		y.t.Fatal(err)
 	}
-	for deadline := time.Now().Add(testload.Scale(60 * time.Second)); ; time.Sleep(50 * time.Millisecond) {
+	within := testload.Scale(60 * time.Second)
+	for deadline := time.Now().Add(within); ; time.Sleep(50 * time.Millisecond) {
 		if alive, _ := e.Alive(ctx, h); !alive {
 			break
 		}
@@ -447,12 +450,16 @@ func (y *yard) exec(script, group, id string) {
 			// stuck; without it the next flake keeps nothing again.
 			out, _ := os.ReadFile(logPath)
 			y.log = string(out)
-			y.t.Fatalf("%s did not finish; %s log:\n%s", script, group, out)
+			y.t.Fatal(didNotFinish(script, group, within, y.log))
 		}
 	}
 	out, _ := os.ReadFile(logPath)
 	y.log = string(out)
-	y.t.Logf("%s log:\n%s", group, out)
+	// The log is for a test that fails, and comes after its failure (showRuns).
+	if len(y.runs) == 0 {
+		y.t.Cleanup(y.showRuns)
+	}
+	y.runs = append(y.runs, group+" log:\n"+y.log)
 	_ = os.Remove(logPath)
 	// The daemon stops a script as soon as it has reported, so what the script
 	// made has to be gone by then, and not only when it exits (yardr-s41x).
@@ -462,6 +469,101 @@ func (y *yard) exec(script, group, id string) {
 		}
 	}
 	assertNothingLeft(y.t, made)
+}
+
+// showRuns puts the logs of the scripts this test ran into the output of a
+// test that failed, after the failure. The gate keeps the first lines of a
+// failed test only (6 lines of 200 characters, AGENTS.md), and a log written as
+// each run ended came first and filled them, so a flaky strike showed a script's
+// opening lines and none of the assertion that failed (yardr-qx42).
+func (y *yard) showRuns() {
+	if !y.t.Failed() {
+		return
+	}
+	for _, run := range y.runs {
+		y.t.Log(run)
+	}
+}
+
+// didNotFinish is the failure of a script that outran its fuse. Its first line
+// says what a reader of the gate's clipped copy needs: which script, how long it
+// had, and the last line of its log, which is the step it was in. The whole log
+// follows.
+func didNotFinish(script, group string, within time.Duration, log string) string {
+	lines := strings.Split(strings.TrimSpace(log), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if last == "" {
+		last = "nothing"
+	}
+	return fmt.Sprintf("%s did not finish within %s; its last log line: %q\n%s log:\n%s",
+		filepath.Base(script), within.Round(time.Second), last, group, log)
+}
+
+func TestDidNotFinishLeadsWithTheStepTheScriptStuckAt(t *testing.T) {
+	t.Parallel()
+	const dir = "/home/ada/.yardr/worktrees/yardr/yardr-ta2g/contrib/assembly/"
+	for _, tc := range []struct {
+		name, log, last string
+	}{
+		{"a log that ends in a step", "== 12:00 assembly r r-1\n== the tests on yard/r-1 at 6574739: the command true\nUpdating 85f093f..6574739\nFast-forward\n", "Fast-forward"},
+		{"a log with no newline at its end", "== 12:00 assembly r r-1\nFast-forward", "Fast-forward"},
+		{"a script that wrote nothing", "", "nothing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := didNotFinish(dir+"merge-local", "assembly", 90*time.Second+300*time.Millisecond, tc.log)
+			// The gate keeps the first lines of a failed test only, so what
+			// matters is in the first one, and short of the path that would crowd it.
+			first, rest, _ := strings.Cut(got, "\n")
+			want := fmt.Sprintf("merge-local did not finish within 1m30s; its last log line: %q", tc.last)
+			if first != want {
+				t.Errorf("first line = %q, want %q", first, want)
+			}
+			if rest != "assembly log:\n"+tc.log {
+				t.Errorf("the rest = %q, want the group's log in full after %q", rest, "assembly log:")
+			}
+		})
+	}
+}
+
+// The runner buffers test output, so a subprocess is how this checks that a
+// cleanup's logs follow the assertion on failure and disappear on a pass.
+func TestScriptLogsFollowTheFailure(t *testing.T) {
+	const modeEnv = "ASSEMBLY_TEST_SCRIPT_LOGS"
+	if mode := os.Getenv(modeEnv); mode != "" {
+		y := &yard{t: t, runs: []string{"assembly log:\nlast script step"}}
+		t.Cleanup(y.showRuns)
+		if mode == "fail" {
+			t.Error("the assertion that failed")
+		}
+		return
+	}
+
+	for _, tc := range []struct {
+		name, mode string
+		failed     bool
+	}{
+		{"failed test", "fail", true},
+		{"passing test", "pass", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.v", "-test.run=^TestScriptLogsFollowTheFailure$")
+			cmd.Env = append(os.Environ(), modeEnv+"="+tc.mode)
+			out, err := cmd.CombinedOutput()
+			if gotFailed := err != nil; gotFailed != tc.failed {
+				t.Fatalf("subtest failed = %v, want %v: %v\n%s", gotFailed, tc.failed, err, out)
+			}
+			failureAt := strings.Index(string(out), "the assertion that failed")
+			logAt := strings.Index(string(out), "last script step")
+			if tc.failed {
+				if failureAt < 0 || logAt <= failureAt {
+					t.Fatalf("the failure must precede its script log (at %d, %d):\n%s", failureAt, logAt, out)
+				}
+			} else if strings.Contains(string(out), "last script step") {
+				t.Fatalf("a passing test printed its script log:\n%s", out)
+			}
+		})
+	}
 }
 
 // groupConfig is the exec group's config: its command and log, and the
