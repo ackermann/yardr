@@ -423,3 +423,89 @@ func TestMintRefusals(t *testing.T) {
 		t.Errorf("stderr is not carried: %v", err)
 	}
 }
+
+// The hosted mint is told by its words wherever they stand, and only
+// with the edge and source it mints through.
+func TestHostedGoogleMintShape(t *testing.T) {
+	for name, tc := range map[string]struct {
+		argv         []string
+		addr, source string
+		ok           bool
+	}{
+		"plain":        {[]string{"yardr", "edge", "mint-google", "https://my.yardr.dev", "google-drive"}, "https://my.yardr.dev", "google-drive", true},
+		"by env":       {[]string{"env", "yardr", "edge", "mint-google", "https://my.yardr.dev", "google-docs"}, "https://my.yardr.dev", "google-docs", true},
+		"by path":      {[]string{"/opt/yardr", "edge", "mint-google", "https://my.yardr.dev", "google-slides"}, "https://my.yardr.dev", "google-slides", true},
+		"no source":    {[]string{"yardr", "edge", "mint-google", "https://my.yardr.dev"}, "", "", false},
+		"no edge pair": {[]string{"yardr", "edge", "setup-google", "https://my.yardr.dev"}, "", "", false},
+		"a local mint": {[]string{"google-mint"}, "", "", false},
+		"nothing":      {nil, "", "", false},
+	} {
+		addr, source, ok := HostedGoogleMint(tc.argv)
+		if addr != tc.addr || source != tc.source || ok != tc.ok {
+			t.Errorf("%s: HostedGoogleMint(%q) = %q, %q, %v", name, tc.argv, addr, source, ok)
+		}
+	}
+}
+
+// A hosted mint is asked in-process and kept in the mint cache, and is
+// never run as a command: Mint with no fetch refuses naming the
+// in-process mint, and the program argv names first is never started.
+func TestMintHosted(t *testing.T) {
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	t.Cleanup(SetMintClock(func() time.Time { return now }))
+	d := mintDecl(t)
+	d.Name = "google-drive"
+	ctx := context.Background()
+	dir := t.TempDir()
+	ran := filepath.Join(dir, "ran")
+	script := filepath.Join(dir, "yardr")
+	body := "#!/bin/sh\necho ran >" + ran + "\nprintf '{\"token\":\"tok-spawned\",\"expires_at\":\"2026-10-11T13:00:00Z\"}'\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	argv := []string{script, "edge", "mint-google", "https://edge.example.com", "google-drive"}
+	inputs := map[string]string{"GOOGLE_ACCOUNT": "ada@example.com"}
+
+	fetches := 0
+	fetch := func(_ context.Context, addr, source, account string) (string, time.Time, error) {
+		fetches++
+		if addr != "https://edge.example.com" || source != "google-drive" || account != "ada@example.com" {
+			t.Errorf("fetch = %q, %q, %q", addr, source, account)
+		}
+		return " tok-hosted ", now.Add(time.Hour), nil
+	}
+	token, expires, err := MintHosted(ctx, d, argv, inputs, "", fetch)
+	if err != nil || token != "tok-hosted" || !expires.Equal(now.Add(time.Hour)) {
+		t.Fatalf("MintHosted = %q %v, %v", token, expires, err)
+	}
+	if token, _, err := MintHosted(ctx, d, argv, inputs, "", fetch); err != nil || token != "tok-hosted" || fetches != 1 {
+		t.Fatalf("again: %q, %v (%d fetches, want the cache's one)", token, err, fetches)
+	}
+	if _, err := os.Stat(ran); !os.IsNotExist(err) {
+		t.Fatal("the hosted mint ran its command")
+	}
+	// No fetch is the refusal every other caller meets, and it spawns
+	// nothing either.
+	if _, _, err := Mint(ctx, d, argv, inputs, ""); err == nil || !strings.Contains(err.Error(), "mints hosted Google in-process") {
+		t.Fatalf("Mint of a hosted mint = %v, want the in-process refusal", err)
+	}
+	if _, err := os.Stat(ran); !os.IsNotExist(err) {
+		t.Fatal("the refused hosted mint ran its command")
+	}
+	wrongSource := append([]string(nil), argv...)
+	wrongSource[len(wrongSource)-1] = "google-docs"
+	if _, _, err := MintHosted(ctx, d, wrongSource, inputs, "", fetch); err == nil ||
+		!strings.Contains(err.Error(), "names source google-docs, not this source") || fetches != 1 {
+		t.Fatalf("a hosted mint naming another source = %v (%d fetches)", err, fetches)
+	}
+	badInputs := map[string]string{"GOOGLE_ACCOUNT": "grace@example.com"}
+	if _, _, err := MintHosted(ctx, d, argv, badInputs, "", func(context.Context, string, string, string) (string, time.Time, error) {
+		return "bad\nsecret", now.Add(time.Hour), nil
+	}); err == nil || !strings.Contains(err.Error(), "control character") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("a hosted mint with a multiline token = %v", err)
+	}
+	// No account is refused before any fetch.
+	if _, _, err := MintHosted(ctx, d, argv, map[string]string{}, "", fetch); err == nil || !strings.Contains(err.Error(), "name no GOOGLE_ACCOUNT") || fetches != 1 {
+		t.Fatalf("MintHosted with no account = %v (%d fetches)", err, fetches)
+	}
+}

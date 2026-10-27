@@ -162,6 +162,11 @@ type Store struct {
 	// the binary of the process that owns the store (SetPackReader,
 	// runask_pack.go); nil where no server owns the store.
 	packReader PackReader
+	// hostedMint mints a hosted-Google token in-process for a source
+	// call, from the process that owns the store (SetHostedMint,
+	// sourcecalls.go); nil where no server owns the store, and a hosted
+	// call on such a store fails rather than spawning the mint command.
+	hostedMint HostedMint
 	// presetReader resolves a preset of a source against the packs the
 	// owning process embeds, for a preset grant run ask (SetPresetReader,
 	// runask_list.go); nil where no server owns the store.

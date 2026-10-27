@@ -141,6 +141,9 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// preset grant ask their presets by source.
 	st.SetPackReader(packReaderFor(c.Home))
 	st.SetPresetReader(presetReaderFor())
+	// How a hosted-Google source call mints: in-process through the edge,
+	// never by running the mint command its setting names.
+	st.SetHostedMint(hostedMintFor(st, c))
 	// How the operator's SessionScreen reads a pane's screen: herdr, as
 	// the runner builds it, with the store to follow the yard's herdr
 	// session setting on every read.

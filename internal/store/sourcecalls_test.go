@@ -15,11 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/edgelink"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/yardkey"
 )
 
 const crmToken = "tok-51c7-not-to-be-seen"
@@ -319,24 +322,13 @@ func TestSourceCallChosenBase(t *testing.T) {
 	}
 }
 
-// A session's and a crew member's hosted-Google call is refused with
-// the 3.9 words before any mint, while the operator's same call mints
-// and answers: the hosted mint is a fake yardr on PATH that hands back
-// a token for the stand-in Drive API and counts its runs in a log the
-// test reads back.
-func TestSourceCallHostedGoogle(t *testing.T) {
-	s := storetest.New(t)
-	ctx := crmYard(t, s)
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer hosted-token" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		io.WriteString(w, `{"files":[]}`)
-	}))
-	t.Cleanup(api.Close)
+// googleDrive adds the google-drive source against the Drive stand-in
+// at base, its account in an env file of its own, minting by the hosted
+// mint mintCommand names.
+func googleDrive(t *testing.T, s store.API, ctx context.Context, base, mintCommand string) {
+	t.Helper()
 	text := `name: google-drive
-base: ` + api.URL + `
+base: ` + base + `
 credential:
   env: GOOGLE_TOKEN
   header: "Authorization: Bearer {credential}"
@@ -357,27 +349,67 @@ calls:
 	if _, err := s.SetSource(ctx, "google-drive", store.SourceEnvFile, env, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, "yardr edge mint-google https://edge.example.com google-drive", "jo"); err != nil {
+	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, mintCommand, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	// The fake hosted mint: it counts its runs and hands back a token
-	// that expires two hours out, as the edge's answer would.
-	bin := t.TempDir()
-	log := filepath.Join(bin, "mints.log")
-	answer := filepath.Join(bin, "mint.json")
-	expires := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
-	if err := os.WriteFile(answer, []byte(`{"token":"hosted-token","expires_at":"`+expires+`"}`), 0o600); err != nil {
+}
+
+// hostedFetch is the minter a test registers for the server's: the edge
+// one, through the stand-in edge a call names, with its scope check.
+func hostedFetch(s store.API, home string) store.HostedMint {
+	return func(ctx context.Context, addr, source, account string) (string, time.Time, error) {
+		mint, err := edgelink.MintGoogleThrough(ctx, s, config.At(home).PeerKey(), nil, addr, account)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if err := edgelink.CheckGoogleScopes(source, addr, mint.GrantedScopes); err != nil {
+			return "", time.Time{}, err
+		}
+		expires, err := time.Parse(time.RFC3339, mint.ExpiresAt)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		return mint.Token, expires, nil
+	}
+}
+
+// A session's and a crew member's hosted-Google call is refused with
+// the 3.9 words before any mint, while the operator's same call mints
+// in-process through a stand-in edge and answers: no command is run,
+// the token the edge answers is the call's bearer and is in no error,
+// a second call takes it from the mint cache, and an ungranted source
+// is refused at its mint with its token discarded.
+func TestSourceCallHostedGoogle(t *testing.T) {
+	home := t.TempDir()
+	s, owned := storetest.NewOwnedIn(t, home)
+	ctx := crmYard(t, s)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer hosted-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		io.WriteString(w, `{"files":[]}`)
+	}))
+	t.Cleanup(api.Close)
+	edge, err := standin.NewEdge()
+	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho run >> " + log + "\ncat " + answer + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "yardr"), []byte(script), 0o700); err != nil {
+	srv := httptest.NewServer(edge)
+	t.Cleanup(srv.Close)
+	granted := []string{"openid", "email", "https://www.googleapis.com/auth/drive.file",
+		"https://www.googleapis.com/auth/documents", "https://www.googleapis.com/auth/presentations",
+		"https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MintToken, b.MintGranted = "hosted-token", granted })
+	if _, _, err := yardkey.Ensure(config.At(home).PeerKey()); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	mints := func() int {
-		data, _ := os.ReadFile(log)
-		return strings.Count(string(data), "run")
+	if err := s.SetSetting(ctx, store.EdgeSetting, store.Edge{URL: srv.URL, Key: edge.PublicKey(), Handle: "mckean", Name: "mckean"}.String(), "jo"); err != nil {
+		t.Fatal(err)
 	}
+	owned.SetHostedMint(hostedFetch(s, home))
+	googleDrive(t, s, ctx, api.URL, "yardr edge mint-google "+srv.URL+" google-drive")
+	mints := func() int { return len(edge.State().Mints) }
 	if _, err := s.GrantSource(ctx, "google-drive", store.GrantRead, store.Grantee{Group: "builders"}, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -403,23 +435,67 @@ calls:
 	if n := mints(); n != 0 {
 		t.Fatalf("a refused agent call minted %d times", n)
 	}
+	// Ungranted, the operator's call is refused at its mint and the
+	// token in that answer is in no error and no answer.
+	edge.Behave(func(b *standin.EdgeBehaviour) {
+		b.MintGranted = []string{"openid", "email", "https://www.googleapis.com/auth/documents"}
+	})
+	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Actor: "jo"}); err == nil ||
+		!strings.Contains(err.Error(), "missing from the Google connection's grant") || strings.Contains(err.Error(), "hosted-token") {
+		t.Fatalf("the operator's ungranted hosted-Google call = %v", err)
+	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MintGranted = granted })
+	before := mints()
 	res, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Actor: "jo"})
 	if err != nil || string(res.Answer) != `{"files":[]}` {
 		t.Fatalf("the operator's hosted-Google call = %+v, %v", res, err)
 	}
-	if n := mints(); n != 1 {
-		t.Fatalf("the operator's call minted %d times, want 1", n)
+	if n := mints(); n != before+1 {
+		t.Fatalf("the operator's call minted %d times, want one more than %d", n, before)
+	}
+	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Actor: "jo"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := mints(); n != before+1 {
+		t.Fatalf("a second operator call minted: %d mints, want %d from the cache", n, before+1)
 	}
 	// The hosted mint spelled another way is still the hosted mint: an
-	// agent's call through it is refused before it runs.
-	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, "env yardr edge mint-google https://edge.example.com google-drive", "jo"); err != nil {
+	// agent's call through it is refused before it mints.
+	if _, err := s.SetSource(ctx, "google-drive", store.SourceMintCommand, "env yardr edge mint-google "+srv.URL+" google-drive", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Session: sess.ID, Actor: "x"}); err == nil || !strings.Contains(err.Error(), "in-context confirmation of 3.9") {
 		t.Fatalf("a session's call through the hosted mint run by env = %v, want the 3.9 refusal", err)
 	}
-	if n := mints(); n != 1 {
-		t.Fatalf("a refused agent call minted: %d mints, want 1", n)
+	if n := mints(); n != before+1 {
+		t.Fatalf("a refused agent call minted: %d mints, want %d", n, before+1)
+	}
+}
+
+// With no server minter registered, a hosted-Google call fails naming
+// the in-process mint and runs no command: a fake yardr on PATH counts
+// the runs the mint command it names would have had.
+func TestSourceCallHostedGoogleWithoutAServer(t *testing.T) {
+	s := storetest.New(t)
+	ctx := crmYard(t, s)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"files":[]}`)
+	}))
+	t.Cleanup(api.Close)
+	googleDrive(t, s, ctx, api.URL, "yardr edge mint-google https://edge.example.com google-drive")
+	bin := t.TempDir()
+	log := filepath.Join(bin, "mints.log")
+	script := "#!/bin/sh\necho run >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "yardr"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, err := s.CallSource(ctx, store.SourceCall{Source: "google-drive", Call: "files", Actor: "jo"}); err == nil ||
+		!strings.Contains(err.Error(), "mints hosted Google in-process") {
+		t.Fatalf("a hosted-Google call with no server minter = %v, want the in-process refusal", err)
+	}
+	if data, _ := os.ReadFile(log); len(data) != 0 {
+		t.Fatalf("the mint command was run: %q", data)
 	}
 }
 

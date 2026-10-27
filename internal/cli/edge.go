@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/signal"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -51,8 +49,9 @@ connected yard dials out, so it needs no open port and no tunnel of its own.
   yardr edge disconnect       leave the edge, and put back the address
                               webhooks were reached at before
   yardr edge mint-google <url> <source>
-                              mint a Google access token through the edge,
-                              as a google source's mint_command
+                              refused for every caller: the yard's server
+                              mints hosted Google in-process for a source
+                              call, and this command mints nothing
   yardr edge setup-google <url>
                               set the hosted mint on the google sources the
                               edge's connection granted, and record the
@@ -500,156 +499,47 @@ told, so its operator can drop the row. Only the operator disconnects a yard.`,
 	}
 }
 
-// googleMintSources are the sources yardr edge mint-google mints for, with
-// the Google scopes each needs from the connection's granted set (design
-// yardr-hosted-4dx0 3.2): a source whose scope was not granted refuses at
-// its mint, before any token is printed.
-var googleMintSources = []string{"google-drive", "google-docs", "google-slides", "google-calendar"}
-
-var googleMintScopes = map[string][]string{
-	"google-drive":    {"https://www.googleapis.com/auth/drive.file"},
-	"google-docs":     {"https://www.googleapis.com/auth/documents"},
-	"google-slides":   {"https://www.googleapis.com/auth/presentations"},
-	"google-calendar": {"https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"},
-}
-
 func (a *app) edgeMintGoogleCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "mint-google <edge-url> <source>", Short: "Mint a Google access token through the edge, as a source's mint_command",
-		Long: `Mints a Google access token through the edge, for a google source whose
-mint_command names this command: the hosted mint, beside the gws login the
-pack's own google-mint reads.
+		Use: "mint-google <edge-url> <source>", Short: "Refused: the yard's server mints hosted Google in-process for a source call",
+		Long: `Refuses every caller, and mints nothing.
 
-It reads {inputs, scope} on stdin, as every mint_command does: the scope is
-the call's, and is read and ignored. GOOGLE_ACCOUNT in the inputs is the
-Google account to mint for. <source> is the source it mints for, one of
-google-drive, google-docs, google-slides or google-calendar.
+The hosted mint is in-process now: where a google source's mint_command
+names this command, the yard's server reads that line as the hosted mint
+and mints through the edge itself, holding the token in its own memory
+for the one source call. No run of this command mints, for the operator
+or for an agent in a pane: it is kept only so the line a source carries
+names a command that says why, instead of one that silently mints for
+whoever runs it.
 
-The call is signed with this yard's key to the edge's: the key this yard
-pinned where its edge setting names <edge-url>, else the key fetched over
-HTTPS as yardr edge connect fetches it. The edge's answer is believed only
-signed with that key. Its granted scopes are checked against what <source>
-needs before anything is printed: a source whose scope the connection was
-not granted refuses, naming the missing scope and where to reconnect, and
-the token in that answer is discarded.
-
-On success it prints {token, expires_at} on stdout, for the core to call
-with. Every refusal goes to stderr, and the run fails.`,
-		Args:    cobra.ExactArgs(2),
-		Example: `  yardr source set google-drive mint_command="yardr edge mint-google https://my.yardr.dev google-drive"`,
+The way to the token is a source call, which the server mints for:
+yardr call <source> <call>. Set the hosted mint with yardr edge
+setup-google, which probes each granted source in-process and writes
+the mint_command line the server reads.`,
+		Args: cobra.ExactArgs(2),
+		Example: `  yardr edge setup-google https://my.yardr.dev   # set the hosted mint on the granted google sources
+  yardr call google-drive files   # the server mints in-process for the call`,
 		RunE: func(c *cobra.Command, args []string) error {
 			return a.edgeMintGoogle(c, args[0], args[1])
 		},
 	}
 }
 
+// edgeMintGoogle refuses every caller: the yard mints hosted Google
+// in-process in its server for a source call, and this command is no
+// caller's way to a token, the operator's included. It reads nothing,
+// calls no edge and prints no token, whatever it is handed.
 func (a *app) edgeMintGoogle(c *cobra.Command, address, source string) error {
-	ctx := c.Context()
-	w, warn := c.OutOrStdout(), c.ErrOrStderr()
-	// A mint's refusals are said on its error stream, and the run fails:
-	// stdout holds the mint's answer alone, on success alone.
-	refuse := func(format string, args ...any) error {
-		fmt.Fprintf(warn, format+"\n", args...)
-		return errCheckFailed
-	}
-	addr := strings.TrimRight(address, "/")
-	if err := store.CheckEdgeURL(addr); err != nil {
-		return refuse("%s", err)
-	}
-	if _, ok := googleMintScopes[source]; !ok {
-		return refuse("unknown source %q: one of %s", source, strings.Join(googleMintSources, ", "))
-	}
-	raw, err := io.ReadAll(c.InOrStdin())
-	if err != nil {
-		return refuse("%s", err)
-	}
-	if strings.TrimSpace(string(raw)) == "" {
-		return refuse("reads {inputs, scope} on stdin, and got nothing")
-	}
-	var in struct {
-		Inputs map[string]string `json:"inputs"`
-		Scope  *string           `json:"scope"`
-	}
-	if err := json.Unmarshal(raw, &in); err != nil {
-		return refuse("reads {inputs, scope} on stdin, and got no JSON object")
-	}
-	if in.Scope == nil {
-		return refuse("reads {inputs, scope} on stdin, and got no scope")
-	}
-	account := in.Inputs["GOOGLE_ACCOUNT"]
-	if account == "" {
-		return refuse("its inputs name no GOOGLE_ACCOUNT")
-	}
-	cfg, err := a.config()
-	if err != nil {
-		return refuse("%s", err)
-	}
-	st, err := a.store(ctx)
-	if err != nil {
-		return refuse("%s", err)
-	}
-	mint, err := a.mintGoogleThrough(ctx, addr, account, st, cfg)
-	if err != nil {
-		return refuse("%s", err)
-	}
-	if missing := missingGoogleScopes(source, mint.GrantedScopes); len(missing) > 0 {
-		return refuse("%s needs %s, missing from the Google connection's grant: reconnect at %s/google", source, strings.Join(missing, ", "), addr)
-	}
-	answer, err := json.Marshal(struct {
-		Token     string `json:"token"`
-		ExpiresAt string `json:"expires_at"`
-	}{mint.Token, mint.ExpiresAt})
-	if err != nil {
-		return refuse("%s", err)
-	}
-	fmt.Fprintln(w, string(answer))
-	return nil
-}
-
-// missingGoogleScopes are the scopes source needs that granted does not
-// hold, in the order googleMintScopes names them.
-func missingGoogleScopes(source string, granted []string) []string {
-	var missing []string
-	for _, need := range googleMintScopes[source] {
-		if !slices.Contains(granted, need) {
-			missing = append(missing, need)
-		}
-	}
-	return missing
+	fmt.Fprintf(c.ErrOrStderr(), "yardr edge mint-google mints nothing: the yard mints hosted Google in-process in its server for a source call, and no run of this command mints for any caller. Make the call as a source call (yardr call %s <call>), which the server mints for; the mint_command that names this command is read by the server as the hosted mint, and is not run.\n", source)
+	return errCheckFailed
 }
 
 // mintGoogleThrough makes one signed mint call for account at the edge
-// addr, as mint-google and the hosted setup's probe both make it: the
-// yard's key loaded from peer.key, and the edge's key the one this yard
-// pinned where its edge setting names addr, else the one a connect
-// would fetch. The answer's token is the caller's to discard or print;
-// nothing here checks its scopes.
+// addr, as the hosted setup's probe makes it: edgelink.MintGoogleThrough
+// with this run's edge client. The answer's token is the caller's to
+// discard; nothing here checks its scopes.
 func (a *app) mintGoogleThrough(ctx context.Context, addr, account string, st store.API, cfg *config.Config) (*edgelink.GoogleMint, error) {
-	yard, err := yardkey.Load(cfg.PeerKey())
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("this yard has no key, so it can sign nothing: connect it first (%s edge connect <url> makes the pair)", yardrAt(cfg.Home))
-		}
-		return nil, err
-	}
-	settings, err := st.Settings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	client := &edgelink.Client{URL: addr, HTTP: a.edgeHTTP}
-	// The key this yard pinned, where its edge setting names this edge;
-	// else the key a connect would fetch. A pin is never replaced by a
-	// later fetch.
-	edgeKey := ""
-	if e, connected, perr := store.EdgeOf(settings); perr == nil && connected && e.URL == addr {
-		edgeKey = e.Key
-	}
-	if edgeKey == "" {
-		if edgeKey, err = client.Key(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return client.MintGoogle(ctx, edgeKey, yard, account)
+	return edgelink.MintGoogleThrough(ctx, st, cfg.PeerKey(), a.edgeHTTP, addr, account)
 }
 
 // googleSetupSource is one source's outcome of a hosted setup.
@@ -678,7 +568,10 @@ func (a *app) edgeSetupGoogleCmd() *cobra.Command {
 Google is connected at the edge: each of google-drive, google-docs,
 google-slides and google-calendar is probed once through the edge, and
 only a source whose scopes the connection was granted gets
-mint_command="yardr edge mint-google <edge-url> <source>". A source the
+mint_command="yardr edge mint-google <edge-url> <source>". That line is
+read by the yard's server as the hosted mint, which it mints in-process
+for a source call; running the command itself mints nothing, for any
+caller. A source the
 probe refuses keeps the pack's google-mint, and its token is discarded.
 google-mail is untouched: it mints locally in this slice. Clearing a
 source's mint_command (yardr source set <source> mint_command=) is the
@@ -760,7 +653,7 @@ func (a *app) edgeSetupGoogle(c *cobra.Command, address string, termsRead bool, 
 	// probe signs a call with the yard's key. A policy may decide by
 	// source name, so permission to change one is not permission to probe
 	// the rest.
-	for _, name := range googleMintSources {
+	for _, name := range edgelink.GoogleMintSources {
 		if _, err := st.GetSource(ctx, name); errors.Is(err, store.ErrNotFound) {
 			continue
 		} else if err != nil {
@@ -776,7 +669,7 @@ func (a *app) edgeSetupGoogle(c *cobra.Command, address string, termsRead bool, 
 		}
 	}
 	out := googleSetup{Edge: addr, Sources: []googleSetupSource{}}
-	for _, name := range googleMintSources {
+	for _, name := range edgelink.GoogleMintSources {
 		source, err := a.setupGoogleSource(ctx, st, cfg, addr, name)
 		if err != nil {
 			return err
@@ -855,8 +748,8 @@ func (a *app) setupGoogleSource(ctx context.Context, st store.API, cfg *config.C
 	if err != nil {
 		return googleSetupSource{Source: name, Action: "kept", Reason: err.Error()}, nil
 	}
-	if missing := missingGoogleScopes(name, mint.GrantedScopes); len(missing) > 0 {
-		return googleSetupSource{Source: name, Action: "kept", Reason: fmt.Sprintf("needs %s, missing from the Google connection's grant: reconnect at %s/google", strings.Join(missing, ", "), addr)}, nil
+	if err := edgelink.CheckGoogleScopes(name, addr, mint.GrantedScopes); err != nil {
+		return googleSetupSource{Source: name, Action: "kept", Reason: err.Error()}, nil
 	}
 	command := "yardr edge mint-google " + addr + " " + name
 	if _, err := st.SetSource(ctx, name, store.SourceMintCommand, command, a.who()); err != nil {

@@ -785,6 +785,23 @@ controls of 3.9 gate G6 rather than this slice's acceptance — this slice carri
 the key-management control (3.3) and the disclosures (3.1, 3.2) that G6 will rely
 on, and proves the mint with the one caller who needs no second confirmation.
 
+**The mint runs in-process, and it is no wall.** The command of 3.5 no longer
+mints: where a google source's mint names the hosted mint, the yard's server
+reads that line as the hosted mint and mints through the edge itself, holding
+the token in its mint cache for the one call and printing it nowhere.
+`yardr edge mint-google` refuses every caller, the operator's direct runs
+included, in words that name the in-process mint and the source call that is
+the way. That removes the easy path — an agent in a pane running the CLI and
+printing a token to call Google outside `CallSource` — and no more. A pane
+agent runs as the same OS user as the yard, so it can read the yard's key in
+`peer.key` in the yard home and sign the edge request itself, without the
+CLI; while the key lives there under the same user, no yard-side shape is a
+wall, and this slice does not claim one. Keeping the key out of agents' reach
+— agents under another user, or the key held where only the daemon can use
+it — is a design change of its own, for a later decision. The local
+`google-mint`, which reads the gws login on disk, stands as it was: its
+same-user exposure is this design's standing one, not the hosted promise's.
+
 ### 3.9. Agent access: in-context confirmation, the training bar, and injection
 
 Agent access is the use the Workspace policy's example names (Google Workspace

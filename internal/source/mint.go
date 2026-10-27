@@ -149,6 +149,74 @@ func mintKey(source string, argv []string, inputs map[string]string, scope strin
 	return source + "\x00" + strings.Join(argv, "\x00") + "\x00" + hex.EncodeToString(sum.Sum(nil)) + "\x00" + scope
 }
 
+// HostedGoogleMint reports whether argv is the hosted Google mint,
+// yardr edge mint-google <edge-url> <source>, and if so the edge's address
+// and the source it mints for. The words are found wherever they stand, as
+// the store's refusal finds them, so a mint spelled another way (yardr by
+// another path or name, through env) is still the hosted mint; a pair with
+// no address or source after it is none, since there is nothing to mint
+// through.
+func HostedGoogleMint(argv []string) (addr, source string, ok bool) {
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "edge" && argv[i+1] == "mint-google" {
+			if i+3 < len(argv) {
+				return argv[i+2], argv[i+3], true
+			}
+			return "", "", false
+		}
+	}
+	return "", "", false
+}
+
+// HostedFetch mints one hosted-Google token in-process: the token for
+// account at the edge addr, for the source the hosted mint names. The
+// yard's server is one (internal/server, through internal/edgelink); this
+// package knows only the shape, since the signed call is the edge
+// package's and the yard's key is the owning process's to hold.
+type HostedFetch func(ctx context.Context, addr, source, account string) (token string, expires time.Time, err error)
+
+// MintHosted is the token inputs mints with scope through the hosted
+// mint, asked of fetch in-process instead of by running argv as a
+// command: argv names the hosted mint (HostedGoogleMint), inputs names
+// GOOGLE_ACCOUNT, and fetch makes the one signed call. The token is kept
+// in the same memory Mint keeps its tokens in, under the same key, so a
+// hosted token and a minted one age alike and neither is ever printed,
+// logged or stored. A token fetch refuses (an ungranted source, a refused
+// edge) is kept nowhere.
+func MintHosted(ctx context.Context, d *Declaration, argv []string, inputs map[string]string, scope string, fetch HostedFetch) (string, time.Time, error) {
+	addr, src, ok := HostedGoogleMint(argv)
+	if !ok {
+		return "", time.Time{}, fmt.Errorf("source %s: its mint %q is no hosted mint (yardr edge mint-google <edge-url> <source>)", d.Name, strings.Join(argv, " "))
+	}
+	if src != d.Name {
+		return "", time.Time{}, fmt.Errorf("source %s: the hosted mint names source %s, not this source", d.Name, src)
+	}
+	account := inputs["GOOGLE_ACCOUNT"]
+	if account == "" {
+		return "", time.Time{}, fmt.Errorf("source %s: its inputs name no GOOGLE_ACCOUNT", d.Name)
+	}
+	if fetch == nil {
+		return "", time.Time{}, fmt.Errorf("source %s: the yard mints hosted Google in-process in its server, and no server has registered its mint on this process: make the call as a source call (yardr call %s <call>), which the server mints for", d.Name, d.Name)
+	}
+	return mintCached(ctx, d, argv, inputs, scope, func() (mintedToken, error) {
+		token, expires, err := fetch(ctx, addr, src, account)
+		if err != nil {
+			return mintedToken{}, fmt.Errorf("source %s: %w", d.Name, err)
+		}
+		token = strings.TrimSpace(token)
+		switch {
+		case token == "":
+			return mintedToken{}, fmt.Errorf("source %s: the hosted mint answered with no token", d.Name)
+		case strings.ContainsFunc(token, func(r rune) bool { return r < ' ' || r == 0x7f }):
+			return mintedToken{}, fmt.Errorf("source %s: the token the hosted mint answered has a control character in it, a line break perhaps: it is one line", d.Name)
+		}
+		if !mintNow().Before(expires) {
+			return mintedToken{}, fmt.Errorf("source %s: the token the hosted mint answered is already expired (expires_at %s)", d.Name, expires.UTC().Format(time.RFC3339))
+		}
+		return mintedToken{token: token, expires: expires}, nil
+	})
+}
+
 // Mint is the token inputs mints with scope, and when it expires: the named
 // values read from the acting env, and the caller's scope (the thread, or
 // the place for an open), so the token narrows where the service allows, ""
@@ -158,11 +226,26 @@ func mintKey(source string, argv []string, inputs map[string]string, scope strin
 // memory only and asked for again shortly before it expires; a token the
 // service no longer takes is not dropped, since the core cannot see a
 // command's answer. Held while the token is asked for, so two calls at once
-// ask once.
+// ask once. A hosted mint is never run as a command: MintHosted asks for
+// its token in-process, and a caller that reaches Mint with one (a check,
+// a thread command) fails on the fetch it does not have rather than
+// spawning a command that refuses.
 func Mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]string, scope string) (string, time.Time, error) {
 	if len(argv) == 0 {
 		return "", time.Time{}, &NoMintCommand{Source: d.Name}
 	}
+	if _, _, hosted := HostedGoogleMint(argv); hosted {
+		return MintHosted(ctx, d, argv, inputs, scope, nil)
+	}
+	return mintCached(ctx, d, argv, inputs, scope, func() (mintedToken, error) {
+		return mint(ctx, d, argv, inputs, scope)
+	})
+}
+
+// mintCached is the token inputs mints with scope, asked of fetch on a
+// cache miss: the cache, its key and its ageing are Mint's, whichever way
+// the token is fetched.
+func mintCached(ctx context.Context, d *Declaration, argv []string, inputs map[string]string, scope string, fetch func() (mintedToken, error)) (string, time.Time, error) {
 	key := mintKey(d.Name, argv, inputs, scope)
 	// Held while the token is asked for, so two calls at once ask once.
 	mintedTokens.Lock()
@@ -175,7 +258,7 @@ func Mint(ctx context.Context, d *Declaration, argv []string, inputs map[string]
 	t, ok := mintedTokens.m[key]
 	if !ok || !now.Before(t.expires.Add(-mintLeft)) {
 		var err error
-		if t, err = mint(ctx, d, argv, inputs, scope); err != nil {
+		if t, err = fetch(); err != nil {
 			delete(mintedTokens.m, key)
 			mintedTokens.Unlock()
 			return "", time.Time{}, err
