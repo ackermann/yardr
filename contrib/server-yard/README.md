@@ -5,7 +5,7 @@ One script that sets a yard up on a fresh Linux server, from the steps of
 comes back after a reboot:
 
 ```
-server-yard --harness <kind> --operator <name>
+server-yard --harness <kind> --operator <name> [--permissions <label>]
 ```
 
 A release archive holds it beside `yardr` (`tar -xzf <archive> server-yard`);
@@ -19,7 +19,11 @@ On a machine that has yardr, herdr, git and a harness on PATH it:
 2. turns linger on, so the user's units run from boot to shutdown with
    nobody logged in;
 3. creates the yard and starts it
-   (`yardr init --harness <kind> --operator <name> --start`);
+   (`yardr init --harness <kind> --operator <name> --start`); with
+   `--permissions <label>` the label goes to init as it stands, so the
+   yard is made with that harness permission preset for its new agents —
+   without it, the yard keeps the harness's unattended flags as any yard
+   made by hand does;
 4. installs the daemon and the web view as login services, and waits for
    the daemon the service manager starts;
 5. ends with `yardr doctor`.

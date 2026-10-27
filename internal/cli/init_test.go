@@ -179,6 +179,118 @@ func TestInitHarnessClaude(t *testing.T) {
 	}
 }
 
+// A yard made with --permissions gives its yardmaster the preset's flags
+// and stores the preset, where a yard made without it gives the unattended
+// flags and stores nothing; an unknown label is refused before a write,
+// naming what the harness offers.
+func TestInitPermissionsPreset(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	argsOf := func(st store.API) []any {
+		t.Helper()
+		r, err := st.GetCrew(ctx, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := r.Config["args"].([]any)
+		return got
+	}
+
+	// With the preset: its flags, not the unattended ones, and the
+	// setting under the preset's own label.
+	home := newHomeDir(t)
+	st := storetest.New(t)
+	a := testApp(t, st, home)
+	a.actor = "me"
+	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--permissions", "bypass")
+	if err != nil {
+		t.Fatalf("init with bypass: %v\n%s", err, out)
+	}
+	if got := argsOf(st); !reflect.DeepEqual(got, []any{"--dangerously-skip-permissions"}) {
+		t.Errorf("yardmaster args = %v, want the bypass preset's", got)
+	}
+	if all, _ := st.Settings(ctx); all[store.PermissionsPresetSetting] != "bypass" || all["default_kind"] != "claude" {
+		t.Errorf("settings = %v", all)
+	}
+	for _, s := range []string{"permissions bypass", "runs with --dangerously-skip-permissions"} {
+		if !strings.Contains(out, s) {
+			t.Errorf("summary lacks %q:\n%s", s, out)
+		}
+	}
+	// Init again without the flag keeps the preset and the yardmaster.
+	if out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil ||
+		!strings.Contains(out, "already a crew member: kept") {
+		t.Fatalf("second init: %v\n%s", err, out)
+	}
+	if got := argsOf(st); !reflect.DeepEqual(got, []any{"--dangerously-skip-permissions"}) {
+		t.Errorf("yardmaster args after a second init = %v", got)
+	}
+	if all, _ := st.Settings(ctx); all[store.PermissionsPresetSetting] != "bypass" {
+		t.Errorf("settings after a second init = %v", all)
+	}
+
+	// The one-word spelling names the same preset, stored under its label.
+	st2 := storetest.New(t)
+	a2 := testApp(t, st2, newHomeDir(t))
+	a2.actor = "me"
+	if _, err := run(t, a2.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--permissions", "accept-edits"); err != nil {
+		t.Fatal(err)
+	}
+	if got := argsOf(st2); !reflect.DeepEqual(got, []any{"--permission-mode", "acceptEdits"}) {
+		t.Errorf("yardmaster args = %v, want the accept edits preset's", got)
+	}
+	if all, _ := st2.Settings(ctx); all[store.PermissionsPresetSetting] != "accept edits" {
+		t.Errorf("settings = %v", all)
+	}
+
+	// Without it: the unattended flags as today, and no setting.
+	st3 := storetest.New(t)
+	a3 := testApp(t, st3, newHomeDir(t))
+	a3.actor = "me"
+	if _, err := run(t, a3.rootCmd(), "init", "--harness", "claude", "--operator", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := argsOf(st3); !reflect.DeepEqual(got, []any{"--permission-mode", "auto"}) {
+		t.Errorf("yardmaster args = %v, want claude's unattended flags", got)
+	}
+	if all, _ := st3.Settings(ctx); all[store.PermissionsPresetSetting] != "" {
+		t.Errorf("settings = %v", all)
+	}
+	if help, _ := run(t, a3.rootCmd(), "init", "--help"); !strings.Contains(help, "--permissions") {
+		t.Errorf("init --help lacks --permissions:\n%s", help)
+	}
+
+	// An unknown label: refused before anything is written, naming the
+	// labels the harness offers.
+	st4 := storetest.New(t)
+	home4 := newHomeDir(t)
+	bad := testApp(t, st4, home4)
+	bad.actor = "me"
+	out, err = run(t, bad.rootCmd(), "init", "--harness", "claude", "--operator", "Jo", "--permissions", "yolo")
+	if err == nil {
+		t.Fatalf("unknown preset accepted:\n%s", out)
+	}
+	for _, s := range []string{`--permissions "yolo"`, "auto", "accept edits", "bypass", "read only"} {
+		if !strings.Contains(err.Error(), s) {
+			t.Errorf("refusal lacks %q: %v", s, err)
+		}
+	}
+	if _, err := st4.GetCrew(ctx, "yardmaster"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("refused init left a yardmaster: %v", err)
+	}
+	if all, _ := st4.Settings(ctx); all["default_kind"] != "" || all[store.PermissionsPresetSetting] != "" {
+		t.Errorf("refused init stored %v", all)
+	}
+	if files, _ := filepath.Glob(filepath.Join(home4, "packs", "*", "roles", "*.md")); len(files) != 0 {
+		t.Errorf("refused init wrote %v", files)
+	}
+	// A harness with no presets refuses any label the same way.
+	out, err = run(t, bad.rootCmd(), "init", "--harness", "pi", "--operator", "Jo", "--permissions", "bypass")
+	if err == nil || !strings.Contains(err.Error(), "offers no permission presets") {
+		t.Errorf("pi with a preset: %v\n%s", err, out)
+	}
+}
+
 // Init again on a set-up yard keeps default_kind, operator and yardmaster
 // unless the flags say otherwise, and says so; --harness is required only to
 // create a yard. The hearer, which no flag names, is kept as stored.

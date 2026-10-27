@@ -146,6 +146,37 @@ func TestUnattendedArgs(t *testing.T) {
 	}
 }
 
+// A preset is found by its label in either spelling, and a kind that
+// offers none of that name (or none at all) says so: what a yard's
+// permissions_preset is held to.
+func TestPreset(t *testing.T) {
+	for _, c := range []struct {
+		kind, label string
+		args        []string
+	}{
+		{"claude", "bypass", []string{"--dangerously-skip-permissions"}},
+		{"claude", "Accept Edits", []string{"--permission-mode", "acceptEdits"}},
+		{"claude", "accept-edits", []string{"--permission-mode", "acceptEdits"}},
+		{"codex", "bypass", []string{"--dangerously-bypass-approvals-and-sandbox"}},
+	} {
+		perm, ok := Preset(c.kind, c.label)
+		if !ok || !slices.Equal(perm.Args, c.args) {
+			t.Errorf("Preset(%s, %q) = %+v, %v; want %v", c.kind, c.label, perm, ok, c.args)
+		}
+	}
+	for _, kindLabel := range [][2]string{{"claude", "yolo"}, {"kimi", "bypass"}, {"pi", "bypass"}, {"nope", "bypass"}} {
+		if _, ok := Preset(kindLabel[0], kindLabel[1]); ok {
+			t.Errorf("Preset(%s, %q) found, want none", kindLabel[0], kindLabel[1])
+		}
+	}
+	if got := PresetLabels("claude"); !slices.Equal(got, []string{"auto", "accept edits", "bypass", "read only"}) {
+		t.Errorf("PresetLabels(claude) = %v", got)
+	}
+	if got := PresetLabels("pi"); len(got) != 0 {
+		t.Errorf("PresetLabels(pi) = %v, want none", got)
+	}
+}
+
 // The one-shot form of a kind ends in the prompt; a kind with none known
 // has none, and the forms are not changed by a call.
 func TestOneShotArgs(t *testing.T) {

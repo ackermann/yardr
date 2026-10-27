@@ -3,13 +3,20 @@
 # docs/install.md ("On a server (no desktop)"), so that it comes back after
 # a reboot:
 #
-#   server-yard --harness <kind> --operator <name> [--wait <duration>]
+#   server-yard --harness <kind> --operator <name> [--wait <duration>] [--permissions <label>]
 #
 # On a machine that has yardr, herdr, git and a harness on PATH it writes
 # herdr's server as a systemd user unit, lets the user's services run with
 # nobody logged in (linger), creates the yard and starts it
 # (yardr init --harness <kind> --operator <name> --start), installs the
 # daemon and the web view as login services, and ends with yardr doctor.
+#
+# --permissions <label> is passed to yardr init as it stands: the yard is
+# made with that harness permission preset for its new agents (a hosted
+# box that must run unwatched), where without it the yard keeps the
+# harness's unattended flags as any yard made by hand does. Whether the
+# label names a preset of the harness is init's to refuse, before it
+# writes anything.
 #
 # herdr's unit carries the PATH of the shell the script runs in and, behind
 # an egress proxy, the proxy and CA variables that shell has: the
@@ -43,13 +50,15 @@ desired=
 trap 'rm -f "$desired"' EXIT
 
 usage() {
-  echo "usage: server-yard --harness <kind> --operator <name> [--wait <duration>]" >&2
+  echo "usage: server-yard --harness <kind> --operator <name> [--wait <duration>] [--permissions <label>]" >&2
   exit 2
 }
 
 harness=
 operator=
 wait=
+permissions=
+have_permissions=
 while [ $# -gt 0 ]; do
   case "$1" in
   --harness=*) harness=${1#--harness=} ;;
@@ -58,12 +67,15 @@ while [ $# -gt 0 ]; do
   --operator) [ $# -ge 2 ] || usage; operator=$2; shift ;;
   --wait=*) wait=${1#--wait=} ;;
   --wait) [ $# -ge 2 ] || usage; wait=$2; shift ;;
+  --permissions=*) permissions=${1#--permissions=}; have_permissions=1 ;;
+  --permissions) [ $# -ge 2 ] || usage; permissions=$2; have_permissions=1; shift ;;
   -h | --help) usage ;;
   *) usage ;;
   esac
   shift
 done
 [ -n "$harness" ] && [ -n "$operator" ] || usage
+[ "$have_permissions" != 1 ] || [ -n "$permissions" ] || usage
 # The wait below compares this value as a shell integer. Keep it in the
 # signed range every POSIX shell supports, or an oversized number could make
 # the comparison fail on every poll.
@@ -248,11 +260,19 @@ daemon_up() {
 # login fails it), which a script that goes on without the login must not
 # wait for. Without a terminal init asks nothing; yardr doctor --try is
 # that call, made when the login is there.
+# The preset, where one was named, as init's own words after the fixed
+# ones: a label with a space in it ("accept edits") stays one word. Without
+# one, init is called exactly as before.
+if [ -n "$permissions" ]; then
+  set -- --permissions "$permissions"
+else
+  set --
+fi
 set +e
 if [ -n "$wait" ]; then
-  yardr init --harness "$harness" --operator "$operator" --start --no-chat --wait "$wait" </dev/null
+  yardr init --harness "$harness" --operator "$operator" --start --no-chat --wait "$wait" "$@" </dev/null
 else
-  yardr init --harness "$harness" --operator "$operator" --start --no-chat </dev/null
+  yardr init --harness "$harness" --operator "$operator" --start --no-chat "$@" </dev/null
 fi
 rc=$?
 set -e

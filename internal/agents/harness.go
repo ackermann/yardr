@@ -1192,6 +1192,46 @@ func (h Harness) Models(ctx context.Context) ([]string, error) {
 // it has none.
 func UnattendedArgs(kind string) []string { return byName[kind].Flags.Unattended }
 
+// PresetLabel is a permission preset's label as one word, as a flag takes
+// it: lower case, with each space a dash ("accept edits" reads
+// "accept-edits"). A preset is found by this form, so either spelling
+// names it.
+func PresetLabel(label string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(label)), " ", "-")
+}
+
+// Preset is kind's permission preset called label, found by PresetLabel;
+// false when the kind offers none of that name. It is how a named preset
+// (yardr init --permissions, a yard's permissions_preset) is held to the
+// harness that will run with it.
+func Preset(kind, label string) (Permission, bool) {
+	h, ok := Lookup(kind)
+	if !ok {
+		return Permission{}, false
+	}
+	want := PresetLabel(label)
+	for _, p := range h.Flags.Permissions {
+		if PresetLabel(p.Label) == want {
+			return p, true
+		}
+	}
+	return Permission{}, false
+}
+
+// PresetLabels are kind's permission presets' labels as its file writes
+// them, in the file's order; nil when it offers none.
+func PresetLabels(kind string) []string {
+	h, ok := Lookup(kind)
+	if !ok {
+		return nil
+	}
+	out := make([]string, len(h.Flags.Permissions))
+	for i, p := range h.Flags.Permissions {
+		out[i] = p.Label
+	}
+	return out
+}
+
 // TrustEnv are the KEY=VALUE entries the pane of kind starts with for its
 // folder-trust dialog. When enabled is false, each key is set to an empty
 // value so the harness cannot inherit a trust bypass from herdr or env_file.

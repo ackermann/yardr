@@ -636,6 +636,108 @@ func TestPackApplyPresets(t *testing.T) {
 	}
 }
 
+// On a yard made with a preset (permissions_preset), a new agent a pack
+// makes gets the preset's flags for its kind where it would get the
+// unattended flags; a kind with no preset of that name keeps its
+// unattended flags, and a --bind preset for the one agent still wins. A
+// yard made without one is as before (TestPackApplyPresets).
+func TestPackApplyYardPreset(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	yard := func(t *testing.T) *app {
+		t.Helper()
+		a := packApp(t)
+		requireNonInteractive(t)
+		if err := a.st.SetSetting(ctx, store.PermissionsPresetSetting, "bypass", "me"); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	apply := func(a *app, binds ...string) string {
+		t.Helper()
+		args := []string{"apply", "../../packs/starter", "--depot", "web", "--yes", "--crew", "yardmaster=boss", "--members", "backlog=", "--members", "decisions="}
+		for _, b := range binds {
+			args = append(args, "--bind", b)
+		}
+		out, err := run(t, a.packCmd(), args...)
+		if err != nil {
+			t.Fatalf("%v\n%s", err, out)
+		}
+		return out
+	}
+	groupArgs := func(a *app, name string) string {
+		t.Helper()
+		g, err := a.st.GetGroup(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fmt.Sprint(g.Config["args"])
+	}
+
+	a := yard(t)
+	apply(a, "builders=claude", "reviewers=kimi", "crew:yardmaster=claude")
+	if got := groupArgs(a, "web-builders"); got != "[--dangerously-skip-permissions]" {
+		t.Errorf("web-builders args = %s, want the yard preset's for claude", got)
+	}
+	if r, _ := a.st.GetCrew(ctx, "boss"); r == nil || fmt.Sprint(r.Config["args"]) != "[--dangerously-skip-permissions]" {
+		t.Errorf("boss = %+v, want the yard preset's flags", r)
+	}
+	// kimi offers no bypass: its unattended flags, as on any yard.
+	if got := groupArgs(a, "web-reviewers"); got != "[--yolo]" {
+		t.Errorf("web-reviewers args = %s, want kimi's unattended flags", got)
+	}
+
+	// An explicit preset for the one agent wins over the yard's.
+	b := yard(t)
+	apply(b, "builders=claude,auto", "reviewers=claude", "crew:yardmaster=claude,none")
+	if got := groupArgs(b, "web-builders"); got != "[--permission-mode auto]" {
+		t.Errorf("web-builders args = %s, want its own bind's preset", got)
+	}
+	if got := groupArgs(b, "web-reviewers"); got != "[--dangerously-skip-permissions]" {
+		t.Errorf("web-reviewers args = %s, want the yard preset's for claude", got)
+	}
+	if r, _ := b.st.GetCrew(ctx, "boss"); r == nil || r.Config["args"] != nil {
+		t.Errorf("boss = %+v, want its own bind's none", r)
+	}
+}
+
+// In a terminal the permissions question starts at the yard's preset, as
+// it starts at the unattended flags on a yard made without one
+// (TestPackApplyAsksPermissionsInATerminal); leaving it there gives the
+// new agent the preset's flags.
+func TestPackApplyAsksYardPresetInATerminal(t *testing.T) {
+	a := packApp(t)
+	setInteractive(t, true)
+	ctx := context.Background()
+	if err := a.st.SetSetting(ctx, store.PermissionsPresetSetting, "bypass", "me"); err != nil {
+		t.Fatal(err)
+	}
+	var preselected string
+	stubAsk(t, func(fields ...huh.Field) error {
+		for _, f := range fields {
+			sel, ok := f.(*huh.Select[string])
+			if !ok {
+				continue
+			}
+			if title := strings.SplitN(sel.View(), "\n", 2)[0]; strings.Contains(title, "Permissions for group web-builders") {
+				preselected = fmt.Sprint(sel.GetValue())
+			}
+		}
+		return nil
+	})
+	out, err := run(t, a.packCmd(), "apply", "../../packs/starter", "--depot", "web", "--crew", "yardmaster=boss", "--bind", "builders=claude",
+		"--bind", "reviewers=codex,approve-for-me", "--bind", "crew:yardmaster=claude,none", "--members", "backlog=", "--members", "decisions=")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if preselected != "--dangerously-skip-permissions" {
+		t.Errorf("preselected %q, want the yard preset's flags for claude", preselected)
+	}
+	if g, _ := a.st.GetGroup(ctx, "web-builders"); g == nil || fmt.Sprint(g.Config["args"]) != "[--dangerously-skip-permissions]" {
+		t.Fatalf("web-builders = %+v", g)
+	}
+}
+
 var errDeclined = errors.New("declined")
 
 // A refused import prints the plan and why, exits 1, and changes nothing.

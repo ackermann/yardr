@@ -187,6 +187,7 @@ var allowSerial = map[string]string{
 	"TestOwnGroupCancelWhileRunningKillsTheGroup":           "assign:ownGroupKill",
 	"TestPackApplyAsksInATerminal":                          "setInteractive,stubAsk",
 	"TestPackApplyAsksPermissionsInATerminal":               "setInteractive,stubAsk",
+	"TestPackApplyAsksYardPresetInATerminal":                "setInteractive,stubAsk",
 	"TestPackApplyAsksTheOperatorAboutCalls":                "setInteractive,stubAsk",
 	"TestPackApplyAsksTheOperatorAboutOpeningThreads":       "answerForms,setInteractive",
 	"TestPackApplyAsksTheOperatorWhomToExposeTo":            "answerExpose,setInteractive",

@@ -639,11 +639,14 @@ The one answer with a default is what a new group's or crew member's agent may
 do without asking. <preset> names one of the agent's permission presets by
 the label the group form shows (claude: auto, accept-edits, bypass,
 read-only; none for no arguments). Left out, a terminal asks with the same
-list; without a terminal, or with --yes, the agent gets the arguments yardr
-init gives it:
+list, starting at the yard's own: on a yard made with yardr init
+--permissions, that preset's flags for the agent's kind; else the arguments
+yardr init gives it without one:
 ` + agents.UnattendedHelp() + `
-The plan prints the arguments each new group and crew member gets. Those of a
-group or crew member the yard already has are never touched.
+Without a terminal, or with --yes, the agent gets that same yard default
+without being asked. The plan prints the arguments each new group and crew
+member gets. Those of a group or crew member the yard already has are
+never touched.
 
 Refused, changing nothing, while open beads sit in a stage the pack's flow
 lacks; the message names them. Objects an earlier import brought and the
@@ -850,8 +853,13 @@ func (a *app) planImport(w, warn io.Writer, ctx context.Context, cmd, arg string
 	// The flags' answers go into the printed plan, so it shows what
 	// each new group and crew member gets and lists only what is still
 	// open. Where nothing can be asked, or --yes says not to, a new
-	// agent gets its kind's unattended arguments.
-	answers, err := packAnswers(plan, f.binds, f.members, cfg.Home, !asking || f.yes)
+	// agent gets its kind's unattended arguments, or the yard's preset's
+	// where the yard was made with one (yardArgs).
+	preset, err := yardPreset(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	answers, err := packAnswers(plan, f.binds, f.members, cfg.Home, !asking || f.yes, preset)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,8 +1202,11 @@ func flagsFor(p *pack.Plan, open []pack.Question) []string {
 // kept, and is not an error, so the same command can be run again. A new
 // crew member works in the yard's home, as one made by crew add does.
 // With unattended, a new agent whose kind is answered and whose --bind names
-// no preset gets its kind's unattended arguments, as yardr init gives them.
-func packAnswers(p *pack.Plan, binds, members []string, home string, unattended bool) (pack.Answers, error) {
+// no preset gets its kind's unattended arguments, as yardr init gives them,
+// or the yard preset's arguments for its kind where the yard was made with
+// one (preset, its permissions_preset): a --bind preset for the one agent
+// still wins, since it answers the question first.
+func packAnswers(p *pack.Plan, binds, members []string, home string, unattended bool, preset string) (pack.Answers, error) {
 	answers := pack.Answers{}
 	asked := map[string]bool{}
 	for _, q := range p.Questions {
@@ -1257,7 +1268,7 @@ func packAnswers(p *pack.Plan, binds, members []string, home string, unattended 
 		for _, q := range p.Questions {
 			kind, bound := answers[strings.TrimSuffix(q.ID, "args")+"kind"]
 			if _, done := answers[q.ID]; q.Field == "args" && bound && !done {
-				answers[q.ID] = strings.Join(agents.UnattendedArgs(kind), " ")
+				answers[q.ID] = strings.Join(yardArgs(kind, preset), " ")
 			}
 		}
 	}
@@ -1395,24 +1406,45 @@ func (o *openAnswers) ask() error {
 	return nil
 }
 
-// presetLabel is a permission preset's label as --bind takes it: one word.
-func presetLabel(label string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(label)), " ", "-")
+// yardPreset is the yard's permissions_preset setting: the preset a yard
+// was made with (yardr init --permissions), "" on a yard made without one.
+func yardPreset(ctx context.Context, st store.API) (string, error) {
+	all, err := st.Settings(ctx)
+	if err != nil {
+		return "", err
+	}
+	return all[store.PermissionsPresetSetting], nil
 }
+
+// yardArgs are the flags a new agent of kind gets where its unattended
+// flags would go: the yard preset's flags for that kind where the yard was
+// made with a preset the kind offers, else the kind's unattended flags. It
+// is only a default: an explicit choice for the one agent (a --bind preset,
+// a form's pick) is kept over it by the caller.
+func yardArgs(kind, preset string) []string {
+	if preset != "" {
+		if perm, ok := agents.Preset(kind, preset); ok {
+			return perm.Args
+		}
+	}
+	return agents.UnattendedArgs(kind)
+}
+
+// presetLabel is a permission preset's label as --bind takes it: one word.
+func presetLabel(label string) string { return agents.PresetLabel(label) }
 
 // presetArgs are the arguments of kind's permission preset called label, as
 // the group form lists them; none is no arguments.
 func presetArgs(kind, label string) ([]string, error) {
-	want, have := presetLabel(label), []string{}
-	if want == "none" {
+	if presetLabel(label) == "none" {
 		return nil, nil
 	}
-	preset, _ := agents.Lookup(kind)
-	for _, perm := range preset.Flags.Permissions {
-		if presetLabel(perm.Label) == want {
-			return perm.Args, nil
-		}
-		have = append(have, presetLabel(perm.Label))
+	if perm, ok := agents.Preset(kind, label); ok {
+		return perm.Args, nil
+	}
+	have := make([]string, 0, len(agents.PresetLabels(kind))+1)
+	for _, l := range agents.PresetLabels(kind) {
+		have = append(have, presetLabel(l))
 	}
 	return nil, fmt.Errorf("%s has no permission preset %q (it has: %s)", kind, label, strings.Join(append(have, "none"), ", "))
 }
@@ -1498,8 +1530,14 @@ func groupAgent(g store.Group) string {
 
 // askAnswers asks the plan's open questions, object by object: the agent,
 // model and permissions from the lists the group form uses, the members of
-// a people group.
+// a people group. The permissions start at the yard's preset for the kind
+// (yardArgs), as they start at its unattended flags on a yard made without
+// one; what is picked is the agent's own and wins for it.
 func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, answers pack.Answers) error {
+	preset, err := yardPreset(ctx, st)
+	if err != nil {
+		return err
+	}
 	for _, o := range plan.Objects {
 		id := func(field string) string { return o.Kind + "." + o.Name + "." + field }
 		open := func(field string) bool {
@@ -1515,7 +1553,7 @@ func (a *app) askAnswers(ctx context.Context, st store.API, plan *pack.Plan, ans
 		}
 		if open("args") {
 			ans := groupAnswers{Kind: answers[id("kind")], For: " for " + kindWord(o.Kind) + " " + o.Name}
-			ans.PermArgs = agents.UnattendedArgs(ans.Kind)
+			ans.PermArgs = yardArgs(ans.Kind, preset)
 			if err := a.agentPermissions(&ans); err != nil {
 				return err
 			}

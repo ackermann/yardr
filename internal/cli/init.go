@@ -461,6 +461,12 @@ type initOptions struct {
 	// About what they should know about them: the operator_style and
 	// operator_note settings. "" stores neither: only the form has a default.
 	Style, About string
+	// Permissions is the harness permission preset new agents run with
+	// (--permissions), stored as the permissions_preset setting; "" gives
+	// them the harness's unattended flags, as a yard made without it does.
+	// The form never asks it: it is a making-time switch for scripts (a
+	// hosted box), not a question for a person on their own machine.
+	Permissions string
 	// Pin is the digest (--sha256) of the default pack that the yardmaster's
 	// role may be installed from, as pack check prints it; "" pins nothing,
 	// and the form gives none.
@@ -470,7 +476,7 @@ type initOptions struct {
 	Start bool
 	Wait  time.Duration
 	// Given names the flags the command line set (harness, operator,
-	// yardmaster, style, about). On a yard that is set up, a setting whose
+	// yardmaster, style, about, permissions). On a yard that is set up, a setting whose
 	// flag was not given is kept as it is. The form never runs on a set-up
 	// yard.
 	Given map[string]bool
@@ -488,9 +494,12 @@ type initResult struct {
 	Operator   string `json:"operator"`
 	// Style and Note are the operator_style and operator_note settings as
 	// this init left them; absent on a yard that has none.
-	Style string   `json:"operator_style,omitempty"`
-	Note  string   `json:"operator_note,omitempty"`
-	Args  []string `json:"args"`
+	Style string `json:"operator_style,omitempty"`
+	Note  string `json:"operator_note,omitempty"`
+	// Permissions is the permissions_preset setting as this init left it;
+	// absent on a yard made without one.
+	Permissions string   `json:"permissions_preset,omitempty"`
+	Args        []string `json:"args"`
 	// Pack is the yard's default pack, which the yardmaster's role is taken
 	// from, and Roles where its roles are installed in the home; Prompt is
 	// the yardmaster's, "" when the pack gives its yardmaster no role. All
@@ -536,7 +545,7 @@ type initResult struct {
 // flags say.
 //
 // A run that fails leaves what it wrote before (the order is the yardmaster's
-// role, operator, yardmaster and hearer, the yardmaster crew member, default_kind),
+// role, operator, yardmaster and hearer, permissions_preset, the yardmaster crew member, default_kind),
 // and the next run finishes from it: the same steps skip or keep what is
 // there, the stored settings and the yardmaster's kind stand in for flags
 // not given, and the result says what was found and what was added (partYard).
@@ -570,6 +579,12 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	if err := checkNote(o.About); err != nil {
 		return nil, err
 	}
+	// The yard's preset is held to the harness before anything is written:
+	// an unknown label writes no role, no setting and no crew member.
+	ymArgs, presetName, err := initPreset(o)
+	if err != nil {
+		return nil, err
+	}
 	dir, err := absDir(or(o.Dir, filepath.Dir(cfg.Home)))
 	if err != nil {
 		return nil, err
@@ -587,7 +602,7 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	yardmasterKept := err == nil
 	res := &initResult{Home: cfg.Home, Harness: o.Harness, Yardmaster: o.Yardmaster, Dir: dir,
 		Operator: or(o.Operator, defaultOperator()), Style: o.Style, Note: o.About,
-		Args: agents.UnattendedArgs(o.Harness), Written: []string{}}
+		Permissions: presetName, Args: ymArgs, Written: []string{}}
 	// As JSON a list, as written is: empty on a new yard, never null.
 	res.YardmasterKept, res.SettingsKept = yardmasterKept, append([]string{}, kept...)
 	if old := cfg.Roles(); isDir(old) {
@@ -655,6 +670,15 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 			return nil, err
 		}
 	}
+	// The yard's preset, as the yardmaster's own flags already carry it:
+	// later agents are given it where a pack makes them (pack.go). Stored
+	// only when one was named (or kept): a yard made without one has no
+	// setting, and its agents get the unattended flags as before.
+	if presetName != "" {
+		if err := set(store.PermissionsPresetSetting, presetName); err != nil {
+			return nil, err
+		}
+	}
 	if err := a.putYardmaster(ctx, st, o, res); err != nil {
 		return nil, err
 	}
@@ -679,8 +703,36 @@ func (a *app) initYard(ctx context.Context, cfg *config.Config, o initOptions) (
 	return res, nil
 }
 
+// initPreset is the yardmaster's flags and the name to store for o's
+// harness and permissions: the named preset's flags and its label as the
+// harness file writes it, or the harness's unattended flags and no name
+// when none was named. A label the flag named that the harness does not
+// offer is refused, naming what it offers; a name kept from the yard's
+// setting that this harness has no preset for (the harness was changed
+// since) falls back to the unattended flags and is kept as stored, since
+// init again changes only what its flags say.
+func initPreset(o initOptions) (args []string, name string, err error) {
+	if o.Permissions == "" {
+		return agents.UnattendedArgs(o.Harness), "", nil
+	}
+	perm, ok := agents.Preset(o.Harness, o.Permissions)
+	if !ok {
+		if o.Given["permissions"] {
+			labels := agents.PresetLabels(o.Harness)
+			if len(labels) == 0 {
+				return nil, "", fmt.Errorf("--permissions %q: %s offers no permission presets; its new agents run with its unattended flags (%s)",
+					o.Permissions, o.Harness, strings.Join(agents.UnattendedArgs(o.Harness), " "))
+			}
+			return nil, "", fmt.Errorf("--permissions %q: %s has no permission preset of that name (it offers: %s)",
+				o.Permissions, o.Harness, strings.Join(labels, ", "))
+		}
+		return agents.UnattendedArgs(o.Harness), o.Permissions, nil
+	}
+	return perm.Args, perm.Label, nil
+}
+
 // keepSettings is o with the settings the home's store holds (default_kind,
-// operator, yardmaster, operator_style, operator_note) in place of the flags
+// operator, yardmaster, operator_style, operator_note, permissions_preset) in place of the flags
 // not given, so init again does not reset them to the flags' defaults (the
 // login name, "yardmaster"); it reports which were kept, as "<setting>
 // <value>". Where no default_kind is stored and no harness given, the harness
@@ -700,7 +752,8 @@ func (a *app) keepSettings(ctx context.Context, cfg *config.Config, o initOption
 		flag, key string
 		value     *string
 	}{{"harness", "default_kind", &o.Harness}, {"operator", "operator", &o.Operator}, {"yardmaster", "yardmaster", &o.Yardmaster},
-		{"style", styleSetting, &o.Style}, {"about", noteSetting, &o.About}} {
+		{"style", styleSetting, &o.Style}, {"about", noteSetting, &o.About},
+		{"permissions", store.PermissionsPresetSetting, &o.Permissions}} {
 		if !o.Given[s.flag] && all[s.key] != "" {
 			*s.value = all[s.key]
 			kept = append(kept, s.key+" "+all[s.key])
@@ -880,8 +933,11 @@ func (r *initResult) printYard(w io.Writer) {
 		fmt.Fprintf(w, "yard created in %s\n\n", r.Home)
 	}
 	fmt.Fprintf(w, "  harness    %s (the yard's default_kind: groups and crew members get it when --set kind is omitted)\n", r.Harness)
+	if r.Permissions != "" {
+		fmt.Fprintf(w, "  permissions %s (permissions_preset: agents a pack makes get its flags for their kind)\n", r.Permissions)
+	}
 	if len(r.SettingsKept) > 0 {
-		fmt.Fprintf(w, "  kept       %s, as set before: --harness, --operator, --yardmaster, --style and --about change them\n", strings.Join(r.SettingsKept, ", "))
+		fmt.Fprintf(w, "  kept       %s, as set before: --harness, --operator, --yardmaster, --style, --about and --permissions change them\n", strings.Join(r.SettingsKept, ", "))
 	}
 	if s, ok := styleOf(r.Style); ok {
 		fmt.Fprintf(w, "  operator   %s, with whom agents work in the style %s (%q): every session reads it when it starts\n", r.Operator, s.key, s.label)
@@ -1109,6 +1165,21 @@ for scripts and tests. It stores --harness as the yard's default_kind, and
 adds the yardmaster crew member on that harness with its unattended flags,
 rotating every 24h. The daemon starts the yardmaster.
 
+--permissions <label> names one of the harness's permission presets
+(yardr harness show <kind> lists them: for claude, auto, accept edits,
+bypass and read only) and makes the yard with that preset instead: it is
+stored as the permissions_preset setting, the yardmaster gets the preset's
+flags, and agents a pack later makes get the preset's flags for their kind
+where a pack would give them the unattended flags. An agent's own flags (a
+--bind preset, a crew or group set) still win for that agent, and a kind
+with no preset of that name keeps its unattended flags. An unknown label
+is refused before anything is written, naming what the harness offers.
+Without it the yard is exactly as before. It is a making-time switch for a
+yard that must run unwatched (a hosted box): a yard on a person's own
+machine keeps the unattended flags, and init writes no harness consent
+for it — a bypass yard's agents still meet their harness's one-time
+accept screen once, in their first pane.
+
 The yardmaster's role is a pack's: the one the yard's default pack (the
 default_pack setting, else starter, which yardr carries) gives its crew
 member called yardmaster. Init installs that one file under
@@ -1160,9 +1231,12 @@ Run yardr in a terminal on a home with no yard to get the same as a form. A
 home counts as set up once init has stored default_kind, or once its store has
 depots, groups, crew members or beads (a yard from before the onboarding); the
 store file alone does not, since the server creates it on any first command.
-Init again on a yard keeps its default_kind, operator and yardmaster settings
-and an existing yardmaster crew member; only the flags given change them, so
---harness is required only to create a yard.
+Init again on a yard keeps its default_kind, operator, yardmaster and
+permissions_preset settings and an existing yardmaster crew member; only
+the flags given change them, so --harness is required only to create a
+yard. A standing yard's agents keep their own flags: --permissions on an
+existing yard changes the setting for agents made later, and no agent
+that is already there.
 
 --style says how agents should work with you, and --about what they should
 know about you (one line). They are stored as the settings operator_style
@@ -1174,7 +1248,7 @@ the primes say nothing about it; init again keeps both. The styles:
 ` + styleHelp() + `
 
 A run that failed leaves what it made before the failure (the order is: the
-yardmaster's role, the operator and yardmaster settings, the yardmaster, default_kind), and init
+yardmaster's role, the operator, yardmaster and permissions_preset settings, the yardmaster, default_kind), and init
 again finishes from it. The settings stored stand in for the flags not given,
 and the yardmaster's kind for --harness once the yardmaster is there; the summary then
 says "finished", with what it found and what it added (--json: found, added).
@@ -1200,6 +1274,7 @@ Unattended flags per harness:
 ` + agents.UnattendedHelp(),
 		Example: `  yardr init --harness claude
   yardr init --harness claude --start              # and start the yard, waiting for the yardmaster
+  yardr init --harness claude --permissions bypass # new agents run with the bypass preset
   yardr --home /tmp/y1 init --harness codex --yardmaster boss --dir ~/projects --model gpt-5.5 --operator Jo
   yardr init --harness claude --style work --about "I review every merge myself"`,
 		Args: cobra.NoArgs,
@@ -1209,7 +1284,7 @@ Unattended flags per harness:
 				return err
 			}
 			o.Given = map[string]bool{}
-			for _, f := range []string{"harness", "operator", "yardmaster", "style", "about"} {
+			for _, f := range []string{"harness", "operator", "yardmaster", "style", "about", "permissions"} {
 				o.Given[f] = c.Flags().Changed(f)
 			}
 			res, err := a.initYard(c.Context(), cfg, o)
@@ -1246,6 +1321,7 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Style, "style", "", "how agents should work with you: "+strings.Join(styleKeys(), ", ")+
 		" (default: none; a set-up yard keeps its operator_style setting)")
 	cmd.Flags().StringVar(&o.About, "about", "", "one line agents should know about you (a set-up yard keeps its operator_note setting)")
+	cmd.Flags().StringVar(&o.Permissions, "permissions", "", "the harness permission preset new agents run with, as yardr harness show <kind> lists them (for claude: auto, accept edits, bypass, read only); stored as permissions_preset (default: the harness's unattended flags; a set-up yard keeps its permissions_preset setting)")
 	cmd.Flags().Var(&o.Pin, "sha256", "install the yardmaster's role only from the default pack whose digest this is, the last line of pack check's plan (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is written. A yard that has its yardmaster reads no pack and checks nothing")
 	return cmd
 }

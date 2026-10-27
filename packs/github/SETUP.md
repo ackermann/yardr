@@ -44,7 +44,7 @@ file's.
    for it, and answer on its card, in footplate or in `yardr chat`
    (`ctrl+o`), where the field shows dots:
    ```sh
-   yardr bead ask <bead> "The token it answers with" --secret github --for-crew <name> --env GITHUB_TOKEN --context "A token that reads and writes the repository's issues and pull requests."
+   yardr bead ask <bead> "The token it answers with" --secret github --for-crew <name> --env GITHUB_TOKEN --context "Make a fine-grained token for this one repository: on GitHub, open Settings, then Developer settings, then Fine-grained tokens, and make a token for this repository with Contents set to read and write, and Issues and Pull requests set to read and write."
    ```
    The yard's server writes it into the crew member's env file, or with
    none set into `~/.yardr/crew/<name>.env`, which is then set as `yardr

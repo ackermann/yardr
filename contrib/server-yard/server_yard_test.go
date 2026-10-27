@@ -53,6 +53,7 @@ type yard struct {
 	bin      string
 	path     string // the PATH the script runs with: the shim, then bin
 	initLog  string // what the shim saw of each yardr init's stdin
+	initArgs string // what the shim saw of each yardr init's words
 	home     string
 	config   string
 	yardhome string
@@ -95,7 +96,7 @@ func build(t *testing.T) *yard {
 	y := &yard{d: d, bin: filepath.Join(d, "bin"), home: filepath.Join(d, "home"),
 		config: filepath.Join(d, "config"), yardhome: filepath.Join(d, "yard"),
 		sock: filepath.Join(d, "herdr.sock"), state: filepath.Join(d, "state"),
-		initLog: filepath.Join(d, "init-stdin.log")}
+		initLog: filepath.Join(d, "init-stdin.log"), initArgs: filepath.Join(d, "init-args.log")}
 	shim := filepath.Join(d, "shim")
 	y.path = shim + ":" + y.bin + ":/usr/bin:/bin"
 	for _, dir := range []string{y.bin, shim, y.home, y.config, y.yardhome, filepath.Join(y.state, "herdr")} {
@@ -119,6 +120,7 @@ func build(t *testing.T) *yard {
 	// (run gives the script a line, as a person at a keyboard would).
 	const shimBody = `#!/bin/sh
 if [ "$1" = init ]; then
+  echo "$@" >>"$SY_INIT_ARGS"
   if IFS= read -r line; then echo "init: stdin has a line"; else echo "init: stdin is closed"; fi >>"$SY_INIT_LOG"
 fi
 exec "$SY_REAL_YARDR" "$@"
@@ -149,6 +151,7 @@ exec "$SY_REAL_YARDR" "$@"
 		"PATH=" + y.path,
 		"SY_REAL_YARDR=" + filepath.Join(y.bin, "yardr"),
 		"SY_INIT_LOG=" + y.initLog,
+		"SY_INIT_ARGS=" + y.initArgs,
 		"HERDR_SOCKET_PATH=" + y.sock,
 		"HERDR_FAKE_STATE=" + filepath.Join(y.state, "herdr"),
 		"USER=sy-test",
@@ -718,6 +721,53 @@ func TestServerYardWithoutTheHarnessLogin(t *testing.T) {
 	daemon := y.waitDaemon(t)
 	if !running(daemon) {
 		t.Errorf("no daemon runs after the script")
+	}
+}
+
+// TestServerYardPermissions runs the script with --permissions: the label
+// goes to yardr init as it stands, and the yard is made with that preset
+// (its setting, and the yardmaster's flags). Without the flag init is
+// called exactly as before, which the same yard's second run shows: no
+// --permissions in its words, and the yard init made stands.
+func TestServerYardPermissions(t *testing.T) {
+	y := build(t)
+	out, err := y.run(t, "--harness", "claude", "--operator", "jo", "--permissions", "bypass")
+	if err != nil {
+		t.Fatalf("server-yard: %v\n%s", err, out)
+	}
+	mustContain(t, out, "yardmaster is running")
+	if got := string(mustRead(t, y.initArgs)); !strings.Contains(got, "--permissions bypass") {
+		t.Errorf("yardr init was given %q, want --permissions bypass in its words", got)
+	}
+	setting, err := y.cli(t, "settings", "get", "permissions_preset")
+	if err != nil || strings.TrimSpace(setting) != "bypass" {
+		t.Errorf("permissions_preset = %q, %v; want bypass", setting, err)
+	}
+	show, err := y.cli(t, "crew", "show", "yardmaster")
+	if err != nil {
+		t.Fatalf("crew show: %v\n%s", err, show)
+	}
+	mustContain(t, show, "--dangerously-skip-permissions")
+
+	// Without the flag: the same call as before the switch existed, and
+	// the yard stands as the first run made it.
+	again, err := y.run(t, "--harness", "claude", "--operator", "jo")
+	if err != nil {
+		t.Fatalf("second run: %v\n%s", err, again)
+	}
+	lines := strings.Split(strings.TrimSpace(string(mustRead(t, y.initArgs))), "\n")
+	if len(lines) != 2 || strings.Contains(lines[1], "--permissions") {
+		t.Errorf("inits were given %q, want the second without --permissions", lines)
+	}
+	if setting, err := y.cli(t, "settings", "get", "permissions_preset"); err != nil ||
+		strings.TrimSpace(setting) != "bypass" {
+		t.Errorf("permissions_preset after a run without the flag = %q, %v", setting, err)
+	}
+
+	// An empty label is the usage, before anything is written.
+	usage, err := y.run(t, "--harness", "claude", "--operator", "jo", "--permissions=")
+	if err == nil || !strings.Contains(usage, "usage: server-yard") || !strings.Contains(usage, "--permissions <label>") {
+		t.Errorf("--permissions= : %v\n%s", err, usage)
 	}
 }
 

@@ -53,6 +53,10 @@ const (
 	// DefaultPackSetting names the pack a depot is set up from when depot
 	// init is given none.
 	DefaultPackSetting = "default_pack"
+	// PermissionsPresetSetting is the permission preset a yard was made
+	// with (yardr init --permissions): new agents get that preset's flags
+	// for their kind instead of the kind's unattended flags.
+	PermissionsPresetSetting = "permissions_preset"
 	// HookAddrSetting is the address the server takes webhooks on.
 	HookAddrSetting = "hook_addr"
 	// HookPublicURLSetting is the public address hooks are reached at:
@@ -211,6 +215,10 @@ var KnownSettings = []Setting{
 	{Key: DefaultPackSetting, Help: "the pack a depot is set up from when yardr depot init names none, and the pack yardr init takes the yardmaster's role from: " +
 		"a pack's name (one the yard has imported, or one yardr carries), its directory, absolute, or a pack's URL; default: starter, and dir for a directory depot",
 		Default: "starter", Check: checkDefaultPack},
+	{Key: PermissionsPresetSetting, Help: "the permission preset new agents run with, named as yardr init --permissions names it for the yard's harness: " +
+		"a yard made with one gives each new agent that preset's flags for its kind instead of the kind's unattended flags; unset, new agents get the unattended flags. " +
+		"An agent's own args (a --bind preset, a crew or group set) still win for that agent",
+		Check: checkPermissionsPreset},
 	{Key: HookAddrSetting, Help: "the address the server takes webhooks on, such as 127.0.0.1:8790, when YARDR_HOOK_ADDR is not set where it starts; " +
 		"the server reads it when it starts", Env: "HOOK_ADDR", Check: CheckHookAddr},
 	{Key: HookPublicURLSetting, Help: "the public address hooks are reached at, such as https://yard.example/hooks: the URL of hook <name> is it plus /<name>. " +
@@ -456,7 +464,8 @@ func SettingOf(key string) (Setting, bool) {
 }
 
 // settingAsk is whether setting key may be proposed as a run ask. Alone
-// are who the operator is, what the yard installs itself from, who the
+// are who the operator is, what the yard installs itself from, how much
+// its new agents may do without asking, who the
 // web view acts as and what it trusts, where backups go, the addresses
 // the servers bind, the edge it is connected to (the key it pins is one
 // the operator was shown), whether it is hosted (which secrets cross the
@@ -468,7 +477,7 @@ func SettingOf(key string) (Setting, bool) {
 // Askable here.
 func settingAsk(key string) AskClass {
 	switch key {
-	case OperatorSetting, DefaultPackSetting,
+	case OperatorSetting, DefaultPackSetting, PermissionsPresetSetting,
 		UpgradeFromSetting, UpgradeRestoreSetting,
 		WebAsSetting, WebJWTIssuerSetting, WebJWTAudienceSetting,
 		WebJWTJWKSSetting, WebJWTHeaderSetting, WebJWTUsersSetting,
@@ -603,6 +612,30 @@ func checkDefaultPack(v string) error {
 		return fmt.Errorf("%s %q: no pack there: %w", DefaultPackSetting, v, err)
 	}
 	return nil
+}
+
+// checkPermissionsPreset takes what names a permission preset of some
+// harness: the one-word form of a preset's label (agents.PresetLabel), as
+// yardr init --permissions takes it. Which presets the yard's own harness
+// offers is init's to hold the value to; this holds a stored value to a
+// preset some harness knows, so a misspelling is refused where it is set
+// instead of read as no preset later.
+func checkPermissionsPreset(v string) error {
+	for _, kind := range agents.Kinds() {
+		if _, ok := agents.Preset(kind, v); ok {
+			return nil
+		}
+	}
+	var have []string
+	for _, kind := range agents.Kinds() {
+		for _, l := range agents.PresetLabels(kind) {
+			if k := agents.PresetLabel(l); !slices.Contains(have, k) {
+				have = append(have, k)
+			}
+		}
+	}
+	slices.Sort(have)
+	return fmt.Errorf("%s %q: no harness has a permission preset of that name (there is: %s); yardr init --permissions names what the yard's harness offers", PermissionsPresetSetting, v, strings.Join(have, ", "))
 }
 
 // CheckHookAddr refuses what the webhook receiver could not listen on: an
