@@ -555,8 +555,9 @@ func (e *exporter) groups() error {
 			}
 		case "manual":
 			eg.Kind, pg.People = "people", true
-			// 1 is what an import gives a group whose pack names no limit.
-			if g.Limit != 1 {
+			// The default of people is what an import gives a group whose
+			// pack names no limit.
+			if g.Limit != store.DefaultLimit(g.Runner) {
 				pg.Limit = g.Limit
 			}
 		case store.PeerRunner:

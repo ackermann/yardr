@@ -202,7 +202,7 @@
         "name": "keepers",
         "runner": "manual",
         "config": {},
-        "limit": 1
+        "limit": 50
       }
     },
     {

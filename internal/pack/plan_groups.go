@@ -157,7 +157,7 @@ func (b *planner) groups() error {
 			b.add(b.taken(g, have[slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name })]))
 			continue
 		}
-		want := store.Group{Name: name, Config: map[string]any{}, Limit: 1}
+		want := store.Group{Name: name, Config: map[string]any{}}
 		i := slices.IndexFunc(have, func(h store.Group) bool { return h.Name == name })
 		exists := i >= 0
 		var old store.Group
@@ -237,6 +237,11 @@ func (b *planner) groups() error {
 			// Only people groups have members; one that becomes an agent
 			// or script group loses them, or the store refuses it.
 			want.Members = nil
+		}
+		if !exists && g.Limit == 0 {
+			// A pack that names no limit leaves it to the kind of group: a
+			// people group is not held back to one bead at a time.
+			want.Limit = store.DefaultLimit(want.Runner)
 		}
 		var changes []Diff
 		if exists {

@@ -259,8 +259,8 @@ func loginPathIdentity(path string) (string, error) {
 // userLoginGroup is the group a person's login runs under for source, one of
 // the mirrored groups: a copy of it (its prompt, arguments, model and the rest)
 // with kind claude, the person's login and their env file. Its limit is 1,
-// as a new group's is: twelve people at the limit of a shared builders would
-// overrun the machine, and the operator raises one with group set.
+// as a new agent group's is: twelve people at the limit of a shared builders
+// would overrun the machine, and the operator raises one with group set.
 func (p *userLoginPlan) userLoginGroup(source store.Group) store.Group {
 	cfg := maps.Clone(source.Config)
 	if cfg == nil {

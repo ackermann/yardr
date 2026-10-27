@@ -100,6 +100,13 @@ func TestApplyToAnEmptyYardThenAgain(t *testing.T) {
 	if g, _ := st.GetGroup(ctx, "backlog"); g == nil || !slices.Equal(g.Members, []string{"ann", "yardmaster"}) {
 		t.Fatalf("backlog = %+v", g)
 	}
+	// The starter names no limit for its people groups: they start with the
+	// default of people, so a bead parked with them holds back no other.
+	for _, name := range []string{"backlog", "decisions"} {
+		if g, _ := st.GetGroup(ctx, name); g == nil || g.Limit != 50 {
+			t.Fatalf("%s = %+v, want limit 50", name, g)
+		}
+	}
 	if info, err := os.Stat(filepath.Join(config.At(o.Home).Pack("starter"), "scripts", "merge-local")); err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("merge-local: %v %v", info, err)
 	}
@@ -1133,6 +1140,36 @@ func TestPackWithoutStageFilesBringsNone(t *testing.T) {
 	apply(t, st, plan, nil)
 	if _, err := os.Stat(filepath.Join(o.Home, "flows")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the import made %s: %v", filepath.Join(o.Home, "flows"), err)
+	}
+}
+
+// A group the pack gives no limit starts with the default of its kind: one
+// session for a script, as for an agent, and fifty for people, who read what
+// waits for them as a list. A group the yard has keeps the limit it has, so
+// a yard set up before is not moved by importing again.
+func TestPackGroupWithoutLimitStartsWithTheDefaultOfItsKind(t *testing.T) {
+	want := map[string]int{"web-builders": 2, "web-assembly": 1, "people": 50}
+	st, o := yard(t)
+	plan := build(t, st, load(t, writePack(t, smallFiles(small))), o)
+	for name, limit := range want {
+		if g := find(t, plan, "group", name).Group; g.Limit != limit {
+			t.Errorf("the plan makes %s with limit %d, want %d", name, g.Limit, limit)
+		}
+	}
+	apply(t, st, plan, nil)
+	for name, limit := range want {
+		if g := groupOf(t, st, name); g.Limit != limit {
+			t.Errorf("%s has limit %d after the import, want %d", name, g.Limit, limit)
+		}
+	}
+
+	st, o = yard(t)
+	if err := st.PutGroup(ctx, store.Group{Name: "people", Runner: "manual", Limit: 1}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	apply(t, st, build(t, st, load(t, writePack(t, smallFiles(small))), o), nil)
+	if g := groupOf(t, st, "people"); g.Limit != 1 {
+		t.Errorf("people has limit %d after the import, want the yard's 1", g.Limit)
 	}
 }
 

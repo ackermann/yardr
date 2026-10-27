@@ -78,7 +78,7 @@ func (a groupAnswers) group() store.Group {
 	}
 	limit, err := strconv.Atoi(a.Limit)
 	if err != nil {
-		limit = 1 // The form validates first; empty reads as the default.
+		limit = store.DefaultLimit(a.Runner) // The form validates first; empty reads as the default.
 	}
 	return store.Group{Name: a.Name, Runner: a.Runner, Config: cfg, Limit: limit, Members: members}
 }
@@ -158,7 +158,7 @@ func (a *app) groupForm(w io.Writer, ctx context.Context, st store.API) error {
 	if err != nil {
 		return err
 	}
-	ans := groupAnswers{Runner: "herdr", Kind: or(defaultKind(ctx, st), agents.DefaultKind), Limit: "1", Other: map[string]any{}}
+	ans := groupAnswers{Runner: "herdr", Kind: or(defaultKind(ctx, st), agents.DefaultKind), Other: map[string]any{}}
 	editing := false
 
 	if len(groups) > 0 {
@@ -248,6 +248,10 @@ func (a *app) askGroup(w io.Writer, ctx context.Context, st store.API, groups []
 			Value(&ans.Peer).Validate(nonEmpty)); err != nil {
 			return nil, err
 		}
+	}
+	if ans.Limit == "" {
+		// A new group is offered the default of the runner just chosen.
+		ans.Limit = strconv.Itoa(store.DefaultLimit(ans.Runner))
 	}
 	keeping := editing && ans.Limit == "0" // a paused group keeps its pause
 	if err := ask(huh.NewInput().Title("Limit").Description("How many beads this group works at once; 0 pauses it.").

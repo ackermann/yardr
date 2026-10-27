@@ -99,6 +99,12 @@ func TestExportRoundTrip(t *testing.T) {
 	if _, err := st.SetGroup(ctx, "web-builders", store.GroupEdit{Limit: &limit}, "me"); err != nil {
 		t.Fatal(err)
 	}
+	// A people group the import gave 50 and the hand set to 1: 1 is no
+	// longer what an import gives it, so the pack has to say it.
+	one := 1
+	if _, err := st.SetGroup(ctx, "decisions", store.GroupEdit{Limit: &one}, "me"); err != nil {
+		t.Fatal(err)
+	}
 	tester := filepath.Join(o.Home, "tester.md")
 	if err := os.WriteFile(tester, []byte("# Tester\n\nYou test what the builder built. The yardmaster hears of a failure.\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -157,7 +163,7 @@ func TestExportRoundTrip(t *testing.T) {
 		"testers":   {Name: "testers", Agent: "roles/testers.md", Limit: 2},
 		"assembly":  {Name: "assembly", Run: "scripts/assembly", Limit: 1},
 		"backlog":   {Name: "backlog", People: true},
-		"decisions": {Name: "decisions", People: true},
+		"decisions": {Name: "decisions", People: true, Limit: 1},
 	} {
 		if got := groups[name]; got.Agent != want.Agent || got.Run != want.Run || got.People != want.People || got.Limit != want.Limit {
 			t.Errorf("group %s = %+v, want %+v", name, got, want)
@@ -240,6 +246,13 @@ func TestExportRoundTrip(t *testing.T) {
 	g, err := st2.GetGroup(ctx, "site-testers")
 	if err != nil || g.Limit != 2 {
 		t.Fatalf("site-testers = %+v, %v", g, err)
+	}
+	// The people groups come back as they were: backlog at the default its
+	// export left out, decisions at the 1 it said.
+	for name, want := range map[string]int{"backlog": 50, "decisions": 1} {
+		if g := groupOf(t, st2, name); g.Limit != want {
+			t.Errorf("%s in the second yard has limit %d, want %d", name, g.Limit, want)
+		}
 	}
 	prompt, _ := g.Config["prompt"].(string)
 	if text, err := os.ReadFile(prompt); err != nil || !strings.Contains(string(text), "You test what the builder built.") {

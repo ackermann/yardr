@@ -88,8 +88,9 @@ func TestSetGroupKeepsTheRest(t *testing.T) {
 // A limit of 0 pauses, and only SetGroup sets one: it is stored, every
 // claim is refused, and the group's live session runs on while its bead
 // advances. 0 through PutGroup is no limit named: a new group starts with
-// 1, and so does a replaced one — except a paused group put back, which
-// stays paused. A negative limit is refused everywhere.
+// the default of its runner (1; 50 for people), and so does a replaced one
+// — except a paused group put back, which stays paused. A negative limit
+// is refused everywhere.
 func TestGroupLimitZeroPauses(t *testing.T) {
 	t.Parallel()
 	s, ctx := flowDepot(t)
@@ -103,6 +104,20 @@ func TestGroupLimitZeroPauses(t *testing.T) {
 	must(s.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr"}, "jo"))
 	if g, err := s.GetGroup(ctx, "builders"); err != nil || g.Limit != 1 {
 		t.Fatalf("new group = %+v, %v; want limit 1", g, err)
+	}
+	// A group of people starts with 50 instead: they read what waits for
+	// them as a list, and a limit of 1 let one parked decision hold back
+	// every other bead for the group. A script group, like an agent group,
+	// keeps 1, and so does a peer's.
+	must(s.PutGroup(ctx, store.Group{Name: "tick", Runner: "exec", Config: map[string]any{"cmd": "true"}}, "jo"))
+	must(s.PutGroup(ctx, store.Group{Name: "decisions", Runner: "manual"}, "jo"))
+	for name, want := range map[string]int{"tick": 1, "decisions": 50} {
+		if g, err := s.GetGroup(ctx, name); err != nil || g.Limit != want {
+			t.Fatalf("new group %s = %+v, %v; want limit %d", name, g, err, want)
+		}
+	}
+	if got := store.DefaultLimit(store.PeerRunner); got != 1 {
+		t.Fatalf("DefaultLimit(peer) = %d, want 1", got)
 	}
 	// A negative limit is refused, not floored.
 	if err := s.PutGroup(ctx, store.Group{Name: "bad", Runner: "herdr", Limit: -1}, "jo"); err == nil ||

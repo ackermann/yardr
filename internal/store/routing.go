@@ -95,6 +95,20 @@ func IsPersonalRoute(r Route, groups map[string]Group, originator, operator stri
 	return who == originator
 }
 
+// DefaultLimit is the limit a group of runner starts with when none is
+// named. A group that starts work starts with 1: twelve people at the limit
+// of a shared builders would overrun the machine, and group set raises one.
+// A manual group is people, who read the beads waiting for them as a list,
+// so a limit there guards no machine, and a low one lets one parked decision
+// hold back every other bead for the group. It starts with 50, and group set
+// changes that as well.
+func DefaultLimit(runner string) int {
+	if runner == "manual" {
+		return 50
+	}
+	return 1
+}
+
 // PutGroup adds or replaces a group, and logs group_set: whoever follows
 // the yard by its events sees a group appear or change as it sees a depot,
 // a flow or a crew member do. From a session's or a crew member's pane the
@@ -117,11 +131,11 @@ func (s *Store) PutGroup(ctx context.Context, g Group, actor string) error {
 // its subscriptions, which are the stored group's. limitExplicit says the
 // caller named this limit: SetGroup with a limit in its edit, which 0
 // pauses through. A limit of 0 that is not named is no limit named: the
-// default 1, except a replace never unpauses, so a paused group put back
-// without a limit stays paused. A negative limit is refused. Its config is
-// held to ConfigKeys here, whoever writes it (the CLI, the group form, a
-// pack); a key the stored group has already, with the same value, is kept
-// unasked.
+// default of the group's runner (DefaultLimit), except a replace never
+// unpauses, so a paused group put back without a limit stays paused. A
+// negative limit is refused. Its config is held to ConfigKeys here, whoever
+// writes it (the CLI, the group form, a pack); a key the stored group has
+// already, with the same value, is kept unasked.
 func putGroup(w *wtx, g *Group, actor string, limitExplicit bool) error {
 	if g.Config == nil {
 		g.Config = map[string]any{}
@@ -139,11 +153,11 @@ func putGroup(w *wtx, g *Group, actor string, limitExplicit bool) error {
 		return err
 	}
 	if g.Limit == 0 && !limitExplicit && (!replaced || old.Limit != 0) {
-		// 0 is no limit named: the default 1, for a group that is new
-		// and for a replaced one, as before. A paused group put back
-		// without a limit is the exception: the replace keeps the
-		// pause instead of unpausing it.
-		g.Limit = 1
+		// 0 is no limit named: the default of the runner, for a group
+		// that is new and for a replaced one, as before. A paused group
+		// put back without a limit is the exception: the replace keeps
+		// the pause instead of unpausing it.
+		g.Limit = DefaultLimit(g.Runner)
 	}
 	if g.Name == RouteWait && !replaced {
 		return fmt.Errorf("group wait: wait ends a route (--else wait), so no group takes the name")

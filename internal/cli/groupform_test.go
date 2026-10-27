@@ -92,3 +92,14 @@ func TestGroupFormKeepsAPause(t *testing.T) {
 		t.Fatalf("group limit = %d, want the pause kept", back.Limit)
 	}
 }
+
+// A limit the form has not asked yet reads as the default of the runner: a
+// new group is offered 50 when it is people, and 1 when it starts work.
+func TestGroupFormLimitDefaultsByRunner(t *testing.T) {
+	t.Parallel()
+	for runner, want := range map[string]int{"herdr": 1, "exec": 1, "manual": 50} {
+		if got := (groupAnswers{Name: "n", Runner: runner}).group().Limit; got != want {
+			t.Errorf("%s group with no limit answered has limit %d, want %d", runner, got, want)
+		}
+	}
+}

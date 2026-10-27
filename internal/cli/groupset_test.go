@@ -75,6 +75,24 @@ func TestGroupSetKeepsTheRest(t *testing.T) {
 	if g := group(t, st, "agents"); !reflect.DeepEqual(g.Config, map[string]any{"kind": "claude"}) || g.Limit != 1 {
 		t.Fatalf("group add kept what it was not given: %+v", g)
 	}
+
+	// Without --limit a group starts with the default of its runner: 1 where
+	// it starts work, 50 for people, who read what waits for them as a list
+	// and are not held to one bead at a time. --limit says otherwise, and
+	// adding the group again without it gives the default again.
+	mustAs(t, st, "jo", "group", "add", "tick", "--runner", "exec", "--set", `cmd="true"`)
+	mustAs(t, st, "jo", "group", "add", "desk", "--runner", "manual", "--members", "jo")
+	mustAs(t, st, "jo", "group", "add", "pair", "--runner", "manual", "--limit", "2")
+	for name, want := range map[string]int{"tick": 1, "desk": 50, "pair": 2} {
+		if g := group(t, st, name); g.Limit != want {
+			t.Fatalf("group %s added has limit %d, want %d", name, g.Limit, want)
+		}
+	}
+	mustAs(t, st, "jo", "group", "set", "desk", "--limit", "3")
+	mustAs(t, st, "jo", "group", "add", "desk", "--runner", "manual", "--members", "jo")
+	if g := group(t, st, "desk"); g.Limit != 50 {
+		t.Fatalf("group desk added again without --limit has limit %d, want 50", g.Limit)
+	}
 }
 
 // --members replaces the list of a manual group and is refused on another,

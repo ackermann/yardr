@@ -253,8 +253,8 @@ func TestStarterIntoAnEmptyYard(t *testing.T) {
 	if o := find(t, plan, "group", "web-builders"); len(o.Env) != 0 || len(o.Keeps) != 0 {
 		t.Fatalf("web-builders = %+v: an agent group has no env", o)
 	}
-	if g := find(t, plan, "group", "backlog").Group; g.Runner != "manual" {
-		t.Fatalf("backlog = %+v", g)
+	if g := find(t, plan, "group", "backlog").Group; g.Runner != "manual" || g.Limit != 50 {
+		t.Fatalf("backlog = %+v, want a people group at the default of people, 50", g)
 	}
 	// The one program the starter runs, the script of that group, is named
 	// in the plan as a path in the pack, as check prints it above the digest.

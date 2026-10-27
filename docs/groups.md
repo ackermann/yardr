@@ -155,7 +155,7 @@ made. Each is a command that stands on its own:
    to: `yardr group add ada-builders --runner herdr --set kind=claude --set
    login_for=ada --set env_file=~/.yardr/groups/ada.env`, one per group
    (`ada-reviewers` beside `ada-builders`), each with its source's prompt,
-   arguments and model besides, and a limit of 1, as a new group has:
+   arguments and model besides, and a limit of 1, as a new agent group has:
    twelve people at the limit of a shared builders would overrun the
    machine, and `yardr group set ada-builders --limit 2` raises one. Each
    copy runs Claude on the person's login whatever its source ran, and its
@@ -1151,6 +1151,26 @@ group without `timeout` waits as before. `max_age` still applies where the
 group sets it, but the timeout is the one that names the script: where both
 would end the session on one pass, the timeout's reason is the one kept.
 
+### The limit a group starts with
+
+A group made without a limit starts with 1 if it is an agent, script or
+`peer` group, and with 50 if it is a `manual` group. `yardr group add`
+without `--limit`, the form's first answer for the limit, and a pack's import
+of a group whose pack names no limit all begin there. The 1 holds a group
+that runs work on the machine to one session until the operator raises it,
+since several at once could overrun it. A person reads the beads waiting
+for them as a list, and a limit on how many wait protects nothing there: at
+1, one bead left waiting for a person held back every other bead for the
+same group, and the only sign was a `group_wait` event. `--limit` on
+`group add` names another number for either, and
+`yardr group set <group> --limit <n>` changes it later.
+
+A yard that made its people groups before the default of 50 keeps the
+limits they have: nothing changes them, and a pack that names no limit for a
+group the yard has leaves its limit as it is. `yardr group list` shows each
+group's limit, and `yardr group set decisions --limit 50` lifts one that is
+still 1.
+
 ### How many sessions the machine carries
 
 A group's `limit` is how many sessions that group has at once. Nothing
@@ -1206,7 +1226,8 @@ yardr settings set max_sessions 4           # resume it
 
 0 means none: there is no special value for "no cap". An unset
 `max_sessions` caps nothing, and a group that should never bind gets a
-large number. A new group starts with limit 1; it is paused after, with
+large number. A new group starts with limit 1, or 50 if it is a `manual`
+group ([above](#the-limit-a-group-starts-with)); it is paused after, with
 `yardr group set`.
 
 A bead a paused yard alone keeps from starting gets one `capped` event

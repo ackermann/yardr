@@ -506,8 +506,10 @@ herdr agent), a model read live from that agent, and its permission flags.
 
 With a name, the group is replaced by exactly what the flags say, except that
 a herdr group without --set kind gets the yard's default_kind (yardr settings
-get default_kind). To change some settings of a group and keep the rest:
-yardr group set.
+get default_kind), and a group without --limit gets 1, a manual group 50:
+people read what waits for them as a list, so one bead parked with them does
+not hold back the others. To change some settings of a group and keep the
+rest: yardr group set.
 
 A peer group hands its beads to a linked yard (--set peer=<name>, a peer whose
 link carries bead out: yardr peer allow <name> --send bead). The bead waits in
@@ -571,6 +573,12 @@ yardmaster):
 					return fmt.Errorf("group %s exists: 0 pauses, and is set with yardr group set %s --limit 0", g.Name, g.Name)
 				}
 			}
+			if !c.Flags().Changed("limit") {
+				// group add replaces the whole group. Resolve an omitted
+				// limit here so it resets an existing pause to this runner's
+				// default, as it did before zero meant "not named".
+				g.Limit = store.DefaultLimit(g.Runner)
+			}
 			withDefaultKind(c.Context(), st, g.Runner, g.Config)
 			if err := st.PutGroup(c.Context(), g, a.who()); err != nil {
 				return err
@@ -583,7 +591,7 @@ yardmaster):
 		},
 	}
 	add.Flags().StringVar(&g.Runner, "runner", "", "runner: manual, exec, herdr, peer")
-	add.Flags().IntVar(&g.Limit, "limit", 1, "max concurrent sessions (0 pauses, and is set with yardr group set); for a peer group, how many beads may be at that yard at once")
+	add.Flags().IntVar(&g.Limit, "limit", 0, fmt.Sprintf("max concurrent sessions (default %d, and %d for a manual group, whose people read what waits as a list; 0 pauses, and is set with yardr group set); for a peer group, how many beads may be at that yard at once", store.DefaultLimit("exec"), store.DefaultLimit("manual")))
 	add.Flags().StringArrayVar(&sets, "set", nil, "runner config key=value (repeatable); a value that is JSON (true, 3, [\"a\"]) keeps its type, so a string that reads as JSON is written as one: 'cmd=\"true\"'")
 	add.Flags().StringSliceVar(&g.Members, "members", nil, "manual groups: actors who may move a bead out of its stages (comma-separated)")
 
