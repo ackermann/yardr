@@ -17,9 +17,10 @@ import (
 // written from the design and not from the router, which is another
 // repository's: it serves the key it signs with at GET /edge/key, takes a
 // yard's enrolment at POST /edge/enrol (answering a code, and the account's
-// handle with the yard's name once a person has approved the yard), and
-// drops a yard's row at POST /edge/disconnect, and serves the link at GET
-// /edge/link (edgelink.go). A
+// handle with the yard's name once a person has approved the yard),
+// drops a yard's row at POST /edge/disconnect, mints a Google access
+// token at POST /mint/google (design yardr-hosted-4dx0 3.4), and serves
+// the link at GET /edge/link (edgelink.go). A
 // request is checked as a peer's is, signed by the yard
 // whose key it names, to this edge's key, within yardkey.MaxSkew; every
 // answer is signed with the key the stand-in is told to sign with.
@@ -65,6 +66,15 @@ type EdgeBehaviour struct {
 	// with, the reason being "expired"; DisconnectStatus is what a
 	// disconnecting yard is answered, 200 when zero.
 	Refuse, DisconnectStatus int
+	// MintGranted and MintToken are the scopes and the token a mint is
+	// answered with. MintRefuse, when not zero, is the status every mint
+	// is refused with, in MintReason's words; MintUnsigned answers the
+	// mint with no signature at all.
+	MintGranted  []string
+	MintToken    string
+	MintRefuse   int
+	MintReason   string
+	MintUnsigned bool
 	// ChallengeSigner, when not nil, signs the link's challenge in place of
 	// the edge's key, and ChallengeOverNonce, when not nil, is the yard nonce
 	// it is signed over in place of the one the upgrade named: a challenge
@@ -80,6 +90,13 @@ type EdgeEnrol struct {
 	Key, Name, Time, Sig string
 }
 
+// EdgeMint is one mint call as the edge took it.
+type EdgeMint struct {
+	// Key is the yard's, from the signature's header; Account the Google
+	// account from the body; Time and Sig the signature's own.
+	Key, Account, Time, Sig string
+}
+
 // EdgeState is what the edge has been asked.
 type EdgeState struct {
 	KeyFetches int
@@ -87,6 +104,8 @@ type EdgeState struct {
 	Enrols     []EdgeEnrol
 	// Drops are the keys of the yards that asked to be forgotten.
 	Drops []string
+	// Mints are the mint calls, in order.
+	Mints []EdgeMint
 }
 
 // NewEdge makes an edge with a key of its own, which approves a yard on its
@@ -118,6 +137,7 @@ func (e *Edge) State() EdgeState {
 	s := e.state
 	s.Enrols = append([]EdgeEnrol(nil), s.Enrols...)
 	s.Drops = append([]string(nil), s.Drops...)
+	s.Mints = append([]EdgeMint(nil), s.Mints...)
 	return s
 }
 
@@ -142,6 +162,8 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.enrol(w, r)
 	case "POST /edge/disconnect":
 		e.disconnect(w, r)
+	case "POST /mint/google":
+		e.mintGoogle(w, r)
 	case "GET /edge/link":
 		e.link(w, r)
 	default:
@@ -200,6 +222,40 @@ func (e *Edge) enrol(w http.ResponseWriter, r *http.Request) {
 	default:
 		e.answer(w, r, http.StatusOK, map[string]any{"code": "WQ4F-7K2M", "expires": time.Now().Add(10 * time.Minute)})
 	}
+}
+
+func (e *Edge) mintGoogle(w http.ResponseWriter, r *http.Request) {
+	body, ok := e.signed(w, r)
+	if !ok {
+		return
+	}
+	var in struct{ Account string }
+	if json.Unmarshal(body, &in) != nil || in.Account == "" {
+		e.answer(w, r, http.StatusBadRequest, map[string]string{"refused": "a mint names the Google account to mint for"})
+		return
+	}
+	e.mu.Lock()
+	e.state.Mints = append(e.state.Mints, EdgeMint{r.Header.Get(yardkey.HeaderKey), in.Account, r.Header.Get(yardkey.HeaderTime), r.Header.Get(yardkey.HeaderSig)})
+	b := e.b
+	e.mu.Unlock()
+	if b.MintRefuse != 0 {
+		e.answer(w, r, b.MintRefuse, map[string]string{"refused": b.MintReason})
+		return
+	}
+	granted := b.MintGranted
+	if granted == nil {
+		// The granted set is always an array on the wire, as 3.4 draws
+		// it, even where the test granted nothing.
+		granted = []string{}
+	}
+	v := map[string]any{"token": b.MintToken, "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339), "granted_scopes": granted}
+	if b.MintUnsigned {
+		body, _ := json.Marshal(v)
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+		return
+	}
+	e.answer(w, r, http.StatusOK, v)
 }
 
 func (e *Edge) disconnect(w http.ResponseWriter, r *http.Request) {

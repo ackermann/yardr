@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -447,5 +448,78 @@ func TestDrop(t *testing.T) {
 	edge.Behave(func(b *standin.EdgeBehaviour) { b.DisconnectStatus, b.Signer = 0, other })
 	if err := c.Drop(context.Background(), edge.PublicKey(), yard); !errors.Is(err, ErrUnsigned) {
 		t.Errorf("Drop, answered by another key = %v, want ErrUnsigned", err)
+	}
+}
+
+// A mint call names the Google account, signed with the yard's key to the
+// edge's: the stand-in takes it only so signed, and answers the token, its
+// expiry and the granted scopes, which the yard reads.
+func TestMintGoogleAsksSignedAndReadsTheAnswer(t *testing.T) {
+	t.Parallel()
+	edge, srv := edgeAt(t)
+	granted := []string{"openid", "email", "https://www.googleapis.com/auth/documents"}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MintToken, b.MintGranted = "ya29.access", granted })
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	yard := newKey(t)
+	m, err := c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Token != "ya29.access" || !slices.Equal(m.GrantedScopes, granted) {
+		t.Errorf("MintGoogle = %+v, want the token and the granted scopes", m)
+	}
+	expires, err := time.Parse(time.RFC3339, m.ExpiresAt)
+	if err != nil || time.Until(expires) < 59*time.Minute {
+		t.Errorf("MintGoogle expires_at = %q (%v), want about an hour out", m.ExpiresAt, err)
+	}
+	mints := edge.State().Mints
+	if len(mints) != 1 || mints[0].Key != yardkey.Public(yard) || mints[0].Account != "ada@example.com" || mints[0].Time == "" || mints[0].Sig == "" {
+		t.Errorf("the edge took %+v, want the one call as this yard for ada@example.com", mints)
+	}
+	// Signed to another key, the call is not taken: what answers is no
+	// answer by the key this yard meant.
+	if _, err := c.MintGoogle(context.Background(), yardkey.Public(newKey(t)), yard, "ada@example.com"); !errors.Is(err, ErrUnsigned) {
+		t.Errorf("MintGoogle, signed to another key = %v, want ErrUnsigned", err)
+	}
+}
+
+// A signed refusal is the error in the edge's words, whole: they name the
+// page to open, past what a terminal line holds. An answer signed by
+// another key, one signed by nothing, one holding no token and one that is
+// no object are refused, and say nothing of what they claimed.
+func TestMintGoogleRefusalsAndAnswersItDoesNotRead(t *testing.T) {
+	t.Parallel()
+	edge, srv := edgeAt(t)
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	yard := newKey(t)
+	words := "Google is not connected for this account: connect it at " + srv.URL + "/google, or set the source's mint_command back to a local mint"
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MintRefuse, b.MintReason = http.StatusNotFound, words })
+	_, err := c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com")
+	var refused *Refused
+	if !errors.As(err, &refused) || refused.Status != http.StatusNotFound || refused.Reason != words {
+		t.Errorf("MintGoogle, refused = %v, want the 404 with its words whole", err)
+	}
+
+	other := newKey(t)
+	edge.Behave(func(b *standin.EdgeBehaviour) {
+		b.MintRefuse, b.MintReason, b.Signer, b.MintToken = 0, "", other, "ya29.secret"
+	})
+	if _, err := c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com"); !errors.Is(err, ErrUnsigned) || strings.Contains(err.Error(), "ya29.secret") {
+		t.Errorf("MintGoogle, answered by another key = %v, want ErrUnsigned with no token in it", err)
+	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Signer, b.MintUnsigned = b.Served, true })
+	if _, err := c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com"); !errors.Is(err, ErrUnsigned) || strings.Contains(err.Error(), "ya29.secret") {
+		t.Errorf("MintGoogle, answered with no signature = %v, want ErrUnsigned with no token in it", err)
+	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MintUnsigned, b.MintToken = false, "" })
+	if _, err := c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com"); err == nil || !strings.Contains(err.Error(), "holds no token") {
+		t.Errorf("MintGoogle, answered with no token = %v, want it refused", err)
+	}
+
+	edgeKey := newKey(t)
+	bad := answersSigned(t, edgeKey, http.StatusOK, []string{"token"})
+	c2 := &Client{URL: bad.URL, HTTP: bad.Client()}
+	if _, err := c2.MintGoogle(context.Background(), yardkey.Public(edgeKey), yard, "ada@example.com"); err == nil || !strings.Contains(err.Error(), "no JSON object") {
+		t.Errorf("MintGoogle, answered with no object = %v, want it refused", err)
 	}
 }

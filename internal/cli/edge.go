@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -46,9 +48,12 @@ connected yard dials out, so it needs no open port and no tunnel of its own.
   yardr edge status           what this yard is connected to
   yardr edge disconnect       leave the edge, and put back the address
                               webhooks were reached at before
+  yardr edge mint-google <url> <source>
+                              mint a Google access token through the edge,
+                              as a google source's mint_command
 
 Connecting sets the edge setting and hook_public_url (yardr settings).`}
-	cmd.AddCommand(a.edgeConnectCmd(), a.edgeStatusCmd(), a.edgeDisconnectCmd())
+	cmd.AddCommand(a.edgeConnectCmd(), a.edgeStatusCmd(), a.edgeDisconnectCmd(), a.edgeMintGoogleCmd())
 	return cmd
 }
 
@@ -487,4 +492,141 @@ told, so its operator can drop the row. Only the operator disconnects a yard.`,
 			})
 		},
 	}
+}
+
+// googleMintSources are the sources yardr edge mint-google mints for, with
+// the Google scopes each needs from the connection's granted set (design
+// yardr-hosted-4dx0 3.2): a source whose scope was not granted refuses at
+// its mint, before any token is printed.
+var googleMintSources = []string{"google-drive", "google-docs", "google-slides", "google-calendar"}
+
+var googleMintScopes = map[string][]string{
+	"google-drive":    {"https://www.googleapis.com/auth/drive.file"},
+	"google-docs":     {"https://www.googleapis.com/auth/documents"},
+	"google-slides":   {"https://www.googleapis.com/auth/presentations"},
+	"google-calendar": {"https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.calendarlist.readonly"},
+}
+
+func (a *app) edgeMintGoogleCmd() *cobra.Command {
+	return &cobra.Command{
+		Use: "mint-google <edge-url> <source>", Short: "Mint a Google access token through the edge, as a source's mint_command",
+		Long: `Mints a Google access token through the edge, for a google source whose
+mint_command names this command: the hosted mint, beside the gws login the
+pack's own google-mint reads.
+
+It reads {inputs, scope} on stdin, as every mint_command does: the scope is
+the call's, and is read and ignored. GOOGLE_ACCOUNT in the inputs is the
+Google account to mint for. <source> is the source it mints for, one of
+google-drive, google-docs, google-slides or google-calendar.
+
+The call is signed with this yard's key to the edge's: the key this yard
+pinned where its edge setting names <edge-url>, else the key fetched over
+HTTPS as yardr edge connect fetches it. The edge's answer is believed only
+signed with that key. Its granted scopes are checked against what <source>
+needs before anything is printed: a source whose scope the connection was
+not granted refuses, naming the missing scope and where to reconnect, and
+the token in that answer is discarded.
+
+On success it prints {token, expires_at} on stdout, for the core to call
+with. Every refusal goes to stderr, and the run fails.`,
+		Args:    cobra.ExactArgs(2),
+		Example: `  yardr source set google-drive mint_command="yardr edge mint-google https://my.yardr.dev google-drive"`,
+		RunE: func(c *cobra.Command, args []string) error {
+			return a.edgeMintGoogle(c, args[0], args[1])
+		},
+	}
+}
+
+func (a *app) edgeMintGoogle(c *cobra.Command, address, source string) error {
+	ctx := c.Context()
+	w, warn := c.OutOrStdout(), c.ErrOrStderr()
+	// A mint's refusals are said on its error stream, and the run fails:
+	// stdout holds the mint's answer alone, on success alone.
+	refuse := func(format string, args ...any) error {
+		fmt.Fprintf(warn, format+"\n", args...)
+		return errCheckFailed
+	}
+	addr := strings.TrimRight(address, "/")
+	if err := store.CheckEdgeURL(addr); err != nil {
+		return refuse("%s", err)
+	}
+	needs, ok := googleMintScopes[source]
+	if !ok {
+		return refuse("unknown source %q: one of %s", source, strings.Join(googleMintSources, ", "))
+	}
+	raw, err := io.ReadAll(c.InOrStdin())
+	if err != nil {
+		return refuse("%s", err)
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return refuse("reads {inputs, scope} on stdin, and got nothing")
+	}
+	var in struct {
+		Inputs map[string]string `json:"inputs"`
+		Scope  *string           `json:"scope"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return refuse("reads {inputs, scope} on stdin, and got no JSON object")
+	}
+	if in.Scope == nil {
+		return refuse("reads {inputs, scope} on stdin, and got no scope")
+	}
+	account := in.Inputs["GOOGLE_ACCOUNT"]
+	if account == "" {
+		return refuse("its inputs name no GOOGLE_ACCOUNT")
+	}
+	cfg, err := a.config()
+	if err != nil {
+		return refuse("%s", err)
+	}
+	yard, err := yardkey.Load(cfg.PeerKey())
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return refuse("this yard has no key, so it can sign nothing: connect it first (%s edge connect <url> makes the pair)", yardrAt(cfg.Home))
+		}
+		return refuse("%s", err)
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return refuse("%s", err)
+	}
+	settings, err := st.Settings(ctx)
+	if err != nil {
+		return refuse("%s", err)
+	}
+	client := &edgelink.Client{URL: addr, HTTP: a.edgeHTTP}
+	// The key this yard pinned, where its edge setting names this edge;
+	// else the key a connect would fetch. A pin is never replaced by a
+	// later fetch.
+	edgeKey := ""
+	if e, connected, perr := store.EdgeOf(settings); perr == nil && connected && e.URL == addr {
+		edgeKey = e.Key
+	}
+	if edgeKey == "" {
+		if edgeKey, err = client.Key(ctx); err != nil {
+			return refuse("%s", err)
+		}
+	}
+	mint, err := client.MintGoogle(ctx, edgeKey, yard, account)
+	if err != nil {
+		return refuse("%s", err)
+	}
+	var missing []string
+	for _, need := range needs {
+		if !slices.Contains(mint.GrantedScopes, need) {
+			missing = append(missing, need)
+		}
+	}
+	if len(missing) > 0 {
+		return refuse("%s needs %s, missing from the Google connection's grant: reconnect at %s/google", source, strings.Join(missing, ", "), addr)
+	}
+	answer, err := json.Marshal(struct {
+		Token     string `json:"token"`
+		ExpiresAt string `json:"expires_at"`
+	}{mint.Token, mint.ExpiresAt})
+	if err != nil {
+		return refuse("%s", err)
+	}
+	fmt.Fprintln(w, string(answer))
+	return nil
 }

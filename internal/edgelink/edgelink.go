@@ -32,6 +32,12 @@
 //	                      answered the same code while its code is open.
 //	POST /edge/disconnect {}: the edge forgets the row that names the yard's
 //	                      key, and answers 200, or 404 if it had none.
+//	POST /mint/google {"account": <the Google account's address>}:
+//	                      Answered {"token", "expires_at",
+//	                      "granted_scopes"}: the access token, when it
+//	                      expires, and the scopes the connection was
+//	                      granted, which the yard checks its source
+//	                      against before it prints the token.
 //
 // A request carries the yard's key, the time and the signature in the
 // Yardr-Peer-* headers, as between peers. An answer carries its signature
@@ -65,6 +71,7 @@ const (
 	KeyPath        = "/edge/key"
 	EnrolPath      = "/edge/enrol"
 	DisconnectPath = "/edge/disconnect"
+	MintGooglePath = "/mint/google"
 )
 
 const (
@@ -350,6 +357,49 @@ func (e *Enrolment) Wait(ctx context.Context) error {
 	return nil
 }
 
+// GoogleMint is the edge's answer to a mint call: the access token and
+// when it expires, with the scopes the connection was granted, which the
+// caller checks its source against before the token is printed.
+type GoogleMint struct {
+	Token         string
+	ExpiresAt     string
+	GrantedScopes []string
+}
+
+// mintAnswer is what the edge says to a mint call, and its refusals.
+type mintAnswer struct {
+	Token         string   `json:"token"`
+	ExpiresAt     string   `json:"expires_at"`
+	GrantedScopes []string `json:"granted_scopes"`
+	Refused       string   `json:"refused"`
+}
+
+// MintGoogle asks the edge for a Google access token for account (design
+// yardr-hosted-4dx0 3.4): POST /mint/google, signed with the yard's key to
+// the edge's. A refusal is a *Refused in the edge's words, whole; an answer
+// no signature of the edge's covers is ErrUnsigned, whatever it says.
+func (c *Client) MintGoogle(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, account string) (*GoogleMint, error) {
+	body, err := json.Marshal(map[string]string{"account": account})
+	if err != nil {
+		return nil, err
+	}
+	status, answer, err := c.call(ctx, edgeKey, yard, MintGooglePath, body)
+	if err != nil {
+		return nil, err
+	}
+	var a mintAnswer
+	if err := json.Unmarshal(answer, &a); err != nil {
+		return nil, fmt.Errorf("the edge's answer to the mint is no JSON object (%d)", status)
+	}
+	if status != http.StatusOK {
+		return nil, &Refused{Status: status, Reason: words(a.Refused)}
+	}
+	if a.Token == "" {
+		return nil, errors.New("the edge's answer to the mint holds no token")
+	}
+	return &GoogleMint{Token: a.Token, ExpiresAt: a.ExpiresAt, GrantedScopes: a.GrantedScopes}, nil
+}
+
 // Drop asks the edge to forget the yard whose key is yard: the row that
 // names that key. The edge answering that it has none is the same to a yard
 // that wants to be gone.
@@ -377,6 +427,20 @@ func text(s string) string {
 		}
 		if b.Len() >= maxText {
 			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// words is s as a terminal shows it, whole: a mint's refusal names the page
+// to open, past the line text is cut to, so it is not cut. Control
+// characters still go, since they could rewrite the screen.
+func words(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			continue
 		}
 		b.WriteRune(r)
 	}
