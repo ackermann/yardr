@@ -263,6 +263,12 @@ func TestUsageLimitThatResetsLaterThanYardrWaitsFor(t *testing.T) {
 			s, r, d, b, p, now := resetYard(t, map[string]any{"idle": "30ms"})
 			ctx := context.Background()
 			p.say(report)
+			// A cold stop is told "no fresh answer yet" whatever the report
+			// says, so every row would get no wake and prove nothing of the
+			// reset, and its one ask would be run by the refresher in the
+			// background, after the check below on a loaded machine. Priming
+			// reads the report here and waits for that ask.
+			primeLimits(t, d, "kimi", "", nil)
 			r.show("idle", kimiLimit)
 			must(t, d.Reconcile(ctx))
 			evs := eventKinds(t, s, b.ID, "session_harness_error")
