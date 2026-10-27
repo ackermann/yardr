@@ -836,18 +836,19 @@ func startSleeper(t *testing.T, home, owner string) int {
 }
 
 // ownerGoneFuse gives a loaded test process time to start its one-second
-// watch and run a full down (herdr stop, the daemon's and the server's
-// stops, the sweeps with their five-second waits, the removal) while the
-// landing's other suites keep the machine busy. 15 s did not always cover
-// it, and a test that gives up with the watchdog's down still running leaves
-// its cleanup to race that down (yardr-b6x7). It still keeps a broken watch
-// from leaving the sleeper's five-minute cap behind. watchdogStartFuse is a
-// minute for another reason: the first run of a program built a moment ago
-// can wait behind the machine's other first runs. watchdogRunFuse bounds the
-// status test, which intentionally retries after two one-second answers. All
-// three are written for an idle box: waitFor and the contexts that take them
-// size them to the machine (testload.Scale), so none is raised by hand when a
-// landing's load outgrows it.
+// watch, and keeps a broken watch from leaving the sleeper's five-minute cap
+// behind. For the tests that wait on a whole down it is not the time the down
+// may take but the time it may stand still (waitWhileDown): a full down (herdr
+// stop, the daemon's and the server's stops, the sweeps with their five-second
+// waits, the removal) costs what the machine makes it, and a limit on the whole
+// of it gave out in a landing at 15 s and again at a minute, leaving the test's
+// cleanup to race the down it gave up on (yardr-b6x7). watchdogStartFuse is a
+// minute for another reason: the first run of a program built a moment ago can
+// wait behind the machine's other first runs. watchdogRunFuse bounds the status
+// test, which intentionally retries after two one-second answers, as
+// ownerGoneFuse bounds a down. All three are written for an idle box: waitFor
+// and waitWhileDown size them to the machine (testload.Scale), so none is
+// raised by hand when a landing's load outgrows it.
 const (
 	ownerGoneFuse     = time.Minute
 	watchdogStartFuse = time.Minute

@@ -434,6 +434,18 @@ exec /usr/bin/env -i HOME=$d/h PATH=$d/bin:/usr/bin:/bin:/usr/sbin:/sbin \\
   TERM=xterm-256color SHELL=/bin/sh LANG=en_US.UTF-8$cfarg$testarg "\$@"
 WRAP
   chmod +x "$d/e"
+  # Run each file the watchdog and a down start once, before the watchdog is
+  # there. The first run of a file written a moment ago, a script included,
+  # waits behind the machine's other first runs (macOS checks a new
+  # executable one at a time, and a busy machine's test binaries queue for
+  # it by the hundred), so it can take tens of seconds. Taken here it is the
+  # wait of this script's caller, which no test gives a fuse; left to the
+  # watchdog it came out of the time a test gives a down (yardr-c3nm). The
+  # second run of the same file costs a few milliseconds. What they print and
+  # how they end say nothing: alive answers for the owner this yard was made
+  # for, and yardr version needs no home.
+  "$d/e" "$d/bin/alive" >/dev/null 2>&1 || true
+  "$d/e" yardr version >/dev/null 2>&1 || true
   # The watchdog runs through D/e, which gives it the name (see watchdog), and
   # is started last, since it may take the yard down at once. Its output goes
   # to a file of the yard: the process outlives this script, and a pipe it held

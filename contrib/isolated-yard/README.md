@@ -337,6 +337,15 @@ failed start) says nothing about the binary and is looked at again a second
 later. A yard made by hand has no owner: its watchdog says so in its log and
 ends at once.
 
+Before the watchdog starts, `up` and `bare` run `D/bin/alive` and
+`D/bin/yardr version` once, through `D/e`. The first run of a file written a
+moment ago, a script such as `D/e` included, waits behind the machine's other
+first runs: macOS checks a new executable one at a time, and the test binaries
+of a busy machine's builds queue for it by the hundred, so the wait can be tens
+of seconds. Taken there it is the wait of whoever makes the yard, which a test
+gives no fuse; left to the watchdog it came out of the time a test gives its
+first look and its `down`.
+
 The watchdog is a process of the yard like the stand-ins: a normal `down`
 stops it with the rest, and it ends by itself if D is removed by other means.
 macOS's `ps` shows no environment for the system's own binaries, a `/bin/sh`
@@ -359,4 +368,9 @@ One that starts after D is gone says `no yard at D` and exits 2, which the
 cleanups of the tests let pass.
 
 `watchdog_test.go` tests the watchdog with owners that have ended, and with an
-`alive` that answers as told: nothing in it kills a test binary.
+`alive` that answers as told: nothing in it kills a test binary. It waits for a
+`down` for as long as the `down` goes on, not for a set time: a `down` is some
+hundred process starts and a listing of the process table for each of its
+stages, and what they cost is what the machine makes them. The wait gives up
+when no `down` of the yard has started, or the shells of the one that has have
+not changed, for a minute as the machine scales it (`internal/testload`).
