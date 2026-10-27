@@ -35,6 +35,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/testload"
 )
 
@@ -92,22 +93,23 @@ func (w *reportWatch) saw(call string) {
 	}
 }
 
-// mktempRecorder is the script every recordMktemp links to, written once by
-// TestMain. A script written for each run costs about 240 ms the first time macOS
-// executes it, and a link to one that has run costs nothing: the first version of
-// the watch wrote one per run, and doubled the wall time of the yard tests.
-var mktempRecorder string
+// mktempRecorderBody is the body of the mktemp every recordMktemp writes,
+// made once by TestMain: the path of the real mktemp is looked up once, and
+// each run's link carries this same body beside it. A script written for each
+// run costs about 240 ms the first time macOS executes it, and a link to the
+// launcher that has run costs nothing: the first version of the watch wrote
+// one per run, and doubled the wall time of the yard tests.
+var mktempRecorderBody string
 
-// writeMktempRecorder writes the mktemp that notes each path it makes in the
+// mktempRecorderScript is the mktemp that notes each path it makes in the
 // file made beside the directory it is found in: ${0%/*} is that directory
 // whichever link it was reached by.
-func writeMktempRecorder(path string) error {
+func mktempRecorderScript() (string, error) {
 	real, err := exec.LookPath("mktemp")
 	if err != nil {
-		return err
+		return "", err
 	}
-	script := "#!/bin/sh\nf=$(" + shellQuote(real) + " \"$@\") || exit\nprintf '%s\\n' \"$f\" >>\"${0%/*}/../made\"\nprintf '%s\\n' \"$f\"\n"
-	return os.WriteFile(path, []byte(script), 0o755)
+	return "#!/bin/sh\nf=$(" + shellQuote(real) + " \"$@\") || exit\nprintf '%s\\n' \"$f\" >>\"${0%/*}/../made\"\nprintf '%s\\n' \"$f\"\n", nil
 }
 
 // recordMktemp puts a mktemp into bin, which the script's PATH has first, that
@@ -118,9 +120,7 @@ func writeMktempRecorder(path string) error {
 // handed can be asked after.
 func recordMktemp(t *testing.T, bin string) string {
 	t.Helper()
-	if err := os.Symlink(mktempRecorder, filepath.Join(bin, "mktemp")); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "mktemp"), mktempRecorderBody)
 	return filepath.Join(filepath.Dir(bin), "made")
 }
 
@@ -198,9 +198,7 @@ func gateRm(t *testing.T, bin string) (arm, held, release string) {
 		"  while [ ! -e " + shellQuote(release) + " ]; do kill -0 \"$YARDR_TEST_PID\" 2>/dev/null || exit 0; " + shellQuote(sleep) + " 0.05; done\n" +
 		"fi\n" +
 		"exec " + shellQuote(rm) + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "rm"), []byte(wrapper), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "rm"), wrapper)
 	return arm, held, release
 }
 
@@ -266,9 +264,7 @@ func TestPRScriptsKilledWithTermLeaveNoTempBehind(t *testing.T) {
 			// merge-pr looks for gh and jq before it asks anything of them, and
 			// a machine need not have them.
 			for _, tool := range []string{"gh", "jq"} {
-				if err := os.WriteFile(filepath.Join(bin, tool), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-					t.Fatal(err)
-				}
+				scripttest.Write(t, filepath.Join(bin, tool), "#!/bin/sh\nexit 0\n")
 			}
 			path, err := filepath.Abs(script)
 			if err != nil {
@@ -280,9 +276,7 @@ func TestPRScriptsKilledWithTermLeaveNoTempBehind(t *testing.T) {
 			}
 			blocked := filepath.Join(filepath.Dir(w.record), "blocked")
 			stub := "#!/bin/sh\nif [ ! -e " + shellQuote(blocked) + " ]; then : >" + shellQuote(blocked) + "; exec sleep 300; fi\ncat >/dev/null 2>&1\nexit 0\n"
-			if err := os.WriteFile(filepath.Join(filepath.Dir(w.record), "stub"), []byte(stub), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			scripttest.Write(t, filepath.Join(filepath.Dir(w.record), "stub"), stub)
 			log, err := os.Create(filepath.Join(filepath.Dir(w.record), "out"))
 			if err != nil {
 				t.Fatal(err)
@@ -367,9 +361,7 @@ func TestScriptsTakeAwayTheFilesOfTheTestsBeforeTheyHold(t *testing.T) {
 			watcherGit(t, w.repo, "add", "check.sh")
 			watcherGit(t, w.repo, "commit", "-q", "-m", "the test script")
 			git := "#!/bin/sh\nif [ \"$1\" = -C ] && [ \"$3\" = show ]; then echo 'fatal: bad object' >&2; exit 128; fi\nexec " + shellQuote(realGit) + " \"$@\"\n"
-			if err := os.WriteFile(filepath.Join(bin, "git"), []byte(git), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			scripttest.Write(t, filepath.Join(bin, "git"), git)
 			// The yardr says what of the script's files is still there when it is
 			// told to hold the bead, and that it was.
 			seen := filepath.Join(dir, "seen")
@@ -378,9 +370,7 @@ func TestScriptsTakeAwayTheFilesOfTheTestsBeforeTheyHold(t *testing.T) {
 				"  echo held >>" + shellQuote(seen) + "\n" +
 				"  while read -r made; do [ ! -e \"$made\" ] || echo \"still there: $made\" >>" + shellQuote(seen) + "; done <" + shellQuote(record) + "\n" +
 				"fi\nexit 0\n"
-			if err := os.WriteFile(filepath.Join(dir, "stub"), []byte(stub), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			scripttest.Write(t, filepath.Join(dir, "stub"), stub)
 			log, err := os.Create(filepath.Join(dir, "out"))
 			if err != nil {
 				t.Fatal(err)

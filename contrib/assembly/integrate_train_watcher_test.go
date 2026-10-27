@@ -20,6 +20,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 // newIntegrateTrainWatcherRun is newWatcherRun aimed at integrate-train:
@@ -177,9 +179,7 @@ func TestIntegrateTrainWritesThroughNoPlantedSymlink(t *testing.T) {
 		"ln -s " + shellQuote(victims[0].path) + " \"$f.late\"\n" +
 		"ln -s " + shellQuote(victims[1].path) + " \"$f.sh\"\n" +
 		"printf '%s\\n' \"$f\"\n"
-	if err := os.WriteFile(filepath.Join(filepath.Dir(w.record), "bin", "mktemp"), []byte(planting), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(filepath.Dir(w.record), "bin", "mktemp"), planting)
 
 	// Into a file, not a pipe, as the runs in watcher_test.go: see there.
 	log, err := os.Create(filepath.Join(t.TempDir(), "out"))

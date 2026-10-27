@@ -29,6 +29,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/testload"
 )
 
@@ -180,9 +181,7 @@ func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	watcherGit(t, repo, "worktree", "add", "-q", wt, "yard/r-1")
 	watcherGit(t, wt, "commit", "-q", "--allow-empty", "-m", "bead")
 	stub := filepath.Join(dir, "stub")
-	if err := os.WriteFile(stub, []byte("#!/bin/sh\ncat >/dev/null 2>&1; exit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, stub, "#!/bin/sh\ncat >/dev/null 2>&1; exit 0\n")
 	bin := filepath.Join(dir, "bin")
 	if err := os.Mkdir(bin, 0o755); err != nil {
 		t.Fatal(err)
@@ -190,9 +189,7 @@ func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	// Each sleep records into its own file: several run at once, and one
 	// shared record interleaves their headers with each other's lists.
 	fake := "#!/bin/sh\n{ echo \"argv: $*\"; ls /dev/fd; } >\"$FAKE_SLEEP_RECORD.$$\"\nexec /bin/sleep \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "sleep"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(bin, "sleep"), fake)
 	record := filepath.Join(dir, "sleep-record")
 	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in, where
 	// the sh can close them (plantedFiles).
@@ -907,9 +904,7 @@ func TestMergeLocalWritesThroughNoPlantedSymlink(t *testing.T) {
 		"ln -s " + shellQuote(victims[0].path) + " \"$f.late\"\n" +
 		"ln -s " + shellQuote(victims[1].path) + " \"$f.sh\"\n" +
 		"printf '%s\\n' \"$f\"\n"
-	if err := os.WriteFile(filepath.Join(filepath.Dir(w.record), "bin", "mktemp"), []byte(planting), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(filepath.Dir(w.record), "bin", "mktemp"), planting)
 
 	// Into a file, not a pipe, as the runs above: see there.
 	log, err := os.Create(filepath.Join(t.TempDir(), "out"))

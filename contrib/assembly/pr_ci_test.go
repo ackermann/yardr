@@ -27,6 +27,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/testload"
 )
@@ -83,9 +84,7 @@ func newCIYard(t *testing.T) *ciYard {
 	y, gh := mergeYard(t)
 	c := &ciYard{yard: y, gh: gh, origin: filepath.Join(t.TempDir(), "origin.git"), work: filepath.Join(t.TempDir(), "work")}
 	wrapper := filepath.Join(t.TempDir(), "yardr")
-	if err := os.WriteFile(wrapper, []byte(strings.Replace(endsAt, "{yardr}", shellQuote(yardrBin), 1)), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, wrapper, strings.Replace(endsAt, "{yardr}", shellQuote(yardrBin), 1))
 	y.bin = wrapper
 	y.commit(y.repo, "ci.sh", baseCI)
 	y.tests("ci.sh")

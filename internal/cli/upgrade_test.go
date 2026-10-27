@@ -503,6 +503,7 @@ func TestDialAddr(t *testing.T) {
 // Without --check the command installs: on a home with no yard it says so,
 // and on a yard without the setting it refuses and installs nothing.
 func TestUpgradeWithoutCheck(t *testing.T) {
+	t.Parallel()
 	a := testApp(t, nil, newHomeDir(t))
 	a.actor = "me"
 	out, err := run(t, a.rootCmd(), "upgrade")
@@ -522,6 +523,7 @@ func TestUpgradeWithoutCheck(t *testing.T) {
 // line. A value the setting would refuse is refused the same way, and an
 // empty one reads as unset.
 func TestUpgradeFromFlag(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, st, a := upgradeYard(t)
 	if err := st.SetSetting(ctx, store.OperatorSetting, "probeuser", "probeuser"); err != nil {
@@ -554,6 +556,7 @@ func TestUpgradeFromFlag(t *testing.T) {
 // setting would fail "no checkout", while the flag's unknown depot fails
 // "not in the yard".
 func TestUpgradeFromFlagBeatsSetting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, st, a := upgradeYard(t)
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
@@ -585,6 +588,7 @@ func TestUpgradeFromFlagBeatsSetting(t *testing.T) {
 // only the operator may name it: anyone else, a bead's agent among them,
 // is refused before the depot is looked up, and a plain run is not.
 func TestUpgradeFromFlagOperatorOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	_, st, a := upgradeYard(t)
 	if err := st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {

@@ -27,6 +27,7 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -45,8 +46,12 @@ func TestMain(m *testing.M) {
 	// the yardr, git and script they start, which inherit this environment.
 	// What stays is how the stores are opened (storetest set it): the
 	// yardr of each test is a real one, and its commits need not wait for
-	// the disk either.
+	// the disk either. And the factor the gate gives a race leg, which sizes
+	// every fuse here (testload.Scale): stripped with the rest it never
+	// reached one, and a landing on a loaded machine ran out of the idle
+	// box's 60 s (yardr-qx42).
 	noSync := config.Getenv(store.NoSyncEnv)
+	testLoad := config.Getenv(testload.Env)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "GIT_") {
@@ -54,6 +59,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	os.Setenv("YARDR_"+testload.Env, testLoad)
 	// Every server and daemon these tests start stops by itself when this
 	// binary is gone, however it ended: a kill runs no cleanup. That holds for
 	// the ones a script starts too, since the exec runner hands this
@@ -98,14 +104,39 @@ func TestMain(m *testing.M) {
 	if err := build.Run(); err != nil {
 		panic("building yardr: " + err.Error())
 	}
-	mktempRecorder = filepath.Join(dir, "mktemp-recorder")
-	if err := writeMktempRecorder(mktempRecorder); err != nil {
+	body, err := mktempRecorderScript()
+	if err != nil {
 		panic(err)
 	}
+	mktempRecorderBody = body
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.RemoveAll(nowhere)
+	scripttest.Remove()
 	os.Exit(code)
+}
+
+// The factor the gate gives a race leg is a variable of the environment this
+// binary is started in, which TestMain strips of every YARDR_ variable. A
+// plain run has none, so only a child started with one shows that it reaches
+// testload.Scale (yardr-qx42).
+func TestMainKeepsTheGatesLoadFactor(t *testing.T) {
+	const modeEnv = "ASSEMBLY_TEST_LOAD_FACTOR"
+	if os.Getenv(modeEnv) != "" {
+		// At least, not exactly: Scale also reads the machine's own load
+		// and takes the larger of the two, so on a loaded box it may give
+		// more than the gate's factor.
+		if got := testload.Scale(time.Second); got < 3*time.Second {
+			t.Fatalf("Scale(1s) = %s with YARDR_TEST_LOAD=3.0 in the environment, want at least 3s", got)
+		}
+		return
+	}
+	t.Parallel()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMainKeepsTheGatesLoadFactor$")
+	cmd.Env = append(os.Environ(), modeEnv+"=1", "YARDR_"+testload.Env+"=3.0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the gate's factor did not reach the child's fuses: %v\n%s", err, out)
+	}
 }
 
 const flow = `approved -> merged | new | merge
@@ -831,6 +862,8 @@ func TestMergeLocalTestScriptNewOnTheBranchRunsAsACommand(t *testing.T) {
 	y.git(y.wt, "update-index", "--chmod=+x", "check.sh")
 	y.git(y.wt, "commit", "-q", "-m", "executable")
 	y.git(y.wt, "checkout", "-q", "--", "check.sh")
+	// A file, not a link: the test runs the branch's git-exec-bit copy as a
+	// command, and a link would change the mechanism under test.
 	if err := os.Chmod(filepath.Join(y.wt, "check.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}

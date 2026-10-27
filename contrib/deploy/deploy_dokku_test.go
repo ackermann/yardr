@@ -41,6 +41,7 @@ var gitEnv = []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "G
 // they start stops with this binary, and one yardr is built for all of them.
 func TestMain(m *testing.M) {
 	noSync := config.Getenv(store.NoSyncEnv)
+	testLoad := config.Getenv(testload.Env)
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(k, "YARDR_") || strings.HasPrefix(k, "GIT_") || strings.HasPrefix(k, "DOKKU_") || strings.HasPrefix(k, "VOID_") {
@@ -48,6 +49,9 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("YARDR_"+store.NoSyncEnv, noSync)
+	// The gate's race-leg factor is kept beside it: testload.Scale sizes
+	// every fuse here by it, and stripped with the rest it never reached one.
+	os.Setenv("YARDR_"+testload.Env, testLoad)
 	storetest.NameTestBinary()
 	nowhere, err := os.MkdirTemp("", "ynone")
 	if err != nil {
@@ -78,6 +82,29 @@ func TestMain(m *testing.M) {
 	os.RemoveAll(dir)
 	os.RemoveAll(nowhere)
 	os.Exit(code)
+}
+
+// The factor the gate gives a race leg is a variable of the environment this
+// binary is started in, which TestMain strips of every YARDR_ variable. A
+// plain run has none, so only a child started with one shows that it reaches
+// testload.Scale.
+func TestMainKeepsTheGatesLoadFactor(t *testing.T) {
+	const modeEnv = "DEPLOY_TEST_LOAD_FACTOR"
+	if os.Getenv(modeEnv) != "" {
+		// At least, not exactly: Scale also reads the machine's own load
+		// and takes the larger of the two, so on a loaded box it may give
+		// more than the gate's factor.
+		if got := testload.Scale(time.Second); got < 3*time.Second {
+			t.Fatalf("Scale(1s) = %s with YARDR_TEST_LOAD=3.0 in the environment, want at least 3s", got)
+		}
+		return
+	}
+	t.Parallel()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMainKeepsTheGatesLoadFactor$")
+	cmd.Env = append(os.Environ(), modeEnv+"=1", "YARDR_"+testload.Env+"=3.0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the gate's factor did not reach the child's fuses: %v\n%s", err, out)
+	}
 }
 
 // The deploy stages of the design (section 3.1), behind a stage that

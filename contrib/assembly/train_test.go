@@ -19,6 +19,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
 )
@@ -257,9 +258,7 @@ func TestIntegrateTrainTellsTheTestCommandItsBeads(t *testing.T) {
 			// input. The children lookup is sed's and needs no jq.
 			stub := filepath.Join(filepath.Dir(w.tmp), "yardr-stub")
 			text := "#!/bin/sh\ncase \"$*\" in\n\"bead show r-1 --json\") [ -n \"$FAKE_TRAIN\" ] || exit 1; printf '%s\\n' \"$FAKE_TRAIN\" ;;\n*) cat >/dev/null 2>&1 ;;\nesac\n"
-			if err := os.WriteFile(stub, []byte(text), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			scripttest.Write(t, stub, text)
 			w.env = append(w.env, "YARDR_BIN="+stub, "FAKE_TRAIN="+c.train)
 			// Into a file, not a pipe, as the runs in watcher_test.go: see there.
 			log, err := os.Create(filepath.Join(t.TempDir(), "out"))
@@ -330,9 +329,7 @@ func TestMergeLocalTellsTheTestCommandItsBeads(t *testing.T) {
 			// input.
 			stub := filepath.Join(filepath.Dir(w.tmp), "yardr-stub")
 			text := "#!/bin/sh\ncase \"$*\" in\n\"bead show r-1 --json\") [ -n \"$FAKE_TRAIN\" ] || exit 1; printf '%s\\n' \"$FAKE_TRAIN\" ;;\n*) cat >/dev/null 2>&1 ;;\nesac\n"
-			if err := os.WriteFile(stub, []byte(text), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			scripttest.Write(t, stub, text)
 			w.env = append(w.env, "YARDR_BIN="+stub, "FAKE_TRAIN="+c.train, "YARDR_TYPE="+c.typ)
 			if c.leak != "" {
 				w.env = append(w.env, "YARDR_TEST_BEADS="+c.leak)
@@ -619,9 +616,7 @@ func TestScriptsRefuseDirDepots(t *testing.T) {
 	dir := t.TempDir()
 	calls := filepath.Join(t.TempDir(), "calls")
 	bin := filepath.Join(t.TempDir(), "yardr")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+calls+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, bin, "#!/bin/sh\necho \"$@\" >> "+calls+"\n")
 	for _, script := range []string{"integrate-train", "pr-train", "pr-merge", "merge-local"} {
 		cmd := exec.Command("sh", script)
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "YARDR_BEAD=d-e", "YARDR_DEPOT=d", "YARDR_DEPOT_PATH=" + dir,

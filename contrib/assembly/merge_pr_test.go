@@ -25,6 +25,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/packs"
 )
@@ -144,9 +145,9 @@ func mergeYard(t *testing.T) (y *yard, gh string) {
 			t.Fatal(err)
 		}
 	}
-	write(filepath.Join(gh, "bin", "gh"), fakeMergeGh, 0o755)
+	scripttest.Write(t, filepath.Join(gh, "bin", "gh"), fakeMergeGh)
 	mint := filepath.Join(gh, "bin", "github-mint")
-	write(mint, fakeGithubMint, 0o755)
+	scripttest.Write(t, mint, fakeGithubMint)
 	fakeGhs.Store(t, gh)
 	t.Cleanup(func() { fakeGhs.Delete(t) })
 

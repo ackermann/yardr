@@ -105,6 +105,7 @@ func TestOnboardingAsksTheStyle(t *testing.T) {
 // yardr init stores --style and --about, and without them stores neither:
 // only the form has a default.
 func TestInitStyleFlags(t *testing.T) {
+	t.Parallel()
 	_, st, _ := styledYard(t)
 	if got, _ := st.Settings(context.Background()); got[styleSetting] != "" || got[noteSetting] != "" {
 		t.Fatalf("init without --style: %v", got)
@@ -149,6 +150,7 @@ func TestStyleRefused(t *testing.T) {
 // Init again keeps the style and the note as it keeps operator, says so, and
 // changes each only by its flag.
 func TestInitAgainKeepsStyle(t *testing.T) {
+	t.Parallel()
 	a, st, _ := styledYard(t, "--style", "guide", "--about", "new to git")
 	ctx := context.Background()
 	out, err := run(t, a.rootCmd(), "init")
@@ -173,6 +175,7 @@ func TestInitAgainKeepsStyle(t *testing.T) {
 // Both primes name the operator and say the style as instructions, with the
 // note when there is one, for every style; as JSON too.
 func TestPrimesSayTheStyle(t *testing.T) {
+	t.Parallel()
 	for _, s := range workStyles {
 		for _, note := range []string{"", "I review every merge"} {
 			args := []string{"--style", s.key}
@@ -208,6 +211,7 @@ func TestPrimesSayTheStyle(t *testing.T) {
 // A yard without the setting primes as it did before: no section, no
 // operator in the JSON, no style assumed. A note alone is said without one.
 func TestPrimesWithoutStyle(t *testing.T) {
+	t.Parallel()
 	a, st, id := styledYard(t)
 	bead, member := primes(t, st, id, false)
 	jbead, jcrew := primes(t, st, id, true)
@@ -232,6 +236,7 @@ func TestPrimesWithoutStyle(t *testing.T) {
 // yardr settings set changes what the next prime prints, with no init: the
 // primes read the setting, and no role file holds it.
 func TestSettingsSetChangesThePrimes(t *testing.T) {
+	t.Parallel()
 	a, st, id := styledYard(t, "--style", "guide")
 	guide, _ := styleOf("guide")
 	report, _ := styleOf("report")

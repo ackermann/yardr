@@ -5,6 +5,8 @@ package burn
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -311,6 +313,110 @@ func TestBurnCountsTheRunsThatPass(t *testing.T) {
 	if left := r.leftover(); len(left) != 0 {
 		t.Errorf("burn left %v in its TMPDIR", left)
 	}
+}
+
+// With -k DIR burn keeps the whole output of every failing run in
+// DIR/<label>-run-N.out, the directory made when missing, and each shown
+// failure names its file. The kept files are the data: every failing run is
+// saved, not only the five shown, and a passing run's output is not. Without
+// -k nothing is written.
+func TestBurnKeepsFailingRunsWithK(t *testing.T) {
+	t.Parallel()
+	t.Run("named runs", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t)
+		r.set("fail-TestA", "1\n2\n3\n4\n5\n6\n7\n")
+		keep := filepath.Join(r.dir, "missing", "kept")
+		cmd, stdout, stderr := r.burn(1, "-n", "7", "-x", "1", "-c", "1", "-k", keep, "./pkg", "TestA")
+		if code := finish(t, cmd); code != 1 {
+			t.Fatalf("exit status = %d, want 1: a run failed\n%s", code, stderr)
+		}
+		if got, want := stdout.String(), "TestA: 0/7 passed\n"; got != want {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+		for n := 1; n <= 7; n++ {
+			path := filepath.Join(keep, fmt.Sprintf("TestA-run-%d.out", n))
+			b, err := os.ReadFile(path)
+			if err != nil {
+				t.Errorf("run %d: no kept output in %s: %v", n, path, err)
+				continue
+			}
+			for _, want := range []string{
+				"=== RUN   TestA",                   // dropped from the screenful
+				fmt.Sprintf("run %d went wrong", n), // kept in the screenful
+				"--- FAIL: TestA (0.00s)",
+			} {
+				if !strings.Contains(string(b), want) {
+					t.Errorf("run %d: kept output lacks %q:\n%s", n, want, b)
+				}
+			}
+		}
+		if !strings.Contains(stderr.String(), filepath.Join(keep, "TestA-run-1.out")) {
+			t.Errorf("stderr does not name the kept file:\n%s", stderr)
+		}
+		if strings.Contains(stderr.String(), "run 6 failed") {
+			t.Errorf("stderr shows more than the first five failures:\n%s", stderr)
+		}
+		if !strings.Contains(stderr.String(), "2 more failed runs, not shown") {
+			t.Errorf("stderr lacks the unshown count:\n%s", stderr)
+		}
+	})
+	t.Run("whole package", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t)
+		r.set("fail-package", "2\n")
+		keep := filepath.Join(r.dir, "kept")
+		cmd, stdout, stderr := r.burn(1, "-n", "2", "-x", "1", "-c", "1", "-k", keep, "./pkg")
+		if code := finish(t, cmd); code != 1 {
+			t.Fatalf("exit status = %d, want 1: a run failed\n%s", code, stderr)
+		}
+		if got, want := stdout.String(), "./pkg: 1/2 passed\n"; got != want {
+			t.Fatalf("stdout = %q, want %q", got, want)
+		}
+		// The label is the package path; every character outside
+		// [A-Za-z0-9._-] is _ in the file name.
+		path := filepath.Join(keep, "._pkg-run-2.out")
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("no kept output in %s: %v", path, err)
+		}
+		for _, want := range []string{"=== RUN   package", "run 2 went wrong", "--- FAIL: package (0.00s)"} {
+			if !strings.Contains(string(b), want) {
+				t.Errorf("kept output lacks %q:\n%s", want, b)
+			}
+		}
+		if !strings.Contains(stderr.String(), path) {
+			t.Errorf("stderr does not name the kept file:\n%s", stderr)
+		}
+		if _, err := os.Stat(filepath.Join(keep, "._pkg-run-1.out")); !os.IsNotExist(err) {
+			t.Errorf("the passing run's output was kept: %v", err)
+		}
+	})
+	t.Run("without -k nothing is written", func(t *testing.T) {
+		t.Parallel()
+		r := newRig(t)
+		r.set("fail-TestA", "1\n")
+		cmd, _, stderr := r.burn(1, "-n", "2", "-x", "1", "-c", "1", "./pkg", "TestA")
+		if code := finish(t, cmd); code != 1 {
+			t.Fatalf("exit status = %d, want 1: a run failed\n%s", code, stderr)
+		}
+		var kept []string
+		err := filepath.WalkDir(r.dir, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".out") {
+				kept = append(kept, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(kept) != 0 {
+			t.Errorf("without -k burn wrote %v", kept)
+		}
+		if strings.Contains(stderr.String(), "kept in") {
+			t.Errorf("stderr names a kept file without -k:\n%s", stderr)
+		}
+	})
 }
 
 // A run that exits 0 without the test's own PASS line is no pass: go test

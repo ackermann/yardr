@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 const prURL = "https://github.com/o/r/pull/7"
@@ -87,9 +89,7 @@ func withFakeGh(t *testing.T) string {
 	if err := os.Mkdir(filepath.Join(state, "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(state, "bin", "gh"), []byte(fakeGh), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(state, "bin", "gh"), fakeGh)
 	fakeGhs.Store(t, state)
 	t.Cleanup(func() { fakeGhs.Delete(t) })
 	return state

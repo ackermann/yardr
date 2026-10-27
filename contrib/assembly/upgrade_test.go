@@ -25,6 +25,7 @@ import (
 
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/rpc"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -52,18 +53,19 @@ notify: { call: message, address: { param: user, env: PUSHOVER_USER }, text: tex
 	y.yardr("settings", "set", "upgrade_from", depot)
 }
 
-// writeScript writes content as an executable file and returns its path.
+// writeScript writes content as the stand-in name in dir and returns its
+// path: a link to the test launcher beside its body (scripttest), not a new
+// executable file, whose first run macOS assesses.
 func writeScript(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, path, content)
 	return path
 }
 
 // yardrCopy copies the test binary aside, so a test's install writes its
-// own target instead of the binary every test shares.
+// own target instead of the binary every test shares. A file, not a link:
+// the copy is a binary, and a link's body is a script the launcher sources.
 func yardrCopy(t *testing.T, dir string) string {
 	t.Helper()
 	b, err := os.ReadFile(yardrBin)
@@ -151,7 +153,12 @@ func TestMergeLocalInstallsOnTheNamedDepot(t *testing.T) {
 	if err := os.MkdirAll(scripts, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeScript(t, scripts, "merge-local", old)
+	// A file, not a link: the install copies these bytes to
+	// merge-local.previous and the test reads both back, which a link to
+	// the launcher would not carry.
+	if err := os.WriteFile(filepath.Join(scripts, "merge-local"), []byte(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	y.upgradeFrom("r")
 	bin := t.TempDir()
 	y.bin = yardrCopy(t, bin)

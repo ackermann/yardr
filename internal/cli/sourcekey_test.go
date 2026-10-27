@@ -111,6 +111,7 @@ func TestSourceKeyFromAPipe(t *testing.T) {
 // dropped. Without names every variable is asked for and enter alone
 // leaves one as it is; a name that was asked for wants a value.
 func TestSourceKeyTyped(t *testing.T) {
+	t.Parallel()
 	d, err := source.Parse("crm.yaml", []byte(keyDecl))
 	if err != nil {
 		t.Fatal(err)

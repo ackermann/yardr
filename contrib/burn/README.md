@@ -4,7 +4,7 @@ One shell script that runs a Go package's tests over and over on a machine
 kept busy, to show whether a test that failed only under load still does.
 
 ```sh
-contrib/burn/burn [-r] [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] PACKAGE [TEST...]
+contrib/burn/burn [-r] [-n COUNT] [-x FACTOR] [-c CPUS] [-N NICE] [-k DIR] PACKAGE [TEST...]
 
 contrib/burn/burn ./internal/dispatch TestPushBurstIsOneMessage TestQuietExecRunSetsStrictR1
 contrib/burn/burn -n 5 ./internal/dispatch
@@ -42,7 +42,11 @@ A run passes when the binary exits 0 and prints the test's own `--- PASS`
 line (a whole package's, its closing `PASS`). A name that matches no test and
 a test that skips are not passes, though `go test` calls both ok. The output
 of the first five failing runs of a test is shown, down to the lines that say
-what failed (a data race's `WARNING: DATA RACE` is one), and the last lines say
+what failed (a data race's `WARNING: DATA RACE` is one). With `-k DIR` the
+whole output of every failing run, not only the five shown, is also kept in
+`DIR/<label>-run-N.out` (the directory made when missing; the label with every
+character outside `[A-Za-z0-9._-]` as `_`, so a package path lands beside
+named runs), and each shown failure names its file. The last lines say
 how many runs of each test passed:
 
 ```text
@@ -80,7 +84,7 @@ the package does.
 a failed run.
 
 `go test ./contrib/burn/` runs it against stand-ins for `go` and `yes`: the
-counts, what is not a pass, the whole-package run, the loops' number and nice
-level, and the end on a signal. `-r` is the one case that builds a package of
+counts, what is not a pass, the whole-package run, what `-k` keeps, the loops'
+number and nice level, and the end on a signal. `-r` is the one case that builds a package of
 its own with the real `go`, since only a real build shows whether the binary
 has the detector.

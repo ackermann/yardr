@@ -141,18 +141,28 @@ home_pids() {
 # reaches for, one a line.
 #
 # It fails soft, printing nothing: where the server is dead there are no
-# handles to read, and where jq is missing there is no answer that is not
-# a guess. The server is only asked when it already answers (server
-# status): any other command would start one where none runs. Each pid is
-# printed only when it is alive and its parent chain, three hops at most,
-# reaches one of the home pids: a stale handle, whose script ended, and a
-# recycled pid fail the chain. Nothing is matched by pattern, only pids
-# from handles, verified by ancestry; a validated pid descends from the
-# daemon, never from this script, so down signals it directly.
+# handles to read, where no pidfile names one there is none to ask, and
+# where jq is missing there is no answer that is not a guess. The server
+# is only asked when it already answers (server status): any other command
+# would start one where none runs. Each pid is printed only when it is
+# alive and its parent chain, three hops at most, reaches one of the home
+# pids: a stale handle, whose script ended, and a recycled pid fail the
+# chain. Nothing is matched by pattern, only pids from handles, verified
+# by ancestry; a validated pid descends from the daemon, never from this
+# script, so down signals it directly.
 exec_pids() {
   d=$1 hp=$2
   [ -x "$d/e" ] || return 0
   command -v jq >/dev/null 2>&1 || return 0
+  # No pidfile, no server to ask: the probes below read a live server's
+  # exec handles, and every server writes its pidfile before it serves.
+  have_pidfile=
+  for f in "$d"/*/server.pid; do
+    [ -f "$f" ] || continue
+    have_pidfile=1
+    break
+  done
+  [ -n "$have_pidfile" ] || return 0
   running=$("$d/e" yardr server status --json 2>/dev/null | jq -r '.running // empty' 2>/dev/null)
   [ "$running" = "true" ] || return 0
   handles=$("$d/e" yardr session list --running --json 2>/dev/null | jq -r '.[] | select(.runner == "exec" and .handle.pid != null) | .handle.pid' 2>/dev/null) || return 0
@@ -288,14 +298,23 @@ down() {
       fi
     done
   done
+  signalled=
   for sig in TERM KILL; do
     left=$(yard_pids "$d") || exit 1
     [ -n "$left" ] || break
+    signalled=1
     # shellcheck disable=SC2086
     kill -"$sig" $left 2>/dev/null || true
     gone "$left" || true
   done
-  left=$(yard_pids "$d") || exit 1
+  # A sweep that signalled nothing broke on its first look with the yard
+  # already empty: no second look can find what the first did not. Where
+  # signals went out the look stays, verifying the KILL pass.
+  if [ -n "$signalled" ]; then
+    left=$(yard_pids "$d") || exit 1
+  else
+    left=
+  fi
   if [ -n "$left" ]; then
     if [ -d "$d" ]; then
       # shellcheck disable=SC2086

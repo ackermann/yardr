@@ -16,7 +16,8 @@ import (
 // and the seam that keeps it there (design yardr-14tr, section 3.3). A
 // test that is neither parallel nor listed fails the gate, so a future
 // test cannot join the serial set silently; a listed test that turned
-// parallel, or that no longer exists, fails it too.
+// parallel, that no longer exists, or that reaches no process or package
+// state fails it too.
 var allowSerial = map[string]string{
 	"TestAddrSettingsAreCheckedAsTheFlag":                   "stubWeb,t.Setenv",
 	"TestBDPAndOTelStartStop":                               "running,stub:answers,stub:spawn,t.Setenv",
@@ -128,7 +129,6 @@ var allowSerial = map[string]string{
 	"TestHookAddMap":                                        "stateYard",
 	"TestHookAddNamesTheEdgeWhereTheLinkServesAlone":        "answeredTools",
 	"TestHookListShowsQuiet":                                "stub:hookNow",
-	"TestInitAgainKeepsStyle":                               "styledYard",
 	"TestInitFinishesAfterAFailedRun":                       "t.Setenv",
 	"TestInitOperatorDefaultsToUser":                        "t.Setenv",
 	"TestInitStart":                                         "stubLookPath,stubPane,stubStart",
@@ -144,7 +144,6 @@ var allowSerial = map[string]string{
 	"TestInitStartTriesOnceMoreAfterAFailure":               "newAsker,stub:pollEvery,stubPane,stubStart",
 	"TestInitStartWhenThePaneDoesNotOpen":                   "blockedYardmaster,stub:attachAgent",
 	"TestInitStartWithRunningDaemon":                        "stubLookPath,stubStart",
-	"TestInitStyleFlags":                                    "styledYard",
 	"TestInitSummaryNamesTheHome":                           "t.Setenv",
 	"TestInitWithoutLoginName":                              "noLogin",
 	"TestInstallMakesTheLogPrivate":                         "stubLookPath,stubServices",
@@ -224,8 +223,6 @@ var allowSerial = map[string]string{
 	"TestPeerPairWarnsOfALoopbackListener":                  "assign:pairCommand,pairYards",
 	"TestPeerPairWithoutATerminal":                          "pairYards,setInteractive",
 	"TestPreflightSaysWhereToGet":                           "answeredTools,stubAsk",
-	"TestPrimesSayTheStyle":                                 "styledYard",
-	"TestPrimesWithoutStyle":                                "styledYard",
 	"TestPurgeAsksForTheYardsNameInATerminal":               "purgeYard,stub:ask,stub:interactive",
 	"TestPurgeDeletesTheHomeAndKeepsTheWork":                "purgeYard",
 	"TestPurgeIsTheOperators":                               "purgeYard",
@@ -251,7 +248,6 @@ var allowSerial = map[string]string{
 	"TestServiceNotSupported":                                 "stubServices",
 	"TestSetStateIsTheOperatorsToSet":                         "stateYard",
 	"TestSettingsGetPrintsTheValueInEffect":                   "t.Setenv",
-	"TestSettingsSetChangesThePrimes":                         "styledYard",
 	"TestSettingsSetHerdrSessionWhileCrewRuns":                "statusYard",
 	"TestSetupAfterAStartByHand":                              "setupYard",
 	"TestSetupBaseThatIsNoLocalBranch":                        "setupYard",
@@ -265,7 +261,6 @@ var allowSerial = map[string]string{
 	"TestSetupTalkToTheYardmaster":                            "setupYard,stubChat,stubFocus,stubPane,t.Setenv",
 	"TestSetupTalkToTheYardmasterOffersItsPane":               "setupYard,stub:attachAgent,stub:paneTail,stub:pollEvery,stub:yardmasterWait,stubChat,t.Setenv",
 	"TestSetupWithoutForms":                                   "setInteractive,setupYard",
-	"TestSourceKeyTyped":                                      "assign:answers",
 	"TestSpeakingAsAGitHubApp":                                "newAppYard",
 	"TestStartAndInstallTakeTheAddrSetting":                   "stub:answers,stub:spawn,stubServices,t.Setenv",
 	"TestStartAndInstallTakeThePagesFlags":                    "stub:answers,stub:spawn,stubServices,t.Setenv",
@@ -339,9 +334,6 @@ var allowSerial = map[string]string{
 	"TestUpgradeCheckViewOtherBuildFails":                     "stub:webService,stubServer,upgradeYard",
 	"TestUpgradeCheckViewServiceCurrent":                      "stub:webService,stubServer,upgradeYard",
 	"TestUpgradeCoveredYards":                                 "stub:goos,stub:serviceDir",
-	"TestUpgradeFromFlag":                                     "upgradeYard",
-	"TestUpgradeFromFlagBeatsSetting":                         "upgradeYard",
-	"TestUpgradeFromFlagOperatorOnly":                         "upgradeYard",
 	"TestUpgradeHatch":                                        "stub:upgradeNotifySend",
 	"TestUpgradeInstallTarget":                                "stub:upgradeExecutable,stub:upgradeGoEnv",
 	"TestUpgradePollDeadlineCancelsCheck":                     "stub:upgradeRunInstalled",
@@ -354,7 +346,6 @@ var allowSerial = map[string]string{
 	"TestUpgradeRunRollbackPutsScriptsBack":                   "newUpgradeScene",
 	"TestUpgradeRunScriptsCurrent":                            "newUpgradeScene",
 	"TestUpgradeScriptsModeIgnoresUmask":                      "syscall.Umask",
-	"TestUpgradeWithoutCheck":                                 "upgradeYard",
 	"TestUseLoginPATH":                                        "stub:loginShellPATH,t.Setenv",
 	"TestUserAddWithALogin":                                   "fakeTools,stub:tryHarnessCall",
 	"TestUserAddWithALoginNobodyFinishes":                     "fakeTools,stub:loginInputTimeout,stub:tryHarnessCall",
@@ -551,9 +542,10 @@ func (r parResolver) define(from token.Pos, lhs ...ast.Expr) {
 }
 
 // parMarked reports whether f touches process or package state: the
-// environment, the working directory, or a package variable.
+// environment, the working directory, the process umask, or a package
+// variable.
 func parMarked(f parFacts) bool {
-	return parEnvironmentFact(f) || f.sels["Chdir"] || len(f.assigns) > 0 || len(f.stubVars) > 0
+	return parEnvironmentFact(f) || f.sels["Chdir"] || f.sels["Umask"] || len(f.assigns) > 0 || len(f.stubVars) > 0
 }
 
 func parEnvironmentFact(f parFacts) bool {
@@ -645,7 +637,7 @@ func parReach(own map[string]parFacts) map[string]parFacts {
 func parWitness(test, marker string, own map[string]parFacts) string {
 	holds := func(f parFacts) bool {
 		switch {
-		case marker == "Chdir" || marker == "Setenv" || marker == "Unsetenv" || marker == "Clearenv":
+		case marker == "Chdir" || marker == "Umask" || marker == "Setenv" || marker == "Unsetenv" || marker == "Clearenv":
 			return f.sels[marker]
 		case strings.HasPrefix(marker, "assign:"):
 			return f.assigns[strings.TrimPrefix(marker, "assign:")]
@@ -682,7 +674,7 @@ func parWitness(test, marker string, own map[string]parFacts) string {
 }
 
 // parMarkers names what r touches, for the error: the environment, the
-// directory, or the package variable.
+// directory, the umask, or the package variable.
 func parMarkers(r parFacts) []string {
 	var out []string
 	for _, marker := range []string{"Clearenv", "Setenv", "Unsetenv"} {
@@ -692,6 +684,9 @@ func parMarkers(r parFacts) []string {
 	}
 	if r.sels["Chdir"] {
 		out = append(out, "Chdir")
+	}
+	if r.sels["Umask"] {
+		out = append(out, "Umask")
 	}
 	for v := range r.assigns {
 		out = append(out, "assign:"+v)
@@ -705,9 +700,10 @@ func parMarkers(r parFacts) []string {
 
 // parCheck enforces the section 3.3 rule over the package's tests: a test
 // may carry t.Parallel only when it neither assigns a package variable nor
-// calls a helper that does, and touches neither the process environment
-// nor the working directory. A test that stays sequential must be listed
-// in allow with its seam. It returns a violation per breach.
+// calls a helper that does, and touches neither the process environment,
+// the process umask, nor the working directory. A test that stays
+// sequential must be listed in allow with its seam, which must itself
+// reach process or package state. It returns a violation per breach.
 func parCheck(own map[string]parFacts, allow map[string]string) []string {
 	var tests []string
 	for name := range own {
@@ -727,6 +723,7 @@ func parCheck(own map[string]parFacts, allow map[string]string) []string {
 					"Unsetenv": "the process environment (os.Unsetenv)",
 					"Clearenv": "the process environment (os.Clearenv)",
 					"Chdir":    "the working directory (t.Chdir or os.Chdir)",
+					"Umask":    "the process umask (syscall.Umask)",
 				}[m]
 				if what == "" {
 					what = "package state (" + m + ")"
@@ -777,6 +774,9 @@ func parCheck(own map[string]parFacts, allow map[string]string) []string {
 		}
 		if reached[name].hasPar {
 			bad = append(bad, fmt.Sprintf("allowSerial lists %s, which calls t.Parallel now: delete the entry", name))
+		}
+		if !parMarked(reached[name]) {
+			bad = append(bad, fmt.Sprintf("allowSerial lists %s, which reaches no process or package state: parallelise it and delete the entry", name))
 		}
 	}
 	return bad
@@ -863,9 +863,10 @@ func TestOnlyAllowedTestsStaySerial(t *testing.T) {
 
 // The rule's own check is checked: a parallel test reaching a stub
 // through a helper is caught with its path, an unlisted sequential test
-// is caught with what it reaches, and a stale allow entry is caught. The
-// var file sorts after the test file, so the check reads vars before
-// facts however the files sort.
+// is caught with what it reaches, and a stale allow entry is caught, as
+// is a listed test reaching no marker; a listed test reaching only the
+// umask passes. The var file sorts after the test file, so the check reads
+// vars before facts however the files sort.
 func TestParCheckFindsViolations(t *testing.T) {
 	t.Parallel()
 	own, err := parLoad(map[string][]byte{
@@ -874,6 +875,7 @@ func TestParCheckFindsViolations(t *testing.T) {
 
 import (
 	"os"
+	"syscall"
 	"testing"
 )
 
@@ -969,12 +971,17 @@ func TestParallelOK(t *testing.T) { t.Parallel() }
 func TestSerialUnlisted(t *testing.T) { stubIt(t); seam = 2 }
 
 func TestSerialCycleUnlisted(t *testing.T) { first() }
+
+func TestSerialUmaskOK(t *testing.T) { syscall.Umask(0) }
+
+func TestSerialUnmarked(t *testing.T) {}
 `),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := parCheck(own, map[string]string{"TestSerialOK": "", "TestGone": "stale"})
+	got := parCheck(own, map[string]string{"TestSerialOK": "", "TestGone": "stale",
+		"TestSerialUmaskOK": "syscall.Umask", "TestSerialUnmarked": "stale seam"})
 	want := []string{
 		"TestNestedParallelBad calls t.Parallel but reaches package state (assign:stateMap) in its own body",
 		"TestParallelBad calls t.Parallel but reaches the process environment (t.Setenv or os.Setenv) via stubIt",
@@ -989,6 +996,7 @@ func TestSerialCycleUnlisted(t *testing.T) { first() }
 		"TestSerialUnlisted calls no t.Parallel and is not listed in allowSerial (reaches assign:seam, stubIt): parallelise it, or list it with its seam",
 		"allowSerial lists TestSerialOK without naming its seam",
 		"allowSerial lists TestGone, which is no test any more: delete the entry",
+		"allowSerial lists TestSerialUnmarked, which reaches no process or package state: parallelise it and delete the entry",
 	}
 	slices.Sort(got)
 	slices.Sort(want)
