@@ -70,7 +70,11 @@
 # re-run of an over-budget package alone gets no factor, so that a slow path of
 # the product still shows there, and a plain run gets none: a test reads the
 # variable, so go's test cache would keep a result for each value the load
-# made, and a builder's rerun of the same tree would miss it.
+# made, and a builder's rerun of the same tree would miss it. That is the
+# variable's factor alone: internal/testload also reads the machine as each
+# wait is armed and takes the larger of the two. That reading is no variable,
+# so it splits no cache, and a leg that meets a load it did not start in, the
+# re-run alone and a plain run all size their waits to the load they meet.
 #
 # After each step a line says how many seconds it took (test: go vet ./...
 # took 14 s), so a landing's log shows where a run's time went. The run ends

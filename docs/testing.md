@@ -65,11 +65,15 @@ effect it asserts: it polls the condition (a store event, a file, a held
 question, a ticket) with a deadline that is only a fuse against a hang,
 never the measurement. In the contrib suites that fuse is written for an
 idle box and goes through `testload.Scale`, which multiplies it by the
-factor the race leg is given (`YARDR_TEST_LOAD`, the machine's load over
-its cores from 1 to 4; `.yardr/test` reads it and names it in a line), so
-a fuse is not raised by hand after it flakes in a landing. The deadline a
-test gives the program under test is that program's input, not a fuse,
-and is not scaled. Where the code owns the time the test waits on,
+larger of two factors, each the machine's load over its cores from 1 to
+4: the one the race leg is given (`YARDR_TEST_LOAD`; `.yardr/test` reads
+it as the leg starts and names it in a line), and the machine's own live
+load, which `testload` reads as the fuse is armed, in a plain run too
+(`/proc/loadavg`, else `sysctl vm.loadavg`; a load it cannot read counts
+1). So a fuse is sized to the load the suite runs in, not the load its leg
+started in, and is not raised by hand after it flakes in a landing. The
+deadline a test gives the program under test is that program's input, not
+a fuse, and is not scaled. Where the code owns the time the test waits on,
 the test sets that clock -- the fake clocks named above -- and advances
 it. A deadline taken from the load is the last resort, and only where
 the thing waited on is a program outside the test (a harness binary, a
@@ -78,9 +82,12 @@ product question, and the test stubs the bound long (as the doctor
 tests stub thirty seconds) instead of inheriting whatever load leaves
 of it. Where a test must still tell a slow machine from a slow program,
 as contrib/shot's real Chrome does to skip a miss of its deadline, it
-asks `testload.Loaded`, the gate's verdict for the leg, and reads the
-machine's load itself only when that is false: a factor of 1 is also
-what an unknown load and a plain run have. A count inside a fixed
+asks `testload.Loaded`: the factor above 1, the leg's or the machine's
+own as it is asked, so a plain run on a loaded box is found loaded too,
+and a load that cannot be read is not. A test whose result depends on
+that factor pins the machine with `YARDR_TEST_LOADAVG` and
+`YARDR_TEST_CORES`, as the gate's tests do, so that it does not turn on
+what else the machine is running. A count inside a fixed
 wall-clock window, and a sleep followed
 by asserting the slept-for event exists, are both the first shape
 written wrong. A reviewer checks the pick without running anything, as

@@ -27,7 +27,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -187,52 +186,13 @@ func underLoad() bool {
 }
 
 // machineLoaded reports whether the machine is too loaded for a timing
-// verdict. Where the gate found it loaded when it gave the race leg its factor
-// (testload.Loaded) that is the answer, taken once for every suite, and the
-// machine is not read again. A factor of 1 is no verdict that it is quiet: an
-// unknown load has it too, and so has a plain run, which the gate gives no
-// factor. Then the machine is read by the gate's own measure (loadedmachine in
-// .yardr/test, rule R1 in docs/testing.md): its one-minute load average is
-// past its core count. Where the load cannot be read it is not loaded: an
-// unknown load excuses no hang, as it passes no package there.
+// verdict: testload.Loaded, the one answer every suite shares. It is the gate's
+// factor above 1 or the machine's own one-minute load average past its core
+// count (loadedmachine in .yardr/test, rule R1 in docs/testing.md), read as
+// this is asked, and a load that cannot be read is no load: an unknown load
+// excuses no hang, as it passes no package there.
 func machineLoaded() bool {
-	if testload.Loaded() {
-		return true
-	}
-	avg, cores, ok := loadReading()
-	return ok && avg > cores
-}
-
-// loadReading is the one-minute load average and the core count as the gate
-// takes them: /proc/loadavg where the system keeps it, sysctl's vm.loadavg
-// elsewhere, and the cores Go counts (its nproc and hw.ncpu). Like there,
-// YARDR_TEST_LOADAVG and YARDR_TEST_CORES stand in for both, so a test can
-// pin the machine's load; with one set and not the other the reading is
-// unknown, as there. ok is false when either cannot be read.
-func loadReading() (avg, cores float64, ok bool) {
-	text, n := "", strconv.Itoa(runtime.NumCPU())
-	if a, c := os.Getenv("YARDR_TEST_LOADAVG"), os.Getenv("YARDR_TEST_CORES"); a != "" || c != "" {
-		text, n = a, c
-	} else if b, err := os.ReadFile("/proc/loadavg"); err == nil {
-		text = string(b)
-	} else if out, err := exec.Command("sysctl", "-n", "vm.loadavg").Output(); err == nil {
-		text = string(out)
-	}
-	avg, ok = loadAverage(text)
-	cores, err := strconv.ParseFloat(n, 64)
-	return avg, cores, ok && err == nil && cores > 0
-}
-
-// loadAverage is the first number of what the system prints for the load:
-// /proc/loadavg ("0.52 0.58 0.59 1/467 12345"), sysctl -n vm.loadavg on
-// darwin ("{ 3.52 3.61 3.40 }"), or a bare number.
-func loadAverage(text string) (float64, bool) {
-	f := strings.Fields(strings.Trim(text, "{} \n"))
-	if len(f) == 0 {
-		return 0, false
-	}
-	avg, err := strconv.ParseFloat(f[0], 64)
-	return avg, err == nil
+	return testload.Loaded()
 }
 
 // race reports whether the test binary was built with the race detector,
@@ -1102,9 +1062,9 @@ func TestShotStopsChromeWhenTheScriptIsStopped(t *testing.T) {
 // the watchdog's allowance; a slow run fails however fast the rest were.
 // The bound is the timeout plus four seconds: normal runs take about two,
 // slow ones over six. Like the other bounds on how long a run took it is
-// sized to the machine (testload.Scale), so on a loaded leg it no longer
-// parts a slow run from a normal one; a plain run, which has no factor, keeps
-// it as it is.
+// sized to the machine (testload.Scale), so a loaded machine permits
+// proportionally more scheduling time for each run, including in a plain run
+// where the gate supplied no factor.
 func TestShotTimesOutAtItsDeadlineEveryRun(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("no curl: it checks the page before the shot")
@@ -1213,69 +1173,39 @@ func TestMachineLoaded(t *testing.T) {
 	}
 }
 
-// loadAverage reads the first number out of what each system prints for the
-// load: Linux's /proc/loadavg and darwin's sysctl vm.loadavg.
-func TestLoadAverage(t *testing.T) {
-	for text, want := range map[string]float64{
-		"0.52 0.58 0.59 1/467 12345\n": 0.52,
-		"{ 3.52 3.61 3.40 }\n":         3.52,
-		"72.4":                         72.4,
-	} {
-		if got, ok := loadAverage(text); !ok || got != want {
-			t.Errorf("loadAverage(%q) = %v, %v, want %v", text, got, ok, want)
-		}
-	}
-	for _, text := range []string{"", "\n", "{ }", "unknown"} {
-		if got, ok := loadAverage(text); ok {
-			t.Errorf("loadAverage(%q) = %v, want no reading", text, got)
-		}
-	}
-}
-
-// Where the yard runs, the system's own reading comes through: a reader that
-// never found one would leave every machine quiet, and the skip on load
-// would never fire.
-func TestSystemLoadIsRead(t *testing.T) {
-	switch runtime.GOOS {
-	case "darwin":
-	case "linux":
-		if _, err := os.Stat("/proc/loadavg"); err != nil {
-			t.Skip("this linux keeps no /proc/loadavg")
-		}
-	default:
-		t.Skip("the yard runs on linux and darwin")
-	}
-	t.Setenv("YARDR_TEST_LOADAVG", "")
-	t.Setenv("YARDR_TEST_CORES", "")
-	avg, cores, ok := loadReading()
-	if !ok || avg < 0 || cores < 1 {
-		t.Errorf("the system's load reading is %v on %v cores, ok=%v", avg, cores, ok)
-	}
-}
-
-// The suite's fuses follow the gate's factor: the wait on the script, and the
-// looks readySleep's sleep takes for a stand-in, which are as long as the wait
-// for it that ready makes, or the sleep would start the watchdog's clock
-// before ready gave up. Neither is a measure of the script: SHOT_TIMEOUT, the
-// deadline a test gives it, is its input and stays as the test sets it.
+// The suite's fuses follow the factor testload gives the run, the larger of the
+// gate's and the machine's own: the wait on the script, and the looks
+// readySleep's sleep takes for a stand-in, which are as long as the wait for it
+// that ready makes, or the sleep would start the watchdog's clock before ready
+// gave up. Neither is a measure of the script: SHOT_TIMEOUT, the deadline a
+// test gives it, is its input and stays as the test sets it. The machine is
+// pinned, as in the tests above, so what the fuses are does not depend on what
+// else it is running.
 func TestFusesAreSizedToTheMachine(t *testing.T) {
 	for _, c := range []struct {
-		factor string
+		factor string // the gate's YARDR_TEST_LOAD
+		avg    string // the machine's YARDR_TEST_LOADAVG, on 10 cores
 		fuse   time.Duration
 		looks  int
 	}{
-		{"", time.Minute, 300},
-		{"1.0", time.Minute, 300},
-		{"2.5", 150 * time.Second, 750},
-		{"4.0", 4 * time.Minute, 1200},
+		{"", "1.5", time.Minute, 300},
+		{"1.0", "1.5", time.Minute, 300},
+		{"2.5", "1.5", 150 * time.Second, 750},
+		{"4.0", "1.5", 4 * time.Minute, 1200},
+		{"", "25", 150 * time.Second, 750},
+		{"2.5", "25", 150 * time.Second, 750},
+		{"1.5", "35", 210 * time.Second, 1050},
+		{"4.0", "100", 4 * time.Minute, 1200},
 	} {
-		t.Run("factor "+c.factor, func(t *testing.T) {
+		t.Run(fmt.Sprintf("factor %q on load %s", c.factor, c.avg), func(t *testing.T) {
+			t.Setenv("YARDR_TEST_LOADAVG", c.avg)
+			t.Setenv("YARDR_TEST_CORES", "10")
 			t.Setenv(config.Key(testload.Env), c.factor)
 			if got := shotFuse(); got != c.fuse {
-				t.Errorf("shotFuse at factor %q is %s, want %s", c.factor, got, c.fuse)
+				t.Errorf("shotFuse at factor %q on load %s is %s, want %s", c.factor, c.avg, got, c.fuse)
 			}
 			if got := readyLooks(); got != c.looks {
-				t.Errorf("readyLooks at factor %q is %d, want %d", c.factor, got, c.looks)
+				t.Errorf("readyLooks at factor %q on load %s is %d, want %d", c.factor, c.avg, got, c.looks)
 			}
 		})
 	}
