@@ -335,6 +335,16 @@ func (s *Store) ResolveDevice(ctx context.Context, token, from string) (*Device,
 	if d.LastUsed != nil && d.LastFrom == from && at.Sub(*d.LastUsed) < deviceUseEvery {
 		return &d.Device, nil
 	}
+	// The answer is the read above; the write only records it. While a
+	// write is in flight this one would queue behind it for the store's
+	// one writer — behind a daemon pass writing back to back, past the
+	// resolver's deadline (yardr-wpgc) — so a busy yard answers from the
+	// read and leaves the stamp to the device's next call, which finds
+	// the last use still due. The stamp is a record for the operator
+	// (when a device was last seen), never part of who the caller is.
+	if s.writing.Load() > 0 {
+		return &d.Device, nil
+	}
 	err := s.write(func(w *wtx) error {
 		// Read again: the device may have been removed since.
 		if err := find(w.Tx); err != nil || d == nil {

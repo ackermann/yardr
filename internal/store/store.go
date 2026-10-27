@@ -172,6 +172,13 @@ type Store struct {
 	// policy says who may do what (SetPolicy, policy.go); nil is
 	// CorePolicy.
 	policy Policy
+	// writing counts the writes in flight (write). A read that has its
+	// answer already and would write only to record it (ResolveDevice's
+	// last use) looks at it: bbolt has the one writer, so such a write
+	// queues behind whatever the yard is writing, which a daemon pass
+	// does back to back for minutes, while the read itself is a snapshot
+	// that waits for no writer.
+	writing atomic.Int32
 	// blobMu serializes a put with another put or prune. In particular, a
 	// prune must not remove a blob between its grace-period refresh and the
 	// mail that names it.
@@ -367,6 +374,8 @@ type wtx struct {
 // write runs fn in a batched write transaction, then nudges the pump to
 // publish what was committed and wakes wakers.
 func (s *Store) write(fn func(*wtx) error) error {
+	s.writing.Add(1)
+	defer s.writing.Add(-1)
 	var settle, queued []string
 	err := s.db.Batch(func(tx *bolt.Tx) error {
 		w := &wtx{Tx: tx, store: s, home: s.home, mentions: &s.mentions}

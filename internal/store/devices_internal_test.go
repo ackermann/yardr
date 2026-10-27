@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -58,5 +59,86 @@ func TestDeviceLastUse(t *testing.T) {
 	}
 	if _, from := use(time.Second, " "+strings.Repeat("a", 200)+"\xff "); from != strings.Repeat("a", 64) {
 		t.Fatalf("an address from outside is kept as %q", from)
+	}
+}
+
+// A device's call must answer while the yard's one writer is held, as a
+// daemon pass holds it writing back to back: the flows read is a snapshot
+// and answers at once, and resolving the device's token answers from its
+// read too, leaving the last-use stamp — a write — to a later call
+// (yardr-wpgc: resolves timed out at the resolver's 5 s behind slow
+// passes). No test drove a resolve against a held write before, so this
+// is its own test rather than a case of TestDeviceLastUse above.
+func TestDeviceResolveWhileWriteHeld(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "y.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close(context.Background()) })
+	ctx := context.Background()
+	if err := s.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.AddDevice(ctx, "jo", "phone", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := make(chan struct{})
+	release := make(chan struct{})
+	// Once each: a batched write may run its function again, and a failed
+	// assertion below must still let the held write go, through cleanup.
+	var heldOnce, releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseWrite)
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- s.write(func(w *wtx) error {
+			heldOnce.Do(func() { close(held) })
+			<-release
+			return nil
+		})
+	}()
+	<-held
+
+	// The bead's bound: a device's call answers within 2 s while a pass
+	// phase is held. The write stays held past it, until released below.
+	within := func(name string, call func() error) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- call() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("%s while a write is held: %v", name, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s did not answer in 2 s while a write is held", name)
+		}
+	}
+	var got *Device
+	within("ResolveDevice", func() error {
+		var err error
+		got, err = s.ResolveDevice(ctx, d.Token, "100.64.0.7")
+		return err
+	})
+	if got == nil || got.User != "jo" || got.Name != "phone" {
+		t.Fatalf("ResolveDevice while a write is held = %+v", got)
+	}
+	if got.LastUsed != nil {
+		t.Fatalf("the last use was stamped while a write is held: %+v", got)
+	}
+	within("Flows", func() error {
+		_, err := s.Flows(ctx, "jo")
+		return err
+	})
+
+	releaseWrite()
+	if err := <-writeDone; err != nil {
+		t.Fatal(err)
+	}
+	// The stamp the held write deferred is made by the next call.
+	got, err = s.ResolveDevice(ctx, d.Token, "100.64.0.7")
+	if err != nil || got == nil || got.LastUsed == nil || got.LastFrom != "100.64.0.7" {
+		t.Fatalf("ResolveDevice after the write = %+v, %v", got, err)
 	}
 }
