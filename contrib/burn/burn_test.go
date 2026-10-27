@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -34,7 +35,9 @@ const fuse = 2 * time.Minute
 // rig is what burn runs in: stand-ins first on its PATH for go, which builds
 // a test binary that is a stand-in too, and for yes, which keeps no cpu busy
 // but records its pid and nice level and stays until it is killed. Everything
-// they record is a file of the rig's dir, which they find in $RIG.
+// they record is a file of the rig's dir, which they find in $RIG. A test
+// about the levels burn reads and gives has stand-ins for ps and nice as well
+// (psSays, niceRecords).
 type rig struct {
 	t   *testing.T
 	dir string
@@ -168,6 +171,27 @@ func (r *rig) goModule(files map[string]string) {
 		"PATH="+filepath.Join(r.dir, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// psSays makes burn take level for the nice level it runs at: the stand-in ps
+// answers every question with it, padded as the real one pads its answer.
+func (r *rig) psSays(level string) {
+	r.t.Helper()
+	scripttest.Write(r.t, filepath.Join(r.dir, "bin", "ps"), "echo '  "+level+"'\n")
+}
+
+// niceRecords makes nice write down the increment it is asked for, a line of
+// nice-calls for each, and run the command without changing its level: what
+// burn gives nice is then read from the file, and no machine's own levels, or
+// its limits on them, come into it.
+func (r *rig) niceRecords() {
+	r.t.Helper()
+	scripttest.Write(r.t, filepath.Join(r.dir, "bin", "nice"), `
+[ "$1" = -n ] || { echo "nice: unexpected $*" >&2; exit 1; }
+echo "$2" >> "$RIG/nice-calls"
+shift 2
+exec "$@"
+`)
+}
+
 func (r *rig) read(name string) string {
 	r.t.Helper()
 	b, err := os.ReadFile(filepath.Join(r.dir, name))
@@ -239,6 +263,21 @@ func finish(t *testing.T, cmd *exec.Cmd) int {
 // gone says whether no process has the id pid any more.
 func gone(pid int) bool { return syscall.Kill(pid, 0) == syscall.ESRCH }
 
+// psNice is the nice level ps says pid runs at: what burn reads of itself, and
+// the stand-ins record of themselves.
+func psNice(t *testing.T, pid int) int {
+	t.Helper()
+	out, err := exec.Command("ps", "-o", "nice=", "-p", strconv.Itoa(pid)).Output()
+	if err != nil {
+		t.Fatalf("ps -o nice= -p %d: %v", pid, err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("ps -o nice= -p %d said %q", pid, out)
+	}
+	return n
+}
+
 // waitFor polls until ok, for a fuse.
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
@@ -267,9 +306,14 @@ func (r *rig) leftover() []string {
 // Every test is run as many times as asked, in the package's directory, and
 // a run that fails is counted and shown, with the lines that say why. The
 // loops are FACTOR times the cpus it was told, at the nice level it was told
-// beside the tests, and all gone, with burn's work directory, at the end.
+// beside the tests, and all gone, with burn's work directory, at the end. That
+// level is the one told, unless this process is nicer than it already, as a
+// yard session is and the gate may be: burn starts at this process's level,
+// which nothing can lower, and the loops and the tests stay at it. The real
+// ps and nice are used here, since it is what an operator sees.
 func TestBurnCountsTheRunsThatPass(t *testing.T) {
 	t.Parallel()
+	level := max(7, psNice(t, os.Getpid()))
 	r := newRig(t)
 	r.set("fail-TestA", "2\n4\n")
 	cmd, stdout, stderr := r.burn(6, "-n", "5", "-x", "3", "-c", "2", "-N", "7", "./pkg", "TestA", "TestB")
@@ -280,7 +324,7 @@ func TestBurnCountsTheRunsThatPass(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 	for _, want := range []string{
-		"6 yes-loops (3 x 2 cpus) at nice 7",
+		fmt.Sprintf("6 yes-loops (3 x 2 cpus) at nice %d,", level), // the comma, so that 7 does not match 70
 		"burn: TestA, run 2 failed (exit 1):",
 		"x_test.go:12: run 2 went wrong",
 		"burn: TestA, run 4 failed (exit 1):",
@@ -295,11 +339,11 @@ func TestBurnCountsTheRunsThatPass(t *testing.T) {
 	if got, want := r.read("cwd"), filepath.Join(r.dir, "pkg"); got != want {
 		t.Errorf("the tests ran in %q, want the package's directory %q", got, want)
 	}
-	if got := strings.Fields(r.read("spinner-nice")); len(got) != 6 || strings.Join(got, " ") != strings.Repeat("7 ", 5)+"7" {
-		t.Errorf("the loops' nice levels = %v, want six of 7", got)
+	if got, want := strings.Fields(r.read("spinner-nice")), slices.Repeat([]string{strconv.Itoa(level)}, 6); !slices.Equal(got, want) {
+		t.Errorf("the loops' nice levels = %v, want six of %d", got, level)
 	}
-	if got := r.read("test-nice"); got != "7" {
-		t.Errorf("the tests' nice level = %q, want the loops' 7", got)
+	if got, want := r.read("test-nice"), strconv.Itoa(level); got != want {
+		t.Errorf("the tests' nice level = %q, want the loops' %s", got, want)
 	}
 	spinners := r.pids("spinners")
 	if len(spinners) != 6 {
@@ -312,6 +356,50 @@ func TestBurnCountsTheRunsThatPass(t *testing.T) {
 	}
 	if left := r.leftover(); len(left) != 0 {
 		t.Errorf("burn left %v in its TMPDIR", left)
+	}
+	// The real ps and nice above prove the visible level on this machine. These
+	// rows hold the cases this machine cannot necessarily supply: nice(1) adds
+	// what it is given to the level it starts at, and a process cannot lower
+	// its own, so burn gives nice the difference when it needs to and runs no
+	// nice where its own level is already the greater. The stand-ins make each
+	// row hold regardless of the gate's own nice level.
+	for _, tc := range []struct {
+		name  string
+		ask   string // -N
+		own   string // the level ps says burn runs at
+		level string // where the loops and the tests end up: the greater of ask and own
+		more  string // what nice is given, by the loop and by each run of the test; "" where none is run
+	}{
+		{"burn is less nice than asked", "7", "3", "7", "4"},
+		{"burn is as nice as asked", "7", "7", "7", ""},
+		{"burn is nicer than asked", "7", "12", "12", ""},
+		{"burn is below 0, as root can be", "7", "-5", "7", "12"},
+		// The shell would read 010 as octal, as nice does not.
+		{"-N has leading zeros", "010", "3", "10", "7"},
+	} {
+		t.Run("nice level/"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			r.psSays(tc.own)
+			r.niceRecords()
+			cmd, stdout, stderr := r.burn(1, "-n", "2", "-x", "1", "-c", "1", "-N", tc.ask, "./pkg", "TestA")
+			if code := finish(t, cmd); code != 0 {
+				t.Fatalf("exit status = %d, want 0\n%s", code, stderr)
+			}
+			if got, want := stdout.String(), "TestA: 2/2 passed\n"; got != want {
+				t.Fatalf("stdout = %q, want %q", got, want)
+			}
+			if want := "1 yes-loops (1 x 1 cpus) at nice " + tc.level + ","; !strings.Contains(stderr.String(), want) {
+				t.Errorf("stderr lacks %q:\n%s", want, stderr)
+			}
+			var want []string // the loop, then the two runs of the test
+			if tc.more != "" {
+				want = slices.Repeat([]string{tc.more}, 3)
+			}
+			if got := strings.Fields(r.read("nice-calls")); !slices.Equal(got, want) {
+				t.Errorf("nice was given %v, want %v", got, want)
+			}
+		})
 	}
 }
 
@@ -557,17 +645,23 @@ func TestBurnRefusesWhatItCannotRun(t *testing.T) {
 		name string
 		args []string
 		want string
+		ps   string // what a stand-in ps says burn's own nice level is; "" for the machine's
 	}{
-		{"no package", nil, "usage: burn"},
-		{"no count", []string{"-n", "0", "./pkg", "TestA"}, "-n is 0, want at least 1"},
-		{"a count that is no number", []string{"-n", "many", "./pkg", "TestA"}, "-n is many, want a whole number"},
-		{"no factor", []string{"-x", "0", "./pkg", "TestA"}, "-x is 0, want at least 1"},
-		{"no cpus", []string{"-c", "0", "./pkg", "TestA"}, "-c is 0, want at least 1"},
-		{"a nice level that is no number", []string{"-N", "-3", "./pkg", "TestA"}, "-N is -3, want a whole number"},
+		{"no package", nil, "usage: burn", ""},
+		{"no count", []string{"-n", "0", "./pkg", "TestA"}, "-n is 0, want at least 1", ""},
+		{"a count that is no number", []string{"-n", "many", "./pkg", "TestA"}, "-n is many, want a whole number", ""},
+		{"no factor", []string{"-x", "0", "./pkg", "TestA"}, "-x is 0, want at least 1", ""},
+		{"no cpus", []string{"-c", "0", "./pkg", "TestA"}, "-c is 0, want at least 1", ""},
+		{"a nice level that is no number", []string{"-N", "-3", "./pkg", "TestA"}, "-N is -3, want a whole number", ""},
+		// ps says - of a process that is scheduled in real time.
+		{"an own nice level ps cannot tell", []string{"./pkg", "TestA"}, `cannot tell burn's own nice level: ps said "-"`, "-"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := newRig(t)
+			if tc.ps != "" {
+				r.psSays(tc.ps)
+			}
 			cmd, _, stderr := r.burn(0, tc.args...)
 			if code := finish(t, cmd); code != 2 {
 				t.Fatalf("exit status = %d, want 2\n%s", code, stderr)

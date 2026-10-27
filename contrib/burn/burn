@@ -85,9 +85,28 @@ if [ -z "$cpus" ]; then
 fi
 number -c "$cpus"
 [ "$cpus" -ge 1 ] || fail "-c is $cpus, want at least 1"
-for tool in go nice yes; do
+for tool in go nice ps yes; do
   command -v "$tool" >/dev/null 2>&1 || fail "needs $tool on PATH"
 done
+# -N is the level the loops and the tests run at, but nice(1) adds what it is
+# given to the level it starts at, and a process cannot lower its own: they
+# run at the greater of -N and burn's own level, which they inherit, and nice
+# is given the difference, or is not run at all where there is none. From here
+# on $nice is that level and $more what nice adds to burn's own (empty when it
+# adds nothing). The level may be below 0, as root's can be.
+own=$(ps -o nice= -p "$$" | tr -d ' ')
+case ${own#-} in
+  '' | *[!0-9]*) fail "cannot tell burn's own nice level: ps said \"$own\"" ;;
+esac
+# The arithmetic below reads leading zeros as octal, as nice does not (-N 010
+# would be 8, and -N 08 an error), so they are dropped.
+nice=${nice#"${nice%%[!0]*}"}
+nice=${nice:-0}
+if [ "$nice" -gt "$own" ]; then
+  more=$((nice - own))
+else
+  nice=$own more=''
+fi
 if [ -n "$keep" ]; then
   mkdir -p "$keep" || fail "cannot make directory $keep"
 fi
@@ -127,7 +146,7 @@ n=$((cpus * factor))
 echo "burn: $n yes-loops ($factor x $cpus cpus) at nice $nice, load average before: $(load)" >&2
 i=0
 while [ "$i" -lt "$n" ]; do
-  nice -n "$nice" yes >/dev/null 2>&1 &
+  ${more:+nice -n "$more"} yes >/dev/null 2>&1 &
   spinners="$spinners $!"
   i=$((i + 1))
 done
@@ -149,7 +168,7 @@ for name in "$@"; do
   passed=0 failed=0 run=0
   while [ "$run" -lt "$count" ]; do
     run=$((run + 1))
-    (cd "$dir" && exec nice -n "$nice" "$bin" ${only:+"$only"} -test.v) >"$work/out" 2>&1 &
+    (cd "$dir" && exec ${more:+nice -n "$more"} "$bin" ${only:+"$only"} -test.v) >"$work/out" 2>&1 &
     child=$!
     rc=0
     wait "$child" || rc=$?
