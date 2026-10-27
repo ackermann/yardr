@@ -338,6 +338,15 @@ var Access = map[string]Class{
 	"FireTimers":           Admin,
 	"FoldSidings":          Admin,
 
+	// Previews: a crew member proposes and may stop its own; approval
+	// and forgetting are the yard's person's alone.
+	"ProposePreview": Agent,
+	"Previews":       Read,
+	"GetPreview":     Read,
+	"ApprovePreview": Operator,
+	"PreviewStop":    Agent,
+	"ForgetPreview":  Operator,
+
 	// Who someone is in a source, what they follow, and speaking there as
 	// a crew member.
 	"SetIdentity":             Admin,

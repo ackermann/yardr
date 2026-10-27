@@ -430,6 +430,17 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
+	{Key: PreviewIdleSetting, Help: "how long a preview may go without a request before the supervisor stops it, such as 4h or 1d; the approval stands, and the next visit starts it again",
+		Default: Span(DefaultPreviewIdle), Check: func(v string) error {
+			d, err := ParseSpan(v)
+			if err != nil {
+				return fmt.Errorf("%s: %w", PreviewIdleSetting, err)
+			}
+			if d <= 0 {
+				return fmt.Errorf("%s must be greater than zero", PreviewIdleSetting)
+			}
+			return nil
+		}},
 }
 
 // SettingOf is the setting key names.

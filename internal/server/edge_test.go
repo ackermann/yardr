@@ -82,12 +82,20 @@ func stubEdge(t *testing.T) (*standin.Edge, *httptest.Server) {
 
 func nextLink(t *testing.T, edge *standin.Edge) *standin.EdgeLink {
 	t.Helper()
-	select {
-	case l := <-edge.Links():
-		return l
-	case <-time.After(10 * time.Second):
-		t.Fatal("the server's link never came up at the edge")
-		return nil
+	// The server keeps a preview link beside its yard link; these
+	// tests want the yard's, so a preview link is put aside.
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case l := <-edge.Links():
+			if l.Header.Get("Yardr-Link-Role") == "preview" {
+				continue
+			}
+			return l
+		case <-deadline:
+			t.Fatal("the server's link never came up at the edge")
+			return nil
+		}
 	}
 }
 
@@ -204,7 +212,7 @@ func TestEdgeLinkServesTheListenersHandlersWithNoAddress(t *testing.T) {
 	if a := overLink(t, l, "/peers/messages", nil, `{}`); a.Status != http.StatusNotFound {
 		t.Errorf("/peers/ over the link answered %d, want 404", a.Status)
 	}
-	if up := waitEvent(t, cl, "edge_link_up", nil); up.Data["handle"] != "jo" || up.Data["url"] != srv.URL || up.Data["role"] != "yard" {
+	if up := waitEvent(t, cl, "edge_link_up", func(e store.Event) bool { return e.Data["role"] == "yard" }); up.Data["handle"] != "jo" || up.Data["url"] != srv.URL || up.Data["role"] != "yard" {
 		t.Errorf("edge_link_up = %+v", up.Data)
 	}
 	if s, known := edgelink.ReadState(c); !known || !s.Up || s.Handle != "jo" {

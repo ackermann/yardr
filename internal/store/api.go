@@ -302,6 +302,13 @@ type API interface {
 	PairName(ctx context.Context, id, name, actor string) (*Pairing, error)
 	PairClose(ctx context.Context, id, actor string) error
 
+	ProposePreview(ctx context.Context, np NewPreview, actor string) (*Preview, error)
+	Previews(ctx context.Context) ([]Preview, error)
+	GetPreview(ctx context.Context, app string) (*Preview, error)
+	ApprovePreview(ctx context.Context, app, actor string) (*Preview, error)
+	PreviewStop(ctx context.Context, app, actor string) (*Preview, error)
+	ForgetPreview(ctx context.Context, app, actor string) (*Preview, error)
+
 	RecordPack(ctx context.Context, rec PackImport, changed bool, actor string) (bool, error)
 	Packs(ctx context.Context) ([]PackImport, error)
 

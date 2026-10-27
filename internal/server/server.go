@@ -21,6 +21,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/peer"
+	"yardr.dev/yardr/internal/preview"
 	"yardr.dev/yardr/internal/rpc"
 	runners "yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/source"
@@ -147,8 +148,8 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// The carrying out of approved applies (carry.go): this start's
 	// boot takes up what an earlier one left, before it serves.
 	boot := newBoot()
-	watchCtx, stopWatch := context.WithCancel(ctx)
-	defer stopWatch()
+	watchCtx, stopWatchCtx := context.WithCancel(ctx)
+	defer stopWatchCtx()
 	go runCarryWatcher(watchCtx, st, c.Home, boot, log)
 	go runDaemonWatcher(watchCtx, st, c.Home, log)
 
@@ -252,6 +253,21 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// shutdown starts so it only waits for calls in flight.
 	srv.RegisterOnShutdown(stopStreams)
 	stopHooks := serveHooks(ctx, c, st, log)
+	// The preview supervisor (design yardr-hosted-q0xp, sections 5-7):
+	// part of this server, holding its registry in the store, starting
+	// approved previews and carrying their traffic on its yard-side
+	// endpoint, served over a preview link beside the yard's own.
+	supervisor := preview.New(st, c.Home, log)
+	supervisorDone := make(chan struct{})
+	go func() {
+		defer close(supervisorDone)
+		supervisor.Run(watchCtx)
+	}()
+	defer func() {
+		stopWatchCtx()
+		<-supervisorDone
+	}()
+	stopPreviewLink := KeepEdge(ctx, c, st, "preview", supervisor.Handler(), log)
 	defer servePprof(config.Getenv(PprofEnv), log)()
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
@@ -267,8 +283,8 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// one whose home was removed under it (a test's temp directory, an
 	// isolated yard torn down): no client can reach it there, and it would
 	// run until the machine restarts.
-	watch, stopWatch := context.WithCancel(ctx)
-	defer stopWatch()
+	watch, stopHomeWatch := context.WithCancel(ctx)
+	defer stopHomeWatch()
 	gone := held.Watch(watch, r.homeCheck)
 	// A test names its process to the server it starts (YARDR_TEST_OWNER),
 	// which stops when the owner is gone: a test binary killed by its
@@ -325,6 +341,10 @@ wait:
 	if !stopped {
 		serveErr = <-served
 	}
+	stopPreviewLink()
+	stopHomeWatch()
+	stopWatchCtx()
+	<-supervisorDone
 	r.settleHandlers(&inflight)
 	if ctx.Err() != nil {
 		replacing = false // a stop during the replace drain wins over the replace

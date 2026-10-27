@@ -850,6 +850,25 @@ func (c *Client) PairClose(ctx context.Context, id, actor string) error {
 	return c.call(ctx, "PairClose", nil, id, actor)
 }
 
+func (c *Client) ProposePreview(ctx context.Context, np store.NewPreview, actor string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "ProposePreview", np, actor)
+}
+func (c *Client) Previews(ctx context.Context) ([]store.Preview, error) {
+	return callV[[]store.Preview](c, ctx, "Previews")
+}
+func (c *Client) GetPreview(ctx context.Context, app string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "GetPreview", app)
+}
+func (c *Client) ApprovePreview(ctx context.Context, app, actor string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "ApprovePreview", app, actor)
+}
+func (c *Client) PreviewStop(ctx context.Context, app, actor string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "PreviewStop", app, actor)
+}
+func (c *Client) ForgetPreview(ctx context.Context, app, actor string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "ForgetPreview", app, actor)
+}
+
 func (c *Client) RecordPack(ctx context.Context, rec store.PackImport, changed bool, actor string) (bool, error) {
 	return callV[bool](c, ctx, "RecordPack", rec, changed, actor)
 }

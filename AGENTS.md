@@ -74,6 +74,9 @@ it lists every exported name with its comment, faster than grepping.
 - `pairing`: the short-code handshake two yards pair with; no store, no HTTP.
 - `peer`: who is on the other end of a unix socket (pid, process tree), so
   the store recognises a call from a session's pane.
+- `preview`: the yard's preview supervisor (part of `yardr server`): starts
+  approved previews, keeps them running under their caps, captures their
+  logs and carries their traffic on its yard-side endpoint.
 - `rpc`: the store API over a local unix socket (`POST /call/<Method>`);
   the client is generated from `store.API`.
 - `runner`: starts work: herdr agents and exec commands in worktrees at

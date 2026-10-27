@@ -681,6 +681,59 @@ func TestStoreOutlivesCallsPastTheShutdownGrace(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("server did not stop once the call finished")
 	}
+	t.Run("preview processes are stopped before the store closes", func(t *testing.T) {
+		c := home(t)
+		ctx := context.Background()
+		st, err := store.Open(c.DBPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"); err != nil {
+			t.Fatal(err)
+		}
+		port, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		previewPort := port.Addr().(*net.TCPAddr).Port
+		port.Close()
+		dir := t.TempDir()
+		pidPath := filepath.Join(dir, "pid")
+		command := fmt.Sprintf("trap '' TERM; echo $$ > %q; exec sleep 60", pidPath)
+		if _, err := st.ProposePreview(ctx, store.NewPreview{
+			App: "demo", Command: command, Dir: dir, Port: previewPort,
+		}, "builder"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ApprovePreview(ctx, "demo", "ada"); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+		done, stop := startStoppable(t, &runner{c: c, rev: "old"})
+		pid := 0
+		waitFor(t, "approved preview started", func() bool {
+			b, err := os.ReadFile(pidPath)
+			if err != nil {
+				return false
+			}
+			pid, err = strconv.Atoi(strings.TrimSpace(string(b)))
+			return err == nil && pid > 0
+		})
+		stop()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("server returned before stopping its preview")
+		}
+		if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Fatalf("preview process %d still exists after server stop: %v", pid, err)
+		}
+	})
 }
 
 // A stop that arrives while the server drains for a replace stops it: the
@@ -746,6 +799,34 @@ func TestClientOutwaitsTheDrain(t *testing.T) {
 // Connect, which waits for the live pid instead of starting a second server.
 func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 	c := home(t)
+	ctx := context.Background()
+	st, err := store.Open(c.DBPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.OperatorSetting, "ada", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	port, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previewPort := port.Addr().(*net.TCPAddr).Port
+	port.Close()
+	dir := t.TempDir()
+	previewPIDPath := filepath.Join(dir, "preview.pid")
+	previewCommand := fmt.Sprintf("trap '' TERM; echo $$ > %q; exec sleep 60", previewPIDPath)
+	if _, err := st.ProposePreview(ctx, store.NewPreview{
+		App: "demo", Command: previewCommand, Dir: dir, Port: previewPort,
+	}, "builder"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApprovePreview(ctx, "demo", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
 	var ex execs
 	var next <-chan error
 	var path string
@@ -762,6 +843,15 @@ func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 	started, release, answered := make(chan struct{}), make(chan struct{}), make(chan bool, 1)
 	done := start(t, &runner{c: c, bin: bin, rev: "old", grace: 50 * time.Millisecond,
 		wrap: slowCall(started, release, answered)})
+	previewPID := 0
+	waitFor(t, "preview process started before replacement", func() bool {
+		b, err := os.ReadFile(previewPIDPath)
+		if err != nil {
+			return false
+		}
+		previewPID, err = strconv.Atoi(strings.TrimSpace(string(b)))
+		return err == nil && previewPID > 0
+	})
 	head, err := client(c, "old").Head(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -795,6 +885,9 @@ func TestCallDuringReplaceLandsOnTheNewBuild(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("old server: %v", err)
+	}
+	if err := syscall.Kill(previewPID, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("preview process %d survived server replacement: %v", previewPID, err)
 	}
 	if ex.count() != 1 {
 		t.Fatalf("exec calls = %d", ex.count())

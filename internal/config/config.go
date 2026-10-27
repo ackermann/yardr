@@ -370,6 +370,13 @@ func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.
 // their own.
 func (c *Config) Logs() string { return filepath.Join(c.Home, "logs") }
 
+// Previews is where the yard keeps each preview's captured output, one
+// file per app beside its rotations (internal/preview).
+func (c *Config) Previews() string { return filepath.Join(c.Home, "previews") }
+
+// PreviewLog is the log file of the preview app.
+func (c *Config) PreviewLog(app string) string { return filepath.Join(c.Previews(), app+".log") }
+
 // Packs is where the yard keeps its copies of the packs it imported, Pack
 // the copy of one and PackRoles the role prompts in it.
 func (c *Config) Packs() string                { return filepath.Join(c.Home, "packs") }
