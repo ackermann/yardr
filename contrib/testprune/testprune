@@ -1,0 +1,18 @@
+#!/bin/sh
+# testprune: finds which of a Go package's tests can go without losing what
+# the suite checks. README.md beside it says what the numbers mean.
+#
+#   contrib/testprune/testprune [-o DIR] PACKAGE
+#
+# Run it from the checkout to measure. It builds the tool from the checkout
+# into a temp dir and runs it there: PACKAGE is a Go package as go test
+# takes it (./internal/dispatch), and the reports land as DIR/testprune.md
+# and DIR/testprune.json (the current directory).
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+cd "$here/../.."
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT INT TERM HUP
+go build -o "$work/testprune" ./contrib/testprune
+"$work/testprune" "$@"

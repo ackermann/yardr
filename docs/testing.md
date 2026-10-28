@@ -288,3 +288,17 @@ week after the last fix bead lands, against the design's table and its
 attached JSON, with the deltas per package, the new per-bead cost, and
 the same-sha rerun rate counted against R4. Every rule that missed is a
 filed follow-up or a closed wont-fix with the number.
+
+## Pruning tests
+
+`contrib/testprune` finds which of one package's tests can go without
+losing what the suite checks: a test whose covered statements all lie in
+other tests of the package is a candidate, ranked by cost, and the
+report names the greedy removal set, the near-duplicate pairs and the
+coverage with and without the candidates (its README says how each is
+measured). A candidate is not proven redundant: its assertions may check
+something the others only run. Removals land as follow-up beads, one
+package each, and each keeps the guard: the package's statement coverage
+after the removal is not lower than before (`go test -cover`, same
+flags), and the reviewer reads each removed test's assertions against
+the tests that stay. The black-box suites (R5) stay whole.

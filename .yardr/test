@@ -2109,6 +2109,7 @@ contrib/assembly/merge-pr      internal/cli
 contrib/assembly/pr-ci         internal/cli
 contrib/assembly/              contrib/assembly .
 contrib/burn/                  contrib/burn .
+contrib/testprune/             contrib/testprune .
 contrib/shot/shot              internal/pack
 contrib/shot/                  contrib/shot .
 contrib/deploy/deploy-dokku    internal/cli contrib/assembly
