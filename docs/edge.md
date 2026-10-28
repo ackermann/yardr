@@ -131,10 +131,11 @@ A device of yours, such as footplate, the native window over a yard, reaches
 a connected yard through the same link, with no listener of the yard's own.
 `yardr user device pair <user> footplate` counts a link that is up as a
 listener and gives the edge's address with the code, beside this yard's
-name at the edge, so pairing is pairing by code as on the LAN: the device
-is given the address, the yard's name and the code, and asks once for its
-token ([users.md](users.md#enrolled-by-a-code)). The device says which of
-the account's yards it means with each call, in `X-Edge-Yard`.
+handle and name at the edge, so pairing is pairing by code as on the LAN:
+the device is given the address, the yard's handle and name and the code,
+and asks once for its token ([users.md](users.md#enrolled-by-a-code)). The
+device says which of the account's yards it means with each call, in
+`X-Edge-Yard`.
 
 Two gates, as for a hosted yard: the edge's (your account's session) and the
 yard's (the device's token). Every call but the stream waits up to 30

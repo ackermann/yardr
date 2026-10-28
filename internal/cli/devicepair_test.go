@@ -198,8 +198,9 @@ func TestDevicePairQR(t *testing.T) {
 
 // A yard that listens nowhere but whose link to the edge is up opens a
 // pairing all the same: the default address is the edge's, beside this
-// yard's name at the edge, and the device redeems the code down the link.
-// With the link down, no pairing.
+// yard's handle/name at the edge, and the device redeems the code down the
+// link, naming the yard handle/name with the call. With the link down, no
+// pairing.
 func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	t.Parallel()
 	api, own := storetest.NewOwned(t)
@@ -208,6 +209,7 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.Name = "edgeyard" })
 	srv := httptest.NewTLSServer(edge)
 	t.Cleanup(srv.Close)
 	mustEdge(t, st, srv.Client(), "edge", "connect", srv.URL)
@@ -233,10 +235,13 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	go func() { defer close(done); l.Run(lctx) }()
 	defer func() { cancel(); <-done }()
 
-	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone")
+	out := mustAs(t, st, "jo", "user", "device", "pair", "jo", "phone", "--qr")
 	m := devicePairShown.FindStringSubmatch(out)
-	if m == nil || m[1] != srv.URL || m[2] != "mckean" {
-		t.Fatalf("device pair over the link shows no code at %s, for the yard mckean:\n%s", srv.URL, out)
+	if m == nil || m[1] != srv.URL || m[2] != "mckean/edgeyard" {
+		t.Fatalf("device pair over the link shows no code at %s, for the yard mckean/edgeyard:\n%s", srv.URL, out)
+	}
+	if !strings.Contains(out, "█") {
+		t.Fatalf("device pair over the link --qr draws no QR code:\n%s", out)
 	}
 	var link *standin.EdgeLink
 	select {
@@ -247,7 +252,8 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"code": m[3]})
 	dctx, dcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer dcancel()
-	a, err := link.Deliver(dctx, link.Frame(http.MethodPost, rpc.PairPath, nil, body, false))
+	h := http.Header{"X-Edge-Yard": {m[2]}}
+	a, err := link.Deliver(dctx, link.Frame(http.MethodPost, rpc.PairPath, h, body, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,12 +265,12 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 		t.Fatalf("the token the device was given resolves to %+v, %v", d, err)
 	}
 
-	// The payload carries the yard's name beside the edge's address, and
-	// the QR code holds both with the code.
+	// The payload carries the yard's handle/name beside the edge's
+	// address, and the QR code holds both with the code.
 	var opened devicePaired
 	out = mustAs(t, st, "jo", "user", "device", "pair", "jo", "laptop", "--json")
-	if err := json.Unmarshal([]byte(out), &opened); err != nil || opened.Address != srv.URL || opened.Yard != "mckean" ||
-		opened.QR != srv.URL+"#"+opened.Code+"#mckean" {
+	if err := json.Unmarshal([]byte(out), &opened); err != nil || opened.Address != srv.URL || opened.Yard != "mckean/edgeyard" ||
+		opened.QR != srv.URL+"#"+opened.Code+"#mckean/edgeyard" {
 		t.Fatalf("device pair over the link --json: %+v, %v\n%s", opened, err, out)
 	}
 }

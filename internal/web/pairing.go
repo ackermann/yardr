@@ -34,9 +34,10 @@ type Pairing struct {
 	Expires time.Time `json:"expires,omitempty"`
 	Left    string    `json:"left,omitempty"`
 	// Address is where a device reaches this yard through the edge, and
-	// Yard this yard's name there: the QR code holds the two with the
-	// code. Address is "" while the yard is connected to no edge, and the
-	// page then shows the code with no QR to scan.
+	// Yard this yard there, handle/name from the edge setting where one
+	// stands and the bare yard name where none does: the QR code holds
+	// the two with the code. Address is "" while the yard is connected
+	// to no edge, and the page then shows the code with no QR to scan.
 	Address string `json:"address,omitempty"`
 	Yard    string `json:"yard,omitempty"`
 	// Error is why a POST opened or ended nothing; Draft is the device
@@ -47,8 +48,8 @@ type Pairing struct {
 
 // pairingQR is what the QR code of a device's pairing holds, built as the
 // terminal's pairQR (internal/cli) builds it: the address the device
-// reaches the yard at, then '#', then the code, and '#' and the yard's
-// name beside them where one is named, so the device knows which of the
+// reaches the yard at, then '#', then the code, and '#' and the yard
+// beside them where one is named, so the device knows which of the
 // account's yards it pairs with. Nothing else is in it.
 func pairingQR(address, code, yard string) string {
 	if yard == "" {
@@ -72,12 +73,16 @@ func (s *Server) pairingData(r *http.Request, user string) (Pairing, error) {
 	}
 	out.Open, out.Device, out.Code, out.Expires = true, open.Device, open.Code, open.Expires
 	out.Left = pairingLeft(time.Until(open.Expires))
+	// The yard as the edge spells it where an edge setting stands, so a
+	// member's phone can say whose yard it pairs with; the bare name
+	// where none does, where there is no handle to spell.
+	out.Yard = s.yardName(ctx)
 	if all, err := s.st.Settings(ctx); err == nil {
 		if e, connected, err := store.EdgeOf(all); err == nil && connected {
 			out.Address = e.URL
+			out.Yard = e.HandleName()
 		}
 	}
-	out.Yard = s.yardName(ctx)
 	return out, nil
 }
 
@@ -185,13 +190,13 @@ func (s *Server) handlePairingPNG(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	address := ""
+	address, yard := "", s.yardName(ctx)
 	if all, err := s.st.Settings(ctx); err == nil {
 		if e, connected, err := store.EdgeOf(all); err == nil && connected {
-			address = e.URL
+			address, yard = e.URL, e.HandleName()
 		}
 	}
-	code, err := qr.Encode(pairingQR(address, open.Code, s.yardName(ctx)), qr.M)
+	code, err := qr.Encode(pairingQR(address, open.Code, yard), qr.M)
 	if err != nil {
 		s.fail(w, r, err)
 		return

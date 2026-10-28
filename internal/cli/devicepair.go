@@ -28,9 +28,9 @@ import (
 
 // pairQR is what the QR code of a device's pairing holds: the address the
 // device reaches the yard at, then '#', then the code, and where the address
-// is the edge's, '#' and the yard's name at the edge beside them, so the
-// device knows which of the account's yards it pairs with. Nothing else is
-// in it, and an address has no '#' of its own (yardkey.CleanURL).
+// is the edge's, '#' and the yard's handle/name at the edge beside them, so
+// the device knows which of the account's yards it pairs with. Nothing else
+// is in it, and an address has no '#' of its own (yardkey.CleanURL).
 func pairQR(address, code, yard string) string {
 	if yard == "" {
 		return address + "#" + code
@@ -100,9 +100,9 @@ type devicePaired struct {
 	Device  string `json:"device"`
 	Code    string `json:"code"`
 	Address string `json:"address"`
-	// Yard is this yard's name at the edge, where the address is the edge's
-	// (linkAddr): the device sends it back to say which of the account's
-	// yards it means. A pairing on the listener names none.
+	// Yard is this yard at the edge, handle/name, where the address is the
+	// edge's (linkAddr): the device sends it back to say which of the
+	// account's yards it means. A pairing on the listener names none.
 	Yard    string    `json:"yard,omitempty"`
 	Expires time.Time `json:"expires"`
 	// QR is what a QR code of the pairing holds (pairQR).
@@ -203,11 +203,11 @@ a person.`,
 			out := devicePaired{Pairing: opened.ID, User: opened.User, Device: opened.Device, Code: opened.Code,
 				Address: addr, Expires: opened.Expires}
 			// Where the device reaches this yard through the edge, whether
-			// by default or by --url, it is given this yard's name too: the
-			// edge holds several yards per account, and the device says
+			// by default or by --url, it is given this yard too, handle/name:
+			// the edge holds several yards per account, and the device says
 			// which it means with each call.
 			if e, connected, err := store.EdgeOf(all); err == nil && connected && addr == e.URL {
-				out.Yard = e.Name
+				out.Yard = e.HandleName()
 			}
 			out.QR = pairQR(addr, opened.Code, out.Yard)
 			var picture string

@@ -733,6 +733,13 @@ func CheckEdgeName(name string) error {
 // what hook_public_url is while connected: a hook's URL is it plus /<name>.
 func (e Edge) HooksURL() string { return e.URL + "/hooks/" + e.Handle + "/" + e.Name }
 
+// HandleName is this yard as the edge tells its account's yards apart:
+// handle/name, the spelling a device pairs with and calls with
+// (X-Edge-Yard). A value that holds no name reads as named as its account
+// (ParseEdge), so this is always two segments where an edge setting
+// stands.
+func (e Edge) HandleName() string { return e.Handle + "/" + e.Name }
+
 // String is the edge as the setting holds it.
 func (e Edge) String() string {
 	b, _ := json.Marshal(e) // strings only

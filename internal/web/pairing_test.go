@@ -41,8 +41,9 @@ func pairingYard(t *testing.T) (f *fixture, ada, bob string) {
 	if err := f.st.SetSetting(ctx, store.EdgeSetting, edge.String(), "me"); err != nil {
 		t.Fatal(err)
 	}
-	// The yard's own name, which the QR names beside the edge's address,
-	// is the name setting's, not the edge's name for it.
+	// The QR names the yard as the edge spells it, handle/name from the
+	// edge setting; the name setting's bare name stands where no edge
+	// setting does.
 	if err := f.st.SetSetting(ctx, store.NameSetting, "depot", "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +86,36 @@ func pairingGet(t *testing.T, f *fixture, token, target string) resp {
 	return pairingDo(t, f, token, http.MethodGet, target, nil)
 }
 
+// pairingPNGHolds checks the pairing QR endpoint serves a PNG whose every
+// module is the code of want.
+func pairingPNGHolds(t *testing.T, f *fixture, token, want string) {
+	t.Helper()
+	code, err := qr.Encode(want, qr.M)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pairingGet(t, f, token, "/pairing.png")
+	if r.status != 200 || r.header.Get("Content-Type") != "image/png" {
+		t.Fatalf("the QR: status %d, type %q", r.status, r.header.Get("Content-Type"))
+	}
+	img, err := png.Decode(bytes.NewReader([]byte(r.body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := img.Bounds(); b.Dx() != (code.Size+8)*code.Scale || b.Dy() != (code.Size+8)*code.Scale {
+		t.Fatalf("the QR is %dx%d, want %d square", b.Dx(), b.Dy(), (code.Size+8)*code.Scale)
+	}
+	for y := 0; y < code.Size; y++ {
+		for x := 0; x < code.Size; x++ {
+			px, py := (x+4)*code.Scale+code.Scale/2, (y+4)*code.Scale+code.Scale/2
+			r16, _, _, _ := img.At(px, py).RGBA()
+			if black := r16 < 0x8000; black != code.Black(x, y) {
+				t.Fatalf("the QR's module %d,%d is black %v, want %v", x, y, black, code.Black(x, y))
+			}
+		}
+	}
+}
+
 // The signed-in user opens a pairing and sees its QR, its code and the way
 // to end it; a reload shows the same code again, and ending closes it.
 func TestPairingPageOpensShowsAndEnds(t *testing.T) {
@@ -106,7 +137,8 @@ func TestPairingPageOpensShowsAndEnds(t *testing.T) {
 	}
 	r = pairingGet(t, f, ada, "/pairing")
 	if r.status != 200 || !strings.Contains(r.body, stored.Device) || !strings.Contains(r.body, stored.Code) ||
-		!strings.Contains(r.body, `src="/pairing.png"`) || !strings.Contains(r.body, "End pairing") {
+		!strings.Contains(r.body, `src="/pairing.png"`) || !strings.Contains(r.body, "the yard mckean/edgeyard") ||
+		!strings.Contains(r.body, "End pairing") {
 		t.Fatalf("the page with one open: status %d: %s", r.status, r.body)
 	}
 	// A reload is the same page, code and all.
@@ -114,31 +146,8 @@ func TestPairingPageOpensShowsAndEnds(t *testing.T) {
 		t.Fatalf("a reload differs:\n%s\n%s", again.body, r.body)
 	}
 	// The QR is the pairing's: every module of the PNG is the code of the
-	// edge's address, the code and the yard's name.
-	want, err := qr.Encode("https://my.yardr.dev#"+stored.Code+"#depot", qr.M)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r = pairingGet(t, f, ada, "/pairing.png")
-	if r.status != 200 || r.header.Get("Content-Type") != "image/png" {
-		t.Fatalf("the QR: status %d, type %q", r.status, r.header.Get("Content-Type"))
-	}
-	img, err := png.Decode(bytes.NewReader([]byte(r.body)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b := img.Bounds(); b.Dx() != (want.Size+8)*want.Scale || b.Dy() != (want.Size+8)*want.Scale {
-		t.Fatalf("the QR is %dx%d, want %d square", b.Dx(), b.Dy(), (want.Size+8)*want.Scale)
-	}
-	for y := 0; y < want.Size; y++ {
-		for x := 0; x < want.Size; x++ {
-			px, py := (x+4)*want.Scale+want.Scale/2, (y+4)*want.Scale+want.Scale/2
-			r16, _, _, _ := img.At(px, py).RGBA()
-			if black := r16 < 0x8000; black != want.Black(x, y) {
-				t.Fatalf("the QR's module %d,%d is black %v, want %v", x, y, black, want.Black(x, y))
-			}
-		}
-	}
+	// edge's address, the code and the yard's handle/name.
+	pairingPNGHolds(t, f, ada, "https://my.yardr.dev#"+stored.Code+"#mckean/edgeyard")
 
 	r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"end"}})
 	if r.status != http.StatusSeeOther {
@@ -151,6 +160,51 @@ func TestPairingPageOpensShowsAndEnds(t *testing.T) {
 	if r := pairingGet(t, f, ada, "/pairing.png"); r.status != http.StatusNotFound {
 		t.Fatalf("the QR after ending: status %d, want 404", r.status)
 	}
+	ctx := context.Background()
+	// With no edge setting, the page keeps the bare yard name and offers no
+	// QR to scan; the endpoint still holds that name beside the code.
+	if err := f.st.SetSetting(ctx, store.EdgeSetting, "", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"phone"}}); r.status != http.StatusSeeOther {
+		t.Fatalf("opening: status %d: %s", r.status, r.body)
+	}
+	stored, err = f.st.DevicePairCodeSelf(ctx, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = pairingGet(t, f, ada, "/pairing")
+	if r.status != 200 || !strings.Contains(r.body, stored.Code) ||
+		strings.Contains(r.body, `src="/pairing.png"`) || !strings.Contains(r.body, "no QR to scan") {
+		t.Fatalf("the page with no edge: status %d: %s", r.status, r.body)
+	}
+	pairingPNGHolds(t, f, ada, "#"+stored.Code+"#depot")
+	if r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"end"}}); r.status != http.StatusSeeOther {
+		t.Fatalf("ending the no-edge pairing: status %d: %s", r.status, r.body)
+	}
+
+	// An edge value from before yards had names holds no name, and reads as
+	// named as its account: the page and QR name handle/handle.
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "mckean"}
+	if err := f.st.SetSetting(ctx, store.EdgeSetting, edge.String(), "me"); err != nil {
+		t.Fatal(err)
+	}
+	if r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"phone"}}); r.status != http.StatusSeeOther {
+		t.Fatalf("opening: status %d: %s", r.status, r.body)
+	}
+	stored, err = f.st.DevicePairCodeSelf(ctx, "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r = pairingGet(t, f, ada, "/pairing")
+	if r.status != 200 || !strings.Contains(r.body, "the yard mckean/mckean") {
+		t.Fatalf("the page for a nameless edge value: status %d: %s", r.status, r.body)
+	}
+	pairingPNGHolds(t, f, ada, "https://my.yardr.dev#"+stored.Code+"#mckean/mckean")
 }
 
 // A second signed-in user sees no pairing while one is open, is refused a
