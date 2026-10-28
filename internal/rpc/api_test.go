@@ -2088,6 +2088,51 @@ func callsAreTheDocs(t *testing.T, list string, Calls map[string][]string, apiCa
 	}
 }
 
+// The doc's "TLS is yours, and the client's rule" section names every call
+// the listener holds to the in-the-clear rule, which is every call of
+// OperatorCalls: UserServer.call holds each of them through inTheClear. The
+// section is hand-written prose, held here by presence alone: a future
+// operator call the section does not name fails, so the section is updated
+// with the call. A call named only to contrast it is still named.
+func TestTLSSectionNamesHeldCalls(t *testing.T) {
+	const file = "../../docs/api.md"
+	body, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(body), "\n")
+	const heading = "### TLS is yours, and the client's rule"
+	start := -1
+	for i, line := range lines {
+		if line == heading {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("%s has no %q heading: the section is gone", file, heading)
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		// The section ends at the next heading of its own level or above.
+		if strings.HasPrefix(lines[i], "### ") || strings.HasPrefix(lines[i], "## ") || strings.HasPrefix(lines[i], "# ") {
+			end = i
+			break
+		}
+	}
+	section := strings.Join(lines[start:end], "\n")
+	var names []string
+	for name := range OperatorCalls {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if !strings.Contains(section, "`"+name+"`") {
+			t.Errorf("%s is held to the in-the-clear rule and not named in the doc's %q section: name it there", name, heading)
+		}
+	}
+}
+
 // Every call of the doc, made through the socket with the JSON the doc
 // shows, answers every field the doc promises, with its type; and so does
 // every event of the doc, read from the stream: on the socket, and under
