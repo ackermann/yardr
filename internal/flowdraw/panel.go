@@ -57,14 +57,17 @@ type Block struct {
 	FailedBack bool
 }
 
-// Lamp is a stage's wait lamp: red where the wait is a fault, blue where it
-// is a person's turn by design, "" where nothing waits.
+// Lamp is a stage's wait lamp: "" where a bead is worked with no fault
+// of its own or nothing waits, red where the wait is a fault, blue where
+// it is a person's turn.
 type Lamp string
 
 const (
-	// LampFault is a fault that waits in the stage: held, blocked, gave up.
+	// LampFault is a fault that waits in the stage: a session waiting on
+	// a prompt, or a bead lacking what its route needs.
 	LampFault Lamp = "fault"
-	// LampTurn is a person's turn by design: a manual stage with beads.
+	// LampTurn is a person's turn: a held bead, a manual stage with
+	// beads, or an open ask to the operator.
 	LampTurn Lamp = "turn"
 )
 
@@ -73,7 +76,8 @@ const (
 type Standing struct {
 	Blocks map[string][]Block
 	// Lamps are the stages that wait for a person, red for a fault and blue
-	// for a person's turn; absent where nothing waits.
+	// for a person's turn; absent where a bead is worked with no fault of
+	// its own and where nothing waits.
 	Lamps map[string]Lamp
 	// Noroute are the stages no route serves: dotted sections with the
 	// faint words "no route".

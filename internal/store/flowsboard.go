@@ -97,9 +97,10 @@ type FlowsStage struct {
 	// group.
 	Group string `json:"group"`
 	Human bool   `json:"human"`
-	// Lamp is the stage's wait light: fault where a held, blocked or
-	// stranded bead stands on it, turn where only a person's turn does,
-	// none otherwise. The panel's two lamps, served.
+	// Lamp is the stage's wait light: none while a bead is worked with
+	// no fault of its own, fault where a session waits on a prompt or a
+	// bead lacks what its route needs, turn where only a held bead or a
+	// person's turn does, none otherwise. The panel's two lamps, served.
 	Lamp string `json:"lamp"`
 	// Terminal is a stage that closes the bead entering it, as the web's
 	// stage says: a reader draws the buffer stop from this, never from the
@@ -173,10 +174,8 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 		return nil, err
 	}
 	rows := make(map[string]eta.ArrivalRow, len(inputs))
-	dependencyBlocked := make(map[string]bool, len(inputs))
 	for _, in := range inputs {
 		rows[in.ID] = eta.ArrivalRowFor(in)
-		dependencyBlocked[in.ID] = in.BlockedBy != ""
 	}
 	live, err := s.Sessions(ctx, false)
 	if err != nil {
@@ -227,7 +226,7 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 		return nil, err
 	}
 	operator := settings[OperatorSetting]
-	lamps, err := s.flowLamps(ctx, beads, live, routes, groups, operator, dependencyBlocked)
+	lamps, err := s.flowLamps(ctx, beads, live, routes, groups, operator)
 	if err != nil {
 		return nil, err
 	}
@@ -344,17 +343,29 @@ func (s *Store) Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error
 			for st := range fd.Flows[f].Stages {
 				bs := onStage[[2]int{f, st}]
 				newestFirstBeads(bs)
-				fault, turn := false, false
+				// The stage shows its best state: no lamp while a bead
+				// is worked with no fault of its own, else its worst
+				// wait. A session waiting on a prompt keeps its claim,
+				// so a blocked bead is worked but not moving: it lights
+				// the fault below.
+				moving, fault, turn := false, false, false
 				for _, b := range bs {
-					fd.Flows[f].Stages[st].Beads = append(fd.Flows[f].Stages[st].Beads, row(b))
-					switch lamps[b.ID] {
-					case "fault":
+					fb := row(b)
+					fd.Flows[f].Stages[st].Beads = append(fd.Flows[f].Stages[st].Beads, fb)
+					if lamps[b.ID] == "fault" {
 						fault = true
-					case "turn":
+						continue
+					}
+					if lamps[b.ID] == "turn" {
 						turn = true
+					}
+					if fb.Working {
+						moving = true
 					}
 				}
 				switch {
+				case moving:
+					// No lamp: the readers draw a worked stage as moving.
 				case fault:
 					fd.Flows[f].Stages[st].Lamp = "fault"
 				case turn:
@@ -468,14 +479,15 @@ func newestFirstBeads(bs []Bead) {
 	})
 }
 
-// flowLamps answers each bead's lamp: fault where held, blocked by a
-// dependency, blocked on a prompt or stranded; turn where only a person's
-// turn waits, a manual group's stage or an open ask to the operator; none
-// where nothing waits.
+// flowLamps answers each bead's lamp: fault where a session waits on a
+// prompt or the bead lacks what its route needs; turn where the bead is
+// held or only a person's turn waits, a manual group's stage or an open
+// ask to the operator; none where nothing waits. A bead blocked only
+// behind another bead lights none: ordinary waiting.
 // The panel's fault/turn rule, without the words: a wait that is only an
 // ask, with a manual reason if any, is the person's turn, and a bead
 // whose reasons are all manual is parked, so both light turn.
-func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, routes []Route, groups []Group, operator string, dependencyBlocked map[string]bool) (map[string]string, error) {
+func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, routes []Route, groups []Group, operator string) (map[string]string, error) {
 	manualGroup := map[string]bool{}
 	byName := make(map[string]Group, len(groups))
 	for _, g := range groups {
@@ -524,7 +536,7 @@ func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, rou
 	}
 	out := make(map[string]string, len(beads))
 	for _, b := range beads {
-		fault := b.Hold || dependencyBlocked[b.ID] || lacking[b.ID]
+		fault := lacking[b.ID]
 		for _, sess := range agents[b.ID] {
 			if blocked, err := s.flowBlocked(ctx, sess); err != nil {
 				return nil, err
@@ -545,7 +557,7 @@ func (s *Store) flowLamps(ctx context.Context, beads []Bead, live []Session, rou
 		} else if r := MatchRoute(routes, b, operator, byName); r != nil {
 			group = r.Worker()
 		}
-		if manualGroup[group] || asked[b.ID] {
+		if b.Hold || manualGroup[group] || asked[b.ID] {
 			out[b.ID] = "turn"
 			continue
 		}

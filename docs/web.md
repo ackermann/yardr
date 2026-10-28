@@ -1340,9 +1340,13 @@ How to read it:
   an amber ring around its light besides, its title naming the stage age
   against the p90; late stands beside the stalled lamp, never instead of
   it ([Estimates](#estimates-the-eta-and-the-late-mark)).
-- A stage that waits for a person carries a lamp: red where the wait is a
-  fault (held, blocked, gave up), rust where it is a person's turn by
-  design (a manual stage, or an open ask to the operator). A stage that can report `changes` carries a
+- A stage with a bead being worked and no fault of its own carries no
+  lamp: it is moving. A prompt-blocked session keeps its claim but still
+  makes a fault. When no bead is being worked without a fault, red marks a
+  session waiting on a prompt or a bead lacking what its route needs, and
+  rust marks a held bead or a person's turn (a manual stage, or an open
+  ask to the operator). A bead waiting only behind another bead lights no
+  lamp. A stage that can report `changes` carries a
   signal instead: a lamp on a short post, an unlit outline unless the
   stage waits, when it lights red or rust as a wait lamp does; a wait on
   a stage with no signal is a bare lamp. A bead back on `failed` or

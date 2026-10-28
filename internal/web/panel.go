@@ -178,16 +178,15 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	}
 	faults := map[string]bool{}
 	turns := map[string]bool{}
-	for id := range depByBead {
-		faults[id] = true
-	}
 	for _, w := range waits {
-		// A wait that is only an ask (with a manual reason, if any) is
-		// the person's turn, blue as a manual wait is; a hold, a prompt
-		// or a strand is a fault, red.
+		// A prompt nobody answers or a strand is a fault, red; a hold,
+		// like a wait that is only an ask (with a manual reason, if
+		// any), is the person's turn, blue as a manual wait is. A bead
+		// waiting only behind another bead lights neither lamp:
+		// ordinary waiting.
 		fault := false
 		for _, r := range w.Why {
-			if r.Kind == "held" || r.Kind == "blocked" || r.Kind == "stranded" {
+			if r.Kind == "blocked" || r.Kind == "stranded" {
 				fault = true
 				break
 			}
@@ -205,17 +204,25 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	for _, depot := range d.Depots {
 		for _, col := range depot.Flows {
 			for _, st := range col.Stages {
-				fault, turn := false, false
+				// The stage shows its best state, as the served lamp
+				// does: no lamp while a bead is worked with no fault
+				// of its own, else its worst wait.
+				moving, fault, turn := false, false, false
 				for _, c := range st.Beads {
 					if faults[c.ID] {
 						fault = true
-						break
+						continue
 					}
 					if turns[c.ID] {
 						turn = true
 					}
+					if c.Working {
+						moving = true
+					}
 				}
 				switch {
+				case moving:
+					// No lamp: a worked stage draws as moving.
 				case fault:
 					d.lamps[st.Section] = lampFault
 				case turn:

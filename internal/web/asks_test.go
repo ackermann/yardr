@@ -449,7 +449,8 @@ func TestHomeNeedsAskTwice(t *testing.T) {
 }
 
 // An asked stage carries the blue lamp on the panel, as a manual wait
-// does; a fault on the same stage burns red instead.
+// does; a hold keeps it blue, and a fault on the same stage burns red
+// instead.
 func TestPanelAskLamp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -473,9 +474,24 @@ func TestPanelAskLamp(t *testing.T) {
 	if strings.Contains(svg, `class="lamp fault"`) {
 		t.Error("no fault waits, and a red lamp burns")
 	}
-	// A fault on the asked stage burns red, as a fault does.
+	// A hold on the asked stage keeps the blue lamp: a hold is the
+	// person's turn, not a fault.
 	_, err = f.st.SetHold(ctx, asked.ID, true, store.Expect{}, "me")
 	must(t, err)
+	svg = f.get("/flows?panel=1").body
+	if part := stagePart(t, svg, "new"); !strings.Contains(part, `class="lamp turn"`) {
+		t.Error("the held asked stage lights no blue lamp")
+	}
+	if strings.Contains(svg, `class="lamp fault"`) {
+		t.Error("a hold burns a red lamp")
+	}
+	// A fault on the asked stage burns red, as a fault does.
+	stuck := askBead(t, f, "stuck", "new")
+	must(t, f.st.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 5}, "me"))
+	sess, err := f.st.Claim(ctx, stuck.ID, "builders", "new", "yard")
+	must(t, err)
+	must(t, f.st.MarkRunning(ctx, sess.ID, map[string]any{"agent": "stuck-new"}))
+	must(t, f.st.LogDispatch(ctx, stuck.ID, "session_blocked", "yard", map[string]any{"session": sess.ID}))
 	svg = f.get("/flows?panel=1").body
 	if part := stagePart(t, svg, "new"); !strings.Contains(part, `class="lamp fault"`) {
 		t.Error("the fault on the asked stage lights no red lamp")

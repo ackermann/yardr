@@ -611,7 +611,7 @@ var apiCalls = []apiCall{
 	},
 	{
 		method:   "Flows",
-		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, each flow its landings of the trailing 24 hours, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: fault where a held, blocked or stranded bead stands on it, turn where only a person's turn does, none otherwise. A flow's landings are the beads that entered merged in the trailing 24 hours, newest first, at most 30: what landed under its landed station.",
+		says:     "The flows view: the yard's depots as lines, each with its travelling total, its flows, each flow its stages in travel order with the open beads on each and its lamp, each flow its landings of the trailing 24 hours, and its Elsewhere rows; the beads travelling with no line; and the yard-wide travelling total. A device's board holds only beads its user may see and the totals count those beads; the yard itself sees every bead. It is what footplate's timetable draws: the yard computes the view once so the readers draw without computing. Each bead's row is its Arrivals row, with whether it is worked; each stage's lamp is the panel's: none while a bead is worked with no fault of its own, fault where a session waits on a prompt or a bead lacks what its route needs, turn where only a held bead or a person's turn does, none otherwise. A flow's landings are the beads that entered merged in the trailing 24 hours, newest first, at most 30: what landed under its landed station.",
 		args:     []field{{"viewer", "string", "who reads the board: it holds no row they may not see; a device's viewer is its user; left out, the yard itself"}},
 		requests: []string{`{"viewer":"jo"}`, `{}`},
 		fields: slices.Concat([]field{
@@ -625,7 +625,7 @@ var apiCalls = []apiCall{
 			{"depots[].flows[].stages[].stage", "string", "the stage"},
 			{"depots[].flows[].stages[].group", "string", "the group a bead of the flow's type would be routed to here, `\"\"` when no route matches"},
 			{"depots[].flows[].stages[].human", "bool", "the group is a manual one"},
-			{"depots[].flows[].stages[].lamp", "string", "`fault` where a held, blocked or stranded bead stands here, `turn` where only a person's turn does, `none` otherwise"},
+			{"depots[].flows[].stages[].lamp", "string", "`none` while a bead is worked here with no fault of its own, `fault` where a session waits on a prompt or a bead lacks what its route needs, `turn` where only a held bead or a person's turn does, `none` otherwise"},
 			{"depots[].flows[].stages[].terminal", "bool", "the stage closes the bead entering it"},
 			{"depots[].flows[].stages[].limit", "number?", "the routed group's seat limit, `0` pausing the group; absent where no route matches"},
 			{"depots[].flows[].stages[].taken", "number?", "how many of the routed group's seats live sessions hold across the whole yard, the same number on every stage routed to the group; absent where no route matches"},

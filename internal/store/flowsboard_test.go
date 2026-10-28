@@ -158,10 +158,10 @@ func TestFlowsServesDepotsFlowsStagesBeads(t *testing.T) {
 		have = append(have, stage{s.Stage, s.Group, s.Lamp, s.Human, flowBeads(s.Beads)})
 	}
 	// The newest change first, ties by id; new is routed to the
-	// builders, review to nobody; the hold lights new's lamp.
+	// builders, review to nobody; the hold lights new's turn lamp.
 	want := []stage{
 		{name: "backlog", lamp: "none", beads: []string{"shop-back"}},
-		{name: "new", group: "builders", lamp: "fault", beads: []string{"shop-held", "shop-new"}},
+		{name: "new", group: "builders", lamp: "turn", beads: []string{"shop-held", "shop-new"}},
 		{name: "review", lamp: "none", beads: []string{"shop-review"}},
 		{name: "merged", lamp: "none"},
 	}
@@ -383,10 +383,11 @@ func TestFlowsHeldBy(t *testing.T) {
 	}
 }
 
-// TestFlowsLamps pins the fault/turn rule: a hold and a prompt nobody
-// answers are faults; a manual group's stage and an open ask to the
-// operator are the person's turn; an answered prompt, an ask to anyone
-// else and a plain bead light nothing.
+// TestFlowsLamps pins the fault/turn rule: a prompt nobody answers is a
+// fault; a hold, a manual group's stage and an open ask to the operator
+// are the person's turn; an answered prompt, an ask to anyone else and a
+// plain bead light nothing. A stage with a bead worked in it lights no
+// lamp at all: it is moving.
 func TestFlowsLamps(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
@@ -399,7 +400,7 @@ func TestFlowsLamps(t *testing.T) {
 		}
 	}
 	bareDir := dirDepot(t, y, "bare")
-	y.flowDepot(t, "quiet", "quiet-flow", "new", "done")
+	y.flowDepot(t, "quiet", "quiet-flow", "new", "done", "later")
 	_, err := y.AddUser(ctx, "op", "op")
 	must(err)
 	must(y.SetSetting(ctx, OperatorSetting, "op", "op"))
@@ -431,6 +432,22 @@ func TestFlowsLamps(t *testing.T) {
 	solo := y.travel(t, "solo", "quiet", "new")
 	_, err = y.AddAsk(ctx, solo.ID, Ask{Question: "For zed?", To: "zed", Context: []string{"zed's call."}}, "yard")
 	must(err)
+	// A held bead beside a worked one: bare's inbox holds the freed
+	// bead's running session, so no lamp burns.
+	resting := y.travel(t, "resting", "bare", "inbox")
+	_, err = y.SetHold(ctx, resting.ID, true, Expect{}, "me")
+	must(err)
+	// A held bead alone is the person's turn; a blocked session alone,
+	// worked but not moving, is a fault.
+	lone := y.travel(t, "lone", "quiet", "done")
+	_, err = y.SetHold(ctx, lone.ID, true, Expect{}, "me")
+	must(err)
+	_ = lone
+	stuck := y.travel(t, "stuck", "quiet", "later")
+	ssess, err := y.Claim(ctx, stuck.ID, "builders", "later", "yard")
+	must(err)
+	must(y.MarkRunning(ctx, ssess.ID, map[string]any{"agent": "stuck-new"}))
+	must(y.LogDispatch(ctx, stuck.ID, "session_blocked", "yard", map[string]any{"session": ssess.ID}))
 	stageLamp := func(board *FlowsBoard, depot, stage string) string {
 		t.Helper()
 		for _, d := range board.Depots {
@@ -452,15 +469,19 @@ func TestFlowsLamps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// New holds the held and the blocked: a fault. Review holds the parked
-	// bead on its manual route: turn. Bare's inbox holds only the freed
-	// bead: none, and the stranded bead stands off the line. Quiet's new
-	// holds only the bead asked of zed: none.
+	// New holds the held and the blocked: a fault, from the blocked
+	// session; the held bead is a turn. Review holds the parked bead on
+	// its manual route: turn. Bare's inbox holds a worked bead beside a
+	// held one: none, it is moving, and the stranded bead stands off the
+	// line. Quiet's new holds only the bead asked of zed: none; its done
+	// a held bead alone: turn; its later a blocked session alone: fault.
 	for _, tt := range []struct{ depot, stage, lamp string }{
 		{"shop", "new", "fault"},
 		{"shop", "review", "turn"},
 		{"bare", "inbox", "none"},
 		{"quiet", "new", "none"},
+		{"quiet", "done", "turn"},
+		{"quiet", "later", "fault"},
 	} {
 		if got := stageLamp(board, tt.depot, tt.stage); got != tt.lamp {
 			t.Errorf("%s %s lamp = %q, want %q", tt.depot, tt.stage, got, tt.lamp)
@@ -486,8 +507,9 @@ func TestFlowsLamps(t *testing.T) {
 	}
 }
 
-// A dependency-blocked bead lights the same stage fault lamp as a held bead.
-func TestFlowsDependencyBlockLightsFault(t *testing.T) {
+// A dependency-blocked bead lights no lamp: waiting behind another bead
+// is ordinary waiting. Its row still says what holds it.
+func TestFlowsDependencyBlockLightsNone(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
@@ -511,8 +533,8 @@ func TestFlowsDependencyBlockLightsFault(t *testing.T) {
 				if stage.Stage != "new" {
 					continue
 				}
-				if stage.Lamp != "fault" {
-					t.Fatalf("new lamp = %q, want fault", stage.Lamp)
+				if stage.Lamp != "none" {
+					t.Fatalf("new lamp = %q, want none", stage.Lamp)
 				}
 				if len(stage.Beads) != 1 {
 					t.Fatalf("new beads = %+v, want target only", stage.Beads)
