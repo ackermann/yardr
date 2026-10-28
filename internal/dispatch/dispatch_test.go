@@ -38,6 +38,7 @@ func TestMain(m *testing.M) {
 	source.Timeout = pushFuse
 	code := m.Run()
 	scripttest.Remove()
+	removePeerTemplates()
 	os.Exit(code)
 }
 

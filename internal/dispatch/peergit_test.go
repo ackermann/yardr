@@ -44,18 +44,11 @@ func commitIn(t *testing.T, dir, file, text string) string {
 	return gitIn(t, dir, "rev-parse", "HEAD")
 }
 
-// sharedRemote is a bare repository with one commit on main.
+// sharedRemote is a bare repository with one commit on main, copied from
+// the template the first borrower built (peerfixture_test.go).
 func sharedRemote(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	remote := filepath.Join(dir, "remote.git")
-	gitIn(t, dir, "init", "-q", "--bare", "-b", "main", remote)
-	seed := filepath.Join(dir, "seed")
-	gitIn(t, dir, "clone", "-q", remote, seed)
-	gitIn(t, seed, "checkout", "-q", "-b", "main")
-	commitIn(t, seed, "a.txt", "one\n")
-	gitIn(t, seed, "push", "-q", "origin", "main")
-	return remote
+	return borrowPeerRemote(t)
 }
 
 // clones makes y's depot web a clone of remote, with the base main.
