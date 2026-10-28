@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -139,21 +140,22 @@ func runDaemon(t *testing.T, d *dispatch.Dispatcher) (stop func()) {
 // wakePass makes a store change no route takes, so Run's loop runs a
 // pass for what a test changed beside it (the dispatcher's clock, here)
 // without starting anything for it, and waits until that pass has run:
-// its unrouted event for the wake bead is the effect waited on.
-func wakePass(t *testing.T, s store.API) {
+// the pass's own stamp advancing past this call is the effect waited
+// on, not any one of the pass's writes for a bead. The stamp is the
+// pass's completion signal, read with config.ReadPassStamp, so the wait
+// holds whatever the pass walks or writes on the way; the wake bead is
+// only the prod, and its priority is none. The dispatcher needs a home
+// for its passes to stamp.
+func wakePass(t *testing.T, d *dispatch.Dispatcher, s store.API) {
 	t.Helper()
-	// The pass walks the ready beads by priority, 0 first, and a bead made
-	// without one has 0. The wake bead would come before the beads a test
-	// waits on, and its unrouted event, which ends the wait below, would be
-	// written before the pass reached them. At 9 it sorts after every bead
-	// a test makes, so the pass has been through them when its event is seen.
-	b, err := s.CreateBead(context.Background(), store.NewBead{Title: "wake", Stage: "limbo", Priority: 9}, "me")
-	if err != nil {
+	since := time.Now()
+	if _, err := s.CreateBead(context.Background(), store.NewBead{Title: "wake", Stage: "limbo"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(testload.Scale(30 * time.Second))
 	for time.Now().Before(deadline) {
-		if len(eventKinds(t, s, b.ID, "unrouted")) > 0 {
+		stamp, err := config.ReadPassStamp(d.Home)
+		if err == nil && stamp.At.After(since) {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -172,6 +174,7 @@ func TestBlockedStartDoesNotBlockOtherGroup(t *testing.T) {
 	r := newGateRunner("builders")
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
 		Backoff: time.Nanosecond, Interval: time.Hour}
+	d.Home = t.TempDir() // wakePass waits on the pass stamp
 	ctx := context.Background()
 	must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "fake", Limit: 5}, "me"))
@@ -212,7 +215,7 @@ func TestBlockedStartDoesNotBlockOtherGroup(t *testing.T) {
 	}
 
 	// A later pass still neither ends the owned start nor claims behind it.
-	wakePass(t, s)
+	wakePass(t, d, s)
 	if got, _ := s.GetSession(ctx, first.ID); got.State != "starting" {
 		t.Fatalf("owned starting session = %s, want starting", got.State)
 	}
@@ -354,6 +357,7 @@ func TestRuntimeStartFailureLeavesNextBeadToALaterPass(t *testing.T) {
 			}
 			d := &dispatch.Dispatcher{Store: daemonStore, Runners: map[string]dispatch.Runner{"fake": r},
 				Backoff: time.Nanosecond, RuntimeBackoff: time.Hour, Interval: time.Hour}
+			d.Home = t.TempDir() // wakePass waits on the pass stamp
 			ctx := context.Background()
 			must(t, s.PutGroup(ctx, store.Group{Name: "builders", Runner: "fake", Limit: 5}, "me"))
 			_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me")
@@ -409,7 +413,7 @@ func TestRuntimeStartFailureLeavesNextBeadToALaterPass(t *testing.T) {
 			if got := groupEvents(t, s, "runtime_down"); got["builders"] != 1 {
 				t.Fatalf("runtime_down = %v, want one for builders", got)
 			}
-			wakePass(t, s)
+			wakePass(t, d, s)
 			if n := r.callsFor("builders"); n != 1 {
 				t.Fatalf("builders starts after the outage was recorded = %d, want 1", n)
 			}
@@ -514,6 +518,7 @@ func TestStartingSessionsOwnedAndUnowned(t *testing.T) {
 	r := newGateRunner("g")
 	d := &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"fake": r},
 		Backoff: time.Nanosecond, Interval: time.Hour}
+	d.Home = t.TempDir() // wakePass waits on the pass stamp
 	must(t, s.PutGroup(ctx, store.Group{Name: "g", Runner: "fake", Limit: 2}, "me"))
 	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: "g"}, "me")
 	must(t, err)
@@ -523,8 +528,17 @@ func TestStartingSessionsOwnedAndUnowned(t *testing.T) {
 	defer stop()
 	owned := waitSessionState(t, s, b.ID, "starting")
 	<-r.entered
+	// The claiming pass may still be running its tail: wait for its
+	// stamp, so the stamp wakePass waits for below belongs to a pass
+	// that ran under the moved clock. SetClock is a side channel, not a
+	// store write, so the loop's serial order alone does not place the
+	// pass after it.
+	until(t, "the claiming pass", func() bool {
+		_, err := config.ReadPassStamp(d.Home)
+		return err == nil
+	})
 	dispatch.SetClock(d, func() time.Time { return time.Now().Add(6 * time.Minute) })
-	wakePass(t, s)
+	wakePass(t, d, s)
 	if got, _ := s.GetSession(ctx, owned.ID); got.State != "starting" {
 		t.Fatalf("owned session aged past five minutes = %s, want starting", got.State)
 	}
