@@ -23,6 +23,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/packs"
 )
 
@@ -116,7 +117,9 @@ func TestInitHarnessClaude(t *testing.T) {
 	if !slices.Contains(store.AttentionKinds, "stranded") || !slices.Contains(knownKinds, "stranded") || !slices.Contains(store.DispatchKinds, "stranded") {
 		t.Fatalf("stranded is not heard: on = %v", r.On)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["yardmaster"] != "yardmaster" || got["hearer"] != "yardmaster" {
+	// A non-interactive init asks nothing (below) and leaves the telemetry
+	// switch unset, which reads as off.
+	if got, _ := st.Settings(ctx); got["default_kind"] != "claude" || got["operator"] != "Jo" || got["yardmaster"] != "yardmaster" || got["hearer"] != "yardmaster" || got["telemetry"] != "" {
 		t.Fatalf("settings = %v", got)
 	}
 	// The yardmaster takes it from here; the commands are in init --help.
@@ -877,9 +880,10 @@ func TestBareYardr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The form's five pages, whether to ask the harness first, the two
-	// services it offers once the yard runs, and a link with another yard.
-	if asked != 10 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
+	// The form's five pages, the telemetry question, whether to ask the
+	// harness first, the two services it offers once the yard runs, and a
+	// link with another yard.
+	if asked != 11 || !strings.Contains(out, "yard created") || strings.Contains(out, "Usage:") {
 		t.Fatalf("store without default_kind: asked %d\n%s", asked, out)
 	}
 	if _, err := st.GetCrew(ctx, "yardmaster"); err != nil {
@@ -924,7 +928,7 @@ func TestOnboardingForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if asked != 10 {
+	if asked != 11 {
 		t.Fatalf("%d form pages", asked)
 	}
 	r, err := st.GetCrew(ctx, "yardmaster")
@@ -935,7 +939,9 @@ func TestOnboardingForm(t *testing.T) {
 		!reflect.DeepEqual(r.Config["args"], []any{"--dangerously-bypass-approvals-and-sandbox"}) {
 		t.Fatalf("yardmaster = %+v", r)
 	}
-	if got, _ := st.Settings(ctx); got["default_kind"] != "codex" {
+	// The telemetry question defaults to No, and No writes the off
+	// setting, so a completed onboarding is never asked again.
+	if got, _ := st.Settings(ctx); got["default_kind"] != "codex" || got["telemetry"] != "false" {
 		t.Fatalf("settings = %v", got)
 	}
 	if !strings.Contains(out, "yard created") || !strings.Contains(out, "herdr · codex") {
@@ -954,6 +960,145 @@ func TestOnboardingCancelled(t *testing.T) {
 	}
 	if rs, _ := st.Crew(context.Background()); len(rs) != 0 {
 		t.Fatalf("crew members = %v", rs)
+	}
+}
+
+// A scripted onboarding answering the telemetry question Yes leaves the
+// setting true through the same activation as yardr telemetry on: the id
+// minted, eligible from the next UTC day.
+func TestOnboardingTelemetryYes(t *testing.T) {
+	home := newHomeDir(t)
+	setInteractive(t, true)
+	stubLookPath(t, "codex", "git", "herdr")
+	f := &former{t: t, answers: map[string]any{"telemetry": true}, goes: []string{goYardmaster}}
+	stubAsk(t, f.ask)
+	st := storetest.New(t)
+	stubStart(t, st, yardmasterHandle())
+	stubPane(t, answeredPane)
+	stubFocus(t)
+	ctx := context.Background()
+
+	before := time.Now().UTC()
+	if _, err := run(t, testApp(t, st, home).rootCmd(), "crew", "list"); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now().UTC()
+	if !slices.Contains(keysOf(f), "telemetry") {
+		t.Fatalf("asked %q", keysOf(f))
+	}
+	if got, _ := st.Settings(ctx); got["telemetry"] != "true" {
+		t.Fatalf("settings = %v", got)
+	}
+	state, err := telemetry.LoadState(config.At(home).TelemetryState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state == nil || state.InstallID == "" {
+		t.Fatalf("no install id in %s", config.At(home).TelemetryState())
+	}
+	// Either side of a UTC midnight the run crossed, eligible_from is the
+	// next UTC day after the consent: usually one date, never today's.
+	nextDay := func(t time.Time) string { return t.AddDate(0, 0, 1).Format("2006-01-02") }
+	if state.EligibleFrom != nextDay(before) && state.EligibleFrom != nextDay(after) {
+		t.Fatalf("eligible_from = %q", state.EligibleFrom)
+	}
+}
+
+// A yard whose telemetry setting is already set is never asked, on or
+// off; a form left with ctrl+c records nothing, and the onboarding goes
+// on from an unanswered question.
+func TestAskTelemetrySkipsWhenSet(t *testing.T) {
+	ctx := context.Background()
+	for _, value := range []string{"true", "false"} {
+		a := telemetryYard(t)
+		cmd := map[string]string{"true": "on", "false": "off"}[value]
+		if _, err := run(t, a.telemetryCmd(), cmd); err != nil {
+			t.Fatal(err)
+		}
+		stubAsk(t, func(...huh.Field) error { t.Error("asked with telemetry set"); return nil })
+		cfg, err := a.config()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := a.askTelemetry(ctx, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a := telemetryYard(t)
+	stubAsk(t, func(...huh.Field) error { return huh.ErrUserAborted })
+	cfg, err := a.config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.askTelemetry(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.Settings(ctx); got["telemetry"] != "" {
+		t.Fatalf("an aborted answer recorded telemetry = %q", got["telemetry"])
+	}
+}
+
+// A non-interactive init asks nothing and leaves the switch unset; where
+// a terminal is available it names the command that turns it on. --json
+// stays machine-readable, and a yard that already decided stays quiet.
+func TestInitNamesTelemetrySwitch(t *testing.T) {
+	setInteractive(t, true)
+	stubAsk(t, func(...huh.Field) error { t.Error("init asked"); return nil })
+	home := newHomeDir(t)
+	st := storetest.New(t)
+	ctx := context.Background()
+	a := testApp(t, st, home)
+	a.actor = "me"
+
+	out, err := run(t, a.rootCmd(), "init", "--harness", "claude", "--operator", "Jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Telemetry is off. `" + hereAt(home, "yardr telemetry on") + "` records consent for one daily batch", "(docs/telemetry.md)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("init names no switch %q:\n%s", want, out)
+		}
+	}
+	if got, _ := st.Settings(ctx); got["telemetry"] != "" {
+		t.Errorf("settings = %v", got)
+	}
+
+	out, err = run(t, a.rootCmd(), "init", "--harness", "claude", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "Telemetry is off") {
+		t.Errorf("hint in --json output:\n%s", out)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Errorf("init --json is no object: %v\n%s", err, out)
+	}
+
+	// Turning it on is the operator's, as any settings change is.
+	if _, err := run(t, a.rootCmd(), "telemetry", "on", "--actor", "Jo"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, a.rootCmd(), "init", "--harness", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "Telemetry is off") {
+		t.Errorf("hint on a decided yard:\n%s", out)
+	}
+
+	setInteractive(t, false)
+	out, err = run(t, a.rootCmd(), "init", "--harness", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "Telemetry is off") {
+		t.Errorf("hint with no terminal:\n%s", out)
 	}
 }
 

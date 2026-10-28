@@ -20,6 +20,7 @@ import (
 // state fails it too.
 var allowSerial = map[string]string{
 	"TestAddrSettingsAreCheckedAsTheFlag":                   "stubWeb,t.Setenv",
+	"TestAskTelemetrySkipsWhenSet":                          "stubAsk",
 	"TestBDPAndOTelStartStop":                               "running,stub:answers,stub:spawn,t.Setenv",
 	"TestBDPStartAndInstallStayOnLoopback":                  "stub:answers,stub:spawn,stubServices",
 	"TestBareYardr":                                         "holdDaemon,setInteractive,stubAsk,stubFocus,stubLookPath,stubPane,stubStart",
@@ -131,6 +132,7 @@ var allowSerial = map[string]string{
 	"TestHookAddNamesTheEdgeWhereTheLinkServesAlone":        "answeredTools",
 	"TestHookListShowsQuiet":                                "stub:hookNow",
 	"TestInitFinishesAfterAFailedRun":                       "t.Setenv",
+	"TestInitNamesTelemetrySwitch":                          "setInteractive,stubAsk",
 	"TestInitOperatorDefaultsToUser":                        "t.Setenv",
 	"TestInitStart":                                         "stubLookPath,stubPane,stubStart",
 	"TestInitStartAsksAgainWhileTheYardmasterIsBlocked":     "blockedYardmaster",
@@ -177,6 +179,7 @@ var allowSerial = map[string]string{
 	"TestOnboardingSkipsTheCall":                            "newAsker",
 	"TestOnboardingStartsTheYard":                           "actAsOperator,setInteractive,stubAsk,stubChat,stubFocus,stubLookPath,stubPane,stubStart,t.Setenv",
 	"TestOnboardingStopsBeforeTheYardmaster":                "newAsker",
+	"TestOnboardingTelemetryYes":                            "setInteractive,stubAsk,stubFocus,stubLookPath,stubPane,stubStart",
 	"TestOnboardingTriesTheHarnessAgain":                    "newAsker,stubAsk",
 	"TestOnboardingWithASilentYardmasterOpensNoChat":        "actAsOperator,setInteractive,stub:yardmasterWait,stubAsk,stubChat,stubLookPath,stubPane,stubStart",
 	"TestOnboardingWithoutAServiceManager":                  "onboardTo,stubServices",

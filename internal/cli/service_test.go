@@ -1122,7 +1122,7 @@ func TestOnboardingAsksForTheServices(t *testing.T) {
 	// The run acts as the login name, as it does on a person's machine.
 	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	out, keys := onboardTo(t, st, nil)
-	if !slices.Equal(keys, []string{"style", "about", "try", "login", "web", "link", "go"}) {
+	if !slices.Equal(keys, []string{"style", "about", "telemetry", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	if left, _ := os.ReadDir(dir); len(left) != 0 || len(m.calls) != 0 || len(*started) != 0 {
@@ -1143,7 +1143,7 @@ func TestOnboardingInstallsTheDaemonAndStartsTheWebView(t *testing.T) {
 	// The run acts as the login name, as it does on a person's machine.
 	testYard(t, st, home, "USER="+os.Getenv("USER"))
 	out, keys := onboardTo(t, st, map[string]any{"login": true, "web": true})
-	if !slices.Equal(keys, []string{"style", "about", "try", "login", "web", "web_login", "link", "go"}) {
+	if !slices.Equal(keys, []string{"style", "about", "telemetry", "try", "login", "web", "web_login", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	label := "dev.yardr.daemon." + homeID(home)
@@ -1193,7 +1193,7 @@ func TestOnboardingWithoutAServiceManager(t *testing.T) {
 	// The run acts as the login name, as it does on a person's machine.
 	testYard(t, st, newHomeDir(t), "USER="+os.Getenv("USER"))
 	out, keys := onboardTo(t, st, map[string]any{"web": true})
-	if !slices.Equal(keys, []string{"style", "about", "try", "web", "link", "go"}) {
+	if !slices.Equal(keys, []string{"style", "about", "telemetry", "try", "web", "link", "go"}) {
 		t.Fatalf("asked %q\n%s", keys, out)
 	}
 	wantText(t, out, "yardr: tests start nothing in the background", "The yard runs without it", "yardmaster is running, in herdr")

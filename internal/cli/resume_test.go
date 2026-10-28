@@ -236,7 +236,7 @@ func TestOnboardingAfterAFailedRun(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", s, out)
 		}
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "try", "login", "web", "link", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"style", "about", "telemetry", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -272,7 +272,7 @@ func TestBareYardrFinishesAYardWithoutDefaultKind(t *testing.T) {
 	if strings.Contains(out, "Usage:") {
 		t.Errorf("help after the onboarding:\n%s", out)
 	}
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "try", "login", "web", "link", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"finish", "telemetry", "try", "login", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -323,7 +323,7 @@ func TestBareYardrStartsAYardThatDidNotStart(t *testing.T) {
 		t.Errorf("output:\n%s", out)
 	}
 	// The run that could not start the daemon asked about the harness too.
-	if *started != 1 || !slices.Equal(keysOf(f), []string{"try", "finish", "try", "web", "link", "go"}) {
+	if *started != 1 || !slices.Equal(keysOf(f), []string{"try", "finish", "telemetry", "try", "web", "link", "go"}) {
 		t.Fatalf("%d daemons started, asked %q", *started, keysOf(f))
 	}
 }
@@ -394,7 +394,7 @@ func TestOnboardingIsTakenUpWhereTheYardmasterDidNotComeUp(t *testing.T) {
 		!strings.Contains(out, "Once that is set right, run yardr --home "+home+" in this terminal again: it goes on from here.") {
 		t.Fatalf("form: %v\n%s", err, out)
 	}
-	if got := keysOf(f); !slices.Equal(got, []string{"style", "about", "try"}) {
+	if got := keysOf(f); !slices.Equal(got, []string{"style", "about", "telemetry", "try"}) {
 		t.Fatalf("asked %q after a yardmaster that is not up", got)
 	}
 	stored, err := st.Settings(context.Background())

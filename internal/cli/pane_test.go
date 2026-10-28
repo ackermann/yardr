@@ -171,6 +171,14 @@ func TestInitStartNotNow(t *testing.T) {
 		t.Fatalf("err %v, asked %d times\n%s", err, b.asked(), plain)
 	}
 	from := "\nyardmaster's session is running"
+	// The terminal run names the telemetry switch after the report; the
+	// run with no terminal cannot. Past the question it is the one
+	// difference between the two.
+	hint := "Telemetry is off. `" + hereAt(b.home, "yardr telemetry on") + "` records consent for one daily batch of counts and fixed names (docs/telemetry.md).\n"
+	if !strings.Contains(out, hint) || strings.Contains(plain, "Telemetry is off") {
+		t.Fatalf("telemetry hint:\n--- not now:\n%s\n--- no terminal:\n%s", out, plain)
+	}
+	out = strings.Replace(out, hint, "", 1)
 	// The question stood under a blank line of its own.
 	out = strings.Replace(out, "\n\n\nWhat is known:", "\n\nWhat is known:", 1)
 	if i, j := strings.Index(out, from), strings.Index(plain, from); i < 0 || j < 0 || out[i:] != plain[j:] {

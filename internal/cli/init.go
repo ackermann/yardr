@@ -24,6 +24,7 @@ import (
 	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/packs"
 )
 
@@ -295,10 +296,14 @@ func (a *app) onboard(c *cobra.Command) error {
 	return a.goOn(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, res, opts)
 }
 
-// goOn is the onboarding after the yard is created: the summary, the start
-// when asked for, and once the yardmaster is up the services and the hand-off.
-// When the yardmaster is not up it says how the onboarding is taken up again.
+// goOn is the onboarding after the yard is created: the telemetry question,
+// the summary, the start when asked for, and once the yardmaster is up the
+// services and the hand-off. When the yardmaster is not up it says how the
+// onboarding is taken up again.
 func (a *app) goOn(w, warn io.Writer, ctx context.Context, cfg *config.Config, res *initResult, opts initOptions) error {
+	if err := a.askTelemetry(ctx, cfg); err != nil {
+		return err
+	}
 	if err := a.report(w, warn, ctx, cfg, res, opts); err != nil {
 		return err
 	}
@@ -322,6 +327,50 @@ func (a *app) goOn(w, warn io.Writer, ctx context.Context, cfg *config.Config, r
 		return err
 	}
 	return a.handOff(w, warn, ctx, cfg, res.Yardmaster, res.Start.Yardmaster)
+}
+
+// askTelemetry is the onboarding's one telemetry question, asked after the
+// yard exists and answered either way: Yes goes through the same consent
+// activation as yardr telemetry on, and No writes the off setting, so a
+// completed onboarding never asks again. A yard whose setting is already
+// set is not asked: a resumed onboarding skips the question, and so does
+// one the operator answered by hand. Non-interactive init never reaches
+// here, and leaves the switch off. An answer prints nothing, as the
+// form's other confirms do; the question carries what telemetry is, the
+// four questions, where batches go, the pseudonymous id and its id-only
+// profile, that show previews the exact next batch, and that off prevents
+// new requests from starting. A form left with ctrl+c records nothing:
+// an aborted consent is not consent, and the onboarding goes on.
+func (a *app) askTelemetry(ctx context.Context, cfg *config.Config) error {
+	st, err := a.store(ctx)
+	if err != nil {
+		return err
+	}
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	if _, set := stored[store.TelemetrySetting]; set {
+		return nil
+	}
+	on := false
+	err = ask(huh.NewConfirm().Key("telemetry").Title("Turn telemetry on?").
+		Description(telemetryQuestions + " " + telemetryProfile + " " + telemetry.IDSentence +
+			" `yardr telemetry show` previews the exact allow-listed next batch from current state" +
+			" before anything is sent. This build records your choice but sends nothing yet; a build with the sender will use this consent." +
+			" `yardr telemetry off` prevents new requests from starting.").
+		Value(&on))
+	if errors.Is(err, huh.ErrUserAborted) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if on {
+		_, err = telemetry.On(ctx, st, cfg.TelemetryState(), a.who(), time.Now())
+		return err
+	}
+	_, err = telemetry.Off(ctx, st, cfg.TelemetryState(), a.who(), time.Now())
+	return err
 }
 
 // resume is bare yardr in a terminal on a yard whose onboarding did not reach
@@ -1295,6 +1344,7 @@ Unattended flags per harness:
 			if err := a.report(c.OutOrStdout(), c.ErrOrStderr(), c.Context(), cfg, res, o); err != nil {
 				return err
 			}
+			a.sayTelemetry(c.OutOrStdout(), c.Context(), cfg)
 			if res.Start != nil && !res.Start.Running {
 				// The report said what is known; a script reads the exit.
 				return fmt.Errorf("%s is not up", res.Yardmaster)
@@ -1325,6 +1375,29 @@ Unattended flags per harness:
 	cmd.Flags().StringVar(&o.Permissions, "permissions", "", "the harness permission preset new agents run with, as yardr harness show <kind> lists them (for claude: auto, accept edits, bypass, read only); stored as permissions_preset (default: the harness's unattended flags; a set-up yard keeps its permissions_preset setting)")
 	cmd.Flags().Var(&o.Pin, "sha256", "install the yardmaster's role only from the default pack whose digest this is, the last line of pack check's plan (digest sha256:<hex>); another pack, or the same one changed since it was read, is refused before anything is written. A yard that has its yardmaster reads no pack and checks nothing")
 	return cmd
+}
+
+// sayTelemetry names the telemetry switch after a non-interactive init,
+// which asks nothing and leaves it off: where a terminal is available,
+// the operator is told the command that turns it on. A yard that already
+// decided, and --json, stay quiet. A hint that cannot be read is skipped,
+// never an error: the yard is made.
+func (a *app) sayTelemetry(w io.Writer, ctx context.Context, cfg *config.Config) {
+	if a.json || !interactive() {
+		return
+	}
+	st, err := a.store(ctx)
+	if err != nil {
+		return
+	}
+	stored, err := st.Settings(ctx)
+	if err != nil {
+		return
+	}
+	if _, set := stored[store.TelemetrySetting]; set {
+		return
+	}
+	fmt.Fprintf(w, "Telemetry is off. `%s telemetry on` records consent for one daily batch of counts and fixed names (docs/telemetry.md).\n", yardrAt(cfg.Home))
 }
 
 // styleHelp lists the styles with their meanings, for help texts.

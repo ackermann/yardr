@@ -13,7 +13,7 @@ import (
 
 // telemetryQuestions is the four questions the daily batch answers, as
 // the on and off help describe them.
-const telemetryQuestions = `When on, the daemon sends one batch a day to ` + telemetry.Endpoint + ` answering four questions: which yardr versions and OS are running; which harnesses and models do the work; where beads fail, as counts by kind; whether yards keep running after 1, 7 and 30 days.`
+const telemetryQuestions = `When this build includes the telemetry sender and telemetry is on, the daemon sends one batch a day to ` + telemetry.Endpoint + ` answering four questions: which yardr versions and OS are running; which harnesses and models do the work; where beads fail, as counts by kind; whether yards keep running after 1, 7 and 30 days.`
 
 // telemetryProfile is the id-only PostHog profile, as the on and off
 // help describe it.
