@@ -67,6 +67,42 @@ not got is refused too — add the depot first — and removing the depot it
 names is refused until the setting is cleared, so no one can create a
 depot under a dangling name and choose the install source.
 
+## Signing the binary
+
+On macOS, a yard that names a code-signing identity signs the installed
+binary with it at every upgrade: with `codesign_identity` set, `yardr
+upgrade` signs the fresh install with that identity under the identifier
+`dev.yardr.yardr`, after the install and before anything gates on the new
+build. The run prints a `sign` line of its own, between `keep` and the
+`install` line that names the new build. With the setting unset, or off
+macOS, nothing is signed.
+
+Without it the install is ad-hoc bytes, and a Developer Tools entry made
+for yardr pins that build's cdhash: the next install replaces the binary
+and the entry goes stale, so macOS XProtect-scans every test binary the
+yard runs until the entry is remade. With the identity set, the entry's
+designated requirement — the identifier plus the certificate — survives
+the next install, and one entry lasts.
+
+The setup is once, in order:
+
+1. Make a code-signing certificate in the login keychain.
+2. `yardr settings set codesign_identity "<the certificate's name>"`.
+3. Run `yardr upgrade` once, so the installed binary carries the
+   signature.
+4. Add the installed yardr — the upgrade target, e.g.
+   `~/go/bin/yardr` — in System Settings > Developer Tools.
+
+macOS allows that last step only in the GUI. Add the signed binary, not
+an ad-hoc one: an ad-hoc yardr added there goes stale at the next
+install, and the scans come back. A hand `go install .` outside `yardr
+upgrade` leaves the binary unsigned until the next upgrade; to sign it by
+hand, run the line the upgrade runs:
+
+```sh
+codesign --force --sign "<the certificate's name>" --identifier dev.yardr.yardr ~/go/bin/yardr
+```
+
 ## The scripts
 
 The groups of a yard run scripts from `<home>/scripts`: `merge-local` for

@@ -67,8 +67,8 @@ func TestSettingsGetPrintsTheValueInEffect(t *testing.T) {
 		t.Errorf("settings get --json = %+v, %v", all, err)
 	}
 	refusedAs(t, st, "jo", "operator_note is not set: not found", "settings", "get", "operator_note")
-	refusedAs(t, st, "jo", `no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr,`, "settings", "get", "hook_adr")
-	refusedAs(t, st, "jo", `no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr,`, "settings", "set", "hook_adr", "3")
+	refusedAs(t, st, "jo", `no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr,`, "settings", "get", "hook_adr")
+	refusedAs(t, st, "jo", `no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr,`, "settings", "set", "hook_adr", "3")
 }
 
 // A yard set up before the store refused them may hold a config key or a
@@ -108,7 +108,7 @@ func TestDoctorNotesWhatNothingReads(t *testing.T) {
 		`group agents: herdr runner needs config.cleanup as true or false, got the JSON string "no". Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`group agents: unknown config key "idel": nothing reads it. A group of the herdr runner takes: args, cleanup, env_file, grace, idle, keep, kind, label, login_for, max_age, model, nice, prompt, provider, stall, still, trust, worktrees. Change it: yardr group set agents <key>=<value>, or --unset <key>`,
 		`crew member clerk: unknown config key "max-age": nothing reads it. A crew member of the herdr runner takes: args, env_command, env_file, for, greet, kind, model, open_threads, peers, prompt, provider, set_state, trust. Change it: yardr crew set clerk <key>=<value>, or --unset <key>`,
-		`setting hook_adr is stored and nothing reads it (there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, permissions_preset, preview_idle, provider_terms, quiet_landings, router_addr, telemetry, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster). Remove it: yardr settings set hook_adr ""`,
+		`setting hook_adr is stored and nothing reads it (there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, permissions_preset, preview_idle, provider_terms, quiet_landings, router_addr, telemetry, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster). Remove it: yardr settings set hook_adr ""`,
 	}
 	for i := range want {
 		want[i] = strings.Replace(want[i], ": yardr ", ": "+y+" ", 1)

@@ -453,6 +453,8 @@ func TestUpgradeScriptSourcesAreInTheTree(t *testing.T) {
 type upgradeScene struct {
 	a        *app
 	home     string
+	st       store.API
+	target   string // where go install would write the binary
 	scripts  string // the yard's merge-local
 	previous string // its copy
 	// gate answers the installed binary's --check: nil passes.
@@ -493,6 +495,12 @@ func newUpgradeScene(t *testing.T) *upgradeScene {
 	stub(t, &upgradeGoEnv, func(...string) (string, error) { return bin, nil })
 	stub(t, &lookPath, func(string) (string, error) { return "/bin/go", nil })
 	stub(t, &upgradeGoInstall, func(context.Context, string) (string, error) { return "", nil })
+	// Nothing is signed unless a test says so: the scene sets no identity
+	// and is not darwin.
+	stub(t, &upgradeCodesign, func(context.Context, string, string) (string, error) {
+		t.Error("upgradeCodesign called with no identity set, or off darwin")
+		return "", nil
+	})
 	// No login service names another yard, and none restarts a view.
 	stub(t, &goos, "linux")
 	stub(t, &serviceDir, func() (string, error) { return t.TempDir(), nil })
@@ -502,7 +510,7 @@ func newUpgradeScene(t *testing.T) *upgradeScene {
 	stub(t, &upgradeServerStop, func(*config.Config) error { return nil })
 	stub(t, &upgradeStopDaemon, func(*config.Config, time.Duration) (int, error) { return 0, nil })
 
-	sc := &upgradeScene{a: mk(), home: home, scripts: filepath.Join(home, "scripts", "merge-local")}
+	sc := &upgradeScene{a: mk(), home: home, st: st, target: target, scripts: filepath.Join(home, "scripts", "merge-local")}
 	sc.previous = sc.scripts + ".previous"
 	if err := os.MkdirAll(filepath.Dir(sc.scripts), 0o755); err != nil {
 		t.Fatal(err)
@@ -534,9 +542,16 @@ func (sc *upgradeScene) upgrade(t *testing.T, flags ...string) (string, error) {
 	return run(t, sc.a.rootCmd(), append([]string{"--actor", "jo", "upgrade", "--from", "yardr"}, flags...)...)
 }
 
-// The upgrade refreshes the yard's scripts with the build, after the install
-// line and before the gate's, and the old bytes are kept beside the new.
+// The upgrade refreshes scripts and signs only when configured; failed
+// signing puts the previous binary back before the gates come down.
 func TestUpgradeRunRefreshesScripts(t *testing.T) {
+	t.Run("refreshes scripts", func(t *testing.T) { testUpgradeRunRefreshesScripts(t) })
+	t.Run("signs installed binary on darwin", func(t *testing.T) { testUpgradeRunSignsInstalledBinaryOnDarwin(t) })
+	t.Run("leaves binary unsigned", func(t *testing.T) { testUpgradeRunLeavesBinaryUnsigned(t) })
+	t.Run("sign failure restores previous binary", func(t *testing.T) { testUpgradeRunSignFailureRestoresPrevious(t) })
+}
+
+func testUpgradeRunRefreshesScripts(t *testing.T) {
 	sc := newUpgradeScene(t)
 
 	out, err := sc.upgrade(t)

@@ -1314,6 +1314,7 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		NameSetting:              Askable,
 		UpgradeFromSetting:       Alone,
 		UpgradeRestoreSetting:    Alone,
+		CodesignIdentitySetting:  Alone,
 		QuietLandingsSetting:     Alone,
 		DiskKeepGBSetting:        Alone,
 		PreviewIdleSetting:       Alone,

@@ -206,6 +206,35 @@ func (a *app) upgradeRun(w, warn io.Writer, ctx context.Context, cfg *config.Con
 			"yardr upgrade failed at build: "+reason)
 		return errors.New(reason)
 	}
+	// On darwin a yard that names a code-signing identity signs the
+	// installed binary with it, before anything starts or gates on the
+	// new build, so the entry's designated requirement holds across
+	// reinstalls instead of pinning a stale ad-hoc cdhash.
+	if identity := settings[store.CodesignIdentitySetting]; goos == "darwin" && identity != "" {
+		if out, err := upgradeCodesign(ctx, identity, target); err != nil {
+			// Unlike a failed go install the unsigned new bytes already
+			// stand at the target, so they go back first: the yard keeps
+			// the binary it had.
+			restored := ""
+			if rerr := copyFile(prev, target); rerr != nil {
+				restored = fmt.Sprintf("; the previous binary could not be restored: %v", rerr)
+			}
+			removeGates()
+			reason := fmt.Sprintf("codesign --sign %s %s failed: %v", identity, target, err)
+			if trimmed := strings.TrimSpace(out); trimmed != "" {
+				if len(trimmed) > 2000 {
+					trimmed = trimmed[:2000]
+				}
+				reason += ": " + trimmed
+			}
+			reason += restored
+			upgradeTellLive(warn, ctx, st, settings, actor, store.InstallFailed,
+				map[string]any{"revision": prevRev, "stage": "sign", "reason": reason},
+				"yardr upgrade failed at sign: "+reason)
+			return errors.New(reason)
+		}
+		fmt.Fprintf(w, "%-9s  signed as %s\n", "sign", upgradeCodesignIdentifier)
+	}
 	newBuild, err := version.OfFile(target)
 	if err != nil {
 		removeGates()

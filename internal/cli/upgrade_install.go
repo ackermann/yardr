@@ -61,6 +61,19 @@ var upgradeGoInstall = func(ctx context.Context, dir string) (string, error) {
 	return string(out), err
 }
 
+// upgradeCodesignIdentifier is the signing identifier every signed yardr
+// carries: fixed, so a Developer Tools entry naming it holds across
+// reinstalls. It is no setting: one yardr binary means one identifier.
+const upgradeCodesignIdentifier = "dev.yardr.yardr"
+
+// upgradeCodesign signs target with identity under upgradeCodesignIdentifier;
+// tests replace it.
+var upgradeCodesign = func(ctx context.Context, identity, target string) (string, error) {
+	cmd := exec.CommandContext(ctx, "codesign", "--force", "--sign", identity, "--identifier", upgradeCodesignIdentifier, target)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
 // upgradeRunInstalled runs the installed binary with --home and args;
 // tests replace it to script the gate.
 var upgradeRunInstalled = func(ctx context.Context, bin, home string, args ...string) (string, error) {

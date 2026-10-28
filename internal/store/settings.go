@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -114,6 +115,11 @@ const (
 	// pre-install store copies (yardr upgrade): on by default, off stops
 	// and tells instead.
 	UpgradeRestoreSetting = "upgrade_restore"
+	// CodesignIdentitySetting is the code-signing identity yardr upgrade
+	// signs the installed binary with on darwin, under the fixed
+	// identifier dev.yardr.yardr, so a Developer Tools entry holds across
+	// reinstalls; unset, nothing is signed.
+	CodesignIdentitySetting = "codesign_identity"
 )
 
 // DefaultWebAddr and DefaultBDPAddr are where the web view and the BDP
@@ -434,6 +440,16 @@ var KnownSettings = []Setting{
 		Default: "true", Env: "UPGRADE_RESTORE", Check: func(v string) error {
 			if v != "true" && v != "false" {
 				return fmt.Errorf("%s %q: true or false", UpgradeRestoreSetting, v)
+			}
+			return nil
+		}},
+	{Key: CodesignIdentitySetting, Help: "the code-signing identity yardr upgrade signs the installed binary with on darwin, under the identifier dev.yardr.yardr, so a Developer Tools entry holds across reinstalls; unset, nothing is signed",
+		Check: func(v string) error {
+			// The value reaches a command line as one argument, never a
+			// shell, so only what would not survive the argument is
+			// refused.
+			if strings.IndexFunc(v, unicode.IsControl) >= 0 {
+				return fmt.Errorf("%s %q: no newline or control character", CodesignIdentitySetting, v)
 			}
 			return nil
 		}},
