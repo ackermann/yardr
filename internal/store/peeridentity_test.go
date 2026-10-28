@@ -613,7 +613,7 @@ func TestMoveSourceRecordsRefusesPeerIdentityClashes(t *testing.T) {
 func TestSpeakerIsForeign(t *testing.T) {
 	t.Parallel()
 	for speaker, want := range map[string]bool{
-		"mayor@yardr-plantime": true, "@north": true, "ada@": true,
+		"hal@yardr-north": true, "@north": true, "ada@": true,
 		"ada": false, "": false, store.SpeakerOutside: false,
 	} {
 		if got := store.SpeakerIsForeign(speaker); got != want {

@@ -871,8 +871,8 @@ func TestHearUnreadableAddressDrops(t *testing.T) {
 // ---- hearing a crew member of a linked yard ------------------------
 
 // peerTalkDepot is identityDepot with the operator op, the user ada mapped
-// to U012 in talk, and the linked yard yardr-plantime, whose crew member
-// the mayor is not yet mapped to any sender.
+// to U012 in talk, and the linked yard yardr-north, whose crew member
+// hal is not yet mapped to any sender.
 func peerTalkDepot(t *testing.T, unknown string) *depot {
 	t.Helper()
 	ctx := context.Background()
@@ -886,20 +886,20 @@ func peerTalkDepot(t *testing.T, unknown string) *depot {
 		t.Fatal(err)
 	}
 	mapTalk(t, r, "ada", "U012")
-	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "plantime.key"))
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.st.AddPeer(ctx, store.Peer{Name: "yardr-plantime", Key: yardkey.Public(key)}, "op"); err != nil {
+	if _, err := r.st.AddPeer(ctx, store.Peer{Name: "yardr-north", Key: yardkey.Public(key)}, "op"); err != nil {
 		t.Fatal(err)
 	}
 	return r
 }
 
-// mapMayor says that the sender id in talk is the mayor of yardr-plantime.
-func mapMayor(t *testing.T, r *depot, id string) {
+// mapHal says that the sender id in talk is hal of yardr-north.
+func mapHal(t *testing.T, r *depot, id string) {
 	t.Helper()
-	if _, err := r.st.SetPeerIdentity(context.Background(), "yardr-plantime", store.PeerIdentity{Source: "talk", ID: id, Crew: "mayor"}, "op"); err != nil {
+	if _, err := r.st.SetPeerIdentity(context.Background(), "yardr-north", store.PeerIdentity{Source: "talk", ID: id, Crew: "hal"}, "op"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -914,11 +914,11 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 	ctx := context.Background()
 	for _, word := range []string{"", store.HookUnknownAllow, store.HookUnknownIgnore} {
 		r := peerTalkDepot(t, word)
-		mapMayor(t, r, "U777")
+		mapHal(t, r, "U777")
 		if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "op"); err != nil {
 			t.Fatal(err)
 		}
-		sub := store.Subscription{Source: "talk", Scope: store.ScopeAll, Where: map[string]string{store.SpeakerKey: "mayor@yardr-plantime"}}
+		sub := store.Subscription{Source: "talk", Scope: store.ScopeAll, Where: map[string]string{store.SpeakerKey: "hal@yardr-north"}}
 		if err := r.st.AddSubscription(ctx, "ann", sub, "op"); err != nil {
 			t.Fatal(err)
 		}
@@ -939,8 +939,8 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 		if len(evs) != kept {
 			t.Fatalf("%q: %d hook events, want %d", word, len(evs), kept)
 		}
-		if got := speakerOf(t, evs[0]); got != "mayor@yardr-plantime" {
-			t.Fatalf("%q: the mayor's speaker = %q, want mayor@yardr-plantime", word, got)
+		if got := speakerOf(t, evs[0]); got != "hal@yardr-north" {
+			t.Fatalf("%q: hal's speaker = %q, want hal@yardr-north", word, got)
 		}
 		if actor, _ := evs[0].Data["actor"].(map[string]any); actor["id"] != "U777" {
 			t.Fatalf("%q: actor = %v, want the member id left as it was", word, actor)
@@ -948,7 +948,7 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 		if got := speakerOf(t, evs[1]); got != "ada" {
 			t.Fatalf("%q: the user's speaker = %q, want ada", word, got)
 		}
-		// Only the mayor's delivery reaches the subscription on the speaker.
+		// Only hal's delivery reaches the subscription on the speaker.
 		for i, e := range evs {
 			deliveries, _ := e.Data["deliveries"].(map[string]any)
 			if _, reached := deliveries["ann"]; reached != (i == 0) {
@@ -964,7 +964,7 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 		if got := r.rc.Rejected()["stranger"]; got != wantStrangers {
 			t.Fatalf("%q: stranger count %d, want %d", word, got, wantStrangers)
 		}
-		// And no card for the mayor: under unknown the stranger's alone.
+		// And no card for hal: under unknown the stranger's alone.
 		q, err := r.st.UserAsks(ctx, "op", "op")
 		if err != nil {
 			t.Fatal(err)
@@ -1001,14 +1001,14 @@ func TestHearByIdentityPeerMappingClearsIgnore(t *testing.T) {
 	if src, err := r.st.GetSource(ctx, "talk"); err != nil || len(src.Ignored) != 1 {
 		t.Fatalf("ignored = %+v, %v, want U777", src, err)
 	}
-	mapMayor(t, r, "U777")
+	mapHal(t, r, "U777")
 	if src, err := r.st.GetSource(ctx, "talk"); err != nil || len(src.Ignored) != 0 {
 		t.Fatalf("ignored after the mapping = %+v, %v, want none", src, err)
 	}
 	r.now = r.now.Add(time.Second)
 	r.talk(t, "U777", "mapped now")
-	if evs := r.hookEvents(t); len(evs) != 1 || speakerOf(t, evs[0]) != "mayor@yardr-plantime" {
-		t.Fatalf("hook events = %v, want the mapped delivery as mayor@yardr-plantime", evs)
+	if evs := r.hookEvents(t); len(evs) != 1 || speakerOf(t, evs[0]) != "hal@yardr-north" {
+		t.Fatalf("hook events = %v, want the mapped delivery as hal@yardr-north", evs)
 	}
 }
 
@@ -1018,7 +1018,7 @@ func TestHearByIdentityPeerMappingClearsIgnore(t *testing.T) {
 // a user's word never goes to someone a link also maps.
 func TestHearByIdentityHeldByAUserAndAPeerIsUnmapped(t *testing.T) {
 	r := peerTalkDepot(t, "")
-	mapMayor(t, r, "U777")
+	mapHal(t, r, "U777")
 	clash := duplicateUsers{Store: r.own, users: []store.User{
 		{Name: "ada", Identities: map[string]store.Identity{"talk": {ID: "U777"}}},
 	}}

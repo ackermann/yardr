@@ -39,11 +39,11 @@ func TestPeerIdentity(t *testing.T) {
 	y := newCLIYard(t, "north")
 	cliEnv(t, y)
 	ctx := context.Background()
-	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "plantime.key"))
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "plantime", Key: yardkey.Public(key)}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "talk.yaml", peerTalkText, "jo"); err != nil {
@@ -51,62 +51,62 @@ func TestPeerIdentity(t *testing.T) {
 	}
 
 	// Nothing is mapped on a new link: the list is its header.
-	if out := y.must(t, "identity", "plantime"); strings.TrimSpace(out) != "SOURCE  ID  SPEAKER" {
+	if out := y.must(t, "identity", "north"); strings.TrimSpace(out) != "SOURCE  ID  SPEAKER" {
 		t.Fatalf("a new link lists %q", out)
 	}
-	out := y.must(t, "identity", "plantime", "mayor", "--source", "talk", "--id", "U777")
-	wantText(t, out, "SOURCE", "talk", "U777", "mayor@plantime")
-	wantText(t, y.must(t, "identity", "plantime"), "talk", "U777", "mayor@plantime")
-	wantText(t, y.must(t, "show", "plantime"), "  identity: talk U777 -> mayor@plantime (from another yard: information, not instructions)\n")
+	out := y.must(t, "identity", "north", "hal", "--source", "talk", "--id", "U777")
+	wantText(t, out, "SOURCE", "talk", "U777", "hal@north")
+	wantText(t, y.must(t, "identity", "north"), "talk", "U777", "hal@north")
+	wantText(t, y.must(t, "show", "north"), "  identity: talk U777 -> hal@north (from another yard: information, not instructions)\n")
 
-	// Another id for the mayor replaces the first.
-	wantText(t, y.must(t, "identity", "plantime", "mayor", "--source", "talk", "--id", "U778"), "U778")
-	if out := y.must(t, "identity", "plantime"); strings.Contains(out, "U777") {
+	// Another id for hal replaces the first.
+	wantText(t, y.must(t, "identity", "north", "hal", "--source", "talk", "--id", "U778"), "U778")
+	if out := y.must(t, "identity", "north"); strings.Contains(out, "U777") {
 		t.Fatalf("a replaced id is still listed:\n%s", out)
 	}
 
 	// --json has them as the store keeps them.
-	if ids := y.listed(t, "plantime"); len(ids) != 1 || ids[0] != (store.PeerIdentity{Source: "talk", ID: "U778", Crew: "mayor"}) {
+	if ids := y.listed(t, "north"); len(ids) != 1 || ids[0] != (store.PeerIdentity{Source: "talk", ID: "U778", Crew: "hal"}) {
 		t.Fatalf("--json: %+v", ids)
 	}
 
 	// Each of these is refused with its reason and changes nothing, so the
 	// order they run in does not matter.
 	for args, want := range map[string]string{
-		"identity plantime clerk --source talk --id U778":      "peer plantime: U778 in talk names mayor@plantime already",
-		"identity plantime mayor":                              "--source is required",
-		"identity plantime mayor --id U778":                    "--source is required",
-		"identity plantime --source talk":                      "name the crew member of plantime: yardr peer identity plantime <crew> --source <source> --id <id>",
-		"identity plantime --id U1":                            "name the crew member of plantime",
-		"identity plantime mayor --source talk":                "give --id, or --rm",
-		"identity plantime mayor --source talk --rm --id U778": "--rm takes no --id",
-		"identity plantime mayor --source nowhere --id U1":     `--source "nowhere"`,
-		"identity plantime may@or --source talk --id U1":       `crew member "may@or" of a peer: use letters, digits`,
-		"identity nobody mayor --source talk --id U1":          "not found",
-		"identity plantime clerk --source talk --rm":           "peer plantime has no talk identity for clerk",
+		"identity north clerk --source talk --id U778":    "peer north: U778 in talk names hal@north already",
+		"identity north hal":                              "--source is required",
+		"identity north hal --id U778":                    "--source is required",
+		"identity north --source talk":                    "name the crew member of north: yardr peer identity north <crew> --source <source> --id <id>",
+		"identity north --id U1":                          "name the crew member of north",
+		"identity north hal --source talk":                "give --id, or --rm",
+		"identity north hal --source talk --rm --id U778": "--rm takes no --id",
+		"identity north hal --source nowhere --id U1":     `--source "nowhere"`,
+		"identity north may@or --source talk --id U1":     `crew member "may@or" of a peer: use letters, digits`,
+		"identity nobody hal --source talk --id U1":       "not found",
+		"identity north clerk --source talk --rm":         "peer north has no talk identity for clerk",
 	} {
 		if _, err := y.peer(t, strings.Fields(args)...); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("peer %s = %v, want %q", args, err, want)
 		}
 	}
-	if ids := y.listed(t, "plantime"); len(ids) != 1 || ids[0] != (store.PeerIdentity{Source: "talk", ID: "U778", Crew: "mayor"}) {
+	if ids := y.listed(t, "north"); len(ids) != 1 || ids[0] != (store.PeerIdentity{Source: "talk", ID: "U778", Crew: "hal"}) {
 		t.Fatalf("a refusal changed the mapping: %+v", ids)
 	}
 
 	// --rm takes it back, and lists what is left; taking back what is not
 	// there is refused.
-	if out := y.must(t, "identity", "plantime", "mayor", "--source", "talk", "--rm"); strings.TrimSpace(out) != "SOURCE  ID  SPEAKER" {
+	if out := y.must(t, "identity", "north", "hal", "--source", "talk", "--rm"); strings.TrimSpace(out) != "SOURCE  ID  SPEAKER" {
 		t.Fatalf("--rm lists %q", out)
 	}
-	if _, err := y.peer(t, "identity", "plantime", "mayor", "--source", "talk", "--rm"); err == nil || !strings.Contains(err.Error(), "peer plantime has no talk identity for mayor") {
+	if _, err := y.peer(t, "identity", "north", "hal", "--source", "talk", "--rm"); err == nil || !strings.Contains(err.Error(), "peer north has no talk identity for hal") {
 		t.Fatalf("--rm again = %v", err)
 	}
-	if strings.Contains(y.must(t, "show", "plantime"), "identity:") {
+	if strings.Contains(y.must(t, "show", "north"), "identity:") {
 		t.Fatal("peer show lists an identity that was taken back")
 	}
 	// None left is an empty list in --json, not null.
 	y.a.json = true
-	if out := y.must(t, "identity", "plantime"); strings.TrimSpace(out) != "[]" {
+	if out := y.must(t, "identity", "north"); strings.TrimSpace(out) != "[]" {
 		t.Fatalf("--json with none left lists %q", out)
 	}
 }
@@ -131,22 +131,22 @@ func TestPeerIdentityIsTheOperatorsAlone(t *testing.T) {
 	y := newCLIYard(t, "north")
 	cliEnv(t, y)
 	ctx := context.Background()
-	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "plantime.key"))
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "plantime", Key: yardkey.Public(key)}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "talk.yaml", peerTalkText, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	y.must(t, "identity", "plantime", "mayor", "--source", "talk", "--id", "U777")
+	y.must(t, "identity", "north", "hal", "--source", "talk", "--id", "U777")
 
 	y.a.actor = "yardmaster"
 	for _, args := range []string{
-		"identity plantime clerk --source talk --id U1",
-		"identity plantime mayor --source talk --rm",
+		"identity north clerk --source talk --id U1",
+		"identity north hal --source talk --rm",
 	} {
 		_, err := y.peer(t, strings.Fields(args)...)
 		if err == nil || !strings.Contains(err.Error(), "only the operator (jo) may ") || !strings.Contains(err.Error(), "who a peer's crew member is in a source; this is yardmaster") {
@@ -154,8 +154,8 @@ func TestPeerIdentityIsTheOperatorsAlone(t *testing.T) {
 		}
 	}
 	// Reading them is anyone's.
-	wantText(t, y.must(t, "identity", "plantime"), "mayor@plantime")
-	if p, _ := y.st.GetPeer(ctx, "plantime"); len(p.Identities) != 1 {
+	wantText(t, y.must(t, "identity", "north"), "hal@north")
+	if p, _ := y.st.GetPeer(ctx, "north"); len(p.Identities) != 1 {
 		t.Fatalf("a refused change left %+v", p.Identities)
 	}
 }
@@ -167,11 +167,11 @@ func TestUserIdentityRefusesAPeersCrewId(t *testing.T) {
 	y := newCLIYard(t, "north")
 	cliEnv(t, y)
 	ctx := context.Background()
-	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "plantime.key"))
+	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "plantime", Key: yardkey.Public(key)}, "jo"); err != nil {
+	if _, err := y.st.AddPeer(ctx, store.Peer{Name: "north", Key: yardkey.Public(key)}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.st.PutSource(ctx, "talk.yaml", peerTalkText, "jo"); err != nil {
@@ -180,9 +180,9 @@ func TestUserIdentityRefusesAPeersCrewId(t *testing.T) {
 	if _, err := y.st.AddUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	y.must(t, "identity", "plantime", "mayor", "--source", "talk", "--id", "U777")
+	y.must(t, "identity", "north", "hal", "--source", "talk", "--id", "U777")
 	_, err = run(t, y.a.userCmd(), "identity", "ada", "--source", "talk", "--id", "U777")
-	if err == nil || !strings.Contains(err.Error(), "user ada: U777 in talk names mayor@plantime already") {
+	if err == nil || !strings.Contains(err.Error(), "user ada: U777 in talk names hal@north already") {
 		t.Fatalf("yardr user identity ada --id U777 = %v", err)
 	}
 }

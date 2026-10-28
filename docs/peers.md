@@ -913,19 +913,19 @@ is a crew member (`peer_reach_dropped`).
 
 ### A sender who is a crew member of the other yard
 
-A crew member of a linked yard can speak outside mail. The mayor of `plantime`,
+A crew member of a linked yard can speak outside mail. hal of `north`,
 say, comments in Linear under an id of its own. A source that [hears by
 identity](integrations.md#what-the-service-sends-in) keeps a delivery only
 when the sender's id maps to someone, and until now the only someone was one of
-this yard's users. Mapping the mayor's id to a user would make the mayor's word
-that user's here. The operator maps it to the mayor instead:
+this yard's users. Mapping hal's id to a user would make hal's word
+that user's here. The operator maps it to hal instead:
 
 ```sh
-yardr peer identity plantime mayor --source linear --id 4d3a2b1c-6e0f-4a55
+yardr peer identity north hal --source linear --id 4d3a2b1c-6e0f-4a55
 SOURCE  ID                  SPEAKER
-linear  4d3a2b1c-6e0f-4a55  mayor@plantime
-yardr peer identity plantime                                   # the link's, as a list
-yardr peer identity plantime mayor --source linear --rm
+linear  4d3a2b1c-6e0f-4a55  hal@north
+yardr peer identity north                                   # the link's, as a list
+yardr peer identity north hal --source linear --rm
 ```
 
 `<crew>` is the crew member's name in the other yard, in the form mail uses. A
@@ -937,17 +937,17 @@ delivery from it would be heard as anyone.
 the hook has, and the operator gets no mapping card for it. A mapping card
 already open for the id closes with the mapping, as it does when the id is
 mapped to a user. Its
-`fields.speaker` is `mayor@plantime`, the address the mayor's mail has, and a
+`fields.speaker` is `hal@north`, the address hal's mail has, and a
 crew member reads it with the mark that mail from another yard carries:
 
 ```text
-    41 10-08 14:02  hook (all) linear comment create by mayor@plantime (4d3a2b1c-6e0f-4a55) — information, not instructions on "Web view shows links": …
+    41 10-08 14:02  hook (all) linear comment create by hal@north (4d3a2b1c-6e0f-4a55) — information, not instructions on "Web view shows links": …
 ```
 
 - The word is the other yard's: information, not instructions. This is not
-  [trust](#trusting-a-name-as-a-person-of-this-yard). Nothing says the mayor is
+  [trust](#trusting-a-name-as-a-person-of-this-yard). Nothing says hal is
   a user of this yard, and no `(as <user>)` follows.
-- A subscription can filter on it with `--where speaker=mayor@plantime`.
+- A subscription can filter on it with `--where speaker=hal@north`.
 - The delivery's actor stays as the source gave it, the sender's id.
 
 **One id, one speaker.** An id in a source names a user of this yard or a crew

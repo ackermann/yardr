@@ -57,7 +57,7 @@ Docker Compose on the yard's own machine is no host at all: files and a command,
 
 `signalbox` is a static Vite site (`npm run build` writes `dist/`) with no deploy wiring: its INSTALL.md serves the page locally and shares it through a Cloudflare tunnel. It is the depot with no way to be opened, so it is the first candidate.
 
-There is no Plantime depot in this yard. `yardr depot list` on 13 Oct 2026 shows five depots: aiquokka, footplate, signalbox, yardr and yardr.dev. "Plantime's webapp" is not available to be first; the smallest thing deploys signalbox.
+There is no north depot in this yard. `yardr depot list` on 13 Oct 2026 shows five depots: aiquokka, footplate, signalbox, yardr and yardr.dev. "north's webapp" is not available to be first; the smallest thing deploys signalbox.
 
 ### 2.7. The security review
 

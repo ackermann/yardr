@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"yardr.dev/yardr/internal/pack"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -339,8 +340,9 @@ func TestStageFileAskStripped(t *testing.T) {
 // whether the pull request is merged, and Done reports done, where in-pr's
 // done leads. The decide stage of each of the depot's own flows offers its
 // moves, which neither flow names as outcomes, so a card of moves is what
-// fits; the starter pack's decide carries none, as decided: a card on every
-// bead in decide is the depot's own choice, not a default every yard imports.
+// fits, and the starter, dir and website packs' decide stages carry the
+// same card: a bead that arrives in decide under a pack flow is offered
+// the flow's moves, and a pick moves it.
 func TestDepotTrainInPRTemplate(t *testing.T) {
 	t.Parallel()
 	flowText, err := os.ReadFile("../../.yardr/flows/yardr.train.flow")
@@ -393,12 +395,48 @@ func TestDepotTrainInPRTemplate(t *testing.T) {
 			t.Errorf("%s: %s", c.decide, broken)
 		}
 	}
-	starter := "../../packs/starter/flows/default/decide.md"
-	text, err := os.ReadFile(starter)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tmpl, err := (&store.StageFile{Path: starter, Text: string(text)}).Ask(); err != nil || tmpl != nil {
-		t.Errorf("%s carries an ## Ask section %+v (%v), want none", starter, tmpl, err)
+	// Each pack decide below is read against the flow its pack keeps, so a
+	// pack that loses the section, or whose moves no longer resolve under
+	// its flow, fails here.
+	for _, c := range []struct{ pack, flow, decide, question string }{
+		{"starter", "default", "flows/default/decide.md", "Where should this bead go next?"},
+		{"dir", "default", "flows/default/decide.md", "Where should this bead go next?"},
+		{"dir", "train", "flows/train/decide.md", "Where should this train go next?"},
+		{"website", "default", "flows/default/decide.md", "Where should this bead go next?"},
+	} {
+		p, err := pack.LoadDir("../../packs/" + c.pack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var flow *store.Flow
+		for i := range p.Flows {
+			if p.Flows[i].Name == c.flow {
+				sf := p.Flows[i].StoreFlow(c.pack + "." + c.flow)
+				flow = &sf
+			}
+		}
+		if flow == nil {
+			t.Fatalf("pack %s has no flow %s", c.pack, c.flow)
+		}
+		path := "../../packs/" + c.pack + "/" + c.decide
+		text, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sf := &store.StageFile{Path: path, Text: string(text)}
+		tmpl, err := sf.Ask()
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		if tmpl == nil {
+			t.Fatalf("%s has no ## Ask section", path)
+		}
+		if tmpl.Kind != store.AskMoves || tmpl.Move != "" || tmpl.Question != c.question || len(tmpl.Context) != 2 {
+			t.Errorf("%s: kind %q move %q question %q context %q, want a moves card of the stage's moves",
+				path, tmpl.Kind, tmpl.Move, tmpl.Question, tmpl.Context)
+		}
+		if broken := sf.BrokenAsk(flow, "decide"); broken != "" {
+			t.Errorf("%s: %s", path, broken)
+		}
 	}
 }

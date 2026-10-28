@@ -6,7 +6,7 @@ A yard is one installation of yardr: its store, its crew and its depots. A sourc
 
 ## 1. The question
 
-mckean, 18 Oct 2026 (mail 46659), after setting Google up on the Plantime yard: "how can we avoid running in these issues? maybe a single ask per source with the permission options. not having to click like crazy also providing all the options for the permissions? maybe groups and select all etc. with sane presets". What it took that evening (Plantime yard events, beads yd-106m, yd-xwz6, yd-j6cn, yd-9kp2 and others): a pack-apply run ask per pack, an account secret ask per source (twice over, after the both-names bug yardr-er4c), and a grant run ask per source and kind, read then update — about 25 cards for one Google account, each the same address or the same yes.
+mckean, 18 Oct 2026 (mail 46659), after setting Google up on the north yard: "how can we avoid running in these issues? maybe a single ask per source with the permission options. not having to click like crazy also providing all the options for the permissions? maybe groups and select all etc. with sane presets". What it took that evening (north yard events, beads yd-106m, yd-xwz6, yd-j6cn, yd-9kp2 and others): a pack-apply run ask per pack, an account secret ask per source (twice over, after the both-names bug yardr-er4c), and a grant run ask per source and kind, read then update — about 25 cards for one Google account, each the same address or the same yes.
 
 ## 2. What exists today
 

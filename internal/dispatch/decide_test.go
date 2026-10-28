@@ -34,11 +34,14 @@ func decideOffers(t *testing.T, s store.API, id string) (open []store.ResolvedAs
 // A bead that arrives in decide gets one card offering the stage's moves, in
 // each of the flows the yard keeps and in the design pack's, where decide is
 // entered from a critic's done and leaves by bare edges to approved, draft
-// or backlog. The card is the stage file's own making (an ## Ask section of
-// the kind moves), put in the move that brought the bead; the dispatcher's
-// passes neither double it nor undo it. A member's pick moves the bead on, as
-// yardr bead advance would; someone outside the group moves nothing; and a
-// bead that comes back to decide is a second arrival with a second card.
+// or backlog, and in the starter pack's, where new's question brings the
+// bead and decide leaves to backlog or new. The card is the stage file's
+// own making (an
+// ## Ask section of the kind moves), put in the move that brought the bead;
+// the dispatcher's passes neither double it nor undo it. A member's pick
+// moves the bead on, as yardr bead advance would; someone outside the group
+// moves nothing; and a bead that comes back to decide is a second arrival
+// with a second card.
 func TestDecideOffersItsMoves(t *testing.T) {
 	t.Parallel()
 	flowsOf := func(t *testing.T, name string) (flow *store.Flow, decide string) {
@@ -79,6 +82,25 @@ func TestDecideOffersItsMoves(t *testing.T) {
 			f := p.Flows[0].StoreFlow("design.design")
 			return &f, string(file)
 		}, "critique", "done", []string{"approved", "draft", "backlog"}, "draft"},
+		{"the starter pack's flow", func(t *testing.T) (*store.Flow, string) {
+			sub, err := fs.Sub(packs.FS, packs.Starter)
+			must(t, err)
+			p, err := pack.Load(sub, packs.Embedded)
+			must(t, err)
+			var f *store.Flow
+			for i := range p.Flows {
+				if p.Flows[i].Name == "default" {
+					sf := p.Flows[i].StoreFlow("starter.default")
+					f = &sf
+				}
+			}
+			if f == nil {
+				t.Fatal("the starter pack has no default flow")
+			}
+			file, err := fs.ReadFile(packs.FS, packs.Starter+"/flows/default/decide.md")
+			must(t, err)
+			return f, string(file)
+		}, "new", "question", []string{"backlog", "new"}, "new"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
