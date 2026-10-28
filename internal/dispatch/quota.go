@@ -31,8 +31,14 @@ import (
 const routeLimitsMemory = 5 * time.Minute
 
 // chooseGroup is the group of r that takes b: the first whose quota
-// condition holds, with the groups passed over. ok is false when the bead
-// does not start in this pass.
+// condition holds among the groups that could start it now, with the groups
+// passed over. A group its model's hold keeps from starting (waitReason) is
+// passed over for the route's next group, not chosen and then waited for:
+// the choice is made among the rest, in route order, with their quota
+// conditions judged as ever, and a group passed over is not judged, so its
+// windows are not read. A group at its limit, with its runtime down, or
+// with a start in flight is waited for instead, as before. ok is false when
+// the bead does not start in this pass.
 //
 // The limits command is run only for a gated route (store.Route.Gated): one
 // with a condition, or with a group that starts agents. A route of groups
@@ -51,6 +57,7 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 	}
 	free := false
 	var waits []waitedGroup
+	var aside []waitedGroup
 	for _, rg := range r.Groups() {
 		g, known := groups[rg.Name]
 		if !known {
@@ -58,6 +65,9 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 		}
 		if w, ok := d.waitReason(g, b, active); ok {
 			waits = append(waits, w)
+			if w.hold {
+				aside = append(aside, w)
+			}
 		} else {
 			free = true
 		}
@@ -70,14 +80,28 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 		}
 		return c, false
 	}
+	choice := r
+	if len(aside) > 0 {
+		rest := withoutGroups(r, aside)
+		choice = &rest
+	}
 	// The pass's own clock decides whether a window resets within a
 	// comparison's duration, as it decides every other wait of the pass.
-	c = r.ChooseAt(d.now(), func(group, source string) store.Quota {
+	c = choice.ChooseAt(d.now(), func(group, source string) store.Quota {
 		if source != "" {
 			return d.sourceQuota(ctx, source)
 		}
 		return d.routeQuota(ctx, groups[group], def)
 	})
+	// The groups passed over for their hold head the choice's, in route
+	// order: the claimed event, and a quota_wait, say why each was.
+	if len(aside) > 0 {
+		passed := make([]store.PassedGroup, 0, len(aside)+len(c.Passed))
+		for _, w := range aside {
+			passed = append(passed, store.PassedGroup{Group: w.Group, Reason: w.Reason})
+		}
+		c.Passed = append(passed, c.Passed...)
+	}
 	if c.Group != "" {
 		return c, true
 	}
@@ -103,9 +127,38 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 }
 
 // waitedGroup is a group that cannot start a bead now, with why in words.
+// hold says the wait is the group's model hold (holdBack): the claim passes
+// the group over for the route's next group instead of waiting for it (see
+// chooseGroup). Every other wait is waited for.
 type waitedGroup struct {
 	Group  string
 	Reason string
+	hold   bool
+}
+
+// withoutGroups is r without the groups named in aside: choosing among the
+// rest judges only them, in route order, with their conditions as they are.
+// The wait marker stays where it was, and a group the yard no longer knows
+// is judged as ever. aside never names every group: some group is free, and
+// a group that is free is kept.
+func withoutGroups(r *store.Route, aside []waitedGroup) store.Route {
+	skip := make(map[string]bool, len(aside))
+	for _, w := range aside {
+		skip[w.Group] = true
+	}
+	var kept []store.RouteGroup
+	for _, rg := range r.Groups() {
+		if !skip[rg.Name] {
+			kept = append(kept, rg)
+		}
+	}
+	out := *r
+	out.Group, out.When = kept[0].Name, kept[0].When
+	out.Else = nil
+	for _, rg := range kept[1:] {
+		out.Else = append(out.Else, rg)
+	}
+	return out
 }
 
 // waitReason is why g cannot start b now: its limit, its runtime, or its
@@ -114,19 +167,19 @@ type waitedGroup struct {
 func (d *Dispatcher) waitReason(g store.Group, b store.Bead, active map[string]int) (waitedGroup, bool) {
 	if active[g.Name] >= g.Limit {
 		if g.Limit == 0 {
-			return waitedGroup{g.Name, fmt.Sprintf("group %s is paused (limit 0); the bead starts when the limit is raised (yardr group set %s --limit <n>)", g.Name, g.Name)}, true
+			return waitedGroup{Group: g.Name, Reason: fmt.Sprintf("group %s is paused (limit 0); the bead starts when the limit is raised (yardr group set %s --limit <n>)", g.Name, g.Name)}, true
 		}
-		return waitedGroup{g.Name, fmt.Sprintf("group %s runs as many sessions as its limit (%d) allows; the bead starts when one ends, or the limit is raised (yardr group set %s --limit <n>)", g.Name, g.Limit, g.Name)}, true
+		return waitedGroup{Group: g.Name, Reason: fmt.Sprintf("group %s runs as many sessions as its limit (%d) allows; the bead starts when one ends, or the limit is raised (yardr group set %s --limit <n>)", g.Name, g.Limit, g.Name)}, true
 	}
 	if o := d.down[g.Name]; o != nil && time.Now().Before(o.until) {
-		return waitedGroup{g.Name, fmt.Sprintf("group %s's runtime is down (see the group's runtime_down event); the bead starts when it is tried again", g.Name)}, true
+		return waitedGroup{Group: g.Name, Reason: fmt.Sprintf("group %s's runtime is down (see the group's runtime_down event); the bead starts when it is tried again", g.Name)}, true
 	}
 	// One start in flight per group, and no queue (starts.go): while its
 	// worker is starting a session the group starts no other, and this
 	// bead stays unclaimed until a later pass has drained that start's
 	// completion and applied any outage it recorded.
 	if d.startInFlight[g.Name] != "" {
-		return waitedGroup{g.Name, fmt.Sprintf("group %s is starting a session; the bead starts when that start finishes (yardr session list)", g.Name)}, true
+		return waitedGroup{Group: g.Name, Reason: fmt.Sprintf("group %s is starting a session; the bead starts when that start finishes (yardr session list)", g.Name)}, true
 	}
 	// A session of the group sits stalled with this model, or waits
 	// with it for a usage limit's window to reset: another would end
@@ -137,7 +190,7 @@ func (d *Dispatcher) waitReason(g store.Group, b store.Bead, active map[string]i
 		if model != "" {
 			with = "model " + model
 		}
-		return waitedGroup{g.Name, fmt.Sprintf("group %s starts no session with %s while session %s holds it back (stalled, or waiting for a usage window); the bead starts when that session ends, or with another model", g.Name, with, sid)}, true
+		return waitedGroup{Group: g.Name, Reason: fmt.Sprintf("group %s starts no session with %s while session %s holds it back (stalled, or waiting for a usage window); the bead starts when that session ends, or with another model", g.Name, with, sid), hold: true}, true
 	}
 	return waitedGroup{}, false
 }

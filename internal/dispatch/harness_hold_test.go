@@ -2,6 +2,7 @@ package dispatch_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -417,5 +418,250 @@ func TestReleasedWaitingSessionLeavesTheUsedUpWindowGatingUntilItsReset(t *testi
 	must(t, d.Reconcile(ctx))
 	if got := r.starts(); len(got) != 2 {
 		t.Fatalf("starts = %v, want one more session once the reset has come", got)
+	}
+}
+
+// kimiUsedModel is kimiUsed with the 5h window counting for the model alone:
+// a group that runs another model is not gated by it (judge leaves a window
+// the source says is for one model alone out of the comparison no route
+// wrote), but a session that stopped on it still waits for it (UsedUpForStop
+// falls back to it when no other window is used up).
+func kimiUsedModel(five time.Time, model string) string {
+	return fmt.Sprintf(`{"provider":"Kimi","windows":[`+
+		`{"label":"5h","model":%q,"used_percent":100,"resets_at":%q},`+
+		`{"label":"Weekly","used_percent":38,"resets_at":%q}]}`,
+		model, five.Format(time.RFC3339), five.Add(80*time.Hour).Format(time.RFC3339))
+}
+
+// codexOpen is a report with no window used up, for an --else group that
+// burns another provider than the held one.
+const codexOpen = `{"provider":"Codex","windows":[{"label":"5h","used_percent":9},{"label":"Weekly","used_percent":27}]}`
+
+// elseYard is a yard whose stage-new route names a first and the --else
+// group b: a runs kimi sessions with the model k3, and the bead returned is
+// started on a and seen working. first is the route's first group with its
+// condition, if any. The provider is declared once the session runs, as
+// holdYard's is, answering moonshot with moonshot's report and, where the
+// yard burns a second provider, openai with openai's; both groups' route
+// reads are primed, and the session is stopped on its usage limit, waiting
+// for the 5h window with k3. resets is when that window resets.
+func elseYard(t *testing.T, first string, b store.Group, moonshot func(time.Time) string, openai string) (s store.API, r *paneRunner, d *dispatch.Dispatcher, p *standIn, b1 store.Bead, now *time.Time, resets time.Time) {
+	t.Helper()
+	r = &paneRunner{retryRunner: &retryRunner{agentRunner: &agentRunner{statusRunner: &statusRunner{
+		fakeRunner: &fakeRunner{dead: map[string]bool{}}, status: "working"}, worked: true}}, panes: map[string][2]string{}}
+	s = storetest.New(t)
+	d = &dispatch.Dispatcher{Store: s, Runners: map[string]dispatch.Runner{"herdr": r}, Backoff: time.Hour}
+	t.Cleanup(func() { dispatch.WaitLimitsIdle(d) })
+	at := noon()
+	now = &at
+	dispatch.SetClock(d, func() time.Time { return *now })
+	ctx := context.Background()
+	must(t, s.PutGroup(ctx, store.Group{Name: "a", Runner: "herdr", Limit: 3,
+		Config: map[string]any{"kind": "kimi", "stall": "off", "model": "k3"}}, "me"))
+	must(t, s.PutGroup(ctx, b, "me"))
+	g := store.ParseRouteGroup(first)
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Group: g.Name, When: g.When,
+		Else: []store.RouteGroup{{Name: "b"}}}, "me")
+	must(t, err)
+	bead, err := s.CreateBead(ctx, store.NewBead{Title: "x"}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx)) // start
+	must(t, d.Reconcile(ctx)) // seen working
+	if got := r.starts(); !slices.Equal(got, []string{bead.ID}) {
+		t.Fatalf("starts = %v, want the first bead on a", got)
+	}
+	if group, _ := claimedBy(t, s, bead.ID); group != "a" {
+		t.Fatalf("claimed by %q, want a", group)
+	}
+	p = newStandIn(t, s)
+	resets = at.Add(42 * time.Minute)
+	p.sayFor("moonshot", moonshot(resets))
+	if openai != "" {
+		p.sayFor("openai", openai)
+	}
+	primeLimits(t, d, "kimi", "", nil)
+	primeGroupLimits(t, s, d, "a")
+	primeGroupLimits(t, s, d, "b")
+	r.showBead(t, s, *bead, "idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+	until, window, model, ok := dispatch.ResetWait(handleOfBead(t, s, *bead))
+	if !ok || !until.Equal(resets.Add(time.Minute)) || window != "5h" || model != "k3" {
+		t.Fatalf("the handle's wait = %v %q %q %v, want until %v for the 5h window with k3", until, window, model, ok, resets.Add(time.Minute))
+	}
+	return s, r, d, p, *bead, now, resets
+}
+
+// A claim passes a group its model's usage wait holds back over for the
+// route's --else group (yardr-g08h): the held group is not chosen in this
+// pass, and the claimed event says it was passed over for its hold. When the
+// wait clears, the first group is chosen again in its turn; while every
+// group waits, the bead waits with the one group_wait event as before. One
+// shape per claim path: a route with no condition (this yard's review
+// fallback, mem-3z7j) and one with a condition that does not cover the
+// used-up window. Each shape is one where the quota does not gate the held
+// group — a window for one model alone, which the comparison no route wrote
+// leaves out, or a condition on another window — so only the hold stands
+// between the bead and the first group.
+func TestClaimPassesOverAGroupHeldByAUsageWait(t *testing.T) {
+	t.Parallel()
+	for _, shape := range []struct {
+		name     string
+		first    string
+		moonshot func(time.Time) string
+	}{
+		{"no condition", "a", func(resets time.Time) string { return kimiUsedModel(resets, "k3") }},
+		{"condition", "a@Weekly<80", kimiUsed},
+	} {
+		t.Run(shape.name, func(t *testing.T) {
+			s, r, d, p, b1, now, resets := elseYard(t, shape.first,
+				store.Group{Name: "b", Runner: "herdr", Limit: 1,
+					Config: map[string]any{"kind": "codex", "stall": "off"}},
+				shape.moonshot, codexOpen)
+			ctx := context.Background()
+			wakes := resets.Add(time.Minute)
+
+			// Both groups wait — a on its model's hold, b paused — so the
+			// bead waits with one group_wait event naming both, and starts
+			// nothing.
+			zero := 0
+			_, err := s.SetGroup(ctx, "b", store.GroupEdit{Limit: &zero}, "me")
+			must(t, err)
+			b2 := newBead(t, s, "held and paused")
+			must(t, d.Reconcile(ctx))
+			if got := r.starts(); !slices.Equal(got, []string{b1.ID}) {
+				t.Fatalf("starts = %v, want none while both groups wait", got)
+			}
+			waits := eventKinds(t, s, b2.ID, "group_wait")
+			if len(waits) != 1 {
+				t.Fatalf("group_wait events = %d, want 1 naming both waits", len(waits))
+			}
+			if reason, _ := waits[0].Data["reason"].(string); !strings.Contains(reason, "model k3") || !strings.Contains(reason, "paused (limit 0)") {
+				t.Fatalf("group_wait reason = %q, want the hold and the pause", reason)
+			}
+
+			// b unpaused: the claim passes the held a over for b, and the
+			// claimed event says a was passed over for its hold. The choice
+			// reads only b's windows: a, passed over, is not judged.
+			three := 3
+			_, err = s.SetGroup(ctx, "b", store.GroupEdit{Limit: &three}, "me")
+			must(t, err)
+			asked := p.asks()
+			must(t, d.Reconcile(ctx))
+			if got := r.starts(); !slices.Equal(got, []string{b1.ID, b2.ID}) {
+				t.Fatalf("starts = %v, want the waiting bead started on the --else group", got)
+			}
+			group, data := claimedBy(t, s, b2.ID)
+			if group != "b" {
+				t.Fatalf("claimed by %q with %v, want b", group, data)
+			}
+			passed, _ := data["passed"].([]any)
+			if len(passed) != 1 {
+				t.Fatalf("passed = %v, want the one held group", data["passed"])
+			}
+			one, _ := passed[0].(map[string]any)
+			if one["group"] != "a" || !strings.Contains(fmt.Sprint(one["reason"]), "model k3") {
+				t.Fatalf("passed = %v, want a passed over for its model's hold", one)
+			}
+			if got := p.asks(); !slices.Equal(got, asked) {
+				t.Fatalf("asks = %v, want no further run: the claim read b's cached windows and judged nothing of a", got)
+			}
+
+			// The wait clears: the agent is prompted at the wake, and the
+			// next bead goes to the first group again.
+			*now = wakes.Add(time.Second)
+			primeLimits(t, d, "kimi", "", nil)
+			b3 := newBead(t, s, "after the wait")
+			must(t, d.Reconcile(ctx))
+			if len(r.nudges) != 1 || r.nudges[0] != resetLine {
+				t.Fatalf("typed %q at the wake, want the reset line", r.nudges)
+			}
+			if _, _, _, waits := dispatch.ResetWait(handleOfBead(t, s, b1)); waits {
+				t.Fatalf("the wait is still on the handle after the prompt: %v", handleOfBead(t, s, b1))
+			}
+			if got := r.starts(); !slices.Equal(got, []string{b1.ID, b2.ID, b3.ID}) {
+				t.Fatalf("starts = %v, want the next bead started once the wait clears", got)
+			}
+			if group, _ := claimedBy(t, s, b3.ID); group != "a" {
+				t.Fatalf("claimed by %q, want a again", group)
+			}
+		})
+	}
+}
+
+// While every group of the route is held back for its model's usage wait,
+// the bead waits with one group_wait event naming each hold, and starts
+// nothing; when the waits clear, the route's first group takes it again.
+// The --else group burns the same provider with another model, which the
+// used-up window of the first, counting for its model alone, does not gate.
+func TestClaimWaitsWhileBothGroupsModelsAreHeld(t *testing.T) {
+	t.Parallel()
+	s, r, d, p, b1, now, resets := elseYard(t, "a",
+		store.Group{Name: "b", Runner: "herdr", Limit: 3,
+			Config: map[string]any{"kind": "kimi", "stall": "off", "model": "k2"}},
+		func(resets time.Time) string { return kimiUsedModel(resets, "k3") }, "")
+	ctx := context.Background()
+	wakes := resets.Add(time.Minute)
+
+	// The held a is passed over for b, whose model the used-up window,
+	// counting for k3 alone, does not gate.
+	b2 := newBead(t, s, "other model")
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b1.ID, b2.ID}) {
+		t.Fatalf("starts = %v, want the bead started on the --else group", got)
+	}
+	if group, _ := claimedBy(t, s, b2.ID); group != "b" {
+		t.Fatalf("claimed by %q, want b", group)
+	}
+
+	// A session of b stops on the same window, waiting with k2: with both
+	// models held back, the next bead waits with one group_wait naming
+	// both holds. bx reaches b by a labelled route, so this leg runs
+	// whether or not the route's --else is taken above.
+	label := "to-b"
+	_, err := s.AddRoute(ctx, store.Route{Stage: "new", Label: &label, Group: "b"}, "me")
+	must(t, err)
+	bx, err := s.CreateBead(ctx, store.NewBead{Title: "holds b", Labels: []string{label}}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, bx.ID); group != "b" {
+		t.Fatalf("claimed by %q, want b by the labelled route", group)
+	}
+	r.showBead(t, s, *bx, "idle", kimiLimit)
+	must(t, d.Reconcile(ctx))
+	if _, _, model, ok := dispatch.ResetWait(handleOfBead(t, s, *bx)); !ok || model != "k2" {
+		t.Fatalf("bx's wait model = %q %v, want a wait with k2", model, ok)
+	}
+	b3 := newBead(t, s, "both held")
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b1.ID, b2.ID, bx.ID}) {
+		t.Fatalf("starts = %v, want none while both models are held back", got)
+	}
+	waits := eventKinds(t, s, b3.ID, "group_wait")
+	if len(waits) != 1 {
+		t.Fatalf("group_wait events = %d, want 1 naming both holds", len(waits))
+	}
+	if reason, _ := waits[0].Data["reason"].(string); !strings.Contains(reason, "model k3") || !strings.Contains(reason, "model k2") {
+		t.Fatalf("group_wait reason = %q, want both held models", reason)
+	}
+
+	// Both waits clear: each agent is prompted at the wake, and the bead
+	// that waited goes to the first group again.
+	p.sayFor("moonshot", kimiOpen)
+	*now = wakes.Add(time.Second)
+	primeLimits(t, d, "kimi", "", nil)
+	must(t, d.Reconcile(ctx))
+	if len(r.nudges) != 2 {
+		t.Fatalf("nudges = %q, want the reset line for each waiting agent", r.nudges)
+	}
+	for _, n := range r.nudges {
+		if n != resetLine {
+			t.Fatalf("nudges = %q, want the reset line twice", r.nudges)
+		}
+	}
+	if got := r.starts(); !slices.Equal(got, []string{b1.ID, b2.ID, bx.ID, b3.ID}) {
+		t.Fatalf("starts = %v, want the waiting bead started once the waits clear", got)
+	}
+	if group, _ := claimedBy(t, s, b3.ID); group != "a" {
+		t.Fatalf("claimed by %q, want a again", group)
 	}
 }
