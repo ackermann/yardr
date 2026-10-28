@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"image/png"
 	"io"
 	"net/http"
@@ -54,7 +55,8 @@ func pairingYard(t *testing.T) (f *fixture, ada, bob string) {
 
 // pairingDo sends one request to the pairing yard's view as the token's
 // user, with a form when form is not nil, and does not follow redirects.
-func pairingDo(t *testing.T, f *fixture, token, method, target string, form url.Values) resp {
+// headers are header name and value in pairs, as the fixture's own do.
+func pairingDo(t *testing.T, f *fixture, token, method, target string, form url.Values, headers ...string) resp {
 	t.Helper()
 	var body io.Reader
 	if form != nil {
@@ -67,6 +69,9 @@ func pairingDo(t *testing.T, f *fixture, token, method, target string, form url.
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", f.ts.URL)
+	}
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Add(headers[i], headers[i+1])
 	}
 	if token != "" {
 		req.Header.Set(web.DefaultJWTHeader, token)
@@ -208,13 +213,17 @@ func TestPairingPageOpensShowsAndEnds(t *testing.T) {
 }
 
 // A second signed-in user sees no pairing while one is open, is refused a
-// second opening in plain words that name no one's device, and cannot end
-// it; the owner's pairing stands through all of it.
+// second opening in the words that name whose it is, and cannot end it;
+// the owner's pairing stands through all of it.
 func TestPairingPageSecondUser(t *testing.T) {
 	t.Parallel()
 	f, ada, bob := pairingYard(t)
 	if r := pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"phone"}}); r.status != http.StatusSeeOther {
 		t.Fatalf("opening: status %d: %s", r.status, r.body)
+	}
+	stored, err := f.st.DevicePairCodeSelf(context.Background(), "ada")
+	if err != nil {
+		t.Fatal(err)
 	}
 	r := pairingGet(t, f, bob, "/pairing")
 	if r.status != 200 || !strings.Contains(r.body, "Pair one of your own devices") || strings.Contains(r.body, "pairing-code") {
@@ -223,10 +232,17 @@ func TestPairingPageSecondUser(t *testing.T) {
 	if r := pairingGet(t, f, bob, "/pairing.png"); r.status != http.StatusNotFound {
 		t.Fatalf("the second user's QR: status %d, want 404", r.status)
 	}
+	const want = "a pairing is already open for ada, try again in a few minutes"
 	r = pairingDo(t, f, bob, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"laptop"}})
-	if r.status != 200 || !strings.Contains(r.body, "a pairing is already open, try again in a few minutes") ||
-		strings.Contains(r.body, "ada") {
+	if r.status != 200 || !strings.Contains(r.body, want) || strings.Contains(r.body, stored.Code) {
 		t.Fatalf("the second user's opening: status %d: %s", r.status, r.body)
+	}
+	// The same refusal in JSON: the error alone names the holder.
+	r = pairingDo(t, f, bob, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"laptop"}}, "Accept", "application/json")
+	var got web.Pairing
+	if r.status != 200 || r.header.Get("Content-Type") != "application/json" ||
+		json.Unmarshal([]byte(r.body), &got) != nil || got.Error != want || got.Open || got.Code != "" {
+		t.Fatalf("the second user's opening as JSON: status %d, type %q: %s", r.status, r.header.Get("Content-Type"), r.body)
 	}
 	r = pairingDo(t, f, bob, http.MethodPost, "/pairing", url.Values{"action": {"end"}})
 	if r.status != 200 || !strings.Contains(r.body, "there is no pairing open to end") {
@@ -289,7 +305,7 @@ func TestPairingPageMemberMappedUser(t *testing.T) {
 		t.Fatalf("ada's QR for the member's pairing: status %d, want 404", r.status)
 	}
 	r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"laptop"}})
-	if r.status != 200 || !strings.Contains(r.body, "a pairing is already open") || strings.Contains(r.body, stored.Code) {
+	if r.status != 200 || !strings.Contains(r.body, "a pairing is already open for eve, try again in a few minutes") || strings.Contains(r.body, stored.Code) {
 		t.Fatalf("ada opening over the member's pairing: status %d: %s", r.status, r.body)
 	}
 	r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"end"}})

@@ -83,7 +83,10 @@ func TestDevicePairCommand(t *testing.T) {
 	if list := mustAs(t, st, "jo", "user", "device", "list"); !strings.HasPrefix(list, "no devices") {
 		t.Fatalf("a device is listed before its code was used:\n%s", list)
 	}
-	refusedAs(t, st, "jo", "a pairing is open already, for the device phone of jo until "+until[1], "user", "device", "pair", "ada", "laptop")
+	// Opening for another user names the holder's yard user, and nothing
+	// of the device or when its code runs out.
+	refusedAs(t, st, "jo", "a pairing is already open for jo, try again in a few minutes", "user", "device", "pair", "ada", "laptop")
+	refusedAs(t, st, "jo", "a pairing is open already, for the device phone of jo until "+until[1], "user", "device", "pair", "jo", "laptop")
 
 	status, got := redeemCode(t, m[1], m[3])
 	if status != http.StatusOK || !deviceToken.MatchString(got.Token) || got.User != "jo" || got.Device != "phone" {

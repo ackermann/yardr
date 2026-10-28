@@ -127,6 +127,9 @@ func (s *Store) DevicePairOpen(ctx context.Context, user, name, actor string) (*
 	return s.openDevicePairing(ctx, user, name, actor, func(tx *bolt.Tx) error {
 		return s.may(ctx, tx, actor, ActAddDevice, Object{Kind: KindUser, Name: user})
 	}, func(p *devicePairing) error {
+		if p.User != user {
+			return fmt.Errorf("a pairing is already open for %s, try again in a few minutes", p.User)
+		}
 		return fmt.Errorf("a pairing is open already, for the device %s of %s until %s: a yard has one at a time (yardr user device pair --end ends it)",
 			p.Device, p.User, p.Expires.Local().Format("15:04:05"))
 	})
@@ -146,13 +149,16 @@ func (s *Store) DevicePairOpenSelf(ctx context.Context, user, name string) (*Dev
 			return fmt.Errorf("a pairing is open already, for your device %s until %s: a yard has one at a time (end it to open another)",
 				p.Device, p.Expires.Local().Format("15:04:05"))
 		}
-		return fmt.Errorf("a pairing is already open, try again in a few minutes")
+		return fmt.Errorf("a pairing is already open for %s, try again in a few minutes", p.User)
 	})
 }
 
 // openDevicePairing is DevicePairOpen and DevicePairOpenSelf: check, inside
 // the read, is the leave the opening takes (nil for one's own), and busy
-// words the refusal when the yard's one pairing already lives.
+// words the refusal when the yard's one pairing already lives. A refusal
+// over another user's pairing names the holder's yard user, and nothing of
+// the device: the yard's users already know each other, and one sentence
+// serves the terminal, the page and the relay alike.
 func (s *Store) openDevicePairing(ctx context.Context, user, name, actor string, check func(tx *bolt.Tx) error, busy func(p *devicePairing) error) (*DevicePairingCode, error) {
 	if err := checkDeviceName(name); err != nil {
 		return nil, err

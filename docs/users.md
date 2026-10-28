@@ -1002,7 +1002,12 @@ It then calls as mckean until: yardr user device rm mckean phone
 - **The code** is one of a pairing of yards: eight characters, good for 10
   minutes and for one device. A yard has one device pairing open at a time,
   beside the one it may have open with another yard; `yardr user device pair
-  --end` ends it. A wrong code is counted, and the fifth ends the pairing.
+  --end` ends it. A second opening while one stands names whose it is: `a
+  pairing is already open for ada, try again in a few minutes` — the
+  holder's yard user alone, never the device, the code or when it runs out.
+  The holder opening again is told of their own pairing instead, with its
+  device and when its code runs out. A wrong code is counted, and the fifth
+  ends the pairing.
   The code is in the server's memory until it is used, and nowhere else: not
   in the store, not in an event, not in a log. A server that stops takes an
   open pairing with it. The command does not wait for the device: `yardr

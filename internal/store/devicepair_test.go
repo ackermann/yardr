@@ -76,8 +76,14 @@ func TestDevicePairOneAtATime(t *testing.T) {
 	if opened.State != store.PairOpened || opened.User != "ada" || opened.Device != "phone" || len(opened.Code) != 9 {
 		t.Fatalf("opened = %+v", opened)
 	}
-	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err == nil || !strings.Contains(err.Error(), "a pairing is open already, for the device phone of ada until ") {
-		t.Fatalf("a second pairing = %v", err)
+	// The holder opening again is told of their own pairing, device and
+	// all; opening for anyone else names the holder's yard user, and
+	// nothing of the device, the code or when it runs out.
+	if _, err := api.DevicePairOpen(ctx, "ada", "laptop", "jo"); err == nil || !strings.Contains(err.Error(), "a pairing is open already, for the device phone of ada until ") {
+		t.Fatalf("a second pairing for the holder = %v", err)
+	}
+	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err == nil || err.Error() != "a pairing is already open for ada, try again in a few minutes" {
+		t.Fatalf("a second pairing for another user = %v", err)
 	}
 	if _, err := api.DevicePairClose(ctx, "ada"); err == nil || !strings.Contains(err.Error(), "only the operator (jo) may end a device's pairing; this is ada") {
 		t.Fatalf("DevicePairClose as ada = %v", err)
@@ -192,9 +198,9 @@ func TestDevicePairOpenSelf(t *testing.T) {
 
 // One pairing lives at a time, whosever it is: a second opening of one's
 // own is refused while one lives, another user's opening likewise in words
-// that name no one's device, and so is the operator's — and the operator's
-// pairing refuses a user's the same way. Only the owner ends their own; the
-// operator still ends any.
+// that name the holder's yard user and nothing of the device, and so is the
+// operator's — and the operator's pairing refuses a user's the same way.
+// Only the owner ends their own; the operator still ends any.
 func TestDevicePairSelfOneAtATime(t *testing.T) {
 	t.Parallel()
 	api, _ := deviceYard(t)
@@ -206,11 +212,10 @@ func TestDevicePairSelfOneAtATime(t *testing.T) {
 		t.Fatalf("a second pairing of one's own = %v", err)
 	}
 	other, err := api.DevicePairOpenSelf(ctx, "bob", "phone")
-	if err == nil || other != nil || !strings.Contains(err.Error(), "a pairing is already open, try again in a few minutes") ||
-		strings.Contains(err.Error(), "ada") || strings.Contains(err.Error(), "phone of") {
+	if err == nil || other != nil || err.Error() != "a pairing is already open for ada, try again in a few minutes" {
 		t.Fatalf("another user's pairing = %+v, %v", other, err)
 	}
-	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err == nil || !strings.Contains(err.Error(), "a pairing is open already") {
+	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err == nil || err.Error() != "a pairing is already open for ada, try again in a few minutes" {
 		t.Fatalf("the operator's pairing over one's own = %v", err)
 	}
 	ended, err := api.DevicePairCloseSelf(ctx, "ada")
@@ -225,7 +230,7 @@ func TestDevicePairSelfOneAtATime(t *testing.T) {
 	if _, err := api.DevicePairOpen(ctx, "bob", "phone", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.DevicePairOpenSelf(ctx, "ada", "laptop"); err == nil || !strings.Contains(err.Error(), "a pairing is already open, try again in a few minutes") {
+	if _, err := api.DevicePairOpenSelf(ctx, "ada", "laptop"); err == nil || err.Error() != "a pairing is already open for bob, try again in a few minutes" {
 		t.Fatalf("one's own pairing over the operator's = %v", err)
 	}
 	// The pairing is bob's, whoever opened it: bob ends it, and the
