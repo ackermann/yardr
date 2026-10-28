@@ -331,11 +331,10 @@ func TestMergeLocalTimeoutThrottleUsesDecimalLimit(t *testing.T) {
 
 // trainSignalYard is newTrainYard with both children landed, and tests that
 // from then on are ended by SIGTERM: the first times times, 0 for always.
+// The landed yard is the template's, copied (fixture_test.go).
 func trainSignalYard(t *testing.T, times int) (y *yard, ran string) {
 	t.Helper()
-	y = newTrainYard(t, "true")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
+	y = borrowLanded(t)
 	ran = filepath.Join(y.home, "ran")
 	check := `echo run >> ` + ran + `; echo "output of run $(wc -l < ` + ran + ` | tr -d ' ')"; `
 	if times > 0 {
@@ -393,13 +392,11 @@ func TestTrainTestsEndedBySignalTwiceHold(t *testing.T) {
 }
 
 // landedTrainYard is newTrainYard with both children landed on the train's
-// branch, so that the next run is integrate-train's alone.
+// branch, so that the next run is integrate-train's alone. The yard is the
+// template's, copied (fixture_test.go).
 func landedTrainYard(t *testing.T) *yard {
 	t.Helper()
-	y := newTrainYard(t, "true")
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
-	return y
+	return borrowLanded(t)
 }
 
 // wantIntegrated fails the test unless the train went to review with its

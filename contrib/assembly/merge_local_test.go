@@ -94,28 +94,43 @@ func TestMain(m *testing.M) {
 	// another whole suite, since one race leg holds the machine-wide
 	// lock at a time.
 	flag.Set("test.parallel", strconv.Itoa(max(6, runtime.GOMAXPROCS(0))))
-	dir, err := os.MkdirTemp("", "yrbin")
-	if err != nil {
-		panic(err)
+	// A child this binary's tests start reuses the yardr its parent built:
+	// building it again costs a dozen seconds under load, for the same
+	// binary. The variable names no YARDR_ variable, which TestMain strips.
+	var bindir string
+	if reuse := os.Getenv("ASSEMBLY_TEST_BIN"); reuse != "" {
+		if st, err := os.Stat(reuse); err == nil && !st.IsDir() && st.Mode().Perm()&0o111 != 0 {
+			yardrBin = reuse
+		}
 	}
-	yardrBin = filepath.Join(dir, "yardr")
-	build := exec.Command("go", "build", "-o", yardrBin, "yardr.dev/yardr")
-	build.Stdout, build.Stderr = os.Stderr, os.Stderr
-	if err := build.Run(); err != nil {
-		panic("building yardr: " + err.Error())
+	if yardrBin == "" {
+		dir, err := os.MkdirTemp("", "yrbin")
+		if err != nil {
+			panic(err)
+		}
+		bindir = dir
+		yardrBin = filepath.Join(dir, "yardr")
+		build := exec.Command("go", "build", "-o", yardrBin, "yardr.dev/yardr")
+		build.Stdout, build.Stderr = os.Stderr, os.Stderr
+		if err := build.Run(); err != nil {
+			panic("building yardr: " + err.Error())
+		}
+		// Run it once before any test times a script that starts it: the first
+		// run of a file written a moment ago waits behind the machine's other
+		// first runs on macOS (yardr-c3nm). version needs no home.
+		_ = exec.Command(yardrBin, "version").Run()
 	}
-	// Run it once before any test times a script that starts it: the first
-	// run of a file written a moment ago waits behind the machine's other
-	// first runs on macOS (yardr-c3nm). version needs no home.
-	_ = exec.Command(yardrBin, "version").Run()
 	body, err := mktempRecorderScript()
 	if err != nil {
 		panic(err)
 	}
 	mktempRecorderBody = body
 	code := m.Run()
-	os.RemoveAll(dir)
+	if bindir != "" {
+		os.RemoveAll(bindir)
+	}
 	os.RemoveAll(nowhere)
+	removeTemplates()
 	scripttest.Remove()
 	os.Exit(code)
 }
@@ -137,7 +152,7 @@ func TestMainKeepsTheGatesLoadFactor(t *testing.T) {
 	}
 	t.Parallel()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMainKeepsTheGatesLoadFactor$")
-	cmd.Env = append(os.Environ(), modeEnv+"=1", "YARDR_"+testload.Env+"=3.0")
+	cmd.Env = append(os.Environ(), modeEnv+"=1", "YARDR_"+testload.Env+"=3.0", "ASSEMBLY_TEST_BIN="+yardrBin)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("the gate's factor did not reach the child's fuses: %v\n%s", err, out)
 	}
@@ -203,6 +218,10 @@ func newYardServer(t *testing.T) *yard { return newYardInner(t, true) }
 
 func newYardInner(t *testing.T, realServer bool) *yard {
 	t.Helper()
+	if !realServer {
+		// The served yard is the template's, copied (fixture_test.go).
+		return borrowYard(t)
+	}
 	// A test with a yard shares nothing with another's (TestMain), so it
 	// runs beside them from here on.
 	t.Parallel()
@@ -475,7 +494,7 @@ func (y *yard) exec(script, group, id string) {
 		y.t.Fatal(err)
 	}
 	within := testload.Scale(60 * time.Second)
-	for deadline := time.Now().Add(within); ; time.Sleep(50 * time.Millisecond) {
+	for deadline := time.Now().Add(within); ; time.Sleep(20 * time.Millisecond) {
 		if alive, _ := e.Alive(ctx, h); !alive {
 			break
 		}
@@ -573,6 +592,8 @@ func TestScriptLogsFollowTheFailure(t *testing.T) {
 		}
 		return
 	}
+	// The children are processes of their own; nothing here is shared.
+	t.Parallel()
 
 	for _, tc := range []struct {
 		name, mode string
@@ -582,8 +603,9 @@ func TestScriptLogsFollowTheFailure(t *testing.T) {
 		{"passing test", "pass", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			cmd := exec.Command(os.Args[0], "-test.v", "-test.run=^TestScriptLogsFollowTheFailure$")
-			cmd.Env = append(os.Environ(), modeEnv+"="+tc.mode)
+			cmd.Env = append(os.Environ(), modeEnv+"="+tc.mode, "ASSEMBLY_TEST_BIN="+yardrBin)
 			out, err := cmd.CombinedOutput()
 			if gotFailed := err != nil; gotFailed != tc.failed {
 				t.Fatalf("subtest failed = %v, want %v: %v\n%s", gotFailed, tc.failed, err, out)

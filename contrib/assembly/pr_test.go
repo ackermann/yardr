@@ -339,23 +339,11 @@ func TestIntegrateTrainPRFailureGoesBackToOpen(t *testing.T) {
 }
 
 // landYard is a train yard whose train r-e is integrated and pushed, with
-// its PR open (the train bound to it), in stage land.
+// its PR open (the train bound to it), in stage land. The yard is the
+// template's, copied (fixture_test.go).
 func landYard(t *testing.T) (*yard, string) {
 	t.Helper()
-	gh := withFakeGh(t)
-	y := newTrainYard(t, "test ! -e RED")
-	y.opts = "YARDR_PR=1"
-	y.exec("merge-local", "assembly", "r-1")
-	y.exec("merge-local", "assembly", "r-2")
-	y.exec("integrate-train", "yard-integrators", "r-e")
-	y.yardr("bead", "done", "r-e")
-	y.yardr("bead", "done", "r-e") // review-security -> approved
-	y.exec("pr-train", "yard-pr", "r-e")
-	y.yardr("bead", "done", "r-e")
-	if e := y.beadOf("r-e"); e.Stage != "land" {
-		t.Fatalf("train in %s, want land", e.Stage)
-	}
-	return y, gh
+	return borrowLand(t)
 }
 
 // A merge GitHub refuses goes back to open with gh's message, after one

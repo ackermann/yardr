@@ -168,28 +168,26 @@ func plantedFiles(t *testing.T, dir string, high bool, hi int) []*os.File {
 
 func newWatcherRun(t *testing.T, test, limit string, hi int) *watcherRun {
 	t.Helper()
+	root := watcherTpl.borrow(t)
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
 	wt := filepath.Join(dir, "wt")
 	tmp := filepath.Join(dir, "tmp")
+	stub := filepath.Join(dir, "stub")
+	bin := filepath.Join(dir, "bin")
 	if err := os.Mkdir(tmp, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	watcherGit(t, dir, "init", "-q", "-b", "main", repo)
-	watcherGit(t, repo, "commit", "-q", "--allow-empty", "-m", "base")
-	watcherGit(t, repo, "branch", "yard/r-1")
-	watcherGit(t, repo, "worktree", "add", "-q", wt, "yard/r-1")
-	watcherGit(t, wt, "commit", "-q", "--allow-empty", "-m", "bead")
-	stub := filepath.Join(dir, "stub")
-	scripttest.Write(t, stub, "#!/bin/sh\ncat >/dev/null 2>&1; exit 0\n")
-	bin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Each sleep records into its own file: several run at once, and one
-	// shared record interleaves their headers with each other's lists.
-	fake := "#!/bin/sh\n{ echo \"argv: $*\"; ls /dev/fd; } >\"$FAKE_SLEEP_RECORD.$$\"\nexec /bin/sleep \"$@\"\n"
-	scripttest.Write(t, filepath.Join(bin, "sleep"), fake)
+	// The repository, its worktree, the stub and the sleep are the
+	// template's, copied; the stub's body file goes with its link.
+	copyTree(t, filepath.Join(root, "repo"), repo)
+	copyTree(t, filepath.Join(root, "wt"), wt)
+	copyTree(t, filepath.Join(root, "stub"), stub)
+	copyTree(t, filepath.Join(root, "stub.sh"), stub+".sh")
+	copyTree(t, filepath.Join(root, "bin"), bin)
+	// Repair names the copy's worktree: a bare repair fixes the worktree
+	// the copied admin registered, which is the template's.
+	watcherGit(t, repo, "worktree", "repair", wt)
 	record := filepath.Join(dir, "sleep-record")
 	// The run's fds 3 to 9 are filler and its fd 10 the lock stand-in, where
 	// the sh can close them (plantedFiles).

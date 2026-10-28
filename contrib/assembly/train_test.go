@@ -37,48 +37,11 @@ merged terminal
 // checked out in it, pushed to a bare origin), train r-e in open under the
 // repo's yard.train flow, and its children r-1 and r-2 in approved, each one
 // commit ahead of the train's branch in its worktree. check is the depot's
-// test command, which integrate-train and merge-local run.
+// test command, which integrate-train and merge-local run. The yard is the
+// template's, copied (fixture_test.go).
 func newTrainYard(t *testing.T, check string) *yard {
 	t.Helper()
-	t.Parallel() // as newYard
-	home, err := os.MkdirTemp("", "yr")
-	if err != nil {
-		t.Fatal(err)
-	}
-	y := &yard{t: t, home: home, repo: filepath.Join(t.TempDir(), "repo")}
-	t.Cleanup(func() { os.RemoveAll(home) })
-	// os.Environ names this binary to the servers a command starts
-	// (TestMain), so a run killed by its timeout leaves none behind.
-	y.env = append(os.Environ(), "YARDR_HOME="+home, "YARDR_ACTOR=test")
-	y.git(".", "init", "-q", "-b", "main", y.repo)
-	y.commit(y.repo, "a.txt", "one\n")
-	remote := filepath.Join(t.TempDir(), "origin.git")
-	y.git(".", "init", "-q", "--bare", remote)
-	y.git(y.repo, "remote", "add", "origin", remote)
-	y.git(y.repo, "push", "-q", "origin", "main")
-	y.push = "origin"
-
-	// The yard's store API is served in this process; the setup goes over
-	// rpc, as newYard's.
-	serveYard(t, home)
-	y.initStore()
-	y.putDepot("r", y.repo, "main", check)
-	y.putFlow("code", childFlow)
-	y.pointFlow("r", "", "code")
-	// The train flow exactly as the repo carries it, under the test's name.
-	y.putFlowFile("yard.train", storetest.RepoFlow(t, "yardr.train"))
-	y.pointFlow("r", "train", "yard.train")
-
-	y.createBead("the train", "r-e", "r", "train", "open")
-	y.git(y.repo, "branch", "yard/r-e") // the herdr runner branches it from main
-	for i, id := range []string{"r-1", "r-2"} {
-		y.createBead("child", id, "r", "", "approved")
-		y.addParent("r-e", id)
-		wt := filepath.Join(home, "worktrees", "r", id)
-		y.git(y.repo, "worktree", "add", "-q", "-b", "yard/"+id, wt, "yard/r-e")
-		y.commit(wt, "child"+string(rune('1'+i))+".txt", id+"\n")
-	}
-	return y
+	return borrowTrain(t, check)
 }
 
 // newTrainYardCLI is newTrainYard through the real CLI end to end, for the
