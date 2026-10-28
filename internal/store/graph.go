@@ -1204,6 +1204,10 @@ func (w *wtx) addNotedNotifySession(row *beadRow, kind, text, actor, notify stri
 	if err := w.event(row.UUID, evKind, actor, data); err != nil {
 		return nil, err
 	}
+	// The asker's note may bring a put-aside ask back: told as new.
+	if err := w.queueAsideReturns(row, n); err != nil {
+		return nil, err
+	}
 	out := n
 	out.Bead = row.ID
 	return &out, nil

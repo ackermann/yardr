@@ -740,6 +740,9 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 	if err := dropPushes(w.Tx, name); err != nil {
 		return err
 	}
+	if err := dropFootUser(w.Tx, name); err != nil {
+		return err
+	}
 	data := map[string]any{"user": name}
 	if len(asKeys) > 0 {
 		data["as_grants"] = len(asKeys)
@@ -747,7 +750,7 @@ func (w *wtx) deleteUser(ctx context.Context, name, actor string, by *approvedOn
 	if !login.Empty() {
 		data["login"] = login
 	}
-	if err := dropDevices(w.Tx, name, data); err != nil {
+	if err := dropDevices(w, name, data); err != nil {
 		return err
 	}
 	if err := unexpose(w.Tx, name, data); err != nil {

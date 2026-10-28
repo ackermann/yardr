@@ -194,6 +194,11 @@ func putDevice(w *wtx, out *NewDevice, user, name, actor string, extra map[strin
 	if err := put(w.Tx, bDeviceTokens, hash, deviceRef{User: user, Name: name}); err != nil {
 		return err
 	}
+	// Added again: a removal still queued for the name would delete the
+	// fresh registration at the relay, so it goes.
+	if err := dropFootRemove(w.Tx, user, name); err != nil {
+		return err
+	}
 	data := map[string]any{"user": user, "device": name}
 	for k, v := range extra {
 		data[k] = v
@@ -261,6 +266,14 @@ func (s *Store) RemoveDevice(ctx context.Context, user, name, actor string) (*De
 		if err := dropDevice(w.Tx, key, &d); err != nil {
 			return err
 		}
+		// Its queued intents tell of nothing now, and the relay forgets
+		// the device with a removal.
+		if err := dropFootForget(w.Tx, user, name); err != nil {
+			return err
+		}
+		if err := w.queueFootRemove(user, name); err != nil {
+			return err
+		}
 		out = &d.Device
 		return w.event("", "device_removed", actor, map[string]any{"user": user, "device": name})
 	})
@@ -276,15 +289,19 @@ func dropDevice(tx *bolt.Tx, key string, d *deviceRecord) error {
 
 // dropDevices removes the devices of the user name, who is removed: whoever
 // has the name next has none, and no token speaks as them. data, the event
-// of the removal, names them.
-func dropDevices(tx *bolt.Tx, name string, data map[string]any) error {
+// of the removal, names them. Each device is reported to the relay with a
+// removal, beside the refusal of its token.
+func dropDevices(w *wtx, name string, data map[string]any) error {
 	var names []string
-	for _, key := range keys(tx, bDevices, name+"\x00") {
+	for _, key := range keys(w.Tx, bDevices, name+"\x00") {
 		var d deviceRecord
-		if _, err := get(tx, bDevices, key, &d); err != nil {
+		if _, err := get(w.Tx, bDevices, key, &d); err != nil {
 			return err
 		}
-		if err := dropDevice(tx, key, &d); err != nil {
+		if err := dropDevice(w.Tx, key, &d); err != nil {
+			return err
+		}
+		if err := w.queueFootRemove(name, d.Name); err != nil {
 			return err
 		}
 		names = append(names, d.Name)

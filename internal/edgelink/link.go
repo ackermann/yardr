@@ -58,7 +58,21 @@ import (
 //	                      away: the request with that id is cancelled)
 //	yard → edge           {"type":"ack","id"}   (a queued request, once
 //	                      served: the edge deletes it on the ack)
+//	yard → edge           {"type":"push-intent","event_id","user","device",
+//	                      "kind"}   (footplate push: one eligible arrival
+//	                      for one device, which the relay coalesces and
+//	                      wakes; the kind is mail or decision)
+//	yard → edge           {"type":"push-remove","event_id","user","device"}
+//	                      (footplate push: the device is removed, and the
+//	                      relay forgets its registration)
+//	edge → yard           {"type":"push-ack","event_id","refused"}   (the
+//	                      relay's answer to an intent or removal, with the
+//	                      word of a refusal where it took nothing)
 //	either way            {"type":"ping"} and {"type":"pong"}
+//
+// No push frame carries a platform or a push token, which the yard never
+// sees; the relay refuses one that does. There is no register verb on the
+// link at all: the router answers the phone's register call itself.
 //
 // The yard checks the challenge against the key it pinned when it
 // connected, so a socket that is not the edge's is never answered, and a
@@ -140,6 +154,10 @@ type Link struct {
 	// Told is given the link's state each time it changes; it is called from
 	// the link's own goroutine, one change at a time.
 	Told func(State)
+	// OnPushAck is given the relay's answer to each intent or removal
+	// the yard sent up the link. It is called from the link's read loop
+	// and must not block it.
+	OnPushAck func(PushAck)
 
 	// The timing of 3.2; tests shorten it. Zero is the design's figure.
 	PingEvery, DeadAfter, HelloWithin time.Duration
@@ -152,6 +170,10 @@ type Link struct {
 	// only between serve's reading of its frame and its handler's return.
 	liveMu sync.Mutex
 	live   map[string]context.CancelFunc
+	// conn is the live link's socket while serve runs, for the frames the
+	// yard sends unasked: the sender's push frames.
+	sendMu sync.Mutex
+	conn   *websocket.Conn
 }
 
 // State is what a link is now, which yardr status and yardr doctor show.
@@ -272,6 +294,8 @@ type frameIn struct {
 	Body     []byte      `json:"body"`
 	Received string      `json:"received"`
 	Queued   bool        `json:"queued"`
+	EventID  string      `json:"event_id"`
+	Refused  string      `json:"refused"`
 }
 
 type responseFrame struct {
@@ -300,6 +324,60 @@ type endFrame struct {
 type ackFrame struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
+}
+
+// The footplate frames the yard sends up the link, as the relay takes
+// them: an intent names the user, the device, the kind and the event's
+// random stable id, and a removal the user and the device with the id the
+// relay's ack matches. Neither carries a platform or a push token, which
+// the yard never sees.
+const (
+	PushIntent = "push-intent"
+	PushRemove = "push-remove"
+)
+
+// PushFrame is one footplate frame for the link: an intent or a removal.
+// Only these fields are sent; the relay refuses a frame with any other.
+type PushFrame struct {
+	Type    string `json:"type"`
+	EventID string `json:"event_id,omitempty"`
+	User    string `json:"user,omitempty"`
+	Device  string `json:"device,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+}
+
+// PushAck is the relay's answer to an intent or removal: the event it
+// acks, and the word of a refusal where the relay took nothing.
+type PushAck struct {
+	EventID string `json:"event_id"`
+	Refused string `json:"refused"`
+}
+
+// ErrLinkDown is a push frame with no live link to carry it: the row
+// waits for the link's return.
+var ErrLinkDown = errors.New("the link is down")
+
+// SendPush sends one footplate frame up the live link: an intent or a
+// removal, on the yard role's socket alone. ErrLinkDown when no link is
+// up; anything else is a write the link's end interrupted, and the row
+// waits as well.
+func (l *Link) SendPush(ctx context.Context, f PushFrame) error {
+	if l.Role != "" {
+		return fmt.Errorf("push frames ride the yard's link, not a %q one's", l.Role)
+	}
+	l.sendMu.Lock()
+	c := l.conn
+	l.sendMu.Unlock()
+	if c == nil {
+		return ErrLinkDown
+	}
+	return l.write(ctx, c, f)
+}
+
+func (l *Link) setConn(c *websocket.Conn) {
+	l.sendMu.Lock()
+	defer l.sendMu.Unlock()
+	l.conn = c
 }
 
 // once dials the link and serves it until it ends. It returns how long the
@@ -359,9 +437,11 @@ func (l *Link) once(ctx context.Context) (upFor time.Duration, reason, detail st
 		return 0, DownRefused, "the edge did not welcome the hello: " + closeText(err, welcome.Type)
 	}
 	up := time.Now()
+	l.setConn(c)
 	l.set(State{Up: true, Since: up, Ups: l.State().Ups + 1})
 	l.Log.Info("edge link up", "edge", l.Edge.URL, "handle", l.Edge.Handle)
 	reason, detail = l.serve(ctx, c, yardkey.Session(yardNonce, edgeNonce))
+	l.setConn(nil)
 	return max(time.Since(up), time.Nanosecond), reason, detail
 }
 
@@ -460,6 +540,12 @@ func (l *Link) serve(ctx context.Context, c *websocket.Conn, session string) (re
 			})
 		case "end":
 			l.cancel(f.ID)
+		case "push-ack":
+			// The relay's answer to an intent or removal the sender is
+			// waiting on; the handler never blocks the read loop.
+			if l.OnPushAck != nil {
+				l.OnPushAck(PushAck{EventID: f.EventID, Refused: f.Refused})
+			}
 		case "ping":
 			_ = l.write(lctx, c, map[string]string{"type": "pong"})
 		case "pong":

@@ -204,6 +204,9 @@ func (s *Store) NoteDaemonLost(ctx context.Context, stoppedAt time.Time) (string
 		if err := w.queueAskPush(operator, row.UUID, n.Seq, ""); err != nil {
 			return err
 		}
+		if err := w.queueFootAsk(operator, row.UUID, n.Seq, ""); err != nil {
+			return err
+		}
 		bead = row.ID
 		return nil
 	})

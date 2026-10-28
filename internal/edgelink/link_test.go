@@ -3,8 +3,11 @@ package edgelink
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -677,5 +680,87 @@ drain:
 	}
 	if s := y.link.State(); !s.Up || s.Ups != 1 {
 		t.Errorf("the link went down on the flushed oversized head: %+v", s)
+	}
+}
+
+// Push frames go up the live link with only the fields the contract
+// carries, and the relay's acks come back to the handler. With no link up
+// the frame waits with ErrLinkDown, and a link of another role refuses it
+// outright.
+func TestLinkSendsPushFramesAndTakesTheirAcks(t *testing.T) {
+	var mu sync.Mutex
+	var acks []PushAck
+	y := linkTo(t, func(l *Link) {
+		l.OnPushAck = func(a PushAck) {
+			mu.Lock()
+			acks = append(acks, a)
+			mu.Unlock()
+		}
+	}, nil)
+	l := y.next(t)
+	y.until(t, func(s State) bool { return s.Up })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := y.link.SendPush(ctx, PushFrame{Type: PushIntent, EventID: "e1", User: "ada", Device: "phone", Kind: "mail"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.link.SendPush(ctx, PushFrame{Type: PushRemove, EventID: "e2", User: "ada", Device: "phone"}); err != nil {
+		t.Fatal(err)
+	}
+	var got []standin.EdgePush
+	for i := 0; i < 2; i++ {
+		select {
+		case p := <-l.PushEvents():
+			got = append(got, p)
+		case <-time.After(10 * time.Second):
+			t.Fatal("the push frame never arrived")
+		}
+	}
+	if got[0].Type != PushIntent || got[0].EventID != "e1" || got[0].User != "ada" || got[0].Device != "phone" || got[0].Kind != "mail" {
+		t.Errorf("the intent = %+v", got[0])
+	}
+	if got[1].Type != PushRemove || got[1].EventID != "e2" || got[1].User != "ada" || got[1].Device != "phone" || got[1].Kind != "" {
+		t.Errorf("the removal = %+v", got[1])
+	}
+	for i, want := range []string{"device event_id kind type user", "device event_id type user"} {
+		var fields map[string]any
+		if err := json.Unmarshal(got[i].Raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for name := range fields {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		if strings.Join(names, " ") != want {
+			t.Errorf("frame %d carries %q, want %q", i, names, want)
+		}
+	}
+	if err := l.AckPush(ctx, "e1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.AckPush(ctx, "e2", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		mu.Lock()
+		n := len(acks)
+		mu.Unlock()
+		if n == 2 || !time.Now().Before(deadline) {
+			break
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(acks) != 2 || acks[0] != (PushAck{EventID: "e1"}) || acks[1] != (PushAck{EventID: "e2", Refused: "gone"}) {
+		t.Fatalf("acks = %+v", acks)
+	}
+
+	y.stop()
+	if err := y.link.SendPush(ctx, PushFrame{Type: PushIntent}); !errors.Is(err, ErrLinkDown) {
+		t.Errorf("a frame with no link up = %v, want ErrLinkDown", err)
+	}
+	if err := (&Link{Role: "web"}).SendPush(ctx, PushFrame{Type: PushIntent}); err == nil || !strings.Contains(err.Error(), `"web"`) {
+		t.Errorf("a frame on another role's link = %v", err)
 	}
 }

@@ -214,6 +214,9 @@ func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text stri
 		if err := w.queueAskPush(operator, row.UUID, n.Seq, ""); err != nil {
 			return err
 		}
+		if err := w.queueFootAsk(operator, row.UUID, n.Seq, ""); err != nil {
+			return err
+		}
 		created = true
 		return nil
 	})
@@ -424,6 +427,9 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 			return err
 		}
 		if err := w.queueAskPush(operator, row.UUID, n.Seq, ""); err != nil {
+			return err
+		}
+		if err := w.queueFootAsk(operator, row.UUID, n.Seq, ""); err != nil {
 			return err
 		}
 		created = true

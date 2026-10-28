@@ -230,6 +230,9 @@ func (w *wtx) putLocalStageAsk(row *beadRow, ask Ask) error {
 	if err := w.queueAskPush(ask.To, row.UUID, n.Seq, ""); err != nil {
 		return err
 	}
+	if err := w.queueFootAsk(ask.To, row.UUID, n.Seq, ""); err != nil {
+		return err
+	}
 	var peers []Peer
 	if err := each(w.Tx, bPeers, "", func(_ []byte, p *Peer) error {
 		peers = append(peers, *p)

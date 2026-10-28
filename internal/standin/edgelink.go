@@ -57,6 +57,18 @@ type EdgeData struct {
 	Body []byte
 }
 
+// EdgePush is one footplate frame the yard sent up the link: an intent or
+// a removal. Raw is the frame as it arrived, for the tests that hold the
+// yard to the relay's shape.
+type EdgePush struct {
+	Type    string `json:"type"`
+	EventID string `json:"event_id"`
+	User    string `json:"user"`
+	Device  string `json:"device"`
+	Kind    string `json:"kind"`
+	Raw     []byte `json:"-"`
+}
+
 // EdgeLink is one link the stand-in welcomed.
 type EdgeLink struct {
 	// Header is the signed upgrade's headers, as received by the edge.
@@ -78,6 +90,8 @@ type EdgeLink struct {
 	dataCh  chan EdgeData
 	ends    []string
 	endCh   chan string
+	pushes  []EdgePush
+	pushCh  chan EdgePush
 	silent  bool
 	pongs   int
 	pongCh  chan struct{}
@@ -158,7 +172,8 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	l := &EdgeLink{Header: r.Header.Clone(), e: e, c: c, session: yardkey.Session(yardNonce, edgeNonce), done: make(chan struct{}), waiting: map[string]chan EdgeAnswer{},
-		ackCh: make(chan string, 64), dataCh: make(chan EdgeData, 64), endCh: make(chan string, 64), pongCh: make(chan struct{}, 64)}
+		ackCh: make(chan string, 64), dataCh: make(chan EdgeData, 64), endCh: make(chan string, 64), pongCh: make(chan struct{}, 64),
+		pushCh: make(chan EdgePush, 64)}
 	if err := writeFrame(ctx, c, map[string]string{"type": "welcome"}); err != nil {
 		return
 	}
@@ -222,6 +237,19 @@ func (e *Edge) link(w http.ResponseWriter, r *http.Request) {
 			l.mu.Unlock()
 			select {
 			case l.endCh <- f.ID:
+			default:
+			}
+		case "push-intent", "push-remove":
+			var p EdgePush
+			if json.Unmarshal(raw, &p) != nil {
+				continue
+			}
+			p.Raw = append([]byte(nil), raw...)
+			l.mu.Lock()
+			l.pushes = append(l.pushes, p)
+			l.mu.Unlock()
+			select {
+			case l.pushCh <- p:
 			default:
 			}
 		}
@@ -330,6 +358,28 @@ func (l *EdgeLink) Ends() []string {
 
 // EndEvents signals each id whose answer the yard ended.
 func (l *EdgeLink) EndEvents() <-chan string { return l.endCh }
+
+// Pushes are the yard's footplate frames on this link so far, in the
+// order they came.
+func (l *EdgeLink) Pushes() []EdgePush {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]EdgePush(nil), l.pushes...)
+}
+
+// PushEvents signals each footplate frame the yard sends.
+func (l *EdgeLink) PushEvents() <-chan EdgePush { return l.pushCh }
+
+// AckPush answers an intent or removal as the relay does: the event it
+// acks, and the word of a refusal where the relay took nothing.
+func (l *EdgeLink) AckPush(ctx context.Context, eventID, refused string) error {
+	ack := struct {
+		Type    string `json:"type"`
+		EventID string `json:"event_id,omitempty"`
+		Refused string `json:"refused,omitempty"`
+	}{Type: "push-ack", EventID: eventID, Refused: refused}
+	return writeFrame(ctx, l.c, ack)
+}
 
 // SendEnd tells the yard a stream's caller went away: the yard cancels the
 // request with that id, as the edge does when a device goes away.

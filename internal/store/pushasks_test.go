@@ -165,3 +165,75 @@ func TestPushQueuedWithAForeignAsk(t *testing.T) {
 		t.Fatalf("after both ended: %+v", ps)
 	}
 }
+
+// A question another yard asked queues a footplate intent with its
+// delivery. Put aside here, nothing is due until its 24 hours; ended
+// there, the delayed row drops with the sweep. Put aside there with its
+// return past, it is told at once.
+func TestFootQueuedWithAForeignAsk(t *testing.T) {
+	t.Parallel()
+	y := newPeerYard(t, "http://north.test")
+	if err := y.api.SetSetting(y.ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"mckean", "bob"} {
+		if _, err := y.api.AddUser(y.ctx, name, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := y.api.AddDevice(y.ctx, "mckean", "phone", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.allow(t, store.PeerAllow{Receive: []string{"ask"}, Send: []string{"ask"}, Expose: []string{"mckean", "bob"}})
+	since := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	due := func() []store.FootItem {
+		t.Helper()
+		rows, err := y.own.FootDue(y.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	if got := y.take(t, askMsg("a1", validForeignAsk("mckean", "yardmaster", "yd-links", 3, since))); got[0].Refused != "" {
+		t.Fatalf("ask a1 = %+v", got)
+	}
+	rows := due()
+	if len(rows) != 1 || rows[0].Kind != store.FootDecision || rows[0].Ask == nil || rows[0].Ask.Bead != "yd-links@north" {
+		t.Fatalf("due at the delivery = %+v", rows)
+	}
+	if err := y.api.DeferAsk(y.ctx, "yd-links@north", 3, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if rows := due(); len(rows) != 0 {
+		t.Fatalf("due while aside = %+v", rows)
+	}
+	settle := store.PeerMessage{ID: "s1", Kind: store.PeerAsk, Re: "a1", Body: []byte(`{"v":1,"bead":"yd-links","seq":3,"settled":"answered"}`)}
+	if got := y.take(t, settle); got[0].Refused != "" {
+		t.Fatalf("the settle = %+v", got)
+	}
+	// The sweep drops the delayed row the deferral queued, which proves
+	// it was queued: nothing else stands for the ask.
+	if expired, stale, err := y.own.FootSweep(y.ctx); err != nil || expired != 0 || stale != 1 {
+		t.Fatalf("sweep = %d expired, %d stale, %v", expired, stale, err)
+	}
+
+	if got := y.take(t, askMsg("a2", validForeignAsk("mckean", "yardmaster", "yd-links", 4, since))); got[0].Refused != "" {
+		t.Fatalf("ask a2 = %+v", got)
+	}
+	body, err := json.Marshal(struct {
+		V        int       `json:"v"`
+		Bead     string    `json:"bead"`
+		Seq      uint64    `json:"seq"`
+		Settled  string    `json:"settled"`
+		ReturnAt time.Time `json:"return_at"`
+	}{V: 1, Bead: "yd-links", Seq: 4, Settled: store.SettledAside, ReturnAt: time.Now().UTC().Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := y.take(t, store.PeerMessage{ID: "s2", Kind: store.PeerAsk, Re: "a2", Body: body}); got[0].Refused != "" {
+		t.Fatalf("the aside = %+v", got)
+	}
+	if rows := due(); len(rows) != 1 || rows[0].Ask == nil {
+		t.Fatalf("due at the remote return = %+v", rows)
+	}
+}

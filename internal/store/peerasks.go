@@ -452,7 +452,10 @@ func (w *wtx) deliverAsk(p *Peer, m PeerMessage, ask *peerAsk) error {
 	if err := w.event(ask.Bead+"@"+p.Name, "noted", ask.From+"@"+p.Name, map[string]any{"ask": ask.Seq}); err != nil {
 		return err
 	}
-	return w.queueAskPush(ask.To, "", 0, join(p.Key, m.ID))
+	if err := w.queueAskPush(ask.To, "", 0, join(p.Key, m.ID)); err != nil {
+		return err
+	}
+	return w.queueFootAsk(ask.To, "", 0, join(p.Key, m.ID))
 }
 
 // foreignAsksOnBead are the foreign asks the peer whose key is key took on
@@ -831,6 +834,16 @@ func (w *wtx) takeSettle(p *Peer, m PeerMessage, a peerAnswer) (string, error) {
 	if err := put(w.Tx, bPeerAsks, key, rec); err != nil {
 		return "", err
 	}
+	// Put aside there: what is still queued for the ask goes, and its
+	// return is news too, told when it comes back.
+	if a.Settled == SettledAside {
+		if err := dropFootAsk(w.Tx, rec.To, "", 0, key); err != nil {
+			return "", err
+		}
+		if err := w.queueFootRemoteAside(rec.To, key, *a.ReturnAt); err != nil {
+			return "", err
+		}
+	}
 	// The queue changed: a client reads UserAsks again on it.
 	return "", w.event(rec.Bead+"@"+p.Name, "noted", "yard", map[string]any{"ask": rec.Seq})
 }
@@ -995,9 +1008,21 @@ func (s *Store) answerForeign(ctx context.Context, bead, peer string, ans Answer
 		if _, err := w.queuePeer(p, m, actor); err != nil {
 			return err
 		}
-		rec.Answers = append(rec.Answers, foreignAnswer{Message: m.ID, Answer: ans, By: actor, At: now()})
+		at := now()
+		rec.Answers = append(rec.Answers, foreignAnswer{Message: m.ID, Answer: ans, By: actor, At: at})
 		if err := put(w.Tx, bPeerAsks, key, rec); err != nil {
 			return err
+		}
+		// Put aside here: what is still queued for the ask goes, and
+		// the aside's return is news too, told when its 24 hours are
+		// over.
+		if ans.Later && !ans.TakeBack && !ans.Decline {
+			if err := dropFootAsk(w.Tx, rec.To, "", 0, key); err != nil {
+				return err
+			}
+			if err := w.queueFootForeignAside(rec.To, key, m.ID, at.Add(LaterFor)); err != nil {
+				return err
+			}
 		}
 		return w.event(id, "noted", actor, map[string]any{"ask": rec.Seq})
 	})

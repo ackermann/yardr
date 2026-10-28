@@ -547,6 +547,53 @@ func TestUserMe(t *testing.T) {
 	}
 }
 
+// The yard answers no register call: the router answers the phone's
+// POST /user/push/register itself, and the yard gains no handler for it.
+// A call here is refused with nothing written anywhere: 404 for a device,
+// and refused without a credential.
+func TestUserPushRegisterRefused(t *testing.T) {
+	ctx := context.Background()
+	st, u, token := userYard(t)
+	h := u.Handler()
+	head, err := st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"platform":"apns","token":"phone-token"}`, `{}`} {
+		w := ask(h, http.MethodPost, "/user/push/register", token, strings.NewReader(body))
+		if w.Code != http.StatusNotFound {
+			t.Errorf("register with a token answered %d, want 404: %s", w.Code, w.Body)
+		}
+	}
+	w := ask(h, http.MethodPost, "/user/push/unregister", token, strings.NewReader(`{}`))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unregister with a token answered %d, want 404: %s", w.Code, w.Body)
+	}
+	for _, credential := range []string{"", "not-a-token"} {
+		w := ask(h, http.MethodPost, "/user/push/register", credential, strings.NewReader(`{}`))
+		if w.Code == http.StatusOK {
+			t.Errorf("register without a credential answered %d", w.Code)
+		}
+	}
+	// Nothing planted anywhere: no footplate row, no push, and no event
+	// but the listener's own record of the refusals.
+	if rows, err := st.FootDue(ctx); err != nil || len(rows) != 0 {
+		t.Errorf("due = %+v, %v", rows, err)
+	}
+	if ps, err := st.Pushes(ctx); err != nil || len(ps) != 0 {
+		t.Errorf("pushes = %+v, %v", ps, err)
+	}
+	evs, err := st.EventsSince(ctx, head, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range evs {
+		if e.Kind != UserRefused {
+			t.Errorf("event %d = %s %+v", e.Seq, e.Kind, e.Data)
+		}
+	}
+}
+
 // Settings tells a device only the settings docs/api.md promises: the
 // operator, the caps on a file, and the operator's own words to the agents
 // to a device of the operator alone. hook_public_url and edge, set beside

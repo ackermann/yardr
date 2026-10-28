@@ -540,6 +540,14 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 		if err := w.queuePush(MailReceiver(e), PushMail, seq); err != nil {
 			return err
 		}
+		// And to the user's phones through the relay, unless the letter
+		// is their own: the board reads its sender as the actor, so a
+		// letter the actor is the receiver of is no news to them.
+		if e.Actor != MailReceiver(e) {
+			if err := w.queueFootMail(MailReceiver(e), seq); err != nil {
+				return err
+			}
+		}
 	}
 	return put(w.Tx, bEvents, seqKey(seq), e)
 }

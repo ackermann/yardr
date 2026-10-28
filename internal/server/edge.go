@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -28,6 +29,19 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 			current  string
 			stopLink = func() {}
 		)
+		var links linkHolder
+		var sender *pushSender
+		if role == "" {
+			// The yard role's link carries the footplate sender: intents
+			// and removals ride it up to the relay. The sender runs
+			// whether or not a link is up, so a yard with no edge still
+			// sweeps its rows. Only the server keeps this role with its
+			// own store.
+			if ps, ok := st.(*store.Store); ok {
+				sender = &pushSender{st: ps, log: log, link: links.get}
+				defer startPushSender(ctx, sender)()
+			}
+		}
 		apply := func() {
 			all, err := st.Settings(ctx)
 			if err != nil {
@@ -41,6 +55,7 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 				return
 			}
 			stopLink()
+			links.set(nil)
 			stopLink, current = func() {}, v
 			if role == "" {
 				os.Remove(c.EdgeState())
@@ -58,7 +73,12 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 				log.Warn("edge: the yard's key is not read; no link", "err", err)
 				return
 			}
-			stopLink = startLink(ctx, c, st, &edgelink.Link{Edge: e, Key: key, Role: role, Handler: h, Log: log})
+			l := &edgelink.Link{Edge: e, Key: key, Role: role, Handler: h, Log: log}
+			if sender != nil {
+				l.OnPushAck = sender.ack
+				links.set(l)
+			}
+			stopLink = startLink(ctx, c, st, l)
 		}
 		// The stream ends whenever the server does, and a server that is
 		// replacing itself does not answer for a moment: subscribe again
@@ -107,6 +127,7 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 			}
 		}
 		stopLink()
+		links.set(nil)
 		if role == "" {
 			os.Remove(c.EdgeState())
 		}
@@ -115,6 +136,25 @@ func KeepEdge(ctx context.Context, c *config.Config, st store.API, role string, 
 		cancel()
 		<-done
 	}
+}
+
+// linkHolder is the yard role's current link, for the footplate sender:
+// set when the link starts, cleared when it stops.
+type linkHolder struct {
+	mu sync.Mutex
+	l  *edgelink.Link
+}
+
+func (h *linkHolder) set(l *edgelink.Link) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.l = l
+}
+
+func (h *linkHolder) get() *edgelink.Link {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.l
 }
 
 // linkTest, when set, changes a link before it runs: a test's client that

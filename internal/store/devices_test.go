@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -250,8 +251,25 @@ func TestDeviceAddRefusedFromASessionsPane(t *testing.T) {
 	}
 }
 
+// footDue is what is due to be reported to the relay, as kind user/device,
+// sorted: rows of one write read back oldest first, which is by random id.
+func footDue(t *testing.T, own *store.Store) []string {
+	t.Helper()
+	rows, err := own.FootDue(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, f := range rows {
+		out = append(out, f.Kind+" "+f.User+"/"+f.Device)
+	}
+	slices.Sort(out)
+	return out
+}
+
 // Removing a device is the operator's and the user's own; its token is
-// refused from then on, and the name is free again with a new token.
+// refused from then on, a removal is queued for the relay, and the name is
+// free again with a new token, whose adding drops the queued removal.
 func TestDeviceRemove(t *testing.T) {
 	t.Parallel()
 	api, own := deviceYard(t)
@@ -284,6 +302,9 @@ func TestDeviceRemove(t *testing.T) {
 	if got, err := own.ResolveDevice(ctx, phone.Token, "10.0.0.1"); err != nil || got != nil {
 		t.Fatalf("a removed device's token resolves: %+v, %v", got, err)
 	}
+	if got := footDue(t, own); !slices.Equal(got, []string{"remove ada/phone"}) {
+		t.Fatalf("due after the removal = %v", got)
+	}
 	if got, err := own.ResolveDevice(ctx, laptop.Token, "10.0.0.1"); err != nil || got == nil || got.Name != "laptop" {
 		t.Fatalf("the user's other device: %+v, %v", got, err)
 	}
@@ -293,6 +314,9 @@ func TestDeviceRemove(t *testing.T) {
 	if _, err := api.RemoveDevice(ctx, "ada", "laptop", "jo"); err != nil {
 		t.Fatalf("the operator: %v", err)
 	}
+	if got := footDue(t, own); !slices.Equal(got, []string{"remove ada/laptop", "remove ada/phone"}) {
+		t.Fatalf("due after both removals = %v", got)
+	}
 
 	again, err := api.AddDevice(ctx, "ada", "phone", "jo")
 	if err != nil || again.Token == phone.Token {
@@ -300,6 +324,11 @@ func TestDeviceRemove(t *testing.T) {
 	}
 	if got, err := own.ResolveDevice(ctx, phone.Token, "10.0.0.1"); err != nil || got != nil {
 		t.Fatalf("the old token resolves to the new device: %+v, %v", got, err)
+	}
+	// Added again: its queued removal is gone, so it cannot delete the
+	// fresh registration at the relay.
+	if got := footDue(t, own); !slices.Equal(got, []string{"remove ada/laptop"}) {
+		t.Fatalf("due after the name was added again = %v", got)
 	}
 
 	var removed []string
@@ -319,7 +348,8 @@ func TestDeviceRemove(t *testing.T) {
 }
 
 // Removing a user removes their devices: the tokens are refused, the event
-// names the devices, and a later user of the name has none.
+// names the devices, their queued intents go with them, each device is
+// reported with a removal, and a later user of the name has none.
 func TestUserRemovalTakesTheDevices(t *testing.T) {
 	t.Parallel()
 	api, own := deviceYard(t)
@@ -336,8 +366,19 @@ func TestUserRemovalTakesTheDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := api.Mail(ctx, "ada", "hi ada", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if got := footDue(t, own); !slices.Equal(got, []string{"mail ada/laptop", "mail ada/phone"}) {
+		t.Fatalf("due before the removal = %v", got)
+	}
 	if err := api.DeleteUser(ctx, "ada", "jo"); err != nil {
 		t.Fatal(err)
+	}
+	// Her queued intents went with her, and each device is reported with
+	// a removal.
+	if got := footDue(t, own); !slices.Equal(got, []string{"remove ada/laptop", "remove ada/phone"}) {
+		t.Fatalf("due after the removal = %v", got)
 	}
 	for _, token := range tokens {
 		if got, err := own.ResolveDevice(ctx, token, "10.0.0.1"); err != nil || got != nil {

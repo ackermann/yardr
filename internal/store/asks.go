@@ -542,6 +542,9 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 			if err := w.queueAskPush(ask.To, row.UUID, seq, ""); err != nil {
 				return 0, err
 			}
+			if err := w.queueFootAsk(ask.To, row.UUID, seq, ""); err != nil {
+				return 0, err
+			}
 		}
 		// queue puts the ask in the outbox for name at p, as that yard
 		// reads it: addressed name@peer.
@@ -794,8 +797,17 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		if err != nil {
 			return err
 		}
-		if _, err = w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+		note, err := w.addNoted(row, NoteAnswer, string(text), actor)
+		if err != nil {
 			return err
+		}
+		// Put aside: what is still queued for the ask goes, and the
+		// aside's return is news too, told when its 24 hours are over
+		// unless the asker writes on the bead first.
+		if ans.Later && !ans.TakeBack && !ans.Decline {
+			if err := w.queueFootNoteAside(row, notes, ans.Ask, note); err != nil {
+				return err
+			}
 		}
 		// A mapping ask's pick writes the identity it names, in this
 		// write, and the pick that writes or the decline ends the card by
