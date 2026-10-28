@@ -488,6 +488,8 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr user key <user> <source>":                                                    {"user key jo pushover"},
 		"yardr user add <name>":                                                             {"user add eve"},
 		"yardr user rm <name>":                                                              {"user rm ada"},
+		"yardr user invite <name> --email <address> [--role operator]":                      {"user invite eve --email eve@example.net"},
+		"yardr user uninvite <name>":                                                        {"user uninvite eve"},
 		"yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>": {
 			"crew set yardmaster peers=airy",
 		},
@@ -614,6 +616,51 @@ func TestRunListIsTheCLIs(t *testing.T) {
 					t.Errorf("%s card description %q, want the command help's %q", use, description, helpCmd.Short)
 				}
 				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", false, nil)
+				if err != nil || done.Result != "approved, to be carried out" {
+					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				continue
+			}
+			if use == "yardr user invite <name> --email <address> [--role operator]" || use == "yardr user uninvite <name>" {
+				ctx := context.Background()
+				// A teammate approval is carried out by the server after
+				// it, as a pack apply's is, and there is no CLI verb to
+				// type (the row is the only way in), so there is no typed
+				// state to compare: the row is held to its card, which
+				// has no command help to match, and its recorded approval.
+				wantDescription := "Invite a teammate by email"
+				if use == "yardr user invite <name> --email <address> [--role operator]" {
+					if err := approved.st.SetSetting(ctx, store.EdgeSetting, store.Edge{URL: "https://my.yardr.dev", Key: key, Handle: "jo", Name: "edgeyard"}.String(), "jo"); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					wantDescription = "Remove a teammate from the yard"
+					if _, err := approved.st.AddUser(ctx, "eve", "jo"); err != nil {
+						t.Fatal(err)
+					}
+					if err := approved.st.SetSetting(ctx, store.WebJWTUsersSetting, "eve@example.net=eve", "jo"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
+					Run: &store.AskRun{Argv: []string{command}}}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				notes, err := approved.st.Notes(ctx, ab.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var description string
+				for _, asked := range store.ResolveAsks(notes, time.Now()) {
+					if asked.Note.Seq == seq && asked.Ask.Run != nil {
+						description = asked.Ask.Run.Description
+					}
+				}
+				if description != wantDescription {
+					t.Errorf("%s card description %q, want %q", use, description, wantDescription)
+				}
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", true, nil)
 				if err != nil || done.Result != "approved, to be carried out" {
 					t.Fatalf("%s approval = %+v, %v", use, done, err)
 				}

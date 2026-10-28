@@ -38,6 +38,19 @@
 //	                      expires, and the scopes the connection was
 //	                      granted, which the yard checks its source
 //	                      against before it prints the token.
+//	POST /member/add    {"yard_handle", "yard_name", "email",
+//	                      "yard_user", "invited_by", "yard_key"}: the
+//	                      yard reports an approved invite; 200 lands it,
+//	                      a signed 403/409/422 refuses it for good, and
+//	                      a signed 503 (or no answer) leaves it owed.
+//	POST /member/remove {"yard_handle", "yard_name", "email",
+//	                      "yard_key"}: the yard reports an approved
+//	                      removal; 200 lands it, 404 lands it too (the
+//	                      edge holds no such membership), a signed
+//	                      403/409/422 refuses it for good, and a signed
+//	                      503 (or no answer) leaves it owed. The router
+//	                      sets who reports from the signing key, so no
+//	                      body field names the reporter.
 //
 // A request carries the yard's key, the time and the signature in the
 // Yardr-Peer-* headers, as between peers. An answer carries its signature
@@ -68,10 +81,12 @@ import (
 // The edge's paths. They are fixed, which is why the edge's address is its
 // origin alone (store.CheckEdgeURL): a signature covers the path.
 const (
-	KeyPath        = "/edge/key"
-	EnrolPath      = "/edge/enrol"
-	DisconnectPath = "/edge/disconnect"
-	MintGooglePath = "/mint/google"
+	KeyPath          = "/edge/key"
+	EnrolPath        = "/edge/enrol"
+	DisconnectPath   = "/edge/disconnect"
+	MintGooglePath   = "/mint/google"
+	MemberAddPath    = "/member/add"
+	MemberRemovePath = "/member/remove"
 )
 
 const (
@@ -398,6 +413,87 @@ func (c *Client) MintGoogle(ctx context.Context, edgeKey string, yard ed25519.Pr
 		return nil, errors.New("the edge's answer to the mint holds no token")
 	}
 	return &GoogleMint{Token: a.Token, ExpiresAt: a.ExpiresAt, GrantedScopes: a.GrantedScopes}, nil
+}
+
+// MemberAdd is one yard's invite report to the edge: the yard it names,
+// the invited address, the yard user the membership acts as and the
+// approving operator who invited. YardKey is the reporting yard's key as
+// yardkey.Public writes it, a second wall behind the signature.
+type MemberAdd struct {
+	YardHandle string `json:"yard_handle"`
+	YardName   string `json:"yard_name"`
+	Email      string `json:"email"`
+	YardUser   string `json:"yard_user"`
+	InvitedBy  string `json:"invited_by"`
+	YardKey    string `json:"yard_key"`
+}
+
+// MemberRemove is one yard's removal report to the edge: the yard it
+// names and the address whose membership goes.
+type MemberRemove struct {
+	YardHandle string `json:"yard_handle"`
+	YardName   string `json:"yard_name"`
+	Email      string `json:"email"`
+	YardKey    string `json:"yard_key"`
+}
+
+// memberAnswer is what the edge says to a member report, and its
+// refusals: the edge's own door writes "refused", the provisioner's
+// socket writes "error"; both are signed, so both are read.
+type memberAnswer struct {
+	Refused string `json:"refused"`
+	Error   string `json:"error"`
+}
+
+func (a memberAnswer) reason() string {
+	if a.Refused != "" {
+		return a.Refused
+	}
+	return a.Error
+}
+
+// MemberAdd reports an approved invite to the edge, signed with the
+// yard's key to the edge's, as MintGoogle is. A 200 says it landed; any
+// other signed answer is a *Refused the caller reads by status (503
+// leaves the report owed; 403, 409 and 422 refuse it for good), and an
+// answer no signature covers is ErrUnsigned.
+func (c *Client) MemberAdd(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, m MemberAdd) error {
+	body, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	status, answer, err := c.call(ctx, edgeKey, yard, MemberAddPath, body)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusOK {
+		return nil
+	}
+	var a memberAnswer
+	_ = json.Unmarshal(answer, &a)
+	return &Refused{Status: status, Reason: words(a.reason())}
+}
+
+// MemberRemove reports an approved removal to the edge, signed as
+// MemberAdd is. A 200 and a 404 both say it landed: 404 is the edge
+// holding no such membership, which is what a removal that was already
+// reported (and its answer lost) hears again. Any other signed answer
+// is a *Refused the caller reads by status, as MemberAdd's is.
+func (c *Client) MemberRemove(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, m MemberRemove) error {
+	body, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	status, answer, err := c.call(ctx, edgeKey, yard, MemberRemovePath, body)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusOK || status == http.StatusNotFound {
+		return nil
+	}
+	var a memberAnswer
+	_ = json.Unmarshal(answer, &a)
+	return &Refused{Status: status, Reason: words(a.reason())}
 }
 
 // Drop asks the edge to forget the yard whose key is yard: the row that

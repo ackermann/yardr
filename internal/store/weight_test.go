@@ -165,6 +165,8 @@ calls:
 		{name: "user key", run: AskRun{Argv: []string{"user key ada crm"}}, want: []string{WeightCredential}},
 		{name: "user add", run: AskRun{Argv: []string{"user add eve"}}, want: []string{WeightTrust}},
 		{name: "user rm", run: AskRun{Argv: []string{"user rm ada"}}},
+		{name: "user invite", run: AskRun{Argv: []string{"user invite eve --email eve@example.net"}}, want: []string{WeightTrust}},
+		{name: "user uninvite", run: AskRun{Argv: []string{"user uninvite ada"}}},
 		{name: "crew set adding a peer", run: AskRun{Argv: []string{"crew set yardmaster peers=airy"}}, want: []string{WeightTrust}},
 		{name: "crew set of threads", run: AskRun{Argv: []string{"crew set yardmaster open_threads=crm"}}},
 		{name: "crew set taking the peer away", prep: func() {
@@ -226,7 +228,7 @@ calls:
 	}
 
 	// Every other row is routine whatever it is asked.
-	weighty := []string{"peer allow", "source set", "source grant", "source add", "pack apply", "hook add", "user key", "user add", "crew set", "user identity"}
+	weighty := []string{"peer allow", "source set", "source grant", "source add", "pack apply", "hook add", "user key", "user add", "user invite", "crew set", "user identity"}
 	for _, c := range runList {
 		if has := c.weigh != nil; has != slices.Contains(weighty, strings.Join(c.words, " ")) {
 			t.Errorf("the row %s weighs: %v", strings.Join(c.words, " "), has)

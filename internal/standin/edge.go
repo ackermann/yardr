@@ -41,6 +41,10 @@ type Edge struct {
 	// upgrades the signed upgrades taken.
 	links    chan *EdgeLink
 	upgrades int
+	// members are the memberships a member add has landed, by yard and
+	// address, so a removal of one never added answers 404 as the
+	// edge's does.
+	members map[string]bool
 }
 
 // EdgeBehaviour is what a test changes about an Edge, with Behave.
@@ -75,6 +79,13 @@ type EdgeBehaviour struct {
 	MintRefuse   int
 	MintReason   string
 	MintUnsigned bool
+	// MemberRefuse, when not zero, is the status every member report is
+	// refused with, in MemberReason's words; MemberAddRefuse and
+	// MemberRemoveRefuse refuse one report alone where they are not
+	// zero. A refusal a test leaves zero is answered 200 (and a removal
+	// of an address no add named, 404).
+	MemberRefuse, MemberAddRefuse, MemberRemoveRefuse int
+	MemberReason                                      string
 	// ChallengeSigner, when not nil, signs the link's challenge in place of
 	// the edge's key, and ChallengeOverNonce, when not nil, is the yard nonce
 	// it is signed over in place of the one the upgrade named: a challenge
@@ -97,6 +108,18 @@ type EdgeMint struct {
 	Key, Account, Time, Sig string
 }
 
+// EdgeMemberAdd is one member-add report as the edge took it.
+type EdgeMemberAdd struct {
+	// Key is the yard's, from the signature's header; the rest are the
+	// body's, and Time and Sig the signature's own.
+	Key, YardHandle, YardName, Email, YardUser, InvitedBy, YardKey, Time, Sig string
+}
+
+// EdgeMemberRemove is one member-remove report as the edge took it.
+type EdgeMemberRemove struct {
+	Key, YardHandle, YardName, Email, YardKey, Time, Sig string
+}
+
 // EdgeState is what the edge has been asked.
 type EdgeState struct {
 	KeyFetches int
@@ -106,6 +129,9 @@ type EdgeState struct {
 	Drops []string
 	// Mints are the mint calls, in order.
 	Mints []EdgeMint
+	// MemberAdds and MemberRemoves are the member reports, in order.
+	MemberAdds    []EdgeMemberAdd
+	MemberRemoves []EdgeMemberRemove
 }
 
 // NewEdge makes an edge with a key of its own, which approves a yard on its
@@ -115,7 +141,7 @@ func NewEdge() (*Edge, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Edge{key: key, asked: map[string]int{},
+	return &Edge{key: key, asked: map[string]int{}, members: map[string]bool{},
 		b: EdgeBehaviour{Served: key, Signer: key, ApproveAfter: 1, Handle: "mckean", Name: "mckean", Email: "chris@mckean.co"}}, nil
 }
 
@@ -138,6 +164,8 @@ func (e *Edge) State() EdgeState {
 	s.Enrols = append([]EdgeEnrol(nil), s.Enrols...)
 	s.Drops = append([]string(nil), s.Drops...)
 	s.Mints = append([]EdgeMint(nil), s.Mints...)
+	s.MemberAdds = append([]EdgeMemberAdd(nil), s.MemberAdds...)
+	s.MemberRemoves = append([]EdgeMemberRemove(nil), s.MemberRemoves...)
 	return s
 }
 
@@ -164,6 +192,10 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.disconnect(w, r)
 	case "POST /mint/google":
 		e.mintGoogle(w, r)
+	case "POST /member/add":
+		e.memberAdd(w, r)
+	case "POST /member/remove":
+		e.memberRemove(w, r)
 	case "GET /edge/link":
 		e.link(w, r)
 	default:
@@ -256,6 +288,83 @@ func (e *Edge) mintGoogle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.answer(w, r, http.StatusOK, v)
+}
+
+func (e *Edge) memberAdd(w http.ResponseWriter, r *http.Request) {
+	body, ok := e.signed(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		YardHandle string `json:"yard_handle"`
+		YardName   string `json:"yard_name"`
+		Email      string `json:"email"`
+		YardUser   string `json:"yard_user"`
+		InvitedBy  string `json:"invited_by"`
+		YardKey    string `json:"yard_key"`
+	}
+	if json.Unmarshal(body, &in) != nil || in.YardHandle == "" || in.Email == "" || in.YardUser == "" {
+		e.answer(w, r, http.StatusBadRequest, map[string]string{"refused": "a member add names its yard, the address and the yard user"})
+		return
+	}
+	e.mu.Lock()
+	e.state.MemberAdds = append(e.state.MemberAdds, EdgeMemberAdd{r.Header.Get(yardkey.HeaderKey), in.YardHandle, in.YardName, in.Email, in.YardUser, in.InvitedBy, in.YardKey, r.Header.Get(yardkey.HeaderTime), r.Header.Get(yardkey.HeaderSig)})
+	refuse := e.b.MemberAddRefuse
+	if refuse == 0 {
+		refuse = e.b.MemberRefuse
+	}
+	reason := e.b.MemberReason
+	if refuse == 0 {
+		if e.members == nil {
+			e.members = map[string]bool{}
+		}
+		e.members[in.YardHandle+"/"+in.YardName+"/"+in.Email] = true
+	}
+	e.mu.Unlock()
+	if refuse != 0 {
+		e.answer(w, r, refuse, map[string]string{"refused": reason})
+		return
+	}
+	e.answer(w, r, http.StatusOK, map[string]string{"status": "invited"})
+}
+
+func (e *Edge) memberRemove(w http.ResponseWriter, r *http.Request) {
+	body, ok := e.signed(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		YardHandle string `json:"yard_handle"`
+		YardName   string `json:"yard_name"`
+		Email      string `json:"email"`
+		YardKey    string `json:"yard_key"`
+	}
+	if json.Unmarshal(body, &in) != nil || in.YardHandle == "" || in.Email == "" {
+		e.answer(w, r, http.StatusBadRequest, map[string]string{"refused": "a member remove names its yard and the address"})
+		return
+	}
+	e.mu.Lock()
+	e.state.MemberRemoves = append(e.state.MemberRemoves, EdgeMemberRemove{r.Header.Get(yardkey.HeaderKey), in.YardHandle, in.YardName, in.Email, in.YardKey, r.Header.Get(yardkey.HeaderTime), r.Header.Get(yardkey.HeaderSig)})
+	refuse := e.b.MemberRemoveRefuse
+	if refuse == 0 {
+		refuse = e.b.MemberRefuse
+	}
+	reason := e.b.MemberReason
+	key := in.YardHandle + "/" + in.YardName + "/" + in.Email
+	held := e.members[key]
+	if refuse == 0 && held {
+		delete(e.members, key)
+	}
+	e.mu.Unlock()
+	if refuse != 0 {
+		e.answer(w, r, refuse, map[string]string{"refused": reason})
+		return
+	}
+	if !held {
+		e.answer(w, r, http.StatusNotFound, map[string]string{"refused": "the yard holds no membership for that address"})
+		return
+	}
+	e.answer(w, r, http.StatusOK, map[string]string{"status": "removed"})
 }
 
 func (e *Edge) disconnect(w http.ResponseWriter, r *http.Request) {

@@ -84,6 +84,17 @@ type Carry struct {
 	// values, no picked candidate. The carrying out verifies the file
 	// still holds every name and goes on to the grants.
 	Keep bool `json:"keep,omitempty"`
+	// TeammateEmails are the addresses a teammate invite or removal
+	// reports, held at approval: a removal's stand in the mapping the
+	// carrying out itself removes, so a report still owed after that
+	// write names its address from here alone.
+	TeammateEmails []string `json:"teammate_emails,omitempty"`
+	// TeammateWritten is set in the same store write that makes a
+	// teammate invite's or removal's yard writes, so a carrying out
+	// taken up again while its report is owed never makes them twice:
+	// a retry neither brings back a user the operator removed since nor
+	// removes a user added since under the same name.
+	TeammateWritten bool `json:"teammate_written,omitempty"`
 }
 
 // CarrySource is one source's credential standing at approval, by name.
@@ -97,13 +108,17 @@ func carryKey(bead string, ask uint64) string { return join(bead, seqKey(ask)) }
 
 // needsCarry says whether approving the run ask was records it to be
 // carried out: a pack apply always, an up, which starts the yard's own
-// processes after the write, and a source add whose declaration names
-// command files the approval's write cannot write.
+// processes after the write, a source add whose declaration names
+// command files the approval's write cannot write, and a teammate
+// invite or removal, whose edge report cannot be one store write.
 func needsCarry(was AskRun) bool {
 	if len(was.Argv) >= 2 && was.Argv[0] == "pack" && was.Argv[1] == "apply" {
 		return true
 	}
 	if len(was.Argv) == 1 && was.Argv[0] == "up" {
+		return true
+	}
+	if len(was.Argv) >= 2 && was.Argv[0] == "user" && (was.Argv[1] == "invite" || was.Argv[1] == "uninvite") {
 		return true
 	}
 	return len(was.Argv) >= 2 && was.Argv[0] == "source" && was.Argv[1] == "add" &&
@@ -116,6 +131,7 @@ func needsCarry(was AskRun) bool {
 // has just held to the card.
 func (w *wtx) recordCarry(bead string, seq uint64, was AskRun, actor string) error {
 	rec := Carry{Bead: bead, Ask: seq, Argv: was.Argv, State: CarryApproved, Actor: actor}
+	rec.TeammateEmails = teammateEmails(w, was.Argv)
 	for _, carried := range was.Carried {
 		snap := CarrySource{Name: carried.Name}
 		if src, _, err := sourceIn(w.Tx, carried.Name); err == nil {
@@ -175,6 +191,9 @@ func carryHandledHere(rec *Carry) bool {
 	// bead holds the carded account and the preset the approval picked.
 	if rec.Argv[0] == "setup" {
 		return len(rec.Argv) == 2
+	}
+	if len(rec.Argv) >= 3 && rec.Argv[0] == "user" && (rec.Argv[1] == "invite" || rec.Argv[1] == "uninvite") {
+		return true
 	}
 	if len(rec.Argv) < 3 {
 		return false
@@ -245,25 +264,44 @@ func (w *wtx) claimedSetupCarry(bead string, ask uint64, boot string) (*Carry, e
 // write: two claims cannot both win. It answers nil where nothing waits. A
 // later carrying kind stays approved for the build that knows it. A record
 // claimed under another boot is never claimed here: that boot is the yard's
-// server, running, until ResumeCarry at a start says it is dead.
+// server, running, until ResumeCarry at a start says it is dead. A teammate
+// record this boot claimed is one whose edge report is owed, which may stay
+// owed for as long as the edge is down: it is taken up only when nothing
+// else waits, so an unreachable edge holds up no other approval.
 func (s *Store) ClaimCarry(ctx context.Context, boot string) (*Carry, error) {
-	var out *Carry
+	var out, owed *Carry
 	err := s.write(func(w *wtx) error {
-		return each(w.Tx, bCarry, "", func(_ []byte, rec *Carry) error {
-			if out != nil {
+		if err := each(w.Tx, bCarry, "", func(_ []byte, rec *Carry) error {
+			if out != nil || !carryHandledHere(rec) {
 				return nil
 			}
-			if carryHandledHere(rec) && (rec.State == CarryApproved || rec.State == CarryClaimed && rec.Boot == boot) {
-				rec.State, rec.Boot, rec.ClaimedAt = CarryClaimed, boot, now()
-				if err := put(w.Tx, bCarry, carryKey(rec.Bead, rec.Ask), rec); err != nil {
-					return err
+			switch {
+			case rec.State == CarryClaimed && rec.Boot == boot && isTeammateArgv(rec.Argv):
+				if owed == nil {
+					owed = rec
 				}
+			case rec.State == CarryApproved || rec.State == CarryClaimed && rec.Boot == boot:
 				out = rec
 			}
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
+		if out == nil {
+			out = owed
+		}
+		if out == nil {
+			return nil
+		}
+		out.State, out.Boot, out.ClaimedAt = CarryClaimed, boot, now()
+		return put(w.Tx, bCarry, carryKey(out.Bead, out.Ask), out)
 	})
 	return out, err
+}
+
+// isTeammateArgv says whether argv is a teammate invite or removal.
+func isTeammateArgv(argv []string) bool {
+	return len(argv) >= 3 && argv[0] == "user" && (argv[1] == "invite" || argv[1] == "uninvite")
 }
 
 // ResumeCarry takes up, for the server boot that is starting, every

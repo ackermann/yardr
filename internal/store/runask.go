@@ -250,11 +250,12 @@ func (r AskRun) TakenBack() string { return or(r.BackBy, "anyone") + " can take 
 // shortens it.
 func (r AskRun) Command() string { return runCommandLine(r.Argv) }
 
-// CarryPending is what an approval of a pack apply, of an up, or of a
-// source add that names commands, records until the yard's server has
-// carried it out (design yardr-bht9 3.5): the ask reads as being carried
-// out while its answer holds these words, and as ran or failed once the
-// carrying out completes it.
+// CarryPending is what an approval of a pack apply, of an up, of a
+// source add that names commands, or of a teammate invite or removal,
+// records until the yard's server has carried it out (design
+// yardr-bht9 3.5): the ask reads as being carried out while its answer
+// holds these words, and as ran or failed once the carrying out
+// completes it.
 const CarryPending = "approved, to be carried out"
 
 // AskRan is what an approved run ask ran: the command, which is the one the
@@ -582,6 +583,25 @@ var runList = []runCommand{{
 	stale:       (*wtx).userRmStale,
 	run:         runUserRm,
 }, {
+	words:       []string{"user", "invite"},
+	use:         "yardr user invite <name> --email <address> [--role operator]",
+	description: "Invite a teammate by email",
+	parse:       parseUserInvite,
+	check:       checkUserInvite,
+	card:        (*wtx).userInviteCard,
+	stale:       (*wtx).userInviteStale,
+	weigh:       userAddWeight,
+	run:         runUserInvite,
+}, {
+	words:       []string{"user", "uninvite"},
+	use:         "yardr user uninvite <name>",
+	description: "Remove a teammate from the yard",
+	parse:       parseUserUninvite,
+	check:       checkUserUninvite,
+	card:        (*wtx).userUninviteCard,
+	stale:       (*wtx).userUninviteStale,
+	run:         runUserUninvite,
+}, {
 	words:       []string{"crew", "set"},
 	use:         "yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>",
 	description: "Change some settings of a crew member and keep the rest",
@@ -727,9 +747,10 @@ func parseRow(sent []string) (*runCommand, []string, error) {
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		case strings.ContainsRune(" \t._/=-", c):
-		case c == '@' || c == ':':
-			// A trust is a name at a peer, and an address is a host and a
-			// port: the row that reads them says which.
+		case c == '@' || c == ':' || c == '+':
+			// A trust is a name at a peer, an address is a host and a
+			// port or holds a '+' (an invite's address): the row that
+			// reads them says which.
 		case c == ',':
 			// Held to the command that takes a list, below.
 		default:

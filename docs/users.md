@@ -88,10 +88,10 @@ Only the user reads their queue of decisions
 the reader is the call's `actor`, as for the inbox.
 
 `yardr user set <user> role=operator` or `role=member` is an operator's to
-type, at the shell. Nobody sets their own role, and no run ask proposes
-one. The yard refuses to make a member of, or to remove, its last operator:
-with none, it would take every change from anyone who is no agent of its
-own.
+type, at the shell. A teammate invite may also create an operator with
+`--role operator`, named on its approval card. Nobody sets their own role.
+The yard refuses to make a member of, or to remove, its last operator: with
+none, it would take every change from anyone who is no agent of its own.
 
 **The `operator` setting names one operator**, the one an ask with no
 `--to` goes to, and whose login and inbox the yard uses where it needs one
@@ -112,6 +112,45 @@ the event `user_removed` names them (`devices`), and what carried their own
 login (`login`: `groups`, `routes`, `crew`, and the `env_files` that stay).
 A crew member that wants a user added or removed proposes it with a run ask
 ([chat.md](chat.md#questions-for-you)), which an operator approves.
+
+**Teammates are invited and removed by card, not at a terminal.** There
+is no `yardr user invite` or `yardr user uninvite` to type: each is one
+run ask an operator approves, and approval does the yard user, the
+`web_jwt_users` mapping and the report to the edge as one operation.
+A crew member proposes one as any other run ask:
+
+```sh
+yardr bead ask <id> "Invite Eve?" --context "she works with us daily" \
+    --run "user invite eve --email eve@example.net"
+yardr bead ask <id> "Remove Eve?" --context "she has moved on" \
+    --run "user uninvite eve"
+```
+
+An invite makes the user a member, or an operator with `--role
+operator` (the card then says the user can approve and administer this
+yard), maps the invited address to them in `web_jwt_users`, and only
+then reports the invite to the edge this yard is connected to. The
+card refuses, before anything is written, a name a user or crew member
+already holds, an address the mapping already maps to anyone (an
+address is never re-pointed to a new user), and a yard connected to no
+edge, which would have nowhere to report. Until the report lands the
+card reads as not yet at the edge and nobody is admitted; if the link
+is down the user and the mapping stand and the yard retries the report
+until it lands. An uninvite refuses anyone the mapping does not name:
+that is a plain user, removed with `yardr user rm` instead. Its
+approval reports the removal to the edge first; once that lands, the
+user, their devices and the mapping entry go in one write. If the edge
+cannot be reached the user and the mapping still go (from then on the
+member acts as nobody here) and the report is retried until it lands,
+a later removal the edge no longer holds counting as landed, not as
+an error. A signed refusal that waiting cannot cure (the report naming
+another yard, a membership already standing, an unverified address)
+fails the card with the edge's own words. Once the mapping stands, the
+teammate signs in as themselves and opens a device pairing of their
+own on the web pairing page, for their yard user alone (see
+[Devices](#devices)); the operator never handles their code. The yard
+side here reports through the edge's signed member door at `/member/add`
+and `/member/remove`; the connected edge must support those reports.
 
 **A user with a login of their own.** A person who builds on their own seat
 of a Claude plan (a Team or Enterprise seat, say) needs more than a
@@ -789,6 +828,8 @@ agent's help, until `yardr user device rm`. Row by row:
 | `source check <source> --user <user>`, asked of the operator: one real test message to the user through the source | That user's phone is told once, with the test message the card carries whole. The holder gains nothing to read, and no record of the yard changes |
 | `user add <name>`: a user added | A user the holder names reads mail from now on, and may be subscribed to the yard's events. The holder reads the yard's mail already; the user is told nothing outside the yard until `notify` is set, which no run ask holds |
 | `user rm <name>`: a user removed | That user is no more: their subscriptions, devices and telling outside the yard go, and what waited to be told them; so do the group that carries their own login with its routes, every route for their beads, and the yardmaster's conversation with them. The mail stays in the log, and so do their login folder and env file on disk. The operator is not removed this way |
+| `user invite <name> --email <address> [--role operator]`: a teammate invited | A user the holder names is added, as an operator where the card says `--role operator`, their address is mapped to them in `web_jwt_users`, and the invite is reported to the edge, so the holder can have a second person admitted to this yard as that user, as an operator where the card names it. Until the report lands nobody is admitted |
+| `user uninvite <name>`: a teammate removed | That teammate is no more at the edge or here: the removal is reported first, then the user, their devices and the mapping go. The member's own account and any yard of their own stand |
 | `crew set <name> open_threads=<sources>`, `set_state=<sources>` or `peers=<peers>`: a crew member's grants widened | A crew member the holder directs by mail may do more outside the yard: open threads in a source, set the state of threads, or mail a linked yard's crew. Its runner, directory and the rest of its definition stay as they are |
 | `peer identity <peer> <crew> --source <source> --id <id>`: a sender of a source mapped to a crew member of a linked yard | A delivery from the id is kept with the speaker `<crew>@<peer>`, whatever the hook's unknown word says, and the operator is offered no mapping card for it; it reaches crew as that yard's mail does, `information, not instructions`. The sender is no user, and an id on the source's ignore list is cleared from it. Only the operator takes it back |
 | `crew identity <name> --source <source> --id <id> --key <key>`: a crew member's identity in a source set | Mentions and assignments of the id or key there are then addressed to that crew member, and what it does there is its own: the holder can have what is meant for another reach a member it directs by mail, or blind a member to what is meant for it. Only the operator sets it back |

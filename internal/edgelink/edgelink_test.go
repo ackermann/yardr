@@ -523,3 +523,71 @@ func TestMintGoogleRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 		t.Errorf("MintGoogle, answered with no object = %v, want it refused", err)
 	}
 }
+
+// A member report names its yard, the address, and for an invite its
+// yard user and inviter, signed with the yard's key to the edge's. A
+// removal of what the edge no longer holds lands as a removal does.
+func TestMemberAddAndRemoveAskSigned(t *testing.T) {
+	t.Parallel()
+	edge, srv := edgeAt(t)
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	yard := newKey(t)
+	add := MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: yardkey.Public(yard)}
+	if err := c.MemberAdd(context.Background(), edge.PublicKey(), yard, add); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: yardkey.Public(yard)}); err != nil {
+		t.Fatal(err)
+	}
+	// No membership stands now, so the edge answers 404, which lands.
+	if err := c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: yardkey.Public(yard)}); err != nil {
+		t.Fatalf("a second removal = %v, want it landed as 404", err)
+	}
+	st := edge.State()
+	if len(st.MemberAdds) != 1 || st.MemberAdds[0].Key != yardkey.Public(yard) || st.MemberAdds[0].YardHandle != "mckean" ||
+		st.MemberAdds[0].YardName != "edgeyard" || st.MemberAdds[0].Email != "eve@example.net" || st.MemberAdds[0].YardUser != "eve" ||
+		st.MemberAdds[0].InvitedBy != "mckean" || st.MemberAdds[0].YardKey != yardkey.Public(yard) || st.MemberAdds[0].Time == "" || st.MemberAdds[0].Sig == "" {
+		t.Errorf("the edge took adds %+v, want the one signed report as this yard", st.MemberAdds)
+	}
+	if len(st.MemberRemoves) != 2 || st.MemberRemoves[0].Email != "eve@example.net" || st.MemberRemoves[0].YardKey != yardkey.Public(yard) {
+		t.Errorf("the edge took removes %+v", st.MemberRemoves)
+	}
+	if err := c.MemberAdd(context.Background(), yardkey.Public(newKey(t)), yard, add); !errors.Is(err, ErrUnsigned) {
+		t.Errorf("MemberAdd, signed to another key = %v, want ErrUnsigned", err)
+	}
+}
+
+// A signed refusal is a *Refused the carrier reads by status, in the
+// edge's words whole; an answer signed by another key is no refusal.
+func TestMemberRefusals(t *testing.T) {
+	t.Parallel()
+	edge, srv := edgeAt(t)
+	c := &Client{URL: srv.URL, HTTP: srv.Client()}
+	yard := newKey(t)
+	add := MemberAdd{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardUser: "eve", InvitedBy: "mckean", YardKey: yardkey.Public(yard)}
+	for _, tc := range []struct {
+		status int
+		reason string
+	}{
+		{http.StatusForbidden, "the report names a yard other than the reporting yard"},
+		{http.StatusConflict, "the address already holds a membership in that yard"},
+		{http.StatusUnprocessableEntity, "the address has an unverified account at the edge"},
+		{http.StatusServiceUnavailable, "the membership did not land"},
+	} {
+		edge.Behave(func(b *standin.EdgeBehaviour) { b.MemberRefuse, b.MemberReason = tc.status, tc.reason })
+		err := c.MemberAdd(context.Background(), edge.PublicKey(), yard, add)
+		var refused *Refused
+		if !errors.As(err, &refused) || refused.Status != tc.status || refused.Reason != tc.reason {
+			t.Errorf("MemberAdd, refused %d = %v, want a *Refused with its words", tc.status, err)
+		}
+		err = c.MemberRemove(context.Background(), edge.PublicKey(), yard, MemberRemove{YardHandle: "mckean", YardName: "edgeyard", Email: "eve@example.net", YardKey: yardkey.Public(yard)})
+		if !errors.As(err, &refused) || refused.Status != tc.status {
+			t.Errorf("MemberRemove, refused %d = %v", tc.status, err)
+		}
+	}
+	other := newKey(t)
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MemberRefuse, b.Signer = 0, other })
+	if err := c.MemberAdd(context.Background(), edge.PublicKey(), yard, add); !errors.Is(err, ErrUnsigned) {
+		t.Errorf("MemberAdd, answered by another key = %v, want ErrUnsigned", err)
+	}
+}

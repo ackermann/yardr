@@ -258,6 +258,16 @@ is one of the list the yard runs from a card:
       a person becomes a user of the yard, and reads mail from now on
   user rm <name>
       a user goes, with their subscriptions and devices; the mail stays
+  user invite <name> --email <address> [--role operator]
+      a teammate is invited by email: a user is made (a member, or an
+      operator with --role operator), the address is mapped to them in
+      web_jwt_users, and the invite is reported to the edge the yard is
+      connected to; the approval is carried out by the server after it,
+      and there is no such command at a terminal: the card is the way in
+  user uninvite <name>
+      a teammate goes: the removal is reported to the edge first, then
+      the user, their devices and the mapping go; a plain user, whom no
+      mapping names, is removed with user rm instead
   crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>
       a crew member may open threads or set the status of threads in the
       sources, or mail crew members of the peers

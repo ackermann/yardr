@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -65,6 +66,10 @@ type carrier struct {
 	log  *slog.Logger
 	load func(name string) (*pack.Pack, fs.FS, error)
 	up   func(home string) (int, error)
+	// edgeHTTP makes the carrier's member reports; nil is the client
+	// with the system's roots, and a test gives the one that trusts its
+	// stand-in edge.
+	edgeHTTP *http.Client
 }
 
 // runCarryWatcher is the server's one carrying-out goroutine: it takes
@@ -158,6 +163,9 @@ func (c *carrier) carryNext(ctx context.Context) (bool, error) {
 		return c.carryClaimed(ctx, rec, "an approved up", run.Command(), func() (string, string) {
 			return c.carryUp(ctx)
 		})
+	}
+	if isTeammateCarry(run.Argv) {
+		return c.carryTeammateClaimed(ctx, rec, run)
 	}
 	return c.carryClaimed(ctx, rec, "an approved apply", run.Command(), func() (string, string) {
 		if len(run.Argv) >= 2 && run.Argv[0] == "pack" {

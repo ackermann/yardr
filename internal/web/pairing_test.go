@@ -183,6 +183,70 @@ func TestPairingPageSecondUser(t *testing.T) {
 	}
 }
 
+// A member-mapped user - the yard user an invite made, with the invited
+// address mapped to them in web_jwt_users - opens a pairing of their own
+// through the pairing page, for their yard user alone: another signed-in
+// user sees none of it and cannot open or end over it.
+func TestPairingPageMemberMappedUser(t *testing.T) {
+	t.Parallel()
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	f := jwtFixture(t, jwks, "", map[string]string{"ada@example.net": "ada", "eve@example.net": "eve"})
+	ctx := context.Background()
+	if _, err := f.st.AddUser(ctx, "ada", "me"); err != nil {
+		t.Fatal(err)
+	}
+	// The invite's yard writes standing, as the carrier leaves them:
+	// the member user and the web_jwt_users entry for their address
+	// (InviteTeammate's own write is held in the store's tests).
+	if _, err := f.st.AddUser(ctx, "eve", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetSetting(ctx, store.WebJWTUsersSetting, "eve@example.net=eve", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := f.st.Settings(ctx); all[store.WebJWTUsersSetting] != "eve@example.net=eve" {
+		t.Fatalf("the mapping the member signs in under = %q", all[store.WebJWTUsersSetting])
+	}
+	if u, err := f.st.GetUser(ctx, "eve"); err != nil || u.IsOperator() {
+		t.Fatalf("the member user = %+v, %v", u, err)
+	}
+	ada := signRSA(t, keys.a, "a", jwtClaims("ada@example.net"))
+	eve := signRSA(t, keys.a, "a", jwtClaims("eve@example.net"))
+
+	r := pairingDo(t, f, eve, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"phone"}})
+	if r.status != http.StatusSeeOther || r.header.Get("Location") != "/pairing" {
+		t.Fatalf("the member opening a pairing: status %d at %q: %s", r.status, r.header.Get("Location"), r.body)
+	}
+	stored, err := f.st.DevicePairCodeSelf(ctx, "eve")
+	if err != nil || stored.Device != "phone" {
+		t.Fatalf("the member's pairing = %+v, %v", stored, err)
+	}
+	r = pairingGet(t, f, eve, "/pairing")
+	if r.status != 200 || !strings.Contains(r.body, stored.Code) || !strings.Contains(r.body, "phone") {
+		t.Fatalf("the member's page: status %d: %s", r.status, r.body)
+	}
+	// It is eve's alone: ada has no pairing, sees no code, and can
+	// neither open a second one nor end eve's.
+	if _, err := f.st.DevicePairCodeSelf(ctx, "ada"); err == nil {
+		t.Fatal("ada holds a pairing: the member's pairing is not hers alone")
+	}
+	if r := pairingGet(t, f, ada, "/pairing.png"); r.status != http.StatusNotFound {
+		t.Fatalf("ada's QR for the member's pairing: status %d, want 404", r.status)
+	}
+	r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"open"}, "device": {"laptop"}})
+	if r.status != 200 || !strings.Contains(r.body, "a pairing is already open") || strings.Contains(r.body, stored.Code) {
+		t.Fatalf("ada opening over the member's pairing: status %d: %s", r.status, r.body)
+	}
+	r = pairingDo(t, f, ada, http.MethodPost, "/pairing", url.Values{"action": {"end"}})
+	if r.status != 200 || !strings.Contains(r.body, "there is no pairing open to end") {
+		t.Fatalf("ada ending the member's pairing: status %d: %s", r.status, r.body)
+	}
+	if _, err := f.st.DevicePairCodeSelf(ctx, "eve"); err != nil {
+		t.Fatalf("the member's pairing after ada's tries: %v", err)
+	}
+}
+
 // The pairing routes are the signed-in view's alone: a view with no JWT
 // mode refuses the page, its forms and the QR, in ActAs dress too.
 func TestPairingRefusedWithoutJWT(t *testing.T) {
