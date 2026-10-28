@@ -587,11 +587,15 @@ var runList = []runCommand{{
 	use:         "yardr user invite <name> --email <address> [--role operator]",
 	description: "Invite a teammate by email",
 	parse:       parseUserInvite,
-	check:       checkUserInvite,
-	card:        (*wtx).userInviteCard,
-	stale:       (*wtx).userInviteStale,
-	weigh:       userAddWeight,
-	run:         runUserInvite,
+	// No check: there is no terminal verb, so the card is the only way
+	// in, and the asker never runs it themselves — anyone's ask,
+	// the operator's included, is approved by the operator. A check
+	// would refuse the operator's own filing with "run it yourself",
+	// which names no command.
+	card:  (*wtx).userInviteCard,
+	stale: (*wtx).userInviteStale,
+	weigh: userAddWeight,
+	run:   runUserInvite,
 }, {
 	words:       []string{"user", "uninvite"},
 	use:         "yardr user uninvite <name>",

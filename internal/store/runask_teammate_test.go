@@ -32,10 +32,11 @@ func teammateAsk(command string) Ask {
 	return Ask{Question: "Invite them?", To: "mckean", Context: []string{"they work with us daily"}, Run: &AskRun{Argv: []string{command}}}
 }
 
-// An invite is stored in the yard's form, with the operator sentence
-// only where the role is an operator's, and its approval records
-// CarryPending with a carrying record and writes no user or mapping
-// itself: the server carries it out after the approval.
+// An invite is stored in the yard's form, is filed by the operator as
+// by anyone, with the operator sentence only where the role is an
+// operator's, and its approval records CarryPending with a carrying
+// record and writes no user or mapping itself: the server carries it
+// out after the approval.
 func TestInviteCardAndApprovalDefersToCarrier(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := teammateYard(t)
@@ -52,6 +53,16 @@ func TestInviteCardAndApprovalDefersToCarrier(t *testing.T) {
 	}
 	if got.Back != "yardr user uninvite eve" {
 		t.Errorf("the invite's way back = %q", got.Back)
+	}
+	// The operator files the same card: with no terminal verb the card
+	// is the only way in, and no check refuses them with "run it
+	// yourself".
+	opSeq, err := y.AddAsk(y.ctx, y.bead, teammateAsk("user invite eve --email eve@example.net"), "mckean")
+	if err != nil {
+		t.Fatalf("the operator filing an invite = %v", err)
+	}
+	if got := y.asked(t, opSeq).Ask.Run; got == nil || !slices.Equal(got.Argv, []string{"user", "invite", "eve", "--email", "eve@example.net"}) {
+		t.Fatalf("the operator's invite stores %+v", got)
 	}
 	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
 	if err != nil {

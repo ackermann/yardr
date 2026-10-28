@@ -69,12 +69,6 @@ func userInviteOf(argv []string) (name, email, role string) {
 	return name, email, role
 }
 
-// checkUserInvite is inviting a teammate's own check as the asker: it
-// adds a user, as user add's check is.
-func checkUserInvite(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.may(ctx, actor, ActAddUser, Object{Kind: KindUser, Name: argv[2], Ask: Askable})
-}
-
 // settingValue is the value stored for key, "" where it is unset.
 func (w *wtx) settingValue(key string) string {
 	var v string
