@@ -247,11 +247,16 @@ again first forgets the old id locally, as above.
 
 ## Retention
 
-Events older than 12 months are not shown or used. That holds because the
-shared project's organization is on PostHog's free plan, whose retention
-window is one year, and the project is not moved to a plan that keeps
-events longer. Past the window, PostHog leaves older events out of its
-query results.
+In the events table and its results, events older than 12 months are
+not shown or used. That holds because the shared project's organization
+is on PostHog's free plan, whose retention window is one year, and the
+project is not moved to a plan that keeps events longer. Past the
+window, PostHog leaves older events out of its query results. The
+retention reaches the events table only: it does not reach
+Data Warehouse tables, which keep all their rows, or batch exports,
+which can keep events past the window. The project makes no
+longer-lived copy of these events, as What the project must be set to
+says, so the promise is of the events-table data only.
 
 This is hiding, not deletion by age. PostHog does not document deleting
 events when they pass the window, and its page on retention says that
@@ -264,7 +269,7 @@ over and every version's working life so far.
 
 ## What the project must be set to
 
-Three things about the shared PostHog project keep the promises above,
+Four things about the shared PostHog project keep the promises above,
 and a yard cannot check them: all it holds is a key that can only write
 events. Whoever runs the project checks them in PostHog before a build
 that sends is released, and again when the project is changed:
@@ -289,3 +294,9 @@ that sends is released, and again when the project is changed:
   checked again before any change to the organization's plan, and a
   change to a plan that keeps events longer means moving telemetry to a
   project that keeps the promise first.
+- **No longer-lived copy of these events exists.** No Data Warehouse
+  table and no batch export holds yardr telemetry events; where one is
+  ever made for another purpose, it does not hold them beyond the same
+  12 months. A warehouse copy or an export of these events would still
+  show and be used past the window, so this is a check of what the
+  project holds, not a setting to make.

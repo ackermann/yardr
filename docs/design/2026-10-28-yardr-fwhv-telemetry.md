@@ -732,7 +732,9 @@ unanswered.
    2026, mckean on asks 15719 and 15775 of yardr-zcsp: (a), with the
    plan's query window as its mechanism. It is not deletion. Events
    older than 12 months are hidden and not used, and PostHog does not
-   document deleting them.
+   document deleting them. That promise is of the events-table data
+   only: the retention does not reach Data Warehouse tables or batch
+   exports, so the project keeps no longer-lived copy of these events.
 2. **Do hosted yards send at all?** Section 3.6 omits questions 1 and
    4 because the service has those records. Hosted customers have no
    terminal, and the non-interactive provisioner leaves telemetry off.
