@@ -1021,20 +1021,24 @@ machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine) — the two
 approvals also down the link from the edge, and `GiveSecret` there for every
 secret on a hosted yard and for the code of a harness login alone on any other,
-and the teammates calls there as the approvals are
+and `SessionScreen` and the teammates calls there as the approvals are
 ([edge.md](edge.md#footplate-through-the-link)) — and never from one whose
 proxy says it came in plain (`X-Forwarded-Proto: http`; the header is read
 for a no and never for a yes). Any other is refused with
 the code `error`, in words that name the reason and say what may have
 crossed a network in the clear: the value, or for an approval, the grant
-list, the teammates list or a removal filing the token that was sent with
+list, a session's screen (`SessionScreen`), the teammates list or a removal
+filing the token that was sent with
 it. A proxy on another machine that
 passes requests on to the yard in plain HTTP is refused so: from there to
 the yard the value and the token would be readable. An approval holds no
 secret of its own; it is held to the rule so that a token read off a
 network cannot have a command of the operator's run from wherever it was
 read. The grant list holds none either and approves nothing; it is held to
-the rule because the operator's device token goes with the request. The
+the rule because the operator's device token goes with the request. A
+session's screen can show what an agent printed, a secret among it, so
+`SessionScreen` is held to the rule for what the screen carries, and crosses
+the link as an approval does. The
 teammates list and a removal filing hold none either and approve nothing;
 they are held to the rule for the same reason, and cross the link as an
 approval does. Every
@@ -1062,7 +1066,7 @@ not the operator is refused its own giving down the link in the same words,
 and a giving that is taken is held to the approvals' rule there: when the
 edge says the device reached it in plain HTTP, it is refused as they are.
 
-A hosted yard takes `GiveSecret`, `SourceGrants`, `Teammates` and
+A hosted yard takes `GiveSecret`, `SourceGrants`, `SessionScreen`, `Teammates` and
 `UninviteTeammate` from one peer besides
 its own machine: its router, the address the `router_addr` setting names,
 when the request says it came to the router over https
