@@ -118,8 +118,9 @@ func TestGoogleDeclarations(t *testing.T) {
 		"google-drive.yaml": {
 			{Name: "files", Kind: source.Read}, {Name: "file", Kind: source.Read},
 			{Name: "folder", Kind: source.Update}, {Name: "doc", Kind: source.Update},
-			{Name: "slides", Kind: source.Update}, {Name: "share", Kind: source.Update},
-			{Name: "comments", Kind: source.Read}, {Name: "reply", Kind: source.Update},
+			{Name: "slides", Kind: source.Update}, {Name: "copy", Kind: source.Update},
+			{Name: "share", Kind: source.Update}, {Name: "comments", Kind: source.Read},
+			{Name: "reply", Kind: source.Update},
 		},
 		"google-docs.yaml": {
 			{Name: "doc", Kind: source.Read}, {Name: "write", Kind: source.Update},
@@ -231,6 +232,7 @@ func (s *googleStandin) request() googleRequest {
 func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	msgID := "18c4a1b2c3d4e5f6"
 	driveID := "1AbC2dE3fH4jK5lM6nO7pQ8rStUv"
+	copyID := "1CoPy0123456789abcdefghijklmnopq"
 	commentID := "cOmMeNt0123456789abcdef"
 	shutID := "cOmMeNt0123456789abcdeg"
 	madeReplyID := "rEpLy0123456789abcdef01"
@@ -243,6 +245,7 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	eventFields := "id,status,summary,description,location,start,end,attendees(email,responseStatus),htmlLink"
 	calendarsFields := "items(id,summary,primary,accessRole),nextPageToken"
 	writeFields := "id,summary,start,end,htmlLink"
+	copyFields := "id,name,webViewLink"
 	searchPage1 := `{"messages":[{"id":"18c4a1b2c3d4e5f6","threadId":"18c4a1b2c3d4e5f6"},{"id":"18c4a1b2c3d4e5f7","threadId":"18c4a1b2c3d4e5f6"}],"nextPageToken":"CAEQDBgBEg9OZXh0IFBhZ2U","resultSizeEstimate":2}`
 	searchPage2 := `{"messages":[{"id":"18c4a1b2c3d4e5f8","threadId":"18c4a1b2c3d4e5f8"}],"resultSizeEstimate":3}`
 	draftsPage := `{"drafts":[{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9"}},{"id":"r123457","message":{"id":"18c4a1b2c3d4e5fa","threadId":"18c4a1b2c3d4e5fa"}}],"nextPageToken":"CAEQDBgBEg9EcmFmdHM","resultSizeEstimate":2}`
@@ -300,6 +303,19 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 				t.Fatalf("the stand-in was sent %s: %v", body, err)
 			}
 			out, _ := json.Marshal(map[string]any{"kind": "drive#file", "id": "1NeWFiLe0123456789abcdefghijklm", "name": made.Name, "mimeType": made.MimeType, "parents": made.Parents})
+			return string(out)
+		},
+		// A copy answers with the name it was given and its own id, not the
+		// original's. The recording carries keys the call's select drops.
+		"POST /drive/v3/files/" + driveID + "/copy": func(_ url.Values, body []byte) string {
+			var made struct {
+				Name    string
+				Parents []string
+			}
+			if err := json.Unmarshal(body, &made); err != nil {
+				t.Fatalf("the stand-in was sent %s: %v", body, err)
+			}
+			out, _ := json.Marshal(map[string]any{"kind": "drive#file", "id": copyID, "name": made.Name, "mimeType": "application/vnd.google-apps.document", "parents": made.Parents, "webViewLink": "https://docs.google.com/document/d/" + copyID, "version": "1"})
 			return string(out)
 		},
 		"POST /drive/v3/files/" + driveID + "/permissions": func(_ url.Values, body []byte) string {
@@ -455,6 +471,16 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 		{name: "drive slides", d: drive, call: "slides", params: map[string]string{"name": "friday", "parent": parent},
 			method: "POST", path: "/drive/v3/files", body: `{"name":"friday","mimeType":"application/vnd.google-apps.presentation","parents":["` + parent + `"]}`,
 			wantAnswer: `{"id":"1NeWFiLe0123456789abcdefghijklm","mimeType":"application/vnd.google-apps.presentation","name":"friday","parents":["1PaReNt0123456789abcdefghijklm"]}`},
+		{name: "copy", d: drive, call: "copy", params: map[string]string{"id": driveID, "name": "lunch, again", "parent": parent},
+			method: "POST", path: "/drive/v3/files/" + driveID + "/copy", query: map[string]string{"fields": copyFields},
+			body:       `{"name":"lunch, again","parents":["` + parent + `"]}`,
+			wantAnswer: `{"id":"` + copyID + `","name":"lunch, again","webViewLink":"https://docs.google.com/document/d/` + copyID + `"}`},
+		// The parent left out drops the whole "{parent}" element of the list,
+		// and the key stays: the body sends an empty parents list.
+		{name: "copy without parent", d: drive, call: "copy", params: map[string]string{"id": driveID, "name": "lunch, again"},
+			method: "POST", path: "/drive/v3/files/" + driveID + "/copy", query: map[string]string{"fields": copyFields},
+			body:       `{"name":"lunch, again","parents":[]}`,
+			wantAnswer: `{"id":"` + copyID + `","name":"lunch, again","webViewLink":"https://docs.google.com/document/d/` + copyID + `"}`},
 		{name: "share quiet by default", d: drive, call: "share", params: map[string]string{"fileId": driveID, "email": "bob@example.com", "role": "reader"},
 			method: "POST", path: "/drive/v3/files/" + driveID + "/permissions", query: map[string]string{"sendNotificationEmail": "false"},
 			body:       `{"type":"user","role":"reader","emailAddress":"bob@example.com"}`,
@@ -616,6 +642,12 @@ func TestGoogleCallParamsRefused(t *testing.T) {
 		{"files long q", drive, "files", map[string]string{"q": strings.Repeat("x", 1001)}, "parameter q is 1001 characters, and at most 1000"},
 		{"file slashed id", drive, "file", map[string]string{"id": "a/b"}, "parameter id does not match its pattern"},
 		{"folder long name", drive, "folder", map[string]string{"name": strings.Repeat("x", 201), "parent": "abc"}, "parameter name is 201 characters, and at most 200"},
+		{"copy slashed id", drive, "copy", map[string]string{"id": "a/b", "name": "x"}, "parameter id does not match its pattern"},
+		{"copy slashed parent", drive, "copy", map[string]string{"id": "abc", "name": "x", "parent": "a/b"}, "parameter parent does not match its pattern"},
+		{"copy empty name", drive, "copy", map[string]string{"id": "abc", "name": ""}, "parameter name does not match its pattern"},
+		{"copy name with a newline", drive, "copy", map[string]string{"id": "abc", "name": "a\nb"}, "parameter name does not match its pattern"},
+		{"copy name ending in a newline", drive, "copy", map[string]string{"id": "abc", "name": "ab\n"}, "parameter name does not match its pattern"},
+		{"copy long name", drive, "copy", map[string]string{"id": "abc", "name": strings.Repeat("x", 201)}, "parameter name is 201 characters, and at most 200"},
 		{"share slashed fileId", drive, "share", map[string]string{"fileId": "a/b", "email": "bob@example.com", "role": "reader", "notify": "false"}, "parameter fileId does not match its pattern"},
 		{"share bare email", drive, "share", map[string]string{"fileId": "abc", "email": "bob", "role": "reader", "notify": "false"}, "parameter email does not match its pattern"},
 		{"share spaced email", drive, "share", map[string]string{"fileId": "abc", "email": "bob @example.com", "role": "reader", "notify": "false"}, "parameter email does not match its pattern"},

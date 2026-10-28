@@ -1,15 +1,18 @@
 # Drive as a declared source: files listed, read and shared with one
 # address, folders and empty Google Docs and Slides created for the
-# docs and slides sources to fill, and a file's comments listed and
-# replied to, resolving with the reply when asked. What it never does:
-# no delete, no update, no trash, no upload of content (multipart,
-# which a declared source cannot say), no export (a media download, not
-# JSON), and no paging (pageToken is not declared, so one page is all
-# a call reads). A share is reader or commenter to one address: no
-# writer or owner, no domain or anyone-with-link share, no unsharing.
-# A reply answers a comment that is there: no new top-level anchored
-# comment (anchors are fragile), no deleting, no reopen, and no
-# hearing comments as events.
+# docs and slides sources to fill, a file copied whole (a Doc keeps its
+# formatting, for the docs source to replace the text of), and a file's
+# comments listed and replied to, resolving with the reply when asked.
+# What it never does: no delete, no Drive update verb (no rename, no
+# move, no change of content: a copy is a call of its own), no trash,
+# no upload of content (multipart, which a declared source cannot say),
+# no export (a media download, not JSON), and no paging (pageToken is
+# not declared, so one page is all a call reads). A share is reader or
+# commenter to one address: no writer or owner, no domain or
+# anyone-with-link share, no unsharing. A copy is one file under a new
+# name, in one folder when asked: no folder copied. A reply answers a
+# comment that is there: no new top-level anchored comment (anchors are
+# fragile), no deleting, no reopen, and no hearing comments as events.
 #
 # Checked against the discovery document
 # (https://www.googleapis.com/discovery/v1/apis/drive/v3/rest) on 16
@@ -24,15 +27,20 @@
 # comments and nextPageToken, resolved and open alike, each marked by
 # its own resolved flag (Drive has no resolved filter, so the call
 # takes none); replies.create takes {content, action} and answers the
-# reply, resolving the thread when the action is resolve.
+# reply, resolving the thread when the action is resolve. files.copy
+# checked 28 October 2026: it takes the file's id in the path and
+# {name, parents} (one parent at most; with none, the copy inherits the
+# original's) and answers the file, in the few fields a files method
+# answers by default unless fields names more, which the call does for
+# the three it keeps.
 #
 # The credential mints like google-mail's: GOOGLE_ACCOUNT names the
 # account (an address, no secret) and google-mint, beside this file,
 # mints from it, which the operator's own mint_command wins over. Drive
-# takes no idempotency key, so the file names none: a folder tried again
-# after a lost answer is made twice.
+# takes no idempotency key, so the file names none: a folder or a copy
+# tried again after a lost answer is made twice.
 name: google-drive
-about: Drive files listed, read and shared; folders and empty Docs and Slides created; comments listed and replied to.
+about: Drive files listed, read, copied and shared; folders and empty Docs and Slides created; comments listed and replied to.
 base: https://www.googleapis.com
 credential:
   env: GOOGLE_TOKEN
@@ -95,6 +103,19 @@ calls:
       path: /drive/v3/files
       body: { name: "{name}", mimeType: "application/vnd.google-apps.presentation", parents: ["{parent}"] }
     answer: { select: [id, name, mimeType, parents] }
+  copy:
+    kind: update
+    about: Copy a file whole, formatting and all, under a new name
+    params:
+      id: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true }
+      name: { type: string, pattern: '^[^\n]+$', max: 200 }   # free text, held to one non-empty line: its value is in no event
+      parent: { type: string, pattern: "^[A-Za-z0-9_-]+$", max: 200, log: true, optional: true }   # left out, the parents list goes empty and names no folder
+    request:
+      method: POST
+      path: /drive/v3/files/{id}/copy
+      query: { fields: "id,name,webViewLink" }   # Drive answers a default few fields unless told which
+      body: { name: "{name}", parents: ["{parent}"] }
+    answer: { select: [id, name, webViewLink] }
   share:
     kind: update
     about: Share a file with one address, reader or commenter

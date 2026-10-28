@@ -1,9 +1,10 @@
 # Setting up Drive
 
 The pack wires Drive into the yard as the declared source
-`google-drive`: files listed, read and shared with one address,
-folders made, empty Docs and Slides made for the google-docs pack's
-sources to fill, and a file's comments listed and replied to.
+`google-drive`: files listed, read and shared with one address, a
+file copied whole under a new name, folders made, empty Docs and
+Slides made for the google-docs pack's sources to fill, and a file's
+comments listed and replied to.
 Each call goes out with a short-lived token minted
 from a gws login on this machine, so no new copy of a secret is
 stored anywhere. The login, the
@@ -29,7 +30,7 @@ shared setup, said once in `yardr docs google`.
    ```sh
    yardr pack apply google-drive
    # applied pack google-drive to the yard: 1 created, 0 changed, 0 unchanged
-   # source google-drive is declared: 8 calls under https://www.googleapis.com (yardr source show google-drive)
+   # source google-drive is declared: 9 calls under https://www.googleapis.com (yardr source show google-drive)
    ```
 3. **The account.** The yard's Google account for `google-drive` is
    answered on the setup card, as described in `yardr docs google`
@@ -51,8 +52,8 @@ shared setup, said once in `yardr docs google`.
       pack's sources to fill, replies in a file's comments; shares
       nothing.
    3. `everything`: every read call, `folder`, `doc`, `slides`,
-      `share` and `reply`: what `make` grants, and shares of one
-      file with any address.
+      `copy`, `share` and `reply`: what `make` grants, copies of a
+      whole file, and shares of one file with any address.
    A grantee who comes later gets one preset grant card:
    ```sh
    yardr bead ask <bead> "Let the reviewers read Drive" --run "source grant google-drive --preset read --group reviewers" --context "The reviewers list and read Drive files to check a bead's work; the card names each call it covers."
@@ -63,9 +64,14 @@ shared setup, said once in `yardr docs google`.
    yardr source grant google-drive folder --crew yardmaster
    yardr source grant google-drive doc --crew yardmaster
    yardr source grant google-drive slides --crew yardmaster
+   yardr source grant google-drive copy --crew yardmaster
    yardr source grant google-drive share --crew yardmaster
    yardr source grant google-drive reply --crew yardmaster
    ```
+   A copy clones a whole file, text and formatting, which is more
+   than making an empty one, so `copy` is in the `everything` preset
+   alone: `make` makes empty files and copies none. To give a crew
+   member copies without shares, grant `copy` by name, as above.
    Sharing sends yard content to a person outside it, so `share` is
    granted by the `everything` preset alone, which the operator may
    give or withhold: without it a crew member shares nothing. The
@@ -77,8 +83,9 @@ shared setup, said once in `yardr docs google`.
    As ada, the same grants with `--as ada`, on cards addressed to
    ada and approved by ada alone: the shared card is in
    `yardr docs google` ("Calling as a user"), one card per grant, with
-   `read`, `folder`, `doc`, `slides`, `share` and `reply` from above. There is no
-   typed way beside these: a grant `as` ada is ada's to give.
+   `read`, `folder`, `doc`, `slides`, `copy`, `share` and `reply` from
+   above. There is no typed way beside these: a grant `as` ada is
+   ada's to give.
    `yardr source show google-drive` lists each call with its kind
    and who may make it, plain and `as` each user.
 6. **Check it.** The drive source's check call lists the drive's
@@ -94,6 +101,14 @@ shared setup, said once in `yardr docs google`.
    ```sh
    yardr call google-drive folder name="notes" parent=<a folder id>
    yardr call google-drive doc name="lunch" parent=<the folder's id>
+   ```
+   Or a copy of a file that is there, formatting and all; a copied Doc
+   is one whose text the google-docs source can then replace. `parent`
+   puts the copy in a folder; without it the copy inherits any
+   discoverable parent of the source file, as Drive's copy method
+   specifies:
+   ```sh
+   yardr call google-drive copy id=<a file id> name="lunch, again"
    ```
    And a share, which is for real: the address sees the file, quiet by
    default unless `notify=true`:
@@ -115,11 +130,12 @@ Calling as a user — the yard reading another person's drive with
 their own credential — is the shared setup too: `yardr docs google`
 has it.
 
-What is not there, on purpose: deleting, updating, trash; uploading
-file content and attachments (multipart, which a declared source
-cannot say); exporting file content (a media download, not JSON);
-paging past the first page; writer or owner shares, domain or
-anyone-with-link shares, and unsharing; new top-level anchored
+What is not there, on purpose: deleting, trash, updating a file in
+place (renaming or moving it); copying folders (a copy is of one
+file); uploading file content and attachments (multipart, which a
+declared source cannot say); exporting file content (a media download,
+not JSON); paging past the first page; writer or owner shares, domain
+or anyone-with-link shares, and unsharing; new top-level anchored
 comments (anchors are fragile), deleting comments or replies,
 reopening, and hearing comments as events; and no call the pack
 does not list. The yard's source format cannot express what is not

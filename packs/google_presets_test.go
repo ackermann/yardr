@@ -25,6 +25,9 @@ func TestGooglePresetsMatchDeclarations(t *testing.T) {
 		"google-docs":     "append",
 		"google-drive":    "make",
 	}
+	middleExcludes := map[string][]string{
+		"google-drive": {"copy"},
+	}
 	for _, name := range []string{"google-mail", "google-calendar", "google-docs", "google-drive"} {
 		t.Run(name, func(t *testing.T) {
 			sub, err := fs.Sub(packs.FS, name)
@@ -81,6 +84,11 @@ func TestGooglePresetsMatchDeclarations(t *testing.T) {
 				if mid == nil {
 					t.Errorf("preset %s grants nothing of %s", middle[name], d.Name)
 					continue
+				}
+				for _, excluded := range middleExcludes[name] {
+					if slices.Contains(mid, excluded) {
+						t.Errorf("preset %s of %s grants %s, which is reserved for everything", middle[name], d.Name, excluded)
+					}
 				}
 				if !slices.Contains(mid, store.GrantRead) {
 					t.Errorf("preset %s of %s grants %v, without %s", middle[name], d.Name, mid, store.GrantRead)
