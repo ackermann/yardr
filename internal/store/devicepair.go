@@ -282,32 +282,56 @@ func (s *Store) DevicePairOpened(ctx context.Context) bool {
 // the refusal is pairing.NoPairing, whatever the last one ended for.
 //
 // Holding the code is the whole credential here, as it is on the yard's own
-// listener; a redemption that names who presents it is DevicePairRedeemBy.
+// listener; a redemption that names who presents it is DevicePairRedeemBy,
+// or DevicePairRedeemUnmapped where the address maps to no user.
 func (s *Store) DevicePairRedeem(ctx context.Context, code string) (*NewDevice, error) {
-	return s.redeemDevicePairing(ctx, code, nil)
+	return s.redeemDevicePairing(ctx, code, nil, nil)
 }
 
 // DevicePairRedeemBy is DevicePairRedeem for a redemption that names who
 // presents it, as the edge does for one it forwards from a signed-in
-// session: presenter is the yard user the edge's word maps to, "" where it
-// maps to nobody. The code is still required, and only the user the pairing
-// was opened for may redeem it so, so naming a presenter can only narrow who
-// redeems and never widen it. Any other presenter, nobody included, is
-// refused as a wrong code is, with the same refusal and the same count, and
-// the code is neither looked at nor used: the one it was opened for can
-// still redeem it.
+// session: presenter is the yard user the edge's word maps to. The code is
+// still required, and only the user the pairing was opened for may redeem
+// it so, so naming a presenter can only narrow who redeems and never widen
+// it. Any other presenter is refused as a wrong code is, with the same
+// refusal and the same count, and the code is neither looked at nor used:
+// the one it was opened for can still redeem it. Nobody, "", is never the
+// one a pairing was opened for, so it is always refused here; a single
+// address that maps to nobody is DevicePairRedeemUnmapped's, not this.
 func (s *Store) DevicePairRedeemBy(ctx context.Context, code, presenter string) (*NewDevice, error) {
-	return s.redeemDevicePairing(ctx, code, &presenter)
+	return s.redeemDevicePairing(ctx, code, &presenter, nil)
 }
 
-// redeemDevicePairing is both redemptions: presenter is nil for one that
-// names none, else the user it names, "" for nobody. A pairing's user is
-// never "", so nobody is never the one it was opened for. A body that is no
-// code at all is no try, whoever presents it. Past that the presenter is
-// judged before the code, so a presenter that may not redeem is refused the
-// same whether or not it holds the right code, and the code is not even
-// compared for it.
-func (s *Store) redeemDevicePairing(ctx context.Context, code string, presenter *string) (*NewDevice, error) {
+// DevicePairRedeemUnmapped is DevicePairRedeemBy for a redemption whose
+// presenter is one address that maps to no user in web_jwt_users: mapped
+// holds the users the mapping names, as the caller read it. Where the
+// pairing's user is one of them the presenter is refused as a wrong code
+// is, exactly as DevicePairRedeemBy refuses; where neither is named the
+// code redeems as with no presenter at all. Through the edge an unmapped
+// presenter of a yard with members can only be its owner, since the edge
+// has already resolved the session to the owner or an active member and an
+// invite maps every active member: an owner pairing for an unmapped
+// operator user is the ordinary case this redeems. It rests on that, and
+// the code is still required: where an operator removes a teammate's line
+// while the edge still holds them active, or before the edge records a
+// removal, that holder redeems the owner's pairing with its code.
+func (s *Store) DevicePairRedeemUnmapped(ctx context.Context, code string, mapped map[string]bool) (*NewDevice, error) {
+	nobody := ""
+	return s.redeemDevicePairing(ctx, code, &nobody, mapped)
+}
+
+// redeemDevicePairing is every redemption: presenter is nil for one that
+// names none, else the user it names. A pairing's user is never "", so
+// nobody is never the one it was opened for. mapped is nil but for an
+// unmapped address, where it holds the users the mapping names: nobody
+// with nil mapping, a header sent twice or empty and an unreadable
+// mapping, is always refused, while nobody with a mapping is refused only
+// when the pairing's user is one it names. A body that is no code at all
+// is no try, whoever presents it. Past that the presenter is judged before
+// the code, so a presenter that may not redeem is refused the same whether
+// or not it holds the right code, and the code is not even compared for
+// it.
+func (s *Store) redeemDevicePairing(ctx context.Context, code string, presenter *string, mapped map[string]bool) (*NewDevice, error) {
 	s.devPair.mu.Lock()
 	defer s.devPair.mu.Unlock()
 	p := s.devicePairing(ctx)
@@ -318,8 +342,18 @@ func (s *Store) redeemDevicePairing(ctx context.Context, code string, presenter 
 	if err != nil {
 		return nil, err
 	}
-	if presenter != nil && *presenter != p.User {
-		return nil, s.wrongDevicePairCode(ctx, p)
+	if presenter != nil {
+		switch {
+		case *presenter != "" && *presenter != p.User:
+			return nil, s.wrongDevicePairCode(ctx, p)
+		case *presenter == "" && (mapped == nil || mapped[p.User]):
+			if mapped != nil {
+				if log := s.log.Load(); log != nil {
+					log.Warn("a pairing's presenter maps to no user", "setting", WebJWTUsersSetting)
+				}
+			}
+			return nil, s.wrongDevicePairCode(ctx, p)
+		}
 	}
 	if subtle.ConstantTimeCompare([]byte(clean), []byte(p.code)) != 1 {
 		return nil, s.wrongDevicePairCode(ctx, p)

@@ -242,9 +242,10 @@ func TestDevicePairWrongCodeFiveTimes(t *testing.T) {
 // alone: the address is mapped to a user as web_jwt_users has it, whatever
 // its case. Any other presenter is refused as a wrong code is, with the same
 // answer and the same count, and the code is neither looked at nor used, so
-// the user it was opened for can still redeem it. The code is still
-// required of the right presenter. The header is read on this call alone,
-// and where web_jwt_users maps nothing it names nobody.
+// the user it was opened for can still redeem it, but for an address that
+// maps to nobody where the pairing's user maps to nobody too, which redeems
+// as with no presenter. The code is still required of the right presenter.
+// The header is read on this call alone.
 func TestDevicePairPresenter(t *testing.T) {
 	y := newPairYard(t)
 	ctx := context.Background()
@@ -320,19 +321,61 @@ func TestDevicePairPresenter(t *testing.T) {
 		t.Errorf("/user/me naming jo as the presenter = %d %s", status, me)
 	}
 
-	// With no mapping at all every address names nobody; with no header the
-	// code alone redeems, as it did.
+	// Where the presenter maps to nobody, a pairing whose user the mapping
+	// names stays bound to its opener, while a pairing for an unmapped user
+	// redeems as with no presenter.
+	if err := y.st.SetSetting(ctx, store.WebJWTUsersSetting, "sam@example.net=sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	code = y.open(t, "sam", "tablet")
+	status, body = y.redeemAs(t, code, "eve@example.net")
+	refused("sam's code presented by an address no user is mapped to, sam mapped", status, body)
+	status, body = y.redeemAs(t, code, "sam@example.net")
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "sam" || got.Device != "tablet" {
+		t.Fatalf("sam's code presented by sam = %d %s (%v)", status, body, err)
+	}
+	devices(2)
+	code = y.open(t, "jo", "tablet")
+	status, body = y.redeemAs(t, code, "jo@example.net")
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "jo" || got.Device != "tablet" {
+		t.Fatalf("jo's code presented by an unmapped address, jo unmapped = %d %s (%v)", status, body, err)
+	}
+	devices(3)
+
+	// With no mapping at all every address names nobody, and the code
+	// redeems for an unmapped user; with no header the code alone redeems,
+	// as it did.
 	if err := y.st.SetSetting(ctx, store.WebJWTUsersSetting, "", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	code = y.open(t, "jo", "tablet")
-	status, body = y.redeemAs(t, code, "jo@example.net")
-	refused("jo's code presented by an address when web_jwt_users is unset", status, body)
+	code = y.open(t, "jo", "watch")
+	status, body = y.redeemAs(t, code, "owner@example.com")
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "jo" || got.Device != "watch" {
+		t.Fatalf("jo's code presented by an address when web_jwt_users is unset = %d %s (%v)", status, body, err)
+	}
+	devices(4)
+	code = y.open(t, "jo", "buds")
 	status, body = y.redeem(t, code)
-	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "jo" || got.Device != "tablet" {
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "jo" || got.Device != "buds" {
 		t.Fatalf("jo's code with no presenter named = %d %s (%v)", status, body, err)
 	}
-	devices(2)
+	devices(5)
+
+	// Accepted: a teammate whose line was removed while the edge still
+	// holds them active redeems the owner's pairing with its code, since
+	// neither maps to a user then. The code is still required.
+	if err := y.st.SetSetting(ctx, store.WebJWTUsersSetting, "sam@example.net=sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	code = y.open(t, "jo", "earbuds")
+	if err := y.st.SetSetting(ctx, store.WebJWTUsersSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	status, body = y.redeemAs(t, code, "sam@example.net")
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "jo" || got.Device != "earbuds" {
+		t.Fatalf("jo's code presented by a removed teammate's address = %d %s (%v)", status, body, err)
+	}
+	devices(6)
 }
 
 // A code runs out after pairing.TTL: it is good a second before, and after

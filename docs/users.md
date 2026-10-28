@@ -1094,12 +1094,18 @@ on the web pairing page is redeemed through the edge in that member's session
 and in no other, though another session holds the code. The yard answers any
 other presenter as it answers a wrong code, 403 `wrong_code` with no device
 added, and counts it with them: the fifth refusal ends the pairing. An address
-the table maps to nobody is refused the same way, so whoever redeems through
-the edge needs their address in `web_jwt_users`. An invite puts a teammate's
-there, and the operator adds their own ([Settings](configuration.md#settings)).
-A refusal leaves the code available to the pairing's user until the fifth
-refusal ends the pairing. A redemption with no `X-Edge-Presenter` redeems on
-the code alone, as it does on the yard's own listener. The yard reads it on
+the table maps to nobody is refused the same way where the pairing's user is
+one it names, and where neither the presenter nor the pairing's user is named,
+as for an owner's pairing redeemed in the owner's session, the code redeems as
+with no presenter. An invite puts a teammate's address there, and the operator
+adds their own to sign in on the web ([Settings](configuration.md#settings)).
+This rests on every presenter the edge forwards being the owner or an active
+member, and every active member being mapped: where a teammate's line is
+removed while the edge still holds them active, or before the edge records a
+removal, that holder redeems the owner's pairing with its code, which is still
+required. A refusal leaves the code available to the pairing's user until the
+fifth refusal ends the pairing. A redemption with no `X-Edge-Presenter` redeems
+on the code alone, as it does on the yard's own listener. The yard reads it on
 this call and no other. It can only narrow who redeems, never widen it, since
 the code is still required, so a client that sends it straight to the
 listener gains nothing by it.

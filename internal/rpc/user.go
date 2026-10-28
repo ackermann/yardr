@@ -853,9 +853,13 @@ type Paired struct {
 // any copy a client sent before it sets its own. On the yard's own listener a
 // client may send it, and it is believed there too, which is harmless only
 // because the code alone already redeems there. Either way it can only
-// narrow redemption and never widen it: the code is still required, and the
-// pairing's user must be the one the address maps to, so a header from the
-// wrong party gets a redemption refused and nothing more.
+// narrow redemption and never widen it: the code is still required, and a
+// mapped presenter must be the pairing's user, so a header from the wrong
+// party gets a redemption refused and nothing more. An address that maps to
+// nobody is refused only for a pairing whose user the mapping names; where
+// neither is named the code redeems as with no presenter, which rests on
+// every presenter the edge forwards being the owner or an active member and
+// every active member being mapped.
 const PresenterHeader = "X-Edge-Presenter"
 
 // pair takes the code of the yard's open device pairing, as the body
@@ -864,7 +868,9 @@ const PresenterHeader = "X-Edge-Presenter"
 // the pairing, which the fifth ends; the right one is good once. What is no
 // code at all is 400 and no try. Nothing of a code is logged or counted.
 // A redemption that names its presenter is redeemed for the pairing's user
-// alone; anyone else it names is refused, and counted, as a wrong code.
+// alone; anyone else it names is refused, and counted, as a wrong code,
+// but for an address that maps to nobody where the pairing's user is mapped
+// to nobody too, which redeems as with no presenter.
 func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 	var asked struct {
 		Code string `json:"code"`
@@ -907,28 +913,44 @@ func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 }
 
 // redeem is the store's redemption of code for the request r: on the code
-// alone where r names no presenter, and otherwise for the user the
-// presenter's address maps to (presenter), whom the store holds to the
-// pairing's own. A header with no value still names a presenter, nobody, so
-// sending it empty is no way past the check.
+// alone where r names no presenter, for the user the presenter's address
+// maps to (presenter) where it maps to one, whom the store holds to the
+// pairing's own, and through the unmapped path where it maps to nobody. A
+// header sent twice or empty, and a mapping that cannot be read, name
+// nobody the strict way, so sending it empty is no way past the check.
 func (u *UserServer) redeem(r *http.Request, code string) (*store.NewDevice, error) {
 	named := r.Header.Values(PresenterHeader)
 	if len(named) == 0 {
 		return u.st.DevicePairRedeem(r.Context(), code)
 	}
-	return u.st.DevicePairRedeemBy(r.Context(), code, u.presenter(r.Context(), named))
+	user, mapped, ok := u.presenter(r.Context(), named)
+	if !ok {
+		return u.st.DevicePairRedeemBy(r.Context(), code, "")
+	}
+	if user != "" {
+		return u.st.DevicePairRedeemBy(r.Context(), code, user)
+	}
+	return u.st.DevicePairRedeemUnmapped(r.Context(), code, mapped)
 }
 
 // presenter is the yard user the address in a PresenterHeader maps to in
 // web_jwt_users, matched as the web view matches a token's email, without
-// regard to case; "" for nobody. Nobody is also what a header sent twice
-// names, and what any address maps to when the mapping cannot be read. Each
-// is refused, which is the safe way to fail where the header can only
-// narrow. The presenter is told a wrong code, so the log is where the
-// operator learns why; it holds no address.
-func (u *UserServer) presenter(ctx context.Context, named []string) string {
+// regard to case, with the users the mapping names for an address that maps
+// to nobody. ok is false for a header sent twice or empty and for a mapping
+// that cannot be read, each refused the strict way, which is the safe way
+// to fail where the header can only narrow. An unmapped address is ok with
+// "" and its mapping, non-nil even where the yard set none; the store
+// refuses it only for a pairing whose user the mapping names, and logs it
+// there, so no warn here would know whether it redeems. The presenter is
+// told a wrong code, so the log is where the operator learns why; it holds
+// no address.
+func (u *UserServer) presenter(ctx context.Context, named []string) (user string, mapped map[string]bool, ok bool) {
 	if len(named) != 1 {
-		return ""
+		return "", nil, false
+	}
+	if strings.TrimSpace(named[0]) == "" {
+		u.log.Warn("a pairing's presenter maps to no user", "setting", store.WebJWTUsersSetting)
+		return "", nil, false
 	}
 	all, err := u.st.Settings(ctx)
 	var users map[string]string
@@ -939,13 +961,16 @@ func (u *UserServer) presenter(ctx context.Context, named []string) string {
 	}
 	if err != nil {
 		u.log.Error("a pairing's presenter could not be mapped", "setting", store.WebJWTUsersSetting, "err", err)
-		return ""
+		return "", nil, false
 	}
-	user := users[strings.ToLower(strings.TrimSpace(named[0]))]
-	if user == "" {
-		u.log.Warn("a pairing's presenter maps to no user", "setting", store.WebJWTUsersSetting)
+	if user := users[strings.ToLower(strings.TrimSpace(named[0]))]; user != "" {
+		return user, nil, true
 	}
-	return user
+	mapped = map[string]bool{}
+	for _, name := range users {
+		mapped[name] = true
+	}
+	return "", mapped, true
 }
 
 type callerKey struct{}

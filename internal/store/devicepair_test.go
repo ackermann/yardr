@@ -150,11 +150,12 @@ func TestDevicePairNotAdded(t *testing.T) {
 }
 
 // A redemption that names its presenter is the pairing's user's alone. Any
-// other, a user that is no one's and nobody ("") included, is refused as a
-// wrong code is and counted as one, before the code is looked at and with
-// the code left unused; what is no code at all is no try, whoever presents
-// it. The fifth ends the pairing, and the code is required of the right
-// presenter all the same.
+// other mapped presenter is refused as a wrong code is and counted as one,
+// before the code is looked at and with the code left unused. An unmapped
+// presenter is refused when the pairing's user is mapped, and otherwise
+// redeems as with no presenter. What is no code at all is no try, whoever
+// presents it. The fifth refusal ends the pairing, and the code is still
+// required.
 func TestDevicePairRedeemBy(t *testing.T) {
 	t.Parallel()
 	api, own := deviceYard(t)
@@ -208,6 +209,53 @@ func TestDevicePairRedeemBy(t *testing.T) {
 	}
 	if list, _ := api.Devices(ctx, ""); len(list) != 1 || list[0].User != "ada" {
 		t.Fatalf("devices = %+v", list)
+	}
+
+	// An unmapped presenter stays out of a mapped user's pairing and leaves
+	// the code good for that user. A pairing for an unmapped user redeems
+	// with an unmapped presenter, but the code is still checked.
+	mapped := map[string]bool{"bob": true}
+	opened, err = api.DevicePairOpenSelf(ctx, "bob", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped); d != nil || !errors.As(err, &no) || no.Reason != pairing.WrongCode {
+		t.Fatalf("bob's code, bob mapped = %+v, %v, want wrong_code", d, err)
+	}
+	d, err = own.DevicePairRedeem(ctx, opened.Code)
+	if err != nil || d.User != "bob" || d.Name != "phone" {
+		t.Fatalf("bob's code after the refusal = %+v, %v", d, err)
+	}
+	opened, err = api.DevicePairOpenSelf(ctx, "ada", "tablet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := own.DevicePairRedeemUnmapped(ctx, notThe(opened.Code), mapped); d != nil || !errors.As(err, &no) || no.Reason != pairing.WrongCode {
+		t.Fatalf("a code that is not ada's, ada unmapped = %+v, %v, want wrong_code", d, err)
+	}
+	d, err = own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped)
+	if err != nil || d.User != "ada" || d.Name != "tablet" {
+		t.Fatalf("ada's code, ada unmapped = %+v, %v", d, err)
+	}
+
+	// What is no code is no try, and an empty mapping redeems for an
+	// unmapped user just as a mapping that names another user does.
+	opened, err = api.DevicePairOpenSelf(ctx, "ada", "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := own.DevicePairRedeemUnmapped(ctx, "", mapped); d != nil || err == nil || errors.As(err, &no) {
+		t.Fatalf("no code, ada unmapped = %+v, %v, want an error that is no refusal", d, err)
+	}
+	d, err = own.DevicePairRedeemUnmapped(ctx, opened.Code, map[string]bool{})
+	if err != nil || d.User != "ada" || d.Name != "laptop" {
+		t.Fatalf("ada's code with an empty mapping = %+v, %v", d, err)
+	}
+	if d, err := own.DevicePairRedeemUnmapped(ctx, opened.Code, mapped); d != nil || !errors.As(err, &no) || no.Reason != pairing.NoPairing {
+		t.Fatalf("ada's code after it was used = %+v, %v, want no pairing", d, err)
+	}
+	if list, _ := api.Devices(ctx, ""); len(list) != 4 {
+		t.Fatalf("devices = %+v, want 4", list)
 	}
 }
 

@@ -122,6 +122,7 @@ func TestEdgeConnect(t *testing.T) {
 		"This yard's key: ed25519:"+yard,
 		"Open "+srv.URL+"/connect and enter the code  WQ4F-7K2M  (10 minutes)",
 		"… approved by chris@mckean.co as mckean/mckean",
+		"If the owner will sign in on the web, their address belongs in web_jwt_users",
 		"Connected: webhooks reach this yard at "+srv.URL+"/hooks/mckean/mckean/<hook>",
 		"hook_public_url set to "+srv.URL+"/hooks/mckean/mckean",
 		"The server opens the link to the edge now: yardr edge status says when it is up.")

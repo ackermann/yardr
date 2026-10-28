@@ -289,6 +289,9 @@ func (a *app) edgeConnect(c *cobra.Command, address, as string) error {
 		by = "by " + en.Email + " "
 	}
 	a.progress(w, warn, "… approved %sas %s/%s", by, en.Handle, en.Name)
+	// Guidance, not a write: the approver need not be the operator, and a
+	// yard can have several operators, so connect maps nothing.
+	a.progress(w, warn, "If the owner will sign in on the web, their address belongs in %s", store.WebJWTUsersSetting)
 
 	// The setting as it is now, not as it was before the wait: a hand that
 	// set it meanwhile is the one connecting replaces. Keep it even when it
