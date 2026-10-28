@@ -10,10 +10,13 @@
 # since the default names no project. An $error_tracking_issue_created
 # event becomes type error_issue in the thread of its issue, with the
 # triggering exception's session and its replay link in its fields when
-# the event carries one; any other body becomes type event, so a delivery
-# the destination was not matched for (a test from its page) is recorded
-# and routed as today, and never refused with a 400 the service retries.
-# Nothing of the body is ever printed to stderr.
+# the event carries one; a `survey sent` event becomes type feedback
+# with the answer as its text, the event's uuid as its thread, and the
+# survey, the sender's email, the footplate version and the OS in its
+# fields when the delivery carries them; any other body becomes type
+# event, so a delivery the destination was not matched for (a test from
+# its page) is recorded and routed as today, and never refused with a
+# 400 the service retries. Nothing of the body is ever printed to stderr.
 exec jq -c '
 def obj: if type == "object" then . else {} end;
 def str($v): if ($v | type) == "string" then $v elif $v == null then "" else "\($v)" end;
@@ -58,6 +61,37 @@ def trunc: (gsub("^[[:space:]]+|[[:space:]]+$"; "") | gsub("[[:space:]]+"; " "))
     | {source: "posthog", type: "error_issue", action: "created",
        actor: {}, thread: {id: $id, title: $name, url: $url},
        text: $text, url: $url, entity: $id, mentions: []}
+    | if ($all | length) == 0 then . else . + {fields: $all} end
+  elif ($e.event // "") == "survey sent" then
+    # Footplate feedback arrives as the survey shape: $survey_id names
+    # the survey the subscription filters on, and the answer
+    # is the bare $survey_response of a one-question capture, else the
+    # one $survey_response_<question id> value the delivery carries (the
+    # first in key order, where several came). An empty bare answer falls
+    # back to the keyed one, so the message is never dropped for a blank.
+    # No mentions: a message naming @word names nobody here. No URL is
+    # made from body data, and the submission stands alone, with no
+    # entity: each delivery is heard once, in the thread of its own uuid.
+    (($e.properties | obj)) as $props
+    | ($props."$survey_response") as $bare
+    | ([($props | to_entries[] | select(.key | test("^\\$survey_response_.+")) | .key)] | sort) as $keyed
+    | (if ($keyed | length) > 0 then $props[$keyed[0]] else null end) as $keyedval
+    | (if ($bare | type) == "string" and $bare != "" then $bare
+       elif $bare != null and ($bare | type) != "string" then str($bare)
+       else str($keyedval) end | trunc) as $text
+    | (($props."$survey_id" | if type == "string" then . else "" end)) as $survey
+    | (($props.email | if type == "string" then . else "" end)) as $email
+    | (($props.footplate_version | if type == "string" then . else "" end)) as $version
+    | (($props.os | if type == "string" then . else "" end)) as $os
+    | ((if $fields == null then {} else $fields end)
+       | (if $survey != "" then . + {survey: [$survey]} else . end)
+       | (if $email != "" then . + {email: [$email]} else . end)
+       | (if $version != "" then . + {footplate_version: [$version]} else . end)
+       | (if $os != "" then . + {os: [$os]} else . end)) as $all
+    | ((($e.uuid // "") | if type == "string" then . else "" end)) as $uuid
+    | {source: "posthog", type: "feedback",
+       actor: {}, thread: {id: $uuid},
+       text: $text, mentions: []}
     | if ($all | length) == 0 then . else . + {fields: $all} end
   else
     {source: "posthog", type: "event", actor: {}, thread: {}, mentions: []}

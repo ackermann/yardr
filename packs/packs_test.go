@@ -2293,7 +2293,7 @@ func TestPostHogPack(t *testing.T) {
 	// project in the clear.
 	if h := d.Hook; h == nil || h.Verify.Scheme != source.HookSecret ||
 		h.Verify.Signature.Header != "X-Yardr-Secret" || h.Verify.Delivery.Body != "event.uuid" ||
-		h.Bodies != source.BodiesUnique || !reflect.DeepEqual(h.Keys, []string{"project", "session", "replay"}) ||
+		h.Bodies != source.BodiesUnique || !reflect.DeepEqual(h.Keys, []string{"project", "session", "replay", "survey", "email", "footplate_version", "os"}) ||
 		!reflect.DeepEqual(h.Normalize, []string{"posthog/normalize"}) {
 		t.Fatalf("hook = %+v", d.Hook)
 	}
@@ -2306,9 +2306,11 @@ func TestPostHogPack(t *testing.T) {
 	// the key given to the yard by a command or on a card, the grant and
 	// the test calls, the hook's destination made by the card with the
 	// asked project, the fallback with the secret made by the operator
-	// and the destination in PostHog with its body and header, and
-	// hearing new issues in an inbox or as beads. The secret is generated
-	// into its file, never typed as a command's word.
+	// and the destination in PostHog with its body and header, hearing
+	// new issues in an inbox or as beads, and the feedback destination
+	// with its filter, body and header, heard through a subscription on
+	// its type and survey. The secret is generated into its file, never
+	// typed as a command's word.
 	if p.Setup != "SETUP.md" {
 		t.Fatalf("setup = %q, want SETUP.md", p.Setup)
 	}
@@ -2363,6 +2365,13 @@ func TestPostHogPack(t *testing.T) {
 		"yardr subscribe <hearer> posthog --scope all --where type=error_issue",
 		`--makes "action=created event=error_issue -> task:new@<depot>"`,
 		"https://eu.posthog.com",
+		"footplate feedback",
+		"Match event and actions",
+		"survey sent",
+		"posthog.com/docs/surveys/destinations",
+		"posthog/posthog 86ba897",
+		"yardr subscribe yardmaster posthog --scope all --where type=feedback --where survey=<the feedback survey's id>",
+		"files no bead for feedback",
 	} {
 		if !strings.Contains(p.SetupText, want) {
 			t.Errorf("setup notes lack %q", want)

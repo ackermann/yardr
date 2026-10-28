@@ -3,9 +3,9 @@
 The pack wires PostHog into the yard as the declared source `posthog`:
 an agent reads it through `yardr call` (HogQL queries, error tracking
 issues, session recordings, a session's Replay Vision observations),
-and a webhook hears a new error issue. One call writes: the destination,
-made once by the hook card; resolving or assigning an issue stays in
-PostHog's pages.
+and webhooks hear a new error issue, and footplate feedback. One call
+writes: the destination, made once by the hook card; resolving or
+assigning an issue stays in PostHog's pages.
 
 1. **A personal API key.** In PostHog, your user settings → Personal API
    keys (Settings → Personal API keys,
@@ -212,6 +212,91 @@ PostHog's pages.
    # its events make a bead for a thread none tracks:
    #   action=created event=error_issue -> task:new@<depot>
    ```
+9. **Hear footplate feedback, and read it.** Beside the
+   issue destination, a second webhook destination in the same EU
+   project hears the `survey sent` events footplate's Feedback button
+   sends as answers to the API-type survey 'footplate feedback' (one
+   open-text question). The yard does not register this one: the hook
+   card's register stays the error-issue destination's alone, and the
+   operator makes the feedback destination by hand, aimed at the same
+   hook. In PostHog: Data pipelines → Destinations → + New →
+   Destination, search "Webhook" and + Create — the plain "HTTP
+   Webhook", which fires on whatever event its filters match. On its
+   page:
+   - **Webhook URL**: `https://<public host>/hooks/posthog` — the
+     same hook as step 6's, the path ending in the hook's name.
+   - **JSON Body**: the same body as the issue destination, so the
+     event arrives with its properties and the project beside them:
+     ```json
+     {"event": "{event}", "person": "{person}", "project": "{project}"}
+     ```
+   - **Secret headers**: add `X-Yardr-Secret` with the hook's
+     secret — the file `yardr hook show posthog` names (with step
+     6's card the yard made it; with step 7's fallback it is
+     `~/.yardr/posthog.secret`). Secret headers, not Headers: a
+     secret stays encrypted and out of the logs there.
+   - **Method** stays POST, and under **Match event and actions**
+     select `survey sent` alone: the yard hears every survey
+     response and reads only its own survey's, by the id in the
+     line below.
+
+   Create & Enable. (Checked 28 Oct 2026 against
+   posthog.com/docs/data-pipelines/destinations/webhook,
+   posthog.com/docs/surveys/destinations and
+   posthog.com/docs/surveys/implementing-custom-surveys, and at
+   posthog/posthog 86ba897:
+   nodejs/src/cdp/templates/_destinations/webhook/webhook.template.ts —
+   the "HTTP Webhook" template's inputs, their defaults, and secret
+   headers sent as entered; the survey shape of a one-question
+   capture, `$survey_id` with the bare `$survey_response`, and
+   `$survey_response_<question id>` per question.)
+
+   Then prove the feedback path before real feedback arrives: on
+   the destination's page open Testing (Start testing) and replace
+   the `event` object in the globals editor with a survey sent
+   event, leaving the rest of the globals as shown:
+
+   ```json
+   {
+     "uuid": "<a fresh uuid>",
+     "event": "survey sent",
+     "distinct_id": "<a fresh uuid>",
+     "timestamp": "2026-10-28T12:00:00.000000+00:00",
+     "properties": {
+       "$survey_id": "<the feedback survey's id>",
+       "$survey_response": "Sent from the destination's Testing panel; not real feedback.",
+       "footplate_version": "0.0.0",
+       "os": "test"
+     }
+   }
+   ```
+
+   Make each uuid fresh (`uuidgen`): the delivery id is the event's
+   uuid, so a second run with the same one is kept as a retry of
+   the first. Leave Make real HTTP requests on, and Test function:
+   the destination POSTs the pasted event through the JSON body
+   above, the hook answers 200, and the yardmaster subscription
+   below (`--where type=feedback --where survey=<the feedback
+   survey's id>`) hears it, with the version and the OS in its
+   fields. It arrives as
+   genuine feedback — that is the point — marked as a test only by
+   its text. If the panel reports the function was skipped, the
+   pasted event did not match the destination's filters.
+
+   Each feedback delivery is heard through a subscription on its
+   type and its survey, delivering to the yardmaster's inbox, with
+   the feedback survey's id in the survey field — for this yard,
+   the one mckean's mail names; it lives here, never in pack code:
+   ```sh
+   yardr subscribe yardmaster posthog --scope all --where type=feedback --where survey=<the feedback survey's id>
+   ```
+   Each feedback is an inbox line there, read as mail is read.
+   Feedback is read, never filed: a makes line
+   files no bead for feedback,
+   because the yard files beads only for deliveries about a
+   thread with a URL (`internal/dispatch/makes.go`), and a
+   feedback submission carries its uuid alone, with no link made
+   from it.
 
 On EU Cloud the calls go to `https://eu.posthog.com` instead of
 `https://us.posthog.com`: the pack declares both bases, and the yard

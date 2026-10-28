@@ -105,7 +105,10 @@ hook:
   # is the triggering exception's $session_id, which the issue-created
   # event carries under exception_props when the SDK set one, and replay
   # the replay link built from it, on the host that sent the delivery.
-  keys: [project, session, replay]
+  # survey, email, footplate_version and os are what a `survey sent`
+  # event carries ($survey_id, the sender's email, the footplate version
+  # and the OS), which a feedback subscription filters on.
+  keys: [project, session, replay, survey, email, footplate_version, os]
 
 # ---- (today) what an agent may ask of it, through `yardr call` ------------
 # Declared HTTPS requests, granted one by one. A command is never something

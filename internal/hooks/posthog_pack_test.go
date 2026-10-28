@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -68,10 +69,11 @@ func posthogDecl(t *testing.T) hooks.Declared {
 
 // The pack declares what the setup needs: a hook verified by the secret
 // in its header, deduped by the event's own id, with the project, the
-// session and the replay link as its keys, and registered by the yard
-// itself on the hook card. No hear key: every verified delivery is
-// kept. No thread, link or notify key: the destination call is the one
-// thing the yard writes to PostHog.
+// session and the replay link as its keys, and the survey, the email,
+// the footplate version and the OS a feedback subscription filters on,
+// and registered by the yard itself on the hook card. No hear key:
+// every verified delivery is kept. No thread, link or notify key: the
+// destination call is the one thing the yard writes to PostHog.
 func TestPostHogPackDeclaration(t *testing.T) {
 	d, dir, _ := posthogParse(t)
 	if d.Name != "posthog" {
@@ -93,8 +95,8 @@ func TestPostHogPackDeclaration(t *testing.T) {
 	if strings.Join(h.Normalize, " ") != "posthog/normalize" {
 		t.Errorf("normalize = %q", h.Normalize)
 	}
-	if strings.Join(h.Keys, ",") != "project,session,replay" {
-		t.Errorf("keys = %q, want project,session,replay", h.Keys)
+	if strings.Join(h.Keys, ",") != "project,session,replay,survey,email,footplate_version,os" {
+		t.Errorf("keys = %q, want project,session,replay,survey,email,footplate_version,os", h.Keys)
 	}
 	if h.Register == nil {
 		t.Fatal("the pack declares no register key: the yard registers the destination itself on the hook card")
@@ -133,36 +135,62 @@ func TestPostHogPackDeclaration(t *testing.T) {
 	}
 }
 
-// The envelope for the recorded issue-created body: type error_issue in
-// the thread of its issue, with the issue's id, name, description and
-// URL, and the project it came from. The recorded body carries no
-// session, so the envelope carries no session field either.
+// The recorded issue and feedback bodies normalize to their full
+// envelopes, with fields limited to the hook's declared keys.
 func TestPostHogPackNormalize(t *testing.T) {
 	ad := posthogDecl(t)
 	may := append(append([]string{}, store.WhereKeys...), ad.D.Hook.Keys...)
 	const id = "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e"
 	const url = "https://us.posthog.com/project/48291/error-tracking/" + id
-	want := hooks.Envelope{Source: "posthog", Type: "error_issue", Action: "created",
-		Thread:   hooks.Thread{ID: id, Title: "TypeError: Cannot read properties of undefined", URL: url},
-		Mentions: []string{}, Text: "TypeError: Cannot read properties of undefined (reading 'id')",
-		URL: url, Entity: id, Fields: map[string][]string{"project": {"48291"}}}
-	got, err := ad.Normalize(nil, fixture(t, "posthog_issue_created.json"))
-	if err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	if !reflect.DeepEqual(got, &want) {
-		wantRaw, _ := json.MarshalIndent(want, "", "  ")
-		gotRaw, _ := json.MarshalIndent(got, "", "  ")
-		t.Fatalf("got %s\nwant %s", gotRaw, wantRaw)
-	}
-	for k := range got.Fields {
-		found := false
-		for _, k2 := range may {
-			found = found || k == k2
-		}
-		if !found {
-			t.Errorf("field %q is in neither hook.keys nor store.WhereKeys", k)
-		}
+	const survey = "019f99f0-1234-7abc-8def-0123456789ab"
+	for _, tc := range []struct {
+		name, fixture string
+		want          hooks.Envelope
+	}{
+		{
+			name: "issue-created", fixture: "posthog_issue_created.json",
+			want: hooks.Envelope{Source: "posthog", Type: "error_issue", Action: "created",
+				Thread:   hooks.Thread{ID: id, Title: "TypeError: Cannot read properties of undefined", URL: url},
+				Mentions: []string{}, Text: "TypeError: Cannot read properties of undefined (reading 'id')",
+				URL: url, Entity: id, Fields: map[string][]string{"project": {"48291"}}},
+		},
+		{
+			name: "bare feedback", fixture: "posthog_survey_sent.json",
+			want: hooks.Envelope{Source: "posthog", Type: "feedback",
+				Thread:   hooks.Thread{ID: "019f9a01-b1c2-7d3e-8f4a-9b0c1d2e3f4a"},
+				Mentions: []string{}, Text: "The rail hides my longest depot name; please let it wrap.",
+				Fields: map[string][]string{"project": {"48291"}, "survey": {survey},
+					"email": {"ada@example.com"}, "footplate_version": {"0.9.3"}, "os": {"macos"}}},
+		},
+		{
+			name: "keyed feedback", fixture: "posthog_survey_sent_keyed.json",
+			want: hooks.Envelope{Source: "posthog", Type: "feedback",
+				Thread:   hooks.Thread{ID: "019f9a02-c2d3-7e4f-9a5b-8c1d2e3f4a5b"},
+				Mentions: []string{}, Text: "Dark mode, please.",
+				Fields: map[string][]string{"project": {"48291"}, "survey": {survey},
+					"footplate_version": {"0.9.3"}, "os": {"linux"}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ad.Normalize(nil, fixture(t, tc.fixture))
+			if err != nil {
+				t.Fatalf("normalize: %v", err)
+			}
+			if !reflect.DeepEqual(got, &tc.want) {
+				wantRaw, _ := json.MarshalIndent(tc.want, "", "  ")
+				gotRaw, _ := json.MarshalIndent(got, "", "  ")
+				t.Fatalf("got %s\nwant %s", gotRaw, wantRaw)
+			}
+			for k := range got.Fields {
+				found := false
+				for _, k2 := range may {
+					found = found || k == k2
+				}
+				if !found {
+					t.Errorf("field %q is in neither hook.keys nor store.WhereKeys", k)
+				}
+			}
+		})
 	}
 }
 
@@ -220,19 +248,33 @@ func TestPostHogPackNormalizeSession(t *testing.T) {
 	}
 }
 
-// The shapes around the recorded body: a destination left at its default
-// names no project, a null name or description reads as empty, a long
-// description is cut, anything but an issue-created event is type event,
-// and the issue id falls back to the properties' own. A session arrives
-// under exception_props, and nowhere when the message was too large to
-// carry it. The person the default body carries is ignored: an internal
-// event has none.
+// The issue and feedback shapes include the destination's default body,
+// fields that may be absent or malformed, truncation, and unmatched
+// events. Issue links are built only from guarded project and issue
+// values; feedback carries neither a link nor a mention.
 func TestPostHogPackNormalizeShapes(t *testing.T) {
 	ad := posthogDecl(t)
 	event := `"event":"$error_tracking_issue_created","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708192","distinct_id":"019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e","timestamp":"2026-10-20T14:32:02.000000+00:00"`
 	project := `"project":{"id":48291,"name":"signalbox","url":"https://us.posthog.com/project/48291"}`
 	created := func(props, rest string) []byte {
 		return []byte(`{"event":{` + event + `,"properties":{` + props + `}}` + rest + `}`)
+	}
+	const feedbackUUID = "019f9a01-b1c2-7d3e-8f4a-9b0c1d2e3f4a"
+	const survey = "019f99f0-1234-7abc-8def-0123456789ab"
+	feedbackBase := `"$survey_id":"` + survey + `","footplate_version":"0.9.3","os":"macos"`
+	feedbackProject := `,"project":{"id":48291,"name":"signalbox","url":"https://eu.posthog.com/project/48291"}`
+	feedback := func(props string) []byte {
+		return []byte(`{"event":{"event":"survey sent","uuid":"` + feedbackUUID + `","properties":{` + props + `}}` + feedbackProject + `}`)
+	}
+	feedbackFields := func(withProject, withEmail bool) map[string][]string {
+		fields := map[string][]string{"survey": {survey}, "footplate_version": {"0.9.3"}, "os": {"macos"}}
+		if withProject {
+			fields["project"] = []string{"48291"}
+		}
+		if withEmail {
+			fields["email"] = []string{"ada@example.com"}
+		}
+		return fields
 	}
 	long := strings.Repeat("word ", 200) // 1000 characters, collapsed and cut
 	const id = "019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e"
@@ -297,6 +339,54 @@ func TestPostHogPackNormalizeShapes(t *testing.T) {
 			[]byte(`{"event":{"event":"test","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708194"}}`),
 			"event", "", "",
 			hooks.Thread{}, nil, ""},
+		{"bare feedback with every field",
+			feedback(feedbackBase + `,"$survey_response":"please let the rail wrap","email":"ada@example.com"`),
+			"feedback", "", "please let the rail wrap",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, true), ""},
+		{"keyed feedback without email",
+			feedback(feedbackBase + `,"$survey_response_019f99f1-2345-7bcd-9efa-123456789abc":"Dark mode, please."`),
+			"feedback", "", "Dark mode, please.",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"bare feedback response wins over keyed",
+			feedback(feedbackBase + `,"$survey_response":"the bare answer","$survey_response_019f99f1-2345-7bcd-9efa-123456789abc":"the keyed answer"`),
+			"feedback", "", "the bare answer",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"empty bare feedback response falls back to keyed",
+			feedback(feedbackBase + `,"$survey_response":"","$survey_response_019f99f1-2345-7bcd-9efa-123456789abc":"the keyed answer"`),
+			"feedback", "", "the keyed answer",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"several keyed feedback responses use the first key",
+			feedback(feedbackBase + `,"$survey_response_b":"second","$survey_response_a":"first"`),
+			"feedback", "", "first",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"long feedback response is cut",
+			feedback(feedbackBase + `,"$survey_response":"` + long + `"`),
+			"feedback", "", strings.TrimRight(long, " ")[:499] + "…",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"feedback without an answer is still recorded",
+			feedback(feedbackBase),
+			"feedback", "", "",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"numeric feedback response reads as text",
+			feedback(feedbackBase + `,"$survey_response":5`),
+			"feedback", "", "5",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"feedback text naming @word and a URL makes no mention or link",
+			feedback(feedbackBase + `,"$survey_response":"@ada see https://example.com/x for the wrap"`),
+			"feedback", "", "@ada see https://example.com/x for the wrap",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"feedback event without a uuid",
+			[]byte(`{"event":{"event":"survey sent","properties":{` + feedbackBase + `,"$survey_response":"no uuid"}}` + feedbackProject + `}`),
+			"feedback", "", "no uuid",
+			hooks.Thread{}, feedbackFields(true, false), ""},
+		{"non-string feedback field is dropped",
+			feedback(feedbackBase + `,"$survey_response":"hi","email":42`),
+			"feedback", "", "hi",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(true, false), ""},
+		{"feedback without a project",
+			[]byte(`{"event":{"event":"survey sent","uuid":"` + feedbackUUID + `","properties":{` + feedbackBase + `,"$survey_response":"hi"}}}`),
+			"feedback", "", "hi",
+			hooks.Thread{ID: feedbackUUID}, feedbackFields(false, false), ""},
 	} {
 		got, err := ad.Normalize(nil, tc.body)
 		if err != nil {
@@ -314,6 +404,9 @@ func TestPostHogPackNormalizeShapes(t *testing.T) {
 		}
 		if tc.wantType == "error_issue" && got.Entity != id {
 			t.Errorf("%s: entity = %q, want the issue", tc.name, got.Entity)
+		}
+		if tc.wantType != "error_issue" && got.Entity != "" {
+			t.Errorf("%s: entity = %q, want none", tc.name, got.Entity)
 		}
 	}
 }
@@ -439,8 +532,10 @@ func TestPostHogPackNormalizeNeverPrintsBody(t *testing.T) {
 	}
 	const marker = "MARKER-zz07-never-printed"
 	bodies := map[string][]byte{
-		"recorded":              fixture(t, "posthog_issue_created.json"),
-		"recorded with session": fixture(t, "posthog_issue_created_with_session.json"),
+		"recorded":                fixture(t, "posthog_issue_created.json"),
+		"recorded with session":   fixture(t, "posthog_issue_created_with_session.json"),
+		"recorded feedback":       fixture(t, "posthog_survey_sent.json"),
+		"recorded keyed feedback": fixture(t, "posthog_survey_sent_keyed.json"),
 	}
 	bodies["free text"] = []byte(`{"event":{"event":"$error_tracking_issue_created","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708192","properties":{"name":"` + marker + `","description":"` + marker + `"}},"project":{"id":1,"url":"https://us.posthog.com/project/1"}}`)
 	for name, body := range bodies {
@@ -571,7 +666,9 @@ func posthogPost(t *testing.T, r *depot, body []byte, header string) (int, strin
 
 // A signed issue-created delivery is recorded and routed to a
 // subscription on its type; its retry arrives once; an unsigned one is
-// refused, and recorded nowhere.
+// refused, and recorded nowhere. A signed `survey sent` delivery is
+// recorded as feedback and routed to a subscription on its type, with
+// the answer and the survey in the event.
 func TestPostHogPackEndToEnd(t *testing.T) {
 	r := posthogDepot(t)
 	ctx := context.Background()
@@ -580,6 +677,10 @@ func TestPostHogPackEndToEnd(t *testing.T) {
 	}
 	if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "posthog",
 		Scope: store.ScopeAll, Where: map[string]string{"type": "error_issue"}}, "yardmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.AddSubscription(ctx, "yardmaster", store.Subscription{Source: "posthog",
+		Scope: store.ScopeAll, Where: map[string]string{"type": "feedback"}}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	r.now = time.Now()
@@ -632,12 +733,37 @@ func TestPostHogPackEndToEnd(t *testing.T) {
 		t.Fatalf("unauthorized count %d, want 2", got)
 	}
 	// Another event is recorded, and nobody's inbox: the setup hears
-	// type error_issue alone.
+	// type error_issue and type feedback alone.
 	other := []byte(`{"event":{"event":"$error_tracking_issue_reopened","uuid":"019f7c3a-1b2d-7e4f-9a1c-3d5e6f708193","distinct_id":"019f7c39-8a4b-7c2d-b3e5-1f2a3b4c5d6e","properties":{"name":"boom"}},"project":{"id":48291,"url":"https://us.posthog.com/project/48291"}}`)
 	if code, ans := posthogPost(t, r, other, secret); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
 		t.Fatalf("another event answered %d %s", code, ans)
 	}
 	if events() != 2 || inbox() != 1 {
 		t.Fatalf("after another event: %d hook events, inbox %d", events(), inbox())
+	}
+	// A signed survey sent delivery is recorded as feedback and routed
+	// to the feedback subscription, with the answer and the survey.
+	feedback := fixture(t, "posthog_survey_sent.json")
+	if code, ans := posthogPost(t, r, feedback, secret); code != http.StatusOK || !strings.Contains(ans, `"seq"`) {
+		t.Fatalf("the feedback delivery answered %d %s", code, ans)
+	}
+	if events() != 3 || inbox() != 2 {
+		t.Fatalf("after the feedback delivery: %d hook events, inbox %d", events(), inbox())
+	}
+	var found bool
+	for _, e := range r.hookEvents(t) {
+		if e.Data["type"] != "feedback" {
+			continue
+		}
+		found = true
+		fields, _ := e.Data["fields"].(map[string]any)
+		if e.Data["text"] != "The rail hides my longest depot name; please let it wrap." ||
+			fmt.Sprint(fields["survey"]) != "[019f99f0-1234-7abc-8def-0123456789ab]" ||
+			fmt.Sprint(fields["email"]) != "[ada@example.com]" {
+			t.Fatalf("feedback event: %+v", e.Data)
+		}
+	}
+	if !found {
+		t.Fatal("no feedback event was recorded")
 	}
 }
