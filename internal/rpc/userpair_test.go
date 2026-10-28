@@ -61,9 +61,18 @@ func (y *pairYard) open(t *testing.T, user, device string) string {
 // and the body, with the token when there is one.
 func (y *pairYard) post(t *testing.T, path, token, body string) (int, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, y.base+path, strings.NewReader(body))
+	return y.do(t, http.MethodPost, path, token, nil, body)
+}
+
+// do is post for any method, with the headers of header besides.
+func (y *pairYard) do(t *testing.T, method, path, token string, header http.Header, body string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(method, y.base+path, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
+	}
+	for name, values := range header {
+		req.Header[name] = values
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -81,6 +90,14 @@ func (y *pairYard) redeem(t *testing.T, code string) (int, string) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"code": code})
 	return y.post(t, PairPath, "", string(body))
+}
+
+// redeemAs is redeem with the edge's word for who presents it: one
+// PresenterHeader line for each of presenters, so none is redeem.
+func (y *pairYard) redeemAs(t *testing.T, code string, presenters ...string) (int, string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"code": code})
+	return y.do(t, http.MethodPost, PairPath, "", http.Header{PresenterHeader: presenters}, string(body))
 }
 
 // wrong is a code that is one, and not the code.
@@ -218,6 +235,104 @@ func TestDevicePairWrongCodeFiveTimes(t *testing.T) {
 	if status, body := y.redeem(t, code); status != http.StatusOK {
 		t.Errorf("the right code after %d wrong ones = %d %s", pairing.MaxTries-1, status, body)
 	}
+}
+
+// A redemption that names who presents it (PresenterHeader), as the edge
+// names the signed-in account of one it forwards, is the pairing's user's
+// alone: the address is mapped to a user as web_jwt_users has it, whatever
+// its case. Any other presenter is refused as a wrong code is, with the same
+// answer and the same count, and the code is neither looked at nor used, so
+// the user it was opened for can still redeem it. The code is still
+// required of the right presenter. The header is read on this call alone,
+// and where web_jwt_users maps nothing it names nobody.
+func TestDevicePairPresenter(t *testing.T) {
+	y := newPairYard(t)
+	ctx := context.Background()
+	if err := y.st.SetSetting(ctx, store.WebJWTUsersSetting, "jo@example.net=jo, Sam@Example.NET=sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	refused := func(what string, status int, body string) {
+		t.Helper()
+		if status != http.StatusForbidden || body != `{"refused":"wrong_code"}` {
+			t.Errorf("%s = %d %s, want 403 wrong_code", what, status, body)
+		}
+	}
+	devices := func(want int) {
+		t.Helper()
+		if got, err := y.st.Devices(ctx, ""); err != nil || len(got) != want {
+			t.Fatalf("devices = %+v, %v, want %d", got, err, want)
+		}
+	}
+
+	// The right code, presented by another user of the yard and by an
+	// address nobody is mapped to, is refused and leaves the code good.
+	code := y.open(t, "sam", "phone")
+	status, body := y.redeemAs(t, code, "jo@example.net")
+	refused("sam's code presented by jo", status, body)
+	status, body = y.redeemAs(t, code, "eve@example.net")
+	refused("sam's code presented by an address no user is mapped to", status, body)
+	devices(0)
+	if got := y.u.Rejected()["pair_"+pairing.WrongCode]; got != 2 {
+		t.Errorf("%d refusals are counted as wrong codes, want 2", got)
+	}
+	status, body = y.redeemAs(t, code, "SAM@example.net")
+	var got Paired
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "sam" || got.Device != "phone" {
+		t.Fatalf("sam's code presented by sam = %d %s (%v)", status, body, err)
+	}
+	devices(1)
+
+	// They count as wrong codes do, the fifth ending the pairing whichever
+	// they are, and a header that is no address names nobody: sent empty,
+	// or twice.
+	code = y.open(t, "sam", "laptop")
+	for _, try := range []struct {
+		what       string
+		code       string
+		presenters []string
+	}{
+		{"jo", code, []string{"jo@example.net"}},
+		{"an address no user is mapped to", code, []string{"eve@example.net"}},
+		{"a header with no address", code, []string{""}},
+		{"a header twice, sam both times", code, []string{"sam@example.net", "sam@example.net"}},
+		{"sam, and a code that is not the code", wrong(code), []string{"sam@example.net"}},
+	} {
+		status, body := y.redeemAs(t, try.code, try.presenters...)
+		refused(try.what, status, body)
+	}
+	if status, body := y.redeemAs(t, code, "sam@example.net"); status != http.StatusUnauthorized || strings.Contains(body, "yardr-dev-") {
+		t.Errorf("sam's code after %d refusals = %d %s, want 401", pairing.MaxTries, status, body)
+	}
+	devices(1)
+	ended := eventsOfKind(t, y.st, "device_pair_refused")
+	if len(ended) != 1 || ended[0].Data["reason"] != pairing.WrongCode || ended[0].Data["wrong_codes"] != float64(pairing.MaxTries) ||
+		ended[0].Data["user"] != "sam" || ended[0].Data["device"] != "laptop" {
+		t.Fatalf("device_pair_refused = %+v", ended)
+	}
+	if got := y.u.Rejected()["pair_"+pairing.WrongCode]; got != 2+pairing.MaxTries {
+		t.Errorf("%d refusals are counted as wrong codes, want %d", got, 2+pairing.MaxTries)
+	}
+
+	// No other call reads it: the device just paired calls as sam, whoever
+	// the header says presents the call.
+	if status, me := y.do(t, http.MethodGet, "/user/me", got.Token, http.Header{PresenterHeader: {"jo@example.net"}}, ""); status != http.StatusOK ||
+		me != `{"user":"sam","said_by":"phone","yard":"south"}` {
+		t.Errorf("/user/me naming jo as the presenter = %d %s", status, me)
+	}
+
+	// With no mapping at all every address names nobody; with no header the
+	// code alone redeems, as it did.
+	if err := y.st.SetSetting(ctx, store.WebJWTUsersSetting, "", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	code = y.open(t, "jo", "tablet")
+	status, body = y.redeemAs(t, code, "jo@example.net")
+	refused("jo's code presented by an address when web_jwt_users is unset", status, body)
+	status, body = y.redeem(t, code)
+	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "jo" || got.Device != "tablet" {
+		t.Fatalf("jo's code with no presenter named = %d %s (%v)", status, body, err)
+	}
+	devices(2)
 }
 
 // A code runs out after pairing.TTL: it is good a second before, and after

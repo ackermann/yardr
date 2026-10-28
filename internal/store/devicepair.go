@@ -107,6 +107,18 @@ func (s *Store) endDevicePairing(ctx context.Context, p *devicePairing, reason, 
 	_ = s.LogEvent(ctx, "", "device_pair_refused", actor, p.event(map[string]any{"reason": reason}))
 }
 
+// wrongDevicePairCode counts one wrong try against p, with s.devPair.mu
+// held, and answers the refusal for it: pairing.MaxTries of them end the
+// pairing. It is the one place a try is counted, for a code that is not the
+// code and for a presenter that is not the pairing's user alike.
+func (s *Store) wrongDevicePairCode(ctx context.Context, p *devicePairing) error {
+	p.Tries++
+	if p.Tries >= pairing.MaxTries {
+		s.endDevicePairing(ctx, p, pairing.WrongCode, "", "yard")
+	}
+	return &pairing.Refused{Reason: pairing.WrongCode}
+}
+
 // devicePairing is the yard's device pairing as it is now, with
 // s.devPair.mu held: one whose time ran out is ended here, by whoever looks
 // first.
@@ -268,7 +280,34 @@ func (s *Store) DevicePairOpened(ctx context.Context) bool {
 // this call, whatever becomes of adding the device. What is no code at all
 // is an error that is no *pairing.Refused, and no try. With no pairing open
 // the refusal is pairing.NoPairing, whatever the last one ended for.
+//
+// Holding the code is the whole credential here, as it is on the yard's own
+// listener; a redemption that names who presents it is DevicePairRedeemBy.
 func (s *Store) DevicePairRedeem(ctx context.Context, code string) (*NewDevice, error) {
+	return s.redeemDevicePairing(ctx, code, nil)
+}
+
+// DevicePairRedeemBy is DevicePairRedeem for a redemption that names who
+// presents it, as the edge does for one it forwards from a signed-in
+// session: presenter is the yard user the edge's word maps to, "" where it
+// maps to nobody. The code is still required, and only the user the pairing
+// was opened for may redeem it so, so naming a presenter can only narrow who
+// redeems and never widen it. Any other presenter, nobody included, is
+// refused as a wrong code is, with the same refusal and the same count, and
+// the code is neither looked at nor used: the one it was opened for can
+// still redeem it.
+func (s *Store) DevicePairRedeemBy(ctx context.Context, code, presenter string) (*NewDevice, error) {
+	return s.redeemDevicePairing(ctx, code, &presenter)
+}
+
+// redeemDevicePairing is both redemptions: presenter is nil for one that
+// names none, else the user it names, "" for nobody. A pairing's user is
+// never "", so nobody is never the one it was opened for. A body that is no
+// code at all is no try, whoever presents it. Past that the presenter is
+// judged before the code, so a presenter that may not redeem is refused the
+// same whether or not it holds the right code, and the code is not even
+// compared for it.
+func (s *Store) redeemDevicePairing(ctx context.Context, code string, presenter *string) (*NewDevice, error) {
 	s.devPair.mu.Lock()
 	defer s.devPair.mu.Unlock()
 	p := s.devicePairing(ctx)
@@ -279,12 +318,11 @@ func (s *Store) DevicePairRedeem(ctx context.Context, code string) (*NewDevice, 
 	if err != nil {
 		return nil, err
 	}
+	if presenter != nil && *presenter != p.User {
+		return nil, s.wrongDevicePairCode(ctx, p)
+	}
 	if subtle.ConstantTimeCompare([]byte(clean), []byte(p.code)) != 1 {
-		p.Tries++
-		if p.Tries >= pairing.MaxTries {
-			s.endDevicePairing(ctx, p, pairing.WrongCode, "", "yard")
-		}
-		return nil, &pairing.Refused{Reason: pairing.WrongCode}
+		return nil, s.wrongDevicePairCode(ctx, p)
 	}
 	p.code = ""
 	// Made before the write, which may run twice (write).

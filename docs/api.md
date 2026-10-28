@@ -980,6 +980,15 @@ is open. Before, and once the code was used, ran out or was ended, it is as
 every other path here: 401 without a credential, 404 in a yard with no
 device. On any of those the client asks the operator for another code.
 
+A redemption the edge forwards carries one header more, `X-Edge-Presenter`,
+the address of the signed-in account the edge resolved. The yard maps it to
+a user through `web_jwt_users` and redeems the code for the user the pairing
+was opened for alone. Any other presenter, and an address no user is mapped
+to, is answered as a wrong code is, 403 `{"refused": "wrong_code"}`, and
+counted with them. The edge sets the header and a device does not; the yard
+reads it on this call and no other, and without it the code alone redeems
+([users.md](users.md#enrolled-by-a-code)).
+
 ### The stream of a device
 
 `GET <url>/user/events?after=<seq>` is [the stream](#the-stream), every

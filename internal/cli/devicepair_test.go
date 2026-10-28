@@ -202,8 +202,8 @@ func TestDevicePairQR(t *testing.T) {
 // A yard that listens nowhere but whose link to the edge is up opens a
 // pairing all the same: the default address is the edge's, beside this
 // yard's handle/name at the edge, and the device redeems the code down the
-// link, naming the yard handle/name with the call. With the link down, no
-// pairing.
+// link, naming the yard handle/name with the call, for the user the edge
+// says presents it and for no other. With the link down, no pairing.
 func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	t.Parallel()
 	api, own := storetest.NewOwned(t)
@@ -255,8 +255,26 @@ func TestDevicePairOverTheLinkWithNoListener(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{"code": m[3]})
 	dctx, dcancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer dcancel()
-	h := http.Header{"X-Edge-Yard": {m[2]}}
+	// The edge names the signed-in account that presents the redemption, in
+	// a header of the frame it signs, and only the user the pairing was
+	// opened for redeems: another user of the yard is refused as a wrong
+	// code is, with no device, and the code is still good for jo.
+	if _, err := st.AddUser(ctx, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.WebJWTUsersSetting, "jo@example.net=jo, sam@example.net=sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	h := http.Header{"X-Edge-Yard": {m[2]}, rpc.PresenterHeader: {"sam@example.net"}}
 	a, err := link.Deliver(dctx, link.Frame(http.MethodPost, rpc.PairPath, h, body, false))
+	if err != nil || a.Status != http.StatusForbidden || strings.TrimSpace(string(a.Body)) != `{"refused":"wrong_code"}` {
+		t.Fatalf("the code down the link, presented by sam = %+v, %v, want 403 wrong_code", a, err)
+	}
+	if devices, err := own.Devices(ctx, ""); err != nil || len(devices) != 0 {
+		t.Fatalf("devices after the refusal = %+v, %v", devices, err)
+	}
+	h.Set(rpc.PresenterHeader, "jo@example.net")
+	a, err = link.Deliver(dctx, link.Frame(http.MethodPost, rpc.PairPath, h, body, false))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,7 +135,9 @@ handle and name at the edge, so pairing is pairing by code as on the LAN:
 the device is given the address, the yard's handle and name and the code,
 and asks once for its token ([users.md](users.md#enrolled-by-a-code)). The
 device says which of the account's yards it means with each call, in
-`X-Edge-Yard`.
+`X-Edge-Yard`. For that one call the edge also names the account that
+presents it, in `X-Edge-Presenter`, and the yard redeems the code for the
+user the pairing was opened for alone.
 
 Two gates, as for a hosted yard: the edge's (your account's session) and the
 yard's (the device's token). Every call but the stream waits up to 30

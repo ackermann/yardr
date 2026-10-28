@@ -149,6 +149,68 @@ func TestDevicePairNotAdded(t *testing.T) {
 	}
 }
 
+// A redemption that names its presenter is the pairing's user's alone. Any
+// other, a user that is no one's and nobody ("") included, is refused as a
+// wrong code is and counted as one, before the code is looked at and with
+// the code left unused; what is no code at all is no try, whoever presents
+// it. The fifth ends the pairing, and the code is required of the right
+// presenter all the same.
+func TestDevicePairRedeemBy(t *testing.T) {
+	t.Parallel()
+	api, own := deviceYard(t)
+	ctx := context.Background()
+	var no *pairing.Refused
+	notThe := func(code string) string {
+		if strings.HasPrefix(code, "0") {
+			return "1" + code[1:]
+		}
+		return "0" + code[1:]
+	}
+	refused := func(what, code, presenter, reason string) {
+		t.Helper()
+		if d, err := own.DevicePairRedeemBy(ctx, code, presenter); d != nil || !errors.As(err, &no) || no.Reason != reason {
+			t.Errorf("%s = %+v, %v, want %s", what, d, err, reason)
+		}
+	}
+
+	// Four refusals leave the code good for ada, who redeems it. A body that
+	// is no code is no try for the presenter that cannot redeem, or the
+	// fourth refusal would have been the fifth.
+	opened, err := api.DevicePairOpenSelf(ctx, "ada", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := own.DevicePairRedeemBy(ctx, "", "bob"); d != nil || err == nil || errors.As(err, &no) {
+		t.Fatalf("no code, presented by bob = %+v, %v, want an error that is no refusal", d, err)
+	}
+	for _, presenter := range []string{"bob", "", "jo", "carol"} {
+		refused("ada's code presented by "+presenter, opened.Code, presenter, pairing.WrongCode)
+	}
+	d, err := own.DevicePairRedeemBy(ctx, opened.Code, "ada")
+	if err != nil || d.User != "ada" || d.Name != "phone" || d.CreatedBy != "ada" {
+		t.Fatalf("ada's code presented by ada = %+v, %v", d, err)
+	}
+
+	// The right presenter is held to the code, and the fifth refusal ends
+	// the pairing whoever is refused: the right presenter finds none then.
+	opened, err = api.DevicePairOpenSelf(ctx, "bob", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused("a code that is not bob's presented by bob", notThe(opened.Code), "bob", pairing.WrongCode)
+	for try := 2; try <= pairing.MaxTries; try++ {
+		refused("bob's code presented by ada", opened.Code, "ada", pairing.WrongCode)
+	}
+	refused("bob's code after the fifth", opened.Code, "bob", pairing.NoPairing)
+	ended, _ := api.EventsOfKind(ctx, "device_pair_refused", 10)
+	if len(ended) != 1 || ended[0].Data["reason"] != pairing.WrongCode || ended[0].Data["wrong_codes"] != float64(pairing.MaxTries) || ended[0].Data["user"] != "bob" {
+		t.Fatalf("device_pair_refused = %+v", ended)
+	}
+	if list, _ := api.Devices(ctx, ""); len(list) != 1 || list[0].User != "ada" {
+		t.Fatalf("devices = %+v", list)
+	}
+}
+
 // A user opens a pairing for one of their own devices with no leave taken:
 // good for the pairing's ten minutes and for one device, under their own
 // name as its actor, and redeemable as the operator's pairing is. What the

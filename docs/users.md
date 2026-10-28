@@ -1085,8 +1085,27 @@ letters are capitals, and `I` and `L` are read as `1`, `O` as `0`.
 An answer that does not arrive leaves a device nobody has the token of:
 remove it (`yardr user device rm`) and pair again.
 
-**What it rests on.** The code is all a device needs: whoever has it within
-its ten minutes, and reaches the listener, gets the token. Show the code,
+**Through the edge.** A redemption the edge forwards down the link names who
+presents it, in the header `X-Edge-Presenter`: the address of the signed-in
+account the edge resolved. The yard looks the address up in `web_jwt_users`,
+the table the web view looks a token's email up in, and redeems the code for
+that user alone, the user the pairing was opened for. A pairing a member opens
+on the web pairing page is redeemed through the edge in that member's session
+and in no other, though another session holds the code. The yard answers any
+other presenter as it answers a wrong code, 403 `wrong_code` with no device
+added, and counts it with them: the fifth refusal ends the pairing. An address
+the table maps to nobody is refused the same way, so whoever redeems through
+the edge needs their address in `web_jwt_users`. An invite puts a teammate's
+there, and the operator adds their own ([Settings](configuration.md#settings)).
+A refusal leaves the code available to the pairing's user until the fifth
+refusal ends the pairing. A redemption with no `X-Edge-Presenter` redeems on
+the code alone, as it does on the yard's own listener. The yard reads it on
+this call and no other. It can only narrow who redeems, never widen it, since
+the code is still required, so a client that sends it straight to the
+listener gains nothing by it.
+
+**What it rests on.** On the listener the code is all a device needs: whoever
+has it within its ten minutes, and reaches it, gets the token. Show the code,
 and the QR code, to the device and to nobody else. There is no check for two
 people to compare, as a pairing of yards has. That check keeps someone
 between two yards from putting a key of their own in place of a yard's, and

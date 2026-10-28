@@ -46,7 +46,10 @@ import (
 //	GET  /user/blobs/<hash>      a blob the caller may read, as the web
 //	                             view serves it (userBlob)
 //	GET  /user/me                {"user": ..., "said_by": ..., "yard": ...}
-//	POST /user/pair              a pairing's code for the device's token (pair)
+//	POST /user/pair              a pairing's code for the device's token (pair);
+//	                             a redemption the edge forwards names its
+//	                             presenter in PresenterHeader, and only the
+//	                             pairing's user may redeem it
 //
 // It is docs/api.md over TCP with one header more, `Authorization: Bearer
 // <credential>`, and the same implementation serves both (api). What makes
@@ -115,7 +118,9 @@ import (
 //
 // PairPath is the one path that takes no credential, since it is where a
 // device comes for one: there only while the operator has a pairing open
-// for a device, and for whoever has that pairing's code.
+// for a device, and for whoever has that pairing's code, but for the one
+// the pairing was opened for when the redemption names its presenter
+// (PresenterHeader).
 const (
 	UserPath = "/user/"
 	PairPath = "/user/pair"
@@ -836,11 +841,30 @@ type Paired struct {
 	Yard   string `json:"yard"`
 }
 
+// PresenterHeader is the edge's word, on a redemption of a pairing's code
+// that it forwards down the link, for who presents it: the address of the
+// signed-in account the edge resolved. pair reads it to hold the redemption
+// to the user the pairing was opened for. No other call reads it, and it is
+// no identity: it makes nobody a caller.
+//
+// Why it is believed. Down the link the edge alone speaks: every request
+// frame is checked against the key this yard pinned for the edge, headers in
+// the signature (edgelink.Link, yardkey.HeaderDigest), and the edge takes out
+// any copy a client sent before it sets its own. On the yard's own listener a
+// client may send it, and it is believed there too, which is harmless only
+// because the code alone already redeems there. Either way it can only
+// narrow redemption and never widen it: the code is still required, and the
+// pairing's user must be the one the address maps to, so a header from the
+// wrong party gets a redemption refused and nothing more.
+const PresenterHeader = "X-Edge-Presenter"
+
 // pair takes the code of the yard's open device pairing, as the body
 // {"code": ...}, and answers the device it was opened for with its token
 // (docs/users.md, "Enrolled by a code"). A wrong code is 403 and counted by
 // the pairing, which the fifth ends; the right one is good once. What is no
 // code at all is 400 and no try. Nothing of a code is logged or counted.
+// A redemption that names its presenter is redeemed for the pairing's user
+// alone; anyone else it names is refused, and counted, as a wrong code.
 func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 	var asked struct {
 		Code string `json:"code"`
@@ -851,7 +875,7 @@ func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 	}
 	var d *store.NewDevice
 	if err == nil {
-		d, err = u.st.DevicePairRedeem(r.Context(), asked.Code)
+		d, err = u.redeem(r, asked.Code)
 	}
 	var no *pairing.Refused
 	switch {
@@ -880,6 +904,48 @@ func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 	// The one answer that holds the token: nothing between keeps it.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, Paired{Token: d.Token, User: d.User, Device: d.Name, Yard: u.yard(r.Context())})
+}
+
+// redeem is the store's redemption of code for the request r: on the code
+// alone where r names no presenter, and otherwise for the user the
+// presenter's address maps to (presenter), whom the store holds to the
+// pairing's own. A header with no value still names a presenter, nobody, so
+// sending it empty is no way past the check.
+func (u *UserServer) redeem(r *http.Request, code string) (*store.NewDevice, error) {
+	named := r.Header.Values(PresenterHeader)
+	if len(named) == 0 {
+		return u.st.DevicePairRedeem(r.Context(), code)
+	}
+	return u.st.DevicePairRedeemBy(r.Context(), code, u.presenter(r.Context(), named))
+}
+
+// presenter is the yard user the address in a PresenterHeader maps to in
+// web_jwt_users, matched as the web view matches a token's email, without
+// regard to case; "" for nobody. Nobody is also what a header sent twice
+// names, and what any address maps to when the mapping cannot be read. Each
+// is refused, which is the safe way to fail where the header can only
+// narrow. The presenter is told a wrong code, so the log is where the
+// operator learns why; it holds no address.
+func (u *UserServer) presenter(ctx context.Context, named []string) string {
+	if len(named) != 1 {
+		return ""
+	}
+	all, err := u.st.Settings(ctx)
+	var users map[string]string
+	// ParseWebJWTUsers takes no empty mapping; a yard that set none maps
+	// nobody.
+	if mapping := all[store.WebJWTUsersSetting]; err == nil && mapping != "" {
+		users, err = store.ParseWebJWTUsers(mapping)
+	}
+	if err != nil {
+		u.log.Error("a pairing's presenter could not be mapped", "setting", store.WebJWTUsersSetting, "err", err)
+		return ""
+	}
+	user := users[strings.ToLower(strings.TrimSpace(named[0]))]
+	if user == "" {
+		u.log.Warn("a pairing's presenter maps to no user", "setting", store.WebJWTUsersSetting)
+	}
+	return user
 }
 
 type callerKey struct{}
