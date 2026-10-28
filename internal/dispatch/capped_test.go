@@ -42,8 +42,13 @@ func TestMaxSessionsCapsAcrossGroups(t *testing.T) {
 	for range 3 {
 		must(t, d.Reconcile(ctx))
 	}
-	if got := f.starts(); !slices.Equal(got, []string{t1.ID, b1.ID}) {
-		t.Fatalf("starts under max_sessions 2 = %v, want %v", got, []string{t1.ID, b1.ID})
+	// Each group's start runs on its own worker, so either completion
+	// order is observable: compare membership, not sequence.
+	got, want := f.starts(), []string{t1.ID, b1.ID}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("starts under max_sessions 2 = %v, want %v", got, want)
 	}
 	evs := cappedEvents(t, s, t2.ID)
 	if len(evs) != 1 {
@@ -61,7 +66,10 @@ func TestMaxSessionsCapsAcrossGroups(t *testing.T) {
 	// Raised: the dispatcher that was running reads it on its next pass.
 	must(t, s.SetSetting(ctx, store.MaxSessionsSetting, "3", "me"))
 	must(t, d.Reconcile(ctx))
-	if got := f.starts(); !slices.Equal(got, []string{t1.ID, b1.ID, t2.ID}) {
+	got, want = f.starts(), []string{t1.ID, b1.ID, t2.ID}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
 		t.Fatalf("starts after max_sessions 3 = %v", got)
 	}
 }
