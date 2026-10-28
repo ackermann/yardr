@@ -798,6 +798,75 @@ func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
 	wantText(t, out, "web view        started (pid ", "): http://127.0.0.1:1/\n")
 }
 
+// A web view its login service runs is the yard's web view even when no
+// web_addr is set: the service's file names its address, as on a yard
+// installed on the default. yardr down stops it, and yardr up starts it
+// again on the file's address instead of leaving it stopped without a
+// line (yardr-6fh0).
+func TestUpDownStartsTheServiceWebView(t *testing.T) {
+	const addr = "127.0.0.1:18791"
+	for _, system := range []string{"darwin", "linux"} {
+		home, st, a, _, _ := upYard(t, true)
+		stubServices(t, system)
+		cfg := config.At(home)
+		if all, err := st.Settings(context.Background()); err != nil || all[store.WebAddrSetting] != "" {
+			t.Fatalf("%s: web_addr = %q, %v, want unset", system, all[store.WebAddrSetting], err)
+		}
+		u, err := newUnit(os.Environ(), cfg, kindOf(svcWeb), []string{"--addr", addr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(u.Path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(u.Path, []byte(u.render()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := serviceAddr(cfg, svcWeb); got != addr {
+			t.Fatalf("%s: the service's address = %q, want %s", system, got, addr)
+		}
+		var started []string
+		stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+			started = append(started, k.Name+" "+strings.Join(args, " "))
+			if k.Name == svcDaemon {
+				unlock, err := lockDaemon(cfg.DaemonLock(), 0)
+				if err != nil {
+					return 0, nil, nil, err
+				}
+				t.Cleanup(unlock)
+			}
+			return os.Getpid(), nil, func() error { return nil }, nil
+		})
+		stub(t, &answers, func(a string) bool { return slices.Contains(started, "web --addr "+a) })
+		stub(t, &stopServer, func(*config.Config) error { return nil })
+		stub(t, &yardRunners, func(string, store.API) map[string]dispatch.Runner { return map[string]dispatch.Runner{} })
+		// The service's view runs, as it does until yardr down stops it.
+		running(t, cfg, kindOf(svcWeb), map[string]any{"addr": addr})
+		out, err := run(t, a(false).rootCmd(), "down", "--yes", "--handoff-wait", "0")
+		if err != nil {
+			t.Fatalf("%s: down: %v\n%s", system, err, out)
+		}
+		if len(kindOf(svcWeb).running(cfg)) != 0 {
+			t.Fatalf("%s: the web view still runs after down", system)
+		}
+		wantText(t, out, "web view        stopped (pid ")
+		if strings.Contains(out, "does not start it again") {
+			t.Errorf("%s: down says up does not start it again:\n%s", system, out)
+		}
+		out, err = run(t, a(false).rootCmd(), "up")
+		if err != nil {
+			t.Fatalf("%s: up: %v\n%s", system, err, out)
+		}
+		if !slices.Equal(started, []string{"daemon ", "web --addr " + addr}) {
+			t.Errorf("%s: up started %q, want the daemon and the web view on %s", system, started, addr)
+		}
+		wantText(t, out, "web view        started (pid ", "): http://"+addr+"/\n")
+		if strings.Contains(out, "BDP") {
+			t.Errorf("%s: up speaks of the BDP server the yard has no address for:\n%s", system, out)
+		}
+	}
+}
+
 // up does not start the BDP server on an address yardr bdp serve would
 // refuse: it says why and starts nothing, as it does for the web view,
 // instead of waiting out a server that ends at once. The setting names

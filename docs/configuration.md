@@ -962,7 +962,7 @@ yardr wrote for the yard, then a list of what it left on the machine
 | herdr's server | one that answers is left as it is. Else up starts herdr's headless server, `herdr server`, detached, logging to `<home>/herdr-server.log`: the server of the herdr session the yard's `herdr_session` setting names, else of the shell's. It gets no `YARDR_*` variable, since one server serves every yard |
 | the server | started as any command starts it |
 | the daemon | `yardr daemon start`. It starts the crew, the yardmaster first, and dispatches the beads that wait. It is not started while herdr's server does not answer: every start of an agent would fail and count against it |
-| the web view, the BDP server | only when the yard's `web_addr` or `bdp_addr` setting names its address: as `yardr web start` and `yardr bdp start` do. The telemetry export, which has no setting, is never started |
+| the web view, the BDP server | when the yard has one: its `web_addr` or `bdp_addr` setting names its address, or its login service is installed, on the address the service's file names: as `yardr web start` and `yardr bdp start` do. The telemetry export, which has no setting, is never started |
 
 herdr is looked for on PATH, then with your login shell, as `yardr doctor`
 looks for a program: a window starts yardr without what your profile adds to

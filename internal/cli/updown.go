@@ -187,9 +187,11 @@ func (a *app) upCmd() *cobra.Command {
   daemon          as yardr daemon start does. It starts the crew, the
                   yardmaster first, and dispatches the beads that wait:
                   those yardr down stopped are worked again.
-  web view        only when the yard's web_addr setting names its address,
-  BDP server      and likewise bdp_addr: as yardr web start and yardr bdp
-                  start do. The telemetry export is not started.
+  web view        when the yard has one: its web_addr setting names its
+  BDP server      address, and likewise bdp_addr, or its login service is
+                  installed, on the address its file names. Started as yardr
+                  web start and yardr bdp start do. The telemetry export is
+                  not started.
 
 A part that runs already is left alone, so yardr up is safe to repeat. Each
 part has one line: running already, started, or NOT with what kept it and the
@@ -218,8 +220,9 @@ launchd agent each on macOS, a systemd user unit on Linux.
                   restarted: the service starts it from the next login on.
   daemon          as yardr daemon install does: the daemon that runs is
                   stopped, and the service's runs in its place.
-  web view        only with web_addr set, and the BDP server with bdp_addr,
-                  as yardr web install and yardr bdp install do.
+  web view        with web_addr set, and the BDP server with bdp_addr, as
+                  yardr web install and yardr bdp install do; one whose
+                  service is installed already is found and started.
 
 Each has a line under "At login": installed, installed already, or left as
 it is, with the file. Both restart on a failure only: herdr server stop and
@@ -255,6 +258,27 @@ too when a service could not be installed.`,
 	}
 	cmd.Flags().BoolVar(&login, "login", false, "start it all at every login too: install the login services of herdr's server and the daemon")
 	return cmd
+}
+
+// partAddr is the address up starts the part on: its setting's, the
+// environment's override of that, or its login service's file when neither
+// names one. "" is a part the yard does not have, which up passes over
+// without a line.
+func partAddr(cfg *config.Config, settings map[string]string, k *longRunning) string {
+	addr := settings[k.Setting]
+	if k.EnvAddr != nil {
+		if v := k.EnvAddr(cfg); addr != "" && v != "" {
+			addr = v // as yardr web start takes it
+		}
+	}
+	if addr == "" && serviceInstalled(cfg, k.Name) {
+		// The yard has the part when its login service is installed too,
+		// on the address its file names: no setting names one installed
+		// on the default address, and down stops it, so up starts it
+		// again instead of leaving it stopped without a line.
+		addr = serviceAddr(cfg, k.Name)
+	}
+	return addr
 }
 
 // up brings the yard's parts up and reports each. An error is one that
@@ -364,10 +388,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 			continue
 		}
 		p := yardPart{Part: k.Name}
-		addr := settings[k.Setting]
-		if v := k.EnvAddr(cfg); addr != "" && v != "" {
-			addr = v // as yardr web start takes it
-		}
+		addr := partAddr(cfg, settings, k)
 		// With --login a part the yard has is its service's too.
 		install := login && addr != ""
 		if install && serviceInstalled(cfg, k.Name) {
@@ -908,8 +929,9 @@ func (a *app) down(w, warn io.Writer, ctx context.Context, cfg *config.Config, y
 			p.Running, p.Error, p.Do = true, err.Error(), fmt.Sprintf("%s %s stop", yardr, k.Name)
 		case len(run) > 0:
 			p.Stopped, p.PID = true, run[0].PID
-			if settings[k.Setting] == "" {
-				// up starts a part by the setting that names its address.
+			if partAddr(cfg, settings, k) == "" {
+				// up starts a part by the setting or the service file
+				// that names its address.
 				p.Detail = fmt.Sprintf("yardr up does not start it again: %s %s start", yardr, k.Name)
 			}
 		}

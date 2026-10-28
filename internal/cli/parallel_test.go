@@ -306,6 +306,7 @@ var allowSerial = map[string]string{
 	"TestUninstallStopsTheYardAndRemovesItsServices":          "stub:serverRunning,stubLogin,stubLookPath,upYard",
 	"TestUninstallWhereThereIsNoLoginService":                 "downYard,stubServices",
 	"TestUpAndDownOnNoYard":                                   "stub:connect",
+	"TestUpDownStartsTheServiceWebView":                       "running,stub:answers,stub:spawn,stub:stopServer,stub:yardRunners,stubServices,upYard",
 	"TestUpFindsHerdrWithTheLoginShell":                       "stub:loginShell,stub:loginShellFinds,stub:loginShellPATH,stub:spawn,stub:spawnHerdr,stubLookPath,t.Setenv,upYard",
 	"TestUpLoginInstallsAndStarts":                            "stubLogin,upYard",
 	"TestUpLoginInstallsTheWebViewTheYardNames":               "stubLogin,upYard",
