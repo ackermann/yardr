@@ -58,6 +58,13 @@
 // request's signature and its body (yardkey.SignResponse). An answer that
 // is not so signed is anyone's, whatever it says. A refusal is a 4xx with
 // {"refused": <reason>}, signed too.
+//
+// The edge answers each signature once. A request is stamped in whole
+// seconds, so two identical calls made in the same second are one signature,
+// and the second is refused before the edge acts on it: 401 with
+// X-Edge-Refusal: replay and no signature, since whoever sends a signature
+// twice is not proved to be the yard. The yard signs the call again a second
+// on and makes it once more (Client.call).
 package edgelink
 
 import (
@@ -144,7 +151,9 @@ type Client struct {
 	Poll, WaitFor time.Duration
 	// Now is the clock a request is signed by; nil is time.Now. Each call is
 	// signed at the moment it is made, since the edge refuses a signature
-	// more than yardkey.MaxSkew old, and a wait is longer than that.
+	// more than yardkey.MaxSkew old, and a wait is longer than that. A call
+	// reads it once. A call the edge refuses as a replay is signed again a
+	// second past that reading (see call).
 	Now func() time.Time
 }
 
@@ -205,44 +214,86 @@ func (c *Client) Key(ctx context.Context) (string, error) {
 	return key, nil
 }
 
+// replayRefusal is what the edge's X-Edge-Refusal says of a signature it has
+// answered already. It comes with no signature of its own, since whoever
+// sends a signature twice is not proved to be the yard.
+const replayRefusal = "replay"
+
 // call makes one signed POST to path and returns the status and body of an
 // answer the edge signed, with the key the yard pinned. Any other is an
 // error whatever it says: anyone on the way can write a 200.
+//
+// The edge answers each signature once, and a stamp is whole seconds, so two
+// identical calls made in the same second are one signature and the second
+// is a replay to it. The edge refuses a replay before it acts on the call, so
+// the call is signed again a second past the stamp it was refused at and made
+// once more. That stamp is worked from the first, not read from Now again,
+// because a new reading would usually fall in the same second and make the
+// same bytes. Nothing waits for it: the edge takes a stamp that far ahead of
+// its own clock (yardkey.MaxSkew). A replay again is the answer, since one
+// more try is all the same-second case needs.
 func (c *Client) call(ctx context.Context, edgeKey string, yard ed25519.PrivateKey, path string, body []byte) (int, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+path, bytes.NewReader(body))
-	if err != nil {
-		return 0, nil, err
-	}
 	now := time.Now
 	if c.Now != nil {
 		now = c.Now
 	}
-	ts, reqSig := yardkey.SignRequest(yard, edgeKey, http.MethodPost, path, now(), body)
-	req.Header.Set(yardkey.HeaderKey, yardkey.Public(yard))
-	req.Header.Set(yardkey.HeaderTime, ts)
-	req.Header.Set(yardkey.HeaderSig, reqSig)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.client().Do(req)
-	if err != nil {
-		return 0, nil, c.transport(err)
+	at, signedAgain := now(), false
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+path, bytes.NewReader(body))
+		if err != nil {
+			return 0, nil, err
+		}
+		ts, reqSig := yardkey.SignRequest(yard, edgeKey, http.MethodPost, path, at, body)
+		req.Header.Set(yardkey.HeaderKey, yardkey.Public(yard))
+		req.Header.Set(yardkey.HeaderTime, ts)
+		req.Header.Set(yardkey.HeaderSig, reqSig)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := c.client().Do(req)
+		if err != nil {
+			return 0, nil, c.transport(err)
+		}
+		answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer+1))
+		// Closed here and not deferred, since the loop may make a second call.
+		resp.Body.Close()
+		if err != nil {
+			return 0, nil, err
+		}
+		if len(answer) > maxAnswer {
+			return 0, nil, fmt.Errorf("the answer of %s is larger than %d bytes", c.URL, maxAnswer)
+		}
+		if yardkey.VerifyResponse(edgeKey, resp.StatusCode, reqSig, resp.Header.Get(yardkey.HeaderSig), answer) == nil {
+			return resp.StatusCode, answer, nil
+		}
+		// A signed answer went out above, whatever it names: replay-full is the
+		// edge asking the yard to wait, not a spent signature. Only an unsigned
+		// one is asked for its refusal.
+		refusal := resp.Header.Get(RefusalHeader)
+		if refusal == replayRefusal && !signedAgain {
+			at, signedAgain = at.Add(time.Second), true
+			continue
+		}
+		return 0, nil, c.unsigned(resp.StatusCode, refusal)
 	}
-	defer resp.Body.Close()
-	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxAnswer+1))
-	if err != nil {
-		return 0, nil, err
+}
+
+// unsigned is the error for an answer the pinned key did not sign. What it
+// says is anyone's text, so only its status is passed on, and the word it
+// gives in X-Edge-Refusal, which tells a person more than the guess this falls
+// back to. The word is quoted as the header's and not as the edge's, and cut
+// to a line (text) because it reaches a terminal. A replay gets here only as
+// the answer to the call's second try, since the first is signed again.
+func (c *Client) unsigned(status int, refusal string) error {
+	said := ""
+	if word := text(refusal); word != "" {
+		said = fmt.Sprintf(" (%s: %s)", RefusalHeader, word)
 	}
-	if len(answer) > maxAnswer {
-		return 0, nil, fmt.Errorf("the answer of %s is larger than %d bytes", c.URL, maxAnswer)
+	why := fmt.Sprintf("the clocks are more than %s apart, the edge's key is not the one this yard pinned, or something between the two answered", yardkey.MaxSkew)
+	if refusal == replayRefusal {
+		why = "the call was refused as a replay, and again when signed afresh a second later"
 	}
-	if err := yardkey.VerifyResponse(edgeKey, resp.StatusCode, reqSig, resp.Header.Get(yardkey.HeaderSig), answer); err != nil {
-		// What an unsigned answer says is anyone's text: only its status is
-		// passed on.
-		return 0, nil, fmt.Errorf("%s answered %d, %w: the clocks are more than %s apart, the edge's key is not the one this yard pinned, or something between the two answered",
-			c.URL, resp.StatusCode, ErrUnsigned, yardkey.MaxSkew)
-	}
-	return resp.StatusCode, answer, nil
+	return fmt.Errorf("%s answered %d%s, %w: %s", c.URL, status, said, ErrUnsigned, why)
 }
 
 // answer is what the edge says to an enrolling call, and its refusals.

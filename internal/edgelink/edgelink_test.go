@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -327,13 +328,29 @@ func TestKeyRefusesWhatIsNoKey(t *testing.T) {
 
 // The edge's refusals reach the person in its words, cut to what a terminal
 // shows; an answer that is not signed by the edge, in none, since its words
-// would be anyone's.
+// would be anyone's, but for the word it names its refusal by in a header,
+// which is given as the header's and cut and cleaned as the edge's words are.
 func TestEnrolRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 	t.Parallel()
 	edgeKey := newKey(t)
 	signed := func(status int, v any) *httptest.Server { return answersSigned(t, edgeKey, status, v) }
 	unsigned := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "origin down", http.StatusBadGateway) }))
 	t.Cleanup(unsigned.Close)
+	// naming is an answer no signature covers, with word in X-Edge-Refusal.
+	naming := func(word string) *httptest.Server {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set(RefusalHeader, word)
+			http.Error(w, "origin down", http.StatusUnauthorized)
+		}))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+	// The sentence an unsigned answer gets when it names no refusal.
+	clocksAndKey := fmt.Sprintf("the clocks are more than %s apart, the edge's key is not the one this yard pinned, or something between the two answered", yardkey.MaxSkew)
+	// A word with what a terminal acts on in it: an 8-bit CSI (Go's client
+	// refuses an escape in a header but takes this), a text-direction override
+	// and a tab, among printable letters. It then runs on past a line.
+	messy := "sig\u009b[2Jnature\u202e\t" + strings.Repeat("x", 2*maxText)
 	for name, tc := range map[string]struct {
 		srv  *httptest.Server
 		want string
@@ -346,7 +363,11 @@ func TestEnrolRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 		"a code too long":       {signed(http.StatusOK, map[string]string{"code": strings.Repeat("X", maxText+1)}), "not text a person can type"},
 		"a code with escapes":   {signed(http.StatusOK, map[string]string{"code": "AB\x1b[2JCD"}), "not text a person can type"},
 		"not an object":         {signed(http.StatusOK, []string{"code"}), "no JSON object"},
-		"a bad gateway":         {unsigned, "answered 502, not signed with the key this yard pinned"},
+		// With no word named, the sentence is the one this answer always had.
+		"a bad gateway":             {unsigned, "answered 502, not signed with the key this yard pinned: " + clocksAndKey},
+		"a word it names":           {naming("signature"), "answered 401 (X-Edge-Refusal: signature), not signed with the key this yard pinned: " + clocksAndKey},
+		"a word cut and cleaned":    {naming(messy), "(X-Edge-Refusal: sig[2Jnature" + strings.Repeat("x", maxText-len("sig[2Jnature")) + "), not signed with the key this yard pinned"},
+		"a word that shows as none": {naming("\u202e\u009b"), "answered 401, not signed with the key this yard pinned: " + clocksAndKey},
 	} {
 		c := &Client{URL: tc.srv.URL, HTTP: tc.srv.Client()}
 		_, err := c.Enrol(context.Background(), yardkey.Public(edgeKey), newKey(t), "laptop")
@@ -521,6 +542,144 @@ func TestMintGoogleRefusalsAndAnswersItDoesNotRead(t *testing.T) {
 	c2 := &Client{URL: bad.URL, HTTP: bad.Client()}
 	if _, err := c2.MintGoogle(context.Background(), yardkey.Public(edgeKey), yard, "ada@example.com"); err == nil || !strings.Contains(err.Error(), "no JSON object") {
 		t.Errorf("MintGoogle, answered with no object = %v, want it refused", err)
+	}
+}
+
+// replayFront stands in front of a stand-in edge as the edge's router does for
+// a signed call: each signature is answered once, and the same one again is
+// refused 401, naming the replay and with no signature, before the edge behind
+// it sees the call. Every call that comes is noted by its stamp, refused or
+// not. With refuseAll set it refuses every call as a replay, whatever its
+// signature, and has no edge behind it.
+type replayFront struct {
+	next      http.Handler
+	refuseAll bool
+
+	mu     sync.Mutex
+	taken  map[string]bool
+	stamps []string
+}
+
+func (f *replayFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	sig := r.Header.Get(yardkey.HeaderSig)
+	f.mu.Lock()
+	if f.taken == nil {
+		f.taken = map[string]bool{}
+	}
+	replay := f.refuseAll || f.taken[sig]
+	f.taken[sig] = true
+	f.stamps = append(f.stamps, r.Header.Get(yardkey.HeaderTime))
+	f.mu.Unlock()
+	if replay {
+		w.Header().Set(RefusalHeader, "replay")
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"error":"edge: the signed call has already been answered"}`)
+		return
+	}
+	f.next.ServeHTTP(w, r)
+}
+
+// seen is the stamps of the calls that came, in the order they came.
+func (f *replayFront) seen() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.stamps)
+}
+
+// The edge answers each signature once, and a stamp is whole seconds, so two
+// identical calls made in the same second are one signature and the second is
+// refused as a replay, with no signature. The yard signs it again a second
+// past the stamp it was refused at, and is answered. Refused as a replay
+// again, it says so and goes no further; and nothing else is asked for twice.
+func TestMintGoogleSignsAgainWhenRefusedAsAReplay(t *testing.T) {
+	t.Parallel()
+	stamp := func(at time.Time) string { return fmt.Sprint(at.Unix()) }
+	yard := newKey(t)
+
+	// Two mints for one account in the same second, as a clock that does not
+	// move makes them. The front lets the first through to the stand-in and
+	// refuses the second's first try.
+	edge, err := standin.NewEdge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge.Behave(func(b *standin.EdgeBehaviour) { b.MintToken = "ya29.access" })
+	front := &replayFront{next: edge}
+	srv := httptest.NewTLSServer(front)
+	t.Cleanup(srv.Close)
+	at := time.Now()
+	c := &Client{URL: srv.URL, HTTP: srv.Client(), Now: func() time.Time { return at }}
+	for i := 1; i <= 2; i++ {
+		if m, err := c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com"); err != nil || m.Token != "ya29.access" {
+			t.Fatalf("MintGoogle %d = %+v, %v; want the token", i, m, err)
+		}
+	}
+	if got, want := front.seen(), []string{stamp(at), stamp(at), stamp(at.Add(time.Second))}; !slices.Equal(got, want) {
+		t.Errorf("the edge was called with stamps %v, want %v: the second mint refused as a replay, then signed a second on", got, want)
+	}
+	if mints := edge.State().Mints; len(mints) != 2 || mints[0].Time != stamp(at) || mints[1].Time != stamp(at.Add(time.Second)) {
+		t.Errorf("the stand-in took %+v, want the two mints, signed a second apart", mints)
+	}
+
+	// Refused as a replay again: the error says so, and is ErrUnsigned still.
+	// This clock moves a minute at each reading, and the stamps are a second
+	// apart all the same: the second try is worked from the first stamp, and the
+	// clock is read once.
+	refusing := &replayFront{refuseAll: true}
+	srv = httptest.NewTLSServer(refusing)
+	t.Cleanup(srv.Close)
+	clk := &clock{t: time.Now()}
+	c = &Client{URL: srv.URL, HTTP: srv.Client(), Now: clk.Now}
+	_, err = c.MintGoogle(context.Background(), edge.PublicKey(), yard, "ada@example.com")
+	var refused *Refused
+	if !errors.Is(err, ErrUnsigned) || errors.As(err, &refused) || !strings.Contains(err.Error(), "(X-Edge-Refusal: replay)") || !strings.Contains(err.Error(), "refused as a replay") {
+		t.Errorf("MintGoogle, refused as a replay twice = %v, want ErrUnsigned naming the replay", err)
+	}
+	first := clk.Peek()
+	if got, want := refusing.seen(), []string{stamp(first), stamp(first.Add(time.Second))}; !slices.Equal(got, want) {
+		t.Errorf("the edge was called with stamps %v, want %v: one more try, a second past the first", got, want)
+	}
+
+	// Nothing else is asked for twice. An unsigned answer that names no
+	// refusal, or another, is the answer as it stands; so is a signed one
+	// whatever word it carries, since a refusal the edge signs is its word (a
+	// full table asks the yard to wait, which is not a spent signature).
+	edgeKey := newKey(t)
+	for name, tc := range map[string]struct {
+		status int
+		word   string
+		signed bool
+	}{
+		"an unsigned answer naming none":    {http.StatusBadGateway, "", false},
+		"an unsigned answer naming another": {http.StatusUnauthorized, "signature", false},
+		"a signed replay-full":              {http.StatusServiceUnavailable, "replay-full", true},
+		"a signed answer naming a replay":   {http.StatusUnauthorized, "replay", true},
+	} {
+		var calls atomic.Int32
+		answering := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls.Add(1)
+			body := []byte(`{"refused":"ask again shortly"}`)
+			if tc.word != "" {
+				w.Header().Set(RefusalHeader, tc.word)
+			}
+			if tc.signed {
+				w.Header().Set(yardkey.HeaderSig, yardkey.SignResponse(edgeKey, tc.status, r.Header.Get(yardkey.HeaderSig), body))
+			}
+			w.WriteHeader(tc.status)
+			w.Write(body)
+		}))
+		t.Cleanup(answering.Close)
+		c := &Client{URL: answering.URL, HTTP: answering.Client()}
+		_, err := c.MintGoogle(context.Background(), yardkey.Public(edgeKey), yard, "ada@example.com")
+		switch {
+		case tc.signed && (!errors.As(err, &refused) || refused.Status != tc.status):
+			t.Errorf("%s: MintGoogle = %v, want the edge's signed refusal, %d", name, err, tc.status)
+		case !tc.signed && !errors.Is(err, ErrUnsigned):
+			t.Errorf("%s: MintGoogle = %v, want ErrUnsigned", name, err)
+		}
+		if n := calls.Load(); n != 1 {
+			t.Errorf("%s: the edge was called %d times, want once", name, n)
+		}
 	}
 }
 
