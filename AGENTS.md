@@ -101,6 +101,8 @@ it lists every exported name with its comment, faster than grepping.
   is armed; `Scale` makes a wait written for an idle box that many times
   longer, and `Loaded` says the factor is above 1; the contrib suites'
   fuses go through `Scale`.
+- `telemetry`: the opt-in telemetry switch, install id and day builder
+  behind `yardr telemetry on|off|show`; nothing here sends.
 - `udiff`: one unified-diff rendering shared by history and ask cards.
 - `version`: build identity, noticing when the binary was replaced, and
   keeping the daemon's own descriptors out of what it execs (self-replace,

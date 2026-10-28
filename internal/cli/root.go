@@ -170,7 +170,7 @@ func (a *app) rootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&a.homeDir, "home", "", "the yard's directory (default $YARDR_HOME, else ~/.yardr)")
 	root.PersistentFlags().BoolVar(&a.json, "json", false, "print JSON")
 	root.PersistentFlags().StringVar(&a.actor, "actor", "", "who is acting (default $YARDR_ACTOR, else $USER)")
-	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.depotCmd(), a.beadCmd(), a.readyCmd(),
+	root.AddCommand(a.serverCmd(), a.daemonCmd(), a.depotCmd(), a.beadCmd(), a.readyCmd(), a.telemetryCmd(),
 		a.depCmd(), a.linkCmd(), a.groupCmd(), a.routeCmd(), a.flowCmd(), a.sessionCmd(), a.eventsCmd(), a.watchCmd(), a.primeCmd(),
 		a.bdpCmd(), a.webCmd(), a.crewCmd(), a.userCmd(), a.inboxCmd(), a.mailCmd(), a.timerCmd(), a.chatCmd(), a.rememberCmd(), a.recallCmd(), a.hookCmd(), a.sourceCmd(), a.callCmd(), a.limitsCmd(), a.harnessCmd(),
 		a.peerCmd(), a.edgeCmd(), a.subscribeCmd(), a.unsubscribeCmd(), a.threadCmd(), a.replyCmd(), a.reactCmd(), a.reviewCmd(), a.storeCmd(), a.packCmd(), a.docsCmd(), a.previewCmd(),

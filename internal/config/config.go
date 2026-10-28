@@ -366,6 +366,10 @@ func (c *Config) OTelExports() string { return filepath.Join(c.Home, "otelexport
 // OTelState is where yardr otel export keeps what it has sent.
 func (c *Config) OTelState() string { return filepath.Join(c.Home, "otel-export.json") }
 
+// TelemetryState is where yardr telemetry keeps the install id and its
+// consent bookkeeping (internal/telemetry).
+func (c *Config) TelemetryState() string { return filepath.Join(c.Home, "telemetry.json") }
+
 // Logs is where the yard keeps output from exec groups that have no log of
 // their own.
 func (c *Config) Logs() string { return filepath.Join(c.Home, "logs") }

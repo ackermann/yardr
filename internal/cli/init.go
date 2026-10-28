@@ -233,8 +233,9 @@ var lookPath = exec.LookPath
 // its mistakes with no yard there, and makes the check itself (onboard) once
 // it needs the yard: for a pack given by name, and for the plan, flow
 // draw, which draws a flow file or a pack from files alone, and harness
-// and docs, which print what this build was made with and carries.
-var noOnboarding = []string{"server", "init", "daemon", "settings", "doctor", "status", "upgrade", "up", "down", "uninstall", "version", "harness", "docs", "help", "completion",
+// and docs, which print what this build was made with and carries, and
+// telemetry, which reads the store and the state file itself.
+var noOnboarding = []string{"server", "init", "daemon", "settings", "telemetry", "doctor", "status", "upgrade", "up", "down", "uninstall", "version", "harness", "docs", "help", "completion",
 	cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "store compact", "pack check", "pack show", "flow draw"}
 
 // firstRun runs before every command: on a home with no yard yet it runs the
@@ -1553,6 +1554,12 @@ error; --json has where it is from.`,
   yardr settings set operator_note ""        # unset`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(c *cobra.Command, args []string) error {
+			// Before the store: telemetry is switched with yardr
+			// telemetry on and off, which record consent beside it,
+			// so a raw write here cannot skip that bookkeeping.
+			if args[0] == store.TelemetrySetting {
+				return fmt.Errorf("telemetry is changed with yardr telemetry on and yardr telemetry off, not yardr settings set, so consent is recorded with it")
+			}
 			st, err := a.store(c.Context())
 			if err != nil {
 				return err

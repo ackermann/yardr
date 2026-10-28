@@ -75,6 +75,11 @@ const (
 	// taken down the edge link for every secret, from the operator's
 	// devices (rpc).
 	HostedSetting = "hosted"
+	// TelemetrySetting is the one switch for yardr's opt-in telemetry
+	// (internal/telemetry): true sends the daily batch, false sends
+	// nothing. It is changed with yardr telemetry on and off, which
+	// record consent beside it, never with yardr settings set.
+	TelemetrySetting = "telemetry"
 	// WebAddrSetting and BDPAddrSetting are the addresses the web view and
 	// the BDP server listen on when their --addr is not given.
 	WebAddrSetting = "web_addr"
@@ -243,6 +248,14 @@ var KnownSettings = []Setting{
 		Default: "false", Check: func(v string) error {
 			if v != "true" && v != "false" {
 				return fmt.Errorf("%s %q: true or false", HostedSetting, v)
+			}
+			return nil
+		}},
+	{Key: TelemetrySetting, Help: "whether this yard sends yardr's opt-in telemetry, one daily batch of counts and fixed names (true), or nothing (false); " +
+		"changed with yardr telemetry on and yardr telemetry off, which record consent beside it, and read by yardr telemetry show. Read on every daemon pass; default: false",
+		Default: "false", Check: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("%s %q: true or false", TelemetrySetting, v)
 			}
 			return nil
 		}},
