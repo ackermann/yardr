@@ -71,7 +71,7 @@ which only a person or a crew member does. An advance along the edge
 `done-safe` takes is held to the depot's security paths as the outcome is. Every call this page names is read or agent but those of
 [`OperatorCalls`](#over-the-network), which are admin, all but
 `SourceGrants`, which is read on the socket and the operator's on the
-listener, `Teammates`, whose socket class is operator, and
+listener, `SessionScreen` and `Teammates`, whose socket class is operator, and
 `UninviteTeammate`, whose socket class is agent.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS
@@ -1012,11 +1012,12 @@ address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 `localhost`), and says why. It keeps the token in a file only its user
 reads (mode 0600) or in the system's key store, never in a settings file.
 
-A secret, an approval, the grant list, the teammates list and a removal
-filing are what the yard holds to this itself, as far as it can see.
-[`GiveSecret`, `ApproveAsk`, `ApproveSetup`, `SourceGrants`, `Teammates`
-and `UninviteTeammate`](#for-the-operator-alone) are taken only from a request
-that reached the listener from the yard's own machine, where the proxy or
+A secret, an approval, the grant list, a session's screen, the teammates
+list and a removal filing are what the yard holds to this itself, as far as
+it can see. [`GiveSecret`, `ApproveAsk`, `ApproveSetup`, `SourceGrants`,
+`SessionScreen`, `Teammates` and `UninviteTeammate`](#for-the-operator-alone)
+are taken only from a request that reached the listener from the yard's own
+machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine) — the two
 approvals also down the link from the edge, and `GiveSecret` there for every
 secret on a hosted yard and for the code of a harness login alone on any other,
