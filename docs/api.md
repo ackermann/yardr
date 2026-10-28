@@ -71,7 +71,8 @@ which only a person or a crew member does. An advance along the edge
 `done-safe` takes is held to the depot's security paths as the outcome is. Every call this page names is read or agent but those of
 [`OperatorCalls`](#over-the-network), which are admin, all but
 `SourceGrants`, which is read on the socket and the operator's on the
-listener.
+listener, `Teammates`, whose socket class is operator, and
+`UninviteTeammate`, whose socket class is agent.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS
 user the yard runs as, and the pane is told by the process tree: an agent
@@ -277,7 +278,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 177,
+  "seq": 181,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -305,7 +306,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 179,
+  "seq": 183,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -449,7 +450,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 180,
+  "seq": 184,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -1011,25 +1012,31 @@ address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 `localhost`), and says why. It keeps the token in a file only its user
 reads (mode 0600) or in the system's key store, never in a settings file.
 
-A secret, an approval and the grant list are what the yard holds to this
-itself, as far as it can see. [`GiveSecret`, `ApproveAsk`, `ApproveSetup`
-and `SourceGrants`](#for-the-operator-alone) are taken only from a request
+A secret, an approval, the grant list, the teammates list and a removal
+filing are what the yard holds to this itself, as far as it can see.
+[`GiveSecret`, `ApproveAsk`, `ApproveSetup`, `SourceGrants`, `Teammates`
+and `UninviteTeammate`](#for-the-operator-alone) are taken only from a request
 that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine) — the two
 approvals also down the link from the edge, and `GiveSecret` there for every
-secret on a hosted yard and for the code of a harness login alone on any other
+secret on a hosted yard and for the code of a harness login alone on any other,
+and the teammates calls there as the approvals are
 ([edge.md](edge.md#footplate-through-the-link)) — and never from one whose
 proxy says it came in plain (`X-Forwarded-Proto: http`; the header is read
 for a no and never for a yes). Any other is refused with
 the code `error`, in words that name the reason and say what may have
-crossed a network in the clear: the value, or for an approval or the grant
-list the token that was sent with it. A proxy on another machine that
+crossed a network in the clear: the value, or for an approval, the grant
+list, the teammates list or a removal filing the token that was sent with
+it. A proxy on another machine that
 passes requests on to the yard in plain HTTP is refused so: from there to
 the yard the value and the token would be readable. An approval holds no
 secret of its own; it is held to the rule so that a token read off a
 network cannot have a command of the operator's run from wherever it was
 read. The grant list holds none either and approves nothing; it is held to
-the rule because the operator's device token goes with the request. Every
+the rule because the operator's device token goes with the request. The
+teammates list and a removal filing hold none either and approve nothing;
+they are held to the rule for the same reason, and cross the link as an
+approval does. Every
 other call is served wherever it comes from, as before.
 
 Down the link from the edge `GiveSecret` is taken from a device of the
@@ -1054,7 +1061,8 @@ not the operator is refused its own giving down the link in the same words,
 and a giving that is taken is held to the approvals' rule there: when the
 edge says the device reached it in plain HTTP, it is refused as they are.
 
-A hosted yard takes `GiveSecret` and `SourceGrants` from one peer besides
+A hosted yard takes `GiveSecret`, `SourceGrants`, `Teammates` and
+`UninviteTeammate` from one peer besides
 its own machine: its router, the address the `router_addr` setting names,
 when the request says it came to the router over https
 (`X-Forwarded-Proto: https`). On that network the router is the only such
@@ -1082,7 +1090,7 @@ POST /call/Head
 {}
 
 {
-  "result": 174
+  "result": 178
 }
 ```
 
@@ -1130,10 +1138,20 @@ POST /call/Users
 {
   "result": [
     {
+      "name": "hal",
+      "cursor": 175,
+      "notification_cursor": 175
+    },
+    {
       "name": "jo",
       "role": "operator",
       "cursor": 0,
       "notification_cursor": 0
+    },
+    {
+      "name": "sam",
+      "cursor": 174,
+      "notification_cursor": 174
     }
   ]
 }
@@ -1581,7 +1599,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 175,
+      "seq": 179,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1589,7 +1607,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 176,
+      "seq": 180,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1615,7 +1633,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 175,
+      "seq": 179,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1623,7 +1641,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 176,
+      "seq": 180,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1650,7 +1668,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 177,
+      "seq": 181,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -5191,21 +5209,25 @@ operator's alone to make. An operator is a user whose role is `operator`
 there may be several, and each of them makes these calls. The `operator`
 setting names one of them, the one an ask with no `--to` goes to; any
 operator approves or answers it. In yardr's code the list is `OperatorCalls`, and
-it has five calls: `GiveSecret`, which gives the credential a secret ask
+it has seven calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, carrying the approval's values to a hook's register
 call where the card asks for any, `ApproveSetup`, which approves a setup ask with
 the preset pick and the account together: typed, taken from a candidate, or
 kept as it stands, `SourceGrants`, which reads every grant of the
-yard's sources, the whole of who may call what, and `SessionScreen`,
+yard's sources, the whole of who may call what, `SessionScreen`,
 which reads what a running session's pane shows, its visible screen with
-the ANSI styling. Each of the first three
+the ANSI styling, `Teammates`, which reads the yard's teammates, one row
+per mapped address with its user and devices, and `UninviteTeammate`,
+which files a teammate's removal as a run ask on a new bead.
+Each of the first three
 takes `weighed`, the client's word that its person saw the card's weight,
 and the yard refuses a weighty card without it ([weighty
 cards](#weighty-cards)). Where they are served, and to whom:
 
-- **On the socket**, to an operator: `actor` is an operator's name, and
-  the call does not come from the pane of an agent.
+- **On the socket**, the class table above applies; a call with `actor`
+  is held to the store's caller on a pane. `UninviteTeammate` is filed as
+  its caller, and `Teammates` is withheld from agent and crew panes.
 - **On the [listener](#over-the-network)**, to a device of an operator:
   a request whose token is one the yard gave a device of that operator
   (`yardr user device add <operator> <device>`, or a pairing). The role is
@@ -5730,6 +5752,82 @@ POST /call/SessionScreen
 | field of the result | type | |
 |---|---|---|
 | `screen` | string | the pane's visible screen, with the terminal's ANSI styling |
+
+### `Teammates`
+
+The yard's teammates: one row per address of the standing `web_jwt_users` mapping, each with its yard user name, role, email, who invited them and when, and their devices with last use. A row with devices is paired; a row without is waiting. Whether anyone signed in over the edge's web door is not told: nothing at the yard records it. It is the operator's to read: on the socket it is an operator-class call, refused from a bead agent's or crew member's pane, and on the listener it is there for a device of the operator and for no other caller, since the mapping is theirs. It changes nothing, but the operator's device token goes with the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and down the link from the edge from a paired device of the operator, as an approval ([edge.md](edge.md#footplate-through-the-link)).
+
+```
+POST /call/Teammates
+{}
+
+{
+  "result": [
+    {
+      "name": "hal",
+      "role": "member",
+      "email": "hal@example.net",
+      "invited_by": "jo",
+      "invited_at": "2026-10-08T09:30:00Z",
+      "devices": []
+    },
+    {
+      "name": "sam",
+      "role": "member",
+      "email": "sam@example.net",
+      "invited_by": "jo",
+      "invited_at": "2026-10-08T09:30:00Z",
+      "devices": [
+        {
+          "name": "tablet",
+          "last_used": "2026-10-08T09:30:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `[].name` | string | the teammate's yard user name |
+| `[].role` | string | their role: `operator` or `member` |
+| `[].email` | string | the mapped address they sign in with at the edge |
+| `[].invited_by` | string | who invited them |
+| `[].invited_at` | time | when they were invited |
+| `[].devices` | array | their devices, by name; empty while none is paired |
+| `[].devices[].name` | string | the device's name |
+| `[].devices[].last_used` | time, may be absent | when its token was last resolved; absent on a device never used |
+
+A mapped address with no user record stands in no row.
+
+### `UninviteTeammate`
+
+Files the removal of a teammate: the run ask `user uninvite <user>` on a new bead, addressed to the yard's operator. It files the ask and no more: approval, the edge-first removal and the retry are the card's built path, and approving from the same device uses `ApproveAsk`. It refuses a user the yard has not, one no mapping names, and the caller's own user. On the socket it files as its actor; on the listener it is there for a device of the operator and for no other caller, and the actor is the device's user or left out. The operator's device token goes with the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and down the link from the edge from a paired device of the operator, as an approval ([edge.md](edge.md#footplate-through-the-link)).
+
+| argument | type | |
+|---|---|---|
+| `user` | string | the teammate whose removal is filed |
+| `actor` | string | who files: the operator's name on the socket; a device calls as its user |
+
+```
+POST /call/UninviteTeammate
+{"user":"sam","actor":"jo"}
+
+{
+  "result": {
+    "bead": "yd-uninvite",
+    "ask": 83
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `bead` | string | the new bead the ask stands on |
+| `ask` | number | the ask's seq on its bead |
+
+The bead and the ask are one write: the removal is filed on a new bead, or neither. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the queue again", never "filed", and read `UserAsks` again.
 
 <!-- /local -->
 

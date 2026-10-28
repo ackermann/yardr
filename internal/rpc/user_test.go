@@ -87,6 +87,35 @@ func call(t *testing.T, h http.Handler, token, method, body string) string {
 	return strings.TrimSpace(w.Body.String())
 }
 
+// localCall makes the call as the device from the yard's own machine, as
+// a request that reached the listener from loopback.
+func localCall(t *testing.T, h http.Handler, token, method, body string) string {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/user/call/"+method, strings.NewReader(body))
+	r.RemoteAddr = "127.0.0.1:40000"
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%s %s: status %d: %s", method, body, w.Code, w.Body)
+	}
+	return strings.TrimSpace(w.Body.String())
+}
+
+// edgeCall makes the call as the device down the link from the edge.
+func edgeCall(t *testing.T, h http.Handler, token, method, body string) string {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/user/call/"+method, strings.NewReader(body))
+	r.RemoteAddr = linkRemoteAddr
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("%s %s: status %d: %s", method, body, w.Code, w.Body)
+	}
+	return strings.TrimSpace(w.Body.String())
+}
+
 // userPaneReader is the pane reader of the listener test: every pane
 // answers with the same styled screen.
 type userPaneReader string
@@ -146,8 +175,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 26 {
 		t.Errorf("%d calls are served and Calls has %d, want 26 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants"}) || len(OperatorCalls) != 5 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants", "Teammates", "UninviteTeammate"}) || len(OperatorCalls) != 7 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants, Teammates, UninviteTeammate and no other", operators, OperatorCalls)
 	}
 	// The whole grant graph is the operator's to read: to sam's device the
 	// call is not there, as a method the yard does not have, whatever it
@@ -757,6 +786,226 @@ func TestUserStreamHoldsBackUntoldSettingsValues(t *testing.T) {
 	set(store.StyleSetting, "work")
 	check("sam's stream", sams, store.StyleSetting, "", false)
 	check("the operator's stream", jos, store.StyleSetting, "work", true)
+
+	// The teammates mapping is read by Teammates alone: its change
+	// carries the key to every stream and its addresses to none.
+	set(store.WebJWTUsersSetting, "sam@example.net=sam")
+	check("sam's stream", sams, store.WebJWTUsersSetting, "", false)
+	check("the operator's stream", jos, store.WebJWTUsersSetting, "", false)
+}
+
+// An operator's device reads the yard's teammates over the listener: every
+// mapped address with its user, role, email, invited-by and when, and
+// devices with last use. A member's device, and a credential that names no
+// device, are answered as for a method the yard does not have. The mapping
+// stands in no Settings answer, and a mapped name with no user record
+// stands in no row.
+func TestUserTeammates(t *testing.T) {
+	ctx := context.Background()
+	st, u, token := userYard(t)
+	var logged bytes.Buffer
+	u = NewUserServer(st, func(context.Context) string { return "south" }, slog.New(slog.NewTextHandler(&logged, nil)))
+	h := u.Handler()
+	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.WebJWTUsersSetting, "hal@example.net=hal, jo@example.net=jo, sam@example.net=sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ResolveDevice(ctx, tablet.Token, "203.0.113.9"); err != nil {
+		t.Fatal(err)
+	}
+	got := localCall(t, h, token, "Teammates", `{}`)
+	for _, want := range []string{
+		`"name":"sam"`, `"role":"member"`, `"email":"sam@example.net"`, `"invited_by":"jo"`, `"invited_at":"`,
+		`"devices":[{"name":"tablet","last_used":"`,
+		`"name":"jo"`, `"email":"jo@example.net"`, `"role":"operator"`, `"name":"phone"`,
+		`"name":"hal"`, `"email":"hal@example.net"`, `"devices":[]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Teammates = %s, want it to hold %s", got, want)
+		}
+	}
+	// A member's device is answered as for a method the yard does not
+	// have, and so is a credential that resolves to no device.
+	none, _ := json.Marshal(noSuchMethod("Teammates"))
+	if got := localCall(t, h, tablet.Token, "Teammates", `{}`); got != string(none) {
+		t.Errorf("Teammates from sam's device = %s, want %s", got, none)
+	}
+	u.resolve = func(context.Context, string, string) (*Caller, error) {
+		return &Caller{User: "jo", SaidBy: "kratos"}, nil
+	}
+	if got := localCall(t, h, "a-session-of-the-service", "Teammates", `{}`); got != string(none) {
+		t.Errorf("Teammates for a credential of no device = %s, want %s", got, none)
+	}
+	u.resolve = u.device
+	// A mapped name with no user record stands in no row.
+	if err := st.SetSetting(ctx, store.WebJWTUsersSetting, "hal@example.net=hal, jo@example.net=jo, sam@example.net=sam, ghost@example.net=ghost", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := localCall(t, h, token, "Teammates", `{}`); strings.Contains(got, "ghost") {
+		t.Errorf("Teammates = %s, want no row for ghost", got)
+	}
+	if log := logged.String(); !strings.Contains(log, "teammate mapping has no user record") ||
+		!strings.Contains(log, "user=ghost") || strings.Contains(log, "ghost@example.net") {
+		t.Errorf("orphan mapping log = %q, want the missing user named without its email", log)
+	}
+	// The mapping stands in no Settings answer.
+	if got := call(t, h, token, "Settings", `{}`); strings.Contains(got, "example.net") {
+		t.Errorf("Settings = %s, want no mapped address in it", got)
+	}
+	// The list is taken over https or from the yard's own machine, and
+	// down the link from the edge.
+	w := ask(h, http.MethodPost, "/user/call/Teammates", token, unread{t})
+	for _, want := range []string{
+		"the teammates list is taken over https only",
+		"in plain HTTP from another machine",
+		"yardr user device rm",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("Teammates from another machine is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	if got := edgeCall(t, h, token, "Teammates", `{}`); !strings.Contains(got, `"name":"sam"`) {
+		t.Errorf("Teammates over the edge = %s, want sam's row", got)
+	}
+	plain := httptest.NewRequest(http.MethodPost, "/user/call/Teammates", unread{t})
+	plain.RemoteAddr = linkRemoteAddr
+	plain.Header.Set("Authorization", "Bearer "+token)
+	plain.Header.Set("X-Forwarded-Proto", "http")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, plain)
+	for _, want := range []string{
+		"came to it in plain HTTP",
+		"yardr user device rm",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("Teammates over the edge in plain HTTP is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+}
+
+// An operator's device files a teammate's removal over the listener: the
+// run ask `user uninvite <name>` on a new bead, answered with its bead and
+// ask. A member's device, and a credential that names no device, are
+// answered as for a method the yard does not have. An unknown user, an
+// unmapped one and the caller's own are refused with their reasons, and
+// file nothing, and the filing's events carry no address to either
+// device. A removed teammate stands in Teammates no more.
+func TestUserUninviteTeammate(t *testing.T) {
+	ctx := context.Background()
+	st, u, token := userYard(t)
+	h := u.Handler()
+	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "hal", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddUser(ctx, "pat", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, store.WebJWTUsersSetting, "hal@example.net=hal, sam@example.net=sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	got := localCall(t, h, token, "UninviteTeammate", `{"user":"sam"}`)
+	var filed struct {
+		Result struct {
+			Bead string `json:"bead"`
+			Ask  uint64 `json:"ask"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(got), &filed); err != nil || filed.Result.Bead == "" || filed.Result.Ask != 1 {
+		t.Fatalf("UninviteTeammate = %s, want the new bead and its first ask", got)
+	}
+	notes, err := st.Notes(ctx, filed.Result.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Kind != store.NoteAsk || notes[0].Author != "jo" {
+		t.Fatalf("notes on the new bead = %+v, want the one ask by jo", notes)
+	}
+	filedAsk, err := store.ParseAsk(notes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filedAsk.To != "jo" || filedAsk.Run == nil || !slices.Equal(filedAsk.Run.Argv, []string{"user", "uninvite", "sam"}) {
+		t.Errorf("the filed ask = %+v, want user uninvite sam to jo", filedAsk)
+	}
+	// The actor is the device's user, never one the call names.
+	head, err := st.Head(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := localCall(t, h, token, "UninviteTeammate", `{"user":"sam","actor":"sam"}`); !strings.Contains(got, `this device calls as jo: \"actor\" is jo or left out`) {
+		t.Errorf("UninviteTeammate as sam = %s, want the actor held to jo", got)
+	}
+	none, _ := json.Marshal(noSuchMethod("UninviteTeammate"))
+	if got := localCall(t, h, tablet.Token, "UninviteTeammate", `{"user":"sam"}`); got != string(none) {
+		t.Errorf("UninviteTeammate from sam's device = %s, want %s", got, none)
+	}
+	u.resolve = func(context.Context, string, string) (*Caller, error) {
+		return &Caller{User: "jo", SaidBy: "kratos"}, nil
+	}
+	if got := localCall(t, h, "a-session-of-the-service", "UninviteTeammate", `{"user":"sam"}`); got != string(none) {
+		t.Errorf("UninviteTeammate for a credential of no device = %s, want %s", got, none)
+	}
+	u.resolve = u.device
+	for _, c := range []struct{ user, want string }{
+		{"nobody", "not found"},
+		{"pat", "is no teammate"},
+		{"jo", "is the caller"},
+	} {
+		if got := localCall(t, h, token, "UninviteTeammate", `{"user":"`+c.user+`"}`); !strings.Contains(got, c.want) {
+			t.Errorf("UninviteTeammate %s = %s, want %q", c.user, got, c.want)
+		}
+	}
+	if now, _ := st.Head(ctx); now != head {
+		t.Errorf("the refused filings wrote %d events", now-head)
+	}
+	// The filing's events carry no address, to either device.
+	evs, err := st.EventsSince(ctx, 0, int(head)+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []*Caller{{User: "sam", SaidBy: "tablet", device: true}, {User: "jo", SaidBy: "phone", device: true}} {
+		for _, e := range evs {
+			told, keep := u.deviceEvent(ctx, c, e)
+			if !keep {
+				continue
+			}
+			if raw, _ := json.Marshal(told); strings.Contains(string(raw), "example.net") {
+				t.Errorf("%s's device is sent %s, want no mapped address in it", c.User, raw)
+			}
+		}
+	}
+	// The filing is taken over https or from the yard's own machine, and
+	// down the link from the edge.
+	w := ask(h, http.MethodPost, "/user/call/UninviteTeammate", token, unread{t})
+	for _, want := range []string{
+		"filing a teammate's removal is taken over https only",
+		"in plain HTTP from another machine",
+		"yardr user device rm",
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("UninviteTeammate from another machine is answered %s, want it to say %q", w.Body, want)
+		}
+	}
+	if got := edgeCall(t, h, token, "UninviteTeammate", `{"user":"hal"}`); !strings.Contains(got, `"bead":"yd-`) || !strings.Contains(got, `"ask":2`) {
+		t.Errorf("UninviteTeammate over the edge = %s, want the new bead and the yard's second ask", got)
+	}
+	// A removed teammate stands in Teammates no more.
+	if err := st.RemoveTeammate(ctx, "sam", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if got := localCall(t, h, token, "Teammates", `{}`); strings.Contains(got, "sam@example.net") {
+		t.Errorf("Teammates after the removal = %s, want sam gone", got)
+	}
 }
 
 // The event a device is sent without its value, or without a file or a

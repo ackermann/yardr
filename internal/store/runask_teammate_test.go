@@ -196,9 +196,10 @@ func TestInviteTeammateWriteIsIdempotent(t *testing.T) {
 	}
 }
 
-// An uninvite card refuses a plain user and a user who is not found,
-// holds the user and the mapping entry in Seen, and its carrier write
-// removes user, devices and mapping together and is safe taken up again.
+// An uninvite card refuses a plain user and a user who is not found, is
+// filed by the operator as by anyone, holds the user and the mapping
+// entry in Seen, and its carrier write removes user, devices and mapping
+// together and is safe taken up again.
 func TestUninviteCardAndRemovalWrite(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := teammateYard(t)
@@ -216,6 +217,12 @@ func TestUninviteCardAndRemovalWrite(t *testing.T) {
 	if _, err := y.AddAsk(y.ctx, y.bead, teammateAsk("user uninvite nobody"), "yardmaster"); err == nil ||
 		!strings.Contains(err.Error(), "not found") {
 		t.Fatalf("uninviting nobody = %v", err)
+	}
+	// The operator files the same card: with no terminal verb the card
+	// is the only way in, and no check refuses them with "run it
+	// yourself".
+	if _, err := y.AddAsk(y.ctx, y.bead, teammateAsk("user uninvite eve"), "mckean"); err != nil {
+		t.Fatalf("the operator filing a removal = %v", err)
 	}
 	// The user the operator setting names is kept, as user rm keeps them.
 	y2 := teammateYard(t)

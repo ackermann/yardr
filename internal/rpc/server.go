@@ -77,6 +77,9 @@ func Handler(st *store.Store, log *slog.Logger) http.Handler {
 
 // handler is Handler with the stream write timeout given, for tests.
 func handler(st *store.Store, log *slog.Logger, writeTimeout time.Duration) http.Handler {
+	if log != nil {
+		st.SetLogger(log)
+	}
 	a := newAPI(st, writeTimeout)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok\n")) })

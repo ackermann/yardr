@@ -522,6 +522,12 @@ func (c *Client) SetUser(ctx context.Context, name string, set map[string]string
 func (c *Client) DeleteUser(ctx context.Context, name, actor string) error {
 	return c.call(ctx, "DeleteUser", nil, name, actor)
 }
+func (c *Client) Teammates(ctx context.Context) ([]store.Teammate, error) {
+	return callV[[]store.Teammate](c, ctx, "Teammates")
+}
+func (c *Client) UninviteTeammate(ctx context.Context, user, actor string) (*store.Uninvited, error) {
+	return callV[*store.Uninvited](c, ctx, "UninviteTeammate", user, actor)
+}
 func (c *Client) AddDevice(ctx context.Context, user, name, actor string) (*store.NewDevice, error) {
 	return callV[*store.NewDevice](c, ctx, "AddDevice", user, name, actor)
 }

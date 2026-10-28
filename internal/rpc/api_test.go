@@ -856,6 +856,36 @@ var apiOperatorCalls = []apiCall{
 			{"screen", "string", "the pane's visible screen, with the terminal's ANSI styling"},
 		},
 	},
+	{
+		method:   "Teammates",
+		says:     "The yard's teammates: one row per address of the standing `web_jwt_users` mapping, each with its yard user name, role, email, who invited them and when, and their devices with last use. A row with devices is paired; a row without is waiting. Whether anyone signed in over the edge's web door is not told: nothing at the yard records it. It is the operator's to read: on the socket it is an operator-class call, refused from a bead agent's or crew member's pane, and on the listener it is there for a device of the operator and for no other caller, since the mapping is theirs. It changes nothing, but the operator's device token goes with the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and down the link from the edge from a paired device of the operator, as an approval ([edge.md](edge.md#footplate-through-the-link)).",
+		requests: []string{`{}`},
+		fields: []field{
+			{"[].name", "string", "the teammate's yard user name"},
+			{"[].role", "string", "their role: `operator` or `member`"},
+			{"[].email", "string", "the mapped address they sign in with at the edge"},
+			{"[].invited_by", "string", "who invited them"},
+			{"[].invited_at", "time", "when they were invited"},
+			{"[].devices", "array", "their devices, by name; empty while none is paired"},
+			{"[].devices[].name", "string", "the device's name"},
+			{"[].devices[].last_used", "time?", "when its token was last resolved; absent on a device never used"},
+		},
+		after: "A mapped address with no user record stands in no row.",
+	},
+	{
+		method: "UninviteTeammate",
+		says:   "Files the removal of a teammate: the run ask `user uninvite <user>` on a new bead, addressed to the yard's operator. It files the ask and no more: approval, the edge-first removal and the retry are the card's built path, and approving from the same device uses `ApproveAsk`. It refuses a user the yard has not, one no mapping names, and the caller's own user. On the socket it files as its actor; on the listener it is there for a device of the operator and for no other caller, and the actor is the device's user or left out. The operator's device token goes with the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list, and down the link from the edge from a paired device of the operator, as an approval ([edge.md](edge.md#footplate-through-the-link)).",
+		args: []field{
+			{"user", "string", "the teammate whose removal is filed"},
+			{"actor", "string", "who files: the operator's name on the socket; a device calls as its user"},
+		},
+		requests: []string{`{"user":"sam","actor":"jo"}`},
+		fields: []field{
+			{"bead", "string", "the new bead the ask stands on"},
+			{"ask", "number", "the ask's seq on its bead"},
+		},
+		after: "The bead and the ask are one write: the removal is filed on a new bead, or neither. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the queue again\", never \"filed\", and read `UserAsks` again.",
+	},
 }
 
 // apiEvent is one kind of event of the doc: is picks it from the stream.
@@ -1727,6 +1757,19 @@ calls:
 	must(err)
 	putAside := ask(links.ID, store.Ask{Question: "Can the note wait?", To: "jo", Context: []string{"It can be read tomorrow."}})
 	must(st.DeferAsk(ctx, links.ID, putAside, "jo"))
+
+	// Two teammates, one with a paired device and one waiting: what
+	// Teammates lists, and whose removal UninviteTeammate files. Last
+	// again, for the seqs above.
+	_, err = st.AddUser(ctx, "sam", "jo")
+	must(err)
+	_, err = st.AddUser(ctx, "hal", "jo")
+	must(err)
+	must(st.SetSetting(ctx, store.WebJWTUsersSetting, "hal@example.net=hal, sam@example.net=sam", "jo"))
+	tablet, err := st.AddDevice(ctx, "sam", "tablet", "jo")
+	must(err)
+	_, err = st.ResolveDevice(ctx, tablet.Token, "203.0.113.9")
+	must(err)
 	return st, d.Token
 }
 
@@ -2001,11 +2044,11 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the five calls
+	// there was a second list, and a device of the operator the seven calls
 	// of OperatorCalls besides: a call is added to either on purpose, here
 	// too.
-	if len(Calls) != 26 || len(OperatorCalls) != 5 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 5", len(Calls), len(OperatorCalls))
+	if len(Calls) != 26 || len(OperatorCalls) != 7 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 7", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
@@ -2231,6 +2274,32 @@ const exampleKey = "key 6lHks9_z…"
 
 var keyStart = regexp.MustCompile(`key [A-Za-z0-9_-]{8}…`)
 
+// exampleBead stands for the minted bead of UninviteTeammate's reply in the
+// doc: a handle is random on every run.
+const exampleBead = "yd-uninvite"
+
+// uninviteDocBead is the reply as the doc shows it: the minted bead reads
+// as a fixed handle.
+func uninviteDocBead(reply object) object {
+	out := make(object, len(reply))
+	for i, m := range reply {
+		if m.key == "result" {
+			if res, ok := m.val.(object); ok {
+				fixed := make(object, len(res))
+				for j, f := range res {
+					if f.key == "bead" {
+						f.val = exampleBead
+					}
+					fixed[j] = f
+				}
+				m.val = fixed
+			}
+		}
+		out[i] = m
+	}
+	return out
+}
+
 func callsDoc(run *apiRun, calls []apiCall) []string {
 	out := []string{""}
 	for _, c := range calls {
@@ -2242,6 +2311,9 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			reply := object{}
 			if r := run.replies[c.method][i]; r != nil {
 				reply = object{{"result", prune(r, "", c.fields)}}
+			}
+			if c.method == "UninviteTeammate" {
+				reply = uninviteDocBead(reply)
 			}
 			if more := run.more[c.method][i]; more != nil {
 				reply = append(reply, member{"more", more})

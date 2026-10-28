@@ -104,12 +104,41 @@ var Calls = map[string][]string{
 // screen with the ANSI styling, so the operator sees whether something
 // hangs. It changes nothing, but a screen can show what an agent printed,
 // a secret among it, so it is the operator's to read and no one else's.
+//
+// Teammates reads the yard's teammates: one row per address of the
+// standing web_jwt_users mapping, each with its yard user name, role,
+// email, who invited them and when, and their devices with last use. A
+// row with devices is paired; a row without is waiting. Whether anyone
+// signed in over the edge's web door is not told: nothing at the yard
+// records it. It is the operator's to read: on the socket it is a read,
+// served as every read of the store is to a caller on the yard's
+// machine, and on the listener it is there for a device of the operator
+// and for no other caller, since the mapping is theirs. It changes
+// nothing, but the operator's device token goes with the request, so the
+// listener takes it only over https or from the yard's own machine, like
+// the other calls of this list, and down the link from the edge from a
+// paired device of the operator, as an approval.
+//
+// UninviteTeammate files the removal of a teammate: the run ask
+// `user uninvite <user>` on a new bead, addressed to the yard's
+// operator, as AskNew files it. It files the ask and no more: approval,
+// the edge-first removal and the retry are the card's built path, and
+// approving from the same device uses ApproveAsk. It refuses a user the
+// yard has not, one no mapping names, and the caller's own user. On the
+// socket it files as its actor, as AskNew does; on the listener it is
+// there for a device of the operator and for no other caller. The
+// operator's device token goes with the request, so the listener takes
+// it only over https or from the yard's own machine, like the other
+// calls of this list, and down the link from the edge from a paired
+// device of the operator, as an approval.
 var OperatorCalls = map[string][]string{
-	"GiveSecret":    {"bead", "ask", "values", "actor", "weighed"},
-	"ApproveAsk":    {"bead", "ask", "actor", "weighed", "values"},
-	"ApproveSetup":  {"bead", "ask", "option", "values", "account", "actor", "weighed"},
-	"SourceGrants":  {"source"},
-	"SessionScreen": {"session"},
+	"GiveSecret":       {"bead", "ask", "values", "actor", "weighed"},
+	"ApproveAsk":       {"bead", "ask", "actor", "weighed", "values"},
+	"ApproveSetup":     {"bead", "ask", "option", "values", "account", "actor", "weighed"},
+	"SourceGrants":     {"source"},
+	"SessionScreen":    {"session"},
+	"Teammates":        {},
+	"UninviteTeammate": {"user", "actor"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of

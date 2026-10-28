@@ -170,6 +170,10 @@ a paired device of the operator down the link, as from the yard's own
 machine. The edge reads the screen with the device's token, as it reads
 every call; a member's device is answered as for a method the yard does not
 have.
+Teammates cross with them too: `Teammates` and `UninviteTeammate` are taken
+from a paired device of the operator down the link, as from the yard's own
+machine, so the operator's paired device reads the yard's teammates and
+files a removal through the edge.
 On a connected yard no other secret crosses: model credentials such as an
 API key, and hook signing secrets, are answered at the yard's own machine, as
 on a LAN without TLS, and `GiveSecret` is refused down the link for every

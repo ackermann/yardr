@@ -213,12 +213,6 @@ func parseUserUninvite(rest []string) ([]string, error) {
 	return []string{rest[0]}, nil
 }
 
-// checkUserUninvite is removing a teammate's own check as the asker: it
-// removes a user, as user rm's check is.
-func checkUserUninvite(ctx context.Context, w *wtx, argv []string, actor string) error {
-	return w.may(ctx, actor, ActRemoveUser, Object{Kind: KindUser, Name: argv[2], Ask: Askable})
-}
-
 // userUninviteCard is the card of user uninvite: whose membership goes,
 // at the edge first and then here. It refuses a user who is not found,
 // whom keepsOperator protects, and whose name no web_jwt_users entry

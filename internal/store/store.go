@@ -43,6 +43,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -115,6 +116,8 @@ type Store struct {
 	db    *bolt.DB
 	hub   hub
 	repos repoCache
+	// log supplies diagnostics from store calls, without holding the store lock.
+	log atomic.Pointer[slog.Logger]
 	// mentions holds each crew member's compiled @mention pattern, so matching
 	// an event under the write lock compiles a pattern once per crew member.
 	mentions mentionCache
@@ -209,6 +212,10 @@ type Store struct {
 	settleNudge chan struct{}
 	settled     chan struct{} // closed when the settler exits
 }
+
+// SetLogger sets the logger for store diagnostics. It is safe to change while
+// calls are in flight.
+func (s *Store) SetLogger(log *slog.Logger) { s.log.Store(log) }
 
 // NoSyncEnv names the variable that, set to 1, opens the store without
 // syncing each commit, and each growth of the file, to the disk. It is for tests: a commit's sync is some

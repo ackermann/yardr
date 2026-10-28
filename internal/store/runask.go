@@ -597,10 +597,14 @@ var runList = []runCommand{{
 	use:         "yardr user uninvite <name>",
 	description: "Remove a teammate from the yard",
 	parse:       parseUserUninvite,
-	check:       checkUserUninvite,
-	card:        (*wtx).userUninviteCard,
-	stale:       (*wtx).userUninviteStale,
-	run:         runUserUninvite,
+	// No check: there is no terminal verb, so the card is the only way
+	// in, and the asker never runs it themselves — the operator's
+	// device files it (UninviteTeammate), and anyone's ask is approved
+	// by the operator. A check would refuse the operator's own filing
+	// with "run it yourself", which names no command.
+	card:  (*wtx).userUninviteCard,
+	stale: (*wtx).userUninviteStale,
+	run:   runUserUninvite,
 }, {
 	words:       []string{"crew", "set"},
 	use:         "yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>",

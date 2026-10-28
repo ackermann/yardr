@@ -29,6 +29,9 @@ func TestAccessClassesEveryServedMethod(t *testing.T) {
 			t.Errorf("Access classes %s, which the socket does not serve", name)
 		}
 	}
+	if got := Access["Teammates"]; got != Operator {
+		t.Errorf("Teammates has class %s, want operator: mapped addresses are not for an agent or crew pane", got)
+	}
 }
 
 // Who each class lets through, by the kind of caller: a bead's pane only

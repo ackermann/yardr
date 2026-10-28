@@ -303,23 +303,25 @@ var Access = map[string]Class{
 	"ExpireMemories":       Admin,
 
 	// Mail, users and their devices.
-	"Mail":            Agent,
-	"React":           Agent,
-	"PutBlob":         Agent,
-	"Inbox":           Read,
-	"AckInbox":        Admin,
-	"InboxFor":        Read,
-	"AckInboxFor":     Admin,
-	"AddUser":         Operator,
-	"Users":           Read,
-	"GetUser":         Read,
-	"SetUser":         Admin,
-	"DeleteUser":      Operator,
-	"AddDevice":       Admin,
-	"Devices":         Read,
-	"RemoveDevice":    Admin,
-	"DevicePairOpen":  Admin,
-	"DevicePairClose": Operator,
+	"Mail":             Agent,
+	"React":            Agent,
+	"PutBlob":          Agent,
+	"Inbox":            Read,
+	"AckInbox":         Admin,
+	"InboxFor":         Read,
+	"AckInboxFor":      Admin,
+	"AddUser":          Operator,
+	"Users":            Read,
+	"GetUser":          Read,
+	"SetUser":          Admin,
+	"DeleteUser":       Operator,
+	"Teammates":        Operator, // the mapped addresses are the operator's, not for an agent or crew pane
+	"UninviteTeammate": Agent,    // files an ask, as AskNew; the store refuses a bead's agent a run ask
+	"AddDevice":        Admin,
+	"Devices":          Read,
+	"RemoveDevice":     Admin,
+	"DevicePairOpen":   Admin,
+	"DevicePairClose":  Operator,
 	// One's own pairing from the web view: the socket lets a person's own
 	// process (the view among them) call it, and no agent's pane; the user
 	// it names is the web session's, which the view alone supplies. It is

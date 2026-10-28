@@ -54,11 +54,11 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     calls more are the five of OperatorCalls, GiveSecret, ApproveAsk,
-//     ApproveSetup, SourceGrants and SessionScreen, for a device of an
-//     operator, and not there for anyone else (operatorCall), but
-//     GiveSecret for a device of a user whose own address or credential
-//     in a source is asked for (ownSecret);
+//     calls more are the seven of OperatorCalls, GiveSecret, ApproveAsk,
+//     ApproveSetup, SourceGrants, SessionScreen, Teammates and
+//     UninviteTeammate, for a device of an operator, and not there for
+//     anyone else (operatorCall), but GiveSecret for a device of a user
+//     whose own address or credential in a source is asked for (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - Settings answers the keys of deviceSettings and no other, and the
 //     stream carries the value of a setting_changed for those alone
@@ -209,6 +209,9 @@ type refusals struct {
 // NewUserServer serves the devices of st's yard, which yard names for
 // /user/me.
 func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog.Logger) *UserServer {
+	if log != nil {
+		st.SetLogger(log)
+	}
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
@@ -1100,6 +1103,7 @@ var selfArg = map[string][]string{
 	"GiveSecret":           {"actor"},
 	"ApproveAsk":           {"actor"},
 	"ApproveSetup":         {"actor"},
+	"UninviteTeammate":     {"actor"},
 }
 
 // asUser is the arguments body of the call method as user makes it: each
@@ -1344,16 +1348,25 @@ const linkRemoteAddr = "edge:0"
 // revoke, and the command an approval runs is fixed on the ask. A session's
 // screen crosses to the same device: pairing is the grant there too, and a
 // member's device is answered as for a method the yard does not have
-// (operatorCall). The edge sees the device's token with each, and what an
-// approval or a giving writes says it came by the edge (call). If the edge
-// says the device reached it over plain HTTP, the approval, the secret and
-// the screen are still refused.
+// (operatorCall). The teammates list and a teammate's removal filing cross
+// to the same device: a hosted yard's teammates are read and removed from
+// the operator's paired device. The edge sees the device's token with
+// each, and what an approval or a giving writes says it came by the edge
+// (call). If the edge says the device reached it over plain HTTP, the
+// approval, the secret, the screen, the list and the filing are still
+// refused.
 func inTheClear(r *http.Request, name, router string, crosses, hosted bool) string {
 	if name == "SourceGrants" {
 		return sourceGrantsInTheClear(r, router)
 	}
 	if name == "SessionScreen" {
 		return sessionScreenInTheClear(r, router)
+	}
+	if name == "Teammates" {
+		return teammatesInTheClear(r, router, "the teammates list", "Read it on the yard's machine.")
+	}
+	if name == "UninviteTeammate" {
+		return teammatesInTheClear(r, router, "filing a teammate's removal", "File it on the yard's machine.")
 	}
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
@@ -1469,6 +1482,40 @@ func sessionScreenInTheClear(r *http.Request, router string) string {
 		for _, p := range strings.Split(proto, ",") {
 			if !strings.EqualFold(strings.TrimSpace(p), "https") {
 				return "a session's screen is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+					"Give the device the yard's https:// address, or " + readHere + crossed
+			}
+		}
+	}
+	return ""
+}
+
+// teammatesInTheClear keeps a teammates call under the same transport rule
+// as an approval: the list names the yard's addresses, and the filing is
+// the operator's, so both are read and filed over https or from the yard's
+// own machine, and down the link from the edge from a paired device of the
+// operator, as an approval is. what names the call in a refusal, and
+// readHere the fix on the yard's machine.
+func teammatesInTheClear(r *http.Request, router, what, readHere string) string {
+	const crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	if r.RemoteAddr == linkRemoteAddr {
+		// Only a device of the operator reaches here (operatorCall).
+		if forwardedPlain(r) {
+			return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+				"Give the device the yard's https:// address, or " + readHere + crossed
+		}
+		return ""
+	}
+	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
+		if fromRouter(r, router) {
+			return ""
+		}
+		return what + " is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
+			"Put the proxy or tunnel that ends TLS on the yard's machine, or " + readHere + crossed
+	}
+	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
+		for _, p := range strings.Split(proto, ",") {
+			if !strings.EqualFold(strings.TrimSpace(p), "https") {
+				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
 					"Give the device the yard's https:// address, or " + readHere + crossed
 			}
 		}
