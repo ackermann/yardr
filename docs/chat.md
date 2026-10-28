@@ -424,6 +424,16 @@ or decline it. The command is one of a fixed list:
 | `up` | everything the yard needs that is not running started, and what runs left alone; safe to repeat, so an approval is never stale | anyone, with `down` |
 | `crew restart <name> [--for <user>]` | a fresh session of the crew member once the current one is idle; with `--for`, of its conversation session for the user | no one: a requested restart cannot be taken back |
 
+A crew member or user can also file a depot-push card: `yardr bead ask
+<id> "<question>" --depot-push <depot>` turns a depot's push to its HTTPS
+origin on, and `--depot-push-off <depot>` turns it off. The operator alone
+approves it, and only the operator's device is told the card and its result.
+The yard needs an edge and a source with a path-only credential helper for
+the origin's host; turning push on also needs that source's token. Approval
+updates only `<depot>-assembly`'s `cmd` and that depot's local Git config; it
+never runs `git push`. The card carries an `outside` weight and says how to
+file its reverse.
+
 Anything else that is the operator's is still typed by you: a replacement
 by `source add`, a hook's replacement and its `--map` and `--as`, a source's `env_file` and `mint_command`, `peer allow` with `--trust`,
 `--reach` or `--expose`, `peer add`, `peer set --url` and `peer rm`, taking a

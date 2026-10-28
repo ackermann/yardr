@@ -1370,6 +1370,20 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 			r = &resolved[i]
 		}
 	}
+	if r != nil && r.AskErr == nil && r.Ask.DepotPush != nil {
+		switch r.State {
+		case AskDeclined:
+			return nil, fmt.Errorf("ask %d was declined: %s", seq, declinedLine(*r.Current))
+		case AskTakenBack:
+			return nil, fmt.Errorf("ask %d is asked no more: %s", seq, takenBackLine(*r.Current))
+		case AskAnswered:
+			return nil, fmt.Errorf("ask %d was approved already, by %s: a depot-push card runs once for one ask", seq, r.Current.Note.Author)
+		}
+		if len(values) > 0 {
+			return nil, fmt.Errorf("ask %d takes no values: its card asks for none", seq)
+		}
+		return w.approveDepotPush(ctx, row, r, actor, weighed)
+	}
 	switch {
 	case r == nil && slices.ContainsFunc(notes, func(n Note) bool { return n.Seq == seq }):
 		return nil, fmt.Errorf("note %d on bead %s is not an ask", seq, row.ID)

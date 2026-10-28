@@ -107,10 +107,21 @@ func checkPackApply(ctx context.Context, w *wtx, run AskRun, actor string) error
 // neither declaration names alike, so a copy added, removed, changed
 // or chmodded is seen. Empty where the yard has no copies.
 func (w *wtx) inventoryOf(name string, carryContents bool) ([]AskInventory, map[string][]byte, error) {
-	if w.store == nil || w.store.home == "" {
+	home := ""
+	if w.store != nil {
+		home = w.store.home
+	}
+	return sourceInventory(home, name, carryContents)
+}
+
+// sourceInventory reads every file under a source's command-copy directory.
+// It is shared by the store's approval checks and the server's carry check so
+// both sides agree on which executable bytes an approval named.
+func sourceInventory(home, name string, carryContents bool) ([]AskInventory, map[string][]byte, error) {
+	if home == "" {
 		return nil, nil, nil
 	}
-	root := filepath.Join(w.store.home, "sources", name)
+	root := filepath.Join(home, "sources", name)
 	rootInfo, err := os.Lstat(root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil, nil

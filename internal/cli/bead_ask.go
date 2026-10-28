@@ -31,6 +31,7 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askBead store.NewBead
 	var askSecret, askForUser, askForCrew, askAs, askRun, askSecretLogin, askSecretHook, askHookSource string
 	var askSetup string
+	var askDepotPush, askDepotPushOff string
 	var askCrew, askGroup []string
 	var askSourceBase string
 	var askEnv []string
@@ -367,6 +368,31 @@ but the operator and for --to <person>@<peer>; no copy goes to a linked
 yard. A crew member or a user writes one. An agent working a bead does
 not: it says what it needs in a note on the bead.
 
+--depot-push <depot> turns one depot's push to its origin on as one
+decision, and --depot-push-off <depot> turns it off again: the yard's
+server, on the operator's approval, adds YARDR_PUSH=origin at the front
+of the cmd of the group <depot>-assembly (the rest of the cmd standing
+untouched, YARDR_LAND as it was) and points that depot's own git at the
+credential helper of the source whose host its origin is on, for that
+host alone, through git -C <depot> config; the off card takes exactly
+those two back out. Which source that is, its host, its helper and
+the variable its token is in are the pack's to say, read from its
+declaration. The card carries the outside weight, is refused on a yard
+with no edge, for a depot whose origin is not https on such a host,
+with no token of that source standing, already fully on (or, off, not
+on), with no <depot>-assembly group, or with YARDR_PUSH of another
+value standing, and where a helper already answers for the host the
+approval verifies it is the pack's helper answering with the source's
+token and writes nothing. A carry that failed after one half is
+completed by filing the card again. Nothing here runs git push, and
+no token stands in the card, the cmd, the config or a log.
+
+A depot-push ask takes no --option, --about or --as, and at most five
+--context lines. It is refused, and nothing is stored, for --to anyone
+but the operator and for --to <person>@<peer>; no copy goes to a linked
+yard. A crew member or a user writes one. An agent working a bead does
+not: it says what it needs in a note on the bead.
+
 --new asks a question that is about no bead: it takes the question alone,
 makes a bead titled with it and the ask on that bead in one write, and
 prints both. An ask that would be refused makes no bead. -b gives the bead
@@ -478,6 +504,20 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--setup sets up a pack and --secret-login asks for a value: one of the two")
 			case c.Flags().Changed("setup") && c.Flags().Changed("secret-hook"):
 				return fmt.Errorf("--setup sets up a pack and --secret-hook asks for a value: one of the two")
+			case c.Flags().Changed("depot-push") && c.Flags().Changed("depot-push-off"):
+				return fmt.Errorf("--depot-push turns a depot's push on and --depot-push-off turns it off: one of the two")
+			case (c.Flags().Changed("depot-push") || c.Flags().Changed("depot-push-off")) && c.Flags().Changed("setup"):
+				return fmt.Errorf("--depot-push turns a depot's push on or off and --setup sets up a pack: one of the two")
+			case (c.Flags().Changed("depot-push") || c.Flags().Changed("depot-push-off")) && c.Flags().Changed("run"):
+				return fmt.Errorf("--depot-push turns a depot's push on or off and --run proposes a command: one of the two")
+			case (c.Flags().Changed("depot-push") || c.Flags().Changed("depot-push-off")) && c.Flags().Changed("secret"):
+				return fmt.Errorf("--depot-push turns a depot's push on or off and --secret asks for a value: one of the two")
+			case (c.Flags().Changed("depot-push") || c.Flags().Changed("depot-push-off")) && c.Flags().Changed("secret-login"):
+				return fmt.Errorf("--depot-push turns a depot's push on or off and --secret-login asks for a value: one of the two")
+			case (c.Flags().Changed("depot-push") || c.Flags().Changed("depot-push-off")) && c.Flags().Changed("secret-hook"):
+				return fmt.Errorf("--depot-push turns a depot's push on or off and --secret-hook asks for a value: one of the two")
+			case (c.Flags().Changed("depot-push") || c.Flags().Changed("depot-push-off")) && askAs != "":
+				return fmt.Errorf("--depot-push refuses --as: this card is the operator's")
 			case c.Flags().Changed("setup") && askAs != "":
 				return fmt.Errorf("--setup refuses --as: a grant as a user is that user's alone to give, and this card is the operator's")
 			case c.Flags().Changed("setup") && askForUser != "":
@@ -617,6 +657,12 @@ what the person asked does, and this is the asker's own.`,
 				}
 				q.Setup = &store.AskSetup{Pack: askSetup, To: to, Base: askSourceBase}
 			}
+			if c.Flags().Changed("depot-push") {
+				q.DepotPush = &store.AskDepotPush{Depot: askDepotPush}
+			}
+			if c.Flags().Changed("depot-push-off") {
+				q.DepotPush = &store.AskDepotPush{Depot: askDepotPushOff, Off: true}
+			}
 			if c.Flags().Changed("run") {
 				// As typed, in one string: the yard splits and parses it.
 				q.Run = &store.AskRun{Argv: []string{askRun}}
@@ -683,7 +729,14 @@ what the person asked does, and this is the asker's own.`,
 				}
 				out["setup"] = setup
 			}
-			if !strings.Contains(who, "@") && secret == nil && run == nil && setup == nil {
+			var depotPush *store.AskDepotPush
+			if q.DepotPush != nil {
+				if depotPush, err = askedDepotPush(c.Context(), st, b.ID, seq); err != nil {
+					return err
+				}
+				out["depot_push"] = depotPush
+			}
+			if !strings.Contains(who, "@") && secret == nil && run == nil && setup == nil && depotPush == nil {
 				peers, err := st.Peers(c.Context())
 				if err != nil {
 					return err
@@ -752,6 +805,18 @@ what the person asked does, and this is the asker's own.`,
 					fmt.Fprintf(w, "%s for %s: to approve, yardr bead answer %s %d <preset> --secret\n", on, who, b.ID, seq)
 					return
 				}
+				if depotPush != nil {
+					on := fmt.Sprintf("ask %d on %s", seq, b.ID)
+					if askNew {
+						on = fmt.Sprintf("%s created; ask %d on it", b.ID, seq)
+					}
+					verb := "on"
+					if depotPush.Off {
+						verb = "off"
+					}
+					fmt.Fprintf(w, "%s for %s: to approve, yardr bead answer %s %d --approve (turns push %s for depot %s)\n", on, who, b.ID, seq, verb, depotPush.Depot)
+					return
+				}
 				printAsk(w, c.ErrOrStderr(), c.Context(), st, b.ID, seq)
 				if _, peer, outside := strings.Cut(who, "@"); outside {
 					fmt.Fprintf(w, "ask for %s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", who, peer)
@@ -782,6 +847,8 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file; with --secret-login: the login is this user's own, and theirs to give")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
 	ask.Flags().StringVar(&askSetup, "setup", "", "set up this embedded pack of kind source as one decision: the apply, the account and the grants, with --crew/--group naming who the grants are for")
+	ask.Flags().StringVar(&askDepotPush, "depot-push", "", "turn this depot's push to its origin on as one decision for the operator to approve: YARDR_PUSH=origin in <depot>-assembly's cmd and the pack's helper in the depot's git config, carried out by the server")
+	ask.Flags().StringVar(&askDepotPushOff, "depot-push-off", "", "turn this depot's push off as one decision for the operator to approve: the exact reverse of --depot-push for the depot")
 	ask.Flags().StringArrayVar(&askCrew, "crew", nil, "with --setup: the grants are for this crew member (repeatable; at least one of --crew and --group)")
 	ask.Flags().StringArrayVar(&askGroup, "group", nil, "with --setup: the grants are for this group's sessions (repeatable; at least one of --crew and --group)")
 	ask.Flags().StringVar(&askSourceBase, "source-base", "", "with --setup: the setup's calls go to the pack's region base <name>, for a pack whose source declares bases")
@@ -1203,6 +1270,28 @@ func askedSetup(ctx context.Context, st store.API, id string, seq uint64) (*stor
 			return nil, fmt.Errorf("ask %d sets up no pack", seq)
 		}
 		return r.Ask.Setup, nil
+	}
+	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
+}
+
+// askedDepotPush reads the depot-push the ask seq on the bead id
+// proposes, as the yard stored it.
+func askedDepotPush(ctx context.Context, st store.API, id string, seq uint64) (*store.AskDepotPush, error) {
+	notes, err := st.Notes(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range store.ResolveAsks(notes, time.Now()) {
+		if r.Note.Seq != seq {
+			continue
+		}
+		if r.AskErr != nil {
+			return nil, r.AskErr
+		}
+		if r.Ask.DepotPush == nil {
+			return nil, fmt.Errorf("ask %d turns no depot's push on or off", seq)
+		}
+		return r.Ask.DepotPush, nil
 	}
 	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
 }

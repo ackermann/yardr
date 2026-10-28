@@ -147,12 +147,14 @@ func weighedRefusal(seq uint64, weight []AskWeight, weighed bool) error {
 }
 
 // weighAsk weighs the card the ask a holds, as the yard wrote it: a secret,
-// a run, a setup or a mapping ask by its own rules, and any other ask as
-// routine.
+// a run, a setup, a depot-push or a mapping ask by its own rules, and
+// any other ask as routine.
 func (w *wtx) weighAsk(a Ask) ([]AskWeight, error) {
 	switch {
 	case a.Secret != nil:
 		return secretWeight(*a.Secret), nil
+	case a.DepotPush != nil:
+		return depotPushWeight(*a.DepotPush), nil
 	case a.Run != nil:
 		c, _, err := parseRow(a.Run.Argv)
 		if err != nil {

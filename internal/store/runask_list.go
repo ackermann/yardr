@@ -76,7 +76,15 @@ func seen(parts ...any) string {
 // every sentence then reads as before; a copy changed, added, removed or
 // chmodded under it reads as nothing on the card, and is caught here alone.
 func (w *wtx) sourceSeen(src *Source) (string, error) {
-	inv, _, err := w.inventoryOf(src.Name, false)
+	home := ""
+	if w.store != nil {
+		home = w.store.home
+	}
+	return sourceFingerprint(src, home)
+}
+
+func sourceFingerprint(src *Source, home string) (string, error) {
+	inv, _, err := sourceInventory(home, src.Name, false)
 	if err != nil {
 		return "", err
 	}

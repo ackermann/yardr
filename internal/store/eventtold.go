@@ -403,7 +403,8 @@ func answerHeldLine(line string) bool {
 	if !ok {
 		return false
 	}
-	return RunArgvHeld(strings.Fields(cmd))
+	argv := strings.Fields(cmd)
+	return RunArgvHeld(argv) || IsDepotPushCarry(argv)
 }
 
 // fieldsTold are the fields of the key that a row lists as key.field.

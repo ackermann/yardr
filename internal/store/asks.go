@@ -116,6 +116,12 @@ type Ask struct {
 	// and the grantees alone. It is for the operator, and is approved
 	// by ApproveSetup with the preset pick and the account together.
 	Setup *AskSetup `json:"setup,omitempty"`
+	// DepotPush makes the ask a depot-push ask: turning one depot's
+	// push to its origin on or off as one decision, carried out by the
+	// server on approval. Such an ask has no options, no recommendation
+	// and no about-beads, is for the operator, and is approved by
+	// ApproveAsk as a run ask is (depotpush.go).
+	DepotPush *AskDepotPush `json:"depot_push,omitempty"`
 	// Identity makes the ask a mapping ask: who an unmapped sender in
 	// a source hearing by identity is, asked of the operator when a
 	// delivery from them is dropped under unknown. Its options are
@@ -434,6 +440,20 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 			return nil, fmt.Errorf("a setup is approved in the yard that runs it, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
 		}
 	}
+	if ask.DepotPush != nil {
+		switch {
+		case ask.Secret != nil || ask.Run != nil || ask.Setup != nil:
+			return nil, fmt.Errorf("an ask asks for a secret, proposes a command, sets up a pack, or turns a depot's push on or off: --secret, --run, --setup or --depot-push, one of the four")
+		case len(ask.Options) > 0 || ask.Recommend != 0:
+			return nil, fmt.Errorf("a depot-push ask takes no --option and no --recommend: its answer is the operator's approval, or a decline")
+		case len(about) > 0:
+			return nil, fmt.Errorf("a depot-push ask takes no --about: it is about the depot it names")
+		case runContextLines(ask.Context) > MaxRunContext:
+			return nil, fmt.Errorf("a depot-push ask takes at most %d lines of --context, and this has %d: the depot and what the yard says of it must stay in sight", MaxRunContext, runContextLines(ask.Context))
+		case outside:
+			return nil, fmt.Errorf("a depot-push card is approved in the yard that carries it out, by its operator: %s is of another yard, and no approval crosses a link", ask.To)
+		}
+	}
 	if ask.Identity != nil {
 		// A mapping ask is the yard's own, from a dropped delivery
 		// (ClaimIdentity): no writer may invent the sender it maps.
@@ -514,6 +534,11 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 			}
 			ask.Setup, ask.Options = setup, options
 		}
+		if ask.DepotPush != nil {
+			if ask.DepotPush, err = w.askedDepotPush(ctx, *ask.DepotPush, row.ID, ask.To, actor); err != nil {
+				return 0, err
+			}
+		}
 		// Weighed from the card the yard has just written, never from
 		// what the writer sent.
 		if ask.Weight, err = w.weighAsk(ask); err != nil {
@@ -566,10 +591,10 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 			}
 			return w.queuePeer(p, m, actor)
 		}
-		if ask.Secret != nil || ask.Run != nil || ask.Setup != nil {
+		if ask.Secret != nil || ask.Run != nil || ask.Setup != nil || ask.DepotPush != nil {
 			// Nothing of a secret ask crosses a link, and a run ask is
-			// approved in this yard alone, as a setup is: no copy is
-			// queued.
+			// approved in this yard alone, as a setup and a depot-push
+			// card are: no copy is queued.
 			return seq, nil
 		}
 		if !outside {
@@ -988,7 +1013,7 @@ func answerable(id string, notes []Note, ans Answer, at time.Time, actor string,
 	// members (stageAnswer); a run, secret or setup ask to its own
 	// approval, with Later and a decline anyone's here; a mapping ask
 	// to whom it was put to (answerMapping), with Later anyone's.
-	if ask.Stage == "" && ask.Secret == nil && ask.Run == nil && ask.Setup == nil && ask.Identity == nil && mayAnswer != nil {
+	if ask.Stage == "" && ask.Secret == nil && ask.Run == nil && ask.Setup == nil && ask.DepotPush == nil && ask.Identity == nil && mayAnswer != nil {
 		if err := mayAnswer(ask.To); err != nil {
 			return "", err
 		}
@@ -1003,6 +1028,8 @@ func answerable(id string, notes []Note, ans Answer, at time.Time, actor string,
 	// A client that does not know the field shows a run ask as one that
 	// wants words, and a link carries a pick or words home: neither approves.
 	case ask.Run != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
+		return "", fmt.Errorf("ask %d takes an approval, not words: yardr bead answer %s %d --approve", ans.Ask, id, ans.Ask)
+	case ask.DepotPush != nil && (ans.Option != 0 || ans.Words != "" && !ans.Decline):
 		return "", fmt.Errorf("ask %d takes an approval, not words: yardr bead answer %s %d --approve", ans.Ask, id, ans.Ask)
 	// A setup ask has options, but a pick alone settles nothing: the
 	// preset pick goes with the account, in one approval; a drift card
@@ -1040,6 +1067,9 @@ func answerable(id string, notes []Note, ans Answer, at time.Time, actor string,
 		}
 		if ask.Setup != nil {
 			return RefusedAskAnswered, fmt.Errorf("ask %d was approved already: a setup runs once for one ask", ans.Ask)
+		}
+		if ask.DepotPush != nil {
+			return RefusedAskAnswered, fmt.Errorf("ask %d was approved already, and the yard carries its push change out", ans.Ask)
 		}
 		if len(ask.Options) == 0 {
 			return RefusedAskAnswered, fmt.Errorf("ask %d is answered already", ans.Ask)
@@ -1440,6 +1470,9 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	if r.Ask.Setup != nil && r.State == AskAnswered {
 		state = "approved"
 	}
+	if r.Ask.DepotPush != nil && r.State == AskAnswered {
+		state = "approved"
+	}
 	head := fmt.Sprintf("ask %d · %s · to %s · asked by %s · %s ago",
 		r.Note.Seq, state, OneLine(r.Ask.To), OneLine(r.Note.Author), askAge(r.Note.At, r.now))
 	if r.State == AskAside {
@@ -1473,7 +1506,7 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		// A context line is one line, refused with a break at the
 		// write; one stored before that folds to the line it is.
 		line = OneLine(line)
-		if r.Ask.Run != nil || r.Ask.Setup != nil {
+		if r.Ask.Run != nil || r.Ask.Setup != nil || r.Ask.DepotPush != nil {
 			line = OneLine(r.Note.Author) + " says: " + line
 		}
 		// A bare line stands where the weight lines do, so the mark goes
@@ -1526,6 +1559,18 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		}
 		out = append(out, carriedLines(r.Ask.Setup.Carried)...)
 		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Setup.TakenBack()), "\n", "\n  "))
+	case r.Ask.DepotPush != nil && r.State == AskAnswered:
+	case r.Ask.DepotPush != nil:
+		what := "turn push on for depot " + r.Ask.DepotPush.Depot
+		if r.Ask.DepotPush.Off {
+			what = "turn push off for depot " + r.Ask.DepotPush.Depot
+		}
+		out = append(out, "  when you approve, the yard carries this out as "+OneLine(r.Ask.To)+", and nothing else:",
+			"      "+what)
+		for _, does := range r.Ask.DepotPush.Does {
+			out = append(out, "  the yard says: "+safeSourceCardLine(does))
+		}
+		out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.DepotPush.TakenBack()), "\n", "\n  "))
 	case r.Ask.Secret != nil:
 		out = append(out, "  "+r.Ask.Secret.Line())
 		if r.Ask.Secret.Harness != "" {
@@ -1610,6 +1655,25 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 				}
 			}
 			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.Setup.TakenBack()), "\n", "\n  "))
+		case r.Ask.DepotPush != nil && c.Answer.Ran != nil:
+			what := "depot-push " + OneLine(r.Ask.DepotPush.Depot)
+			if r.Ask.DepotPush.Off {
+				what = "depot-push-off " + OneLine(r.Ask.DepotPush.Depot)
+			}
+			switch {
+			case c.Answer.Ran.Failed:
+				out = append(out, fmt.Sprintf("  %s approved, failed: %s", by, what))
+			case c.Answer.Ran.Result == CarryPending:
+				out = append(out, fmt.Sprintf("  %s approved, being carried out: %s", by, what))
+			default:
+				out = append(out, fmt.Sprintf("  %s approved, ran: %s", by, what))
+			}
+			if c.Answer.Ran.Result != CarryPending {
+				for _, line := range strings.Split(c.Answer.Ran.Result, "\n") {
+					out = append(out, "      "+NoteLetters(line))
+				}
+			}
+			out = append(out, "  "+strings.ReplaceAll(NoteLetters(r.Ask.DepotPush.TakenBack()), "\n", "\n  "))
 		case r.Ask.Secret != nil:
 			out = append(out, fmt.Sprintf("  %s gave %s", by, OneLine(strings.Join(c.Answer.Given, " and "))))
 		case len(r.Ask.Options) == 0:

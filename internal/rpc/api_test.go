@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -184,6 +185,27 @@ func setupAsked(prefix string) []field {
 		{prefix + "setup.to[].group", "string?", "the group, and so each session it starts"},
 		{prefix + "setup.to[].crew", "string?", "the crew member"},
 	}
+}
+
+// depotPushAsked is the yard's operator-only card for turning one depot's
+// push to its origin on or off.
+func depotPushAsked(prefix string) []field {
+	return []field{
+		{prefix + "depot_push", "object?", "the yard's depot-push card; absent on any other ask, and on a device that is not the current operator's. The socket tells the whole card"},
+		{prefix + "depot_push.depot", "string", "the depot whose push is changed"},
+		{prefix + "depot_push.off", "bool?", "true when the card turns push off; absent when it turns push on"},
+		{prefix + "depot_push.does", "array of string", "what approving changes and what stands now, in the yard's words"},
+		{prefix + "depot_push.back", "string", "the filing that takes the change back"},
+		{prefix + "depot_push.back_by", "string?", "who may file `back`, in words that stand before `can take it back`; absent where that is anyone"},
+	}
+}
+
+func queueCard(prefix string) []field {
+	fields := queueRow(prefix)
+	fields = append(fields, secretAsked(prefix)...)
+	fields = append(fields, runAsked(prefix)...)
+	fields = append(fields, setupAsked(prefix)...)
+	return append(fields, depotPushAsked(prefix)...)
 }
 
 // A flow bead is the same on a stage, off the line and travelling with no
@@ -436,19 +458,17 @@ var apiCalls = []apiCall{
 		says:     "The person's decisions: every open ask addressed to them, on beads the viewer may see in any stage and of any type, the journal of a crew member among them (where the yard asks the operator how to log its harness in), and from the linked yards, oldest first, with what they have dealt with beside it. Only the user reads their queue, and an operator reads any user's. A question another yard asked stands as `bead@peer`, placed by when this yard took it; answered, put aside or declined here it is among the decided by what this yard knows of it, since the answer lands in the other yard. It is not `yardr review`'s queue, which walks beads in manual stages by bead age. A device's viewer is always its user.",
 		args:     []field{{"name", "string", "the user"}, {"actor", "string", "who reads: the user's name, or an operator's; left out, the user"}, {"viewer", "string", "who reads the queue; a device's viewer is its user; left out, the yard itself"}},
 		requests: []string{`{"name":"jo","actor":"jo","viewer":"jo"}`},
-		fields: append(append(append(append(queueRow("open[]."), secretAsked("open[].")...), runAsked("open[].")...), setupAsked("open[].")...),
-			append(append(append(append(queueRow("decided[]."), secretAsked("decided[].")...), runAsked("decided[].")...), setupAsked("decided[].")...),
-				field{"decided[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask"},
-				field{"decided[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\"; or the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside"},
-				field{"decided[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole result"},
-				field{"decided[].ran.result", "string", "what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
-				field{"decided[].state", "string", "`answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word"},
-				field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back"},
-				field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
-				field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined or taken back; for a question another yard asked that ended there, how it ended; for one put aside there, `put aside in <peer>'s yard until <when>`; absent when there are none"},
-				field{"decided[].by", "string?", "who took the ask back, its asker or the operator: it reads \"taken back by `<by>`: `<words>`\", and is no answer of the person. Absent on every other state, and on a question another yard took back, whose `words` say where"},
-				field{"decided[].return_at", "time?", "when a put-aside ask comes back, here or in the yard that asked it; absent otherwise"},
-			)...,
+		fields: append(append(queueCard("open[]."), queueCard("decided[].")...),
+			field{"decided[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask"},
+			field{"decided[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\"; the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; or the carrying out of a depot-push card, which reads \"approved, to be carried out\", \"approved, ran\" or \"approved, failed\". Absent on any other ask and on an ask that was declined or put aside. A depot-push card and its `ran` are told only to a device of the current operator; other devices are told neither"},
+			field{"decided[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole result"},
+			field{"decided[].ran.result", "string", "what the command printed; on a setup ask not yet carried out or a depot-push ask, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). A depot-push result is told to a device of the current operator alone too. Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
+			field{"decided[].state", "string", "`answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word"},
+			field{"decided[].option", "number?", "the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back"},
+			field{"decided[].option_label", "string?", "the picked option's label; absent with `option`"},
+			field{"decided[].words", "string?", "what went with the pick, the words answer, or why the question is declined or taken back; for a question another yard asked that ended there, how it ended; for one put aside there, `put aside in <peer>'s yard until <when>`; absent when there are none"},
+			field{"decided[].by", "string?", "who took the ask back, its asker or the operator: it reads \"taken back by `<by>`: `<words>`\", and is no answer of the person. Absent on every other state, and on a question another yard took back, whose `words` say where"},
+			field{"decided[].return_at", "time?", "when a put-aside ask comes back, here or in the yard that asked it; absent otherwise"},
 		),
 		after: "Read it again on every `noted` event: a question asked, answered, put aside, declined or taken back, and the asker's next note, all arrive as `noted`. A put-aside ask also comes back on its own after 24 hours, with no event: its decided entry carries `return_at`, so read again then. An answer to a question another yard asked that did not land arrives as `noted` by `yard`: the question is open again, or decided with how it ended there, and the person has mail from `yard` that says which.",
 	},
@@ -525,6 +545,12 @@ var apiCalls = []apiCall{
 			{"asks[].secret.line", "string", "what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to, and whose it is where `as` names a user; with `harness`, whose API key it is and when it takes effect. Show it as it is"},
 			{"asks[].concealed", "bool?", "whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask"},
 			{"asks[].given", "array of string?", "the names a secret ask was given values for, or the account names a setup ask was approved with, which reads \"gave `<names>`\"; absent on any other ask and until it is given"},
+			{"asks[].depot_push", "object?", "the yard's depot-push card for turning one depot's push to its HTTPS origin on or off. Absent on any other ask, and on a device that is not the current operator's; the socket tells the whole card. It has no options and takes no words: `AnswerAsk` refuses a pick and words on it, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator, at the yard or from a device of the operator. Approval carries the change out after the call; it never runs `git push`"},
+			{"asks[].depot_push.depot", "string", "the depot whose push is changed"},
+			{"asks[].depot_push.off", "bool?", "true when the card turns push off; absent when it turns push on"},
+			{"asks[].depot_push.does", "array of string", "what approving changes and what stands now, in the yard's words"},
+			{"asks[].depot_push.back", "string", "the filing that takes the change back"},
+			{"asks[].depot_push.back_by", "string?", "who may file `back`, in words that stand before `can take it back`; absent where that is anyone"},
 			{"asks[].run", "object?", "the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`, with `--value <name>=<value>` where the card asks for values in the clear), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].run.argv", "array of string", "the command in words, without the leading `yardr`, as the yard parsed it. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
 			{"asks[].run.command", "string", "the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `\"\"` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
@@ -532,9 +558,9 @@ var apiCalls = []apiCall{
 			{"asks[].run.back", "string", "the command that takes the change back"},
 			{"asks[].run.back_by", "string?", "who may run `back`, in words that stand before \"can take it back\": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads \"anyone can take it back\""},
 			{"asks[].run.ask", "array of string?", "the names the approval gives values for in the clear, one field on the card each, in this order: a hook add the yard registers itself asks for its register call's asked parameters, and the approval carries them to the call. Absent on any other run ask"},
-			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; or the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered`"},
-			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card"},
-			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
+			{"asks[].ran", "object?", "the command the yard ran when a run ask was approved, which reads \"approved, ran: `<command>`\" with `result` under it; the setup a setup ask approved, which reads \"approved, being carried out\", \"approved, ran\" or \"approved, failed\" with the preset and the names given; or the carrying out of a depot-push card, which reads \"approved, to be carried out\", \"approved, ran\" or \"approved, failed\". Absent on any other ask and until it is approved. A depot-push card and its `ran` are absent for devices of nonoperators; the socket tells the whole card"},
+			{"asks[].ran.argv", "array of string", "the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole card"},
+			{"asks[].ran.result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask or depot-push ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). A depot-push result is told to a device of the operator alone too; any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result"},
 			{"asks[].setup", "object?", "the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text"},
 			{"asks[].setup.pack", "string", "the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered"},
 			{"asks[].setup.base", "string?", "the selected region base name; absent when calls go to the declarations' own bases"},
@@ -749,7 +775,7 @@ var apiOperatorCalls = []apiCall{
 			{"does", "array of string", "what the command changed, in the yard's words, as the card had them"},
 			{"result", "string", "what the command printed, made by the yard: a line for each thing it changed, with a line break between them"},
 		},
-		after: "The change and the answer are one write: the command ran and the ask is approved, or neither. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again, where `asks[].ran` is there once the command ran.",
+		after: "The change and the answer are one write: the command ran and the ask is approved, or neither. For a depot-push ask, the approval records `ran` as pending; the server then checks the card, source and token again before writing the assembly command and the depot's local Git config. It verifies both writes, never runs `git push`, and updates `ran` to say whether it ran or failed. A depot-push card and its answer are sent to the current operator alone on the listener, and its approval sentence is held from nonoperator devices in the event stream. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the card again\", never \"approved\", and read `Bead` again, where `asks[].ran` is there once the command ran.",
 	},
 	{
 		method: "ApproveSetup",
@@ -979,7 +1005,7 @@ var apiEvents = []apiEvent{
 	},
 	{
 		title: "A note on a bead: `noted`",
-		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, a command approved, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
+		says:  "A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, a command approved, a depot-push card carried, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. A depot-push approval sentence is held from nonoperator devices. The event says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.",
 		is:    kindOf("noted"),
 		fields: []field{
 			{"seq", "number", "the event's seq"},
@@ -1080,6 +1106,11 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	ctx := context.Background()
 	home := t.TempDir()
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "none"))
+	// Nor one git builds in beside the system file (Apple's git brings
+	// a credential.helper of its own).
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	st, err := store.Open(filepath.Join(home, "yard.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -1650,6 +1681,52 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	moved, err := st.Claim(ctx, links.ID, "builders", "review", "yard")
 	must(err)
 	must(st.MarkRunning(ctx, moved.ID, map[string]any{"agent": "links-new"}))
+	// Depot-push cards have an outside weight and a listener visibility rule,
+	// so the API contract carries one open and one approved card in its queue.
+	edge := store.Edge{URL: "https://edge.example.com", Key: yardkey.Public(key), Handle: "jo", Name: "edgeyard"}
+	must(st.SetSetting(ctx, store.EdgeSetting, edge.String(), "jo"))
+	const githubPushSource = `name: github
+base: https://api.github.com
+credential: { env: GITHUB_TOKEN }
+git: { credential: [github/git-credential] }
+link:
+  host: github.com
+  issue: '^/([A-Za-z0-9](?:-?[A-Za-z0-9])*)/([A-Za-z0-9._-]+)/issues/([1-9][0-9]*)(?:/.*)?$'
+  fixed: "https://github.com/{1}/{2}/issues/{3}"
+  thread: "{1}/{2}#{3}"
+calls:
+  viewer:
+    kind: read
+    request: { method: GET, path: /user }
+`
+	_, err = st.PutSource(ctx, "github.yaml", githubPushSource, "jo")
+	must(err)
+	must(os.MkdirAll(filepath.Join(home, "sources"), 0o755))
+	must(os.WriteFile(filepath.Join(home, "sources", "github.env"), []byte("GITHUB_TOKEN=fixture-token-not-for-output\n"), 0o600))
+	repo := filepath.Join(home, "yard-repo")
+	must(os.MkdirAll(repo, 0o755))
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repo, "remote", "add", "origin", "https://github.com/ada/yard.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v\n%s", err, out)
+	}
+	must(st.PutDepot(ctx, store.Depot{Name: "yard", Path: repo, Base: "main"}, "jo"))
+	must(st.PutGroup(ctx, store.Group{Name: "yard-assembly", Runner: "exec", Limit: 1, Config: map[string]any{"cmd": "YARDR_PUSH=origin /srv/yard-land"}}, "jo"))
+	packHelper := filepath.Join(home, "sources", "github", "github", "git-credential")
+	if out, err := exec.Command("git", "-C", repo, "config", "--local", "credential.https://github.com.helper", packHelper).CombinedOutput(); err != nil {
+		t.Fatalf("git config helper: %v\n%s", err, out)
+	}
+	pushAsk := func(question string) store.Ask {
+		return store.Ask{Question: question, To: "jo", Context: []string{"The linked depot is ready."},
+			DepotPush: &store.AskDepotPush{Depot: "yard", Off: true}}
+	}
+	ask(links.ID, pushAsk("Turn push off for the yard depot?"))
+	pushDone := ask(greet.ID, pushAsk("Turn push off for the yard depot?"))
+	_, err = st.ApproveAsk(ctx, greet.ID, pushDone, "jo", true, nil)
+	must(err)
+	putAside := ask(links.ID, store.Ask{Question: "Can the note wait?", To: "jo", Context: []string{"It can be read tomorrow."}})
+	must(st.DeferAsk(ctx, links.ID, putAside, "jo"))
 	return st, d.Token
 }
 

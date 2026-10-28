@@ -80,6 +80,10 @@ type Carry struct {
 	// name, "" for a typed account. The carrying out points the pack's
 	// sources at its file instead of writing a typed value.
 	Account string `json:"account,omitempty"`
+	// DepotPushSource is the non-secret source identity a depot-push
+	// approval was held to, so carrying cannot switch to a source changed
+	// after the operator approved the card.
+	DepotPushSource string `json:"depot_push_source,omitempty"`
 	// Keep is a setup approval that keeps the standing account: no typed
 	// values, no picked candidate. The carrying out verifies the file
 	// still holds every name and goes on to the grants.
@@ -181,6 +185,9 @@ func (s *Store) PendingCarry(ctx context.Context) (bool, error) {
 // how to carry rec. A record for a later carrying kind stays approved until
 // the build that knows it takes it up.
 func carryHandledHere(rec *Carry) bool {
+	if IsDepotPushCarry(rec.Argv) {
+		return true
+	}
 	if len(rec.Argv) == 1 && rec.Argv[0] == "up" {
 		return true
 	}

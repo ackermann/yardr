@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -752,6 +755,129 @@ func TestUserAsksTellsTheSetupToTheOperatorAlone(t *testing.T) {
 	}
 	t.Run("typed values and paths", userRunAskTellsTypedValueAndPathToTheOperatorAlone)
 	t.Run("the yard's words about a failed fetch or login", userBeadTellsTheYardsWordsToTheOperatorAlone)
+	t.Run("depot-push card and approval", func(t *testing.T) {
+		ctx := context.Background()
+		y := newSecretYard(t)
+		t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+		t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(t.TempDir(), "no-system-config"))
+		// Nor one git builds in beside the system file (Apple's git brings
+		// a credential.helper of its own).
+		t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edge := store.Edge{URL: "https://my.yardr.dev", Key: yardkey.Public(key), Handle: "jo", Name: "edgeyard"}
+		if err := y.st.SetSetting(ctx, store.EdgeSetting, edge.String(), "jo"); err != nil {
+			t.Fatal(err)
+		}
+		const pushDecl = `name: github
+base: https://api.github.com
+credential: { env: GITHUB_TOKEN }
+git: { credential: [github/git-credential] }
+link:
+  host: github.com
+  issue: '^/([A-Za-z0-9](?:-?[A-Za-z0-9])*)/([A-Za-z0-9._-]+)/issues/([1-9][0-9]*)(?:/.*)?$'
+  fixed: "https://github.com/{1}/{2}/issues/{3}"
+  thread: "{1}/{2}#{3}"
+calls:
+  viewer:
+    kind: read
+    request: { method: GET, path: /user }
+`
+		if _, err := y.st.PutSource(ctx, "github.yaml", pushDecl, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		home := filepath.Dir(y.db)
+		if err := os.MkdirAll(filepath.Join(home, "sources"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		const token = "listener-token-3b12"
+		if err := os.WriteFile(filepath.Join(home, "sources", "github.env"), []byte("GITHUB_TOKEN="+token+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		repo := t.TempDir()
+		git := func(args ...string) {
+			t.Helper()
+			cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+			}
+		}
+		git("init", "-q")
+		git("remote", "add", "origin", "https://github.com/ada/web.git")
+		if err := y.st.PutDepot(ctx, store.Depot{Name: "web", Path: repo, Base: "main"}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if err := y.st.PutGroup(ctx, store.Group{Name: "web-assembly", Runner: "exec", Limit: 1,
+			Config: map[string]any{"cmd": "YARDR_LAND=squash /srv/merge-local"}}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		seq, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Turn push on for web?", To: "jo",
+			Context:   []string{"A linked depot should push when its landing is carried out."},
+			DepotPush: &store.AskDepotPush{Depot: "web"}}, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.st.ApproveAsk(ctx, "yd-crm", seq, "jo", true, nil); err != nil {
+			t.Fatal(err)
+		}
+		whole, wholeRaw := y.bead(t, y.jo)
+		var wholeCard *store.DepotPushAsked
+		var wholeRan *store.AskRan
+		for _, ask := range whole.Asks {
+			if ask.Ask == seq {
+				wholeCard, wholeRan = ask.DepotPush, ask.Ran
+			}
+		}
+		if wholeCard == nil || wholeRan == nil || len(wholeRan.Argv) != 2 || wholeRan.Argv[0] != "depot-push" {
+			t.Fatal("the operator is not told the push card and its approval")
+		}
+		wholeQueue, wholeQueueRaw := y.queue(t, y.jo)
+		if len(wholeQueue.Decided) == 0 || wholeQueue.Decided[0].DepotPush == nil || wholeQueue.Decided[0].Ran == nil {
+			t.Fatal("the operator's queue is not told the card and approval")
+		}
+		if strings.Contains(wholeRaw, token) || strings.Contains(wholeQueueRaw, token) {
+			t.Fatal("the operator's device is told the token value")
+		}
+		if err := y.st.SetSetting(ctx, store.OperatorSetting, "sam", "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := y.st.SetUser(ctx, "jo", map[string]string{store.UserRole: store.RoleMember}, "sam"); err != nil {
+			t.Fatal(err)
+		}
+		held, heldRaw := y.bead(t, y.jo)
+		var heldCard *store.DepotPushAsked
+		var heldRan *store.AskRan
+		for _, ask := range held.Asks {
+			if ask.Ask == seq {
+				heldCard, heldRan = ask.DepotPush, ask.Ran
+			}
+		}
+		if heldCard != nil || heldRan != nil || strings.Contains(heldRaw, "depot_push") || strings.Contains(heldRaw, "depot-push") {
+			t.Fatal("a non-operator device is told the card or its approval")
+		}
+		heldQueue, heldQueueRaw := y.queue(t, y.jo)
+		for _, ask := range heldQueue.Decided {
+			if ask.Ask == seq && (ask.DepotPush != nil || ask.Ran != nil) {
+				t.Fatalf("a non-operator queue is told the card or its approval: %+v", ask)
+			}
+		}
+		if strings.Contains(heldQueueRaw, "depot_push") || strings.Contains(heldQueueRaw, "depot-push") || strings.Contains(heldQueueRaw, token) {
+			t.Fatal("a non-operator queue is told card data or a token")
+		}
+		current, _ := y.bead(t, y.sam)
+		currentHasCard := false
+		for _, ask := range current.Asks {
+			if ask.Ask == seq {
+				currentHasCard = ask.DepotPush != nil && ask.Ran != nil
+				break
+			}
+		}
+		if !currentHasCard {
+			t.Fatal("the current operator is not told the card and approval")
+		}
+	})
 }
 
 // runPhoneDecl is the declaration a source add run ask of the test carries:

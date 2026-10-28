@@ -2086,6 +2086,18 @@ yardr source check github
 # …
 ```
 
+To let landings push a linked depot to its origin, a crew member or user can
+file `yardr bead ask <id> "<question>" --depot-push <depot>`. The operator
+approves the outside-weight card; approval adds `YARDR_PUSH=origin` to that
+depot's `<depot>-assembly` command and sets the matched source's declared
+path-only credential helper in that depot's local Git config; the source's
+token must stand to turn push on. Approval does not run `git push` or put the
+token in the card. Turning push on is refused while any other credential
+helper answers for the origin's host, one set for every host or box-wide
+included (some git builds bring their own), since git hands the token to
+each helper it runs. File the reverse with
+`yardr bead ask <id> "<question>" --depot-push-off <depot>`.
+
 The same steps as Linear, with these differences:
 
 - **The hook.** `yardr hook add gh --source github --secret-file

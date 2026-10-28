@@ -277,7 +277,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 168,
+  "seq": 177,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -305,7 +305,7 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 170,
+  "seq": 179,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
@@ -449,7 +449,7 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 171,
+  "seq": 180,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
@@ -467,7 +467,7 @@ A user acknowledged their notifications, in this client or another.
 
 ### A note on a bead: `noted`
 
-A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, a command approved, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. It says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
+A note was added to the bead: a plain note, a question (an ask), or an answer (a pick, words, a secret given, a command approved, a depot-push card carried, put aside, declined), or its asker taking a question back. A question another yard asked arrives as `noted` too, on `bead@peer`. A depot-push approval sentence is held from nonoperator devices. The event says no more than that the bead has a new note: read `UserAsks` again on it, and `Bead` again when `bead` is one shown.
 
 ```json
 {
@@ -850,6 +850,12 @@ nothing else. What is not the same:
   the command whole, so its `noted` event carries no `answer` to such a
   device, and its notification reads as the event without its sentence. A
   device of an operator is sent all of it, as the socket is.
+- **`Bead` and `UserAsks` send a depot-push card and its `ran` only to a
+  device of the current operator.** A device of any other user, including a
+  user who was the operator when the ask was filed, receives neither field;
+  the socket tells the whole card. The `noted` event for its approval and the
+  notification made from that event hold the approval sentence from
+  nonoperator devices.
 - **A notification's `text` is made from what its person is told of the
   event.** An operator's `UserNotifications` has the words of each event as
   the stream sends it to an operator. Any other user's has the words as the
@@ -1076,7 +1082,7 @@ POST /call/Head
 {}
 
 {
-  "result": 165
+  "result": 174
 }
 ```
 
@@ -1575,7 +1581,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 166,
+      "seq": 175,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1583,7 +1589,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 167,
+      "seq": 176,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1609,7 +1615,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 166,
+      "seq": 175,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1617,7 +1623,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 167,
+      "seq": 176,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1644,7 +1650,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 168,
+      "seq": 177,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1827,6 +1833,15 @@ POST /call/UserAsks
         "topic": "",
         "ask": 5,
         "question": "What should the tone of the greeting be?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 12,
+        "question": "The web view cleanup: build?",
         "asker": "yardmaster",
         "since": "2026-10-08T09:30:00Z"
       },
@@ -2328,9 +2343,69 @@ POST /call/UserAsks
             "line": "widens who the yard listens to: POST /hooks/bot takes deliveries from outside the yard for the source bot"
           }
         ]
+      },
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 60,
+        "question": "Turn push off for the yard depot?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "depot_push": {
+          "depot": "yard",
+          "off": true,
+          "does": ["turns push to github.com off for depot yard (origin https://github.com/ada/yard.git).", "takes YARDR_PUSH=origin out of yard-assembly's cmd; the rest of the cmd stands untouched, YARDR_LAND as it was.", "takes the pack's helper line for https://github.com out of depot yard's own git config with git -C yard config --unset credential.https://github.com.helper; no other depot's config changes.", "landings of the depot then land here and push nowhere."],
+          "back": "yardr bead ask yd-links \"\u003cquestion\u003e\" --depot-push yard",
+          "back_by": "only the operator"
+        },
+        "weight": [
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: landings of depot yard push to its origin no more"
+          }
+        ]
       }
     ],
     "decided": [
+      {
+        "bead": "yd-links",
+        "bead_title": "Move the links",
+        "topic": "topic:linear-out",
+        "ask": 63,
+        "question": "Can the note wait?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "put aside",
+        "return_at": "2026-10-08T09:30:00Z"
+      },
+      {
+        "bead": "yd-greet",
+        "bead_title": "The greeting",
+        "topic": "",
+        "ask": 61,
+        "question": "Turn push off for the yard depot?",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "state": "answered",
+        "ran": {
+          "argv": ["depot-push-off", "yard"],
+          "result": "approved, to be carried out"
+        },
+        "depot_push": {
+          "depot": "yard",
+          "off": true,
+          "does": ["turns push to github.com off for depot yard (origin https://github.com/ada/yard.git).", "takes YARDR_PUSH=origin out of yard-assembly's cmd; the rest of the cmd stands untouched, YARDR_LAND as it was.", "takes the pack's helper line for https://github.com out of depot yard's own git config with git -C yard config --unset credential.https://github.com.helper; no other depot's config changes.", "landings of the depot then land here and push nowhere."],
+          "back": "yardr bead ask yd-greet \"\u003cquestion\u003e\" --depot-push yard",
+          "back_by": "only the operator"
+        },
+        "weight": [
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: landings of depot yard push to its origin no more"
+          }
+        ]
+      },
       {
         "bead": "yd-crm",
         "bead_title": "Read the CRM",
@@ -2785,17 +2860,6 @@ POST /call/UserAsks
         "words": "send them tonight"
       },
       {
-        "bead": "yd-links",
-        "bead_title": "Move the links",
-        "topic": "topic:linear-out",
-        "ask": 12,
-        "question": "The web view cleanup: build?",
-        "asker": "yardmaster",
-        "since": "2026-10-08T09:30:00Z",
-        "state": "put aside",
-        "return_at": "2026-10-08T09:30:00Z"
-      },
-      {
         "bead": "yd-greet",
         "bead_title": "The greeting",
         "topic": "",
@@ -2873,6 +2937,12 @@ POST /call/UserAsks
 | `open[].setup.to` | array | who the grants are for |
 | `open[].setup.to[].group` | string, may be absent | the group, and so each session it starts |
 | `open[].setup.to[].crew` | string, may be absent | the crew member |
+| `open[].depot_push` | object, may be absent | the yard's depot-push card; absent on any other ask, and on a device that is not the current operator's. The socket tells the whole card |
+| `open[].depot_push.depot` | string | the depot whose push is changed |
+| `open[].depot_push.off` | bool, may be absent | true when the card turns push off; absent when it turns push on |
+| `open[].depot_push.does` | array of string | what approving changes and what stands now, in the yard's words |
+| `open[].depot_push.back` | string | the filing that takes the change back |
+| `open[].depot_push.back_by` | string, may be absent | who may file `back`, in words that stand before `can take it back`; absent where that is anyone |
 | `decided[].bead` | string | the bead the question stands on: a handle, or `bead@peer` for a question another yard asked |
 | `decided[].bead_title` | string | the bead's title |
 | `decided[].topic` | string | the bead's topic: its first `topic:` label, `""` when it has none |
@@ -2922,10 +2992,16 @@ POST /call/UserAsks
 | `decided[].setup.to` | array | who the grants are for |
 | `decided[].setup.to[].group` | string, may be absent | the group, and so each session it starts |
 | `decided[].setup.to[].crew` | string, may be absent | the crew member |
+| `decided[].depot_push` | object, may be absent | the yard's depot-push card; absent on any other ask, and on a device that is not the current operator's. The socket tells the whole card |
+| `decided[].depot_push.depot` | string | the depot whose push is changed |
+| `decided[].depot_push.off` | bool, may be absent | true when the card turns push off; absent when it turns push on |
+| `decided[].depot_push.does` | array of string | what approving changes and what stands now, in the yard's words |
+| `decided[].depot_push.back` | string | the filing that takes the change back |
+| `decided[].depot_push.back_by` | string, may be absent | who may file `back`, in words that stand before `can take it back`; absent where that is anyone |
 | `decided[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask |
-| `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and on an ask that was declined or put aside |
-| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. The socket tells the whole result |
-| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
+| `decided[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`"; the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; or the carrying out of a depot-push card, which reads "approved, to be carried out", "approved, ran" or "approved, failed". Absent on any other ask and on an ask that was declined or put aside. A depot-push card and its `ran` are told only to a device of the current operator; other devices are told neither |
+| `decided[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, a device of the current operator is told them, whoever the ask was put to. Any other device is told `[]`, even the device of a user the ask was put to while they were the operator, and so is every device of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole result |
+| `decided[].ran.result` | string | what the command printed; on a setup ask not yet carried out or a depot-push ask, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the current operator alone, whoever the ask was put to ([over the network](#over-the-network)). A depot-push result is told to a device of the current operator alone too. Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `decided[].state` | string | `answered`, `put aside`, `declined` or `taken back`. A later build may add a state: one a client does not know is still not open, and is shown by its word |
 | `decided[].option` | number, may be absent | the picked option's number; absent on a words answer, an aside ask, a declined one and one taken back |
 | `decided[].option_label` | string, may be absent | the picked option's label; absent with `option` |
@@ -3092,6 +3168,39 @@ POST /call/Bead
             "consequence": "leave it to yardmaster"
           }
         ],
+        "state": "open"
+      },
+      {
+        "ask": 60,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Turn push off for the yard depot?",
+        "context": ["The linked depot is ready."],
+        "options": [],
+        "state": "open",
+        "depot_push": {
+          "depot": "yard",
+          "off": true,
+          "does": ["turns push to github.com off for depot yard (origin https://github.com/ada/yard.git).", "takes YARDR_PUSH=origin out of yard-assembly's cmd; the rest of the cmd stands untouched, YARDR_LAND as it was.", "takes the pack's helper line for https://github.com out of depot yard's own git config with git -C yard config --unset credential.https://github.com.helper; no other depot's config changes.", "landings of the depot then land here and push nowhere."],
+          "back": "yardr bead ask yd-links \"\u003cquestion\u003e\" --depot-push yard",
+          "back_by": "only the operator"
+        },
+        "weight": [
+          {
+            "class": "outside",
+            "line": "lets the yard change something outside it: landings of depot yard push to its origin no more"
+          }
+        ]
+      },
+      {
+        "ask": 63,
+        "to": "jo",
+        "asker": "yardmaster",
+        "since": "2026-10-08T09:30:00Z",
+        "question": "Can the note wait?",
+        "context": ["It can be read tomorrow."],
+        "options": [],
         "state": "put aside",
         "return_at": "2026-10-08T09:30:00Z"
       }
@@ -3143,7 +3252,7 @@ POST /call/Bead
         "started_at": "2026-10-08T09:30:00Z"
       },
       "activity": {
-        "kind": "started",
+        "kind": "noted",
         "at": "2026-10-08T09:30:00Z"
       }
     }
@@ -4392,6 +4501,12 @@ POST /call/Bead
 | `asks[].secret.line` | string | what the card says is asked for, in the yard's words and never the asker's: the names, the source, and where the source's calls go; with `user`, whose address it is and the command that tells them through the source; with `crew`, whose credential it is, that the env_file line is the one written, and when it takes effect; with `as`, whose credential it is and that a call made as them reads it; with `login`, the waiting login the value goes to, and whose it is where `as` names a user; with `harness`, whose API key it is and when it takes effect. Show it as it is |
 | `asks[].concealed` | bool, may be absent | whether a secret ask's value is drawn hidden: false where the source marks every asked name as no secret, which is shown with a field that echoes; absent (concealed) on any other ask |
 | `asks[].given` | array of string, may be absent | the names a secret ask was given values for, or the account names a setup ask was approved with, which reads "gave `<names>`"; absent on any other ask and until it is given |
+| `asks[].depot_push` | object, may be absent | the yard's depot-push card for turning one depot's push to its HTTPS origin on or off. Absent on any other ask, and on a device that is not the current operator's; the socket tells the whole card. It has no options and takes no words: `AnswerAsk` refuses a pick and words on it, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator, at the yard or from a device of the operator. Approval carries the change out after the call; it never runs `git push` |
+| `asks[].depot_push.depot` | string | the depot whose push is changed |
+| `asks[].depot_push.off` | bool, may be absent | true when the card turns push off; absent when it turns push on |
+| `asks[].depot_push.does` | array of string | what approving changes and what stands now, in the yard's words |
+| `asks[].depot_push.back` | string | the filing that takes the change back |
+| `asks[].depot_push.back_by` | string, may be absent | who may file `back`, in words that stand before `can take it back`; absent where that is anyone |
 | `asks[].run` | object, may be absent | the command a run ask proposes: one yardr command that is the operator's to give, which the yard runs when the operator approves the ask. Absent on any other ask. Such an ask has no options and takes no words: `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveAsk`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> --approve`, with `--value <name>=<value>` where the card asks for values in the clear), or from a device of the operator. A command that is a user's own (`subscribe <user> yardr`, `user set <user> tell=<parts>`, `user key <user> <source>`) is approved at the yard by the one it was asked of, that user or the operator. All of `run` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].run.argv` | array of string | the command in words, without the leading `yardr`, as the yard parsed it. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
 | `asks[].run.command` | string | the command whole, as it is typed in a terminal and as it would run. Never shorten it: a view that cannot show it whole says where the ask can be read instead. On a run ask that sets a setting or adds a source, told to a device of the operator alone ([over the network](#over-the-network)): `""` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
@@ -4399,9 +4514,9 @@ POST /call/Bead
 | `asks[].run.back` | string | the command that takes the change back |
 | `asks[].run.back_by` | string, may be absent | who may run `back`, in words that stand before "can take it back": `only the operator` for a source's limits, `<user> or the operator` for a user's subscription and for what they are told of. Absent where that is anyone, which reads "anyone can take it back" |
 | `asks[].run.ask` | array of string, may be absent | the names the approval gives values for in the clear, one field on the card each, in this order: a hook add the yard registers itself asks for its register call's asked parameters, and the approval carries them to the call. Absent on any other run ask |
-| `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; or the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; absent on any other ask and until it is approved. The ask's `state` is then `answered` |
-| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. The socket tells the whole card |
-| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). Any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
+| `asks[].ran` | object, may be absent | the command the yard ran when a run ask was approved, which reads "approved, ran: `<command>`" with `result` under it; the setup a setup ask approved, which reads "approved, being carried out", "approved, ran" or "approved, failed" with the preset and the names given; or the carrying out of a depot-push card, which reads "approved, to be carried out", "approved, ran" or "approved, failed". Absent on any other ask and until it is approved. A depot-push card and its `ran` are absent for devices of nonoperators; the socket tells the whole card |
+| `asks[].ran.argv` | array of string | the command that ran, in words: the one the ask proposed; on a setup ask, `setup` with the pack's name. On a run ask that set a setting or added a source, told to a device of the operator alone ([over the network](#over-the-network)): `[]` on any other device's card, and on every device's of a yard with no operator. A depot-push card and its `ran` are absent for devices of nonoperators. The socket tells the whole card |
+| `asks[].ran.result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them; on a setup ask or depot-push ask not yet carried out, `approved, to be carried out`, and afterwards what the carrying out printed. Its line `the account <names> is set in <file>` names the file the account is set in, which is the candidate's when the approval took one, and the words of a carrying out that failed can name it too, and the candidate's source: both are told to a device of the operator alone ([over the network](#over-the-network)). A depot-push result is told to a device of the operator alone too; any other device is told `the account <names> is set` for that line and, for a failure, that it failed and no more; so is every device of a yard with no operator. The socket tells the whole result |
 | `asks[].setup` | object, may be absent | the setup a setup ask proposes: the pack with the yard's sentences for what approving it does, the account to type beside the preset pick or the candidates to take instead (on an update, the account that already stands), and the presets the ask's options count. Absent on any other ask. `AnswerAsk` refuses a pick and words on it, `DeferAsk` and `DeclineAsk` take it as any ask, and it is approved with [`ApproveSetup`](#for-the-operator-alone), by the operator: at the yard (`yardr bead answer <bead> <ask> <n> --secret`, `--account <source>` where the card lists a candidate, or a bare `<n>` where the card is `given`), or from a device of the operator. All of `setup` is the yard's, made when the ask was written, and none of it the asker's: show it apart from `question` and `context`, which are the asker's words, and draw those as plain text |
 | `asks[].setup.pack` | string | the embedded pack to set up, of kind source, whose `yardr pack show <pack>` prints the presets numbered |
 | `asks[].setup.base` | string, may be absent | the selected region base name; absent when calls go to the declarations' own bases |
@@ -5417,7 +5532,7 @@ POST /call/ApproveAsk
 | `does` | array of string | what the command changed, in the yard's words, as the card had them |
 | `result` | string | what the command printed, made by the yard: a line for each thing it changed, with a line break between them |
 
-The change and the answer are one write: the command ran and the ask is approved, or neither. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the card again", never "approved", and read `Bead` again, where `asks[].ran` is there once the command ran.
+The change and the answer are one write: the command ran and the ask is approved, or neither. For a depot-push ask, the approval records `ran` as pending; the server then checks the card, source and token again before writing the assembly command and the depot's local Git config. It verifies both writes, never runs `git push`, and updates `ran` to say whether it ran or failed. A depot-push card and its answer are sent to the current operator alone on the listener, and its approval sentence is held from nonoperator devices in the event stream. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the card again", never "approved", and read `Bead` again, where `asks[].ran` is there once the command ran.
 
 ### `ApproveSetup`
 

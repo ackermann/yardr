@@ -338,7 +338,7 @@ func (u *UserServer) bead(ctx context.Context, id, viewer string) (*store.BeadVi
 		return nil, err
 	}
 	cards := slices.ContainsFunc(v.Asks, func(a store.BeadAsk) bool {
-		return a.Run != nil || a.Setup != nil
+		return a.Run != nil || a.Setup != nil || a.DepotPush != nil
 	})
 	yard := slices.ContainsFunc(v.Notes, func(n store.BeadNote) bool {
 		_, ok := store.HeldYardNote(n.Author, n.Text)
@@ -362,6 +362,7 @@ func (u *UserServer) bead(ctx context.Context, id, viewer string) (*store.BeadVi
 		a := &v.Asks[i]
 		a.Setup, a.Ran = withoutAccount(a.Setup, a.Ran)
 		a.Run, a.Ran = withoutRunWords(a.Run, a.Ran)
+		a.DepotPush, a.Ran = withoutDepotPush(a.DepotPush, a.Ran)
 		if held, ok := store.HeldYardWords(a.By, a.Words); ok {
 			a.Words = held
 		}
@@ -403,11 +404,13 @@ func (u *UserServer) userAsks(ctx context.Context, name string, _, _ string) (*s
 	for i := range q.Open {
 		q.Open[i].Setup, _ = withoutAccount(q.Open[i].Setup, nil)
 		q.Open[i].Run, _ = withoutRunWords(q.Open[i].Run, nil)
+		q.Open[i].DepotPush, _ = withoutDepotPush(q.Open[i].DepotPush, nil)
 	}
 	for i := range q.Decided {
 		d := &q.Decided[i]
 		d.Setup, d.Ran = withoutAccount(d.Setup, d.Ran)
 		d.Run, d.Ran = withoutRunWords(d.Run, d.Ran)
+		d.DepotPush, d.Ran = withoutDepotPush(d.DepotPush, d.Ran)
 		if held, ok := store.HeldYardWords(d.By, d.Words); ok {
 			d.Words = held
 		}
@@ -473,6 +476,20 @@ func withoutRunWords(run *store.RunAsked, ran *store.AskRan) (*store.RunAsked, *
 		ran = &told
 	}
 	return &bare, ran
+}
+
+// withoutDepotPush cuts a depot-push card to what a device that is no
+// operator's is told: nothing of the card, and nothing of what its
+// approval printed. It identifies the depot's assembly cmd and the
+// source helper to configure, and its approval is the operator's alone
+// (ApproveAsk, served to the operator's device alone), so the listener
+// serves the card to that device alone. The socket, the terminal and the
+// agents read the whole card from the store.
+func withoutDepotPush(card *store.DepotPushAsked, ran *store.AskRan) (*store.DepotPushAsked, *store.AskRan) {
+	if card == nil {
+		return card, ran
+	}
+	return nil, nil
 }
 
 // withholds reports whether the device that makes the call of ctx is told no

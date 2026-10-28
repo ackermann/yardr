@@ -155,6 +155,9 @@ func (c *carrier) carryNext(ctx context.Context) (bool, error) {
 			return c.carrySetup(ctx, rec, setup, picked)
 		})
 	}
+	if isDepotPushCarry(rec.Argv) {
+		return c.carryDepotPushClaimed(ctx, rec)
+	}
 	run, err := c.askRun(ctx, rec)
 	if err != nil {
 		return true, err
