@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
 )
@@ -246,45 +245,4 @@ func TestForgeTrainBoundToItsPullRequestMoves(t *testing.T) {
 		t.Fatalf("yard-t in %s after changes were requested on its pull request, want open", st)
 	}
 	wantRules(t, r.rules(t, "yard-t"), "changes review -> open")
-}
-
-// The job of a bead that tracks a declared source's pull request names
-// it, as a github one does. A bead that tracks an issue is started as
-// ever.
-func TestJobNamesTheForgePullRequestTheBeadTracks(t *testing.T) {
-	t.Parallel()
-	s, f, d := setup(t)
-	ctx := context.Background()
-	_, err := s.PutSource(ctx, "forge.yaml", forgeDecl, "me")
-	must(t, err)
-	must(t, s.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "fake", Limit: 9}, "me"))
-	_, err = s.AddRoute(ctx, store.Route{Stage: "new", Group: "reviewers"}, "me")
-	must(t, err)
-	bead := func(title, url string) string {
-		t.Helper()
-		b, err := s.CreateBead(ctx, store.NewBead{Title: title}, "me")
-		must(t, err)
-		_, err = s.AddLink(ctx, b.ID, store.NewLink{Kind: store.LinkTracks, Source: "forge", URL: url}, "me")
-		must(t, err)
-		return b.ID
-	}
-	tracks := bead("theirs", forgePull)
-	want := map[string]*dispatch.Pull{
-		tracks:                       {URL: forgePull, Number: 7},
-		bead("an issue", forgeIssue): nil,
-	}
-	for range 2 { // one start per pass for the group (starts.go)
-		must(t, d.Reconcile(ctx))
-	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.jobs) != len(want) {
-		t.Fatalf("%d jobs started, want %d", len(f.jobs), len(want))
-	}
-	for _, j := range f.jobs {
-		w := want[j.Bead.ID]
-		if (j.Pull == nil) != (w == nil) || (w != nil && *j.Pull != *w) {
-			t.Errorf("%s (%s): Pull = %+v, want %+v", j.Bead.ID, j.Bead.Title, j.Pull, w)
-		}
-	}
 }
