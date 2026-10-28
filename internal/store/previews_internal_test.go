@@ -131,6 +131,111 @@ func TestPreviewLimitAndIdle(t *testing.T) {
 	}
 }
 
+// A refused proposal stays listed as refused, with its proposer and no
+// approval, so nothing starts; refusal is the operator's, and only a
+// pending proposal is refused. Forgetting the refused row frees the name
+// for a later identical proposal, which is a new card.
+func TestPreviewRefuse(t *testing.T) {
+	ctx := context.Background()
+	s := previewYard(t)
+	if _, err := s.ProposePreview(ctx, NewPreview{App: "demo", Command: "serve .", Dir: "/tmp/app", Port: 8080}, "builder"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RefusePreview(ctx, "demo", "builder"); err == nil || !strings.Contains(err.Error(), "only the operator") {
+		t.Fatalf("builder refuse err = %v, want operator-only refusal", err)
+	}
+	if _, err := s.RefusePreview(ctx, "missing", "ada"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing refuse err = %v, want not found", err)
+	}
+	got, err := s.RefusePreview(ctx, "demo", "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != PreviewRefused || got.Approval != nil || got.Proposer != "builder" || got.Command != "serve ." {
+		t.Fatalf("refused = %+v", got)
+	}
+	if _, err := s.RefusePreview(ctx, "demo", "ada"); err == nil || !strings.Contains(err.Error(), "has no proposal to refuse") {
+		t.Fatalf("second refuse err = %v", err)
+	}
+	if _, err := s.ApprovePreview(ctx, "demo", "ada"); err == nil || !strings.Contains(err.Error(), "has no proposal to approve") {
+		t.Fatalf("refused approval err = %v", err)
+	}
+	if _, err := s.ForgetPreview(ctx, "demo", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.ProposePreview(ctx, NewPreview{App: "demo", Command: "serve .", Dir: "/tmp/app", Port: 8080}, "builder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.State != PreviewPending {
+		t.Fatalf("reproposal = %+v, want a pending card", again)
+	}
+}
+
+// A restart asks for the approved form to stop and start again at the
+// depot's HEAD now: the row is left stopped for the supervisor, with
+// the re-read commit. Restarting is the operator's, and a proposal with
+// no approval has no form to restart. PreviewHead reads that HEAD
+// without touching the row.
+func TestPreviewRestartReReadsItsCommit(t *testing.T) {
+	ctx := context.Background()
+	s := previewYard(t)
+	dir := t.TempDir()
+	commit := func() string {
+		t.Helper()
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "a@b.c"}, {"config", "user.name", "a"},
+		{"commit", "-q", "--allow-empty", "-m", "one"}} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	first := commit()
+	if _, err := s.ProposePreview(ctx, NewPreview{App: "demo", Command: "x", Dir: dir, Port: 8080}, "builder"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RestartPreview(ctx, "demo", "ada"); err == nil || !strings.Contains(err.Error(), "no approved form") {
+		t.Fatalf("pending restart err = %v", err)
+	}
+	if _, err := s.ApprovePreview(ctx, "demo", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RestartPreview(ctx, "demo", "builder"); err == nil || !strings.Contains(err.Error(), "only the operator") {
+		t.Fatalf("builder restart err = %v, want operator-only refusal", err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "two").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	second := commit()
+	if second == first {
+		t.Fatal("the depot HEAD did not move")
+	}
+	if head, err := s.PreviewHead(ctx, "demo"); err != nil || head != second {
+		t.Fatalf("head = %q, %v, want %q", head, err, second)
+	}
+	if got, _ := s.GetPreview(ctx, "demo"); got.Commit != first {
+		t.Fatalf("after head read commit = %q, want the row untouched at %q", got.Commit, first)
+	}
+	got, err := s.RestartPreview(ctx, "demo", "ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != PreviewStopped || got.StateDetail != PreviewRestartDetail || got.Commit != second {
+		t.Fatalf("restart ask = %+v, want stopped for the supervisor at %q", got, second)
+	}
+	if got.Approval == nil || got.Approval.Command != "x" {
+		t.Fatalf("restart ask approval = %+v, want the approved form kept", got.Approval)
+	}
+	if _, err := s.PreviewHead(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing head err = %v, want not found", err)
+	}
+}
+
 func mustPreviews(t *testing.T, s *Store) []Preview {
 	t.Helper()
 	all, err := s.Previews(context.Background())

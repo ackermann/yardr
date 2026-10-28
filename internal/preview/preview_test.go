@@ -432,6 +432,47 @@ func TestIdleStopAndRebootRule(t *testing.T) {
 	})
 }
 
+// A restart the person asks for on the card stops the running process
+// and starts the approved form again: the ask is a stopped row the
+// supervisor flips back to approved, and the next pass starts it. A stop
+// that wins while the process stops stands instead of the restart.
+func TestRestartAskStopsAndStartsAgain(t *testing.T) {
+	if _, err := os.Stat(python3()); err != nil {
+		t.Skip("python3 not available for the stand-in app")
+	}
+	ctx := context.Background()
+	y := newYard(t)
+	y.run(t)
+	port := freePort(t)
+	y.propose(t, "demo", fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port), port, true)
+	waitFor(t, "preview running", func() bool { return y.state("demo").State == store.PreviewRunning })
+	first := y.state("demo").PID
+	if _, err := y.st.RestartPreview(ctx, "demo", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "restarted preview running", func() bool {
+		got := y.state("demo")
+		return got.State == store.PreviewRunning && got.PID != 0 && got.PID != first
+	})
+	if got := y.state("demo"); got.StateDetail != "" {
+		t.Fatalf("after restart detail = %q", got.StateDetail)
+	}
+	// The completion reads the row again: a stop that won while the
+	// process stopped stands.
+	y2 := newYard(t)
+	y2.propose(t, "held", "true", freePort(t), true)
+	if _, err := y2.st.RestartPreview(ctx, "held", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y2.st.PreviewStop(ctx, "held", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	y2.sup.finishRestart(ctx, "held")
+	if got := y2.state("held"); got.State != store.PreviewStopped || got.StateDetail != "stopped" {
+		t.Fatalf("after winning stop = %+v", got)
+	}
+}
+
 func TestMemoryWatcherStopsOverCap(t *testing.T) {
 	if _, err := os.Stat(python3()); err != nil {
 		t.Skip("python3 not available for the stand-in app")

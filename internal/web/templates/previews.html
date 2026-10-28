@@ -1,0 +1,57 @@
+{{define "content"}}
+{{- /* Every event of the stream reads the page again and puts the list in
+       place: a proposal, an approval, a start or a stop each lands with
+       an event. The card is inline, not a named template, so $ still
+       names the page beside the card. */}}
+<div id="live" hx-get="/previews" hx-trigger="sse:message" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">
+  {{- with .Data.Error}}
+  <p class="item error">{{.}}</p>
+  {{- end}}
+  {{- range .Data.Previews}}
+  <article class="item">
+    <header class="item-head">
+      <span class="state">{{with .Dot}}<span class="dot {{.}}"></span>{{end}}{{.Status}}</span>
+      <span class="bead">{{.App}}</span>
+      {{- if .Stale}}
+      <span class="held">stale</span>
+      {{- end}}
+    </header>
+    <dl class="figures">
+      {{- /* The start command verbatim, in full, with no truncation: it is
+             what the approval authorises. */}}
+      <div><dt>command</dt><dd><code>{{.Command}}</code></dd></div>
+      <div><dt>directory</dt><dd>{{.Dir}}</dd></div>
+      <div><dt>port</dt><dd>{{.Port}}</dd></div>
+      <div><dt>depot</dt><dd>{{.Depot}}</dd></div>
+      <div><dt>commit</dt><dd>{{.ShortCommit}}{{if .Dirty}} (dirty){{end}}</dd></div>
+      {{- /* The depot's HEAD now, beside the commit the preview runs, so a
+             stale preview reads apart from a fresh one. */}}
+      <div><dt>head</dt><dd>{{.ShortHead}}</dd></div>
+      <div><dt>opens at</dt><dd>/preview/{{.App}}/</dd></div>
+      <div><dt>proposed by</dt><dd>{{.Proposer}} <time datetime="{{.ProposedAt.UTC.Format "2006-01-02T15:04:05Z"}}">{{.ProposedAt.Local.Format "Jan 2 15:04"}}</time></dd></div>
+      {{- with .Approval}}
+      <div><dt>approved by</dt><dd>{{.By}} <time datetime="{{.At.UTC.Format "2006-01-02T15:04:05Z"}}">{{.At.Local.Format "Jan 2 15:04"}}</time></dd></div>
+      {{- end}}
+      <div><dt>lifetime</dt><dd>idle {{$.Data.Idle}} · age {{$.Data.MaxAge}}</dd></div>
+    </dl>
+    {{- if .Log}}
+    <h3 class="label">log</h3>
+    <pre class="text">{{range .Log}}{{.}}
+{{end}}</pre>
+    {{- end}}
+    {{- /* A pending proposal is approved or refused; a refused card keeps
+           no button; every other state opens, stops and restarts. The
+           buttons are drawn only for a request that acts. */}}
+    {{- if $.Data.As}}
+    {{- if eq .State "pending"}}
+    <form class="preview-actions" method="post" action="/previews" hx-post="/previews" hx-target="#live" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">{{template "csrf"}}<input type="hidden" name="app" value="{{.App}}"><button type="submit" name="action" value="approve">Approve</button><button type="submit" name="action" value="refuse">Refuse</button></form>
+    {{- else if ne .State "refused"}}
+    <form class="preview-actions" method="post" action="/previews" hx-post="/previews" hx-target="#live" hx-select="#live > *" hx-swap="innerHTML ignoreTitle:true">{{template "csrf"}}<input type="hidden" name="app" value="{{.App}}"><a href="/preview/{{.App}}/">Open</a><button type="submit" name="action" value="stop">Stop</button><button type="submit" name="action" value="restart">Restart</button></form>
+    {{- end}}
+    {{- end}}
+  </article>
+  {{- else}}
+  <p class="item faint">No preview is in the yard.</p>
+  {{- end}}
+</div>
+{{end}}

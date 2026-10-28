@@ -456,6 +456,11 @@ ul, ol { list-style: none; }
 .move-form input[type="text"] { flex: 1 1 100%; min-width: 0; padding: 8px; background: var(--panel); color: var(--ink); border: 1px solid var(--hairline-strong); font: 16px/1.5 var(--mono); }
 .move-form button { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
 .move-form button:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
+/* A preview's card: its buttons post to the page, in the move form's
+   dress, and Open is the link dressed as one. */
+.preview-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.preview-actions button, .preview-actions a { padding: 12px 16px; min-height: 44px; background: var(--panel); color: var(--dim); border: 1px solid var(--hairline-strong); overflow-wrap: anywhere; }
+.preview-actions button:hover, .preview-actions a:hover { color: var(--accent-hover); border-color: var(--accent-hover); }
 /* An ask's options, numbered as the buttons number them. */
 .options { margin-top: 8px; }
 .options li { padding: 2px 0; overflow-wrap: anywhere; }

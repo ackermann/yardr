@@ -1,10 +1,11 @@
 // Package web serves a view of the yard for a browser: HTML rendered here
 // with html/template, and the same data as JSON to whoever asks for it.
 // Without --as it only reads the yard; with --as <user> the talk page
-// sends mail as that user, and a bead's page answers its asks and sends
-// the bead on, and nothing else takes a write, and only for a browser that
-// holds the view's cookie (viewtoken.go). In JWT mode each request acts as
-// its own verified user instead.
+// sends mail as that user, a bead's page answers its asks and sends the
+// bead on, and the Previews page approves, refuses, stops and restarts,
+// and nothing else takes a write, and only for a browser that holds the
+// view's cookie (viewtoken.go). In JWT mode each request acts as its own
+// verified user instead.
 //
 // A page is one template in templates/ and one handler that builds the
 // page's data once and hands it to respond; docs/web.md says how to add one.
@@ -45,6 +46,7 @@ var menu = []menuItem{
 	{Name: "beads", Label: "Beads", Path: "/beads", Phone: true},
 	{Name: "sessions", Label: "Sessions", Path: "/sessions"},
 	{Name: "crew", Label: "Crew", Path: "/crew"},
+	{Name: "previews", Label: "Previews", Path: "/previews"},
 	{Name: "config", Label: "Config", Path: "/config"},
 	{Name: "pairing", Label: "Pair device", Path: "/pairing", SignedInOnly: true},
 	{Name: "line", Label: "Line", Path: "/line", Phone: true},
@@ -222,6 +224,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 	s.mux.HandleFunc("GET /sessions", s.handleSessions)
 	s.mux.HandleFunc("GET /crew", s.handleCrew)
+	s.mux.HandleFunc("GET /previews", s.handlePreviews)
 	s.mux.HandleFunc("GET /flows", s.handleFlows)
 	s.mux.HandleFunc("GET /beads", s.handleBeads)
 	s.mux.HandleFunc("GET /beads/{id}", s.handleBead)
@@ -702,13 +705,15 @@ func (s *Server) ActAs(user string) (token string) {
 	return s.token.secret
 }
 
-// postRoutes registers the routes that take a write: the talk page's form
-// and the bead page's own. ActAs and UseJWT each register them once, and
-// never together: a view acts as its fixed user or per request, not both.
+// postRoutes registers the routes that take a write: the talk page's
+// form, the bead page's own, pairing's, and the Previews page's. ActAs
+// and UseJWT each register them once, and never together: a view acts
+// as its fixed user or per request, not both.
 func (s *Server) postRoutes() {
 	s.mux.HandleFunc("POST /talk", s.handleTalkPost)
 	s.mux.HandleFunc("POST /beads/{id}", s.handleBeadPost)
 	s.mux.HandleFunc("POST /pairing", s.handlePairingPost)
+	s.mux.HandleFunc("POST /previews", s.handlePreviewsPost)
 }
 
 // As is the user the view acts as, "" when it acts as none.

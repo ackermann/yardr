@@ -862,6 +862,15 @@ func (c *Client) GetPreview(ctx context.Context, app string) (*store.Preview, er
 func (c *Client) ApprovePreview(ctx context.Context, app, actor string) (*store.Preview, error) {
 	return callV[*store.Preview](c, ctx, "ApprovePreview", app, actor)
 }
+func (c *Client) RefusePreview(ctx context.Context, app, actor string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "RefusePreview", app, actor)
+}
+func (c *Client) RestartPreview(ctx context.Context, app, actor string) (*store.Preview, error) {
+	return callV[*store.Preview](c, ctx, "RestartPreview", app, actor)
+}
+func (c *Client) PreviewHead(ctx context.Context, app string) (string, error) {
+	return callV[string](c, ctx, "PreviewHead", app)
+}
 func (c *Client) PreviewStop(ctx context.Context, app, actor string) (*store.Preview, error) {
 	return callV[*store.Preview](c, ctx, "PreviewStop", app, actor)
 }

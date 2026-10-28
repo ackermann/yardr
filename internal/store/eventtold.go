@@ -242,16 +242,17 @@ var eventDataTold = map[string][]string{
 
 	// Previews: which app, and what became of it. Its command, directory
 	// and the words of an exit are the yard's machine's, and are held.
-	"preview_proposed":   {"app", "port", "depot", "commit", "dirty"},
-	"preview_approved":   {"app", "port"},
-	"preview_stop_asked": {"app"},
-	"preview_forgotten":  {"app"},
-	"preview_started":    {"app"},
-	"preview_stopped":    {"app"},
-	"preview_refused":    {"app"},
-	"preview_failed":     {"app"},
-	"preview_crashed":    {"app"},
-	"preview_exited":     {"app"},
+	"preview_proposed":      {"app", "port", "depot", "commit", "dirty"},
+	"preview_approved":      {"app", "port"},
+	"preview_stop_asked":    {"app"},
+	"preview_restart_asked": {"app", "commit"},
+	"preview_forgotten":     {"app"},
+	"preview_started":       {"app"},
+	"preview_stopped":       {"app"},
+	"preview_refused":       {"app"},
+	"preview_failed":        {"app"},
+	"preview_crashed":       {"app"},
+	"preview_exited":        {"app"},
 
 	// Timers: when they are due and for whom. What a timer says is mail to
 	// its user, in the person's own words, and so is not told.

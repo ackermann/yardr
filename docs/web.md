@@ -5,8 +5,9 @@ server, as `yardr bdp serve` is. Without `--as`, `YARDR_WEB_AS` or the
 `web_as` setting it reads only: no page takes a write, and every route
 refuses any method but GET and HEAD. With one of them it acts as that
 user too, for a browser that has opened the view's token URL: the talk
-page sends its mail as them, and a bead's page
-answers its asks and sends the bead on
+page sends its mail as them, a bead's page
+answers its asks and sends the bead on, and the Previews page approves,
+refuses, stops and restarts
 ([Acting as a user](#acting-as-a-user)), and nothing else takes a
 write.
 
@@ -337,7 +338,12 @@ picks, and the words stay with Later and Decline. A giving or a writing
 pick posted straight at the handler is still the yard's to refuse, in its
 own words, with nothing written. A bead in a stage that waits for
 the user sends on as `yardr review` offers it, with a note
-([One bead](#one-bead)). Every other route stays GET, and with none of
+([One bead](#one-bead)). The Previews page approves, refuses, stops and
+restarts as the user, through the socket's `ApprovePreview`,
+`RefusePreview`, `PreviewStop` and `RestartPreview`, and the store's
+rules refuse what the user may not (approve, refuse and restart are the
+operator's; stop is the proposer's or the person's), in their own words,
+with nothing written. Every other route stays GET, and with none of
 them every route is GET as before: the talk page then says the view does
 not act, and a test holds the view to it.
 
@@ -640,6 +646,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/sessions` | the running sessions, the oldest first, with bead, stage, group, originator, login, runner, state and age (`yardr session list`), and under them the claims of manual groups, live | `Sessions` |
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
+| `/previews` | the yard's previews: one card per preview with the start command in full, the directory, the port, the depot commit and dirty mark beside the depot's HEAD now, the proposer and the lifetime, the running preview's log tail and a stale mark, live; on a view that acts, with Approve, Refuse, Open, Stop and Restart | `Previews` |
 | `/config` | the hub of the configuration pages: links to the six lists | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
@@ -652,8 +659,8 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
 The feed, home's aside, `/line`, `/flows`, `/beads`, a bead's page, the
-sessions, the crew, the talk page's newest letters and the depot, group,
-route, peer, edge and quota lists are live
+sessions, the crew, the previews, the talk page's newest letters and the
+depot, group, route, peer, edge and quota lists are live
 ([Live pages](#live-pages)). The overview above the feed is a snapshot:
 reload the page to see it change, as with the header's count on the
 other pages.
@@ -901,6 +908,7 @@ then brings whatever changed since.
 | `yardr bead history <bead>` | `/beads/<bead>` | `history` |
 | `yardr flow show <depot>` | `/flows` | `depots[].flows`, as the page has them ([Flows](#flows)) |
 | `yardr limits` | `/limits` | `limits` with `unmapped`: what the command answers with no kind named, one entry per provider in use, with the burning kinds and users beside the report |
+| `yardr preview list` | `/previews` | `previews`, each row with the depot's HEAD now beside the commit it runs, whether it is stale, and the running preview's log tail |
 
 ```json
 {
@@ -936,6 +944,44 @@ and the command's are added:
   `groups` carries the page's grouping: one blocked bead's card with the
   edges that hold it, the longest waiting first. `total` is the yard's
   edges in all, what `?all=1` lists.
+- A preview of `/previews` has every field of `preview list --json` and
+  the page's `head` (the depot's HEAD now, read at page load), `stale`
+  (set when the depot has moved past the commit the preview runs) and
+  `log` (the running preview's tail, newest last) beside them. The
+  yard's `idle` bound and `max_age` stand beside the rows, as the card
+  shows them ("4h", "7d").
+
+`/previews` as JSON:
+
+```json
+{
+  "as": "mckean",
+  "previews": [
+    {"app": "demo", "command": "serve .", "dir": "~/site", "port": 8080,
+     "depot": "site", "commit": "a1b2c3d4e5f6", "dirty": true,
+     "state": "running", "proposer": "yardr-9c2k-new", "proposed_at": "2026-10-04T00:02:11Z",
+     "approval": {"by": "mckean", "at": "2026-10-04T00:31:40Z", "command": "serve .", "dir": "~/site", "port": 8080},
+     "pid": 4411, "started_at": "2026-10-04T00:31:41Z",
+     "head": "a1b2c3d4e5f6", "log": ["listening on 8080"]}
+  ],
+  "idle": "4h",
+  "max_age": "7d",
+  "head": 1301
+}
+```
+
+- `as` is the user the request acts as, absent when it acts as none:
+  the card's buttons are drawn only for a request that acts.
+- `head` is the depot's HEAD now, beside the `commit` the preview runs;
+  `stale` is set when the two differ and both are known. A row with no
+  repository has neither.
+- `log` is there while the preview runs: the last hundred lines of its
+  captured output, newest last.
+- On a view that acts, the card's buttons post to `/previews` as the
+  user: Approve writes `ApprovePreview`, Refuse writes `RefusePreview`,
+  Stop writes `PreviewStop`, Restart writes `RestartPreview`, and Open
+  links to the yard-side `/preview/<app>/` endpoint. A write the store
+  refuses comes back on the redrawn page with why.
 
 `/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have one
 page each, under the menu's Config entry: the lists as their commands

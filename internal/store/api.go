@@ -306,6 +306,9 @@ type API interface {
 	Previews(ctx context.Context) ([]Preview, error)
 	GetPreview(ctx context.Context, app string) (*Preview, error)
 	ApprovePreview(ctx context.Context, app, actor string) (*Preview, error)
+	RefusePreview(ctx context.Context, app, actor string) (*Preview, error)
+	RestartPreview(ctx context.Context, app, actor string) (*Preview, error)
+	PreviewHead(ctx context.Context, app string) (string, error)
 	PreviewStop(ctx context.Context, app, actor string) (*Preview, error)
 	ForgetPreview(ctx context.Context, app, actor string) (*Preview, error)
 

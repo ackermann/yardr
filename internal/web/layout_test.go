@@ -232,7 +232,7 @@ func TestRoutesCompactRows(t *testing.T) {
 // On a phone the menu is a bottom bar of the phone entries and More: five
 // targets of about 78 px at 390 px, none cut. More opens the rest above
 // the bar, in the menu's order, and stands for the current page when it is
-// one the bar hides. The desktop menu shows all nine, as before. What the
+// one the bar hides. The desktop menu shows all ten, as before. What the
 // pixels do is the bead's screenshots.
 func TestPhoneBarMore(t *testing.T) {
 	t.Parallel()
@@ -245,7 +245,7 @@ func TestPhoneBarMore(t *testing.T) {
 			t.Errorf("the bar hides %s under More", path)
 		}
 	}
-	for _, path := range []string{"/flows?panel=1", "/flows", "/sessions", "/crew", "/config"} {
+	for _, path := range []string{"/flows?panel=1", "/flows", "/sessions", "/crew", "/previews", "/config"} {
 		if !strings.Contains(body, `<li class="phone-more"><a href="`+path+`"`) {
 			t.Errorf("%s is not marked for More", path)
 		}
@@ -269,6 +269,7 @@ func TestPhoneBarMore(t *testing.T) {
 		`<li><a href="/flows">Flows</a></li>` +
 		`<li><a href="/sessions">Sessions</a></li>` +
 		`<li><a href="/crew">Crew</a></li>` +
+		`<li><a href="/previews">Previews</a></li>` +
 		`<li><a href="/config">Config</a></li>`
 	if !strings.Contains(body[more:], want) {
 		t.Errorf("More does not hold the rest in order: %s", body[more:])
@@ -288,7 +289,7 @@ func TestPhoneBarMore(t *testing.T) {
 	css, err := os.ReadFile("assets/yard.css")
 	must(t, err)
 	text := string(css)
-	// The desktop menu shows all nine: More shows below 700 px only.
+	// The desktop menu shows all ten: More shows below 700 px only.
 	if more := cssRule(t, ".menu .more"); !strings.Contains(more, "display: none;") {
 		t.Errorf(".menu .more stands on a wide window too: %s", more)
 	}

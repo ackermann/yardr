@@ -90,6 +90,14 @@ type PreviewApproval struct {
 	Port    int    `json:"port"`
 }
 
+// PreviewRestartDetail is the state detail of a stopped preview whose
+// person asked for a restart on the card: the supervisor kills its
+// process if one still runs, flips the row back to approved, and starts
+// the approved form again on its next pass, at the commit the ask
+// re-read. The web view and the supervisor are separate processes
+// sharing only the store, so the ask is completed asynchronously.
+const PreviewRestartDetail = "restart"
+
 // Preview is one row of the registry.
 type Preview struct {
 	App     string `json:"app"`
@@ -251,6 +259,19 @@ func (s *Store) GetPreview(ctx context.Context, app string) (*Preview, error) {
 	return p, err
 }
 
+// PreviewHead reads the depot HEAD for the preview app now, so the
+// Previews page can mark a preview whose commit the depot has moved past
+// as stale. It is the read proposals use (previewDepotState), at page
+// load rather than at proposal; the row keeps the commit it runs.
+func (s *Store) PreviewHead(ctx context.Context, app string) (string, error) {
+	p, err := s.GetPreview(ctx, app)
+	if err != nil {
+		return "", err
+	}
+	_, head, _ := s.previewDepotState(ctx, p.Dir)
+	return head, nil
+}
+
 // ApprovePreview approves the pending preview app as actor, writing the
 // approval the supervisor requires before any start. The approved form
 // is the proposal as it stands; a later change to command, directory or
@@ -283,6 +304,43 @@ func (s *Store) ApprovePreview(ctx context.Context, app, actor string) (*Preview
 			return err
 		}
 		return w.event("", "preview_approved", actor, map[string]any{"app": app, "command": p.Command, "port": p.Port})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// RefusePreview refuses the pending preview app as actor, leaving the
+// row refused with its proposer, so the refused card stays listed and a
+// later identical proposal is a new card (design yardr-hosted-q0xp
+// section 4.1). Refusal is the operator's, by the same rule as approval;
+// nothing starts.
+func (s *Store) RefusePreview(ctx context.Context, app, actor string) (*Preview, error) {
+	p := new(Preview)
+	err := s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
+		ok, err := get(w.Tx, bPreviews, app, p)
+		if err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("preview %s: %w", app, ErrNotFound)
+		}
+		if err := w.may(ctx, actor, ActApprovePreview, Object{Kind: KindPreview, Name: app}); err != nil {
+			return err
+		}
+		if p.State != PreviewPending {
+			return fmt.Errorf("preview %s is %s and has no proposal to refuse", app, p.State)
+		}
+		p.State, p.StateDetail = PreviewRefused, ""
+		if err := put(w.Tx, bPreviews, app, p); err != nil {
+			return err
+		}
+		return w.event("", "preview_refused", actor, map[string]any{"app": app, "command": p.Command, "port": p.Port})
 	})
 	if err != nil {
 		return nil, err
@@ -401,6 +459,55 @@ func (s *Store) PreviewStop(ctx context.Context, app, actor string) (*Preview, e
 			return err
 		}
 		return w.event("", "preview_stop_asked", actor, map[string]any{"app": app})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// RestartPreview asks for the preview app to stop and start its approved
+// form again: the ask on the Previews page's Restart button. Only a row
+// with an approval restarts; the depot commit is re-read as proposals
+// read it, so the restart runs what the yard has built since. Starting
+// crew code is the person's authority, so the gate is the operator's,
+// the same rule as approval. The row is left stopped for the supervisor
+// to complete (PreviewRestartDetail).
+func (s *Store) RestartPreview(ctx context.Context, app, actor string) (*Preview, error) {
+	// The commit is re-read before the write, as proposals read it:
+	// the read opens its own transaction, which a write cannot hold.
+	row, err := s.GetPreview(ctx, app)
+	if err != nil {
+		return nil, err
+	}
+	_, head, _ := s.previewDepotState(ctx, row.Dir)
+	p := new(Preview)
+	err = s.write(func(w *wtx) error {
+		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
+		if err != nil {
+			return err
+		}
+		actor = resolved
+		ok, err := get(w.Tx, bPreviews, app, p)
+		if err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("preview %s: %w", app, ErrNotFound)
+		}
+		if err := w.may(ctx, actor, ActApprovePreview, Object{Kind: KindPreview, Name: app}); err != nil {
+			return err
+		}
+		if p.Approval == nil {
+			return fmt.Errorf("preview %s has no approved form to restart", app)
+		}
+		p.State, p.StateDetail = PreviewStopped, PreviewRestartDetail
+		if head != "" {
+			p.Commit = head
+		}
+		if err := put(w.Tx, bPreviews, app, p); err != nil {
+			return err
+		}
+		return w.event("", "preview_restart_asked", actor, map[string]any{"app": app, "commit": p.Commit})
 	})
 	if err != nil {
 		return nil, err

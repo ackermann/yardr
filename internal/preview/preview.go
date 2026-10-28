@@ -221,6 +221,9 @@ func (s *Supervisor) reconcile(ctx context.Context, first bool) {
 			if pr != nil {
 				s.kill(p.App)
 			}
+			if p.State == store.PreviewStopped && p.StateDetail == store.PreviewRestartDetail {
+				s.finishRestart(ctx, p.App)
+			}
 		}
 	}
 	_ = first
@@ -604,6 +607,25 @@ func nonLoopbackBind(port int) string {
 		}
 	}
 	return ""
+}
+
+// finishRestart completes a restart the person asked for on the card:
+// the process is stopped above, so the approved form is approved again
+// and starts on the next pass, at the commit the ask re-read. The row
+// is read again first, so a stop or forget that won while the process
+// stopped stands instead of the restart.
+func (s *Supervisor) finishRestart(ctx context.Context, app string) {
+	cur, err := s.Store.GetPreview(ctx, app)
+	if err != nil || cur.State != store.PreviewStopped || cur.StateDetail != store.PreviewRestartDetail {
+		return
+	}
+	detail := ""
+	if _, err := s.Store.UpdatePreview(ctx, app, store.PreviewUpdate{
+		ExpectedState: store.PreviewStopped,
+		State:         store.PreviewApproved, StateDetail: &detail,
+	}); err != nil {
+		s.Log.Debug("preview: restart not started", "app", app, "err", err)
+	}
 }
 
 // stop stops the preview app for the named reason ("idle", "aged",

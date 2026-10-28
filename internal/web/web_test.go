@@ -729,7 +729,7 @@ func TestMenuPages(t *testing.T) {
 	f := newFixture(t)
 	links := regexp.MustCompile(`<li[^>]*><a href="([^"]+)"`).FindAllStringSubmatch(f.get("/").body, -1)
 	// The phone's More entry repeats the entries the bottom bar hides,
-	// so each of those appears twice; the menu itself has nine.
+	// so each of those appears twice; the menu itself has ten.
 	var paths []string
 	seen := map[string]bool{}
 	for _, l := range links {
@@ -738,13 +738,13 @@ func TestMenuPages(t *testing.T) {
 			paths = append(paths, l[1])
 		}
 	}
-	if len(paths) != 9 {
-		t.Fatalf("the menu has %d entries, want 9: %v", len(paths), paths)
+	if len(paths) != 10 {
+		t.Fatalf("the menu has %d entries, want 10: %v", len(paths), paths)
 	}
 	for _, path := range paths {
 		r := f.get(path)
 		switch path {
-		case "/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew", "/config":
+		case "/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew", "/previews", "/config":
 			if r.status != 200 {
 				t.Errorf("%s: status %d", path, r.status)
 			}
@@ -1165,7 +1165,7 @@ func TestNoOtherHost(t *testing.T) {
 	// The walk must have reached what it is there to check: every page of
 	// the menu, a bead's own page, the error page.
 	for _, path := range []string{"/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew",
-		"/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/nowhere"} {
+		"/previews", "/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/nowhere"} {
 		if !seen[path] {
 			t.Errorf("the walk did not reach %s: %v", path, seen)
 		}
