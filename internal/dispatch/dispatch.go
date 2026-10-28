@@ -20,6 +20,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/hooks"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/version"
 )
 
@@ -212,6 +213,15 @@ type Dispatcher struct {
 	// twice this. See pushes.go.
 	PushTimeout time.Duration
 
+	// TelemetryURL is where the telemetry pass posts the daily batch, and
+	// TelemetryTimeout bounds that one request (default 10s, which holds
+	// the pass up for no longer). Empty, the URL is the compiled-in
+	// endpoint (telemetry.Endpoint), which no setting, flag or variable
+	// can change: only a test sets it, to a stand-in listener, so that no
+	// test reaches the real project. See telemetry.go.
+	TelemetryURL     string
+	TelemetryTimeout time.Duration
+
 	// PeerKey is the file of the yard's key, with which requests to its
 	// peers are signed; PeerHTTP makes them (nil: http.DefaultClient).
 	// PeerTries is how often a message is posted to a peer before it is
@@ -310,6 +320,10 @@ type Dispatcher struct {
 	// backupDownDir is the directory whose failure backupDown represents.
 	// A changed backup_dir is a new target and must be tried at once.
 	backupDownDir string
+
+	// telemetryTold is the last local fault of the telemetry pass that was
+	// said, so each is said once until it is gone. See telemetry.
+	telemetryTold string
 
 	// timerDue is when the earliest timer left is due, as of the last pass
 	// (see timers); nil with none.
@@ -537,6 +551,9 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.PushTimeout == 0 {
 		d.PushTimeout = 10 * time.Second
+	}
+	if d.TelemetryTimeout == 0 {
+		d.TelemetryTimeout = telemetry.Timeout
 	}
 	if d.PeerTries == 0 {
 		d.PeerTries = 24
@@ -1075,6 +1092,9 @@ func (d *Dispatcher) Reconcile(ctx context.Context) error {
 	// After the work is started: a copy of a large store takes a while.
 	pass.step("backups")
 	d.backups(ctx)
+	// Once a day at most, and bounded: a push (pushes.go) waits as long.
+	pass.step("telemetry")
+	d.telemetry(ctx)
 	// Last: a peer that does not answer holds up nothing of this yard's,
 	// and neither does a remote. What a peer's return brought in this pass
 	// is fetched in it.

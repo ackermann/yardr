@@ -4,7 +4,10 @@
 // the telemetry setting, the id and its consent bookkeeping live in
 // <home>/telemetry.json, Build makes the batch from the store's log, and
 // On, Off and Show are the switch behind yardr telemetry on, off and
-// show. Nothing here sends: the daemon's sender comes later.
+// show. Post sends one batch to the compiled endpoint; when, and how
+// often, is the daemon's telemetry pass (internal/dispatch), which builds
+// the batch with Prepare as show does and keeps the day's attempt and the
+// source-day cursor in the state file (MarkAttempt, MarkSent).
 package telemetry
 
 import (

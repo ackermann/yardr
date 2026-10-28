@@ -1,10 +1,9 @@
 # Telemetry
 
-yardr's telemetry switch records consent for one daily batch of counts
-and fixed names to its PostHog project, answering the four questions
-below. It is off unless the operator turns it on, with one switch, and
-`yardr telemetry show` prints the exact next batch before anything is
-sent.
+yardr can send one daily batch of counts and fixed names to its PostHog
+project, answering the four questions below. It is off unless the
+operator turns it on, with one switch, and `yardr telemetry show` prints
+the exact next batch before anything is sent.
 
 ## The switch
 
@@ -17,11 +16,9 @@ names these commands, so a raw setting write cannot skip the consent
 bookkeeping. Only the operator changes it, and no run ask may propose
 it, so no agent can turn its own yard's telemetry on.
 
-This build records consent and previews the batch, but does not send
-telemetry yet. When a build includes the sender, the daemon reads the
-setting on every pass, so a change holds on the next pass with no
-restart. A yard whose daemon never runs sends nothing. The batch goes to
-`https://eu.i.posthog.com/batch/`,
+The daemon reads the setting on every pass, so a change holds on the
+next pass with no restart. A yard whose daemon never runs sends nothing.
+The batch goes to `https://eu.i.posthog.com/batch/`,
 the shared EU project's capture endpoint, which is compiled in, never
 configured, so no setting can point a yard's telemetry elsewhere.
 
@@ -108,6 +105,34 @@ Nothing else travels. No property ever carries a bead id or title, a
 depot, group, crew, user, peer or yard name, a stage or flow name, a
 path, a URL, a command, an error's words, a note's or prompt's text, an
 actor, a session id, the revision, or the yard's name.
+
+## When a batch is sent
+
+The daemon sends it, from its pass, and a yard whose daemon never runs
+sends nothing. The first batch goes the day telemetry is turned on, with
+that day's snapshot; the counts start with the first full day after. A
+pass makes one attempt a UTC day at most, written to the state file
+before the request begins, so a daemon that restarts makes no second
+one that day. The request waits at most 10 seconds for the project, and
+the pass waits with it.
+
+A batch the project did not take is not tried again until the next UTC
+day. That is an error status, no answer in time, an endpoint that was
+not reached, or a success that says the project limited the events for
+want of quota. The daemon logs one warning for it, which says the HTTP
+status, when there was one, and a class such as `status`, `timeout`,
+`network` or `quota_limited`, and nothing else: not the request, not the
+answer, not the install id. The next day's batch carries that day's snapshot and
+the completed days the project did not take, each event with the
+timestamp and UUID it had before, so the project can drop one that did
+arrive after all. The record of the last day sent moves only after a
+batch the project took.
+
+A daemon that was down, or batches that were refused, leave days unsent.
+The next batch holds the latest seven of them, says in the daemon's log
+which older days it leaves out, and never reaches back before the day
+consent began. A day with nothing to count adds no event, and a hosted
+yard with no counts and no running crew has no request at all that day.
 
 ## Hosted yards
 
@@ -213,3 +238,26 @@ again first forgets the old id locally, as above.
 PostHog keeps the raw events for 12 months, then deletes them, with only
 aggregates made before deletion kept longer. A year covers the 30-day
 cohorts many times over and every version's working life so far.
+
+## What the project must be set to
+
+Three things about the shared PostHog project keep the promises above,
+and a yard cannot check them: all it holds is a key that can only write
+events. Whoever runs the project checks them in PostHog before a build
+that sends is released, and again when the project is changed:
+
+- **IP capture is off** (the project's IP data capture configuration).
+  PostHog turns it off for a new EU project, but this project existed
+  before telemetry, so its setting proves nothing until it is read. The
+  endpoint still sees the address a request comes from, as any endpoint
+  does; with capture off the project does not store it on the events.
+- **The project timezone is UTC.** A yard cuts its days at UTC midnight,
+  and the project's reports cut theirs at the project timezone, so any
+  other zone splits one day of one yard across two.
+- **Raw events are kept no longer than 12 months**, as Retention above
+  says. PostHog Cloud takes the retention of events from the
+  organization's plan, which PostHog documents as one year on its free
+  plan and seven on a paid one, and it offers no shorter period and no
+  deletion by age. So this is a check of the plan the project is on, not
+  a setting to make: on a plan that keeps events longer, the project's
+  settings cannot keep this promise.

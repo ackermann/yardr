@@ -52,7 +52,8 @@ it lists every exported name with its comment, faster than grepping.
   running operator-configured commands for what they print.
 - `depotfile`: reads a depot's standing working-rules file.
 - `dispatch`: the daemon's pass: wakes on a committed write, re-reads
-  state, routes beads, runs the crew, keeps backups; never polls.
+  state, routes beads, runs the crew, keeps backups, sends the daily
+  telemetry batch when the operator turned it on; never polls.
 - `diskkeep`: keeping the machine's disk free for landings' builds
   (GOCACHE rotation, stale go-tmp), run by `yardr disk keep`.
 - `edgelink`: the yard's side of the edge (`yardr edge connect`): fetching
@@ -101,8 +102,10 @@ it lists every exported name with its comment, faster than grepping.
   is armed; `Scale` makes a wait written for an idle box that many times
   longer, and `Loaded` says the factor is above 1; the contrib suites'
   fuses go through `Scale`.
-- `telemetry`: the opt-in telemetry switch, install id and day builder
-  behind `yardr telemetry on|off|show`; nothing here sends.
+- `telemetry`: the opt-in telemetry switch, install id, day builder and
+  the one POST of a batch to the compiled endpoint, behind `yardr
+  telemetry on|off|show` and the daemon's telemetry pass; when to send,
+  and the day's attempt, are `dispatch`'s.
 - `udiff`: one unified-diff rendering shared by history and ask cards.
 - `version`: build identity, noticing when the binary was replaced, and
   keeping the daemon's own descriptors out of what it execs (self-replace,

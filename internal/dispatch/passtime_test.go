@@ -186,7 +186,7 @@ func TestSlowPassNamesTheStepsItsTimeWentTo(t *testing.T) {
 	for _, step := range []string{"stamp_limits_clock", "nudge_limits_refresher", "drain_starts", "drain_crew_starts",
 		"begin_home", "pane_cache", "groups", "reap", "usage", "teardown", "cleanup", "timers", "pass_lists",
 		"waits", "sidings", "quiet_hooks", "gate", "crew", "rules", "ci", "issues", "pushes", "bases", "route",
-		"settle_starts", "settle_crew_starts", "backups", "peers", "fetches", "end_home", "stamp"} {
+		"settle_starts", "settle_crew_starts", "backups", "telemetry", "peers", "fetches", "end_home", "stamp"} {
 		i := strings.Index(lines[0][at:], " "+step+"=")
 		if i < 0 {
 			t.Fatalf("slow pass line has no %s after position %d:\n%s", step, at, lines[0])

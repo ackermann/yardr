@@ -17,17 +17,18 @@ const maxSourceDays = 7
 // SourceRange is the eligible completed source days of a batch built at
 // now: from the later of eligibleFrom and the day after lastDaySent
 // (eligibleFrom when none was sent), through the most recent completed
-// UTC day, at most the latest seven. A day before consent is never
-// included, and neither is the incomplete current day. Empty
-// eligibleFrom includes nothing: without a consent period no source day
-// is eligible.
-func SourceRange(eligibleFrom, lastDaySent string, now time.Time) []string {
+// UTC day, at most the latest seven. The older eligible days the cap
+// leaves out are dropped, and returned so the sender can log the range
+// once. A day before consent is never included, and neither is the
+// incomplete current day. Empty eligibleFrom includes nothing: without a
+// consent period no source day is eligible.
+func SourceRange(eligibleFrom, lastDaySent string, now time.Time) (days, dropped []string) {
 	if eligibleFrom == "" {
-		return nil
+		return nil, nil
 	}
 	first := eligibleFrom
 	if _, err := parseDay(first); err != nil {
-		return nil
+		return nil, nil
 	}
 	if lastDaySent != "" {
 		if after, err := parseDay(lastDaySent); err == nil {
@@ -41,10 +42,10 @@ func SourceRange(eligibleFrom, lastDaySent string, now time.Time) []string {
 	for day := first; day <= last; day = nextDay(day) {
 		out = append(out, day)
 	}
-	if len(out) > maxSourceDays {
-		out = out[len(out)-maxSourceDays:]
+	if cut := len(out) - maxSourceDays; cut > 0 {
+		return out[cut:], out[:cut]
 	}
-	return out
+	return out, nil
 }
 
 // nextDay is the UTC day after day, as dayOf wrote it.
@@ -82,6 +83,12 @@ func On(ctx context.Context, st store.API, statePath, actor string, now time.Tim
 	if err := st.SetSetting(ctx, store.TelemetrySetting, "true", actor); err != nil {
 		return nil, err
 	}
+	// From the read to the save: the daemon's sender writes the file too.
+	unlock, err := lockState(statePath)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	state, err := LoadState(statePath)
 	if err != nil {
 		return nil, err
@@ -125,10 +132,11 @@ func Off(ctx context.Context, st store.API, statePath, actor string, now time.Ti
 	if err := st.SetSetting(ctx, store.TelemetrySetting, "false", actor); err != nil {
 		return nil, err
 	}
-	state, err := LoadState(statePath)
+	state, unlock, err := lockedState(statePath)
 	if err != nil {
 		return nil, err
 	}
+	defer unlock()
 	if state != nil {
 		state.Withdrawals = append(state.Withdrawals, stampOf(now))
 		if err := state.Save(statePath); err != nil {
@@ -167,6 +175,81 @@ type Preview struct {
 	NoBatch    string   `json:"no_batch,omitempty"`
 }
 
+// NoBatchFor says why no batch goes out at now, "" when one may: the
+// switch is off, the setting stands on with no install id, or a batch was
+// already attempted on this UTC day. show prints the reason, and the
+// daemon's pass goes by the same answer, so what show says is what the
+// pass will do.
+func NoBatchFor(on bool, state *State, now time.Time) string {
+	switch {
+	case !on:
+		return NoBatchOff
+	case state == nil || state.InstallID == "":
+		return NoBatchNoID
+	case state.LastAttemptDay == dayOf(now):
+		return NoBatchAttempted
+	}
+	return ""
+}
+
+// Pending is the request the yard would send at a moment, with the
+// eligible completed source days it holds and the older ones the
+// seven-day cap leaves out. Request is nil when there is nothing to send:
+// a hosted yard with no eligible counts and no running crew (a self-run
+// batch always holds at least its daily).
+type Pending struct {
+	Request    *Request
+	SourceDays []string
+	Dropped    []string
+}
+
+// Prepare builds the request a pass at now would send from the yard as it
+// stands. It is the one place the batch is made: show prints what it
+// returns and the daemon posts it, so with no change of state between
+// the two they are the same request. It sends nothing and advances
+// nothing, and never includes pre-consent activity.
+func Prepare(ctx context.Context, st store.API, state *State, hosted bool, now time.Time) (*Pending, error) {
+	out := &Pending{}
+	if state == nil {
+		return out, nil // no id, no batch (Build says the same)
+	}
+	out.SourceDays, out.Dropped = SourceRange(state.EligibleFrom, state.LastDaySent, now)
+	in := BuildInput{
+		State:      state,
+		SendingDay: dayOf(now),
+		SourceDays: out.SourceDays,
+		Hosted:     hosted,
+		Tag:        version.Tag(),
+		GOOS:       runtime.GOOS,
+	}
+	if len(out.SourceDays) > 0 {
+		since, until := dayStart(out.SourceDays[0]), dayStart(in.SendingDay)
+		for _, q := range []struct {
+			kind string
+			to   *[]store.Event
+		}{
+			{"claimed", &in.Claimed},
+			{"held", &in.Held},
+			{"advanced", &in.Advanced},
+			{"gave_up", &in.GaveUp},
+		} {
+			evs, err := eventsInWindow(ctx, st, q.kind, since, until)
+			if err != nil {
+				return nil, err
+			}
+			*q.to = evs
+		}
+	}
+	var err error
+	if in.Crew, err = st.Crew(ctx); err != nil {
+		return nil, err
+	}
+	if batch := Build(in); len(batch) > 0 {
+		out.Request = &Request{APIKey: APIKey, Batch: batch}
+	}
+	return out, nil
+}
+
 // Show previews the current request: the sending-day runtime snapshot
 // and the eligible completed source days in the batch. It sends nothing
 // and advances nothing, and never previews pre-consent activity.
@@ -190,56 +273,17 @@ func Show(ctx context.Context, st store.API, statePath string, now time.Time) (*
 	if state != nil {
 		out.InstallID, out.Since = state.InstallID, state.since()
 	}
-	switch {
-	case !on:
-		out.NoBatch = NoBatchOff
-		return out, nil
-	case state == nil || state.InstallID == "":
-		out.NoBatch = NoBatchNoID
-		return out, nil
-	case state.LastAttemptDay == out.SendingDay:
-		out.NoBatch = NoBatchAttempted
+	if out.NoBatch = NoBatchFor(on, state, now); out.NoBatch != "" {
 		return out, nil
 	}
-	out.SourceDays = SourceRange(state.EligibleFrom, state.LastDaySent, now)
-	in := BuildInput{
-		State:      state,
-		SendingDay: out.SendingDay,
-		SourceDays: out.SourceDays,
-		Hosted:     hosted,
-		Tag:        version.Tag(),
-		GOOS:       runtime.GOOS,
-	}
-	if len(out.SourceDays) > 0 {
-		since, until := dayStart(out.SourceDays[0]), dayStart(out.SendingDay)
-		for _, q := range []struct {
-			kind string
-			to   *[]store.Event
-		}{
-			{"claimed", &in.Claimed},
-			{"held", &in.Held},
-			{"advanced", &in.Advanced},
-			{"gave_up", &in.GaveUp},
-		} {
-			evs, err := eventsInWindow(ctx, st, q.kind, since, until)
-			if err != nil {
-				return nil, err
-			}
-			*q.to = evs
-		}
-	}
-	if in.Crew, err = st.Crew(ctx); err != nil {
+	next, err := Prepare(ctx, st, state, hosted, now)
+	if err != nil {
 		return nil, err
 	}
-	batch := Build(in)
-	if len(batch) == 0 {
-		// A hosted yard with no eligible counts and no running crew
-		// has no request to preview; a self-run batch always holds
-		// at least its daily.
+	out.SourceDays, out.Request = next.SourceDays, next.Request
+	if next.Request == nil {
 		out.NoBatch = NoBatchEmpty
-		return out, nil
 	}
-	out.Request = &Request{APIKey: APIKey, Batch: batch}
 	return out, nil
 }
 
