@@ -410,11 +410,12 @@ protection a setting could give it. The project is footplate's EU
 project, shared, for three reasons: it already exists under the
 project's own data-processing terms with EU residency; the cohort is
 friends of the project, countable on fingers, and a second project
-would split one tiny dataset across two retentions and two deletion
-duties; and `yardr_`-prefixed event names cannot collide with feedback
-events.
-The cost is real and named: yardr's events inherit the feedback
-project's retention and membership, and leaving later means a new
+would split one tiny dataset across two deletion duties, with a
+second retention only in another organization; and `yardr_`-prefixed
+event names cannot collide with feedback events.
+The cost is real and named: yardr's events inherit the
+organization's plan's retention and the feedback project's
+membership, and leaving later means a new
 project, a new compiled key, and the old data deleted there — a bead,
 not a migration. The key is public by design (it can only write
 events); the document prints no value, as the value belongs in the two
