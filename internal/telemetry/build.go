@@ -24,7 +24,9 @@ var failureKinds = []string{"gave_up", "held", "landing_failed"}
 // Event is one PostHog capture event: the envelope fields PostHog reads
 // (event, distinct_id, timestamp, uuid) and the allow-listed properties.
 // Every event sets $process_person_profile so deletion by distinct_id
-// does not depend on a project default.
+// does not depend on a project default, and $geoip_disable so no GeoIP
+// location is derived from the request even though the shared project
+// may have enrichment on.
 type Event struct {
 	Name       string         `json:"event"`
 	DistinctID string         `json:"distinct_id"`
@@ -82,6 +84,15 @@ func Build(in BuildInput) []Event {
 	for _, day := range in.SourceDays {
 		out = append(out, b.harness(day)...)
 		out = append(out, b.failures(day)...)
+	}
+	for i := range out {
+		// IP capture off keeps the connecting address off the stored
+		// events but leaves GeoIP enrichment free to use it first, so
+		// the guard is carried on each event rather than trusted to
+		// the shared project's enrichment setting. It is stamped here,
+		// where every event passes, so an event kind added later
+		// carries it without remembering.
+		out[i].Properties["$geoip_disable"] = true
 	}
 	return out
 }

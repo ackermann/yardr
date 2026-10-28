@@ -151,6 +151,9 @@ func TestBuildFixtureBatch(t *testing.T) {
 		if e.Properties["$process_person_profile"] != true {
 			t.Errorf("event %s has no $process_person_profile: %+v", e.Name, e.Properties)
 		}
+		if e.Properties["$geoip_disable"] != true {
+			t.Errorf("event %s has no $geoip_disable: %+v", e.Name, e.Properties)
+		}
 	}
 
 	daily := byName[DailyEvent]

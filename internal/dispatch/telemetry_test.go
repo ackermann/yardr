@@ -287,7 +287,7 @@ func TestTelemetrySendsOneBatchADay(t *testing.T) {
 	if daily.Name != telemetry.DailyEvent || daily.DistinctID != change.InstallID ||
 		daily.Timestamp != "2026-10-28T10:00:00Z" || daily.UUID == "" ||
 		!reflect.DeepEqual(daily.Properties, map[string]any{
-			"$process_person_profile": true, "version": "development", "os": wantOS, "telemetry_age_days": 0.0}) {
+			"$process_person_profile": true, "$geoip_disable": true, "version": "development", "os": wantOS, "telemetry_age_days": 0.0}) {
 		t.Errorf("daily = %+v", daily)
 	}
 	if st := y.loadState(); st.LastAttemptDay != "2026-10-28" || st.LastDaySent != "" {

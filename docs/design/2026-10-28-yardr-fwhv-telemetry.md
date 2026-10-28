@@ -197,7 +197,20 @@ and supplies no person properties beyond the random id. PostHog may
 maintain its own profile timestamps. Every other value below travels as
 an ordinary event property. Every event explicitly
 sets the reserved `$process_person_profile` property to `true` to make
-that deletion path independent of a project default. Event
+that deletion path independent of a project default. Every event also
+sets the reserved `$geoip_disable` property to `true`, so no GeoIP
+location is derived from the request's address: IP capture off keeps
+the address off the stored events but leaves enrichment free to use it
+first — PostHog documents that transformations like GeoIP enrichment
+"can still use the IP before it is discarded" ([data
+storage](https://posthog.com/docs/privacy/data-storage)) — and with an
+install id and a cohort of friends, a country and city would single a
+yard out. PostHog names setting `$geoip_disable: true` on server-side
+calls as the per-event guard ([identity
+resolution](https://posthog.com/docs/product-analytics/identity-resolution)),
+which its Python SDK's `disable_geoip` sends as this same property; the
+builder stamps it on every event rather than trusting the shared
+project's enrichment setting. Event
 names use a `yardr_` prefix, so they stand apart from footplate's
 feedback events in the shared project (3.3). Every event also has a
 top-level `timestamp` and a stable `uuid`, which are envelope fields,
@@ -561,7 +574,11 @@ data minimisation (Article 5(1)(b)–(c)); retention must also be
 limited (Article 5(1)(e)), which is the open question 1. T2 must verify
 IP capture is disabled for this existing project before the first send;
 the endpoint necessarily sees the connecting address, and the design
-does not claim otherwise. The project provides access and portability
+does not claim otherwise. That check guards the stored address, not
+location: capture off leaves GeoIP enrichment free to use the address
+first, so the `$geoip_disable` on every event (3.1) is the guard
+against `$geoip_*` properties, and it holds whatever the shared
+project's enrichment setting is. The project provides access and portability
 (Articles 15 and 20) by exporting events for the id, and erasure
 (Article 17) by the API deletion above. These responsibilities belong
 to the controller, not to the yard's local switch. Nothing here is
@@ -622,25 +639,25 @@ next request: sending day 2026-10-28 (UTC); source day 2026-10-27
     {"event": "yardr_daily", "distinct_id": "3f6d…",
      "timestamp": "2026-10-28T00:00:00Z",
      "uuid": "0e3c8b2a-1432-4a51-9f39-1bc7a1b1d001",
-     "properties": {"$process_person_profile": true,
+     "properties": {"$process_person_profile": true, "$geoip_disable": true,
        "version": "v0.9.1", "os": "darwin",
        "telemetry_age_days": 2}},
     {"event": "yardr_crew_day", "distinct_id": "3f6d…",
      "timestamp": "2026-10-28T00:00:00Z",
      "uuid": "451d5fc1-4a12-4c20-9d7b-1f9df88ca004",
-     "properties": {"$process_person_profile": true,
+     "properties": {"$process_person_profile": true, "$geoip_disable": true,
        "kind": "claude", "model": "default",
        "running_crew_sessions": 2, "hosted": false}},
     {"event": "yardr_harness_day", "distinct_id": "3f6d…",
      "timestamp": "2026-10-27T12:00:00Z",
      "uuid": "a98276f4-0f5a-47a8-b98a-8ef17b30f003",
-     "properties": {"$process_person_profile": true,
+     "properties": {"$process_person_profile": true, "$geoip_disable": true,
        "kind": "claude", "model": "default",
        "sessions_claimed": 14, "hosted": false}},
     {"event": "yardr_failure_day", "distinct_id": "3f6d…",
      "timestamp": "2026-10-27T12:00:00Z",
      "uuid": "f481958d-ea90-4a3c-8ed7-0a1ff35af004",
-     "properties": {"$process_person_profile": true,
+     "properties": {"$process_person_profile": true, "$geoip_disable": true,
        "kind": "held", "count": 2, "hosted": false}}
   ]
 }

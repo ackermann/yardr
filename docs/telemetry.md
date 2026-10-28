@@ -42,8 +42,12 @@ One batch covers one UTC sending day, with that day's runtime snapshot
 and up to seven completed source days of counts. Every event carries
 the yard's install id as `distinct_id`, a `timestamp` day marker and a
 stable `uuid`. Every event sets `$process_person_profile` so deletion
-by install id does not depend on a project default. The names start
-with `yardr_` so they stand apart from the project's other events.
+by install id does not depend on a project default.
+Every event sets `$geoip_disable` so the project adds no GeoIP
+location to it: with IP capture off the address is not stored on the
+events, but enrichment could still use it before it is discarded. The
+names start with `yardr_` so they stand apart from the project's other
+events.
 
 `yardr_daily`, once per sending day on a self-run yard, answers
 questions 1 and 4:
@@ -193,7 +197,7 @@ next request: sending day 2026-10-28 (UTC); source day 2026-10-27
     {"event": "yardr_daily", "distinct_id": "3f6d…",
      "timestamp": "2026-10-28T00:00:00Z",
      "uuid": "0e3c8b2a-1432-4a51-9f39-1bc7a1b1d001",
-     "properties": {"$process_person_profile": true,
+     "properties": {"$process_person_profile": true, "$geoip_disable": true,
        "version": "v1.2.3", "os": "darwin",
        "telemetry_age_days": 2}}
   ]
@@ -251,6 +255,8 @@ that sends is released, and again when the project is changed:
   before telemetry, so its setting proves nothing until it is read. The
   endpoint still sees the address a request comes from, as any endpoint
   does; with capture off the project does not store it on the events.
+  That alone would not stop GeoIP enrichment, which can use the address
+  before it is discarded, so every event also sets `$geoip_disable`.
 - **The project timezone is UTC.** A yard cuts its days at UTC midnight,
   and the project's reports cut theirs at the project timezone, so any
   other zone splits one day of one yard across two.

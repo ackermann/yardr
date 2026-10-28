@@ -15,7 +15,9 @@ import (
 // fails here, and so does one the builder no longer emits.
 func TestDocMatchesTheBuilder(t *testing.T) {
 	t.Parallel()
-	const sharedProfile = "$process_person_profile"
+	// The reserved properties every event carries, in sort order, held
+	// to the doc's "every event sets" sentences below.
+	shared := []string{"$geoip_disable", "$process_person_profile"}
 	want := map[string][]string{
 		DailyEvent:   {"os", "telemetry_age_days", "version"},
 		HarnessEvent: {"hosted", "kind", "model", "sessions_claimed"},
@@ -42,7 +44,7 @@ func TestDocMatchesTheBuilder(t *testing.T) {
 			got = append(got, p)
 		}
 		slices.Sort(got)
-		builderWant := append([]string{sharedProfile}, props...)
+		builderWant := append(slices.Clone(shared), props...)
 		if !slices.Equal(got, builderWant) {
 			t.Errorf("%s carries %q, want %q", name, got, builderWant)
 		}
@@ -51,8 +53,10 @@ func TestDocMatchesTheBuilder(t *testing.T) {
 	if !ok {
 		t.Fatal("docs.Read(telemetry) finds no page")
 	}
-	if !strings.Contains(text, "Every event sets `"+sharedProfile+"`") {
-		t.Errorf("the doc does not describe the property shared by every event: %s", sharedProfile)
+	for _, s := range shared {
+		if !strings.Contains(text, "Every event sets `"+s+"`") {
+			t.Errorf("the doc does not describe the property shared by every event: %s", s)
+		}
 	}
 	for name, props := range want {
 		got := docProperties(text, name)
