@@ -36,8 +36,9 @@
 # the mergers (the conflict outcome where the flow names one, else the merge
 # stage), else back to the builders with the conflicting files; a red run
 # back (outcome failed: new, or open for a train) with a
-# note that names the commit and carries the FAIL lines and the end of the
-# output, as does a branch that moved while the tests ran, and a test command
+# note that names the commit and carries the failing tests and the end of
+# the output, with the full output attached beside it, as does a branch
+# that moved while the tests ran, and a test command
 # that says it
 # could not run (exit 2), or one red only for a flaky test's strike (exit
 # 3), or anything it cannot land without touching a dirty tree, is held. A
@@ -672,12 +673,58 @@ trainbeads() {
     echo "== could not read the children of $BEAD (yardr must answer); the tests are told no beads" >&2
   fi
 }
+# gradle_fails prints the failing tests a Gradle run left in the worktree:
+# each testcase carrying a failure or an error in a TEST-*.xml file under
+# $WT, named classname.name. Gradle's own output says only how many failed,
+# so without this a red note names no test. One line per test, in the
+# files' sorted order; nothing when there are no such files.
+gradle_fails() {
+  [ -n "${WT:-}" ] && [ -d "$WT" ] || return 0
+  find "$WT" -name 'TEST-*.xml' -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r xf; do
+    awk '
+      function attr(line, key,   m) {
+        if (match(line, "[ \t]" key "=\"[^\"]*\"")) {
+          m = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 4)
+          return m
+        }
+        return ""
+      }
+      /<testcase[^>]*>/ {
+        cls = attr($0, "classname"); nm = attr($0, "name")
+        failed = ($0 ~ /<failure[ >\/]/ || $0 ~ /<error[ >\/]/) ? 1 : 0
+        if ($0 ~ /<\/testcase>/) {
+          if (failed) {
+            if (cls != "" && nm != "") print cls "." nm
+            else if (nm != "") print nm
+          }
+          cls = ""; nm = ""; failed = 0; incase = 0
+        } else if ($0 ~ /\/>[ \t]*$/) {
+          cls = ""; nm = ""; failed = 0; incase = 0
+        } else {
+          incase = 1
+        }
+        next
+      }
+      incase && (/<failure[ >\/]/ || /<error[ >\/]/) { failed = 1 }
+      incase && /<\/testcase>/ {
+        if (failed) {
+          if (cls != "" && nm != "") print cls "." nm
+          else if (nm != "") print nm
+        }
+        cls = ""; nm = ""; failed = 0; incase = 0
+      }
+    ' "$xf" 2>/dev/null
+  done
+}
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, the full log's FAIL lines in $fails (at most $FAILS, only when
-# the log runs past the tail), and $late set when it ran past $LIMIT seconds
-# besides what it waited for the race lock. It adds the seconds the run took
-# to $secs, which a second run after a signal adds to.
+# in $lines, the failing tests in $fails (the full log's FAIL and XCTest
+# lines, and the Gradle names, deduped, at most $FAILS, only when the log
+# runs past the tail), and $late set when it ran past $LIMIT seconds besides
+# what it waited for the race lock. It adds the seconds the run took to $secs,
+# which a second run after a signal adds to. A red run's full log stays in
+# $log until the outcome attaches it to the bead; a green run's is removed
+# at once, as ever.
 #
 # The bound is sh's own, since timeout(1) is not everywhere (macOS has none):
 # the command runs in the background beside a watcher that sleeps $LIMIT
@@ -827,15 +874,26 @@ runtest() {
   if [ -z "$flakes" ]; then
     flakes=$(grep -E -e '^test: flaky: ' -e ' flaked on [0-9][0-9]* changes in 7 days' "$log" || true)
   fi
-  # The FAIL lines a red note keeps ahead of the tail: every one of the full
-  # log's, capped, so a failure above the tail still shows. Only when the log
-  # runs past the tail; a short run's tail already holds them.
+  # The failing tests a red note keeps ahead of the tail: the full log's
+  # FAIL lines (go test's, a shell gate's FAIL:, XCTest's), and the Gradle
+  # names from the worktree, deduped and capped, so a failure above the tail
+  # still shows. Only when the log runs past the tail; a short run's tail
+  # already holds the log's names.
   fails=
   if [ "$lines" -gt "$TAIL" ]; then
-    fails=$(grep -E -e '--- FAIL' -e '^FAIL' "$log" | head -n "$FAILS" || true)
+    fails=$( { grep -E -e '--- FAIL' -e '^FAIL' -e "Test Case '-\[.*\]' failed" "$log" 2>/dev/null; gradle_fails; } | awk '!seen[$0]++' | head -n "$FAILS" || true)
   fi
-  cleanup
-  log=
+  if [ "$rc" = 0 ]; then
+    cleanup
+    log=
+  else
+    # A red run's full log stays standing until the outcome attaches it to
+    # the bead (attach_log); the run's other files go as ever.
+    kept=$log
+    log=
+    cleanup
+    log=$kept
+  fi
   latefile=
   napfile=
   copy=
@@ -844,6 +902,17 @@ runtest() {
 # What a note says of a run's output: all of it, or its end.
 shown() {
   if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
+}
+# attach_log carries a red run's full log to the bead, so the names and the
+# tail in the outcome's note stay readable after the worktree and the run's
+# files are gone. It runs before the outcome moves the bead (bye takes the
+# log with it), and never fails the outcome: a refused attach leaves a note
+# saying the output was too large to keep instead.
+attach_log() {
+  [ -n "${log:-}" ] && [ -f "$log" ] || return 0
+  "$Y" bead note "$BEAD" "assembly: full gate output of the failed run on $BR at $at ($WHAT, exit $rc)" --file "$log" >/dev/null 2>&1 && return 0
+  "$Y" bead note "$BEAD" "assembly: the full gate output of the failed run on $BR at $at ($WHAT, exit $rc) was too large to keep" >/dev/null 2>&1 || true
+  return 0
 }
 secs=0
 tested=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
@@ -881,28 +950,40 @@ else
     first="$RUN on $BR at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"
     echo "== $first; running them once more"
     "$Y" bead note "$BEAD" "assembly: $first; running them once more on the same commit. Of the first run, $(shown):
-$out" || echo "== could not note the first run on $BEAD"
-    out1=$out
+${fails:+$fails
+}$out" || echo "== could not note the first run on $BEAD"
+    out1=$out fails1=$fails
+    # The first run's log is noted; only the second run's decides the
+    # outcome, so only it is attached. Gone before the second run starts, it
+    # cannot leak whatever the second does.
+    rm -f "$log"
+    log=
     runtest
-    [ "$rc" -le 128 ] || [ -n "$late" ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to test it again.
+    [ "$rc" -le 128 ] || [ -n "$late" ] || { attach_log; hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing landed, and the branch is not at fault: find what sends the signal, then unhold to test it again.
 First run:
-$out1
+${fails1:+$fails1
+}$out1
 Second run:
-$out"
+${fails:+$fails
+}$out"; }
   fi
   if [ -n "$late" ]; then
+    attach_log
     back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT): they ran past their deadline of ${LIMIT}s and were killed; $(shown):
-$out"
+${fails:+$fails
+}$out"
   fi
   case $rc in
   0) ;;
-  2) hold "$RUN could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
-$out" ;;
-  3) hold "$RUN were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
-$out${flakes:+
+  2) attach_log; hold "$RUN could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
+${fails:+$fails
+}$out" ;;
+  3) attach_log; hold "$RUN were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
+${fails:+$fails
+}$out${flakes:+
 $flakes}
 Nothing landed, and the branch is not at fault: fix the flaky test, then unhold to test it again." ;;
-  *) back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
+  *) attach_log; back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
 ${fails:+$fails
 }$out" ;;
   esac

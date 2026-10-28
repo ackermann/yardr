@@ -26,8 +26,9 @@
 # the base, runs the depot's test command on the result, with
 # YARDR_LANDING=1 and YARDR_TEST_BEADS (the train's children, which the run
 # tests, where YARDR_BEAD names the train), and reports done (-> review). A
-# red run reports failed (-> open) with the commit and the end of the output,
-# after adding a child to fix it, which carries the same: the child blocks
+# red run reports failed (-> open) with the commit, the failing tests and
+# the end of the output, and the full output attached beside it, after
+# adding a child to fix it, which carries the same: the child blocks
 # the train, so it is not integrated again until the fix has landed on its
 # branch. A rebase that conflicts reports conflict (-> merge), as merge-local
 # does for a bead: the mergers rebase the branch and send the train back to
@@ -60,6 +61,9 @@ PUSH=${YARDR_PUSH:-}
 NOTIFY=${YARDR_NOTIFY:-}
 PR=${YARDR_PR:-}
 TAIL=200
+# How many failing tests a red note keeps from the full log, ahead of the
+# tail: a failure early in a long run would otherwise sit unseen above it.
+FAILS=40
 echo "== $(date '+%Y-%m-%dT%H:%M:%S%z') integrate $DEPOT $TRAIN ($BR onto $BASE)"
 
 # tree prints a process and everything below it, in one order every time.
@@ -278,11 +282,58 @@ closefds() {
   exit 2
 }
 # --- end of closefds ---
+# gradle_fails prints the failing tests a Gradle run left in the worktree:
+# each testcase carrying a failure or an error in a TEST-*.xml file under
+# $WT, named classname.name. Gradle's own output says only how many failed,
+# so without this a red note names no test. One line per test, in the
+# files' sorted order; nothing when there are no such files.
+gradle_fails() {
+  [ -n "${WT:-}" ] && [ -d "$WT" ] || return 0
+  find "$WT" -name 'TEST-*.xml' -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r xf; do
+    awk '
+      function attr(line, key,   m) {
+        if (match(line, "[ \t]" key "=\"[^\"]*\"")) {
+          m = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 4)
+          return m
+        }
+        return ""
+      }
+      /<testcase[^>]*>/ {
+        cls = attr($0, "classname"); nm = attr($0, "name")
+        failed = ($0 ~ /<failure[ >\/]/ || $0 ~ /<error[ >\/]/) ? 1 : 0
+        if ($0 ~ /<\/testcase>/) {
+          if (failed) {
+            if (cls != "" && nm != "") print cls "." nm
+            else if (nm != "") print nm
+          }
+          cls = ""; nm = ""; failed = 0; incase = 0
+        } else if ($0 ~ /\/>[ \t]*$/) {
+          cls = ""; nm = ""; failed = 0; incase = 0
+        } else {
+          incase = 1
+        }
+        next
+      }
+      incase && (/<failure[ >\/]/ || /<error[ >\/]/) { failed = 1 }
+      incase && /<\/testcase>/ {
+        if (failed) {
+          if (cls != "" && nm != "") print cls "." nm
+          else if (nm != "") print nm
+        }
+        cls = ""; nm = ""; failed = 0; incase = 0
+      }
+    ' "$xf" 2>/dev/null
+  done
+}
 # runtest runs the test command in the worktree and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, and $late set when it ran past $LIMIT seconds besides what it
-# waited for the race lock. The bound is sh's own, as in merge-local, which
-# says why it is made this way.
+# in $lines, the failing tests in $fails (the full log's FAIL and XCTest
+# lines, and the Gradle names, deduped, at most $FAILS, only when the log
+# runs past the tail), and $late set when it ran past $LIMIT seconds besides
+# what it waited for the race lock. A red run's full log stays in $log until
+# the outcome attaches it to the train; a green run's is removed at once, as
+# ever. The bound is sh's own, as in merge-local, which says why it is made
+# this way.
 runtest() {
   # Each file of the run is made by a mktemp of its own, never named from
   # another's: mktemp creates a file exclusively, but a local user of a shared
@@ -413,8 +464,26 @@ runtest() {
   if [ -z "$flakes" ]; then
     flakes=$(grep -E -e '^test: flaky: ' -e ' flaked on [0-9][0-9]* changes in 7 days' "$log" || true)
   fi
-  cleanup
-  log=
+  # The failing tests a red note keeps ahead of the tail: the full log's
+  # FAIL lines (go test's, a shell gate's FAIL:, XCTest's), and the Gradle
+  # names from the worktree, deduped and capped, so a failure above the tail
+  # still shows. Only when the log runs past the tail; a short run's tail
+  # already holds the log's names.
+  fails=
+  if [ "$lines" -gt "$TAIL" ]; then
+    fails=$( { grep -E -e '--- FAIL' -e '^FAIL' -e "Test Case '-\[.*\]' failed" "$log" 2>/dev/null; gradle_fails; } | awk '!seen[$0]++' | head -n "$FAILS" || true)
+  fi
+  if [ "$rc" = 0 ]; then
+    cleanup
+    log=
+  else
+    # A red run's full log stays standing until the outcome attaches it to
+    # the train (attach_log); the run's other files go as ever.
+    kept=$log
+    log=
+    cleanup
+    log=$kept
+  fi
   latefile=
   napfile=
   copy=
@@ -423,6 +492,17 @@ runtest() {
 # What a note says of a run's output: all of it, or its end.
 shown() {
   if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
+}
+# attach_log carries a red run's full log to the train, so the names and the
+# tail in the outcome's note stay readable after the worktree and the run's
+# files are gone. It runs before the outcome moves the train (bye takes the
+# log with it), and never fails the outcome: a refused attach leaves a note
+# saying the output was too large to keep instead.
+attach_log() {
+  [ -n "${log:-}" ] && [ -f "$log" ] || return 0
+  "$Y" bead note "$TRAIN" "integrator: full gate output of the failed run on $BR at $at ($WHAT, exit $rc)" --file "$log" >/dev/null 2>&1 && return 0
+  "$Y" bead note "$TRAIN" "integrator: the full gate output of the failed run on $BR at $at ($WHAT, exit $rc) was too large to keep" >/dev/null 2>&1 || true
+  return 0
 }
 tested=$(git -C "$REPO" rev-parse "refs/heads/$BR") || hold "cannot read $BR"
 at=$(git -C "$REPO" rev-parse --short "$tested")
@@ -444,28 +524,38 @@ else
     first="the tests on $BR at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"
     echo "== $first; running them once more"
     "$Y" bead note "$TRAIN" "integrator: $first; running them once more on the same commit. Of the first run, $(shown):
-$out" || echo "== could not note the first run on $TRAIN"
-    out1=$out
+${fails:+$fails
+}$out" || echo "== could not note the first run on $TRAIN"
+    out1=$out fails1=$fails
+    # The first run's log is noted; only the second run's decides the
+    # outcome, so only it is attached. Gone before the second run starts, it
+    # cannot leak whatever the second does.
+    rm -f "$log"
+    log=
     runtest
-    [ "$rc" -le 128 ] || [ -n "$late" ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. The branch is not at fault: find what sends the signal, then unhold to test it again.
+    [ "$rc" -le 128 ] || [ -n "$late" ] || { attach_log; hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. The branch is not at fault: find what sends the signal, then unhold to test it again.
 First run:
-$out1
+${fails1:+$fails1
+}$out1
 Second run:
-$out"
+${fails:+$fails
+}$out"; }
   fi
   why="exit $rc"
   [ -z "$late" ] || why="they ran past their deadline of ${LIMIT}s and were killed"
   case $rc in
   0) ;;
   2)
-    [ -n "$late" ] || hold "the tests could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
-$out"
+    [ -n "$late" ] || { attach_log; hold "the tests could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
+${fails:+$fails
+}$out"; }
     ;;
   3)
-    [ -n "$late" ] || hold "the tests were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
-$out${flakes:+
+    [ -n "$late" ] || { attach_log; hold "the tests were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
+${fails:+$fails
+}$out${flakes:+
 $flakes}
-The branch is not at fault: fix the flaky test, then unhold to test it again."
+The branch is not at fault: fix the flaky test, then unhold to test it again."; }
     ;;
   esac
   if [ "$rc" != 0 ]; then
@@ -474,16 +564,19 @@ The branch is not at fault: fix the flaky test, then unhold to test it again."
     # integrated again unchanged. It starts in backlog, for the yardmaster
     # to shape.
     msg="the tests failed on $BR at $at rebased onto $BASE ($WHAT, $why); $(shown):
-$out"
+${fails:+$fails
+}$out"
     # The hold below runs when either the create or the dep-add fails, which
     # is the intent: both must succeed for the train to have its fix child.
     # shellcheck disable=SC2015
     fix=$(printf '%s\n' "The tests failed on train $TRAIN's branch $BR at $at rebased onto $BASE ($WHAT, $why). Make them pass on $BR. Of the run, $(shown):
 
-$out" | "$Y" bead create "Fix the tests on train $TRAIN" -d "$DEPOT" -t bug -s backlog -b -) &&
+${fails:+$fails
+}$out" | "$Y" bead create "Fix the tests on train $TRAIN" -d "$DEPOT" -t bug -s backlog -b -) &&
       "$Y" dep add "$TRAIN" "$fix" -k parent ||
-      hold "$msg
-(adding a child to fix it failed; add one, then unhold)"
+      { attach_log; hold "$msg
+(adding a child to fix it failed; add one, then unhold)"; }
+    attach_log
     report failed "$msg
 Added child $fix to fix it; the train is integrated again once it lands."
   fi

@@ -3,7 +3,8 @@
 # command on the head of the pull request a pr bead tracks, when the bead is in
 # ciwait, and says how it went: done, with the head it tested recorded as the
 # bead's metadata ci_head, which merge-pr reads before it merges anything; or
-# changes, with the end of the output. Run it as the cmd of an exec group of its
+# changes, with the failing tests and the end of the output, and the full
+# output attached beside it. Run it as the cmd of an exec group of its
 # own (pr-ci, limit 1: one run at a time), routed for the pr flow's ciwait stage
 # (type pr). The contributors pack's flows/pr/ciwait.md says what the stage is
 # for, and docs/line.md, "The yard as the CI of a pull request", has the setup.
@@ -93,6 +94,9 @@ BASE=$YARDR_BASE
 TEST=${YARDR_TEST:-}
 LIMIT=${YARDR_TEST_TIMEOUT:-1800}
 TAIL=200
+# How many failing tests a red note keeps from the full log, ahead of the
+# tail: a failure early in a long run would otherwise sit unseen above it.
+FAILS=40
 # The head's own checkout, beside the bead's worktree and never in it. The path
 # is the same every run of the bead, so what a killed run left is found and
 # cleared by the next (scratch_gone), and it is no bead's id, so no bead has it.
@@ -407,12 +411,59 @@ closefds() {
   exit 2
 }
 # --- end of closefds ---
+# gradle_fails prints the failing tests a Gradle run left in the checkout:
+# each testcase carrying a failure or an error in a TEST-*.xml file under
+# $WT, named classname.name. Gradle's own output says only how many failed,
+# so without this a red note names no test. One line per test, in the
+# files' sorted order; nothing when there are no such files.
+gradle_fails() {
+  [ -n "${WT:-}" ] && [ -d "$WT" ] || return 0
+  find "$WT" -name 'TEST-*.xml' -type f 2>/dev/null | LC_ALL=C sort | while IFS= read -r xf; do
+    awk '
+      function attr(line, key,   m) {
+        if (match(line, "[ \t]" key "=\"[^\"]*\"")) {
+          m = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 4)
+          return m
+        }
+        return ""
+      }
+      /<testcase[^>]*>/ {
+        cls = attr($0, "classname"); nm = attr($0, "name")
+        failed = ($0 ~ /<failure[ >\/]/ || $0 ~ /<error[ >\/]/) ? 1 : 0
+        if ($0 ~ /<\/testcase>/) {
+          if (failed) {
+            if (cls != "" && nm != "") print cls "." nm
+            else if (nm != "") print nm
+          }
+          cls = ""; nm = ""; failed = 0; incase = 0
+        } else if ($0 ~ /\/>[ \t]*$/) {
+          cls = ""; nm = ""; failed = 0; incase = 0
+        } else {
+          incase = 1
+        }
+        next
+      }
+      incase && (/<failure[ >\/]/ || /<error[ >\/]/) { failed = 1 }
+      incase && /<\/testcase>/ {
+        if (failed) {
+          if (cls != "" && nm != "") print cls "." nm
+          else if (nm != "") print nm
+        }
+        cls = ""; nm = ""; failed = 0; incase = 0
+      }
+    ' "$xf" 2>/dev/null
+  done
+}
 # runtest runs the test command in the checkout and leaves its exit status in
 # $rc, the last $TAIL lines of its output in $out, how many lines there were
-# in $lines, and $late set when it ran past $LIMIT seconds besides what it
-# waited for the race lock. It adds the seconds the run took to $secs, which
-# a second run after a signal adds to. The bound is sh's own, as in merge-local,
-# which says why it is made this way.
+# in $lines, the failing tests in $fails (the full log's FAIL and XCTest
+# lines, and the Gradle names, deduped, at most $FAILS, only when the log
+# runs past the tail), and $late set when it ran past $LIMIT seconds besides
+# what it waited for the race lock. It adds the seconds the run took to $secs,
+# which a second run after a signal adds to. A red run's full log stays in
+# $log until the outcome attaches it to the bead; a green run's is removed
+# at once, as ever. The bound is sh's own, as in merge-local, which says why
+# it is made this way.
 runtest() {
   # Each file of the run is made by a mktemp of its own, in the directory only
   # this script can enter.
@@ -541,8 +592,26 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  rundone
-  log=
+  # The failing tests a red note keeps ahead of the tail: the full log's
+  # FAIL lines (go test's, a shell gate's FAIL:, XCTest's), and the Gradle
+  # names from the checkout, deduped and capped, so a failure above the tail
+  # still shows. Only when the log runs past the tail; a short run's tail
+  # already holds the log's names.
+  fails=
+  if [ "$lines" -gt "$TAIL" ]; then
+    fails=$( { grep -E -e '--- FAIL' -e '^FAIL' -e "Test Case '-\[.*\]' failed" "$log" 2>/dev/null; gradle_fails; } | awk '!seen[$0]++' | head -n "$FAILS" || true)
+  fi
+  if [ "$rc" = 0 ]; then
+    rundone
+    log=
+  else
+    # A red run's full log stays standing until the outcome attaches it to
+    # the bead (attach_log); the run's other files go as ever.
+    kept=$log
+    log=
+    rundone
+    log=$kept
+  fi
   latefile=
   napfile=
   copy=
@@ -551,6 +620,17 @@ runtest() {
 # What a note says of a run's output: all of it, or its end.
 shown() {
   if [ "$lines" -gt "$TAIL" ]; then echo "the last $TAIL of $lines lines of output"; else echo "its output"; fi
+}
+# attach_log carries a red run's full log to the bead, so the names and the
+# tail in the outcome's note stay readable after the checkout and the run's
+# files are gone. It runs before the outcome moves the bead (bye takes the
+# log with it), and never fails the outcome: a refused attach leaves a note
+# saying the output was too large to keep instead.
+attach_log() {
+  [ -n "${log:-}" ] && [ -f "$log" ] || return 0
+  "$Y" bead note "$BEAD" "pr-ci: full gate output of the failed run on $url at $at ($WHAT, exit $rc)" --file "$log" >/dev/null 2>&1 && return 0
+  "$Y" bead note "$BEAD" "pr-ci: the full gate output of the failed run on $url at $at ($WHAT, exit $rc) was too large to keep" >/dev/null 2>&1 || true
+  return 0
 }
 
 # The yard keeps its disk before the tests run, as it does for a landing (yardr
@@ -577,25 +657,37 @@ if [ "$rc" -gt 128 ] && [ -z "$late" ]; then
   first="the tests on $url at $at ($WHAT) were ended by signal $((rc - 128)) (exit $rc), not by a failing test"
   echo "== $first; running them once more"
   "$Y" bead note "$BEAD" "pr-ci: $first; running them once more on the same commit. Of the first run, $(shown):
-$out" || echo "== could not note the first run on $BEAD"
-  out1=$out
+${fails:+$fails
+}$out" || echo "== could not note the first run on $BEAD"
+  out1=$out fails1=$fails
+  # The first run's log is noted; only the second run's decides the
+  # outcome, so only it is attached. Gone before the second run starts, it
+  # cannot leak whatever the second does.
+  rm -f "$log"
+  log=
   runtest
-  [ "$rc" -le 128 ] || [ -n "$late" ] || hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing was decided about the pull request: find what sends the signal, then unhold to test it again.
+  [ "$rc" -le 128 ] || [ -n "$late" ] || { attach_log; hold "$first, and again by signal $((rc - 128)) (exit $rc) when run once more. Nothing was decided about the pull request: find what sends the signal, then unhold to test it again.
 First run:
-$out1
+${fails1:+$fails1
+}$out1
 Second run:
-$out"
+${fails:+$fails
+}$out"; }
 fi
 if [ -n "$late" ]; then
+  attach_log
   report changes "the tests on $url at $at ($WHAT) ran past their deadline of ${LIMIT}s and were killed; $(shown):
-$out"
+${fails:+$fails
+}$out"
 fi
 case $rc in
 0) ;;
-2) hold "the tests could not run on $url at $at ($WHAT said so: exit 2); $(shown):
-$out" ;;
-*) report changes "the tests failed on $url at $at ($WHAT, exit $rc); $(shown):
-$out" ;;
+2) attach_log; hold "the tests could not run on $url at $at ($WHAT said so: exit 2); $(shown):
+${fails:+$fails
+}$out" ;;
+*) attach_log; report changes "the tests failed on $url at $at ($WHAT, exit $rc); $(shown):
+${fails:+$fails
+}$out" ;;
 esac
 
 # Green. It counts for the head the tests ran on and no other: a pull request
