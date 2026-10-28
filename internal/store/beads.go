@@ -593,7 +593,7 @@ func (w *wtx) createBead(ctx context.Context, nb NewBead, actor string, reads *b
 	if fatal != nil {
 		return nil, fatal
 	}
-	if err := w.putStageAsks(row, row.Stage, seq, tmpl, broken); err != nil {
+	if err := w.putStageAsks(row, row.Stage, seq, f, tmpl, broken); err != nil {
 		return nil, err
 	}
 	return row, nil
@@ -1696,7 +1696,17 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 	if agent != nil {
 		safe = s.checkDoneSafe(ctx, id, DoneSafe)
 	}
-	b, err := s.advance(ctx, id, note, exp, actor, false, func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	b, err := s.advance(ctx, id, note, exp, actor, false, advancePick(stage, safe), nil)
+	return b, s.refused(ctx, id, "yardr bead advance "+id+" --to "+stage, exp, actor, err)
+}
+
+// advancePick is the pick of a move by hand to stage, as AdvanceNote makes
+// it and an answer on a stage ask that advances makes it (stagePick): the
+// flow must allow the move, from the stage the bead is in or back to the
+// stage whose question brought it, and a report of DoneSafe that safe holds
+// is refused as the outcome would be.
+func advancePick(stage string, safe *safeCheck) func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	return func(f *Flow, b *beadRow, data map[string]any) (string, error) {
 		asker, _ := data["asker"].(string)
 		if err := checkAdvance(f, b.ID, b.Stage, stage, asker); err != nil {
 			return stage, err
@@ -1707,8 +1717,7 @@ func (s *Store) AdvanceNote(ctx context.Context, id, stage, note string, exp Exp
 			}
 		}
 		return stage, nil
-	}, nil)
-	return b, s.refused(ctx, id, "yardr bead advance "+id+" --to "+stage, exp, actor, err)
+	}
 }
 
 // Done reports how the work in the bead's stage ended and moves it where
@@ -2137,13 +2146,15 @@ func (w *wtx) move(id, actor string, repo *RepoFlows, home *stageHome, may func(
 		return b, err
 	}
 	if !terminal {
+		row, err := w.loadBead(b.UUID)
+		if err != nil {
+			return b, err
+		}
 		tmpl, broken, fatal := stageTemplate(f, src, repo, home, stage)
 		if fatal != nil {
 			return b, fatal
 		}
-		if row, err := w.loadBead(b.UUID); err != nil {
-			return b, err
-		} else if err := w.putStageAsks(row, stage, entry, tmpl, broken); err != nil {
+		if err := w.putStageAsks(row, stage, entry, f, tmpl, broken); err != nil {
 			return b, err
 		}
 		if row, err := w.loadBead(b.UUID); err != nil {
@@ -2565,13 +2576,15 @@ func (s *Store) Reopen(ctx context.Context, id string, exp Expect, actor string)
 			result = b
 			return w.logTargetsFlips(rows, before, look, actor)
 		}
+		row, err := w.loadBead(b.UUID)
+		if err != nil {
+			return err
+		}
 		tmpl, broken, fatal := stageTemplate(f, src, repo, home, b.Stage)
 		if fatal != nil {
 			return fatal
 		}
-		if row, err := w.loadBead(b.UUID); err != nil {
-			return err
-		} else if err := w.putStageAsks(row, b.Stage, entry, tmpl, broken); err != nil {
+		if err := w.putStageAsks(row, b.Stage, entry, f, tmpl, broken); err != nil {
 			return err
 		}
 		if row, err := w.loadBead(b.UUID); err != nil {

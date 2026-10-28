@@ -136,7 +136,7 @@ func (s *Store) Unfold(ctx context.Context, carrierRef, memberRef, to, reason, a
 		}
 		if row, err := w.loadBead(member.UUID); err != nil {
 			return err
-		} else if err := w.putStageAsks(row, stage, entry, tmpl, broken); err != nil {
+		} else if err := w.putStageAsks(row, stage, entry, f, tmpl, broken); err != nil {
 			return err
 		}
 		if err := w.unfoldLinks(carrier, member, moved, actor); err != nil {

@@ -1,8 +1,9 @@
 // A stage file may end in an ## Ask section: the stage's ask template.
 // When a bead enters the stage, the yard puts an ask on it built from the
-// template, and the person's answer moves the bead. Three kinds answer three
-// wants: choice offers the stage's outcomes, input asks for words, check
-// asks whether something has been done:
+// template, and the person's answer moves the bead. Four kinds answer four
+// wants: choice offers the outcomes the file names, moves offers the stage's
+// moves as the flow has them, input asks for words, check asks whether
+// something has been done:
 //
 //	## Ask
 //	kind: choice
@@ -36,6 +37,7 @@ import (
 // The kinds of a stage's ask template.
 const (
 	AskChoice = "choice"
+	AskMoves  = "moves"
 	AskInput  = "input"
 	AskCheck  = "check"
 )
@@ -48,7 +50,7 @@ const AskMoveNone = "none"
 // when a bead enters the stage. The question and context are literal text;
 // nothing is interpolated.
 type AskTemplate struct {
-	// Kind is AskChoice, AskInput or AskCheck.
+	// Kind is AskChoice, AskMoves, AskInput or AskCheck.
 	Kind string `json:"kind"`
 	// Question is the question in one line; Context what it is about, at
 	// least one line.
@@ -56,7 +58,8 @@ type AskTemplate struct {
 	Context  []string `json:"context"`
 	// Options are a choice ask's options: each names an outcome of the
 	// stage and what picking it does. The option's label is the outcome's
-	// name; yardr adds YouDecide when the ask is put, as to any ask.
+	// name; yardr adds YouDecide when the ask is put, as to any ask. A moves
+	// ask writes none: stageTemplate fills them from the flow (movesOf).
 	Options []AskTemplateOption `json:"options,omitempty"`
 	// Recommend is the recommended option's number, 1-based into Options,
 	// 0 for no recommendation; Why says why in a line. Choice only.
@@ -64,7 +67,7 @@ type AskTemplate struct {
 	Why       string `json:"why,omitempty"`
 	// Move is the outcome an input ask's words fire, or a check ask's Done
 	// fires; the default done. AskMoveNone on an input ask records the
-	// words and moves nothing. Empty on a choice ask.
+	// words and moves nothing. Empty on a choice or moves ask.
 	Move string `json:"move,omitempty"`
 	// askLine is the ## Ask line, moveLine the move: line (0 for the
 	// default), both 1-based: where an error about them points.
@@ -73,13 +76,20 @@ type AskTemplate struct {
 }
 
 // AskTemplateOption is one option of a choice template: an outcome of the
-// stage and what picking it does in a line.
+// stage and what picking it does in a line. A moves template's are the
+// flow's, each a label and the move it fires.
 type AskTemplateOption struct {
 	Outcome     string `json:"outcome"`
 	Consequence string `json:"consequence"`
 	// line is the option's line, 1-based: where an error about it points.
 	line int
+	// move is what picking the option fires when that is not the outcome
+	// the label names: the advance to a stage that has no outcome (moveTo).
+	move string
 }
+
+// fires is the move picking the option fires: its outcome, else its own.
+func (o AskTemplateOption) fires() string { return or(o.move, o.Outcome) }
 
 // Ask parses the stage file's ## Ask section. Nil with no error when the
 // file has no section. A section that is present must parse fully; a
@@ -244,8 +254,8 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 			if seen(&seenKind) {
 				return fail(n, "kind twice; write it once")
 			}
-			if value != AskChoice && value != AskInput && value != AskCheck {
-				return fail(n, "kind %q: want choice, input or check", value)
+			if value != AskChoice && value != AskMoves && value != AskInput && value != AskCheck {
+				return fail(n, "kind %q: want choice, moves, input or check", value)
 			}
 			t.Kind = value
 		case "question":
@@ -299,7 +309,7 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 		}
 	}
 	if t.Kind == "" {
-		return fail(t.askLine, "kind is required: choice, input or check")
+		return fail(t.askLine, "kind is required: choice, moves, input or check")
 	}
 	if t.Question == "" {
 		return fail(t.askLine, "question is required: the question in one line")
@@ -354,6 +364,20 @@ func parseAsk(lines []string, at int) (*AskTemplate, error) {
 		case t.Recommend == 0 && seenWhy:
 			return fail(whyLine, "'why:' needs 'recommend:': which option it is for")
 		}
+	case AskMoves:
+		if firstOption != 0 {
+			return fail(firstOption, "a moves ask takes no options: the stage's moves are its options")
+		}
+		if seenRecommend {
+			return fail(recommendLine, "a moves ask takes no 'recommend:': its options are the stage's moves, known when the ask is put")
+		}
+		if seenWhy {
+			return fail(whyLine, "a moves ask takes no 'why:': it recommends nothing")
+		}
+		if seenMove {
+			return fail(t.moveLine, "a moves ask takes no 'move:': each option is a move of the stage")
+		}
+		t.Move = ""
 	case AskInput:
 		if firstOption != 0 {
 			return fail(firstOption, "an input ask takes no options: its answer is words, and 'move:' says what they do")
@@ -425,6 +449,12 @@ func (t *AskTemplate) Check(f *Flow, stage string) error {
 			if _, err := f.Resolve(stage, o.Outcome); err != nil {
 				return fmt.Errorf("ask line %d: %s", o.line, err)
 			}
+		}
+	case AskMoves:
+		// The moves are the stage's NextStages, including the first-stage
+		// fallback for a bead reopened in a terminal or unknown stage.
+		if len(f.Next(stage)) == 0 {
+			return fmt.Errorf("ask line %d: stage %s has no way out under flow %s: a moves ask offers the stage's moves", t.askLine, stage, f.Name)
 		}
 	case AskInput:
 		if t.Move == AskMoveNone {

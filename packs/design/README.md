@@ -42,7 +42,7 @@ merged terminal
 | `backlog` | `backlog`, people | the bead waits until its question is clear enough to draft from |
 | `draft` | `builders` | an agent writes `docs/design/<date>-<bead>-<name>.md` on the bead's branch: what exists, the smallest proposal, the open questions, the beads it would become |
 | `critique` | `reviewers` | another agent checks the document's claims in the code and its proposal against the repository's principles, and changes nothing. `changes` sends it back to `draft`, twice at most ([below](#limits-on-rounds)); from the third critique on the stage file has it go on to a person |
-| `decide` | `decisions`, people | a person reads the document and both notes, answers the open questions, and moves the bead to `approved`, back to `draft`, or to `backlog` |
+| `decide` | `decisions`, people | a person reads the document and both notes, answers the open questions, and moves the bead to `approved`, back to `draft`, or to `backlog`; the yard puts a card on the bead offering these moves, and picking one moves it |
 | `approved` | `assembly` | the document lands on the depot's base, after the depot's test command. `failed` sends it back to `draft`, three times at most ([below](#limits-on-rounds)) |
 
 A design bead is made as any bead, with its type: `yardr bead create

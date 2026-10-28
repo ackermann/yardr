@@ -12,3 +12,16 @@ answers in a note on the bead.
 
 A bead also comes here when the writer could not draft without an answer:
 the note says what it needs.
+
+When a bead arrives the yard puts a card for the decisions on it, offering
+these moves, and picking one moves the bead: the person's words with the pick
+stay on the bead for whoever works it next. A bead with an ask already open
+gets no card, and a card gives way to an ask put after it: that question is
+what the person answers, and the bead is moved by hand once it is.
+
+## Ask
+kind: moves
+question: Where should this design go next?
+context:
+- The design and both notes are on the bead; the questions to answer are in them.
+- Pick where it goes. Your words with the pick stay on the bead for whoever works it next.

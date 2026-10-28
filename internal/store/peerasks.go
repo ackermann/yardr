@@ -526,9 +526,10 @@ func (w *wtx) dropPeerAsks(p *Peer) (map[string][]foreignAsk, error) {
 //
 // An answer on a stage ask moves the bead the same way one given here
 // does, under the same rules in the write that lands it (stageAnswer): a
-// pick or words that fire an outcome move through Done's path, and anyone
-// but the stage's deciders is refused whole. tk is what the move needs of
-// the bead's flows (taking).
+// pick or words that fire an outcome move through Done's path, one that
+// fires an advance as yardr bead advance moves, and anyone but the stage's
+// deciders is refused whole. tk is what the move needs of the bead's flows
+// (taking).
 //
 // A body that says settled is no answer but the word that an ask copied
 // to this yard ended in p's (takeSettle).
@@ -546,7 +547,7 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 	ans := Answer{Ask: a.Seq, Option: a.Option, Words: a.Words, Later: a.Later, Decline: a.Decline}
 	var row *beadRow
 	var text []byte
-	outcome := ""
+	move := ""
 	switch {
 	case reason != "":
 	case !peerMailName.MatchString(a.From) || !utf8.ValidString(a.Words) || answerShape(a.Bead, &ans) != nil:
@@ -607,7 +608,7 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 		}
 		// No local caller answers over a link: who asks is the name as
 		// written, held to the stage's deciders with the trust mapping.
-		outcome, why, err = w.stageAnswer(context.Background(), row, notes, ans, a.From+"@"+p.Name, tk.flows[row.UUID], tk.homes[row.UUID])
+		move, why, err = w.stageAnswer(context.Background(), row, notes, ans, a.From+"@"+p.Name, tk.flows[row.UUID], tk.homes[row.UUID])
 		if err != nil {
 			if reason = why; reason == "" {
 				reason = RefusedNotAsk
@@ -631,8 +632,8 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 	// read refuses the answer with its reason, and the question stays
 	// open for the flow to mend. A flow read for another configuration
 	// meanwhile fails the batch instead, to be taken again.
-	if outcome != "" {
-		if err := w.stageOutcome(row, outcome, tk.flows[row.UUID]); err != nil {
+	if move != "" {
+		if err := w.checkStageMove(row, move, tk.flows[row.UUID]); err != nil {
 			if errors.Is(err, errNeedRepo) {
 				return "", changedMeanwhile(err)
 			}
@@ -646,8 +647,8 @@ func (w *wtx) takeAnswer(p *Peer, m PeerMessage, extra map[string]any, tk *takin
 	if _, err := w.addNoted(row, NoteAnswer, string(text), by); err != nil {
 		return "", err
 	}
-	if outcome != "" {
-		if _, err := w.move(row.UUID, by, tk.flows[row.UUID], tk.homes[row.UUID], nil, donePick(outcome, nil)); err != nil {
+	if move != "" {
+		if _, err := w.move(row.UUID, by, tk.flows[row.UUID], tk.homes[row.UUID], nil, stagePick(move)); err != nil {
 			return "", err
 		}
 	}

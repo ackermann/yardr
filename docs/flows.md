@@ -565,8 +565,9 @@ A stage file may end in an `## Ask` section: the stage's ask template. When a
 bead enters the stage, the yard puts an ask on it built from the template, to
 the stage's people, and the person's answer moves the bead. A stage file
 without the section has no template, and its beads behave as they always did.
-Three kinds answer three wants: `choice` offers the stage's outcomes, `input`
-asks for words, `check` asks whether something has been done.
+Four kinds answer four wants: `choice` offers outcomes the file names, `moves`
+offers the stage's moves as the flow has them, `input` asks for words, `check`
+asks whether something has been done.
 
 ```
 ## Ask
@@ -581,19 +582,46 @@ done: The bead moves to new with your words as the note.
 backlog: The bead goes back to be reshaped by the yardmaster.
 ```
 
-- `kind` is required: `choice`, `input`, or `check`.
+- `kind` is required: `choice`, `moves`, `input`, or `check`.
 - `question` is required, one line; `context` is required, at least one `- `
   line.
 - `choice` offers one option per line of the form `<outcome>: <consequence>`,
   at least one line. The option's label is the outcome's name; each outcome
   must resolve under the flow. `recommend` and `why` follow the ask's rules.
   An outcome named like a field takes `options:`, below.
+- `moves` offers the moves of the stage and writes none of them: the section
+  is `kind`, `question` and `context`, with no option line, `recommend`, `why`
+  or `move`. The options are read from the flow when the ask is put, as
+  `yardr review` offers a stage's moves: one for each outcome the flow names
+  for the stage, else one for each stage it allows next; the card is put from
+  flow and the bead's current `NextStages`, including a return to the stage
+  whose question brought the bead when that adds a move. A stage with no
+  outcome to name its way out, as `decide` is, is left by `yardr bead advance
+  --to`, and picking its option advances the bead there with the checks that
+  advance makes: a move the flow has dropped since is refused as it would be
+  by hand, and the `advanced` event records no outcome. Each option says
+  where it goes in the flow's words: "The bead moves to X.", "The bead goes
+  back to X, with your words as the note." for a stage earlier in the flow,
+  "The bead finishes as X and closes." for a terminal one, and for a limited
+  outcome the current round and where the bead goes after the limit. The stage
+  must have a way out in the flow, or the section is broken.
 - `input` asks for words: no options and no recommendation. `move:` names the
   outcome the words fire, default `done`; `move: none` records the words and
   moves nothing, for a stage with no outcomes.
 - `check` asks "has X been done?": `move:` names the outcome Done fires
   (default `done`). There is no explicit Not-yet option: Later, the existing
   action, is the not-yet.
+
+A `moves` section, for a `decide` stage whose flow lists no outcomes for it,
+writes the question and nothing of the moves:
+
+```
+## Ask
+kind: moves
+question: Where should this bead go next?
+context:
+- The bead waits for a person; what it needs is in its notes.
+```
 
 A line named like a field is that field, so an outcome called `question`,
 `kind`, `context`, `recommend`, `why`, `move` or `options` cannot be offered as
@@ -633,6 +661,18 @@ web view), as the `summary:` line already is. A section that is present must
 parse fully; `yardr flow show` reports a broken one beside its file, as it
 warns of stray files.
 
+A `moves` card is for a bead nobody has asked about. Where an ask that
+someone put is open or put aside on the bead when it arrives, no card is put:
+that question is what the person is asked, and the bead is moved by hand once
+it is answered. A card that stands is taken back, in the write that puts an
+ask on the bead, authored `yard` with the number of the ask that is on the
+bead now. A card taken back is not put back when the ask is answered. No other
+kind of template gives way to an ask. Which stages get a card is the stage
+file's to say, as for any template, so a people stage without the section
+behaves as it did: `backlog` and the sidings, where beads wait by design, ask
+nothing. Depot yardr's own `decide` stages, in its default and train flows,
+and the design pack's carry one; the starter pack's does not.
+
 Every entry into a manual stage with a template puts one ask per
 user-member of the stage's group, authored `yard`, in the move's write: a
 bead created in the stage, advanced or done into it, and reopened in it.
@@ -662,7 +702,8 @@ the ask to the operator as fallback, the operator answers it. A pick or
 words that fire an outcome move the bead in the same write, through the
 flow's existing outcomes; the `advanced` event records the outcome, and
 the answer's words stay on the answer note, so the move carries no
-separate note. Picking You decide records without moving, as do words
+separate note. A pick of a stage on a `moves` card advances the bead there in
+the same write, as `yardr bead advance` does. Picking You decide records without moving, as do words
 with `move: none`. Later puts the ask aside and Decline ends it; the bead
 waits as today in both cases, and the yard never re-asks on its own.
 Several members resolve as first answer wins: the winner's move takes the

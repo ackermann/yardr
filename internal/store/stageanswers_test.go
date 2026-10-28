@@ -73,7 +73,8 @@ func stageAnswerNotes(t *testing.T, s store.API, id string) []store.Note {
 
 // A choice pick moves the bead in the answer's write, with the outcome on
 // the advanced event and no separate note; the other member's ask is taken
-// back with the move named.
+// back with the move named. A moves-card pick uses the same path and is
+// refused when its stage is no longer allowed.
 func TestStageAnswerChoiceMoves(t *testing.T) {
 	t.Parallel()
 	s, ctx := stageAskYard(t, stageAskChoice)
@@ -117,6 +118,34 @@ func TestStageAnswerChoiceMoves(t *testing.T) {
 	}
 	if lines := strings.Join(got[0].Lines(), "\n"); !strings.Contains(lines, "ada picked 1 (done): ship it") {
 		t.Fatalf("winner's ask reads:\n%s", lines)
+	}
+
+	// The same answer path carries a moves card's bare edge, but refuses it
+	// before storing the answer if the flow no longer allows that move.
+	y := stageMovesYard(t, map[string]string{"decide": stageMovesFile}, map[string][]string{"decide": {"ada"}})
+	b, err = y.api.CreateBead(y.ctx, store.NewBead{Title: "a design", Depot: "web", Stage: "draft"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.toDecide(t, b.ID)
+	card := stageAsks(t, y.api, b.ID)[0]
+	before = stageAnswerNotes(t, y.api, b.ID)
+	commitFiles(t, y.repo, map[string]string{
+		".yardr/flows/default.flow": strings.Replace(stageMovesFlow, "decide -> approved | draft | backlog", "decide -> approved | backlog", 1),
+	})
+	err = y.api.AddAnswer(y.ctx, b.ID, store.Answer{Ask: card.Note.Seq, Option: 2}, "ada")
+	if err == nil || !strings.Contains(err.Error(), "does not allow decide -> draft; allowed next: approved, backlog") {
+		t.Fatalf("a pick of draft after the flow dropped it: %v", err)
+	}
+	if after := stageAnswerNotes(t, y.api, b.ID); len(after) != len(before) || y.stage(t, b.ID) != "decide" ||
+		stageAsks(t, y.api, b.ID)[0].State != store.AskOpen {
+		t.Fatalf("a refused pick left notes %d (was %d), the bead in %s, the card %s", len(after), len(before), y.stage(t, b.ID), stageAsks(t, y.api, b.ID)[0].State)
+	}
+	if err := y.api.AddAnswer(y.ctx, b.ID, store.Answer{Ask: card.Note.Seq, Option: 1}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if y.stage(t, b.ID) != "approved" {
+		t.Fatalf("after the pick of approved the bead is in %s", y.stage(t, b.ID))
 	}
 }
 
@@ -736,7 +765,8 @@ func stageAnswerFromLink(t *testing.T, own *store.Store, ctx context.Context, ke
 }
 
 // An answer arriving from a linked yard moves the bead the same way: a
-// remote member's pick lands by name@peer and fires its outcome.
+// remote member's pick lands by name@peer and fires its outcome or advances
+// along a bare edge.
 func TestStageAnswerFromLink(t *testing.T) {
 	t.Parallel()
 	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
@@ -781,6 +811,49 @@ func TestStageAnswerFromLink(t *testing.T) {
 	}
 	if lines := strings.Join(got[0].Lines(), "\n"); !strings.Contains(lines, "moved to approved by mckean@north") {
 		t.Fatalf("loser's ask reads:\n%s", lines)
+	}
+
+	// A linked answer carries an advance from a moves card the same way: a
+	// member's stage move is refused in the open if the flow dropped it, and
+	// an allowed stage move advances with no outcome on its event.
+	y := stageMovesYard(t, map[string]string{"decide": stageMovesFile}, map[string][]string{"decide": {"hal@north"}})
+	movesKey := stageAnswerPeer(t, y.api, y.own, y.ctx, store.PeerAllow{})
+	b, err = y.api.CreateBead(y.ctx, store.NewBead{Title: "a design", Depot: "web", Stage: "draft"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.toDecide(t, b.ID)
+	got = stageAsks(t, y.api, b.ID)
+	if len(got) != 1 || got[0].Ask.To != "hal@north" {
+		t.Fatalf("asks = %+v, want the one for the remote member", got)
+	}
+	movesOut, err := y.api.PeerOutbox(y.ctx, "north", 0)
+	if err != nil || len(movesOut) != 1 {
+		t.Fatalf("outbox = %+v, %v", movesOut, err)
+	}
+	movesBefore := stageAnswerNotes(t, y.api, b.ID)
+	commitFiles(t, y.repo, map[string]string{
+		".yardr/flows/default.flow": strings.Replace(stageMovesFlow, "decide -> approved | draft | backlog", "decide -> approved | backlog", 1),
+	})
+	if taken := stageAnswerFromLink(t, y.own, y.ctx, movesKey, "ans1", movesOut[0].ID, "hal", b.ID, got[0].Note.Seq,
+		map[string]any{"option": 2}); taken.Refused == "" {
+		t.Fatalf("the remote pick of draft, which the flow dropped, was taken: %+v", taken)
+	}
+	if after := stageAnswerNotes(t, y.api, b.ID); len(after) != len(movesBefore) || y.stage(t, b.ID) != "decide" {
+		t.Fatalf("a refused remote pick left notes %d (was %d), the bead in %s", len(after), len(movesBefore), y.stage(t, b.ID))
+	}
+	if taken := stageAnswerFromLink(t, y.own, y.ctx, movesKey, "ans2", movesOut[0].ID, "hal", b.ID, got[0].Note.Seq,
+		map[string]any{"option": 1, "words": "from afar"}); taken.Refused != "" {
+		t.Fatalf("the remote pick of approved = %+v", taken)
+	}
+	if y.stage(t, b.ID) != "approved" {
+		t.Fatalf("after the remote pick the bead is in %s, want approved", y.stage(t, b.ID))
+	}
+	if outcome, ok := stageAnswerAdvanced(t, y.api, b.ID, "approved"); !ok || outcome != "" {
+		t.Fatalf("advanced into approved: outcome %q, found %v; want a move that reports none", outcome, ok)
+	}
+	if got = stageAsks(t, y.api, b.ID); got[0].State != store.AskAnswered || got[0].Current.Note.Author != "hal@north" {
+		t.Fatalf("the card = %+v", got[0])
 	}
 }
 

@@ -346,7 +346,7 @@ func TestFlowShowWarnsOfBrokenAskTemplate(t *testing.T) {
 	if err != nil || len(views) != 2 {
 		t.Fatalf("views = %+v, %v", views, err)
 	}
-	broken := "stage file .yardr/flows/default/review.md: ask line 4: kind \"choce\": want choice, input or check"
+	broken := "stage file .yardr/flows/default/review.md: ask line 4: kind \"choce\": want choice, moves, input or check"
 	if got := fileWarns(views[0]); !slices.Equal(got, []string{broken}) {
 		t.Errorf("default stage file warnings = %q, want %q", got, broken)
 	}

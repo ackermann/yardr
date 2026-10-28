@@ -9,7 +9,7 @@ import (
 )
 
 // A stage file may end in an ## Ask section: the stage's ask template. A
-// choice, input or check section parses to the template's fields.
+// choice, moves, input or check section parses to the template's fields.
 func TestAskTemplateParse(t *testing.T) {
 	t.Parallel()
 	choice := &store.StageFile{Text: `Build the thing.
@@ -71,6 +71,14 @@ backlog: The bead goes back to be reshaped by the yardmaster.
 	ship := &store.StageFile{Text: "Check it.\n\n## Ask\nkind: check\nquestion: Is it done?\ncontext:\n- The release waits on this.\nmove: ship\n"}
 	if tmpl, err = ship.Ask(); err != nil || tmpl.Move != "ship" {
 		t.Fatalf("check with move ship: %+v, %v", tmpl, err)
+	}
+
+	// A moves section writes the question and the context and nothing of the
+	// options: they are the stage's moves, known when the ask is put.
+	moves := &store.StageFile{Text: "A bead waits here.\n\n## Ask\nkind: moves\nquestion: Where should this bead go next?\ncontext:\n- A person decides.\n"}
+	if tmpl, err = moves.Ask(); err != nil || tmpl.Kind != store.AskMoves || tmpl.Question != "Where should this bead go next?" ||
+		len(tmpl.Context) != 1 || len(tmpl.Options) != 0 || tmpl.Recommend != 0 || tmpl.Why != "" || tmpl.Move != "" {
+		t.Fatalf("moves: %+v, %v", tmpl, err)
 	}
 
 	// "options:" alone opens the options: every line after it is one, whatever
@@ -159,8 +167,8 @@ func TestAskTemplateIgnoresFencedExamples(t *testing.T) {
 func TestAskTemplateMalformed(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ name, text, want string }{
-		{"bad kind", "## Ask\nkind: choce\nquestion: Q?\ncontext:\n- Why.\n", "ask line 2: kind \"choce\": want choice, input or check"},
-		{"missing kind", "Prose.\n\n## Ask\nquestion: Q?\ncontext:\n- Why.\n", "ask line 3: kind is required: choice, input or check"},
+		{"bad kind", "## Ask\nkind: choce\nquestion: Q?\ncontext:\n- Why.\n", "ask line 2: kind \"choce\": want choice, moves, input or check"},
+		{"missing kind", "Prose.\n\n## Ask\nquestion: Q?\ncontext:\n- Why.\n", "ask line 3: kind is required: choice, moves, input or check"},
 		{"kind twice", "## Ask\nkind: input\nkind: check\nquestion: Q?\ncontext:\n- Why.\n", "ask line 3: kind twice; write it once"},
 		{"missing question", "## Ask\nkind: input\ncontext:\n- Why.\n", "ask line 1: question is required: the question in one line"},
 		{"empty question", "## Ask\nkind: input\nquestion:\ncontext:\n- Why.\n", "ask line 3: question is empty: the question in one line"},
@@ -185,6 +193,11 @@ func TestAskTemplateMalformed(t *testing.T) {
 		{"check with an option", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: a check ask takes no options: Done fires 'move:'"},
 		{"check with recommend", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nrecommend: 1\n", "ask line 6: a check ask takes no 'recommend:': Done is its only option"},
 		{"check with none", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\nmove: none\n", "ask line 6: 'move: none' is for an input ask: a check ask moves on Done"},
+		{"moves with an option", "## Ask\nkind: moves\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: a moves ask takes no options: the stage's moves are its options"},
+		{"moves with options:", "## Ask\nkind: moves\nquestion: Q?\ncontext:\n- Why.\noptions:\n", "ask line 6: a moves ask takes no options: the stage's moves are its options"},
+		{"moves with recommend", "## Ask\nkind: moves\nquestion: Q?\ncontext:\n- Why.\nrecommend: 1\n", "ask line 6: a moves ask takes no 'recommend:': its options are the stage's moves, known when the ask is put"},
+		{"moves with why", "## Ask\nkind: moves\nquestion: Q?\ncontext:\n- Why.\nwhy: Because.\n", "ask line 6: a moves ask takes no 'why:': it recommends nothing"},
+		{"moves with a move", "## Ask\nkind: moves\nquestion: Q?\ncontext:\n- Why.\nmove: done\n", "ask line 6: a moves ask takes no 'move:': each option is a move of the stage"},
 		{"field name as an option without options:", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\nquestion: Ask.\n", "ask line 7: question twice; write it once"},
 		{"options with a value", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions: Go.\n", "ask line 6: options takes the '<outcome>: <consequence>' lines beneath it, not a value"},
 		{"options: with nothing beneath it", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions:\n", "ask line 6: options needs at least one '<outcome>: <consequence>' line beneath it"},
@@ -193,7 +206,7 @@ func TestAskTemplateMalformed(t *testing.T) {
 		{"option twice across options:", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\ndone: Go again.\n", "ask line 8: outcome done twice; write it once"},
 		{"context line after options:", "## Ask\nkind: choice\nquestion: Q?\ncontext:\n- Why.\noptions:\ndone: Go.\n- More.\n", "ask line 8: a '- ' line after 'options:': context lines go under 'context:', above it"},
 		{"context below options:", "## Ask\nkind: choice\nquestion: Q?\noptions:\ncontext:\n- Why.\ndone: Go.\n", "ask line 6: a '- ' line after 'options:': context lines go under 'context:', above it"},
-		{"kind below options:", "## Ask\nquestion: Q?\ncontext:\n- Why.\noptions:\ndone: Go.\nkind: choice\n", "ask line 1: kind is required: choice, input or check"},
+		{"kind below options:", "## Ask\nquestion: Q?\ncontext:\n- Why.\noptions:\ndone: Go.\nkind: choice\n", "ask line 1: kind is required: choice, moves, input or check"},
 		{"input with options:", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\noptions:\n", "ask line 6: an input ask takes no options: its answer is words, and 'move:' says what they do"},
 		{"input with an option above options:", "## Ask\nkind: input\nquestion: Q?\ncontext:\n- Why.\ndone: Go.\noptions:\nquestion: Ask.\n", "ask line 6: an input ask takes no options: its answer is words, and 'move:' says what they do"},
 		{"check with options:", "## Ask\nkind: check\nquestion: Done?\ncontext:\n- Why.\noptions:\n", "ask line 6: a check ask takes no options: Done fires 'move:'"},
@@ -258,6 +271,25 @@ func TestAskTemplateCheck(t *testing.T) {
 	if err := check.Check(flow, "new"); err == nil || !strings.HasPrefix(err.Error(), "ask line 6: flow code has no outcome changes for stage new") {
 		t.Errorf("check with a move the stage lacks: %v", err)
 	}
+	// A moves ask offers NextStages, whether outcomes, bare edges or the
+	// first-stage fallback for a reopened terminal stage.
+	moves := ask("## Ask\nkind: moves\nquestion: Q?\ncontext:\n- Why.\n")
+	for _, stage := range []string{"new", "review"} {
+		if err := moves.Check(flow, stage); err != nil {
+			t.Errorf("moves in %s: %v", stage, err)
+		}
+	}
+	if err := moves.Check(flow, "merged"); err != nil {
+		t.Errorf("moves in a reopened terminal stage: %v", err)
+	}
+	noWay, err := store.ParseFlow("solo terminal\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	noWay.Name = "solo"
+	if err := moves.Check(noWay, "solo"); err == nil || err.Error() != "ask line 1: stage solo has no way out under flow solo: a moves ask offers the stage's moves" {
+		t.Errorf("moves in a stage with no available move: %v", err)
+	}
 	var noTemplate *store.AskTemplate
 	if err := noTemplate.Check(flow, "review"); err != nil {
 		t.Errorf("no template: %v", err)
@@ -305,8 +337,10 @@ func TestStageFileAskStripped(t *testing.T) {
 
 // Depot yardr's own train flow carries the first template: in-pr asks
 // whether the pull request is merged, and Done reports done, where in-pr's
-// done leads. The default flow's decide carries none, as decided: neither
-// the yardr depot's own stage file nor the starter pack's.
+// done leads. The decide stage of each of the depot's own flows offers its
+// moves, which neither flow names as outcomes, so a card of moves is what
+// fits; the starter pack's decide carries none, as decided: a card on every
+// bead in decide is the depot's own choice, not a default every yard imports.
 func TestDepotTrainInPRTemplate(t *testing.T) {
 	t.Parallel()
 	flowText, err := os.ReadFile("../../.yardr/flows/yardr.train.flow")
@@ -334,17 +368,37 @@ func TestDepotTrainInPRTemplate(t *testing.T) {
 	if err := tmpl.Check(flow, "in-pr"); err != nil {
 		t.Errorf("in-pr: %v", err)
 	}
-	for _, path := range []string{"../../.yardr/flows/default/decide.md", "../../packs/starter/flows/default/decide.md"} {
-		text, err := os.ReadFile(path)
+	for _, c := range []struct{ flow, decide string }{
+		{"../../.yardr/flows/default.flow", "../../.yardr/flows/default/decide.md"},
+		{"../../.yardr/flows/yardr.train.flow", "../../.yardr/flows/yardr.train/decide.md"},
+	} {
+		flowText, err := os.ReadFile(c.flow)
 		if err != nil {
 			t.Fatal(err)
 		}
-		tmpl, err := (&store.StageFile{Path: path, Text: string(text)}).Ask()
+		flow, err := store.ParseFlow(string(flowText))
 		if err != nil {
-			t.Fatalf("%s: %v", path, err)
+			t.Fatalf("%s: %v", c.flow, err)
 		}
-		if tmpl != nil {
-			t.Errorf("%s carries an ## Ask section, want none", path)
+		text, err := os.ReadFile(c.decide)
+		if err != nil {
+			t.Fatal(err)
 		}
+		sf := &store.StageFile{Path: c.decide, Text: string(text)}
+		tmpl, err := sf.Ask()
+		if err != nil || tmpl == nil || tmpl.Kind != store.AskMoves {
+			t.Fatalf("%s: template %+v, %v; want a moves ask", c.decide, tmpl, err)
+		}
+		if broken := sf.BrokenAsk(flow, "decide"); broken != "" {
+			t.Errorf("%s: %s", c.decide, broken)
+		}
+	}
+	starter := "../../packs/starter/flows/default/decide.md"
+	text, err := os.ReadFile(starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tmpl, err := (&store.StageFile{Path: starter, Text: string(text)}).Ask(); err != nil || tmpl != nil {
+		t.Errorf("%s carries an ## Ask section %+v (%v), want none", starter, tmpl, err)
 	}
 }

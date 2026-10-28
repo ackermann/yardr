@@ -91,14 +91,19 @@ type Ask struct {
 	// move. Entry is the seq of the event that entered the bead into the
 	// stage, the advanced event of the move that put it there, the created
 	// event for a bead created in the stage, or the reopened event for a
-	// bead reopened in it. Fallback marks an ask addressed to the operator
-	// because no stage member could receive one; its recipient remains an
-	// authorized answerer if the operator setting later changes. All four
-	// are the yard's own values: newAsk clears whatever a caller sends.
+	// bead reopened in it. A move entry is an outcome to report or, after
+	// moveTo, a stage to advance to. Fallback marks an ask addressed to the
+	// operator because no stage member could receive one; its recipient
+	// remains an authorized answerer if the operator setting later changes.
+	// Moves marks the card that offers the stage's moves (a moves template,
+	// asktemplate.go): the yard gives it up for another ask put on the bead
+	// (withdrawMoves), which no other stage ask does. All five are the
+	// yard's own values: newAsk clears whatever a caller sends.
 	Stage    string   `json:"stage,omitempty"`
 	Move     []string `json:"move,omitempty"`
 	Entry    uint64   `json:"entry,omitempty"`
 	Fallback bool     `json:"fallback,omitempty"`
+	Moves    bool     `json:"moves,omitempty"`
 	// Secret makes the ask a secret ask: where its answer goes. Such an ask
 	// has no options, no recommendation and no about-beads, is for the
 	// operator (or, for a user's own address in a source, for that user),
@@ -322,7 +327,7 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 	// The yard's own values for a stage ask, whatever the writer sent, as
 	// secret and run asks are stored with the yard's own values: a person
 	// asking by hand puts no stage ask.
-	ask.Stage, ask.Move, ask.Entry, ask.Fallback = "", nil, 0, false
+	ask.Stage, ask.Move, ask.Entry, ask.Fallback, ask.Moves = "", nil, 0, false, false
 	ask.Weight = nil
 	ask.Question = strings.TrimSpace(ask.Question)
 	if ask.Question == "" {
@@ -561,6 +566,11 @@ func (s *Store) newAsk(ctx context.Context, ask Ask, actor string) (func(w *wtx,
 			return 0, err
 		}
 		seq := n.Seq
+		// The yard's card of moves gives way to this question, which is
+		// what the person decides now (putStageAsks).
+		if err := w.withdrawMoves(row, fmt.Sprintf("ask %d is on the bead now", seq)); err != nil {
+			return 0, err
+		}
 		if !outside {
 			// In the person's queue from this write on: told outside the
 			// yard too, when a source tells them.
@@ -814,7 +824,7 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 		if _, err := answerable(row.ID, notes, ans, now(), actor, mayAnswer); err != nil {
 			return err
 		}
-		outcome, _, err := w.stageAnswer(ctx, row, notes, ans, actor, repo, home)
+		move, _, err := w.stageAnswer(ctx, row, notes, ans, actor, repo, home)
 		if err != nil {
 			return err
 		}
@@ -861,10 +871,11 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 			}
 		}
 		// A pick or words that fire an outcome move the bead in the same
-		// write, through Done's path; the answer's words stay on the
-		// answer note, so the move carries no separate note. Nobody's to
-		// refuse: the answer's writer was checked as a decider above.
-		if outcome != "" {
+		// write, through Done's path, and one that fires an advance through
+		// Advance's; the answer's words stay on the answer note, so the move
+		// carries no separate note. Nobody's to refuse: the answer's writer
+		// was checked as a decider above.
+		if move != "" {
 			// The yard's own read failing under the move, not a refusal
 			// of the answer: marked, so a device that is no operator's
 			// is told that it failed and not on which file.
@@ -874,7 +885,7 @@ func (s *Store) addAnswer(ctx context.Context, id string, ans Answer, actor, rev
 			if homeErr != nil {
 				return &config.OperationalError{Err: homeErr}
 			}
-			if _, err := w.move(row.UUID, actor, repo, home, nil, donePick(outcome, nil)); err != nil {
+			if _, err := w.move(row.UUID, actor, repo, home, nil, stagePick(move)); err != nil {
 				return err
 			}
 		}

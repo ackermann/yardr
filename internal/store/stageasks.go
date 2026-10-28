@@ -111,27 +111,87 @@ func stageTemplate(f *Flow, src *FlowSource, repo *RepoFlows, home *stageHome, s
 	return tmpl, nil, nil
 }
 
+// moveTo starts a stage ask's move entry that names a stage instead of an
+// outcome: the advance to it, for a stage whose way out has no outcome to
+// report, which only yardr bead advance moves a bead along. No outcome or
+// stage name starts with it (validOutcome and validStage start with a
+// letter or a digit), so no entry is both.
+const moveTo = "->"
+
+// movesOf are the options of a moves ask for stage under f, in the flow's
+// order, as yardr review offers the stage's moves: one for each outcome the
+// flow names for the stage, else one for each stage it allows next. An
+// outcome's label is its name and picking it reports it; a stage's label is
+// the stage and picking it advances there. back is the stage whose question
+// brought this bead here, which NextStages allows alongside the flow's moves.
+// The words are the flow's own, where the move goes and how: the stage file
+// has no list of them to keep in step with the flow.
+func movesOf(f *Flow, stage string, row *beadRow, back string) []AskTemplateOption {
+	here := slices.Index(f.Stages, stage)
+	goes := func(to string) string {
+		switch {
+		case f.IsTerminal(to):
+			return fmt.Sprintf("The bead finishes as %s and closes.", to)
+		case slices.Index(f.Stages, to) < here:
+			return fmt.Sprintf("The bead goes back to %s, with your words as the note.", to)
+		default:
+			return fmt.Sprintf("The bead moves to %s.", to)
+		}
+	}
+	var out []AskTemplateOption
+	var destinations []string
+	if outcomes := f.OutcomesFrom(stage); len(outcomes) > 0 {
+		for _, o := range outcomes {
+			now := row.takes(o)
+			consequence := goes(now.Goes)
+			if o.Max > 0 {
+				if note := now.RoundNote(""); note != "" {
+					consequence += " " + strings.ToUpper(note[:1]) + note[1:] + "."
+				}
+				if now.Goes == o.To {
+					consequence += fmt.Sprintf(" The flow allows %s back to %s; after that it goes to %s instead.",
+						countNoun(o.Max, "round"), o.To, o.Then)
+				}
+			}
+			out = append(out, AskTemplateOption{Outcome: o.Name, Consequence: consequence})
+			destinations = append(destinations, now.Goes)
+		}
+	} else {
+		destinations = f.Next(stage)
+		for _, to := range destinations {
+			out = append(out, AskTemplateOption{Outcome: to, Consequence: goes(to), move: moveTo + to})
+		}
+	}
+	if back != "" && !slices.Contains(destinations, back) {
+		out = append(out, AskTemplateOption{Outcome: back, Consequence: goes(back), move: moveTo + back})
+	}
+	return out
+}
+
 // stageAsk builds the ask to puts on entering stage, to who, with entry
 // the seq of the event that entered the bead: the template's question and
 // context, the options per kind, frozen with the stage, the move per stored
-// option and the entry. Choice offers each outcome with its consequence;
-// input wants words with its move as the single entry; check offers Done,
-// whose consequence is fixed, firing its move. YouDecide is last wherever
-// there are options, with an empty move, as newAsk adds it.
+// option and the entry. Choice offers each outcome with its consequence,
+// and moves each move of the stage the same way (movesOf), marked so that
+// the yard can tell its card of moves from the others (Ask.Moves); input
+// wants words with its move as the single entry; check offers Done, whose
+// consequence is fixed, firing its move. YouDecide is last wherever there
+// are options, with an empty move, as newAsk adds it.
 func (t *AskTemplate) stageAsk(to, stage string, entry uint64) Ask {
 	context := slices.Clone(t.Context)
 	switch t.Kind {
-	case AskChoice:
+	case AskChoice, AskMoves:
 		options := make([]AskOption, 0, len(t.Options)+1)
 		move := make([]string, 0, len(t.Options)+1)
 		for _, o := range t.Options {
 			options = append(options, AskOption{Label: o.Outcome, Consequence: o.Consequence})
-			move = append(move, o.Outcome)
+			move = append(move, o.fires())
 		}
 		options = append(options, AskOption{Label: YouDecide, Consequence: "leave it to " + stageAskAuthor})
 		move = append(move, "")
 		return Ask{Question: t.Question, To: to, Context: context, Options: options,
-			Recommend: t.Recommend, Why: t.Why, Stage: stage, Move: move, Entry: entry}
+			Recommend: t.Recommend, Why: t.Why, Stage: stage, Move: move, Entry: entry,
+			Moves: t.Kind == AskMoves}
 	case AskCheck:
 		done := fmt.Sprintf("the bead leaves %s (outcome %s)", stage, t.Move)
 		return Ask{Question: t.Question, To: to, Context: context,
@@ -160,7 +220,7 @@ func (t *AskTemplate) stageAsk(to, stage string, entry uint64) Ask {
 // error; a stage without a template, or one no manual group works, puts
 // nothing. A local user's ask follows their configured peer reach, as any
 // ask for a user of the yard does.
-func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, tmpl *AskTemplate, broken error) error {
+func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, f *Flow, tmpl *AskTemplate, broken error) error {
 	if broken != nil {
 		return w.event(row.UUID, badTemplateEvent, stageAskAuthor, map[string]any{
 			"stage": stage, "reason": broken.Error()})
@@ -183,6 +243,21 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, tmpl *AskTe
 		if r.AskErr == nil && r.Ask.Stage == stage && (r.State == AskOpen || r.State == AskAside) {
 			return nil
 		}
+	}
+	// A card of moves is for a bead nobody has asked about. Where a hand
+	// ask stands, that question is what the person is asked, and the bead is
+	// moved by hand once it is answered: a card of moves beside it would put
+	// two on one bead for one decision. withdrawMoves keeps the same when
+	// the ask comes after the card.
+	if tmpl.Kind == AskMoves && handAskStands(notes) {
+		return nil
+	}
+	if tmpl.Kind == AskMoves {
+		back, err := askingStage(w.Tx, row.UUID, stage, f)
+		if err != nil {
+			return err
+		}
+		tmpl.Options = movesOf(f, stage, row, back)
 	}
 	got := 0
 	for _, member := range g.Members {
@@ -341,6 +416,27 @@ func (w *wtx) takeBackStageAsks(row *beadRow, stage, reason string) error {
 	return w.takeBackStage(row, reason, func(ask Ask) bool { return ask.Stage == stage })
 }
 
+// handAskStands reports whether an ask someone put by hand is open or put
+// aside on the bead whose notes are given: no stage ask, which the yard
+// puts and takes back with the stage.
+func handAskStands(notes []Note) bool {
+	for _, r := range ResolveAsks(notes, now()) {
+		if r.AskErr == nil && r.Ask.Stage == "" && (r.State == AskOpen || r.State == AskAside) {
+			return true
+		}
+	}
+	return false
+}
+
+// withdrawMoves takes back the card of moves standing on the bead row, in
+// the write that puts a hand ask on it, authored yard with reason. The card
+// was put for a bead nobody had asked about (putStageAsks); this keeps the
+// person's phone from holding two cards for one decision. It takes back no
+// other stage ask, whose question the hand ask does not answer.
+func (w *wtx) withdrawMoves(row *beadRow, reason string) error {
+	return w.takeBackStage(row, reason, func(ask Ask) bool { return ask.Moves })
+}
+
 // takeBackAllStageAsks takes back every open and put-aside stage ask on the
 // bead row, whatever stage it was put for: the bead closed.
 func (w *wtx) takeBackAllStageAsks(row *beadRow, reason string) error {
@@ -421,14 +517,34 @@ func stayTemplateError(tx *bolt.Tx, uuid, stage string, entry uint64) (string, e
 	return reason, nil
 }
 
-// stageMove is the outcome a pick of option n, 1-based into the stage ask's
-// options, reports: "" for You decide, which moves nothing, and for an
-// option past the moves, which a corrupt ask moves nothing for.
+// stageMove is the move a pick of option n, 1-based into the stage ask's
+// options, fires: an outcome to report or a stage to advance to (moveTo),
+// "" for You decide, which moves nothing, and for an option past the moves,
+// which a corrupt ask moves nothing for.
 func stageMove(ask Ask, n int) string {
 	if n < 1 || n > len(ask.Move) {
 		return ""
 	}
 	return ask.Move[n-1]
+}
+
+// stagePick is the pick that carries a stage ask's move: the advance to a
+// stage that yardr bead advance makes, with the flow's refusal where it
+// refuses, or the outcome Done reports. A person answers it, so the
+// session's holds on an agent's report are not asked (donePick's safe).
+func stagePick(move string) func(f *Flow, b *beadRow, data map[string]any) (string, error) {
+	if to, ok := strings.CutPrefix(move, moveTo); ok {
+		return advancePick(to, nil)
+	}
+	return donePick(move, nil)
+}
+
+// moveWords says a stage ask's move in a refusal's words.
+func moveWords(move string) string {
+	if to, ok := strings.CutPrefix(move, moveTo); ok {
+		return "the move to " + to
+	}
+	return "the outcome " + move
 }
 
 // stageWordsMove is the outcome words on the stage ask report: an input
@@ -526,8 +642,8 @@ func (w *wtx) stageAnswer(ctx context.Context, row *beadRow, notes []Note, ans A
 	}
 	if current.State == AskAnswered && current.Current != nil && current.Current.Answer.Option != 0 &&
 		stageMove(ask, current.Current.Answer.Option) != "" {
-		return "", RefusedAskAnswered, fmt.Errorf("ask %d already moved bead %s with the outcome %s: a stage ask takes no pick after one that moved it",
-			ans.Ask, row.ID, stageMove(ask, current.Current.Answer.Option))
+		return "", RefusedAskAnswered, fmt.Errorf("ask %d already moved bead %s with %s: a stage ask takes no pick after one that moved it",
+			ans.Ask, row.ID, moveWords(stageMove(ask, current.Current.Answer.Option)))
 	}
 	if ask.Stage != row.Stage {
 		return "", RefusedAskAnswered, fmt.Errorf("ask %d was put for the stage %s, and bead %s is in %s: a stage ask takes a pick only while the bead is in its stage",
@@ -543,17 +659,17 @@ func (w *wtx) stageAnswer(ctx context.Context, row *beadRow, notes []Note, ans A
 	return move, "", nil
 }
 
-// stageOutcome checks that outcome still moves the bead row under its
-// flow: what the move would refuse, before an answer arriving over a link
-// is stored, since a refusal there commits. errNeedRepo is a flow read
-// for another configuration meanwhile, the move's to retry; any other
-// error refuses the answer.
-func (w *wtx) stageOutcome(row *beadRow, outcome string, repo *RepoFlows) error {
+// checkStageMove checks that move still moves the bead row under its flow:
+// what the move would refuse, before an answer arriving over a link is
+// stored, since a refusal there commits. errNeedRepo is a flow read for
+// another configuration meanwhile, the move's to retry; any other error
+// refuses the answer.
+func (w *wtx) checkStageMove(row *beadRow, move string, repo *RepoFlows) error {
 	f, _, err := resolveFlow(w.Tx, row.Depot, row.Type, PinnedFlow(&row.Bead), repo)
 	if err != nil {
 		return err
 	}
-	to, err := donePick(outcome, nil)(f, row, map[string]any{})
+	to, err := stagePick(move)(f, row, map[string]any{})
 	if err != nil {
 		return err
 	}

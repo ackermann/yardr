@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -809,5 +810,375 @@ func TestStageAskInputCheck(t *testing.T) {
 	}
 	if !slices.Equal(got[0].Ask.Move, []string{"done", ""}) {
 		t.Fatalf("check move = %q", got[0].Ask.Move)
+	}
+}
+
+// stageMovesFlow is the shape of the design pack's flow: critique's done
+// leads to decide, which the flow leaves by bare edges, to approved, back to
+// draft or to backlog, none of them an outcome. Critique's changes may go back
+// to draft twice.
+const stageMovesFlow = "backlog -> draft\n" +
+	"draft -> critique on done | backlog\n" +
+	"critique -> decide on done | draft on changes max 2 then decide\n" +
+	"decide -> approved | draft | backlog\n" +
+	"approved -> merged\n" +
+	"merged terminal\n"
+
+// stageMovesFile is a stage file whose ask template offers the stage's moves.
+const stageMovesFile = `A bead here waits for a person.
+
+## Ask
+kind: moves
+question: Where should this bead go next?
+context:
+- The bead waits for a person; the options are the moves of this stage.
+`
+
+// movesYard is a depot on stageMovesFlow, with the repository its flow and
+// stage files are read from.
+type movesYard struct {
+	api  store.API
+	own  *store.Store
+	repo string
+	ctx  context.Context
+}
+
+// stageMovesYard is a depot on stageMovesFlow with the operator jo and the
+// users ada, bob and hal. Each stage in who is worked by a manual group of
+// the members it lists, and the stages in files have the stage file given.
+func stageMovesYard(t *testing.T, files map[string]string, who map[string][]string) movesYard {
+	t.Helper()
+	repoFiles := map[string]string{".yardr/flows/default.flow": stageMovesFlow}
+	for stage, text := range files {
+		repoFiles[".yardr/flows/default/"+stage+".md"] = text
+	}
+	dir := gitRepo(t, repoFiles)
+	s, own := storetest.NewOwned(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Path: dir, Base: "main"}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{"ada", "bob", "hal"} {
+		if _, err := s.AddUser(ctx, u, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for stage, members := range who {
+		g := stage + "-people"
+		if err := s.PutGroup(ctx, store.Group{Name: g, Runner: "manual", Members: members}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AddRoute(ctx, store.Route{Stage: stage, Group: g}, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return movesYard{s, own, dir, ctx}
+}
+
+// stage reads where the bead is.
+func (y movesYard) stage(t *testing.T, id string) string {
+	t.Helper()
+	b, err := y.api.GetBead(y.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b.Stage
+}
+
+// toDecide takes the bead to decide as a design goes when its critic is
+// satisfied: into critique, and out of it with done.
+func (y movesYard) toDecide(t *testing.T, id string) {
+	t.Helper()
+	if _, err := y.api.Advance(y.ctx, id, "critique", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.Done(y.ctx, id, "done", "", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// cardOf reads the options of a stage ask as (label, move, consequence), the
+// last of them the You decide the yard adds, which fires nothing.
+func cardOf(a store.Ask) [][3]string {
+	var out [][3]string
+	for i, o := range a.Options {
+		out = append(out, [3]string{o.Label, a.Move[i], o.Consequence})
+	}
+	return out
+}
+
+// A moves template offers the stage's moves as the flow has them, never a
+// list the stage file keeps: critique names outcomes, so it offers them, with
+// the flow's own limit; decide has bare edges, so it offers the stages, and
+// picking one advances there. The design flow's case: from critique's done into
+// decide, the card offers approved, draft and backlog.
+func TestStageAskMoves(t *testing.T) {
+	t.Parallel()
+	y := stageMovesYard(t, map[string]string{"critique": stageMovesFile, "decide": stageMovesFile},
+		map[string][]string{"critique": {"ada"}, "decide": {"ada"}})
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "a design", Depot: "web", Stage: "draft"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.api.Advance(y.ctx, b.ID, "critique", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	got := stageAsks(t, y.api, b.ID)
+	if len(got) != 1 || got[0].State != store.AskOpen || got[0].Note.Author != "yard" {
+		t.Fatalf("asks in critique = %+v, want the yard's one for ada", got)
+	}
+	card := got[0].Ask
+	if card.Stage != "critique" || card.Entry == 0 || !card.Moves || card.To != "ada" || card.Question != "Where should this bead go next?" {
+		t.Fatalf("the critique card = %+v", card)
+	}
+	want := [][3]string{
+		{"done", "done", "The bead moves to decide."},
+		{"changes", "changes", "The bead goes back to draft, with your words as the note. Round 1 of 2. The flow allows 2 rounds back to draft; after that it goes to decide instead."},
+		{store.YouDecide, "", "leave it to yard"},
+	}
+	if diff := cardOf(card); !slices.Equal(diff, want) {
+		t.Fatalf("critique offers\n%q\nwant\n%q", diff, want)
+	}
+
+	// Picking done is the outcome's move, and the bead's arrival in decide
+	// puts the card of its bare edges.
+	if err := y.api.AddAnswer(y.ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 1}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if y.stage(t, b.ID) != "decide" {
+		t.Fatalf("after done the bead is in %s, want decide", y.stage(t, b.ID))
+	}
+	got = stageAsks(t, y.api, b.ID)
+	if len(got) != 2 || got[0].State != store.AskAnswered || got[1].State != store.AskOpen {
+		t.Fatalf("asks after done = %+v, want critique's answered and decide's open", got)
+	}
+	card = got[1].Ask
+	if card.Stage != "decide" || !card.Moves || card.To != "ada" || card.Entry <= got[0].Ask.Entry {
+		t.Fatalf("the decide card = %+v", card)
+	}
+	want = [][3]string{
+		{"approved", "->approved", "The bead moves to approved."},
+		{"draft", "->draft", "The bead goes back to draft, with your words as the note."},
+		{"backlog", "->backlog", "The bead goes back to backlog, with your words as the note."},
+		{store.YouDecide, "", "leave it to yard"},
+	}
+	if diff := cardOf(card); !slices.Equal(diff, want) {
+		t.Fatalf("decide offers\n%q\nwant\n%q", diff, want)
+	}
+
+	// A later arrival can use the limit's redirect. Its card names where the
+	// outcome goes now, not only the edge it used before the limit was spent.
+	limited, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "a limited design", Depot: "web", Stage: "draft"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for round := 1; round <= 3; round++ {
+		if _, err := y.api.Advance(y.ctx, limited.ID, "critique", store.Expect{}, "me"); err != nil {
+			t.Fatal(err)
+		}
+		tasks := stageAsks(t, y.api, limited.ID)
+		if len(tasks) != round {
+			t.Fatalf("round %d has %d stage asks, want %d", round, len(tasks), round)
+		}
+		if round == 3 {
+			consequence := tasks[len(tasks)-1].Ask.Options[1].Consequence
+			if consequence != "The bead moves to decide. The 2 rounds back to draft are used." {
+				t.Fatalf("the exhausted outcome says %q, want its current move to decide", consequence)
+			}
+		}
+		if err := y.api.AddAnswer(y.ctx, limited.ID, store.Answer{Ask: tasks[len(tasks)-1].Note.Seq, Option: 2}, "ada"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := y.stage(t, limited.ID); got != "decide" {
+		t.Fatalf("after the exhausted changes outcome the bead is in %s, want decide", got)
+	}
+}
+
+// A card of moves is one per arrival, for the stage's people, and moves the
+// bead only on a member's word: the pick of draft sends it back, as a person
+// at a terminal would with yardr bead advance, and a second arrival is a
+// second card, with none doubled.
+func TestStageAskMovesArrivals(t *testing.T) {
+	t.Parallel()
+	y := stageMovesYard(t, map[string]string{"decide": stageMovesFile}, map[string][]string{"decide": {"ada"}})
+	b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: "a design", Depot: "web", Stage: "draft"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func() []store.ResolvedAsk {
+		t.Helper()
+		var out []store.ResolvedAsk
+		for _, r := range stageAsks(t, y.api, b.ID) {
+			if r.State == store.AskOpen {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
+	y.toDecide(t, b.ID)
+	first := open()
+	if len(first) != 1 || first[0].Ask.To != "ada" {
+		t.Fatalf("after the first arrival: open asks %+v, want one, for ada", first)
+	}
+
+	// Someone outside the group moves nothing: the answer is refused whole.
+	before := stageAnswerNotes(t, y.api, b.ID)
+	if err := y.api.AddAnswer(y.ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 2}, "bob"); err == nil ||
+		!strings.Contains(err.Error(), "only members of group decide-people may move it out of stage decide") {
+		t.Fatalf("draft by someone outside the group: %v", err)
+	}
+	if after := stageAnswerNotes(t, y.api, b.ID); len(after) != len(before) || y.stage(t, b.ID) != "decide" || len(open()) != 1 {
+		t.Fatalf("a refused answer left notes %d (was %d), the bead in %s, %d open asks", len(after), len(before), y.stage(t, b.ID), len(open()))
+	}
+
+	// A member's draft sends it back, in the answer's own write: the advance
+	// reports no outcome, and the card is decided, no longer standing.
+	if err := y.api.AddAnswer(y.ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 2, Words: "not there yet"}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if y.stage(t, b.ID) != "draft" {
+		t.Fatalf("after the pick of draft the bead is in %s", y.stage(t, b.ID))
+	}
+	if outcome, ok := stageAnswerAdvanced(t, y.api, b.ID, "draft"); !ok || outcome != "" {
+		t.Fatalf("advanced into draft: outcome %q, found %v; want a move that reports none", outcome, ok)
+	}
+	if got := stageAsks(t, y.api, b.ID); len(got) != 1 || got[0].State != store.AskAnswered || len(open()) != 0 {
+		t.Fatalf("after the pick: asks %+v, open %d; want the one, answered", got, len(open()))
+	}
+	if lines := strings.Join(stageAsks(t, y.api, b.ID)[0].Lines(), "\n"); !strings.Contains(lines, "ada picked 2 (draft): not there yet") {
+		t.Fatalf("the card reads:\n%s", lines)
+	}
+
+	// Back in decide it is a second arrival, and a second card: the first
+	// stays decided, and the one standing is the new one.
+	y.toDecide(t, b.ID)
+	second := open()
+	all := stageAsks(t, y.api, b.ID)
+	if len(all) != 2 || len(second) != 1 || second[0].Note.Seq == first[0].Note.Seq ||
+		second[0].Ask.Entry <= first[0].Ask.Entry || all[0].State != store.AskAnswered {
+		t.Fatalf("after the second arrival: asks %+v, open %+v; want a second card, the first still answered", all, second)
+	}
+	// The old card takes no pick once the bead has been away.
+	if err := y.api.AddAnswer(y.ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 1}, "ada"); err == nil {
+		t.Fatalf("a pick on the first arrival's card was taken in the second stay")
+	}
+}
+
+// The yard's card of moves is for a bead nobody has asked about: where a
+// hand ask stands, whether it is open or put aside, no card is put beside it,
+// and one that stands gives way to an ask put later, which no other stage
+// ask does. A withdrawn card is not put back when the ask is answered: the
+// move is the asker's, as it was.
+func TestStageAskMovesYieldToAHandAsk(t *testing.T) {
+	t.Parallel()
+	y := stageMovesYard(t, map[string]string{"decide": stageMovesFile}, map[string][]string{"decide": {"ada"}})
+	ask := store.Ask{
+		Question: "Hidden or deleted?", To: "ada", Context: []string{"The reviewer could not tell."},
+		Options: []store.AskOption{{Label: "Hidden", Consequence: "the docs say hidden"}, {Label: "Deleted", Consequence: "the docs say deleted"}},
+	}
+	states := func(id string) []string {
+		t.Helper()
+		var out []string
+		for _, r := range stageAsks(t, y.api, id) {
+			out = append(out, r.Ask.Question+": "+r.State.String())
+		}
+		return out
+	}
+	newBead := func(title string) string {
+		t.Helper()
+		b, err := y.api.CreateBead(y.ctx, store.NewBead{Title: title, Depot: "web", Stage: "draft"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b.ID
+	}
+
+	// An ask open when the bead arrives: no card, and none when it is answered.
+	id := newBead("asked first")
+	seq, err := y.api.AddAsk(y.ctx, id, ask, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	y.toDecide(t, id)
+	if got, want := states(id), []string{"Hidden or deleted?: open"}; !slices.Equal(got, want) {
+		t.Fatalf("an ask open on arrival: %q, want only %q", got, want)
+	}
+	if err := y.api.AddAnswer(y.ctx, id, store.Answer{Ask: seq, Option: 1}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := states(id), []string{"Hidden or deleted?: answered"}; !slices.Equal(got, want) {
+		t.Fatalf("the ask answered: %q, want %q: the card is not put back", got, want)
+	}
+
+	// An ask put aside still stands, and returns: no card beside it either.
+	id = newBead("put aside")
+	seq, err = y.api.AddAsk(y.ctx, id, ask, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := y.api.AddAnswer(y.ctx, id, store.Answer{Ask: seq, Later: true}, "ada"); err != nil {
+		t.Fatal(err)
+	}
+	y.toDecide(t, id)
+	if got, want := states(id), []string{"Hidden or deleted?: put aside"}; !slices.Equal(got, want) {
+		t.Fatalf("an ask put aside on arrival: %q, want only %q", got, want)
+	}
+
+	// An ask put after the card takes the card back, naming the ask.
+	id = newBead("asked after")
+	y.toDecide(t, id)
+	if got := states(id); len(got) != 1 || !strings.HasSuffix(got[0], ": open") {
+		t.Fatalf("on arrival: %q, want the card", got)
+	}
+	seq, err = y.api.AddAsk(y.ctx, id, ask, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := stageAsks(t, y.api, id)
+	if len(got) != 2 || got[0].State != store.AskTakenBack || got[1].Ask.Question != "Hidden or deleted?" || got[1].State != store.AskOpen {
+		t.Fatalf("after the ask: %+v, want the card taken back and the ask open", got)
+	}
+	if lines := strings.Join(got[0].Lines(), "\n"); !strings.Contains(lines, fmt.Sprintf("taken back by yard: ask %d is on the bead now", seq)) {
+		t.Fatalf("the card reads:\n%s", lines)
+	}
+
+	// A decision made straight into decide with its question (yardr bead ask
+	// --new --stage decide) is the same: the bead is made in the stage, which
+	// puts its card, and the question comes in the same write and takes it
+	// back, leaving the question the one standing.
+	made, err := y.api.AskNew(y.ctx, store.NewBead{Title: "Hidden or deleted?", Depot: "web", Stage: "decide"}, ask, "jo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := states(made.Bead.ID), []string{"Where should this bead go next?: taken back", "Hidden or deleted?: open"}; !slices.Equal(got, want) {
+		t.Fatalf("a question asked into decide: %q, want %q", got, want)
+	}
+
+	// Another stage's card is the stage file's own making and stays: only the
+	// yard's card of moves gives way. Review's choice card stands beside a
+	// hand ask.
+	s, ctx := stageAskYard(t, stageAskChoice)
+	r, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Advance(ctx, r.ID, "review", store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAsk(ctx, r.ID, ask, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	open := 0
+	for _, a := range stageAsks(t, s, r.ID) {
+		if a.State == store.AskOpen && a.Ask.Stage == "review" {
+			open++
+		}
+	}
+	if open != 2 {
+		t.Fatalf("review's choice cards open beside a hand ask = %d, want both members'", open)
 	}
 }
