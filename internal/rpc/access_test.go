@@ -29,8 +29,10 @@ func TestAccessClassesEveryServedMethod(t *testing.T) {
 			t.Errorf("Access classes %s, which the socket does not serve", name)
 		}
 	}
-	if got := Access["Teammates"]; got != Operator {
-		t.Errorf("Teammates has class %s, want operator: mapped addresses are not for an agent or crew pane", got)
+	for _, name := range []string{"SessionScreen", "Teammates", "TelemetryShow", "TelemetrySet"} {
+		if got := Access[name]; got != Operator {
+			t.Errorf("%s has class %s, want operator", name, got)
+		}
 	}
 }
 
@@ -91,7 +93,7 @@ func TestSocketPeerWithoutCredentialsCanOnlyRead(t *testing.T) {
 	if err := allowed(ctx, st, "Groups"); err != nil {
 		t.Errorf("read call from an unidentified peer: %v", err)
 	}
-	for _, method := range []string{"AddNote", "PutGroup", "Claim", "Backup", "SessionScreen"} {
+	for _, method := range []string{"AddNote", "PutGroup", "Claim", "Backup", "SessionScreen", "TelemetryShow", "TelemetrySet"} {
 		if err := allowed(ctx, st, method); err == nil {
 			t.Errorf("%s from an unidentified peer was allowed", method)
 		}

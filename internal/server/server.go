@@ -26,6 +26,7 @@ import (
 	runners "yardr.dev/yardr/internal/runner"
 	"yardr.dev/yardr/internal/source"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/version"
 	"yardr.dev/yardr/internal/yards"
 )
@@ -148,6 +149,9 @@ func (r *runner) serve(ctx context.Context) (string, bool, error) {
 	// the runner builds it, with the store to follow the yard's herdr
 	// session setting on every read.
 	st.SetPaneReader(&runners.Herdr{Bin: "herdr", WorktreeRoot: c.Worktrees(), YardHome: c.Home, Store: st})
+	// How TelemetryShow and TelemetrySet turn the switch and preview the
+	// next request: the CLI's own functions, on this home's state file.
+	st.SetTelemetrySwitch(telemetry.Switch{})
 	// The carrying out of approved applies (carry.go): this start's
 	// boot takes up what an earlier one left, before it serves.
 	boot := newBoot()
@@ -426,7 +430,7 @@ func (r *runner) handler(st *store.Store, offer func(string) bool, streams conte
 //     that user. It is the one place the port reaches the store API: those
 //     calls and no other method of it, and nothing of it without a
 //     credential (rpc.UserServer). A device of the operator is served
-//     GiveSecret and ApproveAsk besides (rpc.OperatorCalls), a device of
+//     the operator's calls besides (rpc.OperatorCalls), a device of
 //     another user GiveSecret for their own address in a source alone, and
 //     nobody else either. A yard with no device answers 404 there.
 //     The one path without a credential is /user/pair, while the operator

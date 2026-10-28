@@ -177,6 +177,10 @@ type Store struct {
 	// paneReader reads a pane's visible screen for SessionScreen
 	// (SetPaneReader, routing.go); nil where no server owns the store.
 	paneReader PaneReader
+	// telemetry serves the telemetry switch for TelemetryShow and
+	// TelemetrySet (SetTelemetrySwitch, telemetry.go); nil where no
+	// server owns the store.
+	telemetry TelemetrySwitch
 	// policy says who may do what (SetPolicy, policy.go); nil is
 	// CorePolicy.
 	policy Policy

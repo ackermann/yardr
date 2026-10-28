@@ -54,11 +54,12 @@ import (
 //
 //   - only the calls of Calls, by name: every other method of the store, and
 //     the array form yardr's own builds use, is answered as not there. The
-//     calls more are the seven of OperatorCalls, GiveSecret, ApproveAsk,
-//     ApproveSetup, SourceGrants, SessionScreen, Teammates and
-//     UninviteTeammate, for a device of an operator, and not there for
-//     anyone else (operatorCall), but GiveSecret for a device of a user
-//     whose own address or credential in a source is asked for (ownSecret);
+//     calls more are the nine of OperatorCalls, GiveSecret, ApproveAsk,
+//     ApproveSetup, SourceGrants, SessionScreen, Teammates,
+//     UninviteTeammate, TelemetryShow and TelemetrySet, for a device of
+//     an operator, and not there for anyone else (operatorCall), but
+//     GiveSecret for a device of a user whose own address or credential
+//     in a source is asked for (ownSecret);
 //   - every call is made as the user the credential resolves to (asUser);
 //   - Settings answers the keys of deviceSettings and no other, and the
 //     stream carries the value of a setting_changed for those alone
@@ -1104,6 +1105,7 @@ var selfArg = map[string][]string{
 	"ApproveAsk":           {"actor"},
 	"ApproveSetup":         {"actor"},
 	"UninviteTeammate":     {"actor"},
+	"TelemetrySet":         {"actor"},
 }
 
 // asUser is the arguments body of the call method as user makes it: each
@@ -1368,6 +1370,12 @@ func inTheClear(r *http.Request, name, router string, crosses, hosted bool) stri
 	if name == "UninviteTeammate" {
 		return teammatesInTheClear(r, router, "filing a teammate's removal", "File it on the yard's machine.")
 	}
+	if name == "TelemetryShow" {
+		return telemetryShowInTheClear(r, router)
+	}
+	if name == "TelemetrySet" {
+		return telemetrySetInTheClear(r)
+	}
 	what, flag := "a secret", "--secret"
 	crossed := " What was sent may have crossed a network in the clear: if it was a real key, make a new one at the service."
 	if name == "ApproveAsk" || name == "ApproveSetup" {
@@ -1517,6 +1525,63 @@ func teammatesInTheClear(r *http.Request, router, what, readHere string) string 
 			if !strings.EqualFold(strings.TrimSpace(p), "https") {
 				return what + " is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
 					"Give the device the yard's https:// address, or " + readHere + crossed
+			}
+		}
+	}
+	return ""
+}
+
+// telemetryShowInTheClear keeps the telemetry preview under the same
+// transport rule as the other operator calls: the install id groups the
+// yard's events across time, so it is read over https or from the yard's
+// own machine, and never down the link from the edge, on any yard: the
+// id stays off the link with the grant list.
+func telemetryShowInTheClear(r *http.Request, router string) string {
+	const crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	const readHere = "Read it on the yard's machine (`yardr telemetry show`)."
+	if r.RemoteAddr == linkRemoteAddr {
+		return "the telemetry switch is not read over the link: this request came down the link from the edge. " +
+			readHere + " The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+	}
+	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
+		if fromRouter(r, router) {
+			return ""
+		}
+		return "the telemetry switch is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
+			"Put the proxy or tunnel that ends TLS on the yard's machine, or " + readHere + crossed
+	}
+	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
+		for _, p := range strings.Split(proto, ",") {
+			if !strings.EqualFold(strings.TrimSpace(p), "https") {
+				return "the telemetry switch is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+					"Give the device the yard's https:// address, or " + readHere + crossed
+			}
+		}
+	}
+	return ""
+}
+
+// telemetrySetInTheClear keeps the telemetry switch under the same
+// transport rule as an approval: consent is changed over https or from
+// the yard's own machine, and never down the link from the edge or from
+// the router's peer, on any yard. No edge request may turn it on (design
+// yardr-fwhv, section 3.6).
+func telemetrySetInTheClear(r *http.Request) string {
+	const crossed = " The device's token was sent with it and may have crossed a network in the clear: if it did, remove the device and add it again (yardr user device rm)."
+	const changeHere = "Change it on the yard's machine (`yardr telemetry on` or `yardr telemetry off`)."
+	if r.RemoteAddr == linkRemoteAddr {
+		return "the telemetry switch is not changed over the link: this request came down the link from the edge. " +
+			changeHere + " The edge saw the device's token with it: remove the device and add it again (yardr user device rm)."
+	}
+	if ip := net.ParseIP(remote(r)); ip == nil || !ip.IsLoopback() {
+		return "the telemetry switch is taken over https only, or from the yard's own machine: this request reached the yard's listener in plain HTTP from another machine. " +
+			"Put the proxy or tunnel that ends TLS on the yard's machine, or " + changeHere + crossed
+	}
+	for _, proto := range r.Header.Values("X-Forwarded-Proto") {
+		for _, p := range strings.Split(proto, ",") {
+			if !strings.EqualFold(strings.TrimSpace(p), "https") {
+				return "the telemetry switch is taken over https only, or from the yard's own machine: the proxy in front of the yard says this request came to it in plain HTTP. " +
+					"Give the device the yard's https:// address, or " + changeHere + crossed
 			}
 		}
 	}

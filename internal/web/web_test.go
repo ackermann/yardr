@@ -1107,7 +1107,9 @@ func TestNoOtherHost(t *testing.T) {
 	}
 	var runs int
 	seen := map[string]bool{}
-	queue := []string{"/", "/nowhere"}
+	// /telemetry stands alone: the hub links it for the operator alone,
+	// and the walk reads as no one.
+	queue := []string{"/", "/nowhere", "/telemetry"}
 	ref := regexp.MustCompile(`(?:href|src)="([^"]+)"`)
 	for len(queue) > 0 {
 		path := queue[0]
@@ -1165,7 +1167,7 @@ func TestNoOtherHost(t *testing.T) {
 	// The walk must have reached what it is there to check: every page of
 	// the menu, a bead's own page, the error page.
 	for _, path := range []string{"/", "/talk", "/line", "/flows", "/flows?panel=1", "/beads", "/sessions", "/crew",
-		"/previews", "/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/nowhere"} {
+		"/previews", "/config", "/depots", "/groups", "/routes", "/peers", "/deps", "/limits", "/telemetry", "/nowhere"} {
 		if !seen[path] {
 			t.Errorf("the walk did not reach %s: %v", path, seen)
 		}

@@ -183,7 +183,10 @@ the operator has no shell there to answer at (the yard's `hosted` setting,
 [configuration.md](configuration.md#settings)). A device of a user who is not
 the operator gives no secret down the link on either. The grant list,
 `SourceGrants`, carries no credential but is never read through the edge, on
-either.
+either. A device call cannot read or change the telemetry switch through the
+yard link: `TelemetryShow` and `TelemetrySet` are refused there. A hosted
+customer uses the web view's control over its separate `web` link; the view
+checks the gateway's JWT and acts as the mapped yard user.
 
 ## Hosted and connected
 

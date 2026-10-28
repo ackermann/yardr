@@ -71,8 +71,9 @@ which only a person or a crew member does. An advance along the edge
 `done-safe` takes is held to the depot's security paths as the outcome is. Every call this page names is read or agent but those of
 [`OperatorCalls`](#over-the-network), which are admin, all but
 `SourceGrants`, which is read on the socket and the operator's on the
-listener, `SessionScreen` and `Teammates`, whose socket class is operator, and
-`UninviteTeammate`, whose socket class is agent.
+listener, `SessionScreen`, `Teammates`, `TelemetryShow` and `TelemetrySet`,
+whose socket class is operator, and `UninviteTeammate`, whose socket class
+is agent.
 
 It is a line against mistakes, not a wall. Every agent runs as the one OS
 user the yard runs as, and the pane is told by the process tree: an agent
@@ -235,7 +236,7 @@ Mail was sent within the yard, or came from a linked yard for one of this yard. 
 
 ```json
 {
-  "seq": 13,
+  "seq": 14,
   "kind": "mail",
   "actor": "yardmaster",
   "data": {
@@ -278,7 +279,7 @@ Mail was queued for one of a linked yard: the conversation with `<data.to>@<data
 
 ```json
 {
-  "seq": 181,
+  "seq": 182,
   "kind": "mail",
   "actor": "jo",
   "data": {
@@ -306,11 +307,11 @@ A user or a crew member acknowledged its mail. Every letter to `data.reader` wit
 
 ```json
 {
-  "seq": 183,
+  "seq": 184,
   "kind": "mail_read",
   "data": {
     "reader": "jo",
-    "through": 51
+    "through": 52
   }
 }
 ```
@@ -328,13 +329,13 @@ A party to a letter put an emoji on it, or took theirs away. Read the conversati
 
 ```json
 {
-  "seq": 14,
+  "seq": 15,
   "kind": "reaction",
   "actor": "jo",
   "data": {
     "emoji": "👍",
     "preview": "The shed is painted. Shall I land it?",
-    "seq": 13,
+    "seq": 14,
     "to": "yardmaster"
   },
   "at": "2026-10-08T09:30:00Z"
@@ -382,7 +383,7 @@ A crew member's session sat down at its harness's login screen or left it, or th
 
 ```json
 {
-  "seq": 140,
+  "seq": 141,
   "kind": "crew_login",
   "data": {
     "crew": "signalman",
@@ -406,7 +407,7 @@ An event became a notification for the users `data.notified` names, each with th
 
 ```json
 {
-  "seq": 10,
+  "seq": 11,
   "data": {
     "notified": {
       "jo": "all"
@@ -426,11 +427,11 @@ The yard fetched the files of a kept hook delivery and recorded them: [`Delivery
 
 ```json
 {
-  "seq": 148,
+  "seq": 149,
   "kind": "hook_files",
   "actor": "hook:telegram",
   "data": {
-    "seq": 147
+    "seq": 148
   },
   "at": "2026-10-08T09:30:00Z"
 }
@@ -450,11 +451,11 @@ A user acknowledged their notifications, in this client or another.
 
 ```json
 {
-  "seq": 184,
+  "seq": 185,
   "kind": "notifications_read",
   "data": {
     "reader": "jo",
-    "through": 11
+    "through": 12
   }
 }
 ```
@@ -472,7 +473,7 @@ A note was added to the bead: a plain note, a question (an ask), or an answer (a
 
 ```json
 {
-  "seq": 11,
+  "seq": 12,
   "bead": "yd-shed",
   "kind": "noted",
   "actor": "yardmaster",
@@ -499,7 +500,7 @@ A bead closed, by an explicit close or by entering a terminal stage of its flow.
 
 ```json
 {
-  "seq": 96,
+  "seq": 97,
   "bead": "yd-sweep",
   "kind": "closed",
   "actor": "jo",
@@ -529,7 +530,7 @@ An outcome of the bead's flow that limits how often it sends the bead back (`max
 
 ```json
 {
-  "seq": 102,
+  "seq": 103,
   "bead": "yd-hedge",
   "kind": "advanced",
   "actor": "yardmaster",
@@ -565,7 +566,7 @@ The limit of an outcome reported on the bead was used, and the bead went to the 
 
 ```json
 {
-  "seq": 103,
+  "seq": 104,
   "bead": "yd-hedge",
   "kind": "rounds_reached",
   "actor": "yard",
@@ -716,7 +717,9 @@ nothing else. What is not the same:
 
 - **Only the calls of this page.** Any other method is answered as one the
   yard does not have (`no such method`), whoever calls: nothing that adds a
-  user or a device, moves a bead or changes a setting is on the listener.
+  user or a device or moves a bead is on the listener, and of the settings
+  only the telemetry switch, which the operator's device reads and changes
+  with `TelemetryShow` and `TelemetrySet`.
   `/ping`, `/wake` and every other path are not there. The [calls for the
   operator alone](#for-the-operator-alone) are there besides, for a device
   of an operator of the yard and for nobody else; `GiveSecret` is there too for
@@ -731,7 +734,7 @@ nothing else. What is not the same:
 - **Every call is made as the device's user.** The `name` of `GetUser`, the
   inbox calls and `UserAsks`, and the `actor` of `Mail`, `MailPeer`,
   `AnswerAsk`, `DeferAsk`, `DeclineAsk`, `TakeBackAsk`, `AddNote`,
-  `GiveSecret`, `ApproveAsk` and `ApproveSetup`, may be left out: the yard fills in the user. One that names anyone else is refused with the
+  `GiveSecret`, `ApproveAsk`, `ApproveSetup` and `TelemetrySet`, may be left out: the yard fills in the user. One that names anyone else is refused with the
   code `error` (`this device calls as jo: "actor" is jo or left out, not
   yardmaster`). One side of `Conversation` is the user: `a` left out is the
   user, and a conversation between two others is refused. So `GetUser`
@@ -1012,36 +1015,40 @@ address that is `http://` unless its host is loopback** (`127.0.0.1`, `::1`,
 `localhost`), and says why. It keeps the token in a file only its user
 reads (mode 0600) or in the system's key store, never in a settings file.
 
-A secret, an approval, the grant list, a session's screen, the teammates
-list and a removal filing are what the yard holds to this itself, as far as
-it can see. [`GiveSecret`, `ApproveAsk`, `ApproveSetup`, `SourceGrants`,
-`SessionScreen`, `Teammates` and `UninviteTeammate`](#for-the-operator-alone)
-are taken only from a request that reached the listener from the yard's own
-machine, where the proxy or
+A secret, an approval, the grant list, the teammates list, a removal
+filing, a session's screen and the telemetry switch are what the yard holds
+to this itself, as far as it can see.
+[`GiveSecret`, `ApproveAsk`, `ApproveSetup`, `SourceGrants`, `Teammates`,
+`UninviteTeammate`, `SessionScreen`, `TelemetryShow` and
+`TelemetrySet`](#for-the-operator-alone) are taken only from a request
+that reached the listener from the yard's own machine, where the proxy or
 tunnel that ends TLS stands (or a client on that machine) — the two
-approvals also down the link from the edge, and `GiveSecret` there for every
-secret on a hosted yard and for the code of a harness login alone on any other,
-and `SessionScreen` and the teammates calls there as the approvals are
+approvals, `SessionScreen` and the teammates calls also down the link from
+the edge, and `GiveSecret` there for every secret on a hosted yard and for
+the code of a harness login alone on any other
 ([edge.md](edge.md#footplate-through-the-link)) — and never from one whose
 proxy says it came in plain (`X-Forwarded-Proto: http`; the header is read
 for a no and never for a yes). Any other is refused with
 the code `error`, in words that name the reason and say what may have
-crossed a network in the clear: the value, or for an approval, the grant
-list, a session's screen (`SessionScreen`), the teammates list or a removal
-filing the token that was sent with
-it. A proxy on another machine that
-passes requests on to the yard in plain HTTP is refused so: from there to
-the yard the value and the token would be readable. An approval holds no
-secret of its own; it is held to the rule so that a token read off a
-network cannot have a command of the operator's run from wherever it was
-read. The grant list holds none either and approves nothing; it is held to
-the rule because the operator's device token goes with the request. A
-session's screen can show what an agent printed, a secret among it, so
-`SessionScreen` is held to the rule for what the screen carries, and crosses
-the link as an approval does. The
-teammates list and a removal filing hold none either and approve nothing;
-they are held to the rule for the same reason, and cross the link as an
-approval does. Every
+crossed a network in the clear: `GiveSecret` carries its value, and every
+call carries the operator's device token. A reply may carry the grant list,
+a session's screen (`SessionScreen`), the teammates, a removal filing or the
+telemetry preview. A proxy on another machine that passes requests on to the
+yard in plain HTTP is refused so: from there to the yard the value and the
+token would be readable. An approval holds no secret of its own; it is held
+to the rule so that a token read off a network cannot have a command of the
+operator's run from wherever it was read. The grant list holds none either
+and approves nothing; it is held to the rule because the operator's device
+token goes with the request. A session's screen can show what an agent
+printed, a secret among it, so `SessionScreen` is held to the rule for what
+the screen carries, and crosses the link as an approval does. The teammates
+list and a removal filing hold none either and approve nothing; they are held
+to the rule for the same reason, and cross the link as an approval does. The
+telemetry preview and switch follow the grant list's rule: neither crosses
+the yard link, the preview may be read from the router's peer over https, and
+the switch cannot be changed there, as approvals cannot. The hosted browser
+control uses the separate `web` link and the JWT-authenticated view, acting
+as the mapped yard user. Every
 other call is served wherever it comes from, as before.
 
 Down the link from the edge `GiveSecret` is taken from a device of the
@@ -1066,16 +1073,17 @@ not the operator is refused its own giving down the link in the same words,
 and a giving that is taken is held to the approvals' rule there: when the
 edge says the device reached it in plain HTTP, it is refused as they are.
 
-A hosted yard takes `GiveSecret`, `SourceGrants`, `SessionScreen`, `Teammates` and
-`UninviteTeammate` from one peer besides
+A hosted yard takes `GiveSecret`, `SourceGrants`, `SessionScreen`,
+`Teammates`, `UninviteTeammate` and `TelemetryShow` from one peer besides
 its own machine: its router, the address the `router_addr` setting names,
 when the request says it came to the router over https
 (`X-Forwarded-Proto: https`). On that network the router is the only such
 peer. The header is read for a yes here, as it is read for a no from the
 yard's own machine: without it, or saying anything but https, the call is
-refused as from any other machine. From the router's peer `ApproveAsk` and
-`ApproveSetup` are refused as from anywhere else: down the link from the
-edge they are taken, from the router never.
+refused as from any other machine. From the router's peer `ApproveAsk`,
+`ApproveSetup` and `TelemetrySet` are refused as from anywhere else: down
+the link from the edge the approvals are taken, from the router never, and
+the switch is changed from neither.
 
 Where a proxy stands in front for devices alone, let it pass `/user/` and
 nothing more: the listener also serves `/hooks/` and `/peers/`. A header a
@@ -1095,7 +1103,7 @@ POST /call/Head
 {}
 
 {
-  "result": 178
+  "result": 179
 }
 ```
 
@@ -1144,8 +1152,8 @@ POST /call/Users
   "result": [
     {
       "name": "hal",
-      "cursor": 175,
-      "notification_cursor": 175
+      "cursor": 176,
+      "notification_cursor": 176
     },
     {
       "name": "jo",
@@ -1155,8 +1163,8 @@ POST /call/Users
     },
     {
       "name": "sam",
-      "cursor": 174,
-      "notification_cursor": 174
+      "cursor": 175,
+      "notification_cursor": 175
     }
   ]
 }
@@ -1384,7 +1392,7 @@ POST /call/UserInbox
   "result": {
     "mail": [
       {
-        "seq": 13,
+        "seq": 14,
         "at": "2026-10-08T09:30:00Z",
         "from": "yardmaster",
         "to": "jo",
@@ -1406,7 +1414,7 @@ POST /call/UserInbox
         ]
       },
       {
-        "seq": 51,
+        "seq": 52,
         "at": "2026-10-08T09:30:00Z",
         "from": "josephine@north",
         "to": "jo",
@@ -1416,7 +1424,7 @@ POST /call/UserInbox
       }
     ],
     "unread": 2,
-    "last": 51,
+    "last": 52,
     "from": ["yardmaster", "josephine@north"]
   }
 }
@@ -1540,7 +1548,7 @@ Puts the party's reaction on the mail `seq`: one of 👍 👎 ❤️ 🎉 👀 �
 
 ```
 POST /call/React
-{"seq":13,"emoji":"🎉","actor":"jo"}
+{"seq":14,"emoji":"🎉","actor":"jo"}
 
 {}
 ```
@@ -1564,7 +1572,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 13,
+      "seq": 14,
       "at": "2026-10-08T09:30:00Z",
       "from": "yardmaster",
       "to": "jo",
@@ -1586,7 +1594,7 @@ POST /call/Conversation
       ]
     },
     {
-      "seq": 36,
+      "seq": 37,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1595,7 +1603,7 @@ POST /call/Conversation
       "via": "phone"
     },
     {
-      "seq": 60,
+      "seq": 61,
       "at": "2026-10-08T09:30:00Z",
       "from": "josephine@north",
       "to": "yardmaster",
@@ -1604,7 +1612,7 @@ POST /call/Conversation
       "as": "jo"
     },
     {
-      "seq": 179,
+      "seq": 180,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1612,7 +1620,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 180,
+      "seq": 181,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1638,7 +1646,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 179,
+      "seq": 180,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1646,7 +1654,7 @@ POST /call/Conversation
       "read": false
     },
     {
-      "seq": 180,
+      "seq": 181,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "yardmaster",
@@ -1673,7 +1681,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 181,
+      "seq": 182,
       "at": "2026-10-08T09:30:00Z",
       "from": "jo",
       "to": "clerk@north",
@@ -1692,7 +1700,7 @@ POST /call/Conversation
 {
   "result": [
     {
-      "seq": 51,
+      "seq": 52,
       "at": "2026-10-08T09:30:00Z",
       "from": "josephine@north",
       "to": "jo",
@@ -1742,7 +1750,7 @@ Marks the user's mail read through a seq. It answers nothing; when mail was in b
 
 ```
 POST /call/AckUserInbox
-{"name":"jo","through":51,"actor":"jo"}
+{"name":"jo","through":52,"actor":"jo"}
 
 {}
 ```
@@ -1765,7 +1773,7 @@ POST /call/UserNotifications
   "result": {
     "notifications": [
       {
-        "seq": 10,
+        "seq": 11,
         "at": "2026-10-08T09:30:00Z",
         "kind": "created",
         "bead": "yd-shed",
@@ -1773,7 +1781,7 @@ POST /call/UserNotifications
         "read": false
       },
       {
-        "seq": 11,
+        "seq": 12,
         "at": "2026-10-08T09:30:00Z",
         "kind": "noted",
         "bead": "yd-shed",
@@ -1782,7 +1790,7 @@ POST /call/UserNotifications
       }
     ],
     "unread": 2,
-    "last": 11
+    "last": 12
   }
 }
 ```
@@ -1810,7 +1818,7 @@ Marks the user's notifications read through a seq: a position of its own, which 
 
 ```
 POST /call/AckUserNotifications
-{"name":"jo","through":11,"actor":"jo"}
+{"name":"jo","through":12,"actor":"jo"}
 
 {}
 ```
@@ -5174,7 +5182,7 @@ The files a kept hook delivery carried, as the yard fetched them: a photo, a doc
 
 ```
 POST /call/DeliveryFiles
-{"seq":147}
+{"seq":148}
 
 {
   "result": [
@@ -5214,7 +5222,7 @@ operator's alone to make. An operator is a user whose role is `operator`
 there may be several, and each of them makes these calls. The `operator`
 setting names one of them, the one an ask with no `--to` goes to; any
 operator approves or answers it. In yardr's code the list is `OperatorCalls`, and
-it has seven calls: `GiveSecret`, which gives the credential a secret ask
+it has nine calls: `GiveSecret`, which gives the credential a secret ask
 asks for, `ApproveAsk`, which approves a run ask so that the yard runs
 the command it holds, carrying the approval's values to a hook's register
 call where the card asks for any, `ApproveSetup`, which approves a setup ask with
@@ -5224,8 +5232,9 @@ yard's sources, the whole of who may call what, `SessionScreen`,
 which reads what a running session's pane shows, its visible screen with
 the ANSI styling, `Teammates`, which reads the yard's teammates, one row
 per mapped address with its user and devices, and `UninviteTeammate`,
-which files a teammate's removal as a run ask on a new bead.
-Each of the first three
+which files a teammate's removal as a run ask on a new bead; `TelemetryShow`,
+which previews the switch and next request; and `TelemetrySet`, which turns
+the switch on or off. Each of the first three
 takes `weighed`, the client's word that its person saw the card's weight,
 and the yard refuses a weighty card without it ([weighty
 cards](#weighty-cards)). Where they are served, and to whom:
@@ -5833,6 +5842,147 @@ POST /call/UninviteTeammate
 | `ask` | number | the ask's seq on its bead |
 
 The bead and the ask are one write: the removal is filed on a new bead, or neither. When the call ends without a reply (the server went away), a client cannot know which: say "the yard did not answer; read the queue again", never "filed", and read `UserAsks` again.
+
+### `TelemetryShow`
+
+Reads what `yardr telemetry show` prints: the switch, the install id, and the exact next request the daemon would send from the current state, without sending it or advancing anything. The request is the sending-day runtime snapshot with the eligible completed source days in the batch; `source_days` holds those days, oldest first, and is absent while none are eligible — a grant counts from tomorrow on, so a yard that turned on today has none yet. The request carries the shared project's public, write-only key as `api_key`, which the example does not print. It is the operator's to read: on the socket its Operator class keeps it from agent and crew panes; on the listener it is there for a device of the operator and for no other caller, since the id groups the yard's events across time. It changes nothing, but the id and the operator's device token go with the reply and the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list. As a device call it is never served down the yard link from the edge; the hosted browser uses the separate `web` link.
+
+```
+POST /call/TelemetryShow
+{}
+
+{
+  "result": {
+    "install_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+    "telemetry": "on",
+    "since": "2026-10-08",
+    "sending_day": "2026-10-08",
+    "hosted": false,
+    "request": {
+      "batch": [
+        {
+          "event": "yardr_daily",
+          "distinct_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+          "timestamp": "2026-10-08T09:30:00Z",
+          "uuid": "0e3c8b2a-1432-4a51-9f39-1bc7a1b1d001",
+          "properties": {
+            "$geoip_disable": true,
+            "$process_person_profile": true,
+            "os": "darwin",
+            "telemetry_age_days": 0,
+            "version": "development"
+          }
+        },
+        {
+          "event": "yardr_crew_day",
+          "distinct_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+          "timestamp": "2026-10-08T09:30:00Z",
+          "uuid": "451d5fc1-4a12-4c20-9d7b-1f9df88ca004",
+          "properties": {
+            "$geoip_disable": true,
+            "$process_person_profile": true,
+            "hosted": false,
+            "kind": "claude",
+            "model": "opus",
+            "running_crew_sessions": 1
+          }
+        },
+        {
+          "event": "yardr_crew_day",
+          "distinct_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+          "timestamp": "2026-10-08T09:30:00Z",
+          "uuid": "f481958d-ea90-4a3c-8ed7-0a1ff35af004",
+          "properties": {
+            "$geoip_disable": true,
+            "$process_person_profile": true,
+            "hosted": false,
+            "kind": "claude",
+            "model": "sonnet",
+            "running_crew_sessions": 1
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `install_id` | string, may be absent | the yard's random install id, as PostHog sees it; absent while none is minted. This id is pseudonymous, not anonymous: anyone the operator gives it to can find this yard's events |
+| `telemetry` | string | `on` or `off` |
+| `since` | string, may be absent | the UTC date of the latest consent grant; absent while none was given |
+| `sending_day` | string | the UTC day the batch is built for |
+| `hosted` | bool | whether the yard is a hosted one, which sends no daily snapshot |
+| `request` | object or null | the exact next request; null when there is no batch to send, and `no_batch` says why |
+| `request.batch[].event` | string | `yardr_daily`, `yardr_harness_day`, `yardr_crew_day` or `yardr_failure_day` |
+| `request.batch[].distinct_id` | string | the install id again, as PostHog's `distinct_id` |
+| `request.batch[].timestamp` | time | the event's day marker: midnight UTC on the sending day for a snapshot, noon UTC on the source day for a count, or the consent grant where it was given that day |
+| `request.batch[].uuid` | string | the event's stable id, derived from the install id, the event, the day and its dimensions: rebuilding the same event keeps it, so a retried batch deduplicates |
+| `request.batch[].properties` | object | the event's allow-listed properties: counts and fixed names only, never a bead, an error's words or an actor's name |
+| `request.batch[].properties.$process_person_profile` | bool | always `true`: the id-only person profile the deletion path removes |
+| `request.batch[].properties.$geoip_disable` | bool | always `true`: the project adds no GeoIP location to the event |
+| `request.batch[].properties.version` | string, may be absent | a daily's release tag, or `development` for any build without one; on a daily alone |
+| `request.batch[].properties.os` | string, may be absent | a daily's `darwin`, `linux`, `windows` or `other`; on a daily alone |
+| `request.batch[].properties.telemetry_age_days` | number, may be absent | a daily's whole UTC days from first consent through the sending day; on a daily alone |
+| `request.batch[].properties.kind` | string, may be absent | a harness, crew or failure day's harness kind, or the failure kind `gave_up`, `held` or `landing_failed`; on those alone |
+| `request.batch[].properties.model` | string, may be absent | a harness or crew day's model id, `other` for one the harness file does not offer, `default` for the harness's own; on those alone |
+| `request.batch[].properties.running_crew_sessions` | number, may be absent | a crew day's live sessions of the pair; on a crew day alone |
+| `request.batch[].properties.hosted` | bool, may be absent | whether the yard is a hosted one, from the setting on the sending day; on a harness, crew or failure day alone |
+
+When there is no batch `request` is null and `no_batch` says why: `off` until telemetry is enabled, `attempted` until the next UTC day, `empty` where a hosted yard has nothing to send, `no-id` where the setting stands on with no install id. A harness day carries `sessions_claimed` beside `kind`, `model` and `hosted`, and a failure day `count` beside its `kind` and `hosted`; the example's batch holds a daily and two crew days, since the yard turned on today.
+
+### `TelemetrySet`
+
+Turns telemetry on or off, as `yardr telemetry on` and `off` do: through the same functions, so consent bookkeeping (`eligible_from`, grant and withdrawal times) is the same however the switch is turned. On mints the install id first when none exists, records the grant, and counts only whole days from tomorrow on, so activity from before consent is never included; repeating on leaves `eligible_from` alone. Off records the withdrawal and stops new batches from starting, and keeps the id, so on again is the same yard. It is the operator's to change: on the socket its Operator class refuses agent and crew panes, and the store's ActChangeSetting gate refuses anyone but the operator, whatever `actor` says; on the listener it is there for a device of the operator and for no other caller. This device call changes consent only over https or from the yard's own machine, like the other calls of this list; it is refused down the yard link from the edge and from the router's peer. The hosted browser control is served through the separate `web` link after the view verifies the JWT and maps it to an operator.
+
+| argument | type | |
+|---|---|---|
+| `on` | bool | `true` turns on, `false` turns off; left out reads as `false`, so only an explicit `true` turns on |
+| `actor` | string | who changes: the operator's name |
+
+```
+POST /call/TelemetrySet
+{"on":false,"actor":"jo"}
+
+{
+  "result": {
+    "telemetry": "off",
+    "changed": true,
+    "install_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+    "since": "2026-10-08",
+    "eligible_from": "2026-10-09",
+    "endpoint": "https://eu.i.posthog.com/batch/"
+  }
+}
+```
+
+```
+POST /call/TelemetrySet
+{"on":true,"actor":"jo"}
+
+{
+  "result": {
+    "telemetry": "on",
+    "changed": true,
+    "install_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+    "since": "2026-10-08",
+    "eligible_from": "2026-10-09",
+    "endpoint": "https://eu.i.posthog.com/batch/"
+  }
+}
+```
+
+| field of the result | type | |
+|---|---|---|
+| `telemetry` | string | `on` or `off`, as it stands now |
+| `changed` | bool | whether the switch moved |
+| `install_id` | string, may be absent | the yard's install id; absent while none is minted |
+| `since` | string, may be absent | the UTC date of the latest consent grant; absent while none was given |
+| `eligible_from` | string, may be absent | the first full UTC day the latest grant counts from; absent while none was given |
+| `endpoint` | string | where the daemon posts the daily batch |
+
+Deleting `<home>/telemetry.json` forgets the install id, a separate deliberate act; the next on mints a new one. To have the yard's data deleted, the operator sends the project the install id.
 
 <!-- /local -->
 

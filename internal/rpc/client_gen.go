@@ -370,6 +370,12 @@ func (c *Client) Settings(ctx context.Context) (map[string]string, error) {
 func (c *Client) SetSetting(ctx context.Context, key, value, actor string) error {
 	return c.call(ctx, "SetSetting", nil, key, value, actor)
 }
+func (c *Client) TelemetryShow(ctx context.Context) (*store.TelemetryPreview, error) {
+	return callV[*store.TelemetryPreview](c, ctx, "TelemetryShow")
+}
+func (c *Client) TelemetrySet(ctx context.Context, on bool, actor string) (*store.TelemetryChange, error) {
+	return callV[*store.TelemetryChange](c, ctx, "TelemetrySet", on, actor)
+}
 
 func (c *Client) RecordGOCACHEOld(ctx context.Context, dir string, at time.Time) error {
 	return c.call(ctx, "RecordGOCACHEOld", nil, dir, at)

@@ -175,7 +175,8 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 // Config is /config: the hub of the yard's configuration pages, the links
-// to the six lists. It is static links with no live part of its own.
+// to the yard's lists, with Telemetry for the operator. It is static
+// links with no live part of its own.
 type Config struct {
 	Links []ConfigLink `json:"links"`
 	Head  uint64       `json:"head"`
@@ -202,6 +203,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		{Title: "Deps", Path: "/deps", Blurb: "the edges with an open end, grouped by the blocked bead"},
 		{Title: "Limits", Path: "/limits", Blurb: "what the subscriptions the yard burns still carry"},
 	}}
+	if s.isOperator(r.Context()) {
+		out.Links = append(out.Links, telemetryLink)
+	}
 	s.respond(w, r, Page{Template: "config", Title: "Config", Menu: "config", Data: out, head: head})
 }
 

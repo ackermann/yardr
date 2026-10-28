@@ -11,22 +11,14 @@ import (
 	"yardr.dev/yardr/internal/telemetry"
 )
 
-// telemetryQuestions is the four questions the daily batch answers, as
-// the on and off help describe them.
-const telemetryQuestions = `When telemetry is on, the daemon sends one batch a day to ` + telemetry.Endpoint + ` answering four questions: which yardr versions and OS are running; which harnesses and models do the work; where beads fail, as counts by kind; whether yards keep running after 1, 7 and 30 days.`
-
-// telemetryProfile is the id-only PostHog profile, as the on and off
-// help describe it.
-const telemetryProfile = `The batch carries the yard's random install id as PostHog's distinct_id, and PostHog keeps an id-only person profile for it — no name, no email — so a yard's data is deleted by install id.`
-
 func (a *app) telemetryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "telemetry",
 		Short: "yardr's opt-in telemetry: one daily batch of counts, on or off",
 		Long: `yardr's opt-in telemetry: one daily batch of counts and fixed names, on or off with one switch.
 
-Off unless turned on. ` + telemetryQuestions + `
-` + telemetryProfile + ` yardr telemetry show prints the exact next batch before anything is sent.
+Off unless turned on. ` + telemetry.Questions + `
+` + telemetry.Profile + ` yardr telemetry show prints the exact next batch before anything is sent.
 
 ` + telemetry.IDSentence,
 	}
@@ -35,8 +27,8 @@ Off unless turned on. ` + telemetryQuestions + `
 		Short: "Turn telemetry on, minting the install id when there is none",
 		Long: `Turn telemetry on.
 
-` + telemetryQuestions + `
-` + telemetryProfile + `
+` + telemetry.Questions + `
+` + telemetry.Profile + `
 
 On mints the install id first when none exists, records this consent
 grant, and counts only whole days from tomorrow on, so activity from
@@ -67,8 +59,8 @@ forgets it, and the next on mints a new one.
 		Short: "Turn telemetry off: nothing is sent",
 		Long: `Turn telemetry off: nothing is sent.
 
-` + telemetryQuestions + `
-` + telemetryProfile + `
+` + telemetry.Questions + `
+` + telemetry.Profile + `
 
 Off records the withdrawal and stops new batches from starting; a
 batch already submitted may still complete. The install id is kept,
@@ -150,11 +142,11 @@ func printTelemetryShow(w io.Writer, p *telemetry.Preview) {
 		printInstallID(w, p.InstallID)
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, "telemetry: on (since "+p.Since+")")
-		fmt.Fprintln(w, "next request: sending day "+p.SendingDay+" (UTC); "+sourceDaysSay(p.SourceDays))
+		fmt.Fprintln(w, "next request: sending day "+p.SendingDay+" (UTC); "+telemetry.SourceDaysSay(p.SourceDays))
 		data, _ := json.MarshalIndent(p.Request, "", "  ")
 		fmt.Fprintln(w, string(data))
 		fmt.Fprintln(w)
-		fmt.Fprintln(w, "To have this yard's data deleted, send the project this install id.")
+		fmt.Fprintln(w, telemetry.DeletionSentence)
 		return
 	}
 	if p.Switch == "on" && p.Since != "" {
@@ -164,10 +156,10 @@ func printTelemetryShow(w io.Writer, p *telemetry.Preview) {
 	} else {
 		fmt.Fprintln(w, "telemetry: off — nothing is sent")
 	}
-	fmt.Fprintln(w, noBatchSay(p.NoBatch))
+	fmt.Fprintln(w, telemetry.NoBatchSay(p.NoBatch))
 	printInstallID(w, p.InstallID)
 	if p.InstallID != "" {
-		fmt.Fprintln(w, "To have this yard's data deleted, send the project this install id.")
+		fmt.Fprintln(w, telemetry.DeletionSentence)
 	}
 }
 
@@ -180,30 +172,4 @@ func printInstallID(w io.Writer, id string) {
 	}
 	fmt.Fprintln(w, "install id: "+id)
 	fmt.Fprintln(w, telemetry.IDSentence)
-}
-
-// sourceDaysSay is the source days of the next request line.
-func sourceDaysSay(days []string) string {
-	switch len(days) {
-	case 0:
-		return "no eligible source days"
-	case 1:
-		return "source day " + days[0]
-	default:
-		return "source days " + days[0] + ".." + days[len(days)-1]
-	}
-}
-
-// noBatchSay is why show has no batch to preview.
-func noBatchSay(reason string) string {
-	switch reason {
-	case telemetry.NoBatchOff:
-		return "no batch available until telemetry is enabled"
-	case telemetry.NoBatchAttempted:
-		return "no batch available until the next UTC day"
-	case telemetry.NoBatchEmpty:
-		return "no batch available: nothing to send"
-	default:
-		return "no batch available: no install id (run yardr telemetry on again)"
-	}
 }

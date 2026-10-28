@@ -242,16 +242,18 @@ var Access = map[string]Class{
 	"SessionScreen":       Operator, // a screen can show what an agent printed, a secret among it
 
 	// The log and the store.
-	"Events":       Read,
-	"EventsOfKind": Read,
-	"EventsSince":  Read,
-	"Head":         Read,
-	"LogDispatch":  Admin,
-	"Snapshot":     Read,
-	"Prune":        DaemonOrOperator,
-	"Backup":       DaemonOrOperator,
-	"Settings":     Read,
-	"SetSetting":   Admin,
+	"Events":        Read,
+	"EventsOfKind":  Read,
+	"EventsSince":   Read,
+	"Head":          Read,
+	"LogDispatch":   Admin,
+	"Snapshot":      Read,
+	"Prune":         DaemonOrOperator,
+	"Backup":        DaemonOrOperator,
+	"Settings":      Read,
+	"SetSetting":    Admin,
+	"TelemetryShow": Operator, // the install id and next request are the operator's alone
+	"TelemetrySet":  Operator, // the store's ActChangeSetting gate refuses anyone but the operator
 
 	"RecordGOCACHEOld": Admin,
 	"GOCACHEOldDirs":   Read,

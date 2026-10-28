@@ -2,10 +2,11 @@
 // with html/template, and the same data as JSON to whoever asks for it.
 // Without --as it only reads the yard; with --as <user> the talk page
 // sends mail as that user, a bead's page answers its asks and sends the
-// bead on, and the Previews page approves, refuses, stops and restarts,
-// and nothing else takes a write, and only for a browser that holds the
-// view's cookie (viewtoken.go). In JWT mode each request acts as its own
-// verified user instead.
+// bead on, the Previews page approves, refuses, stops and restarts, and
+// the Telemetry page turns the telemetry switch on or off where that
+// user is the operator, and nothing else takes a write, and only for a
+// browser that holds the view's cookie (viewtoken.go). In JWT mode each
+// request acts as its own verified user instead.
 //
 // A page is one template in templates/ and one handler that builds the
 // page's data once and hands it to respond; docs/web.md says how to add one.
@@ -241,6 +242,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /peers", s.handlePeers)
 	s.mux.HandleFunc("GET /deps", s.handleDeps)
 	s.mux.HandleFunc("GET /limits", s.handleLimits)
+	s.mux.HandleFunc("GET /telemetry", s.handleTelemetry)
 	for _, name := range unbuilt {
 		s.mux.HandleFunc("GET /"+name, s.handleUnbuilt(name))
 	}
@@ -714,6 +716,7 @@ func (s *Server) postRoutes() {
 	s.mux.HandleFunc("POST /beads/{id}", s.handleBeadPost)
 	s.mux.HandleFunc("POST /pairing", s.handlePairingPost)
 	s.mux.HandleFunc("POST /previews", s.handlePreviewsPost)
+	s.mux.HandleFunc("POST /telemetry", s.handleTelemetryPost)
 }
 
 // As is the user the view acts as, "" when it acts as none.

@@ -138,6 +138,8 @@ type API interface {
 
 	Settings(ctx context.Context) (map[string]string, error)
 	SetSetting(ctx context.Context, key, value, actor string) error
+	TelemetryShow(ctx context.Context) (*TelemetryPreview, error)
+	TelemetrySet(ctx context.Context, on bool, actor string) (*TelemetryChange, error)
 
 	RecordGOCACHEOld(ctx context.Context, dir string, at time.Time) error
 	GOCACHEOldDirs(ctx context.Context) ([]GOCACHEDir, error)

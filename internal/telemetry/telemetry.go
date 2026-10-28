@@ -27,6 +27,19 @@ const APIKey = "phc_s9ANvMv9vKG3FLfuGFHLQQWPdHsyqv3fqC6hkcFgNkBA"
 // pseudonymous, and sharing it is the user's act.
 const IDSentence = "This id is pseudonymous, not anonymous: anyone you give it to can find this yard's events, and giving it is your act."
 
+// DeletionSentence is said wherever a batch is previewed: how the
+// operator has the yard's data deleted.
+const DeletionSentence = "To have this yard's data deleted, send the project this install id."
+
+// Questions is the four questions the daily batch answers, with where it
+// goes, as the on and off help and the web control describe them: the
+// consent words every surface shares.
+const Questions = `When telemetry is on, the daemon sends one batch a day to ` + Endpoint + ` answering four questions: which yardr versions and OS are running; which harnesses and models do the work; where beads fail, as counts by kind; whether yards keep running after 1, 7 and 30 days.`
+
+// Profile is the id-only PostHog profile, as the on and off help and the
+// web control describe it.
+const Profile = `The batch carries the yard's random install id as PostHog's distinct_id, and PostHog keeps an id-only person profile for it — no name, no email — so a yard's data is deleted by install id.`
+
 // dayLayout is a UTC day as the state file and the builder hold it.
 const dayLayout = "2006-01-02"
 

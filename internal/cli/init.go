@@ -355,7 +355,7 @@ func (a *app) askTelemetry(ctx context.Context, cfg *config.Config) error {
 	}
 	on := false
 	err = ask(huh.NewConfirm().Key("telemetry").Title("Turn telemetry on?").
-		Description(telemetryQuestions + " " + telemetryProfile + " " + telemetry.IDSentence +
+		Description(telemetry.Questions + " " + telemetry.Profile + " " + telemetry.IDSentence +
 			" `yardr telemetry show` previews the exact allow-listed next batch from current state" +
 			" before anything is sent. The daemon sends the first batch the day you turn it on; counts from earlier days are never sent." +
 			" `yardr telemetry off` prevents new requests from starting.").

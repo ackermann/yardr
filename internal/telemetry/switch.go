@@ -160,6 +160,34 @@ const (
 	NoBatchNoID      = "no-id"
 )
 
+// SourceDaysSay is the source days of the next request line: the same
+// line the CLI and the web view print.
+func SourceDaysSay(days []string) string {
+	switch len(days) {
+	case 0:
+		return "no eligible source days"
+	case 1:
+		return "source day " + days[0]
+	default:
+		return "source days " + days[0] + ".." + days[len(days)-1]
+	}
+}
+
+// NoBatchSay is why a preview has no batch, in words: the same line the
+// CLI and the web view print.
+func NoBatchSay(reason string) string {
+	switch reason {
+	case NoBatchOff:
+		return "no batch available until telemetry is enabled"
+	case NoBatchAttempted:
+		return "no batch available until the next UTC day"
+	case NoBatchEmpty:
+		return "no batch available: nothing to send"
+	default:
+		return "no batch available: no install id (run yardr telemetry on again)"
+	}
+}
+
 // Preview is what yardr telemetry show prints: the install id and the
 // exact request the daemon would send from the current state, without
 // sending it or advancing any cursor. Request is nil when there is no

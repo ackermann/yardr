@@ -1,0 +1,48 @@
+{{define "content"}}
+{{- /* The yard's opt-in telemetry switch: the consent words for every
+       reader, and for the operator the switch, the install id and the
+       next payload as yardr telemetry show renders them. The switch turns
+       only on an explicit click: nothing here changes on a read. */}}
+<nav class="item filters" aria-label="Config">
+  <p><a href="/config">‹ Config</a></p>
+</nav>
+{{- with .Data.Error}}
+<p class="item error">{{.}}</p>
+{{- end}}
+<article class="item">
+  <header class="item-head">
+    <h2>Telemetry</h2>
+    {{- if .Data.Operator}}
+    {{- if eq .Data.Switch "on"}}
+    <span class="state">on{{with .Data.Since}} (since {{.}}){{end}}</span>
+    {{- else}}
+    <span class="state faint">off — nothing is sent</span>
+    {{- end}}
+    {{- end}}
+  </header>
+  <p>Off unless turned on. {{.Data.Questions}}</p>
+  <p>{{.Data.Profile}}</p>
+  <p>{{.Data.IDSentence}}</p>
+  {{- if .Data.Operator}}
+  {{- if eq .Data.Switch "on"}}
+  <dl class="facts">
+    <div><dt>install id</dt><dd>{{.Data.InstallID}}</dd></div>
+    <div><dt>next request</dt><dd>sending day {{.Data.SendingDay}} (UTC); {{.Data.SourceDaysSay}}</dd></div>
+  </dl>
+  {{- with .Data.Payload}}
+  <h3 class="label">next payload</h3>
+  <pre class="text">{{.}}</pre>
+  {{- end}}
+  {{- with .Data.NoBatch}}
+  <p>{{.}}</p>
+  {{- end}}
+  <p>{{.Data.Deletion}}</p>
+  <form method="post" action="/telemetry">{{template "csrf"}}<button type="submit" name="action" value="off">Turn off</button></form>
+  {{- else}}
+  <form method="post" action="/telemetry">{{template "csrf"}}<button type="submit" name="action" value="on">Turn on</button></form>
+  {{- end}}
+  {{- else}}
+  <p class="faint">Telemetry is the operator's to see and set.</p>
+  {{- end}}
+</article>
+{{end}}

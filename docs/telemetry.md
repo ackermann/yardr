@@ -8,13 +8,16 @@ the exact next batch before anything is sent.
 ## The switch
 
 `yardr telemetry on` turns it on, `yardr telemetry off` turns it off,
-`yardr telemetry show` previews the next batch. There is nothing else:
-no per-category choice, no environment variable (a variable would let a
-session's environment consent for a yard whose operator never did), and
-no flag. The generic `yardr settings set telemetry` refuses the key and
-names these commands, so a raw setting write cannot skip the consent
-bookkeeping. Only the operator changes it, and no run ask may propose
-it, so no agent can turn its own yard's telemetry on.
+`yardr telemetry show` previews the next batch. An operator with no
+terminal does the same on the web view's Telemetry page
+([web.md](web.md#telemetry)), where the switch stays off until its button
+is clicked. There is nothing else: no per-category choice, no environment
+variable (a variable would let a session's environment consent for a yard
+whose operator never did), and no flag. The generic
+`yardr settings set telemetry` refuses the key and names these commands,
+so a raw setting write cannot skip the consent bookkeeping. Only the
+operator changes it, and no run ask may propose it, so no agent can turn
+its own yard's telemetry on.
 
 The daemon reads the setting on every pass, so a change holds on the
 next pass with no restart. A yard whose daemon never runs sends nothing.
@@ -148,8 +151,8 @@ everyone else's, each event carrying `hosted` for the breakdown. A
 hosted yard with no eligible counts and no running crew sends no batch.
 
 Hosted yards send questions 2 and 3 only after their customer turns the
-switch on in the browser or in footplate; until that control lands they
-stay off. The provisioner never sets the switch. No account, handle or
+switch on in the browser, on the web view's Telemetry page; until they do
+they stay off. The provisioner never sets the switch. No account, handle or
 yard name the service knows is ever sent.
 
 ## The install id
@@ -166,9 +169,10 @@ this yard's events, and giving it is your act.
 
 PostHog keeps an id-only person profile for it — no name, no email, no
 properties set — so a yard's data is deleted by install id. The id is
-printed by `on`, `off` and `show` so it can be pasted into a
-conversation; it appears nowhere else: not in the web view, mail,
-`doctor` or `status` output.
+printed by `on`, `off` and `show`, and shown to the operator on the web
+view's Telemetry page while telemetry is on, so it can be pasted into a
+conversation; yardr shows it nowhere else: not in the rest of the web
+view, mail, `doctor` or `status` output.
 
 ## Seeing a batch
 
@@ -181,6 +185,10 @@ previews a day from before consent. While telemetry is off, after
 today's batch was attempted, or with nothing to send, it prints the id
 and says there is no batch. `--json` prints the same object the text
 renders.
+
+The web view's Telemetry page shows the operator the same install id and
+the same request while telemetry is on, as `show` renders them: the way to
+see a batch without a terminal.
 
 With the id shortened inside the batch and the key shortened, a batch
 looks like this:

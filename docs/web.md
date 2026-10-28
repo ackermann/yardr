@@ -6,8 +6,9 @@ server, as `yardr bdp serve` is. Without `--as`, `YARDR_WEB_AS` or the
 refuses any method but GET and HEAD. With one of them it acts as that
 user too, for a browser that has opened the view's token URL: the talk
 page sends its mail as them, a bead's page
-answers its asks and sends the bead on, and the Previews page approves,
-refuses, stops and restarts
+answers its asks and sends the bead on, the Previews page approves,
+refuses, stops and restarts, and the Telemetry page turns the telemetry
+switch on or off where that user is the operator
 ([Acting as a user](#acting-as-a-user)), and nothing else takes a
 write.
 
@@ -343,7 +344,11 @@ restarts as the user, through the socket's `ApprovePreview`,
 `RefusePreview`, `PreviewStop` and `RestartPreview`, and the store's
 rules refuse what the user may not (approve, refuse and restart are the
 operator's; stop is the proposer's or the person's), in their own words,
-with nothing written. Every other route stays GET, and with none of
+with nothing written. The Telemetry page turns the telemetry switch on
+or off as the user, through the socket's `TelemetrySet`, and only where
+that user is the operator: anyone else is shown no switch and no
+control, and a write of theirs is refused with the page redrawn. Every
+other route stays GET, and with none of
 them every route is GET as before: the talk page then says the view does
 not act, and a test holds the view to it.
 
@@ -647,7 +652,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/sessions?all=1` | the same page; its JSON lists the ended sessions too, every one (`yardr session list -a --all`) | `Sessions` |
 | `/crew` | each crew member: whether it runs, since when, and its unread inbox count when there is one, live. Journals and handoffs are not shown | `Crew` |
 | `/previews` | the yard's previews: one card per preview with the start command in full, the directory, the port, the depot commit and dirty mark beside the depot's HEAD now, the proposer and the lifetime, the running preview's log tail and a stale mark, live; on a view that acts, with Approve, Refuse, Open, Stop and Restart | `Previews` |
-| `/config` | the hub of the configuration pages: links to the six lists | `Config` |
+| `/config` | the hub of the configuration pages: links to the lists, with Telemetry for the operator | `Config` |
 | `/depots` | the yard's depots: each with its kind, path, base and test command (`yardr depot list`), live | `Depots` |
 | `/groups` | the yard's groups: each with its runner, limit, members and config (`yardr group list`), live | `Groups` |
 | `/routes` | the yard's routes in match order: each with its stage, filters and group, or its groups in order with their quota conditions (`yardr route list`), live | `Routes` |
@@ -655,6 +660,7 @@ origin; the test allows those and only those ([One bead](#one-bead)).
 | `/deps` | what waits on what: the edges with an open end, grouped by the blocked bead, each end with its title and stage, live | `Deps` |
 | `/deps?all=1` | the same page; its edges are every edge of the yard, the ones between closed beads too | `Deps` |
 | `/limits` | what the subscriptions the yard burns still carry: each provider in use with its windows, how far each is used and when it resets, and who burns it (`yardr limits`), live | `Limits` |
+| `/telemetry` | the yard's opt-in telemetry switch: off, the consent words with the button that turns it on; on, the install id and the next batch as `yardr telemetry show` renders them; the operator's alone ([Telemetry](#telemetry)) | `Telemetry` |
 | `/health` | the yard's liveness facts for a monitor, a proxy or footplate ([Health](#health)) | `Health` |
 | `/assets/<file>` | the stylesheet and the two scripts | |
 
@@ -986,10 +992,10 @@ and the command's are added:
 `/depots`, `/groups`, `/routes`, `/peers`, `/deps` and `/limits` have one
 page each, under the menu's Config entry: the lists as their commands
 print them, each marking that entry current and linking back to the hub
-(`/config`), which links to all six. `?all=1` is a list
-command's `--all`: every closed bead, every ended session the yard keeps,
-every edge between closed beads, with no limit. Any value but none, `0`
-or `false` asks for it.
+(`/config`), which links to all six, with Telemetry for the operator.
+`?all=1` is a list command's `--all`: every closed bead, every ended
+session the yard keeps, every edge between closed beads, with no limit.
+Any value but none, `0` or `false` asks for it.
 
 `/limits` is the one route a GET may run the operator's command for. Each
 entry is the command's: the provider, the burning kinds and users under
@@ -1854,6 +1860,52 @@ a pass has no `last_pass`. Only a yard it cannot read at all fails,
 with a 500 through the error path. Nothing it says is a secret, and it
 is served to the same audience as the rest of the view; the store's
 head sequence is deliberately not among it.
+
+## Telemetry
+
+`/telemetry` is the yard's opt-in telemetry switch for a browser, under
+the menu's Config entry: off unless turned on, and turning on only on
+an explicit click. Every reader gets the consent words the switch is
+turned on under — the four questions the batch answers and where it
+goes, the id-only profile, the pseudonymous sentence — while the
+switch itself, the install id and the next payload are the operator's
+alone: with the switch off the operator gets the words with the button
+that turns it on, and with it on the id and the next batch as `yardr
+telemetry show` renders them, with the button that turns it off. Anyone
+else is shown the words with no switch, no id and no control, and the
+hub links the page for the operator alone. The page is not live: the
+switch moves rarely, and a write answered lands on the page. Where the
+batch goes reads without its scheme, since a page names no host but the
+yard's.
+
+```sh
+curl -s -H 'Accept: application/json' http://127.0.0.1:8791/telemetry
+```
+
+```json
+{
+  "as": "jo",
+  "operator": true,
+  "telemetry": "on",
+  "questions": "When on, the daemon sends one batch a day to eu.i.posthog.com/batch/ answering four questions: …",
+  "profile": "The batch carries the yard's random install id as PostHog's distinct_id, and …",
+  "id_sentence": "This id is pseudonymous, not anonymous: …",
+  "install_id": "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+  "since": "2026-10-08",
+  "sending_day": "2026-10-08",
+  "payload": "{\n  \"api_key\": \"phc_…\",\n  \"batch\": [\n    …\n  ]\n}",
+  "deletion": "To have this yard's data deleted, send the project this install id.",
+  "head": 175
+}
+```
+
+`operator` says whether the request acts as an operator of the yard;
+`telemetry`, `install_id`, `since`, `sending_day`, `source_days`,
+`payload`, `no_batch` and `deletion` ride only then, the id and what
+follows it only with the switch on, and `payload` only with a batch to
+send (`no_batch` carries the reason in words where none follows).
+`payload` is the exact next request as indented JSON, as `show` renders
+it. `head` is the yard's newest seq from before the preview was read.
 
 ## Layout
 

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -886,6 +887,52 @@ var apiOperatorCalls = []apiCall{
 		},
 		after: "The bead and the ask are one write: the removal is filed on a new bead, or neither. When the call ends without a reply (the server went away), a client cannot know which: say \"the yard did not answer; read the queue again\", never \"filed\", and read `UserAsks` again.",
 	},
+	{
+		method:   "TelemetryShow",
+		says:     "Reads what `yardr telemetry show` prints: the switch, the install id, and the exact next request the daemon would send from the current state, without sending it or advancing anything. The request is the sending-day runtime snapshot with the eligible completed source days in the batch; `source_days` holds those days, oldest first, and is absent while none are eligible — a grant counts from tomorrow on, so a yard that turned on today has none yet. The request carries the shared project's public, write-only key as `api_key`, which the example does not print. It is the operator's to read: on the socket its Operator class keeps it from agent and crew panes; on the listener it is there for a device of the operator and for no other caller, since the id groups the yard's events across time. It changes nothing, but the id and the operator's device token go with the reply and the request, so the listener takes it only over https or from the yard's own machine, like the other calls of this list. As a device call it is never served down the yard link from the edge; the hosted browser uses the separate `web` link.",
+		requests: []string{`{}`},
+		fields: []field{
+			{"install_id", "string?", "the yard's random install id, as PostHog sees it; absent while none is minted. This id is pseudonymous, not anonymous: anyone the operator gives it to can find this yard's events"},
+			{"telemetry", "string", "`on` or `off`"},
+			{"since", "string?", "the UTC date of the latest consent grant; absent while none was given"},
+			{"sending_day", "string", "the UTC day the batch is built for"},
+			{"hosted", "bool", "whether the yard is a hosted one, which sends no daily snapshot"},
+			{"request", "object or null", "the exact next request; null when there is no batch to send, and `no_batch` says why"},
+			{"request.batch[].event", "string", "`yardr_daily`, `yardr_harness_day`, `yardr_crew_day` or `yardr_failure_day`"},
+			{"request.batch[].distinct_id", "string", "the install id again, as PostHog's `distinct_id`"},
+			{"request.batch[].timestamp", "time", "the event's day marker: midnight UTC on the sending day for a snapshot, noon UTC on the source day for a count, or the consent grant where it was given that day"},
+			{"request.batch[].uuid", "string", "the event's stable id, derived from the install id, the event, the day and its dimensions: rebuilding the same event keeps it, so a retried batch deduplicates"},
+			{"request.batch[].properties", "object", "the event's allow-listed properties: counts and fixed names only, never a bead, an error's words or an actor's name"},
+			{"request.batch[].properties.$process_person_profile", "bool", "always `true`: the id-only person profile the deletion path removes"},
+			{"request.batch[].properties.$geoip_disable", "bool", "always `true`: the project adds no GeoIP location to the event"},
+			{"request.batch[].properties.version", "string?", "a daily's release tag, or `development` for any build without one; on a daily alone"},
+			{"request.batch[].properties.os", "string?", "a daily's `darwin`, `linux`, `windows` or `other`; on a daily alone"},
+			{"request.batch[].properties.telemetry_age_days", "number?", "a daily's whole UTC days from first consent through the sending day; on a daily alone"},
+			{"request.batch[].properties.kind", "string?", "a harness, crew or failure day's harness kind, or the failure kind `gave_up`, `held` or `landing_failed`; on those alone"},
+			{"request.batch[].properties.model", "string?", "a harness or crew day's model id, `other` for one the harness file does not offer, `default` for the harness's own; on those alone"},
+			{"request.batch[].properties.running_crew_sessions", "number?", "a crew day's live sessions of the pair; on a crew day alone"},
+			{"request.batch[].properties.hosted", "bool?", "whether the yard is a hosted one, from the setting on the sending day; on a harness, crew or failure day alone"},
+		},
+		after: "When there is no batch `request` is null and `no_batch` says why: `off` until telemetry is enabled, `attempted` until the next UTC day, `empty` where a hosted yard has nothing to send, `no-id` where the setting stands on with no install id. A harness day carries `sessions_claimed` beside `kind`, `model` and `hosted`, and a failure day `count` beside its `kind` and `hosted`; the example's batch holds a daily and two crew days, since the yard turned on today.",
+	},
+	{
+		method: "TelemetrySet",
+		says:   "Turns telemetry on or off, as `yardr telemetry on` and `off` do: through the same functions, so consent bookkeeping (`eligible_from`, grant and withdrawal times) is the same however the switch is turned. On mints the install id first when none exists, records the grant, and counts only whole days from tomorrow on, so activity from before consent is never included; repeating on leaves `eligible_from` alone. Off records the withdrawal and stops new batches from starting, and keeps the id, so on again is the same yard. It is the operator's to change: on the socket its Operator class refuses agent and crew panes, and the store's ActChangeSetting gate refuses anyone but the operator, whatever `actor` says; on the listener it is there for a device of the operator and for no other caller. This device call changes consent only over https or from the yard's own machine, like the other calls of this list; it is refused down the yard link from the edge and from the router's peer. The hosted browser control is served through the separate `web` link after the view verifies the JWT and maps it to an operator.",
+		args: []field{
+			{"on", "bool", "`true` turns on, `false` turns off; left out reads as `false`, so only an explicit `true` turns on"},
+			{"actor", "string", "who changes: the operator's name"},
+		},
+		requests: []string{`{"on":false,"actor":"jo"}`, `{"on":true,"actor":"jo"}`},
+		fields: []field{
+			{"telemetry", "string", "`on` or `off`, as it stands now"},
+			{"changed", "bool", "whether the switch moved"},
+			{"install_id", "string?", "the yard's install id; absent while none is minted"},
+			{"since", "string?", "the UTC date of the latest consent grant; absent while none was given"},
+			{"eligible_from", "string?", "the first full UTC day the latest grant counts from; absent while none was given"},
+			{"endpoint", "string", "where the daemon posts the daily batch"},
+		},
+		after: "Deleting `<home>/telemetry.json` forgets the install id, a separate deliberate act; the next on mints a new one. To have the yard's data deleted, the operator sends the project the install id.",
+	},
 }
 
 // apiEvent is one kind of event of the doc: is picks it from the stream.
@@ -1161,6 +1208,22 @@ func apiStore(t *testing.T) (*store.Store, string) {
 	must(st.CrewStatus(ctx, "yardmaster", "working"))
 	// What SessionScreen answers with: the yardmaster's pane, styled.
 	st.SetPaneReader(apiPaneReader("\x1b[1mYardr yardmaster\x1b[0m\n❯ "))
+	// What TelemetryShow and TelemetrySet answer with: the CLI's own
+	// switch, on a consent granted today, so the batch holds the
+	// sending-day snapshot and the running crew alone. The install id is
+	// fixed, so the doc's example reads the same on every run.
+	st.SetTelemetrySwitch(telemetry.Switch{})
+	now := time.Now().UTC()
+	seed := &telemetry.State{
+		InstallID:    "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+		Minted:       now.Format("2006-01-02"),
+		Grants:       []string{now.Truncate(time.Second).Format("2006-01-02T15:04:05Z")},
+		EligibleFrom: now.Add(24 * time.Hour).Format("2006-01-02"),
+	}
+	if err := seed.Save(filepath.Join(home, "telemetry.json")); err != nil {
+		t.Fatal(err)
+	}
+	must(st.SetSetting(ctx, store.TelemetrySetting, "true", "jo"))
 
 	key, _, err := yardkey.Ensure(filepath.Join(t.TempDir(), "north.key"))
 	must(err)
@@ -2044,11 +2107,11 @@ func TestCallsAreTheDocs(t *testing.T) {
 	t.Run("Calls", func(t *testing.T) { callsAreTheDocs(t, "Calls", Calls, apiCalls) })
 	t.Run("OperatorCalls", func(t *testing.T) { callsAreTheDocs(t, "OperatorCalls", OperatorCalls, apiOperatorCalls) })
 	// What the listener serves every device is Calls, as it was before
-	// there was a second list, and a device of the operator the seven calls
-	// of OperatorCalls besides: a call is added to either on purpose, here
-	// too.
-	if len(Calls) != 26 || len(OperatorCalls) != 7 {
-		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 7", len(Calls), len(OperatorCalls))
+	// there was a second list, and a device of the operator the nine
+	// calls of OperatorCalls besides: a call is added to either on
+	// purpose, here too.
+	if len(Calls) != 26 || len(OperatorCalls) != 9 {
+		t.Errorf("Calls has %d calls and OperatorCalls %d, want 26 and 9", len(Calls), len(OperatorCalls))
 	}
 	for name := range OperatorCalls {
 		if _, both := Calls[name]; both {
@@ -2345,6 +2408,47 @@ func uninviteDocBead(reply object) object {
 	return out
 }
 
+// exampleDay stands for the consent and sending days in the telemetry
+// examples: each is the day the test ran, and the doc is the same on
+// every run. since and sending_day read the example's day, and
+// eligible_from the day after it, as a grant counts from tomorrow on.
+const exampleDay = "2026-10-08"
+
+var (
+	// A date alone, never a time: the asks' since stays the example
+	// time, which carries one.
+	telemetrySince        = regexp.MustCompile(`"since": "[0-9]{4}-[0-9]{2}-[0-9]{2}"`)
+	telemetrySendingDay   = regexp.MustCompile(`"sending_day": "[0-9]{4}-[0-9]{2}-[0-9]{2}"`)
+	telemetryEligibleFrom = regexp.MustCompile(`"eligible_from": "[0-9]{4}-[0-9]{2}-[0-9]{2}"`)
+	telemetryOS           = regexp.MustCompile(`"os": "(?:darwin|linux|windows|other)"`)
+)
+
+// exampleUUIDs stand for the batch's event uuids in the doc, in order:
+// each is derived from the sending day, so the doc is the same on every
+// run. The example's batch holds three events, a daily and two crew days.
+var exampleUUIDs = []string{
+	"0e3c8b2a-1432-4a51-9f39-1bc7a1b1d001",
+	"451d5fc1-4a12-4c20-9d7b-1f9df88ca004",
+	"f481958d-ea90-4a3c-8ed7-0a1ff35af004",
+}
+
+var batchUUID = regexp.MustCompile(`"uuid": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"`)
+
+// scrubUUIDs stands exampleUUIDs for the batch uuids of one rendered
+// reply, in order. A longer batch leaves its further uuids standing, so
+// the doc test fails on them instead of printing the day's uuids.
+func scrubUUIDs(s string) string {
+	i := 0
+	return batchUUID.ReplaceAllStringFunc(s, func(match string) string {
+		if i >= len(exampleUUIDs) {
+			return match
+		}
+		out := `"uuid": "` + exampleUUIDs[i] + `"`
+		i++
+		return out
+	})
+}
+
 func callsDoc(run *apiRun, calls []apiCall) []string {
 	out := []string{""}
 	for _, c := range calls {
@@ -2363,7 +2467,16 @@ func callsDoc(run *apiRun, calls []apiCall) []string {
 			if more := run.more[c.method][i]; more != nil {
 				reply = append(reply, member{"more", more})
 			}
-			out = append(out, fenced("", "POST /call/"+c.method, body, "", keyStart.ReplaceAllString(homeHookSecret.ReplaceAllString(homeSources.ReplaceAllString(render(reply, ""), exampleHome+"/$1/"), exampleHome+"/hooks/$1"), exampleKey))...)
+			shown := render(reply, "")
+			shown = homeSources.ReplaceAllString(shown, exampleHome+"/$1/")
+			shown = homeHookSecret.ReplaceAllString(shown, exampleHome+"/hooks/$1")
+			shown = keyStart.ReplaceAllString(shown, exampleKey)
+			shown = telemetrySince.ReplaceAllString(shown, `"since": "`+exampleDay+`"`)
+			shown = telemetrySendingDay.ReplaceAllString(shown, `"sending_day": "`+exampleDay+`"`)
+			shown = telemetryEligibleFrom.ReplaceAllString(shown, `"eligible_from": "2026-10-09"`)
+			shown = telemetryOS.ReplaceAllString(shown, `"os": "darwin"`)
+			shown = scrubUUIDs(shown)
+			out = append(out, fenced("", "POST /call/"+c.method, body, "", shown)...)
 		}
 		if len(c.fields) > 0 {
 			out = append(out, fieldTable("field of the result", c.fields)...)
@@ -2668,6 +2781,12 @@ func isType(v any, typ string) bool {
 		_, ok := v.(bool)
 		return ok
 	case "object":
+		_, ok := v.(object)
+		return ok
+	case "object or null":
+		if v == nil {
+			return true
+		}
 		_, ok := v.(object)
 		return ok
 	case "array":

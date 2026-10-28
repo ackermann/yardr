@@ -677,10 +677,10 @@ check in yardr it is a line, not a wall ([Who is acting](#who-is-acting)).
 [api.md](api.md#the-calls), the event stream and the files of its user's
 own mail, of notes and of kept hook deliveries
 ([api.md](api.md#over-the-network)), and nothing else the yard's socket
-serves: no move of a bead and no setting is on the listener, whoever
-calls. A device of an operator (a user whose role is `operator`, any of
-them) has more calls, and no other device has them
-([api.md](api.md#for-the-operator-alone)). It gives the credential a
+serves: no move of a bead is on the listener, whoever calls, and of the
+settings only the telemetry switch. A device of an operator (a user whose
+role is `operator`, any of them) has more calls, and no other device has
+them ([api.md](api.md#for-the-operator-alone)). It gives the credential a
 [secret ask](chat.md#questions-for-you) asks for, typed where the operator
 sits and written by the yard into the source's file. It approves a
 [run ask](chat.md#questions-for-you), whichever operator it was put to,
@@ -689,7 +689,9 @@ operator. It approves a [setup
 ask](chat.md#setting-up-a-packs-sources) with the preset pick and the
 account together, and the yard then applies the pack, takes the account
 and grants the preset picked, as the operator. It reads every grant of the
-yard's sources, the whole of who may call what. Approving is the only way
+yard's sources, the whole of who may call what. It reads what `yardr
+telemetry show` prints and turns the telemetry switch on or off, as the
+terminal does. Approving is the only way
 a command of the operator's is run through the listener, and the commands
 a run ask may hold are a fixed list, which the table below has whole. The
 giving is there too for a device of any user, for an ask with
@@ -927,6 +929,15 @@ gave each call and on which card. A grant is a record of names and times,
 so the holder learns who may reach which source and as whom, and never a
 credential or an address, which no record holds. A device of any other
 user cannot read it.
+
+**A stolen device of the operator can turn telemetry on, and read the
+install id.** Until `yardr user device rm`, whoever holds its token can
+switch the yard's telemetry on ([api.md](api.md#telemetryset)), so the
+daemon starts sending the daily batch of counts, and can read the install
+id the batch carries ([api.md](api.md#telemetryshow)). The batch holds
+counts and fixed names only, and the holder learns no bead, no error's
+words and no actor's name from it. A device of any other user can do
+neither.
 
 **A write says how it came.** What a device writes carries the device's
 name: the event has `via` in its data, and wherever the writer is shown the

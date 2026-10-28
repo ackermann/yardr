@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -175,8 +176,8 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	if len(served) != len(Calls) || len(served) != 26 {
 		t.Errorf("%d calls are served and Calls has %d, want 26 of each: %v", len(served), len(Calls), served)
 	}
-	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants", "Teammates", "UninviteTeammate"}) || len(OperatorCalls) != 7 {
-		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants, Teammates, UninviteTeammate and no other", operators, OperatorCalls)
+	if !slices.Equal(operators, []string{"ApproveAsk", "ApproveSetup", "GiveSecret", "SessionScreen", "SourceGrants", "Teammates", "TelemetrySet", "TelemetryShow", "UninviteTeammate"}) || len(OperatorCalls) != 9 {
+		t.Errorf("a device of the operator is served %v besides, and OperatorCalls is %v: want ApproveAsk, ApproveSetup, GiveSecret, SessionScreen, SourceGrants, Teammates, TelemetrySet, TelemetryShow, UninviteTeammate and no other", operators, OperatorCalls)
 	}
 	// The whole grant graph is the operator's to read: to sam's device the
 	// call is not there, as a method the yard does not have, whatever it
@@ -346,6 +347,112 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 	h.ServeHTTP(w, routed)
 	if !strings.Contains(w.Body.String(), `"screen":`) {
 		t.Errorf("SessionScreen through the TLS router is answered %s, want the screen", w.Body)
+	}
+	// TelemetryShow and TelemetrySet are the operator's two calls for
+	// the telemetry switch: to sam's device each is one of the methods
+	// that are not there, whatever it carries.
+	st.SetTelemetrySwitch(telemetry.Switch{})
+	none, _ = json.Marshal(noSuchMethod("TelemetryShow"))
+	if got := call(t, h, tablet.Token, "TelemetryShow", `{}`); got != string(none) {
+		t.Errorf("TelemetryShow from sam's device is answered %s, want %s", got, none)
+	}
+	none, _ = json.Marshal(noSuchMethod("TelemetrySet"))
+	for _, body := range []string{`{}`, `{"on":true}`, `{"on":true,"actor":"sam"}`} {
+		if got := call(t, h, tablet.Token, "TelemetrySet", body); got != string(none) {
+			t.Errorf("TelemetrySet %s from sam's device is answered %s, want %s", body, got, none)
+		}
+	}
+	// The operator's token accompanies the switch too. Refuse a request
+	// from another machine before reading its body.
+	for _, name := range []string{"TelemetryShow", "TelemetrySet"} {
+		w = ask(h, http.MethodPost, "/user/call/"+name, token, unread{t})
+		for _, want := range []string{
+			"the telemetry switch is taken over https only",
+			"in plain HTTP from another machine",
+			"The device's token was sent with it",
+			"yardr user device rm",
+		} {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("%s from another machine is answered %s, want it to say %q", name, w.Body, want)
+			}
+		}
+	}
+	// Neither crosses the edge: no edge request may turn the switch on,
+	// and the install id stays off the link with the grant list. The
+	// yard is hosted from above, and hosting widens nothing here, as it
+	// does for a secret.
+	for _, c := range []struct{ name, want string }{
+		{"TelemetryShow", "the telemetry switch is not read over the link"},
+		{"TelemetrySet", "the telemetry switch is not changed over the link"},
+	} {
+		edge = httptest.NewRequest(http.MethodPost, "/user/call/"+c.name, unread{t})
+		edge.RemoteAddr = linkRemoteAddr
+		edge.Header.Set("Authorization", "Bearer "+token)
+		w = httptest.NewRecorder()
+		h.ServeHTTP(w, edge)
+		for _, want := range []string{c.want, "The edge saw the device's token", "yardr user device rm"} {
+			if !strings.Contains(w.Body.String(), want) {
+				t.Errorf("%s over the edge is answered %s, want it to say %q", c.name, w.Body, want)
+			}
+		}
+	}
+	// From the yard's machine the operator's device reads the preview
+	// and turns the switch: on mints the id and previews the request,
+	// and the actor left out is the device's user, while one naming
+	// another is refused.
+	local = httptest.NewRequest(http.MethodPost, "/user/call/TelemetryShow", strings.NewReader(`{}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), `"telemetry":"off"`) {
+		t.Errorf("TelemetryShow from the yard's machine is answered %s, want the switch off", w.Body)
+	}
+	local = httptest.NewRequest(http.MethodPost, "/user/call/TelemetrySet", strings.NewReader(`{"on":true}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), `"telemetry":"on"`) {
+		t.Errorf("TelemetrySet from the yard's machine is answered %s, want the switch on", w.Body)
+	}
+	local = httptest.NewRequest(http.MethodPost, "/user/call/TelemetryShow", strings.NewReader(`{}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	for _, want := range []string{`"telemetry":"on"`, `"install_id":"`, `"request":{`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("TelemetryShow with the switch on is answered %s, want it to hold %s", w.Body, want)
+		}
+	}
+	local = httptest.NewRequest(http.MethodPost, "/user/call/TelemetrySet", strings.NewReader(`{"on":true,"actor":"sam"}`))
+	local.RemoteAddr = "127.0.0.1:40000"
+	local.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, local)
+	if !strings.Contains(w.Body.String(), "this device calls as jo") {
+		t.Errorf("TelemetrySet as sam from jo's device is answered %s, want it held to jo", w.Body)
+	}
+	// The preview is taken from the TLS router, as the grant list is;
+	// the switch is not changed from it, as an approval is not.
+	routed = httptest.NewRequest(http.MethodPost, "/user/call/TelemetryShow", strings.NewReader(`{}`))
+	routed.RemoteAddr = "192.0.2.15:40000"
+	routed.Header.Set("Authorization", "Bearer "+token)
+	routed.Header.Set("X-Forwarded-Proto", "https")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, routed)
+	if !strings.Contains(w.Body.String(), `"telemetry":"on"`) {
+		t.Errorf("TelemetryShow through the TLS router is answered %s, want the preview", w.Body)
+	}
+	routed = httptest.NewRequest(http.MethodPost, "/user/call/TelemetrySet", strings.NewReader(`{"on":false,"actor":"jo"}`))
+	routed.RemoteAddr = "192.0.2.15:40000"
+	routed.Header.Set("Authorization", "Bearer "+token)
+	routed.Header.Set("X-Forwarded-Proto", "https")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, routed)
+	if !strings.Contains(w.Body.String(), "the telemetry switch is taken over https only") {
+		t.Errorf("TelemetrySet through the TLS router is answered %s, want it refused", w.Body)
 	}
 	for _, name := range []string{"Sing", "Subscribe", "Close"} {
 		none, _ := json.Marshal(noSuchMethod(name))

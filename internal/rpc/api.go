@@ -131,6 +131,19 @@ var Calls = map[string][]string{
 // it only over https or from the yard's own machine, like the other
 // calls of this list, and down the link from the edge from a paired
 // device of the operator, as an approval.
+//
+// TelemetryShow reads what yardr telemetry show prints: the switch, the
+// install id with its pseudonymous sentence, and the next request or why
+// there is none. It changes nothing, but the id groups the yard's events
+// across time, so it is the operator's to read and no one else's: its
+// socket class is Operator, and the listener serves it to an operator's
+// device alone.
+// TelemetrySet turns the switch on or off through the CLI's own
+// functions, so consent bookkeeping is the same however it is turned. It
+// is the operator's to change, and this device call is never served down
+// the yard link from the edge. A hosted customer without a terminal uses
+// the web view's control through its separate web link, where the view
+// verifies the gateway's JWT and maps it to a yard user.
 var OperatorCalls = map[string][]string{
 	"GiveSecret":       {"bead", "ask", "values", "actor", "weighed"},
 	"ApproveAsk":       {"bead", "ask", "actor", "weighed", "values"},
@@ -139,6 +152,8 @@ var OperatorCalls = map[string][]string{
 	"SessionScreen":    {"session"},
 	"Teammates":        {},
 	"UninviteTeammate": {"user", "actor"},
+	"TelemetryShow":    {},
+	"TelemetrySet":     {"on", "actor"},
 }
 
 // argNames are the names of the arguments of a call docs/api.md names, of
