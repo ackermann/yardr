@@ -815,7 +815,8 @@ type QuotaWindow struct {
 	Label string
 	// Model is the model the window counts for alone, as the source says it;
 	// "" for a window every model of the provider draws from. judge reads it
-	// for the condition no route wrote.
+	// for the condition no route wrote, against the model the bead would
+	// start with in the group judged.
 	Model         string
 	UsedPercent   *float64
 	TargetPercent *float64
@@ -875,17 +876,22 @@ func (c RouteChoice) Why() string {
 
 // noWindowUsedUp is the condition a group is judged by when its route names
 // none, "<100": every window its provider reports is under 100% used, but
-// for those the source says count for one model alone (judge).
+// for those the source says count for one model alone (judge), unless it is
+// the model the bead would start with in that group.
 var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 
 // Choose goes through the route's groups in order and takes the first
 // whose condition holds. quota is asked for the windows of a group's
 // provider, and of each source its condition names, only once the groups
 // before it failed theirs: whoever calls decides whether and how they are
-// learned. A group with no condition is judged as if its condition were
+// learned. model says which model the bead would start with in a group, for
+// the comparison no route wrote (nil where the caller knows none, and
+// per-model windows read as they did before any caller knew). A group with
+// no condition is judged as if its condition were
 // "<100" (noWindowUsedUp): it takes no bead while a window of its provider
 // is used up, since a session started into one stops on the limit at once;
-// a window the source says is for one model alone does not count (judge).
+// a window the source says is for one model alone counts when it is that
+// model, and no other (judge).
 // That is for a group that starts agents, which a route with several groups
 // names alone; a caller whose route names a group that starts none passes a
 // nil quota, and nothing is asked: the first group is taken. Whether the
@@ -893,14 +899,14 @@ var noWindowUsedUp = []QuotaLimit{{Under: 100, Implicit: true}}
 // here: a group at its limit is waited for, not passed over. A comparison
 // that ends in a duration holds a window past its number that resets within
 // it (QuotaLimit.Within), and the choice says which (RouteChoice.Held).
-func (r Route) Choose(quota func(group, source string) Quota) RouteChoice {
-	return r.ChooseAt(time.Now(), quota)
+func (r Route) Choose(quota func(group, source string) Quota, model func(group string) string) RouteChoice {
+	return r.ChooseAt(time.Now(), quota, model)
 }
 
 // ChooseAt is Choose with now as the moment a reset is measured from, for a
 // comparison that ends in a duration: the dispatcher hands in the clock it
 // runs the pass by.
-func (r Route) ChooseAt(now time.Time, quota func(group, source string) Quota) RouteChoice {
+func (r Route) ChooseAt(now time.Time, quota func(group, source string) Quota, model func(group string) string) RouteChoice {
 	var c RouteChoice
 	for _, g := range r.Groups() {
 		if g.Name == RouteWait {
@@ -931,7 +937,11 @@ func (r Route) ChooseAt(now time.Time, quota func(group, source string) Quota) R
 			}
 			return q
 		}
-		failed, unknown, held, resets := judge(now, limits, get)
+		m := ""
+		if model != nil {
+			m = model(g.Name)
+		}
+		failed, unknown, held, resets := judge(now, limits, get, m)
 		if len(failed) == 0 {
 			c.Group, c.Held = g.Name, held
 			if len(unknown) > 0 {
@@ -950,8 +960,10 @@ func (r Route) ChooseAt(now time.Time, quota func(group, source string) Quota) R
 // (held, in words), and the earliest reset among the windows that failed.
 // now is what a reset is measured from. Each comparison reads the quota of
 // the source it names, "" being the group's provider; a source nothing is
-// known of is said once, however many comparisons name it.
-func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota) (failed, unknown, held []string, resets *time.Time) {
+// known of is said once, however many comparisons name it. model is the
+// model the bead would start with in the group judged, "" where none is
+// known: the comparison no route wrote reads a per-model window against it.
+func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota, model string) (failed, unknown, held []string, resets *time.Time) {
 	said := map[string]bool{}
 	for _, l := range limits {
 		q := quota(l.Source)
@@ -973,13 +985,14 @@ func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota) 
 				continue
 			}
 			// The comparison no route wrote reads the windows every model of
-			// the provider draws from. One the source says counts for a single
-			// model would hold each group of the provider for a limit most of
-			// them never reach, and which group runs that model is not known
-			// here: the one that does starts and stops on the limit, as it did
-			// before groups were judged by their windows. A condition that
-			// names the window, or every window, asked for it.
-			if l.Implicit && w.Model != "" {
+			// the provider draws from, and the one the bead would start with
+			// in this group draws from alone: a session started into either
+			// stops on the limit at once. A window for another model, or for
+			// one model where none is known, would hold the group for a limit
+			// it never reaches, so it is left out, as every per-model window
+			// was before the choice knew the model. A condition that names
+			// the window, or every window, asked for it.
+			if l.Implicit && w.Model != "" && w.Model != model {
 				continue
 			}
 			seen = true

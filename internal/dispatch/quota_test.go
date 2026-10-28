@@ -492,8 +492,9 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 		}
 
 		// A window the source says counts for one model alone holds no group
-		// with no condition, however far it is used: a bead goes to a. A shared
-		// window used up beside it still holds, and the wait names that one.
+		// with no condition for a bead that names none, however far it is
+		// used: a bead goes to a. A shared window used up beside it still
+		// holds, and the wait names that one.
 		perModel := func(week float64) string {
 			return fmt.Sprintf(`{"provider":"Kimi","windows":[{"label":"Weekly","used_percent":%v},`+
 				`{"label":"Weekly Fable","model":"Fable","used_percent":100}]}`, week)

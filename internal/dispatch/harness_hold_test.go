@@ -499,18 +499,22 @@ func elseYard(t *testing.T, first string, b store.Group, moonshot func(time.Time
 // shape per claim path: a route with no condition (this yard's review
 // fallback, mem-3z7j) and one with a condition that does not cover the
 // used-up window. Each shape is one where the quota does not gate the held
-// group — a window for one model alone, which the comparison no route wrote
-// leaves out, or a condition on another window — so only the hold stands
-// between the bead and the first group.
+// group — a held group is not judged at all — so only the hold stands
+// between the bead and the first group. At the wake the window reads open,
+// so the quota gates nothing then either.
 func TestClaimPassesOverAGroupHeldByAUsageWait(t *testing.T) {
 	t.Parallel()
 	for _, shape := range []struct {
 		name     string
 		first    string
 		moonshot func(time.Time) string
+		// openAtWake says the window open at the wake: the no-condition
+		// shape's per-model window would otherwise hold the first group
+		// for the bead of its model once the hold lifts.
+		openAtWake bool
 	}{
-		{"no condition", "a", func(resets time.Time) string { return kimiUsedModel(resets, "k3") }},
-		{"condition", "a@Weekly<80", kimiUsed},
+		{"no condition", "a", func(resets time.Time) string { return kimiUsedModel(resets, "k3") }, true},
+		{"condition", "a@Weekly<80", kimiUsed, false},
 	} {
 		t.Run(shape.name, func(t *testing.T) {
 			s, r, d, p, b1, now, resets := elseYard(t, shape.first,
@@ -566,9 +570,13 @@ func TestClaimPassesOverAGroupHeldByAUsageWait(t *testing.T) {
 				t.Fatalf("asks = %v, want no further run: the claim read b's cached windows and judged nothing of a", got)
 			}
 
-			// The wait clears: the agent is prompted at the wake, and the
-			// next bead goes to the first group again.
+			// The wait clears: the window is open again, the agent is
+			// prompted at the wake, and the next bead goes to the first
+			// group again.
 			*now = wakes.Add(time.Second)
+			if shape.openAtWake {
+				p.sayFor("moonshot", kimiOpen)
+			}
 			primeLimits(t, d, "kimi", "", nil)
 			b3 := newBead(t, s, "after the wait")
 			must(t, d.Reconcile(ctx))
@@ -585,6 +593,71 @@ func TestClaimPassesOverAGroupHeldByAUsageWait(t *testing.T) {
 				t.Fatalf("claimed by %q, want a again", group)
 			}
 		})
+	}
+}
+
+// A session that waits for its model's used-up window, once released by
+// hand, leaves the window gating its group for the route's --else group
+// (yardr-41p5): the hold is gone with the session, but a session started
+// into the window would stop on the same limit, so the next claim for a
+// bead of that model takes b, and the claimed event names the window. A
+// bead of another model is not gated by it and still starts on a. A shared
+// window used up sends every bead to b, as before.
+func TestReleasedSessionFallsBackToTheElseGroupOnItsModelsWindow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	codex := store.Group{Name: "b", Runner: "herdr", Limit: 3,
+		Config: map[string]any{"kind": "codex", "stall": "off"}}
+
+	// The window counts for k3 alone: the released bead is held out of the
+	// way, so the new bead is the next claim.
+	s, r, d, _, b1, _, _ := elseYard(t, "a", codex,
+		func(resets time.Time) string { return kimiUsedModel(resets, "k3") }, codexOpen)
+	_, err := s.Release(ctx, b1.ID, "moved to another group", store.Expect{}, "me")
+	must(t, err)
+	_, err = s.SetHold(ctx, b1.ID, true, store.Expect{}, "me")
+	must(t, err)
+	b2 := newBead(t, s, "same model")
+	must(t, d.Reconcile(ctx))
+	if got := r.starts(); !slices.Equal(got, []string{b1.ID, b2.ID}) {
+		t.Fatalf("starts = %v, want the new bead started on the --else group", got)
+	}
+	group, data := claimedBy(t, s, b2.ID)
+	if group != "b" {
+		t.Fatalf("claimed by %q with %v, want b: a's 5h window for k3 is used up", group, data)
+	}
+	passed, _ := data["passed"].([]any)
+	if len(passed) != 1 {
+		t.Fatalf("passed = %v, want the one gated group", data["passed"])
+	}
+	one, _ := passed[0].(map[string]any)
+	if one["group"] != "a" || one["reason"] != "Kimi's 5h window is 100% used, the route asks under 100" {
+		t.Fatalf("passed = %v, want a passed over for its k3 window", one)
+	}
+	if n := len(eventKinds(t, s, b2.ID, "quota_wait")); n != 0 {
+		t.Fatalf("quota_wait events = %d, want none: the bead started", n)
+	}
+
+	// A bead of another model is not gated by k3's window: it starts on a.
+	b3, err := s.CreateBead(ctx, store.NewBead{Title: "other model", Metadata: map[string]any{"model": "k2"}}, "me")
+	must(t, err)
+	must(t, d.Reconcile(ctx))
+	if group, _ := claimedBy(t, s, b3.ID); group != "a" {
+		t.Fatalf("claimed by %q, want a: the window counts for k3 alone", group)
+	}
+
+	// A shared window used up still sends every bead to b.
+	s, r, d, _, b1, _, _ = elseYard(t, "a", codex, kimiUsed, codexOpen)
+	_, err = s.Release(ctx, b1.ID, "moved to another group", store.Expect{}, "me")
+	must(t, err)
+	_, err = s.SetHold(ctx, b1.ID, true, store.Expect{}, "me")
+	must(t, err)
+	b2 = newBead(t, s, "shared window")
+	must(t, d.Reconcile(ctx))
+	if group, data := claimedBy(t, s, b2.ID); group != "b" {
+		t.Fatalf("claimed by %q with %v, want b: a's shared 5h window is used up", group, data)
+	} else if passed, _ := data["passed"].([]any); len(passed) != 1 {
+		t.Fatalf("passed = %v, want a passed over", data["passed"])
 	}
 }
 

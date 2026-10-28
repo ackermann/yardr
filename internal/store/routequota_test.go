@@ -333,8 +333,9 @@ func TestGroupOfAQuotaRouteKeepsItsRunner(t *testing.T) {
 // Choose takes the first group whose condition holds from the windows it
 // is handed, asks only as far as it has to, and says of each group it
 // passed over why. A group with no condition holds while none of the windows
-// its provider's models share is used up: a window the source says counts
-// for one model alone is not read for it.
+// its provider's models share is used up, and none the bead's own model in
+// that group draws from alone: a window the source says counts for another
+// model alone, or for one where no model is known, is not read for it.
 func TestRouteChoose(t *testing.T) {
 	t.Parallel()
 	pct := func(p float64) *float64 { return &p }
@@ -415,6 +416,18 @@ func TestRouteChoose(t *testing.T) {
 	// the group a row is about, answers with every window clear and is not
 	// recorded in asked.
 	allClear := twoWindows(0, 0)
+	// models states, for the rows about per-model windows, the model the
+	// bead would start with in each group, as the dispatcher hands it;
+	// every other row chooses with no model known, as before any caller
+	// knew one.
+	models := map[string]map[string]string{
+		"no condition, a per-model window used up":                             {"a": "k3"},
+		"no condition, a per-model window of its own model used up":            {"a": "Fable"},
+		"no condition, only per-model windows":                                 {"a": "k3"},
+		"no condition, only per-model windows of its own model":                {"a": "Fable"},
+		"no condition, a per-model window last known used up":                  {"a": "k3"},
+		"no condition, a per-model window of its own model last known used up": {"a": "Fable"},
+	}
 	for name, tc := range map[string]struct {
 		route store.Route
 		quota map[string]store.Quota
@@ -431,18 +444,28 @@ func TestRouteChoose(t *testing.T) {
 		"no condition, a window just under": {route("a"), map[string]store.Quota{"a": twoWindows(99.9, 10)},
 			store.RouteChoice{Group: "a"}, "a"},
 		// A window the source says counts for one model alone holds no group
-		// with no condition: Weekly Fable is used up, the windows every model
-		// draws from are not.
+		// with no condition whose bead starts with another model: Weekly
+		// Fable is used up, the bead would start with k3, and the windows
+		// every model draws from are not used up. Where it is the bead's
+		// own model, the group is passed over for its window.
 		"no condition, a per-model window used up": {route("a"), map[string]store.Quota{"a": claude(19, 10)},
 			store.RouteChoice{Group: "a"}, "a"},
+		"no condition, a per-model window of its own model used up": {route("a"), map[string]store.Quota{"a": claude(19, 10)},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100"}}}, "a"},
 		"no condition, a shared window used up beside a per-model one": {route("a"), map[string]store.Quota{"a": claude(100, 10)},
 			store.RouteChoice{Passed: []store.PassedGroup{
 				{Group: "a", Reason: "Claude's Weekly window is 100% used, the route asks under 100", ResetsAt: &late}}}, "a"},
 		// A provider that reports only per-model windows holds the group for
-		// nothing: the yard does not match a group to a window's model.
+		// nothing where the bead starts with another model than they count
+		// for, and for its own model's window where it is the bead's.
 		"no condition, only per-model windows": {route("a"),
 			map[string]store.Quota{"a": {Provider: "Claude", Windows: claude(0, 0).Windows[2:]}},
 			store.RouteChoice{Group: "a"}, "a"},
+		"no condition, only per-model windows of its own model": {route("a"),
+			map[string]store.Quota{"a": {Provider: "Claude", Windows: claude(0, 0).Windows[2:]}},
+			store.RouteChoice{Passed: []store.PassedGroup{
+				{Group: "a", Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100"}}}, "a"},
 		"no condition, limits not known": {route("a"), map[string]store.Quota{"a": {Unknown: "no source of this yard answers for provider muse"}},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no source of this yard answers for provider muse"}, "a"},
 		// A provider that reports no window knows of no limit: none is used up,
@@ -619,15 +642,25 @@ func TestRouteChoose(t *testing.T) {
 			store.RouteChoice{Group: "a", Held: []string{"Weekly 100% but resets in 12h (last known)"}}, "a"},
 		"a duration passes over what was last known beyond it": {route("a@Weekly<80/6h", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
 			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a", Reason: reason("80"), ResetsAt: &late}}}, "a"},
-		// A window of one model alone holds no group with no condition, last
-		// known or not, and the claim says the limits were not known.
+		// A window of one model alone holds no group with no condition whose
+		// bead starts with another model, last known or not, and the claim
+		// says the limits were not known. Where it is the bead's own model,
+		// it fails the comparison as a shared window last known would.
 		"no condition, a per-model window last known used up": {route("a"),
 			map[string]store.Quota{"a": lastKnown(store.QuotaWindow{Label: "Weekly Fable", Model: "Fable", UsedPercent: pct(100), ResetsAt: &late})},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no fresh answer yet"}, "a"},
+		"no condition, a per-model window of its own model last known used up": {route("a"),
+			map[string]store.Quota{"a": lastKnown(store.QuotaWindow{Label: "Weekly Fable", Model: "Fable", UsedPercent: pct(100), ResetsAt: &late})},
+			store.RouteChoice{Passed: []store.PassedGroup{{Group: "a", ResetsAt: &late,
+				Reason: "Claude's Weekly Fable window is 100% used, the route asks under 100 (last known: used up until " + shared.Clock(late, now) + ")"}}}, "a"},
 		"no condition, nothing last known": {route("a"), map[string]store.Quota{"a": lastKnown()},
 			store.RouteChoice{Group: "a", Unknown: "the limits of a were not known: no fresh answer yet"}, "a"},
 	} {
 		var asked []string
+		var model func(string) string
+		if m := models[name]; m != nil {
+			model = func(group string) string { return m[group] }
+		}
 		got := tc.route.ChooseAt(now, func(group, source string) store.Quota {
 			name := group
 			if source != "" {
@@ -643,12 +676,12 @@ func TestRouteChoose(t *testing.T) {
 				asked = append(asked, group+"@"+source)
 			}
 			return q
-		})
+		}, model)
 		if !reflect.DeepEqual(got, tc.want) || strings.Join(asked, " ") != tc.asked {
 			t.Errorf("%s:\n got %+v (asked %v)\nwant %+v (asked %s)", name, got, asked, tc.want, tc.asked)
 		}
 	}
-	c := route("a@Weekly<80", "b@5h<50").Choose(func(_, _ string) store.Quota { return claude(90, 90) })
+	c := route("a@Weekly<80", "b@5h<50").Choose(func(_, _ string) store.Quota { return claude(90, 90) }, nil)
 	if at := c.Resets(); at == nil || !at.Equal(early) {
 		t.Errorf("the earliest reset = %v, want %v", at, early)
 	}
@@ -658,14 +691,14 @@ func TestRouteChoose(t *testing.T) {
 	}
 	// The wait of a route with no condition says what the window's reset is,
 	// as a condition's does.
-	c = route("a").Choose(func(_, _ string) store.Quota { return twoWindows(100, 100) })
+	c = route("a").Choose(func(_, _ string) store.Quota { return twoWindows(100, 100) }, nil)
 	if at := c.Resets(); c.Group != "" || at == nil || !at.Equal(early) ||
 		c.Why() != "a passed over (Claude's 5h window is 100% used, the route asks under 100; Claude's Weekly window is 100% used, the route asks under 100)" {
 		t.Errorf("a plain route with every window used up chose %+v, resets %v, why %q", c, at, c.Why())
 	}
 	// A route whose groups start no agents is handed no quota: nothing is
 	// asked, and the first group is taken.
-	if got := route("a", "b").Choose(nil); !reflect.DeepEqual(got, store.RouteChoice{Group: "a"}) {
+	if got := route("a", "b").Choose(nil, nil); !reflect.DeepEqual(got, store.RouteChoice{Group: "a"}) {
 		t.Errorf("a nil quota chose %+v, want a", got)
 	}
 	// Choose measures a reset from the wall clock, as ChooseAt does from the
@@ -677,7 +710,7 @@ func TestRouteChoose(t *testing.T) {
 	}{{soon, "a"}, {far, "b"}} {
 		c := route("a@Weekly<80/1d", "b").Choose(func(_, _ string) store.Quota {
 			return store.Quota{Provider: "Claude", Windows: []store.QuotaWindow{{Label: "Weekly", UsedPercent: pct(90), ResetsAt: &tc.resets}}}
-		})
+		}, nil)
 		if c.Group != tc.group || (tc.group == "a") != (len(c.Held) == 1) {
 			t.Errorf("Choose with a window at 90%% resetting at %s chose %+v, want %s", tc.resets.Format(time.RFC3339), c, tc.group)
 		}

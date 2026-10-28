@@ -16,10 +16,11 @@ import (
 // Weekly window is under 80% used, else muse-builders". A group that starts
 // agents and names no condition is read the same way, as "none of its
 // provider's windows is used up" (a window the source says is for one model
-// alone aside, store.QuotaWindow), so a plain route is gated too. The store
-// holds the route and makes the comparison; what the windows are is learned
-// here, from the yard's limits source, because only the daemon may run its
-// command (harness_limits.go says why it is not leaned on).
+// alone aside, unless it is the bead's model in that group,
+// store.QuotaWindow), so a plain route is gated too. The store holds the
+// route and makes the comparison; what the windows are is learned here, from
+// the yard's limits source, because only the daemon may run its command
+// (harness_limits.go says why it is not leaned on).
 
 // routeLimitsMemory is how old an answer of a provider may be for a route's
 // condition: the command runs at most twelve times an hour for a provider,
@@ -53,7 +54,7 @@ const routeLimitsMemory = 5 * time.Minute
 // def is the yard's default_kind setting, for a group that names no kind.
 func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Route, groups map[string]store.Group, active map[string]int, def string) (c store.RouteChoice, ok bool) {
 	if !r.Gated(groups, def) {
-		return r.Choose(nil), true
+		return r.Choose(nil, nil), true
 	}
 	free := false
 	var waits []waitedGroup
@@ -87,11 +88,15 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 	}
 	// The pass's own clock decides whether a window resets within a
 	// comparison's duration, as it decides every other wait of the pass.
+	// Each group is judged for the model the bead would start with in it,
+	// so a per-model window used up holds the group that would stop on it.
 	c = choice.ChooseAt(d.now(), func(group, source string) store.Quota {
 		if source != "" {
 			return d.sourceQuota(ctx, source)
 		}
 		return d.routeQuota(ctx, groups[group], def)
+	}, func(group string) string {
+		return modelFor(groups[group], b)
 	})
 	// The groups passed over for their hold head the choice's, in route
 	// order: the claimed event, and a quota_wait, say why each was.
