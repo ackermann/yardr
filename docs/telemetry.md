@@ -247,9 +247,20 @@ again first forgets the old id locally, as above.
 
 ## Retention
 
-PostHog keeps the raw events for 12 months, then deletes them, with only
-aggregates made before deletion kept longer. A year covers the 30-day
-cohorts many times over and every version's working life so far.
+Events older than 12 months are not shown or used. That holds because the
+shared project's organization is on PostHog's free plan, whose retention
+window is one year, and the project is not moved to a plan that keeps
+events longer. Past the window, PostHog leaves older events out of its
+query results.
+
+This is hiding, not deletion by age. PostHog does not document deleting
+events when they pass the window, and its page on retention says that
+retention is not a deletion tool
+([events data retention](https://posthog.com/docs/data/events-retention)).
+The project deletes a yard's events by its install id, as Deletion above
+says. Once events age out, the project uses only aggregates it made while
+they were inside the window. A year covers the 30-day cohorts many times
+over and every version's working life so far.
 
 ## What the project must be set to
 
@@ -268,10 +279,13 @@ that sends is released, and again when the project is changed:
 - **The project timezone is UTC.** A yard cuts its days at UTC midnight,
   and the project's reports cut theirs at the project timezone, so any
   other zone splits one day of one yard across two.
-- **Raw events are kept no longer than 12 months**, as Retention above
-  says. PostHog Cloud takes the retention of events from the
-  organization's plan, which PostHog documents as one year on its free
-  plan and seven on a paid one, and it offers no shorter period and no
-  deletion by age. So this is a check of the plan the project is on, not
-  a setting to make: on a plan that keeps events longer, the project's
-  settings cannot keep this promise.
+- **Events older than 12 months are hidden**, as Retention above says.
+  PostHog Cloud takes the retention of events from the organization's
+  plan, which PostHog documents as one year on its free plan and seven on
+  a paid one, and it offers no shorter period and no deletion by age. So
+  this is a check of the plan the project is on, not a setting to make.
+  On a plan that keeps events longer, events older than 12 months would
+  still show, and no setting of the project can hide them. The plan is
+  checked again before any change to the organization's plan, and a
+  change to a plan that keeps events longer means moving telemetry to a
+  project that keeps the promise first.

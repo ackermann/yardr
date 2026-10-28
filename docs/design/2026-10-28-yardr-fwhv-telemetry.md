@@ -49,9 +49,9 @@ consent — off by default, the one switch, the init question, and the show
 command that prints exactly the next batch (3.4); identity, deletion and
 what GDPR asks of a pseudonymous id (3.5); the PostHog project (3.3); and
 what hosted yards already show server-side, so the client does not
-duplicate it (3.6). Two things are left to mckean as open questions with
-options (section 5): how long PostHog keeps the raw events, and whether
-hosted yards send at all.
+duplicate it (3.6). Section 5 holds two questions. How long PostHog keeps
+the raw events has been decided as 12 months, then hidden, not deleted.
+Whether hosted yards send at all is left to mckean, with options.
 
 ## 2. What exists today
 
@@ -570,8 +570,7 @@ yard records each grant and withdrawal time locally so the operator can
 show when it was enabled. Turning it off prevents new requests from
 starting; an already submitted request cannot be recalled. The event
 allow-list and id-only person profile implement purpose limitation and
-data minimisation (Article 5(1)(b)–(c)); retention must also be
-limited (Article 5(1)(e)), which is the open question 1. T2 must verify
+data minimisation (Article 5(1)(b)–(c)). T2 must verify
 IP capture is disabled for this existing project before the first send;
 the endpoint necessarily sees the connecting address, and the design
 does not claim otherwise. That check guards the stored address, not
@@ -696,28 +695,43 @@ does.
   Telemetry neither reuses nor replaces it.
 - **Automatic deletion or expiry inside the client.** The yard cannot
   delete what PostHog holds; it can only stop sending and forget its
-  id. Expiry in PostHog is open question 1.
+  id. Expiry in PostHog is the plan's query window, decided in question 1
+  of section 5. Older events are hidden there, not deleted.
 
 ## 5. Open questions
 
-Both are mckean's to take; each keeps its options, its costs, and the
-recommendation this design would build if he does not.
+Question 1 is decided and keeps its options, its costs and the decision
+as the record. Question 2 is mckean's to take, with its options, its
+costs, and the recommendation this design would build if it goes
+unanswered.
 
-1. **How long does PostHog keep the raw events?** PostHog keeps events
-   until the project deletes them or a retention is set; the yard
-   itself keeps its own log 90 days, but the telemetry copy is the
-   project's, and GDPR's storage-limitation principle wants a period
-   named in advance. (a) *12 months, then raw events deleted* (project
-   setting or scheduled deletion), with any longer record kept as
-   aggregates made before deletion: a year covers the 30-day cohorts
-   many times over and every version's working life so far. (b) *Keep
+1. **How long does PostHog keep the raw events?** PostHog Cloud takes
+   the retention of events from the organization's plan, one year on the
+   free plan and seven on a paid one, with no shorter period on request
+   ([events data retention](https://posthog.com/docs/data/events-retention)).
+   A query on the events table reads only the events inside that window
+   and leaves older ones out of its result. The page says that retention
+   is not a deletion tool, and the ways it names to remove data are
+   deleting a person, a project or an organization, none of them by age.
+   So there is no retention setting to make, and the period is a window
+   on what PostHog shows. The yard itself keeps its own log 90 days, but
+   the telemetry copy is the project's. (a) *12 months, then
+   hidden, not deleted* (the free plan's one-year query window, with the
+   project kept off any plan that keeps events longer), with any longer
+   record kept as aggregates made before the events age out of the
+   window: a year covers the 30-day cohorts many times over and every
+   version's working life so far. (b) *Keep
    indefinitely while the cohort is friends of the project*, revisited
    at public release: the least machinery now, and a promise that gets
    harder to keep the longer it runs. (c) *90 days, matching the
    yard's own retention*: the tightest, and the 30-day question still
    answers, but no version can be followed across a season. I would
    take (a): it is the longest period any of the four questions can
-   use, and it is a date the user doc (T3) can print.
+   use, and it is a date the user doc (T3) can print. Decided 28 Oct
+   2026, mckean on asks 15719 and 15775 of yardr-zcsp: (a), with the
+   plan's query window as its mechanism. It is not deletion. Events
+   older than 12 months are hidden and not used, and PostHog does not
+   document deleting them.
 2. **Do hosted yards send at all?** Section 3.6 omits questions 1 and
    4 because the service has those records. Hosted customers have no
    terminal, and the non-interactive provisioner leaves telemetry off.
@@ -804,7 +818,8 @@ on/off switch, install id and exact payload preview;
 handling, the event list in plain words, the pseudonymous sentence, how
 to see a batch, how to stop and when pre-consent days become eligible,
 how to be deleted by id
-through the project API, and the retention open question 1 settled —
+through the project API, and the retention question 1 decided, hidden
+after 12 months and not deleted —
 linked from `docs/configuration.md`'s settings table with
 the `telemetry` row. Where to look: `internal/cli/init.go`
 (`onboardForm`, the `huh` confirms), `docs/otel.md` for a user doc
