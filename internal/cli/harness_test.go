@@ -29,7 +29,7 @@ func TestHarnessListAndShow(t *testing.T) {
 	}
 	out := ask(0, "harness", "list")
 	wantText(t, out, "KIND", "claude    Claude Code  v1    pane marks, error lines, dialogs told of, login screen, background work, reported model, context use, token count, trust dialog, onboarding screens answered, unattended flags,",
-		"codex     Codex        v1    pane marks, error lines, reported model, token count, trust dialog, unattended flags, model flag, flags always passed,",
+		"codex     Codex        v1    pane marks, error lines, dialogs told of, reported model, token count, trust dialog, unattended flags, model flag, flags always passed,",
 		"muse      Muse Code    v1    pane marks, error lines, login screen, background work, reported model, token count, trust dialog, unattended flags,",
 		"kimi      Kimi         v1    pane marks, error lines, dialogs told of, hints, trust dialog, trust environment, unattended flags,",
 		"pi        pi           v1    model flag, version flag, one-shot call\n",
@@ -51,6 +51,9 @@ func TestHarnessListAndShow(t *testing.T) {
 		"one shot:   exec --skip-git-repo-check <prompt>", `permission "approve for me": --approve-for-me  (automatic review`,
 		"~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl: payload.model of the first line of type turn_context",
 		"at_capacity    ^(Selected model is at capacity|Flex capacity unavailable)",
+		"Dialogs it draws in place of its input: told of at once (nudge_held), never answered",
+		"rate_limit_switch  ^Approaching rate limits",
+		`rate_limit_switch  ^Switch to gpt-6-luna for lower credit usage\?`,
 		"Models it offers", "gpt-6-luna (GPT-6 Luna), recommended for a yardmaster", "gpt-6-astra (GPT-6 Astra)",
 		"Tokens a session used, counted once it has stopped\n  ~/.codex (or $CODEX_HOME)/sessions/*/*/*/rollout-*-{session}.jsonl\n",
 		"  1. the last line whose payload.type is token_count that has numbers at payload.info.total_token_usage\n",
@@ -64,10 +67,10 @@ func TestHarnessListAndShow(t *testing.T) {
 		"cache_menu  ^This session has been idle for",
 		"What it adds to a hint of yardr's",
 		"reset (a prompt at a usage limit's reset that it has not taken): Kimi asks what to do with a session that sat idle,")
-	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "Dialogs it draws") || strings.Contains(out, "adds to a hint") ||
+	if out := ask(0, "harness", "show", "codex"); strings.Contains(out, "adds to a hint") ||
 		strings.Contains(out, "Login screen") || strings.Contains(out, "Background work") ||
 		strings.Contains(out, "The context its agent holds") || strings.Contains(out, "First-start screens") {
-		t.Errorf("show codex lists dialogs, hints, a login screen, background work, a context use or first-start screens, and its file has none:\n%s", out)
+		t.Errorf("show codex lists hints, a login screen, background work, a context use or first-start screens, and its file has none:\n%s", out)
 	}
 	if out := ask(0, "harness", "show", "kimi"); strings.Contains(out, "The context its agent holds") ||
 		strings.Contains(out, "Tokens a session used") || strings.Contains(out, "First-start screens") {

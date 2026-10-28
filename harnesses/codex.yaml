@@ -175,3 +175,29 @@ errors:
     pattern: '^(stream error: )?stream disconnected before completion'
   - reason: other
     pattern: '^(exceeded retry limit|unexpected status \d)'
+
+# Codex offers to switch to its cheaper model once a usage window reaches
+# 90% (codex-rs/tui/src/chatwidget/rate_limits.rs,
+# open_rate_limit_switch_prompt, read in 0.160.1, the version installed
+# here, identical on main): the menu stays until it is answered, so it is
+# still up after the reset, holding the pane's input, and the resume nudge
+# is held behind it (yardr-dzjx). As its test snapshot draws it
+# (rate_limit_switch_prompt_popup.snap):
+#
+#    Approaching rate limits
+#    Switch to gpt-6-luna for lower credit usage?
+#
+#    › 1. Switch to gpt-6-luna
+#      2. Keep current model
+#      3. Keep current model (never show again)
+#
+# yardr declines it with Esc (internal/runner/herdr_screen.go): the prompt
+# is a picker with no cancel action, so Esc dismisses it without choosing:
+# the session keeps its model and nothing is persisted. The first option
+# would switch the model, which yardr never selects; a session found on
+# another model stays session_model_mismatch's to report.
+dialogs:
+  - dialog: rate_limit_switch
+    pattern: '^Approaching rate limits'
+  - dialog: rate_limit_switch
+    pattern: '^Switch to gpt-6-luna for lower credit usage\?'

@@ -323,6 +323,87 @@ esac`)}
 	return h, func() string { return readCalls(t, log) }, screen
 }
 
+// These harness offers are dismissed with Esc as soon as they appear, once
+// per appearance. Codex's rate-limit picker has no cancel action, so Esc
+// declines it without choosing and Enter is never sent: Enter would switch
+// the model. Claude Code's offer only asks whether it may change settings.
+func TestInputDialogDismissesOffersWithEsc(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		kind, offer, empty, dialog, line string
+	}{
+		"claude auto mode": {
+			kind: "claude", empty: claudeEmpty,
+			offer: "────────────────────────────────────────────────────────────\n" +
+				" Teach auto mode about your environment?\n" +
+				"\n Auto mode works better when it knows your environment. Takes about a minute.\n" +
+				"\n ❯ 1. Yes\n   2. Not now\n   3. Don't show again\n" +
+				"\n Enter to confirm · Esc to cancel\n",
+			dialog: "auto_mode_setup", line: "Teach auto mode about your environment?",
+		},
+		"codex rate-limit switch": {
+			kind: "codex", empty: codexEmpty,
+			offer: "■ You’ve hit your usage limit for gpt-6-astra. Switch to another model now, or try again at Oct 28th, 2026 2:08 AM.\n" +
+				"  Approaching rate limits\n" +
+				"  Switch to gpt-6-luna for lower credit usage?\n" +
+				"\n" +
+				"\n" +
+				"› 1. Switch to gpt-6-luna                   Fast and affordable model for easier\n" +
+				"                                            tasks.\n" +
+				"  2. Keep current model\n" +
+				"  3. Keep current model (never show again)  Hide future rate limit reminders\n" +
+				"                                            about switching models\n" +
+				"\n" +
+				"  enter select · esc back\n",
+			dialog: "rate_limit_switch", line: "Approaching rate limits",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			log := filepath.Join(dir, "calls")
+			pane := filepath.Join(dir, "pane")
+			if err := os.WriteFile(pane, []byte(tc.offer), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			bin := deafHerdrBin(t, `case "$1 $2" in
+  "pane read") cat `+pane+` ;;
+  "pane send-keys") echo "$3 $4" >> `+log+` ;;
+esac`)
+			h := &Herdr{Bin: bin}
+			handle := map[string]any{"pane": "p1", harnessKind: tc.kind}
+			for i := 0; i < 2; i++ { // a delayed repaint must not receive a second Esc
+				dialog, line, err := h.InputDialog(context.Background(), handle)
+				if err != nil || dialog != tc.dialog || line != tc.line {
+					t.Fatalf("InputDialog = %q, %q, %v; want %q, %q", dialog, line, err, tc.dialog, tc.line)
+				}
+			}
+			got, err := os.ReadFile(log)
+			if err != nil || strings.TrimSpace(string(got)) != "p1 escape" {
+				t.Fatalf("keys sent = %q, %v; want one escape", got, err)
+			}
+			if strings.Contains(string(got), "enter") {
+				t.Fatalf("keys sent = %q; Enter would choose the selected offer", got)
+			}
+			if err := os.WriteFile(pane, []byte(tc.empty), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if dialog, _, err := h.InputDialog(context.Background(), handle); err != nil || dialog != "" {
+				t.Fatalf("after the dialog went away, InputDialog = %q, %v", dialog, err)
+			}
+			if err := os.WriteFile(pane, []byte(tc.offer), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if dialog, _, err := h.InputDialog(context.Background(), handle); err != nil || dialog != tc.dialog {
+				t.Fatalf("second offer, InputDialog = %q, %v; want %q", dialog, err, tc.dialog)
+			}
+			if got, err := os.ReadFile(log); err != nil || strings.Count(string(got), "escape") != 2 ||
+				strings.Contains(string(got), "enter") {
+				t.Fatalf("keys after a second offer = %q, %v; want one escape per offer and no enter", got, err)
+			}
+		})
+	}
+}
+
 // Found live (yardr-ps05): a person was typing in the yardmaster's pane when
 // the yard nudged the yardmaster, and their half sentence went out with the
 // nudge as one message. With text in the input no key is sent and the nudge
@@ -330,51 +411,6 @@ esac`)}
 // text, and a harness whose input cannot be told is nudged as before. Each
 // crew member is of the kind whose pane it shows: its first prompt is told
 // as taken by that kind's mark (see promptPlace).
-func TestInputDialogDismissesClaudeAutoModeSetup(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	log := filepath.Join(dir, "calls")
-	pane := filepath.Join(dir, "pane")
-	offer := "────────────────────────────────────────────────────────────\n" +
-		" Teach auto mode about your environment?\n" +
-		"\n Auto mode works better when it knows your environment. Takes about a minute.\n" +
-		"\n ❯ 1. Yes\n   2. Not now\n   3. Don't show again\n" +
-		"\n Enter to confirm · Esc to cancel\n"
-	if err := os.WriteFile(pane, []byte(offer), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	bin := deafHerdrBin(t, `case "$1 $2" in
-  "pane read") cat `+pane+` ;;
-  "pane send-keys") echo "$3 $4" >> `+log+` ;;
-esac`)
-	h := &Herdr{Bin: bin}
-	handle := map[string]any{"pane": "p1", harnessKind: "claude"}
-	for i := 0; i < 2; i++ { // a delayed repaint must not receive a second Esc
-		dialog, line, err := h.InputDialog(context.Background(), handle)
-		if err != nil || dialog != "auto_mode_setup" || line != "Teach auto mode about your environment?" {
-			t.Fatalf("InputDialog = %q, %q, %v", dialog, line, err)
-		}
-	}
-	if got, err := os.ReadFile(log); err != nil || strings.TrimSpace(string(got)) != "p1 escape" {
-		t.Fatalf("keys sent = %q, %v; want one escape", got, err)
-	}
-	if err := os.WriteFile(pane, []byte(claudeEmpty), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if dialog, _, err := h.InputDialog(context.Background(), handle); err != nil || dialog != "" {
-		t.Fatalf("after the dialog went away, InputDialog = %q, %v", dialog, err)
-	}
-	if err := os.WriteFile(pane, []byte(offer), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if dialog, _, err := h.InputDialog(context.Background(), handle); err != nil || dialog != "auto_mode_setup" {
-		t.Fatalf("second offer, InputDialog = %q, %v", dialog, err)
-	}
-	if got, err := os.ReadFile(log); err != nil || strings.Count(string(got), "escape") != 2 {
-		t.Fatalf("keys after a second offer = %q, %v; want one escape per offer", got, err)
-	}
-}
-
 func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {

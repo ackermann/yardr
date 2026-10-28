@@ -1687,6 +1687,31 @@ A dir depot's beads share one directory, which names no session: there only
 server) keep the wrong environment until they end; spell the values out
 for them, `YARDR_ACTOR=… YARDR_SESSION=… YARDR_BEAD=… yardr bead done …`.
 
+Codex offers to switch to its cheaper model once a usage window reaches
+90%, with a menu drawn in place of its input that stays until it is
+answered, so it is still up after the reset:
+
+```text
+ Approaching rate limits
+ Switch to gpt-6-luna for lower credit usage?
+› 1. Switch to gpt-6-luna
+  2. Keep current model
+  3. Keep current model (never show again)
+```
+
+A nudge, a first prompt or the prompt at a usage limit's reset that meets
+it is held: the selected option carries the mark of the input, so the pane
+reads as an input that holds text. The offer is the one dialog of a
+harness yardr answers besides Claude Code's auto mode setup
+([Claude Code](#claude-code)): the runner sends Esc once to decline it,
+which dismisses the menu without choosing, so the session keeps its model
+and nothing is persisted. Enter would take the first option and switch
+the model, so it is never sent. A held prompt or nudge is then delivered
+after Codex returns to its input. The menu is known by `dialogs` in
+`harnesses/codex.yaml` (the word is `rate_limit_switch`); `yardr harness
+show codex` lists it. A session found on another model than its group
+asked for is still reported as a model mismatch.
+
 ### Kimi
 
 Kimi Code (seen with 2.1.1) answers a message that follows a long idle

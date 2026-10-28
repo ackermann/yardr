@@ -792,6 +792,27 @@ func TestCrewMemberAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) 
 		t.Fatalf("at a cold wake: nudges = %q, want the defer to type nothing", f.nudges)
 	}
 	primeLimits(t, d, "kimi", "", nil)
+	// Codex's offer to switch models (yardr-dzjx) holds the reset prompt:
+	// the word is codex's (recognition is the runner's test), told of
+	// once with the decline, and typed nothing; answered, the prompt at
+	// the reset goes out as it does with the input empty.
+	f.mu.Lock()
+	f.input, f.dialog, f.line = "1. Switch to gpt-6-luna", "rate_limit_switch", "Approaching rate limits"
+	f.mu.Unlock()
+	must(t, d.Reconcile(ctx))
+	if len(f.nudges) != 1 {
+		t.Fatalf("with the menu open at the wake: nudges = %q, want the inbox's nudge alone", f.nudges)
+	}
+	m, err := s.GetCrew(ctx, "yardmaster")
+	must(t, err)
+	n, ev := kindCount(t, s, m.Journal, "nudge_held")
+	if n != 1 || ev.Data["reason"] != "dialog" || ev.Data["dialog"] != "rate_limit_switch" || ev.Data["text"] != "Approaching rate limits" ||
+		!strings.Contains(ev.Data["hint"].(string), "declines the offer to switch models with Esc") {
+		t.Fatalf("nudge_held %d times, want once, naming the dialog and the decline: %+v", n, ev.Data)
+	}
+	f.mu.Lock()
+	f.input, f.dialog, f.line = "", "", ""
+	f.mu.Unlock()
 	must(t, d.Reconcile(ctx))
 	want := agent + ": " + resetLine + " 1 new in your inbox: run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled."
 	if len(f.nudges) != 2 || f.nudges[1] != want {
@@ -800,7 +821,7 @@ func TestCrewMemberAtItsUsageLimitIsPromptedWhenTheWindowHasReset(t *testing.T) 
 	if asks := p.asks(); len(asks) != 2 {
 		t.Fatalf("the provider was run %d times, want 2", len(asks))
 	}
-	m, err := s.GetCrew(ctx, "yardmaster")
+	m, err = s.GetCrew(ctx, "yardmaster")
 	must(t, err)
 	tries := eventKinds(t, s, m.Journal, "session_harness_retry")
 	if len(tries) != 1 || tries[0].Data["crew"] != "yardmaster" || tries[0].Data["try"] != float64(1) || tries[0].Data["window"] != "5h" {

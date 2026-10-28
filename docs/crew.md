@@ -388,15 +388,17 @@ at all.
 - A dialog the harness draws in place of its input is told of at once, not
   after ten minutes: nobody is typing there, and the agent sits until
   someone answers. Kimi Code's question to a session that sat idle past its
-  model's cache ([groups.md](groups.md#kimi)) and Claude Code's offer to
-  set auto mode up ([groups.md](groups.md#claude-code)) are the ones known
-  today. `nudge_held` then has `reason: dialog`,
-  `dialog` (the word for it, `cache_menu` or `auto_mode_setup`), `text` (the
+  model's cache ([groups.md](groups.md#kimi)), Claude Code's offer to
+  set auto mode up ([groups.md](groups.md#claude-code)) and Codex's offer
+  to switch models at its rate limit ([groups.md](groups.md#codex)) are
+  the ones known today. `nudge_held` then has `reason: dialog`,
+  `dialog` (the word for it, `cache_menu`, `auto_mode_setup` or
+  `rate_limit_switch`), `text` (the
   dialog's first line) and the pane. It is raised once for a dialog,
   however many nudges come to it while it is open, and also when the nudge
   yardr just typed is what the harness answered with the dialog. The runner
-  cancels Claude Code's auto mode offer with Esc; other known dialogs are
-  left for a person.
+  answers Claude Code's auto mode offer and Codex's switch offer with Esc;
+  Kimi's menu is left for a person.
 - The harness's login screen, drawn in place of its input, is told of the
   same way: at once and once, with `reason: not_logged_in`, `line` (the
   line of the screen) and the pane, and the hint names the command that

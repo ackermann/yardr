@@ -428,13 +428,17 @@ func (h *Herdr) InputDialog(ctx context.Context, handle map[string]any) (dialog,
 		return "", "", err
 	}
 	dialog, line = inputDialog(styled, kind)
-	// This offer only asks whether Claude Code may change the operator's
-	// settings. Esc cancels it without changing anything, so dismiss it as
-	// soon as it appears; leaving it open can make an otherwise idle session
-	// look stuck. Remember the answer until a read sees the dialog go away,
-	// since the pane may take a pass to redraw after the key.
+	// Two offers are dismissed with Esc as soon as they appear: Claude
+	// Code's auto mode setup, which only asks whether it may change the
+	// operator's settings, and Codex's offer to switch models at its rate
+	// limit, whose picker has no cancel action, so Esc dismisses it
+	// without choosing and the session keeps its model
+	// (harnesses/codex.yaml). Esc changes nothing for either, and leaving
+	// one open can make an otherwise idle session look stuck. Remember
+	// the answer until a read sees the dialog go away, since the pane may
+	// take a pass to redraw after the key.
 	h.dialogMu.Lock()
-	if dialog == "auto_mode_setup" {
+	if dialog == "auto_mode_setup" || dialog == "rate_limit_switch" {
 		if h.dismissedDialogs == nil {
 			h.dismissedDialogs = map[string]string{}
 		}

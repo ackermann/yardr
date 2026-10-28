@@ -110,18 +110,19 @@ func TestSameModelUnderAnotherNameIsNoMismatch(t *testing.T) {
 		group, bead, reported string
 		mismatch              bool
 	}{
-		"display name":           {group: "claude-opus-5-5", reported: "Opus 5.5"},
-		"same id":                {group: "gpt-6-luna", reported: "gpt-6-luna"},
-		"alias":                  {group: "opus", reported: "claude-opus-5-5-20260801"},
-		"alias with a window":    {group: "opus[1m]", reported: "claude-opus-5-5"},
-		"muse contributor asked": {group: "muse-spark-1.3-contributor", reported: "muse-spark-1.3"},
-		"muse short asked":       {group: "muse-spark-1.3", reported: "muse-spark-1.3-contributor"},
-		"muse another model":     {group: "muse-spark-1.3-contributor", reported: "muse-wonder-1.0", mismatch: true},
-		"nothing asked":          {reported: "claude-fable-5-1"},
-		"bead's model is run":    {group: "claude-opus-5-5", bead: "haiku", reported: "claude-haiku-4-5-20251001"},
-		"bead's model is not":    {group: "claude-opus-5-5", bead: "haiku", reported: "claude-opus-5-5", mismatch: true},
-		"another version":        {group: "claude-opus-5-5", reported: "claude-opus-5-1", mismatch: true},
-		"another display family": {group: "claude-opus-5-5", reported: "Fable 5.1", mismatch: true},
+		"display name":             {group: "claude-opus-5-5", reported: "Opus 5.5"},
+		"same id":                  {group: "gpt-6-luna", reported: "gpt-6-luna"},
+		"alias":                    {group: "opus", reported: "claude-opus-5-5-20260801"},
+		"alias with a window":      {group: "opus[1m]", reported: "claude-opus-5-5"},
+		"muse contributor asked":   {group: "muse-spark-1.3-contributor", reported: "muse-spark-1.3"},
+		"muse short asked":         {group: "muse-spark-1.3", reported: "muse-spark-1.3-contributor"},
+		"muse another model":       {group: "muse-spark-1.3-contributor", reported: "muse-wonder-1.0", mismatch: true},
+		"nothing asked":            {reported: "claude-fable-5-1"},
+		"bead's model is run":      {group: "claude-opus-5-5", bead: "haiku", reported: "claude-haiku-4-5-20251001"},
+		"bead's model is not":      {group: "claude-opus-5-5", bead: "haiku", reported: "claude-opus-5-5", mismatch: true},
+		"another version":          {group: "claude-opus-5-5", reported: "claude-opus-5-1", mismatch: true},
+		"codex switch offer taken": {group: "gpt-6-astra", reported: "gpt-6-luna", mismatch: true},
+		"another display family":   {group: "claude-opus-5-5", reported: "Fable 5.1", mismatch: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, r, d, b := modelSetup(t, tc.group)

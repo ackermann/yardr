@@ -1046,59 +1046,81 @@ func TestClaudeAutoModeSetupOffer(t *testing.T) {
 	}
 }
 
-// Kimi's question to a session that sat idle, as Kimi Code 2.1.1 draws it in
-// place of its input box (its cache-hint-dialog; seen live on 7 Oct 2026
-// with a prompt of yardr's kept behind it). The dispatcher goes by what
-// this runner reads of such a pane: the prompt is not taken and not typed,
-// so it is told of and not counted as arrived (dispatch/harness_reset.go),
-// and the selected answer, which Kimi marks as Claude Code marks its input,
-// reads as text in the input, so no nudge is typed there whose Enter would
-// choose it: with no box drawn the pane is read by the other kinds' marks.
-func TestKimiIdleMenuKeepsThePromptBehindIt(t *testing.T) {
+// Kimi's idle question and Codex's rate-limit switch offer are drawn in place
+// of their input. The prompt is not taken or typed, and the selected answer
+// reads as input text, so Enter cannot accidentally submit it. Codex's menu
+// stays up after the reset and is declined separately by InputDialog with
+// Esc. Codex draws no rule between its transcript and input: if an agent
+// prints the matching title near its empty input, the dialog reader could
+// mistake it for the menu; Esc in the empty composer does not touch a draft
+// or submit anything.
+func TestHarnessDialogsKeepThePromptBehindThem(t *testing.T) {
 	t.Parallel()
-	const prompt = "yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped."
-	const menu = " Error: [provider.auth_error] 403 You've reached your\n" +
-		" 5-hour usage limit. Please wait for the quota to refresh.\n" +
-		" ────────────────────────────────────────────────────────────\n" +
-		"  This session has been idle for 44m and is ~198k tokens.\n" +
-		"  ↑↓ navigate · Enter select · Esc cancel\n" +
-		"  Cache expired — the next message re-sends the entire history at full price.\n" +
-		"   ❯ Compact and continue    one-time compact cost · cheapest way to keep this topic\n" +
-		"     Start a new session     zero context cost · best for a new task\n" +
-		"     Continue as-is          full history kept · highest cost per turn\n" +
-		"     Don't ask me again\n" +
-		" ────────────────────────────────────────────────────────────\n" +
-		" Ask When Needed  K3 thinking: high  ~         ctrl+o expand\n"
-	if taken, typed, _ := promptPlace(menu, prompt, "kimi"); taken || typed {
-		t.Fatalf("promptPlace = taken %v, typed %v; the prompt is behind the menu and shows nowhere", taken, typed)
-	}
-	text, known := inputText(menu, "kimi")
-	if !known || !strings.HasPrefix(text, "Compact and continue") {
-		t.Fatalf("inputText = %q, known %v; want the menu's selected answer read as text that holds a nudge back", text, known)
-	}
-	// The mark stands in a dialog Kimi's file knows: it is named, with its
-	// first line, so that it is told of and not waited on like someone's text.
-	if dialog, line := inputDialog(menu, "kimi"); dialog != "cache_menu" || line != "This session has been idle for 44m and is ~198k tokens." {
-		t.Fatalf("inputDialog = %q, %q; want the cache menu and its first line", dialog, line)
-	}
-	// Only where the input is: the same words in what the agent printed,
-	// above an input box with a person's text in it, are no dialog. Nor is
-	// the menu one in the pane of a kind whose file has no such dialog.
-	quoted := " ● Kimi asked me:\n This session has been idle for 44m and is ~198k tokens.\n" + kimiBox("> so what do I pick")
-	if dialog, line := inputDialog(quoted, "kimi"); dialog != "" {
-		t.Fatalf("inputDialog of a pane that quotes the menu = %q, %q; want none", dialog, line)
-	}
-	if dialog, _ := inputDialog(kimiWelcome+kimiBox(">"), "kimi"); dialog != "" {
-		t.Fatalf("inputDialog of an empty input = %q; want none", dialog)
-	}
-	if dialog, _ := inputDialog(menu, "claude"); dialog != "" {
-		t.Fatalf("inputDialog for claude = %q; its file names no such dialog", dialog)
-	}
-	// Answered, Kimi takes the prompt: it shows above its input box, begun
-	// with the mark of a message Kimi took.
-	taken, _, _ := promptPlace(" ✨ "+prompt+"\n ● Going on with the review.\n"+kimiBox(">"), prompt, "kimi")
-	if !taken {
-		t.Fatal("promptPlace: a prompt Kimi echoes is not taken")
+	for name, tc := range map[string]struct {
+		kind, prompt, menu, selected, dialog, line, otherKind, empty, accepted string
+	}{
+		"kimi idle menu": {
+			kind: "kimi", prompt: "yardr: the usage limit your harness stopped on (kimi, 5h window) has reset. Go on where you stopped.",
+			menu: " Error: [provider.auth_error] 403 You've reached your\n" +
+				" 5-hour usage limit. Please wait for the quota to refresh.\n" +
+				" ────────────────────────────────────────────────────────────\n" +
+				"  This session has been idle for 44m and is ~198k tokens.\n" +
+				"  ↑↓ navigate · Enter select · Esc cancel\n" +
+				"  Cache expired — the next message re-sends the entire history at full price.\n" +
+				"   ❯ Compact and continue    one-time compact cost · cheapest way to keep this topic\n" +
+				"     Start a new session     zero context cost · best for a new task\n" +
+				"     Continue as-is          full history kept · highest cost per turn\n" +
+				"     Don't ask me again\n" +
+				" ────────────────────────────────────────────────────────────\n" +
+				" Ask When Needed  K3 thinking: high  ~         ctrl+o expand\n",
+			selected: "Compact and continue", dialog: "cache_menu",
+			line: "This session has been idle for 44m and is ~198k tokens.", otherKind: "claude",
+			empty:    kimiWelcome + kimiBox(">"),
+			accepted: " ✨ PROMPT\n ● Going on with the review.\n" + kimiBox(">"),
+		},
+		"codex rate-limit switch": {
+			kind: "codex", prompt: "yardr: the usage limit your harness stopped on (codex, 5h window) has reset. Go on where you stopped.",
+			menu: "■ You’ve hit your usage limit for gpt-6-astra. Switch to another model now, or try again at Oct 28th, 2026 2:08 AM.\n" +
+				"  Approaching rate limits\n" +
+				"  Switch to gpt-6-luna for lower credit usage?\n" +
+				"\n" +
+				"\n" +
+				"› 1. Switch to gpt-6-luna                   Fast and affordable model for easier\n" +
+				"                                            tasks.\n" +
+				"  2. Keep current model\n" +
+				"  3. Keep current model (never show again)  Hide future rate limit reminders\n" +
+				"                                            about switching models\n" +
+				"\n" +
+				"  enter select · esc back\n",
+			selected: "1. Switch to gpt-6-luna", dialog: "rate_limit_switch",
+			line: "Approaching rate limits", otherKind: "claude", empty: "› \n",
+			accepted: "› PROMPT\n\n• Going on with the review.\n\n› Ask Codex to do anything\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			taken, typed, _ := promptPlace(tc.menu, tc.prompt, tc.kind)
+			if taken || typed {
+				t.Fatalf("promptPlace = taken %v, typed %v; the prompt is behind the menu and shows nowhere", taken, typed)
+			}
+			text, known := inputText(tc.menu, tc.kind)
+			if !known || !strings.HasPrefix(text, tc.selected) {
+				t.Fatalf("inputText = %q, known %v; want selected option %q read as text", text, known, tc.selected)
+			}
+			if dialog, line := inputDialog(tc.menu, tc.kind); dialog != tc.dialog || line != tc.line {
+				t.Fatalf("inputDialog = %q, %q; want %q, %q", dialog, line, tc.dialog, tc.line)
+			}
+			if dialog, line := inputDialog(tc.menu, tc.otherKind); dialog != "" {
+				t.Fatalf("inputDialog for %s = %q, %q; its file names no such dialog", tc.otherKind, dialog, line)
+			}
+			if dialog, _ := inputDialog(tc.empty, tc.kind); dialog != "" {
+				t.Fatalf("inputDialog of an empty input = %q; want none", dialog)
+			}
+			accepted := strings.Replace(tc.accepted, "PROMPT", tc.prompt, 1)
+			taken, _, _ = promptPlace(accepted, tc.prompt, tc.kind)
+			if !taken {
+				t.Fatal("promptPlace: an echoed prompt is not taken")
+			}
+		})
 	}
 }
 

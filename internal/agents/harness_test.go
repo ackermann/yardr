@@ -230,13 +230,15 @@ func TestMemoryDir(t *testing.T) {
 	}
 }
 
-// Kimi's question to a session that sat idle past its cache is the one
-// dialog a file names (yardr-vsen): either of the lines it may begin with
-// is the cache menu's, and no other kind has a dialog.
+// Three kinds name a dialog their harness draws in place of its input:
+// Kimi's question to a session that sat idle past its cache (yardr-vsen),
+// Claude Code's auto mode offer (yardr-xk55) and Codex's offer to switch
+// models at its rate limit (yardr-dzjx). Either of the lines a question
+// may begin with is its dialog's, and no other kind has a dialog.
 func TestDialogs(t *testing.T) {
 	for _, h := range Harnesses {
-		if (len(h.Dialogs) > 0) != (h.Kind == "kimi" || h.Kind == "claude") {
-			t.Errorf("%s: dialogs %+v; only kimi's file and claude's name one", h.Kind, h.Dialogs)
+		if (len(h.Dialogs) > 0) != (h.Kind == "kimi" || h.Kind == "claude" || h.Kind == "codex") {
+			t.Errorf("%s: dialogs %+v; only kimi's, claude's and codex's files name one", h.Kind, h.Dialogs)
 		}
 	}
 	// Claude Code's offer to set auto mode up (yardr-xk55), by its title as
@@ -275,6 +277,33 @@ func TestDialogs(t *testing.T) {
 	} {
 		if got := of(line); got != want {
 			t.Errorf("%q is of dialog %q, want %q", line, got, want)
+		}
+	}
+	// Codex's offer to switch models at its rate limit (yardr-dzjx): its
+	// title and its subtitle, as 0.160.1 draws them. Its selected option
+	// is no line of the dialog, and neither is the error's own suggestion
+	// to switch models.
+	codex, _ := Lookup("codex")
+	at := func(line string) string {
+		for _, d := range codex.Dialogs {
+			if d.Matches(line) {
+				return d.Dialog
+			}
+		}
+		return ""
+	}
+	for line, want := range map[string]string{
+		"Approaching rate limits":                      "rate_limit_switch",
+		"Switch to gpt-6-luna for lower credit usage?": "rate_limit_switch",
+		"› 1. Switch to gpt-6-luna":                    "",
+		"1. Switch to gpt-6-luna":                      "",
+		"2. Keep current model":                        "",
+		"You’ve hit your usage limit for gpt-6-astra. Switch to another model now, or try again at Oct 28th, 2026 12:35 PM.": "",
+		"Switch to another model now, or try again at Oct 28th, 2026 12:35 PM.":                                              "",
+		"An agent approaching rate limits soon":                                                                              "",
+	} {
+		if got := at(line); got != want {
+			t.Errorf("codex: %q is of dialog %q, want %q", line, got, want)
 		}
 	}
 }

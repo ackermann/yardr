@@ -243,9 +243,11 @@ func (d *Dispatcher) inputHeld(ctx context.Context, r Runner, key string, handle
 // or the agent is seen at work again. So one event tells of a dialog,
 // however many nudges come to it while it is open.
 //
-// yardr answers no such dialog except for one that only offers to change the
-// operator's settings, which the runner cancels with Esc. The cache menu asks
-// whether to compact a session or send its whole history again at full price,
+// yardr answers no such dialog except two the runner cancels with Esc:
+// one that only offers to change the operator's settings, and Codex's
+// offer to switch models at its rate limit, which Esc dismisses without
+// choosing, so the session keeps its model. The cache menu asks whether
+// to compact a session or send its whole history again at full price,
 // which is for whoever runs the agent to choose.
 func (d *Dispatcher) dialogAt(ctx context.Context, r Runner, key string, handle map[string]any) (at bool, why hold) {
 	dr, ok := r.(DialogReader)
@@ -499,6 +501,10 @@ func (d *Dispatcher) nudgeHeld(ctx context.Context, bead string, who, handle map
 			"%s waits until it is answered in the agent's pane", what)
 		if why.dialog == "auto_mode_setup" {
 			hint = fmt.Sprintf("the agent's harness asks this in place of its input, and yardr cancels the auto mode offer with Esc: "+
+				"%s waits until the dialog is gone", what)
+		}
+		if why.dialog == "rate_limit_switch" {
+			hint = fmt.Sprintf("the agent's harness asks this in place of its input, and yardr declines the offer to switch models with Esc: "+
 				"%s waits until the dialog is gone", what)
 		}
 		data = map[string]any{"reason": "dialog", "dialog": why.dialog, "text": why.line,
