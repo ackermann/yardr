@@ -923,6 +923,46 @@ func TestMergeLocalBaseNotCheckedOut(t *testing.T) {
 	}
 }
 
+// Entering merged ends the assembly session, and the yard may kill the
+// advance client after the move committed: the bead is merged but the script
+// sees a failure. The fallback close must then not run: the bead is where
+// the advance would have taken it, and a close is refused as stale, a
+// move_refused fault to the crew. The wrapper commits the move and dies of
+// TERM, as the killed client did.
+func TestMergeLocalSkipsCloseWhenAdvanceCommitted(t *testing.T) {
+	y := newYard(t)
+	y.commit(y.wt, "b.txt", "bead\n")
+	calls := filepath.Join(t.TempDir(), "calls")
+	y.bin = writeScript(t, t.TempDir(), "yardr", `#!/bin/sh
+if [ "$1 $2 $4 $5" = "bead advance --to merged" ]; then
+  `+shellQuote(yardrBin)+` "$@"
+  kill -TERM $$
+  exit 1
+fi
+if [ "$1 $2" = "bead close" ]; then
+  echo "close $*" >>`+shellQuote(calls)+`
+fi
+exec `+shellQuote(yardrBin)+` "$@"
+`)
+
+	y.assembly()
+
+	if b := y.bead(); b.Stage != "merged" || b.Status != "closed" {
+		t.Fatalf("bead %s/%s, want merged and closed", b.Stage, b.Status)
+	}
+	if out, err := os.ReadFile(calls); err == nil {
+		t.Fatalf("the fallback close ran on a bead already merged:\n%s", out)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if !strings.Contains(y.log, "== r-1 is closed already") {
+		t.Fatalf("the log does not say the bead was closed already:\n%s", y.log)
+	}
+	if refused := y.refused(); len(refused) > 0 {
+		t.Fatalf("a refused move reached the bead's history: %q", refused)
+	}
+}
+
 func TestMergeLocalConflict(t *testing.T) {
 	y := newYard(t)
 	tip := y.commit(y.wt, "a.txt", "bead's\n")
