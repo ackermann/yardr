@@ -5807,6 +5807,10 @@ func TestYardTestBudgets(t *testing.T) {
 		write(t, dir, "red.txt",
 			"ok  \tyardr.dev/yardr/internal/cli\t1m58.3s\n"+
 				"ok  \tyardr.dev/yardr\t1m5.5s\n"+
+				"ok  \tyardr.dev/yardr/contrib/assembly\t1m40.9s\n"+
+				"ok  \tyardr.dev/yardr/contrib/deploy\t1m9.7s\n"+
+				"ok  \tyardr.dev/yardr/internal/hooks\t1m5.5s\n"+
+				"ok  \tyardr.dev/yardr/internal/server\t1m58.3s\n"+
 				"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"+
 				"ok  \tyardr.dev/yardr/internal/pack\t1m1.5s\n"+
 				"ok  \tyardr.dev/yardr/internal/store\t1m0.1s\n"+
@@ -5818,37 +5822,40 @@ func TestYardTestBudgets(t *testing.T) {
 				"FAIL\tyardr.dev/yardr/internal/broken\n"+
 				"--- FAIL: TestBroken (0.01s)\n"+
 				"ok  \texample.com/other\t99.9s\n")
-		// isolated-yard is allow-listed, exactly 60 s complies, and
-		// cached, failed and foreign lines are not judged: only root,
-		// cli, dispatch, pack, store and web are re-run, up to three at
-		// a time, with the leg's flags and -count=1, inside its hold.
-		// The module path is the root, whose
-		// allow-list row yardr-1x36 deleted, as yardr-3cc4 deleted
-		// store's, yardr-ab6t cli's and yardr-3gdg web's. The load is
-		// pinned quiet, so the root's over-alone verdict fails however
-		// loaded the test machine is.
+		// Root, cli, assembly, deploy and isolated-yard are
+		// allow-listed, exactly 60 s complies, and cached, failed and
+		// foreign lines are not judged: only hooks, server, dispatch,
+		// pack, store and web are re-run, up to three at a time, with
+		// the leg's flags and -count=1, inside its hold. The module
+		// path is the root, whose allow-list row yardr-1x36 deleted
+		// and yardr-bkzy added back with yardr-5372 as its fix, as
+		// yardr-ab6t deleted cli's and yardr-bkzy added it back with
+		// yardr-wdjh, and yardr-bkzy added assembly's and deploy's
+		// with yardr-3426 and yardr-yx53; yardr-3cc4 deleted store's
+		// and yardr-3gdg web's. The load is pinned quiet, so hooks'
+		// over-alone verdict fails however loaded the test machine is.
 		fake, env := r1go(t)
 		out, code := runEnv(t, dir, append(env,
-			"FAKE_OVER=yardr.dev/yardr",
+			"FAKE_OVER=yardr.dev/yardr/internal/hooks",
 			"YARDR_TEST_LOADAVG=1.5", "YARDR_TEST_CORES=10"),
 			"packagebudget", "red.txt", "go", "test", "-race", "./...")
 		if code != 1 {
 			t.Fatalf("exit %d, output %q, want exit 1", code, out)
 		}
-		// The root is over alone too: the run fails, naming both times.
-		// Cli, dispatch, pack, store and web are under alone: each
-		// passes with the R1 line. Store's allow-list row yardr-3cc4
-		// deleted, yardr-ab6t cli's and yardr-3gdg web's, so over
-		// budget they are re-run with the rest; isolated-yard's row
-		// stands, so it is not re-run.
-		root := "test: yardr.dev/yardr took 65.5 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
-		cli := "test: R1: yardr.dev/yardr/internal/cli took 118.3 s in the run, 12.3 s alone: under budget, loaded run"
+		// Hooks is over alone too: the run fails, naming both times.
+		// Server, dispatch, pack, store and web are under alone: each
+		// passes with the R1 line. Root, cli, assembly, deploy and
+		// isolated-yard carry rows, so over budget they are not
+		// re-run and name no verdict; the calls below pin the skipped
+		// set.
+		hooks := "test: yardr.dev/yardr/internal/hooks took 65.5 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)"
+		server := "test: R1: yardr.dev/yardr/internal/server took 118.3 s in the run, 12.3 s alone: under budget, loaded run"
 		dispatch := "test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 12.3 s alone: under budget, loaded run"
 		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.5 s in the run, 12.3 s alone: under budget, loaded run"
 		store := "test: R1: yardr.dev/yardr/internal/store took 60.1 s in the run, 12.3 s alone: under budget, loaded run"
 		web := "test: R1: yardr.dev/yardr/internal/web took 100 s in the run, 12.3 s alone: under budget, loaded run"
-		if !strings.Contains(out, root+"\n") || !strings.Contains(out, cli+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") || !strings.Contains(out, web+"\n") {
-			t.Fatalf("output %q, want it to name root, cli, dispatch, pack, store and web", out)
+		if !strings.Contains(out, hooks+"\n") || !strings.Contains(out, server+"\n") || !strings.Contains(out, dispatch+"\n") || !strings.Contains(out, pack+"\n") || !strings.Contains(out, store+"\n") || !strings.Contains(out, web+"\n") {
+			t.Fatalf("output %q, want it to name hooks, server, dispatch, pack, store and web", out)
 		}
 		if got := strings.Count(out, "over the 60 s budget"); got != 1 {
 			t.Errorf("output %q, want 1 budget failure, got %d", out, got)
@@ -5859,10 +5866,10 @@ func TestYardTestBudgets(t *testing.T) {
 		got := strings.Split(strings.TrimSpace(string(calls)), "\n")
 		slices.Sort(got)
 		want := []string{
-			"test -race -count=1 yardr.dev/yardr held=1",
-			"test -race -count=1 yardr.dev/yardr/internal/cli held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
+			"test -race -count=1 yardr.dev/yardr/internal/hooks held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
+			"test -race -count=1 yardr.dev/yardr/internal/server held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/store held=1",
 			"test -race -count=1 yardr.dev/yardr/internal/web held=1",
 		}
@@ -6150,24 +6157,24 @@ loadedmachine() {
 		)
 		// Loaded before the first re-run and after the last, quiet between.
 		loads := early + "\n\n\n" + late + "\n"
-		leg := "ok  \tyardr.dev/yardr/internal/cli\t1m1.1s\n" +
+		leg := "ok  \tyardr.dev/yardr/internal/bdp\t1m1.1s\n" +
 			"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n" +
 			"ok  \tyardr.dev/yardr/internal/pack\t1m1.3s\n"
 		for _, c := range []struct {
 			name   string
 			strict bool
 			code   int
-			want   []string // the verdicts, cli, dispatch and pack
+			want   []string // the verdicts, bdp, dispatch and pack
 		}{
 			{"strict, each by its own", true, 1, []string{
-				// cli sat from early to quiet, dispatch in quiet, pack from quiet to late.
-				"test: yardr.dev/yardr/internal/cli took 61.1 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (" + early + ")",
+				// bdp sat from early to quiet, dispatch in quiet, pack from quiet to late.
+				"test: yardr.dev/yardr/internal/bdp took 61.1 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (" + early + ")",
 				"test: yardr.dev/yardr/internal/dispatch took 61.2 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1)",
 				"test: yardr.dev/yardr/internal/pack took 61.3 s with -race, 66.6 s alone, over the 60 s budget (docs/testing.md R1), loaded machine (" + late + ")",
 			}},
 			{"a landing, all by the batch's", false, 0, []string{
 				// The batch started in early and ended in late: all three name the start's.
-				"test: R1: yardr.dev/yardr/internal/cli took 61.1 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
+				"test: R1: yardr.dev/yardr/internal/bdp took 61.1 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
 				"test: R1: yardr.dev/yardr/internal/dispatch took 61.2 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
 				"test: R1: yardr.dev/yardr/internal/pack took 61.3 s in the run, 66.6 s alone: over budget, loaded machine (" + early + "), not failed",
 			}},
@@ -6178,7 +6185,7 @@ loadedmachine() {
 				write(t, dir, "sampled.txt", leg)
 				fake, env := r1go(t)
 				write(t, fake, "loads", loads)
-				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/cli yardr.dev/yardr/internal/dispatch yardr.dev/yardr/internal/pack")
+				env = append(env, "FAKE_OVER=yardr.dev/yardr/internal/bdp yardr.dev/yardr/internal/dispatch yardr.dev/yardr/internal/pack")
 				if c.strict {
 					env = append(env, "YARDR_R1_STRICT=1")
 				}
@@ -6198,7 +6205,7 @@ loadedmachine() {
 				got := strings.Split(strings.TrimSpace(string(calls)), "\n")
 				slices.Sort(got)
 				wantCalls := []string{
-					"test -race -count=1 yardr.dev/yardr/internal/cli held=1",
+					"test -race -count=1 yardr.dev/yardr/internal/bdp held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
 				}
@@ -6375,13 +6382,14 @@ loadedmachine() {
 		// lists the packages out of order; the verdicts print in sorted
 		// order. Only the quiet and strict rows sleep: the loaded row
 		// judges the same verdicts without paying for the overlap again,
-		// since root's own budget pays for this case. The strict row's
-		// sleeps are short and add up, four of them one after another.
+		// since the re-measure case above pays for this shape. The
+		// strict row's sleeps are short and add up, four of them one
+		// after another.
 		leg := "ok  \tyardr.dev/yardr/internal/store\t1m1.4s\n" +
-			"ok  \tyardr.dev/yardr/internal/cli\t1m1.1s\n" +
+			"ok  \tyardr.dev/yardr/internal/bdp\t1m1.1s\n" +
 			"ok  \tyardr.dev/yardr/internal/pack\t1m1.3s\n" +
 			"ok  \tyardr.dev/yardr/internal/dispatch\t1m1.2s\n"
-		cli := "test: R1: yardr.dev/yardr/internal/cli took 61.1 s in the run, 12.3 s alone: under budget, loaded run"
+		bdp := "test: R1: yardr.dev/yardr/internal/bdp took 61.1 s in the run, 12.3 s alone: under budget, loaded run"
 		pack := "test: R1: yardr.dev/yardr/internal/pack took 61.3 s in the run, 12.3 s alone: under budget, loaded run"
 		store := "test: R1: yardr.dev/yardr/internal/store took 61.4 s in the run, 12.3 s alone: under budget, loaded run"
 		for _, c := range []struct {
@@ -6426,15 +6434,15 @@ loadedmachine() {
 				if code != c.code {
 					t.Errorf("exit %d, output %q, want exit %d", code, out, c.code)
 				}
-				for _, want := range []string{cli, c.want, pack, store} {
+				for _, want := range []string{bdp, c.want, pack, store} {
 					if !strings.Contains(out, want+"\n") {
 						t.Errorf("output %q, want it to hold %q", out, want)
 					}
 				}
 				// The verdicts print in sorted order, whatever order the
-				// leg ran in: cli, dispatch, pack, store.
+				// leg ran in: bdp, dispatch, pack, store.
 				last := -1
-				for _, want := range []string{cli, c.want, pack, store} {
+				for _, want := range []string{bdp, c.want, pack, store} {
 					i := strings.Index(out, want)
 					if i < 0 || i < last {
 						t.Errorf("output %q, want the verdicts in sorted order", out)
@@ -6473,7 +6481,7 @@ loadedmachine() {
 				got := strings.Split(strings.TrimSpace(string(calls)), "\n")
 				slices.Sort(got)
 				wantCalls := []string{
-					"test -race -count=1 yardr.dev/yardr/internal/cli held=1",
+					"test -race -count=1 yardr.dev/yardr/internal/bdp held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/dispatch held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/pack held=1",
 					"test -race -count=1 yardr.dev/yardr/internal/store held=1",
