@@ -470,6 +470,7 @@ func serveHooks(ctx context.Context, c *config.Config, st *store.Store, log *slo
 	// else.
 	mux := http.NewServeMux()
 	rc := hooks.NewReceiver(st, c.Home, log)
+	st.SetHeldFilesFetch(rc.FetchHeldFiles)
 	users := rpc.NewUserServer(st, func(ctx context.Context) string {
 		all, _ := st.Settings(ctx)
 		return runners.YardName(c.Home, all)

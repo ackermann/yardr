@@ -87,6 +87,12 @@
       <p class="weighty">WEIGHTY · {{.Class}}: {{.Line}}</p>
       {{- end}}
       <p>{{$a.Question}}</p>
+      {{- with index $p.HeldPayloads $a.Ask}}
+      <h4 class="label">Held messages · {{len .}}</h4>
+      {{- range .}}
+      <pre class="text held-payload">{{.}}</pre>
+      {{- end}}
+      {{- end}}
       {{- range $a.Context}}
       <p class="entry-note">{{.}}</p>
       {{- end}}

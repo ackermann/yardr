@@ -46,6 +46,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -177,6 +178,13 @@ type Store struct {
 	// paneReader reads a pane's visible screen for SessionScreen
 	// (SetPaneReader, routing.go); nil where no server owns the store.
 	paneReader PaneReader
+	// heldFetch fetches the files of a delivery a mapping card's answer
+	// released, for the process that owns the store (SetHeldFilesFetch,
+	// held.go); nil where no receiver owns the store, and a release then
+	// keeps its file refs alone. It is loaded atomically because the
+	// server registers it after its watchers have started writing,
+	// unlike the registrations above, which all happen before them.
+	heldFetch atomic.Pointer[heldFetchBox]
 	// telemetry serves the telemetry switch for TelemetryShow and
 	// TelemetrySet (SetTelemetrySwitch, telemetry.go); nil where no
 	// server owns the store.
@@ -375,6 +383,11 @@ type wtx struct {
 	// settle are the beads whose stay at a peer ended in this write, by
 	// UUID: what that does to each is done after it (settleSent).
 	settle []string
+	// heldFiles are the deliveries this write released from a mapping
+	// card that carry files, by hook and event seq: their files are
+	// fetched after it (write), as a kept delivery's are after its
+	// answer.
+	heldFiles []heldFileFetch
 	// queued are the peers, by key, whose outbox this write put a message
 	// in: the pull each holds open is answered after it (hub.pingPeers).
 	queued []string
@@ -398,10 +411,12 @@ func (s *Store) write(fn func(*wtx) error) error {
 	s.writing.Add(1)
 	defer s.writing.Add(-1)
 	var settle, queued []string
+	var heldFiles []heldFileFetch
 	err := s.db.Batch(func(tx *bolt.Tx) error {
 		w := &wtx{Tx: tx, store: s, home: s.home, mentions: &s.mentions}
 		err := fn(w)
 		settle, queued = w.settle, w.queued // of the run that is committed: a batch may run fn twice
+		heldFiles = w.heldFiles
 		return err
 	})
 	if err != nil {
@@ -421,6 +436,17 @@ func (s *Store) write(fn func(*wtx) error) error {
 		select {
 		case s.settleNudge <- struct{}{}:
 		default: // a nudge is already pending; the settler reads everything owed
+		}
+	}
+	// A delivery a mapping card's answer released in the write is kept
+	// now, so its files are fetched, as a kept delivery's are after its
+	// answer: outside the write, by the fetch the owning process
+	// registered (SetHeldFilesFetch), which does not block it.
+	if len(heldFiles) > 0 {
+		if box := s.heldFetch.Load(); box != nil {
+			for _, f := range heldFiles {
+				box.fetch(f.hook, f.seq, f.files)
+			}
 		}
 	}
 	return nil
@@ -480,6 +506,26 @@ func seqKey(n uint64) string {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, n)
 	return string(b)
+}
+
+func or(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+// dedupe keeps the first occurrence of each label, sorted like a set.
+func dedupe(in []string) []string {
+	out := []string{}
+	for _, l := range in {
+		l = strings.TrimSpace(l)
+		if l != "" && !slices.Contains(out, l) {
+			out = append(out, l)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // join builds index keys; ids never contain NUL.

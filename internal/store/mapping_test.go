@@ -118,6 +118,19 @@ func wantCardOpen(t *testing.T, y *askYard, bead string) {
 	}
 }
 
+// cardHeldCount is the waiting count shown on a mapping card's ask.
+func cardHeldCount(t *testing.T, y *askYard, bead string) int {
+	t.Helper()
+	view, err := y.Bead(y.ctx, bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Asks) != 1 || view.Asks[0].Identity == nil {
+		t.Fatalf("card %s asks = %+v, want one mapping ask", bead, view.Asks)
+	}
+	return view.Asks[0].Identity.Held
+}
+
 // wantDecided checks that the operator's decided list holds the card's ask
 // in state, and answers the row.
 func wantDecided(t *testing.T, y *askYard, bead, state string) DecidedAsk {
@@ -157,9 +170,9 @@ func mapBehindTheCards(t *testing.T, y *askYard, user, source string, id Identit
 	}
 }
 
-// A dropped delivery's sender stands one mapping card for the
-// operator showing the member id, the channel and at most 80
-// characters of the message; picking a user writes their identity,
+// A held delivery's sender stands one mapping card for the operator,
+// showing the member id and channel without message text that agents
+// could read before the answer. Picking a user writes their identity,
 // closes the card's bead with what was written, and the sender offers
 // no second card, by then or once mapped.
 func TestClaimIdentityPickWritesIdentity(t *testing.T) {
@@ -178,8 +191,7 @@ func TestClaimIdentityPickWritesIdentity(t *testing.T) {
 	if open.Identity == nil || open.Identity.Source != "talk" || open.Identity.Sender != "U999" || open.Identity.Channel != "C1" {
 		t.Fatalf("the card maps %+v", open.Identity)
 	}
-	if !strings.Contains(open.Question, "A message reached talk from U999 in channel C1 (first words: '") ||
-		!strings.HasSuffix(open.Question, "'). Who is this?") || strings.Contains(open.Question, "TAIL-MARKER") {
+	if open.Question != "A message reached talk from U999 in channel C1. Who is this?" || strings.Contains(open.Question, "TAIL-MARKER") {
 		t.Fatalf("the question = %q", open.Question)
 	}
 	// One pending card per source and sender; another sender has its own.
@@ -270,14 +282,23 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 		t.Fatalf("open asks after a stale pick = %d, want the card left open", len(q.Open))
 	}
 	wantCardOpen(t, y, open.Bead)
-	// Declining a card for a sender still unmapped closes its bead as
-	// declined, writes nothing, and offers a new card on their next
+	// Declining a card for a sender still unmapped deletes its held
+	// delivery, closes the bead, and offers a fresh card on the next
 	// delivery.
-	declined := claimCard(t, y, "U555")
+	declined := holdTalk(t, y, "U555", "before decline")
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers before decline = %v, want none", got)
+	}
 	if err := y.DeclineAsk(y.ctx, declined.Bead, declined.Ask, "not now", "mckean"); err != nil {
 		t.Fatal(err)
 	}
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers after decline = %v, want none", got)
+	}
 	wantCardClosed(t, y, declined.Bead, "declined by mckean")
+	if got := cardHeldCount(t, y, declined.Bead); got != 0 {
+		t.Fatalf("declined card holds %d messages, want none", got)
+	}
 	wantDecided(t, y, declined.Bead, "declined")
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || len(src.Ignored) != 0 {
 		t.Fatalf("ignored after a decline = %+v, %v", src, err)
@@ -285,12 +306,31 @@ func TestClaimIdentityStaleDeclineAndRefusals(t *testing.T) {
 	if holders, err := mappedTo(y, "talk", "U555"); err != nil || len(holders) != 0 {
 		t.Fatalf("U555 is mapped to %v after a decline, %v", holders, err)
 	}
-	again := claimCard(t, y, "U555")
+	again := holdTalk(t, y, "U555", "after decline")
 	if again.Bead == declined.Bead {
 		t.Fatalf("the next delivery's card is the declined one, %s", again.Bead)
 	}
 	wantCardOpen(t, y, again.Bead)
 	wantCardClosed(t, y, declined.Bead, "declined by mckean")
+	if err := y.AnswerAsk(y.ctx, again.Bead, again.Ask, pickFor(t, y, again.Bead, "ada"), "", "mckean", true); err != nil {
+		t.Fatal(err)
+	}
+	events, err := y.Events(y.ctx, "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held []Event
+	for _, event := range events {
+		if event.Kind == "hook" {
+			held = append(held, event)
+		}
+	}
+	if len(held) != 1 || hookSpeakers(t, y)[0] != "ada" {
+		t.Fatalf("released events = %+v, want only the post-decline message as ada", held)
+	}
+	if payload, err := y.HookPayload(y.ctx, held[0].Seq); err != nil || string(payload) != "after decline" {
+		t.Fatalf("released payload = %q, %v, want only the post-decline message", payload, err)
+	}
 }
 
 // A decline ends a mapping card as a pick that writes does, so it is
@@ -346,10 +386,7 @@ func mappedTo(y *askYard, source, sender string) (holders []string, err error) {
 func TestClaimIdentitySomeoneNew(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
-	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "hi"); err != nil || !created {
-		t.Fatalf("ClaimIdentity = %v, %v", created, err)
-	}
-	open := mappingQueue(t, y).Open[0]
+	open := holdTalk(t, y, "U999", "someone new body")
 	someone := pickFor(t, y, open.Bead, MappingSomeoneNew)
 	for words, want := range map[string]string{
 		"":           "carries no words",
@@ -379,6 +416,28 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 	}
 	wantCardClosed(t, y, open.Bead, "U999 is bo in talk")
 	wantDecided(t, y, open.Bead, "answered")
+	if got := cardHeldCount(t, y, open.Bead); got != 0 {
+		t.Fatalf("someone-new card holds %d messages, want none", got)
+	}
+	if got := hookSpeakers(t, y); !slices.Equal(got, []string{"bo"}) {
+		t.Fatalf("hook speakers after someone new = %v, want the held delivery as bo", got)
+	}
+	events, err := y.Events(y.ctx, "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held []Event
+	for _, event := range events {
+		if event.Kind == "hook" {
+			held = append(held, event)
+		}
+	}
+	if len(held) != 1 {
+		t.Fatalf("released events = %+v, want one held delivery", held)
+	}
+	if payload, err := y.HookPayload(y.ctx, held[0].Seq); err != nil || string(payload) != "someone new body" {
+		t.Fatalf("released payload = %q, %v", payload, err)
+	}
 	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "again"); err != nil || created {
 		t.Fatalf("a card for a mapped sender = %v, %v", created, err)
 	}
@@ -390,10 +449,10 @@ func TestClaimIdentitySomeoneNew(t *testing.T) {
 func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
-	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "hi"); err != nil || !created {
-		t.Fatalf("ClaimIdentity = %v, %v", created, err)
+	open := holdTalk(t, y, "U999", "nobody body")
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers before nobody = %v, want none", got)
 	}
-	open := mappingQueue(t, y).Open[0]
 	nobody := pickFor(t, y, open.Bead, MappingNobody)
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "ada", false); err == nil {
 		t.Fatal("ada ignored a sender")
@@ -402,10 +461,16 @@ func TestClaimIdentityNobodyIgnores(t *testing.T) {
 	if err := y.AnswerAsk(y.ctx, open.Bead, open.Ask, nobody, "", "mckean", false); err != nil {
 		t.Fatal(err)
 	}
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers after nobody = %v, want none", got)
+	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || !slices.Equal(src.Ignored, []string{"U999"}) {
 		t.Fatalf("ignored = %+v, %v", src, err)
 	}
 	wantCardClosed(t, y, open.Bead, "U999 is ignored in talk")
+	if got := cardHeldCount(t, y, open.Bead); got != 0 {
+		t.Fatalf("ignored card holds %d messages, want none", got)
+	}
 	wantDecided(t, y, open.Bead, "answered")
 	if created, err := y.ClaimIdentity(y.ctx, "talk", "U999", "C1", "again"); err != nil || created {
 		t.Fatalf("a card for an ignored sender = %v, %v", created, err)
@@ -543,7 +608,7 @@ func TestClaimIdentitySomeoneNewNameTakenBetweenCards(t *testing.T) {
 func TestMappingByHandEndsTheCard(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
-	card := claimCard(t, y, "U777")
+	card := holdTalk(t, y, "U777", "terminal mapping body")
 	keyed := claimCard(t, y, "Dana")
 	other := claimCard(t, y, "U888")
 	if _, err := y.AddUser(y.ctx, "bo", "mckean"); err != nil {
@@ -552,7 +617,13 @@ func TestMappingByHandEndsTheCard(t *testing.T) {
 	if err := y.SetIdentity(y.ctx, "bo", "talk", Identity{ID: "U777"}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
+	if got := hookSpeakers(t, y); !slices.Equal(got, []string{"bo"}) {
+		t.Fatalf("hook speakers after the terminal mapping = %v, want the held delivery as bo", got)
+	}
 	wantCardClosed(t, y, card.Bead, "U777 is bo in talk")
+	if got := cardHeldCount(t, y, card.Bead); got != 0 {
+		t.Fatalf("mapped card holds %d messages, want none", got)
+	}
 	if d := wantDecided(t, y, card.Bead, "taken back"); d.By != stageAskAuthor || d.Words != "U777 is bo in talk" {
 		t.Fatalf("the card's ask ended as %+v, want taken back by the yard with the mapping as the reason", d)
 	}
@@ -576,6 +647,39 @@ func TestMappingByHandEndsTheCard(t *testing.T) {
 	}
 	if again := claimCard(t, y, "U777"); again.Bead == card.Bead {
 		t.Fatalf("the next delivery's card is the ended one, %s", again.Bead)
+	}
+	closed := holdTalk(t, y, "U666", "gone with closed card")
+	if _, err := y.CloseBead(y.ctx, closed.Bead, "closed by hand", Expect{}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if got := cardHeldCount(t, y, closed.Bead); got != 0 {
+		t.Fatalf("closed card holds %d messages, want none", got)
+	}
+	fresh := holdTalk(t, y, "U666", "after close")
+	if fresh.Bead == closed.Bead {
+		t.Fatalf("a delivery after closing its card reused %s", closed.Bead)
+	}
+	if err := y.SetIdentity(y.ctx, "ada", "talk", Identity{ID: "U666"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := hookSpeakers(t, y), []string{"bo", "ada"}; !slices.Equal(got, want) {
+		t.Fatalf("hook speakers after mapping the new card = %v, want %v", got, want)
+	}
+	events, err := y.Events(y.ctx, "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var held []Event
+	for _, event := range events {
+		if event.Kind == "hook" {
+			held = append(held, event)
+		}
+	}
+	if len(held) != 2 {
+		t.Fatalf("released events = %+v, want the terminal and fresh-card deliveries", held)
+	}
+	if payload, err := y.HookPayload(y.ctx, held[1].Seq); err != nil || string(payload) != "after close" {
+		t.Fatalf("delivery after close = %q, %v, want only the fresh message", payload, err)
 	}
 }
 
@@ -648,7 +752,10 @@ func TestMappingCardLaterAndYouDecideStayOpen(t *testing.T) {
 func TestIgnoreEntryEndsTheCard(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y := mappingYard(t)
-	card := claimCard(t, y, "U123")
+	card := holdTalk(t, y, "U123", "ignored body")
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers before ignore = %v, want none", got)
+	}
 	ignore := func(sender string) {
 		t.Helper()
 		if err := y.write(func(w *wtx) error { return w.ignoreSender(y.ctx, "talk", sender, "mckean") }); err != nil {
@@ -656,10 +763,16 @@ func TestIgnoreEntryEndsTheCard(t *testing.T) {
 		}
 	}
 	ignore("U123")
+	if got := hookSpeakers(t, y); len(got) != 0 {
+		t.Fatalf("hook speakers after ignore = %v, want none", got)
+	}
 	if src, err := y.GetSource(y.ctx, "talk"); err != nil || !slices.Equal(src.Ignored, []string{"U123"}) {
 		t.Fatalf("ignored = %+v, %v", src, err)
 	}
 	wantCardClosed(t, y, card.Bead, "U123 is ignored in talk")
+	if got := cardHeldCount(t, y, card.Bead); got != 0 {
+		t.Fatalf("ignored card holds %d messages, want none", got)
+	}
 	if d := wantDecided(t, y, card.Bead, "taken back"); d.By != stageAskAuthor || d.Words != "U123 is ignored in talk" {
 		t.Fatalf("the card's ask ended as %+v, want taken back by the yard with the entry as the reason", d)
 	}
@@ -679,4 +792,56 @@ func TestIgnoreEntryEndsTheCard(t *testing.T) {
 	wantCardOpen(t, y, stale.Bead)
 	ignore("U124")
 	wantCardClosed(t, y, stale.Bead, "U124 is ignored in talk")
+}
+
+// holdTalk holds one talk delivery from sender on its card, as the
+// receiver holds a verified one, and answers the card.
+func holdTalk(t *testing.T, y *askYard, sender, body string) OpenAsk {
+	t.Helper()
+	env := map[string]any{
+		"source": "talk", "type": "message", "action": "create",
+		"text": body, "mentions": []any{},
+		"fields": map[string]any{"sender": []any{sender}, "channel": []any{"C1"}},
+	}
+	if held, err := y.HoldIdentity(y.ctx, "talk", "talk", sender, "C1", env, []byte(body), nil); err != nil || !held {
+		t.Fatalf("HoldIdentity for %s = %v, %v", sender, held, err)
+	}
+	var card *OpenAsk
+	for _, o := range mappingQueue(t, y).Open {
+		if o.Identity != nil && o.Identity.Sender == sender {
+			if card == nil || o.Ask > card.Ask {
+				c := o
+				card = &c
+			}
+		}
+	}
+	if card != nil {
+		return *card
+	}
+	t.Fatalf("no card for %s after a hold", sender)
+	return OpenAsk{}
+}
+
+func hookSpeakers(t *testing.T, y *askYard) []string {
+	t.Helper()
+	evs, err := y.Events(y.ctx, "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range evs {
+		if e.Kind != "hook" {
+			continue
+		}
+		fields, _ := e.Data["fields"].(map[string]any)
+		speakers, _ := fields["speaker"].([]any)
+		if len(speakers) == 1 {
+			if s, _ := speakers[0].(string); s != "" {
+				out = append(out, s)
+				continue
+			}
+		}
+		out = append(out, "")
+	}
+	return out
 }

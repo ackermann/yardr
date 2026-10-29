@@ -176,7 +176,7 @@ of its inbox.`,
 	}
 	add.Flags().StringVar(&h.Source, "source", "", "source adapter: "+strings.Join(hooks.Sources(), ", "))
 	add.Flags().StringVar(&h.SecretFile, "secret-file", "", "file holding the secret (never the secret itself)")
-	add.Flags().StringVar(&h.Unknown, "unknown", "", "for a source that hears by identity, what an unmapped sender is: "+strings.Join(store.HookUnknowns, ", ")+" (default unknown)")
+	add.Flags().StringVar(&h.Unknown, "unknown", "", "for a source that hears by identity, what an unmapped sender is: unknown holds their messages on a mapping card until it is answered, allow hears them as outside, ignore drops them ("+strings.Join(store.HookUnknowns, ", ")+"; default unknown)")
 	add.Flags().StringVar(&h.As, "as", "", "crew member the hook moves tracked issues as (with --map) and reports says outcomes as")
 	add.Flags().StringArrayVar(&maps, "map", nil, "<bead type>:<stage>=<state> (repeatable): a bead entering the stage moves the issue it tracks to "+strings.Join(hooks.States(), ", ")+", or on GitHub adds label:<name> to it")
 	add.Flags().StringArrayVar(&says, "says", nil, `"<key>=<value> ... -> <outcome>[: <note>]" (repeatable, in order): an event of the source that matches reports the outcome for the bead it is about: the one that tracks its thread, else the train of its branch`)

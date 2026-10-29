@@ -20,8 +20,10 @@ import (
 // and answered; then the receiver fetches each by the source's thread.file
 // command, with the source's own credential, into the blob store, and
 // records what it fetched beside the event (store.RecordDeliveryFiles).
-// A stranger's delivery is dropped before it is kept, so nothing of it is
-// ever fetched.
+// A stranger's delivery under unknown is held on its mapping card, not
+// kept, so nothing of it is fetched while it waits: FetchHeldFiles
+// fetches its files by this same path only when the card's answer
+// releases it.
 //
 // The fetch runs outside the request: the service is answered first, so a
 // slow download never makes it retry. A server that stops meanwhile loses
@@ -92,6 +94,41 @@ func (d Declared) File(ctx context.Context, ref FileRef, dir string, max int64, 
 		return nil, fmt.Errorf("thread.file of source %s said %d bytes and wrote %d", d.D.Name, n, st.Size())
 	}
 	return os.ReadFile(path)
+}
+
+// FetchHeldFiles fetches the files of the hook delivery seq a mapping
+// card's answer released, as store.SetHeldFilesFetch registers it: the
+// delivery was held, not kept, when it arrived, so its files are
+// fetched now that the answer kept it, as a kept delivery's are after
+// its answer (serve). It runs off the answering write: the fetch is
+// counted before it starts, so whoever waits on it (Wait) finds it,
+// and a hook or source gone meanwhile fetches nothing, as a delivery
+// whose source cannot fetch does not.
+func (rc *Receiver) FetchHeldFiles(hook string, seq uint64, files []store.HeldFile) {
+	if len(files) == 0 {
+		return
+	}
+	refs := make([]FileRef, len(files))
+	for i, f := range files {
+		refs[i] = FileRef{ID: f.ID, Name: f.Name, Type: f.Type, Size: f.Size}
+	}
+	rc.fetching.Add(1)
+	go func() {
+		ctx := context.Background()
+		h, err := rc.st.GetHook(ctx, hook)
+		if err != nil {
+			rc.fetching.Done()
+			rc.log.Info("released delivery's files not fetched", "hook", hook, "seq", seq, "err", err)
+			return
+		}
+		ad, ok := rc.adapter(ctx, h.Source)
+		dec, declared := ad.(Declared)
+		if !ok || !declared {
+			rc.fetching.Done()
+			return
+		}
+		rc.fetchFiles(hook, seq, dec, refs) // fetchFiles counts the fetch done
+	}()
 }
 
 // fetchFiles fetches the files the kept delivery seq names, by the hook's

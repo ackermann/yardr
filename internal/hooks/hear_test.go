@@ -284,8 +284,29 @@ printf '%s' '{"type":"message","action":"create","text":"hi"}'
 // ---- hearing by identity -------------------------------------------
 
 const talkNormalize = `#!/bin/sh
-sender=$(cat | sed -n 's/.*"sender": *"\([^"]*\)".*/\1/p')
-printf '{"type":"message","action":"create","text":"hi","actor":{"id":"%s"},"fields":{"sender":["%s"],"channel":["C1"]}}' "$sender" "$sender"
+request=$(cat)
+sender=$(printf '%s' "$request" | sed -n 's/.*"sender": *"\([^"]*\)".*/\1/p')
+text=$(printf '%s' "$request" | sed -n 's/.*"text": *"\([^"]*\)".*/\1/p')
+printf '{"type":"message","action":"create","text":"%s","actor":{"id":"%s"},"fields":{"sender":["%s"],"channel":["C1"]}}' "$text" "$sender" "$sender"
+`
+
+// talkFileNormalize is talkNormalize carrying one file, as a chat
+// service names an attachment: the ref alone, never the bytes.
+const talkFileNormalize = `#!/bin/sh
+request=$(cat)
+sender=$(printf '%s' "$request" | sed -n 's/.*"sender": *"\([^"]*\)".*/\1/p')
+text=$(printf '%s' "$request" | sed -n 's/.*"text": *"\([^"]*\)".*/\1/p')
+printf '{"type":"message","action":"create","text":"%s","actor":{"id":"%s"},"fields":{"sender":["%s"],"channel":["C1"]},"files":[{"id":"f-1","name":"note.txt","type":"document","size":15}]}' "$text" "$sender" "$sender"
+`
+
+// talkGetFile is talk's thread.file: it writes the file the ref names
+// into the directory it is given and answers where, as the contract
+// says (thread.file in internal/source/thread.go).
+const talkGetFile = `#!/bin/sh
+in=$(cat)
+dir=$(printf '%s' "$in" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
+printf '%s' 'held file bytes' > "$dir/note.txt"
+printf '{"path":"%s/note.txt","bytes":15}' "$dir"
 `
 
 const talkText = `name: talk
@@ -314,28 +335,17 @@ func identityDepot(t *testing.T, unknown string) *depot {
 	return identityDepotWithText(t, unknown, fmt.Sprintf(talkText, "normalize"))
 }
 
-// hookOnlyIdentityDepot is an identity-hearing source with only its inbound
-// hook: the receiver must still offer the mapping card for an unmapped sender.
-func hookOnlyIdentityDepot(t *testing.T, unknown string) *depot {
-	text := `name: talk
-hook:
-  verify: { scheme: secret, signature: { header: Talk-Secret } }
-  bodies: unique
-  normalize: [normalize]
-  keys: [sender, channel]
-hear:
-  field: sender
-  by: identity
-`
-	return identityDepotWithText(t, unknown, text)
+func identityDepotWithText(t *testing.T, unknown, text string) *depot {
+	return identityDepotWithScripts(t, unknown, text, talkNormalize)
 }
 
-func identityDepotWithText(t *testing.T, unknown, text string) *depot {
+func identityDepotWithScripts(t *testing.T, unknown, text, normalize string) *depot {
 	t.Helper()
 	home := t.TempDir()
 	r := newDepot(t)
 	r.home = home
 	r.rc = hooks.NewReceiver(r.own, home, nil)
+	r.own.SetHeldFilesFetch(r.rc.FetchHeldFiles)
 	r.rc.SetClock(func() time.Time { return r.now })
 	r.srv.Config.Handler = r.rc.Handler()
 	ctx := context.Background()
@@ -344,7 +354,10 @@ func identityDepotWithText(t *testing.T, unknown, text string) *depot {
 		t.Fatal(err)
 	}
 	declDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(talkNormalize), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(normalize), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(declDir, "getfile"), []byte(talkGetFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.CopyCommandFiles(declDir, home); err != nil {
@@ -431,10 +444,9 @@ printf '%s' '{"type":"message","action":"create","actor":{"id":"U123"},"fields":
 }
 
 // Hearing by identity: a mapped sender is kept with their yard name as
-// speaker, an unmapped one is dropped under unknown (its mapping card
-// is TestHearByIdentityOffersMappingCard, which sets an operator for
-// it to ask), kept as outside under allow, and dropped with none
-// under ignore.
+// speaker, an unmapped one is held under unknown (its mapping card is
+// TestHearByIdentityOffersMappingCard, which sets an operator to ask),
+// kept as outside under allow, and dropped with none under ignore.
 func TestHearByIdentity(t *testing.T) {
 	// Mapped under the default word, and unmapped under it.
 	r := identityDepot(t, "")
@@ -503,30 +515,28 @@ func TestHearByIdentity(t *testing.T) {
 	}
 }
 
-// An unmapped delivery under unknown offers the operator one mapping
-// card per source and sender, showing the member id, the channel and
-// the first words; picking a user on it writes their identity, and
-// the sender's next delivery is heard as theirs. Under allow and
-// under ignore no card is offered.
+// An unmapped delivery under unknown is held on the operator's one
+// mapping card per source and sender, showing the member id, the
+// channel and the count. Its body stays out of agent-readable bead
+// data, but appears in the person-only card read. Picking a user on it
+// writes their identity and delivers what the card held
+// as theirs, and the sender's next delivery is heard as theirs. Under
+// allow and under ignore no card is offered.
 func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	ctx := context.Background()
-	r := hookOnlyIdentityDepot(t, "")
-	if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.st.AddUser(ctx, "ada", "op"); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
-		t.Fatal(err)
-	}
+	r := heldFileDepot(t)
 	mapTalk(t, r, "ada", "U012")
+	const marker = "MARKER-held-body-must-not-show"
 	r.now = time.Now()
-	if code := r.talk(t, "U999", "hello there"); code != http.StatusOK {
+	if code := r.talk(t, "U999", marker); code != http.StatusOK {
 		t.Fatalf("unmapped answered %d", code)
 	}
+	r.rc.Wait()
 	if n := len(r.hookEvents(t)); n != 0 {
-		t.Fatalf("a dropped delivery recorded: %d hook events", n)
+		t.Fatalf("a held delivery recorded: %d hook events", n)
+	}
+	if n := len(r.eventsOfKind(t, store.HookFiles)); n != 0 {
+		t.Fatalf("a held delivery's files were fetched before its card was answered: %d hook_files events", n)
 	}
 	q, err := r.st.UserAsks(ctx, "op", "op")
 	if err != nil {
@@ -536,11 +546,45 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 		t.Fatalf("open asks = %d, want the one mapping card", len(q.Open))
 	}
 	card := q.Open[0]
-	if card.Identity == nil || card.Identity.Source != "talk" || card.Identity.Sender != "U999" || card.Identity.Channel != "C1" {
-		t.Fatalf("the card maps %+v", card.Identity)
+	if card.Identity == nil || card.Identity.Source != "talk" || card.Identity.Sender != "U999" || card.Identity.Channel != "C1" || card.Identity.Held != 1 {
+		t.Fatalf("the card maps %+v, want U999 in talk with 1 held", card.Identity)
 	}
-	if !strings.Contains(card.Question, "A message reached talk from U999 in channel C1 (first words: 'hi'). Who is this?") {
+	if card.Question != "A message reached talk from U999 in channel C1. Who is this?" {
 		t.Fatalf("the question = %q", card.Question)
+	}
+	if bodies, err := r.st.IdentityHeldPayloads(ctx, card.Bead, card.Ask, "op"); err != nil || len(bodies) != 1 || !strings.Contains(bodies[0], marker) {
+		t.Fatalf("the operator's card holds %q, %v, want the one body with %q", bodies, err, marker)
+	}
+	if _, err := r.st.IdentityHeldPayloads(ctx, card.Bead, card.Ask, "ada"); err == nil {
+		t.Fatal("a user who is not on the card read its held body")
+	}
+	view, err := r.st.Bead(ctx, card.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := json.Marshal(view); err != nil || strings.Contains(string(raw), marker) {
+		t.Fatalf("the card view carries the held body: %s, %v", raw, err)
+	}
+	if strings.Contains(card.Question, marker) {
+		t.Fatalf("the card's question exposes the held body: %q", card.Question)
+	}
+	notes, err := r.st.Notes(ctx, card.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if strings.Contains(n.Text, marker) {
+			t.Fatalf("note %d carries the held body: %q", n.Seq, n.Text)
+		}
+	}
+	events, err := r.st.Events(ctx, "", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if raw, _ := json.Marshal(e); strings.Contains(string(raw), marker) {
+			t.Fatalf("%s event carries the held body: %s", e.Kind, raw)
+		}
 	}
 	// A second delivery from the same sender offers no second card,
 	// and one from another sender offers its own.
@@ -551,8 +595,11 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 2 {
 		t.Fatalf("open asks = %v, %v, want 2", q, err)
 	}
+	if card = heldCard(t, r, "U999"); card.Identity.Held != 2 {
+		t.Fatalf("the card holds %+v, want 2 waiting", card.Identity)
+	}
 	// Picking ada on the first card writes ada's identity for U999.
-	view, err := r.st.Bead(ctx, card.Bead)
+	view, err = r.st.Bead(ctx, card.Bead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,13 +625,55 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 	if !u.IsIn("talk", "U999") {
 		t.Fatalf("ada after the pick = %+v, want U999 mapped in talk", u.Identities)
 	}
+	// The pick delivered both held messages as ada, in arrival order.
+	evs := r.hookEvents(t)
+	if len(evs) != 2 || speakerOf(t, evs[0]) != "ada" || speakerOf(t, evs[1]) != "ada" {
+		t.Fatalf("hook events after the pick = %v, want the two held deliveries as ada", evs)
+	}
+	r.rc.Wait()
+	for _, ev := range evs {
+		files, err := r.st.DeliveryFiles(ctx, ev.Seq)
+		if err != nil || len(files) != 1 || files[0].NotTaken != "" || files[0].Name != "note.txt" || files[0].Hash == "" {
+			t.Fatalf("released delivery %d files = %+v, %v, want note.txt fetched", ev.Seq, files, err)
+		}
+		kept, err := os.ReadFile(r.own.BlobPath(files[0].Hash))
+		if err != nil || string(kept) != "held file bytes" {
+			t.Fatalf("released delivery %d blob = %q, %v, want the file's bytes", ev.Seq, kept, err)
+		}
+	}
+	landed := r.eventsOfKind(t, store.HookFiles)
+	if len(landed) != 2 {
+		t.Fatalf("hook_files events after pick = %d, want one for each released delivery", len(landed))
+	}
+	waiting := map[uint64]bool{evs[0].Seq: true, evs[1].Seq: true}
+	for _, event := range landed {
+		seq, _ := event.Data["seq"].(float64)
+		if !waiting[uint64(seq)] {
+			t.Fatalf("hook_files event %d names unexpected delivery seq %v", event.Seq, event.Data["seq"])
+		}
+		delete(waiting, uint64(seq))
+	}
+	if len(waiting) != 0 {
+		t.Fatalf("hook_files events are missing released delivery seqs %v", waiting)
+	}
+	for i, want := range []string{marker, "again"} {
+		payload, err := r.st.HookPayload(ctx, evs[i].Seq)
+		if err != nil || !strings.Contains(string(payload), want) {
+			t.Fatalf("held event %d payload = %q, %v, want it to carry %q", i, payload, err, want)
+		}
+	}
+	page, err := r.st.Inbox(ctx, "ann", 0)
+	if err != nil || page.Total != 2 {
+		t.Fatalf("ann's inbox = %+v, %v, want the two held deliveries routed to her", page, err)
+	}
 	r.now = r.now.Add(time.Second)
 	if code := r.talk(t, "U999", "mapped now"); code != http.StatusOK {
 		t.Fatalf("the mapped sender answered %d", code)
 	}
-	evs := r.hookEvents(t)
-	if len(evs) != 1 || speakerOf(t, evs[0]) != "ada" {
-		t.Fatalf("hook events = %v, want the mapped delivery as ada", evs)
+	r.rc.Wait()
+	evs = r.hookEvents(t)
+	if len(evs) != 3 || speakerOf(t, evs[2]) != "ada" {
+		t.Fatalf("hook events = %v, want the mapped delivery as ada after the held two", evs)
 	}
 
 	// Under allow the sender is heard and no card is offered; under
@@ -606,6 +695,334 @@ func TestHearByIdentityOffersMappingCard(t *testing.T) {
 		if q, err := rr.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 {
 			t.Fatalf("%s: open asks = %v, %v, want none", word, q, err)
 		}
+	}
+}
+
+// heldCard is the open mapping card waiting for sender, with how
+// many deliveries it holds.
+func heldCard(t *testing.T, r *depot, sender string) store.OpenAsk {
+	t.Helper()
+	q, err := r.st.UserAsks(context.Background(), "op", "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range q.Open {
+		if o.Identity != nil && o.Identity.Sender == sender {
+			return o
+		}
+	}
+	t.Fatalf("no open mapping card for %s among %v", sender, q.Open)
+	return store.OpenAsk{}
+}
+
+// pickHeldCard answers the sender's card with the pick label, as the
+// operator, with words and the weighed word a mapping pick takes.
+func pickHeldCard(t *testing.T, r *depot, sender, label, words string, weighed bool) {
+	t.Helper()
+	ctx := context.Background()
+	card := heldCard(t, r, sender)
+	view, err := r.st.Bead(ctx, card.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Asks) != 1 {
+		t.Fatalf("the card bead holds %d asks", len(view.Asks))
+	}
+	pick := 0
+	for i, o := range view.Asks[0].Options {
+		if o.Label == label {
+			pick = i + 1
+		}
+	}
+	if pick == 0 {
+		t.Fatalf("the card offers %v, want %s among them", view.Asks[0].Options, label)
+	}
+	if err := r.st.AnswerAsk(ctx, card.Bead, card.Ask, pick, words, "op", weighed); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// heldDepotWithSource is a yard hearing by identity under unknown whose
+// crew member ann hears every talk delivery, with the operator op and
+// the user ada: the held tests' stage.
+func heldDepotWithSource(t *testing.T, sourceText string) *depot {
+	t.Helper()
+	ctx := context.Background()
+	r := identityDepotWithText(t, "", sourceText)
+	if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.AddUser(ctx, "ada", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "talk", Scope: store.ScopeAll}, "ann"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func heldDepot(t *testing.T) *depot {
+	t.Helper()
+	return heldDepotWithSource(t, fmt.Sprintf(talkText, "normalize"))
+}
+
+// heldFileDepot is heldDepot whose talk source fetches a delivery's
+// files by thread.file, and whose deliveries carry one: the yard can
+// fetch a released held delivery's attachment with its credential.
+func heldFileDepot(t *testing.T) *depot {
+	t.Helper()
+	ctx := context.Background()
+	text := fmt.Sprintf(talkText, "normalize")
+	text = strings.Replace(text, "\nhook:\n", "\nthread:\n  file: [getfile]\nhook:\n", 1)
+	r := identityDepotWithScripts(t, "", text, talkFileNormalize)
+	if _, err := r.st.AddUser(ctx, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.AddUser(ctx, "ada", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.SetSetting(ctx, store.OperatorSetting, "op", "op"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutCrew(ctx, store.CrewMember{Name: "ann"}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.AddSubscription(ctx, "ann", store.Subscription{Source: "talk", Scope: store.ScopeAll}, "ann"); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(t.TempDir(), "talk.env")
+	if err := os.WriteFile(env, []byte("TALK_TOKEN=talk-token-for-test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.SetSource(ctx, "talk", store.SourceEnvFile, env, "op"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// Let in, once delivers what the card held as outside, maps no
+// identity, and leaves the same card open: the sender's next
+// delivery is held on it again, and a later user pick delivers that
+// one as theirs.
+func TestHeldDeliveryLetInOnce(t *testing.T) {
+	ctx := context.Background()
+	r := heldDepot(t)
+	r.now = time.Now()
+	r.talk(t, "U999", "first let in")
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U999", "second let in")
+	before := heldCard(t, r, "U999")
+	if before.Identity.Held != 2 {
+		t.Fatalf("the card holds %+v, want 2 waiting", before.Identity)
+	}
+	pickHeldCard(t, r, "U999", store.MappingLetIn, "", false)
+	evs := r.hookEvents(t)
+	if len(evs) != 2 || speakerOf(t, evs[0]) != store.SpeakerOutside || speakerOf(t, evs[1]) != store.SpeakerOutside {
+		t.Fatalf("hook events = %v, want both held deliveries as outside", evs)
+	}
+	if u, err := r.st.GetUser(ctx, "ada"); err != nil || u.IsIn("talk", "U999") {
+		t.Fatalf("ada after let in = %+v, %v, want U999 unmapped", u, err)
+	}
+	open := heldCard(t, r, "U999")
+	if open.Bead != before.Bead || open.Identity.Held != 0 {
+		t.Fatalf("the card after let in = %+v, want the same card open holding none", open)
+	}
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U999", "second let in")
+	if replay := heldCard(t, r, "U999"); replay.Identity.Held != 0 || len(r.hookEvents(t)) != 2 {
+		t.Fatalf("a redelivery after let in = %+v, %d hook events, want no new hold or event", replay.Identity, len(r.hookEvents(t)))
+	}
+	r.now = r.now.Add(time.Second)
+	r.talk(t, "U999", "held again")
+	again := heldCard(t, r, "U999")
+	if again.Bead != before.Bead || again.Identity.Held != 1 {
+		t.Fatalf("the card after the next delivery = %+v, want the same card holding 1", again)
+	}
+	if n := len(r.hookEvents(t)); n != 2 {
+		t.Fatalf("a delivery held after let in recorded: %d hook events", n)
+	}
+	pickHeldCard(t, r, "U999", "ada", "", true)
+	evs = r.hookEvents(t)
+	if len(evs) != 3 || speakerOf(t, evs[2]) != "ada" {
+		t.Fatalf("hook events = %v, want the delivery held after let in as ada", evs)
+	}
+}
+
+// A sixth delivery while five wait is dropped and counted as any
+// drop is; the card still says 5, and a pick delivers the first
+// five in arrival order alone.
+func TestHeldDeliveryCapFive(t *testing.T) {
+	ctx := context.Background()
+	r := heldDepot(t)
+	r.now = time.Now()
+	for i := 1; i <= 6; i++ {
+		r.now = r.now.Add(time.Second)
+		body := fmt.Sprintf("held-%d", i)
+		r.talk(t, "U999", body)
+		if i == 1 {
+			// A redelivery has the same dedupe key and uses no second
+			// place in the card's five-message limit.
+			r.talk(t, "U999", body)
+		}
+	}
+	card := heldCard(t, r, "U999")
+	if card.Identity.Held != store.MaxHeldPerCard {
+		t.Fatalf("the card holds %+v, want %d waiting", card.Identity, store.MaxHeldPerCard)
+	}
+	view, err := r.st.Bead(ctx, card.Bead)
+	if err != nil || len(view.Asks) != 1 || view.Asks[0].Identity == nil || view.Asks[0].Identity.Held != 5 {
+		t.Fatalf("the card bead = %+v, %v, want its ask holding 5", view, err)
+	}
+	found := false
+	notes, err := r.st.Notes(ctx, card.Bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if strings.Contains(n.Text, `"held":5`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the card's ask says nothing of 5 waiting: %v", notes)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("held deliveries recorded: %d hook events", n)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 7 {
+		t.Fatalf("stranger count %d, want 7 (the duplicate and dropped sixth counted)", got)
+	}
+	pickHeldCard(t, r, "U999", "ada", "", true)
+	evs := r.hookEvents(t)
+	if len(evs) != 5 {
+		t.Fatalf("hook events = %v, want the five held deliveries", evs)
+	}
+	for i, e := range evs {
+		payload, err := r.st.HookPayload(ctx, e.Seq)
+		if want := fmt.Sprintf("held-%d", i+1); err != nil || !strings.Contains(string(payload), want) || strings.Contains(string(payload), "held-6") {
+			t.Fatalf("event %d payload = %q, %v, want %q alone in order", i, payload, err, want)
+		}
+	}
+	t.Run("repeat bodies need an id", func(t *testing.T) {
+		sourceText := fmt.Sprintf(talkText, "normalize")
+		sourceText = strings.Replace(sourceText,
+			"verify: { scheme: secret, signature: { header: Talk-Secret } }",
+			"verify: { scheme: secret, signature: { header: Talk-Secret }, delivery: { header: Talk-Delivery } }", 1)
+		sourceText = strings.Replace(sourceText, "  bodies: unique\n", "  bodies: repeat\n", 1)
+		r := heldDepotWithSource(t, sourceText)
+		r.now = time.Now()
+		body, err := json.Marshal(map[string]any{"sender": "U999", "text": "same body"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code := r.post(t, "/hooks/talk", body, map[string]string{"Talk-Secret": secret}); code != http.StatusOK {
+			t.Fatalf("missing-id unknown delivery answered %d, want the existing dropped answer", code)
+		}
+		if len(r.hookEvents(t)) != 0 {
+			t.Fatal("missing-id unknown delivery made a hook event")
+		}
+		if q, err := r.st.UserAsks(context.Background(), "op", "op"); err != nil || len(q.Open) != 0 {
+			t.Fatalf("open asks after missing-id delivery = %+v, %v, want none", q, err)
+		}
+		headers := map[string]string{"Talk-Secret": secret, "Talk-Delivery": "delivery-1"}
+		if code := r.post(t, "/hooks/talk", body, headers); code != http.StatusOK {
+			t.Fatalf("identified unknown delivery answered %d", code)
+		}
+		if code := r.post(t, "/hooks/talk", body, headers); code != http.StatusOK {
+			t.Fatalf("redelivered unknown delivery answered %d", code)
+		}
+		if card := heldCard(t, r, "U999"); card.Identity.Held != 1 {
+			t.Fatalf("the card after a repeat-body retry = %+v, want 1 held delivery", card.Identity)
+		}
+		pickHeldCard(t, r, "U999", "ada", "", true)
+		if evs := r.hookEvents(t); len(evs) != 1 || speakerOf(t, evs[0]) != "ada" {
+			t.Fatalf("events after picking the card = %v, want its one identified delivery as ada", evs)
+		}
+	})
+}
+
+// Past the source's held bytes, a stranger's delivery is dropped and
+// counted as any drop is, with no new card in the operator's queue, and
+// a card that already stands holds no more: rotating senders cannot
+// hold more than MaxHeldBytesPerSource for the source together.
+func TestHeldDeliveryByteCap(t *testing.T) {
+	ctx := context.Background()
+	old := store.MaxHeldBytesPerSource
+	store.MaxHeldBytesPerSource = 100
+	t.Cleanup(func() { store.MaxHeldBytesPerSource = old })
+	r := heldDepot(t)
+	r.now = time.Now()
+	otherText := strings.Replace(fmt.Sprintf(talkText, "normalize"), "name: talk\n", "name: other\n", 1)
+	other, err := source.Parse("other.yaml", []byte(otherText))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(declDir, "normalize"), []byte(talkNormalize), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.CopyCommandFiles(declDir, r.home); err != nil {
+		t.Fatal(err)
+	}
+	scripttest.Relink(t, filepath.Join(r.home, "sources", other.Name))
+	if _, err := r.st.PutSource(ctx, "other.yaml", otherText, "op"); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(r.home, "other.secret")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.st.PutHook(ctx, store.Hook{Name: "other", Source: "other", SecretFile: secretFile, Unknown: store.HookUnknownUnknown}, "op"); err != nil {
+		t.Fatal(err)
+	}
+	text := func(c byte) string { return strings.Repeat(string(c), 40) } // a 65-byte delivery
+	r.talk(t, "S1", text('x'))                                           // held: S1's card is made holding it
+	r.talk(t, "S1", text('y'))                                           // the same card, but 130 bytes would cross 100
+	r.talk(t, "S2", text('z'))                                           // a new card would cross it too: none is offered
+	r.talk(t, "S3", text('w'))                                           // dropped the same way
+	otherBody, err := json.Marshal(map[string]any{"sender": "S4", "text": text('v')})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := r.post(t, "/hooks/other", otherBody, map[string]string{"Talk-Secret": secret}); code != http.StatusOK {
+		t.Fatalf("other source delivery answered %d", code)
+	}
+	card := heldCard(t, r, "S1")
+	if card.Identity.Held != 1 {
+		t.Fatalf("the card holds %+v, want 1 waiting", card.Identity)
+	}
+	q, err := r.st.UserAsks(ctx, "op", "op")
+	if err != nil || len(q.Open) != 2 {
+		t.Fatalf("open asks = %+v, %v, want one card per source", q, err)
+	}
+	if otherCard := heldCard(t, r, "S4"); otherCard.Identity.Held != 1 {
+		t.Fatalf("the other source's card holds %+v, want 1 waiting", otherCard.Identity)
+	}
+	if got := r.rc.Rejected()["stranger"]; got != 5 {
+		t.Fatalf("stranger count %d, want 5 (all unknown deliveries are counted)", got)
+	}
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("held deliveries recorded: %d hook events", n)
+	}
+	pickHeldCard(t, r, "S1", "ada", "", true)
+	pickHeldCard(t, r, "S4", "ada", "", true)
+	evs := r.hookEvents(t)
+	if len(evs) != 2 {
+		t.Fatalf("hook events = %v, want one held delivery from each source", evs)
+	}
+	payload, err := r.st.HookPayload(ctx, evs[0].Seq)
+	if err != nil || !strings.Contains(string(payload), text('x')) {
+		t.Fatalf("the first held event's payload = %q, %v, want the first talk delivery", payload, err)
+	}
+	payload, err = r.st.HookPayload(ctx, evs[1].Seq)
+	if err != nil || !strings.Contains(string(payload), text('v')) {
+		t.Fatalf("the second held event's payload = %q, %v, want the other source's delivery", payload, err)
 	}
 }
 
@@ -684,6 +1101,9 @@ func TestHearByIdentityIgnoredSender(t *testing.T) {
 		t.Fatalf("open asks = %d, want the mapping card", n)
 	}
 	nobodyPick(t, r, "U999")
+	if n := len(r.hookEvents(t)); n != 0 {
+		t.Fatalf("a nobody pick delivered the held message: %d hook events", n)
+	}
 	r.now = r.now.Add(time.Second)
 	r.talk(t, "U999", "again")
 	if n := len(r.hookEvents(t)); n != 0 {
@@ -930,8 +1350,8 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 			}
 		}
 		evs := r.hookEvents(t)
-		// The stranger is dropped under unknown and under ignore, and heard
-		// as outside under allow.
+		// The stranger is not delivered under unknown or ignore, and is
+		// heard as outside under allow.
 		kept := 2
 		if word == store.HookUnknownAllow {
 			kept = 3

@@ -43,6 +43,11 @@ type PruneResult struct {
 	Peers map[string]PeerPruned `json:"peers,omitempty"`
 	// Blobs counts the blobs no letter named any more (pruneBlobs).
 	Blobs int `json:"blobs,omitempty"`
+	// Held counts the held deliveries removed past the hook-payload
+	// retention, and HeldCards the mapping cards that removal left
+	// holding nothing and so closed (pruneHeld).
+	Held      int `json:"held,omitempty"`
+	HeldCards int `json:"held_cards,omitempty"`
 }
 
 // pruneBatch bounds the events one write transaction removes, so a first
@@ -61,7 +66,9 @@ const pruneBatch = 1000
 // its runner resources and, if it left a worktree, cleaned up after the
 // bead closed; its bead and the bead's notes stay, being state, not log.
 // Webhook bodies are not events: the event keeps the envelope that routing
-// reads, so a body goes by age alone. A link's seen ids and the messages
+// reads, so a body goes by age alone. A delivery held on a mapping card goes
+// at the same age, and a card that leaves empty closes; a card that never
+// held anything stays. A link's seen ids and the messages
 // given up for its peer go at the age of events too, though never younger
 // than PeerKeep (prunePeers). A blob goes when no letter left in the log
 // names it, whatever keep says (pruneBlobs). Logs a store_pruned event when
@@ -136,6 +143,17 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 				break
 			}
 		}
+		for {
+			n, closed, more, err := s.pruneHeld(cutoff, actor)
+			res.Held += n
+			res.HeldCards += closed
+			if err != nil {
+				return res, err
+			}
+			if !more {
+				break
+			}
+		}
 	}
 	// After the events: a blob goes once the last letter that named it has.
 	var err error
@@ -157,10 +175,14 @@ func (s *Store) Prune(ctx context.Context, keep Retention, actor string) (*Prune
 			return res, err
 		}
 	}
-	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers)+res.Blobs == 0 {
+	if res.Events+res.HookPayloads+res.Sessions+len(res.Peers)+res.Blobs+res.Held == 0 {
 		return res, nil
 	}
 	data := map[string]any{"events": res.Events, "hook_payloads": res.HookPayloads, "sessions": res.Sessions}
+	if res.Held > 0 {
+		data["held"] = res.Held
+		data["held_cards"] = res.HeldCards
+	}
 	if res.Peers != nil {
 		// Counts, as every event about a link: never an id or a body.
 		data["peers"] = res.Peers

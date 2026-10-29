@@ -1331,35 +1331,52 @@ source may filter on, derived by the yard and set by no normalize
 script, so it stands in no `hook.keys`; the envelope's actor is left
 as the source gave it. What an unmapped sender is, is the hook's, not
 the declaration's: `yardr hook add <name> --source <source>
---unknown unknown|allow|ignore` (unknown without the flag) drops one
-until the operator maps them, hears one as `outside`, or drops one
-with no card offered. A source with no identity hearing refuses
-`--unknown`, and refuses `speaker` as a filter key.
+--unknown unknown|allow|ignore` (unknown without the flag) holds one
+on a mapping card until the operator answers it, hears one as
+`outside`, or drops one with no card offered. A source with no
+identity hearing refuses `--unknown`, and refuses `speaker` as a
+filter key.
 
-Under unknown, dropping an unmapped sender offers the operator a
-mapping card on a question bead titled with the question, one per
-source and sender: who the sender is, the channel the message arrived
-in, and at most the first 80 characters beside it. Its picks are the
-yard's users, each naming the identity it writes, someone new, whom
-the pick's words name, and nobody, who is ignored. Picking a user
-writes their identity in the answering write; someone new with a valid
-new name in the pick's words adds that user and writes theirs, and
-with empty, invalid or taken words the answer is refused and the card
-stays open. Picking nobody ignores the sender: their later messages
-are dropped without a second card under either unknown or allow, until
-the entry is removed or the sender is mapped. Declining writes
-nothing, and the next message offers again.
+Under unknown, a verified delivery from an unmapped sender is held
+on the sender's mapping card and delivered to nobody: the operator
+gets a card on a question bead titled with the question, one per
+source and sender, showing who the sender is, the channel the
+message arrived in, and how many messages wait. The person on the
+card can read each full body there; it stays out of notes, events,
+`bead show` and every agent-readable view until the answer. At most
+5 wait on one card, each within the hook's size
+limit, and a further message while 5 wait is dropped and counted as
+any drop is. Its picks are the yard's users, each naming the
+identity it writes, someone new, whom the pick's words name, let in
+once, and nobody, who is ignored. Picking a user writes their
+identity in the answering write, and what the card held becomes
+hook events in arrival order with that user as speaker, routed as
+any mapped delivery; someone new with a valid new name in the
+pick's words adds that user and writes theirs the same way, and
+with empty, invalid or taken words the answer is refused, the card
+stays open, and what it held still waits. Let in, once delivers
+what waits as `outside`, as information and not instructions,
+without mapping the sender: the card stays open, and the sender's
+next message is held on it again. Picking nobody ignores the
+sender and deletes what the card held: their later messages are
+dropped without a second card under either unknown or allow, until
+the entry is removed or the sender is mapped. Declining deletes
+what the card held too, writes no mapping, and the next message
+offers again.
 
 A pick that writes closes the card's question bead, with the reason
 saying what was written (`U012AB3CD is ada in slack`, `U012AB3CD is
 ignored in slack`). A decline closes it as `declined by <user>`. Putting
-a card aside and picking You decide leave it open. Settling the sender
-any other way ends their card too: `yardr user identity` typed in a
-terminal or approved on a run ask, `yardr peer identity`, or an ignore
-entry. The card's bead closes with the mapping as the reason, and the
-yard takes the card's question back, so it leaves your open questions.
-A pick on a card whose sender is mapped already is stale and writes
-nothing.
+a card aside and picking You decide leave it open, holding what
+waits. Settling the sender any other way ends their card the same
+way the pick it amounts to would: `yardr user identity` typed in a
+terminal or approved on a run ask, and `yardr peer identity`,
+deliver what the card held as that speaker; an ignore entry deletes
+it. The card's bead closes with the mapping as the reason, and the
+yard takes the card's question back, so it leaves your open
+questions. What a card still held goes with it when the card
+expires or its bead is closed. A pick on a card whose sender is
+mapped already is stale and writes nothing.
 
 The ignored senders of a source are listed by `yardr source show
 <source>` and `yardr source ignore <source>`, and removed by `yardr
@@ -2330,8 +2347,10 @@ them whole):
   --source slack --unknown unknown" --context "…"` stands `POST
   /hooks/slack` up, verified with that secret, and sends nothing
   anywhere: Slack takes its Request URL only in its own configuration.
-  `--unknown unknown` drops a sender no user maps and offers the
-  operator a mapping card. The app is created from the pack's manifest,
+  `--unknown unknown` holds a sender's messages on the operator's
+  mapping card until answered; a user pick routes them as that user,
+  and `Let in, once` routes them as outside without mapping the sender.
+  The app is created from the pack's manifest,
   which carries no event subscriptions and no Request URL, and once the
   hook stands the operator turns Event Subscriptions on in the browser
   with the hook's URL and the two bot events `app_mention` and

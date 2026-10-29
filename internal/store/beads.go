@@ -2350,6 +2350,13 @@ func (w *wtx) closeBead(cur *beadRow, reason, actor string, look *untilLooks) (*
 	if err != nil || b.Status != "closed" {
 		return b, err
 	}
+	// What a mapping card on the bead still held goes with it: a
+	// settle that delivers held first (retireMappingCards, a decline)
+	// has cleared it already, so this deletes only what no answer
+	// disposed of, as an expiry or a close by hand must.
+	if err := w.dropHeld(cur.UUID); err != nil {
+		return b, err
+	}
 	if row, err := w.loadBead(b.UUID); err != nil {
 		return b, err
 	} else if err := w.takeBackAllStageAsks(row, "closed"); err != nil {
@@ -2661,24 +2668,4 @@ func (s *Store) Release(ctx context.Context, id, reason string, exp Expect, acto
 		return "released", map[string]any{"reason": reason}, nil
 	})
 	return b, s.refused(ctx, id, "yardr bead release "+id, exp, actor, err)
-}
-
-func or(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
-}
-
-// dedupe keeps the first occurrence of each label, sorted like a set.
-func dedupe(in []string) []string {
-	out := []string{}
-	for _, l := range in {
-		l = strings.TrimSpace(l)
-		if l != "" && !slices.Contains(out, l) {
-			out = append(out, l)
-		}
-	}
-	sort.Strings(out)
-	return out
 }

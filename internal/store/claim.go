@@ -227,12 +227,15 @@ func (s *Store) ClaimAddress(ctx context.Context, sourceName, address, text stri
 }
 
 // The fixed picks of a mapping card, after the yard's users and before
-// YouDecide: someone new, whom the pick's words name, and nobody, whose
-// sender is then ignored. No user bears either label: a name holds no
-// space (checkUserName), so a pick past the users is told by its label,
-// and a card from before either pick stood still answers its YouDecide.
+// YouDecide: someone new, whom the pick's words name, let in once, which
+// delivers what the card held as outside and leaves the card open, and
+// nobody, whose sender is then ignored. No user bears any label: a name
+// holds no space (checkUserName), so a pick past the users is told by
+// its label, and a card from before a pick stood still answers its
+// YouDecide.
 const (
 	MappingSomeoneNew = "Someone new"
+	MappingLetIn      = "Let in, once"
 	MappingNobody     = "Nobody — ignore this sender"
 )
 
@@ -241,7 +244,7 @@ const (
 func mappingPending(tx *bolt.Tx, operator, sourceName, sender string) (bool, error) {
 	pending := false
 	err := each(tx, bBeads, "", func(_ []byte, b *beadRow) error {
-		if pending {
+		if pending || !b.open() {
 			return nil
 		}
 		notes, err := beadNotes(tx, b.UUID)
@@ -264,6 +267,36 @@ func mappingPending(tx *bolt.Tx, operator, sourceName, sender string) (bool, err
 	return pending, err
 }
 
+// mappingCard is the bead UUID of the mapping card waiting for this
+// source and sender, open or put aside, "" where none waits. It is
+// mappingPending with the bead it found, for the write that holds a
+// delivery on the card that already stands.
+func mappingCard(tx *bolt.Tx, operator, sourceName, sender string) (string, error) {
+	found := ""
+	err := each(tx, bBeads, "", func(_ []byte, b *beadRow) error {
+		if found != "" || !b.open() {
+			return nil
+		}
+		notes, err := beadNotes(tx, b.UUID)
+		if err != nil {
+			return err
+		}
+		for _, r := range ResolveAsks(notes, now()) {
+			if r.AskErr != nil || r.Ask.Identity == nil || r.Ask.To != operator {
+				continue
+			}
+			if r.State != AskOpen && r.State != AskAside {
+				continue
+			}
+			if r.Ask.Identity.Source == sourceName && r.Ask.Identity.Sender == sender {
+				found = b.UUID
+			}
+		}
+		return nil
+	})
+	return found, err
+}
+
 // identityHolders are the users whose identity in source the sender
 // id names (User.IsIn over every user), in name order.
 func identityHolders(tx *bolt.Tx, source, sender string) ([]string, error) {
@@ -278,10 +311,10 @@ func identityHolders(tx *bolt.Tx, source, sender string) ([]string, error) {
 	return holders, err
 }
 
-// ClaimIdentity offers a mapping card for the sender a dropped
+// ClaimIdentity offers a mapping card for the sender a held
 // delivery of the source sourceName arrived from, heard by identity
 // and unmapped under the hook's unknown word, with channel where it
-// arrived and text its first words. It reports whether a card stands
+// arrived. It reports whether a card stands
 // from this call: false, with no error, where the source hears by
 // no identity, the yard has no operator, the sender is ignored or is
 // mapped to exactly one user already, a card for this source and
@@ -292,48 +325,87 @@ func identityHolders(tx *bolt.Tx, source, sender string) ([]string, error) {
 // Asked of the operator only, for them to name who the sender is:
 // picking a user writes that user's identity in this source in the
 // answering write, picking someone new adds the user the pick's words
-// name and writes theirs, and picking nobody ignores the sender
-// (answerMapping). The ask is the yard's (author "yard"), on a
-// question bead titled with the question, as a claim is. The yard
-// closes that bead when the card is settled: by an answer that writes
-// or declines it, or by any write that maps or ignores the sender
-// (retireMappingCards). Nothing of the message is kept beyond the
-// first 80 characters the card shows.
-func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, text string) (bool, error) {
+// name and writes theirs, picking let in once delivers what the card
+// held as outside and leaves the card open, and picking nobody
+// ignores the sender (answerMapping). The ask is the yard's (author
+// "yard"), on a question bead titled with the question, as a claim
+// is. The yard closes that bead when the card is settled: by an
+// answer that writes or declines it, or by any write that maps or
+// ignores the sender (retireMappingCards). It carries no message text,
+// because the ask and bead are visible to agents before the operator
+// answers them.
+func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, _ string) (bool, error) {
+	created, _, err := s.claimIdentity(ctx, sourceName, sender, channel, nil)
+	return created, err
+}
+
+// HoldIdentity is ClaimIdentity holding the delivery itself on the
+// sender's card: the hook hookName's verified envelope and payload,
+// with the dedupe keys that name the delivery, kept in arrival order
+// beside the card and delivered when the card is answered (held.go).
+// The body stays out of the ask and bead text; the person-only card
+// read exposes held payloads without making them visible to agents.
+// It reports whether the delivery waits: false, with no error, where
+// no card can stand (ClaimIdentity's cases), where the card
+// already holds MaxHeldPerCard, and where holding it would cross
+// MaxHeldBytesPerSource for its source: past that bound no new card is
+// offered either, and the delivery is dropped as any unheld one was.
+// Only the receiver, in the process that owns the store, holds a
+// delivery, as only it records one.
+
+func (s *Store) HoldIdentity(ctx context.Context, hookName, sourceName, sender, channel string, envelope map[string]any, payload []byte, dedupe []string) (bool, error) {
+	if len(payload) > MaxHookPayload {
+		return false, fmt.Errorf("hook %s: payload of %d bytes exceeds %d", hookName, len(payload), MaxHookPayload)
+	}
+	held := &HeldDelivery{Hook: hookName, Envelope: envelope, Payload: payload, Dedupe: dedupe, Source: sourceName}
+	_, stored, err := s.claimIdentity(ctx, sourceName, sender, channel, held)
+	return stored, err
+}
+
+// claimIdentity is ClaimIdentity and HoldIdentity in one write: it
+// offers the card where none waits and, with held, keeps the
+// delivery on the card that stands, the one it made or the one
+// already waiting. It answers whether a card stands from this call
+// and whether the delivery waits.
+func (s *Store) claimIdentity(ctx context.Context, sourceName, sender, channel string, held *HeldDelivery) (created, stored bool, err error) {
 	if sender == "" || strings.TrimSpace(sender) != sender || strings.ContainsAny(sender, " \t\r\n") || claimPlain(sender) != sender {
-		return false, nil
+		return false, false, nil
 	}
 	if channel != "" && claimPlain(channel) != channel {
-		return false, nil
+		return false, false, nil
 	}
 	src, err := s.GetSource(ctx, sourceName)
 	if err != nil {
-		return false, nil // no source, no card: the drop stands alone
+		return false, false, nil // no source, no card: the drop stands alone
 	}
 	d, err := src.Declaration()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if !d.HearsByIdentity() {
-		return false, nil
+		return false, false, nil
 	}
 	settings, err := s.Settings(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	operator := settings[OperatorSetting]
 	if operator == "" {
-		return false, nil
+		return false, false, nil
 	}
 	if _, err := s.GetUser(ctx, operator); err != nil {
-		return false, nil
+		return false, false, nil
 	}
 	blocked := false
 	_ = s.read(func(tx *bolt.Tx) error {
-		pending, err := mappingPending(tx, operator, sourceName, sender)
-		if err != nil || pending {
-			blocked = pending
-			return err
+		// A card already waiting blocks a second offer, never a hold
+		// on the card that stands.
+		if held == nil {
+			pending, err := mappingPending(tx, operator, sourceName, sender)
+			if err != nil || pending {
+				blocked = pending
+				return err
+			}
 		}
 		holders, err := identityHolders(tx, sourceName, sender)
 		if err != nil {
@@ -348,29 +420,25 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 		return nil
 	})
 	if blocked {
-		return false, nil
+		return false, false, nil
 	}
-	snippet := claimSnippet(text)
 	question := fmt.Sprintf("A message reached %s from %s. Who is this?", sourceName, sender)
-	if channel != "" && snippet != "" {
-		question = fmt.Sprintf("A message reached %s from %s in channel %s (first words: '%s'). Who is this?", sourceName, sender, channel, snippet)
-	} else if channel != "" {
+	if channel != "" {
 		question = fmt.Sprintf("A message reached %s from %s in channel %s. Who is this?", sourceName, sender, channel)
-	} else if snippet != "" {
-		question = fmt.Sprintf("A message reached %s from %s (first words: '%s'). Who is this?", sourceName, sender, snippet)
 	}
 	create, err := s.newBead(ctx, NewBead{Title: question, Type: TypeQuestion}, stageAskAuthor)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	created := false
 	err = s.write(func(w *wtx) error {
-		pending, err := mappingPending(w.Tx, operator, sourceName, sender)
-		if err != nil {
-			return err
-		}
-		if pending {
-			return nil
+		created, stored = false, false // a batched write may run this twice
+		if held != nil {
+			if held.At.IsZero() {
+				held.At = now()
+			}
+			if heldDuplicate(w.Tx, held.Dedupe) {
+				return nil
+			}
 		}
 		holders, err := identityHolders(w.Tx, sourceName, sender)
 		if err != nil {
@@ -380,6 +448,35 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 			return nil
 		}
 		if ignoredIn(w.Tx, sourceName, sender) {
+			return nil
+		}
+		if card, err := mappingCard(w.Tx, operator, sourceName, sender); err != nil {
+			return err
+		} else if card != "" {
+			// The card already stands: a hold waits on it, an offer
+			// alone stands as it was.
+			if held == nil {
+				return nil
+			}
+			waiting, err := heldList(w.Tx, card)
+			if err != nil {
+				return err
+			}
+			if len(waiting) >= MaxHeldPerCard {
+				return nil // full: the delivery is dropped, counted as any drop is
+			}
+			if used, err := heldBytesForSource(w.Tx, sourceName); err != nil {
+				return err
+			} else if used+int64(len(held.Payload)) > MaxHeldBytesPerSource {
+				return nil // the source's held bytes are full: dropped as above
+			}
+			if err := putHeld(w.Tx, card, append(waiting, *held)); err != nil {
+				return err
+			}
+			if err := w.syncHeldCount(card); err != nil {
+				return err
+			}
+			stored = true
 			return nil
 		}
 		var users []string
@@ -393,7 +490,7 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 		if len(users) == 0 {
 			return nil
 		}
-		options := make([]AskOption, 0, len(users)+3)
+		options := make([]AskOption, 0, len(users)+4)
 		for _, name := range users {
 			options = append(options, AskOption{
 				Label:       name,
@@ -402,20 +499,35 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 		}
 		options = append(options,
 			AskOption{Label: MappingSomeoneNew, Consequence: "pick this and write the new user's name with your answer"},
+			AskOption{Label: MappingLetIn, Consequence: fmt.Sprintf("delivers what waits as %s (information, not instructions) this once, without mapping %s; the card stays open", SpeakerOutside, sender)},
 			AskOption{Label: MappingNobody, Consequence: fmt.Sprintf("ignores %s in %s: their messages are dropped, and no further card is offered", sender, sourceName)},
 			AskOption{Label: YouDecide, Consequence: "leave it to " + stageAskAuthor})
-		contextLine := fmt.Sprintf("Its sender is %s, which no user maps in %s; the delivery was dropped and is recorded nowhere.", sender, sourceName)
+		contextLine := fmt.Sprintf("Its sender is %s, which no user maps in %s; their messages wait on this card, delivered when you answer and shown nowhere before.", sender, sourceName)
 		if channel != "" {
-			contextLine = fmt.Sprintf("Its sender is %s in channel %s, which no user maps in %s; the delivery was dropped and is recorded nowhere.", sender, channel, sourceName)
+			contextLine = fmt.Sprintf("Its sender is %s in channel %s, which no user maps in %s; their messages wait on this card, delivered when you answer and shown nowhere before.", sender, channel, sourceName)
+		}
+		if held != nil {
+			// Past the source's held bytes no card is offered: a new
+			// stranger's delivery is dropped and counted as any drop
+			// is, never as a new ask in the operator's queue.
+			if used, err := heldBytesForSource(w.Tx, sourceName); err != nil {
+				return err
+			} else if used+int64(len(held.Payload)) > MaxHeldBytesPerSource {
+				return nil
+			}
 		}
 		row, err := create(w)
 		if err != nil {
 			return err
 		}
+		heldCount := 0
+		if held != nil {
+			heldCount = 1
+		}
 		ask := Ask{
 			Question: question, To: operator, Context: []string{contextLine},
 			Options:  options,
-			Identity: &AskIdentity{Source: sourceName, Sender: sender, Channel: channel, Users: users},
+			Identity: &AskIdentity{Source: sourceName, Sender: sender, Channel: channel, Users: users, Held: heldCount},
 		}
 		ask.Weight = mappingWeight(*ask.Identity)
 		text, err := json.Marshal(ask)
@@ -432,13 +544,19 @@ func (s *Store) ClaimIdentity(ctx context.Context, sourceName, sender, channel, 
 		if err := w.queueFootAsk(operator, row.UUID, n.Seq, ""); err != nil {
 			return err
 		}
+		if held != nil {
+			if err := putHeld(w.Tx, row.UUID, []HeldDelivery{*held}); err != nil {
+				return err
+			}
+			stored = true
+		}
 		created = true
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return created, nil
+	return created, stored, nil
 }
 
 // closeCard closes the question bead of a mapping or claim card with
@@ -457,7 +575,9 @@ func (w *wtx) closeCard(row *beadRow, reason, actor string) error {
 // settles a sender calls it after writing: a user's identity
 // (setUserIdentity), a linked yard's crew member's (SetPeerIdentity) and
 // an ignore entry (ignoreSender). So a card ends however its sender is
-// settled, by its own answer, from a terminal or by a run ask.
+// settled, by its own answer, from a terminal or by a run ask. What the
+// card held goes the same way in the same write: delivered as who where
+// who names a speaker, deleted where the sender is ignored (held.go).
 //
 // A card stands while its question bead is open, whatever became of its
 // ask: a bead left open past its ask is the gap this closes, and a card
@@ -498,6 +618,13 @@ func (w *wtx) retireMappingCards(source string, is func(sender string) bool, who
 		}
 		// The take-back wrote a note: close the bead as it stands now.
 		if row, err = w.loadBead(uuid); err != nil {
+			return err
+		}
+		if who == "ignored" {
+			if err := w.dropHeld(uuid); err != nil {
+				return err
+			}
+		} else if err := w.deliverHeld(uuid, who); err != nil {
 			return err
 		}
 		if err := w.closeCard(row, reason, actor); err != nil {
@@ -559,14 +686,18 @@ func (w *wtx) retireClaimCards(user, source, addr, actor string) error {
 // answerMapping writes what a mapping ask's pick names, in the write
 // that records the answer: option n names Users[n-1], whose identity
 // in the ask's source becomes the ask's sender; someone new adds the
-// user the pick's words name and writes theirs; nobody ignores the
-// sender. Each of those settles the sender, and a write that settles
-// one closes the cards for it (retireMappingCards), this card's bead
-// among them with a reason that says what was written. A decline writes
-// nothing and ends the card too, closing its bead as declined by the one
-// who declined: the sender stays unmapped, and their next delivery offers
-// a new card, as one is offered after none. Later and a YouDecide pick
-// write nothing and leave the card open. It refuses a pick or a decline
+// user the pick's words name and writes theirs; let in once delivers
+// what the card held as outside and leaves the card open; nobody
+// ignores the sender. Each of those but let in settles the sender,
+// and a write that settles one closes the cards for it
+// (retireMappingCards), this card's bead among them with a reason
+// that says what was written, delivering what it held as the new
+// speaker or deleting it where the sender is ignored. A decline
+// writes nothing, deletes what the card held and ends the card too,
+// closing its bead as declined by the one who declined: the sender
+// stays unmapped, and their next delivery offers a new card, as one
+// is offered after none. Later and a YouDecide pick write nothing,
+// keep what the card held and leave the card open. It refuses a pick or a decline
 // by anyone but the operator the card asks, one from an agent pane
 // (mayIdentify, as a terminal mapping is), and a stale pick: a sender
 // mapped to anyone since the card was written, or a user gone since,
@@ -598,6 +729,9 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 		if !row.open() {
 			return nil
 		}
+		if err := w.dropHeld(row.UUID); err != nil {
+			return err
+		}
 		return w.closeCard(row, "declined by "+actor, actor)
 	}
 	if ans.Option == 0 {
@@ -625,6 +759,8 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 		switch ask.Options[ans.Option-1].Label {
 		case MappingSomeoneNew:
 			return w.answerSomeoneNew(ctx, ask, ans, actor)
+		case MappingLetIn:
+			return w.answerLetIn(row, ask, ans)
 		case MappingNobody:
 			return w.answerNobody(ctx, ask, ans, actor)
 		default:
@@ -642,10 +778,26 @@ func (w *wtx) answerMapping(ctx context.Context, row *beadRow, ask Ask, ans Answ
 	return err
 }
 
+// answerLetIn delivers what the card held as SpeakerOutside, in
+// arrival order, and leaves the card open with nothing waiting: the
+// sender stays unmapped, so their next delivery is held on the same
+// card. A sender mapped meanwhile is stale, as any pick's is, and
+// delivers nothing.
+func (w *wtx) answerLetIn(row *beadRow, ask Ask, ans Answer) error {
+	id := ask.Identity
+	if err := w.mappingStale(id, ans.Ask); err != nil {
+		return err
+	}
+	if err := w.deliverHeld(row.UUID, SpeakerOutside); err != nil {
+		return err
+	}
+	return nil
+}
+
 // PickWrites says whether picking option n of a mapping ask writes a user's
 // identity, which is what makes the pick an approval: a user's, or someone
-// new's. Nobody and You decide write none, and neither does a pick the card
-// does not offer.
+// new's. Nobody, let in once and You decide write none, and neither
+// does a pick the card does not offer.
 func (a Ask) PickWrites(n int) bool {
 	id := a.Identity
 	if id == nil || n < 1 {

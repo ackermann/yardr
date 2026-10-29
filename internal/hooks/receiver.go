@@ -41,9 +41,13 @@ type Store interface {
 	// dropped delivery arrived from (store.ClaimAddress).
 	ClaimAddress(ctx context.Context, sourceName, address, text string) (bool, error)
 	// ClaimIdentity offers the operator a mapping card for the
-	// sender a dropped delivery heard by identity arrived from
+	// sender a held delivery heard by identity arrived from
 	// (store.ClaimIdentity).
 	ClaimIdentity(ctx context.Context, sourceName, sender, channel, text string) (bool, error)
+	// HoldIdentity holds a verified delivery from an unmapped sender
+	// on the sender's mapping card until the card is answered, and
+	// offers the card where none waits (store.HoldIdentity).
+	HoldIdentity(ctx context.Context, hookName, sourceName, sender, channel string, envelope map[string]any, payload []byte, dedupe []string) (bool, error)
 }
 
 // A refused delivery is logged as a hook_rejected event, so that a hook
@@ -191,12 +195,15 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 	// stamps it only after matching the sender to a yard user or to a
 	// crew member of a linked yard.
 	delete(env.Fields, store.SpeakerKey)
-	// A declared source that hears drops a delivery from a speaker it
-	// does not hear after verification: answered 200, so the service
-	// does not retry it, recorded nowhere, and counted in sums beside
-	// refusals, so a stranger's burst is one bounded entry. By address
-	// that is any address no user's env file sets; by identity it is
-	// the hook's Unknown word that says what an unmapped sender is.
+	// A declared source that hears sets a delivery from a speaker it
+	// does not hear aside after verification: answered 200, so the
+	// service does not retry it, and counted in sums beside refusals,
+	// so a stranger's burst is one bounded entry. By address it is
+	// dropped, recorded nowhere, for any address no user's env file
+	// sets; by identity the hook's Unknown word says what an
+	// unmapped sender is, and under unknown their delivery is held
+	// on the sender's mapping card, delivered only when the card is
+	// answered and recorded nowhere until then.
 	if dec, ok := ad.(Declared); ok && dec.D.Hear != nil {
 		if dec.D.Hear.ByIdentity() {
 			speaker, mapped := rc.speaker(r.Context(), dec.D, env)
@@ -228,20 +235,32 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 				rc.count("stranger")
 				rc.refuse(h, name, "stranger", http.StatusOK)
 				if h.UnknownPolicy() == store.HookUnknownUnknown {
-					// Offer the operator a mapping card for the sender
-					// it arrived from: who this sender is, for them to
-					// map to a user of the yard. Where none can be
-					// offered (no operator, one waiting for this
-					// sender already) the drop stands as it was,
-					// answered 200 either way. Under ignore no card
-					// is offered at all, and under allow none is
-					// needed: the sender is heard as outside.
+					// Hold the delivery on the operator's mapping
+					// card for the sender it arrived from: who this
+					// sender is, for them to map to a user of the
+					// yard, with the delivery delivered only when
+					// the card is answered. Where no card can stand
+					// (no operator, none to offer) or the card
+					// already holds as many as it may, the delivery
+					// is dropped as it was, answered 200 either
+					// way. Under ignore no card is offered at all,
+					// and under allow none is needed: the sender is
+					// heard as outside.
+					// A source whose bodies repeat needs its own delivery
+					// id to distinguish a retry from a new message. This
+					// branch returns before the check below because unknown
+					// drops need no id; leave a missing-id delivery dropped
+					// instead of holding copies that cannot be deduped.
+					if delivery == "" && ad.Bodies() == BodiesRepeat {
+						writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
+						return
+					}
 					if values := env.Fields[dec.D.Hear.Field]; len(values) > 0 && values[0] != "" {
 						channel := ""
 						if cs := env.Fields["channel"]; len(cs) > 0 {
 							channel = cs[0]
 						}
-						if _, err := rc.st.ClaimIdentity(r.Context(), dec.D.Name, values[0], channel, env.Text); err != nil {
+						if _, err := rc.st.HoldIdentity(r.Context(), name, dec.D.Name, values[0], channel, env.Map(), body, DedupeKeys(name, h.Source, ad, body, delivery)); err != nil {
 							rc.log.Warn("mapping card not offered", "hook", name, "source", dec.D.Name, "err", err)
 						}
 					}

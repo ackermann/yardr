@@ -27,7 +27,6 @@
 package store
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -129,12 +128,13 @@ type Ask struct {
 	DepotPush *AskDepotPush `json:"depot_push,omitempty"`
 	// Identity makes the ask a mapping ask: who an unmapped sender in
 	// a source hearing by identity is, asked of the operator when a
-	// delivery from them is dropped under unknown. Its options are
+	// delivery from them is held under unknown. Its options are
 	// the yard's users, each naming the identity its pick writes,
-	// then someone new, whom the pick's words name, and nobody, who
-	// is ignored, with YouDecide last; a pick writes in the answering
-	// write (addAnswer). It is written by ClaimIdentity alone, from a
-	// dropped delivery, never by AddAsk, and stays in the yard as a
+	// then someone new, whom the pick's words name, let in once, and
+	// nobody, who is ignored, with YouDecide last; a pick writes in
+	// the answering write (addAnswer) and delivers or deletes what
+	// the card held. It is written by ClaimIdentity alone, from a
+	// held delivery, never by AddAsk, and stays in the yard as a
 	// run ask does.
 	Identity *AskIdentity `json:"identity,omitempty"`
 	// Weight is the card's weight (weight.go): the classes by which
@@ -153,20 +153,26 @@ type Ask struct {
 // of the ask's options before someone new, nobody and YouDecide:
 // picking option n writes Users[n-1]'s identity. The card holds the
 // sender as unmapped when it was written; a sender mapped to anyone
-// meanwhile makes its pick stale and nothing is written.
+// meanwhile makes its pick stale and nothing is written. Held is
+// how many deliveries wait on the card (held.go), kept current by
+// the write that holds or releases them; their bodies are never in
+// the ask.
 type AskIdentity struct {
 	Source  string   `json:"source"`
 	Sender  string   `json:"sender"`
 	Channel string   `json:"channel,omitempty"`
 	Users   []string `json:"users"`
+	Held    int      `json:"held,omitempty"`
 }
 
 // IdentityAsked is what a mapping ask maps, as a client shows it:
-// the source, the sender's id in it and the channel it arrived in.
+// the source, the sender's id in it and the channel it arrived in,
+// with how many held deliveries wait on the card.
 type IdentityAsked struct {
 	Source  string `json:"source"`
 	Sender  string `json:"sender"`
 	Channel string `json:"channel,omitempty"`
+	Held    int    `json:"held,omitempty"`
 }
 
 // identityAsked is what the ask a maps, as a client shows it, nil
@@ -175,7 +181,7 @@ func (a Ask) identityAsked() *IdentityAsked {
 	if a.Identity == nil {
 		return nil
 	}
-	return &IdentityAsked{Source: a.Identity.Source, Sender: a.Identity.Sender, Channel: a.Identity.Channel}
+	return &IdentityAsked{Source: a.Identity.Source, Sender: a.Identity.Sender, Channel: a.Identity.Channel, Held: a.Identity.Held}
 }
 
 // Answer is the JSON of a note of kind answer: what one person did with
@@ -1207,6 +1213,15 @@ func (s *Store) TakeBackAsk(ctx context.Context, id string, seq uint64, reason, 
 		if _, err = w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
 			return err
 		}
+		// A mapping card taken back ends without an answer: what it
+		// held goes with it, as it does when its bead closes. A settle
+		// takes its cards back beside its own delivery (takeBackStage
+		// in retireMappingCards), never through here.
+		if r.Ask.Identity != nil {
+			if err := w.dropHeld(row.UUID); err != nil {
+				return err
+			}
+		}
 		return w.settleCopies(row, ans, nil, "")
 	})
 }
@@ -1304,6 +1319,12 @@ func ResolveAsks(notes []Note, now time.Time) []ResolvedAsk {
 					}
 					r.State, current = AskAside, len(r.Answers)-1
 					r.ReturnAt = m.At.Add(LaterFor)
+				case isLetIn(r.Ask, a):
+					// Let in once delivers what the card held and
+					// leaves the card open for the sender's next
+					// message: the pick is recorded, but it answers
+					// nothing, so the ask stays as it was.
+					continue
 				default:
 					r.State, current = AskAnswered, len(r.Answers)-1
 				}
@@ -1317,6 +1338,16 @@ func ResolveAsks(notes []Note, now time.Time) []ResolvedAsk {
 	return out
 }
 
+// isLetIn reports whether answer a picks let in once on the mapping
+// ask ask: the one pick that delivers what the card held without
+// answering it (answerMapping).
+func isLetIn(ask Ask, a Answer) bool {
+	if ask.Identity == nil || a.Option < 1 || a.Option > len(ask.Options) {
+		return false
+	}
+	return ask.Options[a.Option-1].Label == MappingLetIn
+}
+
 // laterBack reports whether a put-aside ask has come back: its 24 hours
 // are over, or the asker wrote on the bead after it was put aside.
 func laterBack(asker string, notes []Note, later Note, now time.Time) bool {
@@ -1326,63 +1357,6 @@ func laterBack(asker string, notes []Note, later Note, now time.Time) bool {
 	return slices.ContainsFunc(notes, func(n Note) bool {
 		return n.Author == asker && n.Seq > later.Seq
 	})
-}
-
-// WriterAsk is one open ask as a row of its writer's list: the question in
-// plain words, who must answer, its state and how long it has stood, with
-// the bead it stands on. What the card shows beyond the row (context,
-// options, recommendation) is read on the bead.
-type WriterAsk struct {
-	Bead string `json:"bead"`
-	// Ask is the ask note's seq: what an answer names.
-	Ask      uint64    `json:"ask"`
-	To       string    `json:"to"`
-	Question string    `json:"question"`
-	State    string    `json:"state"` // open, or put aside
-	Since    time.Time `json:"since"`
-	// Session is the crew session that asked: the user of a conversation
-	// session, "" for the line's and for every ask written elsewhere.
-	Session string `json:"session,omitempty"`
-}
-
-// WriterAsks reads the writer's open asks: every ask they wrote that still
-// waits, on beads the viewer may see open or closed and of any type, oldest
-// first. An omitted viewer is the yard itself. Closing a bead
-// does not answer its asks, so a closed bead's still-open asks are listed;
-// answered, declined and taken-back asks are not. A put-aside ask is listed
-// with its state until it comes back.
-func (s *Store) WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error) {
-	// An ask stands on a journal or a memory as on any bead, though a
-	// listing leaves those out unless it keeps the knowledge beads: this
-	// walk keeps them, as UserAsks does, so the writer's list and the
-	// person's queue read the same beads.
-	beads, err := s.ListBeads(ctx, BeadFilter{All: true, Knowledge: true, Viewer: firstViewer(viewer)})
-	if err != nil {
-		return nil, err
-	}
-	now := now()
-	out := []WriterAsk{}
-	for _, b := range beads {
-		notes, err := s.Notes(ctx, b.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, r := range ResolveAsks(notes, now) {
-			if r.AskErr != nil || r.Note.Author != writer {
-				continue
-			}
-			if r.State != AskOpen && r.State != AskAside {
-				continue
-			}
-			out = append(out, WriterAsk{
-				Bead: b.ID, Ask: r.Note.Seq, To: r.Ask.To,
-				Question: r.Ask.Question, State: r.State.String(), Since: r.Note.At,
-				Session: r.Note.Session,
-			})
-		}
-	}
-	slices.SortStableFunc(out, func(a, b WriterAsk) int { return cmp.Compare(a.Ask, b.Ask) })
-	return out, nil
 }
 
 // beadNotes reads the bead's notes in seq order, mapping the bead to its
@@ -1524,6 +1498,11 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 		// from it too; where "says:" stands the asker's mark is mid-line
 		// and stays.
 		out = append(out, "  "+WithoutWeightMark(line))
+	}
+	if r.Ask.Identity != nil {
+		if line := heldLine(r.Ask.Identity.Held); line != "" {
+			out = append(out, "  "+line)
+		}
 	}
 	switch {
 	case r.Ask.Run != nil && r.State == AskAnswered:

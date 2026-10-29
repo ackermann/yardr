@@ -165,6 +165,9 @@ func (c *Client) AddAnswerExpected(ctx context.Context, id string, ans store.Ans
 func (c *Client) UserAsks(ctx context.Context, name, actor string, viewer ...string) (*store.AskQueue, error) {
 	return callV[*store.AskQueue](c, ctx, "UserAsks", name, actor, viewer)
 }
+func (c *Client) IdentityHeldPayloads(ctx context.Context, bead string, ask uint64, actor string) ([]string, error) {
+	return callV[[]string](c, ctx, "IdentityHeldPayloads", bead, ask, actor)
+}
 func (c *Client) WriterAsks(ctx context.Context, writer string, viewer ...string) ([]store.WriterAsk, error) {
 	return callV[[]store.WriterAsk](c, ctx, "WriterAsks", writer, viewer)
 }

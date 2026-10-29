@@ -49,7 +49,9 @@ every hour.
 The newest event and anything since the oldest live session started are kept
 whatever their age, and so is an event a running crew member has not read yet,
 for up to the inbox retention (180d, or YARDR_INBOX_RETENTION); a stopped or
-disabled crew member holds nothing back.
+disabled crew member holds nothing back. A delivery held on a mapping card
+goes at the hook-payload age too, and a card it leaves holding nothing
+closes; a card that never held anything stays open.
 
 What a link keeps of its messages goes at the age of events too, but never
 younger than 7 days: the ids of the messages taken from a peer, by which one
@@ -91,6 +93,9 @@ The file does not shrink until it is compacted (yardr store compact).`,
 			}
 			return a.out(c.OutOrStdout(), res, func(w io.Writer) {
 				fmt.Fprintf(w, "pruned %d events, %d sessions, %d webhook bodies\n", res.Events, res.Sessions, res.HookPayloads)
+				if res.Held > 0 {
+					fmt.Fprintf(w, "  %d held messages past their retention, %d mapping cards closed\n", res.Held, res.HeldCards)
+				}
 				if res.Blobs > 0 {
 					fmt.Fprintf(w, "  %d images no mail names any more\n", res.Blobs)
 				}

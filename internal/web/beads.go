@@ -648,6 +648,8 @@ type BeadPage struct {
 	// first, as the socket's Bead reads them: the page answers them with
 	// buttons. Empty without --as.
 	Asks []store.BeadAsk `json:"asks,omitempty"`
+	// HeldPayloads are identity card bodies visible only to the addressed person.
+	HeldPayloads map[uint64][]string `json:"-"`
 	// Moves are what the user the view acts as may do with the bead, as
 	// `yardr review` offers them: the outcomes its flow names for the
 	// stage, else the stages it allows next. Empty without --as, and
@@ -825,10 +827,8 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 				d.Moves = moves
 			}
 		}
-		if asks, err := s.openBeadAsks(ctx, b.ID); err != nil {
+		if err := s.loadBeadPageAsks(ctx, d, b.ID, as); err != nil {
 			return nil, err
-		} else {
-			d.Asks = asks
 		}
 	}
 	blockers, err := s.st.OpenBlockers(ctx, b.ID)

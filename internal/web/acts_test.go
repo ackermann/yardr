@@ -151,6 +151,9 @@ func mappingActYard(t *testing.T) (*fixture, *store.Bead, uint64) {
 	if !created {
 		t.Fatal("ClaimIdentity offered no card")
 	}
+	if _, err := own.HoldIdentity(ctx, "talk", "talk", "U777", "C1", map[string]any{"text": "held-body-marker"}, []byte("held-body-marker"), nil); err != nil {
+		t.Fatal(err)
+	}
 	q, err := f.st.UserAsks(ctx, "mckean", "mckean")
 	must(t, err)
 	for _, o := range q.Open {
@@ -865,10 +868,15 @@ func TestBeadMappingWeightyCard(t *testing.T) {
 	ctx := context.Background()
 	ask := strconv.FormatUint(seq, 10)
 	r := f.get("/beads/" + b.ID)
+	if apiPage := f.get("/beads/"+b.ID, "Accept", "application/json"); strings.Contains(apiPage.body, "held-body-marker") {
+		t.Fatalf("the page JSON carries the held body: %s", apiPage.body)
+	}
 	for _, want := range []string{
 		`<h3 class="label">asks for mckean</h3>`,
 		`<p class="weighty">WEIGHTY · as-user: lets calls or words count as a person&#39;s: a pick says which user U777 in talk is, and a delivery from them is then heard as that user&#39;s</p>`,
-		`A message reached talk from U777 in channel C1 (first words: &#39;hi&#39;). Who is this?`,
+		`A message reached talk from U777 in channel C1. Who is this?`,
+		`<h4 class="label">Held messages · 1</h4>`,
+		`<pre class="text held-payload">held-body-marker</pre>`,
 		`<li><span>1. ada</span>`,
 		`<li><span>2. mckean</span>`,
 		`This card is weighty and this window has no gate. Approve it in footplate, or in a terminal on the yard's machine:`,

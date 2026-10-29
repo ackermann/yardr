@@ -64,6 +64,7 @@ type API interface {
 	// cannot both answer from the same page.
 	AddAnswerExpected(ctx context.Context, id string, ans Answer, actor, revision string) error
 	UserAsks(ctx context.Context, name, actor string, viewer ...string) (*AskQueue, error)
+	IdentityHeldPayloads(ctx context.Context, bead string, ask uint64, actor string) ([]string, error)
 	WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error)
 	Bead(ctx context.Context, id string, viewer ...string) (*BeadView, error)
 	// ETACell and BeadStays are the figures an estimate is computed

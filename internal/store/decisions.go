@@ -130,6 +130,63 @@ type AskQueue struct {
 	Decided []DecidedAsk `json:"decided"`
 }
 
+// WriterAsk is one open ask as a row of its writer's list: the question in
+// plain words, who must answer, its state and how long it has stood, with
+// the bead it stands on. What the card shows beyond the row (context,
+// options, recommendation) is read on the bead.
+type WriterAsk struct {
+	Bead string `json:"bead"`
+	// Ask is the ask note's seq: what an answer names.
+	Ask      uint64    `json:"ask"`
+	To       string    `json:"to"`
+	Question string    `json:"question"`
+	State    string    `json:"state"` // open, or put aside
+	Since    time.Time `json:"since"`
+	// Session is the crew session that asked: the user of a conversation
+	// session, "" for the line's and for every ask written elsewhere.
+	Session string `json:"session,omitempty"`
+}
+
+// WriterAsks reads the writer's open asks: every ask they wrote that still
+// waits, on beads the viewer may see open or closed and of any type, oldest
+// first. An omitted viewer is the yard itself. Closing a bead
+// does not answer its asks, so a closed bead's still-open asks are listed;
+// answered, declined and taken-back asks are not. A put-aside ask is listed
+// with its state until it comes back.
+func (s *Store) WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error) {
+	// An ask stands on a journal or a memory as on any bead, though a
+	// listing leaves those out unless it keeps the knowledge beads: this
+	// walk keeps them, as UserAsks does, so the writer's list and the
+	// person's queue read the same beads.
+	beads, err := s.ListBeads(ctx, BeadFilter{All: true, Knowledge: true, Viewer: firstViewer(viewer)})
+	if err != nil {
+		return nil, err
+	}
+	now := now()
+	out := []WriterAsk{}
+	for _, b := range beads {
+		notes, err := s.Notes(ctx, b.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range ResolveAsks(notes, now) {
+			if r.AskErr != nil || r.Note.Author != writer {
+				continue
+			}
+			if r.State != AskOpen && r.State != AskAside {
+				continue
+			}
+			out = append(out, WriterAsk{
+				Bead: b.ID, Ask: r.Note.Seq, To: r.Ask.To,
+				Question: r.Ask.Question, State: r.State.String(), Since: r.Note.At,
+				Session: r.Note.Session,
+			})
+		}
+	}
+	slices.SortStableFunc(out, func(a, b WriterAsk) int { return cmp.Compare(a.Ask, b.Ask) })
+	return out, nil
+}
+
 // UserAsks reads the person's queue: every open ask addressed to them, on
 // beads the viewer may see in any stage and of any type (a crew journal
 // holds the yard's own asks) and from the linked yards, oldest first, with
