@@ -423,6 +423,8 @@ or decline it. The command is one of a fixed list:
 | `timer rm <id>` | another's timer removed, and what it would have told | whoever can add it back; the card says who, or that no one can |
 | `up` | everything the yard needs that is not running started, and what runs left alone; safe to repeat, so an approval is never stale | anyone, with `down` |
 | `crew restart <name> [--for <user>]` | a fresh session of the crew member once the current one is idle; with `--for`, of its conversation session for the user | no one: a requested restart cannot be taken back |
+| `depot test <depot>` | a depot's test command changed, to the command `--run-test` carries beside the ask: the card shows the depot, the command now and the proposed one whole | only the operator, with another card carrying the old command, which the card names |
+| `depot base <depot> <base>` | the base bead branches of the depot start from | only the operator, with the base that stood, which the card names |
 
 A crew member or user can also file a depot-push card: `yardr bead ask
 <id> "<question>" --depot-push <depot>` turns a depot's push to its HTTPS

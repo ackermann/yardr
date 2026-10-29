@@ -505,6 +505,8 @@ func TestRunListIsTheCLIs(t *testing.T) {
 		"yardr timer rm <id>":                          {"timer rm t1"},
 		"yardr up":                                     {"up"},
 		"yardr crew restart <name> [--for <user>]":     {"crew restart yardmaster"},
+		"yardr depot test <depot>":                     {"depot test web"},
+		"yardr depot base <depot> <base>":              {"depot base web origin/other"},
 	}
 	if len(asks) != len(store.RunCommands()) {
 		t.Errorf("this test has asks for %d commands, and the list has %d", len(asks), len(store.RunCommands()))
@@ -663,6 +665,57 @@ func TestRunListIsTheCLIs(t *testing.T) {
 				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", true, nil)
 				if err != nil || done.Result != "approved, to be carried out" {
 					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				continue
+			}
+			if use == "yardr depot test <depot>" || use == "yardr depot base <depot> <base>" {
+				ctx := context.Background()
+				// A depot change runs in its own write, and there is no CLI
+				// verb to type (the row is the only way in), so there is no
+				// typed state to compare: the row is held to its card, which
+				// has no command help to match, its recorded approval, and
+				// the depot as the approval left it.
+				if err := approved.st.PutDepot(ctx, store.Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "jo"); err != nil {
+					t.Fatal(err)
+				}
+				runAsk := &store.AskRun{Argv: []string{command}}
+				wantDescription, wantResult, weighed := "Change a depot's base", "depot web: base origin/other", false
+				if use == "yardr depot test <depot>" {
+					runAsk.Test = "go test ./... && go vet ./..."
+					wantDescription, wantResult, weighed = "Change a depot's test command", "depot web: test: go test ./... && go vet ./...", true
+				}
+				seq, err := approved.st.AddAsk(ctx, ab.ID, store.Ask{Question: "Run it?", To: "jo", Context: []string{"why"},
+					Run: runAsk}, "yardmaster")
+				if err != nil {
+					t.Fatalf("%s: %v", use, err)
+				}
+				notes, err := approved.st.Notes(ctx, ab.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var description string
+				for _, asked := range store.ResolveAsks(notes, time.Now()) {
+					if asked.Note.Seq == seq && asked.Ask.Run != nil {
+						description = asked.Ask.Run.Description
+					}
+				}
+				if description != wantDescription {
+					t.Errorf("%s card description %q, want %q", use, description, wantDescription)
+				}
+				done, err := approved.st.ApproveAsk(ctx, ab.ID, seq, "jo", weighed, nil)
+				if err != nil || done.Result != wantResult {
+					t.Fatalf("%s approval = %+v, %v", use, done, err)
+				}
+				d, err := approved.st.GetDepot(ctx, "web")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if use == "yardr depot test <depot>" {
+					if d.Test != "go test ./... && go vet ./..." || d.Base != "origin/main" || d.Path != "/srv/web" {
+						t.Fatalf("%s: the depot holds %+v", use, d)
+					}
+				} else if d.Base != "origin/other" || d.Test != "make test" || d.Path != "/srv/web" {
+					t.Fatalf("%s: the depot holds %+v", use, d)
 				}
 				continue
 			}
@@ -1122,6 +1175,120 @@ func TestBeadAskRunSourceAdd(t *testing.T) {
 	}
 	if _, err := y.st.GetSource(context.Background(), "wired"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// bead ask --run "depot test <depot>" carries --run-test beside the ask,
+// since --run quotes nothing; prime shows the card with the depot, the
+// command now and the proposed one whole, and the weighed approval sets
+// exactly that. --run "depot base <depot> <base>" rides argv, and approves
+// routine. A change between ask and approval makes it stale, and a crew
+// member's depot add --test stays refused.
+func TestBeadAskRunDepotTestAndBase(t *testing.T) {
+	t.Parallel()
+	key := airyKey(t)
+	y, b := runYardCLI(t, "mac", key)
+	ctx := context.Background()
+	if err := y.st.PutDepot(ctx, store.Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	const proposed = `go test ./... && go vet ./... | tee 'out.log'`
+	out, err := y.as(t, "yardmaster", "ask", b.ID, "Change the test command?",
+		"--context", "the depot learned to vet itself", "--run", "depot test web", "--run-test", proposed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ask 1 on " + b.ID + " for jo: to approve, yardr depot test web\n"; out != want {
+		t.Fatalf("bead ask --run depot test printed %q, want %q", out, want)
+	}
+	shown, err := run(t, y.a.primeCmd(), "--bead", b.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"the yard says: the test command of the depot web becomes " + proposed + " (now: make test).",
+		"only the operator can take it back: yardr bead ask <bead>",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("prime lacks %q:\n%s", want, shown)
+		}
+	}
+	// With no terminal the weighty approval is declined, not approved.
+	noTerm := y.a.beadCmd()
+	noTerm.SetIn(strings.NewReader("1\n"))
+	if _, err := run(t, noTerm, "answer", b.ID, "1", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "is weighty (code)") {
+		t.Fatalf("approving with no terminal = %v", err)
+	}
+	out, err = y.as(t, "jo", "answer", b.ID, "1", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "depot web: test: "+proposed) {
+		t.Fatalf("the approval printed:\n%s", out)
+	}
+	if out, err := run(t, y.a.depotCmd(), "show", "web"); err != nil || !strings.Contains(out, "test:  "+proposed+"\n") {
+		t.Fatalf("depot show = %q, %v", out, err)
+	}
+
+	// A change between ask and approval makes it stale; nothing runs.
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Change it again?",
+		"--context", "why", "--run", "depot test web", "--run-test", "just test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.st.PutDepot(ctx, store.Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.as(t, "jo", "answer", b.ID, "3", "--approve"); err == nil ||
+		!strings.Contains(err.Error(), "was written when the test command of the depot web was another") {
+		t.Fatalf("approving stale = %v", err)
+	}
+	if d, err := y.st.GetDepot(ctx, "web"); err != nil || d.Test != "make test" {
+		t.Fatalf("the refused approval set %+v, %v", d, err)
+	}
+
+	// The base rides argv, and approves with no terminal: routine.
+	if _, err := y.as(t, "yardmaster", "ask", b.ID, "Move the base?",
+		"--context", "main moved", "--run", "depot base web origin/other"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, y.a.beadCmd(), "answer", b.ID, "4", "--approve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "depot web: base origin/other") {
+		t.Fatalf("the base approval printed:\n%s", out)
+	}
+	if out, err := run(t, y.a.depotCmd(), "show", "web"); err != nil || !strings.Contains(out, "base:  origin/other\n") {
+		t.Fatalf("depot show = %q, %v", out, err)
+	}
+
+	// --run-test goes with --run "depot test <depot>", and that ask
+	// carries its command in it.
+	for _, c := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no --run", []string{"ask", b.ID, "x", "--context", "why", "--run-test", "make test"}, "--run-test is the command"},
+		{"another --run", []string{"ask", b.ID, "x", "--context", "why", "--run", "peer allow airy --mail-limit 300", "--run-test", "make test"}, "--run-test is the command"},
+		{"no --run-test", []string{"ask", b.ID, "x", "--context", "why", "--run", "depot test web"}, "carries its command beside the ask"},
+	} {
+		if _, err := y.as(t, "yardmaster", c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s = %v, want %q", c.name, err, c.want)
+		}
+	}
+
+	// A crew member's depot add --test is still refused, as today.
+	dir := t.TempDir()
+	if err := y.st.PutDepot(ctx, store.Depot{Name: "docs", Path: dir, Kind: store.DepotDir, Test: "make test"}, "jo"); err != nil {
+		t.Fatal(err)
+	}
+	y.a.actor = "yardmaster"
+	defer func() { y.a.actor = "jo" }()
+	if _, err := run(t, y.a.depotCmd(), "add", "docs", dir, "--kind", "dir", "--test", "other"); err == nil ||
+		!strings.Contains(err.Error(), "only the operator (jo) may change a depot's test command; this is yardmaster") {
+		t.Fatalf("depot add --test as yardmaster = %v", err)
 	}
 }
 

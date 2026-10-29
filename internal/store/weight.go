@@ -481,6 +481,13 @@ func hookAddWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	return []AskWeight{weighs(WeightTrust, fmt.Sprintf("POST /hooks/%s takes deliveries from outside the yard for the source %s", name, src))}, nil
 }
 
+// depotTestWeight weighs a depot test: the command the yard will run as
+// the depot's test, wherever a script group's command gets it and a
+// builder's prime prints it.
+func depotTestWeight(w *wtx, run AskRun) ([]AskWeight, error) {
+	return []AskWeight{weighs(WeightCode, fmt.Sprintf("the test command of the depot %s: a bead's prime prints it, and a script group's command gets it as YARDR_TEST", run.Argv[2]))}, nil
+}
+
 // userKeyWeight weighs a user key: it gives the yard a user's address.
 func userKeyWeight(w *wtx, run AskRun) ([]AskWeight, error) {
 	user, src := userKeyOf(run.Argv)

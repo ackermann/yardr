@@ -844,6 +844,8 @@ agent's help, until `yardr user device rm`. Row by row:
 | `timer rm <id>`: a timer removed | What the timer would have told is not told |
 | `up`: the yard started | Herdr's server, the yard's server and the daemon start where they are not running, with the web view and the BDP server where their addresses are set, and what runs already is left alone. Taken back by `down` |
 | `crew restart <name> [--for <user>]`: a crew member's session restarted | A fresh session starts once the current one is idle, of the line session or, with `--for`, of one conversation. A requested restart cannot be taken back |
+| `depot test <depot>`: a depot's test command changed | The holder's command stands as what tests the depot: a script group's command gets it as YARDR_TEST, and builders' primes tell them to run it. Only the operator takes it back, with another card carrying the command that stood |
+| `depot base <depot> <base>`: a depot's base changed | Bead branches of the depot start from the holder's base instead. Only the operator takes it back, with the base that stood |
 
 A setup approval is no run ask, and gives a holder nothing past what one
 decision carries: an embedded pack of sources applied (the `pack apply`

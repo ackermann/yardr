@@ -932,9 +932,10 @@ func declareSlackSource(ctx context.Context, api store.API) error {
 	return err
 }
 
-// Changing an existing depot's path, test command or base is the
-// operator's alone; adding a depot, and re-adding one with all three
-// unchanged, are anyone's, recorded as the pane's actor from a pane.
+// Changing an existing depot's path is the operator's alone; its test
+// command or base is the operator's, and a run ask may propose it.
+// Adding a depot, and re-adding one with all three unchanged, are
+// anyone's, recorded as the pane's actor from a pane.
 func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 	t.Parallel()
 	depotYard := func(t *testing.T) (store.API, *store.Store, context.Context) {
@@ -951,6 +952,14 @@ func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 		"change a depot's test command": {Name: "yard", Path: "/srv/yard", Base: "origin/main", Test: "make test"},
 		"change a depot's base":         {Name: "yard", Path: "/srv/yard", Base: "origin/other"},
 	}
+	// The test command and the base may be proposed on a run ask; the
+	// path stays the operator's alone.
+	marks := map[string]store.AskClass{
+		"change a depot's path":         store.Alone,
+		"change a depot's test command": store.Askable,
+		"change a depot's base":         store.Askable,
+	}
+	markWord := map[store.AskClass]string{store.Alone: "alone", store.Askable: "askable"}
 	api, own, ctx := depotYard(t)
 	head, err := api.Head(ctx)
 	if err != nil {
@@ -966,8 +975,8 @@ func TestPutDepotPathTestBaseChangesAreTheOperators(t *testing.T) {
 		// it is asked of the store behind the API.
 		if err := own.PutDepot(ctx, r, "yardmaster"); err == nil {
 			t.Errorf("%s as yardmaster through own = nil", does)
-		} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != store.Alone {
-			t.Errorf("%s as yardmaster = %v (mark %v, %v), want an operator-only refusal marked alone", does, err, ask, ok)
+		} else if ask, ok := store.IsOperatorOnly(err); !ok || ask != marks[does] {
+			t.Errorf("%s as yardmaster = %v (mark %v, %v), want an operator-only refusal marked %s", does, err, ask, ok, markWord[marks[does]])
 		}
 	}
 	if now, _ := api.Head(ctx); now != head {

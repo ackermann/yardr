@@ -140,7 +140,7 @@ func TestRunAskIsStoredInTheYardsForm(t *testing.T) {
 func TestRunAskRefusals(t *testing.T) {
 	// Sequential: the package's fake clock (via newAskYard).
 	y, _ := runYard(t)
-	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>]" + "): anything else is run directly, or typed by the operator in a terminal"
+	const list = "--run takes a command of the list (" + "yardr peer allow <peer> --send <kinds> | --receive <kinds> | --mail-limit <n>, yardr peer intake <peer> --depot <depot> --flow <flow> [--limit <n>] [--default], yardr peer identity <peer> <crew> --source <source> --id <id>, yardr source set <source> calls_per_hour=<n>|updates_per_hour=<n>, yardr source grant <source> read|<call>|--preset <preset> --group <group>|--crew <crew member> [--as <user>], yardr source add <file>, yardr source ignore <source> --rm <id>, yardr source check <source> --user <user>, yardr pack apply <name>, yardr hook add <name> --source <declared source> [--unknown unknown|allow|ignore], yardr subscribe <user> yardr [--done] [--where <key>=<value>], yardr user set <user> tell=<parts>, yardr user key <user> <source>, yardr user add <name>, yardr user rm <name>, yardr user invite <name> --email <address> [--role operator], yardr user uninvite <name>, yardr crew set <name> open_threads=<sources> | set_state=<sources> | peers=<peers>, yardr crew identity <name> --source <source> [--id <id>] [--key <key>], yardr user identity <user> --source <source> [--id <id>] [--key <key>], yardr settings set <key> <value>, yardr peer rename <old> <new>, yardr bead update <bead> --originator <user>, yardr timer rm <id>, yardr up, yardr crew restart <name> [--for <user>], yardr depot test <depot>, yardr depot base <depot> <base>" + "): anything else is run directly, or typed by the operator in a terminal"
 	for _, c := range []struct {
 		name  string
 		ask   func(a *Ask)
@@ -789,5 +789,347 @@ func TestRunAskCardForgedLinesStandDeeper(t *testing.T) {
 	}
 	if slices.Contains(flat, "  the yard says: paint it.") {
 		t.Fatalf("a forged line stands at the yard's column:\n%s", strings.Join(flat, "\n"))
+	}
+}
+
+// depotTestAsk files a depot test ask carrying proposed, on a yard whose
+// depot web is a git depot with the test command standing.
+func depotTestAsk(y *askYard, t *testing.T, standing, proposed string) uint64 {
+	t.Helper()
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: standing}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	return y.ask(t, Ask{Question: "Change the test command?", To: "mckean",
+		Context: []string{"the depot learned to vet itself"},
+		Run:     &AskRun{Argv: []string{"depot test web"}, Test: proposed}}, "yardmaster")
+}
+
+// A depot test ask is stored with the depot, its test command now and the
+// proposed one, each whole and verbatim, whatever the asker sent for the
+// yard's sentences, and weighs code: the command the yard will run.
+func TestDepotTestAskCard(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	const old = `make test && echo 'old | command'`
+	const proposed = `go test ./... && go vet ./... | tee 'out.log'`
+	seq := depotTestAsk(y, t, old, proposed)
+	got := y.asked(t, seq)
+	want := AskRun{
+		Argv:        []string{"depot", "test", "web"},
+		Description: "Change a depot's test command",
+		Does:        []string{"the test command of the depot web becomes " + proposed + " (now: " + old + ")."},
+		Back:        `yardr bead ask <bead> "<question>" --run "depot test web" --run-test "<the old command above>"`,
+		BackBy:      "only the operator",
+		Seen:        map[string]string{"depot web": seen(old)},
+		Test:        proposed,
+	}
+	run := *got.Ask.Run
+	if !slices.Equal(run.Argv, want.Argv) || run.Description != want.Description || !slices.Equal(run.Does, want.Does) ||
+		run.Back != want.Back || run.BackBy != want.BackBy || !sameMap(run.Seen, want.Seen) || run.Test != want.Test {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	weight := []AskWeight{{Class: WeightCode, Line: "brings a program the yard will run: the test command of the depot web: a bead's prime prints it, and a script group's command gets it as YARDR_TEST"}}
+	if !slices.Equal(got.Ask.Weight, weight) {
+		t.Fatalf("the ask weighs %+v, want %+v", got.Ask.Weight, weight)
+	}
+	card := strings.Join(got.Lines(), "\n")
+	for _, want := range []string{proposed, "(now: " + old + ")", WeightMark + "code: brings a program the yard will run"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the card lacks %q:\n%s", want, card)
+		}
+	}
+
+	// A depot with no test command reads as none set.
+	y2, _ := runYard(t)
+	seq = depotTestAsk(y2, t, "", "make test")
+	run = *y2.asked(t, seq).Ask.Run
+	if !slices.Equal(run.Does, []string{"the test command of the depot web becomes make test (now: none set)."}) ||
+		run.Back != "clear the depot's test command in a terminal" || run.BackBy != "only the operator" {
+		t.Fatalf("the card says %+v", run)
+	}
+}
+
+// A depot test ask is refused, storing nothing, for what the row refuses:
+// a depot the yard has not, no carried command, one past what a card
+// shows whole or with a line break in it, one that would change nothing,
+// and from the operator, who runs it themselves. Nothing of the command
+// goes through argv: shell characters there are refused as ever.
+func TestDepotTestRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	ask := func(argv []string, test string) Ask {
+		return Ask{Question: "Change the test command?", To: "mckean",
+			Context: []string{"why"}, Run: &AskRun{Argv: argv, Test: test}}
+	}
+	for _, c := range []struct {
+		name  string
+		argv  []string
+		test  string
+		actor string
+		want  string
+	}{
+		{"unknown depot", []string{"depot test north"}, "make test", "yardmaster", "depot north: not found"},
+		{"no carried command", []string{"depot test web"}, "", "yardmaster", "carries no command"},
+		{"a blank command", []string{"depot test web"}, "   ", "yardmaster", "carries no command"},
+		{"past the bound", []string{"depot test web"}, strings.Repeat("a", MaxRunDepotTest+1), "yardmaster", "holds at most 4096"},
+		{"a line break", []string{"depot test web"}, "make test\ngo vet", "yardmaster", "a line break or a control character"},
+		{"a control character", []string{"depot test web"}, "make test\x07", "yardmaster", "a line break or a control character"},
+		{"would change nothing", []string{"depot test web"}, "make test", "yardmaster", "is make test already, so the command would change nothing"},
+		{"the operator asks", []string{"depot test web"}, "go test ./...", "mckean", "needs no approval: run it yourself"},
+		{"no depot in argv", []string{"depot test"}, "go test ./...", "yardmaster", "one depot, not 0 words"},
+		{"two words of depot", []string{"depot test web extra"}, "go test ./...", "yardmaster", "one depot, not 2 words"},
+		{"shell in argv", []string{"depot test web && reboot"}, "", "yardmaster", "none of their characters, and nothing is quoted"},
+	} {
+		if _, err := y.AddAsk(y.ctx, y.bead, ask(c.argv, c.test), c.actor); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s = %v, want %q", c.name, err, c.want)
+		}
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+// Approving a depot test ask weighed sets the depot's test command
+// exactly, and the depot_updated event carries the ask it was approved
+// on. Approving unweighed is refused, as for any weighty card, and the
+// ask stays open; a second approval runs nothing twice.
+func TestDepotTestApprove(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	const proposed = `go test ./... && go vet ./... | tee 'out.log'`
+	seq := depotTestAsk(y, t, "make test", proposed)
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "is weighty (code): approve it where its weight is shown") {
+		t.Fatalf("approving unweighed = %v", err)
+	}
+	if d, err := y.GetDepot(y.ctx, "web"); err != nil || d.Test != "make test" {
+		t.Fatalf("the refused approval set %+v, %v", d, err)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "depot web: test: "+proposed {
+		t.Fatalf("the approval recorded %q", done.Result)
+	}
+	if d, err := y.GetDepot(y.ctx, "web"); err != nil || d.Test != proposed {
+		t.Fatalf("the depot holds %+v, %v", d, err)
+	}
+	evs, err := y.EventsOfKind(y.ctx, "depot_updated", 2)
+	if err != nil || len(evs) != 2 || evs[1].Data["test"] != proposed {
+		t.Fatalf("depot_updated events = %+v, %v", evs, err)
+	}
+	y.approved(t, evs[1], seq)
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil ||
+		!strings.Contains(err.Error(), "was approved already") {
+		t.Fatalf("approving again = %v", err)
+	}
+}
+
+// An approval is refused when the depot's test command was set after the
+// ask was written: the card no longer matches, and nothing runs.
+func TestDepotTestApproveStale(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	seq := depotTestAsk(y, t, "make test", "go test ./...")
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "just test"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil ||
+		!strings.Contains(err.Error(), "was written when the test command of the depot web was another: it was changed since") {
+		t.Fatalf("approving stale = %v", err)
+	}
+	if d, err := y.GetDepot(y.ctx, "web"); err != nil || d.Test != "just test" {
+		t.Fatalf("the refused approval set %+v, %v", d, err)
+	}
+	// Set to the proposed one instead, and there is nothing left to
+	// change: the ask stays open, to be declined.
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "go test ./..."}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", true, nil); err == nil ||
+		!strings.Contains(err.Error(), "proposes go test ./... as the test command of the depot web, and it is set already: nothing is left to change") {
+		t.Fatalf("approving applied = %v", err)
+	}
+}
+
+// A depot base ask is stored with the depot, its base now and the
+// proposed one, and approving it sets the base exactly. The card is
+// routine: a base moves where beads start but widens nothing.
+func TestDepotBaseAskApprove(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, Ask{Question: "Move the base?", To: "mckean",
+		Context: []string{"main moved to origin/other"},
+		Run:     &AskRun{Argv: []string{"depot base web origin/other"}}}, "yardmaster")
+	got := y.asked(t, seq)
+	want := AskRun{
+		Argv:        []string{"depot", "base", "web", "origin/other"},
+		Description: "Change a depot's base",
+		Does:        []string{"the base of the depot web becomes origin/other (now: origin/main)."},
+		Back:        "yardr depot base web origin/main",
+		BackBy:      "only the operator",
+		Seen:        map[string]string{"depot web": seen("origin/main")},
+	}
+	run := *got.Ask.Run
+	if !slices.Equal(run.Argv, want.Argv) || run.Description != want.Description || !slices.Equal(run.Does, want.Does) ||
+		run.Back != want.Back || run.BackBy != want.BackBy || !sameMap(run.Seen, want.Seen) || run.Test != "" {
+		t.Fatalf("the ask stores\n%+v\nwant\n%+v", run, want)
+	}
+	if len(got.Ask.Weight) != 0 {
+		t.Fatalf("the ask weighs %+v, want routine", got.Ask.Weight)
+	}
+	done, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Result != "depot web: base origin/other" {
+		t.Fatalf("the approval recorded %q", done.Result)
+	}
+	if d, err := y.GetDepot(y.ctx, "web"); err != nil || d.Base != "origin/other" {
+		t.Fatalf("the depot holds %+v, %v", d, err)
+	}
+	evs, err := y.EventsOfKind(y.ctx, "depot_updated", 2)
+	if err != nil || len(evs) != 2 || evs[1].Data["base"] != "origin/other" {
+		t.Fatalf("depot_updated events = %+v, %v", evs, err)
+	}
+	y.approved(t, evs[1], seq)
+
+	// A depot with no base is taken back by nobody: no card clears one.
+	y2, _ := runYard(t)
+	if err := y2.PutDepot(y2.ctx, Depot{Name: "flat", Path: "/srv/flat"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq = y2.ask(t, Ask{Question: "Move the base?", To: "mckean",
+		Context: []string{"why"}, Run: &AskRun{Argv: []string{"depot base flat origin/main"}}}, "yardmaster")
+	run = *y2.asked(t, seq).Ask.Run
+	if !slices.Equal(run.Does, []string{"the base of the depot flat becomes origin/main (now: none set)."}) ||
+		run.Back != "the depot had no base, and no card clears one again" || run.BackBy != "nobody" {
+		t.Fatalf("the card holds %+v", run)
+	}
+}
+
+// A depot base ask is refused, storing nothing, for what the row refuses:
+// a depot the yard has not, a directory depot, a base that is no branch
+// name, and one that would change nothing.
+func TestDepotBaseRefusals(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.PutDepot(y.ctx, Depot{Name: "docs", Path: "/srv/docs", Kind: DepotDir}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"unknown depot", []string{"depot base north origin/main"}, "depot north: not found"},
+		{"a directory depot", []string{"depot base docs origin/main"}, "depot docs is a directory depot: it has no base"},
+		{"no branch name", []string{"depot base web -main"}, `depot web: base "-main" is not a branch name`},
+		{"would change nothing", []string{"depot base web origin/main"}, "is origin/main already, so the command would change nothing"},
+		{"no base in argv", []string{"depot base web"}, "one depot and one base, not 1 words"},
+		{"the operator asks", []string{"depot base web origin/other"}, "needs no approval: run it yourself"},
+	} {
+		actor := "yardmaster"
+		if c.name == "the operator asks" {
+			actor = "mckean"
+		}
+		ask := Ask{Question: "Move the base?", To: "mckean",
+			Context: []string{"why"}, Run: &AskRun{Argv: c.argv}}
+		if _, err := y.AddAsk(y.ctx, y.bead, ask, actor); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s = %v, want %q", c.name, err, c.want)
+		}
+	}
+	if notes, err := y.Notes(y.ctx, y.bead); err != nil || len(notes) != 0 {
+		t.Fatalf("the refused asks left %d notes, %v", len(notes), err)
+	}
+}
+
+// An approval is refused when the depot's base was set after the ask was
+// written: the card no longer matches, and nothing runs.
+func TestDepotBaseApproveStale(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	seq := y.ask(t, Ask{Question: "Move the base?", To: "mckean",
+		Context: []string{"why"}, Run: &AskRun{Argv: []string{"depot base web origin/other"}}}, "yardmaster")
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/next"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "was written when the base of the depot web was another: it was changed since") {
+		t.Fatalf("approving stale = %v", err)
+	}
+	if d, err := y.GetDepot(y.ctx, "web"); err != nil || d.Base != "origin/next" {
+		t.Fatalf("the refused approval set %+v, %v", d, err)
+	}
+	// Set to the proposed one instead, and there is nothing left to
+	// change: the ask stays open, to be declined.
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/other"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := y.ApproveAsk(y.ctx, y.bead, seq, "mckean", false, nil); err == nil ||
+		!strings.Contains(err.Error(), "proposes origin/other as the base of the depot web, and it is set already: nothing is left to change") {
+		t.Fatalf("approving applied = %v", err)
+	}
+}
+
+// A depot test and a depot base use the same permission check as PutDepot
+// for both the proposer and the operator.
+func TestRunAskDepotUsesItsStoreCheck(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y, _ := runYard(t)
+	if err := y.PutDepot(y.ctx, Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "make test"}, "mckean"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		command []string
+		test    string
+		direct  Depot
+	}{
+		{[]string{"depot test web"}, "go test ./...",
+			Depot{Name: "web", Path: "/srv/web", Base: "origin/main", Test: "go test ./..."}},
+		{[]string{"depot base web origin/other"}, "",
+			Depot{Name: "web", Path: "/srv/web", Base: "origin/other", Test: "make test"}},
+	} {
+		rc, argv, err := parseRun(c.command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var askerErr, operatorErr error
+		if err := y.write(func(w *wtx) error {
+			sent := AskRun{Argv: argv, Test: c.test}
+			if rc.checkRun != nil {
+				askerErr = rc.checkRun(y.ctx, w, sent, "yardmaster")
+				operatorErr = rc.checkRun(y.ctx, w, sent, "mckean")
+			} else {
+				askerErr = rc.check(y.ctx, w, argv, "yardmaster")
+				operatorErr = rc.check(y.ctx, w, argv, "mckean")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		directErr := y.PutDepot(y.ctx, c.direct, "yardmaster")
+		if directErr == nil || askerErr == nil || askerErr.Error() != directErr.Error() {
+			t.Fatalf("%s: run row check = %v, direct depot change = %v", c.command, askerErr, directErr)
+		}
+		if class, ok := IsOperatorOnly(askerErr); !ok || class != Askable {
+			t.Fatalf("%s: refusal = %v; operator-only class is %v, %v", c.command, askerErr, class, ok)
+		}
+		if operatorErr != nil {
+			t.Errorf("%s: operator's check = %v, want allowed", c.command, operatorErr)
+		}
 	}
 }

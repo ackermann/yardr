@@ -1802,7 +1802,7 @@ sleepbudget() {
 filesizes='
 internal/agents/harness.go 1385 schemas, trust marks and flags of every harness kind
 internal/chat/chat.go 1196 the chat TUI model, state and rendering
-internal/cli/bead_ask.go 1777 the ask and answer commands with secret-giving and setup approval
+internal/cli/bead_ask.go 1706 the ask and answer commands with secret-giving and setup approval
 internal/cli/beads.go 1099 the bead show, list and history commands and their printing
 internal/cli/crew.go 2304 the crew, inbox, mail and memory commands
 internal/cli/doctor.go 1274 the doctor examinations and its report
@@ -1828,7 +1828,7 @@ internal/store/asks.go 1834 ask and answer parsing and storage
 internal/store/beads.go 2684 bead CRUD, queries and dispatch reads
 internal/store/crew.go 1585 crew records and their events
 internal/store/flows.go 1454 flow parsing and storage
-internal/store/graph.go 1574 the dependency graph and its queries
+internal/store/graph.go 1316 the dependency graph and its queries
 internal/store/hooks.go 1118 webhook parsing and the say shapes
 internal/store/peerasks.go 1239 peer asks, their answers and ask copies
 internal/store/peerbeads.go 1763 peer bead intake and fetching
@@ -1836,7 +1836,7 @@ internal/store/peers.go 1798 peer records and their allowances
 internal/store/peersend.go 1263 sending beads to peers and settling them
 internal/store/policy.go 1201 the permission gates and their rules
 internal/store/routing.go 3180 groups, routes and their config merges
-internal/store/runask.go 1571 run asks and their approval
+internal/store/runask.go 1266 run asks and their approval
 internal/store/runask_list.go 1223 ask cards, labels and preset reading
 internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
 internal/store/runask_setup.go 1811 setup asks and their approval

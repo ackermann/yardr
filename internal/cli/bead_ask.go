@@ -2,16 +2,11 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,7 +24,7 @@ func (a *app) newBeadAskCmd() *cobra.Command {
 	var askRecommend int
 	var askNew bool
 	var askBead store.NewBead
-	var askSecret, askForUser, askForCrew, askAs, askRun, askSecretLogin, askSecretHook, askHookSource string
+	var askSecret, askForUser, askForCrew, askAs, askRun, askRunTest, askSecretLogin, askSecretHook, askHookSource string
 	var askSetup string
 	var askDepotPush, askDepotPushOff string
 	var askCrew, askGroup []string
@@ -296,6 +291,15 @@ is one of the list the yard runs from a card:
   crew restart <name> [--for <user>]
       a fresh session of the crew member starts once the current one is
       idle; with --for, of its conversation session for the user
+  depot test <depot>
+      the depot's test command becomes the command --run-test carries
+      beside the ask: the card shows the depot, the command now and the
+      proposed one whole, and approving sets exactly that; clearing one
+      stays in a terminal
+  depot base <depot> <base>
+      bead branches of the depot start from the base; the card shows the
+      depot, the base now and the proposed one, and approving sets exactly
+      that; a directory depot has no base
 
 Whether each is the operator's is the command's own check: when the asker
 may run the command themselves the ask is refused with that. What is the
@@ -314,7 +318,9 @@ a source: the ask is for that user or for the operator (--to), and
 the one asked approves it. The yard splits the command at spaces and nowhere else, so
 nothing is quoted: a quote, a backslash, ;, |, &, $ or a line break is
 refused, and a comma anywhere but in a list the command takes (the parts
-of tell=, the kinds peer allow carries, the grants crew set gives). It checks the
+of tell=, the kinds peer allow carries, the grants crew set gives). A depot's
+test command goes beside --run, in --run-test "<command>", since it needs
+those characters. It checks the
 command against the yard as it stands, and refuses one the yard would
 refuse and one that would change nothing (a peer, source, group, crew
 member, user, setting, timer or bead the yard has not, a number out of
@@ -574,6 +580,8 @@ what the person asked does, and this is the asker's own.`,
 				return fmt.Errorf("--run proposes a command and --secret-login asks for a value: one of the two")
 			case c.Flags().Changed("run") && c.Flags().Changed("secret-hook"):
 				return fmt.Errorf("--run proposes a command and --secret-hook asks for a value: one of the two; ask for the hook's secret and the hook as two asks, the secret first")
+			case c.Flags().Changed("run-test") && (!c.Flags().Changed("run") || !depotTestCommand(askRun)):
+				return fmt.Errorf("--run-test is the command a --run \"depot test <depot>\" ask proposes: it goes with that command")
 			}
 			return nil
 		},
@@ -673,6 +681,14 @@ what the person asked does, and this is the asker's own.`,
 					return err
 				}
 				q.Run.Carried = carried
+				// Depot test carries its command from --run-test, beside
+				// the ask: --run quotes nothing, so it never goes there.
+				if depotTestCommand(askRun) {
+					if !c.Flags().Changed("run-test") {
+						return fmt.Errorf("--run \"depot test <depot>\" carries its command beside the ask, in --run-test \"<command>\"")
+					}
+					q.Run.Test = askRunTest
+				}
 			}
 			var seq uint64
 			if askNew {
@@ -846,6 +862,7 @@ what the person asked does, and this is the asker's own.`,
 	ask.Flags().StringVar(&askForCrew, "for-crew", "", "with --secret: ask for this crew member's own credential in the source (the variables its credential names), kept in the crew member's env_file")
 	ask.Flags().StringVar(&askAs, "as", "", "with --secret: ask for this user's own credential in the source (the names a call made as them reads), kept in the user's env_file; with --secret-login: the login is this user's own, and theirs to give")
 	ask.Flags().StringVar(&askRun, "run", "", "propose this yardr command for the operator to approve, as it is typed: one the yard runs from a card (yardr bead ask --help)")
+	ask.Flags().StringVar(&askRunTest, "run-test", "", "with --run \"depot test <depot>\": the test command the ask proposes, carried beside the command since --run quotes nothing")
 	ask.Flags().StringVar(&askSetup, "setup", "", "set up this embedded pack of kind source as one decision: the apply, the account and the grants, with --crew/--group naming who the grants are for")
 	ask.Flags().StringVar(&askDepotPush, "depot-push", "", "turn this depot's push to its origin on as one decision for the operator to approve: YARDR_PUSH=origin in <depot>-assembly's cmd and the pack's helper in the depot's git config, carried out by the server")
 	ask.Flags().StringVar(&askDepotPushOff, "depot-push-off", "", "turn this depot's push off as one decision for the operator to approve: the exact reverse of --depot-push for the depot")
@@ -1162,94 +1179,6 @@ func askedSecret(ctx context.Context, st store.API, id string, seq uint64) (*sto
 		return r.Ask.Secret, nil
 	}
 	return nil, fmt.Errorf("bead %s has no ask %d", id, seq)
-}
-
-// sourceAddCarried reads what a --run "source add <file>" ask carries:
-// the declaration file once, resolved as yardr source add resolves it,
-// and each relative program's bytes from beside it as CopyCommandFiles
-// reads them, each with its SHA-256. It answers nil for any other
-// command. A file that cannot be read or does not parse is refused
-// here, in the parser's words, and nothing is stored.
-func sourceAddCarried(command string) ([]store.AskSource, error) {
-	// Match parseRow's character gate before touching a path: a command
-	// the store will reject must not make the CLI read a file first.
-	if strings.ContainsRune(command, ',') {
-		return nil, nil
-	}
-	for _, r := range command {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune(" \t._/=-@:", r) {
-			continue
-		}
-		return nil, nil
-	}
-	words := strings.Fields(command)
-	if len(words) > 0 && words[0] == "yardr" {
-		words = words[1:]
-	}
-	if len(words) != 3 || words[0] != "source" || words[1] != "add" {
-		return nil, nil
-	}
-	file := words[2]
-	text, err := readSourceAskFile(file, store.MaxRunSourceDeclaration, "the declaration")
-	if err != nil {
-		return nil, err
-	}
-	d, err := source.Parse(file, text)
-	if err != nil {
-		return nil, fmt.Errorf("%s", store.OneLine(err.Error()))
-	}
-	abs, err := filepath.Abs(file)
-	if err != nil {
-		return nil, err
-	}
-	declDir := filepath.Dir(abs)
-	total := len(text)
-	var programs []string
-	seen := map[string]bool{}
-	for _, c := range d.Commands() {
-		if c.Relative() && !seen[c.Argv[0]] {
-			seen[c.Argv[0]] = true
-			programs = append(programs, c.Argv[0])
-		}
-	}
-	var files []store.AskFile
-	for _, prog := range programs {
-		path := filepath.Join(declDir, prog)
-		data, err := readSourceAskFile(path, store.MaxRunSourceCommandFile, "source "+d.Name+" command file "+store.OneLine(prog))
-		if err != nil {
-			return nil, fmt.Errorf("source %s: a command's program %s is a file beside the declaration's file: %v", d.Name, store.OneLine(prog), err)
-		}
-		total += len(data)
-		if total > store.MaxRunSourceTexts {
-			return nil, fmt.Errorf("source %s: its declaration with command files exceeds %d bytes together: a card carries at most that, so add it with yardr source add %s in a terminal", d.Name, store.MaxRunSourceTexts, file)
-		}
-		sum := sha256.Sum256(data)
-		files = append(files, store.AskFile{Program: prog, Text: string(data), SHA256: hex.EncodeToString(sum[:])})
-	}
-	return []store.AskSource{{Name: d.Name, Text: string(text), Files: files}}, nil
-}
-
-func readSourceAskFile(file string, limit int, what string) ([]byte, error) {
-	f, err := os.OpenFile(file, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: %s is not a regular file", store.OneLine(file), what)
-	}
-	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %s", store.OneLine(file), store.OneLine(err.Error()))
-	}
-	if len(data) > limit {
-		return nil, fmt.Errorf("%s exceeds %d bytes: a run ask carries at most that, so add it with yardr source add %s in a terminal", what, limit, store.OneLine(file))
-	}
-	return data, nil
 }
 
 // askedSetup reads the setup the ask seq on the bead id proposes, as the

@@ -207,6 +207,12 @@ What you do:
   over 40 lines, a pack
   held by more than one depot, a depot pack's first install, and a plan that
   asks, is refused, or would overwrite an edited file.
+  A depot's test command (`depot test <depot>`, with the command in
+  `--run-test`) and its base (`depot base <depot> <base>`) are proposed
+  this way too: one command in an ask, with why it is wanted in the
+  context. The card shows the old and the new whole; clearing a test
+  command, and a depot's path and kind, stay the operator's in a
+  terminal.
   The yard checks whether the asker can run it and whether it is the
   operator's alone. For an operator-only command the yard can run from a
   card, ask it there; mail one it marks operator's alone in a fenced code
