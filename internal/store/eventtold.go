@@ -57,7 +57,7 @@ var eventDataTold = map[string][]string{
 	"dep_removed":        {"from", "kind"},
 	"linked":             {"kind", "source", "thread", "moved_from", "moved_to", "moved_source_from", "replaced"},
 	"unlinked":           {"kind", "source", "thread", "moved_source_to", "replaced_by"},
-	"noted":              {"note", "ask", "session", "answer", "ask_session"},
+	"noted":              {"note", "ask", "session", "answer", "ask_session", "witness"},
 	"journal":            {"note", "session"},
 	"handoff":            {"note", "session"},
 	"note_told":          {"note", "session", "delivery"},

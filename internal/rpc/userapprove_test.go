@@ -123,29 +123,56 @@ func TestUserApprovesARunAsk(t *testing.T) {
 		t.Errorf("%d source_set events after the second approval", len(set))
 	}
 
-	// The ask above is routine and asked for no word. A weighty one is
-	// approved by a call that says its person saw the weight (weighed), as
-	// anywhere: without it the yard refuses in its words, the listener
-	// passes them on, and nothing changes; with it the same ask is approved.
-	weighty, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Add kim?", To: "jo", Context: []string{"kim joins on Monday."},
-		Run: &store.AskRun{Argv: []string{"user", "add", "kim"}}}, "yardmaster")
+	// The ask above is routine and asked for no word. A weighty one that
+	// is not strong is approved by a call that says its person saw the
+	// weight (weighed), as anywhere: without it the yard refuses in its
+	// words, the listener passes them on, and nothing changes; with it
+	// the same ask is approved.
+	weighty, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "May the CRM make updates?", To: "jo", Context: []string{"the import writes notes back."},
+		Run: &store.AskRun{Argv: []string{"source", "set", "crm", "updates_per_hour=20"}}}, "yardmaster")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := fmt.Sprintf(`ask %d is weighty (trust): approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate`, weighty)
+	want := fmt.Sprintf(`ask %d is weighty (outside): approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate`, weighty)
 	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d}`, weighty)))
 	if !strings.Contains(w.Body.String(), want) {
 		t.Fatalf("a weighty approval without the word is answered %s, want %s", w.Body, want)
 	}
-	if _, err := y.st.GetUser(ctx, "kim"); err == nil {
-		t.Fatal("the refused approval added kim")
+	if src, err := y.st.GetSource(ctx, "crm"); err != nil || src.UpdatesPerHour != 0 {
+		t.Fatalf("the refused approval set updates to %+v, %v", src, err)
 	}
 	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"weighed":true}`, weighty)))
 	if !strings.Contains(w.Body.String(), `"result"`) || strings.Contains(w.Body.String(), `"error"`) {
 		t.Fatalf("a weighty approval with the word is answered %s", w.Body)
 	}
-	if _, err := y.st.GetUser(ctx, "kim"); err != nil {
-		t.Fatalf("the approval with the word did not add kim: %v", err)
+	if src, err := y.st.GetSource(ctx, "crm"); err != nil || src.UpdatesPerHour != 20 {
+		t.Fatalf("the approval with the word left %+v, %v", src, err)
+	}
+
+	// A strong card is refused through a device even with the word: the
+	// listener passes the yard's words on, nothing changes, and the ask
+	// stays open.
+	kim, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Add kim?", To: "jo", Context: []string{"kim joins on Monday."},
+		Run: &store.AskRun{Argv: []string{"user", "add", "kim"}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStrong := fmt.Sprintf(`ask %d is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open`, kim)
+	w = y.approve(onTheMachine, y.jo, strings.NewReader(fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"weighed":true}`, kim)))
+	if !strings.Contains(w.Body.String(), wantStrong) {
+		t.Fatalf("a strong approval through a device is answered %s, want %s", w.Body, wantStrong)
+	}
+	if _, err := y.st.GetUser(ctx, "kim"); err == nil {
+		t.Fatal("the refused approval added kim")
+	}
+	b, err := y.st.Bead(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range b.Asks {
+		if a.Ask == kim && (a.State != "open" || a.Ran != nil) {
+			t.Fatalf("the refused ask is %s, ran %+v, want it open", a.State, a.Ran)
+		}
 	}
 
 	// A second operator's device approves a run ask put to the first: any

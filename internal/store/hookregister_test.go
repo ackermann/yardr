@@ -129,9 +129,33 @@ func TestHookRegisterMakesSecretAndCalls(t *testing.T) {
 		t.Fatalf("the ask is %s after the refusal, want it open", got.State)
 	}
 
+	// The hook add is a trust card, so through a device it is refused
+	// behind the weight gate as every other row is: no hook, no secret,
+	// no register call, and the ask stays open.
+	phone := WithVia(y.ctx, "mckean", "phone")
+	wantStrong := "ask " + strconv.FormatUint(ask, 10) + " is strong (trust): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveAsk(phone, y.bead, ask, "mckean", true, nil); err == nil || err.Error() != wantStrong {
+		t.Fatalf("approving the hook through a device = %v, want %q", err, wantStrong)
+	}
+	if _, err := y.GetHook(y.ctx, "bot"); err == nil {
+		t.Fatal("the refused approval made the hook")
+	}
+	if _, err := os.Stat(HookSecretFile(y.home, "bot")); !os.IsNotExist(err) {
+		t.Fatalf("the refused approval wrote the hook's secret (%v)", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("the refused approval made the register call %d times", len(hits))
+	}
+	if got := y.asked(t, ask); got.State != AskOpen {
+		t.Fatalf("the ask is %s after the refusal, want it open", got.State)
+	}
+
 	done, err := y.ApproveAsk(y.ctx, y.bead, ask, "mckean", true, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ev := lastAnswer(t, y); Witness(ev) != WitnessTerminal || Via(ev) != "" {
+		t.Fatalf("the hook approval's event is witnessed %q via %q, want terminal with no device", Witness(ev), Via(ev))
 	}
 	if len(hits) != 1 {
 		t.Fatalf("register call made %d times", len(hits))

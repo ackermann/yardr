@@ -381,6 +381,11 @@ type wtx struct {
 	// via is the device this write came through and whose it is; the zero
 	// value for a write that came through none (writeVia).
 	via via
+	// witness is how this write's approval was witnessed, recorded on the
+	// answer's event beside via; "" where the approval claims none. An
+	// approval sets it just before it records its answer, so the answer's
+	// event alone carries it (witnessTerminal).
+	witness string
 	// repos are the repository flows, by depot, that a run ask's card needs
 	// and that were read before the write, since git must not run inside
 	// one (runCommand.ready); nil for a write that needs none.
@@ -511,6 +516,9 @@ func (w *wtx) event(bead, kind, actor string, data map[string]any) error {
 	}
 	if device := w.viaOf(actor); device != "" {
 		data["via"] = device
+	}
+	if w.witness != "" {
+		data["witness"] = w.witness
 	}
 	e := Event{Seq: seq, ID: fmt.Sprint(seq), Kind: kind, Actor: actor, Data: data, At: now()}
 	if bead != "" {

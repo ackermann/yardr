@@ -81,6 +81,41 @@ func Via(e Event) string {
 	return v
 }
 
+// WitnessTerminal is how an approval made on the yard's socket is
+// witnessed: at a terminal on the yard's machine, outside an agent's
+// pane. A strong card's approval records it on the answer's event, beside
+// the via a device's approval would carry; a device never carries one
+// (design yardr-2nb1 5.1).
+const WitnessTerminal = "terminal"
+
+// Witness is how the approval the event e records was witnessed, "" where
+// it claims none.
+func Witness(e Event) string {
+	v, _ := e.Data["witness"].(string)
+	return v
+}
+
+// witnessTerminal marks a strong card's approval as witnessed at a
+// terminal, for the answer's event: on the socket alone, never through a
+// device, which carries no witness. An approval calls it just before it
+// records its answer, so the answer's event alone carries the mark.
+func (w *wtx) witnessTerminal(stored []AskWeight, actor string) {
+	if strongWeight(stored) && w.viaOf(actor) == "" {
+		w.witness = WitnessTerminal
+	}
+}
+
+// addWitnessed records the approval's answer as addNoted does, witnessed
+// terminal where a strong card was approved on the socket.
+func (w *wtx) addWitnessed(row *beadRow, text, actor string, stored []AskWeight) (*Note, error) {
+	w.witnessTerminal(stored, actor)
+	n, err := w.addNoted(row, NoteAnswer, text, actor)
+	// Keep the witness on the answer event alone, even if this write grows
+	// another event after recording the answer.
+	w.witness = ""
+	return n, err
+}
+
 // ViaMark is who with the device a write came through behind it,
 // "mckean (via phone)", and who alone for a write that came through none.
 func ViaMark(who, device string) string {

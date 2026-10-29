@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -633,6 +634,11 @@ func TestSetupApprovalRecordsCarryPending(t *testing.T) {
 	if ev := lastAnswer(t, y); !strings.Contains(ev.Data["answer"].(string), "approved ask "+strconv.FormatUint(seq, 10)+" on "+y.bead+": setup of pack setupmail, preset drafts to crew yardmaster; gave SETUP_ACCOUNT") {
 		t.Errorf("the answer event reads %q", ev.Data["answer"])
 	}
+	// The card is strong and the approval came through no device, so the
+	// answer's event is witnessed terminal.
+	if ev := lastAnswer(t, y); Witness(ev) != WitnessTerminal || Via(ev) != "" {
+		t.Errorf("the setup approval's event is witnessed %q via %q, want terminal with no device", Witness(ev), Via(ev))
+	}
 }
 
 // An approval refuses values that the account file writer cannot save,
@@ -945,5 +951,25 @@ func TestSetupApprovalRefusals(t *testing.T) {
 	if _, err := y.ApproveSetup(y.ctx, y.bead+"@airy", seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil ||
 		!strings.Contains(err.Error(), "never over a link") {
 		t.Errorf("an approval over a link was recorded or refused otherwise: %v", err)
+	}
+	// The pack brings a command, so the card is strong (code): through a
+	// device it is refused behind the weight gate, and nothing is
+	// recorded, kept or run.
+	if got := weightClasses(y.asked(t, seq).Ask.Weight); !slices.Contains(got, WeightCode) {
+		t.Fatalf("the setup weighs %v, want code among it", got)
+	}
+	phone := WithVia(y.ctx, "mckean", "phone")
+	want := "ask " + strconv.FormatUint(seq, 10) + " is strong (code): this approval arrived through the device phone, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open"
+	if _, err := y.ApproveSetup(phone, y.bead, seq, 1, map[string]string{"SETUP_ACCOUNT": "ops@example.com"}, "", "mckean", true); err == nil || err.Error() != want {
+		t.Errorf("an approval through a device was recorded or refused otherwise: %v, want %q", err, want)
+	}
+	if rec, err := y.CarryOf(y.ctx, y.bead, seq); err != nil || rec != nil {
+		t.Errorf("a refused approval left a carrying record: %+v, %v", rec, err)
+	}
+	if _, ok := y.takeSetupSecret(carryKey(y.bead, seq)); ok {
+		t.Error("a refused approval kept the values in memory")
+	}
+	if got := y.asked(t, seq); got.State != AskOpen {
+		t.Errorf("the ask is %s after the refusal, want it open", got.State)
 	}
 }

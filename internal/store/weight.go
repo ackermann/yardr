@@ -146,6 +146,57 @@ func weighedRefusal(seq uint64, weight []AskWeight, weighed bool) error {
 	return fmt.Errorf("ask %d is %s: approve it where its weight is shown; a client sends \"weighed\": true once its person has passed its gate", seq, WeightWords(weight))
 }
 
+// strongWeight reports whether the card's stored weight makes it a strong
+// card (design yardr-2nb1 5.2): trust or code, one class enough. Identity
+// cards (as-user) are not strong.
+func strongWeight(weight []AskWeight) bool {
+	return slices.ContainsFunc(weight, func(w AskWeight) bool {
+		return w.Class == WeightTrust || w.Class == WeightCode
+	})
+}
+
+// strongWords names a strong card's weight in a refusal: strong with the
+// trust and code classes it carries.
+func strongWords(ws []AskWeight) string {
+	var classes []string
+	for _, w := range ws {
+		if w.Class == WeightTrust || w.Class == WeightCode {
+			classes = append(classes, w.Class)
+		}
+	}
+	return "strong (" + strings.Join(classes, ", ") + ")"
+}
+
+// strongRefusal says why the approval of the ask seq is refused when it
+// arrived through a device (device) and the card is strong: nil for a
+// routine card, which any door approves, and for an approval that came
+// through none. It stands behind the weight gate, not in its place: the
+// weighed refusal comes first, and this one names where a strong card is
+// approved instead — on a hosted yard the hosted web with a fresh sign-in,
+// elsewhere a terminal on the yard's machine. Nothing runs, and the ask
+// stays open.
+func strongRefusal(seq uint64, stored []AskWeight, device string, hosted bool) error {
+	if device == "" || !strongWeight(stored) {
+		return nil
+	}
+	place := "at a terminal on the yard's machine"
+	if hosted {
+		place = "in the hosted web, with a fresh sign-in"
+	}
+	return fmt.Errorf("ask %d is %s: this approval arrived through the device %s, and a strong card is not approved through a device. Approve it %s. Nothing ran, and the ask stays open", seq, strongWords(stored), device, place)
+}
+
+// gateRefusal is a run or setup approval's gate behind the stale check:
+// the weighed refusal first, the strong refusal second (weighedRefusal,
+// strongRefusal). The door the approval came by and the yard's hosted
+// flag are the write's own, read here so the approval reads as one gate.
+func (w *wtx) gateRefusal(seq uint64, weight, stored []AskWeight, actor string, weighed bool) error {
+	if err := weighedRefusal(seq, weight, weighed); err != nil {
+		return err
+	}
+	return strongRefusal(seq, stored, w.viaOf(actor), w.settingValue(HostedSetting) == "true")
+}
+
 // weighAsk weighs the card the ask a holds, as the yard wrote it: a secret,
 // a run, a setup, a depot-push or a mapping ask by its own rules, and
 // any other ask as routine.

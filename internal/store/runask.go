@@ -1473,7 +1473,7 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
 		return nil, err
 	}
-	if err := weighedRefusal(seq, weight, weighed); err != nil {
+	if err := w.gateRefusal(seq, weight, r.Ask.Weight, actor, weighed); err != nil {
 		return nil, err
 	}
 	var result string
@@ -1503,7 +1503,7 @@ func (w *wtx) approveAsk(ctx context.Context, id string, seq uint64, actor strin
 	if err != nil {
 		return nil, err
 	}
-	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+	if _, err := w.addWitnessed(row, string(text), actor, r.Ask.Weight); err != nil {
 		return nil, err
 	}
 	return &AskApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Argv: argv, Does: was.Does, Result: result}, nil
@@ -1552,7 +1552,7 @@ func (w *wtx) finishPhasedRun(ctx context.Context, id string, seq uint64, actor,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+	if _, err := w.addWitnessed(row, string(text), actor, ask.Ask.Weight); err != nil {
 		return nil, err
 	}
 	return &AskApproved{Bead: row.ID, Ask: seq, Asker: asker, Argv: argv, Does: does, Result: result}, nil

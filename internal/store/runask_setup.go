@@ -1498,7 +1498,7 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
 		return nil, err
 	}
-	if err := weighedRefusal(seq, weight, weighed); err != nil {
+	if err := w.gateRefusal(seq, weight, r.Ask.Weight, actor, weighed); err != nil {
 		return nil, err
 	}
 	// An approval the yard carries out after this write leaves its
@@ -1526,7 +1526,7 @@ func (w *wtx) approveSetup(ctx context.Context, id string, seq uint64, option in
 	if err != nil {
 		return nil, err
 	}
-	if _, err := w.addNoted(row, NoteAnswer, string(text), actor); err != nil {
+	if _, err := w.addWitnessed(row, string(text), actor, r.Ask.Weight); err != nil {
 		return nil, err
 	}
 	return out, nil

@@ -62,9 +62,28 @@ func setupYard(t *testing.T) (*secretYard, string) {
 		Sources: []store.AskSource{{Name: "courier", Text: apiSetupSource("courier"), Files: []store.AskFile{{
 			Program: "courier-mint", Text: courierMint, SHA256: hex.EncodeToString(sum[:])}}}},
 		Presets: []store.AskPreset{{Name: "read", Grants: []store.AskPresetGrant{{Source: "courier", Calls: []string{"read"}}}}}}
-	y.st.SetPackReader(func(context.Context, string, store.API) (*store.PackReading, error) { return reading, nil })
+	// The plain pack brings no command files — a static credential has
+	// no mint to carry — so a setup of it carries no code.
+	plain := &store.PackReading{Name: "plain", Kind: "source", Label: "embedded in yardr test",
+		Sources: []store.AskSource{{Name: "plain", Text: plainDecl}},
+		Presets: []store.AskPreset{{Name: "read", Grants: []store.AskPresetGrant{{Source: "plain", Calls: []string{"read"}}}}}}
+	y.st.SetPackReader(func(_ context.Context, name string, _ store.API) (*store.PackReading, error) {
+		if name == "plain" {
+			return plain, nil
+		}
+		return reading, nil
+	})
 	return y, file
 }
+
+// plainDecl declares a source with a static credential and no commands,
+// so a setup of its pack weighs the credential and no code.
+const plainDecl = `name: plain
+base: https://plain.example.com/api
+credential: { env: PLAIN_TOKEN, header: "Authorization: Bearer {credential}" }
+calls:
+  ping: { kind: read, request: { method: GET, path: /me } }
+`
 
 // askSetup puts a setup ask for the pack courier to the user, who is the
 // operator, on yd-crm and answers its seq.
@@ -1887,22 +1906,52 @@ func TestUserOtherCallsTellNoFileOrCommandToADeviceThatIsNotTheOperators(t *test
 }
 
 // Over the link from the edge a device of the operator approves a setup
-// ask, taking the candidate its card lists: pairing is the grant, as for
-// a run ask. The approval is recorded and left for the server to carry
-// out, and the answer's event says it came by the edge.
+// ask that is not strong: pairing is the grant, as for a run ask. The
+// approval is recorded and left for the server to carry out, and the
+// answer's event says it came by the edge. A strong setup is refused
+// instead, in the yard's words, and nothing is recorded.
 func TestUserApprovesASetupAskOverTheLink(t *testing.T) {
 	ctx := context.Background()
 	y, _ := setupYard(t)
+	// The courier pack brings a command, so its card is strong (code):
+	// over the link it is refused, the ask stays open, and no carrying
+	// record is left for the server.
 	seq := y.askSetup(t, "jo")
 	w := y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
 		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"account":"courier-existing","weighed":true}`, seq)))
+	want := fmt.Sprintf(`ask %d is strong (code): this approval arrived through the device phone via edge, and a strong card is not approved through a device. Approve it at a terminal on the yard's machine. Nothing ran, and the ask stays open`, seq)
+	if !strings.Contains(w.Body.String(), want) {
+		t.Fatalf("answered %d %s, want %s", w.Code, w.Body, want)
+	}
+	if rec, err := y.st.CarryOf(ctx, "yd-crm", seq); err != nil || rec != nil {
+		t.Fatalf("the refused approval left %+v, %v", rec, err)
+	}
+	b, err := y.st.Bead(ctx, "yd-crm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range b.Asks {
+		if a.Ask == seq && (a.State != "open" || a.Ran != nil) {
+			t.Fatalf("the refused ask is %s, ran %+v, want it open", a.State, a.Ran)
+		}
+	}
+	// The plain pack brings no program, so its card carries no code and
+	// is approved over the link as before.
+	plain, err := y.st.AddAsk(ctx, "yd-crm", store.Ask{Question: "Set up the plain source?", To: "jo",
+		Context: []string{"the night run reads through it."},
+		Setup:   &store.AskSetup{Pack: "plain", To: []store.Grantee{{Crew: "yardmaster"}}}}, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = y.post("ApproveSetup", edgelink.RemoteAddr, y.jo, strings.NewReader(
+		fmt.Sprintf(`{"bead":"yd-crm","ask":%d,"option":1,"values":{"PLAIN_TOKEN":%q},"weighed":true}`, plain, candidateAddress)))
 	var got struct {
 		Result *store.AskSetupApproved `json:"result"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Result == nil {
 		t.Fatalf("answered %d %s (%v)", w.Code, w.Body, err)
 	}
-	if rec, err := y.st.ClaimCarry(ctx, "boot"); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != seq {
+	if rec, err := y.st.ClaimCarry(ctx, "boot"); err != nil || rec == nil || rec.Bead != "yd-crm" || rec.Ask != plain {
 		t.Fatalf("the approval left the carrying out %+v, %v", rec, err)
 	}
 	noted := eventsOfKind(t, y.st, "noted")

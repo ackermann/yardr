@@ -655,7 +655,7 @@ func (w *wtx) prepareHookRegister(ctx context.Context, id string, seq uint64, ac
 	if err := weightStale(seq, r.Ask.Weight, weight); err != nil {
 		return nil, err
 	}
-	if err := weighedRefusal(seq, weight, weighed); err != nil {
+	if err := w.gateRefusal(seq, weight, r.Ask.Weight, actor, weighed); err != nil {
 		return nil, err
 	}
 	name, sourceName, unknownWord := hookAddParts(argv)
