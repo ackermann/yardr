@@ -10,7 +10,7 @@
 // lines of context, one or more options each naming its consequence in a
 // line, the one recommended and why, and the other beads it is about. An
 // ask with no options wants words. yardr adds the option "You decide" to
-// every ask that has options; the writer does not write it.
+// every ask that has options but a stage's card; the writer does not.
 //
 // An answer names its ask by the ask note's seq and holds either a pick
 // (the option's number with any words), words alone (only on an ask with
@@ -48,8 +48,8 @@ const (
 )
 
 // YouDecide is the label of the option yardr adds to every ask that has
-// options. The writer cannot write it: an option of that label,
-// letter-case aside, is refused.
+// options, a stage's card aside. The writer cannot write it: an option of
+// that label, letter-case aside, is refused.
 const YouDecide = "You decide"
 
 // LaterFor is how long a put-aside ask stays out of the person's queue,
@@ -74,7 +74,7 @@ type Ask struct {
 	// line; at least one is stored.
 	Context []string `json:"context"`
 	// Options are the options in the order written, with YouDecide last
-	// when the writer gave any. None wants words.
+	// when the writer gave any, but on a stage's card. None wants words.
 	Options []AskOption `json:"options,omitempty"`
 	// Recommend is the recommended option's number, 1-based into Options,
 	// 0 for no recommendation; Why says why in a line.

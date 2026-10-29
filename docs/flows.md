@@ -655,8 +655,24 @@ in the order they stand, above the line and below it. `options:` takes no
 value, as `context:` takes none, so an outcome named `options` is offered
 below the line like any other.
 
-The question and context are literal text; nothing is interpolated. The
-section is stripped wherever the stage file is shown (the brief, prime, the
+The question and context are literal text; nothing is interpolated. The card
+the yard puts has a fixed bead header of its own before the template's text,
+written when the card is put and frozen into it, so that a person answering
+away from the bead (on paper, on the hosted screen, from a notification) knows
+what the card is about. The question gains ` — <id>: <title>`. The context
+starts with `Bead: <id> — <title> (branch yard/<id>)`; then, where the bead
+carries a finish note, that note's first line as its writer wrote it (cut at
+600 characters); then the template's lines, word for word. A finish note is a
+plain note with a line of its own `test: <command> @ <commit>: pass, ...`, and
+the one shown is the latest by the author of the bead's first, the builder's,
+so that a reviewer's verdict after it does not take its place. A bead with no
+finish note, as one made in the stage, gets the header without that line, and
+a card put before keeps the text it has. The card offers the template's
+options and no more: a stage's card has no `You decide`, which an ask a person
+writes still gets, since on a card that moves the bead it recorded words and
+moved nothing.
+
+The section is stripped wherever the stage file is shown (the brief, prime, the
 web view), as the `summary:` line already is. A section that is present must
 parse fully; `yardr flow show` reports a broken one beside its file, as it
 warns of stray files.
@@ -703,9 +719,11 @@ words that fire an outcome move the bead in the same write, through the
 flow's existing outcomes; the `advanced` event records the outcome, and
 the answer's words stay on the answer note, so the move carries no
 separate note. A pick of a stage on a `moves` card advances the bead there in
-the same write, as `yardr bead advance` does. Picking You decide records without moving, as do words
-with `move: none`. Later puts the ask aside and Decline ends it; the bead
-waits as today in both cases, and the yard never re-asks on its own.
+the same write, as `yardr bead advance` does. Words with `move: none` record
+without moving, and so does a pick of the `You decide` that a card put before
+the yard dropped it from stage cards still holds. Later puts the ask aside and
+Decline ends it; the bead waits as today in both cases, and the yard never
+re-asks on its own.
 Several members resolve as first answer wins: the winner's move takes the
 other members' open asks back. A stage ask takes picks only for the stay
 that put it: a re-pick after one that moved, a pick from another stage,

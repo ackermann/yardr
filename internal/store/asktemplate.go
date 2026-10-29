@@ -58,8 +58,8 @@ type AskTemplate struct {
 	Context  []string `json:"context"`
 	// Options are a choice ask's options: each names an outcome of the
 	// stage and what picking it does. The option's label is the outcome's
-	// name; yardr adds YouDecide when the ask is put, as to any ask. A moves
-	// ask writes none: stageTemplate fills them from the flow (movesOf).
+	// name; the card offers these and no YouDecide, which a hand ask gets. A
+	// moves ask writes none: stageTemplate fills them from the flow (movesOf).
 	Options []AskTemplateOption `json:"options,omitempty"`
 	// Recommend is the recommended option's number, 1-based into Options,
 	// 0 for no recommendation; Why says why in a line. Choice only.

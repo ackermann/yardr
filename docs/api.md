@@ -4514,7 +4514,7 @@ POST /call/Bead
 | `asks[].since` | time | when the ask was written (as sent, for a question another yard asked) |
 | `asks[].question` | string | the question in one line, as a person would ask it |
 | `asks[].context` | array of string | what the question is about, two to five lines |
-| `asks[].options` | array | the options in order, `you decide` last; none wants words |
+| `asks[].options` | array | the options in order, `you decide` last, except on a card the yard puts for a stage, which offers its own options alone (one put before still ends in it); none wants words |
 | `asks[].options[].label` | string | the option's label |
 | `asks[].options[].consequence` | string | what picking it does, in a line |
 | `asks[].recommend` | number, may be absent | the recommended option's number; absent when nothing is recommended |

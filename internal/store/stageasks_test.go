@@ -71,6 +71,18 @@ done: The bead moves to approved with your words as the note.
 changes: The bead goes back for changes.
 `
 
+// stageAskContext is the context a card of stageAskChoice holds for the bead
+// id titled title when no finish note stands: the yard's header, then the
+// template's two lines word for word. A finish line, where the bead has one,
+// goes between them.
+func stageAskContext(id, title string, finish ...string) []string {
+	out := []string{"Bead: " + id + " — " + title + " (branch yard/" + id + ")"}
+	out = append(out, finish...)
+	return append(out,
+		"The builder asked for a decision; the question is in their note.",
+		"The branch is ready to review either way.")
+}
+
 // stageAsks are the bead's asks oldest first, with their states.
 func stageAsks(t *testing.T, s store.API, id string) []store.ResolvedAsk {
 	t.Helper()
@@ -106,11 +118,21 @@ func TestStageAskEntry(t *testing.T) {
 		if a.Stage != "review" || a.Entry == 0 {
 			t.Fatalf("ask %d: stage %q entry %d", i, a.Stage, a.Entry)
 		}
-		if len(a.Move) != 3 || a.Move[0] != "done" || a.Move[1] != "changes" || a.Move[2] != "" {
+		if len(a.Move) != 2 || a.Move[0] != "done" || a.Move[1] != "changes" {
 			t.Fatalf("ask %d: move %q", i, a.Move)
 		}
-		if len(a.Options) != 3 || a.Options[0].Label != "done" || a.Options[2].Label != store.YouDecide {
+		// The template's two outcomes and nothing the yard adds: You decide
+		// recorded words and moved nothing.
+		if len(a.Options) != 2 || a.Options[0].Label != "done" || a.Options[1].Label != "changes" {
 			t.Fatalf("ask %d: options %+v", i, a.Options)
+		}
+		// No finish note stands on the bead, so the header is the bead and
+		// its branch, and the template's lines follow it word for word.
+		if want := "Where should this bead go next? — " + b.ID + ": x"; a.Question != want {
+			t.Fatalf("ask %d: question %q, want %q", i, a.Question, want)
+		}
+		if want := stageAskContext(b.ID, "x"); !slices.Equal(a.Context, want) {
+			t.Fatalf("ask %d: context %q, want %q", i, a.Context, want)
 		}
 		if a.Recommend != 1 || a.Why == "" {
 			t.Fatalf("ask %d: recommend %d why %q", i, a.Recommend, a.Why)
@@ -158,6 +180,83 @@ func TestStageAskEntry(t *testing.T) {
 	}
 }
 
+// The card says what changed: the first line of the bead's finish note, as
+// its writer wrote it ("Done. ...", "Final: ..."). A finish note is a plain
+// note with a passing test line, a line of its own, whatever the note opens
+// with; the builder's is the one by the author who first handed work on, and a
+// reviewer's verdict after it does not replace it.
+func TestStageAskFinishLine(t *testing.T) {
+	t.Parallel()
+	const pass = "test: sh .yardr/test @ abc1234: pass, 3 packages ok, 0 failed"
+	long := "Done. " + strings.Repeat("a", 700)
+	note := func(author, text string) store.Note { return store.Note{Author: author, Text: text} }
+	for _, c := range []struct {
+		name  string
+		notes []store.Note
+		want  string // the finish line, "" where none stands
+	}{
+		{"a Done. note", []store.Note{note("builder", "Done. Added the header.\n"+pass)}, "Done. Added the header."},
+		{"a Final: note", []store.Note{note("builder", "Final: f75abf88 names each row.\n\n"+pass+"\nFriction: none")}, "Final: f75abf88 names each row."},
+		{"the builder's latest", []store.Note{note("builder", "Done. First try.\n"+pass), note("builder", "Done. Second try.\n"+pass)}, "Done. Second try."},
+		{"a reviewer's verdict after it", []store.Note{note("builder", "Done. Added the header.\n"+pass), note("reviewer", "Approved for done-safe. Read the diff.\n"+pass)}, "Done. Added the header."},
+		{"a plan note, then the finish note", []store.Note{note("builder", "Plan: files to change.\nBase run: "+pass), note("builder", "Done. Added the header.\n"+pass)}, "Done. Added the header."},
+		{"blank lines and a control character", []store.Note{note("builder", "\n\n  Done. Cleared\x1b[2J the screen.\n"+pass)}, "Done. Cleared[2J the screen."},
+		{"a long first line is cut", []store.Note{note("builder", long+"\n"+pass)}, long[:600] + "…"},
+		{"a journal entry is no finish note", []store.Note{{Kind: store.NoteJournal, Author: "builder", Text: "Done. Added it.\n" + pass}}, ""},
+		{"no test line", []store.Note{note("builder", "Done. Added the header.")}, ""},
+		{"a failing test line", []store.Note{note("builder", "Done. Added the header.\ntest: sh .yardr/test @ abc1234: fail, 1 packages failed")}, ""},
+		{"a test line that is no line of its own", []store.Note{note("builder", "Base run before any change: "+pass)}, ""},
+		{"no note at all", nil, ""},
+	} {
+		if got := store.FinishLine(c.notes); got != c.want {
+			t.Errorf("%s: finish line %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The header reaches the cards through the write that puts them, with the
+// finish note the bead carries at that moment: one a note wrote before the
+// move, and one that comes with the move itself (done --note). Every member's
+// card holds the same header.
+func TestStageAskHeaderFinishNote(t *testing.T) {
+	t.Parallel()
+	const pass = "test: sh .yardr/test @ abc1234: pass, 3 packages ok, 0 failed"
+	s, ctx := stageAskYard(t, stageAskChoice)
+	for _, c := range []struct {
+		name, text string
+		withMove   bool // the note comes with the move, as done --note
+	}{
+		{"a note before the move", "Done. Added the header.\n" + pass, false},
+		{"a note with the move", "Final: said with the move.\n" + pass, true},
+	} {
+		b, err := s.CreateBead(ctx, store.NewBead{Title: "Name the bead", Depot: "web", Stage: "new"}, "me")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.withMove {
+			_, err = s.Done(ctx, b.ID, "done", c.text, store.Expect{}, "builder")
+		} else if err = s.AddNote(ctx, b.ID, c.text, "builder"); err == nil {
+			_, err = s.Advance(ctx, b.ID, "review", store.Expect{}, "me")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		finish, _, _ := strings.Cut(c.text, "\n")
+		got := stageAsks(t, s, b.ID)
+		if len(got) != 2 {
+			t.Fatalf("%s: asks = %d, want one per member", c.name, len(got))
+		}
+		for _, r := range got {
+			if want := "Where should this bead go next? — " + b.ID + ": Name the bead"; r.Ask.Question != want {
+				t.Errorf("%s: %s's question %q, want %q", c.name, r.Ask.To, r.Ask.Question, want)
+			}
+			if want := stageAskContext(b.ID, "Name the bead", finish); !slices.Equal(r.Ask.Context, want) {
+				t.Errorf("%s: %s's context %q, want %q", c.name, r.Ask.To, r.Ask.Context, want)
+			}
+		}
+	}
+}
+
 // Creating a bead directly in a templated stage puts its ask with the
 // created event as Entry.
 func TestStageAskCreateBeadEntry(t *testing.T) {
@@ -170,6 +269,11 @@ func TestStageAskCreateBeadEntry(t *testing.T) {
 	got := stageAsks(t, s, b.ID)
 	if len(got) != 2 || got[0].Ask.Stage != "review" || got[0].Ask.Entry == 0 {
 		t.Fatalf("created stage asks = %+v", got)
+	}
+	// A bead made in the stage has no notes, and its header says so by
+	// leaving the finish line out.
+	if want := stageAskContext(b.ID, "x"); !slices.Equal(got[0].Ask.Context, want) {
+		t.Fatalf("created ask context %q, want %q", got[0].Ask.Context, want)
 	}
 	evs, err := s.Events(ctx, b.ID, 50)
 	if err != nil {
@@ -249,7 +353,7 @@ func TestStageAskStoreFlow(t *testing.T) {
 // move named; answered and declined asks stay as history.
 func TestStageAskHandMove(t *testing.T) {
 	t.Parallel()
-	s, ctx := stageAskYard(t, stageAskChoice)
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	if _, err := s.AddUser(ctx, "grace", "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -267,8 +371,11 @@ func TestStageAskHandMove(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("asks = %d", len(got))
 	}
-	// You decide: a moving pick would move the bead in its write, and this
-	// is the hand move's test.
+	// You decide, on a card put before the yard dropped it: a moving pick
+	// would move the bead in its write, and this is the hand move's test.
+	if err := own.AgeStageAsk(b.ID, got[0].Note.Seq); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 3, Words: "go"}, "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +409,7 @@ func TestStageAskHandMove(t *testing.T) {
 // with its earlier entry.
 func TestStageAskReentry(t *testing.T) {
 	t.Parallel()
-	s, ctx := stageAskYard(t, stageAskChoice)
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -311,8 +418,11 @@ func TestStageAskReentry(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := stageAsks(t, s, b.ID)
-	// You decide: a moving pick would move the bead in its write, and this
-	// is the re-entry's test.
+	// You decide, on a card put before the yard dropped it: a moving pick
+	// would move the bead in its write, and this is the re-entry's test.
+	if err := own.AgeStageAsk(b.ID, first[0].Note.Seq); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 3}, "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -427,6 +537,16 @@ func TestStageAskRemote(t *testing.T) {
 	out, err := api.PeerOutbox(ctx, "north", 0)
 	if err != nil || len(out) != 1 || out[0].Kind != "ask" {
 		t.Fatalf("outbox = %+v, %v", out, err)
+	}
+	// What crosses the link is the stored card, header and all, with the
+	// template's two options and no You decide.
+	var sent askBody
+	if err := json.Unmarshal(out[0].Body, &sent); err != nil {
+		t.Fatal(err)
+	}
+	if want := "Where should this bead go next? — " + b.ID + ": x"; sent.Ask.Question != want ||
+		!slices.Equal(sent.Ask.Context, stageAskContext(b.ID, "x")) || len(sent.Ask.Options) != 2 {
+		t.Fatalf("the card sent across = %+v, want the header, the template's lines and its two options", sent.Ask)
 	}
 	// Unreachable: no such link. One event names the bead, the stage and
 	// the member, and the ask falls back to the operator.
@@ -802,13 +922,13 @@ func TestStageAskInputCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = stageAsks(t, s, b.ID)
-	if len(got) != 2 || len(got[0].Ask.Options) != 2 || got[0].Ask.Options[0].Label != "Done" {
+	if len(got) != 2 || len(got[0].Ask.Options) != 1 || got[0].Ask.Options[0].Label != "Done" {
 		t.Fatalf("check asks = %+v", got)
 	}
 	if got[0].Ask.Options[0].Consequence != "the bead leaves review (outcome done)" {
 		t.Fatalf("check consequence = %q", got[0].Ask.Options[0].Consequence)
 	}
-	if !slices.Equal(got[0].Ask.Move, []string{"done", ""}) {
+	if !slices.Equal(got[0].Ask.Move, []string{"done"}) {
 		t.Fatalf("check move = %q", got[0].Ask.Move)
 	}
 }
@@ -900,8 +1020,8 @@ func (y movesYard) toDecide(t *testing.T, id string) {
 	}
 }
 
-// cardOf reads the options of a stage ask as (label, move, consequence), the
-// last of them the You decide the yard adds, which fires nothing.
+// cardOf reads the options of a stage ask as (label, move, consequence): the
+// stage's own moves, and no You decide.
 func cardOf(a store.Ask) [][3]string {
 	var out [][3]string
 	for i, o := range a.Options {
@@ -931,13 +1051,12 @@ func TestStageAskMoves(t *testing.T) {
 		t.Fatalf("asks in critique = %+v, want the yard's one for ada", got)
 	}
 	card := got[0].Ask
-	if card.Stage != "critique" || card.Entry == 0 || !card.Moves || card.To != "ada" || card.Question != "Where should this bead go next?" {
+	if card.Stage != "critique" || card.Entry == 0 || !card.Moves || card.To != "ada" || card.Question != "Where should this bead go next? — "+b.ID+": a design" {
 		t.Fatalf("the critique card = %+v", card)
 	}
 	want := [][3]string{
 		{"done", "done", "The bead moves to decide."},
 		{"changes", "changes", "The bead goes back to draft, with your words as the note. Round 1 of 2. The flow allows 2 rounds back to draft; after that it goes to decide instead."},
-		{store.YouDecide, "", "leave it to yard"},
 	}
 	if diff := cardOf(card); !slices.Equal(diff, want) {
 		t.Fatalf("critique offers\n%q\nwant\n%q", diff, want)
@@ -963,7 +1082,6 @@ func TestStageAskMoves(t *testing.T) {
 		{"approved", "->approved", "The bead moves to approved."},
 		{"draft", "->draft", "The bead goes back to draft, with your words as the note."},
 		{"backlog", "->backlog", "The bead goes back to backlog, with your words as the note."},
-		{store.YouDecide, "", "leave it to yard"},
 	}
 	if diff := cardOf(card); !slices.Equal(diff, want) {
 		t.Fatalf("decide offers\n%q\nwant\n%q", diff, want)
@@ -1154,7 +1272,8 @@ func TestStageAskMovesYieldToAHandAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := states(made.Bead.ID), []string{"Where should this bead go next?: taken back", "Hidden or deleted?: open"}; !slices.Equal(got, want) {
+	card := "Where should this bead go next? — " + made.Bead.ID + ": Hidden or deleted?"
+	if got, want := states(made.Bead.ID), []string{card + ": taken back", "Hidden or deleted?: open"}; !slices.Equal(got, want) {
 		t.Fatalf("a question asked into decide: %q, want %q", got, want)
 	}
 

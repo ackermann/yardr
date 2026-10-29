@@ -185,11 +185,26 @@ func TestStageAnswerInputMoves(t *testing.T) {
 	}
 }
 
-// Picking You decide records without moving; the person re-picks from the
-// bead while it is still in the stage.
+// youDecided answers the ask at seq with the You decide of a card put before
+// the yard dropped it: the pick records without moving the bead, so the ask
+// stands answered in a bead that is still in its stage, for the rules about
+// stays and stages to meet.
+func youDecided(t *testing.T, s store.API, own *store.Store, ctx context.Context, bead string, seq uint64, actor string) {
+	t.Helper()
+	if err := own.AgeStageAsk(bead, seq); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddAnswer(ctx, bead, store.Answer{Ask: seq, Option: 3}, actor); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The card the yard puts offers no You decide. One put before still answers
+// it by its stored move: the pick records without moving, and the person
+// re-picks from the bead while it is still in the stage.
 func TestStageAnswerYouDecide(t *testing.T) {
 	t.Parallel()
-	s, ctx := stageAskYard(t, stageAskChoice)
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -198,6 +213,16 @@ func TestStageAnswerYouDecide(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := stageAsks(t, s, b.ID)
+	before := stageAnswerNotes(t, s, b.ID)
+	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 3}, "ada"); err == nil || !strings.Contains(err.Error(), "has options 1..2") {
+		t.Fatalf("a third pick on a card put now: %v, want it refused as past the two options", err)
+	}
+	if after := stageAnswerNotes(t, s, b.ID); len(after) != len(before) {
+		t.Fatalf("a refused pick left notes: %d, want %d", len(after), len(before))
+	}
+	if err := own.AgeStageAsk(b.ID, got[0].Note.Seq); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 3}, "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +472,7 @@ func TestStageAnswerRepickAfterMove(t *testing.T) {
 // names the stages.
 func TestStageAnswerOtherStage(t *testing.T) {
 	t.Parallel()
-	s, ctx := stageAskYard(t, stageAskChoice)
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -456,9 +481,7 @@ func TestStageAnswerOtherStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := stageAsks(t, s, b.ID)
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 3}, "ada"); err != nil {
-		t.Fatal(err)
-	}
+	youDecided(t, s, own, ctx, b.ID, got[0].Note.Seq, "ada")
 	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[1].Note.Seq, Option: 1}, "mckean"); err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +500,7 @@ func TestStageAnswerOtherStage(t *testing.T) {
 // ask where one stands.
 func TestStageAnswerReentry(t *testing.T) {
 	t.Parallel()
-	s, ctx := stageAskYard(t, stageAskChoice)
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -486,9 +509,7 @@ func TestStageAnswerReentry(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := stageAsks(t, s, b.ID)
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 3}, "ada"); err != nil {
-		t.Fatal(err)
-	}
+	youDecided(t, s, own, ctx, b.ID, first[0].Note.Seq, "ada")
 	if b, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +613,7 @@ func TestStageAnswerAtTheLimit(t *testing.T) {
 
 // stageAnswerStoreYard is stageAskYard on a store flow, with the yard's home
 // returned so the test can rewrite the template between moves.
-func stageAnswerStoreYard(t *testing.T, reviewFile string) (store.API, string, context.Context) {
+func stageAnswerStoreYard(t *testing.T, reviewFile string) (*store.Store, string, context.Context) {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "flows", "work"), 0o755); err != nil {
@@ -653,9 +674,7 @@ func TestStageAnswerTemplateRemoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := stageAsks(t, s, b.ID)
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 3}, "ada"); err != nil {
-		t.Fatal(err)
-	}
+	youDecided(t, s, s, ctx, b.ID, first[0].Note.Seq, "ada")
 	if b, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -687,9 +706,7 @@ func TestStageAnswerTemplateBroken(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := stageAsks(t, s, b.ID)
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: first[0].Note.Seq, Option: 3}, "ada"); err != nil {
-		t.Fatal(err)
-	}
+	youDecided(t, s, s, ctx, b.ID, first[0].Note.Seq, "ada")
 	if b, err = s.Advance(ctx, b.ID, "new", store.Expect{}, "ada"); err != nil {
 		t.Fatal(err)
 	}
@@ -973,7 +990,7 @@ func TestStageAnswerLinkNonMember(t *testing.T) {
 // and the bead stays closed.
 func TestStageAnswerClosed(t *testing.T) {
 	t.Parallel()
-	s, ctx := stageAskYard(t, stageAskChoice)
+	s, own, ctx := stageAskYardOwned(t, stageAskChoice)
 	b, err := s.CreateBead(ctx, store.NewBead{Title: "x", Depot: "web", Stage: "new"}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -982,9 +999,7 @@ func TestStageAnswerClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := stageAsks(t, s, b.ID)
-	if err := s.AddAnswer(ctx, b.ID, store.Answer{Ask: got[0].Note.Seq, Option: 3}, "ada"); err != nil {
-		t.Fatal(err)
-	}
+	youDecided(t, s, own, ctx, b.ID, got[0].Note.Seq, "ada")
 	if b, err = s.CloseBead(ctx, b.ID, "stale", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}

@@ -250,6 +250,111 @@ func TestUserAsksQueue(t *testing.T) {
 	}
 }
 
+// A stage card as a person reads it in their queue and on the bead: the
+// question names the bead, the context opens with the bead and its branch,
+// and the options are the template's alone, so a pick past them is refused
+// and records nothing. A card put before the yard dropped You decide still
+// answers it: the pick records, and the bead stays where it is.
+func TestStageCardInTheQueue(t *testing.T) {
+	// Sequential: the package's fake clock (via newAskYard).
+	y := decisionYard(t)
+	tmpl := &AskTemplate{
+		Kind: AskChoice, Question: "Should this bead land?",
+		Context: []string{"Landing it is your call."},
+		Options: []AskTemplateOption{
+			{Outcome: "done", Consequence: "The bead lands."},
+			{Outcome: "changes", Consequence: "The bead goes back."},
+		},
+	}
+	var current, older uint64
+	var stage string
+	if err := y.Store.write(func(w *wtx) error {
+		row, err := w.loadBead(y.bead)
+		if err != nil {
+			return err
+		}
+		notes, err := beadNotes(w.Tx, row.UUID)
+		if err != nil {
+			return err
+		}
+		entry, err := latestStayEntry(w.Tx, row.UUID)
+		if err != nil {
+			return err
+		}
+		stage = row.Stage
+		card := tmpl.framed(row, notes).stageAsk("mckean", row.Stage, entry)
+		n, err := w.storeStageAsk(row, card)
+		if err != nil {
+			return err
+		}
+		current = n.Seq
+		// The same card as the yard stored it before: You decide last, its
+		// move empty.
+		card.Options = append(card.Options, AskOption{Label: YouDecide, Consequence: "leave it to yard"})
+		card.Move = append(card.Move, "")
+		n, err = w.storeStageAsk(row, card)
+		older = n.Seq
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := y.Store.UserAsks(y.ctx, "mckean", "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q.Open) != 2 || q.Open[0].Ask != current || q.Open[1].Ask != older {
+		t.Fatalf("open = %+v, want the two cards", q.Open)
+	}
+	for _, row := range q.Open {
+		if want := "Should this bead land? — " + y.bead + ": the work"; row.Question != want {
+			t.Errorf("queue row %d reads %q, want %q", row.Ask, row.Question, want)
+		}
+	}
+	v, err := y.Store.Bead(y.ctx, y.bead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Asks) != 2 {
+		t.Fatalf("asks = %+v, want the two cards", v.Asks)
+	}
+	labels := func(a BeadAsk) (out []string) {
+		for _, o := range a.Options {
+			out = append(out, o.Label)
+		}
+		return out
+	}
+	for i, want := range [][]string{{"done", "changes"}, {"done", "changes", YouDecide}} {
+		card := v.Asks[i]
+		header := []string{"Bead: " + y.bead + " — the work (branch yard/" + y.bead + ")", "Landing it is your call."}
+		if !slices.Equal(card.Context, header) {
+			t.Errorf("card %d context = %q, want the header and the template's line %q", card.Ask, card.Context, header)
+		}
+		if got := labels(card); !slices.Equal(got, want) {
+			t.Errorf("card %d offers %q, want %q", card.Ask, got, want)
+		}
+	}
+
+	// The card put now has no third pick; the older one answers it, and
+	// moves nothing.
+	err = y.Store.AddAnswer(y.ctx, y.bead, Answer{Ask: current, Option: 3}, "mckean")
+	if err == nil || !strings.Contains(err.Error(), "has options 1..2") {
+		t.Fatalf("a pick past a card's options: %v", err)
+	}
+	y.answerOn(t, y.bead, Answer{Ask: older, Option: 3, Words: "later, then"}, "mckean")
+	if b, err := y.Store.GetBead(y.ctx, y.bead); err != nil || b.Stage != stage {
+		t.Fatalf("bead after You decide = %+v, %v, want it still in %s", b, err, stage)
+	}
+	q, err = y.Store.UserAsks(y.ctx, "mckean", "mckean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q.Open) != 1 || q.Open[0].Ask != current || len(q.Decided) != 1 || q.Decided[0].Ask != older ||
+		q.Decided[0].OptionLabel != YouDecide {
+		t.Fatalf("queue after You decide: open %+v, decided %+v", q.Open, q.Decided)
+	}
+}
+
 // Bead reads one bead whole: body, stage, labels, notes, its asks with
 // their options, recommendation and state, and for each about-bead its
 // id, title and stage. Answers fold into their asks; nobody reads the raw

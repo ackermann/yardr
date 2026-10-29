@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -175,40 +176,111 @@ func movesOf(f *Flow, stage string, row *beadRow, back string) []AskTemplateOpti
 // and moves each move of the stage the same way (movesOf), marked so that
 // the yard can tell its card of moves from the others (Ask.Moves); input
 // wants words with its move as the single entry; check offers Done, whose
-// consequence is fixed, firing its move. YouDecide is last wherever there
-// are options, with an empty move, as newAsk adds it.
+// consequence is fixed, firing its move. None offers YouDecide: it recorded
+// words and moved nothing, which read as agreement and decided nothing. A
+// card put before still holds it, and its pick still records without moving
+// (stageMove goes by the stored move, not by what would be built now).
 func (t *AskTemplate) stageAsk(to, stage string, entry uint64) Ask {
 	context := slices.Clone(t.Context)
 	switch t.Kind {
 	case AskChoice, AskMoves:
-		options := make([]AskOption, 0, len(t.Options)+1)
-		move := make([]string, 0, len(t.Options)+1)
+		options := make([]AskOption, 0, len(t.Options))
+		move := make([]string, 0, len(t.Options))
 		for _, o := range t.Options {
 			options = append(options, AskOption{Label: o.Outcome, Consequence: o.Consequence})
 			move = append(move, o.fires())
 		}
-		options = append(options, AskOption{Label: YouDecide, Consequence: "leave it to " + stageAskAuthor})
-		move = append(move, "")
 		return Ask{Question: t.Question, To: to, Context: context, Options: options,
 			Recommend: t.Recommend, Why: t.Why, Stage: stage, Move: move, Entry: entry,
 			Moves: t.Kind == AskMoves}
 	case AskCheck:
 		done := fmt.Sprintf("the bead leaves %s (outcome %s)", stage, t.Move)
 		return Ask{Question: t.Question, To: to, Context: context,
-			Options: []AskOption{
-				{Label: "Done", Consequence: done},
-				{Label: YouDecide, Consequence: "leave it to " + stageAskAuthor},
-			},
-			Stage: stage, Move: []string{t.Move, ""}, Entry: entry}
+			Options: []AskOption{{Label: "Done", Consequence: done}},
+			Stage:   stage, Move: []string{t.Move}, Entry: entry}
 	default: // AskInput wants words; its move is the single entry.
 		return Ask{Question: t.Question, To: to, Context: context,
 			Stage: stage, Move: []string{t.Move}, Entry: entry}
 	}
 }
 
+// maxFinishLine is how much of a finish note's first line a card keeps: a
+// builder writes a paragraph there, which a phone shows whole, and a note
+// whose first line is output would otherwise make the card too large for a
+// peer to take (askBytes).
+const maxFinishLine = 600
+
+// passingTestLine is a finish note's test line that ended green, as the
+// builder's brief has it written: test: <command> @ <commit>: pass, ...
+var passingTestLine = regexp.MustCompile(`^test:.*@ \S+: pass\b`)
+
+// hasPassingTest reports whether the note's text has a line of its own that
+// is a passing test line. The daemon's hasTestLine, which the store cannot
+// import, reads any "test:" line as a finish note's; a card names what was
+// handed on green.
+func hasPassingTest(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if passingTestLine.MatchString(strings.TrimSpace(line)) {
+			return true
+		}
+	}
+	return false
+}
+
+// finishLine is the first line of the bead's finish note as its writer
+// wrote it ("Done. ...", "Final: ..."), "" where none stands, as on a bead
+// fresh to its stage. A finish note is a plain note with a passing test
+// line. Nothing in the notes or the flow tells a builder from a reviewer,
+// who ends a note with the same line, so the builder is the author of the
+// first finish note, and the note is that author's latest: a reviewer's
+// verdict after it is no account of what changed. notes are in seq order.
+func finishLine(notes []Note) string {
+	var builder, text string
+	for _, n := range notes {
+		if (n.Kind != "" && n.Kind != NoteNote) || !hasPassingTest(n.Text) {
+			continue
+		}
+		if builder == "" {
+			builder = n.Author
+		}
+		if n.Author == builder {
+			text = n.Text
+		}
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	line = OneLine(line)
+	if r := []rune(line); len(r) > maxFinishLine {
+		line = strings.TrimSpace(string(r[:maxFinishLine])) + "…"
+	}
+	return line
+}
+
+// framed is the template with the yard's bead header written in, so that a
+// person answering away from the bead (on paper, on the hosted screen, from
+// a notification) decides about a known thing: the question gains the bead's
+// id and title, and the context starts with the bead and its branch and,
+// where the bead carries a finish note, the note's first line (finishLine).
+// The template's own lines stand word for word after them: its authors write
+// literal text, and nothing in it is filled in. It is a copy, since the
+// template is the stage file's and every member's card is built from it, and
+// the header is frozen into each card as it is put, whatever the bead and
+// its notes become.
+func (t *AskTemplate) framed(row *beadRow, notes []Note) *AskTemplate {
+	card := *t
+	title := OneLine(row.Title)
+	card.Question = fmt.Sprintf("%s — %s: %s", t.Question, row.ID, title)
+	card.Context = []string{fmt.Sprintf("Bead: %s — %s (branch %s)", row.ID, title, Branch(row.ID))}
+	if line := finishLine(notes); line != "" {
+		card.Context = append(card.Context, line)
+	}
+	card.Context = append(card.Context, t.Context...)
+	return &card
+}
+
 // putStageAsks puts the ask tmpl builds on entering stage, with entry the
 // seq of the event that entered the bead row: one ask per user-member of
-// the stage's manual group, authored yard. A member naming another yard
+// the stage's manual group, authored yard, each with the bead header the
+// template is framed with (framed). A member naming another yard
 // gets one ask addressed across, queued directly as the yard's own traffic
 // the way settles are; a remote member whose link is missing or does not
 // carry ask out gets no ask, and the put logs one attention event naming
@@ -259,10 +331,12 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, f *Flow, tm
 		}
 		tmpl.Options = movesOf(f, stage, row, back)
 	}
+	// The same header on every card of the entry, put as it is now.
+	card := tmpl.framed(row, notes)
 	got := 0
 	for _, member := range g.Members {
 		if strings.Contains(member, "@") {
-			ok, err := w.putRemoteAsk(row, tmpl, stage, entry, member)
+			ok, err := w.putRemoteAsk(row, card, stage, entry, member)
 			if err != nil {
 				return err
 			}
@@ -277,7 +351,7 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, f *Flow, tm
 		if w.Bucket(bUsers).Get([]byte(member)) == nil {
 			continue
 		}
-		if err := w.putLocalStageAsk(row, tmpl.stageAsk(member, stage, entry)); err != nil {
+		if err := w.putLocalStageAsk(row, card.stageAsk(member, stage, entry)); err != nil {
 			return err
 		}
 		got++
@@ -289,7 +363,7 @@ func (w *wtx) putStageAsks(row *beadRow, stage string, entry uint64, f *Flow, tm
 	if err != nil || operator == "" {
 		return err
 	}
-	ask := tmpl.stageAsk(operator, stage, entry)
+	ask := card.stageAsk(operator, stage, entry)
 	ask.Fallback = true
 	return w.putLocalStageAsk(row, ask)
 }
@@ -519,8 +593,9 @@ func stayTemplateError(tx *bolt.Tx, uuid, stage string, entry uint64) (string, e
 
 // stageMove is the move a pick of option n, 1-based into the stage ask's
 // options, fires: an outcome to report or a stage to advance to (moveTo),
-// "" for You decide, which moves nothing, and for an option past the moves,
-// which a corrupt ask moves nothing for.
+// "" for the You decide that a card put before the yard dropped it holds,
+// which moves nothing, and for an option past the moves, which a corrupt
+// ask moves nothing for.
 func stageMove(ask Ask, n int) string {
 	if n < 1 || n > len(ask.Move) {
 		return ""
@@ -607,8 +682,9 @@ func stageAnswerSpoofTx(ctx context.Context, tx *bolt.Tx, row *beadRow, actor st
 // pick moves only for the stay that put it: one whose current answer moved
 // takes no further pick, one for another stage names both, and one for an
 // earlier stay names the fresh ask where one stands, else says the template
-// went or broke and the bead is moved by hand. Picking You decide records
-// without moving, as do words with no move. A closed bead moves no more.
+// went or broke and the bead is moved by hand. Picking the You decide of a
+// card put before the yard dropped it records without moving, as do words
+// with no move. A closed bead moves no more.
 func (w *wtx) stageAnswer(ctx context.Context, row *beadRow, notes []Note, ans Answer, actor string, repo *RepoFlows, home *stageHome) (outcome, reason string, err error) {
 	var current *ResolvedAsk
 	resolved := ResolveAsks(notes, now())

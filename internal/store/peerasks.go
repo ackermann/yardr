@@ -389,10 +389,10 @@ func validAsk(to string, a Ask) bool {
 			return false
 		}
 	}
-	if len(a.Options) > 0 && a.Options[len(a.Options)-1].Label != YouDecide {
-		return false
-	}
 	switch {
+	// A stage's card offers its own options alone, with no You decide (stageAsk).
+	case len(a.Options) > 0 && a.Stage == "" && a.Options[len(a.Options)-1].Label != YouDecide:
+		return false
 	case a.Recommend < 0 || a.Recommend > len(a.Options):
 		return false
 	case a.Recommend != 0 && a.Options[a.Recommend-1].Label == YouDecide:

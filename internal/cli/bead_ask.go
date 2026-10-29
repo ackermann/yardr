@@ -888,7 +888,7 @@ older one for display, and every pick stays as a note. Nothing is deleted.
   yardr bead answer <id> <ask> --approve --value <name>=<value>   approve it giving the values the card asks for
 
 <ask> is the ask note's seq, as prime, review and chat print it. <n> counts
-the ask's options as shown, "You decide" last.
+the ask's options as shown, "You decide" last where it has one.
 
 Words alone on an ask with options are refused. They go as a plain note
 (yardr bead note) and leave the ask open. Talk about the question stays

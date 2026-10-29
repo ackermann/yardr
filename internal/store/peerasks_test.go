@@ -391,6 +391,18 @@ func TestPeerAskReceive(t *testing.T) {
 	if got := store.PeerRefusal("north", "ask", store.RefusedNotAsk); got != "it does not read the ask" {
 		t.Errorf("PeerRefusal(not_ask) = %q", got)
 	}
+	// The card a yard puts for a stage offers its own options alone, with no
+	// You decide (stageAsk), and is taken; the same options on an ask that is
+	// no stage's stay refused (r13).
+	card := validForeignAsk("mckean", "yardmaster", "yd-stage", 4, since)
+	card.Ask.Options = card.Ask.Options[:2]
+	card.Ask.Stage, card.Ask.Move = "decide", []string{"done", "changes"}
+	if got := y.take(t, askMsg("s1", card)); got[0].Refused != "" || got[0].Duplicate {
+		t.Errorf("a stage card without You decide = %+v, want it taken", got[0])
+	}
+	if q, _ := y.api.UserAsks(y.ctx, "mckean", "mckean"); len(q.Open) != 2 {
+		t.Errorf("after the stage card: open = %+v, want it beside the first ask", q.Open)
+	}
 }
 
 // A question another yard sends padded with spaces is stored folded, as

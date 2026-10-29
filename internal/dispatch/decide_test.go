@@ -158,8 +158,8 @@ func TestDecideOffersItsMoves(t *testing.T) {
 			for _, o := range open[0].Ask.Options {
 				labels = append(labels, o.Label)
 			}
-			if want := append(slices.Clone(c.moves), store.YouDecide); !slices.Equal(labels, want) {
-				t.Fatalf("the card offers %q, want the stage's moves %q", labels, want)
+			if !slices.Equal(labels, c.moves) {
+				t.Fatalf("the card offers %q, want the stage's moves %q", labels, c.moves)
 			}
 			pick := slices.Index(labels, c.pick) + 1
 

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sort"
@@ -460,3 +461,36 @@ func (s *Store) BulkNotify(user string, n int) (seqs []uint64, err error) {
 	})
 	return seqs, err
 }
+
+// AgeStageAsk rewrites the stage ask at seq on bead id as the yard stored it
+// before stage cards lost You decide: the option last, with an empty move. A
+// test of what a card put before still does builds it so, since the yard puts
+// none of that shape now.
+func (s *Store) AgeStageAsk(id string, seq uint64) error {
+	return s.write(func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		key := join(row.UUID, seqKey(seq))
+		var n Note
+		if ok, err := get(w.Tx, bNotes, key, &n); err != nil || !ok || n.Kind != NoteAsk {
+			return fmt.Errorf("bead %s has no ask note %d (%v)", id, seq, err)
+		}
+		ask, err := ParseAsk(n)
+		if err != nil {
+			return err
+		}
+		ask.Options = append(ask.Options, AskOption{Label: YouDecide, Consequence: "leave it to " + stageAskAuthor})
+		ask.Move = append(ask.Move, "")
+		text, err := json.Marshal(ask)
+		if err != nil {
+			return err
+		}
+		n.Text = string(text)
+		return put(w.Tx, bNotes, key, n)
+	})
+}
+
+// FinishLine is finishLine: the first line of the finish note among notes.
+var FinishLine = finishLine

@@ -397,10 +397,10 @@ func TestStarterApprovalStagesAsk(t *testing.T) {
 		for _, o := range a.Options {
 			labels = append(labels, o.Label)
 		}
-		if want := []string{"done", "changes", "question", store.YouDecide}; !slices.Equal(labels, want) {
+		if want := []string{"done", "changes", "question"}; !slices.Equal(labels, want) {
 			t.Fatalf("ask %d: options %v, want %v", i, labels, want)
 		}
-		if want := []string{"done", "changes", "question", ""}; !slices.Equal(a.Move, want) {
+		if want := []string{"done", "changes", "question"}; !slices.Equal(a.Move, want) {
 			t.Fatalf("ask %d: move %v, want %v", i, a.Move, want)
 		}
 		if a.Recommend != 0 {
