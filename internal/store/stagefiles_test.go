@@ -215,7 +215,12 @@ func TestStrayStageFiles(t *testing.T) {
 		".yardr/flows/defualt/new.md":       "typo in the flow",
 		".yardr/flows/broken/anything.md":   "its flow cannot say",
 	})
-	tree, err := store.ReadFlowDir(dir)
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "web", Kind: store.DepotDir, Path: dir}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := s.RepoFlows(ctx, "web")
 	if err != nil {
 		t.Fatal(err)
 	}

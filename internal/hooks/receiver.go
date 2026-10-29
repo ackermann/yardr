@@ -87,9 +87,8 @@ type Receiver struct {
 	log  *slog.Logger
 	now  func() time.Time
 
-	mu       sync.Mutex
-	rejected map[string]int
-	refused  map[refusal]*tally
+	mu      sync.Mutex
+	refused map[refusal]*tally
 
 	// fetching counts the deliveries whose files are being fetched.
 	fetching sync.WaitGroup
@@ -101,21 +100,7 @@ func NewReceiver(st Store, home string, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Receiver{st: st, home: home, log: log, now: time.Now, rejected: map[string]int{}, refused: map[refusal]*tally{}}
-}
-
-// SetClock replaces the clock (tests).
-func (rc *Receiver) SetClock(now func() time.Time) { rc.now = now }
-
-// Rejected counts refused (and duplicate) deliveries by reason.
-func (rc *Receiver) Rejected() map[string]int {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-	out := make(map[string]int, len(rc.rejected))
-	for k, v := range rc.rejected {
-		out[k] = v
-	}
-	return out
+	return &Receiver{st: st, home: home, log: log, now: time.Now, refused: map[refusal]*tally{}}
 }
 
 func (rc *Receiver) Handler() http.Handler {
@@ -212,9 +197,8 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 				// The yard's own post coming back, by a crew member's
 				// identity in this source: dropped under any Unknown
 				// word, and never a mapping card. The echo of a reply
-				// is not a stranger, so it is counted as the yard's
+				// is not a stranger, so it is refused as the yard's
 				// own.
-				rc.count("self")
 				rc.refuse(h, name, "self", http.StatusOK)
 				writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
 				return
@@ -225,14 +209,12 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 				// word: the operator has answered for them in
 				// particular, so unknown offers nothing further and
 				// allow hears nothing of them.
-				rc.count("stranger")
 				rc.refuse(h, name, "stranger", http.StatusOK)
 				writeJSON(w, http.StatusOK, map[string]any{"dropped": true})
 				return
 			case h.UnknownPolicy() == store.HookUnknownAllow:
 				stampSpeaker(env, store.SpeakerOutside)
 			default:
-				rc.count("stranger")
 				rc.refuse(h, name, "stranger", http.StatusOK)
 				if h.UnknownPolicy() == store.HookUnknownUnknown {
 					// Hold the delivery on the operator's mapping
@@ -269,7 +251,6 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else if !rc.hears(r.Context(), dec.D, env) {
-			rc.count("stranger")
 			rc.refuse(h, name, "stranger", http.StatusOK)
 			// Offer the operator a claim for the address it arrived from:
 			// the person wrote to the service, and confirming the card is
@@ -307,7 +288,6 @@ func (rc *Receiver) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dup {
-		rc.count("duplicate")
 		rc.log.Info("hook delivery dropped as duplicate", "hook", name, "delivery", delivery, "seq", seq)
 		writeJSON(w, http.StatusOK, map[string]any{"duplicate": true, "seq": seq})
 		return
@@ -553,7 +533,6 @@ func (rc *Receiver) block(ctx context.Context, h *store.Hook, reason string) {
 // h is the hook it was sent to, nil when the name is no hook's or the hook
 // could not be read.
 func (rc *Receiver) reject(w http.ResponseWriter, h *store.Hook, name, reason string, code int, err error) {
-	rc.count(reason)
 	rc.log.Warn("hook delivery rejected", "hook", name, "reason", reason, "status", code, "err", err)
 	rc.refuse(h, name, reason, code)
 	http.Error(w, http.StatusText(code), code)
@@ -691,12 +670,6 @@ func rejectName(name string) string {
 		name = string(rs[:maxRejectName])
 	}
 	return name
-}
-
-func (rc *Receiver) count(reason string) {
-	rc.mu.Lock()
-	rc.rejected[reason]++
-	rc.mu.Unlock()
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

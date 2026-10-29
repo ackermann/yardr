@@ -239,7 +239,3 @@ func (rc *Receiver) blobMax(ctx context.Context) int64 {
 	}
 	return store.DefaultBlobMax
 }
-
-// Wait waits for the fetches of files under way: a test's, or a receiver's
-// that stops while the store is still open.
-func (rc *Receiver) Wait() { rc.fetching.Wait() }

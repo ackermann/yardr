@@ -941,8 +941,8 @@ func TestFileNotKeptStaysQueued(t *testing.T) {
 	if out, _ := south.api.PeerOutbox(ctx, "north", 0); len(out) != 2 || out[0].Failed != nil {
 		t.Fatalf("south's outbox after the 500 = %+v", out)
 	}
-	if n := len(south.events(t, "peer_message_failed")) + len(north.events(t, "peer_message_received")) + len(north.events(t, "peer_message_refused")); n != 0 || north.rc.Rejected()["store"] != 2 {
-		t.Fatalf("%d events of a file not kept; north rejected %v", n, north.rc.Rejected())
+	if n := len(south.events(t, "peer_message_failed")) + len(north.events(t, "peer_message_received")) + len(north.events(t, "peer_message_refused")); n != 0 {
+		t.Fatalf("%d events of a file not kept", n)
 	}
 	// What is no message is still 400, and refused for good.
 	bad := out[0].PeerMessage
@@ -989,9 +989,6 @@ func TestReceiverTreatsMessageNotFoundAsStoreError(t *testing.T) {
 	resp, answer := signed(south, north, "POST", yards.Path, body).send(t, north)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("a message processing ErrNotFound is answered %d (%s), want 500", resp.StatusCode, answer)
-	}
-	if north.rc.Rejected()["store"] != 1 {
-		t.Fatalf("store rejection count = %v, want one", north.rc.Rejected())
 	}
 	if err := south.caller().Push(context.Background(), toNorth, m); err == nil || errors.Is(err, yards.ErrRefused) {
 		t.Fatalf("sender treats store ErrNotFound as a permanent refusal: %v", err)

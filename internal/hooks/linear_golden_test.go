@@ -630,7 +630,7 @@ func TestLinearHearsByIdentity(t *testing.T) {
 	if got := speakerOf(t, evs[0]); got != "ada" {
 		t.Fatalf("speaker = %q, want ada", got)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 
@@ -648,7 +648,7 @@ func TestLinearHearsByIdentity(t *testing.T) {
 	if got := speakerOf(t, evs[0]); got != store.SpeakerOutside {
 		t.Fatalf("allow: speaker = %q, want %q", got, store.SpeakerOutside)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 0 {
+	if got := r.refused(t, "stranger"); got != 0 {
 		t.Fatalf("allow: stranger count %d, want 0", got)
 	}
 
@@ -662,7 +662,7 @@ func TestLinearHearsByIdentity(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("ignore: want 0 hook events, got %d", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("ignore: stranger count %d, want 1", got)
 	}
 }

@@ -729,7 +729,7 @@ func TestPostHogPackEndToEnd(t *testing.T) {
 	if events() != 1 || inbox() != 1 {
 		t.Fatalf("after the refusals: %d hook events, inbox %d", events(), inbox())
 	}
-	if got := r.rc.Rejected()["unauthorized"]; got != 2 {
+	if got := r.refused(t, "unauthorized"); got != 2 {
 		t.Fatalf("unauthorized count %d, want 2", got)
 	}
 	// Another event is recorded, and nobody's inbox: the setup hears

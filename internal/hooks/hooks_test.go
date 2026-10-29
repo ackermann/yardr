@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -153,7 +154,11 @@ func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
 	r := newDepot(t)
 	body := ghFixture(t, "issues_opened")
 	const copies = 8
-	codes := make(chan int, copies)
+	type answer struct {
+		code int
+		body []byte
+	}
+	answers := make(chan answer, copies)
 	var wg sync.WaitGroup
 	for i := 0; i < copies; i++ {
 		wg.Add(1)
@@ -166,25 +171,30 @@ func TestConcurrentRedeliveryRecordsOnce(t *testing.T) {
 			req.Header.Set("X-GitHub-Event", "issues")
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				codes <- 0
+				answers <- answer{}
 				return
 			}
+			raw, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			codes <- resp.StatusCode
+			answers <- answer{resp.StatusCode, raw}
 		}()
 	}
 	wg.Wait()
-	close(codes)
-	for code := range codes {
-		if code != http.StatusOK {
-			t.Fatalf("delivery answered %d", code)
+	close(answers)
+	dups := 0
+	for a := range answers {
+		if a.code != http.StatusOK {
+			t.Fatalf("delivery answered %d", a.code)
+		}
+		if strings.Contains(string(a.body), `"duplicate":true`) {
+			dups++
 		}
 	}
 	if n := len(r.hookEvents(t)); n != 1 {
 		t.Fatalf("want 1 hook event, got %d", n)
 	}
-	if got := r.rc.Rejected()["duplicate"]; got != copies-1 {
-		t.Fatalf("duplicate count %d, want %d", got, copies-1)
+	if dups != copies-1 {
+		t.Fatalf("duplicate answers %d, want %d", dups, copies-1)
 	}
 }
 
@@ -219,14 +229,15 @@ func TestTokenDedupesOnDeliveryIDOnly(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 4 {
 		t.Fatalf("want 4 hook events, got %d", n)
 	}
-	rejected := r.rc.Rejected()
-	if rejected["no_delivery"] != 2 || rejected["duplicate"] != 2 {
-		t.Fatalf("rejected = %v, want 2 with no delivery and 2 duplicates", rejected)
-	}
 	// The refusal is told as its own reason, once for the stretch.
 	evs := r.eventsOfKind(t, "hook_rejected")
 	if len(evs) != 1 || evs[0].Data["reason"] != "no_delivery" || evs[0].Data["status"] != float64(http.StatusBadRequest) {
 		t.Fatalf("hook_rejected events = %+v, want one for no_delivery", evs)
+	}
+	// Six sends answered 200 and four were recorded, so two were
+	// duplicates; the two that named no id were refused.
+	if got := r.refused(t, "no_delivery"); got != 2 {
+		t.Fatalf("refused no_delivery = %d, want 2", got)
 	}
 }
 
@@ -314,7 +325,7 @@ func TestOversizeBody(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("oversize left %d events", n)
 	}
-	if got := r.rc.Rejected()["too_large"]; got != 1 {
+	if got := r.refused(t, "too_large"); got != 1 {
 		t.Fatalf("too_large count %d", got)
 	}
 }
@@ -586,7 +597,7 @@ func TestSecretFileLoosenedAfterAddBlocksHook(t *testing.T) {
 			t.Fatalf("delivery %d against a 0644 secret file: %d", i, code)
 		}
 	}
-	if n := r.rc.Rejected()["blocked"]; n != 3 {
+	if n := r.refused(t, "blocked"); n != 3 {
 		t.Fatalf("blocked count = %d", n)
 	}
 	evs := r.eventsOfKind(t, "hook_blocked")

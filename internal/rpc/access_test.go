@@ -38,7 +38,7 @@ func TestAccessClassesEveryServedMethod(t *testing.T) {
 	}
 	for _, name := range []string{"SessionScreen", "Teammates", "TelemetryShow", "TelemetrySet"} {
 		if got := Access[name]; got != Operator {
-			t.Errorf("%s has class %s, want operator", name, got)
+			t.Errorf("%s has class %v, want operator", name, got)
 		}
 	}
 }
@@ -62,7 +62,7 @@ func TestClassAllows(t *testing.T) {
 	for c, row := range want {
 		for i, k := range kinds {
 			if got := c.allows(k); got != row[i] {
-				t.Errorf("class %s allows %s = %v, want %v", c, k, got, row[i])
+				t.Errorf("class %v allows %s = %v, want %v", c, k, got, row[i])
 			}
 		}
 	}

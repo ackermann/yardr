@@ -179,16 +179,6 @@ func MedianDuration(ds []time.Duration) time.Duration {
 	return medianOfSorted(ds)
 }
 
-// P90Duration is the duration nine tenths of ds fall at or under (sorted in
-// place): the one at index ceiling(0.9n) minus one, or zero with none.
-func P90Duration(ds []time.Duration) time.Duration {
-	if len(ds) == 0 {
-		return 0
-	}
-	slices.Sort(ds)
-	return p90OfSorted(ds)
-}
-
 // medianOfSorted is the median of ds, already sorted, with at least one.
 func medianOfSorted(ds []time.Duration) time.Duration {
 	n := len(ds)

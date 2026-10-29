@@ -511,7 +511,7 @@ func TestOnDemandStartThroughEndpoint(t *testing.T) {
 	if got := y.state("demo"); got.State != store.PreviewRunning || got.LastRequestAt == nil {
 		t.Fatalf("after on-demand start = %+v", got)
 	}
-	y.sup.Stop("demo")
+	y.sup.kill("demo")
 }
 
 func TestInFlightCap(t *testing.T) {

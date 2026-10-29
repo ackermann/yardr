@@ -351,36 +351,6 @@ func TestUpgradeHatch(t *testing.T) {
 	}
 }
 
-// The beads changed in the window are the distinct beads of the events
-// since the recorded head.
-func TestUpgradeBeadsSince(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	st := storetest.New(t)
-	if _, err := st.PutCrew(ctx, store.CrewMember{Name: "yardmaster"}, "me"); err != nil {
-		t.Fatal(err)
-	}
-	head, err := st.Head(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := upgradeBeadsSince(ctx, st, head); len(got) != 0 {
-		t.Fatalf("empty window = %v", got)
-	}
-	b, err := st.CreateBead(ctx, store.NewBead{Title: "one"}, "me")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.AddNote(ctx, b.ID, "a note", "me"); err != nil {
-		t.Fatal(err)
-	}
-	got := upgradeBeadsSince(ctx, st, head)
-	if len(got) != 1 {
-		t.Fatalf("window = %v, want the one bead", got)
-	}
-	_ = b
-}
-
 // The upgrade restarts the web view's login service and waits for /health:
 // launchctl kickstart -k on macOS, systemctl --user restart on Linux. With
 // no service there is nothing to restart.

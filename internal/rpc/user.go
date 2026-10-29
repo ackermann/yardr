@@ -200,10 +200,9 @@ type UserServer struct {
 	resolveTimeout time.Duration
 	recheck        time.Duration
 
-	mu       sync.Mutex
-	rejected map[string]int
-	refused  map[string]*refusals // by reason: a fixed few, whatever is sent
-	streams  map[string]int       // open streams by user NUL said-by
+	mu      sync.Mutex
+	refused map[string]*refusals // by reason: a fixed few, whatever is sent
+	streams map[string]int       // open streams by user NUL said-by
 }
 
 // refusals are the refusals for one reason since their last event.
@@ -225,7 +224,7 @@ func NewUserServer(st *store.Store, yard func(context.Context) string, log *slog
 	u := &UserServer{st: st, api: newAPI(st, StreamWriteTimeout), yard: yard, log: log, now: time.Now,
 		beadEstimate:   eta.EstimateViaStore,
 		resolveTimeout: ResolveTimeout, recheck: StreamRecheck,
-		rejected: map[string]int{}, refused: map[string]*refusals{}, streams: map[string]int{}}
+		refused: map[string]*refusals{}, streams: map[string]int{}}
 	u.resolve = u.device
 	u.api.methods["Settings"] = method{"Settings", reflect.ValueOf(u.settings)}
 	u.api.methods["Bead"] = method{"Bead", reflect.ValueOf(u.bead)}
@@ -716,17 +715,6 @@ func (u *UserServer) device(ctx context.Context, credential, from string) (*Call
 	return &Caller{User: d.User, SaidBy: d.Name, device: true}, nil
 }
 
-// Rejected counts the refused requests by reason.
-func (u *UserServer) Rejected() map[string]int {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	out := make(map[string]int, len(u.rejected))
-	for k, v := range u.rejected {
-		out[k] = v
-	}
-	return out
-}
-
 func (u *UserServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /user/call/{method}", u.call)
@@ -825,9 +813,6 @@ func (u *UserServer) pair(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	case errors.As(err, &no):
-		u.mu.Lock()
-		u.rejected["pair_"+no.Reason]++
-		u.mu.Unlock()
 		u.log.Warn("a device's pairing call refused", "reason", no.Reason)
 		status := http.StatusConflict
 		if no.Reason == pairing.WrongCode {
@@ -996,7 +981,6 @@ func bearer(values []string) (string, bool) {
 func (u *UserServer) refuse(w http.ResponseWriter, reason string) {
 	now := u.now()
 	u.mu.Lock()
-	u.rejected[reason]++
 	t := u.refused[reason]
 	if t == nil {
 		t = &refusals{}

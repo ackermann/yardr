@@ -275,11 +275,6 @@ func TestLinesMarked(t *testing.T) {
 	if len(blocks) != 3 || !strings.Contains(blocks[0], "mckean@north (as mckean) picked 1") {
 		t.Fatalf("marked blocks = %q", blocks)
 	}
-	for _, b := range NoteBlocks(notes, y.now, "") {
-		if strings.Contains(b, "(as mckean)") || strings.Contains(b, OutsideMail) {
-			t.Fatalf("unmarked blocks mark an answer: %q", b)
-		}
-	}
 	if got := MarkedAuthor("mckean", trusted); got != "mckean" {
 		t.Fatalf("a name of this yard reads %q", got)
 	}

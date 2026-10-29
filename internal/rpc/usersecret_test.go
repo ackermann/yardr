@@ -208,7 +208,7 @@ func TestUserGivesASecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := strings.Join(store.NoteBlocks(notes, time.Now(), ""), "\n"); !strings.Contains(text, "jo (via phone) gave CRM_TOKEN") {
+	if text := strings.Join(store.NoteBlocksMarked(notes, time.Now(), nil, ""), "\n"); !strings.Contains(text, "jo (via phone) gave CRM_TOKEN") {
 		t.Errorf("the notes as they are printed do not say how the giving came:\n%s", text)
 	}
 	if q, err := y.st.UserAsks(ctx, "jo", "jo"); err != nil || len(q.Open) != 0 {

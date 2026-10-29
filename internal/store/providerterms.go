@@ -61,18 +61,6 @@ func ProviderTermsOf(settings map[string]string) []ProviderTerms {
 	return out
 }
 
-// ProviderTermsFor is the record for provider, nil where the yard made
-// none for it.
-func ProviderTermsFor(settings map[string]string, provider string) *ProviderTerms {
-	for _, r := range ProviderTermsOf(settings) {
-		if strings.EqualFold(r.Provider, provider) {
-			r := r
-			return &r
-		}
-	}
-	return nil
-}
-
 // WithProviderTerms is the provider_terms setting's value with r in it,
 // replacing any record for its provider: the value SetSetting takes.
 func WithProviderTerms(settings map[string]string, r ProviderTerms) (string, error) {

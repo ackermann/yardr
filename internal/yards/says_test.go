@@ -159,9 +159,6 @@ func TestOlderYardrIsStillHeard(t *testing.T) {
 	if got := said(t, b, "old"); got != nil {
 		t.Fatalf("after its question: %+v", got)
 	}
-	if got := b.rc.Rejected(); len(got) != 0 {
-		t.Fatalf("b rejected %v", got)
-	}
 }
 
 // oldYard answers as a yardr from before yards said what they understand:

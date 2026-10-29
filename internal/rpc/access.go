@@ -45,24 +45,6 @@ const (
 	DaemonOrOperator
 )
 
-func (c Class) String() string {
-	switch c {
-	case Read:
-		return "read"
-	case Agent:
-		return "agent"
-	case Admin:
-		return "admin"
-	case Operator:
-		return "operator"
-	case Daemon:
-		return "daemon"
-	case DaemonOrOperator:
-		return "daemon or operator"
-	}
-	return "unclassed"
-}
-
 // allows reports whether a caller of kind may make a call of class c.
 // The yard's own process and a person outside every pane (or an exec
 // session's command, the operator's own) are let through to the store's

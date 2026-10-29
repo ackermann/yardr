@@ -359,23 +359,6 @@ func DepotPushCmd(cmd string, off bool) (string, bool, error) {
 
 // --- git, read outside nothing else ----------------------------------
 
-// gitConfigGet is `git -C path config --get <key>`: the value and
-// whether it stands. local holds it to the depot's own config.
-func gitConfigGet(path, key string, local bool) (string, bool) {
-	args := []string{"-C", path, "config"}
-	if local {
-		args = append(args, "--local")
-	}
-	args = append(args, "--get", key)
-	cmd := exec.Command("git", args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return "", false
-	}
-	return strings.TrimSpace(out.String()), true
-}
-
 func gitConfigGetAll(path, key string, local bool) ([]string, bool) {
 	args := []string{"-C", path, "config"}
 	if local {

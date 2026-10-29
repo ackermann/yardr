@@ -184,8 +184,8 @@ func TestDepotPushCardAndApprovalDefersToCarrier(t *testing.T) {
 	if g.Config["cmd"] != depotPushCmd {
 		t.Fatalf("the approval itself changed the cmd: %q", g.Config["cmd"])
 	}
-	if v, ok := gitConfigGet(y.depotPath(t, "web"), depotHelperKey, true); ok || v != "" {
-		t.Fatalf("the approval itself wrote the helper: %q", v)
+	if vs, ok := gitConfigGetAll(y.depotPath(t, "web"), depotHelperKey, true); !ok || len(vs) != 0 {
+		t.Fatalf("the approval itself wrote the helper: %q", vs)
 	}
 	rec, err := y.CarryOf(y.ctx, y.bead, seq)
 	if err != nil || rec == nil || rec.State != CarryApproved || len(rec.Argv) != 2 || rec.Argv[0] != "depot-push" || rec.Argv[1] != "web" {

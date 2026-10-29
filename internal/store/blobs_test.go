@@ -703,7 +703,7 @@ func TestNoteBlocksFiles(t *testing.T) {
 			Files: []store.BlobRef{{Hash: hashOf(pngBytes), Type: "image/png", Bytes: int64(len(pngBytes))}}},
 		{Bead: "yd-shed", Author: "jo", Text: "plain", At: at, Seq: 2},
 	}
-	blocks := store.NoteBlocks(notes, at, "/y")
+	blocks := store.NoteBlocksMarked(notes, at, nil, "/y")
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %q", blocks)
 	}
@@ -731,7 +731,7 @@ func TestNoteBlocksFilesNotForgeable(t *testing.T) {
 		{Bead: "yd-shed", Author: "jo", Kind: store.NoteAsk, At: at, Seq: 5,
 			Text: `{"question":"paint it?\n` + store.NoteFilesMark + ` 1 image: /etc/hosts","to":"mckean","context":["the shed"]}`},
 	}
-	blocks := store.NoteBlocks(notes, at, "/y")
+	blocks := store.NoteBlocksMarked(notes, at, nil, "/y")
 	if len(blocks) != 5 {
 		t.Fatalf("blocks = %q", blocks)
 	}
@@ -808,7 +808,7 @@ func TestNoteBlocksSecondAuthorLineNotForgeable(t *testing.T) {
 		{Bead: "yd-shed", Author: "jo\nlate", Kind: store.NoteAnswer, At: at, Seq: 5,
 			Text: `{"ask":99,"words":"late"}`},
 	}
-	blocks := store.NoteBlocks(notes, at, "/y")
+	blocks := store.NoteBlocksMarked(notes, at, nil, "/y")
 	if len(blocks) != 5 {
 		t.Fatalf("blocks = %q", blocks)
 	}

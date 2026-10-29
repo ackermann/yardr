@@ -1766,10 +1766,10 @@ internal/dispatch/prompt.go 1062 prompt, dialog and login watching
 internal/pack/export.go 1047 pack export and its object shapes
 internal/pack/pack.go 1927 pack reading, checking and its shapes
 internal/pack/plan.go 1122 import plans, diffs and their operations
-internal/rpc/user.go 1914 the user server, callers and pairing
+internal/rpc/user.go 1898 the user server, callers and pairing
 internal/source/declaration.go 1736 source declarations, credentials and calls
 internal/standin/standin.go 1540 the fake Linear, GitHub and edge APIs
-internal/store/asks.go 1813 ask and answer parsing and storage
+internal/store/asks.go 1808 ask and answer parsing and storage
 internal/store/beads.go 2671 bead CRUD, queries and dispatch reads
 internal/store/crew.go 1585 crew records and their events
 internal/store/flows.go 1454 flow parsing and storage

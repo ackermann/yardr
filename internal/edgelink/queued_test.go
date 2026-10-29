@@ -127,7 +127,6 @@ func queuedLinkWithBarrier(t *testing.T, barrier *handlerBarrier) *queuedYard {
 	}
 	now := time.Now()
 	rc := hooks.NewReceiver(own, home, nil)
-	rc.SetClock(func() time.Time { return now })
 	served := make(chan struct{}, 8)
 	handler := rc.Handler()
 	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

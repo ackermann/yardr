@@ -135,6 +135,21 @@ func eventsOfKind(t *testing.T, st *store.Store, kind string) []store.Event {
 	return evs
 }
 
+// refusedCounts is the refused requests by reason: the user_refused
+// events say each stretch's count, flushed first so what is still
+// within its window is said too.
+func refusedCounts(t *testing.T, st *store.Store, u *UserServer) map[string]int {
+	t.Helper()
+	u.Flush(true)
+	out := map[string]int{}
+	for _, e := range eventsOfKind(t, st, UserRefused) {
+		reason, _ := e.Data["reason"].(string)
+		count, _ := e.Data["count"].(float64)
+		out[reason] += int(count)
+	}
+	return out
+}
+
 // The listener serves a device exactly the calls of Calls, by name: every
 // other method of the store's API is answered as no method at all, whatever
 // the form of its arguments, and the array form is no way to make a call
@@ -704,7 +719,7 @@ func TestUserWritesCarryVia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := strings.Join(store.NoteBlocks(notes, time.Now(), ""), "\n"); !strings.Contains(text, "jo (via phone)]\n  looks right") {
+	if text := strings.Join(store.NoteBlocksMarked(notes, time.Now(), nil, ""), "\n"); !strings.Contains(text, "jo (via phone)]\n  looks right") {
 		t.Errorf("the notes as they are printed do not say how one came:\n%s", text)
 	}
 }
@@ -1392,7 +1407,7 @@ func TestUserRefusedWithoutACredential(t *testing.T) {
 		r.Header.Set("X-Forwarded-User", "jo")
 	})
 	want := map[string]int{refusedNone: 5 * len(userPaths), refusedUnknown: 3 * len(userPaths)}
-	if got := u.Rejected(); !reflect.DeepEqual(got, want) {
+	if got := refusedCounts(t, st, u); !reflect.DeepEqual(got, want) {
 		t.Errorf("the refusals are counted %v, want %v", got, want)
 	}
 	if w := ask(h, http.MethodGet, "/user/me", token, nil); w.Code != http.StatusOK {
@@ -1416,7 +1431,7 @@ func TestUserRefusedWithoutACredential(t *testing.T) {
 			}
 		}
 	}
-	if got := u.Rejected(); !reflect.DeepEqual(got, want) {
+	if got := refusedCounts(t, st, u); !reflect.DeepEqual(got, want) {
 		t.Errorf("a yard with no device counted refusals: %v", got)
 	}
 	if _, err := st.AddDevice(ctx, "jo", "retry", "jo"); err != nil {
@@ -1470,9 +1485,6 @@ func TestUserRefusalsKeepNothingForTheAddress(t *testing.T) {
 	}
 	if got := call(t, h, token, "Head", `{}`); !strings.Contains(got, `"result"`) {
 		t.Errorf("the device's call after them = %s", got)
-	}
-	if got := u.Rejected(); !reflect.DeepEqual(got, map[string]int{refusedUnknown: 1000}) {
-		t.Errorf("the refusals are counted %v, want 1000 for one reason", got)
 	}
 	if len(u.refused) != 1 || len(u.streams) != 0 {
 		t.Errorf("the handler keeps %d counts and %d streams, want one count for the one reason", len(u.refused), len(u.streams))
@@ -1532,9 +1544,6 @@ func TestUserResolverThatDoesNotReturn(t *testing.T) {
 	}
 	if got := w.Header().Get("WWW-Authenticate"); got != "" {
 		t.Errorf("the timeout carries WWW-Authenticate %q, want none", got)
-	}
-	if got := u.Rejected(); got[refusedTimeout] != 1 {
-		t.Errorf("the refusals are counted %v, want one %s", got, refusedTimeout)
 	}
 	if evs := eventsOfKind(t, st, UserRefused); len(evs) != 1 || evs[0].Data["reason"] != refusedTimeout || evs[0].Data["status"] != float64(503) {
 		t.Errorf("the events of the timeout are %+v, want one naming the reason and 503", evs)

@@ -212,8 +212,8 @@ func TestDeclaredDeliveryRefused(t *testing.T) {
 	if n := inbox(); n != 0 {
 		t.Fatalf("refused deliveries reached ann's inbox %d times", n)
 	}
-	if got := r.rc.Rejected(); got["unauthorized"] != 2 || got["bad_request"] != 1 {
-		t.Fatalf("rejected = %v", got)
+	if unauth, bad := r.refused(t, "unauthorized"), r.refused(t, "bad_request"); unauth != 2 || bad != 1 {
+		t.Fatalf("refused unauthorized=%d bad_request=%d, want 2 and 1", unauth, bad)
 	}
 }
 

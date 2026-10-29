@@ -1035,7 +1035,7 @@ func TestTelegramPackHearsAddressWhateverNotify(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 1 {
 		t.Fatalf("want 1 hook event, got %d", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 2 {
+	if got := r.refused(t, "stranger"); got != 2 {
 		t.Fatalf("stranger count %d, want 2", got)
 	}
 }
@@ -1161,7 +1161,7 @@ func TestTelegramPackHearDropsStrangersEndToEnd(t *testing.T) {
 			t.Fatalf("payload of %d carries a stranger's text: %s", e.Seq, raw)
 		}
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 10 {
+	if got := r.refused(t, "stranger"); got != 10 {
 		t.Fatalf("stranger count %d, want 10", got)
 	}
 	if h, err := r.st.GetHook(ctx, "telegram"); err != nil || h.RefusedFor != "stranger" {

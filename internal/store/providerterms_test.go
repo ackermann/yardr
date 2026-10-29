@@ -21,18 +21,16 @@ func TestProviderTermsRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings[store.ProviderTermsSetting] = value
-	if got := store.ProviderTermsFor(settings, "Anthropic"); got == nil || *got != rec {
+	if got := termsFor(settings, "Anthropic"); got == nil || *got != rec {
 		t.Fatalf("the record for Anthropic = %+v, want %+v", got, rec)
 	}
-	if got := store.ProviderTermsFor(settings, "anthropic"); got == nil || *got != rec {
-		t.Fatalf("the record is not found without regard to case: %+v", got)
-	}
-	if got := store.ProviderTermsFor(settings, "OpenAI"); got != nil {
+	if got := termsFor(settings, "OpenAI"); got != nil {
 		t.Fatalf("a record for a provider never read: %+v", got)
 	}
 	// A second reading for the same provider replaces the first, and
 	// another provider's stands beside it.
 	again := rec
+	again.Provider = "anthropic" // the provider is matched without regard to case
 	again.ReadOn, again.BarsGeneralTraining = "2026-11-01", false
 	value, err = store.WithProviderTerms(settings, again)
 	if err != nil {
@@ -47,7 +45,7 @@ func TestProviderTermsRecord(t *testing.T) {
 	if all := store.ProviderTermsOf(settings); len(all) != 2 {
 		t.Fatalf("the records = %+v, want Anthropic replaced and OpenAI beside it", all)
 	}
-	if got := store.ProviderTermsFor(settings, "Anthropic"); got == nil || got.ReadOn != "2026-11-01" || got.BarsGeneralTraining {
+	if got := termsFor(settings, "Anthropic"); got == nil || got.ReadOn != "2026-11-01" || got.BarsGeneralTraining {
 		t.Fatalf("the replaced record = %+v", got)
 	}
 	for _, bad := range []store.ProviderTerms{
@@ -75,7 +73,19 @@ func TestProviderTermsRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := store.ProviderTermsFor(all, "Anthropic"); got == nil || got.ReadOn != "2026-11-01" {
+	if got := termsFor(all, "Anthropic"); got == nil || got.ReadOn != "2026-11-01" {
 		t.Fatalf("the stored record = %+v", got)
 	}
+}
+
+// termsFor is the record for provider among the setting's records, nil
+// where there is none.
+func termsFor(settings map[string]string, provider string) *store.ProviderTerms {
+	for _, r := range store.ProviderTermsOf(settings) {
+		if strings.EqualFold(r.Provider, provider) {
+			r := r
+			return &r
+		}
+	}
+	return nil
 }

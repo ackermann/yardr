@@ -41,6 +41,18 @@ calls:
 `
 }
 
+// termsFor is the provider-terms record for provider among the setting's
+// records, nil where there is none.
+func termsFor(settings map[string]string, provider string) *store.ProviderTerms {
+	for _, r := range store.ProviderTermsOf(settings) {
+		if strings.EqualFold(r.Provider, provider) {
+			r := r
+			return &r
+		}
+	}
+	return nil
+}
+
 // googleYard adds the five google sources to st, each with the account
 // ada@example.com in one shared env file, as a google setup leaves them.
 func googleYard(t *testing.T, st store.API) {
@@ -153,10 +165,10 @@ func TestEdgeSetupGoogleHosted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec := store.ProviderTermsFor(settings, "Anthropic"); rec != nil {
+	if rec := termsFor(settings, "Anthropic"); rec != nil {
 		t.Fatalf("a provider-terms record stands for a provider not configured by the yard: %+v", rec)
 	}
-	if rec := store.ProviderTermsFor(settings, "OpenAI"); rec != nil {
+	if rec := termsFor(settings, "OpenAI"); rec != nil {
 		t.Fatalf("a provider-terms record stands without a reading: %+v", rec)
 	}
 	// Clearing the setting shows the pack's mint again.
@@ -196,7 +208,7 @@ func TestEdgeSetupGoogleHosted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := store.ProviderTermsFor(settings, "OpenAI")
+	rec := termsFor(settings, "OpenAI")
 	if rec == nil || rec.TermsURL != "https://provider.example/terms" || rec.ReadOn != "2026-10-27" || !rec.BarsGeneralTraining {
 		t.Fatalf("the provider-terms record = %+v", rec)
 	}

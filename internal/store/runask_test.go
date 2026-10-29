@@ -238,7 +238,7 @@ func TestRunAskCard(t *testing.T) {
 	}
 	// The notes of the bead, as prime and review print them, are the card.
 	notes, _ := y.Notes(y.ctx, y.bead)
-	if blocks := NoteBlocks(notes, y.now, ""); len(blocks) != 1 || blocks[0] != strings.Join(want, "\n") {
+	if blocks := NoteBlocksMarked(notes, y.now, nil, ""); len(blocks) != 1 || blocks[0] != strings.Join(want, "\n") {
 		t.Fatalf("the bead's notes read:\n%s", strings.Join(blocks, "\n"))
 	}
 	// A client reads the command and the yard's words from the queue and

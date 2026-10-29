@@ -255,13 +255,6 @@ func HomeStageFiles(home string, f *Flow) (have map[string]string, stray []strin
 	return have, stray, err
 }
 
-// ReadFlowDir reads the flows and stage files under dir/.yardr/flows as
-// they are on disk, whatever dir is: a branch's worktree shows what would
-// land.
-func ReadFlowDir(dir string) (*RepoFlows, error) {
-	return new(repoCache).loadDir(Depot{Kind: DepotDir, Path: dir})
-}
-
 // repoCache keeps each depot checkout's flows by base commit, so resolving a
 // flow costs one rev-parse until the base moves, and each dir depot's by its
 // files' mtimes and sizes, so it costs a listing until a file changes. The

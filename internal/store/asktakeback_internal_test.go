@@ -41,7 +41,7 @@ func TestTakeBackAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Join(NoteBlocks(notes, y.now, ""), "\n")
+	text := strings.Join(NoteBlocksMarked(notes, y.now, nil, ""), "\n")
 	for _, want := range []string{" · taken back · to mckean · asked by yardmaster", "  taken back by yardmaster: " + why} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the notes say no %q:\n%s", want, text)

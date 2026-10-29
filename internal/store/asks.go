@@ -1727,26 +1727,21 @@ func (r ResolvedAsk) lines(mark func(string) string) []string {
 	return out
 }
 
-// NoteBlocks renders a bead's notes for humans: a plain note as its time,
-// author and text, an ask as numbered text with its state, an answer
+// NoteBlocksMarked renders a bead's notes for humans: a plain note as its
+// time, author and text, an ask as numbered text with its state, an answer
 // folded into its ask. An answer that names no ask of the bead says so
 // where it stands. Nobody reads the raw form. A note with files names
 // them under its text, on a line of their own starting with the mark
 // (NoteFilesLine), each by its path in the yard at home; the
 // mark is kept out of every word a note's writer chose, so only that
-// line names a file the yard keeps.
+// line names a file the yard keeps. An answer's author from another yard
+// is marked as mail is (LinesMarked).
 //
 // A note's text may come from another yard, or from a device on the
 // listener, and says nothing of who wrote it: the head line does. So in
 // every block the head stands alone at the margin and the writer's
 // words stand further in, as letters only (NoteLetters), where no line
 // of them can be taken for the start of another note.
-func NoteBlocks(notes []Note, now time.Time, home string) []string {
-	return blocks(notes, now, home, nil)
-}
-
-// NoteBlocksMarked renders a bead's notes as NoteBlocks does, with an
-// answer's author from another yard marked as mail is (LinesMarked).
 func NoteBlocksMarked(notes []Note, now time.Time, as map[string]string, home string) []string {
 	mark := func(a string) string { return MarkedAuthor(a, as) }
 	return blocks(notes, now, home, mark)

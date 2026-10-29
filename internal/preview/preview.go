@@ -641,10 +641,6 @@ func (s *Supervisor) stop(ctx context.Context, app, reason string) {
 	}
 }
 
-// Stop stops the preview app at its person's or proposer's word; the
-// registry write is PreviewStop's, and this kills the process now.
-func (s *Supervisor) Stop(app string) { s.kill(app) }
-
 func (s *Supervisor) kill(app string) {
 	s.mu.Lock()
 	pr := s.running[app]

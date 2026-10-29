@@ -424,13 +424,13 @@ func TestPeersRefused(t *testing.T) {
 	_, err = c.api.AllowPeer(ctx, "b", store.PeerAllow{Send: []string{"ping"}, Receive: []string{"ping"}}, "jo")
 	must(t, err)
 	c.send(t, "b")
-	before := b.rc.Rejected()["unknown_peer"]
+	asked := b.asked.Load()
 	c.pass(t)
 	if w := c.waiting(t, "b"); len(w) != 1 || w[0].Attempts != 1 {
 		t.Fatalf("c's message to a yard that has not added it: %+v", w)
 	}
-	if b.rc.Rejected()["unknown_peer"] != before+1 || len(b.events(t, "peer_message_received")) != 0 || len(b.events(t, "peer_message_refused")) != 1 {
-		t.Fatalf("b's rejections = %v", b.rc.Rejected())
+	if b.asked.Load() != asked+1 || len(b.events(t, "peer_message_received")) != 0 || len(b.events(t, "peer_message_refused")) != 1 {
+		t.Fatalf("b heard %d questions, want the one, and nothing taken", b.asked.Load()-asked)
 	}
 	if len(c.events(t, "peer_message_failed")) != 0 {
 		t.Fatal("an unsigned 401 gave c's message up at once: anyone on the way could do that")

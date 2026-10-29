@@ -126,7 +126,12 @@ func snapshot(t *testing.T, dir string) map[string]string {
 // file, and no stage file is an orphan.
 func TestThisRepoHasItsStageFiles(t *testing.T) {
 	t.Parallel()
-	tree, err := store.ReadFlowDir(filepath.Join("..", ".."))
+	s := storetest.New(t)
+	ctx := context.Background()
+	if err := s.PutDepot(ctx, store.Depot{Name: "yardr", Kind: store.DepotDir, Path: filepath.Join("..", "..")}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := s.RepoFlows(ctx, "yardr")
 	if err != nil {
 		t.Fatal(err)
 	}

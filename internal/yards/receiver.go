@@ -130,8 +130,7 @@ type Receiver struct {
 	log  *slog.Logger
 	now  func() time.Time
 
-	mu       sync.Mutex
-	rejected map[string]int
+	mu sync.Mutex
 	// held is peer key -> the pull that peer holds open, closed to end it,
 	// and maxHeld how many there may be.
 	held    map[string]chan struct{}
@@ -148,43 +147,15 @@ func NewReceiver(st Store, keyFile string, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, rejected: map[string]int{}, held: map[string]chan struct{}{}, maxHeld: maxHeld, maxLargeReads: maxLargeReads}
+	rc := &Receiver{st: st, key: keyFile, log: log, now: time.Now, held: map[string]chan struct{}{}, maxHeld: maxHeld, maxLargeReads: maxLargeReads}
 	// The store is both; a test's stand-in for its messages may be only one.
 	rc.pair, _ = st.(PairStore)
 	return rc
 }
 
-// SetClock replaces the clock (tests).
+// SetClock replaces the clock. Tests set it: the daemon signs with the
+// test's clock, and the receiver checks against it.
 func (rc *Receiver) SetClock(now func() time.Time) { rc.now = now }
-
-// SetMaxHeld replaces how many pulls are held at once (tests). With none,
-// the receiver answers every pull at once, as a yardr from before pulls
-// were held does.
-func (rc *Receiver) SetMaxHeld(n int) {
-	rc.mu.Lock()
-	rc.maxHeld = n
-	rc.mu.Unlock()
-}
-
-// SetMaxLargeReads replaces how many large request bodies are read at once
-// (tests). With none, every body past maxRequest is refused.
-func (rc *Receiver) SetMaxLargeReads(n int) {
-	rc.mu.Lock()
-	rc.maxLargeReads = n
-	rc.mu.Unlock()
-}
-
-// Rejected counts refused (and duplicate) requests by reason, as the hook
-// receiver does.
-func (rc *Receiver) Rejected() map[string]int {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-	out := make(map[string]int, len(rc.rejected))
-	for k, v := range rc.rejected {
-		out[k] = v
-	}
-	return out
-}
 
 func (rc *Receiver) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -359,7 +330,7 @@ func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
 	}
 	var m store.PeerMessage
 	if err := json.Unmarshal(f.body, &m); err != nil {
-		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "not a message"})
+		rc.answer(w, f, http.StatusBadRequest, map[string]any{"error": "not a message"})
 		return
 	}
 	m.Seq = 0 // the sender's own; a posted message has no place here
@@ -370,26 +341,26 @@ func (rc *Receiver) post(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrNotMessage):
 		// Its words name nothing of the yard.
 		rc.log.Warn("peer message rejected", "peer", f.peer.Name, "err", err)
-		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "not a message"})
+		rc.answer(w, f, http.StatusBadRequest, map[string]any{"error": "not a message"})
 	case err != nil:
 		// No fault of the message: this yard could not keep it (a full
 		// disk, a write that failed). Signed, so the sender knows it is
 		// this yard's word, and 500, so it keeps the message and posts it
 		// again: a 400 it would take as refused for good.
 		rc.log.Warn("peer message not kept", "peer", f.peer.Name, "kind", m.Kind, "id", m.ID, "err", err)
-		rc.answer(w, f, "store", http.StatusInternalServerError, map[string]any{"error": "not kept"})
+		rc.answer(w, f, http.StatusInternalServerError, map[string]any{"error": "not kept"})
 	case taken[0].Refused != "":
 		rc.log.Warn("peer message refused", "peer", f.peer.Name, "kind", m.Kind, "id", m.ID, "reason", taken[0].Refused)
 		body := map[string]any{"refused": taken[0].Refused}
 		if taken[0].Limit > 0 && taken[0].Until != nil {
 			body["limit"], body["until"] = taken[0].Limit, taken[0].Until
 		}
-		rc.answer(w, f, "refused", http.StatusForbidden, body)
+		rc.answer(w, f, http.StatusForbidden, body)
 	case taken[0].Duplicate:
 		rc.log.Info("peer message dropped as duplicate", "peer", f.peer.Name, "id", m.ID)
-		rc.answer(w, f, "duplicate", http.StatusOK, map[string]any{"duplicate": true})
+		rc.answer(w, f, http.StatusOK, map[string]any{"duplicate": true})
 	default:
-		rc.answer(w, f, "", http.StatusOK, map[string]any{"taken": true})
+		rc.answer(w, f, http.StatusOK, map[string]any{"taken": true})
 	}
 }
 
@@ -400,7 +371,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 	}
 	after, err := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
 	if err != nil {
-		rc.answer(w, f, "bad_request", http.StatusBadRequest, map[string]any{"error": "after wants a sequence number"})
+		rc.answer(w, f, http.StatusBadRequest, map[string]any{"error": "after wants a sequence number"})
 		return
 	}
 	q := r.URL.Query()
@@ -468,7 +439,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 					case <-ended:
 						page.Messages = nil
 						page.Says = SaysTo(*f.peer)
-						rc.answer(w, f, "", http.StatusOK, page)
+						rc.answer(w, f, http.StatusOK, page)
 						return
 					default:
 					}
@@ -483,7 +454,7 @@ func (rc *Receiver) get(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		page.Says = SaysTo(*f.peer)
-		rc.answer(w, f, "", http.StatusOK, page)
+		rc.answer(w, f, http.StatusOK, page)
 		return
 	}
 }
@@ -545,13 +516,6 @@ func (rc *Receiver) release(key string, ended chan struct{}) {
 	}
 }
 
-// Held is how many pulls are held open now.
-func (rc *Receiver) Held() int {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-	return len(rc.held)
-}
-
 // refusals reads what a question says its asker did not take. What is not
 // a sequence number with a reason is passed by: the message it meant is
 // then ended as sent, as before there were refusals.
@@ -596,14 +560,11 @@ func parseRefusal(rest string) store.Refusal {
 	return no
 }
 
-// answer writes a signed answer to a peer's request, and counts it under
-// reason when it is not a plain yes. Only an answer to a peer is signed:
-// who is not one gets reject's. An answer that is fields of its own says
-// what this yard states to the peer too (SaysTo), as a page does.
-func (rc *Receiver) answer(w http.ResponseWriter, f *from, reason string, code int, v any) {
-	if reason != "" {
-		rc.count(reason)
-	}
+// answer writes a signed answer to a peer's request. Only an answer to a
+// peer is signed: who is not one gets reject's. An answer that is fields
+// of its own says what this yard states to the peer too (SaysTo), as a
+// page does.
+func (rc *Receiver) answer(w http.ResponseWriter, f *from, code int, v any) {
 	if fields, ok := v.(map[string]any); ok {
 		fields["says"] = SaysTo(*f.peer)
 	}
@@ -619,13 +580,6 @@ func (rc *Receiver) answer(w http.ResponseWriter, f *from, reason string, code i
 }
 
 func (rc *Receiver) reject(w http.ResponseWriter, peer, reason string, code int, err error) {
-	rc.count(reason)
 	rc.log.Warn("peer request rejected", "peer", peer, "reason", reason, "status", code, "err", err)
 	http.Error(w, http.StatusText(code), code)
-}
-
-func (rc *Receiver) count(reason string) {
-	rc.mu.Lock()
-	rc.rejected[reason]++
-	rc.mu.Unlock()
 }

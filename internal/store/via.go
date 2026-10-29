@@ -28,22 +28,19 @@ func WithVia(ctx context.Context, user, device string) context.Context {
 // the link (WithReach). An approval reads it to know its own path
 // (approveAsk). It is a statement by the door, as the pid is: a call that
 // names a user or a peer in its arguments says nothing of how it came.
-type reachKey struct{}
-
-// WithReach records on ctx that the call came through the reach of the link
-// with peer: a name of that yard, taken as a user of this one by the link's
-// grant (Peer.Reach, peertrust.go), made it. It is what a door sets that
-// takes a user's word from another yard, and it is the one mark that says
-// so: the user and the device the call is made as are this yard's own, and
-// the link would otherwise be lost behind them.
+// The reach of the link a call came through is the peer under reachKey: a
+// name of that yard, taken as a user of this one by the link's grant
+// (Peer.Reach, peertrust.go), made it. It is what a door sets that takes
+// a user's word from another yard, and it is the one mark that says so:
+// the user and the device the call is made as are this yard's own, and
+// the link would otherwise be lost behind them. Only a test sets it
+// (WithReach in export_test.go).
 //
 // No peer-reach door approves an ask today: ApproveAsk is refused for a
 // bead of another yard, and an answer that comes home over a peer reach
 // cannot approve (answerable). The mark also keeps an approval from
 // changing the peer link it came through (runCommand.link).
-func WithReach(ctx context.Context, peer string) context.Context {
-	return context.WithValue(ctx, reachKey{}, peer)
-}
+type reachKey struct{}
 
 // reachOf is the peer whose reach the call came through, "" for a call that
 // came through none: the socket's, and a device's on the listener.
@@ -87,13 +84,6 @@ func Via(e Event) string {
 // the via a device's approval would carry; a device never carries one
 // (design yardr-2nb1 5.1).
 const WitnessTerminal = "terminal"
-
-// Witness is how the approval the event e records was witnessed, "" where
-// it claims none.
-func Witness(e Event) string {
-	v, _ := e.Data["witness"].(string)
-	return v
-}
 
 // witnessTerminal marks a strong card's approval as witnessed at a
 // terminal, for the answer's event: on the socket alone, never through a

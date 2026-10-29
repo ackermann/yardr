@@ -76,7 +76,6 @@ func (rc *Receiver) pairFailed(w http.ResponseWriter, err error) {
 		rc.reject(w, "", "pair_bad_request", http.StatusBadRequest, err)
 		return
 	}
-	rc.count("pair_" + no.Reason)
 	rc.log.Warn("pairing call refused", "reason", no.Reason)
 	writeJSON(w, refusalStatus(no.Reason), refusal{Refused: no.Reason})
 }
@@ -149,7 +148,7 @@ func (rc *Receiver) pairConfirm(w http.ResponseWriter, r *http.Request) {
 		rc.pairFailed(w, err)
 		return
 	}
-	rc.answer(w, &from{key: key, sig: sig}, "", http.StatusOK, out)
+	rc.answer(w, &from{key: key, sig: sig}, http.StatusOK, out)
 }
 
 // Called is a pairing as the calling yard has it once the other has

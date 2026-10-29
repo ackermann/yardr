@@ -422,7 +422,7 @@ func TestWebhookPackEndToEnd(t *testing.T) {
 	if events() != 2 || inbox() != 2 {
 		t.Fatalf("after the refusals: %d hook events, inbox %d", events(), inbox())
 	}
-	if got := r.rc.Rejected()["unauthorized"]; got != 3 {
+	if got := r.refused(t, "unauthorized"); got != 3 {
 		t.Fatalf("unauthorized count %d, want 3", got)
 	}
 	// Words that are no JSON are recorded as an event of type event, and

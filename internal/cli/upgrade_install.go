@@ -396,26 +396,6 @@ func upgradePollOne(ctx context.Context, bin, home, since string, deadline time.
 	}
 }
 
-// upgradeBeadsSince lists the distinct beads the window held: the events
-// since head, read from the live store before it is replaced.
-func upgradeBeadsSince(ctx context.Context, st store.API, head uint64) []string {
-	evs, err := st.EventsSince(ctx, head, 0)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, e := range evs {
-		if e.Bead == nil || seen[*e.Bead] {
-			continue
-		}
-		seen[*e.Bead] = true
-		out = append(out, *e.Bead)
-	}
-	slices.Sort(out)
-	return out
-}
-
 // upgradeRestoreOn reports whether the run restores refused stores: the
 // --no-restore flag overrides the setting, and the setting reads through
 // its environment variable.

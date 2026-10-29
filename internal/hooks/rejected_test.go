@@ -23,6 +23,22 @@ func (r *depot) rejections(t *testing.T) []string {
 	return out
 }
 
+// refused is how many deliveries were refused for reason: the
+// hook_rejected events say each stretch's count, flushed first so what is
+// still within its window is said too.
+func (r *depot) refused(t *testing.T, reason string) int {
+	t.Helper()
+	r.rc.Flush(true)
+	n := 0
+	for _, e := range r.eventsOfKind(t, store.HookRejected) {
+		if e.Data["reason"] == reason {
+			c, _ := e.Data["count"].(float64)
+			n += int(c)
+		}
+	}
+	return n
+}
+
 // token posts to the token hook adhoc with the bearer token given.
 func (r *depot) token(t *testing.T, bearer, delivery string) int {
 	t.Helper()

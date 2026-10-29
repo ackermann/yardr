@@ -168,9 +168,6 @@ func TestHearFromOperatorKeepsOperatorDropsStranger(t *testing.T) {
 	if page.Total != 1 {
 		t.Fatalf("ann's inbox holds %d, want only the operator's delivery", page.Total)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 2 {
-		t.Fatalf("stranger count %d, want 2", got)
-	}
 	// A stranger's burst is one bounded entry: the first drop logs its
 	// sum at once, the rest are counted and said when the window ends.
 	for i := 0; i < 50; i++ {
@@ -185,6 +182,9 @@ func TestHearFromOperatorKeepsOperatorDropsStranger(t *testing.T) {
 	r.rc.Flush(false)
 	if got, want := r.rejections(t), []string{"chime stranger 200 1", "chime stranger 200 51"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("after the window: %v, want %v", got, want)
+	}
+	if got := r.refused(t, "stranger"); got != 52 {
+		t.Fatalf("stranger count %d, want 52", got)
 	}
 	if h, err := r.st.GetHook(ctx, "chime"); err != nil || h.RefusedFor != "stranger" {
 		t.Fatalf("hook refused for %+v %v, want stranger", h, err)
@@ -252,7 +252,7 @@ func TestHearWithoutFromHearsEveryAddress(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 1 {
 		t.Fatalf("want 1 hook event, got %d", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 }
@@ -276,7 +276,7 @@ printf '%s' '{"type":"message","action":"create","text":"hi"}'
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("a delivery with no field recorded: %d hook events", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 }
@@ -469,7 +469,7 @@ func TestHearByIdentity(t *testing.T) {
 	if actor["id"] != "U012" {
 		t.Fatalf("actor = %v, want its id left as the member id", actor)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 	if h, err := r.st.GetHook(context.Background(), "talk"); err != nil || h.Unknown != store.HookUnknownUnknown {
@@ -488,7 +488,7 @@ func TestHearByIdentity(t *testing.T) {
 	if got := speakerOf(t, evs[0]); got != store.SpeakerOutside {
 		t.Fatalf("allow: speaker = %q, want %q", got, store.SpeakerOutside)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 0 {
+	if got := r.refused(t, "stranger"); got != 0 {
 		t.Fatalf("allow: stranger count %d, want 0", got)
 	}
 
@@ -502,7 +502,7 @@ func TestHearByIdentity(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("ignore: want 0 hook events, got %d", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("ignore: stranger count %d, want 1", got)
 	}
 
@@ -895,7 +895,7 @@ func TestHeldDeliveryCapFive(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("held deliveries recorded: %d hook events", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 7 {
+	if got := r.refused(t, "stranger"); got != 7 {
 		t.Fatalf("stranger count %d, want 7 (the duplicate and dropped sixth counted)", got)
 	}
 	pickHeldCard(t, r, "U999", "ada", "", true)
@@ -1004,7 +1004,7 @@ func TestHeldDeliveryByteCap(t *testing.T) {
 	if otherCard := heldCard(t, r, "S4"); otherCard.Identity.Held != 1 {
 		t.Fatalf("the other source's card holds %+v, want 1 waiting", otherCard.Identity)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 5 {
+	if got := r.refused(t, "stranger"); got != 5 {
 		t.Fatalf("stranger count %d, want 5 (all unknown deliveries are counted)", got)
 	}
 	if n := len(r.hookEvents(t)); n != 0 {
@@ -1145,7 +1145,7 @@ func TestHearByIdentityIgnoredSender(t *testing.T) {
 	if n := len(rr.hookEvents(t)); n != 1 {
 		t.Fatalf("an ignored delivery heard under allow: %d hook events", n)
 	}
-	if got := rr.rc.Rejected()["stranger"]; got != 1 {
+	if got := rr.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 	if err := rr.st.UnignoreSource(ctx, "talk", "U999", "op"); err != nil {
@@ -1202,7 +1202,7 @@ func TestHearByIdentityHeldTwiceIsUnmapped(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("an id held twice was heard: %d hook events", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 }
@@ -1256,10 +1256,10 @@ func TestHearByIdentityDropsCrewEcho(t *testing.T) {
 		if q, err := r.st.UserAsks(ctx, "op", "op"); err != nil || len(q.Open) != 0 {
 			t.Fatalf("%s: open asks = %v, %v, want no mapping card", word, q, err)
 		}
-		if got := r.rc.Rejected()["self"]; got != 2 {
+		if got := r.refused(t, "self"); got != 2 {
 			t.Fatalf("%s: self count %d, want 2", word, got)
 		}
-		if got := r.rc.Rejected()["stranger"]; got != 0 {
+		if got := r.refused(t, "stranger"); got != 0 {
 			t.Fatalf("%s: stranger count %d, want 0", word, got)
 		}
 	}
@@ -1381,7 +1381,7 @@ func TestHearByIdentityPeersCrew(t *testing.T) {
 		if word == store.HookUnknownAllow {
 			wantStrangers = 0
 		}
-		if got := r.rc.Rejected()["stranger"]; got != wantStrangers {
+		if got := r.refused(t, "stranger"); got != wantStrangers {
 			t.Fatalf("%q: stranger count %d, want %d", word, got, wantStrangers)
 		}
 		// And no card for hal: under unknown the stranger's alone.
@@ -1453,7 +1453,7 @@ func TestHearByIdentityHeldByAUserAndAPeerIsUnmapped(t *testing.T) {
 	if n := len(r.hookEvents(t)); n != 0 {
 		t.Fatalf("an id held by a user and a peer's crew member was heard: %d hook events", n)
 	}
-	if got := r.rc.Rejected()["stranger"]; got != 1 {
+	if got := r.refused(t, "stranger"); got != 1 {
 		t.Fatalf("stranger count %d, want 1", got)
 	}
 }

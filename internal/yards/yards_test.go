@@ -180,10 +180,6 @@ func TestReceiverRefusesWhatIsNoPeers(t *testing.T) {
 			t.Errorf("%s: answered %q, others %q: the answer tells them apart", name, body, first)
 		}
 	}
-	got := b.rc.Rejected()
-	if got["unknown_peer"] != 2 || got["unauthorized"] != 7 {
-		t.Fatalf("rejected = %v", got)
-	}
 	for _, kind := range []string{"peer_message_received", "peer_message_refused"} {
 		if evs := b.events(t, kind); len(evs) != 0 {
 			t.Fatalf("%s after refusals only: %+v", kind, evs)
@@ -235,10 +231,6 @@ func TestReceiverPost(t *testing.T) {
 	if len(refused) != 1 || refused[0].Data["peer"] != "a" || refused[0].Data["id"] != "m1" || refused[0].Data["direction"] != "in" {
 		t.Fatalf("peer_message_refused = %+v", refused)
 	}
-	if b.rc.Rejected()["refused"] != 1 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
-	}
-
 	if _, err := b.api.AllowPeer(context.Background(), "a", store.PeerAllow{Send: ping, Receive: ping}, "jo"); err != nil {
 		t.Fatal(err)
 	}
@@ -259,9 +251,6 @@ func TestReceiverPost(t *testing.T) {
 	}
 	if p, _ := b.api.GetPeer(context.Background(), "a"); p.Waiting != 1 {
 		t.Fatalf("pongs waiting = %+v, want the one", p)
-	}
-	if b.rc.Rejected()["duplicate"] != 2 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
 	}
 	// Recorded and played after the five minutes: refused like any other.
 	b.now = b.now.Add(yardkey.MaxSkew)
@@ -333,18 +322,11 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	if resp, _ := r.send(t, b); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a large request with a bad signature: %d, want 401", resp.StatusCode)
 	}
-	if got := b.rc.Rejected()["unauthorized"]; got != 1 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
-	}
 	r = signed(a, b, "POST", yards.Path, large)
 	r.body = bad
 	if resp, _ := r.send(t, b); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a second large request after its slot was released: %d, want 401", resp.StatusCode)
 	}
-	if got := b.rc.Rejected()["unauthorized"]; got != 2 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
-	}
-
 	// With no slot free the same request is 503'd, unsigned: its sender
 	// keeps it and posts it again.
 	b.rc.SetMaxLargeReads(0)
@@ -356,9 +338,6 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	}
 	if resp.Header.Get(yardkey.HeaderSig) != "" {
 		t.Fatal("the 503 is signed")
-	}
-	if got := b.rc.Rejected()["too_many_large"]; got != 1 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
 	}
 
 	// Unread past the head: the body stalls after maxRequest+1 bytes, and
@@ -384,9 +363,6 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	if stall.read != head+1 {
 		t.Fatalf("the handler read %d bytes past the head", stall.read-(head+1))
 	}
-	if got := b.rc.Rejected()["too_many_large"]; got != 2 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
-	}
 
 	// Small traffic never takes a slot: a post, a bad signature and a pull
 	// go as before with none free.
@@ -400,9 +376,6 @@ func checkReceiverBoundsLargeReads(t *testing.T) {
 	}
 	if resp, _ := signed(a, b, "GET", yards.Path+"?after=0", nil).send(t, b); resp.StatusCode != http.StatusOK {
 		t.Fatalf("a pull with no slot free: %d", resp.StatusCode)
-	}
-	if got := b.rc.Rejected()["too_many_large"]; got != 2 {
-		t.Fatalf("rejected = %v, want no further too_many_large", b.rc.Rejected())
 	}
 }
 
@@ -444,8 +417,8 @@ func TestReceiverWithoutAKey(t *testing.T) {
 	if resp, _ := signed(a, b, "POST", yards.Path, message("m1")).send(t, b); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("with no key: %d", resp.StatusCode)
 	}
-	if b.rc.Rejected()["no_key"] != 2 || len(b.events(t, "peer_message_received")) != 0 {
-		t.Fatalf("rejected = %v", b.rc.Rejected())
+	if len(b.events(t, "peer_message_received")) != 0 {
+		t.Fatal("a message was taken with no key")
 	}
 }
 
@@ -633,9 +606,6 @@ func TestMailRefusedWithAReason(t *testing.T) {
 			t.Errorf("mail to %s of %d bytes = %v, want %q", m[0], len(m[1]), err, want)
 		}
 	}
-	if got := b.rc.Rejected()["refused"]; got != 3 {
-		t.Fatalf("b refused %d", got)
-	}
 
 	// b's mail for a waits to be asked for. a takes the first and refuses
 	// the second, and says so with its next question.
@@ -723,9 +693,6 @@ func TestReceiverPeerRenamedAndNameGivenAway(t *testing.T) {
 		t.Helper()
 		if err == nil || errors.Is(err, yards.ErrRefused) || !strings.Contains(err.Error(), "answered 401, not signed with its key") {
 			t.Fatalf("the request under way = %v", err)
-		}
-		if got := b.rc.Rejected(); got["unknown_peer"] != 1 || len(got) != 1 {
-			t.Fatalf("rejected = %v", got)
 		}
 	}
 
@@ -873,9 +840,6 @@ func TestReceiverTakesABead(t *testing.T) {
 	}
 	if ev := b.events(t, "peer_bead_arrived"); len(ev) != 1 || ev[0].Data["way"] != "push" {
 		t.Fatalf("peer_bead_arrived = %+v", ev)
-	}
-	if got := b.rc.Rejected(); got["refused"] != 4 || got["duplicate"] != 1 {
-		t.Fatalf("rejected = %v", got)
 	}
 }
 

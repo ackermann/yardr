@@ -223,9 +223,7 @@ func TestDevicePairWrongCodeFiveTimes(t *testing.T) {
 		ended[0].Data["user"] != "jo" || ended[0].Data["device"] != "phone" {
 		t.Fatalf("device_pair_refused = %+v", ended)
 	}
-	if got := y.u.Rejected()["pair_"+pairing.WrongCode]; got != pairing.MaxTries {
-		t.Errorf("%d wrong codes are counted, want %d", got, pairing.MaxTries)
-	}
+
 	// Four wrong ones leave the code good, and another pairing may be opened
 	// once this one has ended.
 	code = y.open(t, "jo", "phone")
@@ -273,9 +271,7 @@ func TestDevicePairPresenter(t *testing.T) {
 	status, body = y.redeemAs(t, code, "eve@example.net")
 	refused("sam's code presented by an address no user is mapped to", status, body)
 	devices(0)
-	if got := y.u.Rejected()["pair_"+pairing.WrongCode]; got != 2 {
-		t.Errorf("%d refusals are counted as wrong codes, want 2", got)
-	}
+
 	status, body = y.redeemAs(t, code, "SAM@example.net")
 	var got Paired
 	if err := json.Unmarshal([]byte(body), &got); status != http.StatusOK || err != nil || got.User != "sam" || got.Device != "phone" {
@@ -309,9 +305,6 @@ func TestDevicePairPresenter(t *testing.T) {
 	if len(ended) != 1 || ended[0].Data["reason"] != pairing.WrongCode || ended[0].Data["wrong_codes"] != float64(pairing.MaxTries) ||
 		ended[0].Data["user"] != "sam" || ended[0].Data["device"] != "laptop" {
 		t.Fatalf("device_pair_refused = %+v", ended)
-	}
-	if got := y.u.Rejected()["pair_"+pairing.WrongCode]; got != 2+pairing.MaxTries {
-		t.Errorf("%d refusals are counted as wrong codes, want %d", got, 2+pairing.MaxTries)
 	}
 
 	// No other call reads it: the device just paired calls as sam, whoever

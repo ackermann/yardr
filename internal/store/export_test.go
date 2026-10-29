@@ -514,3 +514,18 @@ func HoldWithoutHolderForTest(s *Store, t testing.TB, id string) {
 		t.Fatal(err)
 	}
 }
+
+// WithReach records on ctx that the call came through the reach of the link
+// with peer, as a door that took a user's word from another yard would mark
+// it. No such door approves an ask today, so only a test sets the mark, to
+// stand in for the approval that arrived through a reach.
+func WithReach(ctx context.Context, peer string) context.Context {
+	return context.WithValue(ctx, reachKey{}, peer)
+}
+
+// Witness is how the approval the event e records was witnessed, "" where
+// it claims none. Production writes the mark; only a test reads it back.
+func Witness(e Event) string {
+	v, _ := e.Data["witness"].(string)
+	return v
+}

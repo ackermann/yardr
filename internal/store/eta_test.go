@@ -475,9 +475,6 @@ func TestETAHelpers(t *testing.T) {
 	if got := MedianDuration(nil); got != 0 {
 		t.Fatalf("median of none = %v, want 0", got)
 	}
-	if got := P90Duration(nil); got != 0 {
-		t.Fatalf("p90 of none = %v, want 0", got)
-	}
 	ds := []time.Duration{3 * time.Minute, time.Minute, 2 * time.Minute}
 	if got := MedianDuration(ds); got != 2*time.Minute {
 		t.Fatalf("median = %v, want 2m", got)
@@ -485,17 +482,6 @@ func TestETAHelpers(t *testing.T) {
 	ds = []time.Duration{4 * time.Minute, time.Minute, 3 * time.Minute, 2 * time.Minute}
 	if got := MedianDuration(ds); got != 150*time.Second {
 		t.Fatalf("even median = %v, want 2m30s", got)
-	}
-	// p90 is index ceiling(0.9n)-1: of 10, the 9th; of 1, the only one.
-	ten := make([]time.Duration, 10)
-	for i := range ten {
-		ten[i] = time.Duration(10-i) * time.Minute
-	}
-	if got := P90Duration(ten); got != 9*time.Minute {
-		t.Fatalf("p90 of 1..10m = %v, want 9m", got)
-	}
-	if got := P90Duration([]time.Duration{5 * time.Minute}); got != 5*time.Minute {
-		t.Fatalf("p90 of one = %v, want 5m", got)
 	}
 	if !IsSendBack([]string{"new", "review"}, "review", "new") {
 		t.Fatal("review -> new after [new review] is not a send-back")
