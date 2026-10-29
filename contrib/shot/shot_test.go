@@ -36,8 +36,20 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/testload"
 )
+
+// The stand-ins below are links to one launcher (scripttest), not new
+// executable files: the first run of a new file waits behind the machine's
+// other first runs on macOS, and that wait would come out of the script's
+// SHOT_TIMEOUT and the test's context. The launchers are in a directory of
+// their own, which this removes after the run.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	scripttest.Remove()
+	os.Exit(code)
+}
 
 // page is one local page at /page; every other path is missing.
 func page(t *testing.T) *httptest.Server {
@@ -225,9 +237,7 @@ func standin(t *testing.T, want string, exitCode int) (env []string, args string
 		script += "printf '%s' '" + want + "' >\"$out\"\n"
 	}
 	script += "exit " + strconv.Itoa(exitCode) + "\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, bin, script)
 	return []string{"SHOT_CHROME=" + bin}, args
 }
 
@@ -360,9 +370,7 @@ func TestShotBypassesTheProxyOnlyForLoopback(t *testing.T) {
 			script := "#!/bin/sh\n" +
 				"echo \"$@\" >" + curlArgs + "\n" +
 				"exit 0\n"
-			if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			scripttest.Write(t, fake, script)
 			env, _ := standin(t, "shot", 0)
 			env = append(env, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			out := filepath.Join(t.TempDir(), "shot.png")
@@ -763,9 +771,7 @@ func sleeper(t *testing.T, line string, child bool) (env []string, pids string) 
 	} else {
 		script += "exec sleep 30\n"
 	}
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, bin, script)
 	return []string{"SHOT_CHROME=" + bin}, pids
 }
 
@@ -850,9 +856,7 @@ func readySleep(t *testing.T, readyFile string) []string {
 		"i=0\n" +
 		"while [ ! -e \"$SHOT_SLEEP_READY\" ] && [ \"$i\" -lt " + strconv.Itoa(readyLooks()) + " ]; do \"$SHOT_REAL_SLEEP\" 0.1; i=$((i+1)); done\n" +
 		"exec \"$SHOT_REAL_SLEEP\" \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "sleep"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(dir, "sleep"), script)
 	return []string{
 		"SHOT_REAL_SLEEP=" + realSleep,
 		"SHOT_SLEEP_READY=" + readyFile,
@@ -876,15 +880,11 @@ func TestShotStopsItsWatchdogAfterChromeExits(t *testing.T) {
 	dir := t.TempDir()
 	chrome := filepath.Join(dir, "chrome")
 	script := "#!/bin/sh\n\"$SHOT_REAL_SLEEP\" 0.2\nexec \"$SHOT_REAL_CHROME\" \"$@\"\n"
-	if err := os.WriteFile(chrome, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, chrome, script)
 	traceDir := t.TempDir()
 	sleepPIDs := filepath.Join(t.TempDir(), "sleep-pids")
 	sleepScript := "#!/bin/sh\necho $$ >>\"$SHOT_SLEEP_PIDS\"\nexec \"$SHOT_REAL_SLEEP\" \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(traceDir, "sleep"), []byte(sleepScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, filepath.Join(traceDir, "sleep"), sleepScript)
 	env = append(env,
 		"SHOT_CHROME="+chrome,
 		"SHOT_REAL_CHROME="+realChrome,
@@ -991,9 +991,7 @@ func TestShotStopsChromeWhenTheScriptIsStopped(t *testing.T) {
 		"echo \"$@\" >" + argsFile + "\n" +
 		"echo $$ >" + pids + "\n" +
 		"exec sleep 30\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, bin, script)
 	out := filepath.Join(t.TempDir(), "shot.png")
 	combined, err := os.Create(filepath.Join(t.TempDir(), "output"))
 	if err != nil {

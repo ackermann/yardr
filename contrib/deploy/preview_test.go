@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"yardr.dev/yardr/internal/scripttest"
 )
 
 // previewYard is newYard with bead r-2 waiting in preview, its branch
@@ -280,9 +282,7 @@ func TestPreviewFailedPush(t *testing.T) {
 	y.lead()
 	y.makeApp("preview-r-2")
 	hook := filepath.Join(y.hostApp("preview-r-2"), "hooks", "pre-receive")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho ' !     build failed: no Dockerfile'\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, hook, "#!/bin/sh\necho ' !     build failed: no Dockerfile'\nexit 1\n")
 
 	y.deploy("r-2")
 

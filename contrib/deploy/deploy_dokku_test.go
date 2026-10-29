@@ -23,6 +23,7 @@ import (
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/rpc"
 	"yardr.dev/yardr/internal/runner"
+	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -78,9 +79,14 @@ func TestMain(m *testing.M) {
 	if err := build.Run(); err != nil {
 		panic("building yardr: " + err.Error())
 	}
+	// Run it once before any test times a script that starts it: the first
+	// run of a file written a moment ago waits behind the machine's other
+	// first runs on macOS (yardr-c3nm). version needs no home.
+	_ = exec.Command(yardrBin, "version").Run()
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.RemoveAll(nowhere)
+	scripttest.Remove()
 	os.Exit(code)
 }
 
@@ -247,7 +253,7 @@ func newYard(t *testing.T) *yard {
 		}
 	}
 	y.bin = filepath.Join(y.state, "bin")
-	y.write("bin/ssh", fakeSSH, 0o755)
+	scripttest.Write(t, filepath.Join(y.bin, "ssh"), fakeSSH)
 	y.write("known_hosts", "dokku.test ssh-ed25519 AAAA\n", 0o600)
 	y.git(".", "init", "-q", "--bare", "-b", "main", y.app())
 	y.opts = map[string]string{
@@ -611,9 +617,7 @@ func TestDeployFailedPush(t *testing.T) {
 	y := newYard(t)
 	y.lead()
 	hook := filepath.Join(y.app(), "hooks", "pre-receive")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho '-----> Building app ...'\necho ' !     build failed: no Dockerfile'\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, hook, "#!/bin/sh\necho '-----> Building app ...'\necho ' !     build failed: no Dockerfile'\nexit 1\n")
 
 	y.deploy("r-1")
 
@@ -695,7 +699,15 @@ func TestDeployRunsTheInstalledScriptNotTheTrees(t *testing.T) {
 			t.Fatal(err)
 		}
 		file := filepath.Join(dir, "deploy-dokku")
-		if err := os.WriteFile(filepath.Join(y.repo, file), []byte("#!/bin/sh\ntouch "+shellQuote(marker)+"\n"), 0o755); err != nil {
+		// A real executable file, not a stand-in link (scripttest): the tree
+		// carries it with its exec bit, where a link would commit a symlink
+		// into this binary's temp launcher in its place. It is never run, so
+		// it has no first run to save either.
+		path := filepath.Join(y.repo, file)
+		if err := os.WriteFile(path, []byte("#!/bin/sh\ntouch "+shellQuote(marker)+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		y.git(y.repo, "add", file)
@@ -915,9 +927,7 @@ func TestDeployAfterStepPassesGoesLive(t *testing.T) {
 	y := newYard(t)
 	sha := y.commit(y.repo, "b.txt", "landed\n")
 	step := filepath.Join(y.repo, "after.sh")
-	if err := os.WriteFile(step, []byte("#!/bin/sh\necho \"bead=$YARDR_BEAD\"\necho \"depot=$YARDR_DEPOT_PATH\"\n[ \"$(pwd)\" = \"$YARDR_DEPOT_PATH\" ] || { echo NOT-IN-THE-DEPOT; exit 1; }\necho after-ok\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	scripttest.Write(t, step, "#!/bin/sh\necho \"bead=$YARDR_BEAD\"\necho \"depot=$YARDR_DEPOT_PATH\"\n[ \"$(pwd)\" = \"$YARDR_DEPOT_PATH\" ] || { echo NOT-IN-THE-DEPOT; exit 1; }\necho after-ok\n")
 	y.opts["DOKKU_AFTER"] = step
 
 	y.deploy("r-1")
@@ -998,7 +1008,9 @@ func TestDeployAfterStepFailsDecides(t *testing.T) {
 	y := newYard(t)
 	y.lead()
 	sha := y.commit(y.repo, "b.txt", "landed\n")
-	y.opts["DOKKU_AFTER"] = y.write("after.sh", "#!/bin/sh\necho 'rebuilding the public page'\necho 'serve-public: cannot write dist: permission denied'\nexit 1\n", 0o755)
+	after := filepath.Join(y.state, "after.sh")
+	scripttest.Write(t, after, "#!/bin/sh\necho 'rebuilding the public page'\necho 'serve-public: cannot write dist: permission denied'\nexit 1\n")
+	y.opts["DOKKU_AFTER"] = after
 
 	y.deploy("r-1")
 
@@ -1027,7 +1039,9 @@ func TestDeployAfterStepFailsDecides(t *testing.T) {
 func TestDeployAfterStepEndedBySignalHolds(t *testing.T) {
 	y := newYard(t)
 	y.commit(y.repo, "b.txt", "landed\n")
-	y.opts["DOKKU_AFTER"] = y.write("after.sh", "#!/bin/sh\nkill -TERM $$\n", 0o755)
+	after := filepath.Join(y.state, "after.sh")
+	scripttest.Write(t, after, "#!/bin/sh\nkill -TERM $$\n")
+	y.opts["DOKKU_AFTER"] = after
 
 	y.deploy("r-1")
 
