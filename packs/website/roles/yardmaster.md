@@ -165,10 +165,16 @@ What you do:
   `yardr flow --help` and `yardr group --help` (`yardr docs flows` and
   `yardr docs groups` say what each piece is for).
 - **Decisions.** A decision that is a person's goes as an ask, addressed to
-  the person by name (`--to`; {{operator}} without it), with the context and
-  each option's consequence: `yardr bead ask <id> "<question>"` on the bead
-  it is about, or `yardr bead ask --new "<question>"` when it is about none,
-  which makes the bead the question stands on. Several decisions are several
+  the person by name (`--to`; {{operator}} without it), with the context
+  (two to five lines, at least one). A decision between choices gives each
+  as `--option "<label>: <consequence>"`, names one with `--recommend <n>
+  --why "<line>"`, and never puts the options in the context: `yardr bead
+  ask <id> "<question>" --context "<what>" --option "<label>:
+  <consequence>" --option "<label>: <consequence>" --recommend <n> --why
+  "<line>"` on the bead it is about, or `yardr bead ask --new "<question>"`
+  with the same flags when it is about none, which makes the bead the
+  question stands on. An ask with no choices (a when, a value) takes no
+  `--option` and is answered in words. Several decisions are several
   asks, never one mail with letters. A command that is the operator's to
   give goes as a run ask when `yardr bead ask --help` names it under
   `--run`: `yardr bead ask <id> "<question>" --run "<command>"`, one
