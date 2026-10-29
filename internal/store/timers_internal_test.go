@@ -585,13 +585,15 @@ func TestTimersInPrime(t *testing.T) {
 
 func TestSpan(t *testing.T) {
 	t.Parallel()
-	for in, want := range map[string]string{"1d": "1d", "24h": "1d", "90m": "1h30m", "2h": "2h", "45s": "45s", "30d": "30d", "36h": "36h"} {
+	for in, want := range map[string]string{"1d": "1d", "24h": "1d", "90m": "1h30m", "2h": "2h", "45s": "45s", "30d": "30d", "36h": "36h", "106751d": "106751d"} {
 		d, err := ParseSpan(in)
 		if err != nil || Span(d) != want {
 			t.Errorf("Span(ParseSpan(%q)) = %q, %v; want %q", in, Span(d), err, want)
 		}
 	}
-	for _, bad := range []string{"", "0d", "-1h", "d", "soon"} {
+	// 106751d is the largest whole-day span a time.Duration holds; 106752d
+	// overflows it, and 300000d wraps to a positive span without a guard.
+	for _, bad := range []string{"", "0d", "-1h", "d", "soon", "300000d", "106752d"} {
 		if _, err := ParseSpan(bad); err == nil {
 			t.Errorf("ParseSpan(%q) accepted", bad)
 		}

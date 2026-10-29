@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -113,11 +114,15 @@ type TimerPass struct {
 	Next *time.Time `json:"next,omitempty"`
 }
 
+// maxSpanDays is the largest whole-day count ParseSpan takes: any more days
+// at 24h each would overflow a time.Duration and wrap to a shorter span.
+const maxSpanDays = math.MaxInt64 / int64(24*time.Hour)
+
 // ParseSpan is time.ParseDuration plus whole days ("1d", "30d").
 func ParseSpan(s string) (time.Duration, error) {
 	if n, ok := strings.CutSuffix(s, "d"); ok {
 		days, err := strconv.Atoi(n)
-		if err != nil || days < 1 {
+		if err != nil || days < 1 || int64(days) > maxSpanDays {
 			return 0, fmt.Errorf("bad duration %q (use e.g. 40m, 12h or 7d)", s)
 		}
 		return time.Duration(days) * 24 * time.Hour, nil
