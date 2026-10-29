@@ -1,9 +1,9 @@
 # acme as a declared source: the skeleton a new source pack starts from.
 # Copy the pack's directory, rename acme to the service's name in the
 # files' names and text, and drop the keys the service does not need.
-# Every key a declaration in a pack of kind source may bring is here,
-# each with when it stays; what stays must read. A test holds the
-# skeleton to the reader: it copies this directory, renames it, and
+# Every promised key a declaration in a pack of kind source may bring
+# is here, each with when it stays; what stays must read. A test holds
+# the skeleton to the reader: it copies this directory, renames it, and
 # applies the copy in a scratch yard.
 #
 # The name is acme: the skeleton's name for the service.

@@ -477,9 +477,18 @@ func declarationDiff(was, now *source.Declaration) []Diff {
 		}
 		return "the call " + d.Notify.Call + ", at " + d.Notify.AddressEnv
 	}
+	// The regions' bases are compact JSON, as the setup card's
+	// declarationKey writes them: none, absent or empty, reads as no value.
+	bases := func(d *source.Declaration) string {
+		if len(d.Bases) == 0 {
+			return ""
+		}
+		text, _ := json.Marshal(d.Bases) // a map of strings always marshals
+		return string(text)
+	}
 	line := func(c *source.Call) string { return "(" + c.Kind + ") " + c.Request.Line() }
 	for _, f := range []struct{ field, old, new string }{
-		{"base", was.Address(), now.Address()}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"idempotency", was.Idempotency, now.Idempotency}, {"notify", notify(was), notify(now)},
+		{"base", was.Address(), now.Address()}, {"bases", bases(was), bases(now)}, {"credential", credential(was), credential(now)}, {"check", was.Check, now.Check}, {"idempotency", was.Idempotency, now.Idempotency}, {"notify", notify(was), notify(now)},
 	} {
 		if f.old != f.new {
 			out = append(out, Diff{f.field, f.old, f.new})

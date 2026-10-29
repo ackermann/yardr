@@ -872,10 +872,11 @@ declared source pushover, from sources/pushover.yaml
   `base`, optional `bases`, `credential`, `check`, `idempotency`, `calls`
   and `notify`, and no other.** A key a later yardr reads in a declaration
   is not thereby one a pack may bring: a pack for a depot brings no command
-  the yard runs. A pack of kind `source` may also bring `hook`, `thread` and
-  `link` ([An integration pack](#an-integration-pack-kind-source)); `limits` stays
-  refused in every pack: what a subscription still carries is the yard's to
-  ask, not a pack's to say.
+  the yard runs. A pack of kind `source` may also bring `hear`, `hook`,
+  `thread`, `link`, `identity`, `events` and `git` ([An integration
+  pack](#an-integration-pack-kind-source)); `limits` stays refused in every
+  pack: what a subscription still carries is the yard's to ask, not a pack's
+  to say.
 - **The commands' files are the pack's to carry.** In a pack of kind
   `source`, each file a command names by a relative program stands beside
   the declaration, and the import copies it under

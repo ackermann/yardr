@@ -159,7 +159,7 @@ Not for a pack, whatever it happens to do today:
 | seam | | |
 |---|---|---|
 | every key of `pack.yaml` that the [table](packs.md#packyaml) lists, `api` among them, and what a pack is [refused for](packs.md#what-a-pack-is-refused-for) | stable | |
-| every key of a declaration that [`packs/template/acme.yaml`](../packs/template/acme.yaml) shows, and the keys under them that [integrations.md](integrations.md#a-declared-source) gives. A pack for a depot brings `name`, `about`, `base`, `bases`, `credential`, `check`, `idempotency`, `calls` and `notify`, and a pack of kind `source` also `hear`, `hook`, `thread`, `link`, `identity` and `events` | stable | `limits` is not one: a pack may not bring it |
+| every key of a declaration that [`packs/template/acme.yaml`](../packs/template/acme.yaml) shows, and the keys under them that [integrations.md](integrations.md#a-declared-source) gives. A pack for a depot brings `name`, `about`, `base`, `bases`, `credential`, `check`, `idempotency`, `calls` and `notify`, and a pack of kind `source` also `hear`, `hook`, `thread`, `link`, `identity` and `events` | stable | `limits` is not one: a pack may not bring it. `git` is not one either: a pack of kind `source` may carry it (the github pack does), and this page does not promise it |
 | the placeholders `{{operator}}` and `{{<crew member>}}` in a role or stage file | stable | any other `{{...}}` there is refused |
 | a role, script, stage file, setup file or declaration is a path relative to the pack's directory, inside it, to a regular file. A command program is a file beside its declaration, inside the pack | stable | |
 | the digest: sha256 over each file the pack names, as its path, a NUL, its length, a NUL and its bytes, in path order | stable | |

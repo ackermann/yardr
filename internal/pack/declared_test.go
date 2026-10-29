@@ -389,7 +389,8 @@ func TestDeclaredSourceNeedsNoEnvFileACrewMemberHolds(t *testing.T) {
 // A declaration the yard has under the pack's name is replaced, and the
 // plan shows where its calls would go instead: a source is where a
 // credential of the yard is sent. Its env_file stays, and so does the user
-// who names it, which the plan then says.
+// who names it, which the plan then says. A region base added, moved or
+// dropped is shown too, where nothing else differs.
 func TestApplyReplacesADeclaredSourceAndThePlanShowsWhatChanges(t *testing.T) {
 	st, o := yard(t)
 	if _, err := st.PutSource(ctx, "pushover.yaml", strings.Replace(pushover, "https://api.pushover.net/1", "https://push.example.com/1", 1), "me"); err != nil {
@@ -433,6 +434,27 @@ func TestApplyReplacesADeclaredSourceAndThePlanShowsWhatChanges(t *testing.T) {
 	src, err := st.GetSource(ctx, "pushover")
 	if err != nil || src.Text != changed || src.EnvFile != env {
 		t.Fatalf("source = %+v, %v", src, err)
+	}
+
+	// A pack that differs in region bases alone is a change of the bases,
+	// not another text: a region's address is where the credential goes.
+	// Each side is the bases as compact JSON, "" for none.
+	eu, eu2 := "https://eu.push.example.com/1", "https://eu2.push.example.com/1"
+	withBases := func(url string) string { return changed + "bases:\n  eu: " + url + "\n" }
+	for _, step := range []struct {
+		name, text string
+		want       []pack.Diff
+	}{
+		{"added", withBases(eu), []pack.Diff{{Field: "bases", Old: "", New: `{"eu":"` + eu + `"}`}}},
+		{"moved", withBases(eu2), []pack.Diff{{Field: "bases", Old: `{"eu":"` + eu + `"}`, New: `{"eu":"` + eu2 + `"}`}}},
+		{"dropped", changed, []pack.Diff{{Field: "bases", Old: `{"eu":"` + eu2 + `"}`, New: ""}}},
+	} {
+		plan = build(t, st, load(t, writePack(t, declaredFiles(smallDeclared, step.text))), o)
+		got = find(t, plan, "source", "pushover")
+		if got.Action != pack.Change || !slices.Equal(got.Changes, step.want) {
+			t.Fatalf("bases %s: source = %s %+v, want a change of %+v", step.name, got.Action, got.Changes, step.want)
+		}
+		apply(t, st, plan, nil)
 	}
 }
 

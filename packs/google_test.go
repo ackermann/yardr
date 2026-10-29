@@ -246,6 +246,8 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 	calendarsFields := "items(id,summary,primary,accessRole),nextPageToken"
 	writeFields := "id,summary,start,end,htmlLink"
 	copyFields := "id,name,webViewLink"
+	fileFields := "id,name,mimeType,parents,modifiedTime,size,trashed"
+	madeFields := "id,name,mimeType,parents"
 	searchPage1 := `{"messages":[{"id":"18c4a1b2c3d4e5f6","threadId":"18c4a1b2c3d4e5f6"},{"id":"18c4a1b2c3d4e5f7","threadId":"18c4a1b2c3d4e5f6"}],"nextPageToken":"CAEQDBgBEg9OZXh0IFBhZ2U","resultSizeEstimate":2}`
 	searchPage2 := `{"messages":[{"id":"18c4a1b2c3d4e5f8","threadId":"18c4a1b2c3d4e5f8"}],"resultSizeEstimate":3}`
 	draftsPage := `{"drafts":[{"id":"r123456","message":{"id":"18c4a1b2c3d4e5f9","threadId":"18c4a1b2c3d4e5f9"}},{"id":"r123457","message":{"id":"18c4a1b2c3d4e5fa","threadId":"18c4a1b2c3d4e5fa"}}],"nextPageToken":"CAEQDBgBEg9EcmFmdHM","resultSizeEstimate":2}`
@@ -460,16 +462,19 @@ func TestGoogleCallsAgainstTheStandin(t *testing.T) {
 			method: "GET", path: "/drive/v3/files", query: map[string]string{"q": "name contains 'x'"},
 			wantAnswer: `{"incompleteSearch":false,"nextPageToken":"next","files":[{"id":"` + driveID + `","name":"lunch","mimeType":"application/vnd.google-apps.document"}]}`},
 		{name: "file", d: drive, call: "file", params: map[string]string{"id": driveID},
-			method: "GET", path: "/drive/v3/files/" + driveID,
+			method: "GET", path: "/drive/v3/files/" + driveID, query: map[string]string{"fields": fileFields},
 			wantAnswer: `{"id":"` + driveID + `","name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["1PaReNt0123456789abcdefghijklm"],"modifiedTime":"2026-10-16T15:00:00.000Z","size":"1024","trashed":false}`},
 		{name: "folder", d: drive, call: "folder", params: map[string]string{"name": "notes", "parent": parent},
-			method: "POST", path: "/drive/v3/files", body: `{"name":"notes","mimeType":"application/vnd.google-apps.folder","parents":["` + parent + `"]}`,
+			method: "POST", path: "/drive/v3/files", query: map[string]string{"fields": madeFields},
+			body:       `{"name":"notes","mimeType":"application/vnd.google-apps.folder","parents":["` + parent + `"]}`,
 			wantAnswer: `{"id":"1NeWFiLe0123456789abcdefghijklm","mimeType":"application/vnd.google-apps.folder","name":"notes","parents":["1PaReNt0123456789abcdefghijklm"]}`},
 		{name: "drive doc", d: drive, call: "doc", params: map[string]string{"name": "lunch", "parent": parent},
-			method: "POST", path: "/drive/v3/files", body: `{"name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["` + parent + `"]}`,
+			method: "POST", path: "/drive/v3/files", query: map[string]string{"fields": madeFields},
+			body:       `{"name":"lunch","mimeType":"application/vnd.google-apps.document","parents":["` + parent + `"]}`,
 			wantAnswer: `{"id":"1NeWFiLe0123456789abcdefghijklm","mimeType":"application/vnd.google-apps.document","name":"lunch","parents":["1PaReNt0123456789abcdefghijklm"]}`},
 		{name: "drive slides", d: drive, call: "slides", params: map[string]string{"name": "friday", "parent": parent},
-			method: "POST", path: "/drive/v3/files", body: `{"name":"friday","mimeType":"application/vnd.google-apps.presentation","parents":["` + parent + `"]}`,
+			method: "POST", path: "/drive/v3/files", query: map[string]string{"fields": madeFields},
+			body:       `{"name":"friday","mimeType":"application/vnd.google-apps.presentation","parents":["` + parent + `"]}`,
 			wantAnswer: `{"id":"1NeWFiLe0123456789abcdefghijklm","mimeType":"application/vnd.google-apps.presentation","name":"friday","parents":["1PaReNt0123456789abcdefghijklm"]}`},
 		{name: "copy", d: drive, call: "copy", params: map[string]string{"id": driveID, "name": "lunch, again", "parent": parent},
 			method: "POST", path: "/drive/v3/files/" + driveID + "/copy", query: map[string]string{"fields": copyFields},

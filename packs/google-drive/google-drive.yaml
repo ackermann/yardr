@@ -69,6 +69,7 @@ calls:
     request:
       method: GET
       path: /drive/v3/files/{id}
+      query: { fields: "id,name,mimeType,parents,modifiedTime,size,trashed" }   # Drive answers a default few fields unless told which
     answer: { select: [id, name, mimeType, parents, modifiedTime, size, trashed] }
   folder:
     kind: update
@@ -79,6 +80,7 @@ calls:
     request:
       method: POST
       path: /drive/v3/files
+      query: { fields: "id,name,mimeType,parents" }
       body: { name: "{name}", mimeType: "application/vnd.google-apps.folder", parents: ["{parent}"] }
     answer: { select: [id, name, mimeType, parents] }
   doc:
@@ -90,6 +92,7 @@ calls:
     request:
       method: POST
       path: /drive/v3/files
+      query: { fields: "id,name,mimeType,parents" }
       body: { name: "{name}", mimeType: "application/vnd.google-apps.document", parents: ["{parent}"] }
     answer: { select: [id, name, mimeType, parents] }
   slides:
@@ -101,6 +104,7 @@ calls:
     request:
       method: POST
       path: /drive/v3/files
+      query: { fields: "id,name,mimeType,parents" }
       body: { name: "{name}", mimeType: "application/vnd.google-apps.presentation", parents: ["{parent}"] }
     answer: { select: [id, name, mimeType, parents] }
   copy:
