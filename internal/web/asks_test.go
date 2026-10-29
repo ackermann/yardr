@@ -449,8 +449,8 @@ func TestHomeNeedsAskTwice(t *testing.T) {
 	}
 }
 
-// An asked stage carries the blue lamp on the panel, as a manual wait
-// does; a hold keeps it blue, and a fault on the same stage burns red
+// An asked stage carries the rust lamp on the panel, as a manual wait
+// does; a hold keeps it rust, and a fault on the same stage burns red
 // instead.
 func TestPanelAskLamp(t *testing.T) {
 	t.Parallel()
@@ -470,18 +470,18 @@ func TestPanelAskLamp(t *testing.T) {
 	}
 	svg := r.body
 	if part := stagePart(t, svg, "new"); !strings.Contains(part, `class="lamp turn"`) {
-		t.Error("the asked stage lights no blue lamp")
+		t.Error("the asked stage lights no rust lamp")
 	}
 	if strings.Contains(svg, `class="lamp fault"`) {
 		t.Error("no fault waits, and a red lamp burns")
 	}
-	// A hold on the asked stage keeps the blue lamp: a hold is the
+	// A hold on the asked stage keeps the rust lamp: a hold is the
 	// person's turn, not a fault.
 	_, err = f.st.SetHold(ctx, asked.ID, true, store.Expect{}, "me")
 	must(t, err)
 	svg = f.get("/flows?panel=1").body
 	if part := stagePart(t, svg, "new"); !strings.Contains(part, `class="lamp turn"`) {
-		t.Error("the held asked stage lights no blue lamp")
+		t.Error("the held asked stage lights no rust lamp")
 	}
 	if strings.Contains(svg, `class="lamp fault"`) {
 		t.Error("a hold burns a red lamp")

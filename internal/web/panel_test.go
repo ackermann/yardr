@@ -279,7 +279,7 @@ func TestFlowsWithoutPanel(t *testing.T) {
 
 // kindsYard holds one of every blocked kind section 3.1 names: held,
 // gave up, stalled, blocked on a prompt, waiting on a dependency, back on
-// failed or changes, red and blue wait lamps, hollow no-route platforms,
+// failed or changes, red and rust wait lamps, hollow no-route platforms,
 // and a stranded bead off the line.
 func kindsYard(t *testing.T, f *fixture) (held, gave, stall, block, dep, back, holder *store.Bead) {
 	t.Helper()
@@ -450,7 +450,7 @@ func TestPanelBlockedKinds(t *testing.T) {
 	if strings.Contains(svg, `>`+holderShort+`<`) {
 		t.Errorf("the holding bead's id %s is written on the plan", holderShort)
 	}
-	// Red where a fault waits and nothing is worked, blue where a
+	// Red where a fault waits and nothing is worked, rust where a
 	// person's turn waits, and none where a stage is worked. The blocked
 	// session in review lights its signal (its held and gave-up beads are
 	// turns); new's held and dependency-blocked beads light none while
@@ -636,7 +636,7 @@ func TestFlowsCallMatchesFlowsPage(t *testing.T) {
 
 // quietYard holds no fault, no hold and no failed return: a running
 // session, a quiet bead, and parked beads in manual stages (a person's
-// turn, blue).
+// turn, rust).
 func quietYard(t *testing.T, f *fixture) {
 	t.Helper()
 	ctx := context.Background()

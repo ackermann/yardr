@@ -10,7 +10,7 @@ import (
 
 // A light's class tells its kind at a glance: solid red for held, hollow
 // red for gave up, green with a red ring for blocked, hollow green for
-// stalled, green while a session runs, blue for waiting on a dependency
+// stalled, green while a session runs, rust for waiting on a dependency
 // when otherwise quiet. A working or held bead that also waits keeps its
 // colour and still names the bead holding it in its title.
 func TestBlockClass(t *testing.T) {
@@ -93,7 +93,7 @@ func TestMiniMarks(t *testing.T) {
 		// The light's title names what holds it; no id is written on
 		// the plan and none links to the bead holding.
 		`<title>shop-dep waits on shop-hold</title>`,
-		// Red where a fault waits, blue where a person's turn waits,
+		// Red where a fault waits, rust where a person's turn waits,
 		// an unlit outline where a quiet signal stands.
 		`<circle class="lamp fault"`,
 		`<circle class="lamp turn"`,
@@ -199,7 +199,7 @@ func TestMiniWords(t *testing.T) {
 }
 
 // A flow's own signal is unlit unless the stage waits: red for a fault,
-// blue for a person's turn. A wait on a stage with no signal is a bare
+// rust for a person's turn. A wait on a stage with no signal is a bare
 // lamp; a quiet stage with none carries nothing.
 func TestMiniSignalLamp(t *testing.T) {
 	f := flow(t, "code", "a -> b on done | c on changes\nb -> d on done | a on changes\nc -> d\nd terminal\n")

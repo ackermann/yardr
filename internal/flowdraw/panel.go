@@ -10,10 +10,10 @@ package flowdraw
 // light to its bead, through the hrefs Standing gives. The blocked kinds
 // are told apart at a glance, as on the full drawing: held is solid red,
 // gave up hollow red, stalled hollow green, blocked on a prompt green
-// with a red ring, waiting on a dependency blue, back on failed or
+// with a red ring, waiting on a dependency rust, back on failed or
 // changes with a red diamond before it, running past its usual time with
 // an amber ring around its light; a stage that waits for a person
-// carries a lamp, red for a fault and blue for a person's turn, and a
+// carries a lamp, red for a fault and rust for a person's turn, and a
 // stage no route serves is dotted with the faint words "no route". No
 // bead writes anything on the plan: what a light is stands in its title,
 // and a tap opens the bead.
@@ -49,7 +49,7 @@ type Block struct {
 	// light, whatever its colour, and its title names the age.
 	Late string
 	// Dep is the full id of the first open blocker holding the bead, ""
-	// when none waits: the light is blue when the bead is otherwise
+	// when none waits: the light is rust when the bead is otherwise
 	// quiet, and its title names the bead holding it.
 	Dep string
 	// FailedBack is a bead whose last move carries outcome failed or
@@ -58,7 +58,7 @@ type Block struct {
 }
 
 // Lamp is a stage's wait lamp: "" where a bead is worked with no fault
-// of its own or nothing waits, red where the wait is a fault, blue where
+// of its own or nothing waits, red where the wait is a fault, rust where
 // it is a person's turn.
 type Lamp string
 
@@ -75,7 +75,7 @@ const (
 // first, and where a section and a light link to.
 type Standing struct {
 	Blocks map[string][]Block
-	// Lamps are the stages that wait for a person, red for a fault and blue
+	// Lamps are the stages that wait for a person, red for a fault and rust
 	// for a person's turn; absent where a bead is worked with no fault of
 	// its own and where nothing waits.
 	Lamps map[string]Lamp
@@ -105,7 +105,7 @@ const (
 
 // class is the light's class: quiet grey, green while a session runs,
 // solid red for held, hollow red for gave up, hollow green for stalled,
-// green with a red ring for blocked on a prompt, blue for waiting on a
+// green with a red ring for blocked on a prompt, rust for waiting on a
 // dependency when otherwise quiet. A working or held bead that also waits
 // on a dependency keeps its colour and still names the bead holding it in
 // its title.
@@ -343,7 +343,7 @@ func mini(d Diagram, s Standing) (string, int, int) {
 	// signal draws the stage's lamp at lx: a lamp on a short post for a
 	// stage that can report changes, a bare lamp where a wait sits on a
 	// stage with none. The lamp is an unlit outline unless the stage
-	// waits: red for a fault, blue for a person's turn.
+	// waits: red for a fault, rust for a person's turn.
 	signal := func(stage, href string, lx, ly int) {
 		l, waits := s.Lamps[stage]
 		post := slices.Contains(p.signals, stage)

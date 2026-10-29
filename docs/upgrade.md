@@ -12,8 +12,8 @@ untouched.
 
 ```sh
 $ yardr upgrade
-backup    /Users/jo/.yardr/backups/yard.db.before-install
-keep      /Users/jo/go/bin/yardr.prev (1904410)
+backup    ~/.yardr/backups/yard.db.before-install
+keep      ~/go/bin/yardr.prev (1904410)
 install   go install . at 1904417
 scripts   merge-local, integrate-train refreshed
 health    ok in 24 s
@@ -280,7 +280,7 @@ part's `verdict` (`ok`, `fail`, `skip`) with the words after it as
 
 ```json
 {
-  "home": "/Users/jo/.yardr",
+  "home": "~/.yardr",
   "build": "1904417",
   "ok": true,
   "server": {"verdict": "ok", "detail": "answers on 1904417, this build", "running": true},

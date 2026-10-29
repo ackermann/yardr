@@ -181,7 +181,7 @@ func (s *Server) panelMarks(ctx context.Context, d *Flows) error {
 	for _, w := range waits {
 		// A prompt nobody answers or a strand is a fault, red; a hold,
 		// like a wait that is only an ask (with a manual reason, if
-		// any), is the person's turn, blue as a manual wait is. A bead
+		// any), is the person's turn, rust as a manual wait is. A bead
 		// waiting only behind another bead lights neither lamp:
 		// ordinary waiting.
 		fault := false
