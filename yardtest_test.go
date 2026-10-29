@@ -38,6 +38,33 @@ type readsRow struct {
 	pkgs []string // empty for a - row: no test reads the path
 }
 
+type filesizeRow struct {
+	path string
+	ceil int
+}
+
+// writeSizeTree writes every filesizes-listed file at exactly its ceiling,
+// as valid Go, so a fixture that runs the whole gate passes the file size
+// budget: a sparse fixture would fail it on every row whose file is gone.
+// Cases that judge the budget build on it and break one file.
+func writeSizeTree(t *testing.T, dir string, sizeRows []filesizeRow) {
+	t.Helper()
+	for _, row := range sizeRows {
+		var b strings.Builder
+		b.WriteString("package p\n")
+		for i := 1; i < row.ceil; i++ {
+			b.WriteString("// pad\n")
+		}
+		p := filepath.Join(dir, row.path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func gitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
@@ -74,6 +101,8 @@ func goModTemplate(t *testing.T) (template, base, short string) {
 	if err := os.WriteFile(filepath.Join(template, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, template, sizeRows)
 	gitT(t, template, "init", "-q", "-b", "main")
 	gitT(t, template, "add", "-A")
 	gitT(t, template, "commit", "-q", "-m", "base")
@@ -146,6 +175,9 @@ func yardTestRows(t *testing.T) (script string, rows []readsRow) {
 
 // Every row names a path the repository has and packages that have tests:
 // a row left behind by a rename would otherwise select nothing, silently.
+// Every filesizes row names a non-test Go file the tree still holds: a row
+// left behind by a deletion fails here, as a grown file, an unlisted file
+// over 1000 lines or a ceiling above its file fails the gate.
 func TestYardTestRowsAreThere(t *testing.T) {
 	_, rows := yardTestRows(t)
 	for _, row := range rows {
@@ -159,6 +191,18 @@ func TestYardTestRowsAreThere(t *testing.T) {
 			if tests, _ := filepath.Glob(filepath.Join(pkg, "*_test.go")); len(tests) == 0 {
 				t.Errorf("row %s: %s has no tests", row.path, pkg)
 			}
+		}
+	}
+	_, _, _, sizeRows := yardTestProbe(t)
+	for _, row := range sizeRows {
+		info, err := os.Stat(row.path)
+		if err != nil {
+			t.Errorf("filesizes row %s: %v", row.path, err)
+		} else if info.IsDir() {
+			t.Errorf("filesizes row %s: not a file", row.path)
+		}
+		if strings.HasSuffix(row.path, "_test.go") {
+			t.Errorf("filesizes row %s: test files carry no row", row.path)
 		}
 	}
 }
@@ -483,6 +527,11 @@ func TestYardTestSelects(t *testing.T) {
 		write("packs/starter/pack.yaml", "pack\n")
 		write("packs/starter/roles/reviewer.md", "reviewer\n")
 		write("packtop/p.go", "package packtop\n\nimport _ \"m.test/m/packs\"\n")
+		// The filesizes-listed files at their ceilings: rows that run the
+		// whole gate would fail the file size budget on every row whose
+		// file is gone. Valid Go, as the list below runs the real go.
+		_, _, _, sizeRows := yardTestProbe(t)
+		writeSizeTree(t, dir, sizeRows)
 		gitT(t, dir, "init", "-q", "-b", "main")
 		gitT(t, dir, "add", "-A")
 		gitT(t, dir, "commit", "-q", "-m", "base")
@@ -804,24 +853,24 @@ func TestYardTestSelects(t *testing.T) {
 		{"a plain run of the docs runs without -race", nil, []string{"docs/api.md", "docs/design/2026-10-12-a.md"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m m.test/m/internal/rpc"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m m.test/m/internal/rpc"}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m m.test/m/internal/rpc"}},
 		{"a landing of one design document runs without -race", []string{"YARDR_LANDING=1"}, []string{"docs/design/2026-10-12-a.md"},
 			landing + "nothing compiled changed" + sincePH + unraced,
 			[]string{"vet ./...", "build ./...", "test m.test/m"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m"}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m"}},
 		// A landing races compiled code; a plain run does not.
 		{"a plain run of a go file runs without -race", nil, []string{"alone/p.go"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test m.test/m/alone"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test m.test/m/alone"}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test m.test/m/alone"}},
 		{"a plain run of a file no row knows tests every package without -race", []string{"YARDR_RACE_HELD=1"}, []string{"contrib/x.txt"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}},
 		{"a plain run of go.mod tests every package without -race", []string{"YARDR_RACE_HELD=1"}, []string{"go.mod"},
 			pre + "what changed" + sincePH + plainWhy,
 			[]string{"vet ./...", "build ./...", "test ./..."},
-			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}},
+			[]string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -892,10 +941,10 @@ func TestYardTestSelects(t *testing.T) {
 	}{
 		{"a landing over internal/cli starts no socket leg", "internal/cli/p.go", "internal/cli/p.go changed", selectionSuffix, skipSocket,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selCLI},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race " + selCLI}, nil},
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race " + selCLI}, nil},
 		{"a landing over internal/rpc starts the socket leg", "internal/rpc/p.go", "internal/rpc/p.go changed", selectionSuffix, runSocketStore,
 			[]string{"vet ./...", "linux vet ./...", "test -race " + selRPC, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race " + selRPC,
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race " + selRPC,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 		// A loaded machine, on the row that starts the socket leg: the selection's
 		// race leg takes the cores the load leaves it (gatepar), and the suites
@@ -903,12 +952,12 @@ func TestYardTestSelects(t *testing.T) {
 		// (yardr-fvkm), so this row replaces one instead of adding one.
 		{"a landing over internal/web starts the socket leg, and on a loaded machine runs its race leg with -p=2", "internal/web/p.go", "internal/web/p.go changed", selectionSuffix, runSocketWeb,
 			[]string{"vet ./...", "linux vet ./...", "test -race -p=2 " + selWEB, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race -p=2 " + selWEB,
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race -p=2 " + selWEB,
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
 			[]string{"YARDR_TEST_LOADAVG=40", "YARDR_TEST_CORES=10"}},
 		{"a landing over an unknown file starts the socket leg", "contrib/x.txt", "contrib/x.txt, which is read by no known package, changed", wholeSuffix, runSocketAll,
 			[]string{"vet ./...", "linux vet ./...", "test -race ./...", "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"},
-			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race ./...",
+			[]string{"go list -test ./...", "gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race ./...",
 				"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -1303,7 +1352,7 @@ func TestYardTestRunsAgainWhenTheBuildCacheLostAFile(t *testing.T) {
 			}
 			for i, step := range steps {
 				if strings.HasPrefix(step, "go test ") {
-					steps = slices.Insert(steps, i, "sleep budgets", "redaction marker scan")
+					steps = slices.Insert(steps, i, "sleep budgets", "file size budgets", "redaction marker scan")
 					break
 				}
 			}
@@ -1454,8 +1503,8 @@ func TestYardTestRerunsFailedPackagesOnce(t *testing.T) {
 		return fmt.Sprintf("%-18s %-6s %-4s %-7s %-8s %-7s %-15s %-13s %s\n", id, "", "P3", "task", "backlog", "open", "-", "yardr", title)
 	}
 	other := listHeader + listRow("m-1", "Something else")
-	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "redaction marker scan", "go test ./..."}
-	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "redaction marker scan", "go test -race -p=3 ./...",
+	plainSteps := []string{"gofmt -l .", "go vet ./...", "go build ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test ./..."}
+	landingSteps := []string{"gofmt -l .", "go vet ./...", "env GOOS=linux go vet ./...", "sleep budgets", "file size budgets", "redaction marker scan", "go test -race -p=3 ./...",
 		"env YARDR_TEST_RPC=1 go test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	landing := []string{"vet ./...", "linux vet ./...", "test -race -p=3 ./...", "test -race -p=3 " + pkg, "rpc test ./internal/store/ ./internal/dispatch/ ./internal/bdp/ ./internal/web/"}
 	plain := []string{"vet ./...", "build ./...", "test ./...", "test " + pkg}
@@ -2844,6 +2893,10 @@ func TestYardTestKilledGatePrintsNoPass(t *testing.T) {
 			if err := os.WriteFile(a, []byte("package a\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			// The filesizes-listed files at their ceilings: the run would
+			// fail the file size budget on every row whose file is gone.
+			_, _, _, sizeRows := yardTestProbe(t)
+			writeSizeTree(t, dir, sizeRows)
 			gitT(t, dir, "init", "-q", "-b", "main")
 			gitT(t, dir, "add", "-A")
 			gitT(t, dir, "commit", "-q", "-m", "base")
@@ -2959,6 +3012,10 @@ fi
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The filesizes-listed files at their ceilings: the run would fail the
+	// file size budget on every row whose file is gone.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -3051,6 +3108,10 @@ fi
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module yardr.dev/yardr\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The filesizes-listed files at their ceilings: the run would fail the
+	// file size budget on every row whose file is gone.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -3199,6 +3260,19 @@ func plainLockFixture(t *testing.T, script []byte) (dir, base string, pkgs []str
 	}
 	write("go.mod", "module m.test/m\n\ngo 1.21\n")
 	write(".yardr/test", string(script))
+	// The filesizes-listed files at their ceilings: the runs would fail
+	// the file size budget on every row whose file is gone. Valid Go, as
+	// the list runs the real go. Its new package directories join the
+	// package list, which stays the suite's whole set: the whole-suite
+	// tests change over half of it.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
+	for _, row := range sizeRows {
+		if d := row.path[:strings.LastIndex(row.path, "/")]; !seen[d] {
+			seen[d] = true
+			pkgs = append(pkgs, d)
+		}
+	}
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -3769,6 +3843,10 @@ func TestYardTestRaceLockIsTheYards(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The filesizes-listed files at their ceilings: the run would fail the
+	// file size budget on every row whose file is gone.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -3975,6 +4053,10 @@ func TestYardTestBudgetRerunSharesTheRaceHold(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(template, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The filesizes-listed files at their ceilings: the runs would fail
+	// the file size budget on every row whose file is gone.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, template, sizeRows)
 	gitT(t, template, "init", "-q", "-b", "main")
 	gitT(t, template, "add", "-A")
 	gitT(t, template, "commit", "-q", "-m", "base")
@@ -4614,6 +4696,10 @@ func TestYardTestRaceLockTermToQueuedGateStopsItAtOnce(t *testing.T) {
 	if err := os.WriteFile(mod, []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The filesizes-listed files at their ceilings: the run would fail the
+	// file size budget on every row whose file is gone.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -4915,16 +5001,16 @@ func TestYardTestRaceQueueView(t *testing.T) {
 	}
 }
 
-// yardTestProbe pulls the budget checks out of .yardr/test: the two
-// allow-lists, the two functions that judge them, and what they call (took,
-// runlogged, machineload and loadedmachine), sizewaits, which reads the
-// same load for the race leg's wait factor, and gatepar and legflag, which
-// turn it into the race leg's -p. The probe runs them as the script has
-// them, so a case over it fails when the gate would. It also returns the
-// allow-listed directories and how many distinct sleep sites the table
-// holds. A script the cuts no longer follow fails the test, telling its
-// editor to move the probe with it.
-func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites int) {
+// yardTestProbe pulls the budget checks out of .yardr/test: the three
+// allow-lists, the three functions that judge them, and what they call
+// (took, runlogged, machineload and loadedmachine), sizewaits, which reads
+// the same load for the race leg's wait factor, and gatepar and legflag,
+// which turn it into the race leg's -p. The probe runs them as the script
+// has them, so a case over it fails when the gate would. It also returns
+// the allow-listed directories, how many distinct sleep sites the table
+// holds, and the filesizes rows. A script the cuts no longer follow fails
+// the test, telling its editor to move the probe with it.
+func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites int, sizeRows []filesizeRow) {
 	t.Helper()
 	b, err := os.ReadFile(yardTest)
 	if err != nil {
@@ -4955,8 +5041,10 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 	pkgfn := cut("\npackagebudget() {\n", "\n}\n")
 	long := cut("\nlongsleeps='\n", "\n'\n")
 	sleepfn := cut("\nsleepbudget() {\n", "\n}\n")
+	sizes := cut("\nfilesizes='\n", "\n'\n")
+	filesizefn := cut("\nfilesizebudget() {\n", "\n}\n")
 	markfn := cut("\nnomarkers() {\n", "\n}\n")
-	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
+	if !strings.Contains(pkgfn, "60 s budget") || !strings.Contains(sleepfn, "500 ms budget") || !strings.Contains(filesizefn, "1000 lines allow-listed") || !strings.Contains(markfn, "redaction marker scan") || !strings.Contains(machinefn, "load $avg on $cores cores") || !strings.Contains(loadfn, "machineload") || !strings.Contains(sizefn, "YARDR_TEST_LOAD=") || !strings.Contains(eitherfn, `echo "$1"`) || !strings.Contains(gatefn, "awk") || !strings.Contains(legfn, "gatepar") {
 		t.Fatal("the probe missed the budget functions: move it with .yardr/test")
 	}
 	for _, line := range strings.Split(over, "\n") {
@@ -4983,14 +5071,28 @@ func yardTestProbe(t *testing.T) (probe string, overDirs []string, sleepSites in
 		}
 		keys[[2]string{f[0], f[1]}]++
 	}
-	if len(overDirs) == 0 || len(keys) == 0 {
+	for _, line := range strings.Split(sizes, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 || f[0] == "filesizes='" || line == "'" {
+			continue
+		}
+		if len(f) < 3 {
+			t.Fatalf("filesizes row %q: want a file, lines and why", line)
+		}
+		n, err := strconv.Atoi(f[1])
+		if err != nil {
+			t.Fatalf("filesizes row %q: the lines are a number", line)
+		}
+		sizeRows = append(sizeRows, filesizeRow{path: f[0], ceil: n})
+	}
+	if len(overDirs) == 0 || len(keys) == 0 || len(sizeRows) == 0 {
 		t.Fatal("the probe found no allow-list rows: move it with .yardr/test")
 	}
 	sites := 0
 	for _, n := range keys {
 		sites += n
 	}
-	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + markfn + "\n\"$@\"\n", overDirs, sites
+	return took + runlogfn + over + machinefn + loadfn + sizefn + eitherfn + gatefn + legfn + pkgfn + long + sleepfn + sizes + filesizefn + markfn + "\n\"$@\"\n", overDirs, sites, sizeRows
 }
 
 // The race lock is released when the race-leg command and its R1 checks end,
@@ -5057,6 +5159,10 @@ fi
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module m.test/m\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The filesizes-listed files at their ceilings: the run would fail the
+	// file size budget on every row whose file is gone.
+	_, _, _, sizeRows := yardTestProbe(t)
+	writeSizeTree(t, dir, sizeRows)
 	gitT(t, dir, "init", "-q", "-b", "main")
 	gitT(t, dir, "add", "-A")
 	gitT(t, dir, "commit", "-q", "-m", "base")
@@ -5373,7 +5479,7 @@ printf 'ok  \t%s\t%s\n' "$pkg" "$secs"
 // every run on this machine (yardr-v7v8).
 func TestYardTestBudgets(t *testing.T) {
 	t.Parallel()
-	probe, overDirs, sleepSites := yardTestProbe(t)
+	probe, overDirs, sleepSites, sizeRows := yardTestProbe(t)
 	probePath := filepath.Join(t.TempDir(), "probe.sh")
 	if err := os.WriteFile(probePath, []byte(probe), 0o644); err != nil {
 		t.Fatal(err)
@@ -5456,6 +5562,92 @@ func TestYardTestBudgets(t *testing.T) {
 			t.Fatalf("sleepbudget on the tree: exit %d\n%s", code, out)
 		}
 		if want := "test: " + strconv.Itoa(sleepSites) + " sleeps over 500 ms allow-listed"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a compliant tree passes the file size budget", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		// Exactly 1000 lines is no row's business, and a test file or a
+		// file under .git is not judged.
+		write(t, dir, "exact.go", strings.Repeat("x\n", 1000))
+		write(t, dir, "big_test.go", strings.Repeat("x\n", 2000))
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		write(t, dir, ".git/huge.go", strings.Repeat("x\n", 2000))
+		out, code := run(t, dir, "filesizebudget")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		if want := "test: " + strconv.Itoa(len(sizeRows)) + " files over 1000 lines allow-listed"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a grown listed file fails the file size budget", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		row := sizeRows[0]
+		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil+1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := run(t, dir, "filesizebudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		want := fmt.Sprintf("test: %s has %d lines, over its %d-line ceiling: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split); the ceiling only falls", row.path, row.ceil+1, row.ceil)
+		if !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("an unlisted file over 1000 fails the file size budget", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		write(t, dir, "new.go", strings.Repeat("x\n", 1001))
+		out, code := run(t, dir, "filesizebudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		if want := "test: new.go has 1001 lines, over 1000 with no filesizes row: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split)"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a ceiling left above a shrunk file fails the file size budget", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		row := sizeRows[0]
+		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil-1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := run(t, dir, "filesizebudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		want := fmt.Sprintf("test: %s has %d lines, under its %d-line ceiling: lower the row in the same change", row.path, row.ceil-1, row.ceil)
+		if !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("the tree's listed files are at their ceilings", func(t *testing.T) {
+		t.Parallel()
+		// On the checkout itself: green, with every row's file at exactly
+		// its ceiling. A grown file, an unlisted file over 1000, a ceiling
+		// above its file, or a row whose file is gone fails here as it
+		// fails the gate.
+		out, code := run(t, ".", "filesizebudget")
+		if code != 0 {
+			t.Fatalf("filesizebudget on the tree: exit %d\n%s", code, out)
+		}
+		if want := "test: " + strconv.Itoa(len(sizeRows)) + " files over 1000 lines allow-listed"; !strings.Contains(out, want) {
 			t.Errorf("output %q, want it to contain %q", out, want)
 		}
 	})

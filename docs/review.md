@@ -8,6 +8,8 @@ the outcomes its flow names for the stage (`done: move to approved`), else
 the stages its flow allows (either way a stage earlier in the flow sends it
 back and asks for a note; a terminal stage closes it), or without a flow any
 stage a route uses. "Open diff" pages the full diff through `$PAGER`; Skip leaves it.
+Where the diff splits a file, the split follows a concept, not a stem suffix:
+one concept per file, never a second `routing2.go`.
 
 ```sh
 yardr review                    # the form

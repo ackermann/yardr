@@ -1787,6 +1787,117 @@ sleepbudget() {
   if [ -n "$out" ]; then printf '%s\n' "$out"; fi
   [ "$st" = 0 ] || exit 1
 }
+# The non-test Go files over 1000 lines: the file, its ceiling in lines,
+# and why it is over. The gate counts every non-test .go file with wc -l;
+# a file over its ceiling, an unlisted file over 1000 lines, a ceiling
+# standing above its file, or a row whose file is gone fails the run. The
+# ceiling only falls: a shrinking change lowers its file's row in the same
+# commit, and nothing else edits a row. The root package's test counts the
+# rows against the tree, so delete the row with the file.
+filesizes='
+internal/agents/harness.go 1385 schemas, trust marks and flags of every harness kind
+internal/chat/chat.go 1196 the chat TUI model, state and rendering
+internal/cli/bead_ask.go 1777 the ask and answer commands with secret-giving and setup approval
+internal/cli/beads.go 1099 the bead show, list and history commands and their printing
+internal/cli/crew.go 2304 the crew, inbox, mail and memory commands
+internal/cli/doctor.go 1274 the doctor examinations and its report
+internal/cli/init.go 1685 yard init, onboarding and settings
+internal/cli/ops.go 1833 the server, daemon, depot, group, route and session commands
+internal/cli/pack.go 2203 pack loading, import planning and its question rounds
+internal/cli/peers.go 1570 the peer identity, intake and ping commands
+internal/cli/routereport.go 1514 the route report and its rendering
+internal/cli/sourcecmd.go 2242 the source command and its builtin checks
+internal/cli/subscriptions.go 1148 the identity, subscribe and thread commands
+internal/cli/updown.go 1302 yard up and down with their handoffs
+internal/cli/users.go 1056 the user command, inboxes and conversations
+internal/dispatch/dispatch.go 1828 the daemon routing pass and its runners
+internal/dispatch/harnesslogin.go 1095 harness login leading and onboarding marks
+internal/dispatch/prompt.go 1062 prompt, dialog and login watching
+internal/pack/export.go 1047 pack export and its object shapes
+internal/pack/pack.go 1927 pack reading, checking and its shapes
+internal/pack/plan.go 1122 import plans, diffs and their operations
+internal/rpc/user.go 1979 the user server, callers and pairing
+internal/source/declaration.go 1736 source declarations, credentials and calls
+internal/standin/standin.go 1540 the fake Linear, GitHub and edge APIs
+internal/store/asks.go 1834 ask and answer parsing and storage
+internal/store/beads.go 2684 bead CRUD, queries and dispatch reads
+internal/store/crew.go 1585 crew records and their events
+internal/store/flows.go 1454 flow parsing and storage
+internal/store/graph.go 1574 the dependency graph and its queries
+internal/store/hooks.go 1118 webhook parsing and the say shapes
+internal/store/peerasks.go 1239 peer asks, their answers and ask copies
+internal/store/peerbeads.go 1763 peer bead intake and fetching
+internal/store/peers.go 1798 peer records and their allowances
+internal/store/peersend.go 1263 sending beads to peers and settling them
+internal/store/policy.go 1201 the permission gates and their rules
+internal/store/routing.go 3180 groups, routes and their config merges
+internal/store/runask.go 1571 run asks and their approval
+internal/store/runask_list.go 1223 ask cards, labels and preset reading
+internal/store/runask_more.go 1210 the user and crew-grant run-ask cards
+internal/store/runask_setup.go 1811 setup asks and their approval
+internal/store/secretask.go 1094 secret asks and harness key files
+internal/store/settings.go 1130 yard settings and their checks
+internal/store/sourcecalls.go 1303 source grants and callables
+internal/store/subscriptions.go 1210 identities, subscriptions and where-clauses
+internal/store/users.go 1301 user records and operator words
+internal/web/beads.go 1106 the bead cards, flows and panels
+'
+# filesizebudget fails the run when a non-test Go file stands over its
+# ceiling in the table above, when one with no row stands over 1000 lines,
+# when a ceiling stands above its file, or when a row names a file that is
+# gone. The measure is wc -l, the count the table was seeded with. The
+# allow-list goes by file, as the reads table does: awk takes no newline
+# in -v. It says how many listed files the tree holds, so the re-measure
+# can count the oversize debt.
+filesizebudget() {
+  t0=$(date +%s)
+  st=0
+  allow=$(mktemp)
+  printf '%s\n' "$filesizes" >"$allow"
+  out=$(find . -name '*.go' -not -name '*_test.go' -not -path './.git/*' -exec wc -l {} + 2>/dev/null | awk '
+    FILENAME == ARGV[1] {
+      if ($0 ~ /^[^ ]+ [0-9]+ /) {
+        f = $0; sub(/ .*/, "", f)
+        m = $0; sub(/^[^ ]+ /, "", m); sub(/ .*/, "", m)
+        ceil[f] = m
+      }
+      next
+    }
+    $2 == "total" || NF < 2 { next }
+    {
+      n = $1 + 0
+      f = $0; sub(/^ *[0-9]+ +/, "", f); sub(/^\.\//, "", f)
+      if (f in ceil) {
+        seen[f]++
+        if (n > ceil[f]) {
+          printf "test: %s has %d lines, over its %d-line ceiling: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split); the ceiling only falls\n", f, n, ceil[f]
+          bad++
+        } else if (ceil[f] > n) {
+          printf "test: %s has %d lines, under its %d-line ceiling: lower the row in the same change\n", f, n, ceil[f]
+          bad++
+        } else nseen++
+        next
+      }
+      if (n > 1000) {
+        printf "test: %s has %d lines, over 1000 with no filesizes row: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split)\n", f, n
+        bad++
+      }
+    }
+    END {
+      for (f in ceil) {
+        if (!(f in seen)) {
+          printf "test: filesizes row %s names a file that is gone: delete the row with the file\n", f
+          bad++
+        }
+      }
+      if (bad > 0) exit 1
+      if (nseen > 0) printf "test: %d files over 1000 lines allow-listed\n", nseen
+    }' "$allow" -) || st=$?
+  rm -f "$allow"
+  took "$t0" "file size budgets"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+  [ "$st" = 0 ] || exit 1
+}
 # nomarkers fails the run when a tracked file carries the redaction marker
 # (REDACTED in capitals inside square brackets): tool output redacts a word
 # that way, and the redaction was copied into files as text (yardr-k3a0).
@@ -1916,6 +2027,7 @@ whole() {
   # through (yardr-mrdt). vet cross-compiles, so no linux machine is needed.
   again env GOOS=linux go vet ./...
   sleepbudget
+  filesizebudget
   nomarkers
   if [ "$2" = selection ] && [ -n "$tmp" ]; then
     [ ! -s "$tmp/rows" ] || cat "$tmp/rows"
@@ -2148,6 +2260,7 @@ built() {
   again go vet ./...
   again go build ./...
   sleepbudget
+  filesizebudget
   nomarkers
 }
 # No renames, here and in the two diffs below: a move is the deletion of the
