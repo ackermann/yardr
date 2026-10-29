@@ -26,10 +26,10 @@ import (
 // yardr up and yardr down are the yard's switch: one word that starts, or
 // stops, everything a yard needs. Neither is a second way to start or stop
 // a part. up is herdr's own `herdr server`, the server every command
-// starts (connect) and yardr daemon start; down is yardr daemon stop, what
-// the daemon does to a session it ends (the runner's Stop), and yardr
-// server stop. What they add is the order, the agents on the way down, and
-// one answer for all of it.
+// starts (connect) and the daemon through its login service where one is
+// installed, else yardr daemon start; down is yardr daemon stop, what it does
+// to a session it ends (the runner's Stop), and yardr server stop. What they
+// add is the order, the agents on the way down, and one answer for all of it.
 
 // The parts of a yard up and down speak of, beside the long-running
 // commands, which are named as they are (svcDaemon and the rest).
@@ -184,14 +184,14 @@ func (a *app) upCmd() *cobra.Command {
                   session the yard names (the herdr_session setting), else
                   of this shell's.
   server          the process that owns the yard's store
-  daemon          as yardr daemon start does. It starts the crew, the
-                  yardmaster first, and dispatches the beads that wait:
-                  those yardr down stopped are worked again.
+  daemon          through its login service where one is installed, else as yardr daemon
+                  start does. It starts the crew, the yardmaster first, and dispatches the
+                  beads that wait: those yardr down stopped are worked again.
   web view        when the yard has one: its web_addr setting names its
   BDP server      address, and likewise bdp_addr, or its login service is
-                  installed, on the address its file names. Started as yardr
-                  web start and yardr bdp start do. The telemetry export is
-                  not started.
+                  installed, on the address its file names. Started through that service
+                  where one's installed, else as yardr web start and yardr bdp start do. The
+                  telemetry export is not started.
 
 A part that runs already is left alone, so yardr up is safe to repeat. Each
 part has one line: running already, started, or NOT with what kept it and the
@@ -199,8 +199,8 @@ one thing to do about it. The daemon is not started while herdr's server
 does not answer: every start of an agent would fail and count against it.
 
 herdr is looked for on PATH, then with your login shell, as yardr doctor
-looks: a window starts yardr without what your profile adds to PATH. When
-only the login shell finds it, what up starts gets that shell's PATH.
+looks: a window starts yardr without what your profile adds to PATH. What up starts
+as its own child gets that shell's PATH after its own, where there is a login shell to ask.
 
 --json prints the same as data: each part with running, started, pid, and
 error and do for what could not be started; up is whether herdr's server,
@@ -295,7 +295,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 		if managerOf() == "" {
 			return nil, errNoLogin()
 		}
-		useLoginPATH(ctx)
+		a.useLoginPATH(ctx)
 	}
 	rep := &upReport{Home: cfg.Home}
 	yardr := yardrAt(cfg.Home)
@@ -348,7 +348,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 		}
 	}
 	start := func() {
-		pid, err := kindOf(svcDaemon).start(a.environ(), cfg, nil, "")
+		pid, err := a.startPart(ctx, cfg, kindOf(svcDaemon), nil, "", !install)
 		if err != nil {
 			daemon.Error, daemon.Do = err.Error(), "read "+cfg.DaemonLog()+", then: "+yardr+" up"
 		} else {
@@ -424,7 +424,7 @@ func (a *app) up(ctx context.Context, cfg *config.Config, login bool) (*upReport
 			}
 			// One its service did not start is started all the same.
 			if err == nil && !started {
-				pid, err = k.start(a.environ(), cfg, args, addr)
+				pid, err = a.startPart(ctx, cfg, k, args, addr, !install)
 			}
 			if err != nil {
 				p.Error, p.Do = err.Error(), fmt.Sprintf("%s %s start", yardr, k.Name)

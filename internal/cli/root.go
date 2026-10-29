@@ -73,6 +73,10 @@ type app struct {
 	// linkAsked is set once this run has asked whether to link the yard
 	// with another (offerLink).
 	linkAsked bool
+	// loginPATHMerged is set once this run has the login shell's PATH in
+	// its own, by useLoginPATH for a service's file or by startPart for
+	// a child: one asking of the shell serves the run.
+	loginPATHMerged bool
 	// noChat is --no-chat: this run ends where it ended before there was a
 	// chat, with the yardmaster's place printed, and opens no view (see
 	// toChat).

@@ -242,17 +242,36 @@ func otherLoginYards(cfg *config.Config) []string {
 	return out
 }
 
-// useLoginPATH gives this process the PATH of the user's login shell, with
+// useLoginPATH gives this run the PATH of the user's login shell, with
 // what its own has beyond it after: what up --login writes into a service
 // is found at login as the person's terminal finds it, whatever started
 // this yardr (a window has no profile's PATH). Without a login shell to ask
-// the PATH stays as it is.
-func useLoginPATH(ctx context.Context) {
+// the PATH stays as it is. The run is marked as merged either way, so a
+// child it starts asks the shell no second time.
+func (a *app) useLoginPATH(ctx context.Context) {
+	a.loginPATHMerged = true
 	dirs := filepath.SplitList(loginShellPATH(ctx))
 	if len(dirs) == 0 {
 		return
 	}
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if d != "" && !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	os.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+}
+
+// addLoginPATH gives this process what its own PATH lacks of the user's
+// login shell's, after its own: what up starts as its own child finds what
+// the person's profile adds, wherever up itself was started from (a card
+// or a run has the server's short PATH). Unlike useLoginPATH the login
+// shell's comes after, not first: the child runs now, in this run's
+// context, and what started up wins over what its profile adds. Without a
+// login shell to ask the PATH stays as it is.
+func addLoginPATH(ctx context.Context) {
+	dirs := filepath.SplitList(os.Getenv("PATH"))
+	for _, d := range filepath.SplitList(loginShellPATH(ctx)) {
 		if d != "" && !slices.Contains(dirs, d) {
 			dirs = append(dirs, d)
 		}

@@ -614,6 +614,51 @@ func (k *longRunning) start(environ []string, cfg *config.Config, args []string,
 	return 0, fmt.Errorf("the %s (pid %d) did not %s within %s; stopped it; see %s", k.What, pid, did, startWait, k.Log(cfg))
 }
 
+// startThroughService starts one of the kind through its installed login
+// service, for a start that is not the service's own (up): the service's
+// environment holds the PATH it was installed with, not the short one of
+// the run that starts it. Where the manager does not have the service it
+// is loaded first on launchd, which starts it, and restarted all the same
+// on systemd, which starts what its file names whether it is enabled or
+// not; nothing here changes what starts at login. The start waits until
+// it is up, as start does, and returns the pid of what runs, 0 where the
+// service names none. What the manager cannot start is the caller's to
+// start another way: up starts it in the background instead.
+func (k *longRunning) startThroughService(ctx context.Context, cfg *config.Config, addr string) (int, error) {
+	manager, name, path, err := unitFile(cfg, k.Name)
+	if err != nil {
+		return 0, err
+	}
+	u := &unit{Kind: k.Name, Manager: manager, Name: name, Path: path, Home: cfg.Home}
+	if manager == launchd && !u.loaded(ctx) {
+		// A kickstart would not find it; loading a RunAtLoad job
+		// starts it.
+		for _, c := range u.loadCommands() {
+			if err := ctl(ctx, c); err != nil {
+				return 0, err
+			}
+		}
+	} else if err := ctl(ctx, u.restartCommand()); err != nil {
+		return 0, err
+	}
+	up, did := func() bool { return answers(addr) }, "listen on "+addr
+	if addr == "" {
+		up, did = func() bool { return len(k.running(cfg)) > 0 }, "say that it runs"
+	}
+	for deadline := time.Now().Add(startWait); !up(); time.Sleep(pollEvery / 5) {
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("the %s did not %s within %s", k.What, did, startWait)
+		}
+	}
+	if k.Lock != nil {
+		return config.DaemonPID(k.Lock(cfg)), nil
+	}
+	if run := k.running(cfg); len(run) > 0 {
+		return run[0].PID, nil
+	}
+	return 0, nil
+}
+
 // verbs are the commands every long-running kind has beside the one that
 // runs it, for the kind's own file to say more in (a Long, an Example).
 type verbs struct{ start, stop, status, install, uninstall *cobra.Command }

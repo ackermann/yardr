@@ -770,13 +770,66 @@ func TestUpFindsHerdrWithTheLoginShell(t *testing.T) {
 	}
 }
 
+// Without a login service of its own, what up starts as its child gets the
+// login shell's PATH after its own: from a card or a run, up's own PATH is
+// the server's short one, on which the daemon would find no harness
+// (yardr-b2rb). The shell is stubbed, as in the herdr test above: the test
+// is about what up does with its answer.
+func TestUpWithoutAServiceUsesTheLoginShellsPATH(t *testing.T) {
+	home, _, a, _, daemonStarts := upYard(t, true)
+	dir := t.TempDir()
+	stub(t, &serviceDir, func() (string, error) { return dir, nil })
+	local := t.TempDir()
+	stub(t, &loginShellPATH, func(context.Context) string { return local + ":/usr/bin:/bin" })
+	t.Setenv("PATH", "/usr/bin:/bin")
+	var daemon []string
+	started := spawn
+	stub(t, &spawn, func(environ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
+		daemon = daemonEnv(environ, cfg.Home)
+		return started(environ, cfg, k, args)
+	})
+	// A run with an environment of its own, as Execute gives one, taken
+	// before up merges PATH.
+	x := a(false)
+	x.env = environMap(os.Environ())
+	// On the yard's home: the process's names TestMain's, with no yard.
+	x.env["YARDR_HOME"] = home
+	out, err := run(t, x.rootCmd(), "up")
+	if err != nil || *daemonStarts != 1 {
+		t.Fatalf("up: %v, the daemon started %d times\n%s", err, *daemonStarts, out)
+	}
+	want := "/usr/bin:/bin:" + local
+	if got := os.Getenv("PATH"); got != want {
+		t.Fatalf("PATH for what up starts = %s, want %s", got, want)
+	}
+	if !slices.Contains(daemon, "PATH="+want) {
+		t.Fatalf("the daemon started with\n%s\nwant PATH=%s", strings.Join(daemon, "\n"), want)
+	}
+}
+
 // up starts the web view when the yard's web_addr setting names its
 // address, as yardr web start does.
 func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
-	_, st, a, _, _ := upYard(t, true)
+	home, st, a, _, _ := upYard(t, true)
 	if err := st.SetSetting(context.Background(), store.WebAddrSetting, "127.0.0.1:1", "Jo"); err != nil {
 		t.Fatal(err)
 	}
+	stubServices(t, "darwin")
+	u, err := newUnit(os.Environ(), config.At(home), kindOf(svcWeb), []string{"--addr", "127.0.0.1:8791"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(u.Path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(u.Path, []byte(u.render()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var serviceCalls []string
+	stub(t, &serviceCtl, func(_ context.Context, name string, args ...string) (string, error) {
+		serviceCalls = append(serviceCalls, name+" "+strings.Join(args, " "))
+		return "", errors.New("unexpected service start")
+	})
 	var started []string
 	stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 		started = append(started, k.Name+" "+strings.Join(args, " "))
@@ -795,19 +848,22 @@ func TestUpStartsTheWebViewTheYardNames(t *testing.T) {
 	if err != nil || !slices.Equal(started, []string{"daemon ", "web --addr 127.0.0.1:1"}) {
 		t.Fatalf("up: %v, started %q\n%s", err, started, out)
 	}
+	if len(serviceCalls) != 0 {
+		t.Errorf("up tried the installed web service at its stale address instead of starting the configured address: %q", serviceCalls)
+	}
 	wantText(t, out, "web view        started (pid ", "): http://127.0.0.1:1/\n")
 }
 
 // A web view its login service runs is the yard's web view even when no
 // web_addr is set: the service's file names its address, as on a yard
 // installed on the default. yardr down stops it, and yardr up starts it
-// again on the file's address instead of leaving it stopped without a
-// line (yardr-6fh0).
+// again through the service, on the file's address, instead of leaving it
+// stopped without a line (yardr-6fh0, yardr-b2rb).
 func TestUpDownStartsTheServiceWebView(t *testing.T) {
 	const addr = "127.0.0.1:18791"
 	for _, system := range []string{"darwin", "linux"} {
 		home, st, a, _, _ := upYard(t, true)
-		stubServices(t, system)
+		_, m := stubServices(t, system)
 		cfg := config.At(home)
 		if all, err := st.Settings(context.Background()); err != nil || all[store.WebAddrSetting] != "" {
 			t.Fatalf("%s: web_addr = %q, %v, want unset", system, all[store.WebAddrSetting], err)
@@ -825,6 +881,18 @@ func TestUpDownStartsTheServiceWebView(t *testing.T) {
 		if got := serviceAddr(cfg, svcWeb); got != addr {
 			t.Fatalf("%s: the service's address = %q, want %s", system, got, addr)
 		}
+		// The manager starts the service it is told to, as the real one
+		// does; the address answers once it has.
+		webUp := false
+		stub(t, &serviceCtl, func(ctx context.Context, name string, args ...string) (string, error) {
+			out, err := m.ctl(ctx, name, args...)
+			line := name + " " + strings.Join(args, " ")
+			if err == nil && strings.Contains(line, "web") &&
+				(strings.Contains(line, "bootstrap") || strings.Contains(line, "restart") || strings.Contains(line, "kickstart")) {
+				webUp = true
+			}
+			return out, err
+		})
 		var started []string
 		stub(t, &spawn, func(_ []string, cfg *config.Config, k *longRunning, args []string) (int, <-chan error, func() error, error) {
 			started = append(started, k.Name+" "+strings.Join(args, " "))
@@ -837,7 +905,7 @@ func TestUpDownStartsTheServiceWebView(t *testing.T) {
 			}
 			return os.Getpid(), nil, func() error { return nil }, nil
 		})
-		stub(t, &answers, func(a string) bool { return slices.Contains(started, "web --addr "+a) })
+		stub(t, &answers, func(a string) bool { return a == addr && (webUp || slices.Contains(started, "web --addr "+a)) })
 		stub(t, &stopServer, func(*config.Config) error { return nil })
 		stub(t, &yardRunners, func(string, store.API) map[string]dispatch.Runner { return map[string]dispatch.Runner{} })
 		// The service's view runs, as it does until yardr down stops it.
@@ -857,10 +925,17 @@ func TestUpDownStartsTheServiceWebView(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: up: %v\n%s", system, err, out)
 		}
-		if !slices.Equal(started, []string{"daemon ", "web --addr " + addr}) {
-			t.Errorf("%s: up started %q, want the daemon and the web view on %s", system, started, addr)
+		if !slices.Equal(started, []string{"daemon "}) {
+			t.Errorf("%s: up started %q as its children, want the daemon alone: the web view starts through its service", system, started)
 		}
-		wantText(t, out, "web view        started (pid ", "): http://"+addr+"/\n")
+		want := "launchctl bootstrap " + domain() + " " + u.Path
+		if system == "linux" {
+			want = "systemctl --user restart " + u.Name
+		}
+		if calls := strings.Join(m.calls, "\n"); !strings.Contains(calls, want) {
+			t.Errorf("%s: the manager was not told to start the web view:\n%s", system, calls)
+		}
+		wantText(t, out, "web view        started", "http://"+addr+"/")
 		if strings.Contains(out, "BDP") {
 			t.Errorf("%s: up speaks of the BDP server the yard has no address for:\n%s", system, out)
 		}

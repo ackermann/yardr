@@ -16,11 +16,12 @@ import (
 )
 
 // loginRig is stubServices for up --login and down --login: the manager
-// starts what it loads, as the real one does. A herdr service it starts
-// counts in herdrStarts, by which upYard's herdr answers; a daemon's holds
-// the lock of the yard the test named (at) until it is unloaded or told
-// to stop; a web view's makes its address answer. Nothing else may start
-// a herdr server or a daemon: up --login leaves that to the services.
+// starts what it loads or is told to start, as the real one does. A herdr
+// service it starts counts in herdrStarts, by which upYard's herdr
+// answers; a daemon's holds the lock of the yard the test named (at)
+// until it is unloaded or told to stop; a web view's makes its address
+// answer. Nothing else may start a herdr server or a daemon: up --login
+// leaves that to the services.
 type loginRig struct {
 	dir         string
 	m           *manager
@@ -74,7 +75,7 @@ func (r *loginRig) use(t *testing.T) {
 	stub(t, &serviceCtl, func(ctx context.Context, name string, args ...string) (string, error) {
 		out, err := r.m.ctl(ctx, name, args...)
 		line := strings.Join(args, " ")
-		starts := strings.Contains(line, "bootstrap") || strings.Contains(line, "restart")
+		starts := strings.Contains(line, "bootstrap") || strings.Contains(line, "restart") || strings.Contains(line, "kickstart")
 		switch {
 		case err != nil:
 		case starts && strings.Contains(line, "herdr"):
@@ -101,7 +102,7 @@ func (r *loginRig) use(t *testing.T) {
 		return nil, nil
 	})
 	stub(t, &spawn, func(_ []string, _ *config.Config, k *longRunning, _ []string) (int, <-chan error, func() error, error) {
-		t.Errorf("up --login started yardr %s itself", k.Name)
+		t.Errorf("started yardr %s itself instead of through its login service", k.Name)
 		return 0, nil, func() error { return nil }, nil
 	})
 	stub(t, &yardRunners, func(string, store.API) map[string]dispatch.Runner { return map[string]dispatch.Runner{} })
@@ -633,13 +634,70 @@ func TestUseLoginPATH(t *testing.T) {
 	// load.
 	stub(t, &loginShellPATH, func(context.Context) string { return "/home/jo/.local/bin:/usr/bin:/bin" })
 	t.Setenv("PATH", "/usr/bin:/bin:/Applications/Yard.app/bin")
-	useLoginPATH(context.Background())
+	(&app{}).useLoginPATH(context.Background())
 	if got, want := os.Getenv("PATH"), "/home/jo/.local/bin:/usr/bin:/bin:/Applications/Yard.app/bin"; got != want {
 		t.Fatalf("PATH = %s, want %s", got, want)
 	}
 	stub(t, &loginShellPATH, func(context.Context) string { return "" })
-	useLoginPATH(context.Background())
+	(&app{}).useLoginPATH(context.Background())
 	if got := os.Getenv("PATH"); !strings.HasPrefix(got, "/home/jo/.local/bin:") {
 		t.Fatalf("PATH without a login shell = %s", got)
+	}
+}
+
+// A plain up starts the daemon through its login service where one is
+// installed, as the run ask's up must: the service's environment holds the
+// PATH it was installed with, not the short one of the run that starts it
+// (yardr-b2rb). Loaded, the manager is told to start it (kickstart on
+// launchd, restart on systemd); where the manager lacks it, launchd loads
+// it, which starts it, and systemd restarts it all the same. No yardr
+// daemon starts as up's own child either way.
+func TestUpStartsTheDaemonThroughItsLoginService(t *testing.T) {
+	for _, system := range []string{"darwin", "linux"} {
+		home, _, a, herdrStarts, daemonStarts := upYard(t, true)
+		rig := stubLogin(t, system, herdrStarts)
+		rig.at(home)
+		if out, err := run(t, a(false).rootCmd(), "daemon", "install", "--file-only"); err != nil {
+			t.Fatalf("%s: daemon install --file-only: %v\n%s", system, err, out)
+		}
+		_, name, path, err := unitFile(config.At(home), svcDaemon)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Loaded: the manager starts it, and up starts no child.
+		rig.m.loaded[name] = true
+		out, err := run(t, a(false).rootCmd(), "up")
+		if err != nil || *daemonStarts != 0 {
+			t.Fatalf("%s: up: %v, the daemon started as a child %d times\n%s", system, err, *daemonStarts, out)
+		}
+		want := "launchctl kickstart -k " + domain() + "/" + name
+		if system == "linux" {
+			want = "systemctl --user restart " + name
+		}
+		if calls := strings.Join(rig.m.calls, "\n"); !strings.Contains(calls, want) {
+			t.Errorf("%s: the manager was not told to start the daemon:\n%s", system, calls)
+		}
+		wantText(t, out, "daemon          started (pid ")
+		mid := len(rig.m.calls)
+		// Unloaded: launchd loads it, which starts it; systemd restarts
+		// it, loaded or not. Either way up starts no child.
+		rig.unlock()
+		delete(rig.m.loaded, name)
+		out, err = run(t, a(false).rootCmd(), "up")
+		if err != nil || *daemonStarts != 0 {
+			t.Fatalf("%s: up with the service unloaded: %v, the daemon started as a child %d times\n%s", system, err, *daemonStarts, out)
+		}
+		calls := strings.Join(rig.m.calls[mid:], "\n")
+		want = "launchctl bootstrap " + domain() + " " + path
+		if system == "linux" {
+			want = "systemctl --user restart " + name
+		}
+		if !strings.Contains(calls, want) {
+			t.Errorf("%s: the manager was not told to start the unloaded service:\n%s", system, calls)
+		}
+		if system == "darwin" && strings.Contains(calls, "kickstart") {
+			t.Errorf("%s: a service that loading started is kickstarted too:\n%s", system, calls)
+		}
+		wantText(t, out, "daemon          started (pid ")
 	}
 }

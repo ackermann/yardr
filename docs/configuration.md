@@ -962,14 +962,15 @@ yardr wrote for the yard, then a list of what it left on the machine
 |---|---|
 | herdr's server | one that answers is left as it is. Else up starts herdr's headless server, `herdr server`, detached, logging to `<home>/herdr-server.log`: the server of the herdr session the yard's `herdr_session` setting names, else of the shell's. It gets no `YARDR_*` variable, since one server serves every yard |
 | the server | started as any command starts it |
-| the daemon | `yardr daemon start`. It starts the crew, the yardmaster first, and dispatches the beads that wait. It is not started while herdr's server does not answer: every start of an agent would fail and count against it |
-| the web view, the BDP server | when the yard has one: its `web_addr` or `bdp_addr` setting names its address, or its login service is installed, on the address the service's file names: as `yardr web start` and `yardr bdp start` do. The telemetry export, which has no setting, is never started |
+| the daemon | through its login service where one is installed, else `yardr daemon start`, with the login shell's PATH (below). It starts the crew, the yardmaster first, and dispatches the beads that wait. It is not started while herdr's server does not answer: every start of an agent would fail and count against it |
+| the web view, the BDP server | when the yard has one: its `web_addr` or `bdp_addr` setting names its address, or its login service is installed, on the address the service's file names. Started through that service where one's installed, else as `yardr web start` and `yardr bdp start` do. The telemetry export, which has no setting, is never started |
 
 herdr is looked for on PATH, then with your login shell, as `yardr doctor`
 looks for a program: a window starts yardr without what your profile adds to
-PATH. When only the login shell finds herdr, what up starts gets that
-shell's PATH after its own, and the line says so. When neither finds it, the
-line says where it looked.
+PATH. When only the login shell finds herdr, the line says so, and when
+neither finds it, the line says where it looked. What up starts as its own
+child gets that shell's PATH after its own, where there is a login shell to
+ask: from a card or a run, up's own PATH is the server's short one.
 
 A part that could not be started has `NOT`, what kept it, and the one thing
 to do. The exit status is 0 when herdr's server, the server and the daemon
