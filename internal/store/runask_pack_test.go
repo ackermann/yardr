@@ -489,6 +489,40 @@ func TestPackReplacementDiffShowsWholeDeclarationKeys(t *testing.T) {
 	if !strings.Contains(git, `source wired git: null -> {"credential":["wired/git-credential"]}.`) {
 		t.Errorf("the git change is not on the card:\n%s", git)
 	}
+
+	// Region bases decide where the credential goes, so a change of them
+	// alone is one line; no regions is "none" however the map was built.
+	noBases, err := source.Parse("old", []byte(wiredDecl))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eu := wiredDecl + "bases:\n  eu: https://eu.wired.example.com/v1\n"
+	euBases, err := source.Parse("new", []byte(eu))
+	if err != nil {
+		t.Fatal(err)
+	}
+	movedBases, err := source.Parse("new", []byte(strings.Replace(eu, "eu.wired", "eu2.wired", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyBases := *noBases
+	emptyBases.Bases = map[string]string{}
+	for _, c := range []struct {
+		name     string
+		was, now *source.Declaration
+		want     string
+	}{
+		{"added", noBases, euBases, `source wired bases: none -> {"eu":"https://eu.wired.example.com/v1"}.`},
+		{"dropped", euBases, noBases, `source wired bases: {"eu":"https://eu.wired.example.com/v1"} -> none.`},
+		{"a region moved", euBases, movedBases, `source wired bases: {"eu":"https://eu.wired.example.com/v1"} -> {"eu":"https://eu2.wired.example.com/v1"}.`},
+		{"empty against absent", &emptyBases, noBases, ""},
+		{"absent against empty", noBases, &emptyBases, ""},
+		{"the same", euBases, euBases, ""},
+	} {
+		if got := strings.Join(packDeclDiffLines("wired", c.was, c.now), "\n"); got != c.want {
+			t.Errorf("bases %s: card lines = %q, want %q", c.name, got, c.want)
+		}
+	}
 }
 
 // A chmod of a command copy after the ask makes the approval stale, and

@@ -114,7 +114,7 @@ func TestTemplateAppliesAsANewSourcePack(t *testing.T) {
 		t.Fatalf("declared = %+v", d)
 	}
 	decl := d.Declaration
-	if decl.Name != "demo" || decl.About == "" || decl.Base == "" || decl.Credential == nil || decl.Check == "" ||
+	if decl.Name != "demo" || decl.About == "" || decl.Base == "" || len(decl.Bases) == 0 || decl.Credential == nil || decl.Check == "" ||
 		decl.Idempotency == "" || len(decl.Calls) == 0 || decl.Notify == nil || decl.Hear == nil ||
 		decl.Hook == nil || decl.Thread == nil || decl.Link == nil || decl.Identity == nil ||
 		decl.Events == nil {

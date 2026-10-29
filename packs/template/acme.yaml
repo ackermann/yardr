@@ -165,6 +165,14 @@ link:
 # receive it as YARDR_SOURCE_BASE. Drop both where the source declares no
 # calls.
 base: https://acme.example.com
+# Drop bases where the service runs in one region, and with base where the
+# source declares no calls. Each name is a region the operator picks with
+# `yardr source set acme base=eu`; base stays the default, and each URL is
+# held to the same checks as base. Only a name written here is accepted,
+# since the pick decides where the credential is sent.
+bases:
+  us: https://acme.example.com
+  eu: https://eu.acme.example.com
 check: ping
 idempotency: Idempotency-Key
 # Each call is a separately grantable request. Keep the calls the service
