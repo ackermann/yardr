@@ -38,6 +38,7 @@ commands. These pages go deeper. Yardr's [Principles](../README.md#principles) e
 | [otel.md](otel.md) | OpenTelemetry: `yardr otel export` (the event log as OTLP traces and logs), how beads, stages and sessions map to traces and spans, `TRACEPARENT` and `OTEL_RESOURCE_ATTRIBUTES` in every session, Claude Code and Codex, a Grafana example |
 | [telemetry.md](telemetry.md) | yardr's opt-in telemetry: the one switch, the four questions it answers, what each event carries, when a batch is sent, the install id, seeing a batch, stopping, deletion, what the project must be set to |
 | [testing.md](testing.md) | the test rules: the 60 s package and 500 ms sleep budgets the gate enforces, parallelism, race at landing only, the incremental landing, the quiet whole-suite run, the re-measure |
+| [architecture.md](architecture.md) | the core types, the future split of `store.API`, the package layers, and which internal package may import which; `TestImportRules` holds the code to it |
 
 Pages mark features that are not built yet as **planned**.
 
