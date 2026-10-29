@@ -664,6 +664,88 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 			t.Fatalf("quota_wait events = %d, want 2: one more after the release", n)
 		}
 	})
+	t.Run("a full first group alternating with a failed load condition reports once each", func(t *testing.T) {
+		ctx := context.Background()
+		s, _, d, _, _, now := quotaYard(t, "a@machine.load<80", "b@machine.load<80")
+		say, _ := machineStandIn(t, s)
+		// a fills its one slot, so the bead below waits for a whenever
+		// the load is under the threshold, and for the load whenever
+		// every group's condition fails.
+		limit := 1
+		_, err := s.SetGroup(ctx, "a", store.GroupEdit{Limit: &limit}, "me")
+		must(t, err)
+		say(loadReport(12))
+		dispatch.PrimeSourceLimits(d, ctx, "machine")
+		first := newBead(t, s, "first")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, first.ID); group != "a" {
+			t.Fatalf("claimed by %q, want a to fill its one slot", group)
+		}
+		b := newBead(t, s, "x")
+		pass := func(load float64) {
+			t.Helper()
+			*now = now.Add(6 * time.Minute)
+			say(loadReport(load))
+			dispatch.PrimeSourceLimits(d, ctx, "machine")
+			must(t, d.Reconcile(ctx))
+		}
+		for i := range 10 {
+			if i%2 == 0 {
+				pass(93) // over: every group's condition fails, quota_wait
+			} else {
+				pass(12) // under: a is chosen, but a is full, group_wait
+			}
+		}
+		if group, _ := claimedBy(t, s, b.ID); group != "" {
+			t.Fatalf("claimed by %q, want nobody over the ten passes", group)
+		}
+		if n := len(eventKinds(t, s, b.ID, "group_wait")); n != 1 {
+			t.Fatalf("group_wait events = %d, want 1 over ten alternating passes", n)
+		}
+		if n := len(eventKinds(t, s, b.ID, "quota_wait")); n != 1 {
+			t.Fatalf("quota_wait events = %d, want 1 over ten alternating passes", n)
+		}
+
+		// The bead starts once a has room and the load is under; the
+		// claim forgets its waits, so after a release each reports
+		// once more.
+		limit = 5
+		_, err = s.SetGroup(ctx, "a", store.GroupEdit{Limit: &limit}, "me")
+		must(t, err)
+		pass(12)
+		if group, _ := claimedBy(t, s, b.ID); group != "a" {
+			t.Fatalf("claimed by %q once a had room, want a", group)
+		}
+		_, err = s.Release(ctx, b.ID, "try again", store.Expect{}, "me")
+		must(t, err)
+		limit = 1
+		_, err = s.SetGroup(ctx, "a", store.GroupEdit{Limit: &limit}, "me")
+		must(t, err)
+		pass(93)
+		pass(12)
+		if n := len(eventKinds(t, s, b.ID, "group_wait")); n != 2 {
+			t.Fatalf("group_wait events = %d, want 2: one more after the release", n)
+		}
+		if n := len(eventKinds(t, s, b.ID, "quota_wait")); n != 2 {
+			t.Fatalf("quota_wait events = %d, want 2: one more after the release", n)
+		}
+
+		// A stage change re-keys the waits: moved to a stage with the
+		// same shape of route, each reports once more.
+		_, err = s.AddRoute(ctx, store.Route{Stage: "later", Group: "a", When: "machine.load<80",
+			Else: []store.RouteGroup{{Name: "b", When: "machine.load<80"}}}, "me")
+		must(t, err)
+		_, err = s.Advance(ctx, b.ID, "later", store.Expect{}, "me")
+		must(t, err)
+		pass(93)
+		pass(12)
+		if n := len(eventKinds(t, s, b.ID, "group_wait")); n != 3 {
+			t.Fatalf("group_wait events = %d, want 3: one more after the stage change", n)
+		}
+		if n := len(eventKinds(t, s, b.ID, "quota_wait")); n != 3 {
+			t.Fatalf("quota_wait events = %d, want 3: one more after the stage change", n)
+		}
+	})
 }
 
 // A group at its limit of sessions is waited for, not passed over: only a
