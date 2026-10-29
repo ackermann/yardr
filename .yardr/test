@@ -1085,7 +1085,7 @@ flakyfails() {
     {
       match($0, /^ */)
       depth = RLENGTH
-      if ($0 ~ /^panic: /) {
+      if ($0 ~ /^panic: / && $0 !~ /^panic: test timed out/) {
         for (j = 1; j <= sp; j++) keep(stack[j], $0)
       }
       while (sp > 0 && lvl[stack[sp]] >= depth) sp--

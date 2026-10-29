@@ -2170,12 +2170,15 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 	}
 	// A test that failed in one package and a timeout in another, as a run of
 	// several prints them, and a timeout that caught seven tests running.
-	// The table of the log line and the table of the summary below take
-	// these logs alike.
+	// failedThenTimeout is a failure and a timeout in the same package,
+	// with no FAIL line between them, so the failure's block is still open
+	// when the panic line arrives. The table of the log line and the table
+	// of the summary below take these logs alike.
 	const (
-		failedA      = "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\nFAIL\nFAIL\tm.test/a 0.1s\n"
-		timeoutB     = "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestB (10m0s)\n\nFAIL\tm.test/b 600.1s\n"
-		timeoutSeven = "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestT00 (10m0s)\n\t\tTestT01 (10m0s)\n\t\tTestT02 (10m0s)\n\t\tTestT03 (10m0s)\n\t\tTestT04 (10m0s)\n\t\tTestT05 (10m0s)\n\t\tTestT06 (10m0s)\n\nFAIL\tm.test/b 600.1s\n"
+		failedA           = "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\nFAIL\nFAIL\tm.test/a 0.1s\n"
+		timeoutB          = "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestB (10m0s)\n\nFAIL\tm.test/b 600.1s\n"
+		timeoutSeven      = "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestT00 (10m0s)\n\t\tTestT01 (10m0s)\n\t\tTestT02 (10m0s)\n\t\tTestT03 (10m0s)\n\t\tTestT04 (10m0s)\n\t\tTestT05 (10m0s)\n\t\tTestT06 (10m0s)\n\nFAIL\tm.test/b 600.1s\n"
+		failedThenTimeout = "--- FAIL: TestA (0.00s)\n    a_test.go:10: got 1, want 2\npanic: test timed out after 10m0s\n\trunning tests:\n\t\tTestB (10m0s)\n\nFAIL\tm.test/a 600.1s\n"
 	)
 	for _, c := range []struct {
 		name string
@@ -2254,6 +2257,11 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
 		{"a failure report wins over a timeout of seven running tests", failedA + timeoutSeven,
 			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
+		// In the same package no FAIL line closes the failure's block
+		// before the timeout, but the timeout's panic line still stays
+		// out of it: only a test's own panic joins its block.
+		{"a timeout after a failure in the same package stays out of its block", failedThenTimeout,
+			[]string{block("--- FAIL: TestA (0.00s)", "    a_test.go:10: got 1, want 2")}},
 		{"a timeout wins over a fatal error behind it", "panic: test timed out after 10m0s\n\trunning tests:\n\t\tTestA (10m0s)\n\nFAIL\tm.test/a 600.1s\nfatal error: concurrent map writes\n\ngoroutine 8 [running]:\nFAIL\tm.test/b 0.1s\n",
 			[]string{block("panic: test timed out after 10m0s", "\t\tTestA (10m0s)")}},
 		{"a log of summaries only keeps nothing", "ok  \tm.test/a\t0.1s\nFAIL\nFAIL\tm.test/b 600.1s\n", nil},
@@ -2285,6 +2293,8 @@ func TestYardTestKeepsTheFailingLinesOfAFlake(t *testing.T) {
 		{"a timeout and a failure behind it", timeoutB + failedA, append(slices.Clone(failedALines), timeoutBLines...)},
 		{"a timeout of seven running tests keeps five behind a failure", failedA + timeoutSeven,
 			append(slices.Clone(failedALines), "panic: test timed out after 10m0s", "\t\tTestT00 (10m0s)", "\t\tTestT01 (10m0s)", "\t\tTestT02 (10m0s)", "\t\tTestT03 (10m0s)", "\t\tTestT04 (10m0s)")},
+		{"a failure and a timeout in the same package show the panic line once", failedThenTimeout,
+			append(slices.Clone(failedALines), timeoutBLines...)},
 	} {
 		t.Run("human: "+c.name, func(t *testing.T) {
 			if got, want := run(t, c.in, "flakyfails", "--human"), strings.Join(c.want, "\n"); got != want {
