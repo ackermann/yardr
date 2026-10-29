@@ -39,6 +39,30 @@ func TestFirstLineCutsBetweenCharacters(t *testing.T) {
 	}
 }
 
+// A handoff carries pointers, not history: its help and the prime's How
+// you work state the 6 KB rule in the same words (yardr-7xk9).
+func TestHandoffHelpAndPrimeStateTheSixKBRule(t *testing.T) {
+	t.Parallel()
+	cmd := (&app{}).crewCmd()
+	handoff, _, err := cmd.Find([]string{"handoff"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := "Write what you are doing, what is next and what to watch, with bead ids, not history (max 6 KB); context lives in bead notes, the journal and memories, which recall and bead show read"
+	if !strings.Contains(handoff.Long, rule) {
+		t.Errorf("crew handoff help lacks %q: %q", rule, handoff.Long)
+	}
+	if strings.Contains(handoff.Short+handoff.Long, "16 KB") {
+		t.Errorf("crew handoff help still names 16 KB: %q", handoff.Short+handoff.Long)
+	}
+	out := mustAs(t, userYard(t), "yardmaster", "prime", "--crew", "yardmaster")
+	for _, want := range []string{"what is next and", "what to watch, with bead ids, not history (max 6 KB)", "which recall and bead show read"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the prime lacks %q:\n%s", want, out)
+		}
+	}
+}
+
 // The key lists of crew add --set and crew set name only config keys the
 // store takes for a crew member, so a setting taken out is taken out of
 // the help with it: release stayed behind in both when the arrival hold

@@ -27,7 +27,7 @@ func init() { allBuckets = append(allBuckets, bCrew) }
 
 // Bounds that keep a fresh session's starting context small.
 const (
-	MaxHandoffBytes = 16 << 10
+	MaxHandoffBytes = 6 << 10
 	MaxJournalBytes = 4 << 10
 	MaxMailBytes    = 4 << 10
 	PrimeEntries    = 20 // journal entries since the latest handoff
@@ -846,17 +846,13 @@ func (s *Store) MarkNotified(ctx context.Context, name string, seq uint64) error
 	return s.MarkNotifiedFor(ctx, name, "", seq)
 }
 
-// Journal writes an entry on the crew member's journal bead. A handoff also
-// requests a fresh session. The entry is tagged with the crew session that
-// wrote it (paneCrewSession), so each session reads back its own handoff;
-// a write from no crew pane is the line's. From a session's or a crew
-// member's pane the entry is recorded as that session's actor or that crew
-// member, whatever actor says; from anywhere else, as given (paneAuthor).
-// It reports whether the entry was a repeat: a handoff in the words of the
-// session's pending one (pendingHandoff) writes no note and asks for no
-// restart again, so a session that calls twice, as a model does that waits
-// to see an effect, leaves one handoff, and moves neither its time nor the
-// grace of its restart.
+// Journal writes an entry on the crew member's journal bead. A handoff also requests a fresh session. The entry
+// is tagged with the crew session that wrote it (paneCrewSession), so each session reads back its own handoff; a
+// write from no crew pane is the line's. From a session's or a crew member's pane the entry is recorded as that
+// session's actor or that crew member, whatever actor says; from anywhere else, as given (paneAuthor). It reports
+// whether the entry was a repeat: a handoff in the words of the session's pending one (pendingHandoff) writes no
+// note and asks for no restart again, so a session that calls twice, as a model does that waits to see an effect,
+// leaves one handoff, and moves neither its time nor the grace of its restart.
 func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) (bool, error) {
 	limit := map[string]int{NoteJournal: MaxJournalBytes, NoteHandoff: MaxHandoffBytes}[kind]
 	if limit == 0 {
@@ -866,6 +862,10 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) (bo
 		return false, fmt.Errorf("empty %s entry", kind)
 	}
 	if len(text) > limit {
+		// A handoff carries pointers, not history, so its refusal says where the rest goes.
+		if kind == NoteHandoff {
+			return false, fmt.Errorf("handoff is %d bytes, over the %d-byte budget: keep what to do next, what to watch and the bead ids; put history in a bead note (yardr bead note), the journal (yardr crew journal) or a memory (yardr remember)", len(text), limit)
+		}
 		return false, fmt.Errorf("%s entry is %d bytes, over the %d-byte limit: summarize it", kind, len(text), limit)
 	}
 	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {

@@ -263,9 +263,11 @@ names its person and its slice.
   and in `yardr crew show`. See [timers.md](timers.md).
 - **Journal:** one bead per crew member (`<name>-journal`). `yardr crew journal`
   keeps decisions (≤4 KB): what happened and why, to look up later. `yardr crew
-  handoff` ends the session (≤16 KB) and the next session starts from it; its
-  answer tells the session to stop, and the same words said again before the
-  session ends are not written twice. Past
+  handoff` ends the session: write what you are doing, what is next and what to
+  watch, with bead ids, not history (max 6 KB); context lives in bead notes, the
+  journal and memories, which recall and bead show read. The next session starts
+  from it; its answer tells the session to stop, and the same words said again
+  before the session ends are not written twice. Past
   `--context-handoff` percent of its context window (60 unless set) the crew
   member is asked for a handoff when idle, once per session and never forced;
   at `--max-age` (24h from `yardr init`) it is asked again, and after

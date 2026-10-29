@@ -302,6 +302,32 @@ func TestJournalCapsAndHandoff(t *testing.T) {
 	if got := entriesOf(t, s, "yardmaster", store.NoteJournal); len(got) != 2 {
 		t.Fatalf("journal entries = %+v, want both", got)
 	}
+
+	// The handoff holds 6 KB: the cap itself is taken, one byte more is
+	// refused naming the budget and where the rest goes. The journal's own
+	// cap is unchanged: its cap is taken, one byte more refused as before.
+	// A second crew member keeps these writes out of the counts above.
+	if _, err := s.PutCrew(ctx, store.CrewMember{Name: "clerk", Runner: "herdr",
+		Config: map[string]any{"kind": "claude"}}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if repeat, err := s.Journal(ctx, "clerk", store.NoteHandoff, strings.Repeat("x", store.MaxHandoffBytes), "clerk"); err != nil || repeat {
+		t.Fatalf("handoff at the cap: repeat %v, %v", repeat, err)
+	}
+	if _, err := s.Journal(ctx, "clerk", store.NoteHandoff, strings.Repeat("x", store.MaxHandoffBytes+1), "clerk"); err == nil {
+		t.Fatal("oversized handoff accepted")
+	} else if want := fmt.Sprintf("handoff is %d bytes, over the %d-byte budget: keep what to do next", store.MaxHandoffBytes+1, store.MaxHandoffBytes); !strings.Contains(err.Error(), want) ||
+		!strings.Contains(err.Error(), "yardr bead note") || !strings.Contains(err.Error(), "yardr crew journal") || !strings.Contains(err.Error(), "yardr remember") {
+		t.Fatalf("oversized handoff refused as %q, want the budget and where the rest goes", err)
+	}
+	if _, err := s.Journal(ctx, "clerk", store.NoteJournal, strings.Repeat("x", store.MaxJournalBytes), "clerk"); err != nil {
+		t.Fatalf("journal entry at the cap: %v", err)
+	}
+	if _, err := s.Journal(ctx, "clerk", store.NoteJournal, strings.Repeat("x", store.MaxJournalBytes+1), "clerk"); err == nil {
+		t.Fatal("oversized journal entry accepted")
+	} else if want := fmt.Sprintf("journal entry is %d bytes, over the %d-byte limit: summarize it", store.MaxJournalBytes+1, store.MaxJournalBytes); err.Error() != want {
+		t.Fatalf("oversized journal entry refused as %q, want %q", err, want)
+	}
 }
 
 func TestInboxFilteringAndAck(t *testing.T) {

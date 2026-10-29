@@ -487,8 +487,8 @@ for its links (yardr peer list).`,
 		c.Flags().StringVar(&rev, "revision", "", "refuse unless the crew member is still at this revision (from crew show --json)")
 	}
 
-	entry := func(kind, short string) *cobra.Command {
-		return &cobra.Command{Use: kind + " <name> <text|->", Short: short, Args: cobra.ExactArgs(2),
+	entry := func(kind, short, long string) *cobra.Command {
+		return &cobra.Command{Use: kind + " <name> <text|->", Short: short, Long: long, Args: cobra.ExactArgs(2),
 			RunE: func(c *cobra.Command, args []string) error {
 				st, err := a.store(c.Context())
 				if err != nil {
@@ -510,10 +510,9 @@ for its links (yardr peer list).`,
 				if repeat {
 					answer["repeat"] = true
 				}
-				// The session lives until it is idle, so an answer that says
-				// only that something was written leaves a model that waits to
-				// see an effect asking again: both answers order the stop. A
-				// repeat is no error, which a model would retry against.
+				// The session lives until it is idle, so an answer that says only that something was written
+				// leaves a model that waits to see an effect asking again: both answers order the stop. A repeat
+				// is no error, which a model would retry against.
 				return a.out(c.OutOrStdout(), answer, func(w io.Writer) {
 					if kind == store.NoteHandoff {
 						if repeat {
@@ -525,8 +524,8 @@ for its links (yardr peer list).`,
 				})
 			}}
 	}
-	journal := entry(store.NoteJournal, "Keep a decision or piece of context in the journal (≤4 KB)")
-	handoff := entry(store.NoteHandoff, "End this session: write where things stand; the next session starts from it (≤16 KB)")
+	journal := entry(store.NoteJournal, "Keep a decision or piece of context in the journal (≤4 KB)", "")
+	handoff := entry(store.NoteHandoff, "End this session with a pointer for the next session", "Write what you are doing, what is next and what to watch, with bead ids, not history (max 6 KB); context lives in bead notes, the journal and memories, which recall and bead show read")
 
 	cmd.AddCommand(add, a.crewSetCmd(), list, show, rm, start, stop, restart, journal, handoff, a.identityCmd())
 	return cmd
@@ -1890,8 +1889,9 @@ Before you write a loop, a script or a file of your own, find the row; if there 
   `+"`yardr remember \"<title>\" -b \"<body>\"`"+`; `+"`yardr recall`"+` reads.
 - yardr inbox / yardr inbox --ack <seq>: your events and mail; ack through the last seq you have handled.
   A nudge while you are idle carries one short mail; answering the oldest unread marks it handled.
-- yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is
-  next and what to watch (max 16 KB); yardr starts your next session from it.
+- yardr crew handoff %[1]s "...": end your session. Write what you are doing, what is next and
+  what to watch, with bead ids, not history (max 6 KB); context lives in bead notes, the journal
+  and memories, which recall and bead show read. Yardr starts your next session from it.
 - yardr remember "<title>" -b "<what, who said it and when, why>": a rule or a fact
   that should change how you act in later sessions; the title is what a later session
   sees, so let it say the rule.
