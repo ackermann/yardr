@@ -448,7 +448,7 @@ neither to the store nor under the home:
 | `no longer in it` | an earlier import of this pack into the depot brought it and the pack has dropped it since: left alone unless the import is told to prune ([Pruning](#pruning)) |
 | `takes` | a group the yard has takes a group of the pack, as it is (`--group`): nothing of it would be changed, and it is not recorded as the pack's ([Groups](#how-a-pack-maps-to-the-yard)) |
 | `shadows …` under an object | a file of the depot that is not used while the object is as the pack sets it: the depot's own `.yardr/roles/builder.md`, under a group prompted from the pack's copy |
-| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt, where the depot has its own role and the import was given `--depot-roles`; the role, script or limit of a group that takes the pack's, where it is not the pack's |
+| `kept: …` under an object | something the pack carries and the import leaves as the yard has it, with the reason: a prompt on an existing group that points elsewhere; a command on an existing script group that differs from the pack's; a depot role kept with `--depot-roles`; or the role, script or limit of a group that takes the pack's |
 | `edited by hand since the last import: …` under a file | the installed copy is neither what the last import installed nor what the pack has now: `pack apply` overwrites it only with `--yes` ([below](#yardr-pack-apply)) |
 
 then what an import would ask, which flow would govern the depot afterwards,
@@ -514,27 +514,36 @@ shows as `not in the pack`, by its path under the home
 a depot's repository are not touched; like its flow files, they are not read
 while the depot's pointer is at the pack's flow.
 
-**The pack's roles win.** An import gives the depot the pack's way of working
-whole, its roles as its flow. Every agent group and crew member the pack names
-is pointed at the pack's copied role, also where the depot has
-`.yardr/roles/<name>.md` on its base branch (in its directory, for a dir
-depot) and the pack's role is `roles/<name>.md`. The depot's file stays where it
-is and is read by nothing; the plan shows the `change` of `prompt` and names
-the file under the object:
+**Role prompts.** A pack's role files are installed under
+`~/.yardr/packs/<pack>/…`. Crew members use the pack's copied role, except
+when `--depot-roles` keeps a depot role. For an agent group without a depot
+role choice, an import sets the pack's prompt on a new group or when the
+group's prompt already points at that copy. If an existing group of the same
+kind points elsewhere, the import keeps its prompt and says so under `kept`;
+this covers a group another pack made and one whose prompt was set by hand.
+The `--depot-roles` and `--pack-roles` choices below govern groups whose depot
+has its own role. Re-applying a pack still updates the installed role file, so
+a group already using that copy reads the updated role without changing its
+prompt path. The depot's own role file stays where it is and is read by
+nothing unless `--depot-roles` is chosen.
+
+When the pack's role is applied, the plan names the copied file under the
+group:
 
 ```
-  change           web-builders
+  create           web-builders
                      shadows .yardr/roles/builder.md
-                     prompt: roles/builder.md -> /Users/me/.yardr/packs/starter/roles/builder.md
+                     prompt: roles/builder.md -> ~/.yardr/packs/starter/roles/builder.md
 ```
 
 `--depot-roles` is the opposite choice. A group whose depot has its own role
-keeps its prompt as it is; a new group, and one the pack's copy was set on
-before, gets `roles/<name>.md`, which yardr resolves to the depot's file; and
-the plan says `kept: prompt roles/builder.md: the depot has its own
+keeps its current prompt. A new group gets `roles/<name>.md`, which yardr
+resolves to the depot's file; an existing group whose prompt already uses the
+pack's copy gets the same depot role. A different current prompt stays as it
+is. The plan says `kept: prompt roles/builder.md: the depot has its own
 .yardr/roles/builder.md`. A crew member that has a prompt of its own keeps it
-the same way. Groups and crew members whose role the depot lacks get the pack's
-copy either way, and every copy is installed all the same.
+the same way. Groups and crew members whose role the depot lacks get the
+pack's copy, and every copy is installed all the same.
 
 `yardr depot sources <depot>` shows the outcome for a depot as it is now: one line
 per flow, stage file and role, with where it comes from and the depot's file
@@ -559,8 +568,8 @@ by every depot that imports a pack naming it.
 
 | pack | group in the yard | the pack sets | the yard keeps |
 |---|---|---|---|
-| `agent: <role>` | runner `herdr` | `prompt` (the copied role), `limit` | `kind`, `model`, `args`, `env_file`, `idle` and every other setting |
-| `run: <script>` | runner `exec` | the command in `cmd` (the copied script), `limit`; in the `cmd` of a group it creates, the assignments of `env` before the script | the assignments before the command and the arguments after it (`YARDR_PUSH=origin … merge-local`), always: `env` is never set on a group the yard has. `log`, `dir` and the rest |
+| `agent: <role>` | runner `herdr` | `prompt` (the copied role) for a new group or one already using that copy, subject to the depot-role choices above; `limit` | `prompt` when an existing group points elsewhere and the depot-role choice does not apply, plus `kind`, `model`, `args`, `env_file`, `idle` and every other setting |
+| `run: <script>` | runner `exec` | the copied script in `cmd` for a new group; `limit`; in the `cmd` of a group it creates, the assignments of `env` before the script | an existing group's `cmd` when it differs from the pack's script, plus its assignments before the command and arguments after it (`YARDR_PUSH=origin … merge-local`); `env` is never set on a group the yard has. `log`, `dir` and the rest |
 | `people: true` | runner `manual` | `limit`, when the pack gives one; a group it creates with none starts with 50 | `members`, subscriptions |
 
 A group the yard lacks needs what a pack cannot say: the agent kind, model

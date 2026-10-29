@@ -220,14 +220,14 @@ func TestApplyOverAYardSetUpByHand(t *testing.T) {
 
 	g, err := st.GetGroup(ctx, "web-builders")
 	must(err)
-	want := map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "nice": float64(10), "prompt": filepath.Join(install, "roles", "builder.md")}
+	want := map[string]any{"kind": "codex", "model": "luna", "args": []any{"--yolo"}, "env_file": "/secrets.env", "idle": "20m", "nice": float64(10), "prompt": "/old/builder.md"}
 	if !reflect.DeepEqual(g.Config, want) || g.Limit != 5 {
-		t.Fatalf("web-builders = %+v", g)
+		t.Fatalf("web-builders = %+v, want the hand's prompt kept and the pack's limit set", g)
 	}
 	g, err = st.GetGroup(ctx, "web-assembly")
 	must(err)
-	if got, want := g.Config["cmd"], "YARDR_PUSH=origin "+filepath.Join(install, "scripts", "merge-local")+" --fast"; got != want {
-		t.Fatalf("cmd = %q, want %q", got, want)
+	if got, want := g.Config["cmd"], "YARDR_PUSH=origin /old/merge-local --fast"; got != want {
+		t.Fatalf("cmd = %q, want the hand's kept %q", got, want)
 	}
 	if g.Nice() != 10 {
 		t.Fatalf("web-assembly nice = %v, want the yard's 10 kept: %+v", g.Config["nice"], g)
@@ -1467,7 +1467,7 @@ func TestApplyMeetsTheStoresConfigCheck(t *testing.T) {
 
 	applyAs(t, st, build(t, st, load(t, starter), o), nil, "yardmaster")
 	g, err := st.GetGroup(ctx, "web-builders")
-	if err != nil || g.Config["idel"] != "5m" || g.Config["prompt"] == "/old/builder.md" {
-		t.Fatalf("the group the import changed beside its old key: %+v, %v", g, err)
+	if err != nil || g.Config["idel"] != "5m" || g.Config["prompt"] != "/old/builder.md" {
+		t.Fatalf("the group the import kept beside its old key: %+v, %v", g, err)
 	}
 }

@@ -483,14 +483,13 @@ func TestYardSetUpByHand(t *testing.T) {
 
 	o.Crew = map[string]string{"yardmaster": "boss"}
 	plan := build(t, st, load(t, starter), o)
-	install := config.At(o.Home).Pack("starter")
 
 	for _, o := range plan.Objects {
 		if o.Action == pack.Create && (o.Kind == "group" || o.Kind == "route" || o.Kind == "crew") {
 			t.Errorf("%s %s is planned as new", o.Kind, o.Name)
 		}
 	}
-	if got, want := actions(plan, pack.Change), []string{"group web-builders", "group web-reviewers", "group web-security-reviewers", "group web-assembly", "crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
+	if got, want := actions(plan, pack.Change), []string{"crew boss", "subscription boss linear involved"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("change = %v\nwant %v", got, want)
 	}
 	// The hand-made typed copies for stages both flows share are left
@@ -500,23 +499,29 @@ func TestYardSetUpByHand(t *testing.T) {
 		t.Fatalf("not in the pack = %v\nwant %v", got, want)
 	}
 	b := find(t, plan, "group", "web-builders")
-	if want := []pack.Diff{{Field: "prompt", Old: "roles/builder.md", New: filepath.Join(install, "roles", "builder.md")}}; !reflect.DeepEqual(b.Changes, want) {
-		t.Fatalf("web-builders changes = %v", b.Changes)
+	if b.Action != pack.Unchanged || len(b.Changes) != 0 || b.Group.Config["prompt"] != "roles/builder.md" {
+		t.Fatalf("web-builders = %s %v %v, want the hand's prompt kept", b.Action, b.Changes, b.Group.Config["prompt"])
+	}
+	if joined := strings.Join(b.Keeps, "\n"); !strings.Contains(joined, "roles/builder.md") || !strings.Contains(joined, "by hand") {
+		t.Fatalf("web-builders keeps %q", b.Keeps)
 	}
 	if c := b.Group.Config; c["kind"] != "claude" || c["model"] != "opus" || c["idle"] != "5m" || !reflect.DeepEqual(c["args"], []any{"--permission-mode", "auto"}) {
 		t.Fatalf("web-builders would lose what the yard chose: %v", c)
 	}
 	r := find(t, plan, "group", "web-assembly")
-	cmd := "YARDR_PUSH=origin YARDR_NOTIFY=boss " + filepath.Join(install, "scripts", "merge-local")
-	if want := []pack.Diff{{Field: "cmd", Old: "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local", New: cmd}}; !reflect.DeepEqual(r.Changes, want) {
-		t.Fatalf("web-assembly changes = %v", r.Changes)
+	if r.Action != pack.Unchanged || len(r.Changes) != 0 || r.Group.Config["cmd"] != "YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local" {
+		t.Fatalf("web-assembly = %s %v %v, want the hand's cmd kept", r.Action, r.Changes, r.Group.Config["cmd"])
 	}
 	if r.Group.Config["log"] != "/logs/landing.log" {
 		t.Fatalf("web-assembly = %+v", r.Group)
 	}
-	// The pack's env is for a group the import creates: this one keeps the
-	// assignments it has, and the plan says the pack's is not among them.
-	if want := []string{"cmd YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local: the pack's env YARDR_LAND=squash is set on a new group only"}; !slices.Equal(r.Keeps, want) || len(r.Env) != 0 {
+	// The pack's script is not set on a group the yard has, said first, and
+	// its env is for a group the import creates, said as before.
+	want := []string{
+		"cmd YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local: set by hand, and the pack's script scripts/merge-local is not set on it",
+		"cmd YARDR_PUSH=origin YARDR_NOTIFY=boss /old/scripts/merge-local: the pack's env YARDR_LAND=squash is set on a new group only",
+	}
+	if !slices.Equal(r.Keeps, want) || len(r.Env) != 0 {
 		t.Fatalf("web-assembly keeps %q, env %v, want %q", r.Keeps, r.Env, want)
 	}
 	// People groups: the pack names no limit and no members, so both stay.
@@ -1100,25 +1105,32 @@ func TestGroupFlagTakesTheYardsGroupOfThePacksOwnName(t *testing.T) {
 		}
 	}
 
-	// The same without the flag still repoints the groups, as today.
+	// The same without the flag keeps the yard's groups, said under Keeps:
+	// a group the pack did not make is never repointed to the pack's.
 	st, o = ownNamed(t)
 	plan = build(t, st, load(t, starter), o)
 	r := find(t, plan, "group", "web-reviewers")
-	if r.Action != pack.Change || !slices.ContainsFunc(r.Changes, func(d pack.Diff) bool { return d.Field == "prompt" && d.Old == "/roles/reviewer.md" }) {
+	if r.Action != pack.Unchanged || slices.ContainsFunc(r.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
 		t.Fatalf("web-reviewers = %s %v", r.Action, r.Changes)
 	}
+	if joined := strings.Join(r.Keeps, "\n"); !strings.Contains(joined, "/roles/reviewer.md") || !strings.Contains(joined, "by hand") {
+		t.Fatalf("web-reviewers keeps %q", r.Keeps)
+	}
 	a := find(t, plan, "group", "web-assembly")
-	if a.Action != pack.Change || !slices.ContainsFunc(a.Changes, func(d pack.Diff) bool { return d.Field == "cmd" && d.Old == "/scripts/land" }) {
+	if a.Action != pack.Unchanged || slices.ContainsFunc(a.Changes, func(d pack.Diff) bool { return d.Field == "cmd" }) {
 		t.Fatalf("web-assembly = %s %v", a.Action, a.Changes)
+	}
+	if joined := strings.Join(a.Keeps, "\n"); !strings.Contains(joined, "/scripts/land") || !strings.Contains(joined, "by hand") {
+		t.Fatalf("web-assembly keeps %q", a.Keeps)
 	}
 	apply(t, st, plan, nil)
 	got, _ := st.GetGroup(ctx, "web-reviewers")
-	if prompt, _ := got.Config["prompt"].(string); !strings.HasSuffix(prompt, filepath.Join("packs", "starter", "roles", "reviewer.md")) {
-		t.Errorf("web-reviewers prompt = %q", prompt)
+	if prompt, _ := got.Config["prompt"].(string); prompt != "/roles/reviewer.md" {
+		t.Errorf("web-reviewers prompt = %q, want the yard's kept", prompt)
 	}
 	got, _ = st.GetGroup(ctx, "web-assembly")
-	if cmd, _ := got.Config["cmd"].(string); !strings.HasSuffix(cmd, filepath.Join("packs", "starter", "scripts", "merge-local")) {
-		t.Errorf("web-assembly cmd = %q", cmd)
+	if cmd, _ := got.Config["cmd"].(string); cmd != "/scripts/land" {
+		t.Errorf("web-assembly cmd = %q, want the yard's kept", cmd)
 	}
 }
 
@@ -1318,4 +1330,107 @@ func TestStageNameCannotChooseWhereItsFileIsWritten(t *testing.T) {
 	if got, want := find(t, plan, "file", "flows/x.md").File.To, filepath.Join(dir, "nested", "review.md"); got != want {
 		t.Errorf("stage file goes to %s, want %s", got, want)
 	}
+}
+
+// A second pack over the shared names keeps the first pack's groups: after
+// starter, planning design leaves web-builders, web-reviewers and
+// web-assembly on starter's prompt files and cmd, said under Keeps, and
+// applying changes nothing of them. Re-planning design (its groups now, by
+// the record) still keeps, while its own file updates stand; re-planning
+// starter (the pack that made them) is unchanged with no prompt keep; and a
+// hand-changed prompt is kept, said under Keeps.
+func TestSecondPackKeepsTheFirstPacksGroups(t *testing.T) {
+	st, o := yard(t)
+	apply(t, st, build(t, st, load(t, starter), o), nil)
+	bPrompt := groupOf(t, st, "web-builders").Config["prompt"].(string)
+	rPrompt := groupOf(t, st, "web-reviewers").Config["prompt"].(string)
+	aCmd := groupOf(t, st, "web-assembly").Config["cmd"].(string)
+	if !strings.Contains(bPrompt, filepath.Join("packs", "starter")) || !strings.Contains(rPrompt, filepath.Join("packs", "starter")) || !strings.Contains(aCmd, filepath.Join("packs", "starter")) {
+		t.Fatalf("starter's groups = %q %q %q, want starter's paths", bPrompt, rPrompt, aCmd)
+	}
+
+	kept := func(plan *pack.Plan) {
+		t.Helper()
+		for _, tc := range []struct{ name, want string }{{"web-builders", bPrompt}, {"web-reviewers", rPrompt}} {
+			obj := find(t, plan, "group", tc.name)
+			if got := obj.Group.Config["prompt"]; got != tc.want {
+				t.Errorf("%s prompt = %v, want %v (starter's)", tc.name, got, tc.want)
+			}
+			if slices.ContainsFunc(obj.Changes, func(d pack.Diff) bool { return d.Field == "prompt" }) {
+				t.Errorf("%s changes %v, want no prompt change", tc.name, obj.Changes)
+			}
+			joined := strings.Join(obj.Keeps, "\n")
+			if !strings.Contains(joined, tc.want) || !strings.Contains(joined, "made by pack starter") {
+				t.Errorf("%s keeps %q, want starter's prompt named as made by pack starter", tc.name, obj.Keeps)
+			}
+		}
+		obj := find(t, plan, "group", "web-assembly")
+		if got := obj.Group.Config["cmd"]; got != aCmd {
+			t.Errorf("web-assembly cmd = %v, want %v (starter's)", got, aCmd)
+		}
+		if slices.ContainsFunc(obj.Changes, func(d pack.Diff) bool { return d.Field == "cmd" }) {
+			t.Errorf("web-assembly changes %v, want no cmd change", obj.Changes)
+		}
+		joined := strings.Join(obj.Keeps, "\n")
+		if !strings.Contains(joined, aCmd) || !strings.Contains(joined, "made by pack starter") {
+			t.Errorf("web-assembly keeps %q, want starter's cmd named as made by pack starter", obj.Keeps)
+		}
+	}
+
+	plan := build(t, st, load(t, design), o)
+	kept(plan)
+	apply(t, st, plan, nil)
+	if got := groupOf(t, st, "web-builders").Config["prompt"]; got != bPrompt {
+		t.Errorf("after applying design, web-builders prompt = %v, want %v", got, bPrompt)
+	}
+	if got := groupOf(t, st, "web-assembly").Config["cmd"]; got != aCmd {
+		t.Errorf("after applying design, web-assembly cmd = %v, want %v", got, aCmd)
+	}
+	kept(build(t, st, load(t, design), o))
+
+	// The pack that made them, re-planned, is unchanged with no prompt keep.
+	planS := build(t, st, load(t, starter), o)
+	for _, name := range []string{"web-builders", "web-reviewers", "web-assembly"} {
+		obj := find(t, planS, "group", name)
+		if obj.Action != pack.Unchanged {
+			t.Errorf("starter re-plan: %s = %s, want unchanged", name, obj.Action)
+		}
+		for _, k := range obj.Keeps {
+			if strings.HasPrefix(k, "prompt ") || strings.HasPrefix(k, "cmd ") {
+				t.Errorf("starter re-plan: %s keeps %q, want no prompt or cmd keep", name, k)
+			}
+		}
+	}
+
+	// A hand-changed prompt is kept, said under Keeps.
+	st2, o2 := yard(t)
+	apply(t, st2, build(t, st2, load(t, starter), o2), nil)
+	g := groupOf(t, st2, "web-builders")
+	g.Config["prompt"] = "/hand.md"
+	if err := st2.PutGroup(ctx, g, "me"); err != nil {
+		t.Fatal(err)
+	}
+	obj := find(t, build(t, st2, load(t, starter), o2), "group", "web-builders")
+	if got := obj.Group.Config["prompt"]; got != "/hand.md" {
+		t.Errorf("hand-changed prompt = %v, want /hand.md", got)
+	}
+	if joined := strings.Join(obj.Keeps, "\n"); !strings.Contains(joined, "/hand.md") || !strings.Contains(joined, "by hand") {
+		t.Errorf("hand-changed keeps %q, want /hand.md named as by hand", obj.Keeps)
+	}
+
+	// The second pack's own file updates stand while its groups keep.
+	dir := copyPack(t, design)
+	role := filepath.Join(dir, "roles", "builder.md")
+	text, err := os.ReadFile(role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(role, append(text, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	planD := build(t, st, load(t, dir), o)
+	if got := find(t, planD, "file", "roles/builder.md").Action; got != pack.Change {
+		t.Errorf("design's edited role = %s, want change", got)
+	}
+	kept(planD)
 }

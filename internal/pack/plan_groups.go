@@ -61,6 +61,50 @@ func (b *planner) owned(name string) bool {
 	return b.rec != nil && slices.ContainsFunc(b.rec.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == name })
 }
 
+// makers are the packs, other than the one planned, whose last import into
+// the depot made name their own group: who a kept prompt or cmd stands from.
+// Sorted, for a plan that reads the same every time.
+func (b *planner) makers(name string) []string {
+	var out []string
+	for _, r := range b.all {
+		if r.Depot != b.o.Depot || (r.Pack == b.p.Name && r.Depot == b.o.Depot) {
+			continue
+		}
+		if slices.ContainsFunc(r.Objects, func(po store.PackObject) bool { return po.Kind == "group" && po.Name == name }) {
+			out = append(out, r.Pack)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// keptPrompt is the Keeps line for a prompt the import leaves as the yard
+// has it though the pack carries a role: under whose prompt it stands, the
+// pack that made the group or a hand.
+func (b *planner) keptPrompt(name, oldPrompt, role string) string {
+	by := "set by hand"
+	if makers := b.makers(name); len(makers) > 0 {
+		by = "made by pack " + strings.Join(makers, ", ")
+		if len(makers) > 1 {
+			by = "made by packs " + strings.Join(makers, ", ")
+		}
+	}
+	return fmt.Sprintf("prompt %s: %s, and the pack's role %s is not set on it", or(oldPrompt, "(none)"), by, role)
+}
+
+// keptCmd is the Keeps line for a cmd the import leaves as the yard has it
+// though the pack carries a script, as keptPrompt is for a prompt.
+func (b *planner) keptCmd(name, oldCmd, script string) string {
+	by := "set by hand"
+	if makers := b.makers(name); len(makers) > 0 {
+		by = "made by pack " + strings.Join(makers, ", ")
+		if len(makers) > 1 {
+			by = "made by packs " + strings.Join(makers, ", ")
+		}
+	}
+	return fmt.Sprintf("cmd %s: %s, and the pack's script %s is not set on it", or(oldCmd, "(none)"), by, script)
+}
+
 // fitting are the names of the yard's groups that may take the pack's g.
 func fitting(g Group, have []store.Group) []string {
 	var out []string
@@ -188,7 +232,8 @@ func (b *planner) groups() error {
 		switch {
 		case g.Agent != "":
 			want.Runner, field = "herdr", "prompt"
-			want.Config[field] = b.installed(g.Agent)
+			installed := b.installed(g.Agent)
+			want.Config[field] = installed
 			own, err := b.depotRole(g.Agent)
 			if err != nil {
 				return err
@@ -200,13 +245,31 @@ func (b *planner) groups() error {
 				// and a new group, or one the pack's copy was set on, gets
 				// the role by the name the depot's file is found under.
 				prompt, _ := old.Config[field].(string)
-				if prompt == "" || prompt == b.installed(g.Agent) {
+				if prompt == "" || prompt == installed {
 					prompt = g.Agent
 				}
 				want.Config[field] = prompt
 				o.Keeps = append(o.Keeps, fmt.Sprintf("prompt %s: the depot has its own %s", prompt, own))
 			default:
 				o.Shadows = append(o.Shadows, own)
+			}
+			if exists && own == "" && old.Runner == want.Runner {
+				// A group the yard has keeps its prompt when it is not the
+				// pack's: one another pack made, or one set by hand. The
+				// record holds no prompt, so a pack's changed role reads as a
+				// hand's, and the hand wins; a group the pack made with its
+				// prompt still on is unchanged, and a new one gets the pack's.
+				// Where the depot has its own role the choice above stands:
+				// DepotRoles keeps it, PackRoles sets the pack's.
+				oldPrompt, _ := old.Config[field].(string)
+				if oldPrompt != installed {
+					if v, ok := old.Config[field]; ok {
+						want.Config[field] = v
+					} else {
+						delete(want.Config, field)
+					}
+					o.Keeps = append(o.Keeps, b.keptPrompt(name, oldPrompt, g.Agent))
+				}
 			}
 			if !exists {
 				if o.Binds = b.bindsAs(g, have, &want); o.Binds == "" {
@@ -218,15 +281,28 @@ func (b *planner) groups() error {
 		case g.Run != "":
 			want.Runner, field = "exec", "cmd"
 			cmd, _ := old.Config["cmd"].(string)
-			if exists {
-				o.Keeps = append(o.Keeps, keptEnv(g, cmd)...)
-			} else {
+			if !exists {
 				// The assignments go before the script, where setScript keeps
 				// what a cmd has: from here on they are the yard's.
 				o.Env = g.EnvWords()
 				cmd = strings.Join(o.Env, " ")
 			}
-			want.Config[field] = setScript(cmd, b.installed(g.Run))
+			installed := setScript(cmd, b.installed(g.Run))
+			want.Config[field] = installed
+			if exists {
+				if old.Runner == want.Runner && cmd != installed {
+					// As a prompt: a group the yard has keeps its cmd when it
+					// runs another script, one another pack's or one set by
+					// hand, said under Keeps; a new one gets the pack's.
+					if v, ok := old.Config[field]; ok {
+						want.Config[field] = v
+					} else {
+						delete(want.Config, field)
+					}
+					o.Keeps = append(o.Keeps, b.keptCmd(name, cmd, g.Run))
+				}
+				o.Keeps = append(o.Keeps, keptEnv(g, cmd)...)
+			}
 		default:
 			want.Runner = "manual"
 			if !exists {
