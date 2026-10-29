@@ -489,8 +489,8 @@ func (c *Client) MarkNotifiedFor(ctx context.Context, name, user string, seq uin
 func (c *Client) RecordCrewUsage(ctx context.Context, name, user, agentSession string, usage map[string]any) error {
 	return c.call(ctx, "RecordCrewUsage", nil, name, user, agentSession, usage)
 }
-func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) error {
-	return c.call(ctx, "Journal", nil, name, kind, text, actor)
+func (c *Client) Journal(ctx context.Context, name, kind, text, actor string) (bool, error) {
+	return callV[bool](c, ctx, "Journal", name, kind, text, actor)
 }
 func (c *Client) Mail(ctx context.Context, to, text, actor string, files ...store.BlobFile) error {
 	return c.call(ctx, "Mail", nil, to, text, actor, files)

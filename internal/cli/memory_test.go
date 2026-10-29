@@ -66,11 +66,11 @@ func TestPrimeOmittedJournalPointsAtPrimeBead(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
-	if err := st.Journal(ctx, "yardmaster", store.NoteHandoff, "handoff", "yardmaster"); err != nil {
+	if _, err := st.Journal(ctx, "yardmaster", store.NoteHandoff, "handoff", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < store.PrimeEntries+1; i++ {
-		if err := st.Journal(ctx, "yardmaster", store.NoteJournal, fmt.Sprintf("entry %d", i), "yardmaster"); err != nil {
+		if _, err := st.Journal(ctx, "yardmaster", store.NoteJournal, fmt.Sprintf("entry %d", i), "yardmaster"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -87,7 +87,7 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 	st := userYard(t)
 	ctx := context.Background()
 	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
-	if err := st.Journal(ctx, "yardmaster", store.NoteJournal, "deploys are frozen until Friday", "yardmaster"); err != nil {
+	if _, err := st.Journal(ctx, "yardmaster", store.NoteJournal, "deploys are frozen until Friday", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.Remember(ctx, store.NewMemory{Title: "Deploy freeze", Body: "frozen until Friday", Scope: "crew:yardmaster"}, "yardmaster"); err != nil {

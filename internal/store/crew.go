@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -17,6 +18,10 @@ import (
 )
 
 var bCrew = []byte("crew")
+
+// errRepeatedHandoff aborts Journal's transaction before changeCrewAt saves
+// a new crew revision or wakes the dispatcher for a handoff it already has.
+var errRepeatedHandoff = errors.New("handoff already written")
 
 func init() { allBuckets = append(allBuckets, bCrew) }
 
@@ -847,18 +852,23 @@ func (s *Store) MarkNotified(ctx context.Context, name string, seq uint64) error
 // a write from no crew pane is the line's. From a session's or a crew
 // member's pane the entry is recorded as that session's actor or that crew
 // member, whatever actor says; from anywhere else, as given (paneAuthor).
-func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) error {
+// It reports whether the entry was a repeat: a handoff in the words of the
+// session's pending one (pendingHandoff) writes no note and asks for no
+// restart again, so a session that calls twice, as a model does that waits
+// to see an effect, leaves one handoff, and moves neither its time nor the
+// grace of its restart.
+func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) (bool, error) {
 	limit := map[string]int{NoteJournal: MaxJournalBytes, NoteHandoff: MaxHandoffBytes}[kind]
 	if limit == 0 {
-		return fmt.Errorf("journal kind %q: use journal or handoff", kind)
+		return false, fmt.Errorf("journal kind %q: use journal or handoff", kind)
 	}
 	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("empty %s entry", kind)
+		return false, fmt.Errorf("empty %s entry", kind)
 	}
 	if len(text) > limit {
-		return fmt.Errorf("%s entry is %d bytes, over the %d-byte limit: summarize it", kind, len(text), limit)
+		return false, fmt.Errorf("%s entry is %d bytes, over the %d-byte limit: summarize it", kind, len(text), limit)
 	}
-	return s.changeCrew(name, func(w *wtx, r *CrewMember) error {
+	err := s.changeCrew(name, func(w *wtx, r *CrewMember) error {
 		resolved, err := paneAuthor(w.Tx, callerOf(ctx), actor)
 		if err != nil {
 			return err
@@ -870,6 +880,15 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 		_, session, err := paneCrewSession(w.Tx, callerOf(ctx))
 		if err != nil {
 			return err
+		}
+		if kind == NoteHandoff {
+			pending, err := w.pendingHandoff(r, session)
+			if err != nil {
+				return err
+			}
+			if pending != nil && pending.Text == text {
+				return errRepeatedHandoff
+			}
 		}
 		if err := w.addNoteSession(r.Journal, kind, text, actor, session); err != nil {
 			return err
@@ -888,6 +907,48 @@ func (s *Store) Journal(ctx context.Context, name, kind, text, actor string) err
 		}
 		return nil
 	})
+	if errors.Is(err, errRepeatedHandoff) {
+		return true, nil
+	}
+	return false, err
+}
+
+// pendingHandoff is the latest handoff the session ("" is the line's) wrote,
+// while the restart it asked for is still to come; nil when there is none.
+// The session tag names a place, not the one process in it: the line's is ""
+// for every line session, a conversation's its user for each of theirs. So
+// the same words from the next session of that place are no repeat, and what
+// tells the two apart is the restart: a handoff asks for it, and the start of
+// the next session (CrewStartedFor) takes the request away.
+func (w *wtx) pendingHandoff(r *CrewMember, session string) (*Note, error) {
+	if r.Session(session).RestartRequested != "handoff" {
+		return nil, nil
+	}
+	row, err := w.loadBead(r.Journal)
+	if err != nil {
+		return nil, err
+	}
+	// Newest first, so the walk ends at the handoff just written, however
+	// long the journal is. The key after the journal's last note: the one
+	// before it is that last.
+	prefix := []byte(row.UUID + "\x00")
+	c := w.Bucket(bNotes).Cursor()
+	k, raw := c.Seek([]byte(row.UUID + "\x01"))
+	if k == nil {
+		k, raw = c.Last()
+	} else {
+		k, raw = c.Prev()
+	}
+	for ; k != nil && bytes.HasPrefix(k, prefix); k, raw = c.Prev() {
+		var n Note
+		if err := json.Unmarshal(raw, &n); err != nil {
+			return nil, fmt.Errorf("%s/%q: %w", bNotes, k, err)
+		}
+		if n.Kind == NoteHandoff && n.Session == session {
+			return &n, nil
+		}
+	}
+	return nil, nil
 }
 
 // Mail sends a message to the inbox of a crew member or of a user. files

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,23 @@ func yardmaster(t *testing.T, s store.API) *store.CrewMember {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// entriesOf are the notes of one kind on the crew member's journal, oldest
+// first.
+func entriesOf(t *testing.T, s store.API, name, kind string) []store.Note {
+	t.Helper()
+	notes, err := s.Notes(context.Background(), name+"-journal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []store.Note
+	for _, n := range notes {
+		if n.Kind == kind {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func TestCrewJournalIsNotWork(t *testing.T) {
@@ -192,18 +210,97 @@ func TestJournalCapsAndHandoff(t *testing.T) {
 	s := storetest.New(t)
 	ctx := context.Background()
 	yardmaster(t, s)
-	if err := s.Journal(ctx, "yardmaster", store.NoteJournal, strings.Repeat("x", store.MaxJournalBytes+1), "yardmaster"); err == nil {
+	if _, err := s.Journal(ctx, "yardmaster", store.NoteJournal, strings.Repeat("x", store.MaxJournalBytes+1), "yardmaster"); err == nil {
 		t.Fatal("oversized journal entry accepted")
 	}
-	if err := s.Journal(ctx, "yardmaster", "diary", "x", "yardmaster"); err == nil {
+	if _, err := s.Journal(ctx, "yardmaster", "diary", "x", "yardmaster"); err == nil {
 		t.Fatal("unknown kind accepted")
 	}
-	if err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: review webapp-3", "yardmaster"); err != nil {
-		t.Fatal(err)
+	const first, second = "Next: review webapp-3", "Next: review webapp-4"
+	if repeat, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, first, "yardmaster"); err != nil || repeat {
+		t.Fatalf("first handoff: repeat %v, %v", repeat, err)
 	}
 	r, _ := s.GetCrew(ctx, "yardmaster")
 	if r.RestartRequested != "handoff" || r.LastHandoffAt == nil {
 		t.Fatalf("handoff did not request a restart: %+v", r)
+	}
+
+	// The same words again, while the restart the first asked for is still
+	// to come, are a repeat: nothing is written, and neither the handoff's
+	// time nor the request's moves, so a model that keeps asking cannot
+	// hold off the grace.
+	if repeat, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, first, "yardmaster"); err != nil || !repeat {
+		t.Fatalf("the same handoff again: repeat %v, %v; want a repeat", repeat, err)
+	}
+	again, _ := s.GetCrew(ctx, "yardmaster")
+	if again.Revision != r.Revision {
+		t.Errorf("a repeat moved the crew revision %q -> %q", r.Revision, again.Revision)
+	}
+	if !again.LastHandoffAt.Equal(*r.LastHandoffAt) || !again.RestartRequestedAt.Equal(*r.RestartRequestedAt) {
+		t.Errorf("a repeat moved the handoff time %v -> %v, the request %v -> %v",
+			r.LastHandoffAt, again.LastHandoffAt, r.RestartRequestedAt, again.RestartRequestedAt)
+	}
+	if got := entriesOf(t, s, "yardmaster", store.NoteHandoff); len(got) != 1 || got[0].Text != first {
+		t.Fatalf("handoffs after a repeat = %+v, want the one", got)
+	}
+
+	// Other words are a new handoff.
+	if repeat, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, second, "yardmaster"); err != nil || repeat {
+		t.Fatalf("other words: repeat %v, %v; want them written", repeat, err)
+	}
+	if got := entriesOf(t, s, "yardmaster", store.NoteHandoff); len(got) != 2 || got[1].Text != second {
+		t.Fatalf("handoffs after other words = %+v, want both", got)
+	}
+
+	// So are the same words from the next session, which has the same tag
+	// (the line's): its start took the pending restart away.
+	if err := s.CrewStarted(ctx, "yardmaster", nil); err != nil {
+		t.Fatal(err)
+	}
+	if repeat, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, second, "yardmaster"); err != nil || repeat {
+		t.Fatalf("the next session's handoff in the same words: repeat %v, %v; want it written", repeat, err)
+	}
+	if got := entriesOf(t, s, "yardmaster", store.NoteHandoff); len(got) != 3 {
+		t.Fatalf("handoffs after the next session's = %+v, want three", got)
+	}
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.RestartRequested != "handoff" {
+		t.Fatalf("the next session's handoff did not request its restart: %+v", r)
+	}
+
+	// Calls that arrive together, as the parallel tool calls of a model do,
+	// write one: the check is made in the transaction that writes.
+	const third = "Next: review webapp-5"
+	var sent sync.WaitGroup
+	repeats := make([]bool, 8)
+	for i := range repeats {
+		sent.Add(1)
+		go func() {
+			defer sent.Done()
+			var err error
+			if repeats[i], err = s.Journal(ctx, "yardmaster", store.NoteHandoff, third, "yardmaster"); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	sent.Wait()
+	wrote := 0
+	for _, repeat := range repeats {
+		if !repeat {
+			wrote++
+		}
+	}
+	if got := entriesOf(t, s, "yardmaster", store.NoteHandoff); wrote != 1 || len(got) != 4 || got[3].Text != third {
+		t.Fatalf("%d of %d handoffs sent together were written, handoffs = %+v; want one written, the fourth", wrote, len(repeats), got)
+	}
+
+	// Only a handoff can repeat: the same journal entry twice is two entries.
+	for range 2 {
+		if repeat, err := s.Journal(ctx, "yardmaster", store.NoteJournal, "same words", "yardmaster"); err != nil || repeat {
+			t.Fatalf("journal entry: repeat %v, %v", repeat, err)
+		}
+	}
+	if got := entriesOf(t, s, "yardmaster", store.NoteJournal); len(got) != 2 {
+		t.Fatalf("journal entries = %+v, want both", got)
 	}
 }
 
@@ -245,10 +342,10 @@ func TestPrimeIsBounded(t *testing.T) {
 	ctx := context.Background()
 	yardmaster(t, s)
 	_ = s.CrewStarted(ctx, "yardmaster", nil)
-	_ = s.Journal(ctx, "yardmaster", store.NoteJournal, "old context", "yardmaster")
-	_ = s.Journal(ctx, "yardmaster", store.NoteHandoff, "HANDOFF-1", "yardmaster")
+	_, _ = s.Journal(ctx, "yardmaster", store.NoteJournal, "old context", "yardmaster")
+	_, _ = s.Journal(ctx, "yardmaster", store.NoteHandoff, "HANDOFF-1", "yardmaster")
 	for i := 0; i < store.PrimeEntries+5; i++ {
-		_ = s.Journal(ctx, "yardmaster", store.NoteJournal, "entry", "yardmaster")
+		_, _ = s.Journal(ctx, "yardmaster", store.NoteJournal, "entry", "yardmaster")
 	}
 	_ = s.CrewStarted(ctx, "yardmaster", nil) // the session after the handoff
 	p, err := s.CrewPrime(ctx, "yardmaster")
@@ -366,9 +463,12 @@ func TestRecallFindsJournalEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.Journal(ctx, "yardmaster", store.NoteJournal, "Deploys are frozen until Friday", "yardmaster"))
-	must(s.Journal(ctx, "yardmaster", store.NoteHandoff, "Handing off: the deploy freeze holds", "yardmaster"))
-	must(s.Journal(ctx, "clerk", store.NoteJournal, "Filed the deploy paperwork", "clerk"))
+	_, err := s.Journal(ctx, "yardmaster", store.NoteJournal, "Deploys are frozen until Friday", "yardmaster")
+	must(err)
+	_, err = s.Journal(ctx, "yardmaster", store.NoteHandoff, "Handing off: the deploy freeze holds", "yardmaster")
+	must(err)
+	_, err = s.Journal(ctx, "clerk", store.NoteJournal, "Filed the deploy paperwork", "clerk")
+	must(err)
 
 	hits, err := s.RecallJournal(ctx, "crew:yardmaster", "DEPLOY")
 	if err != nil {

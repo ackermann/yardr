@@ -384,7 +384,8 @@ func TestHomeNeedsAskOnlyOpen(t *testing.T) {
 	if i < 0 {
 		t.Fatalf("the queue %+v lacks the journal's ask", q.Open)
 	}
-	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+	_, err = f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster")
+	must(t, err)
 
 	ids := func(ws []web.Waiting) []string {
 		var out []string

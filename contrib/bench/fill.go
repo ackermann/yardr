@@ -309,7 +309,7 @@ func (f *filler) closedBead(i int, r *rand.Rand) error {
 			return err
 		}
 	}
-	if err := s.Journal(ctx, yardmaster, store.NoteJournal, text(r, 200+r.Intn(300)), yardmaster); err != nil {
+	if _, err := s.Journal(ctx, yardmaster, store.NoteJournal, text(r, 200+r.Intn(300)), yardmaster); err != nil {
 		return err
 	}
 	switch i % 5 {

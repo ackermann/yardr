@@ -798,7 +798,7 @@ func TestCrewWriteFromAPaneIsThatPanesActor(t *testing.T) {
 	t.Run("pane", func(t *testing.T) {
 		s, ctx, actor := setup(t, true)
 		pane := store.WithCaller(ctx, os.Getpid())
-		if err := s.Journal(pane, "yardmaster", "journal", "an entry", "op"); err != nil {
+		if _, err := s.Journal(pane, "yardmaster", "journal", "an entry", "op"); err != nil {
 			t.Fatal(err)
 		}
 		r, err := s.GetCrew(ctx, "yardmaster")

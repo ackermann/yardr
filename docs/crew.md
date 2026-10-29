@@ -263,7 +263,9 @@ names its person and its slice.
   and in `yardr crew show`. See [timers.md](timers.md).
 - **Journal:** one bead per crew member (`<name>-journal`). `yardr crew journal`
   keeps decisions (≤4 KB): what happened and why, to look up later. `yardr crew
-  handoff` ends the session (≤16 KB) and the next session starts from it. Past
+  handoff` ends the session (≤16 KB) and the next session starts from it; its
+  answer tells the session to stop, and the same words said again before the
+  session ends are not written twice. Past
   `--context-handoff` percent of its context window (60 unless set) the crew
   member is asked for a handoff when idle, once per session and never forced;
   at `--max-age` (24h from `yardr init`) it is asked again, and after

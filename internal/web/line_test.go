@@ -1319,7 +1319,8 @@ func TestCrew(t *testing.T) {
 	must(t, f.st.CrewStarted(ctx, "yardmaster", map[string]any{"agent": "yardmaster"}))
 	must(t, f.st.Mail(ctx, "yardmaster", "the tests are red", "builder"))
 	must(t, f.st.Mail(ctx, "yardmaster", "and still red", "builder"))
-	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+	_, err := f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster")
+	must(t, err)
 	must(t, f.st.SetCrewEnabled(ctx, "zed", false, "", "me"))
 
 	var got web.Crew

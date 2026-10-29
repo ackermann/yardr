@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -548,13 +549,13 @@ func TestJournalHandoffPerSession(t *testing.T) {
 	if err := s.CrewStartingFor(ctx, "yardmaster", "hal", shell); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Journal(pane, "yardmaster", store.NoteJournal, "hal learned", "yardmaster"); err != nil {
+	if _, err := s.Journal(pane, "yardmaster", store.NoteJournal, "hal learned", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Journal(ctx, "yardmaster", store.NoteJournal, "line learned", "yardmaster"); err != nil {
+	if _, err := s.Journal(ctx, "yardmaster", store.NoteJournal, "line learned", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Journal(pane, "yardmaster", store.NoteHandoff, "hal stands here", "yardmaster"); err != nil {
+	if _, err := s.Journal(pane, "yardmaster", store.NoteHandoff, "hal stands here", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	r, err := s.GetCrew(ctx, "yardmaster")
@@ -587,7 +588,7 @@ func TestJournalHandoffPerSession(t *testing.T) {
 	if len(line.Since) != 3 {
 		t.Errorf("line prime since = %d entries, want all 3 (shared journal)", len(line.Since))
 	}
-	if err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "line stands here", "yardmaster"); err != nil {
+	if _, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "line stands here", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	prime, err = s.CrewPrimeFor(ctx, "yardmaster", "hal")
@@ -596,6 +597,53 @@ func TestJournalHandoffPerSession(t *testing.T) {
 	}
 	if prime.Handoff == nil || !strings.Contains(prime.Handoff.Text, "hal stands") {
 		t.Errorf("hal prime handoff after line handoff = %+v, want still hal's", prime.Handoff)
+	}
+	// The same words are told apart by the session that wrote them: hal
+	// saying them again is a repeat though the line wrote since, the line
+	// saying hal's newest words is a handoff of its own though they are the
+	// journal's newest, and hal's next session, once started, saying them
+	// again is a handoff of its own too.
+	handoff := func(from context.Context, text string) bool {
+		t.Helper()
+		repeat, err := s.Journal(from, "yardmaster", store.NoteHandoff, text, "yardmaster")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return repeat
+	}
+	written := func() []string {
+		t.Helper()
+		var out []string
+		for _, n := range entriesOf(t, s, "yardmaster", store.NoteHandoff) {
+			out = append(out, n.Session+":"+n.Text)
+		}
+		return out
+	}
+	if !handoff(pane, "hal stands here") {
+		t.Error("hal's handoff again, after the line's, was written: want a repeat")
+	}
+	if handoff(pane, "hal moves on") {
+		t.Error("hal's handoff in other words was taken for a repeat")
+	}
+	if handoff(ctx, "hal moves on") {
+		t.Error("the line's handoff in hal's newest words was taken for a repeat")
+	}
+	want := []string{"hal:hal stands here", ":line stands here", "hal:hal moves on", ":hal moves on"}
+	if got := written(); !slices.Equal(got, want) {
+		t.Fatalf("handoffs = %q, want %q", got, want)
+	}
+	if err := s.CrewStartedFor(ctx, "yardmaster", "hal", shell); err != nil {
+		t.Fatal(err)
+	}
+	if handoff(pane, "hal moves on") {
+		t.Error("hal's next session's handoff in the same words was taken for a repeat")
+	}
+	want = append(want, "hal:hal moves on")
+	if got := written(); !slices.Equal(got, want) {
+		t.Fatalf("handoffs = %q, want %q", got, want)
+	}
+	if r, _ = s.GetCrew(ctx, "yardmaster"); r.Conversations["hal"].RestartRequested != "handoff" {
+		t.Errorf("hal restart = %q, want handoff asked for again", r.Conversations["hal"].RestartRequested)
 	}
 }
 

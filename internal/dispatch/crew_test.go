@@ -445,7 +445,8 @@ func TestHandoffRestartsWhenIdle(t *testing.T) {
 	must(t, d.Reconcile(ctx))
 	agent := agentOf(t, s)
 	f.set(agent, "working") // still writing its handoff turn
-	must(t, s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: review webapp-3", agent))
+	_, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: review webapp-3", agent)
+	must(t, err)
 	must(t, d.Reconcile(ctx))
 	if f.n != 1 {
 		t.Fatal("restarted mid-turn")
@@ -2332,7 +2333,8 @@ func TestCrewWantedEndingsAreNoFailedStarts(t *testing.T) {
 			t.Fatalf("%s: starts %d, want %d; crew member %+v", what, f.n, n, r)
 		}
 	}
-	must(t, s.Journal(ctx, "yardmaster", store.NoteHandoff, "all quiet", "yardmaster"))
+	_, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "all quiet", "yardmaster")
+	must(t, err)
 	restarted("handoff", 2)
 	must(t, s.RequestRestart(ctx, "yardmaster", "requested by me", "", "me"))
 	restarted("restart", 3)

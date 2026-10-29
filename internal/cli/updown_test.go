@@ -235,7 +235,7 @@ func TestDownStopsTheYardsAgents(t *testing.T) {
 		if !strings.Contains(text, "yardr crew handoff yardmaster") {
 			t.Errorf("the nudge names no handoff: %s", text)
 		}
-		if err := st.Journal(ctx, agent, store.NoteHandoff, "stopping", agent); err != nil {
+		if _, err := st.Journal(ctx, agent, store.NoteHandoff, "stopping", agent); err != nil {
 			t.Error(err)
 		}
 	}

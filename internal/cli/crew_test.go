@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -98,32 +100,85 @@ func TestCrewJournalStdin(t *testing.T) {
 	a.actor = "yardmaster"
 	c := a.crewCmd()
 	c.SetIn(strings.NewReader("deploys are frozen until Friday\n\n"))
-	if out, err := run(t, c, "journal", "yardmaster", "-"); err != nil {
-		t.Fatalf("journal -: %v\n%s", err, out)
+	if out, err := run(t, c, "journal", "yardmaster", "-"); err != nil || out != "" {
+		t.Fatalf("journal -: %v\n%q, want no answer", err, out)
 	}
 	hits, err := st.RecallJournal(ctx, "", "frozen")
 	if err != nil || len(hits) != 1 || hits[0].Note.Kind != store.NoteJournal ||
 		hits[0].Note.Text != "deploys are frozen until Friday" {
 		t.Fatalf("journal = %+v, %v", hits, err)
 	}
+	// Under --json the entry's answer has no repeat in it: only a handoff has one.
+	j := appOn(st)
+	j.actor, j.json = "yardmaster", true
+	out, err := run(t, j.crewCmd(), "journal", "yardmaster", "deploys are frozen until Friday")
+	var got map[string]any
+	if want := (map[string]any{"crew": "yardmaster", "written": "journal"}); err != nil ||
+		json.Unmarshal([]byte(out), &got) != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("journal --json = %q, %v; want %v", out, err, want)
+	}
+	if hits, err := st.RecallJournal(ctx, "", "frozen"); err != nil || len(hits) != 2 {
+		t.Fatalf("the same entry twice = %+v, %v; want two entries", hits, err)
+	}
 }
 
 // crew handoff - takes the entry from the command's stdin, trailing
-// newlines trimmed as before.
+// newlines trimmed as before. Its answer orders the stop, since the session
+// lives until it is idle and a model that sees nothing end asks again; the
+// same words asked again are written once, and answered as already written,
+// with no error, which a model would retry against (--json adds repeat).
 func TestCrewHandoffStdin(t *testing.T) {
 	t.Parallel()
 	st := userYard(t)
 	ctx := context.Background()
 	a := appOn(st)
 	a.actor = "yardmaster"
-	c := a.crewCmd()
-	c.SetIn(strings.NewReader("the next session deploys at noon\n\n"))
-	if out, err := run(t, c, "handoff", "yardmaster", "-"); err != nil {
-		t.Fatalf("handoff -: %v\n%s", err, out)
+	handoff := func() string {
+		t.Helper()
+		c := a.crewCmd()
+		c.SetIn(strings.NewReader("the next session deploys at noon\n\n"))
+		out, err := run(t, c, "handoff", "yardmaster", "-")
+		if err != nil {
+			t.Fatalf("handoff -: %v\n%s", err, out)
+		}
+		return out
+	}
+	if out, want := handoff(), "handoff written; this session is over: end your turn now and call nothing else\n"; out != want {
+		t.Errorf("first answer = %q, want %q", out, want)
 	}
 	hits, err := st.RecallJournal(ctx, "", "deploys")
 	if err != nil || len(hits) != 1 || hits[0].Note.Kind != store.NoteHandoff ||
 		hits[0].Note.Text != "the next session deploys at noon" {
 		t.Fatalf("handoff = %+v, %v", hits, err)
+	}
+	if out, want := handoff(), "handoff already written; end your turn now\n"; out != want {
+		t.Errorf("repeat answer = %q, want %q", out, want)
+	}
+	if hits, err := st.RecallJournal(ctx, "", "deploys"); err != nil || len(hits) != 1 {
+		t.Fatalf("after the repeat: %+v, %v; want the one handoff", hits, err)
+	}
+
+	// --json keeps its shape for a handoff written, and a repeat adds repeat.
+	j := appOn(st)
+	j.actor, j.json = "yardmaster", true
+	answer := func(text string) map[string]any {
+		t.Helper()
+		out, err := run(t, j.crewCmd(), "handoff", "yardmaster", text)
+		if err != nil {
+			t.Fatalf("handoff --json: %v\n%s", err, out)
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(out), &m); err != nil {
+			t.Fatalf("handoff --json: %v\n%s", err, out)
+		}
+		return m
+	}
+	written := map[string]any{"crew": "yardmaster", "written": "handoff"}
+	if got := answer("the plan changed: deploy at one"); !reflect.DeepEqual(got, written) {
+		t.Errorf("first answer = %v, want %v", got, written)
+	}
+	repeat := map[string]any{"crew": "yardmaster", "written": "handoff", "repeat": true}
+	if got := answer("the plan changed: deploy at one"); !reflect.DeepEqual(got, repeat) {
+		t.Errorf("repeat answer = %v, want %v", got, repeat)
 	}
 }

@@ -94,7 +94,8 @@ func crewAgent(t *testing.T, s store.API, user string) string {
 // that finds it idle stops it and starts its next.
 func handOff(t *testing.T, s store.API, agent string) {
 	t.Helper()
-	must(t, s.Journal(context.Background(), "yardmaster", store.NoteHandoff, "Next: review", agent))
+	_, err := s.Journal(context.Background(), "yardmaster", store.NoteHandoff, "Next: review", agent)
+	must(t, err)
 }
 
 // crewCount is what a crew_usage event says, without the time it was read at.

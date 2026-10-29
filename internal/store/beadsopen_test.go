@@ -141,7 +141,10 @@ func TestOpenIndexMatchesAWalkAfterEveryWrite(t *testing.T) {
 			return changed(s.UpdateBead(ctx, pick(), store.BeadPatch{Priority: &p, AddLabels: []string{"l"}}, store.Expect{}, "me"))
 		}},
 		{"note", func() error { return s.AddNote(ctx, pick(), "a note", "me") }},
-		{"journal", func() error { return s.Journal(ctx, "boss", store.NoteJournal, "a turn", "boss") }},
+		{"journal", func() error {
+			_, err := s.Journal(ctx, "boss", store.NoteJournal, "a turn", "boss")
+			return err
+		}},
 		{"dep", func() error { return s.AddDep(ctx, pick(), pick(), "blocks", "", "", "me") }},
 		{"undep", func() error { return s.RemoveDep(ctx, pick(), pick(), "blocks", "", "", "me") }},
 		{"claim", func() error {

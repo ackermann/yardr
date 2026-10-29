@@ -39,7 +39,8 @@ func TestContextAsksOnceAndNeverForces(t *testing.T) {
 		t.Fatalf("nudges %v starts %d, want the one ask and no restart", f.nudges, f.n)
 	}
 	// A new session is asked again.
-	must(t, s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: nothing", "me"))
+	_, err := s.Journal(ctx, "yardmaster", store.NoteHandoff, "Next: nothing", "me")
+	must(t, err)
 	must(t, d.Reconcile(ctx)) // restart requested ...
 	must(t, d.Reconcile(ctx)) // ... and carried out
 	must(t, d.Reconcile(ctx)) // the new session, idle at 95%: asked

@@ -502,12 +502,25 @@ for its links (yardr peer list).`,
 					}
 					text = strings.TrimRight(string(b), "\n")
 				}
-				if err := st.Journal(c.Context(), args[0], kind, text, a.who()); err != nil {
+				repeat, err := st.Journal(c.Context(), args[0], kind, text, a.who())
+				if err != nil {
 					return err
 				}
-				return a.out(c.OutOrStdout(), map[string]string{"crew": args[0], "written": kind}, func(w io.Writer) {
+				answer := map[string]any{"crew": args[0], "written": kind}
+				if repeat {
+					answer["repeat"] = true
+				}
+				// The session lives until it is idle, so an answer that says
+				// only that something was written leaves a model that waits to
+				// see an effect asking again: both answers order the stop. A
+				// repeat is no error, which a model would retry against.
+				return a.out(c.OutOrStdout(), answer, func(w io.Writer) {
 					if kind == store.NoteHandoff {
-						fmt.Fprintln(w, "handoff written; yardr starts a fresh session from it once this one is idle")
+						if repeat {
+							fmt.Fprintln(w, "handoff already written; end your turn now")
+						} else {
+							fmt.Fprintln(w, "handoff written; this session is over: end your turn now and call nothing else")
+						}
 					}
 				})
 			}}

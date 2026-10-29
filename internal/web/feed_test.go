@@ -50,7 +50,8 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	b, err := st.CreateBead(ctx, store.NewBead{Title: "a door", Stage: "new", Depot: "line"}, "me")
 	must(t, err)
 	must(t, st.AddNote(ctx, b.ID, "someone else's remark", "passer"))
-	must(t, st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+	_, err = st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster")
+	must(t, err)
 	must(t, st.AddNote(ctx, b.ID, "the hinge is missing", "builder"))
 	_, err = st.SetHold(ctx, b.ID, true, store.Expect{}, "builder")
 	must(t, err)
@@ -58,7 +59,8 @@ func landing(t *testing.T, st store.API) *store.Bead {
 	must(t, err)
 	_, err = st.Done(ctx, b.ID, "done", "", store.Expect{}, "builder")
 	must(t, err)
-	must(t, st.Journal(ctx, "yardmaster", store.NoteHandoff, "over to you", "yardmaster"))
+	_, err = st.Journal(ctx, "yardmaster", store.NoteHandoff, "over to you", "yardmaster")
+	must(t, err)
 	_, err = st.AdvanceNote(ctx, b.ID, "merged", "assembly: merged 70dabcd", store.Expect{}, "assembly")
 	must(t, err)
 	return b
@@ -208,7 +210,8 @@ func TestFeedPages(t *testing.T) {
 		// A run of journal entries longer than one page of the feed.
 		if i == 100 {
 			for range 230 {
-				must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+				_, err = f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster")
+				must(t, err)
 			}
 		}
 	}
@@ -472,7 +475,8 @@ func TestEventsJSON(t *testing.T) {
 	_, err := f.st.PutCrew(ctx, store.CrewMember{Name: "yardmaster", Runner: "herdr"}, "me")
 	must(t, err)
 	bead(t, f.st, "one")
-	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+	_, err = f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster")
+	must(t, err)
 	bead(t, f.st, "two")
 	want, err := f.st.EventsSince(ctx, 0, 0)
 	must(t, err)
@@ -532,7 +536,8 @@ func TestEventsHTML(t *testing.T) {
 	must(t, err)
 	s := f.stream(t, fmt.Sprintf("/events?after=%d", head))
 	b := bead(t, f.st, "a door")
-	must(t, f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster"))
+	_, err = f.st.Journal(ctx, "yardmaster", store.NoteJournal, "dear diary", "yardmaster")
+	must(t, err)
 	must(t, f.st.AddNote(ctx, b.ID, "two\nlines", "me"))
 
 	fr := s.next(t)

@@ -294,7 +294,7 @@ func TestYardrJournalMentionsDoNotPingPong(t *testing.T) {
 	subscribe(t, s, "b", yardrSub(store.ScopeAll))
 	journal := func(who, text string) {
 		t.Helper()
-		if err := s.Journal(ctx, who, store.NoteJournal, text, who); err != nil {
+		if _, err := s.Journal(ctx, who, store.NoteJournal, text, who); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -358,7 +358,7 @@ func TestCrewDoesNotHearOfItself(t *testing.T) {
 	if err := s.CrewStarted(ctx, "yardmaster", map[string]any{"pane": "p1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Journal(ctx, "yardmaster", store.NoteJournal, "starting on the queue", "yardmaster-session"); err != nil {
+	if _, err := s.Journal(ctx, "yardmaster", store.NoteJournal, "starting on the queue", "yardmaster-session"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CrewStopped(ctx, "yardmaster", "test"); err != nil {
