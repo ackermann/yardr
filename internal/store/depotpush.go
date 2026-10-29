@@ -845,21 +845,6 @@ func (w *wtx) approveDepotPush(ctx context.Context, row *beadRow, r *ResolvedAsk
 	return &AskApproved{Bead: row.ID, Ask: seq, Asker: r.Note.Author, Argv: argv, Does: was.Does, Result: CarryPending}, nil
 }
 
-// DepotPushCarryOf is a claimed depot-push carrying record held to
-// the boot that claims it, for the server that carries it out.
-func (w *wtx) claimedDepotPushCarry(bead string, ask uint64, boot string) (*Carry, error) {
-	var rec Carry
-	ok, err := get(w.Tx, bCarry, carryKey(bead, ask), &rec)
-	if err != nil {
-		return nil, err
-	}
-	if !ok || rec.State != CarryClaimed || rec.Boot != boot || len(rec.Argv) != 2 ||
-		rec.Argv[0] != "depot-push" && rec.Argv[0] != "depot-push-off" {
-		return nil, fmt.Errorf("depot-push ask %d on %s is not claimed by this server", ask, bead)
-	}
-	return &rec, nil
-}
-
 // SetAssemblyCmd makes the cmd half of a depot-push of depot as off
 // says, in one write, for the server that carries an approved card
 // out: it answers whether the cmd changed. It is idempotent: a cmd

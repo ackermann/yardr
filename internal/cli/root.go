@@ -240,7 +240,7 @@ type noTerminal struct{ msg string }
 func (e noTerminal) Error() string { return e.msg }
 
 // resolveActor is who this run acts as: --actor, else the session's
-// actor, else the login (see config.Actor). It fails only when the login
+// actor, else the login (see config.ActorWith). It fails only when the login
 // must come from the OS and that lookup does not answer.
 func (a *app) resolveActor() (string, error) {
 	if a.actor != "" {

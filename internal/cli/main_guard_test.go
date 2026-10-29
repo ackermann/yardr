@@ -102,7 +102,7 @@ func TestTheTestBinaryIsNotYardr(t *testing.T) {
 // names no home: it has the one TestMain left it.
 func TestNoCommandReachesTheMachinesYard(t *testing.T) {
 	// Where a test that clears the variables ends up: no yard is there.
-	// Resolving a home creates its directory (config.Load), so the
+	// Resolving a home creates its directory (config.LoadWith), so the
 	// directory itself may stand from another test's run; the store is
 	// what a yard is.
 	user, err := os.UserHomeDir()

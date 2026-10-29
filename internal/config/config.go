@@ -98,48 +98,22 @@ type Config struct {
 	WebPagesHost string
 }
 
-// UseHome makes dir the home of this process and of every process it
-// starts: the --home flag. It is made absolute here and put in the
-// environment, in place of what YARDR_HOME said, so Load
-// finds it and a server, daemon, agent or script started from here is in the
-// same yard without each start having to pass it on.
-func UseHome(dir string) error {
-	if dir == "" {
-		return errors.New("--home needs a directory")
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return err
-	}
-	for _, kv := range Env("HOME", abs) {
-		k, v, _ := strings.Cut(kv, "=")
-		if err := os.Setenv(k, v); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // MaxSocket bounds the socket path: a unix socket's path must fit in
 // sun_path, 108 bytes on Linux and 104 on macOS, so with room to spare.
 const MaxSocket = 100
 
-// Load resolves the home (--home by way of UseHome, else YARDR_HOME, else
-// DefaultHome), creating it on first use.
+// LoadWith resolves the home (--home, else YARDR_HOME, else DefaultHome),
+// creating it on first use, from get's YARDR_* values instead of the
+// process's: get is a lookup in the shape of Getenv, called with short
+// names ("HOME", "WEB_ADDR"). Only those reads move to the lookup; the
+// default home and a relative home's resolution stay on the process's user
+// home and directory.
 // A home whose socket path would not fit a unix socket is refused before
 // anything is created in it. The home is made absolute here, once: every
 // process this one starts (the server, agents, scripts) gets it in its
 // environment and runs somewhere else, where a relative YARDR_HOME=y1
 // would name a different directory, or none, and exit 2 on the first
 // command.
-func Load() (*Config, error) { return LoadWith(Getenv) }
-
-// LoadWith resolves the home as Load does, from get's YARDR_* values
-// instead of the process's: get is a lookup in the shape of Getenv,
-// called with short names ("HOME", "WEB_ADDR"). Only those reads move
-// to the lookup; the default home and a relative home's resolution
-// stay on the process's user home and directory. Load is this with the
-// process lookup, sharing the one body.
 func LoadWith(get func(string) string) (*Config, error) {
 	c, err := LoadReadOnlyWith(get)
 	if err != nil {
@@ -151,17 +125,12 @@ func LoadWith(get func(string) string) (*Config, error) {
 	return c, nil
 }
 
-// LoadReadOnly resolves the home as Load does but creates nothing: for
-// commands that must leave a home with no yard as they found it (doctor,
-// which says that it creates nothing, status, which says that it is
-// read-only, and server status, which only asks whether the server
-// answers). A home whose socket path would not fit a unix socket is
-// refused, as by Load.
-func LoadReadOnly() (*Config, error) { return LoadReadOnlyWith(Getenv) }
-
-// LoadReadOnlyWith resolves the home as LoadReadOnly does, from get's
-// YARDR_* values instead of the process's, and creates nothing, as
-// LoadReadOnly creates nothing.
+// LoadReadOnlyWith resolves the home as LoadWith does, from get's YARDR_*
+// values instead of the process's, but creates nothing: for commands that
+// must leave a home with no yard as they found it (doctor, which says that
+// it creates nothing, status, which says that it is read-only, and server
+// status, which only asks whether the server answers). A home whose
+// socket path would not fit a unix socket is refused, as by LoadWith.
 func LoadReadOnlyWith(get func(string) string) (*Config, error) {
 	home := get("HOME")
 	if home == "" {
@@ -247,7 +216,7 @@ func (c *Config) ApplyLock() string { return filepath.Join(c.Home, "apply.lock")
 
 // AcquireApplyLock takes the yard's apply lock (ApplyLock), waiting while
 // another process holds it, and returns its release. The home is made
-// first, as Load makes it, since a terminal command may reach for the
+// first, as LoadWith makes it, since a terminal command may reach for the
 // lock of a home nothing has created yet.
 func AcquireApplyLock(home string) (func(), error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
@@ -418,14 +387,14 @@ var currentUser = user.Current
 var UserLookupTimeout = 2 * time.Second
 
 // errUserLookupTimeout is the LookupUsername error when the lookup does not
-// answer in time. Callers fall through to their next name; Actor, which has
-// none, fails instead, with how to name one.
+// answer in time. Callers fall through to their next name; ActorWith, which
+// has none, fails instead, with how to name one.
 var errUserLookupTimeout = errors.New("the system's user lookup did not answer")
 
 // LookupUsername is the username lookup answers with, bounded by
 // UserLookupTimeout: errUserLookupTimeout when it does not answer in time,
 // the lookup's error when it answers with none. The one bounded lookup,
-// shared by Actor and the login name (yardr-tbm4, yardr-8ms7).
+// shared by ActorWith and the login name (yardr-tbm4, yardr-8ms7).
 func LookupUsername(lookup func() (*user.User, error)) (string, error) {
 	type lookedUp struct {
 		name string
@@ -453,18 +422,14 @@ func LookupUsername(lookup func() (*user.User, error)) (string, error) {
 	}
 }
 
-// Actor names who is acting: YARDR_ACTOR, else the login name ($USER,
-// then the OS user's), else "unknown". A named actor never reaches the
-// OS: the lookup runs only when neither names one. It fails when the
-// lookup does not answer in time, with how to name one, instead of
-// hanging; a lookup that answers with no user is "unknown", as before.
-func Actor() (string, error) { return ActorWith(os.Getenv) }
-
-// ActorWith names who is acting as Actor does, from get's values
-// instead of the process's: get is a lookup in the shape of os.Getenv,
-// called with full keys ("YARDR_ACTOR", "USER"), since one of the two
-// reads is not a YARDR_* variable. The OS lookup and its timeout stay
-// as they are: a named actor never reaches them.
+// ActorWith names who is acting: YARDR_ACTOR, else the login name ($USER,
+// then the OS user's), else "unknown", from get's values instead of the
+// process's: get is a lookup in the shape of os.Getenv, called with full
+// keys ("YARDR_ACTOR", "USER"), since one of the two reads is not a
+// YARDR_* variable. A named actor never reaches the OS: the lookup runs
+// only when neither names one. It fails when the lookup does not answer
+// in time, with how to name one, instead of hanging; a lookup that
+// answers with no user is "unknown", as before.
 func ActorWith(get func(string) string) (string, error) {
 	if a := get(prefix + "ACTOR"); a != "" {
 		return a, nil

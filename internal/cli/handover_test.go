@@ -36,7 +36,7 @@ func stubChat(t *testing.T) *[]string {
 // process: defaultOperator reads $USER there, with no run to ask.
 func actAsOperator(t *testing.T) {
 	t.Helper()
-	actor, err := config.Actor()
+	actor, err := config.ActorWith(os.Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}

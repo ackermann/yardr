@@ -70,7 +70,7 @@ type ConfigKey struct {
 
 // ConfigKeys are the keys yardr reads from a group's or a crew member's
 // config. A key that is not here is read by nothing: PutGroup, SetGroup and
-// PutCrew refuse to add one (ConfigError), so a misspelt key is told where
+// PutCrew refuse to add one (ConfigProblems), so a misspelt key is told where
 // it is written instead of being stored and ignored.
 var ConfigKeys = []ConfigKey{
 	{"cmd", ConfigString, []string{"exec"}, GroupConfig, "the command a session runs, through sh -c (required)"},
@@ -116,7 +116,7 @@ var ConfigKeys = []ConfigKey{
 // test's, one a later build adds) it knows no key, and says nothing.
 var configRunners = []string{"exec", "herdr", "manual", PeerRunner}
 
-// ErrUnknownConfigKey is what ConfigError's refusal of a key no code reads
+// ErrUnknownConfigKey is what ConfigProblems' refusal of a key no code reads
 // wraps, for a caller that goes on without the key (Exec.Start: the group
 // was stored before keys were checked).
 var ErrUnknownConfigKey = errors.New("unknown config key")
@@ -138,15 +138,6 @@ func ConfigKeysOf(of ConfigOf, runner string) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-// ConfigError reports why the config cfg of name, a group or a crew member
-// of the named runner, cannot be stored: the first of ConfigProblems.
-func ConfigError(of ConfigOf, name, runner string, cfg map[string]any) error {
-	if ps := ConfigProblems(of, name, runner, cfg); len(ps) > 0 {
-		return ps[0]
-	}
-	return nil
 }
 
 // ConfigProblems is everything wrong with the config cfg of name, a group

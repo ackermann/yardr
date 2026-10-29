@@ -1,7 +1,8 @@
 // Package limits says what a harness kind's subscription still carries: the
-// windows of its usage limit, how far each is used and when it resets. Ask
-// and AskFor are the whole of it for a caller, which decides that it wants
-// to know and what to do with the answer, and does not know how the answer
+// windows of its usage limit, how far each is used and when it resets.
+// Answerers, Resolve and SelfAnswerer are the whole of it for a caller,
+// which finds the source that answers and asks it, deciding that it wants
+// to know and what to do with the answer, and not knowing how the answer
 // is got.
 //
 // yardr holds no provider logic. The answer comes from a source of the yard
@@ -16,7 +17,7 @@
 // Asking is not free and not harmless: a provider may be slow, may be
 // bounded itself in how often it is asked, and may renew a stored login as
 // it reads it. So nothing here asks by itself, remembers an answer or
-// repeats an ask: every call of either is one run of the command, and whoever
+// repeats an ask: every ask is one run of the command, and whoever
 // calls says when. Nothing is written by this package: no log, no event.
 package limits
 
@@ -235,64 +236,6 @@ func Answerers(ctx context.Context, st Store, home string) ([]Answerer, error) {
 	return out, nil
 }
 
-// Ask asks the source of the yard that answers for kind what the kind's
-// subscription still carries, now: one run of its command. home is the
-// yard's home. The error is a *NoSource when no source maps the kind, and
-// otherwise why the provider gave no answer.
-func Ask(ctx context.Context, st Store, home, kind string) (*Report, error) {
-	as, err := Answerers(ctx, st, home)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range as {
-		if _, ok := a.Limits.Kinds[kind]; ok {
-			return a.Ask(ctx, kind)
-		}
-	}
-	return nil, &NoSource{Kind: kind}
-}
-
-// AskFor asks what the subscription still carries of an agent of kind with
-// the provider setting: one run of the answering source's command. home is
-// the yard's home. With the setting, the first source by name whose kinds
-// table names it is asked, even where no table lists the kind; without it,
-// the kind resolves through the kinds table exactly as Ask does. The error
-// is a *NoSource naming the provider where no source names it, and
-// otherwise why the provider gave no answer.
-func AskFor(ctx context.Context, st Store, home, kind, provider string) (*Report, error) {
-	as, err := Answerers(ctx, st, home)
-	if err != nil {
-		return nil, err
-	}
-	a, name, ok := Resolve(as, kind, provider)
-	if !ok {
-		if provider != "" {
-			return nil, &NoSource{Provider: provider}
-		}
-		return nil, &NoSource{Kind: kind}
-	}
-	if provider != "" {
-		return a.AskName(ctx, name)
-	}
-	return a.Ask(ctx, kind)
-}
-
-// AskSource asks the source named name for what it says of itself: one run
-// of its command. home is the yard's home. Only a source whose limits key
-// names no kinds answers; the error is a *NoSource naming the source where
-// none does, and otherwise why the source gave no answer.
-func AskSource(ctx context.Context, st Store, home, name string) (*Report, error) {
-	as, err := Answerers(ctx, st, home)
-	if err != nil {
-		return nil, err
-	}
-	a, ok := SelfAnswerer(as, name)
-	if !ok {
-		return nil, &NoSource{Source: name}
-	}
-	return a.AskSelf(ctx)
-}
-
 // SelfAnswerer is the source named name where it answers for itself: one
 // whose limits key names no kinds.
 func SelfAnswerer(as []Answerer, name string) (Answerer, bool) {
@@ -308,9 +251,9 @@ func SelfAnswerer(as []Answerer, name string) (Answerer, bool) {
 // and the source that answers for it, without asking. With the setting, the
 // provider is the setting, answered by the first source by name whose kinds
 // table names it among its values; without it, the kinds table's mapping of
-// the kind through the first source by name that lists it, as Ask picks. ok
-// is false when no source answers: name is then the setting where one is
-// set, else "".
+// the kind through the first source by name that lists it. ok is false
+// when no source answers: name is then the setting where one is set,
+// else "".
 func Resolve(as []Answerer, kind, provider string) (a Answerer, name string, ok bool) {
 	if provider != "" {
 		for _, a := range as {

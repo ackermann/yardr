@@ -363,9 +363,8 @@ func TestBuiltinMachineResolvesAndYields(t *testing.T) {
 	if err != nil || len(as) != 0 {
 		t.Fatalf("a machine that says no limits answers %+v, %v", as, err)
 	}
-	var none *NoSource
-	if _, err := AskSource(ctx, st, home, "machine"); !errors.As(err, &none) || none.Source != "machine" {
-		t.Fatalf("AskSource(machine) = %v", err)
+	if _, ok := SelfAnswerer(as, "machine"); ok {
+		t.Fatal("a machine that says no limits answers for itself")
 	}
 	// Beside a declared source the built-in keeps its place by name.
 	st = sources{

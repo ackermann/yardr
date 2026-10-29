@@ -55,7 +55,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	if err := config.UseHome(filepath.Join(nowhere, "y")); err != nil {
+	if err := os.Setenv(config.Key("HOME"), filepath.Join(nowhere, "y")); err != nil {
 		panic(err)
 	}
 	for _, kv := range []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_AUTHOR_NAME=t",

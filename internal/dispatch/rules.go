@@ -572,10 +572,6 @@ type ruleResult struct {
 	closed                   bool // the event's successful move closed the bead
 }
 
-func did(format string, args ...any) *ruleResult {
-	return &ruleResult{action: fmt.Sprintf(format, args...)}
-}
-
 func ignored(format string, args ...any) *ruleResult {
 	return &ruleResult{ignored: fmt.Sprintf(format, args...)}
 }

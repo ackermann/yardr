@@ -58,7 +58,7 @@ func (a *app) setenv(key, value string) {
 // useHome makes dir the home of this run and of every child it starts:
 // the --home flag. It is made absolute here, against the process's
 // directory, because the children run elsewhere; the process's own
-// environment is left alone (config.UseHome is the process's form).
+// environment is left alone.
 func (a *app) useHome(dir string) error {
 	if dir == "" {
 		return errors.New("--home needs a directory")
@@ -112,7 +112,7 @@ func (a *app) config() (*config.Config, error) {
 
 // configReadOnly is the yard's home as config resolves it, creating
 // nothing, for the commands that must leave a home with no yard as they
-// found it (see config.LoadReadOnly).
+// found it (see config.LoadReadOnlyWith).
 func (a *app) configReadOnly() (*config.Config, error) {
 	if a.cfg != nil {
 		return a.cfg, nil

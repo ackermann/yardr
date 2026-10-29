@@ -42,6 +42,21 @@ func yard(program string) sources {
 	}
 }
 
+// ask asks the yard's sources for kind through the pipeline a caller uses:
+// Answerers, Resolve, then the answerer's Ask. Where no source answers for
+// the kind, the error is the *NoSource a caller reports.
+func ask(ctx context.Context, st Store, home, kind string) (*Report, error) {
+	as, err := Answerers(ctx, st, home)
+	if err != nil {
+		return nil, err
+	}
+	a, _, ok := Resolve(as, kind, "")
+	if !ok {
+		return nil, &NoSource{Kind: kind}
+	}
+	return a.Ask(ctx, kind)
+}
+
 // kimi is what aiquokka printed for Kimi on 6 Oct 2026, with the keys it
 // has added since: a window used up, and one that is not.
 const kimi = `{"provider":"Kimi","plan":"Allegretto","windows":[` +
@@ -60,7 +75,7 @@ func TestAsk(t *testing.T) {
 	t.Setenv("QUOKKA_TEST", "from the caller")
 	p := standIn(t, `{ echo "args: $*"; echo "dir: $(pwd)"; echo "env: $QUOKKA_TEST"; echo "stdin: $(cat)"; } >`+seen+`; echo '`+kimi+`'`)
 	before := time.Now()
-	r, err := Ask(context.Background(), yard(p), home, "kimi")
+	r, err := ask(context.Background(), yard(p), home, "kimi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,24 +98,33 @@ func TestAsk(t *testing.T) {
 		t.Fatalf("UsedUp = %+v", w)
 	}
 
-	// A kind no source lists is not asked for: nothing is known, as in a
-	// yard that never heard of limits.
+	// A kind no source lists resolves to nothing, and is not asked for:
+	// nothing is known, as in a yard that never heard of limits.
 	os.Remove(seen)
-	var none *NoSource
-	if _, err := Ask(context.Background(), yard(p), home, "codex"); !errors.As(err, &none) || none.Kind != "codex" || !strings.Contains(err.Error(), "no source of this yard says the limits of codex") {
-		t.Fatalf("a kind no source lists: %v", err)
+	as, err := Answerers(context.Background(), yard(p), home)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := Ask(context.Background(), sources{}, home, "kimi"); !errors.As(err, &none) {
-		t.Fatalf("a yard with no source: %v", err)
+	if _, _, ok := Resolve(as, "codex", ""); ok {
+		t.Fatal("a kind no source lists resolves")
+	}
+	empty, err := Answerers(context.Background(), sources{}, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := Resolve(empty, "kimi", ""); ok {
+		t.Fatal("a yard with no source resolves")
+	}
+	if err := (&NoSource{Kind: "codex"}).Error(); !strings.Contains(err, "no source of this yard says the limits of codex") {
+		t.Fatalf("a kind no source lists reports %q", err)
 	}
 	if _, err := os.Stat(seen); err == nil {
 		t.Fatal("the command was run for a kind it does not answer for")
 	}
 
-	as, err := Answerers(context.Background(), yard(p), home)
-	if err != nil || len(as) != 2 || as[0].Source != "machine" || !as[0].Builtin || as[0].Missing() != nil ||
+	if len(as) != 2 || as[0].Source != "machine" || !as[0].Builtin || as[0].Missing() != nil ||
 		as[1].Source != "quokka" || as[1].Builtin || as[1].Missing() != nil {
-		t.Fatalf("Answerers = %+v, %v", as, err)
+		t.Fatalf("Answerers = %+v", as)
 	}
 	if as, _ = Answerers(context.Background(), yard(filepath.Join(home, "nope")), home); len(as) != 2 || as[0].Missing() != nil ||
 		as[1].Missing() == nil || !strings.Contains(as[1].Missing().Error(), "limits command "+filepath.Join(home, "nope")) {
@@ -150,10 +174,10 @@ func TestAnswererEnv(t *testing.T) {
 	}
 }
 
-// A source whose limits key names no kinds answers for itself: AskSource
-// runs its command as the file has it, with no provider substituted, and
-// the report is what it printed. A source with kinds, or no source of the
-// name, is not asked: nothing is known.
+// A source whose limits key names no kinds answers for itself: its command
+// runs as the file has it, with no provider substituted, and the report is
+// what it printed. A source with kinds, or no source of the name, is not
+// asked: nothing is known.
 func TestAskSource(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -163,7 +187,15 @@ func TestAskSource(t *testing.T) {
 		{Name: "machine", Text: "name: machine\nlimits:\n  command: [" + p + ", --target, load=80]\n"},
 		{Name: "quokka", Text: "name: quokka\nlimits:\n  command: [" + p + ", \"{provider}\", --json]\n  kinds: { kimi: moonshot }\n"},
 	}
-	r, err := AskSource(ctx, st, home, "machine")
+	as, err := Answerers(ctx, st, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, ok := SelfAnswerer(as, "machine")
+	if !ok {
+		t.Fatal("the source that answers for itself does not resolve")
+	}
+	r, err := self.AskSelf(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,29 +208,30 @@ func TestAskSource(t *testing.T) {
 	}
 
 	os.Remove(seen)
-	var none *NoSource
-	if _, err := AskSource(ctx, st, home, "quokka"); !errors.As(err, &none) || none.Source != "quokka" ||
-		err.Error() != "no source named quokka says limits of itself (a source with a limits key and no kinds: yardr source --help)" {
-		t.Fatalf("a source with kinds, asked for itself: %v", err)
+	if _, ok := SelfAnswerer(as, "quokka"); ok {
+		t.Fatal("a source with kinds resolves for itself")
 	}
-	if _, err := AskSource(ctx, st, home, "ghost"); !errors.As(err, &none) || none.Source != "ghost" {
-		t.Fatalf("no source of the name: %v", err)
+	if err := (&NoSource{Source: "quokka"}).Error(); err != "no source named quokka says limits of itself (a source with a limits key and no kinds: yardr source --help)" {
+		t.Fatalf("a source with kinds, asked for itself, reports %q", err)
+	}
+	if _, ok := SelfAnswerer(as, "ghost"); ok {
+		t.Fatal("no source of the name resolves")
 	}
 	if _, err := os.Stat(seen); err == nil {
 		t.Fatal("the command was run for a source that answers for nothing of its own")
 	}
 	// Asking by kind never reaches a source that answers for itself: no
 	// table lists a kind for it.
-	if _, err := Ask(ctx, st, home, "machine"); !errors.As(err, &none) || none.Kind != "machine" {
-		t.Fatalf("Ask(machine) = %v", err)
+	if _, _, ok := Resolve(as, "machine", ""); ok {
+		t.Fatal("a source that answers for itself resolves by kind")
 	}
 }
 
-// A group or crew member may say which subscription it burns: AskFor asks
-// for the provider setting, through the first source by name whose kinds
-// table names it among its values, even where no table lists the kind
-// (yardr-368s). Without the setting it resolves through the kinds table
-// exactly as Ask does.
+// A group or crew member may say which subscription it burns: with the
+// provider setting, the ask goes through the first source by name whose
+// kinds table names it among its values, even where no table lists the
+// kind (yardr-368s). Without the setting the kind resolves through the
+// kinds table as a bare kind does.
 func TestAskFor(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -208,15 +241,23 @@ func TestAskFor(t *testing.T) {
 		{Name: "zeta", Text: "name: zeta\nlimits:\n  command: [" + p + ", \"{provider}\", --json]\n  kinds: { kimi: moonshot }\n"},
 		{Name: "alpha", Text: "name: alpha\nlimits:\n  command: [" + p + ", \"{provider}\", --json]\n  kinds: { pi: zai, kimi: moonshot }\n"},
 	}
+	as, err := Answerers(ctx, st, home)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// With the setting, the first source by name that names the provider
 	// is asked, though no table lists the kind.
-	r, err := AskFor(ctx, st, home, "grok", "moonshot")
+	a, name, ok := Resolve(as, "grok", "moonshot")
+	if !ok {
+		t.Fatal("a provider a source names does not resolve")
+	}
+	r, err := a.AskName(ctx, name)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.Source != "alpha" || r.Provider != "Kimi" {
-		t.Fatalf("AskFor(grok, moonshot) = %+v", r)
+		t.Fatalf("(grok, moonshot) = %+v", r)
 	}
 	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
 		t.Fatalf("the command saw %q", got)
@@ -224,8 +265,10 @@ func TestAskFor(t *testing.T) {
 	// The setting wins over the kind's mapping: alpha maps pi to zai,
 	// and is asked for moonshot all the same.
 	os.Remove(seen)
-	if r, err = AskFor(ctx, st, home, "pi", "moonshot"); err != nil || r.Source != "alpha" {
-		t.Fatalf("AskFor(pi, moonshot) = %+v, %v", r, err)
+	if a, name, ok = Resolve(as, "pi", "moonshot"); !ok {
+		t.Fatal("a provider a source names does not resolve")
+	} else if r, err = a.AskName(ctx, name); err != nil || r.Source != "alpha" {
+		t.Fatalf("(pi, moonshot) = %+v, %v", r, err)
 	}
 	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
 		t.Fatalf("the command saw %q", got)
@@ -234,39 +277,38 @@ func TestAskFor(t *testing.T) {
 	// A provider no source names is not asked for, and the failure names
 	// the provider.
 	os.Remove(seen)
-	var none *NoSource
-	if _, err := AskFor(ctx, st, home, "grok", "other"); !errors.As(err, &none) || none.Provider != "other" ||
-		err.Error() != "no source of this yard answers for provider other (a source with a limits key whose kinds name it)" {
-		t.Fatalf("a provider no source names: %v", err)
+	if _, _, ok := Resolve(as, "grok", "other"); ok {
+		t.Fatal("a provider no source names resolves")
+	}
+	if err := (&NoSource{Provider: "other"}).Error(); err != "no source of this yard answers for provider other (a source with a limits key whose kinds name it)" {
+		t.Fatalf("a provider no source names reports %q", err)
 	}
 	if _, err := os.Stat(seen); err == nil {
 		t.Fatal("the command was run for a provider no source names")
 	}
 
-	// Without the setting, the kind resolves through the kinds table
-	// exactly as Ask does.
+	// Without the setting, the kind resolves through the kinds table as
+	// a bare kind does.
 	os.Remove(seen)
-	r, err = AskFor(ctx, st, home, "kimi", "")
-	if err != nil {
+	if a, _, ok = Resolve(as, "kimi", ""); !ok {
+		t.Fatal("a kind a source lists does not resolve")
+	} else if r, err = a.Ask(ctx, "kimi"); err != nil {
 		t.Fatal(err)
 	}
 	if r.Source != "alpha" {
-		t.Fatalf("AskFor(kimi, \"\") = %+v", r)
+		t.Fatalf("(kimi, \"\") = %+v", r)
 	}
 	if got, _ := os.ReadFile(seen); string(got) != "args: moonshot --json\n" {
 		t.Fatalf("the command saw %q", got)
 	}
-	if _, err := AskFor(ctx, st, home, "codex", ""); !errors.As(err, &none) || none.Kind != "codex" || none.Provider != "" {
-		t.Fatalf("a kind no source lists: %v", err)
-	} else if _, askErr := Ask(ctx, st, home, "codex"); askErr == nil || askErr.Error() != err.Error() {
-		t.Fatalf("AskFor without the setting fails as %v, Ask as %v", err, askErr)
+	if _, _, ok := Resolve(as, "codex", ""); ok {
+		t.Fatal("a kind no source lists resolves")
 	}
 
 	// Provides is whether the source names the provider among its kinds
 	// values, and AskName runs its command with the name directly.
-	as, err := Answerers(ctx, st, home)
-	if err != nil || len(as) != 3 || as[0].Source != "alpha" || as[1].Source != "machine" || !as[1].Builtin || as[2].Source != "zeta" {
-		t.Fatalf("Answerers = %+v, %v", as, err)
+	if len(as) != 3 || as[0].Source != "alpha" || as[1].Source != "machine" || !as[1].Builtin || as[2].Source != "zeta" {
+		t.Fatalf("Answerers = %+v", as)
 	}
 	if !as[0].Provides("zai") || !as[0].Provides("moonshot") || as[0].Provides("other") || !as[2].Provides("moonshot") || as[2].Provides("zai") {
 		t.Fatal("Provides is not the kinds values")
@@ -288,7 +330,7 @@ func TestAskReadsTheTarget(t *testing.T) {
 		`{"label":"5h","used_percent":60,"target_percent":55.5},`+
 		`{"label":"Weekly","used_percent":38,"target_percent":17,"used":38,"limit":100},`+
 		`{"label":"Session","used_percent":10}]}'`)
-	r, err := Ask(context.Background(), yard(p), t.TempDir(), "claude")
+	r, err := ask(context.Background(), yard(p), t.TempDir(), "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +414,7 @@ func TestAskThatIsNotAnswered(t *testing.T) {
 		if name == "not there" {
 			os.Remove(p)
 		}
-		r, err := Ask(context.Background(), yard(p), t.TempDir(), "kimi")
+		r, err := ask(context.Background(), yard(p), t.TempDir(), "kimi")
 		if err == nil {
 			t.Errorf("%s: an answer: %+v", name, r)
 			continue
@@ -399,7 +441,7 @@ func TestAskThatIsNotAnswered(t *testing.T) {
 func TestAskReadsWhatIsLeftOut(t *testing.T) {
 	p := standIn(t, `echo '{"provider":"Claude","windows":[{"label":"5h","used_percent":99.5},{"label":"Weekly","resets_at":"0001-01-01T00:00:00Z","used":7,"limit":7},{"label":"Open","used":0,"limit":0},`+
 		`{"label":"Blank","model":" ","used_percent":1},{"label":"Weekly Fable","model":" Fable ","used_percent":100}]}'`)
-	r, err := Ask(context.Background(), yard(p), t.TempDir(), "claude")
+	r, err := ask(context.Background(), yard(p), t.TempDir(), "claude")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +475,7 @@ func TestAskReadsWhatIsLeftOut(t *testing.T) {
 		t.Fatalf("UsedUp = %+v", w)
 	}
 	p = standIn(t, `echo '{"provider":"Claude","windows":[]}'`)
-	if r, err = Ask(context.Background(), yard(p), t.TempDir(), "claude"); err != nil || len(r.Windows) != 0 || r.UsedUp() != nil {
+	if r, err = ask(context.Background(), yard(p), t.TempDir(), "claude"); err != nil || len(r.Windows) != 0 || r.UsedUp() != nil {
 		t.Fatalf("no window = %+v, %v", r, err)
 	}
 }
@@ -567,7 +609,7 @@ func TestAskGivesUpAtTheTimeoutAndLeavesNoProcess(t *testing.T) {
 		timeUp()
 	}()
 	start := time.Now()
-	_, err := Ask(ctx, yard(p), t.TempDir(), "kimi")
+	_, err := ask(ctx, yard(p), t.TempDir(), "kimi")
 	if err == nil || !strings.Contains(err.Error(), "no answer before the caller's deadline; its stderr ended: refreshing the login") {
 		t.Fatalf("err = %v", err)
 	}
@@ -636,7 +678,7 @@ func TestAskTimeout(t *testing.T) {
 	Timeout = 50 * time.Millisecond
 	t.Cleanup(func() { Timeout = old })
 	start := time.Now()
-	_, err := Ask(context.Background(), yard(standIn(t, `exec sleep 300`)), t.TempDir(), "kimi")
+	_, err := ask(context.Background(), yard(standIn(t, `exec sleep 300`)), t.TempDir(), "kimi")
 	if err == nil || !strings.Contains(err.Error(), "no answer within 50ms") {
 		t.Fatalf("err = %v", err)
 	}

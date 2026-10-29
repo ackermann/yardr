@@ -124,7 +124,7 @@ func TestOnboardingStartsTheYard(t *testing.T) {
 	if len(*focused) != 0 || !slices.Equal(*chats, []string{"yardmaster, expecting yardmaster"}) {
 		t.Fatalf("focused %v, chats %v\n%s", *focused, *chats, out)
 	}
-	actor, aerr := config.Actor()
+	actor, aerr := config.ActorWith(os.Getenv)
 	if aerr != nil {
 		t.Fatal(aerr)
 	}

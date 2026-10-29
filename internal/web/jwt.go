@@ -83,8 +83,7 @@ type jwtIdentity struct {
 	authTime time.Time
 }
 
-// jwtUserKey is the request's verified JWT identity (RequestUser,
-// RequestExpiry).
+// jwtUserKey is the request's verified JWT identity (RequestExpiry).
 type jwtUserKey struct{}
 
 // jwtIdentityOf is the identity the request's verified gateway token
@@ -95,11 +94,6 @@ func jwtIdentityOf(ctx context.Context) jwtIdentity {
 	id, _ := ctx.Value(jwtUserKey{}).(jwtIdentity)
 	return id
 }
-
-// RequestUser is the yard user the request's verified gateway token mapped
-// to, "" when the view is not in JWT mode or the request carried no
-// verified token (/health, and every request with JWT mode off).
-func RequestUser(r *http.Request) string { return jwtIdentityOf(r.Context()).user }
 
 // RequestExpiry is when the request's verified gateway token expires, the
 // zero time when the request carried no verified token.

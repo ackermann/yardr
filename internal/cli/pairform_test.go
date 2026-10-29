@@ -715,7 +715,7 @@ func TestSetupOffersTheLink(t *testing.T) {
 	if !slices.Equal(keysOf(f), []string{"link"}) {
 		t.Fatalf("asked %q", keysOf(f))
 	}
-	actor, aerr := config.Actor()
+	actor, aerr := config.ActorWith(os.Getenv)
 	if aerr != nil {
 		t.Fatal(aerr)
 	}

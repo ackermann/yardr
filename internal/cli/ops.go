@@ -859,7 +859,7 @@ named like a secret (token, secret, password, key) is not printed.`,
 				e.Members = &members
 			}
 			// The store holds the group as it would be to what its runner
-			// reads (store.ConfigError), as it does for group add.
+			// reads (store.ConfigProblems), as it does for group add.
 			ch, err := st.SetGroup(ctx, name, e, a.who())
 			if err != nil {
 				return bareSetHint(err)

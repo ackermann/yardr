@@ -74,7 +74,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	if err := config.UseHome(filepath.Join(nowhere, "y")); err != nil {
+	if err := os.Setenv(config.Key("HOME"), filepath.Join(nowhere, "y")); err != nil {
 		panic(err)
 	}
 	// Git's identity and configuration are the same for every test, and

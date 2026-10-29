@@ -1165,7 +1165,7 @@ func nameField(operator *string, get func(string) string) *huh.Input {
 
 // actsAs refuses a name for the operator that this terminal does not act
 // as, which get, the run's environment, names. The operator is a user, and
-// a user is who commands act as (config.Actor): under another name the
+// a user is who commands act as (config.ActorWith): under another name the
 // person who made the yard would be no user of it, with no chat and an
 // inbox nobody reads (yardr-cj66).
 func actsAs(get func(string) string) func(name string) error {

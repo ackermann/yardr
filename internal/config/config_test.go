@@ -17,7 +17,7 @@ func TestGetenv(t *testing.T) {
 	if got := Getenv("ACTOR"); got != "new" {
 		t.Fatalf("Getenv(ACTOR) = %q, want new", got)
 	}
-	if got, err := Actor(); err != nil || got != "new" {
+	if got, err := ActorWith(os.Getenv); err != nil || got != "new" {
 		t.Fatalf("Actor = %q, %v, want new", got, err)
 	}
 	t.Setenv("YARDR_ACTOR", "")
@@ -33,19 +33,19 @@ func TestGetenv(t *testing.T) {
 func TestActorFallsBackToLogin(t *testing.T) {
 	t.Setenv("YARDR_ACTOR", "")
 	t.Setenv("USER", "kloni")
-	if got, err := Actor(); err != nil || got != "kloni" {
+	if got, err := ActorWith(os.Getenv); err != nil || got != "kloni" {
 		t.Fatalf("USER=kloni: Actor = %q, %v, want kloni", got, err)
 	}
 	t.Setenv("USER", "")
-	if got, err := Actor(); err != nil || got == "" || got == "kloni" {
+	if got, err := ActorWith(os.Getenv); err != nil || got == "" || got == "kloni" {
 		t.Fatalf("no USER: Actor = %q, %v", got, err)
 	}
 }
 
 // yardr-tbm4: with neither YARDR_ACTOR nor USER the actor comes from the
-// OS, and under Codex's sandbox that lookup hangs past signals. Actor
-// bounds it at 2 s and fails with how to name one instead of hanging; a
-// named actor never reaches the lookup.
+// OS, and under Codex's sandbox that lookup hangs past signals. The lookup
+// is bounded at 2 s and fails with how to name one instead of hanging; a
+// named actor never reaches it.
 func TestActorLookupTimeout(t *testing.T) {
 	if UserLookupTimeout != 2*time.Second {
 		t.Fatalf("UserLookupTimeout = %v, want 2s", UserLookupTimeout)
@@ -64,7 +64,7 @@ func TestActorLookupTimeout(t *testing.T) {
 	}
 	UserLookupTimeout = 50 * time.Millisecond
 	start := time.Now()
-	got, err := Actor()
+	got, err := ActorWith(os.Getenv)
 	if elapsed := time.Since(start); elapsed >= time.Second {
 		t.Fatalf("Actor with a blocked lookup took %v, want the 50ms bound", elapsed)
 	}
@@ -85,7 +85,7 @@ func TestActorLookupError(t *testing.T) {
 	if name, err := LookupUsername(currentUser); name != "" || !errors.Is(err, lookupErr) {
 		t.Fatalf("LookupUsername = %q, %v, want the lookup's error", name, err)
 	}
-	if got, err := Actor(); err != nil || got != "unknown" {
+	if got, err := ActorWith(os.Getenv); err != nil || got != "unknown" {
 		t.Fatalf("Actor = %q, %v, want unknown", got, err)
 	}
 }
@@ -98,12 +98,12 @@ func TestActorNamedSkipsLookup(t *testing.T) {
 	}
 	t.Setenv("YARDR_ACTOR", "jo")
 	t.Setenv("USER", "")
-	if got, err := Actor(); err != nil || got != "jo" {
+	if got, err := ActorWith(os.Getenv); err != nil || got != "jo" {
 		t.Fatalf("YARDR_ACTOR=jo: Actor = %q, %v", got, err)
 	}
 	t.Setenv("YARDR_ACTOR", "")
 	t.Setenv("USER", "kloni")
-	if got, err := Actor(); err != nil || got != "kloni" {
+	if got, err := ActorWith(os.Getenv); err != nil || got != "kloni" {
 		t.Fatalf("USER=kloni: Actor = %q, %v", got, err)
 	}
 }
@@ -143,7 +143,7 @@ func TestLoadHome(t *testing.T) {
 	u := t.TempDir()
 	t.Setenv("HOME", u)
 	t.Setenv("YARDR_HOME", filepath.Join(u, "new"))
-	c, err := Load()
+	c, err := LoadWith(Getenv)
 	if err != nil || c.Home != filepath.Join(u, "new") {
 		t.Fatalf("YARDR_HOME: %+v %v", c, err)
 	}
@@ -151,7 +151,7 @@ func TestLoadHome(t *testing.T) {
 	// The home yard had is not read: a ~/.yard left behind is not the yard.
 	t.Setenv("YARDR_HOME", "")
 	os.Mkdir(filepath.Join(u, ".yard"), 0o700)
-	if c, err = Load(); err != nil || c.Home != filepath.Join(u, ".yardr") {
+	if c, err = LoadWith(Getenv); err != nil || c.Home != filepath.Join(u, ".yardr") {
 		t.Fatalf("default home: %+v %v", c, err)
 	}
 }
@@ -259,9 +259,9 @@ func TestLoadReadOnlyWithUsesProcessHomeAndDirectory(t *testing.T) {
 	}
 }
 
-// LoadReadOnly resolves the home as Load does but creates nothing, neither
-// a named home nor the default one: for commands that must leave a home
-// with no yard as they found it.
+// LoadReadOnlyWith resolves the home as LoadWith does but creates nothing,
+// neither a named home nor the default one: for commands that must leave
+// a home with no yard as they found it.
 func TestLoadReadOnlyCreatesNothing(t *testing.T) {
 	// A short directory: the socket path must fit MaxSocket.
 	u, err := os.MkdirTemp("", "ycr")
@@ -271,7 +271,7 @@ func TestLoadReadOnlyCreatesNothing(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(u) })
 	t.Setenv("HOME", u)
 	t.Setenv("YARDR_HOME", filepath.Join(u, "new"))
-	c, err := LoadReadOnly()
+	c, err := LoadReadOnlyWith(Getenv)
 	if err != nil || c.Home != filepath.Join(u, "new") {
 		t.Fatalf("YARDR_HOME: %+v %v", c, err)
 	}
@@ -279,7 +279,7 @@ func TestLoadReadOnlyCreatesNothing(t *testing.T) {
 		t.Fatal("the named home was created")
 	}
 	t.Setenv("YARDR_HOME", "")
-	if c, err = LoadReadOnly(); err != nil || c.Home != filepath.Join(u, ".yardr") {
+	if c, err = LoadReadOnlyWith(Getenv); err != nil || c.Home != filepath.Join(u, ".yardr") {
 		t.Fatalf("default home: %+v %v", c, err)
 	}
 	if _, err := os.Stat(filepath.Join(u, ".yardr")); err == nil {
@@ -298,7 +298,7 @@ func TestLoadServiceAddressOverrides(t *testing.T) {
 	t.Setenv("YARDR_BDP_ADDR", "127.0.0.1:9002")
 	t.Setenv("YARDR_WEB_PAGES_ADDR", "127.0.0.1:9003")
 	t.Setenv("YARDR_WEB_PAGES_HOST", "pages.example.net")
-	c, err := Load()
+	c, err := LoadWith(Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func TestLoadMakesHomeAbsolute(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	t.Chdir(dir)
 	t.Setenv("YARDR_HOME", "y1/")
-	c, err := Load()
+	c, err := LoadWith(Getenv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestLoadMakesHomeAbsolute(t *testing.T) {
 func TestLoadRefusesALongHome(t *testing.T) {
 	home := filepath.Join(t.TempDir(), strings.Repeat("h", MaxSocket))
 	t.Setenv("YARDR_HOME", home)
-	_, err := Load()
+	_, err := LoadWith(Getenv)
 	if err == nil || !strings.Contains(err.Error(), "too long") || !strings.Contains(err.Error(), "YARDR_HOME") || !strings.Contains(err.Error(), "--home") {
 		t.Fatalf("Load = %v", err)
 	}
@@ -380,7 +380,7 @@ func TestLoadRefusesALongHome(t *testing.T) {
 	short := t.TempDir()
 	home = short + "/" + strings.Repeat("h", MaxSocket-len(short)-len("/yard.sock")-1)
 	t.Setenv("YARDR_HOME", home)
-	if c, err := Load(); err != nil || len(c.Socket()) != MaxSocket {
+	if c, err := LoadWith(Getenv); err != nil || len(c.Socket()) != MaxSocket {
 		t.Fatalf("Load at the bound: %v %v", c, err)
 	}
 }
@@ -414,8 +414,8 @@ func TestIsDefaultHome(t *testing.T) {
 	}
 }
 
-// UseHome, the --home flag, wins over the variable, is
-// made absolute once, and is what a child's environment then says.
+// The --home flag wins over the variable, is made absolute once, and is
+// what a child's environment then says.
 func TestUseHome(t *testing.T) {
 	dir, err := os.MkdirTemp("", "ych")
 	if err != nil {
@@ -424,21 +424,20 @@ func TestUseHome(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	t.Chdir(dir)
 	t.Setenv("YARDR_HOME", filepath.Join(dir, "variable"))
-	if err := UseHome("y1/"); err != nil {
+	abs, err := filepath.Abs("y1/")
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("YARDR_HOME", abs)
 	want := filepath.Join(dir, "y1")
 	if os.Getenv("YARDR_HOME") != want {
 		t.Fatalf("YARDR_HOME=%s, want %s", os.Getenv("YARDR_HOME"), want)
 	}
-	if c, err := Load(); err != nil || c.Home != want {
+	if c, err := LoadWith(Getenv); err != nil || c.Home != want {
 		t.Fatalf("Load = %+v, %v; want %s", c, err, want)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "variable")); err == nil {
 		t.Fatal("the variable's home was created")
-	}
-	if err := UseHome(""); err == nil || os.Getenv("YARDR_HOME") != want {
-		t.Fatalf("UseHome(\"\") = %v, home %s", err, os.Getenv("YARDR_HOME"))
 	}
 }
 

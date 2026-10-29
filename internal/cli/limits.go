@@ -357,9 +357,9 @@ window and resets_at, or the reason under limits_unknown.`,
 	return cmd
 }
 
-// askKind asks for kind under env, as limits.Ask does with the caller's
-// environment: env are the entries of the group whose login is read, nil
-// for the machine's.
+// askKind asks for kind under env: env are the entries of the group whose
+// login is read, nil for the machine's. The first source by name whose
+// kinds table lists the kind is asked.
 func askKind(ctx context.Context, st store.API, home, kind string, env []string) (*limits.Report, error) {
 	as, err := limits.Answerers(ctx, st, home)
 	if err != nil {
@@ -374,10 +374,9 @@ func askKind(ctx context.Context, st store.API, home, kind string, env []string)
 	return nil, &limits.NoSource{Kind: kind}
 }
 
-// askKindFor asks for kind with the provider setting under env, as
-// limits.AskFor does with the caller's environment: with the setting the
-// first source naming the provider is asked for it, without it the kind
-// resolves through the kinds table.
+// askKindFor asks for kind with the provider setting under env: with the
+// setting the first source naming the provider is asked for it, without it
+// the kind resolves through the kinds table.
 func askKindFor(ctx context.Context, st store.API, home, kind, provider string, env []string) (*limits.Report, error) {
 	as, err := limits.Answerers(ctx, st, home)
 	if err != nil {
