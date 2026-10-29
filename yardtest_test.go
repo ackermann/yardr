@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/testload"
 )
 
 // Depot yardr's test command, as it is in this checkout: what a builder and
@@ -3310,7 +3312,8 @@ func plainLockFake(t *testing.T, realGo string) (fake string) {
 // name: the queue publishes the wait as data.
 func plainLockTicket(t *testing.T, cmd *exec.Cmd, qdir, bead string) string {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	fuse := testload.Scale(60 * time.Second)
+	deadline := time.Now().Add(fuse)
 	for {
 		if entries, err := os.ReadDir(qdir); err == nil {
 			for _, e := range entries {
@@ -3328,7 +3331,7 @@ func plainLockTicket(t *testing.T, cmd *exec.Cmd, qdir, bead string) string {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cmd.Process.Kill()
-	t.Fatalf("no ticket for %s in 60 s", bead)
+	t.Fatalf("no ticket for %s in %s", bead, fuse)
 	return ""
 }
 
@@ -3401,7 +3404,7 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	home := t.TempDir()
 	order := filepath.Join(t.TempDir(), "order")
 	release := filepath.Join(t.TempDir(), "release")
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testload.Scale(90*time.Second))
 	defer cancel()
 	dir1, base1, pkgs := plainLockFixture(t, script)
 	dir2, base2, _ := plainLockFixture(t, script)
@@ -3435,7 +3438,7 @@ func TestYardTestWholePlainRunsSerialize(t *testing.T) {
 	// second starts only then, so the two legs cannot interleave by luck.
 	waitOrder := func(mark string) {
 		t.Helper()
-		deadline := time.Now().Add(60 * time.Second)
+		deadline := time.Now().Add(testload.Scale(60 * time.Second))
 		for {
 			if b, _ := os.ReadFile(order); strings.Contains(string(b), mark+"\n") {
 				return
