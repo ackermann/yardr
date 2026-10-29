@@ -927,11 +927,9 @@ func (d *Dispatcher) stopCrew(ctx context.Context, runner Runner, s *memberSessi
 }
 
 func (d *Dispatcher) reportCrew(name, msg string) {
-	key := "crew member|" + name
-	if d.reported[key] == msg {
+	if d.noted("crew member", name, msg) {
 		return
 	}
-	d.reported[key] = msg
 	d.Log.Warn("crew", "crew", name, "problem", msg)
 }
 

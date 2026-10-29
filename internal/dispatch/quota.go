@@ -114,11 +114,9 @@ func (d *Dispatcher) chooseGroup(ctx context.Context, b store.Bead, r *store.Rou
 		return c, false // the daemon is stopping: the provider was not heard out
 	}
 	// Once for a route, not for each percentage a window passes through.
-	key := "quota_wait|" + b.Stage + "|" + r.ID
-	if d.reported[b.ID] == key {
+	if d.noted(b.ID, "quota_wait", b.Stage+"|"+r.ID) {
 		return c, false
 	}
-	d.reported[b.ID] = key
 	data := map[string]any{"stage": b.Stage, "route": r.ID, "passed": c.Passed, "reason": c.Why()}
 	hint := "the bead waits until a group's condition holds"
 	if at := c.Resets(); at != nil {
@@ -204,11 +202,9 @@ func (d *Dispatcher) waitReason(g store.Group, b store.Bead, active map[string]i
 // cannot start now: each group with its reason in words. Once per stage
 // and route until the bead starts, as quota_wait is.
 func (d *Dispatcher) reportGroupWait(ctx context.Context, b store.Bead, r *store.Route, waits []waitedGroup) {
-	key := "group_wait|" + b.Stage + "|" + r.ID
-	if d.reported[b.ID] == key {
+	if d.noted(b.ID, "group_wait", b.Stage+"|"+r.ID) {
 		return
 	}
-	d.reported[b.ID] = key
 	groups := make([]map[string]any, 0, len(waits))
 	reasons := make([]string, 0, len(waits))
 	for _, w := range waits {

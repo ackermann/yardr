@@ -589,6 +589,61 @@ func TestBeadWaitsWhileNoGroupsConditionHolds(t *testing.T) {
 			t.Fatalf("quota_wait = %v, want the window as last known and its reset", evs[0].Data)
 		}
 	})
+	t.Run("alternating group and quota waits report once each", func(t *testing.T) {
+		ctx := context.Background()
+		s, _, d, p, _, now := quotaYard(t, "a@Weekly<80")
+		p.say(weekly(85, 10))
+		primeGroupLimits(t, s, d, "a")
+		pause := func(paused bool) {
+			limit := 5
+			if paused {
+				limit = 0
+			}
+			_, err := s.SetGroup(ctx, "a", store.GroupEdit{Limit: &limit}, "me")
+			must(t, err)
+		}
+		b := newBead(t, s, "x")
+		for range 3 {
+			pause(true)
+			must(t, d.Reconcile(ctx))
+			pause(false)
+			must(t, d.Reconcile(ctx))
+		}
+		if n := len(eventKinds(t, s, b.ID, "group_wait")); n != 1 {
+			t.Fatalf("group_wait events = %d, want 1 over three alternations", n)
+		}
+		if n := len(eventKinds(t, s, b.ID, "quota_wait")); n != 1 {
+			t.Fatalf("quota_wait events = %d, want 1 over three alternations", n)
+		}
+
+		// The bead starts once the window opens; the claim forgets its waits.
+		*now = now.Add(6 * time.Minute)
+		p.say(weekly(20, 10))
+		primeGroupLimits(t, s, d, "a")
+		must(t, d.Reconcile(ctx))
+		if group, _ := claimedBy(t, s, b.ID); group != "a" {
+			t.Fatalf("claimed by %q once the window opened, want a", group)
+		}
+
+		// Released, it waits again, and each wait reports once more.
+		_, err := s.Release(ctx, b.ID, "try again", store.Expect{}, "me")
+		must(t, err)
+		*now = now.Add(6 * time.Minute)
+		p.say(weekly(85, 10))
+		primeGroupLimits(t, s, d, "a")
+		for range 2 {
+			pause(true)
+			must(t, d.Reconcile(ctx))
+			pause(false)
+			must(t, d.Reconcile(ctx))
+		}
+		if n := len(eventKinds(t, s, b.ID, "group_wait")); n != 2 {
+			t.Fatalf("group_wait events = %d, want 2: one more after the release", n)
+		}
+		if n := len(eventKinds(t, s, b.ID, "quota_wait")); n != 2 {
+			t.Fatalf("quota_wait events = %d, want 2: one more after the release", n)
+		}
+	})
 }
 
 // A group at its limit of sessions is waited for, not passed over: only a

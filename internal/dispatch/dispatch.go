@@ -412,8 +412,8 @@ type Dispatcher struct {
 	// written atomically; see now.
 	clock      atomic.Pointer[func() time.Time]
 	retryAfter map[string]time.Time
-	reported   map[string]string // bead -> last unroutable reason, to log once
-	stays      map[string]stay   // bead -> its stay in a manual group's stage (waits.go)
+	reported   map[string]map[string]string // bead -> kind -> last unroutable reason, to log once per kind
+	stays      map[string]stay              // bead -> its stay in a manual group's stage (waits.go)
 	// quietChecked is when the hooks were last judged quiet (hookquiet.go).
 	quietChecked    time.Time
 	status          map[string]string  // session -> last runner status
@@ -584,7 +584,7 @@ func (d *Dispatcher) defaults() {
 	}
 	if d.retryAfter == nil {
 		d.retryAfter = map[string]time.Time{}
-		d.reported = map[string]string{}
+		d.reported = map[string]map[string]string{}
 		d.status = map[string]string{}
 		d.unknown = map[string]string{}
 		d.down = map[string]*outage{}
@@ -1776,12 +1776,28 @@ type stageDoc struct {
 	flowMap   *store.FlowMap
 }
 
+// noted marks bead as reported for kind with key, and says whether it was
+// already marked so. Each kind keeps its own slot, so a bead that waits
+// for its group on one pass and its quota on the next reports each once,
+// instead of each overwriting the other and both firing again. The claim
+// clears every slot of the bead at once.
+func (d *Dispatcher) noted(bead, kind, key string) bool {
+	slot := d.reported[bead]
+	if slot == nil {
+		slot = map[string]string{}
+		d.reported[bead] = slot
+	}
+	if slot[kind] == key {
+		return true
+	}
+	slot[kind] = key
+	return false
+}
+
 func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason string) {
-	key := kind + "|" + b.Stage + "|" + reason
-	if d.reported[b.ID] == key {
+	if d.noted(b.ID, kind, b.Stage+"|"+reason) {
 		return
 	}
-	d.reported[b.ID] = key
 	d.Log.Warn(kind, "bead", b.ID, "reason", reason)
 	_ = d.Store.LogDispatch(ctx, b.ID, kind, actor, map[string]any{"stage": b.Stage, "reason": reason})
 }
@@ -1791,11 +1807,9 @@ func (d *Dispatcher) reportOnce(ctx context.Context, b store.Bead, kind, reason 
 // the base moves with every landing, and a bead still stranded under the
 // same flow has nothing new to say.
 func (d *Dispatcher) reportStranded(ctx context.Context, b store.Bead, sb store.StrandedBead) {
-	key := "stranded|" + sb.Stage + "|" + sb.Flow
-	if d.reported[b.ID] == key {
+	if d.noted(b.ID, "stranded", sb.Stage+"|"+sb.Flow) {
 		return
 	}
-	d.reported[b.ID] = key
 	d.Log.Warn("stranded", "bead", b.ID, "stage", sb.Stage, "flow", sb.Flow, "source", sb.Source.String())
 	_ = d.Store.LogDispatch(ctx, b.ID, "stranded", actor, map[string]any{
 		"stage": sb.Stage, "flow": sb.Flow, "source": sb.Source.String(),
