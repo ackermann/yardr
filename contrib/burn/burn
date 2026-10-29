@@ -77,6 +77,11 @@ number -x "$factor"
 number -N "$nice"
 [ "$count" -ge 1 ] || fail "-n is $count, want at least 1"
 [ "$factor" -ge 1 ] || fail "-x is $factor, want at least 1"
+# The loop count below is shell arithmetic, which reads a leading 0 as octal
+# where the check above reads decimal (-x 010 would start 8 loops, -x 08
+# would fail), so the zeros are dropped, after the check.
+factor=${factor#"${factor%%[!0]*}"}
+factor=${factor:-0}
 if [ -z "$cpus" ]; then
   # getconf is POSIX and on macOS and Linux alike; nproc and sysctl are for
   # a system whose getconf does not know the name.
@@ -85,6 +90,11 @@ if [ -z "$cpus" ]; then
 fi
 number -c "$cpus"
 [ "$cpus" -ge 1 ] || fail "-c is $cpus, want at least 1"
+# As for -x above: the loop count reads a leading 0 as octal where the check
+# above reads decimal, so the zeros are dropped, after the check. An explicit
+# -c and the getconf-derived value go through this one line.
+cpus=${cpus#"${cpus%%[!0]*}"}
+cpus=${cpus:-0}
 for tool in go nice ps yes; do
   command -v "$tool" >/dev/null 2>&1 || fail "needs $tool on PATH"
 done

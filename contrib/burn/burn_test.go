@@ -403,6 +403,48 @@ func TestBurnCountsTheRunsThatPass(t *testing.T) {
 	}
 }
 
+// A leading 0 is decimal where burn's checks read it but octal where the
+// shell's arithmetic does, so -x and -c are read as the decimal numbers the
+// checks take them for: -x 08 starts 8 loops, not an error, and -c 010 counts
+// 10 cpus, not 8. The banner prints the normalised values.
+func TestBurnReadsFactorAndCpusAsDecimal(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		x, c  string
+		loops int
+	}{
+		{"-x 08 starts 8 loops", "08", "1", 8},
+		{"-c 010 counts 10 cpus", "1", "010", 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newRig(t)
+			cmd, stdout, stderr := r.burn(tc.loops, "-n", "1", "-x", tc.x, "-c", tc.c, "./pkg", "TestA")
+			if code := finish(t, cmd); code != 0 {
+				t.Fatalf("exit status = %d, want 0\n%s", code, stderr)
+			}
+			if got, want := stdout.String(), "TestA: 1/1 passed\n"; got != want {
+				t.Fatalf("stdout = %q, want %q", got, want)
+			}
+			x, err := strconv.Atoi(tc.x)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, err := strconv.Atoi(tc.c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := fmt.Sprintf("%d yes-loops (%d x %d cpus)", tc.loops, x, c); !strings.Contains(stderr.String(), want) {
+				t.Errorf("stderr lacks %q:\n%s", want, stderr)
+			}
+			if got := len(r.pids("spinners")); got != tc.loops {
+				t.Errorf("%d loops recorded, want %d", got, tc.loops)
+			}
+		})
+	}
+}
+
 // With -k DIR burn keeps the whole output of every failing run in
 // DIR/<label>-run-N.out, the directory made when missing, and each shown
 // failure names its file. The kept files are the data: every failing run is
