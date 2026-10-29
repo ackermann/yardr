@@ -817,6 +817,14 @@ func git(ctx context.Context, dir string, args ...string) error {
 }
 
 func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := gitOutRaw(ctx, dir, args...)
+	return strings.TrimSpace(out), err
+}
+
+// gitOutRaw is gitOut without trimming its output: for output whose
+// leading space is data (`git status --porcelain` marks an unmodified
+// index column with one).
+func gitOutRaw(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, checkoutTimeout)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
@@ -829,7 +837,7 @@ func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 // workspaceAt reports whether herdr workspace ws is the checkout at path.

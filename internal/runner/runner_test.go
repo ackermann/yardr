@@ -1379,7 +1379,7 @@ func copyDirErr(src, dst string) error {
 	})
 }
 
-func TestHerdrFinishRemovesOnlyCleanWorktrees(t *testing.T) {
+func TestHerdrFinishWorktrees(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	repo := seedRepo(t)
@@ -1398,10 +1398,13 @@ func TestHerdrFinishRemovesOnlyCleanWorktrees(t *testing.T) {
 		os.MkdirAll(filepath.Join(path, ".yard"), 0o700)
 		os.WriteFile(filepath.Join(path, ".yard", ".gitignore"), []byte("*\n"), 0o600)
 		os.WriteFile(filepath.Join(path, ".yard", "brief-s.md"), []byte("brief"), 0o600)
+		os.WriteFile(filepath.Join(path, "tracked.txt"), []byte("tracked"), 0o600)
+		gitT(t, path, "add", "tracked.txt")
+		gitT(t, path, "commit", "-q", "-m", "tracked")
 		return path
 	}
 	log := filepath.Join(t.TempDir(), "calls")
-	clean, dirty := add("b1"), add("b2")
+	clean, dirty, mod, staged := add("b1"), add("b2"), add("b3"), add("b4")
 	// workspace w1 is b1's checkout; w9 belongs to someone else.
 	h := &Herdr{Bin: fakeHerdrBin(t, `echo "$@" >> `+log+`
 case "$1 $2 $3" in
@@ -1427,12 +1430,68 @@ esac`)}
 		t.Fatal("dirty worktree was touched")
 	}
 
+	os.WriteFile(filepath.Join(mod, "tracked.txt"), []byte("changed"), 0o600)
+	if err := h.Finish(ctx, map[string]any{"worktree": mod, "repo": repo}); err == nil || !strings.Contains(err.Error(), "tracked.txt") {
+		t.Fatalf("modified worktree must be kept with a reason, got %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(mod, "tracked.txt")); string(got) != "changed" {
+		t.Fatal("modified worktree was touched")
+	}
+
+	// A staged deletion is deliberate, not a removal that died midway.
+	gitT(t, staged, "rm", "-q", "tracked.txt")
+	if err := h.Finish(ctx, map[string]any{"worktree": staged, "repo": repo}); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("staged deletion must be kept with a reason, got %v", err)
+	}
+
 	if err := h.Finish(ctx, map[string]any{"worktree": clean, "repo": repo}); !errors.Is(err, dispatch.ErrNothingLeft) {
 		t.Fatalf("already removed: %v", err)
 	}
 	calls, _ := os.ReadFile(log)
 	if !strings.Contains(string(calls), "workspace close w1") || strings.Contains(string(calls), "close w9") {
 		t.Fatalf("workspace close calls wrong:\n%s", calls)
+	}
+	// A removal interrupted after deleting tracked files leaves only ` D`
+	// lines. The branch still holds those files, so Finish can remove the
+	// remaining worktree while keeping its branch.
+	half := add("b5")
+	if err := os.Remove(filepath.Join(half, "tracked.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Finish(ctx, map[string]any{"worktree": half, "repo": repo}); err != nil {
+		t.Fatalf("half-removed worktree: %v", err)
+	}
+	if _, err := os.Stat(half); !os.IsNotExist(err) {
+		t.Fatal("half-removed worktree not removed")
+	}
+	gitT(t, repo, "rev-parse", "--verify", "yard/b5") // branch kept
+	if out := gitOutT(t, repo, "worktree", "list", "--porcelain"); strings.Contains(out, half) {
+		t.Fatalf("worktree list still names %s:\n%s", half, out)
+	}
+
+	// Finish returns once the worktree is moved aside and pruned. A leftover
+	// move-aside from a crashed cleanup is swept first, then the moved tree
+	// disappears in the background.
+	background := add("b6")
+	stale := background + ".removing"
+	os.MkdirAll(filepath.Join(stale, "sub"), 0o700)
+	os.WriteFile(filepath.Join(stale, "sub", "junk"), []byte("junk"), 0o600)
+	if err := h.Finish(ctx, map[string]any{"worktree": background, "repo": repo}); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	if _, err := os.Stat(background); !os.IsNotExist(err) {
+		t.Fatal("worktree path still exists after Finish returned")
+	}
+	if out := gitOutT(t, repo, "worktree", "list", "--porcelain"); strings.Contains(out, background) {
+		t.Fatalf("worktree list still names %s:\n%s", background, out)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(stale); os.IsNotExist(err) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("moved worktree not deleted in the background")
+		}
 	}
 }
 

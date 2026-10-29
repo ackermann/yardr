@@ -159,6 +159,17 @@ func (h *Herdr) Stop(ctx context.Context, handle map[string]any) error {
 // forces: uncommitted or untracked changes keep the worktree in place, and
 // the branch is always kept, so committed work survives either way. A dir
 // depot's bead has no worktree (see finishDir).
+//
+// The removal moves the worktree aside and deletes it without waiting:
+// the tree is renamed to a sibling `<path>.removing`, which stays on the
+// same filesystem so the rename is instant, then dropped from git's
+// worktree list with prune, and the moved directory is deleted in the
+// background. Finish runs inside the dispatcher's pass, where waiting on
+// a big tree (a webapp's node_modules) would stall every group past
+// git's own timeout; a rename and a prune take milliseconds. A status
+// that names only deleted tracked files is a removal that died midway,
+// whose branch holds every one of those files, so it is removed rather
+// than refused as uncommitted changes.
 func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 	if dir, _ := handle["dir"].(string); dir != "" {
 		return h.finishDir(ctx, handle)
@@ -169,15 +180,22 @@ func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 		return dispatch.ErrNothingLeft
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// A move-aside left by a cleanup that died between the rename
+		// and the delete goes with the admin entry.
+		_ = os.RemoveAll(path + ".removing")
 		_ = git(ctx, repo, "worktree", "prune")
 		return dispatch.ErrNothingLeft
 	}
 	// Briefs live in the worktree's git dir, so they do not count as a
 	// change (nor does a pre-yardr .yard/, which ignores itself); anything
-	// else does. `worktree remove` deletes the git dir, briefs with it.
-	if out, err := gitOut(ctx, path, "status", "--porcelain"); err != nil {
+	// else does, except the deleted tracked files of a removal that died
+	// midway (onlyDeleted). The move-aside below deletes the git dir,
+	// briefs with it.
+	// The status is read raw: trimming would eat the leading space of the
+	// first line, which is the unmodified index column of a ` D` line.
+	if raw, err := gitOutRaw(ctx, path, "status", "--porcelain"); err != nil {
 		return fmt.Errorf("inspect %s: %w", path, err)
-	} else if out != "" {
+	} else if out := strings.TrimSpace(raw); out != "" && !onlyDeleted(raw) {
 		return fmt.Errorf("uncommitted changes in %s:\n%s", path, out)
 	}
 	if ws, _ := handle["workspace"].(string); ws != "" && h.workspaceAt(ctx, ws, path) {
@@ -187,11 +205,54 @@ func (h *Herdr) Finish(ctx context.Context, handle map[string]any) error {
 		_, _ = h.run(ctx, "workspace", "close", ws)
 	}
 	if repo == "" {
-		repo = path
+		// A handle from before repo was kept: nothing to prune from, so
+		// the worktree is removed the old way, in place.
+		return git(ctx, path, "worktree", "remove", path)
 	}
-	if err := git(ctx, repo, "worktree", "remove", path); err != nil {
+	return h.removeWorktree(ctx, repo, path)
+}
+
+// onlyDeleted reports whether a raw `git status --porcelain` output names
+// nothing but deleted tracked files: the worktree of a removal that was
+// killed midway, whose branch holds every one of those files, so
+// removing the rest loses nothing. Any other line (a modification, an
+// addition, an untracked file, a mix) is work and keeps the refusal.
+func onlyDeleted(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, " D") {
+			return false
+		}
+	}
+	return true
+}
+
+// removeWorktree moves the worktree at path aside to a sibling
+// `<path>.removing`, prunes it from the repo's worktree list, and deletes
+// the moved directory without waiting on it. A leftover move-aside from
+// a cleanup that died between the rename and the delete is swept first,
+// so the rename has its target free; what the sweep cannot delete fails
+// the rename, which falls back to removing the worktree in place.
+func (h *Herdr) removeWorktree(ctx context.Context, repo, path string) error {
+	moved := path + ".removing"
+	_ = os.RemoveAll(moved)
+	if err := os.Rename(path, moved); err != nil {
+		return git(ctx, repo, "worktree", "remove", path)
+	}
+	// The directory is gone from its path, so prune drops the admin
+	// entry; the branch is kept either way. When prune fails the move is
+	// undone, so an error still means the worktree is kept in place.
+	if err := git(ctx, repo, "worktree", "prune"); err != nil {
+		_ = os.Rename(moved, path)
 		return err
 	}
+	go func() {
+		if err := os.RemoveAll(moved); err != nil && h.Log != nil {
+			h.Log.Warn("remove finished worktree", "path", moved, "err", err)
+		}
+	}()
 	return nil
 }
 
