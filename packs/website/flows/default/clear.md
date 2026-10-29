@@ -22,7 +22,7 @@ kind: choice
 question: Should this bead land?
 context:
 - The bead was built, reviewed and tested; landing it is now your call.
-- The diff is on branch `yard/<bead>` when you want to look at it yourself.
+- The diff is on the branch named above when you want to look at it yourself.
 options:
 done: The bead goes to approved, where the assembly tests it once more on what lands and lands it on the base.
 changes: The bead goes back to new with your words as the note; past the flow's limit on rounds back, it goes to decide instead.
