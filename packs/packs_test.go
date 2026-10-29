@@ -26,7 +26,7 @@ import (
 )
 
 // Every embedded pack is a valid pack under the name of its directory, which
-// is the name it is found by, and they are the seventeen yardr carries. A file the
+// is the name it is found by, and they are the eighteen yardr carries. A file the
 // embed left out (a role, a script, a stage file, a command file) fails here:
 // the pack names it and Load looks for it.
 func TestEmbeddedPacksAreValid(t *testing.T) {
@@ -60,8 +60,8 @@ func TestEmbeddedPacksAreValid(t *testing.T) {
 	}
 	// No consts name the notify packs: no Go outside a test names
 	// either service, so here they are words.
-	if !slices.Equal(names, []string{packs.CiRed, packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook", packs.Website}) {
-		t.Errorf("embedded packs = %v, want ci-red, contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram, webhook and website", names)
+	if !slices.Equal(names, []string{packs.CiRed, packs.Cloudflare, packs.Contributors, packs.Design, packs.Dir, packs.GitHub, "google-calendar", "google-docs", "google-drive", "google-mail", packs.Linear, "posthog", "pushover", "slack", packs.Starter, "telegram", "webhook", packs.Website}) {
+		t.Errorf("embedded packs = %v, want ci-red, cloudflare, contributors, design, dir, github, google-calendar, google-docs, google-drive, google-mail, linear, posthog, pushover, slack, starter, telegram, webhook and website", names)
 	}
 }
 

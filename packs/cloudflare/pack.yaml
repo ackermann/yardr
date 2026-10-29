@@ -1,0 +1,27 @@
+# Cloudflare as a pack of kind source: the integration, imported into
+# the yard and into no depot. What Cloudflare is here: the declared
+# source cloudflare, which lists the account, its zones, its Workers
+# scripts and its Email Routing rules and addresses as wrangler reads
+# them. Every call reads; no call in this pack writes to Cloudflare.
+# Worker upload and Email Routing writes are a later bead.
+#
+#   yardr pack apply cloudflare
+#
+# The source is named cloudflare: yardr knows Cloudflare as this pack
+# alone.
+name: cloudflare
+kind: source
+setup: SETUP.md
+
+sources:
+  cloudflare:
+    declaration: cloudflare.yaml
+
+# Suggested grants: named sets of the source's calls, printed numbered
+# by pack show. Suggesting grants nothing: the operator grants them,
+# and terminal pack apply ignores them.
+presets:
+  read:
+    about: List accounts, zones, Workers scripts and Email Routing rules and addresses; change nothing
+    grants:
+      cloudflare: [read]

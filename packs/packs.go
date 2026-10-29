@@ -20,16 +20,17 @@ import (
 // a failed CI run on the base branch, as a bead. website is for a git depot
 // too, instead of the starter: its line with a deploy stage after landing,
 // for a website on the user's own Void platform. Of kind
-// source, for the yard itself: linear, github, PostHog and Google, each
-// service's declaration (linear's and github's with the commands they
-// name; PostHog's with its hook's normalize; Google's as four packs,
-// google-mail, google-drive, google-docs and google-calendar, one per
-// thing a person turns on), one pack per service that tells a user
+// source, for the yard itself: linear, github, PostHog, Google and
+// Cloudflare, each service's declaration (linear's and github's with the
+// commands they name; PostHog's with its hook's normalize; Google's as
+// four packs, google-mail, google-drive, google-docs and google-calendar,
+// one per thing a person turns on; Cloudflare's as one declaration whose
+// every call the yard makes itself, with no command beside it), one pack per service that tells a user
 // outside the yard, a declaration with the notify key that sends and no
 // commands, and webhook, one declaration for every service that POSTs to
 // a URL or takes one (Zapier, Make, n8n), whose credential is that URL.
 //
-//go:embed starter dir contributors design ci-red linear github google-mail google-drive google-docs google-calendar pushover telegram slack posthog webhook website
+//go:embed starter dir contributors design ci-red linear github google-mail google-drive google-docs google-calendar cloudflare pushover telegram slack posthog webhook website
 var FS embed.FS
 
 // Starter and Dir are the embedded packs by the kind of depot each is
@@ -70,6 +71,10 @@ const Linear = "linear"
 // GitHub is the embedded pack for GitHub itself, of kind source: it is
 // imported into the yard, and into no depot.
 const GitHub = "github"
+
+// Cloudflare is the embedded pack for Cloudflare itself, of kind
+// source: it is imported into the yard, and into no depot.
+const Cloudflare = "cloudflare"
 
 // Embedded is how the record of an import begins when the pack came from
 // here and not from a directory; the yardr build follows it.

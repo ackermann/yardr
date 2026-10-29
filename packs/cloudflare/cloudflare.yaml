@@ -1,0 +1,110 @@
+# Cloudflare as a declared source: what wrangler reads of the user's
+# own account, through the Cloudflare API v4: the token verified, the
+# token's own scopes, the accounts, the zones, the Workers scripts of
+# an account, and a zone's Email Routing rules with an account's
+# destination addresses. Every call reads; no call here writes to
+# Cloudflare (no script upload, no secret, no rule change), so the
+# pack carries no update call and grants none.
+#
+# Checked against developers.cloudflare.com/api on 29 October 2026:
+# the base is https://api.cloudflare.com/client/v4 and a token goes
+# as Authorization: Bearer; GET /user/tokens/verify answers
+# {success, result:{id, status}} and GET /user/tokens/{token_id} the
+# token with its policies, each policy naming its permission_groups;
+# GET /accounts and GET /zones answer {success, result, result_info};
+# GET /accounts/{account_id}/workers/scripts the account's scripts;
+# GET /zones/{zone_id}/email/routing/rules the zone's rules and
+# GET /accounts/{account_id}/email/routing/addresses the account's
+# destination addresses, in the same envelope. An account's and a
+# zone's id are 32 hex characters, as the API returns them.
+#
+# GET /accounts is the one call whose reference page names no
+# API-token security and no permission group: that page is
+# incomplete, and the contract is wrangler, which this pack reads
+# as. Wrangler's whoami and its account picker call GET /accounts
+# with the active OAuth or API token, sent as Bearer, and /accounts
+# is the listing its Account API Tokens fall back to when
+# /memberships refuses them (9109): workers-sdk PR #13770, in
+# wrangler 4.89.0. So the accounts read sends the token as Bearer
+# like every other call here. The scopes the token carries are read
+# back after setup by the token call, beside the minimum SETUP.md
+# names; nothing refuses a token before it is stored, since the
+# setup card has no place to run such a check yet.
+#
+# The token is the source's secret: the setup card asks for it unseen
+# and the yard keeps it in the source's env file alone, handed to each
+# call under CLOUDFLARE_API_TOKEN and sent as the header below. It
+# stands in no call's parameters, so no call, card or log names it.
+#
+# A command is a list, run without a shell. A path that does not start
+# with / is a file beside this one, which `yardr source add` copies
+# into the yard.
+name: cloudflare
+about: Cloudflare accounts, zones, Workers scripts and Email Routing rules and addresses, read as wrangler reads them; writes nothing.
+
+# The name of the variable, never the value. A command gets it in its
+# environment under this name, and gets no other variable of the yard.
+credential:
+  env: CLOUDFLARE_API_TOKEN
+  header: "Authorization: Bearer {credential}"
+
+base: https://api.cloudflare.com/client/v4
+calls:
+  verify:
+    kind: read
+    about: Verify the API token and report its status
+    request:
+      method: GET
+      path: /user/tokens/verify
+    answer: { select: [success, result] }
+  token:
+    kind: read
+    about: Read one API token with the scopes Cloudflare reports for it
+    params:
+      token_id: { type: string, pattern: "^[A-Za-z0-9_-]{1,64}$", max: 64, log: true }
+    request:
+      method: GET
+      path: /user/tokens/{token_id}
+    answer: { select: [success, result], max: 262144 }
+  accounts:
+    kind: read
+    about: List the accounts the token can read
+    request:
+      method: GET
+      path: /accounts
+    answer: { select: [success, result, result_info], max: 262144 }
+  zones:
+    kind: read
+    about: List the zones the token can read
+    request:
+      method: GET
+      path: /zones
+    answer: { select: [success, result, result_info], max: 262144 }
+  workers:
+    kind: read
+    about: List an account's Workers scripts
+    params:
+      account: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+    request:
+      method: GET
+      path: /accounts/{account}/workers/scripts
+    answer: { select: [success, result, result_info], max: 262144 }
+  email_rules:
+    kind: read
+    about: List a zone's Email Routing rules
+    params:
+      zone: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+    request:
+      method: GET
+      path: /zones/{zone}/email/routing/rules
+    answer: { select: [success, result, result_info], max: 262144 }
+  email_addresses:
+    kind: read
+    about: List an account's Email Routing destination addresses
+    params:
+      account: { type: string, pattern: "^[0-9a-f]{32}$", max: 32, log: true }
+    request:
+      method: GET
+      path: /accounts/{account}/email/routing/addresses
+    answer: { select: [success, result, result_info], max: 262144 }
+check: verify

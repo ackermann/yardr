@@ -110,6 +110,12 @@ packs/aiquokka/aiquokka.yaml"`, for the operator to approve on its card
 ([integrations.md](integrations.md#say-what-a-subscription-still-carries)).
 Its SETUP.md says how, from installing aiquokka to the route's condition.
 
+One more, [`packs/cloudflare`](../packs/cloudflare), named `cloudflare`,
+is for no depot either: it is Cloudflare itself as an integration, imported
+into the yard. It declares the source `cloudflare`, whose read calls list
+the user's account, its zones, its Workers scripts and its Email Routing
+rules and addresses as wrangler reads them; no call writes.
+
 And [`packs/website`](../packs/website), named `website`, is the starter's
 line with a deploy stage, for a depot that is a website: a landed change is
 deployed to the site's project on the user's own Void platform, and the bead
@@ -135,6 +141,7 @@ setup notes for the person whose website it is.
 | `slack` | mentions and direct messages in a Slack workspace, answered in their threads, in the yard | none: `kind: source` | of none: `yardr pack apply slack` |
 | `posthog` | PostHog itself, in the yard: HogQL queries, error tracking issues, session recordings and Replay Vision observations read, a new error issue heard | none: `kind: source` | of none: `yardr pack apply posthog` |
 | `webhook` | any service that POSTs to a URL or takes one (Zapier, Make, n8n), in the yard: its POSTs heard, a JSON object sent to its URL | none: `kind: source` | of none: `yardr pack apply webhook` |
+| `cloudflare` | Cloudflare itself, in the yard: accounts, zones, Workers scripts and Email Routing rules and addresses read, nothing written | none: `kind: source` | of none: `yardr pack apply cloudflare` |
 
 ```
 packs/starter/
