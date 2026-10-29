@@ -411,36 +411,32 @@ func TestTrainRedTestsGoBackToOpen(t *testing.T) {
 	}
 }
 
-// A test command red only for a flaky test's strike (exit 3) holds the
-// train where it is, with a note naming the flake bead and no fix child:
-// the flake bead already exists.
-func TestTrainStrikeOnlyHolds(t *testing.T) {
+// Exit 3 is an ordinary red result, so the train gets a fix child and goes
+// back to open, not on hold.
+func TestTrainExit3IsRedLikeAnyOther(t *testing.T) {
 	y := newTrainYard(t, "test ! -e RED")
 	y.exec("merge-local", "assembly", "r-1")
 	y.exec("merge-local", "assembly", "r-2")
 	main := y.git(y.repo, "rev-parse", "main")
-	y.tests("echo 'test: flaky: TestX (m.test/m) passed on rerun'; " +
-		"echo 'test: filed m-filed: Flaky: TestX (m.test/m)'; " +
-		"echo 'test: TestX flaked on 3 changes in 7 days; see the Flaky: bead'; exit 3")
+	y.tests("echo 'test: flaky: TestX (m.test/m) passed on rerun'; exit 3")
 
 	y.exec("integrate-train", "yard-integrators", "r-e")
 
 	e := y.beadOf("r-e")
-	if e.Stage != "open" || e.Status != "open" || !e.Hold {
-		t.Fatalf("train %s/%s hold=%v, want held in open", e.Stage, e.Status, e.Hold)
+	if e.Stage != "open" || e.Status != "open" || e.Hold {
+		t.Fatalf("train %s/%s hold=%v, want back in open, not held", e.Stage, e.Status, e.Hold)
 	}
 	notes := y.notesOf("r-e")
-	for _, want := range []string{"red only for a flaky test's strike", "test: filed m-filed: Flaky: TestX (m.test/m)",
-		"unhold to test it again"} {
+	for _, want := range []string{"the tests failed", "exit 3", "test: flaky: TestX (m.test/m) passed on rerun"} {
 		if !strings.Contains(notes, want) {
 			t.Fatalf("note lacks %q:\n%s", want, notes)
 		}
 	}
-	if f := y.familyOf("r-e"); len(f.Children) != 2 {
-		t.Fatalf("train children %v, want r-1 and r-2 with no fix child", f.Children)
+	if f := y.familyOf("r-e"); len(f.Children) != 3 {
+		t.Fatalf("train children %v, want r-1, r-2 and a fix", f.Children)
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved on a held run")
+		t.Fatal("main moved on a red run")
 	}
 }
 

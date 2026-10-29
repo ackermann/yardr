@@ -183,43 +183,34 @@ it lists every exported name with its comment, faster than grepping.
   test results serve the others. A source file's path in a trace or from
   `runtime.Caller` is then its import path: a test finds a repo file from
   its package directory (`../../packs/starter`) or through `packs.FS`.
-- A `test: flaky:` line files itself: the gate appends one line per flaky
-  line -- date, short sha, packages, tests, then `beads=<ids>` where the
-  run is of a bead -- to `yardr-flaky.log` in the git common dir, which
-  the repo owns and every worktree shares, files a backlog P3
-  `Flaky: <Test> (<pkg>)` when the test is already named in the log, and fails
-  the step when the test flaked in 3 different changes in 7 days, with exit 3
-  when nothing else failed it, which the assembly holds on instead of sending
-  back. A change
-  is the set of beads a line names, whatever commits it was tested at:
-  `YARDR_TEST_BEADS` (integrate-train gives a train's tests its children,
-  since their `YARDR_BEAD` is the train) else `YARDR_BEAD`, so a builder's
-  runs, a reviewer's and the landing's, which is rebased and squashed, are
-  one. A line with no beads (written before the field, or by CI, the quiet
-  run or a hand) is a change of its short sha. A test and its subtests fail
-  together and share one Flaky bead. An open bead for the test, its
-  top-level test or another subtest of that test (matched by title and
-  package) gets the new log line as a note, and no second bead is filed. A
-  strike that names a test with its subtests files or notes once. Filing and
-  noting are skipped where the yardr CLI is not there. The
-  rerun's output replaces the first run's, so the log line also keeps what
-  the first run printed for each failed test, behind ` | `: its `--- FAIL:`
-  line and the lines under it (6 lines of 200 characters at most for a
-  test, 20 tests at most, a literal `\n` between lines); a failure with no
-  `--- FAIL:` line keeps its timeout's panic line and running tests, its
-  fatal error's or panic's line and the dump's head, else its first output
-  lines, and a timeout names its running tests, a fatal error or panic its
-  crashing test, in the head, striking and filing as failures do. The line
-  ends with the load the gate measured as it wrote it (`load <avg> on
-  <cores> cores`, or `load unknown`), so a strike on a quiet machine reads
-  apart from one under load. The filed bead or the note carries the whole
-  line. Only the part before the ` | ` names the tests that flaked and the
-  beads the run was of. A hand reading old
-  lines files or notes the same way -- a repeat, or a failure that accuses
-  the product (a race report, a product assertion, a wrong result rather
-  than a timeout); otherwise the log line is the record, named in the
-  handover note. A race fails the step without a retry, and a package that
-  fails twice fails as before.
+- A `test: flaky:` line files itself: a failed package reruns once, and
+  a pass on rerun appends one line to `yardr-flaky.log` in the git common
+  dir, which the repo owns and every worktree shares: date, short sha,
+  tests and packages, then `beads=<ids>` naming the change the run tested
+  where it can say. A test the log already names files a backlog P3
+  `Flaky: <Test> (<pkg>)`, or notes the open bead that already stands for
+  it: its own, its top-level test's, or another subtest's of that test,
+  matched by title and package. A test and its subtests fail together and
+  share one bead, filed or noted once. Filing and noting are skipped where
+  the yardr CLI is not there. A race fails the step without a retry, and
+  a package that fails twice fails as before.
+  The rerun's output replaces the first run's, so the log line also keeps
+  what the first run printed for each failed test, behind ` | `: its
+  `--- FAIL:` line and the lines under it (6 lines of 200 characters at
+  most for a test, 20 tests at most, a literal `\n` between lines); a
+  failure with no `--- FAIL:` line keeps its timeout's panic line and
+  running tests, its fatal error's or panic's line and the dump's head,
+  else its first output lines, and a timeout names its running tests, a
+  fatal error or panic its crashing test, in the head. The line ends with
+  the load the gate measured as it wrote it (`load <avg> on <cores>
+  cores`, or `load unknown`), so a flake on a quiet machine reads apart
+  from one under load. The filed bead or the note carries the whole line.
+  Only the part before the ` | ` names the tests that flaked and the beads
+  the run was of. A hand reading old lines files or notes a repeat the
+  same way, and files a failure that accuses the product (a race report,
+  a product assertion, a wrong result rather than a timeout) as a bug, not
+  a flake; otherwise the log line is the record, named in the handover
+  note.
 - `gofmt` and `go vet` are clean on every change; the module builds with
   the Go in `go.mod`.
 

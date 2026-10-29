@@ -89,9 +89,7 @@
 #
 # A red run ends with the lines that say what failed, since a note carries
 # only the end of the output. Exit 2 is "could not run", which the assembly
-# holds a bead on instead of sending it back: the base is not there. Exit 3
-# is red only for a flaky test's strike, which the assembly holds on too: no
-# builder can fix the landing's change for it.
+# holds a bead on instead of sending it back: the base is not there.
 #
 # YARDR_TEST_PLAN=1 says what the run would test and stops: no gofmt, vet,
 # build or test. The test of this script runs it so (yardtest_test.go).
@@ -207,7 +205,7 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # a failure with no FAIL line keeps its timeout's panic and running tests,
 # its fatal error's or panic's line and the dump's head, else its first
 # output lines. The line ends with the load the gate measured as it wrote
-# it (machineload), so a reader can tell a strike on a quiet machine from
+# it (machineload), so a reader can tell a flake on a quiet machine from
 # one under load. The printed line stays short because whoever ran the gate
 # watched the failure, and the log line is what is left of it for whoever
 # did not (a landing, a session that has ended). A test the log already names
@@ -215,11 +213,7 @@ listed() { [ -z "$listing" ] || echo "$listing"; }
 # subtests fail together and share one bead, so where an open bead stands for
 # the test (its own, its top-level test's, or another subtest's of that
 # test), that bead is noted with the new log line and nothing is filed. Where
-# the yardr CLI is not there (CI, a fork) the log line stays the record. A
-# test that flaked in 3 different changes in 7 days fails the step instead of
-# passing on its rerun, with exit 3 when nothing else failed it (a change is
-# the beads a line's beads= field names, else the line's short sha: see
-# flakybeads and flakychanges).
+# the yardr CLI is not there (CI, a fork) the log line stays the record.
 # AGENTS.md says what a hand reading old lines files.
 # Do not retry more than once: a cache retry consumes the one retry, and a
 # second failure stands.
@@ -885,7 +879,7 @@ again() {
               # the names the printed line carries, then the beads the run
               # tested (flakybeads) when it can say, then the failing lines
               # kept above, then the load the gate measured as it wrote the
-              # line, so a reader can tell a strike on a quiet machine from
+              # line, so a reader can tell a flake on a quiet machine from
               # one under load without a second source. It is not committed.
               # A run that cannot write it still passes: the line above stays
               # the record. printf, not echo: the kept lines have backslashes,
@@ -900,11 +894,8 @@ again() {
                 printf '%s\n' "$flakyline" >>"$flakylog" || true
               fi
               # A test the log names more than once flaked before: file it,
-              # or note the open bead that already stands for it, and fail
-              # the step when it has flaked in 3 different changes in
-              # the last 7 days, this one included. Filing wants the yard's
-              # CLI, which CI and forks have not; the strike counts the log
-              # alone, so it holds there too.
+              # or note the open bead that already stands for it. Filing wants
+              # the yard's CLI, which CI and forks have not.
               # A filing or note the yard refuses warns, never fails the step: the
               # gate must not fail because the yard is down. The depot is
               # the session's (an exec session's own, else its bead's);
@@ -924,16 +915,15 @@ again() {
                     depot=$(yardr bead show "$YARDR_BEAD" 2>/dev/null | sed -n 's/^  depot \([^ ][^ ]*\)$/\1/p' || true)
                   fi
                 fi
-                strike=0
                 handled=
                 set -f
                 for t in $tests; do
                   sightings=$(flakylines "$t" "$flakylog" | awk 'END { print NR }')
-                  # A subtest fails with its parent, so a strike names them
-                  # together, and they share one bead. The first of them that
-                  # flaked before files it or notes it. That is the parent: it
-                  # sorts first, and every line that names a subtest names its
-                  # parent. The strike counts below are each test's own.
+                  # A subtest fails with its parent, so one filing or note
+                  # names the family, and they share one bead. The first of
+                  # them that flaked before files it or notes it. That is the
+                  # parent: it sorts first, and every line that names a
+                  # subtest names its parent.
                   root=${t%%/*}
                   # Test names can contain shell pattern characters, so
                   # compare each handled family as a literal word.
@@ -952,16 +942,8 @@ again() {
                       flakyfile "$t" "$pkg" "$flakylog" "$depot" "$flakyline"
                     fi
                   fi
-                  recent=$(flakychanges "$t" "$flakylog")
-                  if [ "${recent:-0}" -ge 3 ]; then
-                    echo "test: $t flaked on $recent changes in 7 days; see the Flaky: bead" >&2
-                    strike=1
-                  fi
                 done
                 set +f
-                if [ "$strike" = 1 ]; then
-                  rc=3
-                fi
               fi
             fi
           fi
@@ -970,11 +952,10 @@ again() {
     esac
   fi
   [ -n "$race_leg_child" ] || took "$t0" "$*"
-  # The package budget, after a green or strike-only race leg: a leg whose
-  # tests failed is already red without it. A budget failure clears a
-  # strike to the 1 track: the run is red for more than the strike. The
-  # leg's command goes with, for the re-run's flags.
-  if { [ "$rc" = 0 ] || [ "$rc" = 3 ]; } && [ "$race" = 1 ]; then
+  # The package budget, after a green race leg: a leg whose tests failed
+  # is already red without it. The leg's command goes with, for the
+  # re-run's flags.
+  if [ "$rc" = 0 ] && [ "$race" = 1 ]; then
     packagebudget "$acc" "$@" || rc=$?
   fi
   [ -n "$race_leg_child" ] || [ "$rc" = 0 ] || failed "$log" "$@"
@@ -1234,54 +1215,18 @@ flakylines() {
   ' "$2"
 }
 # flakybeads prints the beads a run tested, for the `beads=<ids>` field that
-# ends the head of its flaky log line: what flakychanges tells one change from
-# another by. YARDR_TEST_BEADS is the caller's word for it, as a train's
+# ends the head of its flaky log line, so a reader knows which change the run
+# tested. YARDR_TEST_BEADS is the caller's word for it, as a train's
 # integration gives it (the YARDR_BEAD of that run is the train, not the beads
 # in it); a variable that is set stands even when it is empty, so a caller that
-# cannot name the beads leaves the line without a field, counted by its sha,
-# and not with a bead that is the wrong key. Without it the run is of
+# cannot name the beads leaves the line without a field, and not with a bead
+# that is the wrong key. Without it the run is of
 # YARDR_BEAD: a builder's or a reviewer's session, or a landing by merge-local.
 # Only the characters an id and a list of them are made of are kept, as the
 # line is read by its spaces and copied into a bead. Empty when there is
 # nothing to say (CI, a quiet run, a hand outside a session): no field.
 flakybeads() {
   printf '%s' "${YARDR_TEST_BEADS-${YARDR_BEAD-}}" | LC_ALL=C tr -cd 'A-Za-z0-9_.,-'
-}
-# flakychanges prints in how many different changes a test ($1) flaked in the
-# last 7 days, by the flaky log ($2): the distinct keys of the lines
-# flakylines prints that are that recent. A line's key is the set of beads its
-# head ends with (flakybeads), in any order and each once: the change the run
-# tested, whatever commit it ran at. A change is tested at several commits (a
-# builder's, and the landing's, which is rebased onto a base that moved and
-# squashed where the group says so), and counting shas struck a test that
-# flaked in a change's builder and again in its landing: on 23 Oct 2026, four
-# lines on three shas were two changes. A train's integration is the set of
-# its children, one key however many. A line without the field (written
-# before it, or by a run with no bead) is keyed by its short sha, third in a
-# line's head after the date and the time, as it was counted before: a commit
-# run again is one sighting however often it flaked, and a line with no sha
-# (git could not name HEAD) counts once with the others that lack one. A set
-# of beads and a sha are never the same key, so a change with lines of both
-# kinds, in the 7 days after the field began, counts under each. 0 when no
-# line counts, and where perl is not there.
-flakychanges() {
-  flakylines "$1" "$2" | FLAKY_SEP=$flaky_sep perl -MTime::Piece -ne '
-    BEGIN { $cut = (localtime(time - 7 * 86400))->strftime("%F %T"); $n = 0 }
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} (\S*) / && substr($_, 0, 19) ge $cut) {
-      $sha = $1;
-      $head = $_;
-      $at = index($head, $ENV{FLAKY_SEP});
-      $head = substr($head, 0, $at) if $at >= 0;
-      if ($head =~ / beads=(\S+)\s*$/) {
-        %set = map { $_ => 1 } split /,/, $1;
-        $key = "beads=" . join(",", sort keys %set);
-      } else {
-        $key = "sha=" . $sha;
-      }
-      $n++ unless $seen{$key}++;
-    }
-    END { print "$n\n" }
-  ' 2>/dev/null || echo 0
 }
 # flakyopen prints the id of the open bead that stands for a test ($1) in the
 # packages $2, or nothing when none does. It reads the listing of open beads
@@ -1394,7 +1339,7 @@ internal/cli yardr-wdjh The cli suite takes 79.4 s in the race leg and 61.0 s al
 '
 # machineload prints the machine's one-minute load average and core count,
 # as "load <avg> on <cores> cores", whatever they are: the flaky log line
-# ends with what it says, so a reader can tell a strike on a quiet machine
+# ends with what it says, so a reader can tell a flake on a quiet machine
 # from one under load without a second source. It reads /proc/loadavg and
 # nproc where the system keeps them, sysctl's vm.loadavg and hw.ncpu
 # elsewhere, as the built-in machine source does
@@ -2098,17 +2043,13 @@ whole() {
   rm -f "$beside" "$beside_counts"
   beside=
   beside_counts=
-  # Really red when either leg is, else strike-only when either is, else
-  # green: a strike beside a real red is 1, red for more than the strike.
-  # Any non-zero but 3 is really red, and keeps its status.
-  if [ "$first" != 0 ] && [ "$first" != 3 ]; then
+  # Red when either leg is, keeping the first leg's status; green when
+  # both are.
+  if [ "$first" != 0 ]; then
     exit "$first"
   fi
-  if [ "$second" != 0 ] && [ "$second" != 3 ]; then
+  if [ "$second" != 0 ]; then
     exit "$second"
-  fi
-  if [ "$first" = 3 ] || [ "$second" = 3 ]; then
-    exit 3
   fi
   exit 0
 }

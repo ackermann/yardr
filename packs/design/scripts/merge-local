@@ -40,8 +40,8 @@
 # the output, with the full output attached beside it, as does a branch
 # that moved while the tests ran, and a test command
 # that says it
-# could not run (exit 2), or one red only for a flaky test's strike (exit
-# 3), or anything it cannot land without touching a dirty tree, is held. A
+# could not run (exit 2), or anything it cannot land without touching a
+# dirty tree, is held. A
 # run ended by a signal is run once more, and held if a
 # signal ends it again. A depot with no test command lands untested, and the
 # note says so. It never forces and never pushes anything but a fast-forward.
@@ -658,11 +658,12 @@ BEADS=
 # trainbeads prints the train's children, sorted and joined by commas, for
 # YARDR_TEST_BEADS. The test command runs with YARDR_BEAD set to the train,
 # and a command that records which change a run tested (depot yardr's gate
-# does, to count a flaky test once per change) would take the train for a
-# change of its own, apart from the children it is made of. Nothing is
-# printed when the children cannot be read (yardr not answering) or there
-# are none, and the variable is then set and empty: it tells that command
-# there is nothing to name, where an unset one would send it back to
+# does, so its flaky log line names the children rather than the train)
+# would take the train for a change of its own, apart from the children it
+# is made of. Nothing is printed when the children cannot be read (yardr
+# not answering) or there are none, and the variable is then set and empty:
+# it tells the test command that there is nothing to name, where an unset
+# variable would send it back to
 # YARDR_BEAD, the train. Parsed with sed, in the has_outcome idiom above:
 # no jq, which is not promised where this script runs.
 trainbeads() {
@@ -867,13 +868,6 @@ runtest() {
   fi
   lines=$(wc -l <"$log" | tr -d ' ')
   out=$(tail -n "$TAIL" "$log")
-  # The flake beads a strike-only red names, for the hold note: the full
-  # log's noted/filed lines, or, when the run filed nothing (the yard
-  # refused it), the flaky and strike lines that name the tests.
-  flakes=$(grep -E '^test: (noted|filed) [^ ]+: Flaky:' "$log" || true)
-  if [ -z "$flakes" ]; then
-    flakes=$(grep -E -e '^test: flaky: ' -e ' flaked on [0-9][0-9]* changes in 7 days' "$log" || true)
-  fi
   # The failing tests a red note keeps ahead of the tail: the full log's
   # FAIL lines (go test's, a shell gate's FAIL:, XCTest's), and the Gradle
   # names from the worktree, deduped and capped, so a failure above the tail
@@ -978,11 +972,6 @@ ${fails:+$fails
   2) attach_log; hold "$RUN could not run on $BR at $at ($WHAT said so: exit 2); $(shown):
 ${fails:+$fails
 }$out" ;;
-  3) attach_log; hold "$RUN were red only for a flaky test's strike on $BR at $at rebased onto $BASE ($WHAT, exit 3); $(shown):
-${fails:+$fails
-}$out${flakes:+
-$flakes}
-Nothing landed, and the branch is not at fault: fix the flaky test, then unhold to test it again." ;;
   *) attach_log; back "$RUN failed on $BR at $at rebased onto $BASE ($WHAT, exit $rc); $(shown):
 ${fails:+$fails
 }$out" ;;

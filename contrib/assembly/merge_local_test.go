@@ -528,7 +528,7 @@ func (y *yard) exec(script, group, id string) {
 // showRuns puts the logs of the scripts this test ran into the output of a
 // test that failed, after the failure. The gate keeps the first lines of a
 // failed test only (6 lines of 200 characters, AGENTS.md), and a log written as
-// each run ended came first and filled them, so a flaky strike showed a script's
+// each run ended came first and filled them, so a flake showed a script's
 // opening lines and none of the assertion that failed (yardr-qx42).
 func (y *yard) showRuns() {
 	if !y.t.Failed() {
@@ -1095,6 +1095,29 @@ func TestMergeLocalRedTests(t *testing.T) {
 			t.Fatal("main moved on a red run")
 		}
 	})
+
+	// Exit 3 is an ordinary red result, so the bead goes back, not on hold.
+	t.Run("exit 3 is red like any other", func(t *testing.T) {
+		y := newYard(t)
+		main := y.git(y.repo, "rev-parse", "main")
+		y.tests("echo 'test: flaky: TestX (m.test/m) passed on rerun'; exit 3")
+		y.commit(y.wt, "b.txt", "bead\n")
+
+		y.assembly()
+
+		if b := y.bead(); b.Stage != "new" || b.Hold {
+			t.Fatalf("bead %s hold=%v, want back in new", b.Stage, b.Hold)
+		}
+		notes := y.notes()
+		for _, want := range []string{"the tests failed on yard/r-1", "exit 3", "test: flaky: TestX (m.test/m) passed on rerun"} {
+			if !strings.Contains(notes, want) {
+				t.Fatalf("note lacks %q:\n%s", want, notes)
+			}
+		}
+		if got := y.git(y.repo, "rev-parse", "main"); got != main {
+			t.Fatal("main moved on a red run")
+		}
+	})
 }
 
 // A test command that says it could not run at all (exit 2) is no builder's
@@ -1113,35 +1136,6 @@ func TestMergeLocalTestsNotRunHolds(t *testing.T) {
 	}
 	if notes := y.notes(); !strings.Contains(notes, "the tests could not run") || !strings.Contains(notes, "no compiler here") {
 		t.Fatalf("no note on the hold:\n%s", notes)
-	}
-	if got := y.git(y.repo, "rev-parse", "main"); got != main {
-		t.Fatal("main moved without its tests")
-	}
-}
-
-// A test command red only for a flaky test's strike (exit 3) is no
-// builder's to fix either: the bead is held where it is, with a note
-// naming the flake bead, not sent back to new.
-func TestMergeLocalStrikeOnlyHolds(t *testing.T) {
-	y := newYard(t)
-	main := y.git(y.repo, "rev-parse", "main")
-	y.commit(y.wt, "b.txt", "bead\n")
-	y.tests("echo 'test: flaky: TestX (m.test/m) passed on rerun'; " +
-		"echo 'test: noted m-2: Flaky: TestX (m.test/m)'; " +
-		"echo 'test: TestX flaked on 3 changes in 7 days; see the Flaky: bead'; exit 3")
-
-	y.assembly()
-
-	b := y.bead()
-	if !b.Hold || b.Stage != "approved" {
-		t.Fatalf("bead %s hold=%v, want held in approved", b.Stage, b.Hold)
-	}
-	notes := y.notes()
-	for _, want := range []string{"red only for a flaky test's strike", "test: noted m-2: Flaky: TestX (m.test/m)",
-		"unhold to test it again"} {
-		if !strings.Contains(notes, want) {
-			t.Fatalf("note lacks %q:\n%s", want, notes)
-		}
 	}
 	if got := y.git(y.repo, "rev-parse", "main"); got != main {
 		t.Fatal("main moved without its tests")

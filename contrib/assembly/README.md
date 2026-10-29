@@ -43,11 +43,10 @@ on a quiet machine"); what it means is the depot command's own. Where the
 bead is a train the run also sets `YARDR_TEST_BEADS` to the train's
 children, sorted and joined by commas (set and empty when they cannot be
 read, unset for any other bead): depot yardr's command keeps it in its
-flaky log, to count a flaky test once per change. Red
+flaky log line, naming the change the run tested. Red
 reports `failed` (back to `new`, or `open`
 for a train), and a command that says it could not run (exit 2) holds the
-bead, as does one red only for a flaky test's strike (exit 3); one that
-exits 2 for a failing test, as make does, is wrapped
+bead; one that exits 2 for a failing test, as make does, is wrapped
 (`--test 'make test || exit 1'`). Where the command is the path of a file
 the base has (`--test .yardr/test`), the base's copy of that file is what
 runs, with sh: a bead cannot change the script that judges it, and a change
@@ -121,8 +120,8 @@ with no test command goes to review untested. The command's `YARDR_BEAD` is
 the train, which is no change of its own, so the run also sets
 `YARDR_TEST_BEADS` to the train's children, sorted and joined by commas (set
 and empty when `yardr bead show --json` cannot name them): depot
-yardr's command keeps it in its flaky log, to count a flaky test once per
-change. Green pushes the rebased branch when `YARDR_PUSH` is set
+yardr's command keeps it in its flaky log line, naming the change the run
+tested. Green pushes the rebased branch when `YARDR_PUSH` is set
 (replacing the remote branch only if everything on it was in what it
 rebased, or in a tip a note on the train records as `old tip: <sha>`, which
 its own conflict note and the merger's note both do: the merger rebases
@@ -134,9 +133,8 @@ note does, with the commit and what ran, and carry the last 200 lines of
 the output. A rebase conflict aborts the rebase, reports `conflict` to `merge`
 with the conflicting files and both tips, and leaves the branch for the
 mergers; after they report done, the train returns to `open` for integration.
-A test command that says it could not run (exit 2), or one red only for a
-flaky test's strike (exit 3), or a branch it cannot work on (missing,
-dirty, nothing ahead of the base), holds the train. A run
+A test command that says it could not run (exit 2), or a branch it cannot
+work on (missing, dirty, nothing ahead of the base), holds the train. A run
 ended by a signal is run once more, as in merge-local, and holds the train the second time.
 
 With `YARDR_PR=1` (and `YARDR_PUSH`), integrate-train also opens a pull
