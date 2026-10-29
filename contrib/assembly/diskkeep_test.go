@@ -72,6 +72,18 @@ func TestMergeLocalKeepsDiskBeforeTests(t *testing.T) {
 	}
 	// Under any machine's free space: the keeping always acts.
 	y.keepGB("999999999")
+	// The machine's go through a frozen copy of its GOENV file: the
+	// machine's own keeping may rotate the real cache while the landing
+	// runs, and the before/after reads below must not race it. Only y.run
+	// sees the copy (y.env is its own); the landing inherits the test
+	// process's environment instead, so what it rotates is unchanged.
+	frozen := filepath.Join(t.TempDir(), "goenv")
+	if b, err := os.ReadFile(y.run(y.home, "go", "", "env", "GOENV")); err == nil {
+		if err := os.WriteFile(frozen, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	y.env = append(y.env, "GOENV="+frozen)
 	// The machine's go before: the keeping must leave it as it is.
 	realCache := y.run(y.home, "go", "", "env", "GOCACHE")
 	realEnvFile := y.run(y.home, "go", "", "env", "GOENV")
