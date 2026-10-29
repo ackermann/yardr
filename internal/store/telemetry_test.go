@@ -2,12 +2,10 @@ package store_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -31,198 +29,45 @@ func telemetryYard(t *testing.T) (string, store.API, *store.Store) {
 	return home, api, own
 }
 
-// telemetryStatesEqual fails unless the two state files hold the same
-// consent bookkeeping: the same minted day, the same number of grants
-// and withdrawals within the minute of each other, and the same
-// eligible day. The install ids are each yard's own mint and are
-// compared only for being there.
-func telemetryStatesEqual(t *testing.T, a, b *telemetry.State) {
-	t.Helper()
-	if a == nil || b == nil {
-		t.Fatalf("states = %+v, %+v, want both there", a, b)
-	}
-	if a.InstallID == "" || b.InstallID == "" {
-		t.Errorf("install ids = %q, %q, want both minted", a.InstallID, b.InstallID)
-	}
-	if a.Minted != b.Minted {
-		t.Errorf("minted = %q, %q, want the same day", a.Minted, b.Minted)
-	}
-	stamps := func(what string, x, y []string) {
-		t.Helper()
-		if len(x) != len(y) {
-			t.Fatalf("%s = %v, %v, want the same count", what, x, y)
-		}
-		for i := range x {
-			tx, err := time.Parse("2006-01-02T15:04:05Z", x[i])
-			if err != nil {
-				t.Fatalf("%s %q does not parse: %v", what, x[i], err)
-			}
-			ty, err := time.Parse("2006-01-02T15:04:05Z", y[i])
-			if err != nil {
-				t.Fatalf("%s %q does not parse: %v", what, y[i], err)
-			}
-			if d := tx.Sub(ty); d < -time.Minute || d > time.Minute {
-				t.Errorf("%s = %v, %v, want them within the minute", what, x, y)
-			}
-		}
-	}
-	stamps("grants", a.Grants, b.Grants)
-	stamps("withdrawals", a.Withdrawals, b.Withdrawals)
-	if a.EligibleFrom != b.EligibleFrom {
-		t.Errorf("eligible_from = %q, %q, want the same day", a.EligibleFrom, b.EligibleFrom)
-	}
-}
-
-// Turning the switch through the call keeps the same telemetry.json
-// bookkeeping as yardr telemetry on and off: on mints and grants, off
-// withdraws, and on again keeps the id and starts a new eligible day.
-// Each step runs through TelemetrySet on one throwaway yard and through
-// the CLI's functions on a twin, and the replies agree apart from the
-// two mints.
-func TestTelemetrySetMatchesTheCLI(t *testing.T) {
+// The calls reach the registered switch: on flips the setting and writes
+// telemetry.json beside the store, off flips it back keeping the id, and
+// show previews the sending-day snapshot. The consent bookkeeping itself
+// is the telemetry package's, pinned there.
+func TestTelemetryCallsReachTheRegisteredSwitch(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	homeA, apiA, _ := telemetryYard(t)
-	homeB, apiB, _ := telemetryYard(t)
-	changed := func(what string, call *store.TelemetryChange, cli *telemetry.Change) {
-		t.Helper()
-		call.InstallID, cli.InstallID = "", ""
-		got, _ := json.Marshal(call)
-		want, _ := json.Marshal(cli)
-		if string(got) != string(want) {
-			t.Errorf("%s: call answers %s, the CLI's function %s", what, got, want)
-		}
-	}
-	states := func() (*telemetry.State, *telemetry.State) {
-		t.Helper()
-		a, err := telemetry.LoadState(filepath.Join(homeA, "telemetry.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		b, err := telemetry.LoadState(filepath.Join(homeB, "telemetry.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return a, b
-	}
-	now := time.Now()
-	got, err := apiA.TelemetrySet(ctx, true, "jo")
+	home, api, _ := telemetryYard(t)
+	set, err := api.TelemetrySet(ctx, true, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := telemetry.On(ctx, apiB, filepath.Join(homeB, "telemetry.json"), "jo", now)
+	if set.Switch != "on" || !set.Changed || set.InstallID == "" || set.Endpoint == "" {
+		t.Errorf("TelemetrySet(true) = %+v, want on with a minted id and endpoint", set)
+	}
+	if settings, err := api.Settings(ctx); err != nil || settings[store.TelemetrySetting] != "true" {
+		t.Fatalf("settings = %v, %v", settings, err)
+	}
+	state, err := telemetry.LoadState(filepath.Join(home, "telemetry.json"))
+	if err != nil || state == nil || state.InstallID != set.InstallID || len(state.Grants) != 1 {
+		t.Fatalf("state = %+v, %v", state, err)
+	}
+	got, err := api.TelemetryShow(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed("on", got, want)
-	a, b := states()
-	telemetryStatesEqual(t, a, b)
-	idA, idB := a.InstallID, b.InstallID
-
-	got, err = apiA.TelemetrySet(ctx, false, "jo")
+	if got.Switch != "on" || got.InstallID != set.InstallID || got.Request == nil ||
+		len(got.Request.Batch) != 1 || got.Request.Batch[0].Name != telemetry.DailyEvent {
+		t.Errorf("TelemetryShow = %+v, want on with the sending-day snapshot", got)
+	}
+	unset, err := api.TelemetrySet(ctx, false, "jo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err = telemetry.Off(ctx, apiB, filepath.Join(homeB, "telemetry.json"), "jo", now)
-	if err != nil {
-		t.Fatal(err)
+	if unset.Switch != "off" || !unset.Changed || unset.InstallID != set.InstallID {
+		t.Errorf("TelemetrySet(false) = %+v, want off keeping the id", unset)
 	}
-	changed("off", got, want)
-	a, b = states()
-	telemetryStatesEqual(t, a, b)
-	if a.InstallID != idA || b.InstallID != idB {
-		t.Errorf("off keeps the id: %q and %q, want %q and %q", a.InstallID, b.InstallID, idA, idB)
-	}
-
-	got, err = apiA.TelemetrySet(ctx, true, "jo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want, err = telemetry.On(ctx, apiB, filepath.Join(homeB, "telemetry.json"), "jo", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	changed("on again", got, want)
-	a, b = states()
-	telemetryStatesEqual(t, a, b)
-	if a.InstallID != idA || b.InstallID != idB {
-		t.Errorf("on again keeps the id: %q and %q, want %q and %q", a.InstallID, b.InstallID, idA, idB)
-	}
-	if len(a.Grants) != 2 || len(b.Grants) != 2 {
-		t.Errorf("on again grants twice: %v and %v", a.Grants, b.Grants)
-	}
-}
-
-// TelemetryShow previews what yardr telemetry show prints: off it says
-// off with no batch, on it previews the exact next request. Each runs
-// through TelemetryShow on one throwaway yard and through Show on a twin
-// with the same state file, and the two previews are the same JSON.
-func TestTelemetryShowMatchesShow(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	homeA, apiA, _ := telemetryYard(t)
-	homeB, apiB, _ := telemetryYard(t)
-	got, err := apiA.TelemetryShow(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Switch != "off" || got.Request != nil || got.NoBatch != telemetry.NoBatchOff || got.InstallID != "" {
-		raw, _ := json.Marshal(got)
-		t.Errorf("TelemetryShow with no state = %s, want off with no batch and no id", raw)
-	}
-	// The same consent on both yards: granted today, eligible from
-	// tomorrow, so the batch holds the sending-day snapshot alone.
-	now := time.Now().UTC()
-	grant := now.Truncate(time.Second).Format("2006-01-02T15:04:05Z")
-	day := now.Format("2006-01-02")
-	next := now.Add(24 * time.Hour).Format("2006-01-02")
-	seed := &telemetry.State{
-		InstallID:    "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
-		Minted:       day,
-		Grants:       []string{grant},
-		EligibleFrom: next,
-	}
-	for _, home := range []string{homeA, homeB} {
-		if err := seed.Save(filepath.Join(home, "telemetry.json")); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, api := range []store.API{apiA, apiB} {
-		if err := api.SetSetting(ctx, store.TelemetrySetting, "true", "jo"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	previewed := func() {
-		t.Helper()
-		got, err := apiA.TelemetryShow(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		want, err := telemetry.Show(ctx, apiB, filepath.Join(homeB, "telemetry.json"), now)
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw, _ := json.Marshal(got)
-		expected, _ := json.Marshal(want)
-		if string(raw) != string(expected) {
-			t.Errorf("TelemetryShow = %s, Show = %s", raw, expected)
-		}
-	}
-	previewed()
-	if got, _ := apiA.TelemetryShow(ctx); got.Request == nil || len(got.Request.Batch) != 1 || got.Request.Batch[0].Name != telemetry.DailyEvent {
-		raw, _ := json.Marshal(got)
-		t.Errorf("TelemetryShow on = %s, want the sending-day snapshot alone", raw)
-	}
-	// A hosted yard with no counts and no running crew has no request.
-	for _, api := range []store.API{apiA, apiB} {
-		if err := api.SetSetting(ctx, store.HostedSetting, "true", "jo"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	previewed()
-	if got, _ := apiA.TelemetryShow(ctx); got.Request != nil || got.NoBatch != telemetry.NoBatchEmpty {
-		raw, _ := json.Marshal(got)
-		t.Errorf("TelemetryShow hosted with nothing to send = %s, want no batch", raw)
+	if settings, err := api.Settings(ctx); err != nil || settings[store.TelemetrySetting] != "false" {
+		t.Fatalf("settings = %v, %v", settings, err)
 	}
 }
 

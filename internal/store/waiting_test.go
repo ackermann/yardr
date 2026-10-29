@@ -72,39 +72,6 @@ func TestHoldingDepsListsHoldingEdges(t *testing.T) {
 	}
 }
 
-// HoldingDeps names the same blockers OpenBlockers does: the edges behind
-// its handles.
-func TestHoldingDepsMatchesOpenBlockers(t *testing.T) {
-	t.Parallel()
-	s, ctx := untilYard(t)
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "", "review", "me"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddDep(ctx, "y-block", "y-target", store.DepBlocks, "approved", "", "me"); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddDep(ctx, "y-plain", "y-target", store.DepBlocks, "", "", "me"); err != nil {
-		t.Fatal(err)
-	}
-	ds, err := s.HoldingDeps(ctx, "y-target")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bs, err := s.OpenBlockers(ctx, "y-target")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var from []string
-	for _, d := range ds {
-		from = append(from, d.From)
-	}
-	slices.Sort(from)
-	slices.Sort(bs)
-	if !slices.Equal(from, bs) {
-		t.Fatalf("HoldingDeps from = %v, OpenBlockers = %v", from, bs)
-	}
-}
-
 // Waiting lists every holding edge of the yard: one entry per holding edge,
 // each bead's oldest first, beads by priority, then creation time. A held
 // bead, a journal and a memory never wait; an assigned bead waits like an

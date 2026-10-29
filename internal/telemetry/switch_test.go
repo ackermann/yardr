@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -397,4 +398,87 @@ func TestPrepareSourceDays(t *testing.T) {
 			t.Errorf("a hosted batch carries %s", e.Name)
 		}
 	}
+}
+
+// The store's calls answer through On, Off and Show: the converted replies
+// are the same JSON the functions return, so the parallel shapes cannot
+// drift apart. On and off run on twin yards, which mint their own ids;
+// show runs on the same seeded consent, with and without a batch.
+func TestSwitchConvertsOnOffShowLosslessly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 10, 28, 15, 4, 5, 0, time.UTC)
+	stA, pathA := switchYard(t)
+	stB, pathB := switchYard(t)
+	var sw Switch
+	equal := func(what string, got, want any) {
+		t.Helper()
+		raw, _ := json.Marshal(got)
+		expected, _ := json.Marshal(want)
+		if string(raw) != string(expected) {
+			t.Errorf("%s: the call answers %s, the function %s", what, raw, expected)
+		}
+	}
+	blank := func(got *store.TelemetryChange, want *Change) {
+		t.Helper()
+		got.InstallID, want.InstallID = "", ""
+	}
+	onGot, err := sw.TelemetryOn(ctx, stA, pathA, "me", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	onWant, err := On(ctx, stB, pathB, "me", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blank(onGot, onWant)
+	equal("on", onGot, onWant)
+	offGot, err := sw.TelemetryOff(ctx, stA, pathA, "me", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offWant, err := Off(ctx, stB, pathB, "me", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blank(offGot, offWant)
+	equal("off", offGot, offWant)
+
+	seed := &State{
+		InstallID:    "3f6d1c2e-9a4b-4e7a-b5c1-2d8f0a6e4b90",
+		Minted:       "2026-10-28",
+		Grants:       []string{"2026-10-28T15:04:05Z"},
+		EligibleFrom: "2026-10-29",
+	}
+	for _, path := range []string{pathA, pathB} {
+		if err := seed.Save(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, st := range []store.API{stA, stB} {
+		if err := st.SetSetting(ctx, store.TelemetrySetting, "true", "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	show := func(what string) {
+		t.Helper()
+		got, err := sw.TelemetryShow(ctx, stA, pathA, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := Show(ctx, stB, pathB, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(what, got, want)
+	}
+	show("show")
+	// A hosted yard with no counts and no running crew has no request:
+	// the nil request converts as a nil.
+	for _, st := range []store.API{stA, stB} {
+		if err := st.SetSetting(ctx, store.HostedSetting, "true", "me"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	show("show with no batch")
 }
