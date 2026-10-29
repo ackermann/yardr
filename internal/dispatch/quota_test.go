@@ -369,6 +369,26 @@ func TestRouteTakesTheFirstGroupWhoseQuotaConditionHolds(t *testing.T) {
 			t.Fatalf("open: claimed by %q with %v, want a: the provider says the window is open", group, data)
 		}
 	})
+	t.Run("a window used up until a reset ahead holds however old the report is", func(t *testing.T) {
+		// Past ten minutes only that still holds: a Weekly window used up
+		// until a reset ahead, last seen twenty minutes ago, passes the
+		// group over with the reset it gave.
+		s, _, d, _, _, now := quotaYard(t, "a", "b")
+		used, reset := 100.0, noon().Add(time.Hour)
+		asked := now.Add(-20 * time.Minute)
+		rememberGroupLimits(t, s, d, "a", asked, &limits.Report{
+			Source: "quokka", Provider: "Kimi", AskedAt: asked,
+			Windows: []limits.Window{{Label: "Weekly", UsedPercent: &used, ResetsAt: &reset}},
+		})
+		b := newBead(t, s, "x")
+		must(t, d.Reconcile(ctx))
+		dispatch.WaitLimitsIdle(d)
+		group, data := claimedBy(t, s, b.ID)
+		if group != "b" {
+			t.Fatalf("claimed by %q with %v, want b", group, data)
+		}
+		wantPassed(t, data, lastKnown)
+	})
 	// A duration on the condition is read as it is for a fresh window: what
 	// was last known holds within it, and the claim says so; beyond it the
 	// group is passed over.
@@ -830,6 +850,38 @@ func TestRouteComparesThePaceWithTheTarget(t *testing.T) {
 		reason != "a passed over (Kimi's Weekly window is 38% used, the route asks under target 17% + 10)" {
 		t.Fatalf("quota_wait = %v", evs[0].Data)
 	}
+
+	t.Run("a window past its target holds as last known within ten minutes", func(t *testing.T) {
+		// With no fresh answer, a Weekly window last seen two minutes
+		// ago past its target still passes the group over, the reason
+		// saying it is the last known, and the bead waits. HoldsFor
+		// stands in for the staleness, as for the machine's answer: the
+		// point is a young report with no fresh answer.
+		s, _, d, _, r, now := quotaYard(t, "a@Weekly<target", "wait")
+		say := pacedStandIn(t, s)
+		say(paced(10, 10, "17"))
+		used, target := 49.0, 44.3
+		asked := now.Add(-2 * time.Minute)
+		rememberGroupLimits(t, s, d, "a", asked, &limits.Report{
+			Source: "quokka", Provider: "Kimi", AskedAt: asked,
+			HoldsFor: 30 * time.Second,
+			Windows:  []limits.Window{{Label: "Weekly", UsedPercent: &used, TargetPercent: &target}},
+		})
+		b := newBead(t, s, "x")
+		must(t, d.Reconcile(ctx))
+		dispatch.WaitLimitsIdle(d)
+		if group, _ := claimedBy(t, s, b.ID); group != "" {
+			t.Fatalf("claimed by %q, want nobody: Weekly was past its target two minutes ago", group)
+		}
+		evs := eventKinds(t, s, b.ID, "quota_wait")
+		if len(evs) != 1 {
+			t.Fatalf("quota_wait events = %v, want one", evs)
+		}
+		if reason, _ := evs[0].Data["reason"].(string); evs[0].Data["route"] != r.ID ||
+			reason != "a passed over (Kimi's Weekly window is 49% used, the route asks under target 44.3% (last known))" {
+			t.Fatalf("quota_wait = %v", evs[0].Data)
+		}
+	})
 }
 
 // `@<80` reads every window the provider reports.
@@ -1213,16 +1265,16 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 	t.Run("remembered answer hold", func(t *testing.T) {
 		// A remembered answer that says how long it holds is asked again
 		// once that has passed, within the five minutes: a machine-gated
-		// bead parked on one spiked reading starts on the first pass after
-		// it ages out. An answer that says nothing holds for the whole five
-		// minutes, as before.
+		// bead parked on one spiked reading waits on it as last known
+		// for the pass the re-read is still landing in, and starts on
+		// the pass after it lands. An answer that says nothing holds for
+		// the whole five minutes, as before.
 		for name, tc := range map[string]struct {
 			holds time.Duration
-			want  string // "" parks the bead, else the claiming group
 			runs  int
 		}{
-			"the machine's answer holds for one pass": {30 * time.Second, "a", 1},
-			"a silent answer holds for five minutes":  {0, "", 0},
+			"the machine's answer is re-read after one pass": {30 * time.Second, 1},
+			"a silent answer holds for five minutes":         {0, 0},
 		} {
 			t.Run(name, func(t *testing.T) {
 				s, _, d, _, _, now := quotaYard(t, "a@machine.load<80", "wait")
@@ -1238,14 +1290,30 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 				*now = now.Add(40 * time.Second)
 				must(t, d.Reconcile(ctx))
 				dispatch.WaitLimitsIdle(d)
-				if group, _ := claimedBy(t, s, b.ID); group != tc.want {
-					t.Fatalf("claimed by %q, want %q", group, tc.want)
+				if group, _ := claimedBy(t, s, b.ID); group != "" {
+					t.Fatalf("claimed by %q, want nobody: the 95%% reading holds, fresh or last known", group)
+				}
+				if tc.holds == 0 {
+					if got := runs(); got != 0 {
+						t.Fatalf("the machine command ran %d times, want 0", got)
+					}
+					return
+				}
+				evs := eventKinds(t, s, b.ID, "quota_wait")
+				if len(evs) != 1 {
+					t.Fatalf("quota_wait events = %v, want one", evs)
+				}
+				if reason, _ := evs[0].Data["reason"].(string); reason != "a passed over (machine's load window is 95% used, the route asks under 80 (last known))" {
+					t.Fatalf("quota_wait = %v, want the spiked reading as last known", evs[0].Data)
+				}
+				// The re-read has landed since: the bead starts on the
+				// next pass.
+				must(t, d.Reconcile(ctx))
+				if group, data := claimedBy(t, s, b.ID); group != "a" || data["passed"] != nil {
+					t.Fatalf("claimed by %q with %v, want a on the re-read 20%%", group, data)
 				}
 				if got := runs(); got != tc.runs {
 					t.Fatalf("the machine command ran %d times, want %d", got, tc.runs)
-				}
-				if tc.want == "" {
-					return
 				}
 				// The re-read answer says nothing, so it holds for the five
 				// minutes: a bead more starts on it without another run.
@@ -1258,6 +1326,55 @@ func TestRouteWithASourceConditionHoldsAndReleasesDispatch(t *testing.T) {
 				}
 				if got := runs(); got != 1 {
 					t.Fatalf("the machine command ran %d times, want 1", got)
+				}
+			})
+		}
+	})
+	t.Run("a stale answer holds within ten minutes", func(t *testing.T) {
+		// With no fresh answer, what the source last said within the
+		// last ten minutes still gates the route, as last known; past
+		// that the gate opens, as when nothing was ever said.
+		for name, tc := range map[string]struct {
+			ago  time.Duration
+			want string // "" waits, else the claiming group
+		}{
+			"two minutes old holds":    {2 * time.Minute, ""},
+			"twenty minutes old opens": {20 * time.Minute, "a"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				s, _, d, _, r, now := quotaYard(t, "a@machine.load<80", "wait")
+				machineStandIn(t, s)
+				load := 200.0
+				asked := now.Add(-tc.ago)
+				dispatch.RememberSourceAnswer(d, "machine", asked, &limits.Report{
+					Source: "machine", Provider: "machine", AskedAt: asked,
+					HoldsFor: 30 * time.Second,
+					Windows:  []limits.Window{{Label: "load", UsedPercent: &load}},
+				})
+				b := newBead(t, s, "x")
+				must(t, d.Reconcile(ctx))
+				dispatch.WaitLimitsIdle(d)
+				group, data := claimedBy(t, s, b.ID)
+				if group != tc.want {
+					t.Fatalf("claimed by %q, want %q", group, tc.want)
+				}
+				if tc.want != "" {
+					unknown, _ := data["limits_unknown"].(string)
+					if data["route"] != r.ID || data["passed"] != nil || !strings.Contains(unknown, "no fresh answer yet") {
+						t.Fatalf("claimed by %q with %v, want a with its limits not known yet", group, data)
+					}
+					return
+				}
+				evs := eventKinds(t, s, b.ID, "quota_wait")
+				if len(evs) != 1 {
+					t.Fatalf("quota_wait events = %v, want one", evs)
+				}
+				if reason, _ := evs[0].Data["reason"].(string); evs[0].Data["route"] != r.ID ||
+					reason != "a passed over (machine's load window is 200% used, the route asks under 80 (last known))" {
+					t.Fatalf("quota_wait = %v", evs[0].Data)
+				}
+				if _, has := evs[0].Data["resets_at"]; has {
+					t.Fatalf("quota_wait = %v: the machine's windows never reset", evs[0].Data)
 				}
 			})
 		}

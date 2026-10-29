@@ -800,13 +800,13 @@ type Quota struct {
 	// Unknown is why nothing is known (no source answers for the provider,
 	// its command failed, no fresh answer yet); Windows is then not read.
 	Unknown string
-	// LastKnown, beside Unknown, are the windows the provider last said were
-	// used up and that reset after the moment of the choice: a window used
-	// up stays so until it resets, however old the answer that said it. They
-	// are read as the same windows fresh would be, a comparison's duration
-	// included: they fail the comparisons they answer, or are held for their
-	// reset, the reason or the note saying they were last known, and every
-	// other comparison is as unknown as Unknown says.
+	// LastKnown, beside Unknown, are the windows the provider last said:
+	// the whole of a young report, or else only the windows used up
+	// that reset after the moment of the choice. They are read as the
+	// same windows fresh would be, a comparison's duration included:
+	// they fail the comparisons they answer, or are held for their
+	// reset, the reason or the note saying they were last known, and
+	// every other comparison is as unknown as Unknown says.
 	LastKnown []QuotaWindow
 }
 
@@ -967,8 +967,8 @@ func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota, 
 	said := map[string]bool{}
 	for _, l := range limits {
 		q := quota(l.Source)
-		// With nothing known, the windows last known used up (Quota.LastKnown)
-		// are all there is to read. They are read as a fresh window is, so
+		// With nothing known, the windows last known (Quota.LastKnown) are
+		// all there is to read. They are read as a fresh window is, so
 		// they fail the comparisons they answer or are held for their reset,
 		// and a comparison they do not answer is unknown.
 		windows, lastKnown := q.Windows, q.Unknown != ""
@@ -1029,8 +1029,8 @@ func judge(now time.Time, limits []QuotaLimit, quota func(source string) Quota, 
 			}
 			reason := fmt.Sprintf("%s %s window is %s%% used, the route asks under %s",
 				whose, w.Label, percent(*w.UsedPercent), want)
-			if lastKnown && w.ResetsAt != nil {
-				reason += " (last known: used up until " + shared.Clock(*w.ResetsAt, now) + ")"
+			if lastKnown {
+				reason += lastKnownNote(w, now)
 			}
 			failed = append(failed, reason)
 			if w.ResetsAt != nil && (resets == nil || w.ResetsAt.Before(*resets)) {

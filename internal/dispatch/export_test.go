@@ -27,6 +27,37 @@ func RememberSourceAnswer(d *Dispatcher, source string, at time.Time, r *limits.
 	d.limitsAsked[source+"\x00"] = limitsAnswer{at: at, report: r}
 }
 
+// RememberGroupAnswer keeps r, said at at, as this daemon's memory of the
+// provider g's sessions burn (its kind, provider and env_file, as a
+// route's read resolves them), as if it had asked it then. A test stands
+// in with it for an answer no script run can carry: a report asked
+// minutes ago by the test's clock, where a script's answer is asked by
+// the wall clock. Nothing is kept where nothing answers, as a read finds
+// nothing there either.
+func RememberGroupAnswer(d *Dispatcher, ctx context.Context, g store.Group, def string, at time.Time, r *limits.Report) {
+	kind := g.Kind(def)
+	if kind == "" {
+		kind = agents.DefaultKind
+	}
+	provider, _ := g.Config["provider"].(string)
+	env, err := groupEnv(g)
+	if err != nil {
+		return
+	}
+	as, err := limits.Answerers(ctx, d.Store, d.Home)
+	if err != nil {
+		return
+	}
+	a, name, ok := limits.Resolve(as, kind, provider)
+	if !ok {
+		return
+	}
+	d.limitsMu.Lock()
+	defer d.limitsMu.Unlock()
+	d.initLimitsLocked()
+	d.limitsAsked[a.Source+"\x00"+name+"\x00"+limitsEnvScope(env)] = limitsAnswer{at: at, report: r}
+}
+
 // WaitFuse is how long a test lets an effect it waits for take. It is a
 // fuse against a hang, and a green run spends none of it: what the tests wait
 // for is a pass, a process or a store write, which a loaded machine delays

@@ -255,10 +255,22 @@ func (d *Dispatcher) sourceQuota(ctx context.Context, source string) store.Quota
 	return quotaOf(rd.report)
 }
 
+// unknownQuotaMemory is how long a route goes by what a provider last said
+// when no fresh answer is known: a report younger than this keeps failing
+// the comparisons it answers, as last known, so one stale read does not
+// open every gate on a pass. Past it only a window used up until a reset
+// still ahead holds (usedUpAhead), so a source that died stops holding the
+// line ten minutes after its last word.
+const unknownQuotaMemory = 10 * time.Minute
+
 // unknownQuota is what a read with no fresh report tells a route: no fresh
 // answer (its refresh already running), a provider that gave none, or
 // nothing that answers. Choose fails open on it, as it always has, but for
-// the windows the provider last said were used up until a reset still ahead
+// what the provider last said: a report younger than unknownQuotaMemory is
+// kept whole as LastKnown, so a load last seen past the threshold, or a
+// window last seen past its target, still fails the comparison, with the
+// reason saying it is the last known. Past the bound only the windows the
+// provider last said were used up until a reset still ahead are kept
 // (usedUpAhead): a session started into one stops on the limit at once, so
 // they go on failing the comparisons they answer however old the report is,
 // until a fresh one replaces them. A key never answered, and a provider that
@@ -266,7 +278,10 @@ func (d *Dispatcher) sourceQuota(ctx context.Context, source string) store.Quota
 func (d *Dispatcher) unknownQuota(rd limitRead) store.Quota {
 	q := store.Quota{Unknown: rd.unknown()}
 	if rd.last != nil {
-		if used := usedUpAhead(rd.last, d.now()); len(used) > 0 {
+		now := d.now()
+		if now.Sub(rd.last.AskedAt) < unknownQuotaMemory {
+			q.Provider, q.LastKnown = rd.last.Provider, quotaWindows(rd.last.Windows)
+		} else if used := usedUpAhead(rd.last, now); len(used) > 0 {
 			q.Provider, q.LastKnown = rd.last.Provider, quotaWindows(used)
 		}
 	}

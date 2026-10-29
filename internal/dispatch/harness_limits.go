@@ -36,9 +36,9 @@ import (
 // Every read is of the memory below, kept fresh by the background
 // refresher (limits_refresh.go): a command that hangs holds no pass at
 // all, and agents that stop or wake together are still one run. A route
-// reads one thing of it past the age: a window the provider said was used
-// up until a reset still ahead (limitRead.last), which is true however old
-// the answer is, and however many runs have failed since.
+// reads one thing of it past the age: the report the provider last gave
+// (limitRead.last), whole while it is young and its used-up windows
+// after that (unknownQuota), however many runs have failed since.
 
 // limitsMemory is how long what a provider said is kept, in the memory of
 // this daemon only: five sessions of one kind that stop in the same minute
@@ -109,7 +109,7 @@ func limitsEnvScope(env []string) string {
 
 // limitState is which of the cache's answers a read found, which its
 // readers must not confuse: a route fails open on the last two alike
-// (but for a window last known used up, limitRead.last), a reset prompts
+// (but for what was last known, limitRead.last), a reset prompts
 // on them and defers only on the middle one, and a stop writes
 // limits_unknown for each.
 type limitState int
@@ -137,9 +137,9 @@ type limitRead struct {
 	state  limitState
 	// last is the latest report the provider gave when the read has none of
 	// its own to go by: the answer that has gone stale, or the one before a
-	// failed run. Nothing in it is an answer now but a window it says was
-	// used up until a reset still ahead (usedUpAhead): that stays so however
-	// old the report is.
+	// failed run. A route goes by it whole while it is young, and after
+	// that by only a window it says was used up until a reset still ahead
+	// (unknownQuota): that stays so however old the report is.
 	last *limits.Report
 }
 

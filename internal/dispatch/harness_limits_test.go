@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/dispatch"
+	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -103,6 +104,23 @@ func primeGroupLimits(t *testing.T, s store.API, d *dispatch.Dispatcher, name st
 	for _, g := range groups {
 		if g.Name == name {
 			dispatch.PrimeRouteLimits(d, context.Background(), g, "")
+			return
+		}
+	}
+	t.Fatalf("no group %s", name)
+}
+
+// rememberGroupLimits keeps r, said at at, as d's memory of the provider
+// the group named name burns, through its route read (kind, provider and
+// env_file). A test stands in with it for a report no script run can
+// carry: one asked minutes ago by the test's clock.
+func rememberGroupLimits(t *testing.T, s store.API, d *dispatch.Dispatcher, name string, at time.Time, r *limits.Report) {
+	t.Helper()
+	groups, err := s.Groups(context.Background())
+	must(t, err)
+	for _, g := range groups {
+		if g.Name == name {
+			dispatch.RememberGroupAnswer(d, context.Background(), g, "", at, r)
 			return
 		}
 	}

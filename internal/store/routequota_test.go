@@ -392,9 +392,9 @@ func TestRouteChoose(t *testing.T) {
 		}}
 	}
 	// lastKnown is what a route is handed when no fresh answer is known
-	// (Quota.LastKnown): why, and the windows the provider last said were
-	// used up. usedUp is the Weekly window so, resetting at late, and
-	// reason says it as a comparison that fails on it does.
+	// (Quota.LastKnown): why, and the windows the provider last said.
+	// usedUp is the Weekly window used up, resetting at late, and reason
+	// says it as a comparison that fails on it does.
 	lastKnown := func(windows ...store.QuotaWindow) store.Quota {
 		return store.Quota{Provider: "Claude", Unknown: "no fresh answer yet", LastKnown: windows}
 	}
@@ -642,6 +642,17 @@ func TestRouteChoose(t *testing.T) {
 			store.RouteChoice{Group: "a", Held: []string{"Weekly 100% but resets in 12h (last known)"}}, "a"},
 		"a duration passes over what was last known beyond it": {route("a@Weekly<80/6h", "b"), map[string]store.Quota{"a": lastKnown(usedUp)},
 			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a", Reason: reason("80"), ResetsAt: &late}}}, "a"},
+		// A window of a recent report that is not used up fails with
+		// only "(last known)": past its number with a reset said, or
+		// past its target with none.
+		"a condition answered by a recent last-known window": {route("a@Weekly<80", "b"),
+			map[string]store.Quota{"a": lastKnown(store.QuotaWindow{Label: "Weekly", UsedPercent: pct(90), ResetsAt: &late})},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a",
+				Reason: "Claude's Weekly window is 90% used, the route asks under 80 (last known)", ResetsAt: &late}}}, "a"},
+		"a target answered by a recent last-known window": {route("a@Weekly<target", "b"),
+			map[string]store.Quota{"a": lastKnown(store.QuotaWindow{Label: "Weekly", UsedPercent: pct(49), TargetPercent: pct(44.3)})},
+			store.RouteChoice{Group: "b", Passed: []store.PassedGroup{{Group: "a",
+				Reason: "Claude's Weekly window is 49% used, the route asks under target 44.3% (last known)"}}}, "a"},
 		// A window of one model alone holds no group with no condition whose
 		// bead starts with another model, last known or not, and the claim
 		// says the limits were not known. Where it is the bead's own model,
