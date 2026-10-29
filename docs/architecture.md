@@ -110,8 +110,8 @@ Measured at f75abf88: 38 packages under `internal/`, each in one layer:
 Three rules; the test holds them, with today's breaking edges in one
 allow table, each row naming the bead that removes it:
 
-(a) `internal/store` imports no `internal` package. Today it imports 9
-(`agents`, `config`, `eta`, `pairing`, `peer`, `shared`, `source`,
+(a) `internal/store` imports no `internal` package. Today it imports 8
+(`agents`, `config`, `pairing`, `peer`, `shared`, `source`,
 `udiff`, `yardkey`); each stands in the table until its split bead cuts it.
 
 (b) A leaf imports no internal package.

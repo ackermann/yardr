@@ -8,6 +8,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"testing"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -494,3 +495,22 @@ func (s *Store) AgeStageAsk(id string, seq uint64) error {
 
 // FinishLine is finishLine: the first line of the finish note among notes.
 var FinishLine = finishLine
+
+// SetClockForTest replaces the clock now reads, for tests that move time.
+func SetClockForTest(f func() time.Time) { clock = f }
+
+// HoldWithoutHolderForTest holds the bead as the yard did before it kept
+// who held a bead: the hold is on and the holder is not on record.
+func HoldWithoutHolderForTest(s *Store, t testing.TB, id string) {
+	t.Helper()
+	if err := s.write(func(w *wtx) error {
+		row, err := w.loadBead(id)
+		if err != nil {
+			return err
+		}
+		row.Hold, row.HeldBy = true, ""
+		return w.mintBead(row, "me")
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

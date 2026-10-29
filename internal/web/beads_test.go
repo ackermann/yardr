@@ -1283,8 +1283,10 @@ func TestBeadPageReadsItsOwnSessions(t *testing.T) {
 	var page web.BeadPage
 	f.getJSON("/beads/"+beads[0].ID, &page)
 	got := st.reset()
-	if got["ListSessions of "+beads[0].ID] != 1 || got["Sessions"] != 1 || got["Sessions, ended ones too"] != 0 {
-		t.Errorf("the bead's page asked the store for %v, want its own sessions and the live ones, once each", got)
+	// The live sessions twice: the page's own read and the estimates'
+	// shared queue snapshot, each once per response, never per bead.
+	if got["ListSessions of "+beads[0].ID] != 1 || got["Sessions"] != 2 || got["Sessions, ended ones too"] != 0 {
+		t.Errorf("the bead's page asked the store for %v, want its own sessions once and the live ones twice", got)
 	}
 	if len(page.Sessions) != 2 || page.Sessions[0].ID != ids[0] || page.Sessions[1].ID != ids[2] {
 		t.Errorf("the bead's sessions = %+v, want %s then %s", page.Sessions, ids[0], ids[2])
@@ -1354,7 +1356,9 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	st.reset()
 	r := f.get("/beads")
 	got := st.reset()
-	if want := map[string]int{"ListBeads": 1, "Sessions": 1, "Events": 2}; !reflect.DeepEqual(got, want) {
+	// The live sessions twice: the page's own read and the estimates'
+	// shared queue snapshot, each once per response, never per bead.
+	if want := map[string]int{"ListBeads": 1, "Sessions": 2, "Events": 2}; !reflect.DeepEqual(got, want) {
 		t.Errorf("/beads asked the store for %v, want %v", got, want)
 	}
 	// /beads counts what waits in its header instead: the blocked bead,
@@ -1393,8 +1397,8 @@ func TestBeadsReadsTheYardOnce(t *testing.T) {
 	if want := []string{"a thought", "a shed", "a door", "which wood", "which size", "which colour"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) {
 		t.Errorf("beads %v, want %v", titles(cards(list.Beads)), want)
 	}
-	if got := st.reset(); !reflect.DeepEqual(got, map[string]int{"ListBeads": 1, "Sessions": 1}) {
-		t.Errorf("/beads as JSON asked the store for %v, want the beads and the live sessions once", got)
+	if got := st.reset(); !reflect.DeepEqual(got, map[string]int{"ListBeads": 1, "Sessions": 2}) {
+		t.Errorf("/beads as JSON asked the store for %v, want the beads once and the live sessions twice", got)
 	}
 	f.getJSON("/beads?depot=loose", &list)
 	if want := []string{"a shed"}; !reflect.DeepEqual(titles(cards(list.Beads)), want) || !reflect.DeepEqual(list.Stages, []string{"inbox"}) {

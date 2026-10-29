@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -12,7 +12,17 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"yardr.dev/yardr/internal/store"
 )
+
+// storePolicyFunc is a Policy from a func, as the store's own tests
+// keep it.
+type storePolicyFunc func(ctx context.Context, tx *bolt.Tx, actor string, act store.Action, obj store.Object) error
+
+func (f storePolicyFunc) May(ctx context.Context, tx *bolt.Tx, actor string, act store.Action, obj store.Object) error {
+	return f(ctx, tx, actor, act, obj)
+}
 
 // flowsBoard is the served view of a yard with a depot on a store flow, a
 // depot with no flow, and beads travelling with no depot:
@@ -30,23 +40,23 @@ func flowsBoard(t testing.TB, y *arrivalsTest) {
 			t.Fatal(err)
 		}
 	}
-	must(y.PutDepot(ctx, Depot{Name: "shop", Base: "origin/main"}, "me"))
+	must(y.PutDepot(ctx, store.Depot{Name: "shop", Base: "origin/main"}, "me"))
 	looseDir := dirDepot(t, y, "loose")
-	fl, err := ParseFlow("backlog -> new\nnew -> review | backlog\nreview -> merged | new\nmerged terminal\n")
+	fl, err := store.ParseFlow("backlog -> new\nnew -> review | backlog\nreview -> merged | new\nmerged terminal\n")
 	must(err)
 	fl.Name = "code"
 	_, err = y.PutFlow(ctx, *fl, "me")
 	must(err)
 	must(y.SetFlowPointer(ctx, "shop", "", "code", "me"))
-	bugs, err := ParseFlow("triage -> fixed\nfixed terminal\n")
+	bugs, err := store.ParseFlow("triage -> fixed\nfixed terminal\n")
 	must(err)
 	bugs.Name = "bugs"
 	_, err = y.PutFlow(ctx, *bugs, "me")
 	must(err)
 	must(y.SetFlowPointer(ctx, "shop", "bug", "bugs", "me"))
-	bead := func(id, depot, stage string) *Bead {
+	bead := func(id, depot, stage string) *store.Bead {
 		t.Helper()
-		nb := NewBead{Title: id, ID: id, Stage: stage}
+		nb := store.NewBead{Title: id, ID: id, Stage: stage}
 		if depot != "" {
 			nb.Depot = depot
 		}
@@ -60,19 +70,19 @@ func flowsBoard(t testing.TB, y *arrivalsTest) {
 	held := bead("shop-held", "shop", "new")
 	bead("shop-new", "shop", "new")
 	bead("shop-review", "shop", "review")
-	_, err = y.SetHold(ctx, held.ID, true, Expect{}, "me")
+	_, err = y.SetHold(ctx, held.ID, true, store.Expect{}, "me")
 	must(err)
-	bug, err := y.CreateBead(ctx, NewBead{Title: "shop-bug", ID: "shop-bug", Type: "bug", Stage: "triage", Depot: "shop"}, "me")
+	bug, err := y.CreateBead(ctx, store.NewBead{Title: "shop-bug", ID: "shop-bug", Type: "bug", Stage: "triage", Depot: "shop"}, "me")
 	must(err)
 	_ = bug
 	// A changed flow's leftover: created where no flow governs, then the
 	// flow arrives without its stage. Only a flow read from files can lose
 	// a stage: the store's writes refuse it.
-	stray, err := y.CreateBead(ctx, NewBead{Title: "shop-stray", ID: "shop-stray", Stage: "limbo", Depot: "loose"}, "me")
+	stray, err := y.CreateBead(ctx, store.NewBead{Title: "shop-stray", ID: "shop-stray", Stage: "limbo", Depot: "loose"}, "me")
 	must(err)
 	_ = stray
 	writeFlow(t, looseDir, "inbox -> done\ndone terminal\n")
-	pinned, err := y.CreateBead(ctx, NewBead{Title: "shop-pinned", ID: "shop-pinned", Stage: "new", Depot: "shop",
+	pinned, err := y.CreateBead(ctx, store.NewBead{Title: "shop-pinned", ID: "shop-pinned", Stage: "new", Depot: "shop",
 		Metadata: map[string]any{"flow": "code"}}, "me")
 	must(err)
 	_ = pinned
@@ -88,7 +98,7 @@ func flowsBoard(t testing.TB, y *arrivalsTest) {
 func dirDepot(t testing.TB, y *arrivalsTest, depot string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := y.PutDepot(context.Background(), Depot{Name: depot, Path: dir, Kind: DepotDir}, "me"); err != nil {
+	if err := y.PutDepot(context.Background(), store.Depot{Name: depot, Path: dir, Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -106,7 +116,7 @@ func writeFlow(t testing.TB, dir, text string) {
 }
 
 // flowBeads is the bead ids of rows, in order.
-func flowBeads(rows []FlowBead) []string {
+func flowBeads(rows []store.FlowBead) []string {
 	var out []string
 	for _, r := range rows {
 		out = append(out, r.Bead)
@@ -133,7 +143,7 @@ func TestFlowsServesDepotsFlowsStagesBeads(t *testing.T) {
 		t.Fatalf("depots = %+v, want loose then shop", board.Depots)
 	}
 	loose, shop := board.Depots[0], board.Depots[1]
-	if loose.Kind != DepotDir || shop.Kind != DepotGit {
+	if loose.Kind != store.DepotDir || shop.Kind != store.DepotGit {
 		t.Errorf("kinds = %q, %q, want dir and git, served as /flows serves them", loose.Kind, shop.Kind)
 	}
 	if loose.Travelling != 1 || shop.Travelling != 5 {
@@ -206,9 +216,9 @@ func testFlowsLandings(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(y.PutDepot(ctx, Depot{Name: "shop", Base: "origin/main"}, "me"))
-	must(y.PutDepot(ctx, Depot{Name: "quiet", Base: "origin/main"}, "me"))
-	fl, err := ParseFlow("backlog -> new\nnew -> review\nreview -> merged\nmerged terminal\n")
+	must(y.PutDepot(ctx, store.Depot{Name: "shop", Base: "origin/main"}, "me"))
+	must(y.PutDepot(ctx, store.Depot{Name: "quiet", Base: "origin/main"}, "me"))
+	fl, err := store.ParseFlow("backlog -> new\nnew -> review\nreview -> merged\nmerged terminal\n")
 	must(err)
 	fl.Name = "code"
 	_, err = y.PutFlow(ctx, *fl, "me")
@@ -224,13 +234,13 @@ func testFlowsLandings(t *testing.T) {
 	land := func(id, depot, title string, at time.Time) {
 		t.Helper()
 		y.at(at)
-		if _, err := y.CreateBead(ctx, NewBead{Title: title, ID: id, Stage: "new", Depot: depot}, "me"); err != nil {
+		if _, err := y.CreateBead(ctx, store.NewBead{Title: title, ID: id, Stage: "new", Depot: depot}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := y.Advance(ctx, id, "review", Expect{}, "me"); err != nil {
+		if _, err := y.Advance(ctx, id, "review", store.Expect{}, "me"); err != nil {
 			t.Fatal(err)
 		}
-		b, err := y.Advance(ctx, id, "merged", Expect{}, "me")
+		b, err := y.Advance(ctx, id, "merged", store.Expect{}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -250,7 +260,7 @@ func testFlowsLandings(t *testing.T) {
 	// An advance short of merged: open in review, no landing.
 	y.at(t0.Add(-time.Hour))
 	unlanded := y.travel(t, "unlanded", "shop", "new")
-	if _, err := y.Advance(ctx, unlanded.ID, "review", Expect{}, "me"); err != nil {
+	if _, err := y.Advance(ctx, unlanded.ID, "review", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	// Past 30 on quiet's flow the oldest drop: 35 landings, newest kept.
@@ -259,13 +269,13 @@ func testFlowsLandings(t *testing.T) {
 		land(id, "quiet", id, t0.Add(-20*time.Hour+time.Duration(i)*10*time.Minute))
 	}
 	y.at(t0)
-	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act Action, obj Object) error {
-		if act == ActSee && obj.Kind == KindBead && obj.Name == "hidden" && actor == "hal" {
+	y.SetPolicy(storePolicyFunc(func(ctx context.Context, tx *bolt.Tx, actor string, act store.Action, obj store.Object) error {
+		if act == store.ActSee && obj.Kind == store.KindBead && obj.Name == "hidden" && actor == "hal" {
 			return errors.New("hidden from hal")
 		}
-		return CorePolicy.May(ctx, tx, actor, act, obj)
+		return store.CorePolicy.May(ctx, tx, actor, act, obj)
 	}))
-	landingsOf := func(board *FlowsBoard, depot, flow string) []FlowLanding {
+	landingsOf := func(board *store.FlowsBoard, depot, flow string) []store.FlowLanding {
 		t.Helper()
 		for _, d := range board.Depots {
 			if d.Name != depot {
@@ -280,7 +290,7 @@ func testFlowsLandings(t *testing.T) {
 		t.Fatalf("no flow %s on depot %s", flow, depot)
 		return nil
 	}
-	rows := func(ls []FlowLanding) [][3]string {
+	rows := func(ls []store.FlowLanding) [][3]string {
 		var out [][3]string
 		for _, l := range ls {
 			out = append(out, [3]string{l.Bead, l.Title, l.LandedAt.Format(time.RFC3339)})
@@ -347,7 +357,7 @@ func TestFlowsHeldBy(t *testing.T) {
 	y := newArrivalsTest(t)
 	flowsBoard(t, y)
 	ctx := context.Background()
-	if _, err := y.SetHold(ctx, "shop-pinned", true, Expect{}, "nell"); err != nil {
+	if _, err := y.SetHold(ctx, "shop-pinned", true, store.Expect{}, "nell"); err != nil {
 		t.Fatal(err)
 	}
 	y.holdWithoutHolder(t, "wild-new")
@@ -355,7 +365,7 @@ func TestFlowsHeldBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var shop FlowsDepot
+	var shop store.FlowsDepot
 	for _, d := range board.Depots {
 		if d.Name == "shop" {
 			shop = d
@@ -363,7 +373,7 @@ func TestFlowsHeldBy(t *testing.T) {
 	}
 	for _, c := range []struct {
 		where string
-		row   FlowBead
+		row   store.FlowBead
 		want  [3]string // remark, tone, held_by
 	}{
 		{"on a stage", shop.Flows[0].Stages[1].Beads[0], [3]string{"held by me", "red", "me"}},
@@ -403,11 +413,11 @@ func TestFlowsLamps(t *testing.T) {
 	y.flowDepot(t, "quiet", "quiet-flow", "new", "done", "later")
 	_, err := y.AddUser(ctx, "op", "op")
 	must(err)
-	must(y.SetSetting(ctx, OperatorSetting, "op", "op"))
+	must(y.SetSetting(ctx, store.OperatorSetting, "op", "op"))
 	_, err = y.AddUser(ctx, "zed", "op")
 	must(err)
 	held := y.travel(t, "held", "shop", "new")
-	_, err = y.SetHold(ctx, held.ID, true, Expect{}, "me")
+	_, err = y.SetHold(ctx, held.ID, true, store.Expect{}, "me")
 	must(err)
 	blocked := y.travel(t, "blocked", "shop", "new")
 	sess, err := y.Claim(ctx, blocked.ID, "builders", "new", "yard")
@@ -415,32 +425,32 @@ func TestFlowsLamps(t *testing.T) {
 	must(y.MarkRunning(ctx, sess.ID, map[string]any{"agent": "blocked-new"}))
 	must(y.LogDispatch(ctx, blocked.ID, "session_blocked", "yard", map[string]any{"session": sess.ID}))
 	// A prompt asked and answered is no fault: its last word unblocks.
-	freed, err := y.CreateBead(ctx, NewBead{Title: "freed", ID: "freed", Stage: "inbox", Depot: "bare"}, "me")
+	freed, err := y.CreateBead(ctx, store.NewBead{Title: "freed", ID: "freed", Stage: "inbox", Depot: "bare"}, "me")
 	must(err)
 	fsess, err := y.Claim(ctx, freed.ID, "builders", "inbox", "yard")
 	must(err)
 	must(y.MarkRunning(ctx, fsess.ID, map[string]any{"agent": "freed-new"}))
 	must(y.LogDispatch(ctx, freed.ID, "session_blocked", "yard", map[string]any{"session": fsess.ID}))
 	must(y.LogDispatch(ctx, freed.ID, "session_unblocked", "yard", map[string]any{"session": fsess.ID}))
-	stray, err := y.CreateBead(ctx, NewBead{Title: "stray", ID: "stray", Stage: "limbo", Depot: "bare"}, "me")
+	stray, err := y.CreateBead(ctx, store.NewBead{Title: "stray", ID: "stray", Stage: "limbo", Depot: "bare"}, "me")
 	must(err)
 	_ = stray
 	writeFlow(t, bareDir, "inbox -> done\ndone terminal\n")
 	y.travel(t, "parked", "shop", "review")
-	_, err = y.AddRoute(ctx, Route{Stage: "review", Group: "deciders"}, "me")
+	_, err = y.AddRoute(ctx, store.Route{Stage: "review", Group: "deciders"}, "me")
 	must(err)
 	solo := y.travel(t, "solo", "quiet", "new")
-	_, err = y.AddAsk(ctx, solo.ID, Ask{Question: "For zed?", To: "zed", Context: []string{"zed's call."}}, "yard")
+	_, err = y.AddAsk(ctx, solo.ID, store.Ask{Question: "For zed?", To: "zed", Context: []string{"zed's call."}}, "yard")
 	must(err)
 	// A held bead beside a worked one: bare's inbox holds the freed
 	// bead's running session, so no lamp burns.
 	resting := y.travel(t, "resting", "bare", "inbox")
-	_, err = y.SetHold(ctx, resting.ID, true, Expect{}, "me")
+	_, err = y.SetHold(ctx, resting.ID, true, store.Expect{}, "me")
 	must(err)
 	// A held bead alone is the person's turn; a blocked session alone,
 	// worked but not moving, is a fault.
 	lone := y.travel(t, "lone", "quiet", "done")
-	_, err = y.SetHold(ctx, lone.ID, true, Expect{}, "me")
+	_, err = y.SetHold(ctx, lone.ID, true, store.Expect{}, "me")
 	must(err)
 	_ = lone
 	stuck := y.travel(t, "stuck", "quiet", "later")
@@ -448,7 +458,7 @@ func TestFlowsLamps(t *testing.T) {
 	must(err)
 	must(y.MarkRunning(ctx, ssess.ID, map[string]any{"agent": "stuck-new"}))
 	must(y.LogDispatch(ctx, stuck.ID, "session_blocked", "yard", map[string]any{"session": ssess.ID}))
-	stageLamp := func(board *FlowsBoard, depot, stage string) string {
+	stageLamp := func(board *store.FlowsBoard, depot, stage string) string {
 		t.Helper()
 		for _, d := range board.Depots {
 			if d.Name != depot {
@@ -496,7 +506,7 @@ func TestFlowsLamps(t *testing.T) {
 		t.Errorf("stranded = %+v, want the stray bead alone", stranded)
 	}
 	// Asked of the operator, the quiet bead is the person's turn.
-	_, err = y.AddAsk(ctx, solo.ID, Ask{Question: "Ship it?", To: "op", Context: []string{"the release is green."}}, "yard")
+	_, err = y.AddAsk(ctx, solo.ID, store.Ask{Question: "Ship it?", To: "op", Context: []string{"the release is green."}}, "yard")
 	must(err)
 	board, err = y.Flows(ctx)
 	if err != nil {
@@ -516,7 +526,7 @@ func TestFlowsDependencyBlockLightsNone(t *testing.T) {
 	y.flowDepot(t, "shop", "code", "backlog", "new", "done")
 	blocker := y.travel(t, "blocker", "shop", "backlog")
 	target := y.travel(t, "target", "shop", "new")
-	if err := y.AddDep(ctx, blocker.ID, target.ID, DepBlocks, "", "", "me"); err != nil {
+	if err := y.AddDep(ctx, blocker.ID, target.ID, store.DepBlocks, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -605,8 +615,8 @@ func TestFlowsRowsMatchArrivals(t *testing.T) {
 	for _, r := range arrivals.Rows {
 		rows[r.Bead] = shown{r.Expected, r.Remark, r.Tone, r.HeldBy}
 	}
-	served := map[string]FlowBead{}
-	collect := func(b FlowBead) { served[b.Bead] = b }
+	served := map[string]store.FlowBead{}
+	collect := func(b store.FlowBead) { served[b.Bead] = b }
 	for _, d := range board.Depots {
 		for _, f := range d.Flows {
 			for _, s := range f.Stages {
@@ -666,13 +676,13 @@ func TestFlowsReadError(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(y.PutDepot(ctx, Depot{Name: "bad", Base: "origin/main"}, "me"))
+	must(y.PutDepot(ctx, store.Depot{Name: "bad", Base: "origin/main"}, "me"))
 	y.flowDepot(t, "good", "code", "new", "review")
-	_, err := y.CreateBead(ctx, NewBead{Title: "lost", ID: "lost", Stage: "new", Depot: "bad"}, "me")
+	_, err := y.CreateBead(ctx, store.NewBead{Title: "lost", ID: "lost", Stage: "new", Depot: "bad"}, "me")
 	must(err)
 	y.travel(t, "found", "good", "new")
 	// The depot breaks after its beads are made: no base resolves in it.
-	must(y.PutDepot(ctx, Depot{Name: "bad", Path: filepath.Join(t.TempDir(), "missing"), Base: "origin/main"}, "me"))
+	must(y.PutDepot(ctx, store.Depot{Name: "bad", Path: filepath.Join(t.TempDir(), "missing"), Base: "origin/main"}, "me"))
 	board, err := y.Flows(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -764,13 +774,13 @@ func TestFlowsSeats(t *testing.T) {
 		}
 	}
 	y.flowDepot(t, "shop", "code", "new", "review", "done", "siding")
-	must(y.PutGroup(ctx, Group{Name: "mothballed", Runner: "herdr", Limit: 1}, "me"))
+	must(y.PutGroup(ctx, store.Group{Name: "mothballed", Runner: "herdr", Limit: 1}, "me"))
 	paused := 0
-	_, err := y.SetGroup(ctx, "mothballed", GroupEdit{Limit: &paused}, "me")
+	_, err := y.SetGroup(ctx, "mothballed", store.GroupEdit{Limit: &paused}, "me")
 	must(err)
-	_, err = y.AddRoute(ctx, Route{Stage: "review", Group: "builders"}, "me")
+	_, err = y.AddRoute(ctx, store.Route{Stage: "review", Group: "builders"}, "me")
 	must(err)
-	_, err = y.AddRoute(ctx, Route{Stage: "done", Group: "mothballed"}, "me")
+	_, err = y.AddRoute(ctx, store.Route{Stage: "done", Group: "mothballed"}, "me")
 	must(err)
 	// Siding is routed nowhere. Builders (limit 10) works new and review,
 	// with a live session at each; the mothballed group is paused, so its
@@ -789,7 +799,7 @@ func TestFlowsSeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stages := map[string]FlowsStage{}
+	stages := map[string]store.FlowsStage{}
 	for _, d := range board.Depots {
 		if d.Name != "shop" {
 			continue
@@ -858,10 +868,10 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
-	if _, err := y.SetGroup(ctx, "builders", GroupEdit{Set: map[string]any{"kind": "claude", "model": "opus"}}, "me"); err != nil {
+	if _, err := y.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"kind": "claude", "model": "opus"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.PutGroup(ctx, Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 10}, "me"); err != nil {
+	if err := y.PutGroup(ctx, store.Group{Name: "scripts", Runner: "exec", Config: map[string]any{"cmd": "true"}, Limit: 10}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	y.flowDepot(t, "shop", "code", "new", "review")
@@ -887,7 +897,7 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	}
 	y.at(y.now.Add(41 * time.Minute))
 	remained := y.now
-	if _, err := y.Advance(ctx, moved.ID, "review", Expect{}, "me"); err != nil {
+	if _, err := y.Advance(ctx, moved.ID, "review", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	msess, err := y.Claim(ctx, moved.ID, "builders", "review", "yard")
@@ -915,16 +925,12 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if err := y.MarkRunning(ctx, osess.ID, map[string]any{"agent": "oldie-new"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.write(func(w *wtx) error {
-		var s Session
-		if ok, err := get(w.Tx, bSessions, osess.ID, &s); err != nil {
-			return err
-		} else if !ok {
-			return ErrNotFound
-		}
-		s.Kind, s.Model = "", ""
-		return putSession(w.Tx, &s)
-	}); err != nil {
+	old, err := y.GetSession(ctx, osess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Kind, old.Model = "", ""
+	if err := y.PutSession(*old); err != nil {
 		t.Fatal(err)
 	}
 	// An older starting session can still be live without a runner in its
@@ -934,20 +940,16 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := y.write(func(w *wtx) error {
-		var s Session
-		if ok, err := get(w.Tx, bSessions, usess.ID, &s); err != nil {
-			return err
-		} else if !ok {
-			return ErrNotFound
-		}
-		s.Runner, s.Kind, s.Model, s.Handle = "", "", "", nil
-		return putSession(w.Tx, &s)
-	}); err != nil {
+	unattr, err := y.GetSession(ctx, usess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unattr.Runner, unattr.Kind, unattr.Model, unattr.Handle = "", "", "", nil
+	if err := y.PutSession(*unattr); err != nil {
 		t.Fatal(err)
 	}
 	// A bead that pins its flow stands off the line, in Elsewhere.
-	stray, err := y.CreateBead(ctx, NewBead{Title: "stray", ID: "stray", Stage: "new", Depot: "shop",
+	stray, err := y.CreateBead(ctx, store.NewBead{Title: "stray", ID: "stray", Stage: "new", Depot: "shop",
 		Metadata: map[string]any{"flow": "code"}}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -969,7 +971,7 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	}
 	// The served kind and model are what the claim recorded, not the
 	// group's current config.
-	if _, err := y.SetGroup(ctx, "builders", GroupEdit{Set: map[string]any{"kind": "codex", "model": "o3"}}, "me"); err != nil {
+	if _, err := y.SetGroup(ctx, "builders", store.GroupEdit{Set: map[string]any{"kind": "codex", "model": "o3"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	if g, err := y.GetGroup(ctx, "builders"); err != nil || g.Config["kind"] != "codex" || g.Config["model"] != "o3" {
@@ -979,7 +981,7 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := map[string]FlowBead{}
+	rows := map[string]store.FlowBead{}
 	for _, d := range board.Depots {
 		for _, f := range d.Flows {
 			for _, s := range f.Stages {
@@ -995,13 +997,13 @@ func TestFlowsWorkerAndStageEntry(t *testing.T) {
 	for _, b := range board.Unassigned {
 		rows[b.Bead] = b
 	}
-	entry := func(b FlowBead) (time.Time, bool) {
+	entry := func(b store.FlowBead) (time.Time, bool) {
 		if b.EnteredStageAt == nil {
 			return time.Time{}, false
 		}
 		return *b.EnteredStageAt, true
 	}
-	who := func(b FlowBead) [4]string { return [4]string{b.Worker, b.Group, b.Kind, b.Model} }
+	who := func(b store.FlowBead) [4]string { return [4]string{b.Worker, b.Group, b.Kind, b.Model} }
 	if got := rows["run"].Worker; got != "herdr run-new" {
 		t.Errorf("run worker = %q, want the session-list word for its session", got)
 	}

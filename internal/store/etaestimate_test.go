@@ -1,11 +1,86 @@
-package store
+package store_test
 
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/eta"
+	"yardr.dev/yardr/internal/store"
 )
+
+// etaTest is a store with a clock the test sets: now is what the helpers
+// estimate at. The store's own cell tests keep their internal helper of
+// the same name, with its row reads.
+type etaTest struct {
+	*store.Store
+	now time.Time
+}
+
+// newETATest sets the fake clock and YARDR_STORE_NOSYNC, so its callers
+// stay sequential.
+func newETATest(t testing.TB) *etaTest {
+	t.Helper()
+	t.Setenv("YARDR_"+store.NoSyncEnv, "1")
+	y := &etaTest{now: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}
+	store.SetClockForTest(func() time.Time { return y.now })
+	t.Cleanup(func() { store.SetClockForTest(time.Now) })
+	var err error
+	if y.Store, err = store.Open(filepath.Join(t.TempDir(), "y.db")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { y.Close(context.Background()) })
+	ctx := context.Background()
+	if err := y.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	if err := y.PutGroup(ctx, store.Group{Name: "reviewers", Runner: "herdr", Limit: 10}, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return y
+}
+
+func (y *etaTest) at(t time.Time) *etaTest {
+	y.now = t
+	return y
+}
+
+func (y *etaTest) create(t testing.TB, title, stage string, labels ...string) *store.Bead {
+	t.Helper()
+	b, err := y.CreateBead(context.Background(), store.NewBead{Title: title, Stage: stage, Labels: labels}, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func (y *etaTest) claim(t testing.TB, id, group, stage string) *store.Session {
+	t.Helper()
+	s, err := y.Claim(context.Background(), id, group, stage, "yard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func (y *etaTest) advance(t testing.TB, id, stage string) {
+	t.Helper()
+	if _, err := y.Advance(context.Background(), id, stage, store.Expect{}, "me"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Estimate and EstimateMany answer at the test's clock, over the test
+// store.
+func (y *etaTest) Estimate(ctx context.Context, id string) (*eta.Result, error) {
+	return eta.EstimateViaStore(ctx, y.Store, id, y.now)
+}
+
+func (y *etaTest) EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error) {
+	return eta.EstimateManyViaStore(ctx, y.Store, ids, y.now)
+}
 
 // estimateTest is a yard with a flow, routes and clocked cells: ten beads
 // that passed through new and review in 30m stays under builders, so the
@@ -20,7 +95,7 @@ func newEstimateTest(t testing.TB) *estimateTest {
 	t.Helper()
 	y := &estimateTest{etaTest: newETATest(t), flow: "code"}
 	ctx := context.Background()
-	f, err := ParseFlow("new -> review on done\nreview -> approved on done\napproved terminal\n")
+	f, err := store.ParseFlow("new -> review on done\nreview -> approved on done\napproved terminal\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +104,7 @@ func newEstimateTest(t testing.TB) *estimateTest {
 		t.Fatal(err)
 	}
 	for _, stage := range []string{"new", "review", "approved"} {
-		if _, err := y.AddRoute(ctx, Route{Stage: stage, Group: "builders"}, "me"); err != nil {
+		if _, err := y.AddRoute(ctx, store.Route{Stage: stage, Group: "builders"}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -38,7 +113,7 @@ func newEstimateTest(t testing.TB) *estimateTest {
 		y.at(t0.Add(time.Duration(i) * time.Hour))
 		// Pinned to the flow, so the move into approved closes the
 		// bead: passers seed the cells without standing ahead.
-		b, err := y.CreateBead(ctx, NewBead{Title: fmt.Sprintf("seed %d", i), Stage: "new",
+		b, err := y.CreateBead(ctx, store.NewBead{Title: fmt.Sprintf("seed %d", i), Stage: "new",
 			Labels: []string{"difficulty:2"}, Metadata: map[string]any{"flow": y.flow}}, "me")
 		if err != nil {
 			t.Fatal(err)
@@ -58,9 +133,9 @@ func newEstimateTest(t testing.TB) *estimateTest {
 
 // target creates an unheld bead in new under the flow, the newest
 // dispatchable bead.
-func (y *estimateTest) target(t testing.TB, title string, labels ...string) *Bead {
+func (y *estimateTest) target(t testing.TB, title string, labels ...string) *store.Bead {
 	t.Helper()
-	b, err := y.CreateBead(context.Background(), NewBead{Title: title, Stage: "new",
+	b, err := y.CreateBead(context.Background(), store.NewBead{Title: title, Stage: "new",
 		Labels: labels, Metadata: map[string]any{"flow": y.flow}}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -163,40 +238,33 @@ func TestStoreEstimateMany(t *testing.T) {
 	}
 }
 
-func TestStoreBeadViewCarriesEstimate(t *testing.T) {
+func TestStoreEstimateThinQueue(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newEstimateTest(t)
 	ctx := context.Background()
 	b := y.target(t, "the bead", "difficulty:2")
-	v, err := y.Bead(ctx, b.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v.ETA == nil || v.ETA.Low == "" || v.ETA.Line == "" {
-		t.Fatalf("view without ETA: %+v", v.ETA)
-	}
-	if v.Late != nil {
-		t.Fatalf("view late at age zero: %+v", v.Late)
-	}
 	r, err := y.Estimate(ctx, b.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ETA.Line != v.ETA.Line {
-		t.Fatalf("view line %q != estimate line %q", v.ETA.Line, r.ETA.Line)
+	if r.ETA == nil || r.ETA.Low == "" || r.ETA.Line == "" {
+		t.Fatalf("estimate without ETA: %+v", r.ETA)
+	}
+	if r.Late != nil {
+		t.Fatalf("estimate late at age zero: %+v", r.Late)
 	}
 	// Under another label with no samples the stages are thin, but the
 	// queue behind clocked beads is still clocked: a queue-only ETA.
 	thin := y.target(t, "thin", "difficulty:9")
-	v, err = y.Bead(ctx, thin.ID)
+	r, err = y.Estimate(ctx, thin.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.ETA == nil || v.ETA.Queue == "" || len(v.ETA.Stages) != 0 {
-		t.Fatalf("thin view: %+v", v.ETA)
+	if r.ETA == nil || r.ETA.Queue == "" || len(r.ETA.Stages) != 0 {
+		t.Fatalf("thin estimate: %+v", r.ETA)
 	}
-	if v.Late != nil {
-		t.Fatalf("thin view late: %+v", v.Late)
+	if r.Late != nil {
+		t.Fatalf("thin estimate late: %+v", r.Late)
 	}
 }
 
@@ -212,24 +280,24 @@ func TestStoreEstimateOriginatorRoutes(t *testing.T) {
 	if _, err := y.AddUser(ctx, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.SetSetting(ctx, OperatorSetting, "jo", "jo"); err != nil {
+	if err := y.SetSetting(ctx, store.OperatorSetting, "jo", "jo"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := y.AddUser(ctx, "hal", "jo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.PutGroup(ctx, Group{Name: "hal-builders", Runner: "herdr", Limit: 10}, "jo"); err != nil {
+	if err := y.PutGroup(ctx, store.Group{Name: "hal-builders", Runner: "herdr", Limit: 10}, "jo"); err != nil {
 		t.Fatal(err)
 	}
-	anyOriginator := OriginatorAny
-	if _, err := y.AddRoute(ctx, Route{Stage: "new", Group: "hal-builders", Originator: &anyOriginator}, "jo"); err != nil {
+	anyOriginator := store.OriginatorAny
+	if _, err := y.AddRoute(ctx, store.Route{Stage: "new", Group: "hal-builders", Originator: &anyOriginator}, "jo"); err != nil {
 		t.Fatal(err)
 	}
 	// Ten passers claimed by hal-builders clock its cell, as the seeds
 	// clocked builders'.
 	for i := range 10 {
 		y.at(y.now.Add(time.Duration(i) * time.Minute))
-		b, err := y.CreateBead(ctx, NewBead{Title: fmt.Sprintf("hal seed %d", i), Stage: "new",
+		b, err := y.CreateBead(ctx, store.NewBead{Title: fmt.Sprintf("hal seed %d", i), Stage: "new",
 			Labels: []string{"difficulty:2"}, Metadata: map[string]any{"flow": y.flow}}, "jo")
 		if err != nil {
 			t.Fatal(err)
@@ -240,7 +308,7 @@ func TestStoreEstimateOriginatorRoutes(t *testing.T) {
 		y.at(y.now.Add(30*time.Minute)).advance(t, b.ID, "approved")
 	}
 	y.at(y.now.Add(time.Hour))
-	b, err := y.CreateBead(ctx, NewBead{Title: "hal's", Stage: "new", For: "hal",
+	b, err := y.CreateBead(ctx, store.NewBead{Title: "hal's", Stage: "new", For: "hal",
 		Labels: []string{"difficulty:2"}, Metadata: map[string]any{"flow": y.flow}}, "jo")
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +329,7 @@ func TestStoreEstimateAbsent(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newETATest).
 	y := newETATest(t)
 	ctx := context.Background()
-	f, err := ParseFlow("new -> review on done\nreview terminal\n")
+	f, err := store.ParseFlow("new -> review on done\nreview terminal\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,10 +337,10 @@ func TestStoreEstimateAbsent(t *testing.T) {
 	if _, err := y.PutFlow(ctx, *f, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.AddRoute(ctx, Route{Stage: "new", Group: "builders"}, "me"); err != nil {
+	if _, err := y.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	b, err := y.CreateBead(ctx, NewBead{Title: "the bead", Stage: "new",
+	b, err := y.CreateBead(ctx, store.NewBead{Title: "the bead", Stage: "new",
 		Labels: []string{"difficulty:2"}, Metadata: map[string]any{"flow": "code"}}, "me")
 	if err != nil {
 		t.Fatal(err)
@@ -280,13 +348,6 @@ func TestStoreEstimateAbsent(t *testing.T) {
 	// No samples anywhere and nothing ahead: nothing to say.
 	if r, err := y.Estimate(ctx, b.ID); err != nil || r != nil {
 		t.Fatalf("estimated with no history: %+v, %v", r, err)
-	}
-	v, err := y.Bead(ctx, b.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v.ETA != nil || v.Late != nil {
-		t.Fatalf("view estimated with no history: %+v %+v", v.ETA, v.Late)
 	}
 }
 

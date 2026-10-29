@@ -16,8 +16,15 @@ import (
 func TestAccessClassesEveryServedMethod(t *testing.T) {
 	t.Parallel()
 	served := newAPI(nil, StreamWriteTimeout).methods
-	if n := reflect.TypeOf((*store.API)(nil)).Elem().NumMethod(); len(served) != n-len(notCallable) {
-		t.Fatalf("the socket serves %d methods, store.API has %d less %d not callable", len(served), n, len(notCallable))
+	// Arrivals and Flows are served on the socket but computed over the
+	// store API, not in it.
+	for _, name := range []string{"Arrivals", "Flows"} {
+		if _, ok := served[name]; !ok {
+			t.Errorf("%s is not served on the socket", name)
+		}
+	}
+	if n := reflect.TypeOf((*store.API)(nil)).Elem().NumMethod(); len(served) != n-len(notCallable)+2 {
+		t.Fatalf("the socket serves %d methods, store.API has %d less %d not callable plus 2 computed", len(served), n, len(notCallable))
 	}
 	for name := range served {
 		if Access[name] == Unclassed {

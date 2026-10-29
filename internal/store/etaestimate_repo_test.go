@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/scripttest"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/storetest"
@@ -56,7 +58,7 @@ func TestStoreEstimateManyReadsRepoOnce(t *testing.T) {
 	t.Setenv("YARDR_TEST_GIT", real)
 	t.Setenv("YARDR_TEST_GITCOUNT", counts)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	ests, err := st.EstimateMany(ctx, ids)
+	ests, err := eta.EstimateManyViaStore(ctx, st, ids, time.Now())
 	must(err)
 	if len(ests) != len(ids) {
 		t.Fatalf("EstimateMany answered %d of %d beads", len(ests), len(ids))

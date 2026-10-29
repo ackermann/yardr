@@ -2153,8 +2153,8 @@ func runAPI(t *testing.T, network bool) *apiRun {
 }
 
 // The calls a program that is not yardr may rely on are those of Calls and
-// of OperatorCalls and no other, each a method of the store's API with as
-// many arguments as it has names, and each in the doc's table with those
+// of OperatorCalls and no other, each served on the socket with as many
+// arguments as it has names, and each in the doc's table with those
 // names: Calls under "The calls", OperatorCalls under "For the operator
 // alone".
 func TestCallsAreTheDocs(t *testing.T) {
@@ -2176,6 +2176,7 @@ func TestCallsAreTheDocs(t *testing.T) {
 
 func callsAreTheDocs(t *testing.T, list string, Calls map[string][]string, apiCalls []apiCall) {
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
+	served := newAPI(nil, StreamWriteTimeout).methods
 	documented := map[string]bool{}
 	for _, c := range apiCalls {
 		documented[c.method] = true
@@ -2191,11 +2192,19 @@ func callsAreTheDocs(t *testing.T, list string, Calls map[string][]string, apiCa
 		if !slices.Equal(args, names) {
 			t.Errorf("%s: the doc names its arguments %v, %s %v", c.method, args, list, names)
 		}
-		m, ok := api.MethodByName(c.method)
-		if !ok {
+		var numIn int
+		if m, ok := api.MethodByName(c.method); ok {
+			numIn = m.Type.NumIn() - 1 // less the context
+		} else if s, ok := served[c.method]; ok {
+			// Arrivals and Flows are served on the socket but
+			// computed over the store API, not in it.
+			numIn = s.fn.Type().NumIn() - 1
+		} else {
 			t.Errorf("%s is no method of store.API", c.method)
-		} else if m.Type.NumIn()-1 != len(names) { // less the context
-			t.Errorf("%s takes %d arguments and %s names %d", c.method, m.Type.NumIn()-1, list, len(names))
+			continue
+		}
+		if numIn != len(names) {
+			t.Errorf("%s takes %d arguments and %s names %d", c.method, numIn, list, len(names))
 		}
 	}
 	for name := range Calls {

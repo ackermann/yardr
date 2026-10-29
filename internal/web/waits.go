@@ -806,7 +806,7 @@ func (s *Server) lateRows(ctx context.Context, y *yard) ([]LateRow, error) {
 	for i := range y.beads {
 		ids = append(ids, y.beads[i].ID)
 	}
-	ests, err := s.st.EstimateMany(ctx, ids)
+	ests, err := s.estimates(ctx, s.st, ids, time.Now())
 	if err != nil {
 		return nil, err
 	}

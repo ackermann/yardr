@@ -50,13 +50,12 @@ type allowEdge struct {
 	removeBy string
 }
 
-// allowImportEdges is the store's 9 internal imports, one row each naming
+// allowImportEdges is the store's 8 internal imports, one row each naming
 // its package and the bead that cuts it. No leaf or cli edge breaks a
 // rule today, so the table holds no other row.
 var allowImportEdges = []allowEdge{
 	{storePkg, internalPrefix + "agents", "yardr-8nca"},
 	{storePkg, internalPrefix + "config", "yardr-t8m6"},
-	{storePkg, internalPrefix + "eta", "yardr-sfz1"},
 	{storePkg, internalPrefix + "pairing", "yardr-rxk9"},
 	{storePkg, internalPrefix + "peer", "yardr-yz0h"},
 	{storePkg, internalPrefix + "shared", "yardr-g1sf"},

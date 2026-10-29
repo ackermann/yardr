@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	"yardr.dev/yardr/internal/eta"
 )
 
 // API is everything the rest of yard uses. *Store implements it in the
@@ -68,10 +66,11 @@ type API interface {
 	UserAsks(ctx context.Context, name, actor string, viewer ...string) (*AskQueue, error)
 	WriterAsks(ctx context.Context, writer string, viewer ...string) ([]WriterAsk, error)
 	Bead(ctx context.Context, id string, viewer ...string) (*BeadView, error)
-	Estimate(ctx context.Context, id string) (*eta.Result, error)
-	EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error)
-	Arrivals(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error)
-	Flows(ctx context.Context, viewer ...string) (*FlowsBoard, error)
+	// ETACell and BeadStays are the figures an estimate is computed
+	// from over the socket: the cell's answered durations, and each
+	// bead's stay clocks, which the served bead does not carry.
+	ETACell(ctx context.Context, group, label, stage string) (ETACell, error)
+	BeadStays(ctx context.Context, ids []string) (map[string]BeadStay, error)
 	AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error
 	DeferAsk(ctx context.Context, id string, ask uint64, actor string) error
 	DeclineAsk(ctx context.Context, id string, ask uint64, words, actor string) error

@@ -21,8 +21,7 @@ import (
 
 // SampleFloor is the durations a cell needs before it times a stage: below
 // it the stage is unclocked and the estimate says so. The same floor as
-// store.ETASampleFloor, which this package cannot import (the store reads
-// this package for its JSON shapes); eta_test pins the two equal.
+// store.ETASampleFloor; eta_test pins the two equal.
 const SampleFloor = 10
 
 // doneOutcome is the flow's default way on. The same word as

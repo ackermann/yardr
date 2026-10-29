@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
@@ -144,6 +145,25 @@ func newAPI(st *store.Store, writeTimeout time.Duration) *api {
 	methods["Mail"] = method{"Mail", reflect.ValueOf(
 		func(ctx context.Context, to, text, actor string, files ...store.BlobFile) error {
 			return store.MailText(st, ctx, to, text, actor, files...)
+		})}
+	// Arrivals and Flows are computed over the store API, not in the
+	// store: the boards stay on the socket's public calls while the store
+	// stays a leaf.
+	methods["Arrivals"] = method{"Arrivals", reflect.ValueOf(
+		func(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error) {
+			v := ""
+			if len(viewer) > 0 {
+				v = viewer[0]
+			}
+			return eta.ArrivalsViaStore(ctx, st, v, time.Now())
+		})}
+	methods["Flows"] = method{"Flows", reflect.ValueOf(
+		func(ctx context.Context, viewer ...string) (*store.FlowsBoard, error) {
+			v := ""
+			if len(viewer) > 0 {
+				v = viewer[0]
+			}
+			return eta.FlowsViaStore(ctx, st, v, time.Now())
 		})}
 	return &api{st: st, methods: methods, writeTimeout: writeTimeout}
 }

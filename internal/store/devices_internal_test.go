@@ -63,7 +63,7 @@ func TestDeviceLastUse(t *testing.T) {
 }
 
 // A device's call must answer while the yard's one writer is held, as a
-// daemon pass holds it writing back to back: the flows read is a snapshot
+// daemon pass holds it writing back to back: the list read is a snapshot
 // and answers at once, and resolving the device's token answers from its
 // read too, leaving the last-use stamp — a write — to a later call
 // (yardr-wpgc: resolves timed out at the resolver's 5 s behind slow
@@ -127,8 +127,8 @@ func TestDeviceResolveWhileWriteHeld(t *testing.T) {
 	if got.LastUsed != nil {
 		t.Fatalf("the last use was stamped while a write is held: %+v", got)
 	}
-	within("Flows", func() error {
-		_, err := s.Flows(ctx, "jo")
+	within("ListBeads", func() error {
+		_, err := s.ListBeads(ctx, BeadFilter{})
 		return err
 	})
 

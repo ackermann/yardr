@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"time"
 
-	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -172,17 +171,12 @@ func (c *Client) WriterAsks(ctx context.Context, writer string, viewer ...string
 func (c *Client) Bead(ctx context.Context, id string, viewer ...string) (*store.BeadView, error) {
 	return callV[*store.BeadView](c, ctx, "Bead", id, viewer)
 }
-func (c *Client) Estimate(ctx context.Context, id string) (*eta.Result, error) {
-	return callV[*eta.Result](c, ctx, "Estimate", id)
+
+func (c *Client) ETACell(ctx context.Context, group, label, stage string) (store.ETACell, error) {
+	return callV[store.ETACell](c, ctx, "ETACell", group, label, stage)
 }
-func (c *Client) EstimateMany(ctx context.Context, ids []string) (map[string]*eta.Result, error) {
-	return callV[map[string]*eta.Result](c, ctx, "EstimateMany", ids)
-}
-func (c *Client) Arrivals(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error) {
-	return callV[*eta.ArrivalBoard](c, ctx, "Arrivals", viewer)
-}
-func (c *Client) Flows(ctx context.Context, viewer ...string) (*store.FlowsBoard, error) {
-	return callV[*store.FlowsBoard](c, ctx, "Flows", viewer)
+func (c *Client) BeadStays(ctx context.Context, ids []string) (map[string]store.BeadStay, error) {
+	return callV[map[string]store.BeadStay](c, ctx, "BeadStays", ids)
 }
 func (c *Client) AnswerAsk(ctx context.Context, id string, ask uint64, option int, words, actor string, weighed bool) error {
 	return c.call(ctx, "AnswerAsk", nil, id, ask, option, words, actor, weighed)

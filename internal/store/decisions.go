@@ -27,8 +27,6 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
-
-	"yardr.dev/yardr/internal/eta"
 )
 
 // OpenAsk is one open ask as a row of a person's queue: the question in
@@ -463,10 +461,6 @@ type BeadView struct {
 	// Now is the live session and latest recorded activity, when either
 	// remains. Absent on one of another yard's.
 	Now *BeadNow `json:"now,omitempty"`
-	// ETA and Late are the bead's estimate, absent when there is nothing
-	// to say; the same shapes bead show --json carries.
-	ETA  *eta.ETA  `json:"eta,omitempty"`
-	Late *eta.Late `json:"late,omitempty"`
 }
 
 // BeadMove is one stage move of a bead: the stages it left and entered
@@ -617,11 +611,6 @@ func (s *Store) Bead(ctx context.Context, id string, viewer ...string) (*BeadVie
 	}
 	if now.Activity != nil || now.Session != nil {
 		v.Now = &now
-	}
-	// The estimate reads what the view already read; a bead shown
-	// without one is still shown.
-	if est, err := s.Estimate(ctx, id); err == nil && est != nil {
-		v.ETA, v.Late = est.ETA, est.Late
 	}
 	return v, nil
 }

@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -8,12 +8,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"yardr.dev/yardr/internal/eta"
+	"yardr.dev/yardr/internal/store"
 )
 
 // arrivalsTest is a store with a clock the test sets, a builders group,
 // a manual deciders group with members, and routes for new and decide.
 type arrivalsTest struct {
-	*Store
+	*store.Store
 	now time.Time
 }
 
@@ -21,26 +24,26 @@ type arrivalsTest struct {
 // so its callers stay sequential.
 func newArrivalsTest(t testing.TB) *arrivalsTest {
 	t.Helper()
-	t.Setenv("YARDR_"+NoSyncEnv, "1")
+	t.Setenv("YARDR_"+store.NoSyncEnv, "1")
 	y := &arrivalsTest{now: time.Date(2099, 1, 1, 12, 0, 0, 0, time.UTC)}
-	clock = func() time.Time { return y.now }
-	t.Cleanup(func() { clock = time.Now })
+	store.SetClockForTest(func() time.Time { return y.now })
+	t.Cleanup(func() { store.SetClockForTest(time.Now) })
 	var err error
-	if y.Store, err = Open(filepath.Join(t.TempDir(), "y.db")); err != nil {
+	if y.Store, err = store.Open(filepath.Join(t.TempDir(), "y.db")); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { y.Close(context.Background()) })
 	ctx := context.Background()
-	if err := y.PutGroup(ctx, Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
+	if err := y.PutGroup(ctx, store.Group{Name: "builders", Runner: "herdr", Limit: 10}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if err := y.PutGroup(ctx, Group{Name: "deciders", Runner: "manual", Limit: 50, Members: []string{"nell", "yardmaster"}}, "me"); err != nil {
+	if err := y.PutGroup(ctx, store.Group{Name: "deciders", Runner: "manual", Limit: 50, Members: []string{"nell", "yardmaster"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.AddRoute(ctx, Route{Stage: "new", Group: "builders"}, "me"); err != nil {
+	if _, err := y.AddRoute(ctx, store.Route{Stage: "new", Group: "builders"}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.AddRoute(ctx, Route{Stage: "decide", Group: "deciders"}, "me"); err != nil {
+	if _, err := y.AddRoute(ctx, store.Route{Stage: "decide", Group: "deciders"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	return y
@@ -51,9 +54,27 @@ func (y *arrivalsTest) at(t time.Time) *arrivalsTest {
 	return y
 }
 
-func (y *arrivalsTest) create(t testing.TB, title, stage string) *Bead {
+// Arrivals and Flows answer the boards at the test's clock, over the
+// test store.
+func (y *arrivalsTest) Arrivals(ctx context.Context, viewer ...string) (*eta.ArrivalBoard, error) {
+	v := ""
+	if len(viewer) > 0 {
+		v = viewer[0]
+	}
+	return eta.ArrivalsViaStore(ctx, y.Store, v, y.now)
+}
+
+func (y *arrivalsTest) Flows(ctx context.Context, viewer ...string) (*store.FlowsBoard, error) {
+	v := ""
+	if len(viewer) > 0 {
+		v = viewer[0]
+	}
+	return eta.FlowsViaStore(ctx, y.Store, v, y.now)
+}
+
+func (y *arrivalsTest) create(t testing.TB, title, stage string) *store.Bead {
 	t.Helper()
-	b, err := y.CreateBead(context.Background(), NewBead{Title: title, ID: title, Stage: stage}, "me")
+	b, err := y.CreateBead(context.Background(), store.NewBead{Title: title, ID: title, Stage: stage}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,14 +86,14 @@ func (y *arrivalsTest) create(t testing.TB, title, stage string) *Bead {
 func (y *arrivalsTest) flowDepot(t testing.TB, depot, flow string, stages ...string) {
 	t.Helper()
 	ctx := context.Background()
-	if err := y.PutDepot(ctx, Depot{Name: depot, Path: t.TempDir(), Kind: DepotDir}, "me"); err != nil {
+	if err := y.PutDepot(ctx, store.Depot{Name: depot, Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	var rules []string
 	for i := 0; i+1 < len(stages); i++ {
 		rules = append(rules, stages[i]+" -> "+stages[i+1])
 	}
-	f, err := ParseFlow(strings.Join(rules, "\n"))
+	f, err := store.ParseFlow(strings.Join(rules, "\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,23 +110,14 @@ func (y *arrivalsTest) flowDepot(t testing.TB, depot, flow string, stages ...str
 // a bead: the hold is on and the holder is not on record.
 func (y *arrivalsTest) holdWithoutHolder(t testing.TB, id string) {
 	t.Helper()
-	if err := y.write(func(w *wtx) error {
-		row, err := w.loadBead(id)
-		if err != nil {
-			return err
-		}
-		row.Hold, row.HeldBy = true, ""
-		return w.mintBead(row, "me")
-	}); err != nil {
-		t.Fatal(err)
-	}
+	store.HoldWithoutHolderForTest(y.Store, t, id)
 }
 
 // travel creates a bead in a depot's stage, or without a depot when depot
 // is "".
-func (y *arrivalsTest) travel(t testing.TB, id, depot, stage string) *Bead {
+func (y *arrivalsTest) travel(t testing.TB, id, depot, stage string) *store.Bead {
 	t.Helper()
-	nb := NewBead{Title: id, ID: id, Stage: stage}
+	nb := store.NewBead{Title: id, ID: id, Stage: stage}
 	if depot != "" {
 		nb.Depot = depot
 	}
@@ -235,7 +247,7 @@ func TestArrivalsWellEndClearsFault(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = sess2
-	if _, err := y.Advance(ctx, b.ID, "decide", Expect{}, "me"); err != nil {
+	if _, err := y.Advance(ctx, b.ID, "decide", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	board, err := y.Arrivals(ctx)
@@ -258,7 +270,7 @@ func TestArrivalsBlockedByOpenBead(t *testing.T) {
 	ctx := context.Background()
 	y.create(t, "wharf-block", "new")
 	target := y.create(t, "wharf-a", "new")
-	if err := y.AddDep(ctx, "wharf-block", "wharf-a", DepBlocks, "", "", "me"); err != nil {
+	if err := y.AddDep(ctx, "wharf-block", "wharf-a", store.DepBlocks, "", "", "me"); err != nil {
 		t.Fatal(err)
 	}
 	board, err := y.Arrivals(ctx)
@@ -282,7 +294,7 @@ func TestArrivalsBlockedByOpenBead(t *testing.T) {
 		t.Fatalf("blocked: %+v", got)
 	}
 	// The blocker closed: the bead is unaffected, back to no remark.
-	if _, err := y.CloseBead(ctx, "wharf-block", "done", Expect{}, "me"); err != nil {
+	if _, err := y.CloseBead(ctx, "wharf-block", "done", store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	board, err = y.Arrivals(ctx)
@@ -308,7 +320,7 @@ func TestArrivalsHeldFirst(t *testing.T) {
 	if err := y.EndSession(ctx, sess.ID, "failed", "boom"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.SetHold(ctx, b.ID, true, Expect{}, "me"); err != nil {
+	if _, err := y.SetHold(ctx, b.ID, true, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	board, err := y.Arrivals(ctx)
@@ -334,7 +346,7 @@ func TestArrivalsHeldBy(t *testing.T) {
 	y.create(t, "wharf-plain", "new")
 	y.holdWithoutHolder(t, y.create(t, "wharf-old", "new").ID)
 	nell := y.create(t, "wharf-nell", "new")
-	if _, err := y.SetHold(ctx, nell.ID, true, Expect{}, "nell"); err != nil {
+	if _, err := y.SetHold(ctx, nell.ID, true, store.Expect{}, "nell"); err != nil {
 		t.Fatal(err)
 	}
 	rows := func() map[string]arrivalRow {
@@ -359,14 +371,14 @@ func TestArrivalsHeldBy(t *testing.T) {
 	}
 	// Lifted, the hold and its holder are gone; held again by someone
 	// else, the new holder is named.
-	if _, err := y.SetHold(ctx, nell.ID, false, Expect{}, "me"); err != nil {
+	if _, err := y.SetHold(ctx, nell.ID, false, store.Expect{}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	want["wharf-nell"] = arrivalRow{"", "none", ""}
 	if got := rows(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("rows after the unhold:\n got %+v\nwant %+v", got, want)
 	}
-	if _, err := y.SetHold(ctx, nell.ID, true, Expect{}, "yardmaster"); err != nil {
+	if _, err := y.SetHold(ctx, nell.ID, true, store.Expect{}, "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
 	want["wharf-nell"] = arrivalRow{"held by yardmaster", "red", "yardmaster"}
@@ -383,12 +395,12 @@ func TestArrivalsWaitsWithoutMembers(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
-	if err := y.PutGroup(ctx, Group{Name: "lonely", Runner: "manual", Limit: 10}, "me"); err != nil {
+	if err := y.PutGroup(ctx, store.Group{Name: "lonely", Runner: "manual", Limit: 10}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	// Decide is routed to deciders; lonely has no stage. Route review
 	// to lonely and stand there.
-	if _, err := y.AddRoute(ctx, Route{Stage: "review", Group: "lonely"}, "me"); err != nil {
+	if _, err := y.AddRoute(ctx, store.Route{Stage: "review", Group: "lonely"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	y.create(t, "wharf-a", "review")
@@ -442,7 +454,7 @@ func TestArrivalsLate(t *testing.T) {
 	t0 := y.now
 	for i := 0; i < 10; i++ {
 		y.at(t0.Add(time.Duration(i) * time.Hour))
-		b, err := y.CreateBead(ctx, NewBead{Title: "seed", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
+		b, err := y.CreateBead(ctx, store.NewBead{Title: "seed", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -450,12 +462,12 @@ func TestArrivalsLate(t *testing.T) {
 			t.Fatal(err)
 		}
 		y.at(y.now.Add(30 * time.Minute))
-		if _, err := y.Advance(ctx, b.ID, "decide", Expect{}, "me"); err != nil {
+		if _, err := y.Advance(ctx, b.ID, "decide", store.Expect{}, "me"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	y.at(t0.Add(11 * time.Hour))
-	b, err := y.CreateBead(ctx, NewBead{Title: "wharf-a", ID: "wharf-a", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
+	b, err := y.CreateBead(ctx, store.NewBead{Title: "wharf-a", ID: "wharf-a", Stage: "new", Labels: []string{"difficulty:2"}}, "me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,10 +519,10 @@ func TestArrivalsLine(t *testing.T) {
 	// Sequential: the package's fake clock and process environment (via newArrivalsTest).
 	y := newArrivalsTest(t)
 	ctx := context.Background()
-	if err := y.PutDepot(ctx, Depot{Name: "wharf", Path: t.TempDir(), Kind: DepotDir}, "me"); err != nil {
+	if err := y.PutDepot(ctx, store.Depot{Name: "wharf", Path: t.TempDir(), Kind: store.DepotDir}, "me"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := y.CreateBead(ctx, NewBead{Title: "wharf-a", ID: "wharf-a", Stage: "new", Depot: "wharf"}, "me"); err != nil {
+	if _, err := y.CreateBead(ctx, store.NewBead{Title: "wharf-a", ID: "wharf-a", Stage: "new", Depot: "wharf"}, "me"); err != nil {
 		t.Fatal(err)
 	}
 	board, err := y.Arrivals(ctx)
@@ -637,7 +649,7 @@ func TestArrivalsPlatformsTypedFlow(t *testing.T) {
 	y := newArrivalsTest(t)
 	ctx := context.Background()
 	y.flowDepot(t, "wharf", "wharf-flow", "new", "decide")
-	f, err := ParseFlow("new -> approved")
+	f, err := store.ParseFlow("new -> approved")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,7 +660,7 @@ func TestArrivalsPlatformsTypedFlow(t *testing.T) {
 	if err := y.SetFlowPointer(ctx, "wharf", "song", "song-flow", "me"); err != nil {
 		t.Fatal(err)
 	}
-	for _, b := range []NewBead{
+	for _, b := range []store.NewBead{
 		{Title: "song-a", ID: "song-a", Type: "song", Depot: "wharf", Stage: "new"},
 		{Title: "song-b", ID: "song-b", Type: "song", Depot: "wharf", Stage: "approved"},
 		{Title: "wharf-a", ID: "wharf-a", Depot: "wharf", Stage: "decide"},
@@ -666,22 +678,5 @@ func TestArrivalsPlatformsTypedFlow(t *testing.T) {
 	// puts it, after new.
 	if !slices.Equal(board.Platforms, []string{"new", "decide", "approved"}) {
 		t.Fatalf("platforms = %v, want new, decide, approved", board.Platforms)
-	}
-}
-
-func TestMergeStageOrder(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ base, next, want []string }{
-		{nil, []string{"new", "decide"}, []string{"new", "decide"}},
-		{[]string{"new", "review", "decide"}, []string{"new", "decide", "review"}, []string{"new", "review", "decide"}},
-		{[]string{"new", "review"}, []string{"new", "review", "verify"}, []string{"new", "review", "verify"}},
-		{[]string{"new", "decide"}, []string{"new", "verify", "decide"}, []string{"new", "verify", "decide"}},
-		{[]string{"new", "decide"}, []string{"triage", "new", "decide"}, []string{"triage", "new", "decide"}},
-		{[]string{"new"}, []string{"build", "sign"}, []string{"new", "build", "sign"}},
-		{[]string{"a", "b"}, []string{"b", "x", "a"}, []string{"a", "b", "x"}},
-	} {
-		if got := mergeStageOrder(c.base, c.next); !slices.Equal(got, c.want) {
-			t.Errorf("mergeStageOrder(%v, %v) = %v, want %v", c.base, c.next, got, c.want)
-		}
 	}
 }

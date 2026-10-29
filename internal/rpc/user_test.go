@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/telemetry"
 	"yardr.dev/yardr/internal/yardkey"
@@ -151,9 +152,20 @@ func TestUserServesTheCallsAndNoOther(t *testing.T) {
 		t.Fatal(err)
 	}
 	api := reflect.TypeOf((*store.API)(nil)).Elem()
-	var served, operators []string
+	seen := map[string]bool{}
+	var names []string
 	for i := 0; i < api.NumMethod(); i++ {
-		name := api.Method(i).Name
+		names = append(names, api.Method(i).Name)
+		seen[api.Method(i).Name] = true
+	}
+	// Arrivals and Flows are served but computed over the API, not in it.
+	for _, name := range slices.Sorted(maps.Keys(Calls)) {
+		if !seen[name] {
+			names = append(names, name)
+		}
+	}
+	var served, operators []string
+	for _, name := range names {
 		none, _ := json.Marshal(noSuchMethod(name))
 		byName, byPlace := call(t, h, tablet.Token, name, `{}`), call(t, h, tablet.Token, name, `[]`)
 		if _, ok := Calls[name]; !ok {
@@ -635,6 +647,15 @@ func TestUserWritesCarryVia(t *testing.T) {
 	st, u, token := userYard(t)
 	ctx := context.Background()
 	h := u.Handler()
+	u.beadEstimate = func(_ context.Context, _ store.API, id string, _ time.Time) (*eta.Result, error) {
+		if id != "yd-shed" {
+			return nil, nil
+		}
+		return &eta.Result{
+			ETA:  &eta.ETA{Line: "eta usual 2m–5m (new ~3m)"},
+			Late: &eta.Late{Line: "late: new has run 9m, usually 5m at most"},
+		}, nil
+	}
 	if err := st.Mail(ctx, "jo", "for jo", "yardmaster"); err != nil {
 		t.Fatal(err)
 	}
@@ -662,8 +683,22 @@ func TestUserWritesCarryVia(t *testing.T) {
 	if conv := call(t, h, token, "Conversation", `{"a":"jo","b":"yardmaster"}`); strings.Count(conv, `"via":"phone"`) != 1 {
 		t.Errorf("the conversation marks other than the one letter of the device: %s", conv)
 	}
-	if bead := call(t, h, token, "Bead", `{"bead":"yd-shed"}`); !strings.Contains(bead, `"text":"looks right"`) || !strings.Contains(bead, `"via":"phone"`) {
+	bead := call(t, h, token, "Bead", `{"bead":"yd-shed"}`)
+	if !strings.Contains(bead, `"text":"looks right"`) || !strings.Contains(bead, `"via":"phone"`) {
 		t.Errorf("the bead's note does not say how it came: %s", bead)
+	}
+	var response struct {
+		Result struct {
+			ETA  *eta.ETA  `json:"eta"`
+			Late *eta.Late `json:"late"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(bead), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Result.ETA == nil || response.Result.ETA.Line != "eta usual 2m–5m (new ~3m)" ||
+		response.Result.Late == nil || response.Result.Late.Line != "late: new has run 9m, usually 5m at most" {
+		t.Errorf("the device bead response lost its estimate: %+v", response.Result)
 	}
 	notes, err := st.Notes(ctx, "yd-shed")
 	if err != nil {

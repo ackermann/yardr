@@ -8,7 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
@@ -520,7 +522,7 @@ func TestFlowsCallMatchesFlowsPage(t *testing.T) {
 	ctx := context.Background()
 	var page web.Flows
 	f.getJSON("/flows", &page)
-	board, err := f.st.Flows(ctx)
+	board, err := eta.FlowsViaStore(ctx, f.st, "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

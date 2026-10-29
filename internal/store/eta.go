@@ -105,6 +105,53 @@ func (s *Store) ETACell(ctx context.Context, group, label, stage string) (ETACel
 	return out, err
 }
 
+// BeadStay is a bead's stay clocks: when its current stay in its stage
+// started, and when its live session started, nil when unheld or
+// unknown. The served bead carries neither; an estimate reads them here.
+type BeadStay struct {
+	StayStart    time.Time  `json:"stay_start"`
+	SessionStart *time.Time `json:"session_start,omitempty"`
+}
+
+// BeadStays answers each bead's stay clocks. It answers every id it is
+// asked, zero where a bead is closed and has no stay open; an unknown id
+// fails the whole response, as GetBead fails its caller.
+func (s *Store) BeadStays(ctx context.Context, ids []string) (map[string]BeadStay, error) {
+	out := make(map[string]BeadStay, len(ids))
+	for _, id := range ids {
+		b, err := s.GetBead(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if b.Status == "closed" {
+			out[id] = BeadStay{}
+			continue
+		}
+		var stay BeadStay
+		err = s.read(func(tx *bolt.Tx) error {
+			row, err := loadBead(tx, b.ID)
+			if err != nil {
+				return err
+			}
+			stay.StayStart = row.StayStart
+			stay.SessionStart = row.StayClaimAt
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		// The running clock is the live session's start; the claim's
+		// stamp stands in where no live session answers.
+		if b.Session != nil {
+			if sess, err := s.GetSession(ctx, *b.Session); err == nil && sess.live() {
+				stay.SessionStart = &sess.StartedAt
+			}
+		}
+		out[id] = stay
+	}
+	return out, nil
+}
+
 // summarizeETACell answers a cell read from the store.
 func summarizeETACell(c *etaCell) ETACell {
 	out := ETACell{EntryN: len(c.Entry), ClaimN: len(c.Claim), Stays: c.Stays, SendBacks: c.SendBacks}

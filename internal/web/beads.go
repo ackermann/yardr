@@ -366,11 +366,11 @@ func eachFlowCard(d *Flows, fn func(*Card)) {
 }
 
 // estimateFlows carries every card of the flows page its estimate: one
-// EstimateMany over the page, so the queue behind them is read once.
+// shared estimate over the page, so the queue behind them is read once.
 func (s *Server) estimateFlows(ctx context.Context, d *Flows) error {
 	var ids []string
 	eachFlowCard(d, func(c *Card) { ids = append(ids, c.ID) })
-	ests, err := s.st.EstimateMany(ctx, ids)
+	ests, err := s.estimates(ctx, s.st, ids, time.Now())
 	if err != nil {
 		return err
 	}
@@ -439,8 +439,8 @@ func (s *Server) place(ctx context.Context, e store.Event) (p placement, ok bool
 	}
 	// A card the stream moves carries its estimate, as a reload would
 	// show it; one that cannot be read moves without it.
-	est, _ := s.st.Estimate(ctx, b.ID)
-	p.Card = card(b, manual, est)
+	ests, _ := s.estimates(ctx, s.st, []string{b.ID}, time.Now())
+	p.Card = card(b, manual, ests[b.ID])
 	if b.Status == "open" && b.Depot != nil && !store.NotWork[b.Type] {
 		// A depot whose flows cannot be read has every bead in Elsewhere.
 		rfs, _ := s.st.DepotFlows(ctx, *b.Depot)
@@ -572,7 +572,7 @@ func (s *Server) handleBeads(w http.ResponseWriter, r *http.Request) {
 			ids = append(ids, beads[i].ID)
 		}
 	}
-	ests, err := s.st.EstimateMany(ctx, ids)
+	ests, err := s.estimates(ctx, s.st, ids, time.Now())
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -902,7 +902,7 @@ func (s *Server) beadPage(ctx context.Context, id, hostport string) (*BeadPage, 
 }
 
 // estimateBeadPage carries the page's bead and the cards it names their
-// estimates: one EstimateMany over the page, so the queue behind them is
+// estimates: one shared estimate over the page, so the queue behind them is
 // read once.
 func (s *Server) estimateBeadPage(ctx context.Context, d *BeadPage) error {
 	ids := []string{d.Bead.ID}
@@ -918,7 +918,7 @@ func (s *Server) estimateBeadPage(ctx context.Context, d *BeadPage) error {
 	for _, c := range cards {
 		ids = append(ids, c.ID)
 	}
-	ests, err := s.st.EstimateMany(ctx, ids)
+	ests, err := s.estimates(ctx, s.st, ids, time.Now())
 	if err != nil {
 		return err
 	}

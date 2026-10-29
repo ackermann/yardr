@@ -505,7 +505,7 @@ same as the eta and late objects, absent likewise.`,
 			if err != nil {
 				return err
 			}
-			est, err := st.Estimate(c.Context(), b.ID)
+			est, err := eta.EstimateViaStore(c.Context(), st, b.ID, time.Now())
 			if err != nil {
 				return err
 			}
@@ -935,7 +935,7 @@ func (a *app) primeCmd() *cobra.Command {
 				}
 				next.StageFile = sf
 			}
-			est, err := st.Estimate(c.Context(), id)
+			est, err := eta.EstimateViaStore(c.Context(), st, id, time.Now())
 			if err != nil {
 				return err
 			}

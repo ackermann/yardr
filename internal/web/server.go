@@ -31,6 +31,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 )
 
@@ -98,6 +99,9 @@ var unbuilt = []string{}
 // Server is the web view of one yard.
 type Server struct {
 	st store.API
+	// estimates answers beads' estimates over the store; tests set
+	// canned ones.
+	estimates func(ctx context.Context, st store.API, ids []string, now time.Time) (map[string]*eta.Result, error)
 	// home is the yard's home directory, whose name is the yard's when the
 	// `name` setting is unset.
 	home  string
@@ -160,8 +164,8 @@ func NewServer(st store.API, home string, log *slog.Logger) (*Server, error) {
 	s := &Server{st: st, home: home, log: log, mux: http.NewServeMux(), streamWrite: streamWrite,
 		streamsBy: map[string]int{}, streamMax: streamMax, streamPerAddr: streamPerAddr,
 		limitsBy: map[string]*limitsEntry[ProviderLimits]{}, sourceLimitsBy: map[string]*limitsEntry[SourceLimits]{},
-		limitsEvery: defaultLimitsEvery,
-		pagesMux:    http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr}
+		limitsEvery: defaultLimitsEvery, estimates: eta.EstimateManyViaStore,
+		pagesMux: http.NewServeMux(), pagesAddr: store.DefaultWebPagesAddr}
 	var err error
 	if s.assets, err = loadAssets(); err != nil {
 		return nil, err

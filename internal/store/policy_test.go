@@ -6,9 +6,11 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/peer"
 	"yardr.dev/yardr/internal/store"
 )
@@ -163,7 +165,7 @@ func TestPolicySeeHidesABead(t *testing.T) {
 	if v, err := api.Bead(ctx, shown.ID, "jo"); err != nil || v.ID != shown.ID {
 		t.Fatalf("Bead(yd-shown) for jo = %+v, %v, want the view", v, err)
 	}
-	board, err := api.Arrivals(ctx, "jo")
+	board, err := eta.ArrivalsViaStore(ctx, api, "jo", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestPolicySeeHidesABead(t *testing.T) {
 	if err != nil || len(writerAsks) != 2 || writerAsks[0].Bead != shown.ID || writerAsks[1].Bead != shownJournal {
 		t.Fatalf("jo's writer asks with yd-hidden and %s refused = %+v, %v, want yd-shown and %s", hiddenJournal, writerAsks, err, shownJournal)
 	}
-	flows, err := api.Flows(ctx, "jo")
+	flows, err := eta.FlowsViaStore(ctx, api, "jo", time.Now())
 	if err != nil || len(flows.Unassigned) != 1 || flows.Unassigned[0].Bead != shown.ID {
 		t.Fatalf("jo's flows with yd-hidden refused = %+v, %v, want only yd-shown", flows, err)
 	}

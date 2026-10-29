@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"yardr.dev/yardr/internal/config"
+	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/limits"
 	"yardr.dev/yardr/internal/server"
 	"yardr.dev/yardr/internal/store"
@@ -93,4 +94,9 @@ func ClosedToday(beads []store.Bead, now time.Time) []HomeClosed { return closed
 // burns, resolved against as without asking.
 func ProviderOf(runner string, cfg map[string]any, as []limits.Answerer) string {
 	return providerOf(runner, cfg, as)
+}
+
+// SetEstimates serves canned estimates, for tests that pin the surfaces.
+func (s *Server) SetEstimates(fn func(ctx context.Context, st store.API, ids []string, now time.Time) (map[string]*eta.Result, error)) {
+	s.estimates = fn
 }

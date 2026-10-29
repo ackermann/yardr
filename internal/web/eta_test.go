@@ -7,39 +7,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"yardr.dev/yardr/internal/eta"
 	"yardr.dev/yardr/internal/store"
 	"yardr.dev/yardr/internal/web"
 )
 
-// estimated is a store whose estimates are canned: the web tests pin the
-// surfaces, not the arithmetic (internal/eta and the store pin that).
-type estimated struct {
-	store.API
-	est map[string]*eta.Result
-}
-
-func (s estimated) Estimate(_ context.Context, id string) (*eta.Result, error) {
-	return s.est[id], nil
-}
-
-func (s estimated) EstimateMany(_ context.Context, ids []string) (map[string]*eta.Result, error) {
-	out := make(map[string]*eta.Result, len(ids))
-	for _, id := range ids {
-		out[id] = s.est[id]
-	}
-	return out, nil
-}
-
-// serveEstimates serves f's yard again with canned estimates.
+// serveEstimates serves f's yard again with canned estimates: the web
+// tests pin the surfaces, not the arithmetic (internal/eta pins that).
 func serveEstimates(t *testing.T, f *fixture, est map[string]*eta.Result) *fixture {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), ".depot")
-	srv, err := web.NewServer(estimated{API: f.st, est: est}, home, nil)
+	srv, err := web.NewServer(f.st, home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.SetEstimates(func(_ context.Context, _ store.API, ids []string, _ time.Time) (map[string]*eta.Result, error) {
+		out := make(map[string]*eta.Result, len(ids))
+		for _, id := range ids {
+			out[id] = est[id]
+		}
+		return out, nil
+	})
 	ts := httptest.NewServer(srv)
 	t.Cleanup(func() { shut(ts) })
 	return &fixture{t: t, st: f.st, ts: ts, home: home}
