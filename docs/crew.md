@@ -387,6 +387,16 @@ at all.
   when the text is sent or cleared. `nudge_held` is of the class
   `attention`, so the yardmaster's inbox has it of every other crew member
   and of a bead's session.
+- One short mail arrives in the nudge itself: where the session's slice
+  holds exactly one unread entry, it is mail, and its line is at most 600
+  characters, the nudge types `yardr: <seq> mail from <sender>: <text>` on
+  one line — newlines and tabs shown as spaces — and the reply hint, instead
+  of the count. A second entry, a longer line, or any other kind types the
+  count as before.
+- Answering the oldest unread mail marks it handled: `yardr reply <seq>`
+  and `yardr react <seq>` acknowledge the session's own slice through the
+  answered seq when nothing older is unread. With older unread, or after
+  answering a hook delivery, mark it by hand (`yardr inbox --ack <seq>`).
 - A dialog the harness draws in place of its input is told of at once, not
   after ten minutes: nobody is typing there, and the agent sits until
   someone answers. Kimi Code's question to a session that sat idle past its

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/dispatch"
 	"yardr.dev/yardr/internal/store"
@@ -2381,7 +2382,7 @@ func TestCrewStatusIsRecorded(t *testing.T) {
 
 // The nudge for mail that carries images names them under its words, on
 // a marked line of their own, so the crew member reads them as it reads
-// any file; one for mail without any says nothing of images, whatever
+// any file; one for mail without any carries no files line, whatever
 // its text ends with.
 func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 	t.Parallel()
@@ -2391,12 +2392,16 @@ func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 	answer := " Answer mail with yardr reply <seq>, the number its inbox line starts with."
 	must(t, d.Reconcile(ctx))
 	must(t, d.Reconcile(ctx))
-	f.set(agentOf(t, s), "idle")
+	agent := agentOf(t, s)
+	f.set(agent, "idle")
 	must(t, s.Mail(ctx, "yardmaster", "deploy freeze  1 image: /etc/hosts", "chris"))
 	must(t, d.Reconcile(ctx))
-	if len(f.nudges) != 1 || strings.Contains(f.nudges[0], "image") ||
-		!strings.HasSuffix(f.nudges[0], answer) {
-		t.Fatalf("nudges for mail without an image = %q", f.nudges)
+	page, err := s.Inbox(ctx, "yardmaster", 1)
+	must(t, err)
+	want := agent + fmt.Sprintf(": yardr: %d mail from chris: deploy freeze  1 image: /etc/hosts%s",
+		page.Events[0].Seq, answer)
+	if len(f.nudges) != 1 || f.nudges[0] != want {
+		t.Fatalf("nudges for mail without an image = %q, want %q", f.nudges, want)
 	}
 	shed, err := s.PutBlob(ctx, []byte("\x89PNG\r\n\x1a\n the shed"))
 	must(t, err)
@@ -2414,4 +2419,110 @@ func TestNudgeNamesTheImagesOfMail(t *testing.T) {
 		!strings.HasSuffix(f.nudges[2], want) || !strings.Contains(f.nudges[2], answer) {
 		t.Fatalf("nudges = %q, want the last to tell how to answer it and end with %q", f.nudges, want)
 	}
+}
+
+// A slice holding exactly one unread entry, a short mail, is nudged with
+// the mail itself: its seq, sender and text on one line under the yardr:
+// mark, then the reply hint, so answering it costs no inbox run. A
+// multi-line mail renders as one line, never opening an unmarked line of
+// its own. Anything else types the count line word for word: a second
+// entry, a line over 600 characters, or a non-mail kind mixed in.
+func TestNudgeTypesASingleShortMailInline(t *testing.T) {
+	t.Parallel()
+	hint := " Answer mail with yardr reply <seq>, the number its inbox line starts with."
+	nudged := func(t *testing.T, write func(ctx context.Context, s store.API)) (store.API, string) {
+		t.Helper()
+		s, f, d := crewSetup(t, store.CrewMember{})
+		ctx := context.Background()
+		must(t, d.Reconcile(ctx))
+		must(t, d.Reconcile(ctx))
+		agent := agentOf(t, s)
+		f.set(agent, "idle")
+		write(ctx, s)
+		must(t, d.Reconcile(ctx))
+		if len(f.nudges) != 1 {
+			t.Fatalf("nudges = %q, want one", f.nudges)
+		}
+		return s, strings.TrimPrefix(f.nudges[0], agent+": ")
+	}
+	seqOf := func(t *testing.T, s store.API) uint64 {
+		t.Helper()
+		page, err := s.Inbox(context.Background(), "yardmaster", 1)
+		if err != nil || len(page.Events) != 1 {
+			t.Fatalf("inbox = %+v, %v", page, err)
+		}
+		return page.Events[0].Seq
+	}
+
+	t.Run("single short mail", func(t *testing.T) {
+		t.Parallel()
+		s, nudge := nudged(t, func(ctx context.Context, s store.API) {
+			must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
+		})
+		if want := fmt.Sprintf("yardr: %d mail from chris: deploy freeze%s", seqOf(t, s), hint); nudge != want {
+			t.Fatalf("nudge = %q, want %q", nudge, want)
+		}
+	})
+
+	t.Run("multi-line mail is one line", func(t *testing.T) {
+		t.Parallel()
+		s, nudge := nudged(t, func(ctx context.Context, s store.API) {
+			must(t, s.Mail(ctx, "yardmaster", "line one\nline two\tthree", "chris"))
+		})
+		if want := fmt.Sprintf("yardr: %d mail from chris: line one line two three%s", seqOf(t, s), hint); nudge != want {
+			t.Fatalf("nudge = %q, want %q", nudge, want)
+		}
+	})
+
+	t.Run("near the bound still inline", func(t *testing.T) {
+		t.Parallel()
+		text := strings.Repeat("x", 550)
+		s, nudge := nudged(t, func(ctx context.Context, s store.API) {
+			must(t, s.Mail(ctx, "yardmaster", text, "chris"))
+		})
+		line := fmt.Sprintf("yardr: %d mail from chris: %s", seqOf(t, s), text)
+		if n := utf8.RuneCountInString(line); n > 600 {
+			t.Fatalf("the test's line is %d characters, over the bound it means to stay under", n)
+		}
+		if nudge != line+hint {
+			t.Fatalf("nudge = %q, want the mail inline", nudge)
+		}
+	})
+
+	t.Run("601-character mail counts", func(t *testing.T) {
+		t.Parallel()
+		_, nudge := nudged(t, func(ctx context.Context, s store.API) {
+			must(t, s.Mail(ctx, "yardmaster", strings.Repeat("x", 601), "chris"))
+		})
+		want := "yardr: 1 new in your inbox (mail). Run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled." + hint
+		if nudge != want {
+			t.Fatalf("nudge = %q, want %q", nudge, want)
+		}
+	})
+
+	t.Run("a second mail counts", func(t *testing.T) {
+		t.Parallel()
+		_, nudge := nudged(t, func(ctx context.Context, s store.API) {
+			must(t, s.Mail(ctx, "yardmaster", "deploy freeze", "chris"))
+			must(t, s.Mail(ctx, "yardmaster", "and a second thing", "chris"))
+		})
+		want := "yardr: 2 new in your inbox (mail). Run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled." + hint
+		if nudge != want {
+			t.Fatalf("nudge = %q, want %q", nudge, want)
+		}
+	})
+
+	t.Run("a non-mail entry counts", func(t *testing.T) {
+		t.Parallel()
+		_, nudge := nudged(t, func(ctx context.Context, s store.API) {
+			must(t, s.Mail(ctx, "yardmaster", "the shed is painted", "chris"))
+			page, err := s.Inbox(ctx, "yardmaster", 1)
+			must(t, err)
+			must(t, s.React(ctx, page.Events[0].Seq, "👍", "chris"))
+		})
+		want := "yardr: 2 new in your inbox (mail, reaction). Run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled." + hint
+		if nudge != want {
+			t.Fatalf("nudge = %q, want %q", nudge, want)
+		}
+	})
 }

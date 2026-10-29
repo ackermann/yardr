@@ -70,3 +70,42 @@ func TestReactCommand(t *testing.T) {
 		t.Fatal("react without an emoji and without --clear was taken")
 	}
 }
+
+// A reaction marks the mail it answers handled, as a reply does: reacting
+// to the only unread mail empties the slice, and with older mail unread
+// nothing is acked. --clear marks it the same way.
+func TestReactAcksTheAnsweredMail(t *testing.T) {
+	t.Parallel()
+	st := userYard(t)
+	ctx := context.Background()
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
+	mustAs(t, st, "jo", "mail", "yardmaster", "the shed is painted")
+	page, err := st.Inbox(ctx, "yardmaster", 10)
+	if err != nil || len(page.Events) != 1 {
+		t.Fatalf("inbox = %+v, %v", page, err)
+	}
+	mustAs(t, st, "yardmaster", "react", fmt.Sprint(page.Events[0].Seq), "👍")
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 0 {
+		t.Fatalf("after reacting to the only unread mail, the inbox holds %d", page.Total)
+	}
+
+	mustAs(t, st, "jo", "mail", "yardmaster", "and the fence?")
+	mustAs(t, st, "jo", "mail", "yardmaster", "and the gate?")
+	page, err = st.Inbox(ctx, "yardmaster", 10)
+	if err != nil || len(page.Events) != 2 {
+		t.Fatalf("inbox = %+v, %v", page, err)
+	}
+	older, newer := fmt.Sprint(page.Events[0].Seq), fmt.Sprint(page.Events[1].Seq)
+	mustAs(t, st, "yardmaster", "react", newer, "👍")
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 2 {
+		t.Fatalf("after reacting with older mail unread, the inbox holds %d, want 2", page.Total)
+	}
+	mustAs(t, st, "yardmaster", "react", older, "👀")
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 1 {
+		t.Fatalf("after reacting to the oldest, the inbox holds %d, want 1", page.Total)
+	}
+	mustAs(t, st, "yardmaster", "react", newer, "--clear")
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 0 {
+		t.Fatalf("after clearing on the last, the inbox holds %d", page.Total)
+	}
+}

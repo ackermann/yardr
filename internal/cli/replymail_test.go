@@ -193,14 +193,16 @@ func TestReplyToPeerMail(t *testing.T) {
 	if err != nil || !strings.Contains(out, "mail for yardmaster@up-north queued; the daemon delivers it") {
 		t.Fatalf("reply = %q, %v", out, err)
 	}
-	// Nothing for a local user: ada has no mail, and the only new mail
-	// event is the queued one for the peer.
+	// Nothing for a local user: ada has no mail, and past the answered
+	// mail the reply queued one for the peer and marked the answered one
+	// read, the only unread.
 	ada, err := south.st.UserInbox(ctx, "ada", 10, "ada")
 	if err != nil || ada.Unread != 0 {
 		t.Fatalf("ada's inbox = %+v, %v", ada, err)
 	}
 	evs, err := south.st.EventsSince(ctx, page.Events[0].Seq, 10)
-	if err != nil || len(evs) != 1 || evs[0].Kind != "mail" || evs[0].Data["to_peer"] != "up-north" {
+	if err != nil || len(evs) != 2 || evs[0].Kind != "mail" || evs[0].Data["to_peer"] != "up-north" ||
+		evs[1].Kind != "mail_read" || fmt.Sprint(evs[1].Data["through"]) != seq {
 		t.Fatalf("events after the reply = %+v, %v", evs, err)
 	}
 	carry(t, south, north)
@@ -306,6 +308,78 @@ func TestReplyRefusesMailOutsideTheCrewInbox(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "not mail to crew member yardmaster") {
 			t.Fatalf("reply to %s's mail = %v", recipient, err)
 		}
+	}
+}
+
+// Answering the oldest unread mail marks it handled: a reply to the only
+// unread mail empties the slice, and with older mail unread the reply sends
+// and nothing is acked.
+func TestReplyAcksTheAnsweredMail(t *testing.T) {
+	t.Parallel()
+	a, st := replyMailYard(t)
+	ctx := context.Background()
+	yardEnv(t, st)["YARDR_CREW"] = "yardmaster"
+	if err := st.Mail(ctx, "yardmaster", "when is the freeze over?", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, a.replyCmd(), mailSeq(t, st), "Friday."); err != nil {
+		t.Fatal(err)
+	}
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 0 {
+		t.Fatalf("after answering the only unread mail, the inbox holds %d", page.Total)
+	}
+
+	if err := st.Mail(ctx, "yardmaster", "and the deploy?", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Mail(ctx, "yardmaster", "and the docs?", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	page, err := st.Inbox(ctx, "yardmaster", 10)
+	if err != nil || len(page.Events) != 2 {
+		t.Fatalf("inbox = %+v, %v", page, err)
+	}
+	older, newer := strconv.FormatUint(page.Events[0].Seq, 10), strconv.FormatUint(page.Events[1].Seq, 10)
+	if _, err := run(t, a.replyCmd(), newer, "Docs Friday."); err != nil {
+		t.Fatal(err)
+	}
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 2 {
+		t.Fatalf("after answering with older mail unread, the inbox holds %d, want 2", page.Total)
+	}
+	if _, err := run(t, a.replyCmd(), older, "Deploy Friday."); err != nil {
+		t.Fatal(err)
+	}
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 1 {
+		t.Fatalf("after answering the oldest, the inbox holds %d, want 1", page.Total)
+	}
+	if _, err := run(t, a.replyCmd(), newer, "Docs Friday."); err != nil {
+		t.Fatal(err)
+	}
+	if page, _ := st.Inbox(ctx, "yardmaster", 0); page.Total != 0 {
+		t.Fatalf("after answering the last, the inbox holds %d", page.Total)
+	}
+}
+
+// A conversation session's answer marks its own slice alone: hal's mail
+// answered from hal's session leaves the line's unread.
+func TestReplyFromAConversationAcksItsOwnSlice(t *testing.T) {
+	t.Parallel()
+	st := sessionYard(t)
+	ctx := context.Background()
+	mustAs(t, st, "hal", "mail", "yardmaster", "hal asks about deploys")
+	mustAs(t, st, "jo", "mail", "yardmaster", "jo notes the freeze")
+	env := yardEnv(t, st)
+	env["YARDR_CREW"], env["YARDR_CREW_FOR"] = "yardmaster", "hal"
+	hal, err := st.InboxFor(ctx, "yardmaster", "hal", 1)
+	if err != nil || len(hal.Events) != 1 {
+		t.Fatalf("hal's slice = %+v, %v", hal, err)
+	}
+	mustAs(t, st, "yardmaster", "reply", fmt.Sprint(hal.Events[0].Seq), "Looking into it.")
+	if hal, _ := st.InboxFor(ctx, "yardmaster", "hal", 0); hal.Total != 0 {
+		t.Fatalf("hal's slice holds %d after the answer", hal.Total)
+	}
+	if line, _ := st.InboxFor(ctx, "yardmaster", "", 0); line.Total != 1 {
+		t.Fatalf("the line's slice holds %d after hal's answer, want 1", line.Total)
 	}
 }
 

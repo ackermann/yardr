@@ -142,6 +142,10 @@ func TestReply(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ACME_TOKEN", "tok-yardmaster")
 	a.env["YARDR_CREW"] = "yardmaster"
+	before, err := st.GetCrew(ctx, "yardmaster")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	out, err := run(t, a.replyCmd(), seqs["acme"], "Filed as yard-k3f9.")
 	if err != nil {
@@ -193,6 +197,12 @@ func TestReply(t *testing.T) {
 	if json.Unmarshal([]byte(out), &res) != nil || res["url"] != url ||
 		res["crew"] != "yardmaster" || res["message"] != "c-9" || res["repeated"] != false {
 		t.Fatalf("json %q", out)
+	}
+	// A reply in a source moves no crew cursor: the delivery stays unread
+	// until the member acks it by hand.
+	after, err := st.GetCrew(ctx, "yardmaster")
+	if err != nil || after.Cursor != before.Cursor || after.Notified != before.Notified {
+		t.Fatalf("cursor after a hook reply = %+v, was %+v, %v", after, before, err)
 	}
 	t.Run("files", testReplyWithFiles)
 }

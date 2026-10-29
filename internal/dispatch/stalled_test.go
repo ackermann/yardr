@@ -116,7 +116,7 @@ func TestNudgeForAnAgentAtADialogIsHeldAndSaidOnce(t *testing.T) {
 	f.atDialog = false
 	later(time.Minute)
 	later(time.Minute)
-	if len(f.nudges) != 1 || !strings.Contains(f.nudges[0], "1 new in your inbox") {
+	if len(f.nudges) != 1 || !strings.Contains(f.nudges[0], "mail from chris: deploy freeze") {
 		t.Fatalf("after the dialog: nudges %q, want the one that was due", f.nudges)
 	}
 	f.atDialog = true

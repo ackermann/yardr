@@ -457,7 +457,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 			}
 			pass()
 			if !c.held {
-				if typed() != 1 || !strings.Contains(calls(), "yardr: 1 new in your inbox") {
+				if typed() != 1 || !strings.Contains(calls(), "mail from chris: deploy freeze") {
 					t.Fatalf("nudge typed %d times, want once:\n%s", typed(), calls())
 				}
 				return
@@ -467,7 +467,7 @@ func TestNudgeIsNotTypedIntoAnInputThatHoldsText(t *testing.T) {
 			}
 			screen(c.empty)
 			pass()
-			if typed() != 1 || keys() != 0 || !strings.Contains(calls(), "yardr: 1 new in your inbox") {
+			if typed() != 1 || keys() != 0 || !strings.Contains(calls(), "mail from chris: deploy freeze") {
 				t.Fatalf("after the input emptied the nudge was typed %d times, want once:\n%s", typed(), calls())
 			}
 		})

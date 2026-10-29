@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"yardr.dev/yardr/internal/store"
 )
@@ -607,6 +608,34 @@ func (d *Dispatcher) crewStartFailed(ctx context.Context, runner Runner, s *memb
 	return nil
 }
 
+// inlineMailBound is how long one mail's nudge line may be, in characters:
+// a longer line falls back to counting the inbox.
+const inlineMailBound = 600
+
+// inlineNudgeMail is the nudge's first line where the slice holds exactly
+// one unread entry and it is a short mail: its seq, sender and text on one
+// line, so answering it costs the member no inbox run. Anything else (more
+// entries, a longer line, a non-mail kind) keeps the count line, and reads
+// as not ok.
+func inlineNudgeMail(page *store.InboxPage) (string, bool) {
+	if page.Total != 1 || len(page.Events) != 1 || page.Events[0].Kind != "mail" {
+		return "", false
+	}
+	e := page.Events[0]
+	text, _ := e.Data["text"].(string)
+	line := fmt.Sprintf("yardr: %d mail from %s: %s", e.Seq, flatMailWords(store.MailFrom(e)), flatMailWords(text))
+	if utf8.RuneCountInString(line) > inlineMailBound {
+		return "", false
+	}
+	return line, true
+}
+
+// flatMailWords are a mail's words where the nudge types them: letters, on
+// one line, so the text never opens an unmarked line of its own in the pane.
+func flatMailWords(s string) string {
+	return strings.ReplaceAll(store.OneLine(s), "\t", " ")
+}
+
 // crewRunning handles a healthy session: a first prompt still to
 // deliver, text of yardr's own left in its input, then rotation, then the
 // inbox.
@@ -793,6 +822,9 @@ func (d *Dispatcher) crewRunning(ctx context.Context, runner Runner, s *memberSe
 	}
 	msg := fmt.Sprintf("yardr: %d new in your inbox (%s%s). Run yardr inbox to read them, and yardr inbox --ack <seq> through the last you handled.",
 		page.Total, strings.Join(kinds, ", "), more)
+	if line, ok := inlineNudgeMail(page); ok {
+		msg = line
+	}
 	if len(outside) > 0 {
 		msg += fmt.Sprintf(" Mail from %s is %s.", strings.Join(outside, ", "), store.OutsideMail)
 	}

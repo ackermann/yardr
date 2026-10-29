@@ -24,7 +24,11 @@ replaces the old one.
 A reaction shows under the letter wherever it is read (yardr mail --with,
 yardr inbox, yardr chat). A reaction to a crew member's own mail lands in
 that crew member's inbox; nothing reaches a user's inbox. A 👍 counts as a
-"yes" mail would, no more: decisions with consequences stay asks.`,
+"yes" mail would, no more: decisions with consequences stay asks.
+
+Reacting in the crew member's own session marks the mail handled through
+its seq when nothing older is unread; with older unread, mark it by hand
+(yardr inbox --ack <seq>).`,
 		Example: `  yardr react 4211 👍
   yardr react 4211 --clear`,
 		Args: func(c *cobra.Command, args []string) error {
@@ -49,6 +53,14 @@ that crew member's inbox; nothing reaches a user's inbox. A 👍 counts as a
 			}
 			if err := st.React(ctx, seq, emoji, a.who()); err != nil {
 				return err
+			}
+			// In a crew member's own session the answered mail is marked
+			// handled with it, as a reply marks it; anywhere else (a user
+			// reacting to their own mail) there is no crew cursor to move.
+			if crew := a.yardrenv("CREW"); crew != "" {
+				if err := a.ackAnsweredMail(ctx, st, crew, seq); err != nil {
+					return err
+				}
 			}
 			return a.out(c.OutOrStdout(), map[string]any{"seq": seq, "emoji": emoji}, func(w io.Writer) {
 				if clear {

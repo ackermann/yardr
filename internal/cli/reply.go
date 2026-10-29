@@ -132,6 +132,10 @@ into: the reply is a note on that bead, as yardr bead note writes it, so its
 live session is told of it, and with none running it waits on the bead for
 whoever works it next.
 
+Answering mail in the crew member's own inbox marks it handled through its
+seq when nothing older is unread; with older unread, or after answering a
+hook delivery, mark it by hand (yardr inbox --ack <seq>).
+
 The call to a source is made from this process with your own credential,
 from your environment: the variable its declaration names (credential.env),
 or its mint's two names where it mints one (the reply is the mint's own,
@@ -417,6 +421,9 @@ func (a *app) replyNote(c *cobra.Command, st store.API, seq uint64, bead, crew, 
 	if err != nil {
 		return fmt.Errorf("reply to event %d, mail from a session of %s: %w", seq, bead, err)
 	}
+	if err := a.ackAnsweredMail(c.Context(), st, crew, seq); err != nil {
+		return err
+	}
 	out := map[string]any{"seq": seq, "crew": crew, "bead": n.Bead, "note": n.Seq, "noted": "ok"}
 	if n.Notify != "" {
 		out["notify"] = n.Notify
@@ -467,6 +474,9 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 		if err != nil {
 			return err
 		}
+		if err := a.ackAnsweredMail(ctx, st, name, seq); err != nil {
+			return err
+		}
 		queued := map[string]any{"seq": seq, "crew": name, "to": from, "peer": peer, "id": m.ID, "sent": "queued"}
 		return a.out(c.OutOrStdout(), queued, func(w io.Writer) {
 			fmt.Fprintf(w, "mail for %s@%s queued; the daemon delivers it, and yardr peer show %s lists it while it waits\n", from, peer, peer)
@@ -485,6 +495,9 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 	if err := store.MailText(st, ctx, from, body, name); err != nil {
 		return err
 	}
+	if err := a.ackAnsweredMail(ctx, st, name, seq); err != nil {
+		return err
+	}
 	out := map[string]any{"seq": seq, "crew": name, "to": from, "sent": "ok"}
 	mails := len(store.SplitMail(body))
 	if mails > 1 {
@@ -497,6 +510,26 @@ func (a *app) replyMail(c *cobra.Command, st store.API, seq uint64, e store.Even
 			fmt.Fprintln(w, "mail sent to "+from)
 		}
 	})
+}
+
+// ackAnsweredMail marks the answered mail seq handled in the caller's own
+// inbox slice: the crew member's, or its conversation session's where the
+// run names one ($YARDR_CREW_FOR, as yardr inbox reads it). Only when no
+// older entry of that slice is unread: an answer into the middle of a
+// backlog leaves the rest for an explicit yardr inbox --ack.
+func (a *app) ackAnsweredMail(ctx context.Context, st store.API, name string, seq uint64) error {
+	user := a.crewSession("")
+	page, err := st.InboxFor(ctx, name, user, 1)
+	if err != nil {
+		return fmt.Errorf("answered, but the inbox could not be read to mark it handled: %w", err)
+	}
+	if len(page.Events) == 0 || page.Events[0].Seq != seq {
+		return nil
+	}
+	if err := st.AckInboxFor(ctx, name, user, seq); err != nil {
+		return fmt.Errorf("answered, but acknowledging it failed: mark it handled with yardr inbox --ack %d: %w", seq, err)
+	}
+	return nil
 }
 
 // maySpeakAs says why this command may not speak as crew member name: it
