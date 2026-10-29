@@ -5,7 +5,9 @@ package web
 // the gateway signed. ServeHTTP verifies it here, against the keys fetched
 // from the yard's web_jwt_jwks, and maps its email to a yard user through
 // web_jwt_users; docs/web.md ("Behind an auth gateway") says what each
-// gateway sends.
+// gateway sends. It keeps beside the user the time the token says the
+// gateway last authenticated the person (auth_time), which is all that
+// tells a session signed in just now from a standing one (freshSession).
 
 import (
 	"context"
@@ -18,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -35,9 +38,9 @@ import (
 const DefaultJWTHeader = "Cf-Access-Jwt-Assertion"
 
 // JWT bounds: a fetch answers within the timeout or not at all; a key set
-// over the bound is no key set; expiry and not-before allow a minute of
-// clock skew; the keys are replaced hourly and, on an unknown key id, at
-// most once a minute.
+// over the bound is no key set; expiry, not-before and an authentication
+// time ahead of now allow a minute of clock skew; the keys are replaced
+// hourly and, on an unknown key id, at most once a minute.
 const (
 	jwtFetchTimeout       = 10 * time.Second
 	jwtKeysMax            = 1 << 20
@@ -46,24 +49,38 @@ const (
 	jwtUnknownKIDCooldown = time.Minute
 )
 
+// authTimeMax is the last second an auth_time may name, 9999-12-31T23:59:59Z,
+// the last that RFC 3339 writes: a claim past it names no time a gateway
+// signed, and is kept from the conversion to a time.
+const authTimeMax = 253402300799
+
 // JWTConfig is JWT mode as the yard's web_jwt_* settings shape it: the
 // issuer and audience a token must carry, the URL its keys are fetched
 // from, the header carrying it, and whose token acts as whom. Users holds
 // lower-cased emails (store.ParseWebJWTUsers).
+//
+// PrivilegedSessionMaxAge is how long after a person last authenticated
+// at the gateway the view still calls their session fresh. It is the
+// gateway's own limit, Kratos's privileged_session_max_age on a hosted
+// yard, copied here by whoever configures both and never chosen by the
+// yard; zero is unset, and with it no session is fresh.
 type JWTConfig struct {
-	Issuer   string
-	Audience string
-	JWKSURL  string
-	Header   string
-	Users    map[string]string
+	Issuer                  string
+	Audience                string
+	JWKSURL                 string
+	Header                  string
+	Users                   map[string]string
+	PrivilegedSessionMaxAge time.Duration
 }
 
 // jwtIdentity is what a verified gateway token resolves to: the yard user
-// its email maps to, and when the token expires. It rides the request's
-// context under jwtUserKey.
+// its email maps to, when the token expires, and when the gateway last
+// authenticated the person (its auth_time claim), the zero time where the
+// token names none. It rides the request's context under jwtUserKey.
 type jwtIdentity struct {
-	user string
-	exp  time.Time
+	user     string
+	exp      time.Time
+	authTime time.Time
 }
 
 // jwtUserKey is the request's verified JWT identity (RequestUser,
@@ -88,6 +105,37 @@ func RequestUser(r *http.Request) string { return jwtIdentityOf(r.Context()).use
 // zero time when the request carried no verified token.
 func RequestExpiry(r *http.Request) time.Time { return jwtIdentityOf(r.Context()).exp }
 
+// freshAt is whether the identity's authentication time counts as a fresh
+// sign-in at now: the window has not run out on it, and it is later than
+// since, the time a card's challenge was raised. A token with no such time
+// is never fresh. Where the window is unset, or since is zero because no
+// challenge was raised, there is nothing to be fresh against, and both read
+// as not fresh, never as always. A time ahead of now by more than the skew
+// jwtLeeway allows is none a gateway signed.
+func (id jwtIdentity) freshAt(now time.Time, window time.Duration, since time.Time) bool {
+	switch {
+	case id.authTime.IsZero(), window <= 0, since.IsZero():
+		return false
+	case id.authTime.After(now.Add(jwtLeeway)):
+		return false
+	}
+	return !id.authTime.Before(now.Add(-window)) && id.authTime.After(since)
+}
+
+// freshSession is whether the request is a fresh sign-in of an operator
+// after since: it acts as an operator, and the gateway's token says it
+// authenticated them no longer ago than its privileged-session window and
+// later than since. A standing session is none however new its token is:
+// the authentication time is the gateway's word for when the person last
+// proved who they are, and a token's issue time says only when it was
+// minted. Whom a card is asked of is for the gate that approves it.
+func (s *Server) freshSession(ctx context.Context, since time.Time) bool {
+	if s.jwt == nil || !s.isOperator(ctx) {
+		return false
+	}
+	return jwtIdentityOf(ctx).freshAt(time.Now(), s.jwt.privilegedSessionMaxAge, since)
+}
+
 // UseJWT turns JWT mode on: every request but /health must carry a token
 // the gateway signed, verified against cfg, whose email maps to a user of
 // the yard, and each request acts as its own user. It registers the POST
@@ -110,7 +158,7 @@ func (s *Server) UseJWT(ctx context.Context, cfg JWTConfig) error {
 	v := &jwtVerifier{
 		issuer: cfg.Issuer, audience: cfg.Audience, url: cfg.JWKSURL,
 		header: header, bearer: strings.EqualFold(header, "Authorization"),
-		users: cfg.Users, log: s.log,
+		users: cfg.Users, privilegedSessionMaxAge: cfg.PrivilegedSessionMaxAge, log: s.log,
 		client: &http.Client{Timeout: jwtFetchTimeout, CheckRedirect: checkJWKSRedirect},
 		keys:   map[string]any{},
 	}
@@ -140,6 +188,8 @@ type jwtVerifier struct {
 	users  map[string]string
 	log    *slog.Logger
 	client *http.Client
+	// privilegedSessionMaxAge is JWTConfig's, read by freshSession.
+	privilegedSessionMaxAge time.Duration
 	// mu guards keys, the public keys by key id; fetched, the last fetch
 	// that replaced them; attempted, the last fetch whatever came of it;
 	// fetching, the in-flight fetch every handler shares; and fetchErr,
@@ -223,7 +273,25 @@ func (v *jwtVerifier) verify(r *http.Request) (jwtIdentity, int, string) {
 	if at, _ := verified.GetExpirationTime(); at != nil {
 		exp = at.Time
 	}
-	return jwtIdentity{user: user, exp: exp}, 0, ""
+	return jwtIdentity{user: user, exp: exp, authTime: authTimeOf(verified)}, 0, ""
+}
+
+// authTimeOf is when the token says the gateway last authenticated the
+// person: its auth_time claim, a number of seconds since the epoch (OpenID
+// Connect Core 1.0, section 2). The zero time is none: no claim, one that is
+// not a number, or one that names no time a gateway signs (the epoch or
+// before, or past authTimeMax). No other claim stands in for it: a token's
+// iat says when it was minted, and a standing session mints new tokens all
+// day. A claim that cannot be read refuses nothing, since gateways whose
+// tokens carry none are served all the same.
+func authTimeOf(claims jwt.MapClaims) time.Time {
+	secs, ok := claims["auth_time"].(float64)
+	// A positive test, so that a NaN fails as well.
+	if !ok || !(secs > 0 && secs <= authTimeMax) {
+		return time.Time{}
+	}
+	whole, frac := math.Modf(secs)
+	return time.Unix(int64(whole), int64(frac*float64(time.Second)))
 }
 
 // parser verifies a token's signature, issuer, audience, expiry and

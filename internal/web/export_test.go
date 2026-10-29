@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"time"
 
 	"yardr.dev/yardr/internal/config"
@@ -57,6 +59,24 @@ func (s *Server) DropJWTKeys() {
 	s.jwt.mu.Lock()
 	defer s.jwt.mu.Unlock()
 	s.jwt.keys = map[string]any{}
+}
+
+// FreshSession verifies the request's gateway token as a request to the
+// view would and asks the freshness question of what it verified: the status
+// a refusal answered with (200 when the token verified), and the answer. On
+// a view that acts as a user (ActAs) the request holds the view's cookie, so
+// that it acts as that user and the question has to be answered without a
+// gateway.
+func (s *Server) FreshSession(r *http.Request, since time.Time) (status int, fresh bool) {
+	w := httptest.NewRecorder()
+	r, ok := s.verifyJWT(w, r)
+	if !ok {
+		return w.Code, false
+	}
+	if s.token != nil {
+		r = r.WithContext(context.WithValue(r.Context(), tokenHeldKey{}, true))
+	}
+	return http.StatusOK, s.freshSession(r.Context(), since)
 }
 
 // Unified is old and new as the history's diff.

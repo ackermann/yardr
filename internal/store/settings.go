@@ -184,7 +184,7 @@ var partyName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 // KnownSettings are the yard's settings. A key that is not here is read by
 // nothing, and SetSetting refuses it.
-var KnownSettings = []Setting{
+var KnownSettings = append([]Setting{
 	{Key: OperatorSetting, Help: "who the role prompts name, the person agents bring decisions to (a pack's roles are installed naming them); default: your login name",
 		Check: func(string) error { return nil }},
 	{Key: YardmasterSetting, Help: "the yardmaster crew member's name, whom the role prompts tell agents to mail, and who may shape the yard beside the operator: restart, enable and remove crew members, and remove groups, flows and routes", Default: "yardmaster",
@@ -480,7 +480,7 @@ var KnownSettings = []Setting{
 			}
 			return nil
 		}},
-}
+}, webJWTPrivilegedSessionMaxAge)
 
 // SettingOf is the setting key names.
 func SettingOf(key string) (Setting, bool) {

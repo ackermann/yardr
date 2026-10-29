@@ -513,8 +513,17 @@ func webJWTConfig(ctx context.Context, st store.API, all map[string]string, as, 
 				store.WebJWTUsersSetting, email, users[email])
 		}
 	}
+	// Unset is no window, and with none no session is fresh. As with the
+	// users, the shape was checked when it was set.
+	var window time.Duration
+	if v := all[store.WebJWTPrivilegedSessionMaxAgeSetting]; v != "" {
+		if window, err = store.ParseSpan(v); err != nil {
+			return none, fmt.Errorf("%s refused: %w", store.WebJWTPrivilegedSessionMaxAgeSetting, err)
+		}
+	}
 	return web.JWTConfig{Issuer: issuer, Audience: all[store.WebJWTAudienceSetting],
-		JWKSURL: all[store.WebJWTJWKSSetting], Header: headerValue, Users: users}, nil
+		JWKSURL: all[store.WebJWTJWKSSetting], Header: headerValue, Users: users,
+		PrivilegedSessionMaxAge: window}, nil
 }
 
 // webJWTAsRefused is the refusal of the user the view would act as, from

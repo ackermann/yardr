@@ -22,6 +22,7 @@ import (
 	"yardr.dev/yardr/internal/config"
 	"yardr.dev/yardr/internal/standin"
 	"yardr.dev/yardr/internal/store"
+	"yardr.dev/yardr/internal/storetest"
 	"yardr.dev/yardr/internal/yardkey"
 )
 
@@ -393,6 +394,46 @@ func TestWebServeJWTRefusals(t *testing.T) {
 	set(store.WebJWTUsersSetting, "jo@example.net=Jo")
 	// Keys that cannot be fetched.
 	refused(serve(), "web_jwt_jwks", "could not fetch")
+}
+
+// JWT mode takes the window the view calls a session fresh by from the
+// yard's web_jwt_privileged_session_max_age, a span, and unset is no window.
+func TestWebJWTConfigTakesThePrivilegedSessionWindow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := storetest.New(t)
+	if _, err := st.AddUser(ctx, "jo", "jo"); err != nil {
+		t.Fatal(err)
+	}
+	all := map[string]string{
+		store.WebJWTIssuerSetting:   "https://team.example.net",
+		store.WebJWTAudienceSetting: "aud-tag",
+		store.WebJWTJWKSSetting:     "https://team.example.net/certs",
+		store.WebJWTUsersSetting:    "jo@example.net=jo",
+	}
+	window := func(value string) (time.Duration, error) {
+		all[store.WebJWTPrivilegedSessionMaxAgeSetting] = value
+		cfg, err := webJWTConfig(ctx, st, all, "", "")
+		return cfg.PrivilegedSessionMaxAge, err
+	}
+	for _, c := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 0},
+		{"15m", 15 * time.Minute},
+		{"1h30m", 90 * time.Minute},
+		{"1d", 24 * time.Hour},
+	} {
+		if got, err := window(c.value); err != nil || got != c.want {
+			t.Errorf("window %q = %v, %v, want %v", c.value, got, err, c.want)
+		}
+	}
+	// The shape was checked when it was set; one stored all the same is
+	// refused at start, naming the setting.
+	if _, err := window("soon"); err == nil || !strings.Contains(err.Error(), store.WebJWTPrivilegedSessionMaxAgeSetting) {
+		t.Errorf("a window that is no span: %v, want a refusal naming the setting", err)
+	}
 }
 
 // In JWT mode with keys that fetch, serve starts and records the view; an

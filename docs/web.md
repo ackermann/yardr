@@ -260,6 +260,19 @@ the token's expiry, and the client reconnects with a fresh token. `yardr
 status` and the start line say whose tokens the view verifies (`jwt from
 <issuer>`).
 
+A token may also say when the gateway last authenticated the person, in its
+`auth_time` claim (seconds since the epoch, as OpenID Connect writes it).
+The view keeps that time beside the user and the expiry. It is what tells a
+session that signed in just now from one that has stood for days: a gateway
+mints new tokens all day on a standing session, so a token's age says
+nothing, and only the authentication time moves when the person proves who
+they are again. The time is fresh while it is no older than
+`web_jwt_privileged_session_max_age`, the gateway's own limit for a
+privileged session (Kratos's `privileged_session_max_age` on a hosted yard).
+A token without the claim is never fresh, so a gateway that signs none
+leaves every session not fresh; and a claim that cannot be read is served
+like none, since reading it refuses nothing.
+
 ### `--unsafe`: every interface
 
 `yardr web serve --unsafe` listens on `0.0.0.0:8791` (on the selected

@@ -153,18 +153,23 @@ func (s *jwksStub) breakWith(status int) {
 }
 
 // jwtServer builds a server for st in JWT mode against the stub's keys,
-// carrying the header ("" for the default) and the users table.
-func jwtServer(t *testing.T, st store.API, jwks *jwksStub, header string, users map[string]string) (*web.Server, string) {
+// carrying the header ("" for the default) and the users table, and the
+// config as each of set leaves it.
+func jwtServer(t *testing.T, st store.API, jwks *jwksStub, header string, users map[string]string, set ...func(*web.JWTConfig)) (*web.Server, string) {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), ".depot")
 	srv, err := web.NewServer(st, home, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := srv.UseJWT(context.Background(), web.JWTConfig{
+	cfg := web.JWTConfig{
 		Issuer: jwtTestIssuer, Audience: jwtTestAudience,
 		JWKSURL: jwks.ts.URL, Header: header, Users: users,
-	}); err != nil {
+	}
+	for _, f := range set {
+		f(&cfg)
+	}
+	if err := srv.UseJWT(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	return srv, home
@@ -257,7 +262,8 @@ func jwtGet(t *testing.T, ts *httptest.Server, target string, headers ...string)
 
 // In JWT mode a request with a token the test key signed is served; a
 // missing header or an invalid token is 401, an unmapped email 403, and
-// /health stays open without a token.
+// /health stays open without a token. A token whose auth_time cannot be
+// read is served all the same, and only never fresh (TestJWTFreshSession).
 func TestJWTModeServesAndRefuses(t *testing.T) {
 	t.Parallel()
 	keys := mustJWTTestKeys(t)
@@ -294,6 +300,10 @@ func TestJWTModeServesAndRefuses(t *testing.T) {
 		{"email matches without regard to case", "/", signRSA(t, keys.a, "a", jwtClaims("McKean@Example.NET")), false, 200, ""},
 		{"email_verified true", "/", with(jwtTestEmail, func(c jwt.MapClaims) { c["email_verified"] = true }), false, 200, ""},
 		{"audience among several", "/", with(jwtTestEmail, func(c jwt.MapClaims) { c["aud"] = []string{"other", jwtTestAudience} }), false, 200, ""},
+		{"auth_time a number", "/", with(jwtTestEmail, func(c jwt.MapClaims) { c["auth_time"] = time.Now().Unix() }), false, 200, ""},
+		{"auth_time not a number", "/", with(jwtTestEmail, func(c jwt.MapClaims) { c["auth_time"] = "yesterday" }), false, 200, ""},
+		{"auth_time before the epoch", "/", with(jwtTestEmail, func(c jwt.MapClaims) { c["auth_time"] = -1 }), false, 200, ""},
+		{"auth_time too large for a time", "/", with(jwtTestEmail, func(c jwt.MapClaims) { c["auth_time"] = 1e300 }), false, 200, ""},
 		{"/health stays open", "/health", "", true, 200, ""},
 
 		{"no header", "/", "", true, 401, "missing"},
@@ -956,4 +966,85 @@ func TestJWTStreamEndsAtExpiry(t *testing.T) {
 		t.Errorf("a token past its expiry sent %q, want the retry and then the end", body)
 	}
 	settle(t, "the stream outlived the token", func() bool { return srv.Streams() == 0 })
+}
+
+// The gateway's authentication time is kept beside the token's user and
+// expiry, and it alone makes a session fresh: an operator whose time falls
+// inside the gateway's window and after the card's challenge. A token with
+// no time is never fresh, however new the token is, and neither is one whose
+// time is unreadable, ahead of the clock beyond its skew, or a member's. An
+// unset window is no window, and a view outside JWT mode has no gateway.
+func TestJWTFreshSession(t *testing.T) {
+	t.Parallel()
+	keys := mustJWTTestKeys(t)
+	jwks := newJWKStub(t, jwksDoc(t, rsaJWK("a", &keys.a.PublicKey)))
+	ctx := context.Background()
+	st := storetest.New(t)
+	for _, name := range []string{"jo", "sam"} {
+		if _, err := st.AddUser(ctx, name, "jo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(t, st.SetSetting(ctx, store.OperatorSetting, "jo", "jo"))
+	users := map[string]string{"jo@example.net": "jo", "sam@example.net": "sam"}
+	srv, _ := jwtServer(t, st, jwks, "", users, func(c *web.JWTConfig) { c.PrivilegedSessionMaxAge = 15 * time.Minute })
+	unset, _ := jwtServer(t, st, jwks, "", users)
+	outside, err := web.NewServer(st, filepath.Join(t.TempDir(), ".depot"), nil)
+	must(t, err)
+	outside.ActAs("jo")
+
+	// A gateway writes whole seconds, so a challenge can fall on the very
+	// second of a sign-in.
+	now := time.Now()
+	at := func(d time.Duration) time.Time { return time.Unix(now.Add(d).Unix(), 0) }
+	signedIn := at(-time.Minute)
+	ask := func(view *web.Server, email string, set func(jwt.MapClaims), since time.Time) bool {
+		t.Helper()
+		claims := jwtClaims(email)
+		set(claims)
+		req, err := http.NewRequest(http.MethodGet, "/", nil)
+		must(t, err)
+		req.Header.Set(web.DefaultJWTHeader, signRSA(t, keys.a, "a", claims))
+		status, fresh := view.FreshSession(req, since)
+		if status != http.StatusOK {
+			t.Fatalf("the token was refused with %d", status)
+		}
+		return fresh
+	}
+	authTime := func(at time.Time) func(jwt.MapClaims) {
+		return func(c jwt.MapClaims) { c["auth_time"] = at.Unix() }
+	}
+	for _, c := range []struct {
+		name  string
+		view  *web.Server
+		email string
+		set   func(jwt.MapClaims)
+		since time.Time
+		want  bool
+	}{
+		{"a fresh time", srv, "jo@example.net", authTime(signedIn), signedIn.Add(-time.Minute), true},
+		{"a stale time", srv, "jo@example.net", authTime(at(-time.Hour)), at(-2 * time.Hour), false},
+		{"no time, in a token minted now", srv, "jo@example.net", func(c jwt.MapClaims) { c["iat"] = now.Unix() }, signedIn.Add(-time.Minute), false},
+		{"a time that is no number", srv, "jo@example.net", func(c jwt.MapClaims) { c["auth_time"] = "now" }, signedIn.Add(-time.Minute), false},
+		{"a time ahead of the clock beyond the skew", srv, "jo@example.net", authTime(at(10 * time.Minute)), signedIn, false},
+		{"a time ahead of the clock within the skew", srv, "jo@example.net", authTime(at(30 * time.Second)), signedIn, true},
+		// The same fresh time against a challenge before it and after it.
+		{"after the challenge", srv, "jo@example.net", authTime(signedIn), signedIn.Add(-time.Second), true},
+		{"before the challenge", srv, "jo@example.net", authTime(signedIn), signedIn.Add(time.Second), false},
+		{"at the challenge", srv, "jo@example.net", authTime(signedIn), signedIn, false},
+		{"no challenge raised", srv, "jo@example.net", authTime(signedIn), time.Time{}, false},
+		{"a member's fresh time", srv, "sam@example.net", authTime(signedIn), signedIn.Add(-time.Minute), false},
+		{"a fresh time, no window set", unset, "jo@example.net", authTime(signedIn), signedIn.Add(-time.Minute), false},
+	} {
+		if got := ask(c.view, c.email, c.set, c.since); got != c.want {
+			t.Errorf("%s: fresh = %v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// Outside JWT mode there is no gateway token, so no session is fresh.
+	req, err := http.NewRequest(http.MethodGet, "/", nil)
+	must(t, err)
+	if _, fresh := outside.FreshSession(req, signedIn); fresh {
+		t.Error("a view outside JWT mode has a fresh session")
+	}
 }

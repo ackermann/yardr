@@ -287,7 +287,7 @@ func TestStoreChecksSettings(t *testing.T) {
 	// Sequential: process environment.
 	s, ctx := storetest.New(t), context.Background()
 	for want, kv := range map[string][2]string{
-		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, permissions_preset, preview_idle, provider_terms, quiet_landings, router_addr, telemetry, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
+		`no setting "hook_adr"; there is: backup_dir, backup_every, backup_keep, bdp_addr, blob_max_bytes, codesign_identity, default_kind, default_pack, disk_keep_gb, edge, files_max, hearer, herdr_session, hook_addr, hook_public_url, hosted, max_sessions, name, operator, operator_note, operator_style, peer_file_max_bytes, permissions_preset, preview_idle, provider_terms, quiet_landings, router_addr, telemetry, timer_limit, timer_min_every, upgrade_from, upgrade_restore, web_addr, web_as, web_jwt_audience, web_jwt_header, web_jwt_issuer, web_jwt_jwks, web_jwt_privileged_session_max_age, web_jwt_users, web_pages_addr, web_pages_host, yardmaster`: {"hook_adr", "4"},
 		`default_kind "nope": herdr starts`:                                                                                 {"default_kind", "nope"},
 		`operator_style "loud": there is guide, show, work, report`:                                                         {"operator_style", "loud"},
 		`hook address "8790": want host:port`:                                                                               {"hook_addr", "8790"},
@@ -316,6 +316,9 @@ func TestStoreChecksSettings(t *testing.T) {
 		`web_jwt_users: email "no-at-sign": an address with an @`:                                                           {"web_jwt_users", "no-at-sign=jo"},
 		`web_jwt_users: user "a b": use letters, digits, '.', '_', '-' or '/'`:                                              {"web_jwt_users", "a@b.example=a b"},
 		`web_jwt_users: email "A@B.EXAMPLE" twice`:                                                                          {"web_jwt_users", "a@b.example=jo,A@B.EXAMPLE=ann"},
+		`web_jwt_privileged_session_max_age: bad duration "soon"`:                                                           {"web_jwt_privileged_session_max_age", "soon"},
+		`web_jwt_privileged_session_max_age: bad duration "0"`:                                                              {"web_jwt_privileged_session_max_age", "0"},
+		`web_jwt_privileged_session_max_age: bad duration "-5m"`:                                                            {"web_jwt_privileged_session_max_age", "-5m"},
 		`codesign_identity "ada\n-x": no newline or control character`:                                                      {store.CodesignIdentitySetting, "ada\n-x"},
 		`codesign_identity "ada\tx": no newline or control character`:                                                       {store.CodesignIdentitySetting, "ada\tx"},
 		`codesign_identity "ada\x7fx": no newline or control character`:                                                     {store.CodesignIdentitySetting, "ada\x7fx"},
@@ -338,7 +341,7 @@ func TestStoreChecksSettings(t *testing.T) {
 		"timer_limit": "9", "timer_min_every": "30m", "default_pack": "research", "name": "north", "yardmaster": "boss", "operator_note": "reads Go",
 		"web_as": "jo", "web_jwt_issuer": "https://team.cloudflareaccess.com", "web_jwt_audience": "aud-tag",
 		"web_jwt_jwks": "https://team.cloudflareaccess.com/cdn-cgi/access/certs", "web_jwt_header": "Authorization",
-		"web_jwt_users": "mckean@example.net=mckean, Jo@Example.NET=jo", "max_sessions": "0",
+		"web_jwt_users": "mckean@example.net=mckean, Jo@Example.NET=jo", "web_jwt_privileged_session_max_age": "15m", "max_sessions": "0",
 		store.CodesignIdentitySetting: "Developer ID Application: Ada (TEAM000001)"} {
 		if err := s.SetSetting(ctx, k, v, "me"); err != nil {
 			t.Errorf("SetSetting(%s, %s) = %v", k, v, err)

@@ -1320,6 +1320,8 @@ func TestSettingRunAskClassesAreExplicit(t *testing.T) {
 		PreviewIdleSetting:       Alone,
 		ProviderTermsSetting:     Alone,
 		TelemetrySetting:         Alone,
+
+		WebJWTPrivilegedSessionMaxAgeSetting: Alone,
 	}
 	for _, setting := range KnownSettings {
 		class, ok := want[setting.Key]
