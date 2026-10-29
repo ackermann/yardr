@@ -1789,11 +1789,14 @@ sleepbudget() {
 }
 # The non-test Go files over 1000 lines: the file, its ceiling in lines,
 # and why it is over. The gate counts every non-test .go file with wc -l;
-# a file over its ceiling, an unlisted file over 1000 lines, a ceiling
-# standing above its file, or a row whose file is gone fails the run. The
-# ceiling only falls: a shrinking change lowers its file's row in the same
-# commit, and nothing else edits a row. The root package's test counts the
-# rows against the tree, so delete the row with the file.
+# a file over its ceiling or an unlisted file over 1000 lines fails every
+# run, while a ceiling standing above its file, or a row whose file is
+# gone, fails a plain run and passes at landing with a note: the landing
+# judges with this file as it is on the base, whose rows still stand above
+# the branch's shrunk files. The ceiling only falls: a shrinking change
+# lowers its file's row in the same commit, and nothing else edits a row.
+# The root package's test counts the rows against the tree, so delete the
+# row with the file.
 filesizes='
 internal/agents/harness.go 1385 schemas, trust marks and flags of every harness kind
 internal/chat/chat.go 1196 the chat TUI model, state and rendering
@@ -1843,18 +1846,22 @@ internal/store/users.go 1301 user records and operator words
 internal/web/beads.go 1106 the bead cards, flows and panels
 '
 # filesizebudget fails the run when a non-test Go file stands over its
-# ceiling in the table above, when one with no row stands over 1000 lines,
-# when a ceiling stands above its file, or when a row names a file that is
-# gone. The measure is wc -l, the count the table was seeded with. The
-# allow-list goes by file, as the reads table does: awk takes no newline
-# in -v. It says how many listed files the tree holds, so the re-measure
-# can count the oversize debt.
+# ceiling in the table above, or when one with no row stands over 1000
+# lines. A ceiling standing above its file, or a row naming a file that is
+# gone, fails a plain run, so the change lowers the row; at landing
+# (YARDR_LANDING set) it passes with a note instead, since the landing
+# judges with the base's copy of this script, whose higher rows remain
+# while the branch lowers or deletes the corresponding rows. The measure
+# is wc -l, the count the table was seeded
+# with. The allow-list goes by file, as the reads table does: awk takes no
+# newline in -v. It says how many listed files the tree holds, so the
+# re-measure can count the oversize debt.
 filesizebudget() {
   t0=$(date +%s)
   st=0
   allow=$(mktemp)
   printf '%s\n' "$filesizes" >"$allow"
-  out=$(find . -name '*.go' -not -name '*_test.go' -not -path './.git/*' -exec wc -l {} + 2>/dev/null | awk '
+  out=$(find . -name '*.go' -not -name '*_test.go' -not -path './.git/*' -exec wc -l {} + 2>/dev/null | awk -v landing="$YARDR_LANDING" '
     FILENAME == ARGV[1] {
       if ($0 ~ /^[^ ]+ [0-9]+ /) {
         f = $0; sub(/ .*/, "", f)
@@ -1873,8 +1880,13 @@ filesizebudget() {
           printf "test: %s has %d lines, over its %d-line ceiling: split it along a concept, one concept per file (a second same-stem file such as routing2.go is not a split); the ceiling only falls\n", f, n, ceil[f]
           bad++
         } else if (ceil[f] > n) {
-          printf "test: %s has %d lines, under its %d-line ceiling: lower the row in the same change\n", f, n, ceil[f]
-          bad++
+          if (landing != "") {
+            printf "test: %s has %d lines, under its %d-line ceiling: landing keeps the higher base row (the branch lowers it)\n", f, n, ceil[f]
+            nseen++
+          } else {
+            printf "test: %s has %d lines, under its %d-line ceiling: lower the row in the same change\n", f, n, ceil[f]
+            bad++
+          }
         } else nseen++
         next
       }
@@ -1886,8 +1898,12 @@ filesizebudget() {
     END {
       for (f in ceil) {
         if (!(f in seen)) {
-          printf "test: filesizes row %s names a file that is gone: delete the row with the file\n", f
-          bad++
+          if (landing != "") {
+            printf "test: filesizes row %s names a file that is gone: landing keeps the base row (the branch deletes it)\n", f
+          } else {
+            printf "test: filesizes row %s names a file that is gone: delete the row with the file\n", f
+            bad++
+          }
         }
       }
       if (bad > 0) exit 1

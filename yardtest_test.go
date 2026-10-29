@@ -5640,6 +5640,90 @@ func TestYardTestBudgets(t *testing.T) {
 		}
 	})
 
+	t.Run("a row whose file is gone fails the file size budget", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		row := sizeRows[0]
+		if err := os.Remove(filepath.Join(dir, row.path)); err != nil {
+			t.Fatal(err)
+		}
+		out, code := run(t, dir, "filesizebudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		if want := "test: filesizes row " + row.path + " names a file that is gone: delete the row with the file"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a shrunk file passes the file size budget at landing", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		row := sizeRows[0]
+		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil-1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		want := fmt.Sprintf("test: %s has %d lines, under its %d-line ceiling: landing keeps the higher base row (the branch lowers it)", row.path, row.ceil-1, row.ceil)
+		if !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a row whose file is gone passes the file size budget at landing", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		row := sizeRows[0]
+		if err := os.Remove(filepath.Join(dir, row.path)); err != nil {
+			t.Fatal(err)
+		}
+		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
+		if code != 0 {
+			t.Fatalf("exit %d, output %q, want exit 0", code, out)
+		}
+		if want := "test: filesizes row " + row.path + " names a file that is gone: landing keeps the base row (the branch deletes it)"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("a grown listed file fails the file size budget at landing", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		row := sizeRows[0]
+		if err := os.WriteFile(filepath.Join(dir, row.path), []byte(strings.Repeat("x\n", row.ceil+1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		want := fmt.Sprintf("test: %s has %d lines, over its %d-line ceiling: split it along a concept", row.path, row.ceil+1, row.ceil)
+		if !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
+	t.Run("an unlisted file over 1000 fails the file size budget at landing", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		writeSizeTree(t, dir, sizeRows)
+		write(t, dir, "new.go", strings.Repeat("x\n", 1001))
+		out, code := runEnv(t, dir, []string{"YARDR_LANDING=1"}, "filesizebudget")
+		if code != 1 {
+			t.Fatalf("exit %d, output %q, want exit 1", code, out)
+		}
+		if want := "test: new.go has 1001 lines, over 1000 with no filesizes row: split it along a concept"; !strings.Contains(out, want) {
+			t.Errorf("output %q, want it to contain %q", out, want)
+		}
+	})
+
 	t.Run("the tree's listed files are at their ceilings", func(t *testing.T) {
 		t.Parallel()
 		// On the checkout itself: green, with every row's file at exactly

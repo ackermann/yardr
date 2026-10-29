@@ -289,6 +289,21 @@ attached JSON, with the deltas per package, the new per-bead cost, and
 the same-sha rerun rate counted against R4. Every rule that missed is a
 filed follow-up or a closed wont-fix with the number.
 
+## File size budget
+
+Every run also judges Go file size: a non-test `.go` file over 1000 lines
+needs a row in the `filesizes` table in `.yardr/test`, naming its ceiling
+in lines (`wc -l`, the count the table was seeded with) and why it is
+over. A file over its ceiling, or an unlisted file over 1000 lines, fails
+every run: split it along a concept, one concept per file. A ceiling
+standing above its file, or a row whose file is gone, fails a plain run,
+so a shrinking change lowers its file's row in the same commit and a
+deletion deletes the row with the file: the ceiling only falls. At landing
+(`YARDR_LANDING=1`) those two pass with a printed note instead: the
+assembly runs the base's copy of `.yardr/test`, so it still has the old row
+while the branch lowers or deletes its row. Over-ceiling and
+unlisted-over-1000 fail at landing as ever.
+
 ## Pruning tests
 
 `contrib/testprune` finds which of one package's tests can go without
