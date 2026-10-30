@@ -421,8 +421,7 @@ func TestSetupAfterAStartByHand(t *testing.T) {
 	f := &former{}
 	home, st, _ := setupYard(t, f)
 	ctx := context.Background()
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := committedDepot(t, st)
 	if err := st.PutGroup(ctx, store.Group{Name: "web/builders", Runner: "herdr", Config: map[string]any{"prompt": "roles/builder.md"}}, "me"); err != nil {
 		t.Fatal(err)
 	}
@@ -648,8 +647,7 @@ func TestSetupListsHerdrLoginWhenComplete(t *testing.T) {
 	if out := setup(t, st); strings.Contains(out, "Optional") || strings.Contains(out, "herdr's server") {
 		t.Fatalf("listed on a fresh yard:\n%s", out)
 	}
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := committedDepot(t, st)
 	group := func(name, runner string, cfg map[string]any) {
 		t.Helper()
 		if err := st.PutGroup(ctx, store.Group{Name: name, Runner: runner, Config: cfg}, "me"); err != nil {

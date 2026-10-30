@@ -37,8 +37,7 @@ func TestPrimeCrewReplacesFirstRunWhenSetupComplete(t *testing.T) {
 	ctx := context.Background()
 	fresh := mustAs(t, st, "yardmaster", "prime", "--crew", "yardmaster")
 
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := committedDepot(t, st)
 	for _, g := range []store.Group{
 		{Name: "web/builders", Runner: "herdr", Config: map[string]any{"kind": "claude"}},
 		{Name: "web/reviewers", Runner: "herdr", Config: map[string]any{"kind": "claude"}},

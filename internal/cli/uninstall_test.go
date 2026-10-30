@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -41,21 +43,85 @@ func leftOf(rep uninstallReport, kind string) []leftThing {
 	return out
 }
 
-// yardWorktree adds a worktree of depot for a bead's branch where yardr
-// puts one, with a file in no commit when dirty.
-func yardWorktree(t *testing.T, home string, depot store.Depot, bead string, dirty bool) string {
-	t.Helper()
-	path := filepath.Join(config.At(home).Worktrees(), depot.Name, bead)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
+// purgeTemplateDir is the depot purgeYard gives every test, made once by
+// TestMain: one commit with the depot's own files on main, and a worktree
+// per bead under wt/ on branch yard/<bead>, the first with a file in no
+// commit. Making it per test spent five git runs each; a test gets a copy,
+// and one git worktree repair repoints it (a copied worktree names the
+// template's paths). Made before the tests run, read only after, so no
+// test assigns it. uninstallTemplateDir is the same depot with the
+// uninstall test's beads.
+var purgeTemplateDir, uninstallTemplateDir string
+
+// buildWorktreeTemplate makes a depot with one commit (its own .yardr
+// files) on main and a worktree per bead under wt/, each on branch
+// yard/<bead>, the first with a file in no commit.
+func buildWorktreeTemplate(first, second string) (string, error) {
+	var err error
+	dir, merr := os.MkdirTemp("", "ywt")
+	if merr != nil {
+		return "", merr
 	}
-	gitIn(t, depot.Path, "worktree", "add", "-q", path, "-b", store.Branch(bead))
-	if dirty {
-		if err := os.WriteFile(filepath.Join(path, "half-done.txt"), []byte("not committed\n"), 0o644); err != nil {
-			t.Fatal(err)
+	depot := filepath.Join(dir, "depot")
+	if merr := os.MkdirAll(depot, 0o755); merr != nil {
+		os.RemoveAll(dir)
+		return "", merr
+	}
+	if merr := os.MkdirAll(filepath.Join(dir, "wt"), 0o755); merr != nil {
+		os.RemoveAll(dir)
+		return "", merr
+	}
+	run := func(args ...string) {
+		if err != nil {
+			return
+		}
+		cmd := exec.Command("git", append([]string{"-C", depot}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+			"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+		if out, cerr := cmd.CombinedOutput(); cerr != nil {
+			err = fmt.Errorf("git %v: %v %s", args, cerr, out)
 		}
 	}
-	return path
+	run("init", "-q", "-b", "main")
+	if err == nil {
+		err = copyOwnDepotFiles(depot, "git")
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "yardr files")
+	for _, bead := range []string{first, second} {
+		run("worktree", "add", "-q", filepath.Join(dir, "wt", bead), "-b", store.Branch(bead))
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(dir, "wt", first, "half-done.txt"), []byte("not committed\n"), 0o644)
+	}
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// copyWorktreeTemplate gives a test the depot and worktrees of a template
+// buildWorktreeTemplate made: the depot at depotPath, each bead's worktree
+// under wtDir. A copied worktree names the template's paths, in its .git
+// file and in the depot's record of it, so one git worktree repair
+// repoints both at the copies'.
+func copyWorktreeTemplate(t *testing.T, template, depotPath, wtDir string, beads ...string) {
+	t.Helper()
+	if err := os.CopyFS(depotPath, os.DirFS(filepath.Join(template, "depot"))); err != nil {
+		t.Fatal(err)
+	}
+	paths := make([]string, 0, len(beads))
+	for _, bead := range beads {
+		path := filepath.Join(wtDir, bead)
+		if err := os.CopyFS(path, os.DirFS(filepath.Join(template, "wt", bead))); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	gitIn(t, depotPath, append([]string{"worktree", "repair"}, paths...)...)
 }
 
 // uninstall of a yard that runs and starts at login stops it as down does,
@@ -71,10 +137,13 @@ func TestUninstallStopsTheYardAndRemovesItsServices(t *testing.T) {
 			rig.at(home)
 			stubLookPath(t, "claude", "git", "herdr", "systemctl")
 			ctx := context.Background()
-			depot := gitDepot(t, st)
-			commitDepot(t, depot)
-			dirty := resolve(yardWorktree(t, home, depot, "web-1", true))
-			yardWorktree(t, home, depot, "web-2", false)
+			depot := store.Depot{Name: "web", Path: t.TempDir(), Base: "main", Kind: store.DepotGit}
+			wtDir := filepath.Join(config.At(home).Worktrees(), depot.Name)
+			copyWorktreeTemplate(t, uninstallTemplateDir, depot.Path, wtDir, "web-1", "web-2")
+			if err := st.PutDepot(ctx, depot, "me"); err != nil {
+				t.Fatal(err)
+			}
+			dirty := resolve(filepath.Join(wtDir, "web-1"))
 
 			if rep := upJSON(t, a(true), "--login"); !rep.Up {
 				t.Fatalf("up --login: %+v", rep)
@@ -365,17 +434,10 @@ func purgeYard(t *testing.T) (home, name string, depot store.Depot, panes *paneR
 	}
 	// As yardr depot add --clone leaves one: in the home.
 	depot = store.Depot{Name: "cloned", Path: filepath.Join(resolve(home), "depots", "cloned"), Base: "main", Kind: store.DepotGit}
-	if err := os.MkdirAll(depot.Path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitIn(t, depot.Path, "init", "-q", "-b", "main")
-	ownDepotFiles(t, depot)
-	commitDepot(t, depot)
+	copyWorktreeTemplate(t, purgeTemplateDir, depot.Path, filepath.Join(config.At(home).Worktrees(), depot.Name), "cloned-1", "cloned-2")
 	if err := st.PutDepot(context.Background(), depot, "me"); err != nil {
 		t.Fatal(err)
 	}
-	yardWorktree(t, home, depot, "cloned-1", true)
-	yardWorktree(t, home, depot, "cloned-2", false)
 	settings, err := st.Settings(context.Background())
 	if err != nil {
 		t.Fatal(err)

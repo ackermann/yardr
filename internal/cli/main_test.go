@@ -166,12 +166,28 @@ func TestMain(m *testing.M) {
 	if stageTemplateDir, err = buildStageTemplate(); err != nil {
 		panic(err)
 	}
+	// The depot with worktrees the purge and uninstall tests copy per
+	// test: five git runs each, not five per test.
+	if purgeTemplateDir, err = buildWorktreeTemplate("cloned-1", "cloned-2"); err != nil {
+		panic(err)
+	}
+	if uninstallTemplateDir, err = buildWorktreeTemplate("web-1", "web-2"); err != nil {
+		panic(err)
+	}
+	// The committed depot committedDepot copies per test: three git runs,
+	// not three per test.
+	if committedTemplateDir, err = buildCommittedTemplate(); err != nil {
+		panic(err)
+	}
 	code := m.Run()
 	scripttest.Remove()
 	os.RemoveAll(services)
 	os.RemoveAll(nowhere)
 	os.RemoveAll(setupTemplateDir)
 	os.RemoveAll(stageTemplateDir)
+	os.RemoveAll(purgeTemplateDir)
+	os.RemoveAll(uninstallTemplateDir)
+	os.RemoveAll(committedTemplateDir)
 	// A process a test started and did not stop outlives the run, and the
 	// next run, and the one after: the run that leaves one fails, and says
 	// where it ran. It is ended here, since nothing else will end it.

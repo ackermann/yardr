@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -267,6 +268,59 @@ func commitDepot(t *testing.T, depot store.Depot) {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}
+}
+
+// committedTemplateDir is the repository committedDepot gives every test,
+// made once by TestMain: one commit with the depot's own files on main,
+// what gitDepot and commitDepot leave. Making it per test spent three git
+// runs each; a test gets a copy. Made before the tests run, read only
+// after, so no test assigns it.
+var committedTemplateDir string
+
+// buildCommittedTemplate makes the repository committedDepot copies per test.
+func buildCommittedTemplate() (string, error) {
+	var err error
+	dir, merr := os.MkdirTemp("", "ycommit")
+	if merr != nil {
+		return "", merr
+	}
+	run := func(args ...string) {
+		if err != nil {
+			return
+		}
+		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+		if out, cerr := cmd.CombinedOutput(); cerr != nil {
+			err = fmt.Errorf("git %v: %v %s", args, cerr, out)
+		}
+	}
+	run("init", "-q", "-b", "main")
+	if err == nil {
+		err = copyOwnDepotFiles(dir, "git")
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "yardr files")
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// committedDepot is gitDepot committed: depot web with its own .yardr
+// files on its base, from the template TestMain built, for a test that
+// commits straight after. A test that reads the depot uncommitted first
+// keeps gitDepot.
+func committedDepot(t *testing.T, st store.API) store.Depot {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(committedTemplateDir)); err != nil {
+		t.Fatal(err)
+	}
+	depot := store.Depot{Name: "web", Path: dir, Base: "main", Kind: store.DepotGit}
+	if err := st.PutDepot(context.Background(), depot, "me"); err != nil {
+		t.Fatal(err)
+	}
+	return depot
 }
 
 // A yard set up step by step: each step turns done as the store shows it,

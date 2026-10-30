@@ -55,9 +55,16 @@ func ownDepotFiles(t *testing.T, depot store.Depot) {
 	if depot.IsDir() {
 		kind = "dir"
 	}
-	if err := os.CopyFS(filepath.Join(depot.Path, ".yardr"), os.DirFS(filepath.Join("testdata", "owndepot", kind))); err != nil {
+	if err := copyOwnDepotFiles(depot.Path, kind); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// copyOwnDepotFiles writes the depot's own .yardr files of one kind under
+// path: ownDepotFiles' work where there is no test to fail (a template
+// TestMain builds).
+func copyOwnDepotFiles(path, kind string) error {
+	return os.CopyFS(filepath.Join(path, ".yardr"), os.DirFS(filepath.Join("testdata", "owndepot", kind)))
 }
 
 // The test command is guessed from the repository: a test script of its

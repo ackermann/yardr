@@ -16,8 +16,7 @@ import (
 func TestPrimeSaysThePullRequestHeadTheWorktreeIsOn(t *testing.T) {
 	t.Parallel()
 	st := storetest.New(t)
-	depot := gitDepot(t, st)
-	commitDepot(t, depot)
+	depot := committedDepot(t, st)
 	workYard(t, st, depot.Name, []store.Group{{Name: "builders", Runner: "herdr", Limit: 1}}, "builders")
 	ss, err := st.Sessions(t.Context(), false)
 	if err != nil || len(ss) != 1 {
